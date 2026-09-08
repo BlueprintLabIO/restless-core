@@ -1092,7 +1092,7 @@ async fn unknown_attempt_recovery_is_one_capsule_addressed_to_the_accountable_le
         .unwrap()
         .expect("only an explicit lead repair can create another Attempt");
     assert_eq!(repaired.work.id, work);
-    assert!(repaired
+    assert!(!repaired
         .feedback
         .iter()
         .any(|message| message.id == notice.message_id));
@@ -1846,6 +1846,24 @@ async fn durable_people_and_one_level_rosters_refuse_ghosts_and_poaching() {
             .lead_actor_id,
         "centre-critique"
     );
+    assert!(org
+        .set_team_lead(
+            delivery,
+            "delivery-governance",
+            "owner",
+            "appoint fresh accountability for paper delivery",
+        )
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("existing Work"));
+    org.abandon_work(
+        review_work,
+        "exec",
+        "the completed critique supersedes the blocked review assignment",
+    )
+    .await
+    .unwrap();
     org.set_team_lead(
         delivery,
         "delivery-governance",

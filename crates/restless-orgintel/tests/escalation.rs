@@ -69,6 +69,283 @@ async fn handoff(
     .unwrap()
 }
 
+#[tokio::test]
+async fn lead_change_linearizes_pending_handoff_creation_delivery_and_briefing() {
+    let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping lead/handoff race scenario");
+        return;
+    };
+    let company = format!("handoff_lead_race{}", uuid::Uuid::new_v4().simple());
+    let org = OrgIntel::ensure(&url, &company).await.unwrap();
+    org.ensure_actor("owner", "owner", "owner", "The Owner")
+        .await
+        .unwrap();
+    org.ensure_actor("exec", "exec", "exec", "The Exec")
+        .await
+        .unwrap();
+    for (id, role, display) in [
+        ("route-direction", "lead", "Avery North"),
+        ("route-guidance", "lead", "Morgan Hale"),
+        ("route-builder", "builder", "Kai Mercer"),
+    ] {
+        org.create_actor(id, role, display, None, "exec", "handoff routing proof")
+            .await
+            .unwrap();
+    }
+    let team = org
+        .create_team(
+            "Route team",
+            "Own routed decisions",
+            "route-direction",
+            "exec",
+        )
+        .await
+        .unwrap();
+    org.set_actor_team(
+        "route-builder",
+        Some(team),
+        "route-direction",
+        "builder owns production",
+    )
+    .await
+    .unwrap();
+
+    let existing_work = work_for(&org, "route-builder", "Existing handoff route").await;
+    let existing = judgement(&org, "route-builder", existing_work).await;
+    org.mark_handoffs_delivered(&[existing]).await.unwrap();
+    org.set_team_lead(
+        team,
+        "route-guidance",
+        "exec",
+        "replace the accountable decision owner",
+    )
+    .await
+    .unwrap();
+    let existing_row = org
+        .list_owner_handoffs()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|row| row.id == existing)
+        .unwrap();
+    assert_eq!(existing_row.assigned_to.as_deref(), Some("route-guidance"));
+    assert_eq!(
+        existing_row.escalated_from.as_deref(),
+        Some("route-direction")
+    );
+    assert!(existing_row.delivered_at.is_none());
+
+    // Build a second team so creation and lifecycle can start concurrently.
+    // Whichever transaction wins, the final pending obligation must name the
+    // replacement lead: send-first is rerouted; lifecycle-first is observed
+    // by the Work→Team→Actor admission transaction.
+    for (id, role, display) in [
+        ("proof-direction", "lead", "Riley Arden"),
+        ("proof-guidance", "lead", "Jordan Vale"),
+        ("proof-builder", "builder", "Casey Rowan"),
+    ] {
+        org.create_actor(id, role, display, None, "exec", "concurrent routing proof")
+            .await
+            .unwrap();
+    }
+    let second_team = org
+        .create_team(
+            "Proof team",
+            "Prove linearized decisions",
+            "proof-direction",
+            "exec",
+        )
+        .await
+        .unwrap();
+    org.set_actor_team(
+        "proof-builder",
+        Some(second_team),
+        "proof-direction",
+        "builder owns production",
+    )
+    .await
+    .unwrap();
+    let concurrent_work = work_for(&org, "proof-builder", "Concurrent handoff route").await;
+    let creating = org.clone();
+    let replacing = org.clone();
+    let (created, replaced) = tokio::time::timeout(std::time::Duration::from_secs(5), async move {
+        tokio::join!(
+            async move {
+                creating
+                    .request_owner_handoff(NewOwnerHandoff {
+                        work_id: concurrent_work,
+                        attempt_id: None,
+                        requested_by: "proof-builder",
+                        category: OwnerHandoffCategory::OwnerJudgement,
+                        requested_action: "choose the bounded path",
+                        prepared_state: "both paths are prepared",
+                        resume_condition: "one path is selected",
+                    })
+                    .await
+            },
+            async move {
+                replacing
+                    .set_team_lead(
+                        second_team,
+                        "proof-guidance",
+                        "exec",
+                        "rotate while the judgement is admitted",
+                    )
+                    .await
+            }
+        )
+    })
+    .await
+    .expect("handoff creation and lead replacement must not deadlock");
+    replaced.unwrap();
+    let created = created.unwrap();
+    let concurrent_row = org
+        .list_owner_handoffs()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|row| row.id == created)
+        .unwrap();
+    assert_eq!(
+        concurrent_row.assigned_to.as_deref(),
+        Some("proof-guidance")
+    );
+
+    let briefing = org.clone();
+    let changing = org.clone();
+    org.create_actor(
+        "proof-counsel",
+        "counsel",
+        "Taylor Quinn",
+        None,
+        "exec",
+        "prepare the same bounded judgement",
+    )
+    .await
+    .unwrap();
+    let brief = owner_brief(OwnerBriefKind::Decision, "Choose the bounded path");
+    let (brief_result, change_result) =
+        tokio::time::timeout(std::time::Duration::from_secs(5), async move {
+            tokio::join!(
+                async move {
+                    briefing
+                        .prepare_owner_brief(created, "proof-guidance", brief)
+                        .await
+                },
+                async move {
+                    changing
+                        .set_team_lead(
+                            second_team,
+                            "proof-counsel",
+                            "exec",
+                            "rotate while the brief is prepared",
+                        )
+                        .await
+                }
+            )
+        })
+        .await
+        .expect("brief preparation and lead replacement must not deadlock");
+    change_result.unwrap();
+    if brief_result.is_err() {
+        org.prepare_owner_brief(
+            created,
+            "proof-counsel",
+            owner_brief(OwnerBriefKind::Decision, "Choose the bounded path"),
+        )
+        .await
+        .unwrap();
+    }
+    org.drop_schema().await.unwrap();
+}
+
+#[tokio::test]
+async fn concurrent_owner_review_decisions_serialize_at_the_outer_work_lock() {
+    let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping owner-review lock proof");
+        return;
+    };
+    let company = format!("owner_review_lock{}", uuid::Uuid::new_v4().simple());
+    let org = OrgIntel::ensure(&url, &company).await.unwrap();
+    org.ensure_actor("owner", "owner", "owner", "The Owner")
+        .await
+        .unwrap();
+    org.ensure_actor("exec", "exec", "exec", "The Exec")
+        .await
+        .unwrap();
+    for (id, role, display) in [
+        ("review-direction", "lead", "Avery North"),
+        ("review-builder", "builder", "Kai Mercer"),
+    ] {
+        org.create_actor(id, role, display, None, "exec", "review locking proof")
+            .await
+            .unwrap();
+    }
+    let team = org
+        .create_team(
+            "Review",
+            "Own prepared outcomes",
+            "review-direction",
+            "exec",
+        )
+        .await
+        .unwrap();
+    org.set_actor_team(
+        "review-builder",
+        Some(team),
+        "review-direction",
+        "builder owns the reviewed Work",
+    )
+    .await
+    .unwrap();
+    let work_id = work_for(&org, "review-builder", "Review one exact outcome").await;
+    let handoff_id = judgement(&org, "review-builder", work_id).await;
+    org.escalate_handoff(
+        handoff_id,
+        "review-direction",
+        "the prepared outcome needs company review",
+    )
+    .await
+    .unwrap();
+    org.prepare_owner_brief(
+        handoff_id,
+        "exec",
+        owner_brief(OwnerBriefKind::OutcomeReview, "Review the exact outcome"),
+    )
+    .await
+    .unwrap();
+    org.escalate_handoff(
+        handoff_id,
+        "exec",
+        "the prepared review is ready for the owner",
+    )
+    .await
+    .unwrap();
+
+    let accepting = org.clone();
+    let revising = org.clone();
+    let (accepted, changes) = tokio::time::timeout(std::time::Duration::from_secs(5), async move {
+        tokio::join!(
+            accepting.decide_owner_review(handoff_id, OwnerReviewDecision::Accepted, ""),
+            revising.decide_owner_review(
+                handoff_id,
+                OwnerReviewDecision::ChangesRequested,
+                "Tighten the final evidence",
+            ),
+        )
+    })
+    .await
+    .expect("same-Work review decisions must serialize without lock upgrade deadlock");
+    assert_eq!(
+        [accepted.is_ok(), changes.is_ok()]
+            .into_iter()
+            .filter(|succeeded| *succeeded)
+            .count(),
+        1,
+        "exactly one decision may consume the pending handoff"
+    );
+}
+
 /// The owner's queue: pending judgement that nobody below them owes.
 async fn owner_queue(org: &OrgIntel) -> Vec<uuid::Uuid> {
     org.list_owner_handoffs()
@@ -346,9 +623,10 @@ async fn judgement_routes_to_the_lead_before_the_owner() {
     );
     assert!(unavailable.resolution.contains("provider exhausted"));
 
-    // 5. A lead's own judgement reaches the Exec: nobody escalates to
-    // themselves, and ordinary team guidance never jumps to the owner.
-    let lead_work = work_for(&org, "offer-strategy", "Decide the offer shape").await;
+    // 5. A lead's judgement on team-owned Work reaches the Exec: nobody
+    // escalates to themselves, and ordinary team guidance never jumps to the
+    // owner. Productive Work remains member-owned.
+    let lead_work = work_for(&org, "offer-copy", "Decide the offer shape").await;
     let lead_judgement = judgement(&org, "offer-strategy", lead_work).await;
     let rows = org.list_owner_handoffs().await.unwrap();
     assert!(
@@ -358,7 +636,7 @@ async fn judgement_routes_to_the_lead_before_the_owner() {
             .assigned_to
             .as_deref()
             == Some("exec"),
-        "a lead's own judgement must reach the Exec, not loop back to itself"
+        "a lead's team judgement must reach the Exec, not loop back to itself"
     );
 
     // Only the Exec can decide that ordinary judgement genuinely needs the
@@ -386,7 +664,7 @@ async fn judgement_routes_to_the_lead_before_the_owner() {
     assert!(
         org.prepare_owner_brief(
             lead_judgement,
-            "offer-copy",
+            "offer-review",
             owner_brief(OwnerBriefKind::Decision, "A member cannot replace the lead"),
         )
         .await

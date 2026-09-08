@@ -159,6 +159,7 @@ async fn room_visibility_participants_versions_restore_and_concurrency_are_coher
             RoomKind::Group,
             "Research",
             &["alex", "research-analyst"],
+            "documents-research-room",
         )
         .await
         .unwrap();
@@ -765,7 +766,13 @@ async fn room_inherited_revocation_cannot_split_authorization_from_content_read(
     };
     let database_url = std::env::var("RESTLESS_TEST_DATABASE_URL").unwrap();
     let room = org
-        .create_room("owner", RoomKind::Group, "Revocation room", &["blair"])
+        .create_room(
+            "owner",
+            RoomKind::Group,
+            "Revocation room",
+            &["blair"],
+            "documents-revocation-room",
+        )
         .await
         .unwrap();
     let first_content = content("room-before", "Visible while in the Room");

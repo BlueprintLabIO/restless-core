@@ -33,6 +33,7 @@ export type ActorConversation = ConversationView;
 
 export interface MessageSendResult {
 	messageId: number;
+	created: boolean;
 	interrupted: boolean;
 	contextAttached: boolean;
 	contextOmitted: boolean;
@@ -313,9 +314,11 @@ export async function sendActorMessage(
 	newFocus = false,
 	interrupt = false,
 	outcomeStandard?: OutcomeStandard,
-	attentionId?: string
+	attentionId?: string,
+	clientCommandId = crypto.randomUUID()
 ): Promise<MessageSendResult> {
 	const form = new FormData();
+	form.set('client_command_id', clientCommandId);
 	form.set('body', body);
 	if (workId) form.set('work_id', workId);
 	if (attentionId) form.set('attention_id', attentionId);
@@ -336,6 +339,7 @@ export async function sendActorMessage(
 	const result = (await response.json()) as ConversationSendResponse;
 	return {
 		messageId: result.message_id,
+		created: result.created,
 		interrupted: result.interrupted ?? false,
 		contextAttached: result.context_attached ?? false,
 		contextOmitted: result.context_omitted ?? false,

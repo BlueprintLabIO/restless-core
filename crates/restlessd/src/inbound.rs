@@ -217,11 +217,13 @@ async fn project_authority_body(
     let exact_route = org
         .external_thread_route("resend", &provider_references)
         .await?;
-    let (target, work_id, route_kind) = match exact_route {
-        Some((actor, work_id)) => (actor, work_id, "exact_provider_reference"),
-        None => match route_recipient_to_lead(&org, recipient.as_deref()).await? {
-            Some(lead) => (lead, None, "department_address"),
-            None => ("exec".to_string(), None, "unowned_portfolio"),
+    let (target, work_id, accountable_team_id, route_kind) = match exact_route {
+        Some((actor, work_id)) => (actor, work_id, None, "exact_provider_reference"),
+        None => match route_recipient_to_team(&org, recipient.as_deref()).await? {
+            Some((team_id, observed_lead)) => {
+                (observed_lead, None, Some(team_id), "department_address")
+            }
+            None => ("exec".to_string(), None, None, "unowned_portfolio"),
         },
     };
     let attachments = attachment_references(data);
@@ -249,7 +251,7 @@ async fn project_authority_body(
         .get("provider_event_id")
         .and_then(serde_json::Value::as_str)
         .unwrap_or("unknown");
-    let (_, inserted) = org
+    let (_, inserted, routed_target) = org
         .project_external_message_once(
             "world",
             &target,
@@ -270,16 +272,17 @@ async fn project_authority_body(
                 "sender_content_trusted": false,
             }),
             work_id,
+            accountable_team_id,
         )
         .await?;
-    tracing::info!(company, authority_id, actor = %target, inserted, "inbound signal projected to nearest accountable recipient");
+    tracing::info!(company, authority_id, actor = %routed_target, inserted, "inbound signal projected to nearest accountable recipient");
     Ok(())
 }
 
-async fn route_recipient_to_lead(
+async fn route_recipient_to_team(
     org: &restless_orgintel::OrgIntel,
     recipient: Option<&str>,
-) -> Result<Option<String>> {
+) -> Result<Option<(uuid::Uuid, String)>> {
     let Some(local) = recipient
         .and_then(|value| value.rsplit('<').next())
         .and_then(|value| value.split('@').next())
@@ -290,7 +293,7 @@ async fn route_recipient_to_lead(
     };
     for team in org.list_teams().await? {
         if normalize_route(&team.lead_actor_id) == local || normalize_route(&team.name) == local {
-            return Ok(Some(team.lead_actor_id));
+            return Ok(Some((team.id, team.lead_actor_id)));
         }
     }
     Ok(None)

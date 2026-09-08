@@ -37,6 +37,7 @@ async fn external_source_projection_is_exactly_once() {
             Some("https://resend.com/emails/email_7"),
             &metadata,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -53,6 +54,7 @@ async fn external_source_projection_is_exactly_once() {
             Some("thread_3"),
             None,
             &metadata,
+            None,
             None,
         )
         .await
@@ -181,6 +183,7 @@ async fn external_source_projection_is_exactly_once() {
             None,
             &metadata,
             Some(work),
+            None,
         )
         .await
         .unwrap();
@@ -205,5 +208,108 @@ async fn external_source_projection_is_exactly_once() {
         "a reply during production reaches the non-producing supervisor"
     );
 
+    org.drop_schema().await.unwrap();
+}
+
+#[tokio::test]
+async fn department_projection_linearizes_with_lead_replacement() {
+    let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping department routing race");
+        return;
+    };
+    let company = format!("departmentroute{}", uuid::Uuid::new_v4().simple());
+    let org = OrgIntel::ensure(&url, &company).await.unwrap();
+    org.ensure_actor("exec", "exec", "exec", "The Exec")
+        .await
+        .unwrap();
+    org.ensure_actor("world", "system", "external-sender", "The outside world")
+        .await
+        .unwrap();
+    for (id, display) in [
+        ("customer-direction", "Avery Holt"),
+        ("customer-guide", "Morgan Reed"),
+    ] {
+        org.create_actor(id, "lead", display, None, "exec", "own customer outcomes")
+            .await
+            .unwrap();
+    }
+    let team_id = org
+        .create_team(
+            "Customer response",
+            "Own customer outcomes",
+            "customer-direction",
+            "exec",
+        )
+        .await
+        .unwrap();
+
+    let projecting = org.clone();
+    let replacing = org.clone();
+    let metadata = serde_json::json!({
+        "route": "department_address",
+        "sender_content_trusted": false,
+    });
+    let (projection, replacement) = tokio::join!(
+        async move {
+            projecting
+                .project_external_message_once(
+                    "world",
+                    "customer-direction",
+                    "[UNTRUSTED EXTERNAL EVIDENCE]\nA concurrent department message",
+                    "authority://inbound/department-race",
+                    "resend",
+                    "department-race-event",
+                    None,
+                    None,
+                    None,
+                    None,
+                    &metadata,
+                    None,
+                    Some(team_id),
+                )
+                .await
+        },
+        async move {
+            replacing
+                .set_team_lead(
+                    team_id,
+                    "customer-guide",
+                    "exec",
+                    "rotate customer accountability",
+                )
+                .await
+        }
+    );
+    replacement.unwrap();
+    let (message_id, created, routed_to) = projection.unwrap();
+    assert!(created);
+    assert!(matches!(
+        routed_to.as_str(),
+        "customer-direction" | "customer-guide"
+    ));
+    assert!(org
+        .inbox(Some("customer-direction"))
+        .await
+        .unwrap()
+        .is_empty());
+    if routed_to == "customer-direction" {
+        let cancellation = org
+            .latest_event("actor.conversation.cancelled.v1")
+            .await
+            .unwrap()
+            .expect("send-first is terminally accounted for by replacement");
+        assert!(cancellation.body["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|message| message["message_id"] == message_id));
+    } else {
+        assert!(org
+            .inbox(Some("customer-guide"))
+            .await
+            .unwrap()
+            .iter()
+            .any(|message| message.id == message_id));
+    }
     org.drop_schema().await.unwrap();
 }

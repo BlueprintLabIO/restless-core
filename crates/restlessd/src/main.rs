@@ -351,6 +351,31 @@ pub(crate) struct Daemon {
     pub(crate) schedule_wake: std::sync::Arc<tokio::sync::Notify>,
 }
 
+/// Reconcile one bounded attachment-stage batch per configured company. This
+/// runs after startup inventory and periodically even when no browser uploads
+/// arrive, so a crash cannot make linked receipts or abandoned stages live
+/// forever. Runtime outages leave the tokenized DB claim for bounded retry.
+async fn reconcile_owner_attachments(daemon: &Daemon, configs: &[runtime::CompanyConfig]) {
+    for config in configs {
+        let company = config.name.as_str();
+        let outcome = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            let org = daemon.orgintel.get(company).await?;
+            owner::collect_owner_attachments(&org, company).await
+        })
+        .await;
+        match outcome {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                tracing::warn!(
+                    company,
+                    "owner attachment reconciliation deferred: {error:#}"
+                )
+            }
+            Err(_) => tracing::warn!(company, "owner attachment reconciliation timed out"),
+        }
+    }
+}
+
 #[derive(Serialize)]
 struct ApplianceDrainStatus {
     draining: bool,
@@ -755,6 +780,8 @@ async fn main() -> Result<()> {
             "runtime orphan recovery complete"
         );
 
+        reconcile_owner_attachments(&recovery_daemon, &recovery_configs).await;
+
         // Published services are provider-owned processes, not Runtime
         // children. Reconcile only isolated test companies after orphan repair;
         // one broken fixture remains a degraded publication, never a plane
@@ -792,6 +819,10 @@ async fn main() -> Result<()> {
             elapsed_ms = recovery_started.elapsed().as_millis(),
             "startup recovery barrier opened"
         );
+        loop {
+            tokio::time::sleep(owner::OWNER_ATTACHMENT_RECONCILE_INTERVAL).await;
+            reconcile_owner_attachments(&recovery_daemon, &recovery_configs).await;
+        }
     });
 
     // The owner API is useful during recovery for diagnosis and read-only

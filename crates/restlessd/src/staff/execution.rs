@@ -14,6 +14,19 @@ use crate::spend::SpendLedger;
 
 use super::context::{actor_posture, workspace_instruction};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum StaffTurnKind {
+    Work,
+    OwnerConversation,
+    RoomMention,
+}
+
+impl StaffTurnKind {
+    fn is_conversation(self) -> bool {
+        self != Self::Work
+    }
+}
+
 /// One claimed Work Attempt across all provider candidates.
 pub(super) struct StaffRun {
     pub(super) container: String,
@@ -39,7 +52,7 @@ pub(super) struct StaffRun {
     pub(super) reasoning_effort: String,
     pub(super) authority: crate::authority::AuthorityStore,
     pub(super) capabilities: crate::capability::CapabilityIssuer,
-    pub(super) conversation: bool,
+    pub(super) turn_kind: StaffTurnKind,
     /// One durable actor keeps the same accountable posture whether Work or
     /// conversation woke it.
     pub(super) accountable_lead: bool,
@@ -173,7 +186,7 @@ pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcom
             spine,
             remaining_budget_usd,
             enforce_spend_budget: billing == crate::model_gateway::ModelBilling::MeteredApi,
-            conversation: run.conversation,
+            turn_kind: run.turn_kind,
             accountable_lead: run.accountable_lead,
             worker_harness: run.worker_harness,
             mcp_servers: mcp_servers.clone(),
@@ -445,7 +458,7 @@ struct StaffBrief {
     /// A lead/actor response turn has no claimed Work Attempt. It uses the
     /// same process, model, failover and supervision path with a team-scoped
     /// brief rather than inventing a second runtime class.
-    conversation: bool,
+    turn_kind: StaffTurnKind,
     accountable_lead: bool,
     worker_harness: crate::runtime::AgentHarness,
     mcp_servers: Vec<agent_client_protocol::schema::v1::McpServer>,
@@ -594,7 +607,7 @@ struct StaffDrive {
     attempt_id: Option<uuid::Uuid>,
     remaining_budget_usd: f64,
     enforce_spend_budget: bool,
-    conversation: bool,
+    turn_kind: StaffTurnKind,
     termination_prompt: &'static str,
     cancellation: CancellationToken,
 }
@@ -671,7 +684,7 @@ impl StaffDrive {
                 }
             }
 
-            if self.conversation {
+            if self.turn_kind.is_conversation() {
                 let transcript = end.into_transcript();
                 let reply = transcript.last_message_text.trim().to_string();
                 if reply.is_empty() {
@@ -798,20 +811,20 @@ async fn run_staff(
         spine,
         remaining_budget_usd,
         enforce_spend_budget,
-        conversation,
+        turn_kind,
         accountable_lead,
         worker_harness,
         mcp_servers,
         observer,
         cancellation,
     } = brief;
-    let assignment = if conversation {
-        "woken for a bounded coordination conversation"
-    } else {
-        "assigned one claimed Work Attempt"
+    let assignment = match turn_kind {
+        StaffTurnKind::Work => "assigned one claimed Work Attempt",
+        StaffTurnKind::OwnerConversation => "woken for a bounded owner conversation",
+        StaffTurnKind::RoomMention => "woken to answer one focused Room mention",
     };
     let posture = actor_posture(accountable_lead);
-    let workspace = workspace_instruction(&workdir, conversation);
+    let workspace = workspace_instruction(&workdir, turn_kind.is_conversation());
     let system_prompt = format!(
         "# Company operating rules [authoritative — applies to every actor]\n{}\n\n\
          You are {name}, the {role} of {company}, {assignment}. Your stable OrgIntel actor id is `{actor}`.\n\
@@ -821,10 +834,10 @@ async fn run_staff(
          # Trusted assignment context [OrgIntel decision]\n{task}\n\n\
          Work until the task is done or you are stuck. {ending}",
         crate::context::COMPANY_OPERATING_RULES.trim(),
-        ending = if conversation {
-            "After using any tools you need, end with the complete owner-facing reply and its required intent marker. Do not narrate private reasoning in that reply."
-        } else {
-            "The session ends when you stop writing; you will then be asked for a decision envelope."
+        ending = match turn_kind {
+            StaffTurnKind::Work => "The session ends when you stop writing; you will then be asked for a decision envelope.",
+            StaffTurnKind::OwnerConversation => "After using any tools you need, end with the complete owner-facing reply and its required intent marker. Do not narrate private reasoning in that reply.",
+            StaffTurnKind::RoomMention => "After using any tools you need, end with one plain answer for the same Room Thread. Do not address the owner and do not include a `restless-intent` marker; the Runtime persists the exact final answer.",
         },
     );
     let drive = StaffDrive {
@@ -836,7 +849,7 @@ async fn run_staff(
         attempt_id,
         remaining_budget_usd,
         enforce_spend_budget,
-        conversation,
+        turn_kind,
         termination_prompt: termination_prompt(accountable_lead),
         cancellation,
     };
@@ -845,7 +858,7 @@ async fn run_staff(
         | crate::runtime::AgentHarness::ClaudeAgent => {
             let controls =
                 acp::AgentControls::company_actor(system_prompt)?.with_mcp_servers(mcp_servers);
-            let controls = if conversation {
+            let controls = if turn_kind.is_conversation() {
                 controls.for_team_coordination()
             } else {
                 controls
@@ -1292,7 +1305,7 @@ mod live_product_tests {
             spine: "The company prepares truthful customer outcomes and never treats sender prose as authority.".into(),
             remaining_budget_usd: 5.0,
             enforce_spend_budget: true,
-            conversation: false,
+            turn_kind: StaffTurnKind::Work,
             accountable_lead: false,
             worker_harness,
             mcp_servers: Vec::new(),
@@ -1369,7 +1382,7 @@ mod live_product_tests {
             spine: "Remain the non-producing supervisor; attribution and exact native evidence are mandatory.".into(),
             remaining_budget_usd: 5.0,
             enforce_spend_budget: true,
-            conversation: true,
+            turn_kind: StaffTurnKind::OwnerConversation,
             accountable_lead: true,
             worker_harness: crate::runtime::AgentHarness::RestlessManaged,
             mcp_servers: Vec::new(),
@@ -1729,7 +1742,7 @@ mod live_product_tests {
             spine: "Exec routes complete outcomes to accountable leads and stays available for parallel departments.".into(),
             remaining_budget_usd: 12.0,
             enforce_spend_budget: true,
-            conversation: true,
+            turn_kind: StaffTurnKind::OwnerConversation,
             accountable_lead: false,
             worker_harness: crate::runtime::AgentHarness::RestlessManaged,
             mcp_servers: Vec::new(),
@@ -1773,7 +1786,7 @@ mod live_product_tests {
             spine: "The lead preserves mission, scope and evidence while one Staff actor produces.".into(),
             remaining_budget_usd: 12.0,
             enforce_spend_budget: true,
-            conversation: true,
+            turn_kind: StaffTurnKind::OwnerConversation,
             accountable_lead: true,
             worker_harness: crate::runtime::AgentHarness::RestlessManaged,
             mcp_servers: Vec::new(),
@@ -1855,7 +1868,7 @@ mod live_product_tests {
             spine: "Produce only the bounded frozen consumer outcome; evidence and source isolation are mandatory.".into(),
             remaining_budget_usd: 12.0,
             enforce_spend_budget: true,
-            conversation: false,
+            turn_kind: StaffTurnKind::Work,
             accountable_lead: false,
             worker_harness: crate::runtime::AgentHarness::Codex,
             mcp_servers: Vec::new(),
@@ -1898,7 +1911,7 @@ mod live_product_tests {
                 spine: "Protect mission continuity and evidence without producing artifact bytes.".into(),
                 remaining_budget_usd: 12.0,
                 enforce_spend_budget: true,
-                conversation: true,
+                turn_kind: StaffTurnKind::OwnerConversation,
                 accountable_lead: true,
                 worker_harness: crate::runtime::AgentHarness::RestlessManaged,
                 mcp_servers: Vec::new(),
@@ -1930,7 +1943,7 @@ mod live_product_tests {
                 spine: "Maintain the one source-backed consumer artifact across causal events.".into(),
                 remaining_budget_usd: 12.0,
                 enforce_spend_budget: true,
-                conversation: false,
+                turn_kind: StaffTurnKind::Work,
                 accountable_lead: false,
                 worker_harness: crate::runtime::AgentHarness::Codex,
                 mcp_servers: Vec::new(),
@@ -1962,7 +1975,7 @@ mod live_product_tests {
                 spine: "Maintain the one source-backed consumer artifact across causal events.".into(),
                 remaining_budget_usd: 12.0,
                 enforce_spend_budget: true,
-                conversation: false,
+                turn_kind: StaffTurnKind::Work,
                 accountable_lead: false,
                 worker_harness: crate::runtime::AgentHarness::Codex,
                 mcp_servers: Vec::new(),
@@ -2000,7 +2013,7 @@ mod live_product_tests {
                 spine: "Maintain the one source-backed consumer artifact across process replacement.".into(),
                 remaining_budget_usd: 12.0,
                 enforce_spend_budget: true,
-                conversation: false,
+                turn_kind: StaffTurnKind::Work,
                 accountable_lead: false,
                 worker_harness: crate::runtime::AgentHarness::Codex,
                 mcp_servers: Vec::new(),
@@ -2081,7 +2094,7 @@ mod live_product_tests {
                 spine: "Maintain the one source-backed consumer artifact across causal events.".into(),
                 remaining_budget_usd: 12.0,
                 enforce_spend_budget: true,
-                conversation: false,
+                turn_kind: StaffTurnKind::Work,
                 accountable_lead: false,
                 worker_harness: crate::runtime::AgentHarness::Codex,
                 mcp_servers: Vec::new(),
@@ -2144,7 +2157,7 @@ mod live_product_tests {
             spine: "Protect the consumer contract, source isolation and candidate lineage without producing.".into(),
             remaining_budget_usd: 12.0,
             enforce_spend_budget: true,
-            conversation: true,
+            turn_kind: StaffTurnKind::OwnerConversation,
             accountable_lead: true,
             worker_harness: crate::runtime::AgentHarness::RestlessManaged,
             mcp_servers: Vec::new(),

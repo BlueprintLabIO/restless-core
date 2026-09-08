@@ -403,6 +403,14 @@ mod tests {
         })
         .await
         .unwrap();
+        org.send_work_message(
+            "delivery-direction",
+            "delivery-worker",
+            work_id,
+            "Revise the exact bounded issue.",
+        )
+        .await
+        .unwrap();
         org.finish_work_attempt(
             attempt.attempt_id,
             restless_orgintel::WorkAttemptState::Produced,
@@ -417,15 +425,6 @@ mod tests {
         )
         .await
         .unwrap();
-        org.send_work_message(
-            "delivery-direction",
-            "delivery-worker",
-            work_id,
-            "Revise the exact bounded issue.",
-        )
-        .await
-        .unwrap();
-
         let root = std::env::temp_dir().join(format!("restless-telemetry-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
         let ledger = SpendLedger::open(&root).unwrap();

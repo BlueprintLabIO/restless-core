@@ -241,10 +241,8 @@ async fn invalidate_from(
     reviewer: &str,
     reason: &str,
 ) -> Result<()> {
-    let target_owner: String = sqlx::query_scalar("SELECT owner_id FROM work WHERE id=$1")
-        .bind(target)
-        .fetch_one(&mut **tx)
-        .await?;
+    let accountability = actors::lock_work_accountability_in_tx(tx, target).await?;
+    let target_owner = accountability.owner_id;
     let feedback_exists: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM messages m JOIN work_feedback f ON f.message_id=m.id \
          WHERE f.work_id=$1 AND m.from_actor=$2 AND m.to_actor=$3 AND m.body=$4 \
@@ -272,14 +270,10 @@ async fn invalidate_from(
             .execute(&mut **tx)
             .await?;
     }
-    let lead: Option<String> = sqlx::query_scalar(
-        "SELECT t.lead_actor_id FROM actors a JOIN teams t ON t.id=a.team_id \
-         WHERE a.id=$1 AND t.disbanded_at IS NULL AND t.lead_actor_id<>a.id",
-    )
-    .bind(&target_owner)
-    .fetch_optional(&mut **tx)
-    .await?;
-    if let Some(lead) = lead {
+    if let Some(lead) = accountability
+        .lead_actor_id
+        .filter(|lead| lead != &target_owner)
+    {
         sqlx::query("INSERT INTO messages (from_actor,to_actor,body) VALUES ($1,$2,$3)")
             .bind(reviewer)
             .bind(&lead)

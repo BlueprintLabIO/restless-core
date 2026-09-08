@@ -667,7 +667,7 @@ mod tests {
         for message in org.inbox(Some("opportunity-direction")).await.unwrap() {
             org.mark_read(message.id).await.unwrap();
         }
-        let work_id = org
+        let _work_id = org
             .add_work(NewWork {
                 owner_id: "opportunity-research",
                 title: "Prepare the dossier",
@@ -715,7 +715,8 @@ mod tests {
             .contains("Attempt blocked, Work blocked, revision 1"));
         assert_eq!(
             org.message_work_id(inbox[0].id).await.unwrap(),
-            Some(work_id)
+            None,
+            "a supervisor notice remains attributable coordination, not duplicate producer input"
         );
         org.drop_schema().await.expect("drop scratch schema");
     }

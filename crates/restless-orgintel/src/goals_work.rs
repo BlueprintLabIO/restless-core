@@ -356,26 +356,46 @@ impl OrgIntel {
                 )));
             }
         }
-        let owner_exists: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM actors WHERE id=$1 AND retired_at IS NULL)",
+        // A live lead cannot own unsettled productive Work because scheduler
+        // admission deliberately reserves that Actor for accountability. Use
+        // Team -> Actor locking, matching team lifecycle, so Work creation and
+        // a concurrent lead appointment cannot each pass a stale snapshot.
+        let candidate_team_id: Option<Uuid> =
+            sqlx::query_scalar("SELECT team_id FROM actors WHERE id=$1")
+                .bind(work.owner_id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .flatten();
+        let live_team: Option<(Uuid, String)> = sqlx::query_as(
+            "SELECT id,lead_actor_id FROM teams \
+             WHERE id=$1 AND disbanded_at IS NULL FOR SHARE",
         )
-        .bind(work.owner_id)
-        .fetch_one(&mut *tx)
+        .bind(candidate_team_id)
+        .fetch_optional(&mut *tx)
         .await?;
-        if !owner_exists {
-            return Err(OrgIntelError::InvalidWork(format!(
-                "Work owner {:?} is not an existing active actor; inspect People and commission one durable specialist if none fits",
-                work.owner_id
-            )));
-        }
-        let accountable_lead: Option<String> = sqlx::query_scalar(
-            "SELECT team.lead_actor_id FROM actors owner \
-             JOIN teams team ON team.id=owner.team_id AND team.disbanded_at IS NULL \
-             WHERE owner.id=$1 AND owner.retired_at IS NULL",
+        let locked_owner_team: Option<Option<Uuid>> = sqlx::query_scalar(
+            "SELECT team_id FROM actors WHERE id=$1 AND retired_at IS NULL FOR SHARE",
         )
         .bind(work.owner_id)
         .fetch_optional(&mut *tx)
         .await?;
+        let Some(owner_team_id) = locked_owner_team else {
+            return Err(OrgIntelError::InvalidWork(format!(
+                "Work owner {:?} is not an existing active actor; inspect People and commission one durable specialist if none fits",
+                work.owner_id
+            )));
+        };
+        if owner_team_id != candidate_team_id {
+            return Err(OrgIntelError::InvalidWork(
+                "Work owner responsibility changed while commissioning was admitted".into(),
+            ));
+        }
+        let accountable_lead = live_team.as_ref().map(|(_, lead)| lead.clone());
+        if accountable_lead.as_deref() == Some(work.owner_id) {
+            return Err(OrgIntelError::InvalidWork(
+                "an accountable team lead cannot own unsettled productive Work".into(),
+            ));
+        }
         let commissioned_by = commissioned_by
             .map(str::to_string)
             .or_else(|| accountable_lead.clone())
@@ -797,36 +817,113 @@ impl OrgIntel {
                 "Work is already assigned to that actor".into(),
             ));
         }
-        let new_owner_team: Option<Uuid> =
-            sqlx::query_scalar("SELECT team_id FROM actors WHERE id=$1 AND retired_at IS NULL")
-                .bind(new_owner_id)
-                .fetch_optional(&mut *tx)
-                .await?
-                .ok_or_else(|| {
-                    OrgIntelError::InvalidWork(format!(
-                        "new Work owner {new_owner_id:?} is not an existing active actor"
-                    ))
-                })?;
-        let coordinating_actor = sqlx::query(
-            "SELECT a.id, a.team_id, t.id AS led_team FROM actors a LEFT JOIN teams t \
-             ON t.lead_actor_id=a.id AND t.disbanded_at IS NULL \
-             WHERE a.id=$1 AND a.retired_at IS NULL",
+        // Work is the outer lifecycle lock. Discover candidate Teams without
+        // treating that snapshot as authority, then lock every relevant Team
+        // before Actors and re-read the exact responsibility graph. This is
+        // the same Work -> Team -> Actor order used by feedback admission.
+        let candidate_actors = sqlx::query_as::<_, (String, Option<Uuid>)>(
+            "SELECT id,team_id FROM actors WHERE id=ANY($1)",
         )
-        .bind(changed_by)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or_else(|| {
-            OrgIntelError::InvalidWork(format!("coordinating actor {changed_by:?} is not active"))
-        })?;
+        .bind(vec![
+            previous_owner.clone(),
+            new_owner_id.to_string(),
+            changed_by.to_string(),
+        ])
+        .fetch_all(&mut *tx)
+        .await?;
+        let previous_owner_team = candidate_actors
+            .iter()
+            .find(|(id, _)| id == &previous_owner)
+            .and_then(|(_, team_id)| *team_id);
+        let new_owner_team = candidate_actors
+            .iter()
+            .find(|(id, _)| id == new_owner_id)
+            .and_then(|(_, team_id)| *team_id);
+        let mut team_ids = [previous_owner_team, new_owner_team]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+        team_ids.sort_unstable();
+        team_ids.dedup();
+        let locked_teams = sqlx::query_as::<_, (Uuid, String)>(
+            "SELECT id,lead_actor_id FROM teams \
+             WHERE id=ANY($1) AND disbanded_at IS NULL ORDER BY id FOR SHARE",
+        )
+        .bind(&team_ids)
+        .fetch_all(&mut *tx)
+        .await?;
+        let previous_lead = previous_owner_team.and_then(|team_id| {
+            locked_teams
+                .iter()
+                .find(|(id, _)| *id == team_id)
+                .map(|(_, lead)| lead.clone())
+        });
+        let next_lead = new_owner_team.and_then(|team_id| {
+            locked_teams
+                .iter()
+                .find(|(id, _)| *id == team_id)
+                .map(|(_, lead)| lead.clone())
+        });
+        let mut actor_ids = vec![
+            previous_owner.clone(),
+            new_owner_id.to_string(),
+            changed_by.to_string(),
+            "exec".to_string(),
+        ];
+        actor_ids.extend(locked_teams.iter().map(|(_, lead)| lead.clone()));
+        actor_ids.sort();
+        actor_ids.dedup();
+        let locked_actors = sqlx::query_as::<_, (String, Option<Uuid>, Option<DateTime<Utc>>)>(
+            "SELECT id,team_id,retired_at FROM actors WHERE id=ANY($1) ORDER BY id FOR SHARE",
+        )
+        .bind(&actor_ids)
+        .fetch_all(&mut *tx)
+        .await?;
+        let locked_new_owner = locked_actors
+            .iter()
+            .find(|(id, _, _)| id == new_owner_id)
+            .ok_or_else(|| {
+                OrgIntelError::InvalidWork(format!(
+                    "new Work owner {new_owner_id:?} is not an existing active actor"
+                ))
+            })?;
+        if locked_new_owner.2.is_some() || locked_new_owner.1 != new_owner_team {
+            return Err(OrgIntelError::InvalidWork(format!(
+                "new Work owner {new_owner_id:?} changed responsibility while reassignment was being admitted"
+            )));
+        }
+        let locked_previous_owner = locked_actors
+            .iter()
+            .find(|(id, _, _)| id == &previous_owner)
+            .ok_or_else(|| {
+                OrgIntelError::InvalidWork(format!(
+                    "current Work owner {previous_owner:?} no longer exists"
+                ))
+            })?;
+        if locked_previous_owner.2.is_some() || locked_previous_owner.1 != previous_owner_team {
+            return Err(OrgIntelError::InvalidWork(format!(
+                "current Work owner {previous_owner:?} changed responsibility while reassignment was being admitted"
+            )));
+        }
+        let coordinating_actor = locked_actors
+            .iter()
+            .find(|(id, _, _)| id == changed_by)
+            .ok_or_else(|| {
+                OrgIntelError::InvalidWork(format!(
+                    "coordinating actor {changed_by:?} is not active"
+                ))
+            })?;
+        if coordinating_actor.2.is_some() {
+            return Err(OrgIntelError::InvalidWork(format!(
+                "coordinating actor {changed_by:?} is not active"
+            )));
+        }
         let override_assignment = matches!(changed_by, "owner" | "exec");
         if !override_assignment {
-            let led_team: Option<Uuid> = coordinating_actor.get("led_team");
-            let previous_owner_team: Option<Uuid> =
-                sqlx::query_scalar("SELECT team_id FROM actors WHERE id=$1 AND retired_at IS NULL")
-                    .bind(&previous_owner)
-                    .fetch_optional(&mut *tx)
-                    .await?
-                    .flatten();
+            let led_team = locked_teams
+                .iter()
+                .find(|(_, lead)| lead == changed_by)
+                .map(|(team_id, _)| *team_id);
             if led_team.is_none() || previous_owner_team != led_team || new_owner_team != led_team {
                 return Err(OrgIntelError::InvalidWork(
                     "a lead may only reassign Work between active members of its own team".into(),
@@ -850,6 +947,17 @@ impl OrgIntel {
             .bind(new_owner_id)
             .execute(&mut *tx)
             .await?;
+        crate::messages::reroute_unread_work_inputs_for_reassignment_in_tx(
+            &mut tx,
+            work_id,
+            &previous_owner,
+            new_owner_id,
+            previous_lead.as_deref(),
+            next_lead.as_deref(),
+            changed_by,
+            reason.trim(),
+        )
+        .await?;
         sqlx::query("INSERT INTO events (kind, actor_id, body) VALUES ('work_reassigned',$1,$2)")
             .bind(changed_by)
             .bind(serde_json::json!({

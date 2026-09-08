@@ -22,7 +22,7 @@ use crate::runtime::{self, CompanyConfig};
 use crate::spend::SpendLedger;
 use context::{bound_attempt_context, shared_spine};
 pub use conversation::{dispatch_actor_conversation, ConversationRuntime};
-use execution::{run_staff_with_failover, StaffRun};
+use execution::{run_staff_with_failover, StaffRun, StaffTurnKind};
 pub(crate) use recovery::reconcile_execution_substrate;
 use recovery::{record_staff_outcome, record_unknown_recovery, StaffAttemptContext};
 use workspace::{
@@ -47,6 +47,11 @@ use workspace::WorkspaceObservation;
 const STAFF_CAP_PER_COMPANY: usize = 100;
 const CONVERSATION_BACKOFF_FIRST: std::time::Duration = std::time::Duration::from_secs(30);
 const CONVERSATION_BACKOFF_CEILING: std::time::Duration = std::time::Duration::from_secs(300);
+pub(crate) const COGNITIVE_LEASE_DURATION: std::time::Duration =
+    std::time::Duration::from_secs(5 * 60);
+const COGNITIVE_LEASE_RENEWAL: std::time::Duration = std::time::Duration::from_secs(45);
+const COGNITIVE_LEASE_DB_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+const COGNITIVE_LEASE_EXPIRY_MARGIN: std::time::Duration = std::time::Duration::from_secs(5);
 type ActorKey = (String, String);
 type ConversationBackoff = (std::time::Instant, u32);
 /// (company, actor) pairs with a live supervised process.
@@ -54,6 +59,151 @@ type ConversationBackoff = (std::time::Instant, u32);
 struct RunningStaff {
     cancellation: CancellationToken,
     work_id: Option<uuid::Uuid>,
+}
+
+/// Process-local supervision for the durable Actor-wide cognitive lease. The
+/// database token is authority; this task merely renews it while ACP is alive
+/// and turns renewal loss into the same cancellation signal the harness
+/// already obeys.
+pub(crate) struct CognitiveLeaseGuard {
+    org: restless_orgintel::OrgIntel,
+    lease: restless_orgintel::ActorCognitiveLease,
+    stop: CancellationToken,
+    renewal: Option<tokio::task::JoinHandle<()>>,
+    armed: bool,
+}
+
+impl CognitiveLeaseGuard {
+    pub(crate) async fn claim(
+        org: &restless_orgintel::OrgIntel,
+        actor: &str,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<Self>> {
+        let Some(lease) = org
+            .claim_actor_cognitive_session(actor, COGNITIVE_LEASE_DURATION)
+            .await?
+        else {
+            return Ok(None);
+        };
+        Ok(Some(Self::from_claim(org, lease, cancellation)))
+    }
+
+    pub(crate) async fn claim_team_lead(
+        org: &restless_orgintel::OrgIntel,
+        actor: &str,
+        team_id: uuid::Uuid,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<Self>> {
+        let Some(lease) = org
+            .claim_team_lead_cognitive_session(actor, team_id, COGNITIVE_LEASE_DURATION)
+            .await?
+        else {
+            return Ok(None);
+        };
+        Ok(Some(Self::from_claim(org, lease, cancellation)))
+    }
+
+    fn from_claim(
+        org: &restless_orgintel::OrgIntel,
+        lease: restless_orgintel::ActorCognitiveLease,
+        cancellation: &CancellationToken,
+    ) -> Self {
+        let stop = CancellationToken::new();
+        let renew_stop = stop.clone();
+        let renew_org = org.clone();
+        let mut renew_lease = lease.clone();
+        let renew_cancellation = cancellation.clone();
+        let renewal = tokio::spawn(async move {
+            loop {
+                let until_deadline = renew_lease
+                    .claimed_until
+                    .signed_duration_since(chrono::Utc::now())
+                    .to_std()
+                    .unwrap_or_default();
+                let safe_window = until_deadline.saturating_sub(COGNITIVE_LEASE_EXPIRY_MARGIN);
+                if safe_window.is_zero() {
+                    renew_cancellation.cancel();
+                    break;
+                }
+                tokio::select! {
+                    () = renew_stop.cancelled() => break,
+                    () = tokio::time::sleep(COGNITIVE_LEASE_RENEWAL.min(safe_window)) => {}
+                }
+                let remaining = renew_lease
+                    .claimed_until
+                    .signed_duration_since(chrono::Utc::now())
+                    .to_std()
+                    .unwrap_or_default()
+                    .saturating_sub(COGNITIVE_LEASE_EXPIRY_MARGIN);
+                if remaining.is_zero() {
+                    renew_cancellation.cancel();
+                    break;
+                }
+                let result = tokio::time::timeout(
+                    COGNITIVE_LEASE_DB_TIMEOUT.min(remaining),
+                    renew_org.renew_actor_cognitive_session(&renew_lease, COGNITIVE_LEASE_DURATION),
+                )
+                .await;
+                match result {
+                    Ok(Ok(renewed)) => renew_lease = renewed,
+                    Ok(Err(_)) | Err(_) => {
+                        renew_cancellation.cancel();
+                        break;
+                    }
+                }
+            }
+        });
+        Self {
+            org: org.clone(),
+            lease,
+            stop,
+            renewal: Some(renewal),
+            armed: true,
+        }
+    }
+
+    pub(crate) fn lease(&self) -> &restless_orgintel::ActorCognitiveLease {
+        &self.lease
+    }
+
+    /// Recheck the database token immediately before any conversation output
+    /// is persisted. This closes the interval between renewal ticks.
+    pub(crate) async fn confirm(&self) -> Result<()> {
+        self.org
+            .renew_actor_cognitive_session(&self.lease, COGNITIVE_LEASE_DURATION)
+            .await?;
+        Ok(())
+    }
+
+    pub(crate) async fn finish(mut self) {
+        self.armed = false;
+        self.stop.cancel();
+        if let Some(renewal) = self.renewal.take() {
+            let _ = renewal.await;
+        }
+        if let Err(error) = self.org.release_actor_cognitive_session(&self.lease).await {
+            tracing::warn!(
+                actor = %self.lease.actor_id,
+                "could not release Actor cognitive-session lease: {error}"
+            );
+        }
+    }
+}
+
+impl Drop for CognitiveLeaseGuard {
+    fn drop(&mut self) {
+        self.stop.cancel();
+        if !self.armed {
+            return;
+        }
+        let org = self.org.clone();
+        let lease = self.lease.clone();
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            runtime.spawn(async move {
+                let _ = org.release_actor_cognitive_session(&lease).await;
+            });
+        }
+    }
 }
 
 #[derive(Clone, Default)]
@@ -473,7 +623,7 @@ pub async fn dispatch_claimed_work(
             reasoning_effort,
             authority,
             capabilities,
-            conversation: false,
+            turn_kind: StaffTurnKind::Work,
             accountable_lead,
             observer,
             cancellation,
@@ -669,24 +819,31 @@ mod tests {
 
     #[test]
     fn immediate_team_conversation_prompt_preserves_the_execution_boundary() {
-        let internal = conversation_turn_prompt("message from world-builder", &[]);
+        let internal = conversation_turn_prompt(
+            "message from world-builder",
+            &[],
+            &["- message 4 [internal coordination] from world-builder: changed".into()],
+            &[],
+            None,
+        );
         assert!(internal.contains("# Coordination execution boundary [invariant]"));
         assert!(internal.contains("not a claimed productive Work Attempt"));
         assert!(internal.contains("Do not edit project or repository files"));
         assert!(internal.contains("never make a hidden repair yourself"));
         assert!(internal.contains("not attributable"));
         assert!(internal.contains("Do not use Exec as a status relay"));
-        assert!(internal.contains("There is no owner input in this wake"));
+        assert!(internal.contains("# Addressed messages"));
         assert!(internal.contains("`restless message` without `--to`"));
         assert!(internal.contains("restless message list"));
 
         let owner = conversation_turn_prompt(
             "message from owner",
             &["- owner message 4: prepare review".into()],
+            &[],
+            &[],
+            None,
         );
-        assert!(
-            owner.contains("# Owner input [authoritative in source; interpret before applying]")
-        );
+        assert!(owner.contains("# Owner input [authenticated owner source; not Runtime policy]"));
         assert!(owner.contains("- owner message 4: prepare review"));
         assert!(owner.contains("not a claimed productive Work Attempt"));
     }

@@ -352,6 +352,15 @@ export function conversationQuery(
 	let pending = $state<ThreadMessage | null>(null);
 	let followingMessageId = $state<number | null>(null);
 	let stop: (() => void) | null = null;
+	let uncertainCommand: {
+		id: string;
+		body: string;
+		files: File[];
+		contextPath?: string;
+		newFocus: boolean;
+		interrupt: boolean;
+		outcomeStandard?: import('./company').OutcomeStandard;
+	} | null = null;
 
 	const follow = (messageId: number, since: Date | string): void => {
 		if (followingMessageId === messageId && stop) return;
@@ -454,18 +463,58 @@ export function conversationQuery(
 			interrupt = false,
 			outcomeStandard?: import('./company').OutcomeStandard
 		): Promise<MessageSendResult> {
-			const result = await sendActorMessage(
-				companyId,
-				actorId,
+			const sameUncertainIntent =
+				uncertainCommand?.body === body &&
+				uncertainCommand.contextPath === contextPath &&
+				uncertainCommand.newFocus === newFocus &&
+				uncertainCommand.interrupt === interrupt &&
+				uncertainCommand.outcomeStandard === outcomeStandard &&
+				uncertainCommand.files.length === files.length &&
+				uncertainCommand.files.every((file, index) => file === files[index]);
+			const clientCommandId = sameUncertainIntent
+				? uncertainCommand!.id
+				: crypto.randomUUID();
+			uncertainCommand = {
+				id: clientCommandId,
 				body,
-				workId,
-				files,
+				files: [...files],
 				contextPath,
 				newFocus,
 				interrupt,
-				outcomeStandard,
-				attentionId
-			);
+				outcomeStandard
+			};
+			let result: MessageSendResult;
+			try {
+				result = await sendActorMessage(
+					companyId,
+					actorId,
+					body,
+					workId,
+					files,
+					contextPath,
+					newFocus,
+					interrupt,
+					outcomeStandard,
+					attentionId,
+					clientCommandId
+				);
+				uncertainCommand = null;
+			} catch (error) {
+				// A server response is definitive (including semantic conflict). A
+				// transport error is not: retain this exact intent's key so the
+				// owner's next retry asks for the committed receipt instead of
+				// creating a second Message/attachment set/wake.
+				const status = (error as { status?: unknown }).status;
+				if (
+					typeof status === 'number' &&
+					status >= 400 &&
+					status < 500 &&
+					![408, 425, 429].includes(status)
+				) {
+					uncertainCommand = null;
+				}
+				throw error;
+			}
 			const sentAt = new Date();
 			pending = {
 				id: String(result.messageId),

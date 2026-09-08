@@ -356,6 +356,21 @@ impl OrgIntel {
                 "resolve or escalate the actor's pending judgement before retiring it".into(),
             ));
         }
+        crate::rooms::cancel_pending_message_mentions(
+            &mut tx,
+            actor_id,
+            None,
+            retired_by,
+            "the mentioned Actor was retired",
+        )
+        .await?;
+        crate::rooms::archive_group_rooms_owned_by_retiring_actor(
+            &mut tx,
+            actor_id,
+            retired_by,
+            reason.trim(),
+        )
+        .await?;
         sqlx::query(
             "UPDATE actors SET retired_at=now(), retired_by=$2, retirement_reason=$3, \
              team_id=NULL WHERE id=$1",
@@ -498,7 +513,7 @@ impl OrgIntel {
             ));
         }
         let lead = sqlx::query(
-            "SELECT team_id, EXISTS(SELECT 1 FROM teams WHERE lead_actor_id=$1 \
+            "SELECT actor_class,team_id, EXISTS(SELECT 1 FROM teams WHERE lead_actor_id=$1 \
              AND disbanded_at IS NULL) AS leads_team FROM actors \
              WHERE id=$1 AND retired_at IS NULL FOR UPDATE",
         )
@@ -510,9 +525,27 @@ impl OrgIntel {
                 "active lead actor {lead_actor_id:?} does not exist"
             ))
         })?;
+        if lead.get::<String, _>("actor_class") != "agent" {
+            return Err(OrgIntelError::InvalidWork(
+                "an accountable team lead must be an active agent Actor".into(),
+            ));
+        }
         if lead.get::<Option<Uuid>, _>("team_id").is_some() || lead.get::<bool, _>("leads_team") {
             return Err(OrgIntelError::InvalidWork(
                 "a commissioned lead must be unassigned and must not already lead a team".into(),
+            ));
+        }
+        let owns_unsettled_work: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM work WHERE owner_id=$1 \
+             AND status IN ('proposed','active','blocked'))",
+        )
+        .bind(lead_actor_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if owns_unsettled_work {
+            return Err(OrgIntelError::InvalidWork(
+                "reassign or settle an actor's existing Work before appointing it as a team lead"
+                    .into(),
             ));
         }
         sqlx::query(
@@ -839,7 +872,7 @@ impl OrgIntel {
             ));
         }
         let new_lead = sqlx::query(
-            "SELECT team_id, EXISTS(SELECT 1 FROM teams WHERE lead_actor_id=$1 \
+            "SELECT actor_class,team_id, EXISTS(SELECT 1 FROM teams WHERE lead_actor_id=$1 \
              AND disbanded_at IS NULL) AS leads_team FROM actors \
              WHERE id=$1 AND retired_at IS NULL FOR UPDATE",
         )
@@ -851,6 +884,11 @@ impl OrgIntel {
                 "active lead actor {lead_actor_id:?} does not exist"
             ))
         })?;
+        if new_lead.get::<String, _>("actor_class") != "agent" {
+            return Err(OrgIntelError::InvalidWork(
+                "an accountable team lead must be an active agent Actor".into(),
+            ));
+        }
         if new_lead.get::<bool, _>("leads_team") {
             return Err(OrgIntelError::InvalidWork(
                 "one lead cannot lead another lead or a second team".into(),
@@ -860,6 +898,19 @@ impl OrgIntel {
         if previous_team.is_some() {
             return Err(OrgIntelError::InvalidWork(
                 "a replacement lead must be unassigned; release or move the actor explicitly before appointment"
+                    .into(),
+            ));
+        }
+        let owns_unsettled_work: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM work WHERE owner_id=$1 \
+             AND status IN ('proposed','active','blocked'))",
+        )
+        .bind(lead_actor_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if owns_unsettled_work {
+            return Err(OrgIntelError::InvalidWork(
+                "reassign or settle an actor's existing Work before appointing it as a team lead"
                     .into(),
             ));
         }
@@ -873,6 +924,41 @@ impl OrgIntel {
             .bind(team_id)
             .execute(&mut *tx)
             .await?;
+        let rerouted_handoffs: Vec<Uuid> = sqlx::query_scalar(
+            "UPDATE owner_handoffs handoff \
+             SET assigned_to=$3,escalated_from=$2,escalated_at=now(),\
+                 delivered_at=NULL,resolution=$4 \
+             FROM work,actors owner_actor \
+             WHERE handoff.work_id=work.id AND work.owner_id=owner_actor.id \
+               AND owner_actor.team_id=$1 AND handoff.state='pending' \
+               AND handoff.assigned_to=$2 \
+             RETURNING handoff.id",
+        )
+        .bind(team_id)
+        .bind(&previous_lead)
+        .bind(lead_actor_id)
+        .bind(format!(
+            "Reassigned because team {team_id} lead changed from {previous_lead} to {lead_actor_id}: {}",
+            reason.trim()
+        ))
+        .fetch_all(&mut *tx)
+        .await?;
+        crate::messages::reroute_unread_work_conversation_inputs_in_tx(
+            &mut tx,
+            team_id,
+            &previous_lead,
+            lead_actor_id,
+            changed_by,
+            &format!("the accountable lead was replaced for team {team_id}"),
+        )
+        .await?;
+        crate::rooms::revoke_actor_conversation_and_cancel_unread_inputs(
+            &mut tx,
+            &previous_lead,
+            changed_by,
+            &format!("the accountable lead was replaced for team {team_id}"),
+        )
+        .await?;
         sqlx::query("INSERT INTO events (kind, actor_id, body) VALUES ('team_lead_changed',$1,$2)")
             .bind(changed_by)
             .bind(serde_json::json!({
@@ -880,6 +966,7 @@ impl OrgIntel {
                 "from_lead_actor_id": previous_lead,
                 "to_lead_actor_id": lead_actor_id,
                 "new_lead_previous_team_id": previous_team,
+                "rerouted_handoff_ids": rerouted_handoffs,
                 "reason": reason.trim(),
             }))
             .execute(&mut *tx)
@@ -910,16 +997,42 @@ impl OrgIntel {
                 "only the owner or Exec may disband a team".into(),
             ));
         }
-        let changed =
-            sqlx::query("UPDATE teams SET disbanded_at=now() WHERE id=$1 AND disbanded_at IS NULL")
-                .bind(team_id)
-                .execute(&mut *tx)
-                .await?;
+        let lead_actor_id: Option<String> = sqlx::query_scalar(
+            "SELECT lead_actor_id FROM teams WHERE id=$1 AND disbanded_at IS NULL FOR UPDATE",
+        )
+        .bind(team_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(lead_actor_id) = lead_actor_id else {
+            return Err(OrgIntelError::InvalidWork(
+                "no live team with that id".into(),
+            ));
+        };
+        let changed = sqlx::query("UPDATE teams SET disbanded_at=now() WHERE id=$1")
+            .bind(team_id)
+            .execute(&mut *tx)
+            .await?;
         if changed.rows_affected() != 1 {
             return Err(OrgIntelError::InvalidWork(
                 "no live team with that id".into(),
             ));
         }
+        crate::messages::reroute_unread_work_conversation_inputs_in_tx(
+            &mut tx,
+            team_id,
+            &lead_actor_id,
+            "exec",
+            changed_by,
+            &format!("the accountable team {team_id} was disbanded"),
+        )
+        .await?;
+        crate::rooms::revoke_actor_conversation_and_cancel_unread_inputs(
+            &mut tx,
+            &lead_actor_id,
+            changed_by,
+            &format!("the accountable team {team_id} was disbanded"),
+        )
+        .await?;
         let stranded = sqlx::query(
             "UPDATE owner_handoffs SET assigned_to='exec', escalated_from=assigned_to, \
              escalated_at=now(), resolution=$2, delivered_at=NULL \
@@ -975,6 +1088,35 @@ impl OrgIntel {
         .await?)
     }
 
+    /// Oldest-first bounded judgement context for one cognitive turn. Each
+    /// handoff writer is capped below this aggregate, so the head always fits
+    /// and the remainder stays durably owed for a later turn.
+    pub async fn conversation_handoffs(&self, actor_id: &str) -> Result<Vec<OwnerHandoffRow>> {
+        Ok(sqlx::query_as(
+            "WITH eligible AS (\
+               SELECT id,work_id,attempt_id,requested_by,category,requested_action,\
+                      prepared_state,resume_condition,state,resolution,assigned_to,\
+                      escalated_from,escalated_at,owner_brief,briefed_by,briefed_at,\
+                      brief_source_fingerprint,delivered_at,created_at,resolved_at,\
+                      octet_length(requested_action)+octet_length(prepared_state)\
+                        +octet_length(resume_condition)+octet_length(resolution) AS body_bytes \
+               FROM owner_handoffs WHERE state='pending' AND assigned_to=$1 \
+               ORDER BY created_at,id LIMIT 16\
+             ), bounded AS (\
+               SELECT eligible.*,sum(body_bytes) OVER (ORDER BY created_at,id) AS cumulative_bytes \
+               FROM eligible\
+             ) \
+             SELECT id,work_id,attempt_id,requested_by,category,requested_action,\
+                    prepared_state,resume_condition,state,resolution,assigned_to,\
+                    escalated_from,escalated_at,owner_brief,briefed_by,briefed_at,\
+                    brief_source_fingerprint,delivered_at,created_at,resolved_at \
+             FROM bounded WHERE cumulative_bytes<=131072 ORDER BY created_at,id",
+        )
+        .bind(actor_id)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
     /// How many pending judgements this actor has never been given. This is
     /// the wake trigger, and it is deliberately a count of the exact owed rows
     /// rather than a comparison between the newest handoff and the newest wake
@@ -1021,20 +1163,35 @@ impl OrgIntel {
             ));
         }
         let next = (from_actor != "exec").then_some("exec");
+        let mut tx = self.pool.begin().await?;
+        let candidate_work_id: Uuid = sqlx::query_scalar(
+            "SELECT work_id FROM owner_handoffs \
+             WHERE id=$1 AND state='pending' AND assigned_to=$2",
+        )
+        .bind(id)
+        .bind(from_actor)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| {
+            OrgIntelError::InvalidWork("no pending handoff is assigned to that actor".into())
+        })?;
+        let accountability = lock_work_accountability_in_tx(&mut tx, candidate_work_id).await?;
+        let row = sqlx::query(
+            "SELECT work_id,attempt_id,category,requested_action,prepared_state, \
+                    resume_condition,owner_brief,brief_source_fingerprint \
+             FROM owner_handoffs \
+             WHERE id=$1 AND work_id=$2 AND state='pending' AND assigned_to=$3 \
+             FOR UPDATE",
+        )
+        .bind(id)
+        .bind(candidate_work_id)
+        .bind(from_actor)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| {
+            OrgIntelError::InvalidWork("no pending handoff is assigned to that actor".into())
+        })?;
         if from_actor == "exec" {
-            let row = sqlx::query(
-                "SELECT h.work_id, h.attempt_id, h.category, h.requested_action, \
-                        h.prepared_state, h.resume_condition, h.owner_brief, \
-                        h.brief_source_fingerprint, w.revision \
-                 FROM owner_handoffs h JOIN work w ON w.id=h.work_id \
-                 WHERE h.id=$1 AND h.state='pending' AND h.assigned_to='exec'",
-            )
-            .bind(id)
-            .fetch_optional(&self.pool)
-            .await?
-            .ok_or_else(|| {
-                OrgIntelError::InvalidWork("no pending handoff is assigned to that actor".into())
-            })?;
             let category: OwnerHandoffCategory = row.get("category");
             if category == OwnerHandoffCategory::OwnerJudgement {
                 let brief: Option<serde_json::Value> = row.get("owner_brief");
@@ -1046,7 +1203,7 @@ impl OrgIntel {
                     row.get::<String, _>("requested_action").as_str(),
                     row.get::<String, _>("prepared_state").as_str(),
                     row.get::<String, _>("resume_condition").as_str(),
-                    row.get("revision"),
+                    accountability.revision,
                 );
                 if brief.is_none() || recorded.as_deref() != Some(current.as_str()) {
                     return Err(OrgIntelError::InvalidWork(
@@ -1065,13 +1222,14 @@ impl OrgIntel {
         .bind(from_actor)
         .bind(next)
         .bind(reason.trim())
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
         if changed.rows_affected() != 1 {
             return Err(OrgIntelError::InvalidWork(
                 "no pending handoff is assigned to that actor".into(),
             ));
         }
+        tx.commit().await?;
         Ok(())
     }
 
@@ -1114,4 +1272,126 @@ impl OrgIntel {
         tx.commit().await?;
         Ok(changed.rows_affected())
     }
+}
+
+/// Exact accountable destination captured under the canonical
+/// Work -> Team -> Actor lock order. Callers keep their transaction open
+/// through the mutation that uses this value; an unlocked `team_lead_for`
+/// snapshot is never an authority decision.
+pub(crate) struct LockedWorkAccountability {
+    pub owner_id: String,
+    pub lead_actor_id: Option<String>,
+    pub status: WorkStatus,
+    pub revision: i64,
+}
+
+pub(crate) async fn lock_work_accountability_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    work_id: Uuid,
+) -> Result<LockedWorkAccountability> {
+    lock_work_accountability_with_mode_in_tx(tx, work_id, false).await
+}
+
+/// Mutation variant for paths that will update the Work or its revision.
+/// Taking UPDATE at the outer boundary avoids two SHARE holders later
+/// deadlocking while upgrading after one has locked the Handoff.
+pub(crate) async fn lock_work_accountability_for_update_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    work_id: Uuid,
+) -> Result<LockedWorkAccountability> {
+    lock_work_accountability_with_mode_in_tx(tx, work_id, true).await
+}
+
+async fn lock_work_accountability_with_mode_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    work_id: Uuid,
+    for_update: bool,
+) -> Result<LockedWorkAccountability> {
+    let statement = if for_update {
+        "SELECT owner_id,status,revision FROM work WHERE id=$1 FOR UPDATE"
+    } else {
+        "SELECT owner_id,status,revision FROM work WHERE id=$1 FOR SHARE"
+    };
+    let work = sqlx::query(statement)
+        .bind(work_id)
+        .fetch_optional(&mut **tx)
+        .await?
+        .ok_or_else(|| OrgIntelError::InvalidWork(format!("Work {work_id} does not exist")))?;
+    let owner_id: String = work.get("owner_id");
+    let status: WorkStatus = work.get("status");
+    let revision: i64 = work.get("revision");
+    let candidate_team: Option<Uuid> = sqlx::query_scalar("SELECT team_id FROM actors WHERE id=$1")
+        .bind(&owner_id)
+        .fetch_optional(&mut **tx)
+        .await?
+        .flatten();
+    let locked_team: Option<(Uuid, String)> = match candidate_team {
+        Some(team_id) => {
+            sqlx::query_as(
+                "SELECT id,lead_actor_id FROM teams \
+             WHERE id=$1 AND disbanded_at IS NULL FOR SHARE",
+            )
+            .bind(team_id)
+            .fetch_optional(&mut **tx)
+            .await?
+        }
+        None => None,
+    };
+    let lead_actor_id = locked_team.as_ref().map(|(_, lead)| lead.clone());
+    let mut actor_ids = vec![owner_id.clone(), "exec".to_string()];
+    actor_ids.extend(lead_actor_id.iter().cloned());
+    actor_ids.sort();
+    actor_ids.dedup();
+    let actors = sqlx::query_as::<_, (String, String, Option<Uuid>, Option<DateTime<Utc>>)>(
+        "SELECT id,actor_class,team_id,retired_at FROM actors \
+         WHERE id=ANY($1) ORDER BY id FOR SHARE",
+    )
+    .bind(&actor_ids)
+    .fetch_all(&mut **tx)
+    .await?;
+    let owner = actors
+        .iter()
+        .find(|(id, _, _, _)| id == &owner_id)
+        .ok_or_else(|| {
+            OrgIntelError::InvalidWork(format!("Work {work_id} owner {owner_id:?} does not exist"))
+        })?;
+    if owner.3.is_some() || owner.2 != candidate_team {
+        return Err(OrgIntelError::InvalidWork(format!(
+            "Work {work_id} owner responsibility changed during accountable routing"
+        )));
+    }
+    if candidate_team.is_some() != locked_team.is_some() {
+        return Err(OrgIntelError::InvalidWork(format!(
+            "Work {work_id} owner team is no longer active"
+        )));
+    }
+    if let Some(lead_id) = lead_actor_id.as_deref() {
+        let lead = actors
+            .iter()
+            .find(|(id, _, _, _)| id == lead_id)
+            .ok_or_else(|| {
+                OrgIntelError::InvalidWork(format!(
+                    "Work {work_id} accountable lead {lead_id:?} does not exist"
+                ))
+            })?;
+        if lead.1 != "agent" || lead.3.is_some() || lead.2 != candidate_team {
+            return Err(OrgIntelError::InvalidWork(format!(
+                "Work {work_id} accountable lead changed during routing"
+            )));
+        }
+    }
+    let exec_live = actors
+        .iter()
+        .any(|(id, _, _, retired_at)| id == "exec" && retired_at.is_none());
+    if !exec_live {
+        return Err(OrgIntelError::InvalidWork(
+            "the stable Exec fallback is not active".into(),
+        ));
+    }
+    Ok(LockedWorkAccountability {
+        owner_id,
+        lead_actor_id,
+        status,
+        revision,
+    })
 }

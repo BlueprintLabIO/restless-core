@@ -8,10 +8,18 @@
 use super::*;
 use crate::events::{EVENT_COMPACTION_KIND, MAX_EVENT_REPLAY_LIMIT};
 use sha2::Sha256;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 const MAX_ROOM_PARTICIPANTS: usize = 100;
 const MAX_ROOM_MESSAGE_BYTES: usize = 64 * 1024;
+const MAX_ACTIVE_ROOMS_CREATED_PER_ACTOR: i64 = 128;
+const MAX_MESSAGE_MENTIONS: usize = 16;
+const MAX_PENDING_MENTIONS_AUTHORED_PER_ACTOR: i64 = 256;
+const MAX_PENDING_MENTIONS_FOR_ACTOR: i64 = 256;
+const MAX_MESSAGE_MENTION_CONTEXT_BYTES: usize = 64 * 1024;
+const MAX_MENTION_LIST_ITEMS: usize = 16;
+const MAX_MENTION_LIST_ITEM_BYTES: usize = 2_000;
+const MAX_MESSAGE_MENTION_LEASE_SECONDS: u64 = 5 * 60;
 
 /// Length-prefix both Actor ids so future identity adapters may use arbitrary
 /// stable identifiers without creating delimiter collisions (for example,
@@ -35,8 +43,13 @@ fn room_message_digest(
     parent_message_id: Option<i64>,
     outcome_standard: Option<OutcomeStandard>,
     body: &str,
+    mentions: &[NewRoomMessageMention],
+    resolves_mention_id: Option<Uuid>,
 ) -> String {
     let mut digest = Sha256::new();
+    // Keep this first five-part spelling byte-for-byte compatible with the
+    // pre-0044 Room command digest. An ordinary send retried after upgrading
+    // must still find its original authoritative Message.
     for part in [
         room_id.to_string(),
         author_actor.to_string(),
@@ -51,7 +64,154 @@ fn room_message_digest(
         digest.update((part.len() as u64).to_be_bytes());
         digest.update(part.as_bytes());
     }
+    if !mentions.is_empty() || resolves_mention_id.is_some() {
+        // New semantic fields use an explicit domain so they cannot collide
+        // with the legacy five-part shape or an eventual later extension.
+        for part in [
+            "restless.room-message.mentions-resolution.v1".to_string(),
+            serde_json::to_string(mentions).expect("a Room mention command is serializable"),
+            resolves_mention_id
+                .map(|value| value.to_string())
+                .unwrap_or_default(),
+        ] {
+            digest.update((part.len() as u64).to_be_bytes());
+            digest.update(part.as_bytes());
+        }
+    }
     format!("{:x}", digest.finalize())
+}
+
+fn room_creation_digest(kind: RoomKind, title: &str, participant_actor_ids: &[String]) -> String {
+    let mut digest = Sha256::new();
+    for part in [
+        "restless.room-create.v1".to_string(),
+        serde_json::to_string(&kind).expect("a Room kind is serializable"),
+        title.to_string(),
+        serde_json::to_string(participant_actor_ids)
+            .expect("normalized Room participants are serializable"),
+    ] {
+        digest.update((part.len() as u64).to_be_bytes());
+        digest.update(part.as_bytes());
+    }
+    format!("{:x}", digest.finalize())
+}
+
+fn bounded_optional(
+    label: &str,
+    value: &Option<String>,
+    maximum_bytes: usize,
+) -> Result<Option<String>> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let value = value.trim();
+    if value.is_empty() || value.len() > maximum_bytes {
+        return Err(OrgIntelError::InvalidRoom(format!(
+            "a mention {label} needs 1 to {maximum_bytes} bytes when supplied"
+        )));
+    }
+    Ok(Some(value.to_string()))
+}
+
+fn bounded_list(label: &str, values: &[String]) -> Result<Vec<String>> {
+    if values.len() > MAX_MENTION_LIST_ITEMS {
+        return Err(OrgIntelError::InvalidRoom(format!(
+            "a mention may include at most {MAX_MENTION_LIST_ITEMS} {label}"
+        )));
+    }
+    values
+        .iter()
+        .map(|value| {
+            let value = value.trim();
+            if value.is_empty() || value.len() > MAX_MENTION_LIST_ITEM_BYTES {
+                return Err(OrgIntelError::InvalidRoom(format!(
+                    "each mention {label} item needs 1 to {MAX_MENTION_LIST_ITEM_BYTES} bytes"
+                )));
+            }
+            Ok(value.to_string())
+        })
+        .collect()
+}
+
+fn normalized_mentions(
+    author_actor: &str,
+    mentions: &[NewRoomMessageMention],
+) -> Result<Vec<NewRoomMessageMention>> {
+    if mentions.len() > MAX_MESSAGE_MENTIONS {
+        return Err(OrgIntelError::InvalidRoom(format!(
+            "a Room message may mention at most {MAX_MESSAGE_MENTIONS} Actors"
+        )));
+    }
+    let mut normalized = Vec::with_capacity(mentions.len());
+    let mut actors = BTreeSet::new();
+    for mention in mentions {
+        let actor_id = mention.actor_id.trim();
+        if actor_id.is_empty() || actor_id.len() > 255 {
+            return Err(OrgIntelError::InvalidRoom(
+                "a mention needs one bounded durable Actor id".into(),
+            ));
+        }
+        if actor_id == author_actor {
+            return Err(OrgIntelError::InvalidRoom(
+                "a Room message cannot mention its own author".into(),
+            ));
+        }
+        if !actors.insert(actor_id.to_string()) {
+            return Err(OrgIntelError::InvalidRoom(
+                "a Room message cannot mention the same Actor twice".into(),
+            ));
+        }
+        let why_this_actor = bounded_optional("routing reason", &mention.why_this_actor, 2_000)?;
+        let expected_response =
+            bounded_optional("expected response", &mention.expected_response, 2_000)?;
+        let recommendation = bounded_optional("recommendation", &mention.recommendation, 4_000)?;
+        let uncertainty = bounded_optional("uncertainty", &mention.uncertainty, 2_000)?;
+        let affected_scope = bounded_optional("affected scope", &mention.affected_scope, 1_000)?;
+        let fallback = bounded_optional("fallback", &mention.fallback, 2_000)?;
+        if !mention.independent_work_can_continue
+            && (mention.work_id.is_none() || mention.deadline_at.is_none() || fallback.is_none())
+        {
+            return Err(OrgIntelError::InvalidRoom(
+                "a blocking mention must name linked Work, a deadline, and a fallback".into(),
+            ));
+        }
+        normalized.push(NewRoomMessageMention {
+            actor_id: actor_id.to_string(),
+            work_id: mention.work_id,
+            why_this_actor,
+            expected_response,
+            recommendation,
+            alternatives: bounded_list("alternative", &mention.alternatives)?,
+            evidence: bounded_list("evidence", &mention.evidence)?,
+            uncertainty,
+            affected_scope,
+            deadline_at: mention.deadline_at,
+            fallback,
+            independent_work_can_continue: mention.independent_work_can_continue,
+        });
+    }
+    normalized.sort_by(|left, right| left.actor_id.cmp(&right.actor_id));
+    if serde_json::to_vec(&normalized)
+        .expect("normalized Room mentions serialize")
+        .len()
+        > MAX_MESSAGE_MENTION_CONTEXT_BYTES
+    {
+        return Err(OrgIntelError::InvalidRoom(format!(
+            "a Room message may carry at most {MAX_MESSAGE_MENTION_CONTEXT_BYTES} bytes of mention context"
+        )));
+    }
+    Ok(normalized)
+}
+
+fn mention_lease_seconds(lease_for: std::time::Duration) -> Result<i32> {
+    let seconds = lease_for.as_secs();
+    if lease_for.subsec_nanos() != 0 || !(1..=MAX_MESSAGE_MENTION_LEASE_SECONDS).contains(&seconds)
+    {
+        return Err(OrgIntelError::InvalidRoom(format!(
+            "a mention claim lease must contain 1 to {MAX_MESSAGE_MENTION_LEASE_SECONDS} whole seconds"
+        )));
+    }
+    Ok(seconds as i32)
 }
 
 async fn active_room_access(
@@ -59,19 +219,25 @@ async fn active_room_access(
     room_id: Uuid,
     actor_id: &str,
 ) -> Result<(RoomKind, RoomParticipantRole)> {
-    // `FOR SHARE`, rather than merely `FOR KEY SHARE`, holds the active Room,
-    // participant and Actor predicates stable through the caller's
-    // transaction. A concurrent archive, removal or retirement therefore
-    // linearizes before authorization or waits until the authorized operation
-    // completes; it cannot revoke access between proof and projection read.
+    // Actor -> Room is the one lifecycle order. Lock the active Actor first;
+    // retirement takes its update lock before archiving/cancelling Room state.
+    // Holding both predicates through the caller's transaction means access
+    // cannot be revoked between authorization and the resulting read/write.
+    sqlx::query("SELECT id FROM actors WHERE id=$1 AND retired_at IS NULL FOR SHARE")
+        .bind(actor_id)
+        .fetch_optional(&mut **tx)
+        .await?
+        .ok_or_else(|| {
+            OrgIntelError::RoomAccessDenied(
+                "the active actor is not an active participant in this Room".into(),
+            )
+        })?;
     sqlx::query_as(
         "SELECT room.kind,participant.role FROM rooms room \
          JOIN room_participants participant ON participant.room_id=room.id \
-         JOIN actors actor ON actor.id=participant.actor_id \
          WHERE room.id=$1 AND participant.actor_id=$2 \
-           AND participant.left_at IS NULL AND actor.retired_at IS NULL \
-           AND room.archived_at IS NULL \
-         FOR SHARE OF room,participant,actor",
+           AND participant.left_at IS NULL AND room.archived_at IS NULL \
+         FOR SHARE OF room,participant",
     )
     .bind(room_id)
     .bind(actor_id)
@@ -90,6 +256,119 @@ pub(crate) async fn active_room_kind(
     actor_id: &str,
 ) -> Result<RoomKind> {
     Ok(active_room_access(tx, room_id, actor_id).await?.0)
+}
+
+/// Lock and validate the exact Actors to which Runtime can owe a persistent
+/// free-form response. Team rows are always locked before target Actor rows,
+/// matching lead replacement/disband and preventing a stale lead admission
+/// from committing after its lifecycle cancellation scan.
+///
+/// Human Actors are addressable only when the caller explicitly permits them;
+/// agent Actors must be the singleton Exec or a current live team lead. A
+/// service Actor is never made addressable merely because legacy data names it
+/// as a lead.
+pub(crate) async fn lock_runtime_addressable_actors_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    actor_ids: &[String],
+    allow_humans: bool,
+    additional_active_actor_ids: &[String],
+) -> Result<()> {
+    let mut actor_ids = actor_ids
+        .iter()
+        .map(|actor_id| actor_id.trim().to_string())
+        .collect::<Vec<_>>();
+    actor_ids.sort();
+    actor_ids.dedup();
+    let mut all_actor_ids = actor_ids.clone();
+    all_actor_ids.extend(
+        additional_active_actor_ids
+            .iter()
+            .map(|actor_id| actor_id.trim().to_string()),
+    );
+    all_actor_ids.sort();
+    all_actor_ids.dedup();
+    if all_actor_ids.is_empty() {
+        return Ok(());
+    }
+
+    // This first read discovers which Team rows may carry the current routing
+    // responsibility. It is deliberately not authority: after locking all
+    // candidate Teams, the Actor rows and exact relationship are reread.
+    let snapshots = sqlx::query_as::<_, (String, String, Option<Uuid>)>(
+        "SELECT id,actor_class,team_id FROM actors WHERE id=ANY($1) ORDER BY id",
+    )
+    .bind(&actor_ids)
+    .fetch_all(&mut **tx)
+    .await?;
+    let candidate_team_ids = snapshots
+        .iter()
+        .filter_map(|(_, _, team_id)| *team_id)
+        .collect::<Vec<_>>();
+    let live_teams = sqlx::query_as::<_, (Uuid, String)>(
+        "SELECT id,lead_actor_id FROM teams \
+         WHERE disbanded_at IS NULL AND (id=ANY($1) OR lead_actor_id=ANY($2)) \
+         ORDER BY id FOR SHARE",
+    )
+    .bind(&candidate_team_ids)
+    .bind(&actor_ids)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    let active_actors = sqlx::query_as::<_, (String, String, Option<Uuid>)>(
+        "SELECT id,actor_class,team_id FROM actors \
+         WHERE id=ANY($1) AND retired_at IS NULL ORDER BY id FOR SHARE",
+    )
+    .bind(&all_actor_ids)
+    .fetch_all(&mut **tx)
+    .await?;
+    if active_actors
+        .iter()
+        .map(|(actor_id, _, _)| actor_id)
+        .ne(all_actor_ids.iter())
+    {
+        return Err(OrgIntelError::RoomAccessDenied(
+            "every Room command Actor must currently be active".into(),
+        ));
+    }
+
+    let team_leads = live_teams
+        .iter()
+        .map(|(_, lead_actor_id)| lead_actor_id.clone())
+        .collect::<BTreeSet<_>>();
+    let leads_by_team = live_teams.into_iter().collect::<HashMap<_, _>>();
+    for (actor_id, actor_class, team_id) in active_actors {
+        if actor_ids.binary_search(&actor_id).is_err() {
+            continue;
+        }
+        if actor_class == "human" {
+            if allow_humans {
+                continue;
+            }
+            return Err(OrgIntelError::RoomAccessDenied(format!(
+                "human Actor {actor_id:?} is not an agent conversation target"
+            )));
+        }
+        if actor_class == "agent" && (actor_id == "exec" || team_leads.contains(&actor_id)) {
+            continue;
+        }
+        if actor_class == "agent" {
+            let route = team_id
+                .and_then(|team_id| leads_by_team.get(&team_id))
+                .map(|lead| {
+                    format!(
+                        "; route it through currently addressable accountable lead {lead:?} instead"
+                    )
+                })
+                .unwrap_or_else(|| "; no active accountable lead is currently addressable".into());
+            return Err(OrgIntelError::RoomAccessDenied(format!(
+                "Actor {actor_id:?} is not a directly addressable persistent agent{route}"
+            )));
+        }
+        return Err(OrgIntelError::RoomAccessDenied(format!(
+            "service/system Actor {actor_id:?} cannot receive a persistent conversation"
+        )));
+    }
+    Ok(())
 }
 
 async fn room_message_in_tx(
@@ -131,6 +410,80 @@ async fn durable_room_message_event_id(
     })
 }
 
+async fn message_mentions_for_messages_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    message_ids: &[i64],
+) -> Result<Vec<MessageMentionRow>> {
+    if message_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    Ok(sqlx::query_as(
+        "SELECT id,room_id,message_id,thread_root_message_id,mentioned_actor_id,kind,work_id, \
+                why_this_actor,expected_response,recommendation,alternatives,evidence, \
+                uncertainty,affected_scope,deadline_at,fallback,independent_work_can_continue, \
+                created_event_id,resolution_message_id,resolved_event_id,cancelled_event_id, \
+                cancelled_by,cancellation_reason,created_at,resolved_at,cancelled_at \
+         FROM message_mentions WHERE message_id=ANY($1) \
+         ORDER BY message_id,mentioned_actor_id",
+    )
+    .bind(message_ids)
+    .fetch_all(&mut **tx)
+    .await?)
+}
+
+async fn message_mentions_for_message_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    message_id: i64,
+) -> Result<Vec<MessageMentionRow>> {
+    message_mentions_for_messages_in_tx(tx, &[message_id]).await
+}
+
+async fn resolved_mention_for_message_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    message_id: i64,
+) -> Result<Option<MessageMentionRow>> {
+    Ok(sqlx::query_as(
+        "SELECT id,room_id,message_id,thread_root_message_id,mentioned_actor_id,kind,work_id, \
+                why_this_actor,expected_response,recommendation,alternatives,evidence, \
+                uncertainty,affected_scope,deadline_at,fallback,independent_work_can_continue, \
+                created_event_id,resolution_message_id,resolved_event_id,cancelled_event_id, \
+                cancelled_by,cancellation_reason,created_at,resolved_at,cancelled_at \
+         FROM message_mentions WHERE resolution_message_id=$1",
+    )
+    .bind(message_id)
+    .fetch_optional(&mut **tx)
+    .await?)
+}
+
+async fn message_mention_context_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    mention_id: Uuid,
+) -> Result<MessageMentionContext> {
+    let mention: MessageMentionRow = sqlx::query_as(
+        "SELECT id,room_id,message_id,thread_root_message_id,mentioned_actor_id,kind,work_id, \
+                why_this_actor,expected_response,recommendation,alternatives,evidence, \
+                uncertainty,affected_scope,deadline_at,fallback,independent_work_can_continue, \
+                created_event_id,resolution_message_id,resolved_event_id,cancelled_event_id, \
+                cancelled_by,cancellation_reason,created_at,resolved_at,cancelled_at \
+         FROM message_mentions WHERE id=$1",
+    )
+    .bind(mention_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or_else(|| OrgIntelError::InvalidRoom("message mention does not exist".into()))?;
+    let message = room_message_in_tx(tx, mention.room_id, mention.message_id).await?;
+    let room_title: String = sqlx::query_scalar("SELECT title FROM rooms WHERE id=$1")
+        .bind(mention.room_id)
+        .fetch_optional(&mut **tx)
+        .await?
+        .ok_or_else(|| OrgIntelError::InvalidRoom("a durable mention lost its Room".into()))?;
+    Ok(MessageMentionContext {
+        mention,
+        room_title,
+        message,
+    })
+}
+
 async fn append_room_event(
     tx: &mut Transaction<'_, Postgres>,
     event_kind: &str,
@@ -153,6 +506,291 @@ async fn append_room_event(
     .await?)
 }
 
+/// Fence an Actor's current free-form conversation and terminally consume
+/// only ordinary unread inputs that no longer have a runtime route. Named
+/// Room mentions are deliberately not cancelled here: they address the
+/// durable Actor rather than the Actor's current team office.
+pub(crate) async fn revoke_actor_conversation_and_cancel_unread_inputs(
+    tx: &mut Transaction<'_, Postgres>,
+    actor_id: &str,
+    revoked_by: &str,
+    reason: &str,
+) -> Result<u64> {
+    let reason = reason.trim();
+    if reason.is_empty() || reason.len() > 2_000 {
+        return Err(OrgIntelError::InvalidRoom(
+            "revoking a conversation needs a 1 to 2000 byte reason".into(),
+        ));
+    }
+    sqlx::query("SELECT id FROM actors WHERE id=$1 FOR UPDATE")
+        .bind(actor_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+    let lease_token: Option<Uuid> = sqlx::query_scalar(
+        "UPDATE actor_cognitive_leases \
+         SET revoked_at=COALESCE(revoked_at,now()),revoked_by=$2,revocation_reason=$3 \
+         WHERE actor_id=$1 AND claimed_until>now() RETURNING lease_token",
+    )
+    .bind(actor_id)
+    .bind(revoked_by)
+    .bind(reason)
+    .fetch_optional(&mut **tx)
+    .await?;
+    if let Some(lease_token) = lease_token {
+        sqlx::query(
+            "UPDATE message_mentions SET claim_token=NULL,claimed_at=NULL,claimed_until=NULL \
+             WHERE mentioned_actor_id=$1 AND claim_token=$2 \
+               AND resolution_message_id IS NULL AND cancelled_event_id IS NULL",
+        )
+        .bind(actor_id)
+        .bind(lease_token)
+        .execute(&mut **tx)
+        .await?;
+    }
+    let abandoned_inputs: Vec<(i64, String)> = sqlx::query_as(
+        "SELECT message.id,message.from_actor FROM messages message \
+         WHERE message.to_actor=$1 AND message.from_actor<>$1 \
+           AND message.read_at IS NULL \
+           AND NOT EXISTS (SELECT 1 FROM work_feedback feedback \
+                           WHERE feedback.message_id=message.id) \
+           AND NOT EXISTS (SELECT 1 FROM message_mentions mention \
+                           WHERE mention.message_id=message.id) \
+         ORDER BY message.id FOR UPDATE",
+    )
+    .bind(actor_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    if abandoned_inputs.is_empty() {
+        return Ok(0);
+    }
+    let message_ids = abandoned_inputs
+        .iter()
+        .map(|(message_id, _)| *message_id)
+        .collect::<Vec<_>>();
+    sqlx::query("UPDATE messages SET read_at=now() WHERE id=ANY($1) AND read_at IS NULL")
+        .bind(&message_ids)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query("INSERT INTO events (kind,actor_id,body) VALUES ($1,$2,$3)")
+        .bind("actor.conversation.cancelled.v1")
+        .bind(revoked_by)
+        .bind(serde_json::json!({
+            "former_actor_id": actor_id,
+            "messages": abandoned_inputs
+                .iter()
+                .map(|(message_id, from_actor)| serde_json::json!({
+                    "message_id": message_id,
+                    "from_actor": from_actor,
+                }))
+                .collect::<Vec<_>>(),
+            "reason": reason,
+        }))
+        .execute(&mut **tx)
+        .await?;
+    Ok(message_ids.len() as u64)
+}
+
+/// End every still-pending mention that became impossible to serve. This is
+/// called from the same transaction as roster/Room lifecycle changes so a
+/// sender never sees an unresolved mention whose recipient can no longer
+/// answer it. Cancellation is terminal and recorded in the existing Room
+/// event stream; it never silently retargets the question.
+pub(crate) async fn cancel_pending_message_mentions(
+    tx: &mut Transaction<'_, Postgres>,
+    mentioned_actor_id: &str,
+    room_id: Option<Uuid>,
+    cancelled_by: &str,
+    reason: &str,
+) -> Result<u64> {
+    let reason = reason.trim();
+    if reason.is_empty() || reason.len() > 2_000 {
+        return Err(OrgIntelError::InvalidRoom(
+            "cancelling a mention needs a 1 to 2000 byte reason".into(),
+        ));
+    }
+
+    // The Actor row is also the serialization boundary for cognitive leases
+    // and Work claims. A lifecycle change therefore cannot race a renewal and
+    // leave the superseded process able to persist a reply.
+    sqlx::query("SELECT id FROM actors WHERE id=$1 FOR UPDATE")
+        .bind(mentioned_actor_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+    let pending: Vec<(Uuid, Uuid, i64)> = sqlx::query_as(
+        "SELECT id,room_id,message_id FROM message_mentions \
+         WHERE mentioned_actor_id=$1 AND resolution_message_id IS NULL \
+           AND cancelled_event_id IS NULL AND ($2::uuid IS NULL OR room_id=$2) \
+         ORDER BY created_event_id FOR UPDATE",
+    )
+    .bind(mentioned_actor_id)
+    .bind(room_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    let mention_ids = pending
+        .iter()
+        .map(|(mention_id, _, _)| *mention_id)
+        .collect::<Vec<_>>();
+    if room_id.is_none() {
+        revoke_actor_conversation_and_cancel_unread_inputs(
+            tx,
+            mentioned_actor_id,
+            cancelled_by,
+            reason,
+        )
+        .await?;
+    } else if !mention_ids.is_empty() {
+        sqlx::query(
+            "UPDATE actor_cognitive_leases \
+             SET revoked_at=COALESCE(revoked_at,now()),revoked_by=$3,revocation_reason=$4 \
+             WHERE actor_id=$1 AND focused_mention_id=ANY($2) AND claimed_until>now()",
+        )
+        .bind(mentioned_actor_id)
+        .bind(&mention_ids)
+        .bind(cancelled_by)
+        .bind(reason)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    if pending.is_empty() {
+        return Ok(0);
+    }
+
+    for (mention_id, mention_room_id, message_id) in &pending {
+        let cancelled_event_id = append_room_event(
+            tx,
+            "room.mention.cancelled.v1",
+            *mention_room_id,
+            cancelled_by,
+            Some(*message_id),
+            serde_json::json!({
+                "mention_id": mention_id,
+                "mentioned_actor_id": mentioned_actor_id,
+                "reason": reason,
+            }),
+        )
+        .await?;
+        sqlx::query(
+            "UPDATE message_mentions SET cancelled_event_id=$2,cancelled_by=$3, \
+                    cancellation_reason=$4,cancelled_at=now(),claim_token=NULL, \
+                    claimed_at=NULL,claimed_until=NULL \
+             WHERE id=$1 AND resolution_message_id IS NULL AND cancelled_event_id IS NULL",
+        )
+        .bind(mention_id)
+        .bind(cancelled_event_id)
+        .bind(cancelled_by)
+        .bind(reason)
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(pending.len() as u64)
+}
+
+/// Archive every active group Room whose durable owner is leaving the
+/// company. A group Room has exactly one owner and no silent ownership
+/// transfer policy, so retirement terminates the collaboration space rather
+/// than leaving an unmanageable audience behind. The immutable transcript is
+/// retained and every still-pending mention in the archived Room receives an
+/// explicit terminal receipt.
+///
+/// The caller holds the retiring Actor's update lock. All Room commands use
+/// Actor -> Room ordering, so taking owned Room locks here preserves the
+/// lifecycle order. Focused cognitive leases are fenced by their mention row
+/// and Room state; no unrelated Actor row is needed to terminally archive the
+/// Room.
+pub(crate) async fn archive_group_rooms_owned_by_retiring_actor(
+    tx: &mut Transaction<'_, Postgres>,
+    actor_id: &str,
+    archived_by: &str,
+    reason: &str,
+) -> Result<u64> {
+    let room_ids = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM rooms \
+         WHERE created_by=$1 AND kind='group' AND archived_at IS NULL \
+         ORDER BY id FOR UPDATE",
+    )
+    .bind(actor_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    if room_ids.is_empty() {
+        return Ok(0);
+    }
+
+    for room_id in &room_ids {
+        let pending: Vec<(Uuid, String, i64)> = sqlx::query_as(
+            "SELECT id,mentioned_actor_id,message_id FROM message_mentions \
+             WHERE room_id=$1 AND resolution_message_id IS NULL \
+               AND cancelled_event_id IS NULL \
+             ORDER BY created_event_id FOR UPDATE",
+        )
+        .bind(room_id)
+        .fetch_all(&mut **tx)
+        .await?;
+        let mention_ids = pending
+            .iter()
+            .map(|(mention_id, _, _)| *mention_id)
+            .collect::<Vec<_>>();
+        if !mention_ids.is_empty() {
+            sqlx::query(
+                "UPDATE actor_cognitive_leases \
+                 SET revoked_at=COALESCE(revoked_at,now()),revoked_by=$2,revocation_reason=$3 \
+                 WHERE focused_mention_id=ANY($1) AND claimed_until>now()",
+            )
+            .bind(&mention_ids)
+            .bind(archived_by)
+            .bind("the focused Room was archived when its owner retired")
+            .execute(&mut **tx)
+            .await?;
+        }
+        for (mention_id, mentioned_actor_id, message_id) in pending {
+            let cancelled_event_id = append_room_event(
+                tx,
+                "room.mention.cancelled.v1",
+                *room_id,
+                archived_by,
+                Some(message_id),
+                serde_json::json!({
+                    "mention_id": mention_id,
+                    "mentioned_actor_id": mentioned_actor_id,
+                    "reason": "the Room was archived when its owner retired",
+                }),
+            )
+            .await?;
+            sqlx::query(
+                "UPDATE message_mentions SET cancelled_event_id=$2,cancelled_by=$3, \
+                        cancellation_reason=$4,cancelled_at=now(),claim_token=NULL, \
+                        claimed_at=NULL,claimed_until=NULL \
+                 WHERE id=$1 AND resolution_message_id IS NULL AND cancelled_event_id IS NULL",
+            )
+            .bind(mention_id)
+            .bind(cancelled_event_id)
+            .bind(archived_by)
+            .bind("the Room was archived when its owner retired")
+            .execute(&mut **tx)
+            .await?;
+        }
+
+        append_room_event(
+            tx,
+            "room.archived.v1",
+            *room_id,
+            archived_by,
+            None,
+            serde_json::json!({
+                "room_id": room_id,
+                "former_owner_actor_id": actor_id,
+                "reason": reason,
+            }),
+        )
+        .await?;
+        sqlx::query("UPDATE rooms SET archived_at=now() WHERE id=$1 AND archived_at IS NULL")
+            .bind(room_id)
+            .execute(&mut **tx)
+            .await?;
+    }
+    Ok(room_ids.len() as u64)
+}
+
 impl OrgIntel {
     /// Create one Room and its initial participant set atomically. Company and
     /// direct Rooms are idempotent by their canonical audience; a group Room
@@ -164,9 +802,16 @@ impl OrgIntel {
         kind: RoomKind,
         title: &str,
         participant_actor_ids: &[&str],
+        client_command_id: &str,
     ) -> Result<RoomRow> {
         let created_by = created_by.trim();
         let title = title.trim();
+        let client_command_id = client_command_id.trim();
+        if client_command_id.is_empty() || client_command_id.len() > 128 {
+            return Err(OrgIntelError::InvalidRoom(
+                "Room creation needs a stable 1 to 128 byte client command id".into(),
+            ));
+        }
         if title.is_empty() || title.chars().count() > 160 {
             return Err(OrgIntelError::InvalidRoom(
                 "a Room title must contain between 1 and 160 characters".into(),
@@ -201,9 +846,62 @@ impl OrgIntel {
         };
 
         let participant_values = participants.iter().cloned().collect::<Vec<_>>();
+        let payload_sha256 = room_creation_digest(kind, title, &participant_values);
         let mut tx = self.pool.begin().await?;
+        // Serialize the command key before looking up its receipt. Two
+        // replicas that receive the same group-Room command may both begin
+        // before either commits; the loser waits here and then replays the
+        // winner instead of attempting a second Room and failing on the
+        // receipt primary key.
+        sqlx::query(
+            "SELECT pg_advisory_xact_lock(\
+               hashtextextended('restless-room-create:' || current_schema() || ':' || $1 || ':' || $2,0)\
+             )",
+        )
+        .bind(created_by)
+        .bind(client_command_id)
+        .execute(&mut *tx)
+        .await?;
+        if let Some((prior_digest, room_id)) = sqlx::query_as::<_, (String, Uuid)>(
+            "SELECT command.client_payload_sha256,command.room_id \
+             FROM room_creation_commands command \
+             WHERE command.created_by=$1 AND command.client_command_id=$2 \
+             FOR SHARE OF command",
+        )
+        .bind(created_by)
+        .bind(client_command_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        {
+            if prior_digest != payload_sha256 {
+                return Err(OrgIntelError::RoomCommandConflict(format!(
+                    "Room command {client_command_id:?} was already used with different semantics"
+                )));
+            }
+            let room = sqlx::query_as(
+                "SELECT id,kind,title,created_by,canonical_key,created_at,archived_at \
+                 FROM rooms WHERE id=$1 FOR SHARE",
+            )
+            .bind(room_id)
+            .fetch_one(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            return Ok(room);
+        }
+        // Mutable lifecycle and participant admission applies only to a new
+        // command. An exact committed receipt remains recoverable after its
+        // creator retires, another participant leaves, or the Room archives.
+        sqlx::query("SELECT id FROM actors WHERE id=$1 AND retired_at IS NULL FOR SHARE")
+            .bind(created_by)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| {
+                OrgIntelError::RoomAccessDenied(
+                    "the Room creator must be an active durable Actor".into(),
+                )
+            })?;
         let active_actor_ids = sqlx::query_scalar::<_, String>(
-            "SELECT id FROM actors WHERE id=ANY($1) AND retired_at IS NULL ORDER BY id",
+            "SELECT id FROM actors WHERE id=ANY($1) AND retired_at IS NULL ORDER BY id FOR SHARE",
         )
         .bind(&participant_values)
         .fetch_all(&mut *tx)
@@ -213,6 +911,12 @@ impl OrgIntel {
                 "every Room participant must be an active durable Actor".into(),
             ));
         }
+        // One durable database fence bounds resource creation across every
+        // daemon replica. Archived Rooms no longer consume the active quota;
+        // their history remains immutable and available to audit paths.
+        sqlx::query("LOCK TABLE rooms IN SHARE ROW EXCLUSIVE MODE")
+            .execute(&mut *tx)
+            .await?;
 
         let candidate_id = Uuid::new_v4();
         let inserted: Option<RoomRow> = sqlx::query_as(
@@ -253,6 +957,19 @@ impl OrgIntel {
             return Err(OrgIntelError::InvalidRoom(
                 "canonical Room kind does not match the requested audience".into(),
             ));
+        }
+        if created {
+            let active_owned_rooms: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM rooms WHERE created_by=$1 AND archived_at IS NULL",
+            )
+            .bind(created_by)
+            .fetch_one(&mut *tx)
+            .await?;
+            if active_owned_rooms > MAX_ACTIVE_ROOMS_CREATED_PER_ACTOR {
+                return Err(OrgIntelError::InvalidRoom(format!(
+                    "an Actor may own at most {MAX_ACTIVE_ROOMS_CREATED_PER_ACTOR} active Rooms"
+                )));
+            }
         }
 
         // Creation of an ordinary group Room is always a fresh insert. An
@@ -353,6 +1070,17 @@ impl OrgIntel {
             )
             .await?;
         }
+        sqlx::query(
+            "INSERT INTO room_creation_commands \
+             (created_by,client_command_id,client_payload_sha256,room_id) \
+             VALUES ($1,$2,$3,$4)",
+        )
+        .bind(created_by)
+        .bind(client_command_id)
+        .bind(payload_sha256)
+        .bind(room.id)
+        .execute(&mut *tx)
+        .await?;
         tx.commit().await?;
         Ok(room)
     }
@@ -363,12 +1091,14 @@ impl OrgIntel {
         &self,
         created_by: &str,
         participant_actor_ids: &[&str],
+        client_command_id: &str,
     ) -> Result<RoomRow> {
         self.create_room(
             created_by,
             RoomKind::Company,
             "Company",
             participant_actor_ids,
+            client_command_id,
         )
         .await
     }
@@ -433,6 +1163,21 @@ impl OrgIntel {
         }
 
         let mut tx = self.pool.begin().await?;
+        let mut command_actors = vec![requesting_actor.to_string(), actor_id.to_string()];
+        command_actors.sort();
+        command_actors.dedup();
+        let active_actors = sqlx::query_scalar::<_, String>(
+            "SELECT id FROM actors WHERE id=ANY($1) AND retired_at IS NULL \
+             ORDER BY id FOR SHARE",
+        )
+        .bind(&command_actors)
+        .fetch_all(&mut *tx)
+        .await?;
+        if active_actors != command_actors {
+            return Err(OrgIntelError::InvalidRoom(
+                "the Room owner and new participant must be active durable Actors".into(),
+            ));
+        }
         sqlx::query("SELECT id FROM rooms WHERE id=$1 FOR UPDATE")
             .bind(room_id)
             .fetch_optional(&mut *tx)
@@ -448,18 +1193,6 @@ impl OrgIntel {
                 "only the Room owner may add participants".into(),
             ));
         }
-        let actor_is_active: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM actors WHERE id=$1 AND retired_at IS NULL)",
-        )
-        .bind(actor_id)
-        .fetch_one(&mut *tx)
-        .await?;
-        if !actor_is_active {
-            return Err(OrgIntelError::InvalidRoom(
-                "the new participant must be an active durable Actor".into(),
-            ));
-        }
-
         if let Some(existing) = sqlx::query_as::<_, RoomParticipantRow>(
             "SELECT room_id,actor_id,role,joined_at,left_at FROM room_participants \
              WHERE room_id=$1 AND actor_id=$2 AND left_at IS NULL",
@@ -521,6 +1254,24 @@ impl OrgIntel {
         actor_id: &str,
     ) -> Result<RoomParticipantRow> {
         let mut tx = self.pool.begin().await?;
+        // Actor lifecycle owns the outer serialization boundary. Lock both
+        // requester and target in stable order before the Room so concurrent
+        // retirement, participant mutation, and Room sends cannot form an
+        // Actor/Room cycle.
+        let mut command_actors = vec![requesting_actor.to_string(), actor_id.to_string()];
+        command_actors.sort();
+        command_actors.dedup();
+        let durable_actors = sqlx::query_scalar::<_, String>(
+            "SELECT id FROM actors WHERE id=ANY($1) ORDER BY id FOR UPDATE",
+        )
+        .bind(&command_actors)
+        .fetch_all(&mut *tx)
+        .await?;
+        if durable_actors != command_actors {
+            return Err(OrgIntelError::InvalidRoom(
+                "the Room owner and selected participant must be durable Actors".into(),
+            ));
+        }
         sqlx::query("SELECT id FROM rooms WHERE id=$1 FOR UPDATE")
             .bind(room_id)
             .fetch_optional(&mut *tx)
@@ -567,6 +1318,14 @@ impl OrgIntel {
             }),
         )
         .await?;
+        cancel_pending_message_mentions(
+            &mut tx,
+            actor_id,
+            Some(room_id),
+            requesting_actor,
+            "the mentioned Actor was removed from this Room",
+        )
+        .await?;
         tx.commit().await?;
         Ok(removed)
     }
@@ -605,6 +1364,68 @@ impl OrgIntel {
         client_command_id: &str,
         outcome_standard: Option<OutcomeStandard>,
     ) -> Result<RoomMessageSendResult> {
+        self.send_room_message_with_mentions(
+            room_id,
+            author_actor,
+            body,
+            parent_message_id,
+            client_command_id,
+            outcome_standard,
+            &[],
+            None,
+        )
+        .await
+    }
+
+    /// Retry-safe Room send with structured, explicit Actor mentions and an
+    /// optional exact mention resolution. Mention creation, Message creation,
+    /// resolution and their existing-stream event receipts share one database
+    /// transaction. Reusing the command id with any semantic drift conflicts.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the Room command keeps attribution, thread, retry, optional standard and mention semantics explicit"
+    )]
+    pub async fn send_room_message_with_mentions(
+        &self,
+        room_id: Uuid,
+        author_actor: &str,
+        body: &str,
+        parent_message_id: Option<i64>,
+        client_command_id: &str,
+        outcome_standard: Option<OutcomeStandard>,
+        mentions: &[NewRoomMessageMention],
+        resolves_mention_id: Option<Uuid>,
+    ) -> Result<RoomMessageSendResult> {
+        self.send_room_message_with_mention_claim(
+            room_id,
+            author_actor,
+            body,
+            parent_message_id,
+            client_command_id,
+            outcome_standard,
+            mentions,
+            resolves_mention_id,
+            None,
+        )
+        .await
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the internal Room command adds only the non-client Runtime claim proof"
+    )]
+    async fn send_room_message_with_mention_claim(
+        &self,
+        room_id: Uuid,
+        author_actor: &str,
+        body: &str,
+        parent_message_id: Option<i64>,
+        client_command_id: &str,
+        outcome_standard: Option<OutcomeStandard>,
+        mentions: &[NewRoomMessageMention],
+        resolves_mention_id: Option<Uuid>,
+        resolution_claim_token: Option<Uuid>,
+    ) -> Result<RoomMessageSendResult> {
         if body.trim().is_empty() || body.len() > MAX_ROOM_MESSAGE_BYTES {
             return Err(OrgIntelError::InvalidRoom(format!(
                 "a Room message needs 1 to {MAX_ROOM_MESSAGE_BYTES} bytes"
@@ -616,15 +1437,33 @@ impl OrgIntel {
                 "a retryable Room send needs a 1 to 128 byte client command id".into(),
             ));
         }
+        let mentions = normalized_mentions(author_actor, mentions)?;
         let payload_sha256 = room_message_digest(
             room_id,
             author_actor,
             parent_message_id,
             outcome_standard,
             body,
+            &mentions,
+            resolves_mention_id,
         );
 
+        let target_ids = mentions
+            .iter()
+            .map(|mention| mention.actor_id.clone())
+            .collect::<Vec<_>>();
         let mut tx = self.pool.begin().await?;
+        // Team responsibility and every participating Actor are locked before
+        // the Room, matching retirement/removal and preventing Actor↔Room
+        // cycles. The author is only required to be active; mention targets
+        // additionally pass the runtime-addressability policy.
+        lock_runtime_addressable_actors_in_tx(
+            &mut tx,
+            &target_ids,
+            true,
+            &[author_actor.to_string()],
+        )
+        .await?;
         let kind = active_room_kind(&mut tx, room_id, author_actor).await?;
 
         if let Some((message_id, prior_digest)) = sqlx::query_as::<_, (i64, String)>(
@@ -644,12 +1483,119 @@ impl OrgIntel {
             }
             let message = room_message_in_tx(&mut tx, room_id, message_id).await?;
             let event_id = durable_room_message_event_id(&mut tx, room_id, message_id).await?;
+            let mentions = message_mentions_for_message_in_tx(&mut tx, message_id).await?;
+            let resolved_mention = resolved_mention_for_message_in_tx(&mut tx, message_id).await?;
             tx.commit().await?;
             return Ok(RoomMessageSendResult {
                 message,
                 event_id,
                 created: false,
+                mentions,
+                resolved_mention,
             });
+        }
+
+        if !mentions.is_empty() {
+            // Quota locks are semantic and transaction-scoped: every process
+            // contending for the same author or recipient serializes before
+            // it counts and creates mention rows. They never replace the
+            // durable mention rows and cannot be lost on daemon restart.
+            let mut quota_keys = vec![format!("out:{author_actor}")];
+            quota_keys.extend(target_ids.iter().map(|actor_id| format!("in:{actor_id}")));
+            quota_keys.sort();
+            quota_keys.dedup();
+            for quota_key in quota_keys {
+                sqlx::query(
+                    "SELECT pg_advisory_xact_lock(\
+                       hashtextextended('restless-room-mention-quota:' || current_schema() || ':' || $1,0)\
+                     )",
+                )
+                .bind(quota_key)
+                .execute(&mut *tx)
+                .await?;
+            }
+            let authored_pending: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM message_mentions mention \
+                 JOIN messages message ON message.id=mention.message_id \
+                 WHERE message.from_actor=$1 AND mention.resolution_message_id IS NULL \
+                   AND mention.cancelled_event_id IS NULL",
+            )
+            .bind(author_actor)
+            .fetch_one(&mut *tx)
+            .await?;
+            if authored_pending.saturating_add(mentions.len() as i64)
+                > MAX_PENDING_MENTIONS_AUTHORED_PER_ACTOR
+            {
+                return Err(OrgIntelError::InvalidRoom(format!(
+                    "an Actor may author at most {MAX_PENDING_MENTIONS_AUTHORED_PER_ACTOR} pending mentions"
+                )));
+            }
+            let saturated_recipient: Option<String> = sqlx::query_scalar(
+                "SELECT mentioned_actor_id FROM message_mentions \
+                 WHERE mentioned_actor_id=ANY($1) AND resolution_message_id IS NULL \
+                   AND cancelled_event_id IS NULL \
+                 GROUP BY mentioned_actor_id HAVING COUNT(*) >= $2 \
+                 ORDER BY mentioned_actor_id LIMIT 1",
+            )
+            .bind(&target_ids)
+            .bind(MAX_PENDING_MENTIONS_FOR_ACTOR)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if let Some(actor_id) = saturated_recipient {
+                return Err(OrgIntelError::InvalidRoom(format!(
+                    "Actor {actor_id:?} already has the maximum {MAX_PENDING_MENTIONS_FOR_ACTOR} pending mentions"
+                )));
+            }
+        }
+
+        if !mentions.is_empty() {
+            let active_participants = sqlx::query_scalar::<_, String>(
+                "SELECT participant.actor_id FROM room_participants participant \
+                 WHERE participant.room_id=$1 AND participant.actor_id=ANY($2) \
+                   AND participant.left_at IS NULL ORDER BY participant.actor_id \
+                 FOR SHARE OF participant",
+            )
+            .bind(room_id)
+            .bind(&target_ids)
+            .fetch_all(&mut *tx)
+            .await?;
+            if active_participants.iter().ne(target_ids.iter()) {
+                return Err(OrgIntelError::RoomAccessDenied(
+                    "every mentioned Actor must be a current active Room participant".into(),
+                ));
+            }
+        }
+
+        if let Some(claim_token) = resolution_claim_token {
+            let Some(mention_id) = resolves_mention_id else {
+                return Err(OrgIntelError::RoomAccessDenied(
+                    "a Runtime mention claim may only authorize its exact resolving reply".into(),
+                ));
+            };
+            sqlx::query("SELECT id FROM actors WHERE id=$1 AND retired_at IS NULL FOR UPDATE")
+                .bind(author_actor)
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or_else(|| {
+                    OrgIntelError::RoomAccessDenied(
+                        "the claimed mention Actor is no longer active".into(),
+                    )
+                })?;
+            let lease_live: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM actor_cognitive_leases \
+                 WHERE actor_id=$1 AND lease_token=$2 AND focused_mention_id=$3 \
+                   AND claimed_until>now() AND revoked_at IS NULL)",
+            )
+            .bind(author_actor)
+            .bind(claim_token)
+            .bind(mention_id)
+            .fetch_one(&mut *tx)
+            .await?;
+            if !lease_live {
+                return Err(OrgIntelError::RoomAccessDenied(
+                    "the Actor cognitive-session lease no longer owns this mention".into(),
+                ));
+            }
         }
 
         let thread_root_message_id = match parent_message_id {
@@ -675,7 +1621,7 @@ impl OrgIntel {
         // direct Room. Replies to the stable owner retain the historical NULL
         // owner-inbox spelling; company/group delivery uses participants and
         // future mentions, never the global legacy inbox.
-        let to_actor = if kind == RoomKind::Direct {
+        let to_actor = if kind == RoomKind::Direct && mentions.is_empty() {
             let active_participants = sqlx::query_scalar::<_, String>(
                 "SELECT participant.actor_id FROM room_participants participant \
                  JOIN actors actor ON actor.id=participant.actor_id \
@@ -741,13 +1687,197 @@ impl OrgIntel {
                 (message_id, false)
             }
         };
+
+        // A concurrent identical command owns mention creation and resolution.
+        // Once its Message won the idempotency key, replay its exact receipts
+        // rather than reapplying either side effect.
+        if !created {
+            let message = room_message_in_tx(&mut tx, room_id, message_id).await?;
+            let event_id = durable_room_message_event_id(&mut tx, room_id, message_id).await?;
+            let mentions = message_mentions_for_message_in_tx(&mut tx, message_id).await?;
+            let resolved_mention = resolved_mention_for_message_in_tx(&mut tx, message_id).await?;
+            tx.commit().await?;
+            return Ok(RoomMessageSendResult {
+                message,
+                event_id,
+                created: false,
+                mentions,
+                resolved_mention,
+            });
+        }
+
+        for mention in &mentions {
+            let mention_id = Uuid::new_v4();
+            let mention_kind = if mention.actor_id == "exec" {
+                MessageMentionKind::Exec
+            } else {
+                MessageMentionKind::Direct
+            };
+            let created_event_id = append_room_event(
+                &mut tx,
+                "room.mention.created.v1",
+                room_id,
+                author_actor,
+                Some(message_id),
+                serde_json::json!({
+                    "mention_id": mention_id,
+                    "mentioned_actor_id": mention.actor_id,
+                }),
+            )
+            .await?;
+            sqlx::query(
+                "INSERT INTO message_mentions \
+                 (id,room_id,message_id,thread_root_message_id,mentioned_actor_id,kind,work_id, \
+                  why_this_actor,expected_response,recommendation,alternatives,evidence, \
+                  uncertainty,affected_scope,deadline_at,fallback,independent_work_can_continue, \
+                  created_event_id) \
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)",
+            )
+            .bind(mention_id)
+            .bind(room_id)
+            .bind(message_id)
+            .bind(thread_root_message_id.unwrap_or(message_id))
+            .bind(&mention.actor_id)
+            .bind(mention_kind)
+            .bind(mention.work_id)
+            .bind(mention.why_this_actor.as_deref())
+            .bind(mention.expected_response.as_deref())
+            .bind(mention.recommendation.as_deref())
+            .bind(
+                serde_json::to_value(&mention.alternatives)
+                    .expect("mention alternatives serialize"),
+            )
+            .bind(serde_json::to_value(&mention.evidence).expect("mention evidence serializes"))
+            .bind(mention.uncertainty.as_deref())
+            .bind(mention.affected_scope.as_deref())
+            .bind(mention.deadline_at)
+            .bind(mention.fallback.as_deref())
+            .bind(mention.independent_work_can_continue)
+            .bind(created_event_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        if let Some(mention_id) = resolves_mention_id {
+            let Some(parent_message_id) = parent_message_id else {
+                return Err(OrgIntelError::InvalidRoom(
+                    "a mention can only be resolved by an explicit reply in its Thread".into(),
+                ));
+            };
+            let target = sqlx::query(
+                "SELECT mention.room_id,mention.mentioned_actor_id, \
+                        mention.thread_root_message_id,mention.resolution_message_id, \
+                        mention.cancelled_event_id,actor.actor_class,mention.claim_token, \
+                        COALESCE(mention.claimed_until>now(),FALSE) AS claim_live, \
+                        EXISTS(SELECT 1 FROM actor_cognitive_leases lease \
+                               WHERE lease.actor_id=mention.mentioned_actor_id \
+                                 AND lease.lease_token=mention.claim_token \
+                                 AND lease.focused_mention_id=mention.id \
+                                 AND lease.claimed_until>now() \
+                                 AND lease.revoked_at IS NULL) AS lease_live \
+                 FROM message_mentions mention \
+                 JOIN actors actor ON actor.id=mention.mentioned_actor_id \
+                 WHERE mention.id=$1 FOR UPDATE OF mention",
+            )
+            .bind(mention_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            let Some(target) = target else {
+                return Err(OrgIntelError::InvalidRoom(
+                    "the mention selected for resolution does not exist".into(),
+                ));
+            };
+            let mention_room_id: Uuid = target.get("room_id");
+            let mentioned_actor_id: String = target.get("mentioned_actor_id");
+            let mention_thread_root: i64 = target.get("thread_root_message_id");
+            let prior_resolution: Option<i64> = target.get("resolution_message_id");
+            if mention_room_id != room_id
+                || mentioned_actor_id != author_actor
+                || mention_thread_root != thread_root_message_id.unwrap_or(parent_message_id)
+            {
+                return Err(OrgIntelError::RoomAccessDenied(
+                    "only the mentioned Actor may resolve it with a reply in the exact Room and Thread"
+                        .into(),
+                ));
+            }
+            if prior_resolution.is_some() {
+                return Err(OrgIntelError::RoomCommandConflict(
+                    "the selected mention was already resolved by another reply".into(),
+                ));
+            }
+            if target.get::<Option<i64>, _>("cancelled_event_id").is_some() {
+                return Err(OrgIntelError::RoomCommandConflict(
+                    "the selected mention was cancelled and cannot be resolved".into(),
+                ));
+            }
+            let actor_class: String = target.get("actor_class");
+            let durable_claim_token: Option<Uuid> = target.get("claim_token");
+            if actor_class == "human" {
+                if resolution_claim_token.is_some() {
+                    return Err(OrgIntelError::RoomAccessDenied(
+                        "a human mention is resolved by its authenticated human, not a Runtime lease"
+                            .into(),
+                    ));
+                }
+            } else if resolution_claim_token.is_none()
+                || durable_claim_token != resolution_claim_token
+                || !target.get::<bool, _>("claim_live")
+                || !target.get::<bool, _>("lease_live")
+            {
+                return Err(OrgIntelError::RoomAccessDenied(
+                    "an agent mention reply requires its exact live Actor cognitive-session lease"
+                        .into(),
+                ));
+            }
+            let resolved_event_id = append_room_event(
+                &mut tx,
+                "room.mention.resolved.v1",
+                room_id,
+                author_actor,
+                Some(message_id),
+                serde_json::json!({
+                    "mention_id": mention_id,
+                    "resolution_message_id": message_id,
+                }),
+            )
+            .await?;
+            sqlx::query(
+                "UPDATE message_mentions \
+                 SET resolution_message_id=$2,resolved_event_id=$3,resolved_at=now(), \
+                     resolution_claim_token=$4,claim_token=NULL,claimed_at=NULL,claimed_until=NULL \
+                 WHERE id=$1 AND resolution_message_id IS NULL \
+                   AND cancelled_event_id IS NULL",
+            )
+            .bind(mention_id)
+            .bind(message_id)
+            .bind(resolved_event_id)
+            .bind(resolution_claim_token)
+            .execute(&mut *tx)
+            .await?;
+            if let Some(claim_token) = resolution_claim_token {
+                sqlx::query(
+                    "UPDATE actor_cognitive_leases SET focused_mention_id=NULL \
+                     WHERE actor_id=$1 AND lease_token=$2 AND focused_mention_id=$3",
+                )
+                .bind(author_actor)
+                .bind(claim_token)
+                .bind(mention_id)
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+
         let message = room_message_in_tx(&mut tx, room_id, message_id).await?;
         let event_id = durable_room_message_event_id(&mut tx, room_id, message_id).await?;
+        let mentions = message_mentions_for_message_in_tx(&mut tx, message_id).await?;
+        let resolved_mention = resolved_mention_for_message_in_tx(&mut tx, message_id).await?;
         tx.commit().await?;
         Ok(RoomMessageSendResult {
             message,
             event_id,
             created,
+            mentions,
+            resolved_mention,
         })
     }
 
@@ -838,17 +1968,565 @@ impl OrgIntel {
                 .fetch_all(&mut *tx)
                 .await?
             };
-        tx.commit().await?;
         let has_more = messages.len() as i64 > limit;
         if has_more {
             messages.truncate(limit as usize);
         }
+        let message_ids = messages
+            .iter()
+            .map(|message| message.id)
+            .collect::<Vec<_>>();
+        let mentions = message_mentions_for_messages_in_tx(&mut tx, &message_ids).await?;
+        tx.commit().await?;
         let next_after_message_id = messages.last().map(|message| message.id);
         Ok(RoomMessagePage {
             messages,
+            mentions,
             next_after_message_id,
             has_more,
         })
+    }
+
+    /// Unresolved recipient-relative Attention for one durable Actor. Current
+    /// Room participation is joined on every read: mention ids and old event
+    /// cursors never become access capabilities after a participant leaves.
+    pub async fn pending_message_mentions_for_actor(
+        &self,
+        actor_id: &str,
+        after_created_event_id: i64,
+        limit: i64,
+    ) -> Result<Vec<MessageMentionContext>> {
+        if after_created_event_id < 0 || !(1..=100).contains(&limit) {
+            return Err(OrgIntelError::InvalidEventCursor(
+                "mention cursor must be non-negative and limit must be between 1 and 100".into(),
+            ));
+        }
+        let mut tx = self.pool.begin().await?;
+        let mention_rows: Vec<MessageMentionRow> = sqlx::query_as(
+            "SELECT mention.id,mention.room_id,mention.message_id,mention.thread_root_message_id, \
+                    mention.mentioned_actor_id,mention.kind,mention.work_id,mention.why_this_actor, \
+                    mention.expected_response,mention.recommendation,mention.alternatives, \
+                    mention.evidence,mention.uncertainty,mention.affected_scope,mention.deadline_at, \
+                    mention.fallback,mention.independent_work_can_continue,mention.created_event_id, \
+                    mention.resolution_message_id,mention.resolved_event_id, \
+                    mention.cancelled_event_id,mention.cancelled_by,mention.cancellation_reason, \
+                    mention.created_at,mention.resolved_at,mention.cancelled_at \
+             FROM message_mentions mention \
+             JOIN room_participants participant \
+               ON participant.room_id=mention.room_id \
+              AND participant.actor_id=mention.mentioned_actor_id \
+             JOIN actors actor ON actor.id=mention.mentioned_actor_id \
+             JOIN rooms room ON room.id=mention.room_id \
+             WHERE mention.mentioned_actor_id=$1 \
+               AND mention.resolution_message_id IS NULL \
+               AND mention.cancelled_event_id IS NULL \
+               AND mention.created_event_id>$2 \
+               AND participant.left_at IS NULL AND actor.retired_at IS NULL \
+               AND room.archived_at IS NULL \
+             ORDER BY mention.created_event_id LIMIT $3 \
+             FOR SHARE OF participant,actor,room",
+        )
+        .bind(actor_id)
+        .bind(after_created_event_id)
+        .bind(limit)
+        .fetch_all(&mut *tx)
+        .await?;
+
+        if mention_rows.is_empty() {
+            tx.commit().await?;
+            return Ok(Vec::new());
+        }
+        let message_ids = mention_rows
+            .iter()
+            .map(|mention| mention.message_id)
+            .collect::<Vec<_>>();
+        let room_ids = mention_rows
+            .iter()
+            .map(|mention| mention.room_id)
+            .collect::<Vec<_>>();
+        let messages: Vec<RoomMessageRow> = sqlx::query_as(
+            "SELECT id,room_id,from_actor,to_actor,body,outcome_standard,parent_message_id, \
+                    thread_root_message_id,client_command_id,created_at,read_at AS legacy_read_at \
+             FROM messages WHERE id=ANY($1)",
+        )
+        .bind(&message_ids)
+        .fetch_all(&mut *tx)
+        .await?;
+        let rooms: Vec<(Uuid, String)> =
+            sqlx::query_as("SELECT id,title FROM rooms WHERE id=ANY($1)")
+                .bind(&room_ids)
+                .fetch_all(&mut *tx)
+                .await?;
+        tx.commit().await?;
+
+        let mut messages = messages
+            .into_iter()
+            .map(|message| (message.id, message))
+            .collect::<HashMap<_, _>>();
+        let rooms = rooms.into_iter().collect::<HashMap<_, _>>();
+        mention_rows
+            .into_iter()
+            .map(|mention| {
+                let message = messages.remove(&mention.message_id).ok_or_else(|| {
+                    OrgIntelError::InvalidRoom(
+                        "a durable mention lost its authoritative Message".into(),
+                    )
+                })?;
+                let room_title = rooms.get(&mention.room_id).cloned().ok_or_else(|| {
+                    OrgIntelError::InvalidRoom("a durable mention lost its Room".into())
+                })?;
+                Ok(MessageMentionContext {
+                    mention,
+                    room_title,
+                    message,
+                })
+            })
+            .collect()
+    }
+
+    pub async fn next_pending_message_mention(
+        &self,
+        actor_id: &str,
+    ) -> Result<Option<MessageMentionContext>> {
+        Ok(self
+            .pending_message_mentions_for_actor(actor_id, 0, 1)
+            .await?
+            .into_iter()
+            .next())
+    }
+
+    /// Active agent Actors that still owe at least one explicit named-Actor
+    /// Room mention. This includes a former lead: a lead change changes an
+    /// office, not the durable identity named by an already-accepted mention.
+    /// The runtime still claims the Actor-wide lease before reading or acting.
+    pub async fn actors_owing_message_mentions(&self, limit: i64) -> Result<Vec<String>> {
+        let limit = limit.clamp(1, 128);
+        Ok(sqlx::query_scalar(
+            "SELECT mention.mentioned_actor_id \
+             FROM message_mentions mention \
+             JOIN actors actor ON actor.id=mention.mentioned_actor_id \
+             JOIN room_participants participant \
+               ON participant.room_id=mention.room_id \
+              AND participant.actor_id=mention.mentioned_actor_id \
+             JOIN rooms room ON room.id=mention.room_id \
+             WHERE mention.resolution_message_id IS NULL \
+               AND mention.cancelled_event_id IS NULL \
+               AND actor.actor_class='agent' AND actor.retired_at IS NULL \
+               AND participant.left_at IS NULL AND room.archived_at IS NULL \
+             GROUP BY mention.mentioned_actor_id \
+             ORDER BY MIN(mention.created_event_id),mention.mentioned_actor_id LIMIT $1",
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    /// Claim the Actor-wide conversation boundary. This row is deliberately a
+    /// lease, not audit history or another inbox: the one authoritative inputs
+    /// remain Messages, mentions and handoffs. Work claims and this method lock
+    /// the same Actor row before checking the other's durable ownership fact.
+    pub async fn claim_actor_cognitive_session(
+        &self,
+        actor_id: &str,
+        lease_for: std::time::Duration,
+    ) -> Result<Option<ActorCognitiveLease>> {
+        self.claim_actor_cognitive_session_internal(actor_id, None, lease_for)
+            .await
+    }
+
+    /// Team-lead conversation claim. The team row is locked before the Actor,
+    /// matching replacement/disband lifecycle order, so a dispatcher that
+    /// observed an old lead cannot acquire a lease after that role changed.
+    pub async fn claim_team_lead_cognitive_session(
+        &self,
+        actor_id: &str,
+        team_id: Uuid,
+        lease_for: std::time::Duration,
+    ) -> Result<Option<ActorCognitiveLease>> {
+        self.claim_actor_cognitive_session_internal(actor_id, Some(team_id), lease_for)
+            .await
+    }
+
+    async fn claim_actor_cognitive_session_internal(
+        &self,
+        actor_id: &str,
+        expected_lead_team_id: Option<Uuid>,
+        lease_for: std::time::Duration,
+    ) -> Result<Option<ActorCognitiveLease>> {
+        let lease_seconds = mention_lease_seconds(lease_for)?;
+        let mut tx = self.pool.begin().await?;
+        if let Some(team_id) = expected_lead_team_id {
+            let current_lead: Option<String> = sqlx::query_scalar(
+                "SELECT lead_actor_id FROM teams \
+                 WHERE id=$1 AND disbanded_at IS NULL FOR SHARE",
+            )
+            .bind(team_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if current_lead.as_deref() != Some(actor_id) {
+                tx.commit().await?;
+                return Ok(None);
+            }
+        }
+        let actor_available: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM actors \
+             WHERE id=$1 AND retired_at IS NULL AND actor_class='agent' FOR UPDATE)",
+        )
+        .bind(actor_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if !actor_available {
+            tx.commit().await?;
+            return Ok(None);
+        }
+
+        // A revoked token is already unable to renew or persist. Reclaim it
+        // immediately under the Actor lock so an owner interrupt or role
+        // transition does not impose the old lease's remaining TTL on the
+        // next valid conversation. Expired rows follow the same path.
+        let expired_or_revoked: Option<(Uuid, Option<Uuid>)> = sqlx::query_as(
+            "DELETE FROM actor_cognitive_leases \
+             WHERE actor_id=$1 AND (claimed_until<=now() OR revoked_at IS NOT NULL) \
+             RETURNING lease_token,focused_mention_id",
+        )
+        .bind(actor_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some((prior_token, _)) = expired_or_revoked {
+            sqlx::query(
+                "UPDATE message_mentions SET claim_token=NULL,claimed_at=NULL,claimed_until=NULL \
+                 WHERE mentioned_actor_id=$1 AND claim_token=$2 \
+                   AND resolution_message_id IS NULL AND cancelled_event_id IS NULL",
+            )
+            .bind(actor_id)
+            .bind(prior_token)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        let attempt_running: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM work_attempts \
+             WHERE actor_id=$1 AND state='running')",
+        )
+        .bind(actor_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if attempt_running {
+            tx.commit().await?;
+            return Ok(None);
+        }
+        let token = Uuid::new_v4();
+        let claimed_until: Option<DateTime<Utc>> = sqlx::query_scalar(
+            "INSERT INTO actor_cognitive_leases \
+             (actor_id,lease_token,claimed_at,claimed_until) \
+             VALUES ($1,$2,now(),now()+make_interval(secs=>$3)) \
+             ON CONFLICT (actor_id) DO NOTHING RETURNING claimed_until",
+        )
+        .bind(actor_id)
+        .bind(token)
+        .bind(lease_seconds as f64)
+        .fetch_optional(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(claimed_until.map(|claimed_until| ActorCognitiveLease {
+            actor_id: actor_id.to_string(),
+            token,
+            claimed_until,
+        }))
+    }
+
+    /// Extend an exact live Actor lease. Losing the token, expiry, retirement,
+    /// Room participation, or the Work exclusion makes renewal fail closed;
+    /// the caller must cancel its cognitive process and may not persist output.
+    pub async fn renew_actor_cognitive_session(
+        &self,
+        lease: &ActorCognitiveLease,
+        lease_for: std::time::Duration,
+    ) -> Result<ActorCognitiveLease> {
+        let lease_seconds = mention_lease_seconds(lease_for)?;
+        let mut tx = self.pool.begin().await?;
+        let actor_available: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM actors \
+             WHERE id=$1 AND retired_at IS NULL AND actor_class='agent' FOR UPDATE)",
+        )
+        .bind(&lease.actor_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        let focused_mention_id: Option<Uuid> = if actor_available {
+            sqlx::query_scalar::<_, Option<Uuid>>(
+                "SELECT focused_mention_id FROM actor_cognitive_leases \
+                 WHERE actor_id=$1 AND lease_token=$2 AND claimed_until>now() \
+                   AND revoked_at IS NULL FOR UPDATE",
+            )
+            .bind(&lease.actor_id)
+            .bind(lease.token)
+            .fetch_optional(&mut *tx)
+            .await?
+            .flatten()
+        } else {
+            None
+        };
+        let owns_live_lease: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM actor_cognitive_leases \
+             WHERE actor_id=$1 AND lease_token=$2 AND claimed_until>now() \
+               AND revoked_at IS NULL)",
+        )
+        .bind(&lease.actor_id)
+        .bind(lease.token)
+        .fetch_one(&mut *tx)
+        .await?;
+        let attempt_running: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM work_attempts \
+             WHERE actor_id=$1 AND state='running')",
+        )
+        .bind(&lease.actor_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        let focus_is_current = match focused_mention_id {
+            Some(mention_id) => {
+                sqlx::query_scalar::<_, bool>(
+                    "SELECT EXISTS( \
+                       SELECT 1 FROM message_mentions mention \
+                       JOIN room_participants participant \
+                         ON participant.room_id=mention.room_id \
+                        AND participant.actor_id=mention.mentioned_actor_id \
+                       JOIN rooms room ON room.id=mention.room_id \
+                       WHERE mention.id=$1 AND mention.mentioned_actor_id=$2 \
+                         AND mention.claim_token=$3 AND mention.resolution_message_id IS NULL \
+                         AND mention.cancelled_event_id IS NULL AND participant.left_at IS NULL \
+                         AND room.archived_at IS NULL)",
+                )
+                .bind(mention_id)
+                .bind(&lease.actor_id)
+                .bind(lease.token)
+                .fetch_one(&mut *tx)
+                .await?
+            }
+            None => true,
+        };
+        if !actor_available || !owns_live_lease || attempt_running || !focus_is_current {
+            tx.commit().await?;
+            return Err(OrgIntelError::RoomCommandConflict(
+                "the Actor cognitive-session lease is no longer current".into(),
+            ));
+        }
+
+        let claimed_until: DateTime<Utc> = sqlx::query_scalar(
+            "UPDATE actor_cognitive_leases \
+             SET claimed_until=now()+make_interval(secs=>$3) \
+             WHERE actor_id=$1 AND lease_token=$2 AND revoked_at IS NULL \
+             RETURNING claimed_until",
+        )
+        .bind(&lease.actor_id)
+        .bind(lease.token)
+        .bind(lease_seconds as f64)
+        .fetch_one(&mut *tx)
+        .await?;
+        sqlx::query(
+            "UPDATE message_mentions SET claimed_until=$3 \
+             WHERE mentioned_actor_id=$1 AND claim_token=$2 \
+               AND resolution_message_id IS NULL AND cancelled_event_id IS NULL",
+        )
+        .bind(&lease.actor_id)
+        .bind(lease.token)
+        .bind(claimed_until)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(ActorCognitiveLease {
+            actor_id: lease.actor_id.clone(),
+            token: lease.token,
+            claimed_until,
+        })
+    }
+
+    /// Release only the exact process token. A crashed process may call this
+    /// after a replacement has reclaimed the Actor; it cannot delete the new
+    /// owner's lease or claim.
+    pub async fn release_actor_cognitive_session(
+        &self,
+        lease: &ActorCognitiveLease,
+    ) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("SELECT id FROM actors WHERE id=$1 FOR UPDATE")
+            .bind(&lease.actor_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+        sqlx::query(
+            "UPDATE message_mentions SET claim_token=NULL,claimed_at=NULL,claimed_until=NULL \
+             WHERE mentioned_actor_id=$1 AND claim_token=$2 \
+               AND resolution_message_id IS NULL AND cancelled_event_id IS NULL",
+        )
+        .bind(&lease.actor_id)
+        .bind(lease.token)
+        .execute(&mut *tx)
+        .await?;
+        let removed =
+            sqlx::query("DELETE FROM actor_cognitive_leases WHERE actor_id=$1 AND lease_token=$2")
+                .bind(&lease.actor_id)
+                .bind(lease.token)
+                .execute(&mut *tx)
+                .await?;
+        tx.commit().await?;
+        Ok(removed.rows_affected() == 1)
+    }
+
+    /// Bind the oldest currently serviceable mention to an already-owned
+    /// Actor lease. Holding the Actor row prevents another replica from
+    /// claiming a different mention for the same Actor at the same time.
+    pub async fn claim_next_pending_message_mention(
+        &self,
+        lease: &ActorCognitiveLease,
+    ) -> Result<Option<MessageMentionClaim>> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("SELECT id FROM actors WHERE id=$1 AND retired_at IS NULL FOR UPDATE")
+            .bind(&lease.actor_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| {
+                OrgIntelError::RoomCommandConflict(
+                    "the mentioned Actor is no longer available".into(),
+                )
+            })?;
+        let live_lease: Option<(DateTime<Utc>, Option<Uuid>)> = sqlx::query_as(
+            "SELECT claimed_until,focused_mention_id FROM actor_cognitive_leases \
+             WHERE actor_id=$1 AND lease_token=$2 AND claimed_until>now() \
+               AND revoked_at IS NULL FOR UPDATE",
+        )
+        .bind(&lease.actor_id)
+        .bind(lease.token)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some((claimed_until, prior_focus)) = live_lease else {
+            return Err(OrgIntelError::RoomCommandConflict(
+                "the Actor cognitive-session lease is no longer current".into(),
+            ));
+        };
+        if let Some(mention_id) = prior_focus {
+            let still_current: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM message_mentions \
+                 WHERE id=$1 AND mentioned_actor_id=$2 AND claim_token=$3 \
+                   AND resolution_message_id IS NULL AND cancelled_event_id IS NULL \
+                   AND claimed_until>now())",
+            )
+            .bind(mention_id)
+            .bind(&lease.actor_id)
+            .bind(lease.token)
+            .fetch_one(&mut *tx)
+            .await?;
+            if still_current {
+                let context = message_mention_context_in_tx(&mut tx, mention_id).await?;
+                tx.commit().await?;
+                return Ok(Some(MessageMentionClaim {
+                    context,
+                    lease: ActorCognitiveLease {
+                        actor_id: lease.actor_id.clone(),
+                        token: lease.token,
+                        claimed_until,
+                    },
+                }));
+            }
+            sqlx::query(
+                "UPDATE actor_cognitive_leases SET focused_mention_id=NULL \
+                 WHERE actor_id=$1 AND lease_token=$2",
+            )
+            .bind(&lease.actor_id)
+            .bind(lease.token)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        let mention_id: Option<Uuid> = sqlx::query_scalar(
+            "SELECT mention.id FROM message_mentions mention \
+             JOIN room_participants participant \
+               ON participant.room_id=mention.room_id \
+              AND participant.actor_id=mention.mentioned_actor_id \
+             JOIN rooms room ON room.id=mention.room_id \
+             WHERE mention.mentioned_actor_id=$1 \
+               AND mention.resolution_message_id IS NULL AND mention.cancelled_event_id IS NULL \
+               AND (mention.claim_token IS NULL OR mention.claimed_until<=now()) \
+               AND participant.left_at IS NULL AND room.archived_at IS NULL \
+             ORDER BY mention.created_event_id FOR UPDATE OF mention SKIP LOCKED LIMIT 1",
+        )
+        .bind(&lease.actor_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(mention_id) = mention_id else {
+            tx.commit().await?;
+            return Ok(None);
+        };
+        sqlx::query(
+            "UPDATE message_mentions SET claim_token=$2,claimed_at=now(),claimed_until=$3 \
+             WHERE id=$1",
+        )
+        .bind(mention_id)
+        .bind(lease.token)
+        .bind(claimed_until)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "UPDATE actor_cognitive_leases SET focused_mention_id=$3 \
+             WHERE actor_id=$1 AND lease_token=$2",
+        )
+        .bind(&lease.actor_id)
+        .bind(lease.token)
+        .bind(mention_id)
+        .execute(&mut *tx)
+        .await?;
+        let context = message_mention_context_in_tx(&mut tx, mention_id).await?;
+        tx.commit().await?;
+        Ok(Some(MessageMentionClaim {
+            context,
+            lease: ActorCognitiveLease {
+                actor_id: lease.actor_id.clone(),
+                token: lease.token,
+                claimed_until,
+            },
+        }))
+    }
+
+    /// Runtime bridge convenience for the one-at-a-time mention path. The
+    /// stable command id makes a lost in-process receipt safe to retry; the
+    /// ordinary send invariant still rechecks current participation and exact
+    /// recipient/Room/Thread resolution inside one transaction.
+    pub async fn reply_to_message_mention(
+        &self,
+        actor_id: &str,
+        mention: &MessageMentionContext,
+        body: &str,
+    ) -> Result<RoomMessageSendResult> {
+        self.send_room_message_with_mentions(
+            mention.mention.room_id,
+            actor_id,
+            body,
+            Some(mention.message.id),
+            &format!("runtime-mention-reply:{}", mention.mention.id),
+            None,
+            &[],
+            Some(mention.mention.id),
+        )
+        .await
+    }
+
+    /// Runtime-only exact reply path. The Actor-wide lease token is checked in
+    /// the same transaction that creates the Message and resolves its mention.
+    pub async fn reply_to_claimed_message_mention(
+        &self,
+        claim: &MessageMentionClaim,
+        body: &str,
+    ) -> Result<RoomMessageSendResult> {
+        self.send_room_message_with_mention_claim(
+            claim.context.mention.room_id,
+            &claim.lease.actor_id,
+            body,
+            Some(claim.context.message.id),
+            &format!("runtime-mention-reply:{}", claim.context.mention.id),
+            None,
+            &[],
+            Some(claim.context.mention.id),
+            Some(claim.lease.token),
+        )
+        .await
     }
 
     /// Advance one participant's cursor monotonically. Retrying or presenting

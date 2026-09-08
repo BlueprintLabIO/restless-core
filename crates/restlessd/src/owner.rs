@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
-use anyhow::{Context as _, Result};
+use anyhow::{bail, Context as _, Result};
 use axum::body::{Body, Bytes};
 use axum::extract::ws::{Message as AxumMessage, WebSocket, WebSocketUpgrade};
 use axum::extract::{
@@ -26,7 +26,7 @@ use axum::http::header::{
 };
 use axum::http::request::Parts;
 use axum::http::uri::Authority;
-use axum::http::{HeaderMap, HeaderValue, Method, Response, StatusCode};
+use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, Response, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Redirect};
@@ -35,6 +35,7 @@ use axum::{Extension, Json, Router};
 use chrono::{Duration as ChronoDuration, Utc};
 use futures_util::{SinkExt as _, StreamExt as _};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest as _, Sha256};
 use tokio_tungstenite::{client_async, tungstenite};
 use tower_http::services::{ServeDir, ServeFile};
 use uuid::Uuid;
@@ -63,6 +64,16 @@ const REVIEW_TTL: Duration = Duration::from_secs(30 * 60);
 const CONTROL_TTL_SECONDS: i64 = 60;
 const MAX_ATTACHMENTS: usize = 6;
 const MAX_ATTACHMENT_BYTES: usize = 5 * 1024 * 1024;
+const MAX_STAGED_ATTACHMENT_FILES: usize = 24;
+const MAX_STAGED_ATTACHMENT_BYTES: usize = 64 * 1024 * 1024;
+const MAX_RETAINED_ATTACHMENT_FILES: usize = 512;
+const MAX_RETAINED_ATTACHMENT_BYTES: usize = 1024 * 1024 * 1024;
+const MAX_PRINCIPAL_RETAINED_ATTACHMENT_FILES: usize = 128;
+const MAX_PRINCIPAL_RETAINED_ATTACHMENT_BYTES: usize = 256 * 1024 * 1024;
+const ATTACHMENT_GC_BATCH: usize = 8;
+const ATTACHMENT_STAGE_STALE_AFTER: ChronoDuration = ChronoDuration::hours(1);
+const ATTACHMENT_GC_CLAIM_FOR: ChronoDuration = ChronoDuration::minutes(5);
+pub(crate) const OWNER_ATTACHMENT_RECONCILE_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const ATTACHMENT_BLOCK: &str = "\n\n[Restless attachments]\n";
 const ATTACHMENT_MARKER: &str = "<!--restless-attachments:";
 const INTENT_MARKER: &str = "<!--restless-intent:";
@@ -211,6 +222,7 @@ struct PartyAction {
 
 #[derive(Default)]
 struct OwnerMessageInput {
+    client_command_id: String,
     body: String,
     outcome_standard: Option<restless_orgintel::OutcomeStandard>,
     work_id: Option<Uuid>,
@@ -228,7 +240,12 @@ struct PendingAttachment {
     bytes: Vec<u8>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+struct PreparedOwnerAttachment {
+    attachment: OwnerAttachment,
+    bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
 struct OwnerAttachment {
@@ -311,6 +328,7 @@ struct ConversationMessageView {
 #[derive(Debug, Serialize, ts_rs::TS)]
 struct ConversationSendResponse {
     message_id: i64,
+    created: bool,
     interrupted: bool,
     context_attached: bool,
     context_omitted: bool,
@@ -354,6 +372,7 @@ where
 struct CreateRoomInput {
     kind: restless_orgintel::RoomKind,
     title: String,
+    command_id: String,
     #[serde(default)]
     participant_actor_ids: Vec<String>,
 }
@@ -366,9 +385,19 @@ struct RoomParticipantInput {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct AttachmentPurgeInput {
+    reason: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RoomMessageInput {
     body: String,
     command_id: String,
+    #[serde(default)]
+    mentions: Vec<restless_orgintel::NewRoomMessageMention>,
+    #[serde(default)]
+    resolves_mention_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -388,6 +417,13 @@ struct RoomPageQuery {
 #[serde(deny_unknown_fields)]
 struct RoomEventQuery {
     after_event_id: Option<i64>,
+    limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct MentionPageQuery {
+    after_created_event_id: Option<i64>,
     limit: Option<i64>,
 }
 
@@ -951,6 +987,7 @@ where
     RoomApiState: FromRef<S>,
 {
     Router::<S>::new()
+        .route("/companies/{company}/mentions", get(list_my_mentions))
         .route(
             "/companies/{company}/rooms",
             get(list_rooms).post(create_room),
@@ -986,6 +1023,10 @@ where
         .route(
             "/companies/{company}/rooms/{room}/read-cursor",
             get(get_room_read_cursor).post(mark_room_read),
+        )
+        .route(
+            "/companies/{company}/attachments/{attachment}",
+            get(download_attachment).delete(request_attachment_purge),
         )
         .layer(DefaultBodyLimit::max(128 * 1024))
 }
@@ -1072,10 +1113,6 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route(
             "/companies/{company}/actors/{actor}/activity",
             get(agent_activity_live),
-        )
-        .route(
-            "/companies/{company}/attachments/{attachment}",
-            get(download_attachment),
         )
         .route(
             "/companies/{company}/handoffs/{handoff}/review",
@@ -1299,7 +1336,7 @@ async fn network_session_is_current(
 }
 
 fn membership_boundary_violation(
-    _method: &Method,
+    method: &Method,
     path: &str,
     principal: &RequestPrincipal,
 ) -> Option<BoundaryRefusal> {
@@ -1313,6 +1350,7 @@ fn membership_boundary_violation(
         || is_actor_conversation_route(path)
         || is_company_route_family(path, "rooms")
         || is_company_route_family(path, "documents")
+        || is_attachment_download_route(method, path)
     {
         return None;
     }
@@ -1321,6 +1359,23 @@ fn membership_boundary_violation(
         code: "membership_role",
         message: "this membership may collaborate but may not perform owner operations",
     })
+}
+
+fn is_attachment_download_route(method: &Method, path: &str) -> bool {
+    if !matches!(*method, Method::GET | Method::HEAD) {
+        return false;
+    }
+    let Some(rest) = path.strip_prefix("/api/companies/") else {
+        return false;
+    };
+    let mut segments = rest.split('/');
+    segments.next().is_some_and(|company| !company.is_empty())
+        && segments.next() == Some("attachments")
+        && segments
+            .next()
+            .and_then(|attachment| Uuid::parse_str(attachment).ok())
+            .is_some()
+        && segments.next().is_none()
 }
 
 fn is_owner_data_surface(path: &str) -> bool {
@@ -1354,6 +1409,27 @@ struct BoundaryRefusal {
     status: StatusCode,
     code: &'static str,
     message: &'static str,
+}
+
+fn owner_message_membership_violation(
+    membership_role: &str,
+    input: &OwnerMessageInput,
+) -> Option<BoundaryRefusal> {
+    if membership_role != "owner" && (input.work_id.is_some() || input.attention_id.is_some()) {
+        return Some(BoundaryRefusal {
+            status: StatusCode::FORBIDDEN,
+            code: "work_scope",
+            message: "only the company membership owner may link a conversation message to Work or Attention until that Work is explicitly shared",
+        });
+    }
+    if input.interrupt && !matches!(membership_role, "owner" | "admin") {
+        return Some(BoundaryRefusal {
+            status: StatusCode::FORBIDDEN,
+            code: "membership_role",
+            message: "ordinary members may add collaboration input but may not interrupt an active cognitive session",
+        });
+    }
+    None
 }
 
 /// The whole network-mode entry decision, as one pure function.
@@ -3551,6 +3627,7 @@ async fn create_room(
             input.kind,
             &input.title,
             &participants,
+            &input.command_id,
         )
         .await
     {
@@ -4080,17 +4157,32 @@ async fn deliver_room_message(
     parent_message_id: Option<i64>,
     input: RoomMessageInput,
 ) -> Response<Body> {
+    if principal.membership_role() != "owner"
+        && input
+            .mentions
+            .iter()
+            .any(|mention| mention.work_id.is_some())
+    {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "work_scope",
+            "only the company membership owner may create a Work-scoped mention until that Work is explicitly shared with a Room",
+        );
+    }
     let org = match room_orgintel(&state, &principal, &company).await {
         Ok(org) => org,
         Err(response) => return response,
     };
     match org
-        .send_room_message(
+        .send_room_message_with_mentions(
             room,
             principal.actor_id(),
             &input.body,
             parent_message_id,
             &input.command_id,
+            None,
+            &input.mentions,
+            input.resolves_mention_id,
         )
         .await
     {
@@ -4102,6 +4194,34 @@ async fn deliver_room_message(
             };
             (status, Json(result)).into_response()
         }
+        Err(error) => room_error(error),
+    }
+}
+
+async fn list_my_mentions(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath(company): AxumPath<String>,
+    Query(query): Query<MentionPageQuery>,
+) -> Response<Body> {
+    let after_created_event_id = query.after_created_event_id.unwrap_or(0);
+    let limit = query.limit.unwrap_or(50);
+    if after_created_event_id < 0 || !(1..=100).contains(&limit) {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "mention_cursor",
+            "after_created_event_id must be non-negative and limit must be between 1 and 100",
+        );
+    }
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .pending_message_mentions_for_actor(principal.actor_id(), after_created_event_id, limit)
+        .await
+    {
+        Ok(mentions) => Json(serde_json::json!({ "mentions": mentions })).into_response(),
         Err(error) => room_error(error),
     }
 }
@@ -4461,6 +4581,14 @@ async fn send_actor_message(
             "message must contain between 1 and 20,000 characters",
         );
     }
+    let client_command_id = input.client_command_id.trim();
+    if client_command_id.is_empty() || client_command_id.chars().count() > 128 {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "client_command_id",
+            "message delivery requires a stable 1 to 128 character client command id",
+        );
+    }
     if input.new_focus && (actor != "exec" || input.work_id.is_some()) {
         return api_error(
             StatusCode::BAD_REQUEST,
@@ -4474,6 +4602,9 @@ async fn send_actor_message(
             "outcome_standard",
             "an outcome standard can be selected only for a new Exec request",
         );
+    }
+    if let Some(refusal) = owner_message_membership_violation(principal.membership_role(), &input) {
+        return api_error(refusal.status, refusal.code, refusal.message);
     }
     // Context is useful navigation metadata, not part of message delivery. Parse
     // it as a URL so a root screen with query state (for example
@@ -4494,22 +4625,76 @@ async fn send_actor_message(
             )
         }
     };
-    let target_exists = match org.list_actors().await {
-        Ok(actors) => actors.iter().any(|row| row.id == actor),
+    // Target existence and current runtime addressability are deliberately not
+    // prechecked here. OrgIntel locks Team then Actor in the same transaction
+    // as a new Message, while an exact committed retry is replayed before that
+    // mutable role check. A handler-side snapshot would both race lifecycle
+    // changes and make a lost response unrecoverable after lead replacement.
+    let sender = principal.actor_id().to_string();
+    match org.active_actor(&sender).await {
+        Ok(Some(row)) if row.actor_class == "human" => {}
+        Ok(_) => {
+            return api_error(
+                StatusCode::FORBIDDEN,
+                "request_principal",
+                "the verified request principal is not an active human Actor",
+            );
+        }
         Err(error) => {
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
                 format!("{error:#}"),
-            )
+            );
         }
-    };
-    if !target_exists {
-        return api_error(
-            StatusCode::NOT_FOUND,
-            "actor",
-            "requesting actor no longer exists",
-        );
+    }
+    let client_payload_sha256 = owner_message_command_digest(
+        &company,
+        &sender,
+        &actor,
+        body,
+        context_path.as_deref(),
+        context_omitted,
+        &input,
+    );
+    match org
+        .conversation_command_receipt(&sender, &actor, client_command_id, &client_payload_sha256)
+        .await
+    {
+        Ok(Some((message_id, focus, receipt_body))) => {
+            if input.work_id.is_none() && focus.is_none() {
+                return api_error(
+                    StatusCode::CONFLICT,
+                    "client_command_id",
+                    "the committed conversation receipt has an incompatible command shape",
+                );
+            }
+            finish_receipted_attachments(&org, &receipt_body).await;
+            return Json(ConversationSendResponse {
+                message_id,
+                created: false,
+                interrupted: false,
+                context_attached: context_path.is_some(),
+                context_omitted,
+                focus: focus.map(|focus| ConversationFocusView {
+                    after_message_id: focus.after_message_id,
+                    started_at: focus.started_at,
+                }),
+                requested_outcome_standard: input.outcome_standard,
+            })
+            .into_response();
+        }
+        Ok(None) => {}
+        Err(restless_orgintel::OrgIntelError::RoomCommandConflict(message)) => {
+            return api_error(StatusCode::CONFLICT, "client_command_id", message);
+        }
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            );
+        }
     }
     let attention_id = input.attention_id.clone();
     let attention_context = if let Some(attention_id) = attention_id.as_deref() {
@@ -4548,6 +4733,16 @@ async fn send_actor_message(
                 )
             }
         };
+        let handoff_input = projected
+            .work_graph
+            .as_ref()
+            .and_then(|graph| {
+                graph
+                    .handoffs
+                    .iter()
+                    .find(|handoff| handoff.id == handoff_id)
+            })
+            .map(restless_orgintel::OwnerHandoffRow::conversation_input);
         let item = projected.items.into_iter().find(|item| {
             item.id == attention_id
                 && item.source.reference == handoff_id.to_string()
@@ -4561,61 +4756,89 @@ async fn send_actor_message(
                     .iter()
                     .any(|action| action.role == "conversation")
         });
-        let Some(item) = item else {
+        let Some((item, handoff_input)) = item.zip(handoff_input) else {
             return api_error(
                 StatusCode::CONFLICT,
                 "attention_context",
                 "this Attention item was resolved or reassigned; refresh before sending",
             );
         };
-        Some(item)
+        Some((item, handoff_input))
     } else {
         None
     };
-    let sender = principal.actor_id().to_string();
-    match org.active_actor(&sender).await {
-        Ok(Some(row)) if row.actor_class == "human" => {}
-        Ok(_) => {
-            return api_error(
-                StatusCode::FORBIDDEN,
-                "request_principal",
-                "the verified request principal is not an active human Actor",
-            );
-        }
-        Err(error) => {
-            return api_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "orgintel",
-                format!("{error:#}"),
-            );
-        }
-    }
-    let mut stored = Vec::with_capacity(input.attachments.len());
+    let mut prepared = Vec::with_capacity(input.attachments.len());
     for attachment in input.attachments {
         let upload_id = Uuid::new_v4();
-        let metadata = OwnerAttachment {
+        let attachment_metadata = OwnerAttachment {
             upload_id,
             name: attachment.name,
             media_type: attachment.media_type,
             size_bytes: attachment.bytes.len(),
-            path: format!("/company/inbox/owner-attachments/{upload_id}/content"),
+            path: canonical_attachment_path(upload_id),
         };
-        let sidecar = match serde_json::to_vec(&metadata) {
-            Ok(sidecar) => sidecar,
-            Err(error) => {
-                rollback_attachments(&company, &stored).await;
-                return api_error(StatusCode::BAD_REQUEST, "attachment", error.to_string());
-            }
-        };
-        match runtime::store_owner_attachment(&company, upload_id, &attachment.bytes, &sidecar)
+        prepared.push(PreparedOwnerAttachment {
+            attachment: attachment_metadata,
+            bytes: attachment.bytes,
+        });
+    }
+    if !prepared.is_empty() {
+        if let Err(error) = collect_owner_attachments(&org, &company).await {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "attachment_staging",
+                format!("{error:#}"),
+            );
+        }
+        let registrations = prepared
+            .iter()
+            .map(|item| restless_orgintel::OwnerAttachmentRegistration {
+                attachment_id: item.attachment.upload_id,
+                canonical_name: item.attachment.name.clone(),
+                canonical_media_type: item.attachment.media_type.clone(),
+                size_bytes: i64::try_from(item.attachment.size_bytes)
+                    .expect("attachment size is bounded"),
+                content_sha256: format!("{:x}", Sha256::digest(&item.bytes)),
+            })
+            .collect::<Vec<_>>();
+        if let Err(error) = org
+            .register_owner_attachments(
+                &sender,
+                &actor,
+                client_command_id,
+                &client_payload_sha256,
+                &registrations,
+                MAX_STAGED_ATTACHMENT_FILES as i64,
+                MAX_STAGED_ATTACHMENT_BYTES as i64,
+                MAX_RETAINED_ATTACHMENT_FILES as i64,
+                MAX_RETAINED_ATTACHMENT_BYTES as i64,
+                MAX_PRINCIPAL_RETAINED_ATTACHMENT_FILES as i64,
+                MAX_PRINCIPAL_RETAINED_ATTACHMENT_BYTES as i64,
+            )
+            .await
+        {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "attachment_staging",
+                format!("{error:#}"),
+            );
+        }
+    }
+    let staged_attachments = prepared
+        .iter()
+        .map(|item| item.attachment.clone())
+        .collect::<Vec<_>>();
+    let mut stored = Vec::with_capacity(prepared.len());
+    for item in prepared {
+        match runtime::store_owner_attachment(&company, item.attachment.upload_id, &item.bytes)
             .await
         {
             Ok(path) => {
-                debug_assert_eq!(path, metadata.path);
-                stored.push(metadata);
+                debug_assert_eq!(path, item.attachment.path);
+                stored.push(item.attachment);
             }
             Err(error) => {
-                rollback_attachments(&company, &stored).await;
+                rollback_attachment_attempt(&org, &company, &staged_attachments).await;
                 return api_error(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "attachment",
@@ -4628,52 +4851,142 @@ async fn send_actor_message(
     let recorded_body = message_with_context(body, context_path.as_deref());
     let recorded_body = message_with_attachments(&recorded_body, &stored);
     let recorded_body = match attention_context.as_ref() {
-        Some(item) => message_with_attention_context(&recorded_body, item),
+        Some((item, _)) => message_with_attention_context(&recorded_body, item),
         None => recorded_body,
     };
+    let attachment_ids = stored
+        .iter()
+        .map(|attachment| attachment.upload_id)
+        .collect::<Vec<_>>();
     let sent = match input.work_id {
         Some(work_id) => org
-            .send_work_message(&sender, &actor, work_id, &recorded_body)
+            .send_work_message_idempotent(
+                &sender,
+                &actor,
+                work_id,
+                &recorded_body,
+                attention_context
+                    .as_ref()
+                    .map(|(_, handoff_input)| handoff_input),
+                &attachment_ids,
+                client_command_id,
+                &client_payload_sha256,
+            )
             .await
-            .map(|message_id| (message_id, None)),
+            .map(|(message_id, created)| (message_id, None, created)),
         None => org
-            .send_human_conversation_message_with_standard(
+            .send_human_runtime_conversation_message_idempotent_with_standard(
                 &sender,
                 &actor,
                 &recorded_body,
                 input.new_focus,
                 input.outcome_standard,
+                &attachment_ids,
+                client_command_id,
+                &client_payload_sha256,
             )
             .await
-            .map(|(message_id, focus)| (message_id, Some(focus))),
+            .map(|(message_id, focus, created)| (message_id, Some(focus), created)),
+    };
+    // A database commit acknowledgement can be lost after PostgreSQL has
+    // durably stored the Message. Never delete staged attachment files solely
+    // because the command future returned an error: first re-read the command
+    // receipt. If that read is itself unavailable, preserve the files and ask
+    // the client to retry the same key; bounded orphan collection can later
+    // remove a file that proves to have no Message reference.
+    let sent = match sent {
+        Ok((message_id, focus, created)) => Ok((message_id, focus, created, created)),
+        Err(original_error) => match org
+            .conversation_command_receipt(
+                &sender,
+                &actor,
+                client_command_id,
+                &client_payload_sha256,
+            )
+            .await
+        {
+            Ok(Some((message_id, focus, receipt_body)))
+                if input.work_id.is_some() || focus.is_some() =>
+            {
+                let committed_this_staging =
+                    receipt_uses_staged_attachments(&receipt_body, &stored);
+                Ok((message_id, focus, false, committed_this_staging))
+            }
+            Ok(Some(_)) => {
+                return api_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "orgintel",
+                    "message commit outcome is ambiguous; retry the same client command id",
+                );
+            }
+            Ok(None)
+                if matches!(
+                    &original_error,
+                    restless_orgintel::OrgIntelError::RoomCommandConflict(_)
+                        | restless_orgintel::OrgIntelError::RoomAccessDenied(_)
+                        | restless_orgintel::OrgIntelError::InvalidWork(_)
+                        | restless_orgintel::OrgIntelError::InvalidRoom(_)
+                ) =>
+            {
+                // These failures are raised by explicit validation before the
+                // command transaction reaches COMMIT, so attempt-local files
+                // are safe to remove in the ordinary error mapping below.
+                Err(original_error)
+            }
+            Ok(None) => {
+                return api_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "orgintel",
+                    "message commit outcome is ambiguous; retry the same client command id",
+                );
+            }
+            Err(error) => {
+                return api_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "orgintel",
+                    format!(
+                        "message commit outcome is ambiguous; retry the same client command id: {error:#}"
+                    ),
+                );
+            }
+        },
     };
     match sent {
-        Ok((message_id, focus)) => {
-            if let Some(attention_id) = attention_id.as_deref() {
-                if let Err(error) = org
-                    .emit_event(
-                        "owner_attention_conversation_started",
-                        Some(&sender),
-                        serde_json::json!({
-                            "attention_id": attention_id,
-                            "work_id": input.work_id,
-                            "responsible_actor": &actor,
-                            "message_id": message_id,
-                        }),
-                    )
-                    .await
-                {
-                    tracing::error!(%error, %attention_id, message_id, "Attention context event was not recorded after message delivery");
+        Ok((message_id, focus, created, committed_this_staging)) => {
+            if committed_this_staging {
+                finish_attachments(&org, &stored).await;
+            } else {
+                rollback_attachment_attempt(&org, &company, &stored).await;
+            }
+            if created {
+                if let Some(attention_id) = attention_id.as_deref() {
+                    if let Err(error) = org
+                        .emit_event(
+                            "owner_attention_conversation_started",
+                            Some(&sender),
+                            serde_json::json!({
+                                "attention_id": attention_id,
+                                "work_id": input.work_id,
+                                "responsible_actor": &actor,
+                                "message_id": message_id,
+                            }),
+                        )
+                        .await
+                    {
+                        tracing::error!(%error, %attention_id, message_id, "Attention context event was not recorded after message delivery");
+                    }
                 }
             }
-            state
-                .daemon
-                .activities
-                .expect_message(&company, &actor, message_id, input.work_id);
+            if created {
+                state
+                    .daemon
+                    .activities
+                    .expect_message(&company, &actor, message_id, input.work_id);
+            }
             // Persist the new direction before interrupting. The next wake
             // discovers it from OrgIntel; the cancelled turn never needs the
             // owner to repeat or confirm their message.
-            let interrupted = if input.interrupt {
+            let interrupted = if created && input.interrupt {
                 if actor == "exec" {
                     state
                         .daemon
@@ -4689,6 +5002,7 @@ async fn send_actor_message(
             };
             Json(ConversationSendResponse {
                 message_id,
+                created,
                 interrupted,
                 context_attached: context_path.is_some(),
                 context_omitted,
@@ -4700,8 +5014,24 @@ async fn send_actor_message(
             })
             .into_response()
         }
+        Err(restless_orgintel::OrgIntelError::RoomCommandConflict(message)) => {
+            rollback_attachment_attempt(&org, &company, &stored).await;
+            api_error(StatusCode::CONFLICT, "client_command_id", message)
+        }
+        Err(restless_orgintel::OrgIntelError::RoomAccessDenied(message)) => {
+            rollback_attachment_attempt(&org, &company, &stored).await;
+            api_error(StatusCode::CONFLICT, "actor", message)
+        }
+        Err(restless_orgintel::OrgIntelError::InvalidWork(message)) => {
+            rollback_attachment_attempt(&org, &company, &stored).await;
+            api_error(StatusCode::CONFLICT, "work", message)
+        }
+        Err(restless_orgintel::OrgIntelError::InvalidRoom(message)) => {
+            rollback_attachment_attempt(&org, &company, &stored).await;
+            api_error(StatusCode::BAD_REQUEST, "message", message)
+        }
         Err(error) => {
-            rollback_attachments(&company, &stored).await;
+            rollback_attachment_attempt(&org, &company, &stored).await;
             api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
@@ -4805,6 +5135,12 @@ async fn parse_owner_message(
         .map_err(|error| format!("read message form: {error}"))?
     {
         match field.name() {
+            Some("client_command_id") => {
+                input.client_command_id = field
+                    .text()
+                    .await
+                    .map_err(|error| format!("read client command id: {error}"))?;
+            }
             Some("body") => {
                 input.body = field
                     .text()
@@ -4909,6 +5245,47 @@ async fn parse_owner_message(
         }
     }
     Ok(input)
+}
+
+fn owner_message_command_digest(
+    company: &str,
+    sender: &str,
+    actor: &str,
+    body: &str,
+    context_path: Option<&str>,
+    context_omitted: bool,
+    input: &OwnerMessageInput,
+) -> String {
+    let attachments = input
+        .attachments
+        .iter()
+        .map(|attachment| {
+            serde_json::json!({
+                "name": attachment.name,
+                "media_type": attachment.media_type,
+                "bytes_sha256": format!("{:x}", Sha256::digest(&attachment.bytes)),
+                "size_bytes": attachment.bytes.len(),
+            })
+        })
+        .collect::<Vec<_>>();
+    let payload = serde_json::to_vec(&serde_json::json!({
+        "domain": "restless.owner-conversation-command.v1",
+        "company": company,
+        "sender_actor": sender,
+        "target_actor": actor,
+        "body": body,
+        "work_id": input.work_id,
+        "attention_id": input.attention_id,
+        "new_focus": input.new_focus,
+        "interrupt": input.interrupt,
+        "outcome_standard": input.outcome_standard,
+        "context_requested": input.context_requested,
+        "context_path": context_path,
+        "context_omitted": context_omitted,
+        "attachments": attachments,
+    }))
+    .expect("owner message command semantics contain only serializable primitives");
+    format!("{:x}", Sha256::digest(payload))
 }
 
 fn canonical_cockpit_context(company: &str, value: &str) -> Option<String> {
@@ -5123,6 +5500,118 @@ fn split_attachment_block(body: &str) -> (&str, Vec<OwnerAttachment>) {
     }
 }
 
+fn canonical_attachment_path(attachment_id: Uuid) -> String {
+    format!("/var/lib/restless-owner-attachments/{attachment_id}/content")
+}
+
+fn receipt_attachment_ids(body: &str) -> Vec<Uuid> {
+    let (_, attachments) = split_attachment_block(body);
+    attachments
+        .into_iter()
+        .filter(|attachment| attachment.path == canonical_attachment_path(attachment.upload_id))
+        .map(|attachment| attachment.upload_id)
+        .collect()
+}
+
+fn receipt_uses_staged_attachments(body: &str, staged: &[OwnerAttachment]) -> bool {
+    let mut receipt_ids = receipt_attachment_ids(body);
+    let mut staged_ids = staged
+        .iter()
+        .map(|attachment| attachment.upload_id)
+        .collect::<Vec<_>>();
+    receipt_ids.sort_unstable();
+    staged_ids.sort_unstable();
+    receipt_ids == staged_ids
+}
+
+async fn finish_attachments(org: &restless_orgintel::OrgIntel, attachments: &[OwnerAttachment]) {
+    let finished = attachments
+        .iter()
+        .map(|attachment| attachment.upload_id)
+        .collect::<Vec<_>>();
+    if let Err(error) = org.finish_linked_owner_attachments(&finished).await {
+        tracing::warn!(%error, "failed to settle linked owner attachment records");
+    }
+}
+
+async fn finish_receipted_attachments(org: &restless_orgintel::OrgIntel, body: &str) {
+    let attachments = receipt_attachment_ids(body)
+        .into_iter()
+        .map(|upload_id| OwnerAttachment {
+            upload_id,
+            name: String::new(),
+            media_type: String::new(),
+            size_bytes: 0,
+            path: canonical_attachment_path(upload_id),
+        })
+        .collect::<Vec<_>>();
+    finish_attachments(org, &attachments).await;
+}
+
+/// Reconcile one bounded batch from the authoritative OrgIntel staging
+/// fence. The claim atomically observes a committed Message or makes a stale
+/// unlinked UUID permanently unavailable to Message insertion. Filesystem
+/// quarantine therefore cannot race a late database commit.
+pub(crate) async fn collect_owner_attachments(
+    org: &restless_orgintel::OrgIntel,
+    company: &str,
+) -> Result<()> {
+    let stages = org
+        .claim_owner_attachment_gc(
+            ATTACHMENT_GC_BATCH as i64,
+            ATTACHMENT_STAGE_STALE_AFTER.num_seconds(),
+            ATTACHMENT_GC_CLAIM_FOR.num_seconds(),
+        )
+        .await?;
+    for (attachment_id, linked, purge_requested, claim_token) in stages {
+        let operation = if linked && !purge_requested {
+            Ok(())
+        } else {
+            async {
+                runtime::quarantine_owner_attachment(company, attachment_id).await?;
+                runtime::remove_quarantined_owner_attachment(company, attachment_id).await
+            }
+            .await
+        };
+        match operation {
+            Ok(()) => {
+                if !org
+                    .complete_owner_attachment_gc(attachment_id, claim_token)
+                    .await?
+                {
+                    bail!("owner attachment GC claim disappeared before completion");
+                }
+            }
+            Err(error) => {
+                // The claimed OrgIntel row remains durable. A later bounded
+                // pass retries it; an unlinked claim can no longer be consumed
+                // by a Message transaction.
+                tracing::warn!(%error, %company, attachment = %attachment_id, linked, purge_requested, "owner attachment staging GC deferred");
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn rollback_attachment_attempt(
+    org: &restless_orgintel::OrgIntel,
+    company: &str,
+    attachments: &[OwnerAttachment],
+) {
+    let mut removed = Vec::new();
+    for attachment in attachments {
+        match runtime::remove_owner_attachment(company, attachment.upload_id).await {
+            Ok(()) => removed.push(attachment.upload_id),
+            Err(error) => {
+                tracing::warn!(%error, %company, attachment = %attachment.upload_id, "failed to roll back owner attachment");
+            }
+        }
+    }
+    if let Err(error) = org.discard_unlinked_owner_attachments(&removed).await {
+        tracing::warn!(%error, %company, "failed to clear unlinked owner attachment records");
+    }
+}
+
 fn split_intent_receipt(body: &str) -> (&str, Option<OwnerIntentReceipt>) {
     let Some((visible, encoded)) = body.rsplit_once(INTENT_MARKER) else {
         return (body, None);
@@ -5180,49 +5669,134 @@ fn split_context_marker(body: &str) -> (&str, Option<String>) {
     }
 }
 
-async fn rollback_attachments(company: &str, attachments: &[OwnerAttachment]) {
-    for attachment in attachments {
-        if let Err(error) = runtime::remove_owner_attachment(company, attachment.upload_id).await {
-            tracing::warn!(%error, %company, attachment = %attachment.upload_id, "failed to roll back owner attachment");
-        }
-    }
-}
-
 async fn download_attachment(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
     AxumPath((company, attachment)): AxumPath<(String, Uuid)>,
 ) -> Response<Body> {
-    let (bytes, metadata) = match runtime::read_owner_attachment(&company, attachment).await {
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    let record = match org
+        .owner_attachment_for_actor(attachment, principal.actor_id())
+        .await
+    {
+        Ok(Some(record)) => record,
+        Ok(None) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "attachment",
+                "attachment is not referenced by a durable Message",
+            );
+        }
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            );
+        }
+    };
+    let bytes = match runtime::read_owner_attachment(&company, attachment).await {
         Ok(value) => value,
         Err(error) => {
             return api_error(StatusCode::NOT_FOUND, "attachment", format!("{error:#}"));
         }
     };
-    let metadata: OwnerAttachment = match serde_json::from_slice(&metadata) {
-        Ok(metadata) => metadata,
+    match verified_attachment_response(&record, bytes) {
+        Ok(response) => response,
+        Err(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "attachment",
+            format!("{error:#}"),
+        ),
+    }
+}
+
+async fn request_attachment_purge(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath((company, attachment)): AxumPath<(String, Uuid)>,
+    Json(input): Json<AttachmentPurgeInput>,
+) -> Response<Body> {
+    if principal.membership_role() != "owner" {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "membership_role",
+            "only the company membership owner may change retained attachment policy",
+        );
+    }
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    let requested = match org
+        .request_owner_attachment_purge(attachment, principal.actor_id(), &input.reason)
+        .await
+    {
+        Ok(requested) => requested,
+        Err(restless_orgintel::OrgIntelError::InvalidRoom(message)) => {
+            return api_error(StatusCode::NOT_FOUND, "attachment", message);
+        }
+        Err(restless_orgintel::OrgIntelError::RoomAccessDenied(message)) => {
+            return api_error(StatusCode::FORBIDDEN, "attachment", message);
+        }
         Err(error) => {
+            tracing::error!(%error, %company, %attachment, "attachment purge receipt failed");
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
-                "attachment",
-                format!("invalid attachment metadata: {error}"),
+                "orgintel",
+                "attachment retention is temporarily unavailable",
             );
         }
     };
+    // The durable tombstone is the command receipt. Opportunistic collection
+    // reduces retained bytes quickly, while startup/periodic reconciliation
+    // guarantees progress across daemon or Runtime restarts.
+    if let Err(error) = collect_owner_attachments(&org, &company).await {
+        tracing::warn!(%error, %company, %attachment, "attachment purge cleanup deferred");
+    }
+    (
+        StatusCode::ACCEPTED,
+        Json(serde_json::json!({
+            "attachment_id": attachment,
+            "purge_requested": true,
+            "created": requested,
+        })),
+    )
+        .into_response()
+}
+
+fn verified_attachment_response(
+    record: &restless_orgintel::OwnerAttachmentRecord,
+    bytes: Vec<u8>,
+) -> Result<Response<Body>> {
+    if i64::try_from(bytes.len()).ok() != Some(record.size_bytes)
+        || format!("{:x}", Sha256::digest(&bytes)) != record.content_sha256
+    {
+        bail!("attachment bytes do not match their durable integrity record");
+    }
     let mut response = Response::new(Body::from(bytes));
     response.headers_mut().insert(
         CONTENT_TYPE,
-        HeaderValue::from_str(&metadata.media_type)
-            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+        HeaderValue::from_static("application/octet-stream"),
     );
+    response.headers_mut().insert(
+        HeaderName::from_static("x-content-type-options"),
+        HeaderValue::from_static("nosniff"),
+    );
+    let name = safe_attachment_name(&record.canonical_name);
     let disposition = format!(
-        "inline; filename=\"{}\"",
-        metadata.name.replace(['\\', '"'], "_")
+        "attachment; filename=\"{}\"",
+        name.replace(['\\', '"'], "_")
     );
     response.headers_mut().insert(
         CONTENT_DISPOSITION,
         HeaderValue::from_str(&disposition)
             .unwrap_or_else(|_| HeaderValue::from_static("attachment")),
     );
-    response
+    Ok(response)
 }
 
 async fn grant(
@@ -6185,6 +6759,7 @@ async fn api_not_found() -> Response<Body> {
 mod tests {
     use super::*;
     use axum::body::to_bytes;
+    use sqlx::Connection as _;
     use tower::ServiceExt as _;
 
     struct RoomRouteFixture {
@@ -6399,6 +6974,7 @@ mod tests {
                 restless_orgintel::RoomKind::Group,
                 "Owner and Bob",
                 &["bob"],
+                "attachment-owner-bob-room",
             )
             .await
             .unwrap();
@@ -6480,19 +7056,41 @@ mod tests {
         let alice = fixture.app("alice", "member", &fixture.company);
         let bob = fixture.app("bob", "member", &fixture.company);
         let rooms_path = format!("/companies/{}/rooms", fixture.company);
+        let create_room_command = serde_json::json!({
+            "kind": "group",
+            "title": "Launch",
+            "command_id": "http-launch-room",
+            "participant_actor_ids": ["bob"]
+        });
         let (status, created_room) = room_request(
+            &alice,
+            Method::POST,
+            &rooms_path,
+            Some(create_room_command.clone()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let room = room_id(&created_room);
+        let (status, replayed_room) =
+            room_request(&alice, Method::POST, &rooms_path, Some(create_room_command)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(room_id(&replayed_room), room);
+        let (status, conflict) = room_request(
             &alice,
             Method::POST,
             &rooms_path,
             Some(serde_json::json!({
                 "kind": "group",
-                "title": "Launch",
+                "title": "Different semantics",
+                "command_id": "http-launch-room",
                 "participant_actor_ids": ["bob"]
             })),
         )
         .await;
-        assert_eq!(status, StatusCode::OK);
-        let room = room_id(&created_room);
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(conflict["error"], "room_command");
+        let response = room_get_response(&alice, &rooms_path, None).await;
+        assert_eq!(response.status(), StatusCode::OK);
         let messages_path = format!("/companies/{}/rooms/{room}/messages", fixture.company);
 
         let (status, _) = room_request(
@@ -6639,6 +7237,7 @@ mod tests {
                 restless_orgintel::RoomKind::Group,
                 "Other",
                 &["bob"],
+                "thread-other-room",
             )
             .await
             .unwrap();
@@ -6665,6 +7264,170 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn room_mention_routes_are_scoped_retry_safe_and_require_an_explicit_thread_reply() {
+        let Some(fixture) = RoomRouteFixture::new().await else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Room mention route scenario");
+            return;
+        };
+        let room = fixture
+            .org
+            .create_room(
+                "alice",
+                restless_orgintel::RoomKind::Group,
+                "Release decision",
+                &["bob"],
+                "mention-release-room",
+            )
+            .await
+            .unwrap();
+        let sessions = SessionStore::default();
+        let alice_token = sessions.establish(
+            RoomRouteFixture::identity("alice", "member", &fixture.company),
+            Duration::from_secs(60),
+        );
+        let bob_token = sessions.establish(
+            RoomRouteFixture::identity("bob", "member", &fixture.company),
+            Duration::from_secs(60),
+        );
+        let other_company_token = sessions.establish(
+            RoomRouteFixture::identity("alice", "member", &fixture.other_company),
+            Duration::from_secs(60),
+        );
+        let alice = fixture.network_app(sessions.resolve_lease(&alice_token).unwrap());
+        let bob = fixture.network_app(sessions.resolve_lease(&bob_token).unwrap());
+        let other_company_alice =
+            fixture.network_app(sessions.resolve_lease(&other_company_token).unwrap());
+        let messages_path = format!("/companies/{}/rooms/{}/messages", fixture.company, room.id);
+        let command = serde_json::json!({
+            "body": "Should we ship?",
+            "command_id": "http-mention",
+            "mentions": [{
+                "actor_id": "bob",
+                "why_this_actor": "Bob owns the customer promise",
+                "expected_response": "ship or hold",
+                "recommendation": "ship",
+                "alternatives": ["hold"],
+                "evidence": ["probe 42"],
+                "affected_scope": "public release"
+            }]
+        });
+        let mut work_scoped = command.clone();
+        work_scoped["command_id"] = serde_json::json!("member-work-mention");
+        work_scoped["mentions"][0]["work_id"] = serde_json::json!(Uuid::new_v4());
+        let (status, denied) =
+            room_request(&alice, Method::POST, &messages_path, Some(work_scoped)).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(denied["error"], "work_scope");
+
+        let (status, sent) =
+            room_request(&alice, Method::POST, &messages_path, Some(command.clone())).await;
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(sent["message"]["from_actor"], "alice");
+        assert_eq!(sent["mentions"].as_array().unwrap().len(), 1);
+        assert_eq!(sent["mentions"][0]["mentioned_actor_id"], "bob");
+        let message_id = sent["message"]["id"].as_i64().unwrap();
+        let mention_id = sent["mentions"][0]["id"].as_str().unwrap();
+
+        let (status, retry) =
+            room_request(&alice, Method::POST, &messages_path, Some(command)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(retry["created"], false);
+        assert_eq!(retry["mentions"][0]["id"], mention_id);
+
+        let mentions_path = format!("/companies/{}/mentions", fixture.company);
+        let (status, _) =
+            room_request(&other_company_alice, Method::GET, &mentions_path, None).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        let (status, bob_attention) = room_request(&bob, Method::GET, &mentions_path, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(bob_attention["mentions"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            bob_attention["mentions"][0]["message"]["body"],
+            "Should we ship?"
+        );
+        assert_eq!(
+            bob_attention["mentions"][0]["mention"]["thread_root_message_id"],
+            message_id
+        );
+        let (status, alice_attention) =
+            room_request(&alice, Method::GET, &mentions_path, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(alice_attention["mentions"].as_array().unwrap().is_empty());
+
+        // An ordinary reply does not implicitly clear a mention.
+        let reply_path = format!(
+            "/companies/{}/rooms/{}/messages/{message_id}/replies",
+            fixture.company, room.id
+        );
+        let (status, ordinary) = room_request(
+            &bob,
+            Method::POST,
+            &reply_path,
+            Some(serde_json::json!({
+                "body": "I am checking.",
+                "command_id": "ordinary-reply"
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        assert!(ordinary["resolved_mention"].is_null());
+        let (status, still_pending) = room_request(&bob, Method::GET, &mentions_path, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(still_pending["mentions"].as_array().unwrap().len(), 1);
+
+        let (status, forged_resolution) = room_request(
+            &alice,
+            Method::POST,
+            &reply_path,
+            Some(serde_json::json!({
+                "body": "Forged answer",
+                "command_id": "forged-resolution",
+                "resolves_mention_id": mention_id
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(forged_resolution["error"], "room_access");
+
+        let (status, resolved) = room_request(
+            &bob,
+            Method::POST,
+            &reply_path,
+            Some(serde_json::json!({
+                "body": "Ship after the final probe.",
+                "command_id": "exact-resolution",
+                "resolves_mention_id": mention_id
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(resolved["resolved_mention"]["id"], mention_id);
+        assert_eq!(
+            resolved["resolved_mention"]["resolution_message_id"],
+            resolved["message"]["id"]
+        );
+        let (status, cleared) = room_request(&bob, Method::GET, &mentions_path, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(cleared["mentions"].as_array().unwrap().is_empty());
+
+        let (status, page) = room_request(&alice, Method::GET, &messages_path, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(page["mentions"].as_array().unwrap().len(), 1);
+        assert_eq!(page["mentions"][0]["id"], mention_id);
+        assert!(page["mentions"][0]["resolved_at"].is_string());
+
+        for query in [
+            "?after_created_event_id=-1",
+            "?limit=0",
+            "?limit=101",
+            "?unexpected=true",
+        ] {
+            let response = room_get_response(&bob, format!("{mentions_path}{query}"), None).await;
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+    }
+
+    #[tokio::test]
     async fn room_event_routes_are_strict_scoped_paged_body_free_and_reconnectable() {
         let Some(fixture) = RoomRouteFixture::new().await else {
             eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Room event route scenario");
@@ -6680,6 +7443,7 @@ mod tests {
                 restless_orgintel::RoomKind::Group,
                 "Replay",
                 &["bob"],
+                "event-replay-room",
             )
             .await
             .unwrap();
@@ -6706,6 +7470,7 @@ mod tests {
                 restless_orgintel::RoomKind::Group,
                 "Other replay",
                 &["bob"],
+                "event-other-room",
             )
             .await
             .unwrap();
@@ -6891,6 +7656,7 @@ mod tests {
                 restless_orgintel::RoomKind::Group,
                 "Live replay",
                 &["bob"],
+                "live-replay-room",
             )
             .await
             .unwrap();
@@ -7020,6 +7786,7 @@ mod tests {
                 restless_orgintel::RoomKind::Group,
                 "Wake replay",
                 &["bob"],
+                "wake-replay-room",
             )
             .await
             .unwrap();
@@ -7140,6 +7907,7 @@ mod tests {
                 restless_orgintel::RoomKind::Group,
                 "Bounded fanout",
                 &["bob", "carol"],
+                "bounded-fanout-room",
             )
             .await
             .unwrap();
@@ -7276,6 +8044,7 @@ mod tests {
             Some(serde_json::json!({
                 "kind": "company",
                 "title": "Company",
+                "command_id": "member-company-room",
                 "participant_actor_ids": ["alice", "bob"]
             })),
         )
@@ -7289,6 +8058,7 @@ mod tests {
             Some(serde_json::json!({
                 "kind": "company",
                 "title": "Company",
+                "command_id": "admin-company-room",
                 "participant_actor_ids": ["alice", "bob", "carol"]
             })),
         )
@@ -7302,6 +8072,7 @@ mod tests {
             Some(serde_json::json!({
                 "kind": "company",
                 "title": "Company",
+                "command_id": "owner-company-room",
                 "participant_actor_ids": ["alice", "bob"]
             })),
         )
@@ -7315,6 +8086,7 @@ mod tests {
             Some(serde_json::json!({
                 "kind": "group",
                 "title": "Delivery",
+                "command_id": "member-delivery-room",
                 "participant_actor_ids": ["bob"]
             })),
         )
@@ -8151,6 +8923,25 @@ mod tests {
             &principal,
         )
         .is_none());
+        let attachment_path = format!("/api/companies/aris/attachments/{}", Uuid::new_v4());
+        assert!(
+            membership_boundary_violation(&Method::GET, &attachment_path, &principal).is_none()
+        );
+        assert!(
+            membership_boundary_violation(&Method::HEAD, &attachment_path, &principal).is_none()
+        );
+        assert!(
+            membership_boundary_violation(&Method::POST, &attachment_path, &principal).is_some()
+        );
+        assert!(
+            membership_boundary_violation(&Method::DELETE, &attachment_path, &principal).is_some()
+        );
+        assert!(membership_boundary_violation(
+            &Method::GET,
+            "/api/companies/aris/attachments/not-a-uuid",
+            &principal,
+        )
+        .is_some());
         for protected_read in [
             "/api",
             "/api/companies/aris/cockpit",
@@ -8207,6 +8998,33 @@ mod tests {
             .code,
             "membership_role"
         );
+
+        let mut work_scoped = OwnerMessageInput {
+            work_id: Some(Uuid::new_v4()),
+            ..OwnerMessageInput::default()
+        };
+        assert_eq!(
+            owner_message_membership_violation("member", &work_scoped)
+                .expect("an unshared Work reference is owner-only")
+                .code,
+            "work_scope"
+        );
+        assert!(owner_message_membership_violation("owner", &work_scoped).is_none());
+        assert_eq!(
+            owner_message_membership_violation("admin", &work_scoped)
+                .expect("admin is not the Work-sharing authority")
+                .code,
+            "work_scope"
+        );
+        work_scoped.work_id = None;
+        work_scoped.interrupt = true;
+        assert_eq!(
+            owner_message_membership_violation("member", &work_scoped)
+                .expect("a member cannot interrupt another cognitive session")
+                .code,
+            "membership_role"
+        );
+        assert!(owner_message_membership_violation("admin", &work_scoped).is_none());
     }
 
     /// S27-T2. The plane genuinely serves both companies, so a pass here proves
@@ -8384,7 +9202,7 @@ mod tests {
                     name: "plan.md".into(),
                     media_type: "text/markdown".into(),
                     size_bytes: 42,
-                    path: "/company/inbox/owner-attachments/plan/content".into(),
+                    path: "/var/lib/restless-owner-attachments/plan/content".into(),
                 }],
                 details: None,
                 intent: Some(OwnerIntentReceipt {
@@ -8764,8 +9582,9 @@ mod tests {
             name: "brief.pdf".into(),
             media_type: "application/pdf".into(),
             size_bytes: 42,
-            path: "/company/inbox/owner-attachments/00000000-0000-0000-0000-000000000000/content"
-                .into(),
+            path:
+                "/var/lib/restless-owner-attachments/00000000-0000-0000-0000-000000000000/content"
+                    .into(),
         };
         let with_context = message_with_context("Please read this.", Some("/aris/work"));
         let recorded = message_with_attachments(&with_context, std::slice::from_ref(&attachment));
@@ -8828,6 +9647,466 @@ mod tests {
         assert!(recorded.contains(&attachment.path));
         assert!(recorded.contains("Path A won on speed"));
         assert!(!visible.contains("Restless Attention context"));
+    }
+
+    #[test]
+    fn attachment_download_is_integrity_checked_and_never_inline_active_content() {
+        let attachment_id = Uuid::new_v4();
+        let bytes = b"<script>fetch('/companies/acme')</script>".to_vec();
+        let record = restless_orgintel::OwnerAttachmentRecord {
+            attachment_id,
+            canonical_name: "proof.html".into(),
+            canonical_media_type: "text/html".into(),
+            size_bytes: bytes.len() as i64,
+            content_sha256: format!("{:x}", Sha256::digest(&bytes)),
+            message_id: 42,
+        };
+        let response = verified_attachment_response(&record, bytes.clone()).unwrap();
+        assert_eq!(
+            response.headers().get(CONTENT_TYPE).unwrap(),
+            "application/octet-stream"
+        );
+        assert_eq!(
+            response.headers().get("x-content-type-options").unwrap(),
+            "nosniff"
+        );
+        assert_eq!(
+            response.headers().get(CONTENT_DISPOSITION).unwrap(),
+            "attachment; filename=\"proof.html\""
+        );
+        let mut mutated = bytes;
+        mutated[0] ^= 1;
+        assert!(verified_attachment_response(&record, mutated).is_err());
+
+        assert!(ATTACHMENT_STAGE_STALE_AFTER >= ChronoDuration::minutes(5));
+        assert!(ATTACHMENT_GC_CLAIM_FOR >= ChronoDuration::minutes(1));
+    }
+
+    #[tokio::test]
+    async fn lost_commit_receipt_recovers_the_exact_committed_attachment_identity() {
+        let Some(fixture) = RoomRouteFixture::new().await else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping attachment receipt scenario");
+            return;
+        };
+        let attachment_id = Uuid::new_v4();
+        let attachment = OwnerAttachment {
+            upload_id: attachment_id,
+            name: "proof.txt".into(),
+            media_type: "text/plain".into(),
+            size_bytes: 5,
+            path: canonical_attachment_path(attachment_id),
+        };
+        let body =
+            message_with_attachments("Evidence attached.", std::slice::from_ref(&attachment));
+        let command_id = format!("lost-commit-{}", Uuid::new_v4());
+        let digest = "b".repeat(64);
+        let content = b"proof";
+        fixture
+            .org
+            .register_owner_attachments(
+                "owner",
+                "exec",
+                &command_id,
+                &digest,
+                &[restless_orgintel::OwnerAttachmentRegistration {
+                    attachment_id,
+                    canonical_name: attachment.name.clone(),
+                    canonical_media_type: attachment.media_type.clone(),
+                    size_bytes: attachment.size_bytes as i64,
+                    content_sha256: format!("{:x}", Sha256::digest(content)),
+                }],
+                MAX_STAGED_ATTACHMENT_FILES as i64,
+                MAX_STAGED_ATTACHMENT_BYTES as i64,
+                MAX_RETAINED_ATTACHMENT_FILES as i64,
+                MAX_RETAINED_ATTACHMENT_BYTES as i64,
+                MAX_PRINCIPAL_RETAINED_ATTACHMENT_FILES as i64,
+                MAX_PRINCIPAL_RETAINED_ATTACHMENT_BYTES as i64,
+            )
+            .await
+            .unwrap();
+
+        let (message_id, _, created) = fixture
+            .org
+            .send_human_runtime_conversation_message_idempotent_with_standard(
+                "owner",
+                "exec",
+                &body,
+                false,
+                None,
+                &[attachment_id],
+                &command_id,
+                &digest,
+            )
+            .await
+            .expect("the simulated command commit succeeds");
+        assert!(created);
+
+        // Model an acknowledgement disappearing after COMMIT: recovery knows
+        // only the stable command semantics and must rediscover both the one
+        // Message receipt and the exact UUID paths it committed.
+        let (recovered_id, focus, recovered_body) = fixture
+            .org
+            .conversation_command_receipt("owner", "exec", &command_id, &digest)
+            .await
+            .unwrap()
+            .expect("durable command receipt");
+        assert_eq!(recovered_id, message_id);
+        assert!(focus.is_some());
+        assert!(receipt_uses_staged_attachments(
+            &recovered_body,
+            &[attachment]
+        ));
+        let loser = OwnerAttachment {
+            upload_id: Uuid::new_v4(),
+            name: "proof.txt".into(),
+            media_type: "text/plain".into(),
+            size_bytes: 5,
+            path: String::new(),
+        };
+        assert!(!receipt_uses_staged_attachments(&recovered_body, &[loser]));
+        let durable = fixture
+            .org
+            .owner_attachment_for_actor(attachment_id, "owner")
+            .await
+            .unwrap()
+            .expect("linked attachment record remains authoritative");
+        assert_eq!(durable.canonical_name, "proof.txt");
+        assert_eq!(durable.canonical_media_type, "text/plain");
+        assert_eq!(durable.size_bytes, 5);
+        assert_eq!(
+            durable.content_sha256,
+            format!("{:x}", Sha256::digest(content))
+        );
+        assert_eq!(durable.message_id, message_id);
+        assert!(
+            fixture
+                .org
+                .owner_attachment_for_actor(attachment_id, "mallory")
+                .await
+                .unwrap()
+                .is_none(),
+            "another active company human cannot read a private Direct-Room attachment"
+        );
+        let (status, body) = room_request(
+            &fixture.app("mallory", "member", &fixture.company),
+            Method::GET,
+            format!("/companies/{}/attachments/{attachment_id}", fixture.company),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(body["error"], "attachment");
+        assert!(fixture
+            .org
+            .owner_attachment_for_actor(Uuid::new_v4(), "owner")
+            .await
+            .unwrap()
+            .is_none());
+
+        let left_org = fixture.org.clone();
+        let right_org = fixture.org.clone();
+        let (left, right) = tokio::join!(
+            left_org.claim_owner_attachment_gc(
+                ATTACHMENT_GC_BATCH as i64,
+                3_600,
+                ATTACHMENT_GC_CLAIM_FOR.num_seconds(),
+            ),
+            right_org.claim_owner_attachment_gc(
+                ATTACHMENT_GC_BATCH as i64,
+                3_600,
+                ATTACHMENT_GC_CLAIM_FOR.num_seconds(),
+            ),
+        );
+        let mut claimed = left.unwrap();
+        claimed.extend(right.unwrap());
+        assert_eq!(claimed.len(), 1, "only one collector may own a stage");
+        let (claimed_id, linked, purge_requested, claim_token) = claimed[0];
+        assert_eq!(claimed_id, attachment_id);
+        assert!(linked);
+        assert!(!purge_requested);
+        assert!(fixture
+            .org
+            .complete_owner_attachment_gc(attachment_id, claim_token)
+            .await
+            .unwrap());
+        assert!(
+            fixture
+                .org
+                .owner_attachment_for_actor(attachment_id, "owner")
+                .await
+                .unwrap()
+                .is_some(),
+            "settling ingress keeps the durable attachment record"
+        );
+        let retained_overflow = Uuid::new_v4();
+        let error = fixture
+            .org
+            .register_owner_attachments(
+                "owner",
+                "exec",
+                "retained-overflow",
+                &"d".repeat(64),
+                &[restless_orgintel::OwnerAttachmentRegistration {
+                    attachment_id: retained_overflow,
+                    canonical_name: "overflow.txt".into(),
+                    canonical_media_type: "text/plain".into(),
+                    size_bytes: 1,
+                    content_sha256: format!("{:x}", Sha256::digest(b"x")),
+                }],
+                MAX_STAGED_ATTACHMENT_FILES as i64,
+                MAX_STAGED_ATTACHMENT_BYTES as i64,
+                1,
+                5,
+                MAX_PRINCIPAL_RETAINED_ATTACHMENT_FILES as i64,
+                MAX_PRINCIPAL_RETAINED_ATTACHMENT_BYTES as i64,
+            )
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("retained attachment storage"));
+        assert!(fixture
+            .org
+            .owner_attachment_for_actor(retained_overflow, "owner")
+            .await
+            .unwrap()
+            .is_none());
+        let principal_overflow = Uuid::new_v4();
+        let error = fixture
+            .org
+            .register_owner_attachments(
+                "owner",
+                "exec",
+                "principal-retained-overflow",
+                &"e".repeat(64),
+                &[restless_orgintel::OwnerAttachmentRegistration {
+                    attachment_id: principal_overflow,
+                    canonical_name: "principal-overflow.txt".into(),
+                    canonical_media_type: "text/plain".into(),
+                    size_bytes: 1,
+                    content_sha256: format!("{:x}", Sha256::digest(b"x")),
+                }],
+                MAX_STAGED_ATTACHMENT_FILES as i64,
+                MAX_STAGED_ATTACHMENT_BYTES as i64,
+                MAX_RETAINED_ATTACHMENT_FILES as i64,
+                MAX_RETAINED_ATTACHMENT_BYTES as i64,
+                1,
+                5,
+            )
+            .await
+            .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("principal's retained attachment"));
+
+        // Reverse the race: once GC atomically claims an old unlinked UUID,
+        // the Message transaction can no longer consume it. This is the
+        // durable fence that a filesystem rename plus timing window lacks.
+        let reclaimed_id = Uuid::new_v4();
+        let reclaimed_attachment = OwnerAttachment {
+            upload_id: reclaimed_id,
+            name: "orphan.txt".into(),
+            media_type: "text/plain".into(),
+            size_bytes: 7,
+            path: canonical_attachment_path(reclaimed_id),
+        };
+        let reclaimed_body =
+            message_with_attachments("Stale stage.", std::slice::from_ref(&reclaimed_attachment));
+        let reclaimed_command = format!("gc-first-{}", Uuid::new_v4());
+        let reclaimed_digest = "c".repeat(64);
+        fixture
+            .org
+            .register_owner_attachments(
+                "owner",
+                "exec",
+                &reclaimed_command,
+                &reclaimed_digest,
+                &[restless_orgintel::OwnerAttachmentRegistration {
+                    attachment_id: reclaimed_id,
+                    canonical_name: reclaimed_attachment.name.clone(),
+                    canonical_media_type: reclaimed_attachment.media_type.clone(),
+                    size_bytes: reclaimed_attachment.size_bytes as i64,
+                    content_sha256: format!("{:x}", Sha256::digest(b"orphan!")),
+                }],
+                MAX_STAGED_ATTACHMENT_FILES as i64,
+                MAX_STAGED_ATTACHMENT_BYTES as i64,
+                MAX_RETAINED_ATTACHMENT_FILES as i64,
+                MAX_RETAINED_ATTACHMENT_BYTES as i64,
+                MAX_PRINCIPAL_RETAINED_ATTACHMENT_FILES as i64,
+                MAX_PRINCIPAL_RETAINED_ATTACHMENT_BYTES as i64,
+            )
+            .await
+            .unwrap();
+        let database_url = std::env::var("RESTLESS_TEST_DATABASE_URL").unwrap();
+        let mut raw = sqlx::PgConnection::connect(&database_url).await.unwrap();
+        sqlx::query(&format!("SET search_path TO {}", fixture.org.schema()))
+            .execute(&mut raw)
+            .await
+            .unwrap();
+        sqlx::query(
+            "UPDATE owner_attachments SET created_at=now()-interval '2 hours' \
+             WHERE attachment_id=$1",
+        )
+        .bind(reclaimed_id)
+        .execute(&mut raw)
+        .await
+        .unwrap();
+        let first_claim = fixture
+            .org
+            .claim_owner_attachment_gc(
+                ATTACHMENT_GC_BATCH as i64,
+                3_600,
+                ATTACHMENT_GC_CLAIM_FOR.num_seconds(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(first_claim.len(), 1);
+        let (first_id, first_linked, first_purge_requested, first_token) = first_claim[0];
+        assert_eq!(first_id, reclaimed_id);
+        assert!(!first_linked);
+        assert!(!first_purge_requested);
+        assert!(fixture
+            .org
+            .claim_owner_attachment_gc(
+                ATTACHMENT_GC_BATCH as i64,
+                3_600,
+                ATTACHMENT_GC_CLAIM_FOR.num_seconds(),
+            )
+            .await
+            .unwrap()
+            .is_empty());
+        assert!(fixture
+            .org
+            .send_human_runtime_conversation_message_idempotent_with_standard(
+                "owner",
+                "exec",
+                &reclaimed_body,
+                false,
+                None,
+                &[reclaimed_id],
+                &reclaimed_command,
+                &reclaimed_digest,
+            )
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("reclaimed"));
+        assert!(fixture
+            .org
+            .conversation_command_receipt("owner", "exec", &reclaimed_command, &reclaimed_digest,)
+            .await
+            .unwrap()
+            .is_none());
+        // A collector crash leaves the token durable. It is not stealable
+        // until its bounded lease expires, then a new token fences the old
+        // collector's completion.
+        sqlx::query(
+            "UPDATE owner_attachments SET gc_claimed_at=now()-interval '10 minutes' \
+             WHERE attachment_id=$1",
+        )
+        .bind(reclaimed_id)
+        .execute(&mut raw)
+        .await
+        .unwrap();
+        let reclaimed = fixture
+            .org
+            .claim_owner_attachment_gc(
+                ATTACHMENT_GC_BATCH as i64,
+                3_600,
+                ATTACHMENT_GC_CLAIM_FOR.num_seconds(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(reclaimed.len(), 1);
+        let (reclaimed_again, linked_again, purge_again, new_token) = reclaimed[0];
+        assert_eq!(reclaimed_again, reclaimed_id);
+        assert!(!linked_again);
+        assert!(!purge_again);
+        assert_ne!(new_token, first_token);
+        assert!(!fixture
+            .org
+            .complete_owner_attachment_gc(reclaimed_id, first_token)
+            .await
+            .unwrap());
+        assert!(fixture
+            .org
+            .complete_owner_attachment_gc(reclaimed_id, new_token)
+            .await
+            .unwrap());
+
+        assert!(fixture
+            .org
+            .request_owner_attachment_purge(
+                attachment_id,
+                "owner",
+                "the evidence retention period ended",
+            )
+            .await
+            .unwrap());
+        assert!(!fixture
+            .org
+            .request_owner_attachment_purge(
+                attachment_id,
+                "owner",
+                "the repeated request reuses the durable tombstone",
+            )
+            .await
+            .unwrap());
+        assert!(fixture
+            .org
+            .owner_attachment_for_actor(attachment_id, "owner")
+            .await
+            .unwrap()
+            .is_none());
+        let purge_claim = fixture
+            .org
+            .claim_owner_attachment_gc(
+                ATTACHMENT_GC_BATCH as i64,
+                3_600,
+                ATTACHMENT_GC_CLAIM_FOR.num_seconds(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(purge_claim.len(), 1);
+        let (purge_id, purge_linked, purge_requested, purge_token) = purge_claim[0];
+        assert_eq!(purge_id, attachment_id);
+        assert!(purge_linked);
+        assert!(purge_requested);
+        assert!(fixture
+            .org
+            .complete_owner_attachment_gc(purge_id, purge_token)
+            .await
+            .unwrap());
+        assert!(fixture
+            .org
+            .events_of_kind("owner.attachment.purge_requested.v1")
+            .await
+            .unwrap()
+            .iter()
+            .any(|event| event.body["attachment_id"] == attachment_id.to_string()));
+
+        let replacement_id = Uuid::new_v4();
+        fixture
+            .org
+            .register_owner_attachments(
+                "owner",
+                "exec",
+                "replacement-after-purge",
+                &"f".repeat(64),
+                &[restless_orgintel::OwnerAttachmentRegistration {
+                    attachment_id: replacement_id,
+                    canonical_name: "replacement.txt".into(),
+                    canonical_media_type: "text/plain".into(),
+                    size_bytes: 1,
+                    content_sha256: format!("{:x}", Sha256::digest(b"x")),
+                }],
+                MAX_STAGED_ATTACHMENT_FILES as i64,
+                MAX_STAGED_ATTACHMENT_BYTES as i64,
+                1,
+                1,
+                1,
+                1,
+            )
+            .await
+            .expect("a completed governed purge releases retained quota");
     }
 
     #[test]

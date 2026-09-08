@@ -1173,6 +1173,9 @@ async fn evidence_findings_complete_without_review_power_and_formal_review_still
     };
     let company = format!("reviewsem{}", uuid::Uuid::new_v4().simple());
     let org = OrgIntel::ensure(&url, &company).await.unwrap();
+    org.ensure_actor("exec", "exec", "exec", "The Exec")
+        .await
+        .unwrap();
     org.ensure_actor("candidate-build", "staff", "builder", "Producer")
         .await
         .unwrap();

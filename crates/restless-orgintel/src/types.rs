@@ -748,7 +748,45 @@ pub struct OwnerHandoffRow {
     pub resolved_at: Option<DateTime<Utc>>,
 }
 
+/// Exact authored handoff presentation admitted to one cognitive turn or
+/// owner conversation. The handoff remains the sole durable judgement row;
+/// this token only prevents a same-id refresh from being acknowledged using
+/// an older prompt/projection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct OwnerHandoffInput {
+    pub id: Uuid,
+    pub snapshot_sha256: String,
+}
+
 impl OwnerHandoffRow {
+    /// Bind the participant-authored fields that are shown as input. Mutable
+    /// delivery/result fields are deliberately excluded: the same turn may
+    /// resolve or escalate the handoff, but it may not consume a refreshed
+    /// action, prepared state, resume condition, or owner brief it never saw.
+    pub fn conversation_input(&self) -> OwnerHandoffInput {
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "domain": "restless.owner-handoff-conversation-input.v1",
+            "id": self.id,
+            "work_id": self.work_id,
+            "attempt_id": self.attempt_id,
+            "requested_by": self.requested_by,
+            "category": self.category,
+            "requested_action": self.requested_action,
+            "prepared_state": self.prepared_state,
+            "resume_condition": self.resume_condition,
+            "owner_brief": self.owner_brief,
+            "briefed_by": self.briefed_by,
+            "briefed_at": self.briefed_at,
+            "brief_source_fingerprint": self.brief_source_fingerprint,
+            "created_at": self.created_at,
+        }))
+        .expect("owner handoff input contains only serializable fields");
+        OwnerHandoffInput {
+            id: self.id,
+            snapshot_sha256: format!("{:x}", Sha256::digest(payload)),
+        }
+    }
+
     /// Whether the authored meaning still names this exact mutable source
     /// snapshot. Callers supply the current Work revision they already read.
     pub fn owner_brief_is_current(&self, work_revision: i64) -> bool {
@@ -967,7 +1005,7 @@ pub struct ScheduleRecoveryRetryRow {
     pub created: bool,
 }
 
-#[derive(Debug, Serialize, sqlx::FromRow, ts_rs::TS)]
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
 pub struct MessageRow {
     pub id: i64,
     pub from_actor: String,
@@ -978,6 +1016,28 @@ pub struct MessageRow {
     pub outcome_standard: Option<OutcomeStandard>,
     pub created_at: DateTime<Utc>,
     pub read_at: Option<DateTime<Utc>>,
+}
+
+/// Canonical metadata registered before owner attachment bytes are written.
+/// PostgreSQL owns identity and integrity; the company filesystem is only the
+/// durable byte substrate and cannot redefine the name or media type.
+#[derive(Debug, Clone)]
+pub struct OwnerAttachmentRegistration {
+    pub attachment_id: Uuid,
+    pub canonical_name: String,
+    pub canonical_media_type: String,
+    pub size_bytes: i64,
+    pub content_sha256: String,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct OwnerAttachmentRecord {
+    pub attachment_id: Uuid,
+    pub canonical_name: String,
+    pub canonical_media_type: String,
+    pub size_bytes: i64,
+    pub content_sha256: String,
+    pub message_id: i64,
 }
 
 /// The audience shape of one durable Room. Organisational access still comes
@@ -1047,9 +1107,138 @@ impl RoomMessageRow {
     }
 }
 
+/// The only V1 mention targets: an explicitly named durable Actor, with the
+/// singleton Exec called out so clients can render `@exec` without inventing a
+/// role-resolution protocol.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(type_name = "message_mention_kind", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum MessageMentionKind {
+    Direct,
+    Exec,
+}
+
+fn default_independent_work_can_continue() -> bool {
+    true
+}
+
+/// Structured recipient-relative context attached to one authoritative Room
+/// Message. The Message body remains the concrete question; these fields save
+/// the recipient from reconstructing why their judgement is needed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NewRoomMessageMention {
+    pub actor_id: String,
+    #[serde(default)]
+    pub work_id: Option<Uuid>,
+    #[serde(default)]
+    pub why_this_actor: Option<String>,
+    #[serde(default)]
+    pub expected_response: Option<String>,
+    #[serde(default)]
+    pub recommendation: Option<String>,
+    #[serde(default)]
+    pub alternatives: Vec<String>,
+    #[serde(default)]
+    pub evidence: Vec<String>,
+    #[serde(default)]
+    pub uncertainty: Option<String>,
+    #[serde(default)]
+    pub affected_scope: Option<String>,
+    #[serde(default)]
+    pub deadline_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub fallback: Option<String>,
+    #[serde(default = "default_independent_work_can_continue")]
+    pub independent_work_can_continue: bool,
+}
+
+impl NewRoomMessageMention {
+    pub fn actor(actor_id: impl Into<String>) -> Self {
+        Self {
+            actor_id: actor_id.into(),
+            work_id: None,
+            why_this_actor: None,
+            expected_response: None,
+            recommendation: None,
+            alternatives: Vec::new(),
+            evidence: Vec::new(),
+            uncertainty: None,
+            affected_scope: None,
+            deadline_at: None,
+            fallback: None,
+            independent_work_can_continue: true,
+        }
+    }
+}
+
+/// One durable mention projection. `created_event_id` and
+/// `resolved_event_id` are receipts in the existing compactable event stream;
+/// they deliberately remain valid even after those hint rows are compacted.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct MessageMentionRow {
+    pub id: Uuid,
+    pub room_id: Uuid,
+    pub message_id: i64,
+    pub thread_root_message_id: i64,
+    pub mentioned_actor_id: String,
+    pub kind: MessageMentionKind,
+    pub work_id: Option<Uuid>,
+    pub why_this_actor: Option<String>,
+    pub expected_response: Option<String>,
+    pub recommendation: Option<String>,
+    pub alternatives: serde_json::Value,
+    pub evidence: serde_json::Value,
+    pub uncertainty: Option<String>,
+    pub affected_scope: Option<String>,
+    pub deadline_at: Option<DateTime<Utc>>,
+    pub fallback: Option<String>,
+    pub independent_work_can_continue: bool,
+    pub created_event_id: i64,
+    pub resolution_message_id: Option<i64>,
+    pub resolved_event_id: Option<i64>,
+    pub cancelled_event_id: Option<i64>,
+    pub cancelled_by: Option<String>,
+    pub cancellation_reason: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub resolved_at: Option<DateTime<Utc>>,
+    pub cancelled_at: Option<DateTime<Utc>>,
+}
+
+/// The bounded startup packet for recipient-relative Attention. It carries one
+/// triggering Message and its exact return path, not a whole Room transcript.
+#[derive(Debug, Clone, Serialize)]
+pub struct MessageMentionContext {
+    pub mention: MessageMentionRow,
+    pub room_title: String,
+    pub message: RoomMessageRow,
+}
+
+/// One cross-replica lease over an Actor's sovereign conversation process.
+/// Productive Work uses its running Attempt as the durable lease; both claim
+/// paths serialize on the same Actor row and exclude the other.
+#[derive(Debug, Clone)]
+pub struct ActorCognitiveLease {
+    pub actor_id: String,
+    pub token: Uuid,
+    pub claimed_until: DateTime<Utc>,
+}
+
+/// A focused mention bound to the Actor-wide cognitive lease that claimed it.
+/// The token is never serialized into Room or HTTP projections; it is proof
+/// that this exact process still owns the right to persist the resolving reply.
+#[derive(Debug, Clone)]
+pub struct MessageMentionClaim {
+    pub context: MessageMentionContext,
+    pub lease: ActorCognitiveLease,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct RoomMessagePage {
     pub messages: Vec<RoomMessageRow>,
+    /// Structured mentions for the Messages in this page. Bodies are never
+    /// duplicated here; clients join on `message_id`.
+    pub mentions: Vec<MessageMentionRow>,
     pub next_after_message_id: Option<i64>,
     pub has_more: bool,
 }
@@ -1062,6 +1251,12 @@ pub struct RoomMessageSendResult {
     /// False means the same actor retried the same command with the identical
     /// payload and received the original authoritative result.
     pub created: bool,
+    /// Exact mention receipts created by this command (or returned by an
+    /// idempotent retry), ordered by recipient Actor id.
+    pub mentions: Vec<MessageMentionRow>,
+    /// Present only when this command explicitly resolved an exact mention in
+    /// the same Room and Thread.
+    pub resolved_mention: Option<MessageMentionRow>,
 }
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]

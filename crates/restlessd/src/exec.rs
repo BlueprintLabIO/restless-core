@@ -58,6 +58,11 @@ pub struct WakeReport {
     /// owner but omitted the `restless message` tool call.
     #[serde(skip)]
     pub(crate) owner_reply: Option<String>,
+    /// True only when the productive turn itself ended normally with a final
+    /// assistant answer. A resumable/interrupted transcript may contain partial
+    /// text, but it is never safe to use that text to resolve a Room mention.
+    #[serde(skip)]
+    pub(crate) reply_complete: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -94,10 +99,14 @@ pub async fn wake(
     capabilities: &crate::capability::CapabilityIssuer,
     org: &OrgIntel,
     reason: &str,
+    conversation_inbox: &[restless_orgintel::MessageRow],
+    owed_judgements: &[restless_orgintel::OwnerHandoffRow],
+    pending_mention: Option<&restless_orgintel::MessageMentionContext>,
     observer: Option<acp::SessionObserver>,
     cancellation: &CancellationToken,
 ) -> Result<WakeReport> {
     let container = runtime::container_name(&config.name);
+    let focused_mention = pending_mention.is_some();
     // Exec conversation is free-form. Machine work is created and claimed
     // through OrgIntel's Work graph, never inferred from this wake.
     org.ensure_actor_with_model("exec", "exec", "exec", "The Exec", Some(&config.model))
@@ -127,6 +136,9 @@ pub async fn wake(
         authority,
         config,
         reason,
+        conversation_inbox,
+        owed_judgements,
+        pending_mention,
         spent_usd,
         initial_budget
             .remaining_micro_usd()
@@ -294,6 +306,7 @@ pub async fn wake(
                                     &model,
                                     remaining,
                                     metered,
+                                    focused_mention,
                                     &cancellation,
                                 )
                                 .await
@@ -329,6 +342,7 @@ pub async fn wake(
                                     &model,
                                     remaining,
                                     metered,
+                                    focused_mention,
                                     &cancellation,
                                 )
                                 .await
@@ -472,6 +486,7 @@ async fn blocked_wake(org: &OrgIntel, config: &CompanyConfig, reason: &str) -> R
         tool_calls: Vec::new(),
         said: String::new(),
         owner_reply: None,
+        reply_complete: false,
     };
     record_outcome(org, &report).await?;
     Ok(report)
@@ -532,6 +547,7 @@ fn blocked_report(
         tool_calls: Vec::new(),
         said: String::new(),
         owner_reply: None,
+        reply_complete: false,
     }
 }
 
@@ -739,6 +755,7 @@ async fn run_ready_exec_session(
     model: &str,
     remaining_budget_usd: f64,
     enforce_spend_budget: bool,
+    focused_mention: bool,
     cancellation: &CancellationToken,
 ) -> Result<(WakeReport, Option<acp::TurnUsage>)> {
     let readiness = session.readiness_observation();
@@ -778,11 +795,13 @@ async fn run_ready_exec_session(
         model,
         remaining_budget_usd,
         enforce_spend_budget,
+        focused_mention,
         cancellation,
     )
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_turn(
     session: &dyn ExecutiveSession,
     context: &str,
@@ -790,6 +809,7 @@ async fn run_turn(
     model: &str,
     remaining_budget_usd: f64,
     enforce_spend_budget: bool,
+    focused_mention: bool,
     cancellation: &CancellationToken,
 ) -> Result<(WakeReport, Option<acp::TurnUsage>)> {
     // Run for as long as the agent is alive, not for a fixed wall-clock
@@ -814,7 +834,7 @@ async fn run_turn(
     // verdict; nothing below re-derives it from the transcript.
     let verdict = health::classify(&end);
     let transcript = end.into_transcript();
-    let report = |termination, reason, retry_after_seconds| WakeReport {
+    let report = |termination, reason, retry_after_seconds, reply_complete| WakeReport {
         company: company.to_string(),
         model: model.to_string(),
         failovers: Vec::new(),
@@ -825,6 +845,7 @@ async fn run_turn(
         said: transcript.text.chars().take(1_000).collect(),
         owner_reply: (!transcript.last_message_text.trim().is_empty())
             .then(|| transcript.last_message_text.trim().to_string()),
+        reply_complete,
     };
 
     match verdict {
@@ -832,13 +853,19 @@ async fn run_turn(
         // rehydrates from it, so this costs the owner nothing.
         health::Verdict::Resume(reason) => {
             tracing::warn!(company, %reason, "turn stopped early; resuming next wake");
-            Ok((report(Termination::Continue, reason, Some(60)), usage))
+            Ok((
+                report(Termination::Continue, reason, Some(60), false),
+                usage,
+            ))
         }
         // Only the owner can clear this. `record_outcome` latches the
         // milestone and mails once — never a re-wake loop (F1).
         health::Verdict::Blocked(blocked) => {
             tracing::warn!(company, reason = %blocked.message(), "turn blocked the company");
-            Ok((report(Termination::Blocked, blocked.message(), None), usage))
+            Ok((
+                report(Termination::Blocked, blocked.message(), None, false),
+                usage,
+            ))
         }
         // The turn ran. Only now is the agent's own judgement worth asking
         // for — asking a wedged or unpaid session how the work stands gets
@@ -851,7 +878,32 @@ async fn run_turn(
             // termination decision; otherwise Restless spends a second call
             // and records the provider failure as model indecision.
             if let Some(blocked) = health::classify_provider_error_content(&transcript.text) {
-                return Ok((report(Termination::Blocked, blocked.message(), None), usage));
+                return Ok((
+                    report(Termination::Blocked, blocked.message(), None, false),
+                    usage,
+                ));
+            }
+            if focused_mention {
+                let answer = transcript.last_message_text.trim();
+                return Ok((
+                    if answer.is_empty() {
+                        report(
+                            Termination::Continue,
+                            "the focused Room mention turn completed without a final answer"
+                                .to_string(),
+                            Some(CONTINUE_WAKE_DELAY_SECONDS),
+                            false,
+                        )
+                    } else {
+                        report(
+                            Termination::OutcomeMet,
+                            "the focused Room mention received a complete answer".to_string(),
+                            None,
+                            true,
+                        )
+                    },
+                    usage,
+                ));
             }
             // The decision envelope is internal coordination, not the
             // owner-facing reply that the live activity dock previews.
@@ -862,6 +914,7 @@ async fn run_turn(
                     decision.termination,
                     decision.reason,
                     decision.retry_after_seconds,
+                    !transcript.last_message_text.trim().is_empty(),
                 ),
                 usage,
             ))
@@ -1001,12 +1054,19 @@ fn retry_termination(reason: impl Into<String>) -> TerminationDecision {
 /// Gather the wake's read-only snapshot (the only IO in context assembly;
 /// `context::assemble` is pure). Files win over memory — this is all the
 /// continuity the Exec gets, so it is all here.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "snapshot IO keeps company, authority, immediate focus and budget inputs explicit"
+)]
 async fn gather_snapshot(
     container: &str,
     org: &OrgIntel,
     authority: &crate::authority::AuthorityStore,
     config: &CompanyConfig,
     reason: &str,
+    conversation_inbox: &[restless_orgintel::MessageRow],
+    owed_judgements: &[restless_orgintel::OwnerHandoffRow],
+    pending_mention: Option<&restless_orgintel::MessageMentionContext>,
     spent_usd: f64,
     remaining_usd: Option<f64>,
 ) -> Result<ContextSnapshot> {
@@ -1023,21 +1083,36 @@ async fn gather_snapshot(
                     | restless_orgintel::WorkStatus::Blocked
             )
         })
+        .filter(|item| match pending_mention {
+            None => true,
+            Some(mention) => mention.mention.work_id == Some(item.id),
+        })
         .collect();
-    let inbox = org.inbox(Some("exec")).await?;
+    let inbox = if pending_mention.is_some() {
+        Vec::new()
+    } else {
+        conversation_inbox.to_vec()
+    };
     let unread_owner_message_ids = inbox
         .iter()
         .filter(|message| message.from_actor == "owner")
         .map(|message| message.id)
         .collect::<HashSet<_>>();
-    let focus = org.owner_conversation_focus("exec").await?;
-    let recent_owner_conversation = org
-        .owner_conversation_since("exec", focus.after_message_id, 12)
-        .await?
-        .into_iter()
-        .filter(|message| !unread_owner_message_ids.contains(&message.id))
-        .collect();
-    let owed_judgements = org.handoffs_assigned_to("exec").await?;
+    let recent_owner_conversation = if pending_mention.is_some() {
+        Vec::new()
+    } else {
+        let focus = org.owner_conversation_focus("exec").await?;
+        org.owner_conversation_since("exec", focus.after_message_id, 12)
+            .await?
+            .into_iter()
+            .filter(|message| !unread_owner_message_ids.contains(&message.id))
+            .collect()
+    };
+    let owed_judgements = if pending_mention.is_some() {
+        Vec::new()
+    } else {
+        owed_judgements.to_vec()
+    };
     Ok(ContextSnapshot {
         company: config.name.clone(),
         operating_rules: crate::context::COMPANY_OPERATING_RULES.to_string(),
@@ -1050,6 +1125,7 @@ async fn gather_snapshot(
         recent_owner_conversation,
         inbox,
         owed_judgements,
+        pending_mention: pending_mention.cloned(),
         wake_reason: reason.to_string(),
         budget_remaining_usd: remaining_usd,
         budget_ceiling_usd: config.spend_ceiling_usd.as_usd(),
@@ -1118,6 +1194,7 @@ pub(crate) async fn record_interrupted_outcome(
         tool_calls: Vec::new(),
         said: String::new(),
         owner_reply: None,
+        reply_complete: false,
     };
     record_outcome(org, &report).await
 }

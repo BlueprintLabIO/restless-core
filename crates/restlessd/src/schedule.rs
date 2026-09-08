@@ -249,6 +249,18 @@ async fn handle_notification(daemon: &Arc<Daemon>, in_flight: &InFlight, payload
         return;
     };
     match value["kind"].as_str() {
+        Some("mention") if value["body"]["to"] == "exec" => {
+            fire_exec(
+                daemon,
+                in_flight,
+                company,
+                "a focused Room mention is owed to the Exec",
+            )
+            .await;
+        }
+        Some("mention") if value["body"]["to"].as_str().is_some() => {
+            scan_company(daemon, in_flight, company).await;
+        }
         Some("message") if value["body"]["to"] == "exec" => {
             // A Work owned by the singleton Exec has no higher internal
             // coordinator. Preserve a self-addressed note as transcript, but
@@ -450,6 +462,41 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
         }
     }
 
+    // A structured direct mention addresses the durable Actor, not the team
+    // office it happened to hold at send time. Replacement/disband reroutes
+    // office mail and judgements, but an active former lead still answers its
+    // already-accepted named obligation. The Actor-wide lease below prevents
+    // this recovery scan from duplicating a current-lead wake.
+    if let Ok(actors) = org.actors_owing_message_mentions(128).await {
+        for actor in actors {
+            if !daemon.staff.has_capacity(company) {
+                break;
+            }
+            match crate::staff::dispatch_actor_conversation(
+                &config,
+                &org,
+                crate::staff::ConversationRuntime {
+                    spend: &daemon.spend,
+                    authority: &daemon.authority,
+                    capabilities: &daemon.capabilities,
+                    registry: &daemon.staff,
+                    activities: &daemon.activities,
+                },
+                &actor,
+                "a durable named-Actor Room mention remains owed",
+            )
+            .await
+            {
+                Ok(_) => {}
+                Err(error) => tracing::warn!(
+                    company,
+                    actor = %actor,
+                    "could not wake mentioned Actor: {error:#}"
+                ),
+            }
+        }
+    }
+
     while daemon.staff.has_capacity(company) {
         // Conversation turns and Work Attempts share one supervised actor.
         // Exclude the registry snapshot before the database claim so a busy
@@ -520,10 +567,17 @@ async fn recover_owed_exec_work(
 
     let judgements = org.undelivered_handoff_count("exec").await.unwrap_or(0);
     let conversation = org.owed_conversation_count("exec").await.unwrap_or(0);
-    let reason = match (judgements, conversation) {
-        (0, 0) => return,
-        (0, _) => "unread conversation is owed to the Exec",
-        (_, 0) => "organisational judgement is owed to the Exec",
+    let mention = org
+        .next_pending_message_mention("exec")
+        .await
+        .ok()
+        .flatten()
+        .is_some();
+    let reason = match (judgements, conversation, mention) {
+        (0, 0, false) => return,
+        (0, 0, true) => "a focused Room mention is owed to the Exec",
+        (0, _, _) => "unread conversation is owed to the Exec",
+        (_, 0, false) => "organisational judgement is owed to the Exec",
         _ => "unread conversation and organisational judgement are owed to the Exec",
     };
     fire_exec(daemon, in_flight, company, reason).await;
@@ -599,35 +653,61 @@ pub(crate) async fn run_exec_turn(
     reason: &str,
     cancellation: &CancellationToken,
 ) -> Result<exec::WakeReport> {
+    // The lease row is FK-bound to the durable Actor. Fresh companies may
+    // reach this entry point before `exec::wake` has ever bootstrapped it, so
+    // initialise the stable principals before competing for the mutex.
+    org.ensure_actor_with_model("exec", "exec", "exec", "The Exec", Some(&config.model))
+        .await?;
+    org.ensure_actor("owner", "owner", "owner", "The Owner")
+        .await?;
+    let Some(lease_guard) =
+        crate::staff::CognitiveLeaseGuard::claim(org, "exec", cancellation).await?
+    else {
+        anyhow::bail!("Exec already has a durable cognitive session or running Work Attempt");
+    };
+    let outcome =
+        run_exec_turn_with_lease(daemon, config, org, reason, cancellation, &lease_guard).await;
+    lease_guard.finish().await;
+    outcome
+}
+
+async fn run_exec_turn_with_lease(
+    daemon: &Daemon,
+    config: &CompanyConfig,
+    org: &OrgIntel,
+    reason: &str,
+    cancellation: &CancellationToken,
+    lease_guard: &crate::staff::CognitiveLeaseGuard,
+) -> Result<exec::WakeReport> {
+    let conversation_inbox = org.conversation_inbox("exec").await?;
     let mut message_ids = Vec::new();
     let mut owner_message_ids = Vec::new();
-    for message in org.inbox(Some("exec")).await? {
-        if org.message_is_work_attempt_input(message.id).await? {
-            continue;
-        }
+    for message in &conversation_inbox {
         message_ids.push(message.id);
         if message.from_actor == "owner" {
             owner_message_ids.push(message.id);
         }
     }
-    // Every pending judgement assigned to the Exec is in the context this turn
-    // is about to assemble (`exec::gather_snapshot`), so a turn that completes
-    // has genuinely been given all of them. Capture the set before the turn so
-    // a judgement created *during* it stays owed to the next one.
-    let owed_judgements = org
-        .handoffs_assigned_to("exec")
-        .await?
-        .into_iter()
-        .map(|handoff| handoff.id)
+    // Every pending judgement remains in the assembled context, but only an
+    // as-yet-undelivered judgement outranks a focused mention or belongs in
+    // this turn's atomic consumption set. A delivered-yet-pending judgement is
+    // context, not a fresh delivery obligation; treating it as one would
+    // starve the mention while recovery kept waking for that mention forever.
+    let judgements = org.conversation_handoffs("exec").await?;
+    let owed_judgements = judgements
+        .iter()
+        .filter(|handoff| handoff.delivered_at.is_none())
+        .map(restless_orgintel::OwnerHandoffRow::conversation_input)
         .collect::<Vec<_>>();
-    let prior_reply_id = org
-        .owner_conversation("exec", 200)
-        .await?
-        .into_iter()
-        .filter(|message| message.from_actor == "exec")
-        .map(|message| message.id)
-        .max()
-        .unwrap_or(0);
+    // Direct conversation and formal handoffs keep their existing priority.
+    // Otherwise process exactly one unresolved Room mention so a single model
+    // context never has to answer several unrelated Threads at once.
+    let pending_mention = if message_ids.is_empty() && owed_judgements.is_empty() {
+        org.claim_next_pending_message_mention(lease_guard.lease())
+            .await?
+    } else {
+        None
+    };
     let live_turn = daemon
         .activities
         .start_messages(&config.name, "exec", &owner_message_ids);
@@ -639,21 +719,31 @@ pub(crate) async fn run_exec_turn(
         &daemon.capabilities,
         org,
         reason,
+        &conversation_inbox,
+        &judgements,
+        pending_mention.as_ref().map(|claim| &claim.context),
         observer,
         cancellation,
     )
     .await;
 
     if cancellation.is_cancelled() {
-        if !owner_message_ids.is_empty() {
+        if pending_mention.is_some() {
+            live_turn.fail("Interrupted before the focused Room mention was answered.");
+            anyhow::bail!("focused Room mention turn was interrupted before a complete answer");
+        } else if !owner_message_ids.is_empty() {
             // A replacement message is normally persisted before an
             // interruption. The full-screen owner chat can also cancel the
             // exact pending message without adding synthetic prose, so do not
             // claim a fresh direction is queued when that durable input was
             // explicitly consumed.
-            let replacement_is_owed = org.inbox(Some("exec")).await.ok().is_some_and(|messages| {
-                messages.iter().any(|message| message.from_actor == "owner")
-            });
+            let replacement_is_owed =
+                org.conversation_inbox("exec")
+                    .await
+                    .ok()
+                    .is_some_and(|messages| {
+                        messages.iter().any(|message| message.from_actor == "owner")
+                    });
             live_turn.fail(if replacement_is_owed {
                 "Interrupted by owner; new direction is queued for a fresh turn."
             } else {
@@ -664,49 +754,91 @@ pub(crate) async fn run_exec_turn(
     }
 
     match &outcome {
-        Ok(report) if !owner_message_ids.is_empty() => {
-            let mut recorded_reply = org
-                .owner_conversation("exec", 200)
-                .await?
-                .into_iter()
-                .filter(|message| message.from_actor == "exec" && message.id > prior_reply_id)
-                .max_by_key(|message| message.id);
-
-            // The live assistant block is already the text the owner saw.
-            // Preserve it durably when the model answered but missed the
-            // explicit message tool; a company-level `blocked` decision is
-            // not a failed conversation.
-            if recorded_reply.is_none() {
-                if let Some(reply) = report.owner_reply.as_deref() {
-                    let message_id = org.send_message("exec", None, reply).await?;
-                    recorded_reply = org
-                        .owner_conversation("exec", 200)
-                        .await?
-                        .into_iter()
-                        .find(|message| message.id == message_id);
+        Ok(report)
+            if pending_mention.is_some()
+                && report.reply_complete
+                && report.termination == exec::Termination::OutcomeMet =>
+        {
+            let mention = pending_mention
+                .as_ref()
+                .expect("the mention match guard proves a focused mention");
+            let recorded: anyhow::Result<i64> = async {
+                let reply = report.owner_reply.as_deref().ok_or_else(|| {
+                    anyhow::anyhow!("the Exec finished a mention turn without a reply")
+                })?;
+                lease_guard.confirm().await?;
+                Ok(org
+                    .reply_to_claimed_message_mention(mention, reply)
+                    .await?
+                    .message
+                    .id)
+            }
+            .await;
+            match recorded {
+                Ok(message_id) => live_turn.complete(Some(message_id), None),
+                Err(error) => {
+                    tracing::warn!(
+                        company = %config.name,
+                        mention_id = %mention.context.mention.id,
+                        "could not persist the focused Room mention reply: {error:#}"
+                    );
+                    live_turn.fail("Exec finished but its Room reply was not recorded.");
+                    return Err(error);
                 }
             }
-
-            if let Some(reply) = recorded_reply {
-                for message_id in message_ids {
-                    let _ = org.mark_read(message_id).await;
-                }
-                let _ = org.mark_handoffs_delivered(&owed_judgements).await;
-                live_turn.complete(Some(reply.id), None);
-            } else if report.termination == exec::Termination::Blocked {
-                live_turn.fail(&report.reason);
+        }
+        Ok(report) if pending_mention.is_some() => {
+            // A blocked turn leaves the exact mention unresolved for a later
+            // retry, but its live projection must still reach a terminal fact.
+            live_turn.fail(&report.reason);
+            return Err(anyhow::anyhow!(
+                "focused Room mention did not produce a terminal complete answer: {}",
+                report.reason
+            ));
+        }
+        Ok(report) if !owner_message_ids.is_empty() && report.reply_complete => {
+            // Owner-directed CLI sends are rejected while this Actor lease is
+            // present. Persist the one complete final assistant block through
+            // the exact token fence; partial/refusal transcripts never consume
+            // owner input even when they contain text.
+            if let Some(reply) = report.owner_reply.as_deref() {
+                let reply_message_id = org
+                    .finalize_cognitive_conversation(
+                        lease_guard.lease(),
+                        Some(reply),
+                        None,
+                        &message_ids,
+                        &owed_judgements,
+                    )
+                    .await?
+                    .expect("an owner reply was supplied to finalization");
+                live_turn.complete(Some(reply_message_id), None);
             } else {
                 live_turn.fail("Exec finished without recording a reply.");
+                return Err(anyhow::anyhow!(
+                    "Exec completed an owner conversation without a final reply"
+                ));
             }
         }
-        Ok(report) if report.termination != exec::Termination::Blocked => {
-            for message_id in message_ids {
-                let _ = org.mark_read(message_id).await;
-            }
-            let _ = org.mark_handoffs_delivered(&owed_judgements).await;
+        Ok(report) if !owner_message_ids.is_empty() => {
+            live_turn.fail(&report.reason);
+            return Err(anyhow::anyhow!(
+                "Exec owner conversation did not produce a complete usable answer: {}",
+                report.reason
+            ));
+        }
+        Ok(report) if report.reply_complete => {
+            org.finalize_cognitive_conversation(
+                lease_guard.lease(),
+                None,
+                None,
+                &message_ids,
+                &owed_judgements,
+            )
+            .await?;
         }
         Err(error) => {
-            if !owner_message_ids.is_empty() {
+            if !owner_message_ids.is_empty() || pending_mention.is_some() {
                 live_turn.fail(&format!("Exec reply failed: {error:#}"));
             }
             let latest_wake = org.latest_event("wake").await.ok().flatten();

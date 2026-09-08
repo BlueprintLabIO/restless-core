@@ -3,6 +3,22 @@
 use super::types::{owner_handoff_source_fingerprint, validate_owner_brief};
 use super::*;
 
+const MAX_HANDOFF_CONTEXT_BYTES: usize = 64 * 1024;
+
+fn validate_handoff_context(
+    requested_action: &str,
+    prepared_state: &str,
+    resume: &str,
+) -> Result<()> {
+    let bytes = requested_action.len() + prepared_state.len() + resume.len();
+    if bytes > MAX_HANDOFF_CONTEXT_BYTES {
+        return Err(OrgIntelError::InvalidWork(format!(
+            "owner handoff context must not exceed {MAX_HANDOFF_CONTEXT_BYTES} UTF-8 bytes"
+        )));
+    }
+    Ok(())
+}
+
 impl OrgIntel {
     pub async fn request_owner_handoff(&self, handoff: NewOwnerHandoff<'_>) -> Result<Uuid> {
         if handoff.requested_action.trim().is_empty()
@@ -14,49 +30,47 @@ impl OrgIntel {
                     .into(),
             ));
         }
+        validate_handoff_context(
+            handoff.requested_action,
+            handoff.prepared_state,
+            handoff.resume_condition,
+        )?;
         let id = Uuid::new_v4();
-
-        // Where this judgement goes (S06-T5). Only `owner_judgement` can be
-        // answered by anyone other than the owner: identity, CAPTCHA, MFA, legal
-        // attestation and payment confirmation are irreducibly human and stay
-        // with the owner no matter how large the company grows. A lead absorbing
-        // one of those would be a lead exercising authority it does not have.
-        //
-        // For judgement, the requester's team lead answers first. A lead or an
-        // unassigned specialist asks the Exec. Only an Exec judgement reaches
-        // the owner; nobody escalates to themselves.
-        let assigned_to = if handoff.category == OwnerHandoffCategory::OwnerJudgement {
-            if handoff.requested_by == "exec" {
-                // Exec still performs the explicit final admission step. A
-                // request cannot appear in owner Attention before its source
-                // snapshot has a current authored brief.
-                Some("exec".to_string())
-            } else {
-                self.team_lead_for(handoff.requested_by)
-                    .await?
-                    .or_else(|| Some("exec".to_string()))
-            }
-        } else {
-            None
-        };
-
-        // The blocked Work says who it is waiting on, not just that it waits.
-        // "awaiting owner handoff" on work a lead owes is how a queue becomes
-        // invisible to the person who could clear it.
-        let blocked_reason = match assigned_to.as_deref() {
-            Some(lead) => format!("awaiting {lead} judgement, handoff {id}"),
-            None => format!("awaiting owner handoff {id}"),
-        };
 
         let mut tx = self.pool.begin().await?;
         // Serialize with scheduler claim. A handoff without an Attempt is
         // valid for a prepared legacy/manual outcome, but it must not detach
         // an already-running actor from the Attempt that still attributes its
         // process and any work it performs while the owner item is pending.
-        sqlx::query("SELECT id FROM work WHERE id=$1 FOR UPDATE")
-            .bind(handoff.work_id)
-            .fetch_one(&mut *tx)
-            .await?;
+        // Resolve the accountable destination only after Work is locked, then
+        // keep the exact Team and Actor rows locked through insertion. A lead
+        // replacement either happens first and is observed here, or waits and
+        // reroutes this newly inserted handoff in its own transaction.
+        let accountability =
+            crate::actors::lock_work_accountability_for_update_in_tx(&mut tx, handoff.work_id)
+                .await?;
+        if handoff.requested_by != accountability.owner_id
+            && handoff.requested_by != "exec"
+            && accountability.lead_actor_id.as_deref() != Some(handoff.requested_by)
+        {
+            return Err(OrgIntelError::InvalidWork(
+                "only the Work owner, its exact accountable lead, or Exec may request this handoff"
+                    .into(),
+            ));
+        }
+        let assigned_to = if handoff.category == OwnerHandoffCategory::OwnerJudgement {
+            let lead = accountability
+                .lead_actor_id
+                .filter(|lead| lead != handoff.requested_by);
+            Some(lead.unwrap_or_else(|| "exec".to_string()))
+        } else {
+            None
+        };
+        // The blocked Work says who it is waiting on, not just that it waits.
+        let blocked_reason = match assigned_to.as_deref() {
+            Some(lead) => format!("awaiting {lead} judgement, handoff {id}"),
+            None => format!("awaiting owner handoff {id}"),
+        };
         let running_attempt = sqlx::query_scalar::<_, Uuid>(
             "SELECT id FROM work_attempts WHERE work_id=$1 AND state='running' LIMIT 1",
         )
@@ -133,20 +147,30 @@ impl OrgIntel {
                     .into(),
             ));
         }
+        validate_handoff_context(requested_action, prepared_state, resume_condition)?;
 
         let mut tx = self.pool.begin().await?;
-        let row = sqlx::query(
-            "SELECT h.work_id, h.requested_action, h.prepared_state, h.resume_condition, \
-                    w.owner_id \
-             FROM owner_handoffs h JOIN work w ON w.id=h.work_id \
-             WHERE h.id=$1 AND h.state='pending' FOR UPDATE",
+        let candidate_work_id: Uuid = sqlx::query_scalar(
+            "SELECT work_id FROM owner_handoffs WHERE id=$1 AND state='pending'",
         )
         .bind(id)
         .fetch_optional(&mut *tx)
         .await?
         .ok_or_else(|| OrgIntelError::InvalidWork("no outstanding handoff with that id".into()))?;
+        let accountability =
+            crate::actors::lock_work_accountability_in_tx(&mut tx, candidate_work_id).await?;
+        let row = sqlx::query(
+            "SELECT work_id,requested_action,prepared_state,resume_condition \
+             FROM owner_handoffs \
+             WHERE id=$1 AND work_id=$2 AND state='pending' FOR UPDATE",
+        )
+        .bind(id)
+        .bind(candidate_work_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| OrgIntelError::InvalidWork("no outstanding handoff with that id".into()))?;
         let work_id: Uuid = row.get("work_id");
-        let work_owner: String = row.get("owner_id");
+        let work_owner = accountability.owner_id;
         if !matches!(changed_by, "owner" | "exec") && changed_by != work_owner {
             return Err(OrgIntelError::InvalidWork(
                 "only the Work owner, Exec or owner may refresh its prepared handoff".into(),
@@ -208,22 +232,33 @@ impl OrgIntel {
     ) -> Result<()> {
         validate_owner_brief(&brief)?;
         let mut tx = self.pool.begin().await?;
-        let row = sqlx::query(
-            "SELECT h.work_id, h.attempt_id, h.category, h.requested_action, \
-                    h.prepared_state, h.resume_condition, h.owner_brief, h.briefed_by, \
-                    h.brief_source_fingerprint, h.assigned_to, w.owner_id, w.revision, \
-                    t.lead_actor_id \
-             FROM owner_handoffs h JOIN work w ON w.id=h.work_id \
-             LEFT JOIN actors a ON a.id=w.owner_id \
-             LEFT JOIN teams t ON t.id=a.team_id AND t.disbanded_at IS NULL \
-             WHERE h.id=$1 AND h.state='pending' FOR UPDATE OF h, w",
+        let candidate_work_id: Uuid = sqlx::query_scalar(
+            "SELECT work_id FROM owner_handoffs WHERE id=$1 AND state='pending'",
         )
         .bind(id)
         .fetch_optional(&mut *tx)
         .await?
         .ok_or_else(|| OrgIntelError::InvalidWork("no outstanding handoff with that id".into()))?;
-        let work_owner: String = row.get("owner_id");
-        let team_lead: Option<String> = row.get("lead_actor_id");
+        // Canonical order is Work -> Team -> Actor -> Handoff. Lead lifecycle
+        // holds Team before touching pending handoffs, so taking the Handoff
+        // first here would form a deadlock cycle.
+        let accountability =
+            crate::actors::lock_work_accountability_in_tx(&mut tx, candidate_work_id).await?;
+        let row = sqlx::query(
+            "SELECT h.work_id, h.attempt_id, h.category, h.requested_action, \
+                    h.prepared_state, h.resume_condition, h.owner_brief, h.briefed_by, \
+                    h.brief_source_fingerprint, h.assigned_to \
+             FROM owner_handoffs h \
+             WHERE h.id=$1 AND h.work_id=$2 AND h.state='pending' FOR UPDATE OF h",
+        )
+        .bind(id)
+        .bind(candidate_work_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| OrgIntelError::InvalidWork("no outstanding handoff with that id".into()))?;
+        let work_id: Uuid = row.get("work_id");
+        let work_owner = accountability.owner_id;
+        let team_lead = accountability.lead_actor_id;
         if briefed_by != "exec"
             && briefed_by != work_owner
             && team_lead.as_deref() != Some(briefed_by)
@@ -249,13 +284,13 @@ impl OrgIntel {
             ));
         }
         let fingerprint = owner_handoff_source_fingerprint(
-            row.get("work_id"),
+            work_id,
             row.get("attempt_id"),
             category,
             row.get::<String, _>("requested_action").as_str(),
             row.get::<String, _>("prepared_state").as_str(),
             row.get::<String, _>("resume_condition").as_str(),
-            row.get("revision"),
+            accountability.revision,
         );
         let previous_brief: Option<serde_json::Value> = row.get("owner_brief");
         let previous_author: Option<String> = row.get("briefed_by");
@@ -264,6 +299,15 @@ impl OrgIntel {
             && row.get::<Option<String>, _>("assigned_to").is_none();
         let encoded = serde_json::to_value(&brief)
             .map_err(|error| OrgIntelError::InvalidWork(format!("invalid owner brief: {error}")))?;
+        if serde_json::to_vec(&encoded)
+            .map_err(|error| OrgIntelError::InvalidWork(format!("invalid owner brief: {error}")))?
+            .len()
+            > MAX_HANDOFF_CONTEXT_BYTES
+        {
+            return Err(OrgIntelError::InvalidWork(format!(
+                "owner brief must not exceed {MAX_HANDOFF_CONTEXT_BYTES} UTF-8 bytes"
+            )));
+        }
         if previous_brief.as_ref() == Some(&encoded)
             && previous_author.as_deref() == Some(briefed_by)
             && previous_fingerprint.as_deref() == Some(fingerprint.as_str())
@@ -293,7 +337,7 @@ impl OrgIntel {
         .bind(briefed_by)
         .bind(serde_json::json!({
             "handoff_id": id,
-            "work_id": row.get::<Uuid, _>("work_id"),
+            "work_id": work_id,
             "source_fingerprint": fingerprint,
             "kind": brief.kind,
             "replaced_briefed_by": previous_author,
@@ -372,14 +416,30 @@ impl OrgIntel {
                 "resolving a handoff needs the answer or observed outcome".into(),
             ));
         }
+        let candidate_work_id: Option<Uuid> =
+            sqlx::query_scalar("SELECT work_id FROM owner_handoffs WHERE id=$1")
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?;
+        let Some(candidate_work_id) = candidate_work_id else {
+            if external_observation {
+                return Ok(false);
+            }
+            return Err(OrgIntelError::InvalidWork(
+                "no pending owner handoff with that id".into(),
+            ));
+        };
+        let accountability =
+            crate::actors::lock_work_accountability_for_update_in_tx(&mut tx, candidate_work_id)
+                .await?;
         let row = sqlx::query(
-            "SELECT h.work_id, h.attempt_id, h.category, h.requested_action, \
-                    h.prepared_state, h.resume_condition, h.assigned_to, h.owner_brief, \
-                    h.brief_source_fingerprint, w.owner_id, w.revision \
-             FROM owner_handoffs h JOIN work w ON w.id=h.work_id \
-             WHERE h.id=$1 AND h.state='pending' FOR UPDATE",
+            "SELECT work_id,attempt_id,category,requested_action,prepared_state, \
+                    resume_condition,assigned_to,owner_brief,brief_source_fingerprint \
+             FROM owner_handoffs \
+             WHERE id=$1 AND work_id=$2 AND state='pending' FOR UPDATE",
         )
         .bind(id)
+        .bind(candidate_work_id)
         .fetch_optional(&mut *tx)
         .await?;
         let Some(row) = row else {
@@ -392,7 +452,7 @@ impl OrgIntel {
         };
         let work_id: Uuid = row.get("work_id");
         let assigned_to: Option<String> = row.get("assigned_to");
-        let work_owner: String = row.get("owner_id");
+        let work_owner = accountability.owner_id;
         let category: OwnerHandoffCategory = row.get("category");
         let observable_human_step = external_observation
             && assigned_to.is_none()
@@ -426,7 +486,7 @@ impl OrgIntel {
                 row.get::<String, _>("requested_action").as_str(),
                 row.get::<String, _>("prepared_state").as_str(),
                 row.get::<String, _>("resume_condition").as_str(),
-                row.get("revision"),
+                accountability.revision,
             );
             let recorded: Option<String> = row.get("brief_source_fingerprint");
             if recorded.as_deref() != Some(current.as_str()) {
@@ -512,19 +572,31 @@ impl OrgIntel {
             ));
         }
         let mut tx = self.pool.begin().await?;
-        let row = sqlx::query(
-            "SELECT h.work_id, h.attempt_id, h.category, h.requested_action, \
-                    h.prepared_state, h.resume_condition, h.assigned_to, h.owner_brief, \
-                    h.brief_source_fingerprint, w.owner_id, w.revision \
-             FROM owner_handoffs h JOIN work w ON w.id=h.work_id \
-             WHERE h.id=$1 AND h.state='pending' FOR UPDATE",
+        let candidate_work_id: Uuid = sqlx::query_scalar(
+            "SELECT work_id FROM owner_handoffs WHERE id=$1 AND state='pending'",
         )
         .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| {
+            OrgIntelError::InvalidWork("no pending owner handoff with that id".into())
+        })?;
+        let accountability =
+            crate::actors::lock_work_accountability_for_update_in_tx(&mut tx, candidate_work_id)
+                .await?;
+        let row = sqlx::query(
+            "SELECT work_id,attempt_id,category,requested_action,prepared_state, \
+                    resume_condition,assigned_to,owner_brief,brief_source_fingerprint \
+             FROM owner_handoffs \
+             WHERE id=$1 AND work_id=$2 AND state='pending' FOR UPDATE",
+        )
+        .bind(id)
+        .bind(candidate_work_id)
         .fetch_one(&mut *tx)
         .await?;
         let work_id: Uuid = row.get("work_id");
         let category: OwnerHandoffCategory = row.get("category");
-        let owner_id: String = row.get("owner_id");
+        let owner_id = accountability.owner_id;
         if category != OwnerHandoffCategory::OwnerJudgement {
             return Err(OrgIntelError::InvalidWork(
                 "only an owner_judgement handoff can receive an outcome review".into(),
@@ -551,7 +623,7 @@ impl OrgIntel {
             row.get::<String, _>("requested_action").as_str(),
             row.get::<String, _>("prepared_state").as_str(),
             row.get::<String, _>("resume_condition").as_str(),
-            row.get("revision"),
+            accountability.revision,
         );
         let recorded: Option<String> = row.get("brief_source_fingerprint");
         if recorded.as_deref() != Some(current.as_str()) {

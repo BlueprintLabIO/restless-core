@@ -82,6 +82,9 @@ impl OrgIntel {
                                WHERE a.work_id = w.id AND a.state = 'running') \
                AND NOT EXISTS (SELECT 1 FROM work_attempts a \
                                WHERE a.actor_id = w.owner_id AND a.state = 'running') \
+               AND NOT EXISTS (SELECT 1 FROM actor_cognitive_leases lease \
+                               WHERE lease.actor_id = w.owner_id \
+                                 AND lease.claimed_until > now()) \
                AND NOT EXISTS (SELECT 1 FROM owner_handoffs h \
                                WHERE h.work_id = w.id AND h.state = 'pending') \
                AND NOT EXISTS (\
@@ -124,6 +127,27 @@ impl OrgIntel {
             tx.commit().await?;
             return Ok(None);
         }
+        // Expiry is the crash-recovery boundary. Remove the stale mutex only
+        // while holding the same Actor lock that grants Work, and release any
+        // mention claim tied to its old token before the Attempt can start.
+        let expired_cognitive_token: Option<Uuid> = sqlx::query_scalar(
+            "DELETE FROM actor_cognitive_leases \
+             WHERE actor_id=$1 AND claimed_until<=now() RETURNING lease_token",
+        )
+        .bind(&work.owner_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some(token) = expired_cognitive_token {
+            sqlx::query(
+                "UPDATE message_mentions SET claim_token=NULL,claimed_at=NULL,claimed_until=NULL \
+                 WHERE mentioned_actor_id=$1 AND claim_token=$2 \
+                   AND resolution_message_id IS NULL AND cancelled_event_id IS NULL",
+            )
+            .bind(&work.owner_id)
+            .bind(token)
+            .execute(&mut *tx)
+            .await?;
+        }
         let actor_already_running: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM work_attempts \
              WHERE actor_id=$1 AND state='running')",
@@ -132,6 +156,17 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         if actor_already_running {
+            tx.commit().await?;
+            return Ok(None);
+        }
+        let actor_conversation_running: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM actor_cognitive_leases \
+             WHERE actor_id=$1 AND claimed_until>now())",
+        )
+        .bind(&work.owner_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if actor_conversation_running {
             tx.commit().await?;
             return Ok(None);
         }
@@ -245,10 +280,13 @@ impl OrgIntel {
             "SELECT id,from_actor,to_actor,body,outcome_standard,created_at,read_at FROM (\
                SELECT m.id,m.from_actor,m.to_actor,m.body,m.outcome_standard,m.created_at,m.read_at \
                FROM work_feedback f JOIN messages m ON m.id=f.message_id \
-               WHERE f.work_id=$1 ORDER BY m.id DESC LIMIT 100\
+               WHERE f.work_id=$1 \
+                 AND COALESCE(f.routed_to_actor,m.to_actor)=$2 \
+               ORDER BY m.id DESC LIMIT 100\
              ) recent ORDER BY id",
         )
         .bind(work.id)
+        .bind(&work.owner_id)
         .fetch_all(&mut *tx)
         .await?;
         let feedback_cursor = feedback.last().map(|message| message.id).unwrap_or(0);
@@ -493,12 +531,9 @@ impl OrgIntel {
 
         let mut tx = self.pool.begin().await?;
         let row = sqlx::query(
-            "SELECT a.work_id, a.actor_id, a.state, a.recovery_message_id, \
-                    COALESCE(t.lead_actor_id, 'exec') AS coordinator_id \
+            "SELECT a.work_id, a.actor_id, a.state, a.recovery_message_id \
              FROM work_attempts a \
              JOIN work w ON w.id=a.work_id \
-             JOIN actors actor ON actor.id=a.actor_id \
-             LEFT JOIN teams t ON t.id=actor.team_id AND t.disbanded_at IS NULL \
              WHERE a.id=$1 FOR UPDATE OF a, w",
         )
         .bind(attempt_id)
@@ -508,7 +543,11 @@ impl OrgIntel {
         let actor_id: String = row.get("actor_id");
         let state: WorkAttemptState = row.get("state");
         let existing_notice: Option<i64> = row.get("recovery_message_id");
-        let coordinator_id: String = row.get("coordinator_id");
+        let accountability =
+            crate::actors::lock_work_accountability_in_tx(&mut tx, work_id).await?;
+        let coordinator_id = accountability
+            .lead_actor_id
+            .unwrap_or_else(|| "exec".to_string());
         if existing_notice.is_some() {
             tx.commit().await?;
             return Ok(None);
@@ -730,7 +769,8 @@ impl OrgIntel {
         let late_direct_feedback = if effective != WorkAttemptState::Superseded {
             sqlx::query_scalar::<_, i64>(
                 "SELECT m.id FROM work_feedback f JOIN messages m ON m.id=f.message_id \
-                 WHERE f.work_id=$1 AND m.to_actor=$2 \
+                 WHERE f.work_id=$1 \
+                   AND COALESCE(f.routed_to_actor,m.to_actor)=$2 \
                    AND NOT EXISTS (SELECT 1 FROM work_attempt_feedback af \
                                    WHERE af.attempt_id=$3 AND af.message_id=m.id) \
                  ORDER BY m.id",
@@ -989,14 +1029,12 @@ impl OrgIntel {
         let mut tx = self.pool.begin().await?;
         let rows = sqlx::query(
             "SELECT attempt.id AS attempt_id, attempt.actor_id, attempt.state AS attempt_state, \
-                    work.id AS work_id, work.status, work.revision, work.resolution, team.lead_actor_id \
+                    work.id AS work_id, work.status, work.revision, work.resolution \
              FROM work_attempts attempt \
              JOIN work ON work.id=attempt.work_id \
-             JOIN actors work_owner ON work_owner.id=work.owner_id \
-             JOIN teams team ON team.id=work_owner.team_id AND team.disbanded_at IS NULL \
              WHERE attempt.supervisor_notice_owed AND attempt.finished_at IS NOT NULL \
              ORDER BY attempt.finished_at, attempt.id \
-             LIMIT $1 FOR UPDATE OF attempt SKIP LOCKED",
+             LIMIT $1 FOR UPDATE OF work,attempt SKIP LOCKED",
         )
         .bind(limit)
         .fetch_all(&mut *tx)
@@ -1005,18 +1043,20 @@ impl OrgIntel {
             std::collections::BTreeMap::new();
         for row in rows {
             let work_id = row.get("work_id");
-            by_cause
-                .entry((row.get("lead_actor_id"), work_id))
-                .or_default()
-                .push((
-                    row.get("attempt_id"),
-                    work_id,
-                    row.get("actor_id"),
-                    row.get("attempt_state"),
-                    row.get("status"),
-                    row.get("revision"),
-                    row.get("resolution"),
-                ));
+            let accountability =
+                crate::actors::lock_work_accountability_in_tx(&mut tx, work_id).await?;
+            let coordinator = accountability
+                .lead_actor_id
+                .unwrap_or_else(|| "exec".to_string());
+            by_cause.entry((coordinator, work_id)).or_default().push((
+                row.get("attempt_id"),
+                work_id,
+                row.get("actor_id"),
+                row.get("attempt_state"),
+                row.get("status"),
+                row.get("revision"),
+                row.get("resolution"),
+            ));
         }
         let mut message_ids = Vec::with_capacity(by_cause.len());
         for ((lead_actor_id, cause_work_id), notices) in by_cause {
@@ -1060,14 +1100,9 @@ impl OrgIntel {
             .bind(&body)
             .fetch_one(&mut *tx)
             .await?;
-            sqlx::query(
-                "INSERT INTO work_feedback (work_id, message_id, linked_by) \
-                 VALUES ($1,$2,'daemon')",
-            )
-            .bind(cause_work_id)
-            .bind(message_id)
-            .execute(&mut *tx)
-            .await?;
+            // Supervisor delivery is a coordination obligation, not producer
+            // input. Keeping it out of `work_feedback` prevents a later
+            // owner/lead role collision from duplicating it in an Attempt.
             for (attempt_id, ..) in &notices {
                 sqlx::query(
                     "UPDATE work_attempts SET supervisor_notice_owed=false, \
@@ -1107,10 +1142,17 @@ impl OrgIntel {
                 "only blocked Work can be resumed after repair".into(),
             ));
         }
+        let accountability =
+            crate::actors::lock_work_accountability_in_tx(&mut tx, work_id).await?;
+        if accountability.owner_id != owner_id || accountability.status != status {
+            return Err(OrgIntelError::InvalidWork(
+                "Work accountability changed while resume was being admitted".into(),
+            ));
+        }
         let allowed = by == "owner"
             || by == "exec"
             || by == owner_id
-            || self.team_lead_for(&owner_id).await?.as_deref() == Some(by);
+            || accountability.lead_actor_id.as_deref() == Some(by);
         if !allowed {
             return Err(OrgIntelError::InvalidWork(format!(
                 "{by:?} is not the Work owner, its lead, the Exec, or the owner"
@@ -1176,10 +1218,17 @@ impl OrgIntel {
                 "completed or already-abandoned Work keeps its recorded outcome".into(),
             ));
         }
+        let accountability =
+            crate::actors::lock_work_accountability_in_tx(&mut tx, work_id).await?;
+        if accountability.owner_id != owner_id || accountability.status != status {
+            return Err(OrgIntelError::InvalidWork(
+                "Work accountability changed while abandonment was being admitted".into(),
+            ));
+        }
         let allowed = by == "owner"
             || by == "exec"
             || by == owner_id
-            || self.team_lead_for(&owner_id).await?.as_deref() == Some(by);
+            || accountability.lead_actor_id.as_deref() == Some(by);
         if !allowed {
             return Err(OrgIntelError::InvalidWork(format!(
                 "{by:?} is not the Work owner, its lead, the Exec, or the owner"
@@ -1255,15 +1304,11 @@ async fn create_qualified_outcome_review(
     );
     let resume_condition =
         "The accountable lead either redirects attributable revision Work or admits the exact prepared outcome through the remaining Exec/owner judgement boundary.";
-    let assigned_to = sqlx::query_scalar::<_, String>(
-        "SELECT t.lead_actor_id FROM actors a JOIN teams t ON t.id=a.team_id \
-         WHERE a.id=$1 AND a.retired_at IS NULL AND t.disbanded_at IS NULL \
-           AND t.lead_actor_id<>a.id",
-    )
-    .bind(requested_by)
-    .fetch_optional(&mut **tx)
-    .await?
-    .unwrap_or_else(|| "exec".to_string());
+    let accountability = crate::actors::lock_work_accountability_in_tx(tx, work_id).await?;
+    let assigned_to = accountability
+        .lead_actor_id
+        .filter(|lead| lead != requested_by)
+        .unwrap_or_else(|| "exec".to_string());
     sqlx::query(
         "INSERT INTO owner_handoffs \
          (id, work_id, attempt_id, requested_by, category, requested_action, prepared_state, \

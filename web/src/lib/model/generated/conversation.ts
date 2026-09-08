@@ -21,7 +21,7 @@ export type ConversationMessageView = { id: number, from_actor: string, to_actor
 
 export type ConversationView = { actor: ConversationActorView, focus: ConversationFocusView | null, messages: Array<ConversationMessageView>, };
 
-export type ConversationSendResponse = { message_id: number, interrupted: boolean, context_attached: boolean, context_omitted: boolean, focus: ConversationFocusView | null, requested_outcome_standard: OutcomeStandard | null, };
+export type ConversationSendResponse = { message_id: number, created: boolean, interrupted: boolean, context_attached: boolean, context_omitted: boolean, focus: ConversationFocusView | null, requested_outcome_standard: OutcomeStandard | null, };
 
 export type ConversationInterruptResponse = { message_id: number, cancelled: boolean, interrupted: boolean, };
 
