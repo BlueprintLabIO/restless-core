@@ -6,6 +6,7 @@
 //! participant-relative cursor semantics around it.
 
 use super::*;
+use crate::events::{EVENT_COMPACTION_KIND, MAX_EVENT_REPLAY_LIMIT};
 use sha2::Sha256;
 use std::collections::BTreeSet;
 
@@ -58,6 +59,11 @@ async fn active_room_access(
     room_id: Uuid,
     actor_id: &str,
 ) -> Result<(RoomKind, RoomParticipantRole)> {
+    // `FOR SHARE`, rather than merely `FOR KEY SHARE`, holds the active Room,
+    // participant and Actor predicates stable through the caller's
+    // transaction. A concurrent archive, removal or retirement therefore
+    // linearizes before authorization or waits until the authorized operation
+    // completes; it cannot revoke access between proof and projection read.
     sqlx::query_as(
         "SELECT room.kind,participant.role FROM rooms room \
          JOIN room_participants participant ON participant.room_id=room.id \
@@ -65,7 +71,7 @@ async fn active_room_access(
          WHERE room.id=$1 AND participant.actor_id=$2 \
            AND participant.left_at IS NULL AND actor.retired_at IS NULL \
            AND room.archived_at IS NULL \
-         FOR KEY SHARE OF room,participant,actor",
+         FOR SHARE OF room,participant,actor",
     )
     .bind(room_id)
     .bind(actor_id)
@@ -931,6 +937,118 @@ impl OrgIntel {
         Ok(cursor)
     }
 
+    /// Oldest-first, bounded replay of body-free event hints for one Room.
+    ///
+    /// The cursor belongs to the existing company-wide operational stream,
+    /// but the returned rows never do: active participation is proved before
+    /// the stream is read and every selected event is constrained to the exact
+    /// Room. Delivery remains at-least-once; consumers deduplicate stable event
+    /// ids and refetch authoritative projections for every hint.
+    pub async fn room_events_after(
+        &self,
+        requesting_actor: &str,
+        room_id: Uuid,
+        after_event_id: i64,
+        limit: i64,
+    ) -> Result<RoomEventReplayPage> {
+        if after_event_id < 0 {
+            return Err(OrgIntelError::InvalidEventCursor(
+                "after_event_id must be non-negative".into(),
+            ));
+        }
+        if !(1..=MAX_EVENT_REPLAY_LIMIT).contains(&limit) {
+            return Err(OrgIntelError::InvalidEventCursor(format!(
+                "Room event replay limit must be between 1 and {MAX_EVENT_REPLAY_LIMIT}"
+            )));
+        }
+
+        let mut tx = self.pool.begin().await?;
+        // Match Room writer lock order before waiting for a stable committed
+        // event prefix. A guessed id and a former participant fail here and
+        // learn no cursor, retention or event metadata about the Room.
+        active_room_kind(&mut tx, room_id, requesting_actor).await?;
+        // Event identities are allocated before commit. The shared table lock
+        // drains earlier writers so advancing to `snapshot_cursor` cannot skip
+        // a lower id that commits later.
+        sqlx::query("LOCK TABLE events IN SHARE MODE")
+            .execute(&mut *tx)
+            .await?;
+
+        let compacted_through_event_id: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(MAX((body->>'through_event_id')::BIGINT),0) \
+             FROM events WHERE kind=$1",
+        )
+        .bind(EVENT_COMPACTION_KIND)
+        .fetch_one(&mut *tx)
+        .await?;
+        let (oldest_available_event_id, newest_event_id): (Option<i64>, Option<i64>) =
+            sqlx::query_as(
+                "SELECT MIN(id) FILTER ( \
+                           WHERE room_id=$1 AND id>$2 \
+                             AND (kind<>'room.read_cursor.advanced.v1' OR actor_id=$3) \
+                         ),MAX(id) \
+                 FROM events",
+            )
+            .bind(room_id)
+            .bind(compacted_through_event_id)
+            .bind(requesting_actor)
+            .fetch_one(&mut *tx)
+            .await?;
+        let snapshot_cursor = newest_event_id.unwrap_or(0);
+        let resync_required =
+            after_event_id < compacted_through_event_id || after_event_id > snapshot_cursor;
+
+        let mut events = if resync_required {
+            Vec::new()
+        } else {
+            sqlx::query_as::<_, CollaborationEventRow>(
+                "SELECT event.id,event.kind,event.room_id,event.actor_id, \
+                        event.message_id,event.created_at \
+                 FROM events event \
+                 WHERE event.room_id=$1 AND event.id>$2 AND event.id>$3 AND event.id<=$4 \
+                   AND (event.kind<>'room.read_cursor.advanced.v1' OR event.actor_id=$5) \
+                 ORDER BY event.id LIMIT $6",
+            )
+            .bind(room_id)
+            .bind(after_event_id)
+            .bind(compacted_through_event_id)
+            .bind(snapshot_cursor)
+            .bind(requesting_actor)
+            .bind(limit + 1)
+            .fetch_all(&mut *tx)
+            .await?
+        };
+        tx.commit().await?;
+
+        let has_more = events.len() as i64 > limit;
+        if has_more {
+            events.truncate(limit as usize);
+        }
+        let next_after_event_id = if resync_required {
+            after_event_id
+        } else if has_more {
+            events
+                .last()
+                .expect("a page with another row contains the requested prefix")
+                .id
+        } else {
+            // The lock proved there is no omitted event for this Room at or
+            // below this company cursor. Skip unrelated/private stream rows
+            // rather than forcing the client to rescan them forever.
+            snapshot_cursor
+        };
+        Ok(RoomEventReplayPage {
+            events,
+            requested_after_event_id: after_event_id,
+            next_after_event_id,
+            snapshot_cursor,
+            compacted_through_event_id,
+            oldest_available_event_id,
+            has_more,
+            resync_required,
+        })
+    }
+
     /// Durable collaboration events after a caller-held cursor. Current Room
     /// participation is checked at read time so an event cursor never becomes
     /// a capability or leaks the existence of another Room.
@@ -942,7 +1060,7 @@ impl OrgIntel {
     ) -> Result<Vec<CollaborationEventRow>> {
         Ok(sqlx::query_as(
             "SELECT event.id,event.kind,event.room_id,event.actor_id, \
-                    event.message_id,event.body,event.created_at \
+                    event.message_id,event.created_at \
              FROM events event \
              JOIN room_participants participant ON participant.room_id=event.room_id \
              JOIN actors actor ON actor.id=participant.actor_id \

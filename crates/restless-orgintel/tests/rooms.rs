@@ -358,6 +358,284 @@ async fn room_send_retry_keeps_its_receipt_after_event_compaction() {
 }
 
 #[tokio::test]
+async fn room_event_replay_is_authorized_isolated_ordered_and_body_free() {
+    let Some(org) = company("roomreplay").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Room replay scenario");
+        return;
+    };
+
+    let first_room = org
+        .create_room("owner", RoomKind::Group, "Owner and Exec", &["exec"])
+        .await
+        .unwrap();
+    let second_room = org
+        .create_room(
+            "owner",
+            RoomKind::Group,
+            "Owner and Builder",
+            &["delivery-build"],
+        )
+        .await
+        .unwrap();
+    let before_messages = org.event_stream_snapshot_cursor().await.unwrap();
+
+    let first = org
+        .send_room_message(first_room.id, "owner", "First", None, "replay-first")
+        .await
+        .unwrap();
+    let other_first = org
+        .send_room_message(
+            second_room.id,
+            "owner",
+            "Private elsewhere",
+            None,
+            "replay-other-first",
+        )
+        .await
+        .unwrap();
+    let general = org
+        .emit_event(
+            "test.company-general.v1",
+            Some("owner"),
+            serde_json::json!({ "secret": "never a Room hint" }),
+        )
+        .await
+        .unwrap();
+    let second = org
+        .send_room_message(first_room.id, "exec", "Second", None, "replay-second")
+        .await
+        .unwrap();
+    let other_second = org
+        .send_room_message(
+            second_room.id,
+            "delivery-build",
+            "Still elsewhere",
+            None,
+            "replay-other-second",
+        )
+        .await
+        .unwrap();
+    let third = org
+        .send_room_message(first_room.id, "owner", "Third", None, "replay-third")
+        .await
+        .unwrap();
+    org.mark_room_read_through(first_room.id, "exec", third.message.id)
+        .await
+        .unwrap();
+
+    for (denied_actor, denied_room) in [
+        ("delivery-build", first_room.id),
+        ("owner", uuid::Uuid::new_v4()),
+    ] {
+        assert!(org
+            .room_events_after(denied_actor, denied_room, before_messages, 10)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("access denied"));
+    }
+
+    for invalid in [
+        org.room_events_after("owner", first_room.id, -1, 10).await,
+        org.room_events_after("owner", first_room.id, before_messages, 0)
+            .await,
+        org.room_events_after("owner", first_room.id, before_messages, 501)
+            .await,
+    ] {
+        assert!(invalid
+            .unwrap_err()
+            .to_string()
+            .contains("invalid operational event cursor"));
+    }
+
+    let first_page = org
+        .room_events_after("owner", first_room.id, before_messages, 2)
+        .await
+        .unwrap();
+    assert_eq!(
+        first_page
+            .events
+            .iter()
+            .map(|event| event.id)
+            .collect::<Vec<_>>(),
+        vec![first.event_id, second.event_id]
+    );
+    assert!(first_page
+        .events
+        .iter()
+        .all(|event| event.room_id == first_room.id));
+    assert!(first_page.has_more);
+    assert!(!first_page.resync_required);
+    assert_eq!(first_page.next_after_event_id, second.event_id);
+    assert!(first_page.snapshot_cursor >= third.event_id);
+
+    let duplicate_page = org
+        .room_events_after("owner", first_room.id, before_messages, 2)
+        .await
+        .unwrap();
+    assert_eq!(
+        duplicate_page
+            .events
+            .iter()
+            .map(|event| event.id)
+            .collect::<Vec<_>>(),
+        vec![first.event_id, second.event_id],
+        "at-least-once Room replay keeps stable ids for deduplication"
+    );
+
+    let last_page = org
+        .room_events_after("owner", first_room.id, first_page.next_after_event_id, 2)
+        .await
+        .unwrap();
+    assert_eq!(
+        last_page
+            .events
+            .iter()
+            .map(|event| event.id)
+            .collect::<Vec<_>>(),
+        vec![third.event_id]
+    );
+    assert!(!last_page.has_more);
+    assert_eq!(last_page.next_after_event_id, last_page.snapshot_cursor);
+    assert!(!last_page
+        .events
+        .iter()
+        .any(|event| matches!(event.id, id if id == other_first.event_id || id == other_second.event_id || id == general)));
+
+    let other_page = org
+        .room_events_after("owner", second_room.id, before_messages, 10)
+        .await
+        .unwrap();
+    assert_eq!(
+        other_page
+            .events
+            .iter()
+            .map(|event| event.id)
+            .collect::<Vec<_>>(),
+        vec![other_first.event_id, other_second.event_id]
+    );
+    assert!(other_page
+        .events
+        .iter()
+        .all(|event| event.room_id == second_room.id));
+
+    let exec_page = org
+        .room_events_after("exec", first_room.id, before_messages, 10)
+        .await
+        .unwrap();
+    let exec_read_event_id = exec_page
+        .events
+        .iter()
+        .find(|event| event.kind == "room.read_cursor.advanced.v1")
+        .expect("a participant sees its own read-cursor hint")
+        .id;
+    assert!(first_page
+        .events
+        .iter()
+        .chain(last_page.events.iter())
+        .all(|event| event.kind != "room.read_cursor.advanced.v1"));
+
+    let at_snapshot = org
+        .room_events_after("owner", first_room.id, last_page.snapshot_cursor, 10)
+        .await
+        .unwrap();
+    assert!(at_snapshot.events.is_empty());
+    assert!(!at_snapshot.has_more);
+    assert!(!at_snapshot.resync_required);
+    assert_eq!(at_snapshot.next_after_event_id, at_snapshot.snapshot_cursor);
+
+    let serialized = serde_json::to_value(&first_page).unwrap();
+    assert!(serialized["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|event| event.get("body").is_none()));
+
+    org.compact_events_through(third.event_id).await.unwrap();
+    let owner_private_floor = org
+        .room_events_after("owner", first_room.id, third.event_id, 10)
+        .await
+        .unwrap();
+    assert!(owner_private_floor.events.is_empty());
+    assert_eq!(owner_private_floor.oldest_available_event_id, None);
+    let exec_private_floor = org
+        .room_events_after("exec", first_room.id, third.event_id, 10)
+        .await
+        .unwrap();
+    assert_eq!(
+        exec_private_floor.oldest_available_event_id,
+        Some(exec_read_event_id)
+    );
+    assert_eq!(
+        exec_private_floor
+            .events
+            .iter()
+            .map(|event| event.id)
+            .collect::<Vec<_>>(),
+        vec![exec_read_event_id]
+    );
+}
+
+#[tokio::test]
+async fn room_event_replay_requires_resync_after_compaction_and_access_after_removal() {
+    let Some(org) = company("roomreplaycompact").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping compacted Room replay scenario");
+        return;
+    };
+
+    let room = org
+        .create_room("owner", RoomKind::Group, "Compaction", &["exec"])
+        .await
+        .unwrap();
+    let first = org
+        .send_room_message(room.id, "owner", "Before floor", None, "floor-first")
+        .await
+        .unwrap();
+    let second = org
+        .send_room_message(room.id, "exec", "After floor", None, "floor-second")
+        .await
+        .unwrap();
+
+    assert_eq!(
+        org.compact_events_through(first.event_id).await.unwrap(),
+        first.event_id
+    );
+    let expired = org
+        .room_events_after("owner", room.id, 0, 10)
+        .await
+        .unwrap();
+    assert!(expired.resync_required);
+    assert!(expired.events.is_empty());
+    assert_eq!(expired.compacted_through_event_id, first.event_id);
+    assert_eq!(expired.oldest_available_event_id, Some(second.event_id));
+    assert_eq!(expired.next_after_event_id, 0);
+
+    let retained = org
+        .room_events_after("owner", room.id, first.event_id, 10)
+        .await
+        .unwrap();
+    assert!(!retained.resync_required);
+    assert_eq!(
+        retained
+            .events
+            .iter()
+            .map(|event| event.id)
+            .collect::<Vec<_>>(),
+        vec![second.event_id]
+    );
+
+    org.remove_room_participant("owner", room.id, "exec")
+        .await
+        .unwrap();
+    assert!(org
+        .room_events_after("exec", room.id, first.event_id, 10)
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("access denied"));
+}
+
+#[tokio::test]
 async fn legacy_owner_conversation_and_direct_room_share_message_truth() {
     let Some(org) = company("roomcompat").await else {
         eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Rooms compatibility scenario");

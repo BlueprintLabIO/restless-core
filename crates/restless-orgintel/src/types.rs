@@ -1079,8 +1079,28 @@ pub struct CollaborationEventRow {
     pub room_id: Uuid,
     pub actor_id: String,
     pub message_id: Option<i64>,
-    pub body: serde_json::Value,
     pub created_at: DateTime<Utc>,
+}
+
+/// One authorized Room's bounded view of the existing operational event
+/// stream. Event rows are body-free refetch hints: authoritative Room,
+/// participant and Message state must be queried through their own access
+/// checked projections.
+#[derive(Debug, Clone, Serialize)]
+pub struct RoomEventReplayPage {
+    pub events: Vec<CollaborationEventRow>,
+    pub requested_after_event_id: i64,
+    pub next_after_event_id: i64,
+    /// A committed-prefix cursor in the company-wide `events` stream. When a
+    /// page is exhausted the caller may advance directly here, skipping events
+    /// for other scopes that were deliberately not returned.
+    pub snapshot_cursor: i64,
+    pub compacted_through_event_id: i64,
+    /// Oldest retained event for this exact Room, never another Room or a
+    /// company-general event.
+    pub oldest_available_event_id: Option<i64>,
+    pub has_more: bool,
+    pub resync_required: bool,
 }
 
 /// One bounded external fact linked to Work through its ordinary message

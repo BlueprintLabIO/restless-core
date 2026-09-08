@@ -3,8 +3,8 @@
 use super::*;
 
 const MAX_EVENT_KIND_BYTES: usize = 96;
-const MAX_EVENT_REPLAY_LIMIT: i64 = 500;
-const EVENT_COMPACTION_KIND: &str = "event.history.compacted.v1";
+pub(crate) const MAX_EVENT_REPLAY_LIMIT: i64 = 500;
+pub(crate) const EVENT_COMPACTION_KIND: &str = "event.history.compacted.v1";
 
 /// One bounded page from the existing compactable operational event stream.
 /// Delivery is at-least-once: consumers persist `next_after_event_id` and
