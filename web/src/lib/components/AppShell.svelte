@@ -16,6 +16,7 @@
 	 * behind another navigation control. */
 
 	import type { Snippet } from 'svelte';
+	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import MessageSquare from '@lucide/svelte/icons/message-square';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import type { CompanyCatalogEntry } from '$lib/model/cockpit';
@@ -29,11 +30,8 @@
 		execName = 'Exec',
 		execLive = false,
 		railOpen = true,
-		newFocusAvailable = false,
-		newFocusDisabled = false,
 		immersive = false,
 		onexectoggle = null,
-		onnewfocus = null,
 		rail = null,
 		children
 	}: {
@@ -44,14 +42,10 @@
 		execName?: string;
 		execLive?: boolean;
 		railOpen?: boolean;
-		newFocusAvailable?: boolean;
-		newFocusDisabled?: boolean;
 		/** Gives a prepared live outcome the full browser window while preserving one bounded Exec control. */
 		immersive?: boolean;
 		/** The one control for the rail: presence lamp and open/close in a single stable button. */
 		onexectoggle?: (() => void) | null;
-		/** Begins a clean working context without replacing the durable Exec relationship. */
-		onnewfocus?: (() => void) | null;
 		/**
 		 * The persistent executive transcript. Omitted on surfaces that already
 		 * hold a conversation with a specific actor — People carries its own, and
@@ -83,9 +77,8 @@
 			<span class="tb-company-slash" aria-hidden="true">/</span>
 			<details class="company-switcher">
 				<summary aria-label={`Switch company. Current company: ${companyName}`}>
-					<span class="tb-co">{companyName}</span><span class="company-chevron" aria-hidden="true"
-						>⌄</span
-					>
+					<span class="tb-co">{companyName}</span>
+					<ChevronDown class="company-chevron" size={14} strokeWidth={2} aria-hidden="true" />
 				</summary>
 				<div class="company-switcher-menu">
 					<a class="company-overview-link" href="/">
@@ -146,19 +139,6 @@
 					<MessageSquare size={13} strokeWidth={2} aria-hidden="true" />
 					{execName}
 				</button>
-				{#if newFocusAvailable}
-					<button
-						class="tb-new-focus"
-						type="button"
-						disabled={newFocusDisabled}
-						title={newFocusDisabled
-							? 'Start a new focus when Exec finishes the current reply'
-							: 'Begin with fresh working context; company memory is retained'}
-						onclick={() => onnewfocus?.()}
-					>
-						New focus
-					</button>
-				{/if}
 			{/if}
 		</div>
 	</header>

@@ -229,8 +229,8 @@
 }
 
 .bridge-root .company-chevron {
-	font-size: var(--t-body);
-	line-height: 1;
+	display: block;
+	flex: none;
 	transition: transform var(--motion-state) var(--ease-out);
 }
 
@@ -711,7 +711,8 @@
 	outline-offset: 2px;
 }
 
-.bridge-root .tb-new-focus {
+.bridge-root .exr-new-focus {
+	flex: none;
 	min-height: 29px;
 	padding: 5px 9px;
 	border: 1px solid color-mix(in srgb, var(--intent-conversation) 14%, var(--control-edge));
@@ -729,23 +730,23 @@
 		transform var(--motion-press) var(--ease-standard);
 }
 
-.bridge-root .tb-new-focus:hover:not(:disabled) {
+.bridge-root .exr-new-focus:hover:not(:disabled) {
 	transform: translateY(-1px);
 	border-color: color-mix(in srgb, var(--intent-conversation) 30%, var(--control-edge));
 	background: color-mix(in srgb, var(--intent-conversation-soft) 42%, white);
 	color: var(--ink);
 }
 
-.bridge-root .tb-new-focus:active:not(:disabled) {
+.bridge-root .exr-new-focus:active:not(:disabled) {
 	transform: translateY(1px);
 }
 
-.bridge-root .tb-new-focus:disabled {
+.bridge-root .exr-new-focus:disabled {
 	opacity: 0.42;
 	cursor: default;
 }
 
-.bridge-root .tb-new-focus:focus-visible {
+.bridge-root .exr-new-focus:focus-visible {
 	outline: 3px solid color-mix(in srgb, var(--intent-conversation) 28%, transparent);
 	outline-offset: 2px;
 }

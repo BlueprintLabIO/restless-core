@@ -20,7 +20,6 @@
 	const companies = $derived(companyCatalog.view);
 	let execRailOpen = $state(true);
 	let focusRailRestore = $state<boolean | null>(null);
-	let newFocusRequest = $state(0);
 
 	/* The shell and the Attention surface read one source rather than polling the
 	 * same endpoint on two clocks. The badge can no longer disagree with the
@@ -127,12 +126,6 @@
 		}
 	}
 
-	function beginNewFocus() {
-		if (railActorId !== 'exec' || !railConnected || railConversation.activeTurn) return;
-		execRailOpen = true;
-		newFocusRequest += 1;
-	}
-
 	async function decideFocusedReview(
 		decision: 'accept' | 'request_changes',
 		feedback: string
@@ -233,7 +226,7 @@
 		contextLabel={currentContext}
 		focusAfterMessageId={railConversation.focusAfterMessageId}
 		focusStartedAt={railConversation.focusStartedAt}
-		{newFocusRequest}
+		newFocusAvailable={railActorId === 'exec' && !focusedAttention}
 		open={execRailOpen}
 		onask={askRail}
 		review={focusedReview
@@ -254,11 +247,8 @@
 	execName={railActorName}
 	execLive={railConnected}
 	railOpen={execRailOpen}
-	newFocusAvailable={railVisible && railActorId === 'exec' && !focusedAttention}
-	newFocusDisabled={!railConnected || !!railConversation.activeTurn}
 	immersive={immersiveComputer}
 	onexectoggle={() => (execRailOpen = !execRailOpen)}
-	onnewfocus={beginNewFocus}
 	rail={railVisible ? executiveRail : null}
 >
 	{@render children()}

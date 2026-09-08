@@ -30,7 +30,7 @@
 		contextLabel = 'Current screen',
 		focusAfterMessageId = 0,
 		focusStartedAt = null,
-		newFocusRequest = 0,
+		newFocusAvailable = false,
 		open = true,
 		onask = null,
 		review = null,
@@ -53,7 +53,7 @@
 		contextLabel?: string;
 		focusAfterMessageId?: number;
 		focusStartedAt?: string | null;
-		newFocusRequest?: number;
+		newFocusAvailable?: boolean;
 		open?: boolean;
 		/** Returns delivery feedback. Unwired ordinary chat is inert. */
 		onask?:
@@ -137,7 +137,6 @@
 	let initiallyScrolledFor = $state('');
 	let newFocusPending = $state(false);
 	let pendingFocusAfterMessageId = $state(0);
-	let handledNewFocusRequest = 0;
 	let composerFocusKey = $state(0);
 	let outcomeStandardOverride = $state<OutcomeStandard | ''>('');
 
@@ -179,10 +178,8 @@
 		return !previous || messageNumericId(previous.id) <= activeFocusAfterMessageId;
 	}
 
-	$effect(() => {
-		if (newFocusRequest <= handledNewFocusRequest) return;
-		handledNewFocusRequest = newFocusRequest;
-		if (review || workContext) return;
+	function beginNewFocus() {
+		if (!newFocusAvailable || !connected || turn || sending || review || workContext) return;
 		pendingFocusAfterMessageId = messages.reduce(
 			(maximum, message) => Math.max(maximum, messageNumericId(message.id)),
 			0
@@ -193,7 +190,7 @@
 		transcriptTailHeight = 0;
 		composerFocusKey += 1;
 		void tick().then(() => scrollEl?.scrollTo({ top: scrollEl.scrollHeight, behavior: 'smooth' }));
-	});
+	}
 
 	function toggleContext() {
 		includeContext = !includeContext;
@@ -325,6 +322,19 @@
 						<strong class="exr-name">{participantName}</strong>
 					</span>
 				</div>
+				{#if newFocusAvailable}
+					<button
+						class="exr-new-focus"
+						type="button"
+						disabled={!connected || !!turn || sending}
+						title={turn || sending
+							? 'Start a new focus when Exec finishes the current reply'
+							: 'Begin with fresh working context; company memory is retained'}
+						onclick={beginNewFocus}
+					>
+						New focus
+					</button>
+				{/if}
 				{#if visibleMessages.length}
 					<ConversationHistoryTools
 						messages={visibleMessages}
