@@ -11,7 +11,6 @@ use std::time::Duration;
 
 use anyhow::Result;
 use restless_orgintel::{OrgIntel, WorkAttemptState};
-use sqlx::postgres::PgListener;
 use tokio_util::sync::CancellationToken;
 
 use crate::runtime::{self, CompanyConfig, ContainerStatus};
@@ -155,13 +154,11 @@ impl Drop for WakeGuard {
 
 pub async fn run(daemon: Arc<Daemon>) {
     let in_flight = Arc::clone(&daemon.in_flight);
-    // Each cell owns its database, so `NOTIFY` fires there and nowhere else.
-    // One listener per cell, multiplexed into this loop — a single listener on
-    // the admin connection would hear nothing and degrade every wake to the
-    // periodic scan, silently.
-    let (wakes, mut inbox) = tokio::sync::mpsc::channel::<String>(256);
-    let mut listening = std::collections::HashSet::<String>::new();
-    ensure_cell_listeners(&daemon, &wakes, &mut listening).await;
+    // The daemon owns one listener per cell and fans body-free hints out to
+    // scheduler and realtime consumers. This receiver can lag or reconnect;
+    // durable schedule rows, not this channel, remain the authority.
+    let mut inbox = daemon.cell_wakes.subscribe();
+    ensure_cell_listeners(&daemon).await;
     scan_all_companies(&daemon, &in_flight).await;
     loop {
         let next_due = next_due_delay(&daemon).await;
@@ -169,37 +166,47 @@ pub async fn run(daemon: Arc<Daemon>) {
             _ = tokio::time::sleep(next_due) => {
                 // A company created since boot needs its own listener; this is
                 // also where a cell whose listener never started is retried.
-                ensure_cell_listeners(&daemon, &wakes, &mut listening).await;
+                ensure_cell_listeners(&daemon).await;
                 fire_pending(&daemon, &in_flight).await;
                 scan_all_companies(&daemon, &in_flight).await;
             }
             _ = daemon.schedule_wake.notified() => {
                 tracing::info!("native schedule wake observed; reconciling durable due state");
-                ensure_cell_listeners(&daemon, &wakes, &mut listening).await;
+                ensure_cell_listeners(&daemon).await;
                 fire_pending(&daemon, &in_flight).await;
                 scan_all_companies(&daemon, &in_flight).await;
             }
-            Some(payload) = inbox.recv() => {
-                // Wake delivery crosses a process and a database boundary now,
-                // so make arrival observable: a silent scheduler is otherwise
-                // indistinguishable from a cell whose listener never attached.
-                tracing::debug!(payload, "cell wake received");
-                handle_notification(&daemon, &in_flight, &payload).await;
+            wake = inbox.recv() => {
+                match wake {
+                    Ok(wake) => {
+                        // Wake delivery crosses a process and database boundary,
+                        // so make arrival observable without logging user content.
+                        tracing::debug!(
+                            company = wake.company,
+                            kind = wake.kind.as_deref().unwrap_or("malformed"),
+                            "cell wake received"
+                        );
+                        handle_notification(&daemon, &in_flight, &wake.raw).await;
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                        tracing::warn!(skipped, "scheduler cell-wake receiver lagged; repairing from durable state");
+                        scan_all_companies(&daemon, &in_flight).await;
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+                }
             }
         }
     }
 }
 
-/// Start a listener for every configured cell that does not have one.
-async fn ensure_cell_listeners(
-    daemon: &Arc<Daemon>,
-    wakes: &tokio::sync::mpsc::Sender<String>,
-    listening: &mut std::collections::HashSet<String>,
-) {
-    for company in configured_companies(daemon) {
-        if listening.contains(&company) {
-            continue;
-        }
+/// Ensure the shared hub owns a listener for every configured cell.
+async fn ensure_cell_listeners(daemon: &Arc<Daemon>) {
+    let Some(companies) = configured_companies(daemon) else {
+        tracing::warn!("cannot read configured companies; preserving existing cell listeners");
+        return;
+    };
+    daemon.cell_wakes.retain_companies(&companies);
+    for company in companies {
         let url = match daemon.orgintel.cell_database_url(&company).await {
             Ok(url) => url,
             Err(error) => {
@@ -210,55 +217,14 @@ async fn ensure_cell_listeners(
                 continue;
             }
         };
-        listening.insert(company.clone());
-        let wakes = wakes.clone();
-        tokio::spawn(listen_to_cell(company, url, wakes));
-    }
-}
-
-/// One cell's wake listener. Reconnects forever: losing it would silently
-/// degrade that company to the periodic scan.
-async fn listen_to_cell(company: String, url: String, wakes: tokio::sync::mpsc::Sender<String>) {
-    loop {
-        let mut listener = match PgListener::connect(&url).await {
-            Ok(listener) => listener,
-            Err(error) => {
-                tracing::warn!(company, "cell LISTEN connect failed: {error}; retrying");
-                tokio::time::sleep(Duration::from_secs(5)).await;
-                continue;
-            }
-        };
-        if listener.listen(OrgIntel::NOTIFY_CHANNEL).await.is_err() {
-            tracing::warn!(company, "cell LISTEN failed; retrying");
-            tokio::time::sleep(Duration::from_secs(5)).await;
-            continue;
-        }
-        tracing::info!(company, "listening for cell wakes");
-        loop {
-            match listener.recv().await {
-                Ok(notification) => {
-                    if wakes
-                        .send(notification.payload().to_string())
-                        .await
-                        .is_err()
-                    {
-                        return; // scheduler stopped
-                    }
-                }
-                Err(error) => {
-                    tracing::warn!(company, "cell LISTEN dropped: {error}; reconnecting");
-                    tokio::time::sleep(Duration::from_secs(2)).await;
-                    break;
-                }
-            }
-        }
+        daemon.cell_wakes.ensure_company(&company, &url);
     }
 }
 
 /// Companies configured in this plane, by config file.
-fn configured_companies(daemon: &Arc<Daemon>) -> Vec<String> {
+fn configured_companies(daemon: &Arc<Daemon>) -> Option<Vec<String>> {
     let Ok(entries) = std::fs::read_dir(daemon.root.join("companies")) else {
-        return Vec::new();
+        return None;
     };
     let mut companies = Vec::new();
     for entry in entries.flatten() {
@@ -271,7 +237,7 @@ fn configured_companies(daemon: &Arc<Daemon>) -> Vec<String> {
         }
     }
     companies.sort();
-    companies
+    Some(companies)
 }
 
 async fn handle_notification(daemon: &Arc<Daemon>, in_flight: &InFlight, payload: &str) {
@@ -339,7 +305,7 @@ async fn handle_notification(daemon: &Arc<Daemon>, in_flight: &InFlight, payload
 async fn next_due_delay(daemon: &Arc<Daemon>) -> Duration {
     let now = chrono::Utc::now();
     let mut earliest = None;
-    for company in configured_companies(daemon) {
+    for company in configured_companies(daemon).unwrap_or_default() {
         let Ok(org) = daemon.orgintel.get(&company).await else {
             continue;
         };
@@ -366,7 +332,7 @@ fn is_exec_self_message(value: &serde_json::Value) -> bool {
 }
 
 async fn scan_all_companies(daemon: &Arc<Daemon>, in_flight: &InFlight) {
-    for company in configured_companies(daemon) {
+    for company in configured_companies(daemon).unwrap_or_default() {
         scan_company(daemon, in_flight, &company).await;
     }
 }

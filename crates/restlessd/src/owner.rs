@@ -22,7 +22,7 @@ use axum::extract::{
 };
 use axum::extract::{FromRef, FromRequestParts};
 use axum::http::header::{
-    CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE, COOKIE, HOST, ORIGIN, SET_COOKIE,
+    CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE, COOKIE, HOST, ORIGIN, RETRY_AFTER, SET_COOKIE,
 };
 use axum::http::request::Parts;
 use axum::http::uri::Authority;
@@ -52,7 +52,8 @@ const ATTACH_COOKIE: &str = "restless_attach";
 const SESSION_COOKIE: &str = "restless_session";
 const MEMBERSHIP_CONTROL_PATH: &str = "/internal/v1/membership-controls";
 const ROOM_EVENT_REPLAY_LIMIT: i64 = 100;
-const ROOM_EVENT_POLL_INTERVAL: Duration = Duration::from_millis(500);
+const ROOM_EVENT_FALLBACK_INITIAL: Duration = Duration::from_secs(2);
+const ROOM_EVENT_FALLBACK_MAX: Duration = Duration::from_secs(15);
 const TICKET_TTL: Duration = Duration::from_secs(30);
 const ATTACH_TTL: Duration = Duration::from_secs(30 * 60);
 const REVIEW_TTL: Duration = Duration::from_secs(30 * 60);
@@ -90,6 +91,9 @@ struct OwnerState {
 #[derive(Clone)]
 struct RoomApiState {
     source: RoomOrgIntelSource,
+    cell_wakes: crate::cell_wake::CellWakeHub,
+    event_fallback_initial: Duration,
+    event_fallback_max: Duration,
     network_mode: bool,
 }
 
@@ -97,13 +101,19 @@ struct RoomApiState {
 enum RoomOrgIntelSource {
     Daemon(Arc<Daemon>),
     #[cfg(test)]
-    Fixed(Arc<HashMap<String, restless_orgintel::OrgIntel>>),
+    Fixed {
+        companies: Arc<HashMap<String, restless_orgintel::OrgIntel>>,
+        database_url: String,
+    },
 }
 
 impl FromRef<OwnerState> for RoomApiState {
     fn from_ref(state: &OwnerState) -> Self {
         Self {
             source: RoomOrgIntelSource::Daemon(state.daemon.clone()),
+            cell_wakes: state.daemon.cell_wakes.clone(),
+            event_fallback_initial: ROOM_EVENT_FALLBACK_INITIAL,
+            event_fallback_max: ROOM_EVENT_FALLBACK_MAX,
             network_mode: state.entry.network().is_some(),
         }
     }
@@ -114,17 +124,34 @@ impl RoomApiState {
         match &self.source {
             RoomOrgIntelSource::Daemon(daemon) => daemon.orgintel.get(company).await,
             #[cfg(test)]
-            RoomOrgIntelSource::Fixed(companies) => companies
+            RoomOrgIntelSource::Fixed { companies, .. } => companies
                 .get(company)
                 .cloned()
                 .with_context(|| format!("company {company:?} is not configured")),
         }
     }
 
+    async fn cell_database_url(&self, company: &str) -> Result<String> {
+        match &self.source {
+            RoomOrgIntelSource::Daemon(daemon) => daemon.orgintel.cell_database_url(company).await,
+            #[cfg(test)]
+            RoomOrgIntelSource::Fixed { database_url, .. } => Ok(database_url.clone()),
+        }
+    }
+
     #[cfg(test)]
-    fn fixed(companies: HashMap<String, restless_orgintel::OrgIntel>) -> Self {
+    fn fixed(
+        companies: HashMap<String, restless_orgintel::OrgIntel>,
+        database_url: String,
+    ) -> Self {
         Self {
-            source: RoomOrgIntelSource::Fixed(Arc::new(companies)),
+            source: RoomOrgIntelSource::Fixed {
+                companies: Arc::new(companies),
+                database_url,
+            },
+            cell_wakes: crate::cell_wake::CellWakeHub::default(),
+            event_fallback_initial: ROOM_EVENT_FALLBACK_INITIAL,
+            event_fallback_max: ROOM_EVENT_FALLBACK_MAX,
             network_mode: false,
         }
     }
@@ -3666,10 +3693,32 @@ async fn room_events_live(
             "the verified company session is no longer active",
         );
     }
+    // Admission precedes every cell lookup and replay read, so rejected idle
+    // fan-out cannot turn into unbounded handshake database pressure.
+    let admission_principal = room_stream_principal_key(&principal, session_lease.as_ref());
+    let admission = match state.cell_wakes.try_admit(&company, &admission_principal) {
+        Ok(admission) => admission,
+        Err(refusal) => return room_stream_refusal(refusal),
+    };
     let org = match room_orgintel(&state, &principal, &company).await {
         Ok(org) => org,
         Err(response) => return response,
     };
+    // Subscribe before the first durable read. Once the shared cell listener
+    // is attached, an event can no longer land in a read-then-wait gap. A
+    // listener still starting or reconnecting is repaired by fallback replay.
+    let database_url = match state.cell_database_url(&company).await {
+        Ok(url) => url,
+        Err(error) => {
+            tracing::error!(%error, company, "could not resolve company cell wake source");
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                "company collaboration is temporarily unavailable",
+            );
+        }
+    };
+    let wakes = state.cell_wakes.subscribe_company(&company, &database_url);
     let first_page = match org
         .room_events_after(principal.actor_id(), room, after_event_id, limit)
         .await
@@ -3686,12 +3735,25 @@ async fn room_events_live(
     }
 
     let stream = room_event_stream(
-        org,
-        principal.actor_id().to_string(),
-        room,
-        limit,
+        RoomEventStreamState {
+            after_event_id: first_page.requested_after_event_id,
+            org,
+            company,
+            actor_id: principal.actor_id().to_string(),
+            room_id: room,
+            limit,
+            pending: VecDeque::new(),
+            poll_immediately: true,
+            close_after_pending: false,
+            wakes,
+            fallback_initial: state.event_fallback_initial,
+            fallback_max: state.event_fallback_max,
+            fallback_current: state.event_fallback_initial,
+            fallback_jitter: Uuid::new_v4().as_u128() as u64,
+            _admission: admission,
+            session_lease,
+        },
         first_page,
-        session_lease,
     );
     Sse::new(stream)
         .keep_alive(
@@ -3702,8 +3764,52 @@ async fn room_events_live(
         .into_response()
 }
 
+fn room_stream_principal_key(
+    principal: &RequestPrincipal,
+    session_lease: Option<&SessionLease>,
+) -> String {
+    match session_lease
+        .map(|lease| &lease.identity)
+        .and_then(|identity| identity.issuer.as_deref().map(|issuer| (identity, issuer)))
+    {
+        Some((identity, issuer)) => format!(
+            "hosted:{}:{issuer}:{}:{}",
+            issuer.len(),
+            identity.user.len(),
+            identity.user
+        ),
+        None => format!("local:{}", principal.actor_id()),
+    }
+}
+
+fn room_stream_refusal(refusal: crate::cell_wake::StreamAdmissionRefusal) -> Response<Body> {
+    let (status, error, message) = match refusal {
+        crate::cell_wake::StreamAdmissionRefusal::Principal => (
+            StatusCode::TOO_MANY_REQUESTS,
+            "room_stream_principal_limit",
+            "this principal already has the maximum number of live Room streams",
+        ),
+        crate::cell_wake::StreamAdmissionRefusal::Company => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "room_stream_company_capacity",
+            "this company has reached its live Room stream capacity",
+        ),
+        crate::cell_wake::StreamAdmissionRefusal::Global => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "room_stream_capacity",
+            "the live Room stream service is at capacity",
+        ),
+    };
+    let mut response = api_error(status, error, message);
+    response
+        .headers_mut()
+        .insert(RETRY_AFTER, HeaderValue::from_static("2"));
+    response
+}
+
 struct RoomEventStreamState {
     org: restless_orgintel::OrgIntel,
+    company: String,
     actor_id: String,
     room_id: Uuid,
     limit: i64,
@@ -3711,29 +3817,23 @@ struct RoomEventStreamState {
     pending: VecDeque<Event>,
     poll_immediately: bool,
     close_after_pending: bool,
+    wakes: tokio::sync::broadcast::Receiver<crate::cell_wake::CellWake>,
+    fallback_initial: Duration,
+    fallback_max: Duration,
+    fallback_current: Duration,
+    fallback_jitter: u64,
+    _admission: crate::cell_wake::StreamAdmission,
     session_lease: Option<SessionLease>,
 }
 
 fn room_event_stream(
-    org: restless_orgintel::OrgIntel,
-    actor_id: String,
-    room_id: Uuid,
-    limit: i64,
+    mut state: RoomEventStreamState,
     first_page: restless_orgintel::RoomEventReplayPage,
-    session_lease: Option<SessionLease>,
 ) -> impl futures_util::Stream<Item = std::result::Result<Event, Infallible>> {
-    let mut state = RoomEventStreamState {
-        org,
-        actor_id,
-        room_id,
-        limit,
-        after_event_id: first_page.requested_after_event_id,
-        pending: VecDeque::new(),
-        poll_immediately: true,
-        close_after_pending: false,
-        session_lease,
-    };
     queue_room_event_page(&mut state, first_page);
+    // The first page is the baseline, not a failed fallback. A caught-up
+    // stream begins with the shortest repair interval.
+    state.fallback_current = state.fallback_initial;
 
     futures_util::stream::unfold(state, |mut state| async move {
         loop {
@@ -3751,15 +3851,23 @@ fn room_event_stream(
                 return None;
             }
             if !state.poll_immediately {
-                match state.session_lease.as_ref() {
-                    Some(session_lease) => tokio::select! {
-                        _ = tokio::time::sleep(ROOM_EVENT_POLL_INTERVAL) => {},
-                        _ = session_lease.ended() => return None,
-                    },
-                    None => tokio::time::sleep(ROOM_EVENT_POLL_INTERVAL).await,
+                let session_lease = state.session_lease.clone();
+                if !wait_for_room_event_hint(
+                    &mut state.wakes,
+                    &state.company,
+                    state.room_id,
+                    state.after_event_id,
+                    (state.fallback_current, state.fallback_max),
+                    state.fallback_jitter,
+                    session_lease.as_ref(),
+                )
+                .await
+                {
+                    return None;
                 }
             }
             state.poll_immediately = false;
+            let previous_cursor = state.after_event_id;
             let replay = state.org.room_events_after(
                 &state.actor_id,
                 state.room_id,
@@ -3774,7 +3882,17 @@ fn room_event_stream(
                 None => replay.await,
             };
             match page {
-                Ok(page) => queue_room_event_page(&mut state, page),
+                Ok(page) => {
+                    queue_room_event_page(&mut state, page);
+                    if state.after_event_id > previous_cursor || !state.pending.is_empty() {
+                        state.fallback_current = state.fallback_initial;
+                    } else {
+                        state.fallback_current = state
+                            .fallback_current
+                            .saturating_mul(2)
+                            .min(state.fallback_max);
+                    }
+                }
                 Err(restless_orgintel::OrgIntelError::RoomAccessDenied(_)) => return None,
                 Err(error) => {
                     tracing::warn!(
@@ -3788,6 +3906,83 @@ fn room_event_stream(
             }
         }
     })
+}
+
+/// Wait for either a matching body-free hint or a bounded repair read. Wrong
+/// company/Room hints do not reset the deadline. Lag is itself a reason to
+/// reread truth; a closed hint channel falls back without spinning.
+async fn wait_for_room_event_hint(
+    wakes: &mut tokio::sync::broadcast::Receiver<crate::cell_wake::CellWake>,
+    company: &str,
+    room_id: Uuid,
+    after_event_id: i64,
+    fallback_window: (Duration, Duration),
+    fallback_jitter: u64,
+    session_lease: Option<&SessionLease>,
+) -> bool {
+    let (fallback, fallback_max) = fallback_window;
+    let delay = jittered_room_fallback(
+        fallback,
+        fallback_max,
+        room_id,
+        after_event_id,
+        fallback_jitter,
+    );
+    let deadline = tokio::time::sleep(delay);
+    tokio::pin!(deadline);
+    loop {
+        let received = match session_lease {
+            Some(session_lease) => tokio::select! {
+                _ = &mut deadline => return true,
+                _ = session_lease.ended() => return false,
+                wake = wakes.recv() => wake,
+            },
+            None => tokio::select! {
+                _ = &mut deadline => return true,
+                wake = wakes.recv() => wake,
+            },
+        };
+        match received {
+            Ok(wake) if wake.wakes_room(company, room_id) => {
+                tracing::trace!(
+                    company,
+                    room = %room_id,
+                    hinted_event_id = ?wake.event_id,
+                    "Room event wake observed; replaying durable cursor"
+                );
+                return true;
+            }
+            Ok(_) => continue,
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                tracing::debug!(company, room = %room_id, skipped, "Room wake receiver lagged; replaying durable cursor");
+                return true;
+            }
+            // The hub keeps a company's sender alive through transient
+            // listener disconnect/reconnect. Closure therefore means the
+            // company was deconfigured (or the daemon is ending), so stop.
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => return false,
+        }
+    }
+}
+
+fn jittered_room_fallback(
+    fallback: Duration,
+    maximum: Duration,
+    room_id: Uuid,
+    after_event_id: i64,
+    stream_seed: u64,
+) -> Duration {
+    let fallback_ms = fallback.as_millis().min(u64::MAX as u128) as u64;
+    let maximum_ms = maximum.as_millis().min(u64::MAX as u128) as u64;
+    let headroom = maximum_ms.saturating_sub(fallback_ms);
+    let spread = (fallback_ms / 10).min(headroom);
+    if spread == 0 {
+        return fallback.min(maximum);
+    }
+    let seed = (room_id.as_u128() as u64)
+        ^ (after_event_id as u64).rotate_left(17)
+        ^ stream_seed.rotate_left(31);
+    Duration::from_millis(fallback_ms + seed % (spread + 1))
 }
 
 fn queue_room_event_page(
@@ -6031,7 +6226,7 @@ mod tests {
             }
             let org = handles.get(&company).expect("primary company").clone();
             Some(Self {
-                state: RoomApiState::fixed(handles),
+                state: RoomApiState::fixed(handles, database_url),
                 company,
                 other_company,
                 org,
@@ -6056,17 +6251,30 @@ mod tests {
         }
 
         fn app(&self, actor: &str, role: &str, company: &str) -> Router {
+            self.app_with_state(self.state.clone(), actor, role, company)
+        }
+
+        fn app_with_state(
+            &self,
+            state: RoomApiState,
+            actor: &str,
+            role: &str,
+            company: &str,
+        ) -> Router {
             let principal = RequestPrincipal::from_verified(&Self::identity(actor, role, company))
                 .expect("verified fixture principal");
             room_api_routes::<RoomApiState>()
                 .layer(Extension(principal))
-                .with_state(self.state.clone())
+                .with_state(state)
         }
 
         fn network_app(&self, lease: SessionLease) -> Router {
+            self.network_app_with_state(self.state.clone(), lease)
+        }
+
+        fn network_app_with_state(&self, mut state: RoomApiState, lease: SessionLease) -> Router {
             let principal = RequestPrincipal::from_verified(&lease.identity)
                 .expect("verified fixture principal");
-            let mut state = self.state.clone();
             state.network_mode = true;
             room_api_routes::<RoomApiState>()
                 .layer(Extension(principal))
@@ -6800,6 +7008,256 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn room_event_stream_uses_body_free_wakes_and_repairs_a_lost_wake() {
+        let Some(fixture) = RoomRouteFixture::new().await else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Room wake scenario");
+            return;
+        };
+        let room = fixture
+            .org
+            .create_room(
+                "alice",
+                restless_orgintel::RoomKind::Group,
+                "Wake replay",
+                &["bob"],
+            )
+            .await
+            .unwrap();
+        let baseline = fixture
+            .org
+            .room_events_after("alice", room.id, 0, 100)
+            .await
+            .unwrap()
+            .snapshot_cursor;
+        let live_path = format!(
+            "/companies/{}/rooms/{}/events/live?after_event_id={baseline}",
+            fixture.company, room.id
+        );
+        let alice = fixture.app("alice", "member", &fixture.company);
+        let response = room_get_response(&alice, &live_path, None).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let mut stream = response.into_body().into_data_stream();
+        assert!(
+            fixture
+                .state
+                .cell_wakes
+                .wait_until_ready(&fixture.company, Duration::from_secs(2))
+                .await,
+            "the shared cell listener should attach before the fast-path assertion"
+        );
+        let database_url = fixture
+            .state
+            .cell_database_url(&fixture.company)
+            .await
+            .unwrap();
+        let mut wake_audit = fixture
+            .state
+            .cell_wakes
+            .subscribe_company(&fixture.company, &database_url);
+        let first = fixture
+            .org
+            .send_room_message(
+                room.id,
+                "alice",
+                "notification must not carry this secret body",
+                None,
+                "wake-fast-path",
+            )
+            .await
+            .unwrap();
+        let wake = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let wake = wake_audit.recv().await.unwrap();
+                if wake.wakes_room(&fixture.company, room.id) {
+                    break wake;
+                }
+            }
+        })
+        .await
+        .expect("committed Room event should publish a prompt wake hint");
+        assert_eq!(wake.event_id, Some(first.event_id));
+        assert!(!wake.raw.contains("secret body"));
+        let frame = tokio::time::timeout(Duration::from_secs(1), stream.next())
+            .await
+            .expect("shared wake should avoid waiting for fallback polling")
+            .expect("Room event frame")
+            .expect("Room event bytes");
+        let frame = String::from_utf8(frame.to_vec()).unwrap();
+        assert!(frame.contains(&format!("id: {}", first.event_id)));
+        assert!(!frame.contains("secret body"));
+        drop(stream);
+
+        // A listener that never attaches models a notification lost during an
+        // outage. The bounded adaptive fallback must still recover from the
+        // same durable cursor without any second event store.
+        let mut fallback_state = fixture.state.clone();
+        fallback_state.cell_wakes = crate::cell_wake::CellWakeHub::default();
+        fallback_state.event_fallback_initial = Duration::from_millis(40);
+        fallback_state.event_fallback_max = Duration::from_millis(80);
+        if let RoomOrgIntelSource::Fixed { database_url, .. } = &mut fallback_state.source {
+            *database_url = "not-a-postgresql-url".into();
+        }
+        let fallback_app =
+            fixture.app_with_state(fallback_state, "alice", "member", &fixture.company);
+        let fallback_path = format!(
+            "/companies/{}/rooms/{}/events/live?after_event_id={}",
+            fixture.company, room.id, first.event_id
+        );
+        let response = room_get_response(&fallback_app, &fallback_path, None).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let mut fallback_stream = response.into_body().into_data_stream();
+        let second = fixture
+            .org
+            .send_room_message(
+                room.id,
+                "alice",
+                "fallback secret body",
+                None,
+                "wake-lost-fallback",
+            )
+            .await
+            .unwrap();
+        let frame = tokio::time::timeout(Duration::from_millis(500), fallback_stream.next())
+            .await
+            .expect("lost wake should be repaired by the bounded fallback")
+            .expect("fallback Room event frame")
+            .expect("fallback Room event bytes");
+        let frame = String::from_utf8(frame.to_vec()).unwrap();
+        assert!(frame.contains(&format!("id: {}", second.event_id)));
+        assert!(!frame.contains("fallback secret body"));
+    }
+
+    #[tokio::test]
+    async fn room_event_stream_caps_idle_fanout_and_refunds_on_every_exit() {
+        let Some(fixture) = RoomRouteFixture::new().await else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Room admission scenario");
+            return;
+        };
+        let room = fixture
+            .org
+            .create_room(
+                "alice",
+                restless_orgintel::RoomKind::Group,
+                "Bounded fanout",
+                &["bob", "carol"],
+            )
+            .await
+            .unwrap();
+        let cursor = fixture
+            .org
+            .room_events_after("alice", room.id, 0, 100)
+            .await
+            .unwrap()
+            .snapshot_cursor;
+        let live_path = format!(
+            "/companies/{}/rooms/{}/events/live?after_event_id={cursor}",
+            fixture.company, room.id
+        );
+        let mut state = fixture.state.clone();
+        state.cell_wakes = crate::cell_wake::CellWakeHub::with_stream_limits(2, 2, 1);
+        let hub = state.cell_wakes.clone();
+        let alice = fixture.app_with_state(state.clone(), "alice", "member", &fixture.company);
+        let bob = fixture.app_with_state(state.clone(), "bob", "member", &fixture.company);
+        let carol = fixture.app_with_state(state.clone(), "carol", "member", &fixture.company);
+
+        let alice_idle = room_get_response(&alice, &live_path, None).await;
+        assert_eq!(alice_idle.status(), StatusCode::OK);
+        assert_eq!(hub.active_streams(), 1);
+        let duplicate_alice = room_get_response(&alice, &live_path, None).await;
+        assert_eq!(duplicate_alice.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(duplicate_alice.headers()[RETRY_AFTER], "2");
+
+        let bob_idle = room_get_response(&bob, &live_path, None).await;
+        assert_eq!(bob_idle.status(), StatusCode::OK);
+        assert_eq!(hub.active_streams(), 2);
+        for _ in 0..8 {
+            let refused = room_get_response(&carol, &live_path, None).await;
+            assert_eq!(refused.status(), StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(refused.headers()[RETRY_AFTER], "2");
+        }
+        assert_eq!(hub.active_streams(), 2, "refused clients hold no permit");
+
+        drop(alice_idle);
+        assert_eq!(hub.active_streams(), 1);
+        let replacement = room_get_response(&alice, &live_path, None).await;
+        assert_eq!(replacement.status(), StatusCode::OK);
+        assert_eq!(hub.active_streams(), 2);
+        drop(replacement);
+        drop(bob_idle);
+        assert_eq!(hub.active_streams(), 0);
+
+        // Losing Room participation closes the stream on the shared hint and
+        // returns admission immediately.
+        let response = room_get_response(&bob, &live_path, None).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let mut removed_stream = response.into_body().into_data_stream();
+        assert!(
+            hub.wait_until_ready(&fixture.company, Duration::from_secs(2))
+                .await
+        );
+        fixture
+            .org
+            .remove_room_participant("alice", room.id, "bob")
+            .await
+            .unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), removed_stream.next())
+                .await
+                .expect("participant-removal wake closes the stream")
+                .is_none()
+        );
+        assert_eq!(hub.active_streams(), 0);
+
+        // A network lease cancellation is selected independently of database
+        // wakes and returns the same admission permit.
+        let sessions = SessionStore::default();
+        let token = sessions.establish(
+            RoomRouteFixture::identity("alice", "member", &fixture.company),
+            Duration::from_secs(60),
+        );
+        let lease = sessions.resolve_lease(&token).unwrap();
+        let network = fixture.network_app_with_state(state, lease);
+        let response = room_get_response(&network, &live_path, None).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let mut revoked_stream = response.into_body().into_data_stream();
+        assert_eq!(hub.active_streams(), 1);
+        sessions.revoke(&token);
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), revoked_stream.next())
+                .await
+                .expect("lease revocation closes the bounded stream")
+                .is_none()
+        );
+        assert_eq!(hub.active_streams(), 0);
+
+        // Deconfiguration is distinct from a transient database disconnect:
+        // it closes the company's channel and therefore every remaining
+        // stream, rather than leaving a historical tenant polling forever.
+        let deconfigured_cursor = fixture
+            .org
+            .room_events_after("alice", room.id, cursor, 100)
+            .await
+            .unwrap()
+            .snapshot_cursor;
+        let deconfigured_path = format!(
+            "/companies/{}/rooms/{}/events/live?after_event_id={deconfigured_cursor}",
+            fixture.company, room.id
+        );
+        let response = room_get_response(&alice, &deconfigured_path, None).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let mut deconfigured_stream = response.into_body().into_data_stream();
+        assert_eq!(hub.active_streams(), 1);
+        hub.remove_company(&fixture.company);
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), deconfigured_stream.next())
+                .await
+                .expect("deconfiguration closes the company stream")
+                .is_none()
+        );
+        assert_eq!(hub.active_streams(), 0);
+    }
+
+    #[tokio::test]
     async fn room_participant_and_read_routes_enforce_room_roles_and_monotonicity() {
         let Some(fixture) = RoomRouteFixture::new().await else {
             eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Room role route scenario");
@@ -6967,6 +7425,7 @@ mod tests {
             },
             staff: crate::staff::StaffRegistry::default(),
             activities: crate::activity::AgentActivityStreams::default(),
+            cell_wakes: crate::cell_wake::CellWakeHub::default(),
             lifecycle: restlessd::appliance::LifecycleGate::default(),
             in_flight: Arc::new(std::sync::Mutex::new(crate::schedule::WakeClaims::default())),
             schedule_wake: Arc::new(tokio::sync::Notify::new()),

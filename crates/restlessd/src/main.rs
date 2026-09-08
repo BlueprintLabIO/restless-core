@@ -14,6 +14,7 @@ mod authority;
 mod capability;
 mod capability_sourcing;
 mod cell;
+mod cell_wake;
 mod codex;
 mod company;
 mod connected_tool;
@@ -334,6 +335,10 @@ pub(crate) struct Daemon {
     /// Reconnectable live projections for agent turns. Completed messages,
     /// Work, and Attempts remain OrgIntel truth; this state is ephemeral.
     pub(crate) activities: activity::AgentActivityStreams,
+    /// One reconnecting LISTEN/NOTIFY listener per company cell, shared by
+    /// scheduler and realtime projections. Notifications are wake hints only;
+    /// each consumer rereads its durable source of truth.
+    pub(crate) cell_wakes: cell_wake::CellWakeHub,
     /// Crash-safe admission barrier for appliance replacement. The marker is
     /// host lifecycle state; live Work remains in the registries below and in
     /// OrgIntel rather than being copied into this gate.
@@ -641,6 +646,7 @@ async fn main() -> Result<()> {
         },
         staff: staff::StaffRegistry::default(),
         activities: activity::AgentActivityStreams::default(),
+        cell_wakes: cell_wake::CellWakeHub::default(),
         lifecycle: restlessd::appliance::LifecycleGate::new(
             restlessd::appliance::drain_marker_exists(&root),
         ),
@@ -1715,6 +1721,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             {
                 Ok(message) => {
                     daemon.orgintel.forget(company);
+                    daemon.cell_wakes.remove_company(company);
                     match daemon.authority.delete_test_company(company).await {
                         Ok(()) => Response::ok(message),
                         Err(error) => Response::err(format!(

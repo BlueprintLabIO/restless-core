@@ -1101,6 +1101,7 @@ mod live_product_tests {
             },
             staff: crate::staff::StaffRegistry::default(),
             activities: crate::activity::AgentActivityStreams::default(),
+            cell_wakes: crate::cell_wake::CellWakeHub::default(),
             lifecycle: restlessd::appliance::LifecycleGate::default(),
             in_flight: std::sync::Arc::new(std::sync::Mutex::new(
                 crate::schedule::WakeClaims::default(),
@@ -1640,6 +1641,7 @@ mod live_product_tests {
             },
             staff: crate::staff::StaffRegistry::default(),
             activities: crate::activity::AgentActivityStreams::default(),
+            cell_wakes: crate::cell_wake::CellWakeHub::default(),
             lifecycle: restlessd::appliance::LifecycleGate::default(),
             in_flight: std::sync::Arc::new(std::sync::Mutex::new(
                 crate::schedule::WakeClaims::default(),
