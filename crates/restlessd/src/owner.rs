@@ -7,7 +7,7 @@
 //! approval actions, and browser attach/lease transport. It is not a generic
 //! REST facade over the company computer.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::convert::Infallible;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
@@ -51,6 +51,8 @@ use crate::{
 const ATTACH_COOKIE: &str = "restless_attach";
 const SESSION_COOKIE: &str = "restless_session";
 const MEMBERSHIP_CONTROL_PATH: &str = "/internal/v1/membership-controls";
+const ROOM_EVENT_REPLAY_LIMIT: i64 = 100;
+const ROOM_EVENT_POLL_INTERVAL: Duration = Duration::from_millis(500);
 const TICKET_TTL: Duration = Duration::from_secs(30);
 const ATTACH_TTL: Duration = Duration::from_secs(30 * 60);
 const REVIEW_TTL: Duration = Duration::from_secs(30 * 60);
@@ -88,6 +90,7 @@ struct OwnerState {
 #[derive(Clone)]
 struct RoomApiState {
     source: RoomOrgIntelSource,
+    network_mode: bool,
 }
 
 #[derive(Clone)]
@@ -101,6 +104,7 @@ impl FromRef<OwnerState> for RoomApiState {
     fn from_ref(state: &OwnerState) -> Self {
         Self {
             source: RoomOrgIntelSource::Daemon(state.daemon.clone()),
+            network_mode: state.entry.network().is_some(),
         }
     }
 }
@@ -121,6 +125,7 @@ impl RoomApiState {
     fn fixed(companies: HashMap<String, restless_orgintel::OrgIntel>) -> Self {
         Self {
             source: RoomOrgIntelSource::Fixed(Arc::new(companies)),
+            network_mode: false,
         }
     }
 }
@@ -349,6 +354,13 @@ struct RoomReadCursorInput {
 #[serde(deny_unknown_fields)]
 struct RoomPageQuery {
     after_message_id: Option<i64>,
+    limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct RoomEventQuery {
+    after_event_id: Option<i64>,
     limit: Option<i64>,
 }
 
@@ -927,6 +939,14 @@ where
         .route(
             "/companies/{company}/rooms/{room}/messages",
             get(list_room_messages).post(send_room_message),
+        )
+        .route(
+            "/companies/{company}/rooms/{room}/events",
+            get(list_room_events),
+        )
+        .route(
+            "/companies/{company}/rooms/{room}/events/live",
+            get(room_events_live),
         )
         .route(
             "/companies/{company}/rooms/{room}/messages/{parent}/replies",
@@ -3396,6 +3416,59 @@ fn room_page_bounds(
     Ok((query.after_message_id, limit))
 }
 
+fn room_event_bounds(
+    query: RoomEventQuery,
+    headers: Option<&HeaderMap>,
+) -> std::result::Result<(i64, i64), (&'static str, &'static str)> {
+    if query.after_event_id.is_some_and(|cursor| cursor < 0) {
+        return Err(("event_cursor", "after_event_id must be non-negative"));
+    }
+    let last_event_id = match headers {
+        None => None,
+        Some(headers) => {
+            let mut values = headers.get_all("last-event-id").iter();
+            let first = values.next();
+            if values.next().is_some() {
+                return Err((
+                    "event_cursor",
+                    "Last-Event-ID must contain exactly one event cursor",
+                ));
+            }
+            match first {
+                None => None,
+                Some(value) => {
+                    let value = value.to_str().map_err(|_| {
+                        (
+                            "event_cursor",
+                            "Last-Event-ID must be a non-negative decimal event id",
+                        )
+                    })?;
+                    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+                        return Err((
+                            "event_cursor",
+                            "Last-Event-ID must be a non-negative decimal event id",
+                        ));
+                    }
+                    Some(value.parse::<i64>().map_err(|_| {
+                        (
+                            "event_cursor",
+                            "Last-Event-ID must be a non-negative decimal event id",
+                        )
+                    })?)
+                }
+            }
+        }
+    };
+    let limit = query.limit.unwrap_or(ROOM_EVENT_REPLAY_LIMIT);
+    if !(1..=ROOM_EVENT_REPLAY_LIMIT).contains(&limit) {
+        return Err(("event_limit", "Room event limit must be between 1 and 100"));
+    }
+    // EventSource reconnects to its original query URL and separately sends
+    // the last delivered id. The header must therefore supersede the initial
+    // query cursor once delivery has advanced.
+    Ok((last_event_id.or(query.after_event_id).unwrap_or(0), limit))
+}
+
 async fn list_rooms(
     State(state): State<RoomApiState>,
     RoomPrincipal(principal): RoomPrincipal,
@@ -3548,6 +3621,205 @@ async fn list_room_messages(
         Ok(page) => Json(page).into_response(),
         Err(error) => room_error(error),
     }
+}
+
+async fn list_room_events(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath((company, room)): AxumPath<(String, Uuid)>,
+    Query(query): Query<RoomEventQuery>,
+) -> Response<Body> {
+    let (after_event_id, limit) = match room_event_bounds(query, None) {
+        Ok(bounds) => bounds,
+        Err((error, message)) => return api_error(StatusCode::BAD_REQUEST, error, message),
+    };
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .room_events_after(principal.actor_id(), room, after_event_id, limit)
+        .await
+    {
+        Ok(page) => Json(page).into_response(),
+        Err(error) => room_error(error),
+    }
+}
+
+async fn room_events_live(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath((company, room)): AxumPath<(String, Uuid)>,
+    Query(query): Query<RoomEventQuery>,
+    headers: HeaderMap,
+    session_lease: Option<Extension<SessionLease>>,
+) -> Response<Body> {
+    let (after_event_id, limit) = match room_event_bounds(query, Some(&headers)) {
+        Ok(bounds) => bounds,
+        Err((error, message)) => return api_error(StatusCode::BAD_REQUEST, error, message),
+    };
+    let session_lease = session_lease.map(|Extension(lease)| lease);
+    if state.network_mode && session_lease.as_ref().is_none_or(SessionLease::is_ended) {
+        return api_error(
+            StatusCode::UNAUTHORIZED,
+            "stale_membership",
+            "the verified company session is no longer active",
+        );
+    }
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    let first_page = match org
+        .room_events_after(principal.actor_id(), room, after_event_id, limit)
+        .await
+    {
+        Ok(page) => page,
+        Err(error) => return room_error(error),
+    };
+    if session_lease.as_ref().is_some_and(SessionLease::is_ended) {
+        return api_error(
+            StatusCode::UNAUTHORIZED,
+            "stale_membership",
+            "the verified company session is no longer active",
+        );
+    }
+
+    let stream = room_event_stream(
+        org,
+        principal.actor_id().to_string(),
+        room,
+        limit,
+        first_page,
+        session_lease,
+    );
+    Sse::new(stream)
+        .keep_alive(
+            KeepAlive::new()
+                .interval(Duration::from_secs(15))
+                .text("still-connected"),
+        )
+        .into_response()
+}
+
+struct RoomEventStreamState {
+    org: restless_orgintel::OrgIntel,
+    actor_id: String,
+    room_id: Uuid,
+    limit: i64,
+    after_event_id: i64,
+    pending: VecDeque<Event>,
+    poll_immediately: bool,
+    close_after_pending: bool,
+    session_lease: Option<SessionLease>,
+}
+
+fn room_event_stream(
+    org: restless_orgintel::OrgIntel,
+    actor_id: String,
+    room_id: Uuid,
+    limit: i64,
+    first_page: restless_orgintel::RoomEventReplayPage,
+    session_lease: Option<SessionLease>,
+) -> impl futures_util::Stream<Item = std::result::Result<Event, Infallible>> {
+    let mut state = RoomEventStreamState {
+        org,
+        actor_id,
+        room_id,
+        limit,
+        after_event_id: first_page.requested_after_event_id,
+        pending: VecDeque::new(),
+        poll_immediately: true,
+        close_after_pending: false,
+        session_lease,
+    };
+    queue_room_event_page(&mut state, first_page);
+
+    futures_util::stream::unfold(state, |mut state| async move {
+        loop {
+            if state
+                .session_lease
+                .as_ref()
+                .is_some_and(SessionLease::is_ended)
+            {
+                return None;
+            }
+            if let Some(event) = state.pending.pop_front() {
+                return Some((Ok::<_, Infallible>(event), state));
+            }
+            if state.close_after_pending {
+                return None;
+            }
+            if !state.poll_immediately {
+                match state.session_lease.as_ref() {
+                    Some(session_lease) => tokio::select! {
+                        _ = tokio::time::sleep(ROOM_EVENT_POLL_INTERVAL) => {},
+                        _ = session_lease.ended() => return None,
+                    },
+                    None => tokio::time::sleep(ROOM_EVENT_POLL_INTERVAL).await,
+                }
+            }
+            state.poll_immediately = false;
+            let replay = state.org.room_events_after(
+                &state.actor_id,
+                state.room_id,
+                state.after_event_id,
+                state.limit,
+            );
+            let page = match state.session_lease.as_ref() {
+                Some(session_lease) => tokio::select! {
+                    page = replay => page,
+                    _ = session_lease.ended() => return None,
+                },
+                None => replay.await,
+            };
+            match page {
+                Ok(page) => queue_room_event_page(&mut state, page),
+                Err(restless_orgintel::OrgIntelError::RoomAccessDenied(_)) => return None,
+                Err(error) => {
+                    tracing::warn!(
+                        %error,
+                        room = %state.room_id,
+                        actor = state.actor_id,
+                        "Room event stream stopped after replay failed"
+                    );
+                    return None;
+                }
+            }
+        }
+    })
+}
+
+fn queue_room_event_page(
+    state: &mut RoomEventStreamState,
+    page: restless_orgintel::RoomEventReplayPage,
+) {
+    if page.resync_required {
+        let data = serde_json::json!({
+            "reason": "cursor_unavailable",
+            "requested_after_event_id": page.requested_after_event_id,
+            "resume_after_event_id": page.snapshot_cursor,
+            "compacted_through_event_id": page.compacted_through_event_id,
+            "oldest_available_event_id": page.oldest_available_event_id,
+        });
+        state.pending.push_back(
+            Event::default()
+                .event("resync")
+                .id(page.snapshot_cursor.to_string())
+                .data(data.to_string()),
+        );
+        state.close_after_pending = true;
+        return;
+    }
+
+    state.after_event_id = page.next_after_event_id;
+    state.poll_immediately = page.has_more;
+    state.pending.extend(page.events.into_iter().map(|event| {
+        let id = event.id.to_string();
+        let data = serde_json::to_string(&event)
+            .expect("a body-free Room event always serializes as JSON");
+        Event::default().event("room-event").id(id).data(data)
+    }));
 }
 
 async fn list_room_thread(
@@ -5766,8 +6038,8 @@ mod tests {
             })
         }
 
-        fn app(&self, actor: &str, role: &str, company: &str) -> Router {
-            let principal = RequestPrincipal::from_verified(&VerifiedIdentity {
+        fn identity(actor: &str, role: &str, company: &str) -> VerifiedIdentity {
+            VerifiedIdentity {
                 user: format!("user-{actor}"),
                 issuer: None,
                 owner: "fixture-owner".into(),
@@ -5780,11 +6052,36 @@ mod tests {
                 cell_id: None,
                 membership_id: None,
                 membership_version: None,
-            })
-            .expect("verified fixture principal");
+            }
+        }
+
+        fn app(&self, actor: &str, role: &str, company: &str) -> Router {
+            let principal = RequestPrincipal::from_verified(&Self::identity(actor, role, company))
+                .expect("verified fixture principal");
             room_api_routes::<RoomApiState>()
                 .layer(Extension(principal))
                 .with_state(self.state.clone())
+        }
+
+        fn network_app(&self, lease: SessionLease) -> Router {
+            let principal = RequestPrincipal::from_verified(&lease.identity)
+                .expect("verified fixture principal");
+            let mut state = self.state.clone();
+            state.network_mode = true;
+            room_api_routes::<RoomApiState>()
+                .layer(Extension(principal))
+                .layer(Extension(lease))
+                .with_state(state)
+        }
+
+        fn network_app_without_lease(&self, actor: &str, role: &str, company: &str) -> Router {
+            let principal = RequestPrincipal::from_verified(&Self::identity(actor, role, company))
+                .expect("verified fixture principal");
+            let mut state = self.state.clone();
+            state.network_mode = true;
+            room_api_routes::<RoomApiState>()
+                .layer(Extension(principal))
+                .with_state(state)
         }
 
         fn unauthenticated_app(&self) -> Router {
@@ -5821,6 +6118,38 @@ mod tests {
             |_| serde_json::json!({ "raw": String::from_utf8_lossy(&bytes).to_string() }),
         );
         (status, body)
+    }
+
+    async fn room_get_response(
+        app: &Router,
+        uri: impl AsRef<str>,
+        last_event_id: Option<&str>,
+    ) -> Response<Body> {
+        let mut builder = axum::http::Request::builder()
+            .method(Method::GET)
+            .uri(uri.as_ref());
+        if let Some(last_event_id) = last_event_id {
+            builder = builder.header("last-event-id", last_event_id);
+        }
+        app.clone()
+            .oneshot(builder.body(Body::empty()).unwrap())
+            .await
+            .expect("Room GET response")
+    }
+
+    async fn first_sse_chunk(response: Response<Body>) -> String {
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(response.headers()[CONTENT_TYPE]
+            .to_str()
+            .unwrap()
+            .starts_with("text/event-stream"));
+        let mut stream = response.into_body().into_data_stream();
+        let bytes = tokio::time::timeout(Duration::from_secs(2), stream.next())
+            .await
+            .expect("SSE emits within the bound")
+            .expect("SSE remains open for its first event")
+            .expect("SSE body frame");
+        String::from_utf8(bytes.to_vec()).expect("SSE is UTF-8")
     }
 
     fn room_id(response: &serde_json::Value) -> Uuid {
@@ -6125,6 +6454,349 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert_eq!(cross_room["error"], "room");
+    }
+
+    #[tokio::test]
+    async fn room_event_routes_are_strict_scoped_paged_body_free_and_reconnectable() {
+        let Some(fixture) = RoomRouteFixture::new().await else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Room event route scenario");
+            return;
+        };
+        let alice = fixture.app("alice", "member", &fixture.company);
+        let other_company_alice = fixture.app("alice", "member", &fixture.other_company);
+        let mallory = fixture.app("mallory", "member", &fixture.company);
+        let room = fixture
+            .org
+            .create_room(
+                "alice",
+                restless_orgintel::RoomKind::Group,
+                "Replay",
+                &["bob"],
+            )
+            .await
+            .unwrap();
+        let baseline = fixture
+            .org
+            .room_events_after("alice", room.id, 0, 100)
+            .await
+            .unwrap()
+            .snapshot_cursor;
+        let first = fixture
+            .org
+            .send_room_message(room.id, "alice", "First secret body", None, "event-first")
+            .await
+            .unwrap();
+        let second = fixture
+            .org
+            .send_room_message(room.id, "alice", "Second secret body", None, "event-second")
+            .await
+            .unwrap();
+        let other_room = fixture
+            .org
+            .create_room(
+                "alice",
+                restless_orgintel::RoomKind::Group,
+                "Other replay",
+                &["bob"],
+            )
+            .await
+            .unwrap();
+        let other = fixture
+            .org
+            .send_room_message(
+                other_room.id,
+                "alice",
+                "Other secret body",
+                None,
+                "event-other",
+            )
+            .await
+            .unwrap();
+        let third = fixture
+            .org
+            .send_room_message(room.id, "bob", "Third secret body", None, "event-third")
+            .await
+            .unwrap();
+
+        let events_path = format!("/companies/{}/rooms/{}/events", fixture.company, room.id);
+        for query in [
+            "?after_event_id=-1",
+            "?limit=0",
+            "?limit=101",
+            "?limit=1&unexpected=true",
+        ] {
+            let response = room_get_response(&alice, format!("{events_path}{query}"), None).await;
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+
+        let (status, first_page) = room_request(
+            &alice,
+            Method::GET,
+            format!("{events_path}?after_event_id={baseline}&limit=2"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(first_page["events"].as_array().unwrap().len(), 2);
+        assert_eq!(first_page["events"][0]["id"], first.event_id);
+        assert_eq!(first_page["events"][1]["id"], second.event_id);
+        assert_eq!(first_page["has_more"], true);
+        assert!(first_page["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|event| event.get("body").is_none()));
+        assert!(!first_page.to_string().contains("secret body"));
+
+        let page_cursor = first_page["next_after_event_id"].as_i64().unwrap();
+        let (status, final_page) = room_request(
+            &alice,
+            Method::GET,
+            format!("{events_path}?after_event_id={page_cursor}&limit=100"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let final_ids = final_page["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|event| event["id"].as_i64().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(final_ids, vec![third.event_id]);
+        assert!(!final_ids.contains(&other.event_id));
+        assert!(final_page["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|event| event["room_id"] == room.id.to_string()));
+        let snapshot_cursor = final_page["snapshot_cursor"].as_i64().unwrap();
+        let future_cursor = snapshot_cursor.checked_add(1).unwrap();
+        let (status, gap) = room_request(
+            &alice,
+            Method::GET,
+            format!("{events_path}?after_event_id={future_cursor}"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(gap["resync_required"], true);
+        assert_eq!(gap["snapshot_cursor"], snapshot_cursor);
+
+        let (status, duplicate_page) = room_request(
+            &alice,
+            Method::GET,
+            format!("{events_path}?after_event_id={baseline}&limit=2"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(duplicate_page["events"], first_page["events"]);
+
+        let response = room_get_response(&mallory, &events_path, None).await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let response = room_get_response(
+            &alice,
+            format!(
+                "/companies/{}/rooms/{}/events",
+                fixture.other_company, room.id
+            ),
+            None,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let response = room_get_response(
+            &other_company_alice,
+            format!(
+                "/companies/{}/rooms/{}/events",
+                fixture.other_company, room.id
+            ),
+            None,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let response = room_get_response(
+            &alice,
+            format!(
+                "/companies/{}/rooms/{}/events",
+                fixture.company,
+                Uuid::new_v4()
+            ),
+            None,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+        let live_path = format!("{events_path}/live");
+        let gap_event = first_sse_chunk(
+            room_get_response(
+                &alice,
+                format!("{live_path}?after_event_id={future_cursor}"),
+                None,
+            )
+            .await,
+        )
+        .await;
+        assert!(gap_event.contains("event: resync"));
+        assert!(gap_event.contains(&format!("id: {snapshot_cursor}")));
+
+        let query_event = first_sse_chunk(
+            room_get_response(
+                &alice,
+                format!("{live_path}?after_event_id={baseline}&limit=1"),
+                None,
+            )
+            .await,
+        )
+        .await;
+        assert!(query_event.contains("event: room-event"));
+        assert!(query_event.contains(&format!("id: {}", first.event_id)));
+        assert!(!query_event.contains("secret body"));
+
+        let header_event = first_sse_chunk(
+            room_get_response(
+                &alice,
+                format!("{live_path}?after_event_id={baseline}&limit=1"),
+                Some(&first.event_id.to_string()),
+            )
+            .await,
+        )
+        .await;
+        assert!(header_event.contains(&format!("id: {}", second.event_id)));
+
+        let response = room_get_response(&alice, &live_path, Some("1x")).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn room_event_stream_resyncs_and_stops_on_participation_session_or_expiry() {
+        let Some(fixture) = RoomRouteFixture::new().await else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Room event lifecycle scenario");
+            return;
+        };
+        let alice = fixture.app("alice", "member", &fixture.company);
+        let bob = fixture.app("bob", "member", &fixture.company);
+        let room = fixture
+            .org
+            .create_room(
+                "alice",
+                restless_orgintel::RoomKind::Group,
+                "Live replay",
+                &["bob"],
+            )
+            .await
+            .unwrap();
+        let message = fixture
+            .org
+            .send_room_message(room.id, "alice", "Compacted body", None, "compact-me")
+            .await
+            .unwrap();
+        fixture
+            .org
+            .compact_events_through(message.event_id)
+            .await
+            .unwrap();
+
+        let events_path = format!("/companies/{}/rooms/{}/events", fixture.company, room.id);
+        let (status, compacted) = room_request(&alice, Method::GET, &events_path, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(compacted["resync_required"], true);
+        assert!(compacted["events"].as_array().unwrap().is_empty());
+        let snapshot_cursor = compacted["snapshot_cursor"].as_i64().unwrap();
+
+        let response = room_get_response(&alice, format!("{events_path}/live"), None).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let mut stream = response.into_body().into_data_stream();
+        let resync = tokio::time::timeout(Duration::from_secs(2), stream.next())
+            .await
+            .expect("resync is immediate")
+            .expect("resync event exists")
+            .expect("resync body frame");
+        let resync = String::from_utf8(resync.to_vec()).unwrap();
+        assert!(resync.contains("event: resync"));
+        assert!(resync.contains(&format!("id: {snapshot_cursor}")));
+        assert!(resync.contains("cursor_unavailable"));
+        assert!(!resync.contains("Compacted body"));
+        assert!(tokio::time::timeout(Duration::from_secs(1), stream.next())
+            .await
+            .expect("resync stream closes")
+            .is_none());
+
+        let response = room_get_response(
+            &fixture.network_app_without_lease("alice", "member", &fixture.company),
+            format!("{events_path}/live?after_event_id={snapshot_cursor}"),
+            None,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        let response = room_get_response(
+            &bob,
+            format!("{events_path}/live?after_event_id={snapshot_cursor}"),
+            None,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let mut removed_stream = response.into_body().into_data_stream();
+        fixture
+            .org
+            .remove_room_participant("alice", room.id, "bob")
+            .await
+            .unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_secs(2), removed_stream.next())
+                .await
+                .expect("participation is rechecked within the poll bound")
+                .is_none()
+        );
+        let live_cursor = fixture
+            .org
+            .room_events_after("alice", room.id, snapshot_cursor, 100)
+            .await
+            .unwrap()
+            .snapshot_cursor;
+
+        let sessions = SessionStore::default();
+        let revoked_token = sessions.establish(
+            RoomRouteFixture::identity("alice", "member", &fixture.company),
+            Duration::from_secs(60),
+        );
+        let revoked_lease = sessions.resolve_lease(&revoked_token).unwrap();
+        let response = room_get_response(
+            &fixture.network_app(revoked_lease),
+            format!("{events_path}/live?after_event_id={live_cursor}"),
+            None,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let mut revoked_stream = response.into_body().into_data_stream();
+        sessions.revoke(&revoked_token);
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), revoked_stream.next())
+                .await
+                .expect("revocation closes the Room stream immediately")
+                .is_none()
+        );
+
+        let expiry_token = sessions.establish(
+            RoomRouteFixture::identity("alice", "member", &fixture.company),
+            Duration::from_millis(500),
+        );
+        let expiry_lease = sessions.resolve_lease(&expiry_token).unwrap();
+        let response = room_get_response(
+            &fixture.network_app(expiry_lease),
+            format!("{events_path}/live?after_event_id={live_cursor}"),
+            None,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let mut expiry_stream = response.into_body().into_data_stream();
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), expiry_stream.next())
+                .await
+                .expect("session expiry closes the Room stream within its TTL")
+                .is_none()
+        );
     }
 
     #[tokio::test]
