@@ -105,6 +105,37 @@ impl OrgIntel {
             return Ok(None);
         };
 
+        // Two scheduler scans can lock different ready Work rows owned by the
+        // same durable Actor. Serialize at the Actor row, then recheck after
+        // the lock: under READ COMMITTED this statement observes a competing
+        // claim that committed while we waited. The database partial unique
+        // index in migration 0039 is the final invariant; this lock turns that
+        // conflict into an ordinary "nothing claimable" result.
+        let actor_available: bool = sqlx::query_scalar(
+            "SELECT EXISTS(\
+               SELECT 1 FROM actors actor \
+               WHERE actor.id=$1 AND actor.retired_at IS NULL FOR UPDATE\
+             )",
+        )
+        .bind(&work.owner_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if !actor_available {
+            tx.commit().await?;
+            return Ok(None);
+        }
+        let actor_already_running: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM work_attempts \
+             WHERE actor_id=$1 AND state='running')",
+        )
+        .bind(&work.owner_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if actor_already_running {
+            tx.commit().await?;
+            return Ok(None);
+        }
+
         let inputs = sqlx::query_as::<_, ArtifactRefRow>(
             "SELECT a.id, a.kind, a.uri, a.note, a.created_by, a.work_id, a.attempt_id, \
                     a.digest, a.source_commit, a.runtime_generation, a.label, a.state, \
