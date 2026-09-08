@@ -11,6 +11,10 @@ meets the condition ADR 0001 set for itself.
 **Parent:** [`ARCHITECTURE.md`](../../ARCHITECTURE.md) §7.4 ·
 [`docs/CELL_ARCHITECTURE.md`](../CELL_ARCHITECTURE.md) §2, §5
 
+**Identity-contract note:** the entry boundary and single-use assertion decision remain accepted.
+The provider-neutral access-context shape, durable human Actor mapping, membership version and
+revocation semantics are refined by [ADR 0009](0009-provider-neutral-company-access-context.md).
+
 ## Context
 
 Core's account plane is loopback-only by construction. The owner gateway refuses a non-loopback bind

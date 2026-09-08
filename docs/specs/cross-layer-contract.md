@@ -1,7 +1,8 @@
 # Company Lifecycle and Cross-Layer Contract Specification
 
-**Version:** 0.1  
+**Version:** 0.2
 **Status:** Working implementation contract  
+**Date:** 8 September 2026
 **Scope:** Company bootstrap, lifecycle, shared semantics, source ownership, and interfaces between the Authority Plane, OrgIntel, Company Runtime, Runtime Bridge, and Owner Cockpit.
 
 ---
@@ -16,6 +17,8 @@ It is intentionally narrower than the component specs:
 - **OrgIntel Core Specification** owns organisational cognition, actors, goals, Work nodes, communication, adaptation, and organisational memory.
 - **Company Runtime and Runtime Bridge Specification** owns the Linux work environment, agent processes, files, Git, tools, and bridge implementation.
 - **Owner Cockpit Product Specification** owns the operator-facing product experience.
+- **Core collaboration subsystem** owns Rooms, Messages, Mentions, native Document semantics and
+  transaction-bound client delivery inside a company cell.
 - This document owns **shared identifiers, cross-layer contracts, company bootstrap, lifecycle transitions, and reconciliation**.
 
 The contract should remain small enough that all layers can implement it consistently.
@@ -154,6 +157,10 @@ The following identifiers are shared across layers:
 | `resource_grant_id`  | Identity of one bounded productive-resource grant                                 | Stable for the grant lifetime                          |
 | `artifact_ref_id`    | OrgIntel identity for a reference to work owned elsewhere                         | Stable while the reference remains useful              |
 | `attention_item_id`  | Owner-facing projection of a source request and its immediate causal continuation | Stable through resolution and the compact continuation |
+| `room_id`            | One durable company, project/group or direct conversation                         | Never reused                                           |
+| `message_id`         | One append-only attributable Room message                                          | Never reused                                           |
+| `document_id`        | One native company document identity                                               | Never reused                                           |
+| `event_id`           | One committed delivery notification                                                | Stable across at-least-once delivery                   |
 
 Identifiers are opaque except for the bounded Staff convention defined by OrgIntel: new Staff use a
 durable `{domain}-{craft}` identity. Even there, do not encode mutable role wording, team position,
@@ -179,6 +186,20 @@ For V0, the hard security boundary is the **company/Exec authority envelope**.
 - Per-worker security isolation and independently enforced capability grants are deferred.
 
 Do not claim strong per-agent security while agents share one permissive Linux work environment.
+
+## 2.4 Company access context
+
+Supported network entry resolves a provider-neutral `CompanyAccessContext` containing the verified
+principal, immutable `company_id`, membership identity/version/role, mapped durable human `actor_id`,
+session identity, issuer/audience and expiry. Provider-specific session objects never enter Core
+domain APIs. A client-provided company or actor identifier is only a route hint and cannot widen the
+verified context.
+
+The identity provider owns human membership. OrgIntel owns the durable Actor and organisational
+responsibility. Authority owns capabilities and consequential receipts. Suspension or removal
+revokes entry and sessions without erasing historical attribution. One bootstrap coordinator
+allocates each company identity: hosted Fleet for managed creation, Core for self-host creation; the
+Authority record preserves and protects the resulting immutable identity.
 
 ---
 
@@ -1139,7 +1160,8 @@ Infisical itself may be cloud-hosted or separately deployed.
 
 The contract uses `company_id` and explicit service boundaries, but V0 optimises for one company, one owner, one Exec, and one shared Company Runtime.
 
-It does not require multiplayer, fleet management, shared multi-tenancy, or generic hosted control planes.
+It now includes bounded multiple-human access within one company. It still does not require shared
+mutable multi-company tenancy, Fleet management in Core, or generic hosted control planes.
 
 ---
 
@@ -1218,7 +1240,7 @@ Do not begin with a generic service bus, event-sourcing framework, or universal 
 V0 does not specify:
 
 - shared multi-tenancy;
-- multiple human collaborators;
+- large-team/community collaboration or cross-company Rooms;
 - strong per-worker security principals;
 - cross-company actors;
 - atomic global snapshots;
@@ -1228,6 +1250,10 @@ V0 does not specify:
 - generic workflow orchestration;
 - semantic inspection of arbitrary network traffic;
 - a distributed event ledger for every action.
+
+The bounded collaboration programme deliberately adds durable human Actor mapping, Rooms, native
+Documents, transaction-bound outbox delivery and responsive mobile access without weakening these
+exclusions. See [the company collaboration programme](../sprints/company-collaboration-programme.md).
 
 ---
 

@@ -1,8 +1,8 @@
 # Restless Architecture Source of Truth
 
 **Status:** Working draft  
-**Version:** 0.9  
-**Date:** 23 August 2026
+**Version:** 0.10
+**Date:** 8 September 2026
 **Purpose:** Define the target architecture for a system that can run useful companies through autonomous agents while keeping consequential authority bounded and recoverable.
 
 ---
@@ -71,6 +71,12 @@ OrgIntel should provide strong guidance, cadence, context and organisational con
 
 Documents, code, research, plans, outputs and local knowledge should normally be ordinary files. Git supplies deliberate history and integration. Databases should index and coordinate work, not replace the work itself.
 
+The bounded exception is **Core-native collaborative Docs**: a small company notebook for briefs,
+plans, decisions, reports, reviews and handbooks where realtime human collaboration is itself the
+product need. Its live body may use Yjs behind a Core-owned document contract. Named versions and
+explicit Runtime exports preserve provenance; exported Markdown is not a second live write path.
+Ordinary productive files, repositories and artifacts remain Runtime-owned.
+
 ### 2.5 Observable and repairable beats impossible-to-corrupt
 
 Internal state may become stale, duplicated or inconsistent. The normal response is detection, repair, replanning or restoration—not a company-wide governance failure.
@@ -85,7 +91,12 @@ Restless should stay aligned through shared judgement, real dogfood, outcome-ori
 
 ### 2.8 Future scope must earn its way in
 
-Multiplayer collaboration, managed hosting and shared multi-tenancy are product hypotheses, not initial architecture requirements. Restless should first prove that one owner, one Exec and a small group of agents can produce useful economic output. Add broader collaboration or cloud infrastructure only after repeated real use exposes the need.
+Multiplayer collaboration and managed hosting have now earned a bounded implementation programme
+through the founder's repeated need to use one canonical company from mobile and desktop, invite a
+small development team, and keep company collaboration available while the Runtime sleeps. This
+promotes small-company human collaboration from a deferred hypothesis; it does not justify a general
+chat product, office suite, shared mutable multi-tenancy or active-active infrastructure. Those wider
+steps still require observed use and measured economics.
 
 ---
 
@@ -376,14 +387,30 @@ descendants into a new revision; the next Attempt receives the exact feedback an
 
 ### Messaging and inboxes
 
-- Assignments.
-- Updates.
-- Questions.
-- Review requests.
-- Decisions.
-- Attachments or links to files and commits.
+- Company, project, group and direct Rooms shared by durable human and agent Actors.
+- Append-only Messages, reply Threads, revisions, tombstones, Mentions and participant-relative read cursors.
+- Assignments, updates, questions, review requests and Decisions.
+- Typed references or links to Work, Docs, files, commits and Artifacts.
 
 Messages are organisational communication, not security-sensitive state transitions.
+Consequential discussion becomes durable organisational truth only through an explicit promotion to
+Work, a Decision, Attention, an Authority request or another concept owned by its existing source.
+Ordinary chat uses HTTP commands/queries plus transactional outbox events and cursor recovery; it
+does not use CRDTs or become a universal command bus.
+
+### Core collaboration subsystem
+
+OrgIntel also owns a bounded collaboration subsystem that remains available while the heavy Runtime
+is suspended:
+
+- Rooms and Chat use ordinary Postgres state and the operational event/outbox path.
+- Native Docs use a Rust-owned identity, access, metadata, comment, review, version, proposal and
+  export contract. A narrowly credentialed Hocuspocus sidecar may synchronize canonical Yjs document
+  bodies and nothing else.
+- Postgres remains authoritative for organisational meaning. CRDT state is restricted to document
+  bodies; Work, Authority, membership and general company records remain normal versioned records.
+- The subsystem is part of company-cell provisioning, backup, restore, relocation, export, deletion
+  and release compatibility. It is not a fourth architectural plane.
 
 ### Scheduling and wakeups
 
@@ -544,12 +571,13 @@ A small schema might cover:
 - actors;
 - goals;
 - Work nodes, dependency edges and Attempts;
-- messages;
+- Rooms, Messages, Mentions and participant read cursors;
+- native Doc metadata, comments, named versions and agent revision proposals;
 - schedules;
 - reviews;
 - decisions;
 - artifact references;
-- operational events;
+- transactional delivery/outbox events and compactable operational events;
 - derived health signals.
 
 Postgres may be host-operated for convenience with isolated company credentials, while remaining logically owned by the company environment. Avoid a second workflow database or DBOS-style durable orchestration layer.
@@ -830,16 +858,27 @@ This is ordinary delegated management, not a universal governance protocol.
 
 The near-term product is a **single-company operating system**: one persistent Exec and a small set of agents working inside one isolated company environment. That cell is the unit; one owner may hold several, each isolated from the others, served by that owner's single account plane. Proving one company is sufficient to test Restless's core claim — several companies is a deployment fact, not a second product.
 
-Multiplayer and managed company deployment remain deliberately deferred. This does not prohibit a
-separately governed static public publication surface: publishing owner-authorised Restless research or
-the landing page is an external effect, not evidence that Restless is hosting a customer company.
+Bounded multiplayer and managed dogfood deployment are now active product work. The founder needs one
+canonical Restless company from mobile and desktop, collaboration with a small invited team, and
+always-available shared state while the heavy Runtime sleeps. This is the observed trigger the former
+deferred posture required.
 
-- Support only the human interactions required by real dogfood: directives, approvals, inspection and browser or desktop takeover.
-- Do not build presence, a general collaboration suite, fine-grained multiplayer permissions, a shared realtime filesystem or a tenant fleet control plane yet.
-- Avoid obvious dead ends by using actor/principal identifiers, isolating company state, keeping layer interfaces explicit and supporting backup and upgrades. Do not design the full future platform.
-- Add a second human when repeated dogfood shows that human collaboration improves outcomes and Restless itself is the obstacle.
-- Build managed hosting when users want Restless but will not operate it. Begin with a dedicated deployment per company.
-- Build shared multi-tenancy only when proven demand exists and the cost of dedicated deployments materially blocks scale.
+- Core owns multiplayer company semantics: durable human and agent Actors, Rooms, Messages, native
+  Docs, Work relationships, Decisions, recipient-relative Attention and context selection.
+- Identity is adapter-neutral. Hosted Better Auth membership and a self-hosted identity adapter both
+  produce the same signed `CompanyAccessContext`; Core never depends on Fleet tables.
+- Membership, organisational responsibility and Authority are separate. An account membership role
+  cannot silently grant a capability, transfer the company mandate or choose an acting Actor.
+- The Core Svelte cockpit is the one company client and grows a mobile/PWA judgement surface. Cloud
+  may provide account settings and entry, but never forks or proxies the cockpit.
+- Chat and Docs are deliberately bounded to small-company collaboration. Do not build presence as a
+  correctness mechanism, arbitrary permission graphs, a general office suite, a shared realtime
+  filesystem or social-product machinery.
+- Managed deployment remains dedicated per company/account-plane boundaries. Build shared mutable
+  multi-tenancy only when proven economics require it.
+
+A separately governed static public publication surface remains distinct: publishing
+owner-authorised Restless research or the landing page is an external effect, not company hosting.
 
 The target is a **cell-based SaaS architecture with one strongly isolated cell per company**. The
 tenancy boundary is a company, not a human user. Restless Core and Restless Cloud run the same
@@ -1244,8 +1283,8 @@ Restless should not attempt to:
 - create a bespoke workflow engine before real workloads require one;
 - build a custom secret manager, container runtime or Linux kernel;
 - treat internal messiness as equivalent to a security breach;
-- build a general multiplayer collaboration product before a second human is proven necessary;
-- build shared multi-tenant cloud infrastructure before dedicated deployments have proven demand and poor economics.
+- turn the now-proven small-company multiplayer need into a general chat, social or office product;
+- build shared mutable multi-tenant company infrastructure before dedicated deployments have proven demand and poor economics.
 
 ---
 
@@ -1271,10 +1310,14 @@ Restless should not attempt to:
 18. Use the three companies as a complementary dogfood portfolio for building, selling, and live B2B deployment and operations.
 19. Test generic governed effects with deterministic fake CLIs in throwaway `_test` companies; use the installed real CLI and its own dry-run/status commands for integration probes.
 20. Use Infisical as the default imported secret and machine-identity backend, while keeping Restless authoritative for capabilities, approvals and consequential effects.
-21. Treat multiplayer and managed hosting as unproven product hypotheses rather than initial requirements.
-22. Focus the first product on one owner, one Exec and agents inside a single isolated company environment.
-23. If managed demand emerges, begin with dedicated per-company deployments; add shared multi-tenancy only when its economics are demonstrated.
-24. Future-proof minimally through actor/principal identifiers, company-state isolation, explicit layer interfaces, backups and upgrades—not speculative collaboration or fleet infrastructure.
+21. Build bounded multiplayer and managed dogfood after repeated founder mobile/team use supplied the
+    required product evidence; keep general collaboration and shared mutable tenancy out of scope.
+22. Preserve one authoritative company cell shared by durable human and agent Actors rather than one
+    company copy per user or device.
+23. Begin managed use with dedicated per-company deployments; add shared mutable tenancy only when its
+    economics are demonstrated.
+24. Use provider-neutral principals mapped by Core to durable Actors, company-state isolation,
+    explicit layer interfaces, short-lived credentials, backups and upgrades.
 25. Present owner-required provider enrolment through Attention, but keep financial and provider-root
     authentication in an owner-controlled browser outside the Company Runtime; deliver issued secrets
     through owner-only Authority ingress and resume from observed provider state rather than a “done”
@@ -1285,6 +1328,16 @@ Restless should not attempt to:
     or integration ownership.
 27. Place the public Restless landing page and owner-authorised published results in the separate
     Restless Cloud product; make every public revision a separately governed, reversible effect.
+28. Keep membership ownership, organisational responsibility and root Authority ownership as
+    separate facts; an explicit bootstrap may initially bind them to one human Actor.
+29. Put Rooms, Threads, Messages, Mentions and recipient read state in Core OrgIntel. Important chat
+    becomes Work, a Decision, Attention or Authority only through explicit promotion.
+30. Treat Native Docs as a Core collaboration subsystem. Rust owns company semantics and a narrow
+    Hocuspocus/Yjs sidecar owns active document-body synchronization only.
+31. Use one provider-neutral `CompanyAccessContext` for hosted and self-hosted human entry. Fleet may
+    issue and route hosted access but leaves the company data path after redirect.
+32. Extend the recoverable operational event substrate into transactional outbox/cursor delivery for
+    clients; do not add a parallel event-sourced company model.
 
 ---
 
@@ -1294,7 +1347,8 @@ These require further design rather than immediate implementation:
 
 1. ~~Final name~~ (settled: `restlessd`) and exact scope of the stable OrgIntel coordination service.
 2. Whether OrgIntel Postgres is per-company, schema-isolated in a shared service, or embedded for local development. Sprint 01 assumes schema-per-company; revisit against that evidence.
-3. How actor identity is attributed across ACP sessions without turning it into a security-heavy identity system.
+3. The exact bounded revocation interval and renewal cadence for active HTTP, SSE, desktop and
+   document collaboration sessions.
 4. The minimum filesystem conventions worth standardising.
 5. The exact Git/worktree integration and automatic checkpoint policy.
 6. How OrgIntel reconstructs state from files, Git and processes after corruption.
@@ -1305,6 +1359,9 @@ These require further design rather than immediate implementation:
 11. The exact first acceptance criteria for the Cosmon playable browser build, Aris sales outcome and Thymelake restaurant pilot.
 12. Which company should provide the first walking-skeleton dogfood and which portions begin in simulation.
 13. Which consequential runtime tools need a deterministic fake CLI before their first controlled live run.
+14. Which self-hosted identity adapter should follow the initial local-owner adapter once a second
+    self-hosted human is exercised.
+15. Which private-Room creation policy and supported mobile-browser matrix prove useful in dogfood.
 
 ---
 
@@ -1587,7 +1644,11 @@ Move successful flows to the new path, preserve adapters only where necessary, a
 
 The migration is complete when the old control plane no longer determines how daily internal work happens—not when every historical feature has been recreated.
 
-Multiplayer collaboration, managed hosting and shared multi-tenancy are not part of this sequence. Each should begin only when the trigger conditions in Section 7.4 are observed in real use.
+The original single-company rebuild sequence remains the substrate. The trigger conditions in
+Section 7.4 are now observed for bounded multiplayer and managed dogfood, whose dependency-ordered
+implementation lives in
+[`docs/sprints/company-collaboration-programme.md`](docs/sprints/company-collaboration-programme.md).
+Shared mutable multi-tenancy remains outside this sequence.
 
 ---
 

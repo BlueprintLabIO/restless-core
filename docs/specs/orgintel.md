@@ -1,9 +1,9 @@
 # OrgIntel Core Specification
 
 **Status:** Working source of truth  
-**Version:** 0.3  
-**Date:** 23 August 2026
-**Parent:** ARCHITECTURE.md — Restless Architecture Source of Truth v0.9  
+**Version:** 0.4
+**Date:** 8 September 2026
+**Parent:** ARCHITECTURE.md — Restless Architecture Source of Truth v0.10
 **Supersedes:** OrgIntel Core Specification for core product and implementation direction
 
 ---
@@ -757,6 +757,50 @@ resumes only when the owner explicitly accepts the outcome or requests changes; 
 chat stays open for questions and feedback. Other handoff categories resume only when their external
 condition is observed.
 
+### 6.2.1 Rooms, threads, mentions and read state
+
+**Core contract**
+
+Bounded human collaboration extends this message model; it does not replace it. OrgIntel owns:
+
+- company, project/group and direct Rooms;
+- durable Room participation and visibility;
+- append-only Messages, reply Threads and Mentions;
+- participant-relative read cursors;
+- attributable promotion from conversation into an existing durable concept.
+
+An authenticated request resolves one durable `Actor` from a provider-neutral company access
+context. A client may not choose an acting actor by sending an `actor_id`. Room visibility is checked
+at every query and mutation. A document linked to a restricted Room inherits the current participant
+set rather than copying an ACL that can drift.
+
+Messages remain conversation. A user may explicitly promote one into a directive, decision, Work
+input, owner handoff, review request or Authority request; the promotion records both source and
+result. It does not create a new universal `Commitment` lifecycle or silently turn chat into Work.
+Direct chat is represented by a Room, not by a second message store. During migration, the existing
+flat directed-message API may project into deterministic direct Rooms, but new clients use the Room
+contract.
+
+Important mentions create focused wake/attention input for the addressed durable actor. They queue
+behind that actor's one active primary cognitive session; they never start a duplicate process.
+Delivery is recoverable through committed outbox events and cursor replay. Realtime notification is a
+hint to refetch authoritative state, not proof that the client received or read a message.
+
+### 6.2.2 Native company documents
+
+**Core contract**
+
+Native Documents are a narrow OrgIntel subsystem for briefs, plans, decisions, reports, reviews,
+principles and handbooks whose value comes from company context and human-agent collaboration.
+OrgIntel owns document identity, metadata, visibility, participants, comments, mentions, links,
+named versions, review state and actor attribution. A narrowly credentialed collaboration sidecar may
+synchronise the canonical live Yjs body; it does not own company semantics.
+
+The readable projection is restricted ProseMirror JSON. Markdown is an explicit export/checkpoint,
+not a competing live write path. Agents propose attributable revisions to reviewed or stable
+documents rather than silently replacing them. Ordinary files, Git and specialist applications
+remain the default for code, datasets, designed publications and other productive artifacts.
+
 ## 6.3 Natural accountable teamwork
 
 **Core contract**
@@ -1189,7 +1233,7 @@ Do not build in V0:
 - immutable event sourcing for internal activity;
 - exactly-once internal coordination;
 - a custom filesystem, Git, browser, scheduler, or process supervisor;
-- multiplayer, shared multi-tenancy, or a collaboration suite;
+- shared mutable multi-company tenancy, a broad social/community product, or a general office suite;
 - automatic tenant modification of the stable OrgIntel core;
 - a permanent agent for every role;
 - a dashboard for every entity;
@@ -1285,7 +1329,9 @@ For every proposed feature:
 - Evidence burden scales with consequence and reversibility.
 - Natural accountable leadership is the default; playbooks are optional evidence-earned aids, not a
   topology router or teamwork protocol.
-- Multiplayer, shared hosting, and broad platform features remain out of scope until proven necessary.
+- Bounded Rooms, native Documents, durable human Actors and recipient-relative judgement are active
+  Core work because repeated founder/mobile use proved the need. Broad social, office-suite and
+  shared-mutable-tenancy expansion remains out of scope.
 
 ---
 

@@ -1,10 +1,10 @@
 # Owner Cockpit Product Specification
 
-**Version:** 0.1  
+**Version:** 0.2
 **Status:** Core product design and MVP implementation contract  
-**Date:** 13 August 2026  
+**Date:** 8 September 2026
 **Companions:** `OrgIntel Core Specification`, `Company Runtime and Runtime Bridge Specification`, `Authority Plane Specification`  
-**Parent:** `ARCHITECTURE.md — Restless Architecture Source of Truth v0.9`
+**Parent:** `ARCHITECTURE.md — Restless Architecture Source of Truth v0.10`
 
 ---
 
@@ -23,17 +23,19 @@ The central principle is:
 
 > **The cockpit surfaces outcomes, exceptions, evidence, people, and authority. It does not ask the owner to supervise continuous agent activity.**
 
-The initial product posture is:
+The initial product posture remains one company and one persistent Exec, now with a bounded set of
+durable human collaborators:
 
 ```text
-one owner
+one owner, with a small invited human team where configured
 one company
 one persistent Exec
 several agent employees
 one isolated Company Runtime
 ```
 
-Multiplayer, shared tenancy, and a general collaboration suite are not current requirements.
+Rooms and native Documents are now current requirements. Shared mutable company tenancy, broad
+presence and a general collaboration suite are not.
 
 ---
 
@@ -74,7 +76,9 @@ The cockpit is successful when the owner can understand and steer the company th
 
 ## 1.3 Primary user
 
-The V0 user is the company’s sole owner/operator.
+The owner remains the primary V0 operator. In network mode, a small human team may enter the same
+company through provider-neutral membership-derived access while the owner retains the distinct
+membership, mandate and Authority responsibilities defined by Core.
 
 The owner:
 
@@ -120,8 +124,8 @@ It may aggregate and project state, but writes must go to the layer that owns th
 
 The cockpit is not initially:
 
-- a Slack replacement;
-- a Google Docs replacement;
+- a Slack replacement or community product;
+- a general Google Docs/office-suite replacement;
 - a universal IDE or file editor;
 - a full CRM;
 - a generic workflow builder;
@@ -279,6 +283,11 @@ The cockpit has four primary product areas:
 ```
 
 The four areas should remain recognisable even as features grow.
+
+Rooms are reached from People, actor and Work context; native Documents are reached from Work,
+search and linked context. They do not introduce a second top-level navigation hierarchy or a
+Chat/Attention mode toggle. Mobile may use a compact destination menu, but it preserves the same
+information architecture and deep links.
 
 ## 3.2 Global company bar
 
@@ -1394,7 +1403,9 @@ The UI must not imply that the external world rolled back with the runtime.
 
 The existing Svelte/SvelteKit interface is a valid foundation and should be retained where useful.
 
-The frontend should be simplified around the owner’s four primary areas rather than preserving UI concepts that only exist for the old governance model.
+The frontend should be simplified around the owner’s four primary areas rather than preserving UI
+concepts that only exist for the old governance model. Rooms and Documents are contextual destinations
+within that shell, not parallel applications or a new mode switch.
 
 ## 14.2 API ownership
 
@@ -1477,9 +1488,15 @@ silently fall back to local-owner behavior or the former one-owner bearer token.
 configured tunnel can impersonate a localhost client and is therefore unsupported rather than
 detectable by the daemon.
 
-**Explicitly deferred expansion**
+**Network entry**
 
-When real deployments require accounts, the authentication layer may add:
+Hosted and other supported network deployments use the provider-neutral `CompanyAccessContext`
+defined by [ADR 0009](../adr/0009-provider-neutral-company-access-context.md). An identity adapter may
+use OpenID Connect, Better Auth or a self-hosted provider, but the cockpit receives one verified,
+short-lived session whose company scope, membership and durable human Actor mapping are resolved
+server-side. Local loopback mode remains the explicit single-owner appliance boundary.
+
+Identity providers may supply:
 
 - OpenID Connect over OAuth 2.0 Authorization Code with PKCE for delegated login and SSO;
 - first-party username or email plus password where evidence shows it is needed;
@@ -1492,9 +1509,10 @@ OAuth 2.0 alone is an authorization framework; human sign-in through an OAuth pr
 Connect or an equivalent identity protocol. No provider catalogue, tenant model or human-role system
 is part of V0.
 
-All writes are attributed to that principal.
-
-Do not build invitations, presence, granular human roles, or multiplayer permissions now.
+All writes are attributed to the resolved principal and durable Actor. Membership controls ordinary
+company access; organisational responsibility and Authority capability remain separate. Bounded
+owner/admin/member invitations and revocation are in scope. Global presence, granular permission
+graphs and membership-derived external authority are not.
 
 The decision and risk dispositions are recorded in
 [`docs/adr/0001-local-owner-access.md`](../adr/0001-local-owner-access.md). It supersedes the
@@ -1625,24 +1643,25 @@ Do not optimise for clicks, time in app, or notification volume.
 
 ## 17.1 Must build
 
-1. Existing Svelte application reshaped into the four primary areas.
+1. Existing Svelte application reshaped into the four primary areas and one responsive shell.
 2. Global company status bar.
 3. Unified owner attention queue over OrgIntel and Authority requests.
 4. Goal hierarchy and Work/task kanban.
 5. Goal detail with success contract, evidence, and artifacts.
 6. Persistent employee directory and actor profile.
-7. Direct chat with explicit message/feedback/directive semantics.
-8. Company charter, Authority inventory, resources and consequence-focused effect receipts.
-9. General company doctor plus Runtime state, freeze, bounded recovery, and attach controls.
-10. Meaningful live updates.
-11. Clear stale/degraded-state handling.
-12. Cosmon, Aris, and Thymelake acceptance scenarios.
+7. Rooms, direct chat, threads, mentions and explicit message/promotion semantics.
+8. Native Documents for company prose, with comments, named versions and reviewable agent revisions.
+9. Company charter, Authority inventory, resources and consequence-focused effect receipts.
+10. General company doctor plus Runtime state, freeze, bounded recovery, and attach controls.
+11. Recoverable live updates and mobile-safe conflict/reconnect handling.
+12. Clear stale/degraded-state handling.
+13. Cosmon, Aris, and Thymelake acceptance scenarios plus one two-human mobile collaboration run.
 
 ## 17.2 Explicitly defer
 
-- multiple human users;
-- shared multiplayer presence;
-- custom collaborative document editing;
+- large teams, public communities or cross-company Rooms;
+- global shared presence or employee-activity surveillance;
+- general office-suite editing, guest links or block-level ACLs;
 - a full CRM or sales pipeline product;
 - a universal artifact editor;
 - custom workflow design;
@@ -1650,7 +1669,7 @@ Do not optimise for clicks, time in app, or notification volume.
 - detailed policy-language UI;
 - per-worker security administration;
 - tenant/fleet administration;
-- mobile-native applications;
+- mobile-native applications (responsive installable web remains in scope);
 - continuous agent thought or command visualisation;
 - exhaustive analytics;
 - gamified productivity scores.
@@ -1675,9 +1694,11 @@ Connect real OrgIntel and Authority requests. Prove the complete review/action l
 
 Implement goal hierarchy, active Work nodes kanban, success contracts, evidence, artifacts, and owner feedback/directives.
 
-## Step 5: Build People and chat
+## Step 5: Build People, Rooms and native Documents
 
-Connect persistent actor identities, current sessions, outputs, and message/directive semantics.
+Connect persistent human and agent identities, Rooms, messages, mentions and explicit promotion. Add
+native document metadata/read projections before the bounded Yjs collaboration channel and reviewable
+agent revisions.
 
 ## Step 6: Build Company
 
@@ -1715,10 +1736,15 @@ Delete views, fields, and alerts that do not improve decisions, trust, outcomes,
 14. Evaluation must ground work in success contracts and sources of trust.
 15. External outcomes and executable evidence outrank agent self-report.
 16. The cockpit is a projection and action surface, not a new source of truth.
-17. Multiplayer, shared hosting, and general collaboration features remain deferred.
+17. Bounded human collaboration is active: Rooms and native Documents extend the same Core semantics
+    while broad presence, social/community features and general office-suite scope remain excluded.
 18. The cockpit should reduce owner attention, not maximise engagement.
 19. A loopback-only cockpit treats the local operator as the owner without a credential; any network
     exposure requires proper human account authentication and revocable sessions.
+20. Rooms and Documents are contextual destinations inside the single cockpit shell; no
+    Chat/Attention mode toggle or second navigation system is introduced.
+21. Desktop and mobile use the same authoritative commands, queries and event cursors; mobile is not
+    a reduced semantic fork.
 
 ---
 
