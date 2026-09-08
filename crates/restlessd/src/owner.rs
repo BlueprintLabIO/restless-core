@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use anyhow::{Context as _, Result};
-use axum::body::Body;
+use axum::body::{Body, Bytes};
 use axum::extract::ws::{Message as AxumMessage, WebSocket, WebSocketUpgrade};
 use axum::extract::{
     DefaultBodyLimit, Multipart, OriginalUri, Path as AxumPath, Query, Request, State,
@@ -29,7 +29,7 @@ use axum::middleware::{self, Next};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Redirect};
 use axum::routing::{any, get, post};
-use axum::{Json, Router};
+use axum::{Extension, Json, Router};
 use chrono::{Duration as ChronoDuration, Utc};
 use futures_util::{SinkExt as _, StreamExt as _};
 use serde::{Deserialize, Serialize};
@@ -37,7 +37,10 @@ use tokio_tungstenite::{client_async, tungstenite};
 use tower_http::services::{ServeDir, ServeFile};
 use uuid::Uuid;
 
-use crate::entry::{company_in_path, EntryMode, SessionStore};
+use crate::entry::{
+    company_in_path, CompanyScope, EntryMode, RequestPrincipal, SessionStore,
+    VerifiedAccessContext, VerifiedIdentity,
+};
 use crate::{
     airwallex, approval, attention, authority, company as company_projection, credential, finance,
     legal, model_gateway, reconcile, runtime, Daemon,
@@ -793,6 +796,12 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         review_public_url,
         entry,
     } = config;
+    if let Some(network) = entry.network() {
+        network
+            .prepare()
+            .await
+            .context("load Fleet entry verification keys before listening")?;
+    }
     let state = OwnerState {
         daemon,
         charter_writes: Arc::new(tokio::sync::Mutex::new(())),
@@ -962,7 +971,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
 /// company scope from that session on every request.
 async fn enforce_owner_boundary(
     State(state): State<OwnerState>,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Response<Body> {
     match state.entry.clone() {
@@ -972,12 +981,17 @@ async fn enforce_owner_boundary(
             {
                 return api_error(StatusCode::FORBIDDEN, "local_owner_boundary", reason);
             }
+            request
+                .extensions_mut()
+                .insert(RequestPrincipal::local_owner());
             next.run(request).await
         }
         EntryMode::Network(network) => {
             let path = request.uri().path().to_string();
-            let identity = cookie_value(request.headers(), SESSION_COOKIE)
-                .and_then(|token| state.sessions.resolve(&token));
+            let session_token = cookie_value(request.headers(), SESSION_COOKIE);
+            let identity = session_token
+                .as_deref()
+                .and_then(|token| state.sessions.resolve(token));
             if let Some(refusal) = network_boundary_violation(
                 request.method(),
                 request.headers(),
@@ -987,9 +1001,104 @@ async fn enforce_owner_boundary(
             ) {
                 return api_error(refusal.status, refusal.code, refusal.message);
             }
+            if path.starts_with("/api/") || path.starts_with("/desktop/") {
+                if let Some(identity) = identity.as_ref() {
+                    match network_session_is_current(&state, identity).await {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            if let Some(token) = session_token.as_deref() {
+                                state.sessions.revoke(token);
+                            }
+                            return api_error(
+                                StatusCode::UNAUTHORIZED,
+                                "stale_membership",
+                                "this company membership changed; enter again",
+                            );
+                        }
+                        Err(error) => {
+                            tracing::error!(%error, "could not validate the current company membership");
+                            return api_error(
+                                StatusCode::SERVICE_UNAVAILABLE,
+                                "membership_unavailable",
+                                "company membership could not be validated",
+                            );
+                        }
+                    }
+                }
+            }
+            if let Some(principal) = identity.as_ref().and_then(RequestPrincipal::from_verified) {
+                if let Some(refusal) =
+                    membership_boundary_violation(request.method(), &path, &principal)
+                {
+                    return api_error(refusal.status, refusal.code, refusal.message);
+                }
+                request.extensions_mut().insert(principal);
+            }
             next.run(request).await
         }
     }
+}
+
+async fn network_session_is_current(
+    state: &OwnerState,
+    identity: &VerifiedIdentity,
+) -> Result<bool> {
+    let (
+        CompanyScope::Company { company },
+        Some(actor_id),
+        Some(company_id),
+        Some(cell_id),
+        Some(membership_id),
+        Some(membership_version),
+    ) = (
+        &identity.scope,
+        identity.actor.as_deref(),
+        identity.company_id,
+        identity.cell_id,
+        identity.membership_id.as_deref(),
+        identity.membership_version,
+    )
+    else {
+        return Ok(false);
+    };
+    let org = state.daemon.orgintel.get(company).await?;
+    if org.company_access_identity().await?
+        != Some(restless_orgintel::CompanyAccessIdentity {
+            company_id,
+            cell_id,
+        })
+    {
+        return Ok(false);
+    }
+    org.human_session_membership_is_current(
+        actor_id,
+        membership_id,
+        membership_version,
+        &identity.role,
+    )
+    .await
+    .map_err(Into::into)
+}
+
+fn membership_boundary_violation(
+    method: &Method,
+    path: &str,
+    principal: &RequestPrincipal,
+) -> Option<BoundaryRefusal> {
+    if matches!(*method, Method::GET | Method::HEAD)
+        || principal.membership_role() == "owner"
+        || path == "/entry/logout"
+        || path.contains("/conversation")
+        || path.contains("/rooms")
+        || path.contains("/documents")
+    {
+        return None;
+    }
+    Some(BoundaryRefusal {
+        status: StatusCode::FORBIDDEN,
+        code: "membership_role",
+        message: "this membership may collaborate but may not perform owner operations",
+    })
 }
 
 struct BoundaryRefusal {
@@ -1010,17 +1119,25 @@ fn network_boundary_violation(
     expected_host: &str,
     identity: Option<&crate::entry::VerifiedIdentity>,
 ) -> Option<BoundaryRefusal> {
+    // Fleet reaches the door with a cross-site auto-submitted form. The
+    // single-use signed credential is the CSRF defence here; the destination
+    // Host must still be this exact account plane.
+    if path == "/entry" {
+        if !network_host_matches(headers, expected_host) {
+            return Some(BoundaryRefusal {
+                status: StatusCode::FORBIDDEN,
+                code: "network_owner_boundary",
+                message: "owner request host is not this plane's configured hostname",
+            });
+        }
+        return None;
+    }
     if let Some(message) = network_origin_violation(method, headers, expected_host) {
         return Some(BoundaryRefusal {
             status: StatusCode::FORBIDDEN,
             code: "network_owner_boundary",
             message,
         });
-    }
-
-    // The door itself cannot require a session.
-    if path == "/entry" {
-        return None;
     }
 
     // The SPA shell is inert without its APIs, so it is served to an
@@ -1061,17 +1178,7 @@ fn network_origin_violation(
     headers: &HeaderMap,
     expected_host: &str,
 ) -> Option<&'static str> {
-    let host = headers
-        .get(HOST)
-        .and_then(|value| value.to_str().ok())
-        .map(|value| {
-            value
-                .split(':')
-                .next()
-                .unwrap_or(value)
-                .to_ascii_lowercase()
-        });
-    if host.as_deref() != Some(&expected_host.to_ascii_lowercase()) {
+    if !network_host_matches(headers, expected_host) {
         return Some("owner request host is not this plane's configured hostname");
     }
 
@@ -1101,6 +1208,20 @@ fn network_origin_violation(
         }
     }
     None
+}
+
+fn network_host_matches(headers: &HeaderMap, expected_host: &str) -> bool {
+    let host = headers
+        .get(HOST)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| {
+            value
+                .split(':')
+                .next()
+                .unwrap_or(value)
+                .to_ascii_lowercase()
+        });
+    host.as_deref() == Some(&expected_host.to_ascii_lowercase())
 }
 
 fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
@@ -1138,6 +1259,7 @@ async fn end_entry_session(State(state): State<OwnerState>, headers: HeaderMap) 
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct EntryRequest {
     assertion: String,
 }
@@ -1149,7 +1271,8 @@ struct EntryRequest {
 /// the client. Restless Cloud redirects with an auto-submitting form.
 async fn consume_entry_assertion(
     State(state): State<OwnerState>,
-    Json(request): Json<EntryRequest>,
+    headers: HeaderMap,
+    body: Bytes,
 ) -> Response<Body> {
     let Some(network) = state.entry.network().cloned() else {
         return api_error(
@@ -1159,20 +1282,103 @@ async fn consume_entry_assertion(
         );
     };
 
-    let identity = match network.verify(&request.assertion) {
-        Ok(identity) => identity,
+    let (request, form_post) = match parse_entry_request(&headers, &body) {
+        Ok(request) => request,
+        Err(message) => {
+            return api_error(StatusCode::BAD_REQUEST, "entry_request", message);
+        }
+    };
+    let access = match network.verify(&request.assertion).await {
+        Ok(access) => access,
         Err(refusal) => {
             tracing::warn!(reason = refusal.code(), "refused entry assertion");
             return api_error(StatusCode::UNAUTHORIZED, refusal.code(), refusal.message());
         }
     };
+    let (company, org, allow_initial_binding) = match resolve_entry_company(&state, &access).await {
+        Ok(resolved) => resolved,
+        Err(error) => {
+            tracing::warn!(
+                company_id = %access.company_id,
+                cell_id = %access.cell_id,
+                %error,
+                "refused entry assertion company binding"
+            );
+            return api_error(
+                StatusCode::UNAUTHORIZED,
+                "assertion_company_mismatch",
+                "entry assertion does not identify a company on this plane",
+            );
+        }
+    };
+    let binding = match org
+        .consume_human_access_context(
+            restless_orgintel::HumanAccessContext {
+                issuer: &access.issuer,
+                subject: &access.subject,
+                company_id: access.company_id,
+                cell_id: access.cell_id,
+                membership_id: &access.membership_id,
+                membership_role: &access.membership_role,
+                membership_version: access.membership_version,
+                assertion_id: access.assertion_id,
+                issued_at: access.issued_at,
+                expires_at: access.expires_at,
+            },
+            allow_initial_binding,
+        )
+        .await
+    {
+        Ok(binding) => binding,
+        Err(restless_orgintel::OrgIntelError::ReplayedEntry) => {
+            return api_error(
+                StatusCode::UNAUTHORIZED,
+                "assertion_replayed",
+                "entry assertion has already been used",
+            );
+        }
+        Err(
+            error @ (restless_orgintel::OrgIntelError::CompanyAccessMismatch(_)
+            | restless_orgintel::OrgIntelError::PrincipalBindingConflict(_)),
+        ) => {
+            tracing::warn!(%error, "refused entry assertion identity binding");
+            return api_error(
+                StatusCode::UNAUTHORIZED,
+                "assertion_identity_mismatch",
+                "entry assertion conflicts with current company identity",
+            );
+        }
+        Err(error) => {
+            tracing::error!(%error, "failed to persist entry identity");
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "entry_unavailable",
+                "company identity could not be persisted",
+            );
+        }
+    };
+    let identity = VerifiedIdentity {
+        user: access.subject,
+        owner: access.owner_id.to_string(),
+        scope: CompanyScope::Company {
+            company: company.clone(),
+        },
+        role: binding.membership_role,
+        actor: Some(binding.actor_id),
+        company_id: Some(access.company_id),
+        cell_id: Some(access.cell_id),
+        membership_id: Some(binding.membership_id),
+        membership_version: Some(binding.membership_version),
+    };
 
     tracing::info!(
         user = %identity.user,
         owner = %identity.owner,
+        plane_id = %access.plane_id,
+        company = %company,
+        company_id = %access.company_id,
         role = %identity.role,
         actor = identity.actor.as_deref().unwrap_or("-"),
-        correlation = identity.correlation.as_deref().unwrap_or("-"),
         "admitted a verified entry assertion"
     );
     let token = state.sessions.establish(identity, network.session_ttl());
@@ -1181,11 +1387,109 @@ async fn consume_entry_assertion(
         "{SESSION_COOKIE}={token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age={}",
         network.session_ttl().as_secs()
     );
-    let mut response = Json(serde_json::json!({ "entered": true })).into_response();
+    let mut response = if form_post {
+        Redirect::to("/").into_response()
+    } else {
+        Json(serde_json::json!({
+            "entered": true,
+            "company": company,
+        }))
+        .into_response()
+    };
     if let Ok(value) = HeaderValue::from_str(&cookie) {
         response.headers_mut().insert(SET_COOKIE, value);
     }
     response
+}
+
+fn parse_entry_request(
+    headers: &HeaderMap,
+    body: &[u8],
+) -> std::result::Result<(EntryRequest, bool), &'static str> {
+    if body.is_empty() || body.len() > 32 * 1024 {
+        return Err("entry assertion body must contain between 1 and 32768 bytes");
+    }
+    let content_type = headers
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim();
+    if content_type == "application/x-www-form-urlencoded" {
+        let values = url::form_urlencoded::parse(body)
+            .filter(|(key, _)| key == "assertion")
+            .map(|(_, value)| value.into_owned())
+            .collect::<Vec<_>>();
+        return match values.as_slice() {
+            [assertion] if !assertion.is_empty() => Ok((
+                EntryRequest {
+                    assertion: assertion.clone(),
+                },
+                true,
+            )),
+            _ => Err("form entry requires exactly one non-empty assertion"),
+        };
+    }
+    if content_type.is_empty() || content_type == "application/json" {
+        let request: EntryRequest =
+            serde_json::from_slice(body).map_err(|_| "entry JSON is invalid")?;
+        if request.assertion.is_empty() {
+            return Err("entry assertion must not be empty");
+        }
+        return Ok((request, false));
+    }
+    Err("entry body must be JSON or URL-encoded form data")
+}
+
+async fn resolve_entry_company(
+    state: &OwnerState,
+    access: &VerifiedAccessContext,
+) -> Result<(String, restless_orgintel::OrgIntel, bool)> {
+    let companies = crate::configured_companies(&state.daemon.root)?;
+    if companies.is_empty() {
+        anyhow::bail!("the account plane has no configured company");
+    }
+    let only_company = (companies.len() == 1).then(|| companies[0].clone());
+    let mut exact = Vec::new();
+    let mut unbound = Vec::new();
+    for company in companies {
+        let org = state.daemon.orgintel.get(&company).await?;
+        match org.company_access_identity().await? {
+            Some(identity)
+                if identity.company_id == access.company_id
+                    && identity.cell_id == access.cell_id =>
+            {
+                exact.push((company, org));
+            }
+            Some(identity) if identity.company_id == access.company_id => {
+                anyhow::bail!(
+                    "company UUID matched but cell UUID differed for configured company {company}"
+                );
+            }
+            Some(_) => {}
+            None => unbound.push((company, org)),
+        }
+    }
+    match exact.len() {
+        1 => {
+            let (company, org) = exact.pop().expect("length checked");
+            Ok((company, org, false))
+        }
+        0 => {
+            let Some(only_company) = only_company else {
+                anyhow::bail!("no immutable company binding matched and bootstrap is ambiguous");
+            };
+            let position = unbound
+                .iter()
+                .position(|(company, _)| company == &only_company)
+                .ok_or_else(|| anyhow::anyhow!("the only company is bound to another identity"))?;
+            let (company, org) = unbound.swap_remove(position);
+            Ok((company, org, true))
+        }
+        _ => anyhow::bail!("more than one company carries the same immutable identity"),
+    }
 }
 
 fn local_owner_boundary_violation(method: &Method, headers: &HeaderMap) -> Option<&'static str> {
@@ -1266,7 +1570,10 @@ fn local_host(value: &str) -> Option<String> {
         .map(|ip| ip.to_string())
 }
 
-async fn company_catalog(State(state): State<OwnerState>) -> impl IntoResponse {
+async fn company_catalog(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+) -> impl IntoResponse {
     let companies = match crate::configured_companies(&state.daemon.root) {
         Ok(companies) => companies,
         Err(error) => {
@@ -1276,7 +1583,10 @@ async fn company_catalog(State(state): State<OwnerState>) -> impl IntoResponse {
                 format!("{error:#}"),
             )
         }
-    };
+    }
+    .into_iter()
+    .filter(|company| principal.permits_company(company))
+    .collect::<Vec<_>>();
     let archived = match runtime::archived_company_names(&state.daemon.root) {
         Ok(companies) => companies,
         Err(error) => {
@@ -1286,7 +1596,10 @@ async fn company_catalog(State(state): State<OwnerState>) -> impl IntoResponse {
                 format!("{error:#}"),
             )
         }
-    };
+    }
+    .into_iter()
+    .filter(|company| principal.permits_company(company))
+    .collect::<Vec<_>>();
     let mut configs = Vec::with_capacity(companies.len() + archived.len());
     for company in companies {
         let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
@@ -2535,6 +2848,7 @@ fn render_conversation_bindings() -> String {
 
 async fn actor_conversation(
     State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
     AxumPath((company, actor)): AxumPath<(String, String)>,
     Query(query): Query<ConversationQuery>,
 ) -> impl IntoResponse {
@@ -2566,8 +2880,14 @@ async fn actor_conversation(
         );
     };
     let messages = match match query.work_id {
-        Some(work_id) => org.owner_work_conversation(&actor, work_id, 100).await,
-        None => org.owner_conversation(&actor, 100).await,
+        Some(work_id) => {
+            org.human_work_conversation(principal.actor_id(), &actor, work_id, 100)
+                .await
+        }
+        None => {
+            org.human_conversation(principal.actor_id(), &actor, 100)
+                .await
+        }
     } {
         Ok(messages) => messages,
         Err(error) => {
@@ -2579,7 +2899,10 @@ async fn actor_conversation(
         }
     };
     let focus = if query.work_id.is_none() {
-        match org.owner_conversation_focus(&actor).await {
+        match org
+            .human_conversation_focus(principal.actor_id(), &actor)
+            .await
+        {
             Ok(focus) => Some(focus),
             Err(error) => {
                 return api_error(
@@ -2786,6 +3109,7 @@ async fn resolve_handoff_decision(
 
 async fn send_actor_message(
     State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
     AxumPath((company, actor)): AxumPath<(String, String)>,
     multipart: Multipart,
 ) -> impl IntoResponse {
@@ -2912,15 +3236,23 @@ async fn send_actor_message(
     } else {
         None
     };
-    if let Err(error) = org
-        .ensure_actor("owner", "owner", "owner", "The Owner")
-        .await
-    {
-        return api_error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "orgintel",
-            format!("{error:#}"),
-        );
+    let sender = principal.actor_id().to_string();
+    match org.active_actor(&sender).await {
+        Ok(Some(row)) if row.actor_class == "human" => {}
+        Ok(_) => {
+            return api_error(
+                StatusCode::FORBIDDEN,
+                "request_principal",
+                "the verified request principal is not an active human Actor",
+            );
+        }
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            );
+        }
     }
     let mut stored = Vec::with_capacity(input.attachments.len());
     for attachment in input.attachments {
@@ -2965,11 +3297,12 @@ async fn send_actor_message(
     };
     let sent = match input.work_id {
         Some(work_id) => org
-            .send_work_message("owner", &actor, work_id, &recorded_body)
+            .send_work_message(&sender, &actor, work_id, &recorded_body)
             .await
             .map(|message_id| (message_id, None)),
         None => org
-            .send_owner_conversation_message_with_standard(
+            .send_human_conversation_message_with_standard(
+                &sender,
                 &actor,
                 &recorded_body,
                 input.new_focus,
@@ -2984,7 +3317,7 @@ async fn send_actor_message(
                 if let Err(error) = org
                     .emit_event(
                         "owner_attention_conversation_started",
-                        Some("owner"),
+                        Some(&sender),
                         serde_json::json!({
                             "attention_id": attention_id,
                             "work_id": input.work_id,
@@ -4551,7 +4884,10 @@ mod tests {
             scope,
             role: "member".into(),
             actor: None,
-            correlation: None,
+            company_id: None,
+            cell_id: None,
+            membership_id: None,
+            membership_version: None,
         }
     }
 
@@ -4588,6 +4924,79 @@ mod tests {
             None,
         )
         .is_none());
+    }
+
+    #[test]
+    fn fleet_cross_site_form_may_reach_the_signed_entry_door() {
+        let mut headers = network_headers(PLANE_HOST);
+        headers.insert("sec-fetch-site", HeaderValue::from_static("cross-site"));
+        headers.insert(
+            ORIGIN,
+            HeaderValue::from_static("https://cloud.restless.test"),
+        );
+        assert!(
+            network_boundary_violation(&Method::POST, &headers, "/entry", PLANE_HOST, None,)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn entry_accepts_form_posts_and_json_without_query_credentials() {
+        let mut form_headers = HeaderMap::new();
+        form_headers.insert(
+            CONTENT_TYPE,
+            HeaderValue::from_static("application/x-www-form-urlencoded"),
+        );
+        let (form, redirect) =
+            parse_entry_request(&form_headers, b"assertion=header.payload.signature").unwrap();
+        assert_eq!(form.assertion, "header.payload.signature");
+        assert!(redirect);
+
+        let mut json_headers = HeaderMap::new();
+        json_headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        let (json, redirect) = parse_entry_request(
+            &json_headers,
+            br#"{"assertion":"header.payload.signature"}"#,
+        )
+        .unwrap();
+        assert_eq!(json.assertion, "header.payload.signature");
+        assert!(!redirect);
+
+        assert!(parse_entry_request(&form_headers, b"assertion=one&assertion=two").is_err());
+    }
+
+    #[test]
+    fn non_owner_members_may_collaborate_but_not_call_owner_mutations() {
+        let identity = crate::entry::VerifiedIdentity {
+            user: "user-1".into(),
+            owner: "owner-1".into(),
+            scope: crate::entry::CompanyScope::Company {
+                company: "aris".into(),
+            },
+            role: "member".into(),
+            actor: Some("human-1".into()),
+            company_id: Some(Uuid::new_v4()),
+            cell_id: Some(Uuid::new_v4()),
+            membership_id: Some("membership-1".into()),
+            membership_version: Some(1),
+        };
+        let principal = RequestPrincipal::from_verified(&identity).unwrap();
+        assert!(membership_boundary_violation(
+            &Method::POST,
+            "/api/companies/aris/actors/exec/conversation",
+            &principal,
+        )
+        .is_none());
+        assert_eq!(
+            membership_boundary_violation(
+                &Method::POST,
+                "/api/companies/aris/approvals/grant",
+                &principal,
+            )
+            .unwrap()
+            .code,
+            "membership_role"
+        );
     }
 
     /// S27-T2. The plane genuinely serves both companies, so a pass here proves

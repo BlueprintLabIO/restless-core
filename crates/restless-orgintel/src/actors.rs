@@ -40,9 +40,9 @@ impl OrgIntel {
                 "an actor needs a stable id, role and display name".into(),
             ));
         }
-        if !matches!(kind, "owner" | "exec" | "staff" | "system") {
+        if !matches!(kind, "owner" | "exec" | "staff" | "system" | "human") {
             return Err(OrgIntelError::InvalidWork(format!(
-                "unknown actor kind {kind:?}; expected owner, exec, staff or system"
+                "unknown actor kind {kind:?}; expected owner, exec, staff, system or human"
             )));
         }
         if kind == "staff" && !valid_staff_actor_id(id) {
@@ -51,14 +51,21 @@ impl OrgIntel {
                     .into(),
             ));
         }
+        let actor_class = match kind {
+            "owner" | "human" => "human",
+            "exec" | "staff" => "agent",
+            "system" => "service",
+            _ => unreachable!("actor kind validated above"),
+        };
         let changed = sqlx::query(
-            "INSERT INTO actors (id, kind, role, display, model) VALUES ($1, $2, $3, $4, $5) \
+            "INSERT INTO actors (id, kind, actor_class, role, display, model) VALUES ($1, $2, $3, $4, $5, $6) \
              ON CONFLICT (id) DO UPDATE SET model = COALESCE(actors.model, EXCLUDED.model) \
              WHERE actors.retired_at IS NULL AND actors.kind = EXCLUDED.kind \
-               AND actors.role = EXCLUDED.role",
+               AND actors.actor_class = EXCLUDED.actor_class AND actors.role = EXCLUDED.role",
         )
         .bind(id)
         .bind(kind)
+        .bind(actor_class)
         .bind(role)
         .bind(display)
         .bind(model)
@@ -221,7 +228,7 @@ impl OrgIntel {
         }
 
         let changed = sqlx::query(
-            "INSERT INTO actors (id, kind, role, display, model) VALUES ($1,'staff',$2,$3,$4) \
+            "INSERT INTO actors (id, kind, actor_class, role, display, model) VALUES ($1,'staff','agent',$2,$3,$4) \
              ON CONFLICT (id) DO NOTHING",
         )
         .bind(id)
@@ -253,7 +260,7 @@ impl OrgIntel {
     /// Every actor the company has, for `restless people`.
     pub async fn list_actors(&self) -> Result<Vec<ActorRow>> {
         Ok(sqlx::query_as::<_, ActorRow>(
-            "SELECT id, kind, role, display, model, team_id, retired_at, retired_by, \
+            "SELECT id, kind, actor_class, role, display, model, team_id, retired_at, retired_by, \
                     retirement_reason, created_at FROM actors \
              WHERE retired_at IS NULL ORDER BY created_at",
         )
@@ -264,7 +271,7 @@ impl OrgIntel {
     /// Active and retired actors for an explicit historical People read.
     pub async fn list_actors_including_retired(&self) -> Result<Vec<ActorRow>> {
         Ok(sqlx::query_as::<_, ActorRow>(
-            "SELECT id, kind, role, display, model, team_id, retired_at, retired_by, \
+            "SELECT id, kind, actor_class, role, display, model, team_id, retired_at, retired_by, \
                     retirement_reason, created_at FROM actors ORDER BY created_at",
         )
         .fetch_all(&self.pool)
@@ -274,7 +281,7 @@ impl OrgIntel {
     /// Resolve a Work owner without mutating the actor roster.
     pub async fn active_actor(&self, actor_id: &str) -> Result<Option<ActorRow>> {
         Ok(sqlx::query_as::<_, ActorRow>(
-            "SELECT id, kind, role, display, model, team_id, retired_at, retired_by, \
+            "SELECT id, kind, actor_class, role, display, model, team_id, retired_at, retired_by, \
                     retirement_reason, created_at FROM actors \
              WHERE id=$1 AND retired_at IS NULL",
         )

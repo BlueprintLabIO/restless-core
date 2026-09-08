@@ -13,22 +13,28 @@ use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::{PgPool, Postgres, Row as _, Transaction};
 use uuid::Uuid;
 
+mod access;
 mod actors;
 mod artifacts;
 mod attempts;
 mod constitution;
 mod culture;
+mod documents;
 mod events;
 mod goals_work;
 mod identity;
 mod messages;
 mod review;
+mod rooms;
 mod schedules;
 mod substrate;
 mod types;
 mod visual;
 mod voice;
 
+pub use access::*;
+pub use documents::*;
+pub use events::EventReplayPage;
 pub use types::*;
 
 /// Company schema names are SQL identifiers injected into DDL — validated so

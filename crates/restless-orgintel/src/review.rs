@@ -577,7 +577,8 @@ impl OrgIntel {
         }
 
         sqlx::query(
-            "INSERT INTO actors (id, kind, role, display) VALUES ('owner','owner','owner','The Owner') \
+            "INSERT INTO actors (id, kind, actor_class, role, display) \
+             VALUES ('owner','owner','human','owner','The Owner') \
              ON CONFLICT (id) DO NOTHING",
         )
         .execute(&mut *tx)

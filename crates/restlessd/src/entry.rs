@@ -1,162 +1,178 @@
-//! Owner entry modes for the account plane.
+//! Provider-neutral human entry for the account plane.
 //!
-//! The plane runs in one of two modes. **Local** is the historical posture from
-//! ADR 0001: every entry point binds loopback and the local operator is the
-//! `owner` principal. **Network** is ADR 0007: access is decided by verifying a
-//! signed identity assertion, never by the network a connection arrived from.
-//!
-//! Both modes resolve to the same stable `owner` principal and run the same
-//! application and Authority operations. Authentication only proves who may
-//! assume that principal; it grants no Authority capability.
-//!
-//! This is deliberately separate from `capability.rs`. That module mints
-//! internal cell-to-plane capabilities the plane itself issues. An entry
-//! assertion is issued by a *different* party (Restless Cloud) about a *human*,
-//! and is consumed once at the door.
+//! Local mode keeps the historical loopback-only owner. Network mode consumes
+//! the Ed25519/JWKS handoff issued by Fleet, binds the proven human to one
+//! durable company Actor, and establishes a short-lived browser session.
+//! Authentication, organisational responsibility, and Authority are separate
+//! facts; no claim in this module grants an Authority capability.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime};
 
+use anyhow::Context as _;
 use base64::Engine as _;
-use hmac::{Hmac, Mac as _};
+use chrono::{DateTime, Utc};
+use ed25519_dalek::{Signature, Signer as _, SigningKey, Verifier as _, VerifyingKey};
 use serde::{Deserialize, Serialize};
-use sha2::Sha256;
+use tokio::sync::{Mutex as AsyncMutex, RwLock};
+use url::Url;
+use uuid::Uuid;
 
-type HmacSha256 = Hmac<Sha256>;
-
-/// Bumped only through the release contract's change governance. Cloud pins
-/// this value from the release manifest.
+/// The released Fleet/Core handoff contract.
 pub(crate) const ASSERTION_CONTRACT_VERSION: u32 = 1;
+pub(crate) const HANDOFF_AUDIENCE: &str = "restless-core-account-plane";
 
-const TOKEN_TYPE: &str = "restless-entry";
-const ALGORITHM: &str = "HS256";
+const TOKEN_TYPE: &str = "JWT";
+const ALGORITHM: &str = "EdDSA";
+const MAX_ASSERTION_LIFETIME_SECONDS: i64 = 60;
+const MAX_CLOCK_SKEW_SECONDS: i64 = 30;
+const MAX_JWKS_BYTES: usize = 64 * 1024;
+const MAX_JWKS_AGE: Duration = Duration::from_secs(MAX_ASSERTION_LIFETIME_SECONDS as u64);
+const DEFAULT_SESSION_TTL: Duration = Duration::from_secs(60 * 60);
 
-/// How long a plane session lives once an assertion has been exchanged for it.
-/// The assertion itself is far shorter-lived; this is the browser session.
-const DEFAULT_SESSION_TTL: Duration = Duration::from_secs(12 * 60 * 60);
-
-/// Every distinct way an assertion can be refused.
-///
-/// This is an enum rather than one error string because a verifier that
-/// collapses every failure into "invalid" is indistinguishable, from outside,
-/// from a verifier whose signature check silently never runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Refusal {
     Malformed(&'static str),
     UnsupportedVersion { got: u32, supported: u32 },
     UnknownIssuer,
     WrongAudience,
+    WrongOwner,
+    WrongPlane,
     UnknownKeyVersion,
     BadSignature,
+    SigningKeysUnavailable,
     NotYetValid,
     Expired,
-    WrongPlane,
-    Replayed,
+    TooLongLived,
+    InvalidMembership,
 }
 
 impl Refusal {
-    /// A stable machine-readable reason. Distinct per variant on purpose: the
-    /// adversarial suite asserts ten inputs produce ten of these.
     pub(crate) fn code(&self) -> &'static str {
         match self {
-            Refusal::Malformed(_) => "assertion_malformed",
-            Refusal::UnsupportedVersion { .. } => "assertion_unsupported_version",
-            Refusal::UnknownIssuer => "assertion_unknown_issuer",
-            Refusal::WrongAudience => "assertion_wrong_audience",
-            Refusal::UnknownKeyVersion => "assertion_unknown_key_version",
-            Refusal::BadSignature => "assertion_bad_signature",
-            Refusal::NotYetValid => "assertion_not_yet_valid",
-            Refusal::Expired => "assertion_expired",
-            Refusal::WrongPlane => "assertion_wrong_plane",
-            Refusal::Replayed => "assertion_replayed",
+            Self::Malformed(_) => "assertion_malformed",
+            Self::UnsupportedVersion { .. } => "assertion_unsupported_version",
+            Self::UnknownIssuer => "assertion_unknown_issuer",
+            Self::WrongAudience => "assertion_wrong_audience",
+            Self::WrongOwner => "assertion_wrong_owner",
+            Self::WrongPlane => "assertion_wrong_plane",
+            Self::UnknownKeyVersion => "assertion_unknown_key_version",
+            Self::BadSignature => "assertion_bad_signature",
+            Self::SigningKeysUnavailable => "assertion_signing_keys_unavailable",
+            Self::NotYetValid => "assertion_not_yet_valid",
+            Self::Expired => "assertion_expired",
+            Self::TooLongLived => "assertion_too_long_lived",
+            Self::InvalidMembership => "assertion_invalid_membership",
         }
     }
 
     pub(crate) fn message(&self) -> String {
         match self {
-            Refusal::Malformed(what) => format!("entry assertion is malformed: {what}"),
-            Refusal::UnsupportedVersion { got, supported } => format!(
+            Self::Malformed(what) => format!("entry assertion is malformed: {what}"),
+            Self::UnsupportedVersion { got, supported } => format!(
                 "entry assertion contract version {got} is not supported; this plane supports {supported}"
             ),
-            Refusal::UnknownIssuer => "entry assertion issuer is not trusted by this plane".into(),
-            Refusal::WrongAudience => "entry assertion was not minted for this plane".into(),
-            Refusal::UnknownKeyVersion => "entry assertion names an unknown key version".into(),
-            Refusal::BadSignature => "entry assertion signature is invalid".into(),
-            Refusal::NotYetValid => "entry assertion is not valid yet".into(),
-            Refusal::Expired => "entry assertion has expired".into(),
-            Refusal::WrongPlane => "entry assertion is routed to a different plane".into(),
-            Refusal::Replayed => "entry assertion has already been used".into(),
+            Self::UnknownIssuer => "entry assertion issuer is not trusted by this plane".into(),
+            Self::WrongAudience => "entry assertion was not minted for a Core account plane".into(),
+            Self::WrongOwner => "entry assertion belongs to a different account owner".into(),
+            Self::WrongPlane => "entry assertion is routed to a different account plane".into(),
+            Self::UnknownKeyVersion => "entry assertion names an unknown signing key".into(),
+            Self::BadSignature => "entry assertion signature is invalid".into(),
+            Self::SigningKeysUnavailable => {
+                "entry assertion signing keys are temporarily unavailable".into()
+            }
+            Self::NotYetValid => "entry assertion is not valid yet".into(),
+            Self::Expired => "entry assertion has expired".into(),
+            Self::TooLongLived => "entry assertion exceeds the permitted lifetime".into(),
+            Self::InvalidMembership => "entry assertion membership is invalid".into(),
         }
     }
 }
 
-/// Which companies on this plane the bearer may reach.
-///
-/// The owner reaches every company on their plane. An invited human reaches
-/// exactly one. There is deliberately no "several companies" variant: a human
-/// with access to two companies holds two memberships and enters twice.
+/// Compatibility scope used by the existing owner boundary. A real network
+/// handoff always resolves to exactly one company slug.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub(crate) enum CompanyScope {
-    /// Every company on this plane.
     Owner,
-    /// Exactly one company.
     Company { company: String },
 }
 
 impl CompanyScope {
     pub(crate) fn permits(&self, company: &str) -> bool {
         match self {
-            CompanyScope::Owner => true,
-            CompanyScope::Company { company: allowed } => allowed == company,
+            Self::Owner => true,
+            Self::Company { company: allowed } => allowed == company,
         }
     }
 }
 
-/// The wire claims. Field names are the contract; changing one is a contract
-/// version change under the release contract's governance.
+/// Exact Cloud contract. Unknown fields are refused so a producer cannot
+/// silently evolve security meaning without a contract version change.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct AssertionClaims {
-    /// Assertion contract version.
-    pub ver: u32,
-    /// Issuer, matched against this plane's configured issuer.
     pub iss: String,
-    /// Audience: this exact plane.
     pub aud: String,
-    /// The plane this assertion routes to.
-    pub plane: String,
-    /// Stable owner identity that owns the plane.
-    pub owner: String,
-    /// Stable human user identity.
     pub sub: String,
-    /// Which companies the bearer may reach.
-    pub scope: CompanyScope,
-    /// Active membership role: owner, admin or member.
-    pub role: String,
-    /// Mapped company actor, where the domain requires attribution.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub actor: Option<String>,
-    /// Issued-at, not-before and expiry, as seconds since the Unix epoch.
-    pub iat: u64,
-    pub nbf: u64,
-    pub exp: u64,
-    /// Single-use identity. An assertion is consumed at entry.
-    pub jti: String,
-    /// Correlation identity for tracing across the Cloud/Core boundary.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cid: Option<String>,
+    pub jti: Uuid,
+    pub exp: i64,
+    pub iat: i64,
+    pub kid: String,
+    pub owner_id: Uuid,
+    pub plane_id: Uuid,
+    pub company_id: Uuid,
+    pub cell_id: Uuid,
+    pub membership_id: String,
+    pub membership_role: String,
+    pub membership_version: i64,
+    pub assertion_version: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct AssertionHeader {
     alg: String,
     typ: String,
     kid: String,
 }
 
-/// What the plane knows after verifying, and the only thing downstream code
-/// may consult. Note there is no capability here: Authority is separate.
+#[derive(Debug, Deserialize)]
+struct JwkSet {
+    keys: Vec<Jwk>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Jwk {
+    kty: String,
+    crv: String,
+    alg: String,
+    #[serde(rename = "use")]
+    use_: String,
+    kid: String,
+    x: String,
+}
+
+/// A cryptographically verified context which has not yet been consumed.
+/// OrgIntel consumes it and creates the durable Actor binding atomically.
+#[derive(Debug, Clone)]
+pub(crate) struct VerifiedAccessContext {
+    pub issuer: String,
+    pub subject: String,
+    pub assertion_id: Uuid,
+    pub issued_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+    pub owner_id: Uuid,
+    pub plane_id: Uuid,
+    pub company_id: Uuid,
+    pub cell_id: Uuid,
+    pub membership_id: String,
+    pub membership_role: String,
+    pub membership_version: i64,
+}
+
+/// The server-derived identity carried by a browser session.
 #[derive(Debug, Clone)]
 pub(crate) struct VerifiedIdentity {
     pub user: String,
@@ -164,34 +180,75 @@ pub(crate) struct VerifiedIdentity {
     pub scope: CompanyScope,
     pub role: String,
     pub actor: Option<String>,
-    pub correlation: Option<String>,
+    pub company_id: Option<Uuid>,
+    pub cell_id: Option<Uuid>,
+    pub membership_id: Option<String>,
+    pub membership_version: Option<i64>,
+}
+
+/// Handler-facing principal. The browser never supplies this value.
+#[derive(Debug, Clone)]
+pub(crate) struct RequestPrincipal {
+    actor_id: String,
+    membership_role: String,
+    company: Option<String>,
+}
+
+impl RequestPrincipal {
+    pub(crate) fn local_owner() -> Self {
+        Self {
+            actor_id: "owner".into(),
+            membership_role: "owner".into(),
+            company: None,
+        }
+    }
+
+    pub(crate) fn from_verified(identity: &VerifiedIdentity) -> Option<Self> {
+        Some(Self {
+            actor_id: identity.actor.clone()?,
+            membership_role: identity.role.clone(),
+            company: match &identity.scope {
+                CompanyScope::Owner => None,
+                CompanyScope::Company { company } => Some(company.clone()),
+            },
+        })
+    }
+
+    pub(crate) fn actor_id(&self) -> &str {
+        &self.actor_id
+    }
+
+    pub(crate) fn membership_role(&self) -> &str {
+        &self.membership_role
+    }
+
+    pub(crate) fn permits_company(&self, company: &str) -> bool {
+        self.company
+            .as_deref()
+            .is_none_or(|allowed| allowed == company)
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SignaturePolicy {
     Enforce,
-    /// Test-only. Exists so the adversarial suite can prove that the signature
-    /// check is what rejects a tampered assertion, rather than some incidental
-    /// later check that would pass a broken verifier.
     #[cfg(test)]
     Skip,
 }
 
-/// Network-mode configuration. Every field is required; a plane that cannot
-/// fully describe how it verifies refuses to start rather than falling back to
-/// trusting the network.
+/// Network-mode configuration. JWKS is loaded before the listener is exposed
+/// and refreshed when a new key id appears during key rotation.
 pub(crate) struct NetworkEntry {
     issuer: String,
-    audience: String,
-    plane: String,
-    /// Public hostname this plane is reached at, used for browser-origin checks.
+    owner_id: Uuid,
+    plane_id: Uuid,
     host: String,
-    /// Key version to shared secret. Several may be live during rotation.
-    keys: HashMap<String, Vec<u8>>,
+    jwks_url: Url,
+    client: reqwest::Client,
+    keys: RwLock<HashMap<String, VerifyingKey>>,
+    last_refresh: RwLock<Option<tokio::time::Instant>>,
+    refresh: AsyncMutex<()>,
     session_ttl: Duration,
-    /// Consumed single-use identities, retained until the assertion that
-    /// carried them would have expired anyway.
-    consumed: Mutex<HashMap<String, SystemTime>>,
 }
 
 impl NetworkEntry {
@@ -203,52 +260,92 @@ impl NetworkEntry {
         self.session_ttl
     }
 
-    /// Verify an assertion and consume its single-use identity.
-    ///
-    /// Order is deliberate. The signature is checked before any claim is acted
-    /// on, so a tampered payload can never steer verification. Claims that
-    /// select the key (`kid`) and the contract shape (`ver`) must be read
-    /// first, which is why they precede it.
-    pub(crate) fn verify(&self, token: &str) -> Result<VerifiedIdentity, Refusal> {
-        self.verify_at(token, SystemTime::now(), SignaturePolicy::Enforce)
+    /// Fetch and validate the signing set before exposing the network listener.
+    pub(crate) async fn prepare(&self) -> anyhow::Result<()> {
+        self.refresh_keys(true).await
     }
 
-    fn verify_at(
+    async fn refresh_keys(&self, force: bool) -> anyhow::Result<()> {
+        let _serial = self.refresh.lock().await;
+        if !force
+            && self
+                .last_refresh
+                .read()
+                .await
+                .is_some_and(|refreshed| refreshed.elapsed() < MAX_JWKS_AGE)
+        {
+            return Ok(());
+        }
+        let response = self
+            .client
+            .get(self.jwks_url.clone())
+            .header(reqwest::header::ACCEPT, "application/json")
+            .send()
+            .await
+            .context_msg("fetch RESTLESS_ENTRY_JWKS_URL")?;
+        if !response.status().is_success() {
+            anyhow::bail!(
+                "RESTLESS_ENTRY_JWKS_URL returned HTTP {}",
+                response.status()
+            );
+        }
+        if response
+            .content_length()
+            .is_some_and(|length| length > MAX_JWKS_BYTES as u64)
+        {
+            anyhow::bail!("RESTLESS_ENTRY_JWKS_URL response exceeds 64 KiB");
+        }
+        let bytes = response
+            .bytes()
+            .await
+            .context_msg("read RESTLESS_ENTRY_JWKS_URL")?;
+        if bytes.len() > MAX_JWKS_BYTES {
+            anyhow::bail!("RESTLESS_ENTRY_JWKS_URL response exceeds 64 KiB");
+        }
+        let keys = parse_jwks(&bytes)?;
+        *self.keys.write().await = keys;
+        *self.last_refresh.write().await = Some(tokio::time::Instant::now());
+        Ok(())
+    }
+
+    /// Verify a handoff. Replay consumption deliberately happens later, in
+    /// the same OrgIntel transaction as principal-to-Actor binding.
+    pub(crate) async fn verify(&self, token: &str) -> Result<VerifiedAccessContext, Refusal> {
+        // A removed key must stop authorising assertions without a process
+        // restart. Never retain a JWKS longer than the assertion lifetime.
+        self.refresh_keys(false)
+            .await
+            .map_err(|_| Refusal::SigningKeysUnavailable)?;
+        match self
+            .verify_at(token, Utc::now(), SignaturePolicy::Enforce)
+            .await
+        {
+            Err(Refusal::UnknownKeyVersion) => {
+                // A newly published key may appear between process start and
+                // handoff issuance. Refresh once, then report the stable error.
+                self.refresh_keys(true)
+                    .await
+                    .map_err(|_| Refusal::SigningKeysUnavailable)?;
+                self.verify_at(token, Utc::now(), SignaturePolicy::Enforce)
+                    .await
+            }
+            result => result,
+        }
+    }
+
+    async fn verify_at(
         &self,
         token: &str,
-        now: SystemTime,
+        now: DateTime<Utc>,
         policy: SignaturePolicy,
-    ) -> Result<VerifiedIdentity, Refusal> {
-        let mut parts = token.split('.');
-        let header_b64 = parts.next().ok_or(Refusal::Malformed("no header"))?;
-        let payload_b64 = parts.next().ok_or(Refusal::Malformed("no payload"))?;
-        let signature_b64 = parts.next().ok_or(Refusal::Malformed("no signature"))?;
-        if parts.next().is_some() {
-            return Err(Refusal::Malformed("too many segments"));
-        }
-        if header_b64.is_empty() || payload_b64.is_empty() || signature_b64.is_empty() {
-            return Err(Refusal::Malformed("empty segment"));
-        }
-
-        let header: AssertionHeader = decode_segment(header_b64, "header")?;
-        if header.typ != TOKEN_TYPE {
-            return Err(Refusal::Malformed("unexpected token type"));
-        }
-        if header.alg != ALGORITHM {
-            return Err(Refusal::Malformed("unexpected signature algorithm"));
-        }
-
-        let claims: AssertionClaims = decode_segment(payload_b64, "payload")?;
-        if claims.ver != ASSERTION_CONTRACT_VERSION {
-            return Err(Refusal::UnsupportedVersion {
-                got: claims.ver,
-                supported: ASSERTION_CONTRACT_VERSION,
-            });
-        }
-
+    ) -> Result<VerifiedAccessContext, Refusal> {
+        let parsed = parse_assertion(token)?;
         let key = self
             .keys
-            .get(&header.kid)
+            .read()
+            .await
+            .get(&parsed.header.kid)
+            .cloned()
             .ok_or(Refusal::UnknownKeyVersion)?;
 
         let enforce = match policy {
@@ -257,56 +354,152 @@ impl NetworkEntry {
             SignaturePolicy::Skip => false,
         };
         if enforce {
-            let signature = base64::engine::general_purpose::URL_SAFE_NO_PAD
-                .decode(signature_b64)
-                .map_err(|_| Refusal::Malformed("signature is not base64url"))?;
-            let signed = format!("{header_b64}.{payload_b64}");
-            let mut mac = HmacSha256::new_from_slice(key).expect("HMAC accepts any key length");
-            mac.update(signed.as_bytes());
-            mac.verify_slice(&signature)
+            let signature = Signature::from_slice(&parsed.signature)
+                .map_err(|_| Refusal::Malformed("signature is not 64-byte Ed25519"))?;
+            key.verify(parsed.signing_input.as_bytes(), &signature)
                 .map_err(|_| Refusal::BadSignature)?;
         }
 
-        if claims.iss != self.issuer {
-            return Err(Refusal::UnknownIssuer);
-        }
-        if claims.aud != self.audience {
-            return Err(Refusal::WrongAudience);
-        }
-        if claims.plane != self.plane {
-            return Err(Refusal::WrongPlane);
-        }
-
-        let now_secs = unix_seconds(now);
-        if claims.nbf > now_secs {
-            return Err(Refusal::NotYetValid);
-        }
-        if claims.exp <= now_secs {
-            return Err(Refusal::Expired);
-        }
-
-        // Consumed last, so a refusal never burns a legitimate identity.
-        self.consume(&claims.jti, now, claims.exp)?;
-
-        Ok(VerifiedIdentity {
-            user: claims.sub,
-            owner: claims.owner,
-            scope: claims.scope,
-            role: claims.role,
-            actor: claims.actor,
-            correlation: claims.cid,
-        })
+        validate_claims(
+            parsed.claims,
+            &parsed.header,
+            &self.issuer,
+            self.owner_id,
+            self.plane_id,
+            now,
+        )
     }
 
-    fn consume(&self, jti: &str, now: SystemTime, exp: u64) -> Result<(), Refusal> {
-        let mut consumed = self.consumed.lock().expect("entry replay store poisoned");
-        consumed.retain(|_, expires| *expires > now);
-        if consumed.contains_key(jti) {
-            return Err(Refusal::Replayed);
+    #[cfg(test)]
+    fn for_test(signing_key: &SigningKey) -> Self {
+        Self {
+            issuer: "https://cloud.restless.test".into(),
+            owner_id: Uuid::parse_str("018f0000-0000-7000-8000-000000000001").unwrap(),
+            plane_id: Uuid::parse_str("018f0000-0000-7000-8000-000000000002").unwrap(),
+            host: "aris.restless.test".into(),
+            jwks_url: Url::parse("https://cloud.restless.test/.well-known/jwks.json").unwrap(),
+            client: reqwest::Client::new(),
+            keys: RwLock::new(HashMap::from([(
+                "test-2026-01".into(),
+                signing_key.verifying_key(),
+            )])),
+            last_refresh: RwLock::new(Some(tokio::time::Instant::now())),
+            refresh: AsyncMutex::new(()),
+            session_ttl: DEFAULT_SESSION_TTL,
         }
-        consumed.insert(jti.to_string(), UNIX_EPOCH + Duration::from_secs(exp));
-        Ok(())
     }
+}
+
+struct ParsedAssertion {
+    header: AssertionHeader,
+    claims: AssertionClaims,
+    signing_input: String,
+    signature: Vec<u8>,
+}
+
+fn parse_assertion(token: &str) -> Result<ParsedAssertion, Refusal> {
+    let mut parts = token.split('.');
+    let header_b64 = parts.next().ok_or(Refusal::Malformed("no header"))?;
+    let payload_b64 = parts.next().ok_or(Refusal::Malformed("no payload"))?;
+    let signature_b64 = parts.next().ok_or(Refusal::Malformed("no signature"))?;
+    if parts.next().is_some() {
+        return Err(Refusal::Malformed("too many segments"));
+    }
+    if header_b64.is_empty() || payload_b64.is_empty() || signature_b64.is_empty() {
+        return Err(Refusal::Malformed("empty segment"));
+    }
+
+    let header: AssertionHeader = decode_segment(header_b64, "header")?;
+    if header.typ != TOKEN_TYPE {
+        return Err(Refusal::Malformed("unexpected token type"));
+    }
+    if header.alg != ALGORITHM {
+        return Err(Refusal::Malformed("unexpected signature algorithm"));
+    }
+    let claims: AssertionClaims = decode_segment(payload_b64, "payload")?;
+    if claims.kid != header.kid {
+        return Err(Refusal::Malformed("header and payload key ids differ"));
+    }
+    let signature = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(signature_b64)
+        .map_err(|_| Refusal::Malformed("signature is not base64url"))?;
+    Ok(ParsedAssertion {
+        header,
+        claims,
+        signing_input: format!("{header_b64}.{payload_b64}"),
+        signature,
+    })
+}
+
+fn validate_claims(
+    claims: AssertionClaims,
+    header: &AssertionHeader,
+    issuer: &str,
+    owner_id: Uuid,
+    plane_id: Uuid,
+    now: DateTime<Utc>,
+) -> Result<VerifiedAccessContext, Refusal> {
+    if claims.assertion_version != ASSERTION_CONTRACT_VERSION {
+        return Err(Refusal::UnsupportedVersion {
+            got: claims.assertion_version,
+            supported: ASSERTION_CONTRACT_VERSION,
+        });
+    }
+    if claims.iss.trim_end_matches('/') != issuer {
+        return Err(Refusal::UnknownIssuer);
+    }
+    if claims.aud != HANDOFF_AUDIENCE {
+        return Err(Refusal::WrongAudience);
+    }
+    if claims.owner_id != owner_id {
+        return Err(Refusal::WrongOwner);
+    }
+    if claims.plane_id != plane_id {
+        return Err(Refusal::WrongPlane);
+    }
+    if claims.kid != header.kid
+        || claims.sub.trim().is_empty()
+        || claims.membership_id.trim().is_empty()
+        || claims.membership_version < 0
+        || !matches!(
+            claims.membership_role.as_str(),
+            "owner" | "admin" | "member"
+        )
+        || claims.company_id.is_nil()
+        || claims.cell_id.is_nil()
+        || claims.jti.is_nil()
+    {
+        return Err(Refusal::InvalidMembership);
+    }
+    if claims.iat > now.timestamp() + MAX_CLOCK_SKEW_SECONDS {
+        return Err(Refusal::NotYetValid);
+    }
+    if claims.exp <= now.timestamp() {
+        return Err(Refusal::Expired);
+    }
+    if claims.exp <= claims.iat
+        || claims.exp.saturating_sub(claims.iat) > MAX_ASSERTION_LIFETIME_SECONDS
+    {
+        return Err(Refusal::TooLongLived);
+    }
+    let issued_at = DateTime::from_timestamp(claims.iat, 0)
+        .ok_or(Refusal::Malformed("issued-at is out of range"))?;
+    let expires_at = DateTime::from_timestamp(claims.exp, 0)
+        .ok_or(Refusal::Malformed("expiry is out of range"))?;
+    Ok(VerifiedAccessContext {
+        issuer: claims.iss.trim_end_matches('/').to_string(),
+        subject: claims.sub,
+        assertion_id: claims.jti,
+        issued_at,
+        expires_at,
+        owner_id: claims.owner_id,
+        plane_id: claims.plane_id,
+        company_id: claims.company_id,
+        cell_id: claims.cell_id,
+        membership_id: claims.membership_id,
+        membership_role: claims.membership_role,
+        membership_version: claims.membership_version,
+    })
 }
 
 fn decode_segment<T: for<'de> Deserialize<'de>>(
@@ -325,135 +518,191 @@ fn decode_segment<T: for<'de> Deserialize<'de>>(
     })
 }
 
-fn unix_seconds(at: SystemTime) -> u64 {
-    at.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
+fn parse_jwks(raw: &[u8]) -> anyhow::Result<HashMap<String, VerifyingKey>> {
+    let set: JwkSet = serde_json::from_slice(raw).context_msg("parse Fleet JWKS")?;
+    if set.keys.is_empty() || set.keys.len() > 16 {
+        anyhow::bail!("Fleet JWKS must publish between 1 and 16 keys");
+    }
+    let mut parsed = HashMap::new();
+    for key in set.keys {
+        if key.kty != "OKP"
+            || key.crv != "Ed25519"
+            || key.alg != ALGORITHM
+            || key.use_ != "sig"
+            || key.kid.is_empty()
+            || key.kid.len() > 64
+            || !key
+                .kid
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+        {
+            anyhow::bail!("Fleet JWKS contains an unsupported signing key");
+        }
+        let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(&key.x)
+            .map_err(|_| anyhow::anyhow!("Fleet JWKS Ed25519 key is not base64url"))?;
+        let bytes: [u8; 32] = bytes
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("Fleet JWKS Ed25519 key must be exactly 32 bytes"))?;
+        let verifying_key = VerifyingKey::from_bytes(&bytes)
+            .map_err(|_| anyhow::anyhow!("Fleet JWKS Ed25519 key is invalid"))?;
+        if parsed.insert(key.kid, verifying_key).is_some() {
+            anyhow::bail!("Fleet JWKS contains a duplicate key id");
+        }
+    }
+    Ok(parsed)
 }
 
-/// Mint an assertion. Restless Cloud is the real issuer; this exists so the
-/// plane's own tests and the end-to-end run have a test issuer, and so the
-/// wire format has exactly one definition rather than two that drift.
-pub(crate) fn mint(claims: &AssertionClaims, key_version: &str, key: &[u8]) -> String {
-    let header = AssertionHeader {
-        alg: ALGORITHM.to_string(),
-        typ: TOKEN_TYPE.to_string(),
-        kid: key_version.to_string(),
-    };
-    let header_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .encode(serde_json::to_vec(&header).expect("header encodes"));
-    let payload_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .encode(serde_json::to_vec(claims).expect("claims encode"));
-    let signed = format!("{header_b64}.{payload_b64}");
-    let mut mac = HmacSha256::new_from_slice(key).expect("HMAC accepts any key length");
-    mac.update(signed.as_bytes());
-    let signature =
-        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes());
-    format!("{signed}.{signature}")
-}
-
-/// How this plane decides who may enter.
 #[derive(Clone)]
 pub(crate) enum EntryMode {
-    /// ADR 0001: loopback only, local operator is the owner principal.
     Local,
-    /// ADR 0007: access decided by verifying a signed assertion.
     Network(std::sync::Arc<NetworkEntry>),
 }
 
 impl EntryMode {
-    /// Read the mode from the environment.
-    ///
-    /// Network mode requires a complete description of how verification works.
-    /// A missing field is a startup failure naming the field — never a silent
-    /// downgrade to trusting the network, which is the failure this whole
-    /// module exists to prevent.
     pub(crate) fn from_env() -> anyhow::Result<Self> {
         let mode = std::env::var("RESTLESS_ENTRY_MODE").unwrap_or_else(|_| "local".to_string());
         match mode.as_str() {
-            "local" => Ok(EntryMode::Local),
+            "local" => Ok(Self::Local),
             "network" => {
-                let issuer = required("RESTLESS_ENTRY_ISSUER")?;
-                let audience = required("RESTLESS_ENTRY_AUDIENCE")?;
-                let plane = required("RESTLESS_ENTRY_PLANE")?;
-                let host = required("RESTLESS_ENTRY_HOST")?;
-                let keys = parse_keys(&required("RESTLESS_ENTRY_KEYS")?)?;
+                let allow_insecure = matches!(
+                    std::env::var("RESTLESS_ENTRY_ALLOW_INSECURE_HTTP").as_deref(),
+                    Ok("1") | Ok("true")
+                );
+                let issuer = canonical_service_url(
+                    "RESTLESS_ENTRY_ISSUER",
+                    &required("RESTLESS_ENTRY_ISSUER")?,
+                    allow_insecure,
+                )?;
+                let jwks_url = canonical_service_url(
+                    "RESTLESS_ENTRY_JWKS_URL",
+                    &required("RESTLESS_ENTRY_JWKS_URL")?,
+                    allow_insecure,
+                )?;
+                validate_issuer_jwks(&issuer, &jwks_url)?;
+                let owner_id = required_uuid("RESTLESS_ENTRY_OWNER_ID")?;
+                let plane_id = required_uuid("RESTLESS_ENTRY_PLANE_ID")?;
+                let host = required("RESTLESS_ENTRY_HOST")?.to_ascii_lowercase();
+                if host.contains('/')
+                    || host.contains(':')
+                    || host.parse::<std::net::IpAddr>().is_ok()
+                    || !host.contains('.')
+                {
+                    anyhow::bail!(
+                        "RESTLESS_ENTRY_HOST must be the account plane hostname without scheme or port"
+                    );
+                }
                 let session_ttl = match std::env::var("RESTLESS_ENTRY_SESSION_TTL_SECONDS") {
-                    Ok(value) => Duration::from_secs(value.parse().map_err(|_| {
-                        anyhow::anyhow!("RESTLESS_ENTRY_SESSION_TTL_SECONDS must be seconds")
-                    })?),
+                    Ok(value) => {
+                        let seconds: u64 = value.parse().map_err(|_| {
+                            anyhow::anyhow!(
+                                "RESTLESS_ENTRY_SESSION_TTL_SECONDS must be positive seconds"
+                            )
+                        })?;
+                        if !(60..=24 * 60 * 60).contains(&seconds) {
+                            anyhow::bail!(
+                                "RESTLESS_ENTRY_SESSION_TTL_SECONDS must be between 60 and 86400"
+                            );
+                        }
+                        Duration::from_secs(seconds)
+                    }
                     Err(_) => DEFAULT_SESSION_TTL,
                 };
-                Ok(EntryMode::Network(std::sync::Arc::new(NetworkEntry {
-                    issuer,
-                    audience,
-                    plane,
+                let client = reqwest::Client::builder()
+                    .redirect(reqwest::redirect::Policy::none())
+                    .timeout(Duration::from_secs(5))
+                    .build()
+                    .context_msg("build entry JWKS client")?;
+                Ok(Self::Network(std::sync::Arc::new(NetworkEntry {
+                    issuer: issuer.as_str().trim_end_matches('/').into(),
+                    owner_id,
+                    plane_id,
                     host,
-                    keys,
+                    jwks_url,
+                    client,
+                    keys: RwLock::new(HashMap::new()),
+                    last_refresh: RwLock::new(None),
+                    refresh: AsyncMutex::new(()),
                     session_ttl,
-                    consumed: Mutex::new(HashMap::new()),
                 })))
             }
-            other => {
-                anyhow::bail!("RESTLESS_ENTRY_MODE must be `local` or `network`, not `{other}`")
-            }
+            other => anyhow::bail!("RESTLESS_ENTRY_MODE must be local or network, not {other:?}"),
         }
     }
 
     pub(crate) fn network(&self) -> Option<&std::sync::Arc<NetworkEntry>> {
         match self {
-            EntryMode::Local => None,
-            EntryMode::Network(entry) => Some(entry),
+            Self::Local => None,
+            Self::Network(entry) => Some(entry),
         }
     }
+}
+
+fn canonical_service_url(variable: &str, raw: &str, allow_insecure: bool) -> anyhow::Result<Url> {
+    let url = Url::parse(raw).with_context(|| format!("parse {variable}"))?;
+    let safe_scheme = url.scheme() == "https"
+        || (allow_insecure
+            && url.scheme() == "http"
+            && matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "::1")));
+    if !safe_scheme
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        anyhow::bail!("{variable} must be an HTTPS URL without credentials, query, or fragment");
+    }
+    Ok(url)
+}
+
+fn validate_issuer_jwks(issuer: &Url, jwks: &Url) -> anyhow::Result<()> {
+    if issuer.path() != "/" {
+        anyhow::bail!("RESTLESS_ENTRY_ISSUER must be an origin URL with no path");
+    }
+    if issuer.scheme() != jwks.scheme()
+        || issuer.host_str() != jwks.host_str()
+        || issuer.port_or_known_default() != jwks.port_or_known_default()
+        || jwks.path() != "/.well-known/jwks.json"
+    {
+        anyhow::bail!("RESTLESS_ENTRY_JWKS_URL must be the issuer origin's /.well-known/jwks.json");
+    }
+    Ok(())
 }
 
 fn required(variable: &str) -> anyhow::Result<String> {
     let value = std::env::var(variable).unwrap_or_default();
     if value.trim().is_empty() {
-        anyhow::bail!(
-            "network entry mode requires {variable}; refusing to start rather than \
-             accepting requests on network position alone"
-        );
+        anyhow::bail!("network entry mode requires {variable}; refusing to trust network position");
     }
-    Ok(value)
+    Ok(value.trim().to_string())
 }
 
-/// `v1:<base64url secret>,v2:<base64url secret>` — several live at once so a
-/// key can be rotated without a window where no assertion verifies.
-fn parse_keys(raw: &str) -> anyhow::Result<HashMap<String, Vec<u8>>> {
-    let mut keys = HashMap::new();
-    for entry in raw.split(',').map(str::trim).filter(|e| !e.is_empty()) {
-        let (version, secret) = entry
-            .split_once(':')
-            .context_msg("RESTLESS_ENTRY_KEYS entries must be `<version>:<base64url secret>`")?;
-        let secret = base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .decode(secret.trim())
-            .map_err(|_| anyhow::anyhow!("RESTLESS_ENTRY_KEYS secret is not base64url"))?;
-        if secret.len() < 32 {
-            anyhow::bail!("RESTLESS_ENTRY_KEYS secrets must be at least 32 bytes");
-        }
-        keys.insert(version.trim().to_string(), secret);
+fn required_uuid(variable: &str) -> anyhow::Result<Uuid> {
+    let value = required(variable)?;
+    let parsed = Uuid::parse_str(&value).with_context(|| format!("parse {variable} as UUID"))?;
+    if parsed.is_nil() {
+        anyhow::bail!("{variable} must not be the nil UUID");
     }
-    if keys.is_empty() {
-        anyhow::bail!("RESTLESS_ENTRY_KEYS names no usable key version");
-    }
-    Ok(keys)
+    Ok(parsed)
 }
 
 trait ContextMsg<T> {
     fn context_msg(self, message: &'static str) -> anyhow::Result<T>;
 }
 
-impl<T> ContextMsg<T> for Option<T> {
+impl<T, E> ContextMsg<T> for std::result::Result<T, E>
+where
+    E: std::error::Error + Send + Sync + 'static,
+{
     fn context_msg(self, message: &'static str) -> anyhow::Result<T> {
-        self.ok_or_else(|| anyhow::anyhow!(message))
+        self.map_err(anyhow::Error::from).context(message)
     }
 }
 
-/// Browser sessions established after an assertion is consumed.
-///
-/// The assertion is the door; this is the room. A replayed assertion cannot
-/// create a second session because the assertion is consumed before a session
-/// is minted.
+/// Browser sessions are intentionally in memory. A process restart revokes
+/// them; the durable assertion consumption prevents the original credential
+/// from being exchanged again afterward.
 #[derive(Default)]
 pub(crate) struct SessionStore {
     sessions: Mutex<HashMap<String, (VerifiedIdentity, SystemTime)>>,
@@ -461,7 +710,7 @@ pub(crate) struct SessionStore {
 
 impl SessionStore {
     pub(crate) fn establish(&self, identity: VerifiedIdentity, ttl: Duration) -> String {
-        let token = uuid::Uuid::new_v4().to_string();
+        let token = Uuid::new_v4().to_string();
         let mut sessions = self.sessions.lock().expect("session store poisoned");
         let now = SystemTime::now();
         sessions.retain(|_, (_, expires)| *expires > now);
@@ -477,340 +726,388 @@ impl SessionStore {
     }
 
     pub(crate) fn revoke(&self, token: &str) {
-        let mut sessions = self.sessions.lock().expect("session store poisoned");
-        sessions.remove(token);
+        self.sessions
+            .lock()
+            .expect("session store poisoned")
+            .remove(token);
     }
 }
 
 /// The single place company scope is derived from a request path.
-///
-/// Two call sites that each decide scope is how one of them ends up deciding
-/// it differently, so there is exactly one.
 pub(crate) fn company_in_path(path: &str) -> Option<&str> {
     let rest = path
         .strip_prefix("/api/companies/")
         .or_else(|| path.strip_prefix("/desktop/"))?;
     let company = rest.split('/').next()?;
-    if company.is_empty() {
-        None
-    } else {
-        Some(company)
-    }
+    (!company.is_empty()).then_some(company)
 }
 
-/// The test issuer.
-///
-/// Restless Cloud is the real issuer. This exists so the plane's own end-to-end
-/// run (S27-T5) can mint an assertion against the same wire format the verifier
-/// reads, rather than a second implementation that drifts from it. It is not a
-/// Core identity product and must not grow into one.
+fn mint(claims: &AssertionClaims, key_id: &str, key: &SigningKey) -> String {
+    let header = AssertionHeader {
+        alg: ALGORITHM.into(),
+        typ: TOKEN_TYPE.into(),
+        kid: key_id.into(),
+    };
+    let header = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .encode(serde_json::to_vec(&header).expect("header encodes"));
+    let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .encode(serde_json::to_vec(claims).expect("claims encode"));
+    let signing_input = format!("{header}.{payload}");
+    let signature = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .encode(key.sign(signing_input.as_bytes()).to_bytes());
+    format!("{signing_input}.{signature}")
+}
+
+/// Test issuer command retained for release-contract exercises. A production
+/// account plane never carries this private seed.
 pub(crate) fn mint_from_env() -> anyhow::Result<String> {
-    let issuer = required("RESTLESS_ENTRY_ISSUER")?;
-    let audience = required("RESTLESS_ENTRY_AUDIENCE")?;
-    let plane = required("RESTLESS_ENTRY_PLANE")?;
-    let keys = parse_keys(&required("RESTLESS_ENTRY_KEYS")?)?;
-    let (key_version, key) = keys.iter().next().expect("parse_keys refuses an empty set");
-
-    let scope = match std::env::var("RESTLESS_ENTRY_TEST_COMPANY") {
-        Ok(company) if !company.trim().is_empty() => CompanyScope::Company {
-            company: company.trim().to_string(),
-        },
-        _ => CompanyScope::Owner,
-    };
-    let ttl: u64 = std::env::var("RESTLESS_ENTRY_TEST_TTL_SECONDS")
+    let key_bytes = base64::engine::general_purpose::STANDARD
+        .decode(required("RESTLESS_ENTRY_TEST_SIGNING_KEY_B64")?)
+        .map_err(|_| anyhow::anyhow!("RESTLESS_ENTRY_TEST_SIGNING_KEY_B64 must be base64"))?;
+    let key_bytes: [u8; 32] = key_bytes.try_into().map_err(|_| {
+        anyhow::anyhow!("RESTLESS_ENTRY_TEST_SIGNING_KEY_B64 must decode to exactly 32 bytes")
+    })?;
+    let signing_key = SigningKey::from_bytes(&key_bytes);
+    let key_id = required("RESTLESS_ENTRY_TEST_SIGNING_KEY_ID")?;
+    let now = Utc::now().timestamp();
+    let ttl = std::env::var("RESTLESS_ENTRY_TEST_TTL_SECONDS")
         .ok()
-        .and_then(|value| value.parse().ok())
-        .unwrap_or(120);
-    let now = unix_seconds(SystemTime::now());
-
+        .and_then(|value| value.parse::<i64>().ok())
+        .unwrap_or(45);
+    if !(1..=MAX_ASSERTION_LIFETIME_SECONDS).contains(&ttl) {
+        anyhow::bail!("RESTLESS_ENTRY_TEST_TTL_SECONDS must be between 1 and 60");
+    }
     let claims = AssertionClaims {
-        ver: ASSERTION_CONTRACT_VERSION,
-        iss: issuer,
-        aud: audience,
-        plane,
-        owner: std::env::var("RESTLESS_ENTRY_TEST_OWNER").unwrap_or_else(|_| "owner".into()),
+        iss: required("RESTLESS_ENTRY_ISSUER")?
+            .trim_end_matches('/')
+            .into(),
+        aud: HANDOFF_AUDIENCE.into(),
         sub: std::env::var("RESTLESS_ENTRY_TEST_USER").unwrap_or_else(|_| "test-user".into()),
-        scope,
-        role: std::env::var("RESTLESS_ENTRY_TEST_ROLE").unwrap_or_else(|_| "owner".into()),
-        actor: Some("owner".into()),
-        iat: now,
-        nbf: now,
+        jti: Uuid::new_v4(),
         exp: now + ttl,
-        jti: uuid::Uuid::new_v4().to_string(),
-        cid: None,
+        iat: now,
+        kid: key_id.clone(),
+        owner_id: required_uuid("RESTLESS_ENTRY_OWNER_ID")?,
+        plane_id: required_uuid("RESTLESS_ENTRY_PLANE_ID")?,
+        company_id: required_uuid("RESTLESS_ENTRY_TEST_COMPANY_ID")?,
+        cell_id: required_uuid("RESTLESS_ENTRY_TEST_CELL_ID")?,
+        membership_id: required("RESTLESS_ENTRY_TEST_MEMBERSHIP_ID")?,
+        membership_role: std::env::var("RESTLESS_ENTRY_TEST_ROLE")
+            .unwrap_or_else(|_| "owner".into()),
+        membership_version: std::env::var("RESTLESS_ENTRY_TEST_MEMBERSHIP_VERSION")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(0),
+        assertion_version: ASSERTION_CONTRACT_VERSION,
     };
-    Ok(mint(&claims, key_version, key))
+    Ok(mint(&claims, &key_id, &signing_key))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
-    const KEY_VERSION: &str = "v1";
+    use axum::{routing::get, Router};
 
-    fn key() -> Vec<u8> {
-        vec![7u8; 32]
+    const KEY_ID: &str = "test-2026-01";
+
+    fn key() -> SigningKey {
+        SigningKey::from_bytes(&[7; 32])
     }
 
-    fn plane() -> NetworkEntry {
-        let mut keys = HashMap::new();
-        keys.insert(KEY_VERSION.to_string(), key());
-        NetworkEntry {
-            issuer: "https://cloud.restless.test".into(),
-            audience: "plane-aris".into(),
-            plane: "plane-aris".into(),
-            host: "aris.restless.test".into(),
-            keys,
-            session_ttl: DEFAULT_SESSION_TTL,
-            consumed: Mutex::new(HashMap::new()),
-        }
+    fn other_key() -> SigningKey {
+        SigningKey::from_bytes(&[9; 32])
     }
 
-    fn at(secs: u64) -> SystemTime {
-        UNIX_EPOCH + Duration::from_secs(secs)
+    fn at(seconds: i64) -> DateTime<Utc> {
+        DateTime::from_timestamp(seconds, 0).unwrap()
     }
 
-    /// A claim set that verifies cleanly at t=1000.
     fn claims() -> AssertionClaims {
         AssertionClaims {
-            ver: ASSERTION_CONTRACT_VERSION,
             iss: "https://cloud.restless.test".into(),
-            aud: "plane-aris".into(),
-            plane: "plane-aris".into(),
-            owner: "owner-1".into(),
+            aud: HANDOFF_AUDIENCE.into(),
             sub: "user-1".into(),
-            scope: CompanyScope::Owner,
-            role: "owner".into(),
-            actor: Some("owner".into()),
-            iat: 900,
-            nbf: 900,
-            exp: 1200,
-            jti: "assertion-1".into(),
-            cid: Some("corr-1".into()),
+            jti: Uuid::parse_str("018f0000-0000-7000-8000-000000000003").unwrap(),
+            exp: 1_010,
+            iat: 950,
+            kid: KEY_ID.into(),
+            owner_id: Uuid::parse_str("018f0000-0000-7000-8000-000000000001").unwrap(),
+            plane_id: Uuid::parse_str("018f0000-0000-7000-8000-000000000002").unwrap(),
+            company_id: Uuid::parse_str("018f0000-0000-7000-8000-000000000004").unwrap(),
+            cell_id: Uuid::parse_str("018f0000-0000-7000-8000-000000000005").unwrap(),
+            membership_id: "membership-1".into(),
+            membership_role: "owner".into(),
+            membership_version: 7,
+            assertion_version: ASSERTION_CONTRACT_VERSION,
         }
     }
 
     fn token(claims: &AssertionClaims) -> String {
-        mint(claims, KEY_VERSION, &key())
+        mint(claims, &claims.kid, &key())
     }
 
-    fn refuse(entry: &NetworkEntry, claims: &AssertionClaims) -> Refusal {
-        entry
-            .verify_at(&token(claims), at(1000), SignaturePolicy::Enforce)
-            .expect_err("assertion should have been refused")
+    fn jwks(key_id: &str, signing_key: &SigningKey) -> String {
+        let x = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(signing_key.verifying_key().as_bytes());
+        serde_json::json!({
+            "keys": [{
+                "kty": "OKP",
+                "crv": "Ed25519",
+                "alg": "EdDSA",
+                "use": "sig",
+                "kid": key_id,
+                "x": x,
+            }]
+        })
+        .to_string()
     }
 
-    #[test]
-    fn a_valid_assertion_is_accepted_once() {
-        let entry = plane();
-        let identity = entry
-            .verify_at(&token(&claims()), at(1000), SignaturePolicy::Enforce)
-            .expect("valid assertion");
-        assert_eq!(identity.user, "user-1");
-        assert_eq!(identity.owner, "owner-1");
-        assert_eq!(identity.scope, CompanyScope::Owner);
-        assert_eq!(identity.correlation.as_deref(), Some("corr-1"));
+    async fn refusal(claims: &AssertionClaims) -> Refusal {
+        NetworkEntry::for_test(&key())
+            .verify_at(&token(claims), at(1_000), SignaturePolicy::Enforce)
+            .await
+            .expect_err("assertion should be refused")
     }
 
-    #[test]
-    fn expired_is_refused() {
-        let entry = plane();
-        let refusal = entry
-            .verify_at(&token(&claims()), at(1300), SignaturePolicy::Enforce)
-            .expect_err("expired");
-        assert_eq!(refusal, Refusal::Expired);
+    #[tokio::test]
+    async fn cloud_contract_assertion_verifies() {
+        let verified = NetworkEntry::for_test(&key())
+            .verify_at(&token(&claims()), at(1_000), SignaturePolicy::Enforce)
+            .await
+            .expect("valid Cloud assertion");
+        assert_eq!(verified.subject, "user-1");
+        assert_eq!(verified.membership_version, 7);
+        assert_eq!(verified.membership_role, "owner");
+        assert_eq!(verified.issued_at, at(950));
+        assert_eq!(verified.expires_at, at(1_010));
     }
 
-    #[test]
-    fn not_yet_valid_is_refused() {
-        let entry = plane();
-        let refusal = entry
-            .verify_at(&token(&claims()), at(800), SignaturePolicy::Enforce)
-            .expect_err("not yet valid");
-        assert_eq!(refusal, Refusal::NotYetValid);
-    }
+    #[tokio::test]
+    async fn wrong_contract_coordinates_are_distinct_refusals() {
+        let mut candidate = claims();
+        candidate.iss = "https://attacker.test".into();
+        assert_eq!(refusal(&candidate).await, Refusal::UnknownIssuer);
 
-    #[test]
-    fn wrong_audience_is_refused() {
-        let mut claims = claims();
-        claims.aud = "plane-someone-else".into();
-        assert_eq!(refuse(&plane(), &claims), Refusal::WrongAudience);
-    }
+        let mut candidate = claims();
+        candidate.aud = "another-audience".into();
+        assert_eq!(refusal(&candidate).await, Refusal::WrongAudience);
 
-    #[test]
-    fn unknown_issuer_is_refused() {
-        let mut claims = claims();
-        claims.iss = "https://not-our-cloud.test".into();
-        assert_eq!(refuse(&plane(), &claims), Refusal::UnknownIssuer);
-    }
+        let mut candidate = claims();
+        candidate.owner_id = Uuid::new_v4();
+        assert_eq!(refusal(&candidate).await, Refusal::WrongOwner);
 
-    #[test]
-    fn wrong_plane_is_refused() {
-        let mut claims = claims();
-        claims.plane = "plane-other".into();
-        assert_eq!(refuse(&plane(), &claims), Refusal::WrongPlane);
-    }
+        let mut candidate = claims();
+        candidate.plane_id = Uuid::new_v4();
+        assert_eq!(refusal(&candidate).await, Refusal::WrongPlane);
 
-    #[test]
-    fn unsupported_contract_version_is_refused() {
-        let mut claims = claims();
-        claims.ver = ASSERTION_CONTRACT_VERSION + 1;
+        let mut candidate = claims();
+        candidate.assertion_version += 1;
         assert!(matches!(
-            refuse(&plane(), &claims),
+            refusal(&candidate).await,
             Refusal::UnsupportedVersion { .. }
         ));
     }
 
-    #[test]
-    fn unknown_key_version_is_refused() {
-        let entry = plane();
-        let token = mint(&claims(), "v-unknown", &key());
-        let refusal = entry
-            .verify_at(&token, at(1000), SignaturePolicy::Enforce)
-            .expect_err("unknown key version");
-        assert_eq!(refusal, Refusal::UnknownKeyVersion);
-    }
-
-    #[test]
-    fn a_tampered_signature_is_refused() {
-        let entry = plane();
-        // Minted with a key this plane does not hold, under a key version it does.
-        let token = mint(&claims(), KEY_VERSION, &[9u8; 32]);
-        let refusal = entry
-            .verify_at(&token, at(1000), SignaturePolicy::Enforce)
-            .expect_err("bad signature");
-        assert_eq!(refusal, Refusal::BadSignature);
-    }
-
-    #[test]
-    fn a_replayed_assertion_is_refused() {
-        let entry = plane();
-        let token = token(&claims());
-        entry
-            .verify_at(&token, at(1000), SignaturePolicy::Enforce)
-            .expect("first use succeeds");
-        let refusal = entry
-            .verify_at(&token, at(1001), SignaturePolicy::Enforce)
-            .expect_err("second use refused");
-        assert_eq!(refusal, Refusal::Replayed);
-    }
-
-    #[test]
-    fn a_malformed_assertion_is_refused() {
-        let entry = plane();
-        for bad in ["", "one.two", "a.b.c.d", "not-base64!.x.y"] {
-            let refusal = entry
-                .verify_at(bad, at(1000), SignaturePolicy::Enforce)
-                .expect_err("malformed");
-            assert!(
-                matches!(refusal, Refusal::Malformed(_)),
-                "{bad:?} produced {refusal:?}"
-            );
-        }
-    }
-
-    /// Every refusal reason is distinct. A verifier that collapses failures
-    /// into one reason passes every test above while proving nothing.
-    #[test]
-    fn every_refusal_reason_is_distinct() {
-        let reasons = [
-            Refusal::Malformed("x").code(),
-            Refusal::UnsupportedVersion {
-                got: 2,
-                supported: 1,
-            }
-            .code(),
-            Refusal::UnknownIssuer.code(),
-            Refusal::WrongAudience.code(),
-            Refusal::UnknownKeyVersion.code(),
-            Refusal::BadSignature.code(),
-            Refusal::NotYetValid.code(),
-            Refusal::Expired.code(),
-            Refusal::WrongPlane.code(),
-            Refusal::Replayed.code(),
-        ];
-        let unique: std::collections::BTreeSet<_> = reasons.iter().collect();
-        assert_eq!(unique.len(), reasons.len(), "refusal reasons collide");
-    }
-
-    /// The inverse check S27-T3 requires.
-    ///
-    /// A suite that still passes with signature verification disabled is
-    /// testing nothing. This proves the signature check is what rejects a
-    /// forged assertion: with the check skipped, the same forged token passes
-    /// every other gate and verifies. If a later refactor made some incidental
-    /// check reject it instead, this test fails and says so.
-    #[test]
-    fn the_signature_check_is_what_rejects_a_forgery() {
-        let entry = plane();
-        let forged = mint(&claims(), KEY_VERSION, &[9u8; 32]);
-
+    #[tokio::test]
+    async fn expiry_lifetime_and_future_issuance_are_refused() {
+        let entry = NetworkEntry::for_test(&key());
         assert_eq!(
             entry
-                .verify_at(&forged, at(1000), SignaturePolicy::Enforce)
-                .expect_err("enforced"),
-            Refusal::BadSignature
+                .verify_at(&token(&claims()), at(1_010), SignaturePolicy::Enforce)
+                .await
+                .unwrap_err(),
+            Refusal::Expired
         );
 
-        let accepted = entry
-            .verify_at(&forged, at(1000), SignaturePolicy::Skip)
-            .expect("with the signature check skipped, nothing else rejects a forgery");
-        assert_eq!(accepted.user, "user-1");
+        let mut future = claims();
+        future.iat = 1_031;
+        future.exp = 1_091;
+        assert_eq!(refusal(&future).await, Refusal::NotYetValid);
+
+        let mut long = claims();
+        long.iat = 950;
+        long.exp = 1_011;
+        assert_eq!(refusal(&long).await, Refusal::TooLongLived);
+    }
+
+    #[tokio::test]
+    async fn membership_shape_is_closed_and_versioned() {
+        let mut candidate = claims();
+        candidate.membership_role = "authority-owner".into();
+        assert_eq!(refusal(&candidate).await, Refusal::InvalidMembership);
+
+        let mut candidate = claims();
+        candidate.membership_version = -1;
+        assert_eq!(refusal(&candidate).await, Refusal::InvalidMembership);
+
+        let mut candidate = claims();
+        candidate.sub.clear();
+        assert_eq!(refusal(&candidate).await, Refusal::InvalidMembership);
+    }
+
+    #[tokio::test]
+    async fn signature_and_key_selection_are_enforced() {
+        let forged = mint(&claims(), KEY_ID, &other_key());
+        let entry = NetworkEntry::for_test(&key());
+        assert_eq!(
+            entry
+                .verify_at(&forged, at(1_000), SignaturePolicy::Enforce)
+                .await
+                .unwrap_err(),
+            Refusal::BadSignature
+        );
+        assert_eq!(
+            entry
+                .verify_at(&forged, at(1_000), SignaturePolicy::Skip)
+                .await
+                .expect("only signature enforcement rejects this fixture")
+                .subject,
+            "user-1"
+        );
+
+        let mut unknown = claims();
+        unknown.kid = "rotated-key".into();
+        assert_eq!(
+            NetworkEntry::for_test(&key())
+                .verify_at(&token(&unknown), at(1_000), SignaturePolicy::Enforce)
+                .await
+                .unwrap_err(),
+            Refusal::UnknownKeyVersion
+        );
+    }
+
+    #[tokio::test]
+    async fn stale_jwks_is_refreshed_before_a_known_key_can_authorise_entry() {
+        let published = Arc::new(RwLock::new(jwks(KEY_ID, &key())));
+        let response = Arc::clone(&published);
+        let app = Router::new().route(
+            "/.well-known/jwks.json",
+            get(move || {
+                let response = Arc::clone(&response);
+                async move { response.read().await.clone() }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let issuer = format!("http://{address}");
+        let entry = NetworkEntry {
+            issuer: issuer.clone(),
+            owner_id: Uuid::parse_str("018f0000-0000-7000-8000-000000000001").unwrap(),
+            plane_id: Uuid::parse_str("018f0000-0000-7000-8000-000000000002").unwrap(),
+            host: "plane.restless.test".into(),
+            jwks_url: Url::parse(&format!("{issuer}/.well-known/jwks.json")).unwrap(),
+            client: reqwest::Client::new(),
+            keys: RwLock::new(HashMap::new()),
+            last_refresh: RwLock::new(None),
+            refresh: AsyncMutex::new(()),
+            session_ttl: DEFAULT_SESSION_TTL,
+        };
+        entry.prepare().await.unwrap();
+        let now = Utc::now();
+        let mut candidate = claims();
+        candidate.iss = issuer;
+        candidate.iat = now.timestamp();
+        candidate.exp = now.timestamp() + 45;
+        let assertion = token(&candidate);
+        entry.verify(&assertion).await.expect("published key");
+
+        *published.write().await = jwks("replacement-key", &other_key());
+        *entry.last_refresh.write().await =
+            Some(tokio::time::Instant::now() - MAX_JWKS_AGE - Duration::from_millis(1));
+        assert_eq!(
+            entry.verify(&assertion).await.unwrap_err(),
+            Refusal::UnknownKeyVersion
+        );
+        server.abort();
     }
 
     #[test]
-    fn company_scope_permits_only_its_own_company() {
-        let owner = CompanyScope::Owner;
-        assert!(owner.permits("aris"));
-        assert!(owner.permits("anything"));
+    fn fleet_jwks_shape_is_validated() {
+        let published = jwks(KEY_ID, &key());
+        let parsed = parse_jwks(published.as_bytes()).expect("Cloud JWKS");
+        assert_eq!(parsed.get(KEY_ID), Some(&key().verifying_key()));
 
-        let one = CompanyScope::Company {
-            company: "aris".into(),
+        assert!(parse_jwks(br#"{"keys":[]}"#).is_err());
+        assert!(parse_jwks(
+            br#"{"keys":[{"kty":"RSA","crv":"Ed25519","alg":"EdDSA","use":"sig","kid":"x","x":"x"}]}"#
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn fleet_issuer_and_jwks_use_the_exact_published_locations() {
+        let issuer = Url::parse("https://cloud.restless.run/").unwrap();
+        let jwks = Url::parse("https://cloud.restless.run/.well-known/jwks.json").unwrap();
+        validate_issuer_jwks(&issuer, &jwks).expect("exact Cloud locations");
+
+        assert!(validate_issuer_jwks(
+            &Url::parse("https://cloud.restless.run/api").unwrap(),
+            &jwks,
+        )
+        .is_err());
+        assert!(validate_issuer_jwks(
+            &issuer,
+            &Url::parse("https://keys.restless.run/.well-known/jwks.json").unwrap(),
+        )
+        .is_err());
+        assert!(validate_issuer_jwks(
+            &issuer,
+            &Url::parse("https://cloud.restless.run/keys.json").unwrap(),
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn request_scope_is_server_derived() {
+        let scoped = VerifiedIdentity {
+            user: "user".into(),
+            owner: Uuid::new_v4().to_string(),
+            scope: CompanyScope::Company {
+                company: "aris".into(),
+            },
+            role: "member".into(),
+            actor: Some("human-1".into()),
+            company_id: Some(Uuid::new_v4()),
+            cell_id: Some(Uuid::new_v4()),
+            membership_id: Some("membership-1".into()),
+            membership_version: Some(2),
         };
-        assert!(one.permits("aris"));
-        assert!(!one.permits("other"));
-        assert!(!one.permits("aris-2"));
-        assert!(!one.permits(""));
+        let principal = RequestPrincipal::from_verified(&scoped).unwrap();
+        assert_eq!(principal.actor_id(), "human-1");
+        assert!(principal.permits_company("aris"));
+        assert!(!principal.permits_company("other"));
+        assert_eq!(principal.membership_role(), "member");
     }
 
     #[test]
     fn company_is_derived_from_the_path_in_one_place() {
         assert_eq!(company_in_path("/api/companies/aris/cockpit"), Some("aris"));
-        assert_eq!(company_in_path("/api/companies/aris"), Some("aris"));
         assert_eq!(company_in_path("/desktop/aris/observe"), Some("aris"));
-        assert_eq!(company_in_path("/desktop/aris"), Some("aris"));
         assert_eq!(company_in_path("/api/companies/"), None);
-        assert_eq!(company_in_path("/api/health"), None);
-        assert_eq!(company_in_path("/"), None);
+        assert_eq!(company_in_path("/health"), None);
     }
 
     #[test]
-    fn keys_must_be_versioned_and_long_enough() {
-        let good = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([1u8; 32]);
-        let parsed = parse_keys(&format!("v1:{good}")).expect("valid key");
-        assert_eq!(parsed.len(), 1);
-
-        let short = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([1u8; 8]);
-        assert!(parse_keys(&format!("v1:{short}")).is_err());
-        assert!(parse_keys("v1").is_err());
-        assert!(parse_keys("").is_err());
-    }
-
-    #[test]
-    fn a_session_is_single_use_at_the_door_but_reusable_after() {
+    fn session_restart_is_fail_closed() {
         let store = SessionStore::default();
         let identity = VerifiedIdentity {
-            user: "user-1".into(),
-            owner: "owner-1".into(),
+            user: "user".into(),
+            owner: "owner".into(),
             scope: CompanyScope::Owner,
             role: "owner".into(),
-            actor: None,
-            correlation: None,
+            actor: Some("owner".into()),
+            company_id: None,
+            cell_id: None,
+            membership_id: None,
+            membership_version: None,
         };
         let token = store.establish(identity, Duration::from_secs(60));
         assert!(store.resolve(&token).is_some());
-        assert!(store.resolve(&token).is_some());
         store.revoke(&token);
         assert!(store.resolve(&token).is_none());
+        assert!(SessionStore::default().resolve(&token).is_none());
     }
 }

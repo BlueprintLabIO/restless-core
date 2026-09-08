@@ -610,6 +610,7 @@ mod tests {
         let actor = |id: &str, display: &str, role: &str, team_id: Option<uuid::Uuid>| ActorRow {
             id: id.into(),
             kind: "staff".into(),
+            actor_class: "agent".into(),
             role: role.into(),
             display: display.into(),
             model: None,

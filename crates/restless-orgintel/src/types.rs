@@ -290,6 +290,20 @@ pub enum OrgIntelError {
     Migrate(#[from] sqlx::migrate::MigrateError),
     #[error("invalid Work graph: {0}")]
     InvalidWork(String),
+    #[error("invalid Room state: {0}")]
+    InvalidRoom(String),
+    #[error("Room access denied: {0}")]
+    RoomAccessDenied(String),
+    #[error("Room command conflicts with its original payload: {0}")]
+    RoomCommandConflict(String),
+    #[error("invalid operational event cursor: {0}")]
+    InvalidEventCursor(String),
+    #[error("entry assertion has already been consumed")]
+    ReplayedEntry,
+    #[error("company access context does not match this company: {0}")]
+    CompanyAccessMismatch(String),
+    #[error("human principal binding conflicts with existing identity: {0}")]
+    PrincipalBindingConflict(String),
 }
 
 pub type Result<T> = std::result::Result<T, OrgIntelError>;
@@ -297,11 +311,13 @@ pub type Result<T> = std::result::Result<T, OrgIntelError>;
 #[derive(Debug, Serialize, sqlx::FromRow, ts_rs::TS)]
 pub struct ActorRow {
     pub id: String,
-    /// Small principal class used for filtering and trust/presentation:
-    /// `owner`, `exec`, `staff`, or `system`.
+    /// Historical compatibility kind: `owner`, `exec`, `staff`, `system`, or
+    /// `human`. New trust/presentation decisions use `actor_class`.
     pub kind: String,
-    /// Durable organisational craft/responsibility, separate from actor class
-    /// and current team relation.
+    /// Canonical principal class, independent of organisational responsibility.
+    pub actor_class: String,
+    /// Durable organisational craft/responsibility, separate from principal
+    /// class, authentication membership, and current team relation.
     pub role: String,
     pub display: String,
     /// NULL means inherited or not applicable, never "unknown".
@@ -962,6 +978,109 @@ pub struct MessageRow {
     pub outcome_standard: Option<OutcomeStandard>,
     pub created_at: DateTime<Utc>,
     pub read_at: Option<DateTime<Utc>>,
+}
+
+/// The audience shape of one durable Room. Organisational access still comes
+/// from active [`RoomParticipantRow`] records; this enum is presentation and
+/// compatibility shape, never an authority grant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(type_name = "room_kind", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum RoomKind {
+    Company,
+    Group,
+    Direct,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(type_name = "room_participant_role", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum RoomParticipantRole {
+    Owner,
+    Member,
+}
+
+/// One recoverable collaboration space. `canonical_key` is intentionally
+/// absent for ordinary group Rooms and stable only for the one company Room
+/// and legacy/direct actor pairs.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct RoomRow {
+    pub id: Uuid,
+    pub kind: RoomKind,
+    pub title: String,
+    pub created_by: String,
+    pub canonical_key: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub archived_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct RoomParticipantRow {
+    pub room_id: Uuid,
+    pub actor_id: String,
+    pub role: RoomParticipantRole,
+    pub joined_at: DateTime<Utc>,
+    pub left_at: Option<DateTime<Utc>>,
+}
+
+/// A Room projection of the existing authoritative `messages` row. The
+/// global `legacy_read_at` field remains only for the actor-inbox bridge;
+/// human unread state is represented by [`RoomReadCursorRow`].
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct RoomMessageRow {
+    pub id: i64,
+    pub room_id: Uuid,
+    pub from_actor: String,
+    pub to_actor: Option<String>,
+    pub body: String,
+    pub outcome_standard: Option<OutcomeStandard>,
+    pub parent_message_id: Option<i64>,
+    pub thread_root_message_id: Option<i64>,
+    pub client_command_id: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub legacy_read_at: Option<DateTime<Utc>>,
+}
+
+impl RoomMessageRow {
+    pub fn effective_thread_root_id(&self) -> i64 {
+        self.thread_root_message_id.unwrap_or(self.id)
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RoomMessagePage {
+    pub messages: Vec<RoomMessageRow>,
+    pub next_after_message_id: Option<i64>,
+    pub has_more: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RoomMessageSendResult {
+    pub message: RoomMessageRow,
+    /// Cursor in the existing compactable OrgIntel operational event stream.
+    pub event_id: i64,
+    /// False means the same actor retried the same command with the identical
+    /// payload and received the original authoritative result.
+    pub created: bool,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct RoomReadCursorRow {
+    pub room_id: Uuid,
+    pub actor_id: String,
+    pub last_read_message_id: Option<i64>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct CollaborationEventRow {
+    pub id: i64,
+    pub kind: String,
+    pub room_id: Uuid,
+    pub actor_id: String,
+    pub message_id: Option<i64>,
+    pub body: serde_json::Value,
+    pub created_at: DateTime<Utc>,
 }
 
 /// One bounded external fact linked to Work through its ordinary message

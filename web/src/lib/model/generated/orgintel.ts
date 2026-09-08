@@ -83,13 +83,17 @@ brief: string, outcome_standard: OutcomeStandard, outcome_standard_source: Outco
 
 export type ActorRow = { id: string,
 /**
- * Small principal class used for filtering and trust/presentation:
- * `owner`, `exec`, `staff`, or `system`.
+ * Historical compatibility kind: `owner`, `exec`, `staff`, `system`, or
+ * `human`. New trust/presentation decisions use `actor_class`.
  */
 kind: string,
 /**
- * Durable organisational craft/responsibility, separate from actor class
- * and current team relation.
+ * Canonical principal class, independent of organisational responsibility.
+ */
+actor_class: string,
+/**
+ * Durable organisational craft/responsibility, separate from principal
+ * class, authentication membership, and current team relation.
  */
 role: string, display: string,
 /**

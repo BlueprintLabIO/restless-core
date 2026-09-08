@@ -8,7 +8,7 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
-for command in cargo curl docker git jq npm; do
+for command in cargo curl docker git jq node npm; do
   command -v "$command" >/dev/null || { echo "missing required command: $command" >&2; exit 1; }
 done
 if [[ -n "$(git status --porcelain)" ]]; then
@@ -26,6 +26,7 @@ company="core27_network_${run_id}_test"
 registry_port="${RESTLESS_NETWORK_TEST_REGISTRY_PORT:-15000}"
 postgres_port="${RESTLESS_NETWORK_TEST_POSTGRES_PORT:-15432}"
 plane_port="${RESTLESS_NETWORK_TEST_PLANE_PORT:-17888}"
+jwks_port="${RESTLESS_NETWORK_TEST_JWKS_PORT:-17889}"
 port_offset="${RESTLESS_NETWORK_TEST_PORT_OFFSET:-7000}"
 coordinator_port="$((7791 + port_offset))"
 prefix="restless-core27-${run_id}"
@@ -37,10 +38,12 @@ cell_volume="restless-vol-${company}"
 scratch="$(mktemp -d "/tmp/${prefix}.XXXXXX")"
 home="${scratch}/home"
 daemon_pid=""
+jwks_pid=""
 
 cleanup() {
   set +e
   if [[ -n "$daemon_pid" ]]; then kill "$daemon_pid" 2>/dev/null; wait "$daemon_pid" 2>/dev/null; fi
+  if [[ -n "$jwks_pid" ]]; then kill "$jwks_pid" 2>/dev/null; wait "$jwks_pid" 2>/dev/null; fi
   docker rm -f "$cell" "$postgres" "$registry" >/dev/null 2>&1
   docker volume rm "$cell_volume" >/dev/null 2>&1
   docker network rm "$network" >/dev/null 2>&1
@@ -94,17 +97,35 @@ export RESTLESS_HOME="$home"
 export RESTLESS_PORT_OFFSET="$port_offset"
 export RESTLESS_OWNER_ADDR="0.0.0.0:${plane_port}"
 export RESTLESS_ENTRY_MODE=network
-export RESTLESS_ENTRY_ISSUER=core27-test-issuer
-export RESTLESS_ENTRY_AUDIENCE=core27-test-plane
-export RESTLESS_ENTRY_PLANE=core27-test-plane
-export RESTLESS_ENTRY_HOST=localhost
-export RESTLESS_ENTRY_KEYS=v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-export RESTLESS_ENTRY_ACTIVE_KID=v1
+export RESTLESS_ENTRY_ALLOW_INSECURE_HTTP=1
+export RESTLESS_ENTRY_ISSUER="http://localhost:${jwks_port}"
+export RESTLESS_ENTRY_JWKS_URL="http://localhost:${jwks_port}/.well-known/jwks.json"
+export RESTLESS_ENTRY_OWNER_ID=018f0000-0000-7000-8000-000000000001
+export RESTLESS_ENTRY_PLANE_ID=018f0000-0000-7000-8000-000000000002
+export RESTLESS_ENTRY_HOST=restless.localhost
+export RESTLESS_ENTRY_TEST_SIGNING_KEY_B64=BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=
+export RESTLESS_ENTRY_TEST_SIGNING_KEY_ID=core27-test-v1
+export RESTLESS_ENTRY_TEST_COMPANY_ID=018f0000-0000-7000-8000-000000000003
+export RESTLESS_ENTRY_TEST_CELL_ID=018f0000-0000-7000-8000-000000000004
+export RESTLESS_ENTRY_TEST_MEMBERSHIP_ID=core27-test-membership
+mkdir -p "$scratch/.well-known"
+cat >"$scratch/.well-known/jwks.json" <<'EOF'
+{"keys":[{"kty":"OKP","crv":"Ed25519","alg":"EdDSA","use":"sig","kid":"core27-test-v1","x":"6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw"}]}
+EOF
+node -e 'const http=require("node:http"),fs=require("node:fs"),path=require("node:path");const root=process.argv[1],port=Number(process.argv[2]);http.createServer((request,response)=>{const file=path.join(root,request.url);if(request.url!=="/.well-known/jwks.json"){response.writeHead(404).end();return}response.writeHead(200,{"content-type":"application/json"});response.end(fs.readFileSync(file))}).listen(port,"127.0.0.1")' "$scratch" "$jwks_port" &
+jwks_pid="$!"
+for _ in {1..30}; do
+  curl -fsS "http://localhost:${jwks_port}/.well-known/jwks.json" >/dev/null 2>&1 && break
+  kill -0 "$jwks_pid" 2>/dev/null || { echo "test JWKS server exited" >&2; exit 1; }
+  sleep 1
+done
 export RESTLESS_COMPANY_IMAGE="$runtime_ref"
 target/release/restlessd >"$scratch/plane.log" 2>&1 &
 daemon_pid="$!"
+plane_url="http://restless.localhost:${plane_port}"
 for _ in {1..30}; do
-  curl -fsS "http://localhost:${plane_port}/health" >"$scratch/plane-health.json" 2>/dev/null && break
+  curl -fsS --resolve "restless.localhost:${plane_port}:127.0.0.1" \
+    "${plane_url}/health" >"$scratch/plane-health.json" 2>/dev/null && break
   kill -0 "$daemon_pid" 2>/dev/null || { cat "$scratch/plane.log" >&2; exit 1; }
   sleep 1
 done
@@ -112,23 +133,22 @@ jq -e --arg revision "$revision" '.release.source_revision == $revision' "$scrat
 
 target/release/restlessd mint-entry-assertion >"$scratch/assertion.txt"
 chmod 0600 "$scratch/assertion.txt"
-jq -n --arg assertion "$(tail -1 "$scratch/assertion.txt")" '{assertion:$assertion}' >"$scratch/entry.json"
-curl -fsS -c "$scratch/cookies.txt" -H 'Content-Type: application/json' \
-  -H "Origin: http://localhost:${plane_port}" \
-  --data-binary "@$scratch/entry.json" "http://localhost:${plane_port}/entry" >/dev/null
+curl -fsS --resolve "restless.localhost:${plane_port}:127.0.0.1" \
+  -c "$scratch/cookies.txt" -H 'Content-Type: application/x-www-form-urlencoded' \
+  --data-urlencode "assertion=$(tail -1 "$scratch/assertion.txt")" "${plane_url}/entry" >/dev/null
 session_token="$(awk '$6 == "restless_session" { print $7; exit }' "$scratch/cookies.txt")"
 [[ -n "$session_token" ]] || { echo "entry exchange did not establish a browser session" >&2; exit 1; }
 # Production sessions are Secure. curl correctly refuses to replay that cookie
 # over this harness's loopback HTTP endpoint, so make the test-only replay
 # explicit instead of weakening the production cookie.
 session_header="Cookie: restless_session=${session_token}"
-curl -fsS -H "$session_header" \
-  "http://localhost:${plane_port}/api/companies/${company}/cockpit" >"$scratch/cockpit-asleep.json"
+curl -fsS --resolve "restless.localhost:${plane_port}:127.0.0.1" -H "$session_header" \
+  "${plane_url}/api/companies/${company}/cockpit" >"$scratch/cockpit-asleep.json"
 
 echo "release revision: $revision"
 echo "account plane:    $plane_ref"
 echo "Runtime:          $runtime_ref"
-echo "cockpit:          http://localhost:${plane_port}/${company}"
+echo "cockpit:          ${plane_url}/${company}"
 echo "test assertion:   $scratch/assertion.txt"
 echo "sleeping cockpit probe: PASS"
 
@@ -147,8 +167,8 @@ for _ in {1..30}; do
   sleep 1
 done
 jq -e --arg revision "$revision" '.release.source_revision == $revision' "$scratch/cell-health.json" >/dev/null
-curl -fsS -H "$session_header" \
-  "http://localhost:${plane_port}/api/companies/${company}/cockpit" >"$scratch/cockpit-awake.json"
+curl -fsS --resolve "restless.localhost:${plane_port}:127.0.0.1" -H "$session_header" \
+  "${plane_url}/api/companies/${company}/cockpit" >"$scratch/cockpit-awake.json"
 echo "awake Runtime health and cockpit probes: PASS"
 
 if [[ "${RESTLESS_NETWORK_TEST_KEEP_RUNNING:-1}" == 1 ]]; then

@@ -177,6 +177,150 @@ impl OrgIntel {
         }))
     }
 
+    /// Send one human-attributed direct conversation message. The caller must
+    /// pass the Actor id derived from the verified access context; raw IdP
+    /// subject and membership identifiers never become Message attribution.
+    ///
+    /// This compatibility API intentionally has no caller-controlled retry
+    /// key. New HTTP commands should use `send_room_message_with_standard` so
+    /// mobile/network retries are idempotent at the command boundary.
+    pub async fn send_human_conversation_message(
+        &self,
+        from_actor: &str,
+        target_actor: &str,
+        body: &str,
+        new_focus: bool,
+    ) -> Result<(i64, ConversationFocusRow)> {
+        self.send_human_conversation_message_with_standard(
+            from_actor,
+            target_actor,
+            body,
+            new_focus,
+            None,
+        )
+        .await
+    }
+
+    /// Human direct conversation with a composer-level outcome standard. A
+    /// focus boundary is scoped to this direct Room, so one human cannot erase
+    /// another person's context window for the same persistent agent.
+    pub async fn send_human_conversation_message_with_standard(
+        &self,
+        from_actor: &str,
+        target_actor: &str,
+        body: &str,
+        new_focus: bool,
+        outcome_standard: Option<OutcomeStandard>,
+    ) -> Result<(i64, ConversationFocusRow)> {
+        let from_actor = from_actor.trim();
+        let target_actor = target_actor.trim();
+        if from_actor.is_empty() || target_actor.is_empty() || from_actor == target_actor {
+            return Err(OrgIntelError::InvalidRoom(
+                "a human direct conversation needs two distinct stable Actors".into(),
+            ));
+        }
+        if body.trim().is_empty() || body.len() > 64 * 1024 {
+            return Err(OrgIntelError::InvalidRoom(
+                "a human conversation message needs 1 to 65536 bytes".into(),
+            ));
+        }
+        let human_is_active: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM actors \
+             WHERE id=$1 AND actor_class='human' AND retired_at IS NULL)",
+        )
+        .bind(from_actor)
+        .fetch_one(&self.pool)
+        .await?;
+        if !human_is_active {
+            return Err(OrgIntelError::RoomAccessDenied(
+                "the authenticated sender is not an active human Actor".into(),
+            ));
+        }
+
+        let room = self
+            .create_room(
+                from_actor,
+                RoomKind::Direct,
+                "Direct conversation",
+                &[target_actor],
+            )
+            .await?;
+        let mut tx = self.pool.begin().await?;
+        // Lock the audience row through the Message commit so removal/archive
+        // cannot race a send that was authorized against stale membership.
+        crate::rooms::active_room_kind(&mut tx, room.id, from_actor).await?;
+
+        if new_focus {
+            let after_message_id: Option<i64> =
+                sqlx::query_scalar("SELECT MAX(id) FROM messages WHERE room_id=$1")
+                    .bind(room.id)
+                    .fetch_one(&mut *tx)
+                    .await?;
+            sqlx::query(
+                "INSERT INTO room_conversation_focus \
+                 (room_id,target_actor_id,after_message_id,started_at) \
+                 VALUES ($1,$2,$3,now()) \
+                 ON CONFLICT (room_id,target_actor_id) DO UPDATE \
+                   SET after_message_id=EXCLUDED.after_message_id,started_at=now()",
+            )
+            .bind(room.id)
+            .bind(target_actor)
+            .bind(after_message_id)
+            .execute(&mut *tx)
+            .await?;
+
+            // Preserve the established owner/agent wake projection until all
+            // model-context consumers move to Room-scoped focus.
+            if from_actor == "owner" {
+                sqlx::query(
+                    "UPDATE actors SET conversation_focus_after_message_id=COALESCE($2,0), \
+                            conversation_focus_started_at=now() \
+                     WHERE id=$1 AND retired_at IS NULL",
+                )
+                .bind(target_actor)
+                .bind(after_message_id)
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+
+        let message_id: i64 = sqlx::query_scalar(
+            "INSERT INTO messages (room_id,from_actor,to_actor,body,outcome_standard) \
+             VALUES ($1,$2,$3,$4,$5) RETURNING id",
+        )
+        .bind(room.id)
+        .bind(from_actor)
+        .bind((target_actor != "owner").then_some(target_actor))
+        .bind(body)
+        .bind(outcome_standard)
+        .fetch_one(&mut *tx)
+        .await?;
+        let focus = sqlx::query_as(
+            "SELECT COALESCE(focus.after_message_id, \
+                     CASE WHEN $3='owner' THEN target.conversation_focus_after_message_id ELSE 0 END) \
+                       AS after_message_id, \
+                    COALESCE(focus.started_at, \
+                     CASE WHEN $3='owner' THEN target.conversation_focus_started_at END) \
+                       AS started_at \
+             FROM actors target \
+             LEFT JOIN room_conversation_focus focus \
+               ON focus.room_id=$1 AND focus.target_actor_id=target.id \
+             WHERE target.id=$2 AND target.retired_at IS NULL",
+        )
+        .bind(room.id)
+        .bind(target_actor)
+        .bind(from_actor)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| {
+            OrgIntelError::InvalidRoom(format!(
+                "active conversation target {target_actor:?} does not exist"
+            ))
+        })?;
+        tx.commit().await?;
+        Ok((message_id, focus))
+    }
+
     /// Send ordinary owner conversation, optionally moving the actor's one
     /// working-context cursor to the end of the existing transcript first.
     /// The cursor changes what a future model wake carries, never what the
@@ -201,55 +345,14 @@ impl OrgIntel {
         new_focus: bool,
         outcome_standard: Option<OutcomeStandard>,
     ) -> Result<(i64, ConversationFocusRow)> {
-        let mut tx = self.pool.begin().await?;
-        if new_focus {
-            let after_message_id: i64 = sqlx::query_scalar(
-                "SELECT COALESCE(MAX(id), 0) FROM messages \
-                 WHERE (from_actor='owner' AND to_actor=$1) \
-                    OR (from_actor=$1 AND to_actor IS NULL)",
-            )
-            .bind(actor)
-            .fetch_one(&mut *tx)
-            .await?;
-            let changed = sqlx::query(
-                "UPDATE actors SET conversation_focus_after_message_id=$2, \
-                         conversation_focus_started_at=now() \
-                 WHERE id=$1 AND retired_at IS NULL",
-            )
-            .bind(actor)
-            .bind(after_message_id)
-            .execute(&mut *tx)
-            .await?;
-            if changed.rows_affected() != 1 {
-                return Err(OrgIntelError::InvalidWork(format!(
-                    "active conversation actor {actor:?} does not exist"
-                )));
-            }
-        }
-        let id: i64 = sqlx::query_scalar(
-            "INSERT INTO messages (from_actor,to_actor,body,outcome_standard) \
-             VALUES ('owner',$1,$2,$3) RETURNING id",
+        self.send_human_conversation_message_with_standard(
+            "owner",
+            actor,
+            body,
+            new_focus,
+            outcome_standard,
         )
-        .bind(actor)
-        .bind(body)
-        .bind(outcome_standard)
-        .fetch_one(&mut *tx)
-        .await?;
-        let focus = sqlx::query_as(
-            "SELECT conversation_focus_after_message_id AS after_message_id, \
-                    conversation_focus_started_at AS started_at \
-             FROM actors WHERE id=$1 AND retired_at IS NULL",
-        )
-        .bind(actor)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or_else(|| {
-            OrgIntelError::InvalidWork(format!(
-                "active conversation actor {actor:?} does not exist"
-            ))
-        })?;
-        tx.commit().await?;
-        Ok((id, focus))
+        .await
     }
 
     /// Send ordinary free-form conversation and link it to the Work it changes.
@@ -454,11 +557,13 @@ impl OrgIntel {
         Ok(id)
     }
 
-    /// The owner/actor messages linked to one Work item. This keeps the review
-    /// conversation focused without inventing a thread entity.
-    pub async fn owner_work_conversation(
+    /// One verified human/producer direct-Room conversation linked to Work.
+    /// The Work owner remains authoritative; the human Actor is attribution,
+    /// not an implicit ownership or Authority grant.
+    pub async fn human_work_conversation(
         &self,
-        actor: &str,
+        human_actor: &str,
+        target_actor: &str,
         work_id: Uuid,
         limit: i64,
     ) -> Result<Vec<MessageRow>> {
@@ -466,33 +571,56 @@ impl OrgIntel {
             .bind(work_id)
             .fetch_one(&self.pool)
             .await?;
-        if owner != actor {
+        if owner != target_actor {
             return Err(OrgIntelError::InvalidWork(format!(
-                "Work {work_id} belongs to {owner:?}, not conversation actor {actor:?}"
+                "Work {work_id} belongs to {owner:?}, not conversation actor {target_actor:?}"
             )));
         }
+        let Some(room_id) = self
+            .active_human_direct_room_id(human_actor, target_actor)
+            .await?
+        else {
+            return Ok(Vec::new());
+        };
         Ok(sqlx::query_as(
             "SELECT id,from_actor,to_actor,body,outcome_standard,created_at,read_at FROM (\
                SELECT m.id,m.from_actor,m.to_actor,m.body,m.outcome_standard,m.created_at,m.read_at \
                FROM messages m JOIN work_feedback f ON f.message_id=m.id \
-               WHERE f.work_id=$1 AND (\
-                 (m.from_actor='owner' AND m.to_actor=$2) OR \
-                 (m.from_actor=$2 AND m.to_actor IS NULL)\
-               ) ORDER BY m.created_at DESC,m.id DESC LIMIT $3\
+               WHERE f.work_id=$1 AND m.room_id=$2 \
+               ORDER BY m.created_at DESC,m.id DESC LIMIT $3\
              ) recent ORDER BY created_at,id",
         )
         .bind(work_id)
-        .bind(actor)
+        .bind(room_id)
         .bind(limit.max(1))
         .fetch_all(&self.pool)
         .await?)
+    }
+
+    /// Owner-specific compatibility facade for the established cockpit and
+    /// agent context builders.
+    pub async fn owner_work_conversation(
+        &self,
+        actor: &str,
+        work_id: Uuid,
+        limit: i64,
+    ) -> Result<Vec<MessageRow>> {
+        self.human_work_conversation("owner", actor, work_id, limit)
+            .await
     }
 
     /// An actor's unread inbox (`None` = the owner's), oldest first.
     pub async fn inbox(&self, actor: Option<&str>) -> Result<Vec<MessageRow>> {
         Ok(sqlx::query_as(
             "SELECT id,from_actor,to_actor,body,outcome_standard,created_at,read_at FROM messages \
-             WHERE read_at IS NULL AND to_actor IS NOT DISTINCT FROM $1 ORDER BY id",
+             WHERE read_at IS NULL AND (\
+               ($1::text IS NOT NULL AND to_actor=$1) OR \
+               ($1::text IS NULL AND to_actor IS NULL AND (\
+                 room_id IS NULL OR EXISTS (\
+                   SELECT 1 FROM rooms WHERE rooms.id=messages.room_id AND rooms.kind='direct'\
+                 )\
+               ))\
+             ) ORDER BY id",
         )
         .bind(actor)
         .fetch_all(&self.pool)
@@ -578,23 +706,124 @@ impl OrgIntel {
         Ok(messages)
     }
 
-    /// Ordinary conversation between the owner and one actor, oldest first.
-    /// This is a read over the existing message rows, not a handover/thread
-    /// entity. `to_actor = NULL` is the established owner-inbox convention.
-    pub async fn owner_conversation(&self, actor: &str, limit: i64) -> Result<Vec<MessageRow>> {
+    async fn active_human_direct_room_id(
+        &self,
+        human_actor: &str,
+        target_actor: &str,
+    ) -> Result<Option<Uuid>> {
+        let canonical_key = crate::rooms::direct_room_canonical_key(human_actor, target_actor);
+        Ok(sqlx::query_scalar(
+            "SELECT room.id FROM rooms room \
+             JOIN room_participants human \
+               ON human.room_id=room.id AND human.actor_id=$2 AND human.left_at IS NULL \
+             JOIN actors human_actor ON human_actor.id=human.actor_id \
+               AND human_actor.actor_class='human' AND human_actor.retired_at IS NULL \
+             JOIN room_participants target \
+               ON target.room_id=room.id AND target.actor_id=$3 AND target.left_at IS NULL \
+             JOIN actors target_actor ON target_actor.id=target.actor_id \
+               AND target_actor.retired_at IS NULL \
+             WHERE room.canonical_key=$1 AND room.kind='direct' \
+               AND room.archived_at IS NULL",
+        )
+        .bind(canonical_key)
+        .bind(human_actor)
+        .bind(target_actor)
+        .fetch_optional(&self.pool)
+        .await?)
+    }
+
+    /// Ordinary direct conversation between one authenticated human Actor and
+    /// one company Actor, oldest first. Attribution and audience come from the
+    /// canonical Room; the historical nullable-owner recipient is only a
+    /// compatibility projection on those same Message rows.
+    pub async fn human_conversation(
+        &self,
+        human_actor: &str,
+        target_actor: &str,
+        limit: i64,
+    ) -> Result<Vec<MessageRow>> {
+        let Some(room_id) = self
+            .active_human_direct_room_id(human_actor, target_actor)
+            .await?
+        else {
+            return Ok(Vec::new());
+        };
         let limit = limit.clamp(1, 200);
         Ok(sqlx::query_as(
             "SELECT id,from_actor,to_actor,body,outcome_standard,created_at,read_at FROM (\
-               SELECT id,from_actor,to_actor,body,outcome_standard,created_at,read_at FROM messages \
-               WHERE (from_actor = 'owner' AND to_actor = $1) \
-                  OR (from_actor = $1 AND to_actor IS NULL) \
-               ORDER BY id DESC LIMIT $2\
+               SELECT id,from_actor,to_actor,body,outcome_standard,created_at,read_at \
+               FROM messages WHERE room_id=$1 ORDER BY id DESC LIMIT $2\
              ) recent ORDER BY id",
         )
-        .bind(actor)
+        .bind(room_id)
         .bind(limit)
         .fetch_all(&self.pool)
         .await?)
+    }
+
+    /// Room-scoped working-context boundary for a human/Actor direct
+    /// conversation. Missing focus is the original uninterrupted context.
+    pub async fn human_conversation_focus(
+        &self,
+        human_actor: &str,
+        target_actor: &str,
+    ) -> Result<ConversationFocusRow> {
+        let Some(room_id) = self
+            .active_human_direct_room_id(human_actor, target_actor)
+            .await?
+        else {
+            return Ok(ConversationFocusRow {
+                after_message_id: 0,
+                started_at: None,
+            });
+        };
+        Ok(sqlx::query_as(
+            "SELECT COALESCE(after_message_id,0) AS after_message_id,started_at \
+             FROM room_conversation_focus WHERE room_id=$1 AND target_actor_id=$2",
+        )
+        .bind(room_id)
+        .bind(target_actor)
+        .fetch_optional(&self.pool)
+        .await?
+        .unwrap_or(ConversationFocusRow {
+            after_message_id: 0,
+            started_at: None,
+        }))
+    }
+
+    /// Bounded direct-Room transcript newer than one per-human focus cursor.
+    pub async fn human_conversation_since(
+        &self,
+        human_actor: &str,
+        target_actor: &str,
+        after_message_id: i64,
+        limit: i64,
+    ) -> Result<Vec<MessageRow>> {
+        let Some(room_id) = self
+            .active_human_direct_room_id(human_actor, target_actor)
+            .await?
+        else {
+            return Ok(Vec::new());
+        };
+        let limit = limit.clamp(1, 200);
+        Ok(sqlx::query_as(
+            "SELECT id,from_actor,to_actor,body,outcome_standard,created_at,read_at FROM (\
+               SELECT id,from_actor,to_actor,body,outcome_standard,created_at,read_at \
+               FROM messages WHERE room_id=$1 AND id>$2 \
+               ORDER BY id DESC LIMIT $3\
+             ) recent ORDER BY id",
+        )
+        .bind(room_id)
+        .bind(after_message_id.max(0))
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    /// Ordinary conversation between the owner and one actor, oldest first.
+    /// This remains as the owner-specific compatibility facade.
+    pub async fn owner_conversation(&self, actor: &str, limit: i64) -> Result<Vec<MessageRow>> {
+        self.human_conversation("owner", actor, limit).await
     }
 
     /// Current working-context boundary for the owner's conversation with one
@@ -661,20 +890,8 @@ impl OrgIntel {
         after_message_id: i64,
         limit: i64,
     ) -> Result<Vec<MessageRow>> {
-        let limit = limit.clamp(1, 200);
-        Ok(sqlx::query_as(
-            "SELECT id,from_actor,to_actor,body,outcome_standard,created_at,read_at FROM (\
-               SELECT id,from_actor,to_actor,body,outcome_standard,created_at,read_at FROM messages \
-               WHERE id>$2 AND ((from_actor='owner' AND to_actor=$1) \
-                            OR (from_actor=$1 AND to_actor IS NULL)) \
-               ORDER BY id DESC LIMIT $3\
-             ) recent ORDER BY id",
-        )
-        .bind(actor)
-        .bind(after_message_id.max(0))
-        .bind(limit)
-        .fetch_all(&self.pool)
-        .await?)
+        self.human_conversation_since("owner", actor, after_message_id, limit)
+            .await
     }
 
     pub async fn mark_read(&self, message_id: i64) -> Result<()> {
