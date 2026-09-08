@@ -1660,34 +1660,82 @@ async fn access_in_transaction(
     document_id: Uuid,
     actor_id: &str,
 ) -> DocumentResult<Option<DocumentAccess>> {
-    Ok(sqlx::query_scalar(
-        "SELECT CASE \
-           WHEN a.id IS NULL THEN NULL \
-           WHEN d.owner_actor_id=$2 THEN 'edit'::native_document_access \
-           WHEN p.access='edit' THEN 'edit'::native_document_access \
-           WHEN p.access='comment' THEN 'comment'::native_document_access \
-           WHEN p.access='read' THEN 'read'::native_document_access \
-           WHEN d.visibility='company' AND a.actor_class='human' \
-             THEN 'read'::native_document_access \
-           WHEN d.visibility='participants' AND d.inherit_room_visibility \
-             AND EXISTS(\
-               SELECT 1 FROM rooms room \
-               JOIN room_participants rp ON rp.room_id=room.id \
-               WHERE room.id=d.linked_room_id AND room.archived_at IS NULL \
-                 AND rp.actor_id=$2 AND rp.left_at IS NULL\
-             ) THEN 'read'::native_document_access \
-           ELSE NULL END \
-         FROM native_documents d \
-         LEFT JOIN actors a ON a.id=$2 AND a.retired_at IS NULL \
-         LEFT JOIN native_document_participants p \
-           ON p.document_id=d.id AND p.actor_id=$2 AND p.removed_at IS NULL \
-         WHERE d.id=$1",
+    // Reads and writes both serialize first on the document. In particular,
+    // participant revocation and named-version creation take this row FOR
+    // UPDATE, so neither can split an authorized projection into an old access
+    // decision followed by post-revocation content at READ COMMITTED.
+    let document: Option<(String, DocumentVisibility, Option<Uuid>, bool)> = sqlx::query_as(
+        "SELECT owner_actor_id,visibility,linked_room_id,inherit_room_visibility \
+         FROM native_documents WHERE id=$1 FOR SHARE",
+    )
+    .bind(document_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    let Some((owner_actor_id, visibility, linked_room_id, inherit_room_visibility)) = document
+    else {
+        return Ok(None);
+    };
+
+    // Actor retirement is another access revocation. Hold the same Actor row
+    // that retirement updates until the caller has finished its projection.
+    let actor_class: Option<String> = sqlx::query_scalar(
+        "SELECT actor_class FROM actors WHERE id=$1 AND retired_at IS NULL FOR SHARE",
+    )
+    .bind(actor_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    let Some(actor_class) = actor_class else {
+        return Ok(None);
+    };
+
+    if owner_actor_id == actor_id {
+        return Ok(Some(DocumentAccess::Edit));
+    }
+
+    // Document-participant mutations already take the document row FOR UPDATE
+    // before touching this row. The explicit row lock also documents the exact
+    // access fact retained by this transaction.
+    let explicit_access: Option<DocumentAccess> = sqlx::query_scalar(
+        "SELECT access FROM native_document_participants \
+         WHERE document_id=$1 AND actor_id=$2 AND removed_at IS NULL FOR SHARE",
     )
     .bind(document_id)
     .bind(actor_id)
     .fetch_optional(&mut **tx)
-    .await?
-    .flatten())
+    .await?;
+    if explicit_access.is_some() {
+        return Ok(explicit_access);
+    }
+
+    if visibility == DocumentVisibility::Company && actor_class == "human" {
+        return Ok(Some(DocumentAccess::Read));
+    }
+
+    if visibility == DocumentVisibility::Participants && inherit_room_visibility {
+        let Some(room_id) = linked_room_id else {
+            return Ok(None);
+        };
+        // Room-derived authority must remain stable too. Room participant
+        // removal uses Actor -> Room, and we already hold the Actor row; taking
+        // both Room access rows here therefore makes the content read atomic
+        // with authorization without introducing the inverse lock order.
+        let inherited: Option<bool> = sqlx::query_scalar(
+            "SELECT TRUE FROM rooms room \
+             JOIN room_participants participant ON participant.room_id=room.id \
+             WHERE room.id=$1 AND participant.actor_id=$2 \
+               AND room.archived_at IS NULL AND participant.left_at IS NULL \
+             FOR SHARE OF room,participant",
+        )
+        .bind(room_id)
+        .bind(actor_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+        if inherited.is_some() {
+            return Ok(Some(DocumentAccess::Read));
+        }
+    }
+
+    Ok(None)
 }
 
 async fn require_access(

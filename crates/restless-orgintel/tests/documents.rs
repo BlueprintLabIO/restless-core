@@ -10,6 +10,8 @@ use restless_orgintel::{
 };
 use serde_json::{json, Value};
 use sqlx::{Connection as _, PgConnection};
+use std::time::Duration;
+use tokio::time::{sleep, timeout};
 use uuid::Uuid;
 
 #[derive(Debug, sqlx::FromRow)]
@@ -65,6 +67,47 @@ async fn document_events(
     .fetch_all(connection)
     .await
     .unwrap()
+}
+
+async fn schema_connection(database_url: &str, schema: &str) -> PgConnection {
+    let mut connection = PgConnection::connect(database_url).await.unwrap();
+    sqlx::query(&format!("SET search_path TO {schema}"))
+        .execute(&mut connection)
+        .await
+        .unwrap();
+    connection
+}
+
+/// Wait until the real read path demonstrably holds the document row FOR
+/// SHARE. A probe FOR UPDATE times out only after that lock is present; unlike
+/// a sleep, this makes the revocation interleaving deterministic on slow CI.
+async fn wait_for_document_reader_lock(database_url: &str, schema: &str, document_id: Uuid) {
+    let mut probe = schema_connection(database_url, schema).await;
+    sqlx::query("SET lock_timeout = '25ms'")
+        .execute(&mut probe)
+        .await
+        .unwrap();
+    for _ in 0..80 {
+        match sqlx::query("SELECT id FROM native_documents WHERE id=$1 FOR UPDATE")
+            .bind(document_id)
+            .fetch_optional(&mut probe)
+            .await
+        {
+            Err(error)
+                if error
+                    .as_database_error()
+                    .and_then(|database| database.code())
+                    .as_deref()
+                    == Some("55P03") =>
+            {
+                return;
+            }
+            Ok(Some(_)) => sleep(Duration::from_millis(10)).await,
+            Ok(None) => panic!("document disappeared while waiting for its reader lock"),
+            Err(error) => panic!("document reader lock probe failed: {error}"),
+        }
+    }
+    panic!("document read did not acquire its authorization lock");
 }
 
 fn assert_body_free_event_hint(value: &Value) {
@@ -620,6 +663,183 @@ async fn company_visibility_is_human_readable_not_agent_global() {
         })
         .await,
         Err(DocumentError::Invalid(_))
+    ));
+}
+
+#[tokio::test]
+async fn explicit_revocation_cannot_split_authorization_from_current_version_read() {
+    let Some(org) = company("documentaccessrace").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping document access race scenario");
+        return;
+    };
+    let database_url = std::env::var("RESTLESS_TEST_DATABASE_URL").unwrap();
+    let first_content = content("before-revocation", "Visible before revocation");
+    let created = org
+        .create_document(NewDocument {
+            title: "Revocation boundary",
+            kind: DocumentKind::DecisionNote,
+            visibility: DocumentVisibility::Participants,
+            linked_room_id: None,
+            inherit_room_visibility: false,
+            owner_actor_id: "owner",
+            created_by_actor_id: "owner",
+            content_json: &first_content,
+            reason: "Establish the authorized version",
+        })
+        .await
+        .unwrap();
+    let document_id = created.document.id;
+    let first_version_id = created.current_version.version.id;
+    org.set_document_participant(SetDocumentParticipant {
+        document_id,
+        actor_id: "owner",
+        expected_document_version: 1,
+        participant_actor_id: "blair",
+        access: DocumentAccess::Read,
+    })
+    .await
+    .unwrap();
+
+    // Stall the real getter only after it has locked the document but before it
+    // can finish authorization. Revocation must then wait on that document
+    // snapshot instead of committing between authorization and content read.
+    let mut actor_blocker = schema_connection(&database_url, org.schema()).await;
+    let mut actor_lock = actor_blocker.begin().await.unwrap();
+    sqlx::query("SELECT id FROM actors WHERE id='blair' FOR UPDATE")
+        .fetch_one(&mut *actor_lock)
+        .await
+        .unwrap();
+    let reading = org.clone();
+    let reader =
+        tokio::spawn(async move { reading.get_document_for_actor(document_id, "blair").await });
+    wait_for_document_reader_lock(&database_url, org.schema(), document_id).await;
+
+    let revoking = org.clone();
+    let mut revocation = tokio::spawn(async move {
+        revoking
+            .remove_document_participant(document_id, "owner", "blair", 2)
+            .await
+    });
+    assert!(
+        timeout(Duration::from_millis(100), &mut revocation)
+            .await
+            .is_err(),
+        "participant revocation crossed the in-flight authorized read"
+    );
+
+    actor_lock.commit().await.unwrap();
+    let observed = timeout(Duration::from_secs(5), reader)
+        .await
+        .expect("authorized read should finish")
+        .unwrap()
+        .unwrap();
+    timeout(Duration::from_secs(5), revocation)
+        .await
+        .expect("revocation should finish after the read")
+        .unwrap()
+        .unwrap();
+
+    let post_revocation = content("after-revocation", "Created only after revocation");
+    org.create_named_document_version(NewNamedDocumentVersion {
+        document_id,
+        actor_id: "owner",
+        expected_current_version_id: first_version_id,
+        content_json: &post_revocation,
+        reason: "Prove revoked readers cannot cross the version boundary",
+    })
+    .await
+    .unwrap();
+    assert_eq!(observed.current_version.version.id, first_version_id);
+    assert_eq!(observed.current_version.version.content_json, first_content);
+    assert!(matches!(
+        org.get_document_for_actor(document_id, "blair").await,
+        Err(DocumentError::Unavailable)
+    ));
+}
+
+#[tokio::test]
+async fn room_inherited_revocation_cannot_split_authorization_from_content_read() {
+    let Some(org) = company("documentroomrace").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping inherited access race scenario");
+        return;
+    };
+    let database_url = std::env::var("RESTLESS_TEST_DATABASE_URL").unwrap();
+    let room = org
+        .create_room("owner", RoomKind::Group, "Revocation room", &["blair"])
+        .await
+        .unwrap();
+    let first_content = content("room-before", "Visible while in the Room");
+    let created = org
+        .create_document(NewDocument {
+            title: "Inherited revocation boundary",
+            kind: DocumentKind::Brief,
+            visibility: DocumentVisibility::Participants,
+            linked_room_id: Some(room.id),
+            inherit_room_visibility: true,
+            owner_actor_id: "owner",
+            created_by_actor_id: "owner",
+            content_json: &first_content,
+            reason: "Establish inherited access",
+        })
+        .await
+        .unwrap();
+    let document_id = created.document.id;
+    let first_version_id = created.current_version.version.id;
+
+    // Room removal serializes Actor -> Room. The document read takes Document
+    // -> Actor -> Room, so queuing the reader first proves the inherited access
+    // facts stay live until its exact content projection completes.
+    let mut actor_blocker = schema_connection(&database_url, org.schema()).await;
+    let mut actor_lock = actor_blocker.begin().await.unwrap();
+    sqlx::query("SELECT id FROM actors WHERE id='blair' FOR UPDATE")
+        .fetch_one(&mut *actor_lock)
+        .await
+        .unwrap();
+    let reading = org.clone();
+    let reader =
+        tokio::spawn(async move { reading.get_document_for_actor(document_id, "blair").await });
+    wait_for_document_reader_lock(&database_url, org.schema(), document_id).await;
+
+    let removing = org.clone();
+    let mut removal = tokio::spawn(async move {
+        removing
+            .remove_room_participant("owner", room.id, "blair")
+            .await
+    });
+    assert!(
+        timeout(Duration::from_millis(100), &mut removal)
+            .await
+            .is_err(),
+        "Room access revocation crossed the in-flight authorized read"
+    );
+
+    actor_lock.commit().await.unwrap();
+    let observed = timeout(Duration::from_secs(5), reader)
+        .await
+        .expect("inherited read should finish")
+        .unwrap()
+        .unwrap();
+    timeout(Duration::from_secs(5), removal)
+        .await
+        .expect("Room removal should finish after the read")
+        .unwrap()
+        .unwrap();
+
+    let post_revocation = content("room-after", "Created after Room removal");
+    org.create_named_document_version(NewNamedDocumentVersion {
+        document_id,
+        actor_id: "owner",
+        expected_current_version_id: first_version_id,
+        content_json: &post_revocation,
+        reason: "Prove Room revocation fences later content",
+    })
+    .await
+    .unwrap();
+    assert_eq!(observed.current_version.version.id, first_version_id);
+    assert_eq!(observed.current_version.version.content_json, first_content);
+    assert!(matches!(
+        org.get_document_for_actor(document_id, "blair").await,
+        Err(DocumentError::Unavailable)
     ));
 }
 
