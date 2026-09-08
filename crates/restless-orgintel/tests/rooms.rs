@@ -267,6 +267,97 @@ async fn room_send_is_idempotent_threaded_paginated_and_transactional() {
 }
 
 #[tokio::test]
+async fn room_send_retry_keeps_its_receipt_after_event_compaction() {
+    let Some(org) = company("roomretrycompact").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping compacted Room retry scenario");
+        return;
+    };
+
+    let room = org
+        .ensure_company_room("owner", &["owner", "exec"])
+        .await
+        .unwrap();
+    let original = org
+        .send_room_message(
+            room.id,
+            "owner",
+            "The durable command result",
+            None,
+            "durable-command",
+        )
+        .await
+        .unwrap();
+    assert!(original.created);
+
+    assert_eq!(
+        org.compact_events_through(original.event_id).await.unwrap(),
+        original.event_id
+    );
+    assert!(org
+        .events_of_kind("room.message.created.v1")
+        .await
+        .unwrap()
+        .iter()
+        .all(|event| event.id != original.event_id));
+
+    let cursor_before_retry = org.event_stream_snapshot_cursor().await.unwrap();
+    let messages_before_retry = org
+        .room_messages_after("owner", room.id, None, 10)
+        .await
+        .unwrap()
+        .messages
+        .into_iter()
+        .map(|message| message.id)
+        .collect::<Vec<_>>();
+    let retry = org
+        .send_room_message(
+            room.id,
+            "owner",
+            "The durable command result",
+            None,
+            "durable-command",
+        )
+        .await
+        .unwrap();
+    assert!(!retry.created);
+    assert_eq!(retry.message.id, original.message.id);
+    assert_eq!(retry.event_id, original.event_id);
+    assert_eq!(
+        org.event_stream_snapshot_cursor().await.unwrap(),
+        cursor_before_retry,
+        "an exact retry must not append another operational event"
+    );
+    assert_eq!(
+        org.room_messages_after("owner", room.id, None, 10)
+            .await
+            .unwrap()
+            .messages
+            .into_iter()
+            .map(|message| message.id)
+            .collect::<Vec<_>>(),
+        messages_before_retry,
+        "an exact retry must not insert another authoritative Message"
+    );
+
+    let conflict = org
+        .send_room_message(
+            room.id,
+            "owner",
+            "A different payload",
+            None,
+            "durable-command",
+        )
+        .await
+        .unwrap_err();
+    assert!(conflict.to_string().contains("conflicts"));
+    assert_eq!(
+        org.event_stream_snapshot_cursor().await.unwrap(),
+        cursor_before_retry,
+        "a conflicting retry must not append an operational event"
+    );
+}
+
+#[tokio::test]
 async fn legacy_owner_conversation_and_direct_room_share_message_truth() {
     let Some(org) = company("roomcompat").await else {
         eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Rooms compatibility scenario");

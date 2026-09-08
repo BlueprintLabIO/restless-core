@@ -20,15 +20,17 @@ use axum::extract::ws::{Message as AxumMessage, WebSocket, WebSocketUpgrade};
 use axum::extract::{
     DefaultBodyLimit, Multipart, OriginalUri, Path as AxumPath, Query, Request, State,
 };
+use axum::extract::{FromRef, FromRequestParts};
 use axum::http::header::{
     CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE, COOKIE, HOST, ORIGIN, SET_COOKIE,
 };
+use axum::http::request::Parts;
 use axum::http::uri::Authority;
 use axum::http::{HeaderMap, HeaderValue, Method, Response, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Redirect};
-use axum::routing::{any, get, post};
+use axum::routing::{any, delete, get, post};
 use axum::{Extension, Json, Router};
 use chrono::{Duration as ChronoDuration, Utc};
 use futures_util::{SinkExt as _, StreamExt as _};
@@ -76,6 +78,50 @@ struct OwnerState {
     review_public_url: String,
     entry: EntryMode,
     sessions: Arc<SessionStore>,
+}
+
+/// The Room API depends only on company-scoped OrgIntel access. Keeping that
+/// dependency as an Axum substate makes it impossible for collaboration
+/// handlers to accidentally reach Runtime or Authority operations, and keeps
+/// route tests independent of unrelated global stores.
+#[derive(Clone)]
+struct RoomApiState {
+    source: RoomOrgIntelSource,
+}
+
+#[derive(Clone)]
+enum RoomOrgIntelSource {
+    Daemon(Arc<Daemon>),
+    #[cfg(test)]
+    Fixed(Arc<HashMap<String, restless_orgintel::OrgIntel>>),
+}
+
+impl FromRef<OwnerState> for RoomApiState {
+    fn from_ref(state: &OwnerState) -> Self {
+        Self {
+            source: RoomOrgIntelSource::Daemon(state.daemon.clone()),
+        }
+    }
+}
+
+impl RoomApiState {
+    async fn orgintel(&self, company: &str) -> Result<restless_orgintel::OrgIntel> {
+        match &self.source {
+            RoomOrgIntelSource::Daemon(daemon) => daemon.orgintel.get(company).await,
+            #[cfg(test)]
+            RoomOrgIntelSource::Fixed(companies) => companies
+                .get(company)
+                .cloned()
+                .with_context(|| format!("company {company:?} is not configured")),
+        }
+    }
+
+    #[cfg(test)]
+    fn fixed(companies: HashMap<String, restless_orgintel::OrgIntel>) -> Self {
+        Self {
+            source: RoomOrgIntelSource::Fixed(Arc::new(companies)),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -237,6 +283,72 @@ struct ConversationSendResponse {
     context_omitted: bool,
     focus: Option<ConversationFocusView>,
     requested_outcome_standard: Option<restless_orgintel::OutcomeStandard>,
+}
+
+/// Authenticated Room handlers use their own extractor so a missing principal
+/// remains an explicit 401 even if a future router composition accidentally
+/// omits the outer entry middleware. The value itself can only be installed by
+/// the verified entry boundary (or a route test).
+struct RoomPrincipal(RequestPrincipal);
+
+impl<S> FromRequestParts<S> for RoomPrincipal
+where
+    S: Send + Sync,
+{
+    type Rejection = Response<Body>;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> std::result::Result<Self, Self::Rejection> {
+        parts
+            .extensions
+            .get::<RequestPrincipal>()
+            .cloned()
+            .map(Self)
+            .ok_or_else(|| {
+                api_error(
+                    StatusCode::UNAUTHORIZED,
+                    "no_session",
+                    "Room access requires a verified company session",
+                )
+            })
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CreateRoomInput {
+    kind: restless_orgintel::RoomKind,
+    title: String,
+    #[serde(default)]
+    participant_actor_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RoomParticipantInput {
+    actor_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RoomMessageInput {
+    body: String,
+    command_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RoomReadCursorInput {
+    through_message_id: i64,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct RoomPageQuery {
+    after_message_id: Option<i64>,
+    limit: Option<i64>,
 }
 
 /// An explicit interruption does not manufacture a second owner message.
@@ -789,6 +901,47 @@ fn ensure_loopback(address: SocketAddr, variable: &str) -> Result<()> {
     Ok(())
 }
 
+/// Core-owned collaboration stays behind the same verified company entry
+/// boundary as the existing owner API. A smaller body ceiling applies here
+/// because Room commands are JSON metadata and bounded message text, never
+/// attachment transport.
+fn room_api_routes<S>() -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+    RoomApiState: FromRef<S>,
+{
+    Router::<S>::new()
+        .route(
+            "/companies/{company}/rooms",
+            get(list_rooms).post(create_room),
+        )
+        .route(
+            "/companies/{company}/rooms/{room}/participants",
+            get(list_room_participants).post(add_room_participant),
+        )
+        .route(
+            "/companies/{company}/rooms/{room}/participants/{actor}",
+            delete(remove_room_participant),
+        )
+        .route(
+            "/companies/{company}/rooms/{room}/messages",
+            get(list_room_messages).post(send_room_message),
+        )
+        .route(
+            "/companies/{company}/rooms/{room}/messages/{parent}/replies",
+            post(reply_to_room_message),
+        )
+        .route(
+            "/companies/{company}/rooms/{room}/threads/{message}",
+            get(list_room_thread),
+        )
+        .route(
+            "/companies/{company}/rooms/{room}/read-cursor",
+            get(get_room_read_cursor).post(mark_room_read),
+        )
+        .layer(DefaultBodyLimit::max(128 * 1024))
+}
+
 pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
     let OwnerConfig {
         address,
@@ -902,6 +1055,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(record_activity),
         )
         .route("/companies/{company}/browser/return", post(return_control))
+        .merge(room_api_routes::<OwnerState>())
         .fallback(api_not_found)
         .layer(DefaultBodyLimit::max(32 * 1024 * 1024));
 
@@ -1081,16 +1235,20 @@ async fn network_session_is_current(
 }
 
 fn membership_boundary_violation(
-    method: &Method,
+    _method: &Method,
     path: &str,
     principal: &RequestPrincipal,
 ) -> Option<BoundaryRefusal> {
-    if matches!(*method, Method::GET | Method::HEAD)
-        || principal.membership_role() == "owner"
+    if principal.membership_role() == "owner"
+        // Static shell/assets are not company data and remain governed by the
+        // outer Host/Origin/session boundary. Every API and desktop route is
+        // closed below unless it is one of the collaboration families whose
+        // handlers perform their own principal and audience authorization.
+        || !is_owner_data_surface(path)
         || path == "/entry/logout"
-        || path.contains("/conversation")
-        || path.contains("/rooms")
-        || path.contains("/documents")
+        || is_actor_conversation_route(path)
+        || is_company_route_family(path, "rooms")
+        || is_company_route_family(path, "documents")
     {
         return None;
     }
@@ -1099,6 +1257,33 @@ fn membership_boundary_violation(
         code: "membership_role",
         message: "this membership may collaborate but may not perform owner operations",
     })
+}
+
+fn is_owner_data_surface(path: &str) -> bool {
+    path == "/api"
+        || path.starts_with("/api/")
+        || path == "/desktop"
+        || path.starts_with("/desktop/")
+}
+
+fn is_company_route_family(path: &str, family: &str) -> bool {
+    let Some(rest) = path.strip_prefix("/api/companies/") else {
+        return false;
+    };
+    let mut segments = rest.split('/');
+    segments.next().is_some_and(|company| !company.is_empty()) && segments.next() == Some(family)
+}
+
+fn is_actor_conversation_route(path: &str) -> bool {
+    let Some(rest) = path.strip_prefix("/api/companies/") else {
+        return false;
+    };
+    let mut segments = rest.split('/');
+    segments.next().is_some_and(|company| !company.is_empty())
+        && segments.next() == Some("actors")
+        && segments.next().is_some_and(|actor| !actor.is_empty())
+        && segments.next() == Some("conversation")
+        && segments.next().is_none()
 }
 
 struct BoundaryRefusal {
@@ -2844,6 +3029,374 @@ fn render_conversation_bindings() -> String {
     rendered.truncate(rendered.trim_end_matches('\n').len());
     rendered.push('\n');
     rendered
+}
+
+async fn room_orgintel(
+    state: &RoomApiState,
+    principal: &RequestPrincipal,
+    company: &str,
+) -> std::result::Result<restless_orgintel::OrgIntel, Response<Body>> {
+    // The outer entry middleware makes this same decision before routing. Keep
+    // it here too: a Room handler must remain company-scoped if it is ever
+    // mounted in another internal/test router.
+    if !principal.permits_company(company) {
+        return Err(api_error(
+            StatusCode::FORBIDDEN,
+            "company_out_of_scope",
+            "this session is not scoped to that company",
+        ));
+    }
+    let org = state.orgintel(company).await.map_err(|error| {
+        tracing::error!(%error, company, "could not open company collaboration store");
+        api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "orgintel",
+            "company collaboration is temporarily unavailable",
+        )
+    })?;
+    match org.active_actor(principal.actor_id()).await {
+        Ok(Some(actor)) if actor.actor_class == "human" => Ok(org),
+        Ok(_) => Err(api_error(
+            StatusCode::FORBIDDEN,
+            "request_principal",
+            "the verified request principal is not an active human Actor",
+        )),
+        Err(error) => {
+            tracing::error!(%error, company, actor = principal.actor_id(), "could not resolve Room principal");
+            Err(api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                "company collaboration is temporarily unavailable",
+            ))
+        }
+    }
+}
+
+fn room_error(error: restless_orgintel::OrgIntelError) -> Response<Body> {
+    match error {
+        restless_orgintel::OrgIntelError::InvalidRoom(message) => {
+            api_error(StatusCode::BAD_REQUEST, "room", message)
+        }
+        restless_orgintel::OrgIntelError::RoomAccessDenied(_) => api_error(
+            StatusCode::FORBIDDEN,
+            "room_access",
+            "the active Actor is not permitted to perform this Room operation",
+        ),
+        restless_orgintel::OrgIntelError::RoomCommandConflict(message) => {
+            api_error(StatusCode::CONFLICT, "room_command", message)
+        }
+        restless_orgintel::OrgIntelError::InvalidEventCursor(message) => {
+            api_error(StatusCode::BAD_REQUEST, "event_cursor", message)
+        }
+        error => {
+            tracing::error!(%error, "Room operation failed");
+            api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                "company collaboration is temporarily unavailable",
+            )
+        }
+    }
+}
+
+fn room_page_bounds(
+    query: RoomPageQuery,
+) -> std::result::Result<(Option<i64>, i64), (&'static str, &'static str)> {
+    if query.after_message_id.is_some_and(|cursor| cursor < 0) {
+        return Err(("message_cursor", "after_message_id must be non-negative"));
+    }
+    let limit = query.limit.unwrap_or(50);
+    if !(1..=100).contains(&limit) {
+        return Err((
+            "message_limit",
+            "Room message limit must be between 1 and 100",
+        ));
+    }
+    Ok((query.after_message_id, limit))
+}
+
+async fn list_rooms(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath(company): AxumPath<String>,
+) -> Response<Body> {
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org.list_rooms_for_actor(principal.actor_id()).await {
+        Ok(rooms) => Json(serde_json::json!({ "rooms": rooms })).into_response(),
+        Err(error) => room_error(error),
+    }
+}
+
+async fn create_room(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<CreateRoomInput>,
+) -> Response<Body> {
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    if input.kind == restless_orgintel::RoomKind::Company && principal.membership_role() != "owner"
+    {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "membership_role",
+            "only the company membership owner may establish the company Room",
+        );
+    }
+    if input
+        .participant_actor_ids
+        .iter()
+        .any(|actor| actor.len() > 256)
+    {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "room",
+            "a participant Actor id may contain at most 256 bytes",
+        );
+    }
+    let participants = input
+        .participant_actor_ids
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    match org
+        .create_room(
+            principal.actor_id(),
+            input.kind,
+            &input.title,
+            &participants,
+        )
+        .await
+    {
+        Ok(room) => Json(room).into_response(),
+        Err(error) => room_error(error),
+    }
+}
+
+async fn list_room_participants(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath((company, room)): AxumPath<(String, Uuid)>,
+) -> Response<Body> {
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org.room_participants(principal.actor_id(), room).await {
+        Ok(participants) => {
+            Json(serde_json::json!({ "participants": participants })).into_response()
+        }
+        Err(error) => room_error(error),
+    }
+}
+
+async fn add_room_participant(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath((company, room)): AxumPath<(String, Uuid)>,
+    Json(input): Json<RoomParticipantInput>,
+) -> Response<Body> {
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    if input.actor_id.len() > 256 {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "room",
+            "a participant Actor id may contain at most 256 bytes",
+        );
+    }
+    match org
+        .add_room_participant(principal.actor_id(), room, &input.actor_id)
+        .await
+    {
+        Ok(participant) => Json(participant).into_response(),
+        Err(error) => room_error(error),
+    }
+}
+
+async fn remove_room_participant(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath((company, room, actor)): AxumPath<(String, Uuid, String)>,
+) -> Response<Body> {
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    if actor.len() > 256 {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "room",
+            "a participant Actor id may contain at most 256 bytes",
+        );
+    }
+    match org
+        .remove_room_participant(principal.actor_id(), room, &actor)
+        .await
+    {
+        Ok(participant) => Json(participant).into_response(),
+        Err(error) => room_error(error),
+    }
+}
+
+async fn list_room_messages(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath((company, room)): AxumPath<(String, Uuid)>,
+    Query(query): Query<RoomPageQuery>,
+) -> Response<Body> {
+    let (after_message_id, limit) = match room_page_bounds(query) {
+        Ok(bounds) => bounds,
+        Err((error, message)) => return api_error(StatusCode::BAD_REQUEST, error, message),
+    };
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .room_messages_after(principal.actor_id(), room, after_message_id, limit)
+        .await
+    {
+        Ok(page) => Json(page).into_response(),
+        Err(error) => room_error(error),
+    }
+}
+
+async fn list_room_thread(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath((company, room, message)): AxumPath<(String, Uuid, i64)>,
+    Query(query): Query<RoomPageQuery>,
+) -> Response<Body> {
+    if message <= 0 {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "room_thread",
+            "a Room thread needs a positive message id",
+        );
+    }
+    let (after_message_id, limit) = match room_page_bounds(query) {
+        Ok(bounds) => bounds,
+        Err((error, message)) => return api_error(StatusCode::BAD_REQUEST, error, message),
+    };
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .room_thread_after(principal.actor_id(), room, message, after_message_id, limit)
+        .await
+    {
+        Ok(page) => Json(page).into_response(),
+        Err(error) => room_error(error),
+    }
+}
+
+async fn send_room_message(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath((company, room)): AxumPath<(String, Uuid)>,
+    Json(input): Json<RoomMessageInput>,
+) -> Response<Body> {
+    deliver_room_message(state, principal, company, room, None, input).await
+}
+
+async fn reply_to_room_message(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath((company, room, parent)): AxumPath<(String, Uuid, i64)>,
+    Json(input): Json<RoomMessageInput>,
+) -> Response<Body> {
+    if parent <= 0 {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "room_thread",
+            "a Room reply needs a positive parent message id",
+        );
+    }
+    deliver_room_message(state, principal, company, room, Some(parent), input).await
+}
+
+async fn deliver_room_message(
+    state: RoomApiState,
+    principal: RequestPrincipal,
+    company: String,
+    room: Uuid,
+    parent_message_id: Option<i64>,
+    input: RoomMessageInput,
+) -> Response<Body> {
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .send_room_message(
+            room,
+            principal.actor_id(),
+            &input.body,
+            parent_message_id,
+            &input.command_id,
+        )
+        .await
+    {
+        Ok(result) => {
+            let status = if result.created {
+                StatusCode::CREATED
+            } else {
+                StatusCode::OK
+            };
+            (status, Json(result)).into_response()
+        }
+        Err(error) => room_error(error),
+    }
+}
+
+async fn get_room_read_cursor(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath((company, room)): AxumPath<(String, Uuid)>,
+) -> Response<Body> {
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org.room_read_cursor(principal.actor_id(), room).await {
+        Ok(cursor) => Json(serde_json::json!({ "cursor": cursor })).into_response(),
+        Err(error) => room_error(error),
+    }
+}
+
+async fn mark_room_read(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath((company, room)): AxumPath<(String, Uuid)>,
+    Json(input): Json<RoomReadCursorInput>,
+) -> Response<Body> {
+    if input.through_message_id <= 0 {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "message_cursor",
+            "a Room read cursor needs a positive message id",
+        );
+    }
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .mark_room_read_through(room, principal.actor_id(), input.through_message_id)
+        .await
+    {
+        Ok(cursor) => Json(cursor).into_response(),
+        Err(error) => room_error(error),
+    }
 }
 
 async fn actor_conversation(
@@ -4811,6 +5364,550 @@ mod tests {
     use axum::body::to_bytes;
     use tower::ServiceExt as _;
 
+    struct RoomRouteFixture {
+        state: RoomApiState,
+        company: String,
+        other_company: String,
+        org: restless_orgintel::OrgIntel,
+    }
+
+    impl RoomRouteFixture {
+        async fn new() -> Option<Self> {
+            let database_url = std::env::var("RESTLESS_TEST_DATABASE_URL").ok()?;
+            let suffix = Uuid::new_v4().simple().to_string();
+            let company = format!("room_api_a_{suffix}");
+            let other_company = format!("room_api_b_{suffix}");
+
+            let mut handles = HashMap::new();
+            for name in [&company, &other_company] {
+                let org = restless_orgintel::OrgIntel::ensure(&database_url, name)
+                    .await
+                    .expect("ensure Room route fixture company");
+                org.ensure_actor("owner", "owner", "owner", "The Owner")
+                    .await
+                    .unwrap();
+                org.ensure_actor("exec", "exec", "exec", "The Exec")
+                    .await
+                    .unwrap();
+                for (actor, display) in [
+                    ("alice", "Alice"),
+                    ("bob", "Bob"),
+                    ("carol", "Carol"),
+                    ("mallory", "Mallory"),
+                ] {
+                    org.ensure_actor(actor, "human", "member", display)
+                        .await
+                        .unwrap();
+                }
+                handles.insert(name.to_string(), org);
+            }
+            let org = handles.get(&company).expect("primary company").clone();
+            Some(Self {
+                state: RoomApiState::fixed(handles),
+                company,
+                other_company,
+                org,
+            })
+        }
+
+        fn app(&self, actor: &str, role: &str, company: &str) -> Router {
+            let principal = RequestPrincipal::from_verified(&VerifiedIdentity {
+                user: format!("user-{actor}"),
+                owner: "fixture-owner".into(),
+                scope: CompanyScope::Company {
+                    company: company.to_string(),
+                },
+                role: role.to_string(),
+                actor: Some(actor.to_string()),
+                company_id: None,
+                cell_id: None,
+                membership_id: None,
+                membership_version: None,
+            })
+            .expect("verified fixture principal");
+            room_api_routes::<RoomApiState>()
+                .layer(Extension(principal))
+                .with_state(self.state.clone())
+        }
+
+        fn unauthenticated_app(&self) -> Router {
+            room_api_routes::<RoomApiState>().with_state(self.state.clone())
+        }
+    }
+
+    async fn room_request(
+        app: &Router,
+        method: Method,
+        uri: impl AsRef<str>,
+        body: Option<serde_json::Value>,
+    ) -> (StatusCode, serde_json::Value) {
+        let mut builder = axum::http::Request::builder()
+            .method(method)
+            .uri(uri.as_ref());
+        let body = match body {
+            Some(body) => {
+                builder = builder.header(CONTENT_TYPE, "application/json");
+                Body::from(serde_json::to_vec(&body).unwrap())
+            }
+            None => Body::empty(),
+        };
+        let response = app
+            .clone()
+            .oneshot(builder.body(body).unwrap())
+            .await
+            .expect("Room route response");
+        let status = response.status();
+        let bytes = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("read Room route response");
+        let body = serde_json::from_slice(&bytes).unwrap_or_else(
+            |_| serde_json::json!({ "raw": String::from_utf8_lossy(&bytes).to_string() }),
+        );
+        (status, body)
+    }
+
+    fn room_id(response: &serde_json::Value) -> Uuid {
+        Uuid::parse_str(response["id"].as_str().expect("Room response id")).unwrap()
+    }
+
+    #[tokio::test]
+    async fn room_routes_require_authentication_company_scope_and_participation() {
+        let Some(fixture) = RoomRouteFixture::new().await else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Room route security scenario");
+            return;
+        };
+        let company_rooms = format!("/companies/{}/rooms", fixture.company);
+        let (status, body) = room_request(
+            &fixture.unauthenticated_app(),
+            Method::GET,
+            &company_rooms,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(body["error"], "no_session");
+
+        let alice = fixture.app("alice", "member", &fixture.company);
+        let (status, body) = room_request(
+            &alice,
+            Method::GET,
+            format!("/companies/{}/rooms", fixture.other_company),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(body["error"], "company_out_of_scope");
+
+        let private = fixture
+            .org
+            .create_room(
+                "owner",
+                restless_orgintel::RoomKind::Group,
+                "Owner and Bob",
+                &["bob"],
+            )
+            .await
+            .unwrap();
+        let private_message = fixture
+            .org
+            .send_room_message(private.id, "owner", "Private", None, "private-root")
+            .await
+            .unwrap();
+        for path in [
+            format!(
+                "/companies/{}/rooms/{}/participants",
+                fixture.company, private.id
+            ),
+            format!(
+                "/companies/{}/rooms/{}/messages",
+                fixture.company, private.id
+            ),
+        ] {
+            let (status, body) = room_request(&alice, Method::GET, path, None).await;
+            assert_eq!(status, StatusCode::FORBIDDEN);
+            assert_eq!(body["error"], "room_access");
+        }
+
+        let denied_operations = [
+            (
+                Method::POST,
+                format!(
+                    "/companies/{}/rooms/{}/messages",
+                    fixture.company, private.id
+                ),
+                Some(serde_json::json!({
+                    "body": "Not a participant",
+                    "command_id": "nonparticipant-send"
+                })),
+            ),
+            (
+                Method::POST,
+                format!(
+                    "/companies/{}/rooms/{}/messages/{}/replies",
+                    fixture.company, private.id, private_message.message.id
+                ),
+                Some(serde_json::json!({
+                    "body": "Not a participant",
+                    "command_id": "nonparticipant-reply"
+                })),
+            ),
+            (
+                Method::POST,
+                format!(
+                    "/companies/{}/rooms/{}/read-cursor",
+                    fixture.company, private.id
+                ),
+                Some(serde_json::json!({
+                    "through_message_id": private_message.message.id
+                })),
+            ),
+            (
+                Method::DELETE,
+                format!(
+                    "/companies/{}/rooms/{}/participants/bob",
+                    fixture.company, private.id
+                ),
+                None,
+            ),
+        ];
+        for (method, path, request_body) in denied_operations {
+            let (status, body) = room_request(&alice, method, path, request_body).await;
+            assert_eq!(status, StatusCode::FORBIDDEN);
+            assert_eq!(body["error"], "room_access");
+        }
+    }
+
+    #[tokio::test]
+    async fn room_message_routes_derive_sender_and_preserve_retry_thread_and_page_semantics() {
+        let Some(fixture) = RoomRouteFixture::new().await else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Room message route scenario");
+            return;
+        };
+        let alice = fixture.app("alice", "member", &fixture.company);
+        let bob = fixture.app("bob", "member", &fixture.company);
+        let rooms_path = format!("/companies/{}/rooms", fixture.company);
+        let (status, created_room) = room_request(
+            &alice,
+            Method::POST,
+            &rooms_path,
+            Some(serde_json::json!({
+                "kind": "group",
+                "title": "Launch",
+                "participant_actor_ids": ["bob"]
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let room = room_id(&created_room);
+        let messages_path = format!("/companies/{}/rooms/{room}/messages", fixture.company);
+
+        let (status, _) = room_request(
+            &alice,
+            Method::POST,
+            &messages_path,
+            Some(serde_json::json!({
+                "body": "x".repeat(129 * 1024),
+                "command_id": "oversize"
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+
+        let first_command = serde_json::json!({
+            "body": "First",
+            "command_id": "send-first"
+        });
+        let (status, first) = room_request(
+            &alice,
+            Method::POST,
+            &messages_path,
+            Some(first_command.clone()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(first["created"], true);
+        assert_eq!(first["message"]["from_actor"], "alice");
+        let first_id = first["message"]["id"].as_i64().unwrap();
+
+        let (status, duplicate) =
+            room_request(&alice, Method::POST, &messages_path, Some(first_command)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(duplicate["created"], false);
+        assert_eq!(duplicate["message"]["id"], first_id);
+
+        let (status, conflict) = room_request(
+            &alice,
+            Method::POST,
+            &messages_path,
+            Some(serde_json::json!({
+                "body": "Different payload",
+                "command_id": "send-first"
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(conflict["error"], "room_command");
+
+        let (status, invalid) = room_request(
+            &alice,
+            Method::POST,
+            &messages_path,
+            Some(serde_json::json!({
+                "body": "No retry identity",
+                "command_id": ""
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(invalid["error"], "room");
+
+        let (status, _) = room_request(
+            &alice,
+            Method::POST,
+            &messages_path,
+            Some(serde_json::json!({
+                "body": "Forged",
+                "command_id": "forged-sender",
+                "author_actor": "owner"
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+
+        let reply_path = format!(
+            "/companies/{}/rooms/{room}/messages/{first_id}/replies",
+            fixture.company
+        );
+        let (status, reply) = room_request(
+            &bob,
+            Method::POST,
+            reply_path,
+            Some(serde_json::json!({
+                "body": "Reply",
+                "command_id": "reply-first"
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(reply["message"]["from_actor"], "bob");
+        assert_eq!(reply["message"]["parent_message_id"], first_id);
+        assert_eq!(reply["message"]["thread_root_message_id"], first_id);
+
+        for (command_id, body) in [("send-second", "Second"), ("send-third", "Third")] {
+            let (status, _) = room_request(
+                &alice,
+                Method::POST,
+                &messages_path,
+                Some(serde_json::json!({
+                    "body": body,
+                    "command_id": command_id
+                })),
+            )
+            .await;
+            assert_eq!(status, StatusCode::CREATED);
+        }
+
+        let (status, first_page) = room_request(
+            &alice,
+            Method::GET,
+            format!("{messages_path}?limit=2"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(first_page["messages"].as_array().unwrap().len(), 2);
+        assert_eq!(first_page["has_more"], true);
+        let page_cursor = first_page["next_after_message_id"].as_i64().unwrap();
+        let (status, second_page) = room_request(
+            &alice,
+            Method::GET,
+            format!("{messages_path}?after_message_id={page_cursor}&limit=10"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(second_page["messages"].as_array().unwrap().len(), 2);
+        assert_eq!(second_page["has_more"], false);
+
+        let thread_path = format!(
+            "/companies/{}/rooms/{room}/threads/{first_id}",
+            fixture.company
+        );
+        let (status, thread) = room_request(&alice, Method::GET, thread_path, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(thread["messages"].as_array().unwrap().len(), 2);
+        assert_eq!(thread["messages"][0]["id"], first_id);
+
+        let other_room = fixture
+            .org
+            .create_room(
+                "alice",
+                restless_orgintel::RoomKind::Group,
+                "Other",
+                &["bob"],
+            )
+            .await
+            .unwrap();
+        let other_message = fixture
+            .org
+            .send_room_message(other_room.id, "alice", "Other", None, "other-root")
+            .await
+            .unwrap();
+        let (status, cross_room) = room_request(
+            &bob,
+            Method::POST,
+            format!(
+                "/companies/{}/rooms/{room}/messages/{}/replies",
+                fixture.company, other_message.message.id
+            ),
+            Some(serde_json::json!({
+                "body": "Wrong Room",
+                "command_id": "cross-room-reply"
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(cross_room["error"], "room");
+    }
+
+    #[tokio::test]
+    async fn room_participant_and_read_routes_enforce_room_roles_and_monotonicity() {
+        let Some(fixture) = RoomRouteFixture::new().await else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Room role route scenario");
+            return;
+        };
+        let alice = fixture.app("alice", "member", &fixture.company);
+        let bob = fixture.app("bob", "member", &fixture.company);
+        let admin = fixture.app("carol", "admin", &fixture.company);
+        let owner = fixture.app("owner", "owner", &fixture.company);
+        let rooms_path = format!("/companies/{}/rooms", fixture.company);
+
+        let (status, denied_company_room) = room_request(
+            &alice,
+            Method::POST,
+            &rooms_path,
+            Some(serde_json::json!({
+                "kind": "company",
+                "title": "Company",
+                "participant_actor_ids": ["alice", "bob"]
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(denied_company_room["error"], "membership_role");
+        let (status, denied_admin_room) = room_request(
+            &admin,
+            Method::POST,
+            &rooms_path,
+            Some(serde_json::json!({
+                "kind": "company",
+                "title": "Company",
+                "participant_actor_ids": ["alice", "bob", "carol"]
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(denied_admin_room["error"], "membership_role");
+        let (status, _) = room_request(
+            &owner,
+            Method::POST,
+            &rooms_path,
+            Some(serde_json::json!({
+                "kind": "company",
+                "title": "Company",
+                "participant_actor_ids": ["alice", "bob"]
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let (status, group) = room_request(
+            &alice,
+            Method::POST,
+            &rooms_path,
+            Some(serde_json::json!({
+                "kind": "group",
+                "title": "Delivery",
+                "participant_actor_ids": ["bob"]
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let room = room_id(&group);
+        let participant_path = format!("/companies/{}/rooms/{room}/participants", fixture.company);
+        let add_carol = serde_json::json!({ "actor_id": "carol" });
+        let (status, denied) = room_request(
+            &bob,
+            Method::POST,
+            &participant_path,
+            Some(add_carol.clone()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(denied["error"], "room_access");
+        let (status, added) =
+            room_request(&alice, Method::POST, &participant_path, Some(add_carol)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(added["actor_id"], "carol");
+
+        let messages_path = format!("/companies/{}/rooms/{room}/messages", fixture.company);
+        let mut message_ids = Vec::new();
+        for (command_id, body) in [("read-one", "One"), ("read-two", "Two")] {
+            let (status, sent) = room_request(
+                &alice,
+                Method::POST,
+                &messages_path,
+                Some(serde_json::json!({
+                    "body": body,
+                    "command_id": command_id
+                })),
+            )
+            .await;
+            assert_eq!(status, StatusCode::CREATED);
+            message_ids.push(sent["message"]["id"].as_i64().unwrap());
+        }
+        let cursor_path = format!("/companies/{}/rooms/{room}/read-cursor", fixture.company);
+        let (status, newest) = room_request(
+            &bob,
+            Method::POST,
+            &cursor_path,
+            Some(serde_json::json!({
+                "through_message_id": message_ids[1]
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(newest["last_read_message_id"], message_ids[1]);
+        let (status, stale_retry) = room_request(
+            &bob,
+            Method::POST,
+            &cursor_path,
+            Some(serde_json::json!({
+                "through_message_id": message_ids[0]
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(stale_retry["last_read_message_id"], message_ids[1]);
+        let (status, current) = room_request(&bob, Method::GET, &cursor_path, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(current["cursor"]["last_read_message_id"], message_ids[1]);
+
+        let (status, removed) = room_request(
+            &alice,
+            Method::DELETE,
+            format!("{participant_path}/bob"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(removed["actor_id"], "bob");
+        assert!(!removed["left_at"].is_null());
+        let (status, denied) = room_request(&bob, Method::GET, &messages_path, None).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(denied["error"], "room_access");
+    }
+
     #[tokio::test]
     #[ignore = "serves a dedicated *_test company until interrupted for owner-surface visual QA"]
     async fn live_isolated_owner_surface_server() {
@@ -4987,6 +6084,58 @@ mod tests {
             &principal,
         )
         .is_none());
+        assert!(membership_boundary_violation(
+            &Method::GET,
+            "/api/companies/aris/rooms/room-id/messages",
+            &principal,
+        )
+        .is_none());
+        for protected_read in [
+            "/api",
+            "/api/companies/aris/cockpit",
+            "/desktop",
+            "/desktop/aris",
+            "/api/companies/aris/actors/exec/activity",
+        ] {
+            assert_eq!(
+                membership_boundary_violation(&Method::GET, protected_read, &principal)
+                    .expect("a member must not inherit owner-only reads")
+                    .code,
+                "membership_role"
+            );
+            assert_eq!(
+                membership_boundary_violation(&Method::HEAD, protected_read, &principal)
+                    .expect("HEAD must not bypass the owner-only read boundary")
+                    .code,
+                "membership_role"
+            );
+        }
+        assert!(
+            membership_boundary_violation(&Method::GET, "/assets/app.js", &principal).is_none()
+        );
+        assert_eq!(
+            membership_boundary_violation(
+                &Method::POST,
+                "/api/companies/aris/actors/exec/conversation/42/interrupt",
+                &principal,
+            )
+            .expect("a member must not cancel another principal's owner directive")
+            .code,
+            "membership_role"
+        );
+        for unrelated in [
+            "/api/companies/aris/not-rooms/admin",
+            "/api/companies/aris/rooms-admin",
+            "/api/companies/aris/reports/conversation",
+            "/api/companies/aris/documents-admin",
+        ] {
+            assert_eq!(
+                membership_boundary_violation(&Method::POST, unrelated, &principal)
+                    .expect("a substring must not grant collaboration write access")
+                    .code,
+                "membership_role"
+            );
+        }
         assert_eq!(
             membership_boundary_violation(
                 &Method::POST,

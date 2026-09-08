@@ -104,17 +104,23 @@ async fn room_message_in_tx(
     .ok_or_else(|| OrgIntelError::InvalidRoom("Room message does not exist".into()))
 }
 
-async fn room_message_event_id(tx: &mut Transaction<'_, Postgres>, message_id: i64) -> Result<i64> {
+async fn durable_room_message_event_id(
+    tx: &mut Transaction<'_, Postgres>,
+    room_id: Uuid,
+    message_id: i64,
+) -> Result<i64> {
     sqlx::query_scalar(
-        "SELECT id FROM events \
-         WHERE kind='room.message.created.v1' AND message_id=$1",
+        "SELECT room_created_event_id FROM messages \
+         WHERE room_id=$1 AND id=$2",
     )
+    .bind(room_id)
     .bind(message_id)
     .fetch_optional(&mut **tx)
     .await?
+    .flatten()
     .ok_or_else(|| {
         OrgIntelError::InvalidRoom(
-            "Room message committed without its transactional operational event".into(),
+            "Room message committed without its durable transactional event cursor".into(),
         )
     })
 }
@@ -631,7 +637,7 @@ impl OrgIntel {
                 )));
             }
             let message = room_message_in_tx(&mut tx, room_id, message_id).await?;
-            let event_id = room_message_event_id(&mut tx, message_id).await?;
+            let event_id = durable_room_message_event_id(&mut tx, room_id, message_id).await?;
             tx.commit().await?;
             return Ok(RoomMessageSendResult {
                 message,
@@ -730,7 +736,7 @@ impl OrgIntel {
             }
         };
         let message = room_message_in_tx(&mut tx, room_id, message_id).await?;
-        let event_id = room_message_event_id(&mut tx, message_id).await?;
+        let event_id = durable_room_message_event_id(&mut tx, room_id, message_id).await?;
         tx.commit().await?;
         Ok(RoomMessageSendResult {
             message,
