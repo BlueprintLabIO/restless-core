@@ -29,6 +29,15 @@ plane_port="${RESTLESS_NETWORK_TEST_PLANE_PORT:-17888}"
 jwks_port="${RESTLESS_NETWORK_TEST_JWKS_PORT:-17889}"
 port_offset="${RESTLESS_NETWORK_TEST_PORT_OFFSET:-7000}"
 coordinator_port="$((7791 + port_offset))"
+docker_arch="$(docker info --format '{{.Architecture}}')"
+case "$docker_arch" in
+  amd64 | x86_64) runtime_arch=amd64 ;;
+  arm64 | aarch64) runtime_arch=arm64 ;;
+  *)
+    echo "unsupported Docker Runtime image architecture: ${docker_arch:-unknown}" >&2
+    exit 1
+    ;;
+esac
 prefix="restless-core27-${run_id}"
 network="${prefix}-net"
 registry="${prefix}-registry"
@@ -49,7 +58,9 @@ cleanup() {
   docker network rm "$network" >/dev/null 2>&1
   find "$scratch" -depth -delete 2>/dev/null
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 mkdir -p "$home/companies"
 cat >"$home/orgintel.toml" <<EOF
@@ -81,6 +92,7 @@ plane_tag="127.0.0.1:${registry_port}/restless/account-plane:${version}"
 runtime_tag="127.0.0.1:${registry_port}/restless/company-runtime:${version}"
 docker build -f infra/account-plane/Dockerfile --build-arg SOURCE_REVISION="$revision" -t "$plane_tag" .
 docker build -f infra/company-image/Dockerfile \
+  --build-arg "TARGETARCH=$runtime_arch" \
   --build-arg RESTLESS_CORE_VERSION="$version" \
   --build-arg RESTLESS_SOURCE_REVISION="$revision" \
   --build-arg "RESTLESS_API_CONTRACT_VERSION=$api_contract" \
@@ -94,7 +106,9 @@ runtime_ref="$(docker image inspect "$runtime_tag" --format '{{range .RepoDigest
 [[ -n "$plane_ref" && -n "$runtime_ref" ]] || { echo "pushed image digest did not resolve" >&2; exit 1; }
 
 export RESTLESS_HOME="$home"
+export RESTLESS_PROFILE=dev
 export RESTLESS_PORT_OFFSET="$port_offset"
+export RESTLESS_RESOURCE_NAMESPACE="network-${port_offset}"
 export RESTLESS_OWNER_ADDR="0.0.0.0:${plane_port}"
 export RESTLESS_ENTRY_MODE=network
 export RESTLESS_ENTRY_ALLOW_INSECURE_HTTP=1
@@ -133,15 +147,54 @@ jq -e --arg revision "$revision" '.release.source_revision == $revision' "$scrat
 
 target/release/restlessd mint-entry-assertion >"$scratch/assertion.txt"
 chmod 0600 "$scratch/assertion.txt"
-curl -fsS --resolve "restless.localhost:${plane_port}:127.0.0.1" \
+assertion="$(tail -1 "$scratch/assertion.txt")"
+entry_status="$(curl -sS --resolve "restless.localhost:${plane_port}:127.0.0.1" \
+  -D "$scratch/entry-headers.txt" -o "$scratch/entry-response.json" -w '%{http_code}' \
   -c "$scratch/cookies.txt" -H 'Content-Type: application/x-www-form-urlencoded' \
-  --data-urlencode "assertion=$(tail -1 "$scratch/assertion.txt")" "${plane_url}/entry" >/dev/null
-session_token="$(awk '$6 == "restless_session" { print $7; exit }' "$scratch/cookies.txt")"
+  --data-urlencode "assertion=${assertion}" "${plane_url}/entry")"
+[[ "$entry_status" == 303 ]] || {
+  cat "$scratch/entry-response.json" >&2
+  echo "form entry exchange returned HTTP ${entry_status}, expected 303" >&2
+  exit 1
+}
+session_token="$(sed -n 's/^[Ss]et-[Cc]ookie: restless_session=\([^;[:space:]]*\).*/\1/p' "$scratch/entry-headers.txt" | tail -1)"
 [[ -n "$session_token" ]] || { echo "entry exchange did not establish a browser session" >&2; exit 1; }
 # Production sessions are Secure. curl correctly refuses to replay that cookie
 # over this harness's loopback HTTP endpoint, so make the test-only replay
 # explicit instead of weakening the production cookie.
 session_header="Cookie: restless_session=${session_token}"
+
+replay_status="$(curl -sS --resolve "restless.localhost:${plane_port}:127.0.0.1" \
+  -o "$scratch/entry-replay.json" -w '%{http_code}' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  --data-urlencode "assertion=${assertion}" "${plane_url}/entry")"
+[[ "$replay_status" == 401 ]] || {
+  cat "$scratch/entry-replay.json" >&2
+  echo "replayed entry assertion returned HTTP ${replay_status}, expected 401" >&2
+  exit 1
+}
+jq -e '.error == "assertion_replayed"' "$scratch/entry-replay.json" >/dev/null
+
+wrong_host_status="$(curl -sS -o "$scratch/wrong-host.json" -w '%{http_code}' \
+  -H "$session_header" "http://127.0.0.1:${plane_port}/api/companies/${company}/cockpit")"
+[[ "$wrong_host_status" == 403 ]] || {
+  cat "$scratch/wrong-host.json" >&2
+  echo "wrong-host request returned HTTP ${wrong_host_status}, expected 403" >&2
+  exit 1
+}
+jq -e '.error == "network_owner_boundary"' "$scratch/wrong-host.json" >/dev/null
+
+out_of_scope_company="${company}_other"
+out_of_scope_status="$(curl -sS --resolve "restless.localhost:${plane_port}:127.0.0.1" \
+  -o "$scratch/out-of-scope.json" -w '%{http_code}' -H "$session_header" \
+  "${plane_url}/api/companies/${out_of_scope_company}/cockpit")"
+[[ "$out_of_scope_status" == 403 ]] || {
+  cat "$scratch/out-of-scope.json" >&2
+  echo "out-of-scope company request returned HTTP ${out_of_scope_status}, expected 403" >&2
+  exit 1
+}
+jq -e '.error == "company_out_of_scope"' "$scratch/out-of-scope.json" >/dev/null
+
 curl -fsS --resolve "restless.localhost:${plane_port}:127.0.0.1" -H "$session_header" \
   "${plane_url}/api/companies/${company}/cockpit" >"$scratch/cockpit-asleep.json"
 
@@ -151,6 +204,7 @@ echo "Runtime:          $runtime_ref"
 echo "cockpit:          ${plane_url}/${company}"
 echo "test assertion:   $scratch/assertion.txt"
 echo "sleeping cockpit probe: PASS"
+echo "entry replay, host, and company scope probes: PASS"
 
 if [[ "${RESTLESS_NETWORK_TEST_AUTO_WAKE:-0}" != 1 ]]; then
   echo "Open the cockpit and verify the sleeping-cell state, then press Return to start the Runtime."
