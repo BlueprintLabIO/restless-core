@@ -22,6 +22,10 @@ const MAX_DOCUMENT_BYTES: usize = 1_000_000;
 const MAX_DOCUMENT_NODES: usize = 20_000;
 const MAX_DOCUMENT_DEPTH: usize = 64;
 const MAX_DOCUMENT_TEXT_CHARS: usize = 500_000;
+pub const NATIVE_DOCUMENT_PORTABLE_ENVELOPE_SCHEMA: &str =
+    "restless.native-document.runtime-checkpoint";
+pub const NATIVE_DOCUMENT_PORTABLE_ENVELOPE_VERSION: u16 = 1;
+const MAX_PORTABLE_ENVELOPE_BYTES: usize = 2_500_000;
 
 #[derive(Debug, thiserror::Error)]
 pub enum DocumentError {
@@ -158,6 +162,107 @@ pub struct DocumentReadView {
     pub document: DocumentRow,
     pub access: DocumentAccess,
     pub current_version: DocumentVersionView,
+}
+
+/// One self-contained, deterministic checkpoint that may cross the explicit
+/// Company Runtime boundary. It contains no host path and performs no implicit
+/// filesystem I/O. `content_json` is the editable portable representation;
+/// `plain_text` and `markdown` are deterministic projections sealed by the
+/// checksum. Source fields remain unchanged when Runtime work edits and
+/// reseals the content.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NativeDocumentPortableEnvelope {
+    pub envelope_schema: String,
+    pub envelope_version: u16,
+    pub source_company_id: Option<Uuid>,
+    pub source_company_key: String,
+    pub source_document_id: Uuid,
+    pub source_named_version_id: Uuid,
+    pub source_named_version_number: i64,
+    pub source_content_schema_version: i16,
+    pub source_document_status: DocumentStatus,
+    pub source_restored_from_version_id: Option<Uuid>,
+    pub source_created_by_actor_id: String,
+    pub source_version_reason: String,
+    pub source_version_created_at: DateTime<Utc>,
+    pub source_content_hash: String,
+    pub content_json: Value,
+    pub plain_text: String,
+    pub markdown: String,
+    pub content_hash: String,
+    pub checksum: String,
+}
+
+impl NativeDocumentPortableEnvelope {
+    /// Re-derive every portable projection and checksum after an explicit
+    /// Runtime edit to `content_json`. This never writes back to Core.
+    pub fn reseal(&mut self) -> DocumentResult<()> {
+        validate_portable_envelope_header(self)?;
+        let content = validate_document_json(&self.content_json)?;
+        self.content_json = content.content_json;
+        self.plain_text = content.plain_text;
+        self.content_hash = content.content_hash;
+        self.markdown = portable_markdown(self, &content.markdown);
+        self.checksum.clear();
+        self.checksum = portable_envelope_checksum(self)?;
+        ensure_portable_envelope_bound(self)?;
+        Ok(())
+    }
+
+    /// Canonical JSON bytes suitable for a Runtime `.json` checkpoint. Object
+    /// key order in the structured document cannot change these bytes.
+    pub fn to_json_bytes(&self) -> DocumentResult<Vec<u8>> {
+        validate_portable_envelope(self)?;
+        serde_json::to_value(self)
+            .map(|value| canonical_json(&value))
+            .map_err(|error| {
+                DocumentError::Invalid(format!("portable envelope is not JSON: {error}"))
+            })
+    }
+}
+
+pub struct ImportRuntimeDocument<'a> {
+    pub target_document_id: Uuid,
+    pub actor_id: &'a str,
+    pub expected_current_version_id: Uuid,
+    pub envelope: &'a NativeDocumentPortableEnvelope,
+    pub reason: &'a str,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DocumentImportResult {
+    pub target_document_id: Uuid,
+    pub imported_version: DocumentVersionView,
+    pub envelope_checksum: String,
+}
+
+/// Durable receipt for one explicit Runtime import. The immutable named
+/// version owns the imported body; this record keeps only bounded source and
+/// checksum provenance so audit and replay do not depend on retained events.
+#[derive(Debug, Clone, PartialEq, Serialize, sqlx::FromRow)]
+pub struct DocumentRuntimeImportProvenance {
+    pub document_id: Uuid,
+    pub imported_version_id: Uuid,
+    pub target_base_version_id: Uuid,
+    pub envelope_schema: String,
+    pub envelope_version: i16,
+    pub envelope_checksum: String,
+    pub source_company_id: Option<Uuid>,
+    pub source_company_key: String,
+    pub source_document_id: Uuid,
+    pub source_named_version_id: Uuid,
+    pub source_named_version_number: i64,
+    pub source_content_schema_version: i16,
+    pub source_document_status: DocumentStatus,
+    pub source_restored_from_version_id: Option<Uuid>,
+    pub source_created_by_actor_id: String,
+    pub source_version_reason: String,
+    pub source_version_created_at: DateTime<Utc>,
+    pub source_content_hash: String,
+    pub imported_content_hash: String,
+    pub imported_by_actor_id: String,
+    pub imported_at: DateTime<Utc>,
 }
 
 pub struct NewDocument<'a> {
@@ -692,6 +797,191 @@ fn sha256_hex(value: &[u8]) -> String {
         .collect()
 }
 
+fn valid_sha256_hex(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+}
+
+fn document_status_name(status: DocumentStatus) -> &'static str {
+    match status {
+        DocumentStatus::Draft => "draft",
+        DocumentStatus::InReview => "in_review",
+        DocumentStatus::Accepted => "accepted",
+        DocumentStatus::Archived => "archived",
+    }
+}
+
+fn portable_markdown(envelope: &NativeDocumentPortableEnvelope, content: &str) -> String {
+    let hosted_company_id = envelope
+        .source_company_id
+        .map(|company_id| company_id.to_string())
+        .unwrap_or_else(|| "unbound".into());
+    format!(
+        "---\nrestless_envelope: {}\nrestless_envelope_version: {}\n\
+         source_company_id: {}\nsource_company_key: {}\nsource_document_id: {}\n\
+         source_named_version_id: {}\nsource_named_version_number: {}\n\
+         source_content_schema_version: {}\nsource_content_hash: {}\ncontent_hash: {}\n\
+         document_status: {}\n---\n\n{}",
+        envelope.envelope_schema,
+        envelope.envelope_version,
+        hosted_company_id,
+        envelope.source_company_key,
+        envelope.source_document_id,
+        envelope.source_named_version_id,
+        envelope.source_named_version_number,
+        envelope.source_content_schema_version,
+        envelope.source_content_hash,
+        envelope.content_hash,
+        document_status_name(envelope.source_document_status),
+        content
+    )
+}
+
+fn portable_envelope_value(envelope: &NativeDocumentPortableEnvelope) -> DocumentResult<Value> {
+    serde_json::to_value(envelope)
+        .map_err(|error| DocumentError::Invalid(format!("portable envelope is not JSON: {error}")))
+}
+
+fn portable_envelope_checksum(envelope: &NativeDocumentPortableEnvelope) -> DocumentResult<String> {
+    let mut value = portable_envelope_value(envelope)?;
+    value
+        .as_object_mut()
+        .expect("portable envelope serializes as an object")
+        .insert("checksum".into(), Value::String(String::new()));
+    Ok(sha256_hex(&canonical_json(&value)))
+}
+
+fn ensure_portable_envelope_bound(envelope: &NativeDocumentPortableEnvelope) -> DocumentResult<()> {
+    let bytes = canonical_json(&portable_envelope_value(envelope)?);
+    if bytes.len() > MAX_PORTABLE_ENVELOPE_BYTES {
+        return Err(DocumentError::Invalid(format!(
+            "portable envelope exceeds {MAX_PORTABLE_ENVELOPE_BYTES} bytes"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_portable_envelope_header(
+    envelope: &NativeDocumentPortableEnvelope,
+) -> DocumentResult<()> {
+    if envelope.envelope_schema != NATIVE_DOCUMENT_PORTABLE_ENVELOPE_SCHEMA {
+        return Err(DocumentError::Invalid(
+            "unknown native document portable envelope schema".into(),
+        ));
+    }
+    if envelope.envelope_version != NATIVE_DOCUMENT_PORTABLE_ENVELOPE_VERSION {
+        return Err(DocumentError::Invalid(format!(
+            "unsupported native document portable envelope version {}",
+            envelope.envelope_version
+        )));
+    }
+    if envelope.source_content_schema_version != DOCUMENT_SCHEMA_VERSION {
+        return Err(DocumentError::Invalid(format!(
+            "unsupported portable document content schema {}",
+            envelope.source_content_schema_version
+        )));
+    }
+    if envelope.source_named_version_number < 1 {
+        return Err(DocumentError::Invalid(
+            "portable source named version must be positive".into(),
+        ));
+    }
+    for (label, value, maximum) in [
+        (
+            "source company key",
+            envelope.source_company_key.as_str(),
+            128,
+        ),
+        (
+            "source version Actor",
+            envelope.source_created_by_actor_id.as_str(),
+            200,
+        ),
+        (
+            "source version reason",
+            envelope.source_version_reason.as_str(),
+            500,
+        ),
+    ] {
+        if clean_bounded(label, value, maximum)? != value {
+            return Err(DocumentError::Invalid(format!(
+                "portable {label} must already be canonical"
+            )));
+        }
+    }
+    if !valid_sha256_hex(&envelope.source_content_hash) {
+        return Err(DocumentError::Invalid(
+            "portable source content hash is invalid".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_portable_envelope(
+    envelope: &NativeDocumentPortableEnvelope,
+) -> DocumentResult<ValidatedDocument> {
+    validate_portable_envelope_header(envelope)?;
+    ensure_portable_envelope_bound(envelope)?;
+    if !valid_sha256_hex(&envelope.checksum) {
+        return Err(DocumentError::Invalid(
+            "portable envelope checksum is invalid".into(),
+        ));
+    }
+    if portable_envelope_checksum(envelope)? != envelope.checksum {
+        return Err(DocumentError::Invalid(
+            "portable envelope checksum does not match its payload".into(),
+        ));
+    }
+
+    let content = validate_document_json(&envelope.content_json)?;
+    if content.content_hash != envelope.content_hash {
+        return Err(DocumentError::Invalid(
+            "portable content hash does not match structured content".into(),
+        ));
+    }
+    if content.plain_text != envelope.plain_text {
+        return Err(DocumentError::Invalid(
+            "portable plain-text projection does not match structured content".into(),
+        ));
+    }
+    if portable_markdown(envelope, &content.markdown) != envelope.markdown {
+        return Err(DocumentError::Invalid(
+            "portable Markdown projection does not match structured content".into(),
+        ));
+    }
+    Ok(content)
+}
+
+fn deterministic_import_version_id(
+    target_document_id: Uuid,
+    actor_id: &str,
+    expected_current_version_id: Uuid,
+    reason: &str,
+    envelope_checksum: &str,
+) -> Uuid {
+    fn add_component(hasher: &mut Sha256, value: &[u8]) {
+        hasher.update((value.len() as u64).to_be_bytes());
+        hasher.update(value);
+    }
+
+    let mut hasher = Sha256::new();
+    add_component(&mut hasher, b"restless.native-document.import.v1");
+    add_component(&mut hasher, target_document_id.as_bytes());
+    add_component(&mut hasher, actor_id.as_bytes());
+    add_component(&mut hasher, expected_current_version_id.as_bytes());
+    add_component(&mut hasher, reason.as_bytes());
+    add_component(&mut hasher, envelope_checksum.as_bytes());
+    let digest = hasher.finalize();
+    let mut bytes = [0_u8; 16];
+    bytes.copy_from_slice(&digest[..16]);
+    // RFC 9562 UUIDv8: application-defined payload with the standard variant.
+    bytes[6] = (bytes[6] & 0x0f) | 0x80;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    Uuid::from_bytes(bytes)
+}
+
 fn render_node(value: &Value) -> DocumentResult<String> {
     let object = value
         .as_object()
@@ -1217,6 +1507,98 @@ fn version_select() -> &'static str {
     "SELECT id,document_id,version_number,schema_version,content_json,plain_text,content_hash,\
             document_status,restored_from_version_id,created_by_actor_id,reason,created_at \
      FROM native_document_versions"
+}
+
+fn runtime_import_provenance_select() -> &'static str {
+    "SELECT document_id,imported_version_id,target_base_version_id,envelope_schema,\
+            envelope_version,envelope_checksum,source_company_id,source_company_key,\
+            source_document_id,source_named_version_id,source_named_version_number,\
+            source_content_schema_version,source_document_status,\
+            source_restored_from_version_id,source_created_by_actor_id,source_version_reason,\
+            source_version_created_at,source_content_hash,imported_content_hash,\
+            imported_by_actor_id,imported_at \
+     FROM native_document_runtime_imports"
+}
+
+fn runtime_import_provenance_matches(
+    provenance: &DocumentRuntimeImportProvenance,
+    target_document_id: Uuid,
+    imported_version_id: Uuid,
+    target_base_version_id: Uuid,
+    envelope: &NativeDocumentPortableEnvelope,
+    imported_content_hash: &str,
+    imported_by_actor_id: &str,
+) -> bool {
+    provenance.document_id == target_document_id
+        && provenance.imported_version_id == imported_version_id
+        && provenance.target_base_version_id == target_base_version_id
+        && provenance.envelope_schema == envelope.envelope_schema
+        && provenance.envelope_version == envelope.envelope_version as i16
+        && provenance.envelope_checksum == envelope.checksum
+        && provenance.source_company_id == envelope.source_company_id
+        && provenance.source_company_key == envelope.source_company_key
+        && provenance.source_document_id == envelope.source_document_id
+        && provenance.source_named_version_id == envelope.source_named_version_id
+        && provenance.source_named_version_number == envelope.source_named_version_number
+        && provenance.source_content_schema_version == envelope.source_content_schema_version
+        && provenance.source_document_status == envelope.source_document_status
+        && provenance.source_restored_from_version_id == envelope.source_restored_from_version_id
+        && provenance.source_created_by_actor_id == envelope.source_created_by_actor_id
+        && provenance.source_version_reason == envelope.source_version_reason
+        && provenance.source_version_created_at == envelope.source_version_created_at
+        && provenance.source_content_hash == envelope.source_content_hash
+        && provenance.imported_content_hash == imported_content_hash
+        && provenance.imported_by_actor_id == imported_by_actor_id
+}
+
+async fn require_runtime_source_claims(
+    tx: &mut Transaction<'_, Postgres>,
+    company_schema: &str,
+    target_document_id: Uuid,
+    expected_current_version_id: Uuid,
+    envelope: &NativeDocumentPortableEnvelope,
+) -> DocumentResult<()> {
+    let company_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT company_id FROM company_access_identity WHERE singleton=TRUE")
+            .fetch_optional(&mut **tx)
+            .await?;
+    if envelope.source_company_id != company_id
+        || envelope.source_company_key != company_schema
+        || envelope.source_document_id != target_document_id
+        || envelope.source_named_version_id != expected_current_version_id
+    {
+        return Err(DocumentError::Invalid(
+            "portable source provenance does not identify this Core document checkpoint".into(),
+        ));
+    }
+
+    let source = sqlx::query_as::<_, DocumentVersionRow>(&format!(
+        "{} WHERE document_id=$1 AND id=$2",
+        version_select()
+    ))
+    .bind(target_document_id)
+    .bind(expected_current_version_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or_else(|| {
+        DocumentError::Invalid(
+            "portable source provenance does not identify a stored named version".into(),
+        )
+    })?;
+    if envelope.source_named_version_number != source.version_number
+        || envelope.source_content_schema_version != source.schema_version
+        || envelope.source_document_status != source.document_status
+        || envelope.source_restored_from_version_id != source.restored_from_version_id
+        || envelope.source_created_by_actor_id != source.created_by_actor_id
+        || envelope.source_version_reason != source.reason
+        || envelope.source_version_created_at != source.created_at
+        || envelope.source_content_hash != source.content_hash
+    {
+        return Err(DocumentError::Invalid(
+            "portable source provenance does not match the immutable named version".into(),
+        ));
+    }
+    Ok(())
 }
 
 async fn active_actor(tx: &mut Transaction<'_, Postgres>, actor_id: &str) -> DocumentResult<bool> {
@@ -1892,6 +2274,301 @@ impl OrgIntel {
         .ok_or(DocumentError::Unavailable)?;
         tx.commit().await?;
         version_view(version)
+    }
+
+    /// Inspect the durable receipt for a Runtime-imported named version. Read
+    /// authority is derived from current server state; compacted events are
+    /// neither required nor treated as authorization.
+    pub async fn get_document_runtime_import_provenance_for_actor(
+        &self,
+        document_id: Uuid,
+        imported_version_id: Uuid,
+        actor_id: &str,
+    ) -> DocumentResult<DocumentRuntimeImportProvenance> {
+        let mut tx = self.pool.begin().await?;
+        require_access(&mut tx, document_id, actor_id, DocumentAccess::Read).await?;
+        let provenance = sqlx::query_as::<_, DocumentRuntimeImportProvenance>(&format!(
+            "{} WHERE document_id=$1 AND imported_version_id=$2",
+            runtime_import_provenance_select()
+        ))
+        .bind(document_id)
+        .bind(imported_version_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(DocumentError::Unavailable)?;
+        tx.commit().await?;
+        Ok(provenance)
+    }
+
+    /// Materialize an exact named version as a deterministic portable Runtime
+    /// checkpoint. The caller chooses what to do with the returned JSON and
+    /// Markdown; Core never accepts a path and never writes the filesystem.
+    pub async fn export_document_version_for_runtime(
+        &self,
+        document_id: Uuid,
+        version_id: Uuid,
+        actor_id: &str,
+    ) -> DocumentResult<NativeDocumentPortableEnvelope> {
+        let mut tx = self.pool.begin().await?;
+        let document_version: i64 =
+            sqlx::query_scalar("SELECT version FROM native_documents WHERE id=$1 FOR SHARE")
+                .bind(document_id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or(DocumentError::Unavailable)?;
+        require_access(&mut tx, document_id, actor_id, DocumentAccess::Read).await?;
+        let version = sqlx::query_as::<_, DocumentVersionRow>(&format!(
+            "{} WHERE document_id=$1 AND id=$2",
+            version_select()
+        ))
+        .bind(document_id)
+        .bind(version_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(DocumentError::Unavailable)?;
+        let source_company_id: Option<Uuid> = sqlx::query_scalar(
+            "SELECT company_id FROM company_access_identity WHERE singleton=TRUE",
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        let view = version_view(version.clone())?;
+        let mut envelope = NativeDocumentPortableEnvelope {
+            envelope_schema: NATIVE_DOCUMENT_PORTABLE_ENVELOPE_SCHEMA.into(),
+            envelope_version: NATIVE_DOCUMENT_PORTABLE_ENVELOPE_VERSION,
+            source_company_id,
+            source_company_key: self.schema.clone(),
+            source_document_id: document_id,
+            source_named_version_id: version.id,
+            source_named_version_number: version.version_number,
+            source_content_schema_version: version.schema_version,
+            source_document_status: version.document_status,
+            source_restored_from_version_id: version.restored_from_version_id,
+            source_created_by_actor_id: version.created_by_actor_id,
+            source_version_reason: version.reason,
+            source_version_created_at: version.created_at,
+            source_content_hash: version.content_hash,
+            content_json: version.content_json,
+            plain_text: view.version.plain_text,
+            markdown: String::new(),
+            content_hash: view.version.content_hash,
+            checksum: String::new(),
+        };
+        envelope.reseal()?;
+        append_document_event(
+            &mut tx,
+            "document.exported.v1",
+            document_id,
+            actor_id,
+            json!({
+                "document_id": document_id,
+                "document_version": document_version,
+                "named_version_id": version_id,
+                "named_version_number": envelope.source_named_version_number,
+                "status": envelope.source_document_status,
+                "content_hash": envelope.content_hash,
+                "envelope_checksum": envelope.checksum,
+            }),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(envelope)
+    }
+
+    /// Explicitly apply a validated Runtime checkpoint as one new immutable
+    /// named version. Exact retries resolve to the deterministic imported
+    /// version; different writes against a stale current version conflict.
+    pub async fn import_runtime_document_as_named_version(
+        &self,
+        input: ImportRuntimeDocument<'_>,
+    ) -> DocumentResult<DocumentImportResult> {
+        let content = validate_portable_envelope(input.envelope)?;
+        let actor_id = clean_bounded("importing Actor", input.actor_id, 200)?;
+        let reason = clean_bounded("import reason", input.reason, 500)?;
+        let imported_version_id = deterministic_import_version_id(
+            input.target_document_id,
+            &actor_id,
+            input.expected_current_version_id,
+            &reason,
+            &input.envelope.checksum,
+        );
+
+        let mut tx = self.pool.begin().await?;
+        let document = sqlx::query(
+            "SELECT current_named_version_id,status FROM native_documents WHERE id=$1 FOR UPDATE",
+        )
+        .bind(input.target_document_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(DocumentError::Unavailable)?;
+        require_access(
+            &mut tx,
+            input.target_document_id,
+            &actor_id,
+            DocumentAccess::Edit,
+        )
+        .await?;
+        require_runtime_source_claims(
+            &mut tx,
+            &self.schema,
+            input.target_document_id,
+            input.expected_current_version_id,
+            input.envelope,
+        )
+        .await?;
+
+        let replay = sqlx::query_as::<_, DocumentVersionRow>(&format!(
+            "{} WHERE document_id=$1 AND id=$2",
+            version_select()
+        ))
+        .bind(input.target_document_id)
+        .bind(imported_version_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some(version) = replay {
+            let provenance = sqlx::query_as::<_, DocumentRuntimeImportProvenance>(&format!(
+                "{} WHERE document_id=$1 AND imported_version_id=$2",
+                runtime_import_provenance_select()
+            ))
+            .bind(input.target_document_id)
+            .bind(imported_version_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| {
+                DocumentError::Corrupt(
+                    "deterministic Runtime import has no durable provenance receipt".into(),
+                )
+            })?;
+            if version.content_json != content.content_json
+                || version.content_hash != content.content_hash
+                || version.plain_text != content.plain_text
+                || version.created_by_actor_id != actor_id
+                || version.reason != reason
+                || !runtime_import_provenance_matches(
+                    &provenance,
+                    input.target_document_id,
+                    imported_version_id,
+                    input.expected_current_version_id,
+                    input.envelope,
+                    &content.content_hash,
+                    &actor_id,
+                )
+            {
+                return Err(DocumentError::Corrupt(
+                    "deterministic Runtime import identity has conflicting provenance".into(),
+                ));
+            }
+            tx.commit().await?;
+            return Ok(DocumentImportResult {
+                target_document_id: input.target_document_id,
+                imported_version: version_view(version)?,
+                envelope_checksum: input.envelope.checksum.clone(),
+            });
+        }
+
+        let current = document.get::<Uuid, _>("current_named_version_id");
+        if current != input.expected_current_version_id {
+            return Err(DocumentError::Conflict(format!(
+                "current named version is {current}, expected {}",
+                input.expected_current_version_id
+            )));
+        }
+        let status = document.get::<DocumentStatus, _>("status");
+        let next_number: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(max(version_number),0)+1 FROM native_document_versions WHERE document_id=$1",
+        )
+        .bind(input.target_document_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        let imported = sqlx::query_as::<_, DocumentVersionRow>(
+            "INSERT INTO native_document_versions \
+             (id,document_id,version_number,schema_version,content_json,plain_text,content_hash,\
+              document_status,created_by_actor_id,reason) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) \
+             RETURNING id,document_id,version_number,schema_version,content_json,plain_text,\
+                       content_hash,document_status,restored_from_version_id,\
+                       created_by_actor_id,reason,created_at",
+        )
+        .bind(imported_version_id)
+        .bind(input.target_document_id)
+        .bind(next_number)
+        .bind(DOCUMENT_SCHEMA_VERSION)
+        .bind(&content.content_json)
+        .bind(&content.plain_text)
+        .bind(&content.content_hash)
+        .bind(status)
+        .bind(&actor_id)
+        .bind(&reason)
+        .fetch_one(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO native_document_runtime_imports \
+             (document_id,imported_version_id,target_base_version_id,envelope_schema,\
+              envelope_version,envelope_checksum,source_company_id,source_company_key,\
+              source_document_id,source_named_version_id,source_named_version_number,\
+              source_content_schema_version,source_document_status,\
+              source_restored_from_version_id,source_created_by_actor_id,source_version_reason,\
+              source_version_created_at,source_content_hash,imported_content_hash,\
+              imported_by_actor_id) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)",
+        )
+        .bind(input.target_document_id)
+        .bind(imported_version_id)
+        .bind(input.expected_current_version_id)
+        .bind(&input.envelope.envelope_schema)
+        .bind(input.envelope.envelope_version as i16)
+        .bind(&input.envelope.checksum)
+        .bind(input.envelope.source_company_id)
+        .bind(&input.envelope.source_company_key)
+        .bind(input.envelope.source_document_id)
+        .bind(input.envelope.source_named_version_id)
+        .bind(input.envelope.source_named_version_number)
+        .bind(input.envelope.source_content_schema_version)
+        .bind(input.envelope.source_document_status)
+        .bind(input.envelope.source_restored_from_version_id)
+        .bind(&input.envelope.source_created_by_actor_id)
+        .bind(&input.envelope.source_version_reason)
+        .bind(input.envelope.source_version_created_at)
+        .bind(&input.envelope.source_content_hash)
+        .bind(&content.content_hash)
+        .bind(&actor_id)
+        .execute(&mut *tx)
+        .await?;
+        let document_version: i64 = sqlx::query_scalar(
+            "UPDATE native_documents SET current_named_version_id=$2,version=version+1 \
+             WHERE id=$1 RETURNING version",
+        )
+        .bind(input.target_document_id)
+        .bind(imported_version_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        append_document_event(
+            &mut tx,
+            "document.imported.v1",
+            input.target_document_id,
+            &actor_id,
+            json!({
+                "document_id": input.target_document_id,
+                "document_version": document_version,
+                "named_version_id": imported_version_id,
+                "named_version_number": next_number,
+                "previous_named_version_id": current,
+                "status": status,
+                "source_company_id": input.envelope.source_company_id,
+                "source_company_key": input.envelope.source_company_key,
+                "source_document_id": input.envelope.source_document_id,
+                "source_named_version_id": input.envelope.source_named_version_id,
+                "source_content_hash": input.envelope.source_content_hash,
+                "content_hash": content.content_hash,
+                "envelope_checksum": input.envelope.checksum,
+            }),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(DocumentImportResult {
+            target_document_id: input.target_document_id,
+            imported_version: version_view(imported)?,
+            envelope_checksum: input.envelope.checksum.clone(),
+        })
     }
 
     pub async fn list_document_participants_for_actor(

@@ -3,9 +3,10 @@
 //! suite while keeping the pure schema/rendering checks in the module tests.
 
 use restless_orgintel::{
-    DocumentAccess, DocumentError, DocumentKind, DocumentStatus, DocumentVisibility, NewDocument,
-    NewNamedDocumentVersion, OrgIntel, RestoreDocumentVersion, RoomKind, SetDocumentParticipant,
-    UpdateDocumentMetadata,
+    DocumentAccess, DocumentError, DocumentKind, DocumentStatus, DocumentVisibility,
+    ImportRuntimeDocument, NativeDocumentPortableEnvelope, NewDocument, NewNamedDocumentVersion,
+    OrgIntel, RestoreDocumentVersion, RoomKind, SetDocumentParticipant, UpdateDocumentMetadata,
+    NATIVE_DOCUMENT_PORTABLE_ENVELOPE_VERSION,
 };
 use serde_json::{json, Value};
 use sqlx::{Connection as _, PgConnection};
@@ -620,4 +621,528 @@ async fn company_visibility_is_human_readable_not_agent_global() {
         .await,
         Err(DocumentError::Invalid(_))
     ));
+}
+
+#[tokio::test]
+async fn runtime_checkpoint_round_trip_is_authorized_deterministic_and_idempotent() {
+    let Some(org) = company("runtimedocs").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Runtime checkpoint scenario");
+        return;
+    };
+    let database_url = std::env::var("RESTLESS_TEST_DATABASE_URL").unwrap();
+    let mut connection = PgConnection::connect(&database_url).await.unwrap();
+    sqlx::query(&format!("SET search_path TO {}", org.schema()))
+        .execute(&mut connection)
+        .await
+        .unwrap();
+
+    let initial_content = content("stable-runtime-block", "Original observation");
+    let created = org
+        .create_document(NewDocument {
+            title: "Runtime checkpoint",
+            kind: DocumentKind::Report,
+            visibility: DocumentVisibility::Company,
+            linked_room_id: None,
+            inherit_room_visibility: false,
+            owner_actor_id: "owner",
+            created_by_actor_id: "owner",
+            content_json: &initial_content,
+            reason: "Initial named checkpoint",
+        })
+        .await
+        .unwrap();
+    let document_id = created.document.id;
+    let source_version_id = created.current_version.version.id;
+
+    // Read authority is sufficient to export. The requesting Actor is recorded
+    // in the event, not embedded in the checkpoint, so the same named version
+    // always produces identical portable bytes.
+    let reader_export = org
+        .export_document_version_for_runtime(document_id, source_version_id, "alex")
+        .await
+        .unwrap();
+    let owner_export = org
+        .export_document_version_for_runtime(document_id, source_version_id, "owner")
+        .await
+        .unwrap();
+    assert_eq!(reader_export, owner_export);
+    assert_eq!(reader_export.source_document_id, document_id);
+    assert_eq!(reader_export.source_named_version_id, source_version_id);
+    assert_eq!(
+        reader_export.source_content_hash,
+        created.current_version.version.content_hash
+    );
+    assert_eq!(
+        reader_export.content_hash,
+        reader_export.source_content_hash
+    );
+    assert_eq!(reader_export.source_created_by_actor_id, "owner");
+    assert_eq!(
+        reader_export.source_version_reason,
+        "Initial named checkpoint"
+    );
+    assert_eq!(reader_export.source_document_status, DocumentStatus::Draft);
+    assert!(reader_export.source_company_id.is_none());
+    assert_eq!(reader_export.source_company_key, org.schema());
+    assert!(reader_export.markdown.contains(&document_id.to_string()));
+    assert!(reader_export
+        .markdown
+        .contains(&source_version_id.to_string()));
+    assert!(reader_export.markdown.contains(&reader_export.content_hash));
+
+    let first_bytes = reader_export.to_json_bytes().unwrap();
+    let second_bytes = owner_export.to_json_bytes().unwrap();
+    assert_eq!(first_bytes, second_bytes);
+    let encoded = String::from_utf8(first_bytes.clone()).unwrap();
+    assert!(!encoded.contains("/company/"));
+    assert!(!encoded.contains("\"path\""));
+    let mut edited: NativeDocumentPortableEnvelope = serde_json::from_slice(&first_bytes).unwrap();
+    assert_eq!(edited, reader_export);
+
+    assert!(matches!(
+        org.export_document_version_for_runtime(document_id, source_version_id, "research-analyst")
+            .await,
+        Err(DocumentError::Unavailable)
+    ));
+    assert_eq!(document_events(&mut connection, document_id).await.len(), 3);
+
+    let mut unknown_version = edited.clone();
+    unknown_version.envelope_version = NATIVE_DOCUMENT_PORTABLE_ENVELOPE_VERSION + 1;
+    let unknown = org
+        .import_runtime_document_as_named_version(ImportRuntimeDocument {
+            target_document_id: document_id,
+            actor_id: "owner",
+            expected_current_version_id: source_version_id,
+            envelope: &unknown_version,
+            reason: "Unknown envelope must fail",
+        })
+        .await
+        .unwrap_err();
+    assert!(matches!(unknown, DocumentError::Invalid(_)));
+
+    let mut corrupt = edited.clone();
+    corrupt.content_json["content"][0]["content"][0]["text"] = json!("Corrupted in transit");
+    let corrupt_error = org
+        .import_runtime_document_as_named_version(ImportRuntimeDocument {
+            target_document_id: document_id,
+            actor_id: "owner",
+            expected_current_version_id: source_version_id,
+            envelope: &corrupt,
+            reason: "Corrupt envelope must fail",
+        })
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(corrupt_error, DocumentError::Invalid(message) if message.contains("checksum"))
+    );
+    assert_eq!(document_events(&mut connection, document_id).await.len(), 3);
+
+    // A Runtime can always recompute an envelope checksum. That must not let
+    // it rewrite the immutable Core identity or history the receipt claims.
+    let mut fabricated_identity = edited.clone();
+    fabricated_identity.source_company_id = Some(Uuid::new_v4());
+    fabricated_identity.source_company_key = "fabricated_company".into();
+    fabricated_identity.source_document_id = Uuid::new_v4();
+    fabricated_identity.source_named_version_id = Uuid::new_v4();
+    fabricated_identity.reseal().unwrap();
+    let mut fabricated_version = edited.clone();
+    fabricated_version.source_named_version_number += 1;
+    fabricated_version.source_document_status = DocumentStatus::Accepted;
+    fabricated_version.source_restored_from_version_id = Some(Uuid::new_v4());
+    fabricated_version.source_created_by_actor_id = "alex".into();
+    fabricated_version.source_version_reason = "Fabricated source history".into();
+    fabricated_version.source_version_created_at += chrono::Duration::seconds(1);
+    fabricated_version.source_content_hash = "0".repeat(64);
+    fabricated_version.reseal().unwrap();
+    for fabricated in [&fabricated_identity, &fabricated_version] {
+        let error = org
+            .import_runtime_document_as_named_version(ImportRuntimeDocument {
+                target_document_id: document_id,
+                actor_id: "owner",
+                expected_current_version_id: source_version_id,
+                envelope: fabricated,
+                reason: "Fabricated provenance must fail",
+            })
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(error, DocumentError::Invalid(message) if message.contains("source provenance"))
+        );
+    }
+    assert_eq!(
+        org.list_document_versions_for_actor(document_id, "owner")
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM native_document_runtime_imports WHERE document_id=$1",
+        )
+        .bind(document_id)
+        .fetch_one(&mut connection)
+        .await
+        .unwrap(),
+        0
+    );
+    assert_eq!(document_events(&mut connection, document_id).await.len(), 3);
+
+    edited.content_json["content"][0]["content"][0]["text"] = json!("Runtime refined observation");
+    edited.reseal().unwrap();
+    assert_ne!(edited.content_hash, edited.source_content_hash);
+    assert_eq!(
+        edited.source_content_hash,
+        reader_export.source_content_hash
+    );
+    assert_eq!(
+        edited.content_json["content"][0]["attrs"]["block_id"],
+        "stable-runtime-block"
+    );
+    assert!(edited.markdown.contains("Runtime refined observation"));
+    assert_eq!(
+        serde_json::from_slice::<NativeDocumentPortableEnvelope>(&edited.to_json_bytes().unwrap())
+            .unwrap(),
+        edited
+    );
+
+    assert!(matches!(
+        org.import_runtime_document_as_named_version(ImportRuntimeDocument {
+            target_document_id: document_id,
+            actor_id: "alex",
+            expected_current_version_id: source_version_id,
+            envelope: &edited,
+            reason: "Readers cannot import",
+        })
+        .await,
+        Err(DocumentError::Unavailable)
+    ));
+    assert_eq!(document_events(&mut connection, document_id).await.len(), 3);
+
+    // The named version, durable provenance receipt, current pointer and event
+    // are one transaction. An event failure cannot leave an invisible import.
+    sqlx::query(
+        "CREATE FUNCTION reject_test_document_import_event() RETURNS trigger AS $$ \
+         BEGIN \
+           IF NEW.kind='document.imported.v1' THEN \
+             RAISE EXCEPTION 'forced Runtime import event failure'; \
+           END IF; \
+           RETURN NEW; \
+         END; \
+         $$ LANGUAGE plpgsql",
+    )
+    .execute(&mut connection)
+    .await
+    .unwrap();
+    sqlx::query(
+        "CREATE TRIGGER reject_test_document_import_event \
+         BEFORE INSERT ON events FOR EACH ROW \
+         EXECUTE FUNCTION reject_test_document_import_event()",
+    )
+    .execute(&mut connection)
+    .await
+    .unwrap();
+    assert!(matches!(
+        org.import_runtime_document_as_named_version(ImportRuntimeDocument {
+            target_document_id: document_id,
+            actor_id: "owner",
+            expected_current_version_id: source_version_id,
+            envelope: &edited,
+            reason: "Apply the explicit Runtime revision",
+        })
+        .await,
+        Err(DocumentError::Database(_))
+    ));
+    sqlx::query("DROP TRIGGER reject_test_document_import_event ON events")
+        .execute(&mut connection)
+        .await
+        .unwrap();
+    sqlx::query("DROP FUNCTION reject_test_document_import_event()")
+        .execute(&mut connection)
+        .await
+        .unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM native_document_runtime_imports WHERE document_id=$1",
+        )
+        .bind(document_id)
+        .fetch_one(&mut connection)
+        .await
+        .unwrap(),
+        0
+    );
+    let after_failed_import = org
+        .get_document_for_actor(document_id, "owner")
+        .await
+        .unwrap();
+    assert_eq!(after_failed_import.document.version, 1);
+    assert_eq!(
+        after_failed_import.document.current_named_version_id,
+        source_version_id
+    );
+    assert_eq!(document_events(&mut connection, document_id).await.len(), 3);
+
+    let imported = org
+        .import_runtime_document_as_named_version(ImportRuntimeDocument {
+            target_document_id: document_id,
+            actor_id: "owner",
+            expected_current_version_id: source_version_id,
+            envelope: &edited,
+            reason: "Apply the explicit Runtime revision",
+        })
+        .await
+        .unwrap();
+    assert_eq!(imported.target_document_id, document_id);
+    assert_eq!(imported.envelope_checksum, edited.checksum);
+    assert_eq!(imported.imported_version.version.version_number, 2);
+    assert_eq!(
+        imported.imported_version.version.content_hash,
+        edited.content_hash
+    );
+    assert_eq!(
+        imported.imported_version.version.content_json["content"][0]["attrs"]["block_id"],
+        "stable-runtime-block"
+    );
+    assert_eq!(
+        imported.imported_version.version.content_json["content"][0]["content"][0]["text"],
+        "Runtime refined observation"
+    );
+
+    let provenance = org
+        .get_document_runtime_import_provenance_for_actor(
+            document_id,
+            imported.imported_version.version.id,
+            "owner",
+        )
+        .await
+        .unwrap();
+    assert_eq!(provenance.document_id, document_id);
+    assert_eq!(
+        provenance.imported_version_id,
+        imported.imported_version.version.id
+    );
+    assert_eq!(provenance.target_base_version_id, source_version_id);
+    assert_eq!(provenance.envelope_schema, edited.envelope_schema);
+    assert_eq!(
+        provenance.envelope_version,
+        NATIVE_DOCUMENT_PORTABLE_ENVELOPE_VERSION as i16
+    );
+    assert_eq!(provenance.envelope_checksum, edited.checksum);
+    assert_eq!(provenance.source_company_id, edited.source_company_id);
+    assert_eq!(provenance.source_company_key, org.schema());
+    assert_eq!(provenance.source_document_id, document_id);
+    assert_eq!(provenance.source_named_version_id, source_version_id);
+    assert_eq!(
+        provenance.source_named_version_number,
+        edited.source_named_version_number
+    );
+    assert_eq!(
+        provenance.source_content_schema_version,
+        edited.source_content_schema_version
+    );
+    assert_eq!(
+        provenance.source_document_status,
+        edited.source_document_status
+    );
+    assert_eq!(
+        provenance.source_restored_from_version_id,
+        edited.source_restored_from_version_id
+    );
+    assert_eq!(
+        provenance.source_created_by_actor_id,
+        edited.source_created_by_actor_id
+    );
+    assert_eq!(
+        provenance.source_version_reason,
+        edited.source_version_reason
+    );
+    assert_eq!(
+        provenance.source_version_created_at,
+        edited.source_version_created_at
+    );
+    assert_eq!(provenance.source_content_hash, edited.source_content_hash);
+    assert_eq!(provenance.imported_content_hash, edited.content_hash);
+    assert_eq!(provenance.imported_by_actor_id, "owner");
+    let imported_version_id = imported.imported_version.version.id;
+    for error in [
+        sqlx::query(
+            "UPDATE native_document_runtime_imports SET envelope_checksum=repeat('a',64) \
+             WHERE document_id=$1 AND imported_version_id=$2",
+        )
+        .bind(document_id)
+        .bind(imported_version_id)
+        .execute(&mut connection)
+        .await
+        .unwrap_err(),
+        sqlx::query(
+            "DELETE FROM native_document_runtime_imports \
+             WHERE document_id=$1 AND imported_version_id=$2",
+        )
+        .bind(document_id)
+        .bind(imported_version_id)
+        .execute(&mut connection)
+        .await
+        .unwrap_err(),
+    ] {
+        assert!(error
+            .to_string()
+            .contains("native document Runtime import receipts are immutable"));
+    }
+    assert!(matches!(
+        org.get_document_runtime_import_provenance_for_actor(
+            document_id,
+            imported.imported_version.version.id,
+            "research-analyst",
+        )
+        .await,
+        Err(DocumentError::Unavailable)
+    ));
+
+    let replay = org
+        .import_runtime_document_as_named_version(ImportRuntimeDocument {
+            target_document_id: document_id,
+            actor_id: "owner",
+            expected_current_version_id: source_version_id,
+            envelope: &edited,
+            reason: "Apply the explicit Runtime revision",
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        replay.imported_version.version.id,
+        imported.imported_version.version.id
+    );
+    assert_eq!(
+        replay.imported_version.version.created_at,
+        imported.imported_version.version.created_at
+    );
+    assert_eq!(
+        org.get_document_for_actor(document_id, "owner")
+            .await
+            .unwrap()
+            .document
+            .version,
+        2
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM native_document_runtime_imports WHERE document_id=$1",
+        )
+        .bind(document_id)
+        .fetch_one(&mut connection)
+        .await
+        .unwrap(),
+        1,
+        "an exact retry must reuse, not duplicate, durable provenance"
+    );
+
+    let mut competing = reader_export.clone();
+    competing.content_json["content"][0]["content"][0]["text"] =
+        json!("A different stale Runtime revision");
+    competing.reseal().unwrap();
+    assert!(matches!(
+        org.import_runtime_document_as_named_version(ImportRuntimeDocument {
+            target_document_id: document_id,
+            actor_id: "owner",
+            expected_current_version_id: source_version_id,
+            envelope: &competing,
+            reason: "A competing stale import",
+        })
+        .await,
+        Err(DocumentError::Conflict(_))
+    ));
+
+    let events = document_events(&mut connection, document_id).await;
+    assert_eq!(events.len(), 4);
+    assert!(events.windows(2).all(|pair| pair[0].id < pair[1].id));
+    assert_eq!(
+        events
+            .iter()
+            .map(|event| event.kind.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "document.created.v1",
+            "document.exported.v1",
+            "document.exported.v1",
+            "document.imported.v1",
+        ]
+    );
+    assert_eq!(events[1].actor_id.as_deref(), Some("alex"));
+    assert_eq!(events[2].actor_id.as_deref(), Some("owner"));
+    assert_eq!(events[3].actor_id.as_deref(), Some("owner"));
+    assert_eq!(
+        events[3].body,
+        json!({
+            "document_id": document_id,
+            "document_version": 2,
+            "named_version_id": imported.imported_version.version.id,
+            "named_version_number": 2,
+            "previous_named_version_id": source_version_id,
+            "status": "draft",
+            "source_company_id": null,
+            "source_company_key": org.schema(),
+            "source_document_id": document_id,
+            "source_named_version_id": source_version_id,
+            "source_content_hash": reader_export.source_content_hash,
+            "content_hash": edited.content_hash,
+            "envelope_checksum": edited.checksum,
+        })
+    );
+    for event in &events {
+        assert_body_free_event_hint(&event.body);
+        let body = event.body.to_string();
+        for forbidden in [
+            "Runtime checkpoint",
+            "Original observation",
+            "Runtime refined observation",
+            "Initial named checkpoint",
+            "Apply the explicit Runtime revision",
+        ] {
+            assert!(!body.contains(forbidden));
+        }
+    }
+
+    // Events are compactable delivery hints. Source/checksum provenance must
+    // remain authoritative and inspectable after compaction and reconnection.
+    let stream_cursor = org.event_stream_snapshot_cursor().await.unwrap();
+    assert_eq!(
+        org.compact_events_through(stream_cursor).await.unwrap(),
+        stream_cursor
+    );
+    assert!(document_events(&mut connection, document_id)
+        .await
+        .is_empty());
+    let after_compaction = org
+        .get_document_runtime_import_provenance_for_actor(
+            document_id,
+            imported.imported_version.version.id,
+            "owner",
+        )
+        .await
+        .unwrap();
+    assert_eq!(after_compaction, provenance);
+
+    let recovered = OrgIntel::ensure(&database_url, org.schema()).await.unwrap();
+    let after_recovery = recovered
+        .get_document_runtime_import_provenance_for_actor(
+            document_id,
+            imported.imported_version.version.id,
+            "owner",
+        )
+        .await
+        .unwrap();
+    assert_eq!(after_recovery, provenance);
+    assert_eq!(
+        recovered
+            .get_document_version_for_actor(
+                document_id,
+                imported.imported_version.version.id,
+                "owner",
+            )
+            .await
+            .unwrap()
+            .version
+            .content_hash,
+        provenance.imported_content_hash
+    );
 }
