@@ -4354,18 +4354,6 @@ async fn deliver_room_message(
     parent_message_id: Option<i64>,
     input: RoomMessageInput,
 ) -> Response<Body> {
-    if principal.membership_role() != "owner"
-        && input
-            .mentions
-            .iter()
-            .any(|mention| mention.work_id.is_some())
-    {
-        return api_error(
-            StatusCode::FORBIDDEN,
-            "work_scope",
-            "only the company membership owner may create a Work-scoped mention until that Work is explicitly shared with a Room",
-        );
-    }
     let org = match room_orgintel(&state, &principal, &company).await {
         Ok(org) => org,
         Err(response) => return response,

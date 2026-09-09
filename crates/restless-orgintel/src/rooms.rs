@@ -1759,6 +1759,12 @@ impl OrgIntel {
             ));
         }
         let mentions = normalized_mentions(author_actor, mentions)?;
+        let linked_work_ids = mentions
+            .iter()
+            .filter_map(|mention| mention.work_id)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
         let payload_sha256 = room_message_digest(
             room_id,
             author_actor,
@@ -1828,6 +1834,30 @@ impl OrgIntel {
         )
         .await?;
         let kind = active_room_kind(&mut tx, room_id, author_actor).await?;
+
+        if !linked_work_ids.is_empty() {
+            // Work references are collaboration capabilities, not decorative
+            // metadata. Lock and admit only company-visible Work or Work
+            // explicitly scoped to this same Room. Every mention recipient is
+            // checked as an active Room participant below, so the same test
+            // protects both author and recipients without an object-wide ACL.
+            let visible_work_ids = sqlx::query_scalar::<_, Uuid>(
+                "SELECT id FROM work \
+                 WHERE id=ANY($1) AND (collaboration_visibility='company' \
+                    OR (collaboration_visibility='room' AND collaboration_room_id=$2)) \
+                 ORDER BY id FOR SHARE",
+            )
+            .bind(&linked_work_ids)
+            .bind(room_id)
+            .fetch_all(&mut *tx)
+            .await?;
+            if visible_work_ids != linked_work_ids {
+                return Err(OrgIntelError::RoomAccessDenied(
+                    "a Work-scoped mention must reference company Work or Work shared with this exact Room"
+                        .into(),
+                ));
+            }
+        }
 
         if !mentions.is_empty() {
             // Quota locks are semantic and transaction-scoped: every process
@@ -2084,6 +2114,22 @@ impl OrgIntel {
             .bind(created_event_id)
             .execute(&mut *tx)
             .await?;
+            if let Some(work_id) = mention
+                .work_id
+                .filter(|_| !mention.independent_work_can_continue)
+            {
+                // A blocking human/agent question pauses only the Work it
+                // names. The marker lets the resolving transaction distinguish
+                // this wait from an unrelated gate or handoff block.
+                sqlx::query(
+                    "UPDATE work SET status='blocked',resolution=$2,updated_at=now() \
+                     WHERE id=$1 AND status IN ('proposed','active')",
+                )
+                .bind(work_id)
+                .bind(format!("awaiting Room input {mention_id}"))
+                .execute(&mut *tx)
+                .await?;
+            }
         }
 
         if let Some(mention_id) = resolves_mention_id {
@@ -2096,6 +2142,7 @@ impl OrgIntel {
                 "SELECT mention.room_id,mention.mentioned_actor_id, \
                         mention.thread_root_message_id,mention.resolution_message_id, \
                         mention.cancelled_event_id,actor.actor_class,mention.claim_token, \
+                        mention.work_id,mention.independent_work_can_continue, \
                         COALESCE(mention.claimed_until>now(),FALSE) AS claim_live, \
                         EXISTS(SELECT 1 FROM actor_cognitive_leases lease \
                                WHERE lease.actor_id=mention.mentioned_actor_id \
@@ -2182,6 +2229,59 @@ impl OrgIntel {
             .bind(resolution_claim_token)
             .execute(&mut *tx)
             .await?;
+            if let Some(work_id) = target.get::<Option<Uuid>, _>("work_id") {
+                // The answer is ordinary attributed Work feedback. Linking it
+                // here, in the same transaction that resolves Attention,
+                // gives the next Attempt the exact response without copying
+                // the message body into another store.
+                sqlx::query(
+                    "INSERT INTO work_feedback (work_id,message_id,linked_by) \
+                     VALUES ($1,$2,$3) ON CONFLICT (work_id,message_id) DO NOTHING",
+                )
+                .bind(work_id)
+                .bind(message_id)
+                .bind(author_actor)
+                .execute(&mut *tx)
+                .await?;
+
+                if !target.get::<bool, _>("independent_work_can_continue") {
+                    let another_blocking_input: bool = sqlx::query_scalar(
+                        "SELECT EXISTS(SELECT 1 FROM message_mentions \
+                         WHERE work_id=$1 AND independent_work_can_continue=FALSE \
+                           AND resolution_message_id IS NULL AND cancelled_event_id IS NULL)",
+                    )
+                    .bind(work_id)
+                    .fetch_one(&mut *tx)
+                    .await?;
+                    let pending_handoff: bool = sqlx::query_scalar(
+                        "SELECT EXISTS(SELECT 1 FROM owner_handoffs \
+                         WHERE work_id=$1 AND state='pending')",
+                    )
+                    .bind(work_id)
+                    .fetch_one(&mut *tx)
+                    .await?;
+                    if !another_blocking_input && !pending_handoff {
+                        sqlx::query(
+                            "UPDATE work SET status='active',resolution=$2,updated_at=now(), \
+                                    attempt_limit=CASE \
+                                      WHEN attempt_limit IS NOT NULL \
+                                        AND NOT EXISTS (SELECT 1 FROM work_attempts attempt \
+                                                        WHERE attempt.work_id=work.id AND attempt.state='running') \
+                                        AND (SELECT count(*) FROM work_attempts attempt \
+                                             WHERE attempt.work_id=work.id AND attempt.revision=work.revision \
+                                               AND attempt.state <> 'superseded') >= attempt_limit \
+                                        AND attempt_limit < 2147483647 \
+                                      THEN attempt_limit + 1 ELSE attempt_limit END \
+                             WHERE id=$1 AND status='blocked' \
+                               AND resolution LIKE 'awaiting Room input %'",
+                        )
+                        .bind(work_id)
+                        .bind(format!("Room input returned in message {message_id}"))
+                        .execute(&mut *tx)
+                        .await?;
+                    }
+                }
+            }
             if let Some(claim_token) = resolution_claim_token {
                 sqlx::query(
                     "UPDATE actor_cognitive_leases SET focused_mention_id=NULL \
