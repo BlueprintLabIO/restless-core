@@ -21,6 +21,7 @@ mod company_bootstrap;
 mod connected_tool;
 mod context;
 mod credential;
+mod document_collaboration_token;
 mod effect;
 mod entry;
 mod exec;

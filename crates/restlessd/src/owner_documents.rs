@@ -6,7 +6,13 @@
 
 use super::*;
 
+use crate::document_collaboration_token::{
+    DocumentCollaborationAccess, DocumentCollaborationTokenInput, DEFAULT_TTL_SECONDS,
+};
+
 const DOCUMENT_BODY_LIMIT: usize = 1_250_000;
+pub(super) const DOCUMENT_COLLABORATION_JWKS_PATH: &str =
+    "/.well-known/restless-native-documents-jwks.json";
 // A JSON string can encode one permitted Markdown byte as six bytes (`\u00XX`).
 // Keep the larger allowance scoped to the import route and reserve bounded
 // headroom for the UUID, reason, property names, and JSON punctuation.
@@ -44,6 +50,10 @@ where
         .route(
             "/companies/{company}/documents/{document}",
             get(get_document).patch(update_document),
+        )
+        .route(
+            "/companies/{company}/documents/{document}/collaboration/token",
+            post(issue_document_collaboration_token),
         )
         .route(
             "/companies/{company}/documents/{document}/links",
@@ -120,6 +130,17 @@ where
         )
         .layer(DefaultBodyLimit::max(DOCUMENT_BODY_LIMIT))
         .layer(middleware::map_response(no_store_response))
+}
+
+pub(super) fn public_routes<S>() -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+    RoomApiState: FromRef<S>,
+{
+    Router::<S>::new().route(
+        DOCUMENT_COLLABORATION_JWKS_PATH,
+        get(document_collaboration_jwks),
+    )
 }
 
 struct DocumentPrincipal(RequestPrincipal);
@@ -307,6 +328,97 @@ struct ResolveDocumentProposalInput {
     resolution_summary: String,
     #[serde(default)]
     accepted_version_name: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct DocumentCollaborationTokenResponse {
+    token: String,
+    token_type: &'static str,
+    access: DocumentCollaborationAccess,
+    expires_at: DateTime<Utc>,
+}
+
+async fn document_collaboration_jwks(State(state): State<RoomApiState>) -> Response<Body> {
+    let mut response = Json(state.document_collaboration_tokens.jwks()).into_response();
+    response.headers_mut().insert(
+        CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=300"),
+    );
+    response
+}
+
+async fn issue_document_collaboration_token(
+    State(state): State<RoomApiState>,
+    DocumentPrincipal(principal): DocumentPrincipal,
+    AxumPath((company, document)): AxumPath<(String, Uuid)>,
+) -> Response<Body> {
+    let org = match document_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    let company_identity = match org.company_access_identity().await {
+        Ok(Some(identity)) if !identity.company_id.is_nil() && !identity.cell_id.is_nil() => {
+            identity
+        }
+        Ok(_) => {
+            return document_api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "document_collaboration_unavailable",
+                "company Documents collaboration is not provisioned",
+            )
+        }
+        Err(error) => {
+            tracing::error!(%error, company, "could not resolve native Documents company identity");
+            return document_api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                "company Documents are temporarily unavailable",
+            );
+        }
+    };
+    let access = match org
+        .document_access_for_actor(document, principal.actor_id())
+        .await
+    {
+        Ok(Some(restless_orgintel::DocumentAccess::Edit)) => DocumentCollaborationAccess::Write,
+        Ok(Some(
+            restless_orgintel::DocumentAccess::Read | restless_orgintel::DocumentAccess::Comment,
+        )) => DocumentCollaborationAccess::Read,
+        Ok(None) => return document_error(restless_orgintel::DocumentError::Unavailable),
+        Err(error) => return document_error(error),
+    };
+    let now = Utc::now();
+    let token = match state
+        .document_collaboration_tokens
+        .issue(DocumentCollaborationTokenInput {
+            issuer: &state.document_collaboration_issuer,
+            session_principal: principal.cache_partition(),
+            company_id: company_identity.company_id,
+            document_id: document,
+            actor_id: principal.actor_id(),
+            access,
+            now,
+            ttl_seconds: DEFAULT_TTL_SECONDS,
+        }) {
+        Ok(token) => token,
+        Err(error) => {
+            tracing::error!(%error, company, %document, "could not issue native Documents collaboration token");
+            return document_api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "document_collaboration_unavailable",
+                "company Documents collaboration is temporarily unavailable",
+            );
+        }
+    };
+    document_json(
+        StatusCode::OK,
+        DocumentCollaborationTokenResponse {
+            token,
+            token_type: "Bearer",
+            access,
+            expires_at: now + ChronoDuration::seconds(DEFAULT_TTL_SECONDS),
+        },
+    )
 }
 
 async fn document_orgintel(
@@ -1487,6 +1599,12 @@ mod tests {
                 org.ensure_actor("research-analyst", "staff", "analyst", "Research Analyst")
                     .await
                     .unwrap();
+                org.ensure_company_access_identity(restless_orgintel::CompanyAccessIdentity {
+                    company_id: Uuid::new_v4(),
+                    cell_id: Uuid::new_v4(),
+                })
+                .await
+                .unwrap();
                 companies.insert(name.to_string(), org);
             }
             let org = companies.get(&company).expect("primary company").clone();
@@ -1706,6 +1824,164 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::FORBIDDEN);
         assert_eq!(body["error"], "request_principal");
+    }
+
+    #[tokio::test]
+    async fn collaboration_tokens_and_jwks_are_exact_scoped_and_public_key_only() {
+        let Some(fixture) = DocumentRouteFixture::new().await else {
+            eprintln!(
+                "RESTLESS_TEST_DATABASE_URL unset; skipping Document collaboration-token scenario"
+            );
+            return;
+        };
+        let owner = fixture.app("owner", "owner", &fixture.company);
+        let documents = format!("/companies/{}/documents", fixture.company);
+        let mut company_body = create_body("Shared evidence");
+        company_body["visibility"] = serde_json::Value::String("company".into());
+        let (status, created) = request_json(
+            &owner,
+            Method::POST,
+            &documents,
+            Some(Uuid::new_v4()),
+            Some(company_body),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        let document = uuid_field(&created, "document_id");
+
+        let token_path = format!("{documents}/{document}/collaboration/token");
+        let (status, owner_token) =
+            request_json(&owner, Method::POST, &token_path, None, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(owner_token["token_type"], "Bearer");
+        assert_eq!(owner_token["access"], "write");
+        let identity = fixture
+            .org
+            .company_access_identity()
+            .await
+            .unwrap()
+            .unwrap();
+        let owner_principal = RequestPrincipal::from_verified(&DocumentRouteFixture::identity(
+            "owner",
+            "owner",
+            &fixture.company,
+        ))
+        .unwrap();
+        fixture
+            .state
+            .document_collaboration_tokens
+            .verify_at(
+                owner_token["token"].as_str().unwrap(),
+                crate::document_collaboration_token::ExpectedDocumentCollaborationScope {
+                    issuer: &fixture.state.document_collaboration_issuer,
+                    session_principal: owner_principal.cache_partition(),
+                    company_id: identity.company_id,
+                    document_id: document,
+                    actor_id: "owner",
+                    access: DocumentCollaborationAccess::Write,
+                },
+                Utc::now(),
+            )
+            .unwrap();
+
+        let alice = fixture.app("alice", "member", &fixture.company);
+        let (status, alice_token) =
+            request_json(&alice, Method::POST, &token_path, None, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(alice_token["access"], "read");
+
+        let (status, body) = request_json(
+            &alice,
+            Method::POST,
+            format!("{documents}/{}/collaboration/token", Uuid::new_v4()),
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(body["error"], "document");
+
+        let (status, body) = request_json(
+            &owner,
+            Method::POST,
+            format!(
+                "/companies/{}/documents/{document}/collaboration/token",
+                fixture.other_company
+            ),
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(body["error"], "company_out_of_scope");
+
+        let jwks_app = public_routes::<RoomApiState>().with_state(fixture.state.clone());
+        let response = request(
+            &jwks_app,
+            Method::GET,
+            DOCUMENT_COLLABORATION_JWKS_PATH,
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get(CACHE_CONTROL),
+            Some(&HeaderValue::from_static("public, max-age=300"))
+        );
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let jwks: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(jwks["keys"].as_array().unwrap().len(), 1);
+        assert!(jwks["keys"][0].get("x").is_some());
+        assert!(jwks["keys"][0].get("d").is_none());
+    }
+
+    #[tokio::test]
+    async fn collaboration_token_route_fails_closed_without_company_identity() {
+        let Ok(database_url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            eprintln!(
+                "RESTLESS_TEST_DATABASE_URL unset; skipping unprovisioned Document collaboration-token scenario"
+            );
+            return;
+        };
+        let company = format!("document_api_unbound_{}", Uuid::new_v4().simple());
+        let org = restless_orgintel::OrgIntel::ensure(&database_url, &company)
+            .await
+            .unwrap();
+        org.ensure_actor("owner", "owner", "owner", "The Owner")
+            .await
+            .unwrap();
+        let mut companies = HashMap::new();
+        companies.insert(company.clone(), org);
+        let state = RoomApiState::fixed(companies, database_url);
+        let principal = RequestPrincipal::from_verified(&DocumentRouteFixture::identity(
+            "owner", "owner", &company,
+        ))
+        .unwrap();
+        let app = routes::<RoomApiState>()
+            .layer(Extension(principal))
+            .with_state(state);
+        let documents = format!("/companies/{company}/documents");
+        let (status, created) = request_json(
+            &app,
+            Method::POST,
+            &documents,
+            Some(Uuid::new_v4()),
+            Some(create_body("Unprovisioned evidence")),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        let document = uuid_field(&created, "document_id");
+        let (status, body) = request_json(
+            &app,
+            Method::POST,
+            format!("{documents}/{document}/collaboration/token"),
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(body["error"], "document_collaboration_unavailable");
     }
 
     #[tokio::test]

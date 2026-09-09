@@ -98,6 +98,9 @@ struct OwnerState {
     review_public_url: String,
     entry: EntryMode,
     sessions: Arc<SessionStore>,
+    document_collaboration_tokens:
+        crate::document_collaboration_token::DocumentCollaborationTokenIssuer,
+    document_collaboration_issuer: Arc<str>,
 }
 
 /// The Room API depends only on company-scoped OrgIntel access. Keeping that
@@ -111,6 +114,9 @@ struct RoomApiState {
     event_fallback_initial: Duration,
     event_fallback_max: Duration,
     network_mode: bool,
+    document_collaboration_tokens:
+        crate::document_collaboration_token::DocumentCollaborationTokenIssuer,
+    document_collaboration_issuer: Arc<str>,
 }
 
 #[derive(Clone)]
@@ -131,6 +137,8 @@ impl FromRef<OwnerState> for RoomApiState {
             event_fallback_initial: ROOM_EVENT_FALLBACK_INITIAL,
             event_fallback_max: ROOM_EVENT_FALLBACK_MAX,
             network_mode: state.entry.network().is_some(),
+            document_collaboration_tokens: state.document_collaboration_tokens.clone(),
+            document_collaboration_issuer: state.document_collaboration_issuer.clone(),
         }
     }
 }
@@ -169,6 +177,11 @@ impl RoomApiState {
             event_fallback_initial: ROOM_EVENT_FALLBACK_INITIAL,
             event_fallback_max: ROOM_EVENT_FALLBACK_MAX,
             network_mode: false,
+            document_collaboration_tokens:
+                crate::document_collaboration_token::DocumentCollaborationTokenIssuer::for_test(
+                    [23; 32],
+                ),
+            document_collaboration_issuer: "http://127.0.0.1:7788".into(),
         }
     }
 }
@@ -1082,6 +1095,14 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
     }
     let company_bootstrap = crate::company_bootstrap::routes::<OwnerState>(&daemon, &entry)
         .context("configure company-bootstrap endpoint")?;
+    let document_collaboration_tokens =
+        crate::document_collaboration_token::DocumentCollaborationTokenIssuer::open(&daemon.root)
+            .context("open native Documents collaboration signer")?;
+    let document_collaboration_issuer: Arc<str> = entry
+        .network_coordinates()
+        .map(|(_, _, host)| format!("https://{host}"))
+        .unwrap_or_else(|| format!("http://{address}"))
+        .into();
     let state = OwnerState {
         daemon,
         charter_writes: Arc::new(tokio::sync::Mutex::new(())),
@@ -1091,6 +1112,8 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         review_public_url,
         entry,
         sessions: Arc::new(SessionStore::default()),
+        document_collaboration_tokens,
+        document_collaboration_issuer,
     };
 
     let api = Router::new()
@@ -1214,6 +1237,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         // is running without holding a session, and the answer carries release
         // identity only — never company, owner or configuration detail.
         .route("/health", get(release_health))
+        .merge(documents_api::public_routes::<OwnerState>())
         .merge(membership_controls)
         .merge(company_bootstrap)
         .route("/entry", post(consume_entry_assertion))
@@ -1505,6 +1529,17 @@ fn network_boundary_violation(
     expected_host: &str,
     identity: Option<&crate::entry::VerifiedIdentity>,
 ) -> Option<BoundaryRefusal> {
+    if path == documents_api::DOCUMENT_COLLABORATION_JWKS_PATH
+        && matches!(*method, Method::GET | Method::HEAD)
+    {
+        // This exact well-known resource contains only the collaboration
+        // signer's public key. The per-company sidecar fetches it over its
+        // private service name, so it cannot present the browser-facing plane
+        // Host. Keep the exception method- and path-exact: no owner data,
+        // session, forwarding claim or neighbouring route is admitted here.
+        return None;
+    }
+
     // Fleet reaches the door with a cross-site auto-submitted form. The
     // single-use signed credential is the CSRF defence here; the destination
     // Host must still be this exact account plane.
@@ -8623,6 +8658,44 @@ mod tests {
             None,
         )
         .is_none());
+    }
+
+    #[test]
+    fn collaboration_jwks_is_the_only_public_route_admitted_from_the_private_service_host() {
+        const COLLABORATION_SERVICE_HOST: &str = "core-documents-api:7788";
+
+        for method in [Method::GET, Method::HEAD] {
+            assert!(network_boundary_violation(
+                &method,
+                &network_headers(COLLABORATION_SERVICE_HOST),
+                documents_api::DOCUMENT_COLLABORATION_JWKS_PATH,
+                PLANE_HOST,
+                None,
+            )
+            .is_none());
+        }
+
+        for (method, path) in [
+            (
+                Method::POST,
+                documents_api::DOCUMENT_COLLABORATION_JWKS_PATH,
+            ),
+            (Method::GET, "/.well-known/"),
+            (
+                Method::GET,
+                "/.well-known/restless-native-documents-jwks.json/near-miss",
+            ),
+        ] {
+            let refusal = network_boundary_violation(
+                &method,
+                &network_headers(COLLABORATION_SERVICE_HOST),
+                path,
+                PLANE_HOST,
+                None,
+            )
+            .expect("only an exact GET or HEAD of the public JWKS may bypass the plane Host");
+            assert_eq!(refusal.code, "network_owner_boundary");
+        }
     }
 
     #[test]

@@ -102,6 +102,7 @@ function nativeDocumentsDescriptor(image) {
     },
     token: {
       issuer_template: 'https://{plane_hostname}',
+      jwks_path: '/.well-known/restless-native-documents-jwks.json',
       audience: 'restless-native-documents-collaboration',
       minimum_ttl_seconds: 15,
       maximum_ttl_seconds: 120,

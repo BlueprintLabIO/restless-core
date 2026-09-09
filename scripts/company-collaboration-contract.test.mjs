@@ -88,6 +88,10 @@ test('the Core contract set is canonical, immutable and release-complete', async
   assert.equal(descriptor.availability.public_exposure, 'owner-plane-proxy-only');
   assert.equal(descriptor.availability.runtime_dependency, 'none');
   assert.equal(descriptor.storage.scope, 'document-content-only');
+  assert.equal(
+    descriptor.token.jwks_path,
+    '/.well-known/restless-native-documents-jwks.json',
+  );
   assert.ok(descriptor.token.maximum_ttl_seconds <= 300);
   assert.deepEqual(
     [
