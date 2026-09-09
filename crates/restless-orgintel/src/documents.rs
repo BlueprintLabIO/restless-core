@@ -313,6 +313,278 @@ pub struct SetDocumentParticipant<'a> {
     pub access: DocumentAccess,
 }
 
+const MAX_DOCUMENT_COMMENT_PAGE: i64 = 100;
+const MAX_DOCUMENT_THREAD_PAGE: i64 = 50;
+const MAX_DOCUMENT_REVIEW_PAGE: i64 = 50;
+const MAX_DOCUMENT_PROPOSAL_PAGE: i64 = 50;
+const MAX_DOCUMENT_MENTIONS: usize = 32;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(
+    type_name = "native_document_comment_status",
+    rename_all = "snake_case"
+)]
+#[serde(rename_all = "snake_case")]
+pub enum DocumentCommentStatus {
+    Open,
+    Resolved,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(type_name = "native_document_review_status", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum DocumentReviewStatus {
+    Requested,
+    Accepted,
+    Stale,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(
+    type_name = "native_document_revision_scope",
+    rename_all = "snake_case"
+)]
+#[serde(rename_all = "snake_case")]
+pub enum DocumentRevisionScope {
+    WholeDocument,
+    Block,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(
+    type_name = "native_document_revision_status",
+    rename_all = "snake_case"
+)]
+#[serde(rename_all = "snake_case")]
+pub enum DocumentRevisionStatus {
+    Proposed,
+    Accepted,
+    Rejected,
+    Stale,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DocumentCommentAnchorState {
+    Document,
+    Active,
+    Orphaned,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DocumentPageCursor {
+    pub created_at: DateTime<Utc>,
+    pub id: Uuid,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct DocumentCommentThreadRow {
+    pub id: Uuid,
+    pub document_id: Uuid,
+    pub anchored_version_id: Uuid,
+    pub block_id: Option<String>,
+    pub status: DocumentCommentStatus,
+    pub created_by_actor_id: String,
+    pub created_at: DateTime<Utc>,
+    pub resolved_by_actor_id: Option<String>,
+    pub resolved_at: Option<DateTime<Utc>>,
+    pub version: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DocumentCommentThreadView {
+    pub thread: DocumentCommentThreadRow,
+    pub anchor_state: DocumentCommentAnchorState,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DocumentCommentThreadPage {
+    pub items: Vec<DocumentCommentThreadView>,
+    pub next_cursor: Option<DocumentPageCursor>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct DocumentCommentRow {
+    pub id: Uuid,
+    pub document_id: Uuid,
+    pub thread_id: Uuid,
+    pub reply_to_comment_id: Option<Uuid>,
+    pub author_actor_id: String,
+    pub content_json: Value,
+    pub plain_text: String,
+    pub content_hash: String,
+    pub mentioned_actor_ids: Vec<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DocumentCommentPage {
+    pub items: Vec<DocumentCommentRow>,
+    pub next_cursor: Option<DocumentPageCursor>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DocumentCommentThreadCreated {
+    pub thread: DocumentCommentThreadView,
+    pub first_comment: DocumentCommentRow,
+}
+
+pub struct NewDocumentCommentThread<'a> {
+    pub document_id: Uuid,
+    pub actor_id: &'a str,
+    pub command_id: Uuid,
+    pub block_id: Option<&'a str>,
+    pub content_json: &'a Value,
+}
+
+pub struct ReplyToDocumentComment<'a> {
+    pub document_id: Uuid,
+    pub thread_id: Uuid,
+    pub reply_to_comment_id: Option<Uuid>,
+    pub actor_id: &'a str,
+    pub command_id: Uuid,
+    pub content_json: &'a Value,
+}
+
+pub struct ResolveDocumentCommentThread<'a> {
+    pub document_id: Uuid,
+    pub thread_id: Uuid,
+    pub actor_id: &'a str,
+    pub command_id: Uuid,
+    pub expected_thread_version: i64,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct DocumentReviewRow {
+    pub id: Uuid,
+    pub document_id: Uuid,
+    pub requested_version_id: Uuid,
+    pub requested_by_actor_id: String,
+    pub summary: String,
+    pub status: DocumentReviewStatus,
+    pub accepted_version_id: Option<Uuid>,
+    pub accepted_by_actor_id: Option<String>,
+    pub accepted_at: Option<DateTime<Utc>>,
+    pub material_unresolved_thread_ids: Option<Vec<Uuid>>,
+    pub stale_against_version_id: Option<Uuid>,
+    pub stale_detected_by_actor_id: Option<String>,
+    pub stale_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub version: i64,
+}
+
+pub struct RequestDocumentReview<'a> {
+    pub document_id: Uuid,
+    pub actor_id: &'a str,
+    pub command_id: Uuid,
+    pub expected_document_version: i64,
+    pub expected_current_version_id: Uuid,
+    pub summary: &'a str,
+}
+
+pub struct AcceptDocumentReview<'a> {
+    pub document_id: Uuid,
+    pub review_id: Uuid,
+    pub actor_id: &'a str,
+    pub command_id: Uuid,
+    pub expected_document_version: i64,
+    pub expected_review_version: i64,
+    pub accepted_version_name: &'a str,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DocumentReviewResolution {
+    pub review: DocumentReviewRow,
+    pub accepted_version: Option<DocumentVersionView>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DocumentReviewPage {
+    pub items: Vec<DocumentReviewRow>,
+    pub next_cursor: Option<DocumentPageCursor>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct DocumentRevisionProposalRow {
+    pub id: Uuid,
+    pub document_id: Uuid,
+    pub base_version_id: Uuid,
+    pub scope: DocumentRevisionScope,
+    pub block_id: Option<String>,
+    pub proposed_content_json: Value,
+    pub proposed_plain_text: String,
+    pub proposed_content_hash: String,
+    pub summary: String,
+    pub proposed_by_actor_id: String,
+    pub status: DocumentRevisionStatus,
+    pub accepted_version_id: Option<Uuid>,
+    pub resolved_by_actor_id: Option<String>,
+    pub resolution_summary: Option<String>,
+    pub resolved_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub version: i64,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct DocumentRevisionProposalSummary {
+    pub id: Uuid,
+    pub document_id: Uuid,
+    pub base_version_id: Uuid,
+    pub scope: DocumentRevisionScope,
+    pub block_id: Option<String>,
+    pub proposed_content_hash: String,
+    pub summary: String,
+    pub proposed_by_actor_id: String,
+    pub status: DocumentRevisionStatus,
+    pub accepted_version_id: Option<Uuid>,
+    pub resolved_by_actor_id: Option<String>,
+    pub resolution_summary: Option<String>,
+    pub resolved_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub version: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DocumentRevisionProposalPage {
+    pub items: Vec<DocumentRevisionProposalSummary>,
+    pub next_cursor: Option<DocumentPageCursor>,
+}
+
+pub struct ProposeDocumentRevision<'a> {
+    pub document_id: Uuid,
+    pub actor_id: &'a str,
+    pub command_id: Uuid,
+    pub base_version_id: Uuid,
+    pub scope: DocumentRevisionScope,
+    pub block_id: Option<&'a str>,
+    pub proposed_content_json: &'a Value,
+    pub summary: &'a str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DocumentRevisionDecision {
+    Accept,
+    Reject,
+}
+
+pub struct ResolveDocumentRevisionProposal<'a> {
+    pub document_id: Uuid,
+    pub proposal_id: Uuid,
+    pub actor_id: &'a str,
+    pub command_id: Uuid,
+    pub expected_proposal_version: i64,
+    pub decision: DocumentRevisionDecision,
+    pub resolution_summary: &'a str,
+    pub accepted_version_name: Option<&'a str>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DocumentRevisionResolution {
+    pub proposal: DocumentRevisionProposalRow,
+    pub accepted_version: Option<DocumentVersionView>,
+}
+
 #[derive(Debug, Clone)]
 pub struct ValidatedDocument {
     pub content_json: Value,
@@ -1612,6 +1884,71 @@ async fn active_actor(tx: &mut Transaction<'_, Postgres>, actor_id: &str) -> Doc
     )
 }
 
+/// Review acceptance and direct named-body changes carry organisational
+/// meaning beyond an ACL edit grant. Humans may judge; agent Actors may judge
+/// only while they are the Exec or the accountable lead of a live Team.
+async fn require_document_judgement_actor(
+    tx: &mut Transaction<'_, Postgres>,
+    actor_id: &str,
+) -> DocumentResult<()> {
+    // Team mutations take Team -> Actor. Read the class only to choose the
+    // branch, then take the same canonical locks and revalidate under lock.
+    let observed_class: Option<String> =
+        sqlx::query_scalar("SELECT actor_class FROM actors WHERE id=$1 AND retired_at IS NULL")
+            .bind(actor_id)
+            .fetch_optional(&mut **tx)
+            .await?;
+    match observed_class.as_deref() {
+        Some("human") => {
+            let locked_class: Option<String> = sqlx::query_scalar(
+                "SELECT actor_class FROM actors WHERE id=$1 AND retired_at IS NULL FOR SHARE",
+            )
+            .bind(actor_id)
+            .fetch_optional(&mut **tx)
+            .await?;
+            if locked_class.as_deref() == Some("human") {
+                Ok(())
+            } else {
+                Err(DocumentError::Unavailable)
+            }
+        }
+        Some("agent") if actor_id == "exec" => {
+            let locked_class: Option<String> = sqlx::query_scalar(
+                "SELECT actor_class FROM actors WHERE id=$1 AND retired_at IS NULL FOR SHARE",
+            )
+            .bind(actor_id)
+            .fetch_optional(&mut **tx)
+            .await?;
+            if locked_class.as_deref() == Some("agent") {
+                Ok(())
+            } else {
+                Err(DocumentError::Unavailable)
+            }
+        }
+        Some("agent") => {
+            let leads_live_team: Option<Uuid> = sqlx::query_scalar(
+                "SELECT id FROM teams WHERE lead_actor_id=$1 AND disbanded_at IS NULL \
+                 ORDER BY id LIMIT 1 FOR SHARE",
+            )
+            .bind(actor_id)
+            .fetch_optional(&mut **tx)
+            .await?;
+            let locked_class: Option<String> = sqlx::query_scalar(
+                "SELECT actor_class FROM actors WHERE id=$1 AND retired_at IS NULL FOR SHARE",
+            )
+            .bind(actor_id)
+            .fetch_optional(&mut **tx)
+            .await?;
+            if leads_live_team.is_some() && locked_class.as_deref() == Some("agent") {
+                Ok(())
+            } else {
+                Err(DocumentError::Unavailable)
+            }
+        }
+        _ => Err(DocumentError::Unavailable),
+    }
+}
+
 /// Append a body-free document refetch hint to the existing operational event
 /// stream. Callers invoke this inside the same transaction as the authoritative
 /// mutation, so neither the change nor its notification can commit alone.
@@ -1805,6 +2142,451 @@ fn version_view(version: DocumentVersionRow) -> DocumentResult<DocumentVersionVi
         rendered_html: validated.rendered_html,
         markdown: validated.markdown,
     })
+}
+
+fn comment_thread_select() -> &'static str {
+    "SELECT id,document_id,anchored_version_id,block_id,status,created_by_actor_id,created_at,\
+            resolved_by_actor_id,resolved_at,version FROM native_document_comment_threads"
+}
+
+fn comment_thread_columns() -> &'static str {
+    "id,document_id,anchored_version_id,block_id,status,created_by_actor_id,created_at,\
+     resolved_by_actor_id,resolved_at,version"
+}
+
+fn comment_select() -> &'static str {
+    "SELECT id,document_id,thread_id,reply_to_comment_id,author_actor_id,content_json,plain_text,\
+            content_hash,mentioned_actor_ids,created_at FROM native_document_comments"
+}
+
+fn comment_columns() -> &'static str {
+    "id,document_id,thread_id,reply_to_comment_id,author_actor_id,content_json,plain_text,\
+     content_hash,mentioned_actor_ids,created_at"
+}
+
+fn review_select() -> &'static str {
+    "SELECT id,document_id,requested_version_id,requested_by_actor_id,summary,status,\
+            accepted_version_id,accepted_by_actor_id,accepted_at,material_unresolved_thread_ids,\
+            stale_against_version_id,stale_detected_by_actor_id,stale_at,created_at,version \
+     FROM native_document_reviews"
+}
+
+fn review_columns() -> &'static str {
+    "id,document_id,requested_version_id,requested_by_actor_id,summary,status,accepted_version_id,\
+     accepted_by_actor_id,accepted_at,material_unresolved_thread_ids,stale_against_version_id,\
+     stale_detected_by_actor_id,stale_at,created_at,version"
+}
+
+fn revision_proposal_select() -> &'static str {
+    "SELECT id,document_id,base_version_id,scope,block_id,proposed_content_json,\
+            proposed_plain_text,proposed_content_hash,summary,proposed_by_actor_id,status,\
+            accepted_version_id,resolved_by_actor_id,resolution_summary,resolved_at,created_at,version \
+     FROM native_document_revision_proposals"
+}
+
+fn revision_proposal_columns() -> &'static str {
+    "id,document_id,base_version_id,scope,block_id,proposed_content_json,proposed_plain_text,\
+     proposed_content_hash,summary,proposed_by_actor_id,status,accepted_version_id,\
+     resolved_by_actor_id,resolution_summary,resolved_at,created_at,version"
+}
+
+fn validate_command_id(command_id: Uuid) -> DocumentResult<()> {
+    if command_id.is_nil() {
+        return Err(DocumentError::Invalid(
+            "command_id must not be the nil UUID".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn request_fingerprint(operation: &str, value: Value) -> String {
+    sha256_hex(&canonical_json(&json!({
+        "operation": operation,
+        "request": value,
+    })))
+}
+
+async fn lock_document_command(
+    tx: &mut Transaction<'_, Postgres>,
+    command_id: Uuid,
+) -> DocumentResult<()> {
+    validate_command_id(command_id)?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 782347612))")
+        .bind(command_id)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+async fn replayed_document_command(
+    tx: &mut Transaction<'_, Postgres>,
+    command_id: Uuid,
+    document_id: Uuid,
+    operation: &str,
+    fingerprint: &str,
+) -> DocumentResult<Option<Uuid>> {
+    let existing: Option<(Uuid, String, String, Uuid)> = sqlx::query_as(
+        "SELECT document_id,operation,request_fingerprint,result_id \
+         FROM native_document_command_receipts WHERE command_id=$1",
+    )
+    .bind(command_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    let Some((stored_document_id, stored_operation, stored_fingerprint, result_id)) = existing
+    else {
+        return Ok(None);
+    };
+    if stored_document_id != document_id
+        || stored_operation != operation
+        || stored_fingerprint != fingerprint
+    {
+        return Err(DocumentError::Conflict(
+            "command_id was already used with a different request".into(),
+        ));
+    }
+    Ok(Some(result_id))
+}
+
+async fn record_document_command(
+    tx: &mut Transaction<'_, Postgres>,
+    command_id: Uuid,
+    document_id: Uuid,
+    operation: &str,
+    fingerprint: &str,
+    result_id: Uuid,
+    actor_id: &str,
+) -> DocumentResult<()> {
+    sqlx::query(
+        "INSERT INTO native_document_command_receipts \
+         (command_id,document_id,operation,request_fingerprint,result_id,actor_id) \
+         VALUES ($1,$2,$3,$4,$5,$6)",
+    )
+    .bind(command_id)
+    .bind(document_id)
+    .bind(operation)
+    .bind(fingerprint)
+    .bind(result_id)
+    .bind(actor_id)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+fn validated_comment_content(content_json: &Value) -> DocumentResult<ValidatedDocument> {
+    let encoded = serde_json::to_vec(content_json)
+        .map_err(|error| DocumentError::Invalid(format!("comment is not JSON: {error}")))?;
+    if encoded.len() > 16_384 {
+        return Err(DocumentError::Invalid(
+            "comment content exceeds 16384 bytes".into(),
+        ));
+    }
+    let content = validate_document_json(content_json)?;
+    let text_chars = content.plain_text.chars().count();
+    if text_chars == 0 || text_chars > 8_000 {
+        return Err(DocumentError::Invalid(
+            "comment text must contain 1 to 8000 characters".into(),
+        ));
+    }
+    Ok(content)
+}
+
+fn collect_mention_actor_ids(value: &Value, mentions: &mut HashSet<String>) {
+    match value {
+        Value::Object(fields) => {
+            if fields.get("type").and_then(Value::as_str) == Some("mention") {
+                if let Some(actor_id) = fields
+                    .get("attrs")
+                    .and_then(Value::as_object)
+                    .and_then(|attrs| attrs.get("actor_id"))
+                    .and_then(Value::as_str)
+                {
+                    mentions.insert(actor_id.to_string());
+                }
+            }
+            for child in fields.values() {
+                collect_mention_actor_ids(child, mentions);
+            }
+        }
+        Value::Array(values) => {
+            for child in values {
+                collect_mention_actor_ids(child, mentions);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn mentioned_actor_ids(content: &ValidatedDocument) -> DocumentResult<Vec<String>> {
+    let mut mentions = HashSet::new();
+    collect_mention_actor_ids(&content.content_json, &mut mentions);
+    if mentions.len() > MAX_DOCUMENT_MENTIONS {
+        return Err(DocumentError::Invalid(format!(
+            "comment mentions more than {MAX_DOCUMENT_MENTIONS} Actors"
+        )));
+    }
+    let mut mentions: Vec<_> = mentions.into_iter().collect();
+    mentions.sort();
+    Ok(mentions)
+}
+
+async fn require_mentioned_actor_access(
+    tx: &mut Transaction<'_, Postgres>,
+    document_id: Uuid,
+    mentioned_actor_ids: &[String],
+) -> DocumentResult<()> {
+    for actor_id in mentioned_actor_ids {
+        require_access(tx, document_id, actor_id, DocumentAccess::Read).await?;
+    }
+    Ok(())
+}
+
+fn top_level_block_ids(content: &Value) -> DocumentResult<HashSet<String>> {
+    let document = content
+        .as_object()
+        .ok_or_else(|| DocumentError::Corrupt("document content is not an object".into()))?;
+    let blocks = document
+        .get("content")
+        .and_then(Value::as_array)
+        .ok_or_else(|| DocumentError::Corrupt("document content is not an array".into()))?;
+    let mut ids = HashSet::with_capacity(blocks.len());
+    for block in blocks {
+        let block = block
+            .as_object()
+            .ok_or_else(|| DocumentError::Corrupt("document block is not an object".into()))?;
+        let block_id = block
+            .get("attrs")
+            .and_then(Value::as_object)
+            .and_then(|attrs| attrs.get("block_id"))
+            .and_then(Value::as_str)
+            .ok_or_else(|| DocumentError::Corrupt("document block has no block_id".into()))?;
+        ids.insert(block_id.to_string());
+    }
+    Ok(ids)
+}
+
+fn validate_block_id(block_id: &str) -> DocumentResult<String> {
+    if block_id.is_empty()
+        || block_id.chars().count() > 128
+        || !block_id.chars().enumerate().all(|(index, character)| {
+            character.is_ascii_alphanumeric()
+                || (index > 0 && matches!(character, '.' | '_' | ':' | '-'))
+        })
+    {
+        return Err(DocumentError::Invalid(
+            "block_id must use 1 to 128 safe identifier characters".into(),
+        ));
+    }
+    Ok(block_id.to_string())
+}
+
+fn validate_comment_row(row: DocumentCommentRow) -> DocumentResult<DocumentCommentRow> {
+    let validated = validated_comment_content(&row.content_json)
+        .map_err(|error| DocumentError::Corrupt(error.to_string()))?;
+    if validated.content_hash != row.content_hash || validated.plain_text != row.plain_text {
+        return Err(DocumentError::Corrupt(format!(
+            "comment {} projections do not match its content",
+            row.id
+        )));
+    }
+    if mentioned_actor_ids(&validated)? != row.mentioned_actor_ids {
+        return Err(DocumentError::Corrupt(format!(
+            "comment {} mention projection does not match its content",
+            row.id
+        )));
+    }
+    Ok(row)
+}
+
+// Create-command receipts name rows whose creation fields are protected by
+// migration triggers. Lifecycle columns may have advanced before a lost
+// response is retried, so replay projects the immutable version-one result
+// instead of returning a newer state for the same command.
+fn comment_thread_creation_projection(
+    mut thread: DocumentCommentThreadRow,
+) -> DocumentCommentThreadRow {
+    thread.status = DocumentCommentStatus::Open;
+    thread.resolved_by_actor_id = None;
+    thread.resolved_at = None;
+    thread.version = 1;
+    thread
+}
+
+fn review_request_projection(mut review: DocumentReviewRow) -> DocumentReviewRow {
+    review.status = DocumentReviewStatus::Requested;
+    review.accepted_version_id = None;
+    review.accepted_by_actor_id = None;
+    review.accepted_at = None;
+    review.material_unresolved_thread_ids = None;
+    review.stale_against_version_id = None;
+    review.stale_detected_by_actor_id = None;
+    review.stale_at = None;
+    review.version = 1;
+    review
+}
+
+fn revision_proposal_creation_projection(
+    mut proposal: DocumentRevisionProposalRow,
+) -> DocumentRevisionProposalRow {
+    proposal.status = DocumentRevisionStatus::Proposed;
+    proposal.accepted_version_id = None;
+    proposal.resolved_by_actor_id = None;
+    proposal.resolution_summary = None;
+    proposal.resolved_at = None;
+    proposal.version = 1;
+    proposal
+}
+
+fn bounded_page_limit(limit: i64, maximum: i64) -> DocumentResult<i64> {
+    if !(1..=maximum).contains(&limit) {
+        return Err(DocumentError::Invalid(format!(
+            "page limit must be between 1 and {maximum}"
+        )));
+    }
+    Ok(limit)
+}
+
+fn page_tail<T, F>(items: &mut Vec<T>, limit: i64, cursor: F) -> Option<DocumentPageCursor>
+where
+    F: Fn(&T) -> DocumentPageCursor,
+{
+    if items.len() <= limit as usize {
+        return None;
+    }
+    items.truncate(limit as usize);
+    items.last().map(cursor)
+}
+
+async fn append_semantic_named_version(
+    tx: &mut Transaction<'_, Postgres>,
+    document_id: Uuid,
+    actor_id: &str,
+    status: DocumentStatus,
+    content: &ValidatedDocument,
+    version_name: &str,
+) -> DocumentResult<DocumentVersionRow> {
+    let next_number: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(max(version_number),0)+1 FROM native_document_versions WHERE document_id=$1",
+    )
+    .bind(document_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    let version_id = Uuid::new_v4();
+    sqlx::query_as::<_, DocumentVersionRow>(&format!(
+        "INSERT INTO native_document_versions \
+         (id,document_id,version_number,schema_version,content_json,plain_text,content_hash,\
+          document_status,created_by_actor_id,reason) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING {}",
+        "id,document_id,version_number,schema_version,content_json,plain_text,content_hash,\
+         document_status,restored_from_version_id,created_by_actor_id,reason,created_at"
+    ))
+    .bind(version_id)
+    .bind(document_id)
+    .bind(next_number)
+    .bind(DOCUMENT_SCHEMA_VERSION)
+    .bind(&content.content_json)
+    .bind(&content.plain_text)
+    .bind(&content.content_hash)
+    .bind(status)
+    .bind(actor_id)
+    .bind(version_name)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(DocumentError::from)
+}
+
+fn validated_proposal_content(
+    scope: DocumentRevisionScope,
+    block_id: Option<&str>,
+    proposed: &Value,
+) -> DocumentResult<(Value, String, String, Option<String>)> {
+    match scope {
+        DocumentRevisionScope::WholeDocument => {
+            if block_id.is_some() {
+                return Err(DocumentError::Invalid(
+                    "whole-document proposals cannot identify a block".into(),
+                ));
+            }
+            let content = validate_document_json(proposed)?;
+            Ok((
+                content.content_json,
+                content.plain_text,
+                content.content_hash,
+                None,
+            ))
+        }
+        DocumentRevisionScope::Block => {
+            let block_id = validate_block_id(block_id.ok_or_else(|| {
+                DocumentError::Invalid("block proposals require block_id".into())
+            })?)?;
+            let wrapper = json!({"type": "doc", "content": [proposed]});
+            let content = validate_document_json(&wrapper)?;
+            if !top_level_block_ids(&content.content_json)?.contains(&block_id) {
+                return Err(DocumentError::Invalid(
+                    "proposed block_id does not match the proposed block".into(),
+                ));
+            }
+            let canonical_block = content
+                .content_json
+                .get("content")
+                .and_then(Value::as_array)
+                .and_then(|blocks| blocks.first())
+                .cloned()
+                .ok_or_else(|| DocumentError::Invalid("proposed block is empty".into()))?;
+            Ok((
+                canonical_block.clone(),
+                content.plain_text,
+                sha256_hex(&canonical_json(&canonical_block)),
+                Some(block_id),
+            ))
+        }
+    }
+}
+
+fn validate_proposal_row(
+    row: DocumentRevisionProposalRow,
+) -> DocumentResult<DocumentRevisionProposalRow> {
+    let (content, plain_text, content_hash, block_id) = validated_proposal_content(
+        row.scope,
+        row.block_id.as_deref(),
+        &row.proposed_content_json,
+    )
+    .map_err(|error| DocumentError::Corrupt(error.to_string()))?;
+    if content != row.proposed_content_json
+        || plain_text != row.proposed_plain_text
+        || content_hash != row.proposed_content_hash
+        || block_id != row.block_id
+    {
+        return Err(DocumentError::Corrupt(format!(
+            "revision proposal {} projections do not match its content",
+            row.id
+        )));
+    }
+    Ok(row)
+}
+
+fn apply_block_proposal(
+    base_content: &Value,
+    block_id: &str,
+    proposed_block: &Value,
+) -> DocumentResult<ValidatedDocument> {
+    let mut document = base_content.clone();
+    let blocks = document
+        .get_mut("content")
+        .and_then(Value::as_array_mut)
+        .ok_or_else(|| DocumentError::Corrupt("base version has no content array".into()))?;
+    let position = blocks
+        .iter()
+        .position(|block| {
+            block
+                .get("attrs")
+                .and_then(Value::as_object)
+                .and_then(|attrs| attrs.get("block_id"))
+                .and_then(Value::as_str)
+                == Some(block_id)
+        })
+        .ok_or_else(|| DocumentError::Conflict("proposal block is no longer present".into()))?;
+    blocks[position] = proposed_block.clone();
+    validate_document_json(&document)
 }
 
 impl OrgIntel {
@@ -2116,6 +2898,7 @@ impl OrgIntel {
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(DocumentError::Unavailable)?;
+        require_document_judgement_actor(&mut tx, input.actor_id).await?;
         require_access(
             &mut tx,
             input.document_id,
@@ -2199,6 +2982,7 @@ impl OrgIntel {
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(DocumentError::Unavailable)?;
+        require_document_judgement_actor(&mut tx, input.actor_id).await?;
         require_access(
             &mut tx,
             input.document_id,
@@ -2448,6 +3232,7 @@ impl OrgIntel {
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(DocumentError::Unavailable)?;
+        require_document_judgement_actor(&mut tx, &actor_id).await?;
         require_access(
             &mut tx,
             input.target_document_id,
@@ -2790,6 +3575,1470 @@ impl OrgIntel {
         .await?;
         tx.commit().await?;
         Ok(())
+    }
+
+    pub async fn create_document_comment_thread(
+        &self,
+        input: NewDocumentCommentThread<'_>,
+    ) -> DocumentResult<DocumentCommentThreadCreated> {
+        let content = validated_comment_content(input.content_json)?;
+        let block_id = input.block_id.map(validate_block_id).transpose()?;
+        let mentions = mentioned_actor_ids(&content)?;
+        let fingerprint = request_fingerprint(
+            "comment_thread_create",
+            json!({
+                "document_id": input.document_id,
+                "actor_id": input.actor_id,
+                "block_id": block_id,
+                "content_json": content.content_json,
+            }),
+        );
+        let mut tx = self.pool.begin().await?;
+        lock_document_command(&mut tx, input.command_id).await?;
+        require_access(
+            &mut tx,
+            input.document_id,
+            input.actor_id,
+            DocumentAccess::Comment,
+        )
+        .await?;
+        if let Some(thread_id) = replayed_document_command(
+            &mut tx,
+            input.command_id,
+            input.document_id,
+            "comment_thread_create",
+            &fingerprint,
+        )
+        .await?
+        {
+            let thread = sqlx::query_as::<_, DocumentCommentThreadRow>(&format!(
+                "{} WHERE document_id=$1 AND id=$2",
+                comment_thread_select()
+            ))
+            .bind(input.document_id)
+            .bind(thread_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| {
+                DocumentError::Corrupt("comment command receipt has no thread".into())
+            })?;
+            let thread = comment_thread_creation_projection(thread);
+            let first_comment = sqlx::query_as::<_, DocumentCommentRow>(&format!(
+                "{} WHERE document_id=$1 AND thread_id=$2 AND reply_to_comment_id IS NULL \
+                 ORDER BY created_at,id LIMIT 1",
+                comment_select()
+            ))
+            .bind(input.document_id)
+            .bind(thread_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| {
+                DocumentError::Corrupt("comment command receipt has no first comment".into())
+            })?;
+            tx.commit().await?;
+            return Ok(DocumentCommentThreadCreated {
+                thread: DocumentCommentThreadView {
+                    anchor_state: if thread.block_id.is_some() {
+                        DocumentCommentAnchorState::Active
+                    } else {
+                        DocumentCommentAnchorState::Document
+                    },
+                    thread,
+                },
+                first_comment: validate_comment_row(first_comment)?,
+            });
+        }
+        require_mentioned_actor_access(&mut tx, input.document_id, &mentions).await?;
+        let current: DocumentVersionRow = sqlx::query_as(&format!(
+            "{} WHERE document_id=$1 AND id=(SELECT current_named_version_id \
+             FROM native_documents WHERE id=$1)",
+            version_select()
+        ))
+        .bind(input.document_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| DocumentError::Corrupt("document has no current named version".into()))?;
+        version_view(current.clone())?;
+        if let Some(block_id) = &block_id {
+            if !top_level_block_ids(&current.content_json)?.contains(block_id) {
+                return Err(DocumentError::Invalid(
+                    "comment block_id is not present in the current named version".into(),
+                ));
+            }
+        }
+        let thread_id = Uuid::new_v4();
+        let comment_id = Uuid::new_v4();
+        let thread = sqlx::query_as::<_, DocumentCommentThreadRow>(&format!(
+            "INSERT INTO native_document_comment_threads \
+             (id,document_id,anchored_version_id,block_id,created_by_actor_id) \
+             VALUES ($1,$2,$3,$4,$5) RETURNING {}",
+            comment_thread_columns()
+        ))
+        .bind(thread_id)
+        .bind(input.document_id)
+        .bind(current.id)
+        .bind(&block_id)
+        .bind(input.actor_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        let first_comment = sqlx::query_as::<_, DocumentCommentRow>(&format!(
+            "INSERT INTO native_document_comments \
+             (id,document_id,thread_id,author_actor_id,content_json,plain_text,content_hash,\
+              mentioned_actor_ids) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING {}",
+            comment_columns()
+        ))
+        .bind(comment_id)
+        .bind(input.document_id)
+        .bind(thread_id)
+        .bind(input.actor_id)
+        .bind(&content.content_json)
+        .bind(&content.plain_text)
+        .bind(&content.content_hash)
+        .bind(&mentions)
+        .fetch_one(&mut *tx)
+        .await?;
+        record_document_command(
+            &mut tx,
+            input.command_id,
+            input.document_id,
+            "comment_thread_create",
+            &fingerprint,
+            thread_id,
+            input.actor_id,
+        )
+        .await?;
+        append_document_event(
+            &mut tx,
+            "document.comment_thread.created.v1",
+            input.document_id,
+            input.actor_id,
+            json!({
+                "document_id": input.document_id,
+                "source_named_version_id": current.id,
+                "thread_id": thread_id,
+                "comment_id": comment_id,
+                "block_id": block_id,
+                "author_actor_id": input.actor_id,
+                "mentioned_actor_ids": mentions,
+                "command_id": input.command_id,
+            }),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(DocumentCommentThreadCreated {
+            thread: DocumentCommentThreadView {
+                anchor_state: if thread.block_id.is_some() {
+                    DocumentCommentAnchorState::Active
+                } else {
+                    DocumentCommentAnchorState::Document
+                },
+                thread,
+            },
+            first_comment: validate_comment_row(first_comment)?,
+        })
+    }
+
+    pub async fn reply_to_document_comment(
+        &self,
+        input: ReplyToDocumentComment<'_>,
+    ) -> DocumentResult<DocumentCommentRow> {
+        let content = validated_comment_content(input.content_json)?;
+        let mentions = mentioned_actor_ids(&content)?;
+        let fingerprint = request_fingerprint(
+            "comment_reply",
+            json!({
+                "document_id": input.document_id,
+                "thread_id": input.thread_id,
+                "reply_to_comment_id": input.reply_to_comment_id,
+                "actor_id": input.actor_id,
+                "content_json": content.content_json,
+            }),
+        );
+        let mut tx = self.pool.begin().await?;
+        lock_document_command(&mut tx, input.command_id).await?;
+        require_access(
+            &mut tx,
+            input.document_id,
+            input.actor_id,
+            DocumentAccess::Comment,
+        )
+        .await?;
+        if let Some(comment_id) = replayed_document_command(
+            &mut tx,
+            input.command_id,
+            input.document_id,
+            "comment_reply",
+            &fingerprint,
+        )
+        .await?
+        {
+            let comment = sqlx::query_as::<_, DocumentCommentRow>(&format!(
+                "{} WHERE document_id=$1 AND id=$2",
+                comment_select()
+            ))
+            .bind(input.document_id)
+            .bind(comment_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| {
+                DocumentError::Corrupt("comment command receipt has no comment".into())
+            })?;
+            tx.commit().await?;
+            return validate_comment_row(comment);
+        }
+        let thread = sqlx::query_as::<_, DocumentCommentThreadRow>(&format!(
+            "{} WHERE document_id=$1 AND id=$2 FOR UPDATE",
+            comment_thread_select()
+        ))
+        .bind(input.document_id)
+        .bind(input.thread_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(DocumentError::Unavailable)?;
+        if thread.status != DocumentCommentStatus::Open {
+            return Err(DocumentError::Conflict(
+                "resolved comment threads do not accept replies".into(),
+            ));
+        }
+        if let Some(parent_id) = input.reply_to_comment_id {
+            let belongs: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM native_document_comments \
+                 WHERE document_id=$1 AND thread_id=$2 AND id=$3)",
+            )
+            .bind(input.document_id)
+            .bind(input.thread_id)
+            .bind(parent_id)
+            .fetch_one(&mut *tx)
+            .await?;
+            if !belongs {
+                return Err(DocumentError::Unavailable);
+            }
+        }
+        require_mentioned_actor_access(&mut tx, input.document_id, &mentions).await?;
+        let comment_id = Uuid::new_v4();
+        let comment = sqlx::query_as::<_, DocumentCommentRow>(&format!(
+            "INSERT INTO native_document_comments \
+             (id,document_id,thread_id,reply_to_comment_id,author_actor_id,content_json,\
+              plain_text,content_hash,mentioned_actor_ids) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING {}",
+            comment_columns()
+        ))
+        .bind(comment_id)
+        .bind(input.document_id)
+        .bind(input.thread_id)
+        .bind(input.reply_to_comment_id)
+        .bind(input.actor_id)
+        .bind(&content.content_json)
+        .bind(&content.plain_text)
+        .bind(&content.content_hash)
+        .bind(&mentions)
+        .fetch_one(&mut *tx)
+        .await?;
+        record_document_command(
+            &mut tx,
+            input.command_id,
+            input.document_id,
+            "comment_reply",
+            &fingerprint,
+            comment_id,
+            input.actor_id,
+        )
+        .await?;
+        append_document_event(
+            &mut tx,
+            "document.comment.replied.v1",
+            input.document_id,
+            input.actor_id,
+            json!({
+                "document_id": input.document_id,
+                "source_named_version_id": thread.anchored_version_id,
+                "thread_id": input.thread_id,
+                "comment_id": comment_id,
+                "reply_to_comment_id": input.reply_to_comment_id,
+                "author_actor_id": input.actor_id,
+                "mentioned_actor_ids": mentions,
+                "command_id": input.command_id,
+            }),
+        )
+        .await?;
+        tx.commit().await?;
+        validate_comment_row(comment)
+    }
+
+    pub async fn resolve_document_comment_thread(
+        &self,
+        input: ResolveDocumentCommentThread<'_>,
+    ) -> DocumentResult<DocumentCommentThreadRow> {
+        let fingerprint = request_fingerprint(
+            "comment_thread_resolve",
+            json!({
+                "document_id": input.document_id,
+                "thread_id": input.thread_id,
+                "actor_id": input.actor_id,
+                "expected_thread_version": input.expected_thread_version,
+            }),
+        );
+        let mut tx = self.pool.begin().await?;
+        lock_document_command(&mut tx, input.command_id).await?;
+        let access = require_access(
+            &mut tx,
+            input.document_id,
+            input.actor_id,
+            DocumentAccess::Comment,
+        )
+        .await?;
+        if let Some(thread_id) = replayed_document_command(
+            &mut tx,
+            input.command_id,
+            input.document_id,
+            "comment_thread_resolve",
+            &fingerprint,
+        )
+        .await?
+        {
+            let thread = sqlx::query_as::<_, DocumentCommentThreadRow>(&format!(
+                "{} WHERE document_id=$1 AND id=$2",
+                comment_thread_select()
+            ))
+            .bind(input.document_id)
+            .bind(thread_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| {
+                DocumentError::Corrupt("comment command receipt has no thread".into())
+            })?;
+            tx.commit().await?;
+            return Ok(thread);
+        }
+        let thread = sqlx::query_as::<_, DocumentCommentThreadRow>(&format!(
+            "{} WHERE document_id=$1 AND id=$2 FOR UPDATE",
+            comment_thread_select()
+        ))
+        .bind(input.document_id)
+        .bind(input.thread_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(DocumentError::Unavailable)?;
+        if access != DocumentAccess::Edit && thread.created_by_actor_id != input.actor_id {
+            return Err(DocumentError::Unavailable);
+        }
+        if thread.version != input.expected_thread_version {
+            return Err(DocumentError::Conflict(format!(
+                "comment thread is version {}, expected {}",
+                thread.version, input.expected_thread_version
+            )));
+        }
+        if thread.status != DocumentCommentStatus::Open {
+            return Err(DocumentError::Conflict(
+                "comment thread is already resolved".into(),
+            ));
+        }
+        let resolved = sqlx::query_as::<_, DocumentCommentThreadRow>(&format!(
+            "UPDATE native_document_comment_threads SET status='resolved',\
+             resolved_by_actor_id=$3,resolved_at=now(),version=version+1 \
+             WHERE document_id=$1 AND id=$2 RETURNING {}",
+            comment_thread_columns()
+        ))
+        .bind(input.document_id)
+        .bind(input.thread_id)
+        .bind(input.actor_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        record_document_command(
+            &mut tx,
+            input.command_id,
+            input.document_id,
+            "comment_thread_resolve",
+            &fingerprint,
+            input.thread_id,
+            input.actor_id,
+        )
+        .await?;
+        append_document_event(
+            &mut tx,
+            "document.comment_thread.resolved.v1",
+            input.document_id,
+            input.actor_id,
+            json!({
+                "document_id": input.document_id,
+                "source_named_version_id": thread.anchored_version_id,
+                "thread_id": input.thread_id,
+                "previous_thread_version": thread.version,
+                "thread_version": resolved.version,
+                "resolved_by_actor_id": input.actor_id,
+                "command_id": input.command_id,
+            }),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(resolved)
+    }
+
+    pub async fn list_document_comment_threads(
+        &self,
+        document_id: Uuid,
+        actor_id: &str,
+        cursor: Option<&DocumentPageCursor>,
+        limit: i64,
+    ) -> DocumentResult<DocumentCommentThreadPage> {
+        let limit = bounded_page_limit(limit, MAX_DOCUMENT_THREAD_PAGE)?;
+        let mut tx = self.pool.begin().await?;
+        require_access(&mut tx, document_id, actor_id, DocumentAccess::Read).await?;
+        let current: Value = sqlx::query_scalar(
+            "SELECT version.content_json FROM native_documents document \
+             JOIN native_document_versions version \
+               ON version.document_id=document.id AND version.id=document.current_named_version_id \
+             WHERE document.id=$1",
+        )
+        .bind(document_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| DocumentError::Corrupt("document has no current named version".into()))?;
+        let active_blocks = top_level_block_ids(&current)?;
+        let cursor_time = cursor.map(|value| value.created_at);
+        let cursor_id = cursor.map(|value| value.id);
+        let mut rows = sqlx::query_as::<_, DocumentCommentThreadRow>(&format!(
+            "{} WHERE document_id=$1 \
+             AND ($2::timestamptz IS NULL OR (created_at,id)>($2,$3)) \
+             ORDER BY created_at,id LIMIT $4",
+            comment_thread_select()
+        ))
+        .bind(document_id)
+        .bind(cursor_time)
+        .bind(cursor_id)
+        .bind(limit + 1)
+        .fetch_all(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        let next_cursor = page_tail(&mut rows, limit, |row| DocumentPageCursor {
+            created_at: row.created_at,
+            id: row.id,
+        });
+        let items = rows
+            .into_iter()
+            .map(|thread| {
+                let anchor_state = match &thread.block_id {
+                    None => DocumentCommentAnchorState::Document,
+                    Some(block_id) if active_blocks.contains(block_id) => {
+                        DocumentCommentAnchorState::Active
+                    }
+                    Some(_) => DocumentCommentAnchorState::Orphaned,
+                };
+                DocumentCommentThreadView {
+                    thread,
+                    anchor_state,
+                }
+            })
+            .collect();
+        Ok(DocumentCommentThreadPage { items, next_cursor })
+    }
+
+    pub async fn list_document_comments(
+        &self,
+        document_id: Uuid,
+        thread_id: Uuid,
+        actor_id: &str,
+        cursor: Option<&DocumentPageCursor>,
+        limit: i64,
+    ) -> DocumentResult<DocumentCommentPage> {
+        let limit = bounded_page_limit(limit, MAX_DOCUMENT_COMMENT_PAGE)?;
+        let mut tx = self.pool.begin().await?;
+        require_access(&mut tx, document_id, actor_id, DocumentAccess::Read).await?;
+        let thread_exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM native_document_comment_threads \
+             WHERE document_id=$1 AND id=$2)",
+        )
+        .bind(document_id)
+        .bind(thread_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if !thread_exists {
+            return Err(DocumentError::Unavailable);
+        }
+        let cursor_time = cursor.map(|value| value.created_at);
+        let cursor_id = cursor.map(|value| value.id);
+        let mut rows = sqlx::query_as::<_, DocumentCommentRow>(&format!(
+            "{} WHERE document_id=$1 AND thread_id=$2 \
+             AND ($3::timestamptz IS NULL OR (created_at,id)>($3,$4)) \
+             ORDER BY created_at,id LIMIT $5",
+            comment_select()
+        ))
+        .bind(document_id)
+        .bind(thread_id)
+        .bind(cursor_time)
+        .bind(cursor_id)
+        .bind(limit + 1)
+        .fetch_all(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        let next_cursor = page_tail(&mut rows, limit, |row| DocumentPageCursor {
+            created_at: row.created_at,
+            id: row.id,
+        });
+        let items = rows
+            .into_iter()
+            .map(validate_comment_row)
+            .collect::<DocumentResult<Vec<_>>>()?;
+        Ok(DocumentCommentPage { items, next_cursor })
+    }
+
+    pub async fn request_document_review(
+        &self,
+        input: RequestDocumentReview<'_>,
+    ) -> DocumentResult<DocumentReviewRow> {
+        let summary = clean_bounded("review summary", input.summary, 1_000)?;
+        let fingerprint = request_fingerprint(
+            "review_request",
+            json!({
+                "document_id": input.document_id,
+                "actor_id": input.actor_id,
+                "expected_document_version": input.expected_document_version,
+                "expected_current_version_id": input.expected_current_version_id,
+                "summary": summary,
+            }),
+        );
+        let mut tx = self.pool.begin().await?;
+        lock_document_command(&mut tx, input.command_id).await?;
+        let document = sqlx::query(
+            "SELECT current_named_version_id,status,version \
+             FROM native_documents WHERE id=$1 FOR UPDATE",
+        )
+        .bind(input.document_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(DocumentError::Unavailable)?;
+        require_access(
+            &mut tx,
+            input.document_id,
+            input.actor_id,
+            DocumentAccess::Edit,
+        )
+        .await?;
+        if let Some(review_id) = replayed_document_command(
+            &mut tx,
+            input.command_id,
+            input.document_id,
+            "review_request",
+            &fingerprint,
+        )
+        .await?
+        {
+            let review = sqlx::query_as::<_, DocumentReviewRow>(&format!(
+                "{} WHERE document_id=$1 AND id=$2",
+                review_select()
+            ))
+            .bind(input.document_id)
+            .bind(review_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| DocumentError::Corrupt("review receipt has no review".into()))?;
+            tx.commit().await?;
+            return Ok(review_request_projection(review));
+        }
+        let actual_version = document.get::<i64, _>("version");
+        let current_version_id = document.get::<Uuid, _>("current_named_version_id");
+        if actual_version != input.expected_document_version {
+            return Err(DocumentError::Conflict(format!(
+                "metadata is version {actual_version}, expected {}",
+                input.expected_document_version
+            )));
+        }
+        if current_version_id != input.expected_current_version_id {
+            return Err(DocumentError::Conflict(format!(
+                "current named version is {current_version_id}, expected {}",
+                input.expected_current_version_id
+            )));
+        }
+        let prior_requested = sqlx::query_as::<_, DocumentReviewRow>(&format!(
+            "{} WHERE document_id=$1 AND status='requested' FOR UPDATE",
+            review_select()
+        ))
+        .bind(input.document_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some(prior) = prior_requested {
+            if prior.requested_version_id == current_version_id {
+                return Err(DocumentError::Conflict(format!(
+                    "named version {current_version_id} already has an active review request"
+                )));
+            }
+            sqlx::query(
+                "UPDATE native_document_reviews SET status='stale',\
+                 stale_against_version_id=$3,stale_detected_by_actor_id=$4,stale_at=now(),\
+                 version=version+1 WHERE document_id=$1 AND id=$2",
+            )
+            .bind(input.document_id)
+            .bind(prior.id)
+            .bind(current_version_id)
+            .bind(input.actor_id)
+            .execute(&mut *tx)
+            .await?;
+            append_document_event(
+                &mut tx,
+                "document.review.stale.v1",
+                input.document_id,
+                input.actor_id,
+                json!({
+                    "document_id": input.document_id,
+                    "review_id": prior.id,
+                    "requested_named_version_id": prior.requested_version_id,
+                    "current_named_version_id": current_version_id,
+                    "stale_detected_by_actor_id": input.actor_id,
+                    "superseding_command_id": input.command_id,
+                }),
+            )
+            .await?;
+        }
+        let review_id = Uuid::new_v4();
+        let review = sqlx::query_as::<_, DocumentReviewRow>(&format!(
+            "INSERT INTO native_document_reviews \
+             (id,document_id,requested_version_id,requested_by_actor_id,summary) \
+             VALUES ($1,$2,$3,$4,$5) RETURNING {}",
+            review_columns()
+        ))
+        .bind(review_id)
+        .bind(input.document_id)
+        .bind(current_version_id)
+        .bind(input.actor_id)
+        .bind(&summary)
+        .fetch_one(&mut *tx)
+        .await?;
+        let document_version: i64 = sqlx::query_scalar(
+            "UPDATE native_documents SET status='in_review',version=version+1 \
+             WHERE id=$1 RETURNING version",
+        )
+        .bind(input.document_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        record_document_command(
+            &mut tx,
+            input.command_id,
+            input.document_id,
+            "review_request",
+            &fingerprint,
+            review_id,
+            input.actor_id,
+        )
+        .await?;
+        append_document_event(
+            &mut tx,
+            "document.review.requested.v1",
+            input.document_id,
+            input.actor_id,
+            json!({
+                "document_id": input.document_id,
+                "document_version": document_version,
+                "review_id": review_id,
+                "requested_named_version_id": current_version_id,
+                "requested_by_actor_id": input.actor_id,
+                "command_id": input.command_id,
+            }),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(review)
+    }
+
+    pub async fn get_document_review_for_actor(
+        &self,
+        document_id: Uuid,
+        review_id: Uuid,
+        actor_id: &str,
+    ) -> DocumentResult<DocumentReviewRow> {
+        let mut tx = self.pool.begin().await?;
+        require_access(&mut tx, document_id, actor_id, DocumentAccess::Read).await?;
+        let review = sqlx::query_as::<_, DocumentReviewRow>(&format!(
+            "{} WHERE document_id=$1 AND id=$2",
+            review_select()
+        ))
+        .bind(document_id)
+        .bind(review_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(DocumentError::Unavailable)?;
+        tx.commit().await?;
+        Ok(review)
+    }
+
+    pub async fn list_document_reviews(
+        &self,
+        document_id: Uuid,
+        actor_id: &str,
+        cursor: Option<&DocumentPageCursor>,
+        limit: i64,
+    ) -> DocumentResult<DocumentReviewPage> {
+        let limit = bounded_page_limit(limit, MAX_DOCUMENT_REVIEW_PAGE)?;
+        let mut tx = self.pool.begin().await?;
+        require_access(&mut tx, document_id, actor_id, DocumentAccess::Read).await?;
+        let cursor_time = cursor.map(|value| value.created_at);
+        let cursor_id = cursor.map(|value| value.id);
+        let mut rows = sqlx::query_as::<_, DocumentReviewRow>(&format!(
+            "{} WHERE document_id=$1 \
+             AND ($2::timestamptz IS NULL OR (created_at,id)>($2,$3)) \
+             ORDER BY created_at,id LIMIT $4",
+            review_select()
+        ))
+        .bind(document_id)
+        .bind(cursor_time)
+        .bind(cursor_id)
+        .bind(limit + 1)
+        .fetch_all(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        let next_cursor = page_tail(&mut rows, limit, |row| DocumentPageCursor {
+            created_at: row.created_at,
+            id: row.id,
+        });
+        Ok(DocumentReviewPage {
+            items: rows,
+            next_cursor,
+        })
+    }
+
+    pub async fn accept_document_review(
+        &self,
+        input: AcceptDocumentReview<'_>,
+    ) -> DocumentResult<DocumentReviewResolution> {
+        let version_name =
+            clean_bounded("accepted version name", input.accepted_version_name, 500)?;
+        let fingerprint = request_fingerprint(
+            "review_accept",
+            json!({
+                "document_id": input.document_id,
+                "review_id": input.review_id,
+                "actor_id": input.actor_id,
+                "expected_document_version": input.expected_document_version,
+                "expected_review_version": input.expected_review_version,
+                "accepted_version_name": version_name,
+            }),
+        );
+        let mut tx = self.pool.begin().await?;
+        lock_document_command(&mut tx, input.command_id).await?;
+        let document = sqlx::query(
+            "SELECT current_named_version_id,status,version \
+             FROM native_documents WHERE id=$1 FOR UPDATE",
+        )
+        .bind(input.document_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(DocumentError::Unavailable)?;
+        require_document_judgement_actor(&mut tx, input.actor_id).await?;
+        require_access(
+            &mut tx,
+            input.document_id,
+            input.actor_id,
+            DocumentAccess::Edit,
+        )
+        .await?;
+        if let Some(review_id) = replayed_document_command(
+            &mut tx,
+            input.command_id,
+            input.document_id,
+            "review_accept",
+            &fingerprint,
+        )
+        .await?
+        {
+            let review = sqlx::query_as::<_, DocumentReviewRow>(&format!(
+                "{} WHERE document_id=$1 AND id=$2",
+                review_select()
+            ))
+            .bind(input.document_id)
+            .bind(review_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| DocumentError::Corrupt("review receipt has no review".into()))?;
+            let accepted_version = match review.status {
+                DocumentReviewStatus::Accepted => {
+                    let accepted_version_id = review.accepted_version_id.ok_or_else(|| {
+                        DocumentError::Corrupt("accepted review has no named version".into())
+                    })?;
+                    let version = sqlx::query_as::<_, DocumentVersionRow>(&format!(
+                        "{} WHERE document_id=$1 AND id=$2",
+                        version_select()
+                    ))
+                    .bind(input.document_id)
+                    .bind(accepted_version_id)
+                    .fetch_optional(&mut *tx)
+                    .await?
+                    .ok_or_else(|| {
+                        DocumentError::Corrupt("review receipt names a missing version".into())
+                    })?;
+                    Some(version_view(version)?)
+                }
+                DocumentReviewStatus::Stale => None,
+                DocumentReviewStatus::Requested => {
+                    return Err(DocumentError::Corrupt(
+                        "review acceptance receipt names an unresolved review".into(),
+                    ));
+                }
+            };
+            tx.commit().await?;
+            return Ok(DocumentReviewResolution {
+                review,
+                accepted_version,
+            });
+        }
+        let actual_document_version = document.get::<i64, _>("version");
+        if actual_document_version != input.expected_document_version {
+            return Err(DocumentError::Conflict(format!(
+                "metadata is version {actual_document_version}, expected {}",
+                input.expected_document_version
+            )));
+        }
+        let review = sqlx::query_as::<_, DocumentReviewRow>(&format!(
+            "{} WHERE document_id=$1 AND id=$2 FOR UPDATE",
+            review_select()
+        ))
+        .bind(input.document_id)
+        .bind(input.review_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(DocumentError::Unavailable)?;
+        if review.version != input.expected_review_version {
+            return Err(DocumentError::Conflict(format!(
+                "review is version {}, expected {}",
+                review.version, input.expected_review_version
+            )));
+        }
+        if review.status != DocumentReviewStatus::Requested {
+            return Err(DocumentError::Conflict(
+                "review is no longer awaiting acceptance".into(),
+            ));
+        }
+        let current_version_id = document.get::<Uuid, _>("current_named_version_id");
+        if current_version_id != review.requested_version_id {
+            let stale = sqlx::query_as::<_, DocumentReviewRow>(&format!(
+                "UPDATE native_document_reviews SET status='stale',\
+                 stale_against_version_id=$3,stale_detected_by_actor_id=$4,stale_at=now(),\
+                 version=version+1 WHERE document_id=$1 AND id=$2 RETURNING {}",
+                review_columns()
+            ))
+            .bind(input.document_id)
+            .bind(input.review_id)
+            .bind(current_version_id)
+            .bind(input.actor_id)
+            .fetch_one(&mut *tx)
+            .await?;
+            record_document_command(
+                &mut tx,
+                input.command_id,
+                input.document_id,
+                "review_accept",
+                &fingerprint,
+                input.review_id,
+                input.actor_id,
+            )
+            .await?;
+            append_document_event(
+                &mut tx,
+                "document.review.stale.v1",
+                input.document_id,
+                input.actor_id,
+                json!({
+                    "document_id": input.document_id,
+                    "review_id": input.review_id,
+                    "requested_named_version_id": review.requested_version_id,
+                    "current_named_version_id": current_version_id,
+                    "stale_detected_by_actor_id": input.actor_id,
+                    "command_id": input.command_id,
+                }),
+            )
+            .await?;
+            tx.commit().await?;
+            return Ok(DocumentReviewResolution {
+                review: stale,
+                accepted_version: None,
+            });
+        }
+        if document.get::<DocumentStatus, _>("status") != DocumentStatus::InReview {
+            return Err(DocumentError::Conflict(
+                "document is no longer in review".into(),
+            ));
+        }
+        let source = sqlx::query_as::<_, DocumentVersionRow>(&format!(
+            "{} WHERE document_id=$1 AND id=$2",
+            version_select()
+        ))
+        .bind(input.document_id)
+        .bind(review.requested_version_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| DocumentError::Corrupt("reviewed named version is missing".into()))?;
+        version_view(source.clone())?;
+        let source_content = validate_document_json(&source.content_json)
+            .map_err(|error| DocumentError::Corrupt(error.to_string()))?;
+        let mut unresolved: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM native_document_comment_threads \
+             WHERE document_id=$1 AND status='open' ORDER BY created_at,id LIMIT 257",
+        )
+        .bind(input.document_id)
+        .fetch_all(&mut *tx)
+        .await?;
+        if unresolved.len() > 256 {
+            return Err(DocumentError::Conflict(
+                "resolve or dismiss comment threads before accepting this review".into(),
+            ));
+        }
+        unresolved.shrink_to_fit();
+        let accepted_version = append_semantic_named_version(
+            &mut tx,
+            input.document_id,
+            input.actor_id,
+            DocumentStatus::Accepted,
+            &source_content,
+            &version_name,
+        )
+        .await?;
+        let document_version: i64 = sqlx::query_scalar(
+            "UPDATE native_documents SET current_named_version_id=$2,status='accepted',\
+             version=version+1 WHERE id=$1 RETURNING version",
+        )
+        .bind(input.document_id)
+        .bind(accepted_version.id)
+        .fetch_one(&mut *tx)
+        .await?;
+        let accepted_review = sqlx::query_as::<_, DocumentReviewRow>(&format!(
+            "UPDATE native_document_reviews SET status='accepted',accepted_version_id=$3,\
+             accepted_by_actor_id=$4,accepted_at=now(),material_unresolved_thread_ids=$5,\
+             version=version+1 WHERE document_id=$1 AND id=$2 RETURNING {}",
+            review_columns()
+        ))
+        .bind(input.document_id)
+        .bind(input.review_id)
+        .bind(accepted_version.id)
+        .bind(input.actor_id)
+        .bind(&unresolved)
+        .fetch_one(&mut *tx)
+        .await?;
+        record_document_command(
+            &mut tx,
+            input.command_id,
+            input.document_id,
+            "review_accept",
+            &fingerprint,
+            input.review_id,
+            input.actor_id,
+        )
+        .await?;
+        append_document_event(
+            &mut tx,
+            "document.review.accepted.v1",
+            input.document_id,
+            input.actor_id,
+            json!({
+                "document_id": input.document_id,
+                "document_version": document_version,
+                "review_id": input.review_id,
+                "requested_named_version_id": review.requested_version_id,
+                "accepted_named_version_id": accepted_version.id,
+                "accepted_named_version_number": accepted_version.version_number,
+                "accepted_by_actor_id": input.actor_id,
+                "material_unresolved_thread_ids": unresolved,
+                "command_id": input.command_id,
+            }),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(DocumentReviewResolution {
+            review: accepted_review,
+            accepted_version: Some(version_view(accepted_version)?),
+        })
+    }
+
+    pub async fn propose_document_revision(
+        &self,
+        input: ProposeDocumentRevision<'_>,
+    ) -> DocumentResult<DocumentRevisionProposalRow> {
+        let summary = clean_bounded("proposal summary", input.summary, 1_000)?;
+        let (proposed_content, proposed_plain_text, proposed_content_hash, block_id) =
+            validated_proposal_content(input.scope, input.block_id, input.proposed_content_json)?;
+        let fingerprint = request_fingerprint(
+            "revision_propose",
+            json!({
+                "document_id": input.document_id,
+                "actor_id": input.actor_id,
+                "base_version_id": input.base_version_id,
+                "scope": input.scope,
+                "block_id": block_id,
+                "proposed_content_json": proposed_content,
+                "summary": summary,
+            }),
+        );
+        let mut tx = self.pool.begin().await?;
+        lock_document_command(&mut tx, input.command_id).await?;
+        require_access(
+            &mut tx,
+            input.document_id,
+            input.actor_id,
+            DocumentAccess::Edit,
+        )
+        .await?;
+        let actor_class: Option<String> = sqlx::query_scalar(
+            "SELECT actor_class FROM actors WHERE id=$1 AND retired_at IS NULL FOR SHARE",
+        )
+        .bind(input.actor_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if actor_class.as_deref() != Some("agent") {
+            return Err(DocumentError::Unavailable);
+        }
+        if let Some(proposal_id) = replayed_document_command(
+            &mut tx,
+            input.command_id,
+            input.document_id,
+            "revision_propose",
+            &fingerprint,
+        )
+        .await?
+        {
+            let proposal = sqlx::query_as::<_, DocumentRevisionProposalRow>(&format!(
+                "{} WHERE document_id=$1 AND id=$2",
+                revision_proposal_select()
+            ))
+            .bind(input.document_id)
+            .bind(proposal_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| DocumentError::Corrupt("proposal receipt has no proposal".into()))?;
+            tx.commit().await?;
+            return validate_proposal_row(revision_proposal_creation_projection(proposal));
+        }
+        let base = sqlx::query_as::<_, DocumentVersionRow>(&format!(
+            "{} WHERE document_id=$1 AND id=$2",
+            version_select()
+        ))
+        .bind(input.document_id)
+        .bind(input.base_version_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(DocumentError::Unavailable)?;
+        version_view(base.clone())?;
+        if let Some(block_id) = &block_id {
+            if !top_level_block_ids(&base.content_json)?.contains(block_id) {
+                return Err(DocumentError::Invalid(
+                    "proposal block_id is not present in its base version".into(),
+                ));
+            }
+        }
+        let proposal_id = Uuid::new_v4();
+        let proposal = sqlx::query_as::<_, DocumentRevisionProposalRow>(&format!(
+            "INSERT INTO native_document_revision_proposals \
+             (id,document_id,base_version_id,scope,block_id,proposed_content_json,\
+              proposed_plain_text,proposed_content_hash,summary,proposed_by_actor_id) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING {}",
+            revision_proposal_columns()
+        ))
+        .bind(proposal_id)
+        .bind(input.document_id)
+        .bind(input.base_version_id)
+        .bind(input.scope)
+        .bind(&block_id)
+        .bind(&proposed_content)
+        .bind(&proposed_plain_text)
+        .bind(&proposed_content_hash)
+        .bind(&summary)
+        .bind(input.actor_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        record_document_command(
+            &mut tx,
+            input.command_id,
+            input.document_id,
+            "revision_propose",
+            &fingerprint,
+            proposal_id,
+            input.actor_id,
+        )
+        .await?;
+        append_document_event(
+            &mut tx,
+            "document.revision.proposed.v1",
+            input.document_id,
+            input.actor_id,
+            json!({
+                "document_id": input.document_id,
+                "proposal_id": proposal_id,
+                "base_named_version_id": input.base_version_id,
+                "scope": input.scope,
+                "block_id": block_id,
+                "proposed_content_hash": proposed_content_hash,
+                "proposed_by_actor_id": input.actor_id,
+                "command_id": input.command_id,
+            }),
+        )
+        .await?;
+        tx.commit().await?;
+        validate_proposal_row(proposal)
+    }
+
+    pub async fn get_document_revision_proposal_for_actor(
+        &self,
+        document_id: Uuid,
+        proposal_id: Uuid,
+        actor_id: &str,
+    ) -> DocumentResult<DocumentRevisionProposalRow> {
+        let mut tx = self.pool.begin().await?;
+        require_access(&mut tx, document_id, actor_id, DocumentAccess::Read).await?;
+        let proposal = sqlx::query_as::<_, DocumentRevisionProposalRow>(&format!(
+            "{} WHERE document_id=$1 AND id=$2",
+            revision_proposal_select()
+        ))
+        .bind(document_id)
+        .bind(proposal_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(DocumentError::Unavailable)?;
+        tx.commit().await?;
+        validate_proposal_row(proposal)
+    }
+
+    pub async fn list_document_revision_proposals(
+        &self,
+        document_id: Uuid,
+        actor_id: &str,
+        cursor: Option<&DocumentPageCursor>,
+        limit: i64,
+    ) -> DocumentResult<DocumentRevisionProposalPage> {
+        let limit = bounded_page_limit(limit, MAX_DOCUMENT_PROPOSAL_PAGE)?;
+        let mut tx = self.pool.begin().await?;
+        require_access(&mut tx, document_id, actor_id, DocumentAccess::Read).await?;
+        let cursor_time = cursor.map(|value| value.created_at);
+        let cursor_id = cursor.map(|value| value.id);
+        let mut rows = sqlx::query_as::<_, DocumentRevisionProposalSummary>(
+            "SELECT id,document_id,base_version_id,scope,block_id,proposed_content_hash,summary,\
+                    proposed_by_actor_id,status,accepted_version_id,resolved_by_actor_id,\
+                    resolution_summary,resolved_at,created_at,version \
+             FROM native_document_revision_proposals WHERE document_id=$1 \
+               AND ($2::timestamptz IS NULL OR (created_at,id)>($2,$3)) \
+             ORDER BY created_at,id LIMIT $4",
+        )
+        .bind(document_id)
+        .bind(cursor_time)
+        .bind(cursor_id)
+        .bind(limit + 1)
+        .fetch_all(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        let next_cursor = page_tail(&mut rows, limit, |row| DocumentPageCursor {
+            created_at: row.created_at,
+            id: row.id,
+        });
+        Ok(DocumentRevisionProposalPage {
+            items: rows,
+            next_cursor,
+        })
+    }
+
+    pub async fn resolve_document_revision_proposal(
+        &self,
+        input: ResolveDocumentRevisionProposal<'_>,
+    ) -> DocumentResult<DocumentRevisionResolution> {
+        let resolution_summary = clean_bounded(
+            "proposal resolution summary",
+            input.resolution_summary,
+            1_000,
+        )?;
+        let accepted_version_name = match input.decision {
+            DocumentRevisionDecision::Accept => Some(clean_bounded(
+                "accepted version name",
+                input.accepted_version_name.ok_or_else(|| {
+                    DocumentError::Invalid(
+                        "accepting a proposal requires an accepted version name".into(),
+                    )
+                })?,
+                500,
+            )?),
+            DocumentRevisionDecision::Reject => {
+                if input.accepted_version_name.is_some() {
+                    return Err(DocumentError::Invalid(
+                        "rejecting a proposal cannot name an accepted version".into(),
+                    ));
+                }
+                None
+            }
+        };
+        let (operation, resolved_status) = match input.decision {
+            DocumentRevisionDecision::Accept => {
+                ("revision_accept", DocumentRevisionStatus::Accepted)
+            }
+            DocumentRevisionDecision::Reject => {
+                ("revision_reject", DocumentRevisionStatus::Rejected)
+            }
+        };
+        let fingerprint = request_fingerprint(
+            operation,
+            json!({
+                "document_id": input.document_id,
+                "proposal_id": input.proposal_id,
+                "actor_id": input.actor_id,
+                "expected_proposal_version": input.expected_proposal_version,
+                "decision": input.decision,
+                "resolution_summary": resolution_summary,
+                "accepted_version_name": accepted_version_name,
+            }),
+        );
+        let mut tx = self.pool.begin().await?;
+        lock_document_command(&mut tx, input.command_id).await?;
+        let document = sqlx::query(
+            "SELECT current_named_version_id,status,version \
+             FROM native_documents WHERE id=$1 FOR UPDATE",
+        )
+        .bind(input.document_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(DocumentError::Unavailable)?;
+        require_document_judgement_actor(&mut tx, input.actor_id).await?;
+        require_access(
+            &mut tx,
+            input.document_id,
+            input.actor_id,
+            DocumentAccess::Edit,
+        )
+        .await?;
+        if let Some(proposal_id) = replayed_document_command(
+            &mut tx,
+            input.command_id,
+            input.document_id,
+            operation,
+            &fingerprint,
+        )
+        .await?
+        {
+            let proposal = sqlx::query_as::<_, DocumentRevisionProposalRow>(&format!(
+                "{} WHERE document_id=$1 AND id=$2",
+                revision_proposal_select()
+            ))
+            .bind(input.document_id)
+            .bind(proposal_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| DocumentError::Corrupt("proposal receipt has no proposal".into()))?;
+            let accepted_version = if let Some(version_id) = proposal.accepted_version_id {
+                let version = sqlx::query_as::<_, DocumentVersionRow>(&format!(
+                    "{} WHERE document_id=$1 AND id=$2",
+                    version_select()
+                ))
+                .bind(input.document_id)
+                .bind(version_id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or_else(|| {
+                    DocumentError::Corrupt("proposal receipt names a missing version".into())
+                })?;
+                Some(version_view(version)?)
+            } else {
+                None
+            };
+            tx.commit().await?;
+            return Ok(DocumentRevisionResolution {
+                proposal: validate_proposal_row(proposal)?,
+                accepted_version,
+            });
+        }
+        let proposal = sqlx::query_as::<_, DocumentRevisionProposalRow>(&format!(
+            "{} WHERE document_id=$1 AND id=$2 FOR UPDATE",
+            revision_proposal_select()
+        ))
+        .bind(input.document_id)
+        .bind(input.proposal_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(DocumentError::Unavailable)?;
+        let proposal = validate_proposal_row(proposal)?;
+        if proposal.version != input.expected_proposal_version {
+            return Err(DocumentError::Conflict(format!(
+                "revision proposal is version {}, expected {}",
+                proposal.version, input.expected_proposal_version
+            )));
+        }
+        if proposal.status != DocumentRevisionStatus::Proposed {
+            return Err(DocumentError::Conflict(
+                "revision proposal is already resolved".into(),
+            ));
+        }
+        let current_version_id = document.get::<Uuid, _>("current_named_version_id");
+        if input.decision == DocumentRevisionDecision::Accept
+            && current_version_id != proposal.base_version_id
+        {
+            let stale = sqlx::query_as::<_, DocumentRevisionProposalRow>(&format!(
+                "UPDATE native_document_revision_proposals SET status='stale',\
+                 resolved_by_actor_id=$3,resolution_summary=$4,resolved_at=now(),version=version+1 \
+                 WHERE document_id=$1 AND id=$2 RETURNING {}",
+                revision_proposal_columns()
+            ))
+            .bind(input.document_id)
+            .bind(input.proposal_id)
+            .bind(input.actor_id)
+            .bind(&resolution_summary)
+            .fetch_one(&mut *tx)
+            .await?;
+            record_document_command(
+                &mut tx,
+                input.command_id,
+                input.document_id,
+                operation,
+                &fingerprint,
+                input.proposal_id,
+                input.actor_id,
+            )
+            .await?;
+            append_document_event(
+                &mut tx,
+                "document.revision.stale.v1",
+                input.document_id,
+                input.actor_id,
+                json!({
+                    "document_id": input.document_id,
+                    "proposal_id": input.proposal_id,
+                    "base_named_version_id": proposal.base_version_id,
+                    "current_named_version_id": current_version_id,
+                    "resolved_by_actor_id": input.actor_id,
+                    "command_id": input.command_id,
+                }),
+            )
+            .await?;
+            tx.commit().await?;
+            return Ok(DocumentRevisionResolution {
+                proposal: stale,
+                accepted_version: None,
+            });
+        }
+        if input.decision == DocumentRevisionDecision::Reject {
+            let rejected = sqlx::query_as::<_, DocumentRevisionProposalRow>(&format!(
+                "UPDATE native_document_revision_proposals SET status=$3,\
+                 resolved_by_actor_id=$4,resolution_summary=$5,resolved_at=now(),version=version+1 \
+                 WHERE document_id=$1 AND id=$2 RETURNING {}",
+                revision_proposal_columns()
+            ))
+            .bind(input.document_id)
+            .bind(input.proposal_id)
+            .bind(resolved_status)
+            .bind(input.actor_id)
+            .bind(&resolution_summary)
+            .fetch_one(&mut *tx)
+            .await?;
+            record_document_command(
+                &mut tx,
+                input.command_id,
+                input.document_id,
+                operation,
+                &fingerprint,
+                input.proposal_id,
+                input.actor_id,
+            )
+            .await?;
+            append_document_event(
+                &mut tx,
+                "document.revision.rejected.v1",
+                input.document_id,
+                input.actor_id,
+                json!({
+                    "document_id": input.document_id,
+                    "proposal_id": input.proposal_id,
+                    "base_named_version_id": proposal.base_version_id,
+                    "resolved_by_actor_id": input.actor_id,
+                    "command_id": input.command_id,
+                }),
+            )
+            .await?;
+            tx.commit().await?;
+            return Ok(DocumentRevisionResolution {
+                proposal: rejected,
+                accepted_version: None,
+            });
+        }
+        let base = sqlx::query_as::<_, DocumentVersionRow>(&format!(
+            "{} WHERE document_id=$1 AND id=$2",
+            version_select()
+        ))
+        .bind(input.document_id)
+        .bind(proposal.base_version_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| DocumentError::Corrupt("proposal base version is missing".into()))?;
+        version_view(base.clone())?;
+        let accepted_content = match proposal.scope {
+            DocumentRevisionScope::WholeDocument => {
+                validate_document_json(&proposal.proposed_content_json)
+                    .map_err(|error| DocumentError::Corrupt(error.to_string()))?
+            }
+            DocumentRevisionScope::Block => apply_block_proposal(
+                &base.content_json,
+                proposal.block_id.as_deref().ok_or_else(|| {
+                    DocumentError::Corrupt("block proposal has no block_id".into())
+                })?,
+                &proposal.proposed_content_json,
+            )?,
+        };
+        let version_name = accepted_version_name.as_deref().ok_or_else(|| {
+            DocumentError::Invalid("accepted proposal has no version name".into())
+        })?;
+        let accepted_version = append_semantic_named_version(
+            &mut tx,
+            input.document_id,
+            input.actor_id,
+            document.get::<DocumentStatus, _>("status"),
+            &accepted_content,
+            version_name,
+        )
+        .await?;
+        let document_version: i64 = sqlx::query_scalar(
+            "UPDATE native_documents SET current_named_version_id=$2,version=version+1 \
+             WHERE id=$1 RETURNING version",
+        )
+        .bind(input.document_id)
+        .bind(accepted_version.id)
+        .fetch_one(&mut *tx)
+        .await?;
+        let accepted = sqlx::query_as::<_, DocumentRevisionProposalRow>(&format!(
+            "UPDATE native_document_revision_proposals SET status='accepted',\
+             accepted_version_id=$3,resolved_by_actor_id=$4,resolution_summary=$5,\
+             resolved_at=now(),version=version+1 WHERE document_id=$1 AND id=$2 RETURNING {}",
+            revision_proposal_columns()
+        ))
+        .bind(input.document_id)
+        .bind(input.proposal_id)
+        .bind(accepted_version.id)
+        .bind(input.actor_id)
+        .bind(&resolution_summary)
+        .fetch_one(&mut *tx)
+        .await?;
+        record_document_command(
+            &mut tx,
+            input.command_id,
+            input.document_id,
+            operation,
+            &fingerprint,
+            input.proposal_id,
+            input.actor_id,
+        )
+        .await?;
+        append_document_event(
+            &mut tx,
+            "document.revision.accepted.v1",
+            input.document_id,
+            input.actor_id,
+            json!({
+                "document_id": input.document_id,
+                "document_version": document_version,
+                "proposal_id": input.proposal_id,
+                "base_named_version_id": proposal.base_version_id,
+                "accepted_named_version_id": accepted_version.id,
+                "accepted_named_version_number": accepted_version.version_number,
+                "scope": proposal.scope,
+                "block_id": proposal.block_id,
+                "proposed_by_actor_id": proposal.proposed_by_actor_id,
+                "accepted_by_actor_id": input.actor_id,
+                "command_id": input.command_id,
+            }),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(DocumentRevisionResolution {
+            proposal: accepted,
+            accepted_version: Some(version_view(accepted_version)?),
+        })
     }
 }
 
