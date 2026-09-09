@@ -1832,4 +1832,176 @@ mod tests {
         assert!(store.resolve_lease(&other_membership).is_some());
         assert!(store.resolve_lease(&other_issuer).is_some());
     }
+
+    /// Sprint 45 / C45-T6: a self-hosted end-to-end proof of the hosted
+    /// journey's actual seam. Individual layers (JWKS crypto, actor mapping,
+    /// membership revocation) each have their own focused tests; this proves
+    /// they compose the way `consume_entry_assertion` and the request
+    /// middleware really use them, against a real HTTP JWKS server and a
+    /// real scratch Postgres database: one signed assertion maps to one
+    /// durable Actor, a later assertion from the same real person reaches
+    /// that same Actor rather than manufacturing a colleague, and an
+    /// external membership removal ends a live session's authorization
+    /// without erasing the Actor or its history.
+    #[tokio::test]
+    async fn network_entry_maps_and_reidentifies_one_durable_actor_then_revocation_blocks_it() {
+        let Ok(database_url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            eprintln!(
+                "RESTLESS_TEST_DATABASE_URL unset; skipping network entry composition scenario"
+            );
+            return;
+        };
+
+        let published = jwks(KEY_ID, &key());
+        let app = Router::new().route(
+            "/.well-known/jwks.json",
+            get(move || {
+                let published = published.clone();
+                async move { published }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let issuer = format!("http://{address}");
+
+        let owner_id = Uuid::new_v4();
+        let plane_id = Uuid::new_v4();
+        let entry = NetworkEntry {
+            issuer: issuer.clone(),
+            owner_id,
+            plane_id,
+            host: "plane.restless.test".into(),
+            jwks_url: Url::parse(&format!("{issuer}/.well-known/jwks.json")).unwrap(),
+            client: reqwest::Client::new(),
+            keys: RwLock::new(HashMap::new()),
+            last_refresh: RwLock::new(None),
+            refresh: AsyncMutex::new(()),
+            session_ttl: DEFAULT_SESSION_TTL,
+        };
+        entry.prepare().await.expect("fetch the real JWKS document");
+
+        let company_id = Uuid::new_v4();
+        let cell_id = Uuid::new_v4();
+        let company = format!("networkentry{}", Uuid::new_v4().simple());
+        let org = restless_orgintel::OrgIntel::ensure(&database_url, &company)
+            .await
+            .expect("ensure scratch company schema");
+        org.ensure_company_access_identity(restless_orgintel::CompanyAccessIdentity {
+            company_id,
+            cell_id,
+        })
+        .await
+        .expect("bind hosted coordinates");
+
+        let now = Utc::now();
+        let mut first = claims();
+        first.iss = issuer.clone();
+        first.sub = "user-alice".into();
+        first.company_id = company_id;
+        first.cell_id = cell_id;
+        first.owner_id = owner_id;
+        first.plane_id = plane_id;
+        first.membership_id = "membership-alice".into();
+        first.membership_role = "owner".into();
+        first.membership_version = 0;
+        first.jti = Uuid::new_v4();
+        first.iat = now.timestamp();
+        first.exp = now.timestamp() + 45;
+
+        async fn map_actor(
+            org: &restless_orgintel::OrgIntel,
+            verified: &VerifiedAccessContext,
+        ) -> restless_orgintel::HumanPrincipalActorBinding {
+            org.consume_human_access_context(restless_orgintel::HumanAccessContext {
+                issuer: &verified.issuer,
+                subject: &verified.subject,
+                company_id: verified.company_id,
+                cell_id: verified.cell_id,
+                membership_id: &verified.membership_id,
+                membership_role: &verified.membership_role,
+                membership_version: verified.membership_version,
+                assertion_id: verified.assertion_id,
+                issued_at: verified.issued_at,
+                expires_at: verified.expires_at,
+            })
+            .await
+            .expect("entry maps to a durable Actor")
+        }
+
+        let verified_first = entry
+            .verify(&token(&first))
+            .await
+            .expect("first entry verifies against the real JWKS server");
+        let bound = map_actor(&org, &verified_first).await;
+        assert!(
+            bound.actor_id.starts_with("human-"),
+            "a network-entered human gets a durable human-{{uuid}} Actor, not a literal"
+        );
+        assert!(org
+            .human_session_membership_is_current(
+                &bound.actor_id,
+                &bound.membership_id,
+                bound.membership_version,
+                &bound.membership_role,
+            )
+            .await
+            .unwrap());
+
+        // The same real person entering again later (new jti, same subject)
+        // reaches the same durable Actor rather than manufacturing a second
+        // colleague.
+        let mut second = first.clone();
+        second.jti = Uuid::new_v4();
+        second.iat = now.timestamp() + 1;
+        second.exp = now.timestamp() + 46;
+        let verified_second = entry
+            .verify(&token(&second))
+            .await
+            .expect("second entry verifies");
+        let bound_again = map_actor(&org, &verified_second).await;
+        assert_eq!(
+            bound_again.actor_id, bound.actor_id,
+            "a later entry by the same principal must not fork a second Actor"
+        );
+
+        // External membership control (Cloud/Better Auth's job) removes the
+        // membership. This never erases the durable Actor, but a live
+        // session pinned to the old membership tuple is no longer current —
+        // exactly the check the request middleware performs on every call.
+        org.apply_external_membership_control(restless_orgintel::ExternalMembershipControlContext {
+            issuer: &verified_first.issuer,
+            subject: &verified_first.subject,
+            assertion_id: Uuid::new_v4(),
+            issued_at: now,
+            expires_at: now + chrono::Duration::seconds(45),
+            key_id: KEY_ID,
+            assertion_version: restless_orgintel::MEMBERSHIP_CONTROL_CONTRACT_VERSION,
+            owner_id,
+            plane_id,
+            plane_hostname: "plane.restless.test",
+            company_id,
+            cell_id,
+            membership_id: &bound.membership_id,
+            membership_role: &bound.membership_role,
+            membership_status: restless_orgintel::ExternalMembershipStatus::Removed,
+            membership_version: bound.membership_version + 1,
+        })
+        .await
+        .expect("membership removal is recorded");
+
+        assert!(
+            !org.human_session_membership_is_current(
+                &bound.actor_id,
+                &bound.membership_id,
+                bound.membership_version,
+                &bound.membership_role,
+            )
+            .await
+            .unwrap(),
+            "a session pinned to the removed membership tuple must stop being current"
+        );
+
+        server.abort();
+    }
 }
