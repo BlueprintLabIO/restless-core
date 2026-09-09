@@ -7,6 +7,7 @@
 	import '$lib/design/index.css';
 	import { navigating } from '$app/state';
 	import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
+	import { onMount } from 'svelte';
 
 	let { children } = $props();
 
@@ -21,6 +22,41 @@
 				retry: 1
 			}
 		}
+	});
+
+	onMount(() => {
+		let backgrounded = document.visibilityState === 'hidden';
+		let lastReconciledAt = 0;
+
+		const reconcile = () => {
+			const now = performance.now();
+			if (now - lastReconciledAt < 750) return;
+			lastReconciledAt = now;
+			/* Backgrounding is normal on mobile. Keep the current route and local
+			 * interface state, then refresh only queries that still have observers. */
+			void queryClient.invalidateQueries({ refetchType: 'active' });
+		};
+
+		const onVisibilityChange = () => {
+			if (document.visibilityState === 'hidden') {
+				backgrounded = true;
+				return;
+			}
+			if (!backgrounded) return;
+			backgrounded = false;
+			reconcile();
+		};
+
+		const onPageShow = (event: PageTransitionEvent) => {
+			if (event.persisted) reconcile();
+		};
+
+		document.addEventListener('visibilitychange', onVisibilityChange);
+		window.addEventListener('pageshow', onPageShow);
+		return () => {
+			document.removeEventListener('visibilitychange', onVisibilityChange);
+			window.removeEventListener('pageshow', onPageShow);
+		};
 	});
 </script>
 
