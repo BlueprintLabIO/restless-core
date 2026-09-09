@@ -2486,6 +2486,7 @@ pub struct NewIdentityMigrationDecision<'a> {
     pub drift_finding_id: Uuid,
     pub disposition: IdentityMigrationDisposition,
     pub decided_by: &'a str,
+    pub acting_membership_role: &'a str,
     pub rationale: &'a str,
     pub authority_record_id: &'a str,
 }

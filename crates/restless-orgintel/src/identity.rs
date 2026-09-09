@@ -153,11 +153,12 @@ impl OrgIntel {
         &self,
         proposal_id: Uuid,
         decided_by: &str,
+        acting_membership_role: &str,
         authority_record_id: &str,
         change_account: &str,
         effective_from: DateTime<Utc>,
     ) -> Result<Uuid> {
-        if decided_by != "owner" {
+        if acting_membership_role != "owner" {
             return Err(OrgIntelError::InvalidWork(
                 "only the authenticated owner may promote company identity".into(),
             ));
@@ -301,10 +302,11 @@ impl OrgIntel {
         &self,
         proposal_id: Uuid,
         decided_by: &str,
+        acting_membership_role: &str,
         authority_record_id: &str,
         rationale: &str,
     ) -> Result<()> {
-        if decided_by != "owner" {
+        if acting_membership_role != "owner" {
             return Err(OrgIntelError::InvalidWork(
                 "only the authenticated owner may reject company identity".into(),
             ));

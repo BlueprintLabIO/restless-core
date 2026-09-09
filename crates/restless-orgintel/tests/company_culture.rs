@@ -96,6 +96,7 @@ async fn culture_is_observed_conduct_not_slogans_or_surveillance() {
         .promote_identity_proposal(
             proposal,
             "owner",
+            "owner",
             "authority:culture:release-1",
             "Promoted observed conduct with counterexamples and explicit boundaries.",
             Utc::now(),

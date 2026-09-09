@@ -91,7 +91,7 @@ pub async fn grant(
         .emit(
             company,
             "approval_granted",
-            Some("owner"),
+            Some(principal),
             serde_json::json!({ "party": party, "principal": principal }),
         )
         .await?;
@@ -119,7 +119,7 @@ pub async fn revoke(
         .emit(
             company,
             "approval_revoked",
-            Some("owner"),
+            Some(principal),
             serde_json::json!({ "party": party, "principal": principal }),
         )
         .await?;
@@ -147,7 +147,7 @@ pub async fn decline(
         .emit(
             company,
             "approval_declined",
-            Some("owner"),
+            Some(principal),
             serde_json::json!({ "party": party, "principal": principal }),
         )
         .await?;

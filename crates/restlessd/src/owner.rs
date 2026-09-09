@@ -2367,6 +2367,7 @@ fn company_catalog_entry(
 
 async fn archive_company(
     State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
     AxumPath(company): AxumPath<String>,
 ) -> impl IntoResponse {
     if runtime::CompanyConfig::load_archived(&state.daemon.root, &company).is_ok() {
@@ -2396,7 +2397,7 @@ async fn archive_company(
         .emit(
             &company,
             "lifecycle",
-            Some("owner"),
+            Some(principal.actor_id()),
             serde_json::json!({ "state": "archived", "message": message }),
         )
         .await
@@ -2417,6 +2418,7 @@ async fn archive_company(
 
 async fn restore_company(
     State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
     AxumPath(company): AxumPath<String>,
 ) -> impl IntoResponse {
     if runtime::CompanyConfig::load(&state.daemon.root, &company).is_ok() {
@@ -2443,7 +2445,7 @@ async fn restore_company(
         .emit(
             &company,
             "lifecycle",
-            Some("owner"),
+            Some(principal.actor_id()),
             serde_json::json!({
                 "state": "stopped",
                 "restored_from": "archived",
@@ -2695,6 +2697,7 @@ async fn company_identity_view(
 
 async fn promote_company_identity(
     State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
     AxumPath((company, proposal)): AxumPath<(String, Uuid)>,
     Json(input): Json<IdentityPromotionInput>,
 ) -> impl IntoResponse {
@@ -2713,6 +2716,7 @@ async fn promote_company_identity(
             proposal,
             "promote",
             input.change_account.trim(),
+            principal.actor_id(),
         )
         .await
     {
@@ -2738,7 +2742,8 @@ async fn promote_company_identity(
     match org
         .promote_identity_proposal(
             proposal,
-            "owner",
+            principal.actor_id(),
+            principal.membership_role(),
             &format!("authority:{authority_id}"),
             input.change_account.trim(),
             Utc::now(),
@@ -2757,6 +2762,7 @@ async fn promote_company_identity(
 
 async fn reject_company_identity(
     State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
     AxumPath((company, proposal)): AxumPath<(String, Uuid)>,
     Json(input): Json<IdentityRejectionInput>,
 ) -> impl IntoResponse {
@@ -2770,7 +2776,13 @@ async fn reject_company_identity(
     let authority_id = match state
         .daemon
         .authority
-        .record_company_identity_decision(&company, proposal, "reject", input.rationale.trim())
+        .record_company_identity_decision(
+            &company,
+            proposal,
+            "reject",
+            input.rationale.trim(),
+            principal.actor_id(),
+        )
         .await
     {
         Ok(id) => id,
@@ -2795,7 +2807,8 @@ async fn reject_company_identity(
     match org
         .reject_identity_proposal(
             proposal,
-            "owner",
+            principal.actor_id(),
+            principal.membership_role(),
             &format!("authority:{authority_id}"),
             input.rationale.trim(),
         )
@@ -2813,6 +2826,7 @@ async fn reject_company_identity(
 
 async fn decide_company_identity_migration(
     State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
     AxumPath((company, finding)): AxumPath<(String, Uuid)>,
     Json(input): Json<IdentityMigrationInput>,
 ) -> impl IntoResponse {
@@ -2829,7 +2843,7 @@ async fn decide_company_identity_migration(
         .emit(
             &company,
             "company_identity_migration",
-            Some("owner"),
+            Some(principal.actor_id()),
             serde_json::json!({
                 "drift_finding_id": finding,
                 "disposition": input.disposition,
@@ -2861,7 +2875,8 @@ async fn decide_company_identity_migration(
         .decide_identity_migration(restless_orgintel::NewIdentityMigrationDecision {
             drift_finding_id: finding,
             disposition: input.disposition,
-            decided_by: "owner",
+            decided_by: principal.actor_id(),
+            acting_membership_role: principal.membership_role(),
             rationale: input.rationale.trim(),
             authority_record_id: &format!("authority:{authority_id}"),
         })
@@ -2938,6 +2953,7 @@ async fn revise_company_charter(
 
 async fn set_company_outcome_standard(
     State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
     AxumPath(company): AxumPath<String>,
     Json(input): Json<OutcomeStandardInput>,
 ) -> impl IntoResponse {
@@ -2965,7 +2981,7 @@ async fn set_company_outcome_standard(
             .emit(
                 &company,
                 "company_outcome_standard_changed",
-                Some("owner"),
+                Some(principal.actor_id()),
                 serde_json::json!({
                     "previous": previous,
                     "standard": input.standard,
@@ -2986,6 +3002,7 @@ async fn set_company_outcome_standard(
 
 async fn set_company_harnesses(
     State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
     AxumPath(company): AxumPath<String>,
     Json(input): Json<HarnessSettingsInput>,
 ) -> impl IntoResponse {
@@ -3032,7 +3049,7 @@ async fn set_company_harnesses(
             .emit(
                 &company,
                 "company_harness_policy_changed",
-                Some("owner"),
+                Some(principal.actor_id()),
                 serde_json::json!({
                     "previous": {
                         "coordination_harness": previous.coordination_harness,
@@ -3064,6 +3081,7 @@ async fn set_company_harnesses(
 
 async fn recover_company_computer(
     State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
     AxumPath(company): AxumPath<String>,
     Json(input): Json<CompanyRecoveryInput>,
 ) -> impl IntoResponse {
@@ -3081,7 +3099,8 @@ async fn recover_company_computer(
             )
         }
     };
-    match company_projection::recover(&state.daemon, &config, action).await {
+    match company_projection::recover(&state.daemon, &config, action, principal.actor_id()).await
+    {
         Ok(outcome) => Json(outcome).into_response(),
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -6038,6 +6057,7 @@ fn verified_attachment_response(
 
 async fn grant(
     State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
     AxumPath(company): AxumPath<String>,
     Json(input): Json<PartyAction>,
 ) -> impl IntoResponse {
@@ -6048,7 +6068,7 @@ async fn grant(
         &input.party,
         &state.daemon.authority,
         org.as_ref(),
-        "owner",
+        principal.actor_id(),
     )
     .await
     {
@@ -6059,6 +6079,7 @@ async fn grant(
 
 async fn decline(
     State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
     AxumPath(company): AxumPath<String>,
     Json(input): Json<PartyAction>,
 ) -> impl IntoResponse {
@@ -6069,7 +6090,7 @@ async fn decline(
         &input.party,
         &state.daemon.authority,
         org.as_ref(),
-        "owner",
+        principal.actor_id(),
     )
     .await
     {
@@ -6080,6 +6101,7 @@ async fn decline(
 
 async fn revoke(
     State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
     AxumPath(company): AxumPath<String>,
     Json(input): Json<PartyAction>,
 ) -> impl IntoResponse {
@@ -6090,7 +6112,7 @@ async fn revoke(
         &input.party,
         &state.daemon.authority,
         org.as_ref(),
-        "owner",
+        principal.actor_id(),
     )
     .await
     {

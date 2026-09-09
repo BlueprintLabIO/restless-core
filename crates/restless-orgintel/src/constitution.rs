@@ -408,7 +408,7 @@ impl OrgIntel {
         &self,
         input: NewIdentityMigrationDecision<'_>,
     ) -> Result<IdentityMigrationDecisionRow> {
-        if input.decided_by != "owner" {
+        if input.acting_membership_role != "owner" {
             return Err(OrgIntelError::InvalidWork(
                 "only the owner may decide identity migration".into(),
             ));

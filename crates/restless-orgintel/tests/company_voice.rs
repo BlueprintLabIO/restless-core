@@ -178,6 +178,7 @@ async fn one_company_voice_stays_human_and_distinct_across_channels() {
         .promote_identity_proposal(
             proposal,
             "owner",
+            "owner",
             "authority:voice:release-1",
             "Established human voice evidence and channel-specific observations.",
             now,

@@ -173,6 +173,7 @@ async fn fixture(
         .promote_identity_proposal(
             proposal,
             "owner",
+            "owner",
             "authority:identity:integrated-1",
             "Established four independently evidenced identity pillars.",
             now,
@@ -390,6 +391,7 @@ async fn constitution_is_bounded_immutable_and_company_specific() {
         .promote_identity_proposal(
             correction,
             "owner",
+            "owner",
             "authority:identity:correction",
             "Corrected one product fact; expression and culture remain unchanged.",
             Utc::now(),
@@ -406,6 +408,7 @@ async fn constitution_is_bounded_immutable_and_company_specific() {
             drift_finding_id: drift[0].id,
             disposition: IdentityMigrationDisposition::Revise,
             decided_by: "identity-maker",
+            acting_membership_role: "staff",
             rationale: "staff cannot decide",
             authority_record_id: "authority:no",
         })
@@ -419,6 +422,7 @@ async fn constitution_is_bounded_immutable_and_company_specific() {
             drift_finding_id: drift[0].id,
             disposition: IdentityMigrationDisposition::Revise,
             decided_by: "owner",
+            acting_membership_role: "owner",
             rationale: "Revise only this decision surface because it repeats the corrected fact.",
             authority_record_id: "authority:migration:1",
         })
@@ -431,6 +435,7 @@ async fn constitution_is_bounded_immutable_and_company_specific() {
             drift_finding_id: drift[0].id,
             disposition: IdentityMigrationDisposition::Retain,
             decided_by: "owner",
+            acting_membership_role: "owner",
             rationale: "A later request cannot rewrite the first owner decision.",
             authority_record_id: "authority:migration:2",
         })

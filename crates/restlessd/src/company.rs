@@ -1575,6 +1575,7 @@ pub(crate) async fn recover(
     daemon: &Daemon,
     config: &runtime::CompanyConfig,
     action: RecoveryAction,
+    acting_actor_id: &str,
 ) -> Result<RecoveryOutcome> {
     let before = runtime::doctor(&config.name)
         .await
@@ -1591,7 +1592,7 @@ pub(crate) async fn recover(
         .emit(
             &config.name,
             "lifecycle",
-            Some("owner"),
+            Some(acting_actor_id),
             serde_json::json!({
                 "action": action,
                 "state": "requested",
@@ -1622,7 +1623,7 @@ pub(crate) async fn recover(
                 .emit(
                     &config.name,
                     "lifecycle",
-                    Some("owner"),
+                    Some(acting_actor_id),
                     serde_json::json!({
                         "action": action,
                         "state": "failed",
@@ -1646,7 +1647,7 @@ pub(crate) async fn recover(
         .emit(
             &config.name,
             "lifecycle",
-            Some("owner"),
+            Some(acting_actor_id),
             serde_json::json!({
                 "action": action,
                 "state": "succeeded",

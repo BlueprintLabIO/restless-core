@@ -171,6 +171,7 @@ async fn released_identity_is_owner_governed_bounded_and_restart_stable() {
         .promote_identity_proposal(
             conflicting,
             "owner",
+            "owner",
             "authority:identity:conflict",
             "attempted first release",
             now,
@@ -191,6 +192,7 @@ async fn released_identity_is_owner_governed_bounded_and_restart_stable() {
         .promote_identity_proposal(
             proposal,
             "exec",
+            "exec",
             "authority:identity:not-owner",
             "must fail",
             now,
@@ -202,6 +204,7 @@ async fn released_identity_is_owner_governed_bounded_and_restart_stable() {
     let release = org
         .promote_identity_proposal(
             proposal,
+            "owner",
             "owner",
             "authority:identity:release-1",
             "Established product truth and initial website voice.",
@@ -284,6 +287,7 @@ async fn released_identity_is_owner_governed_bounded_and_restart_stable() {
     let release_two = restarted
         .promote_identity_proposal(
             correction,
+            "owner",
             "owner",
             "authority:identity:release-2",
             "Corrected product promise and retired the bounded exception.",

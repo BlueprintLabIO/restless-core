@@ -165,7 +165,7 @@ async fn one_visual_language_stays_native_distinct_and_product_grounded() {
         )
         .await
         .unwrap();
-    let release=org.promote_identity_proposal(proposal,"owner","authority:visual:release-1","Established one visual grammar with product truth, native motion and negative evidence.",now).await.unwrap();
+    let release=org.promote_identity_proposal(proposal,"owner","owner","authority:visual:release-1","Established one visual grammar with product truth, native motion and negative evidence.",now).await.unwrap();
     let mut digests = BTreeSet::new();
     let mut works = Vec::new();
     for channel in [

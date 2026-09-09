@@ -305,6 +305,56 @@ impl AuthorityStore {
         .execute(&mut *bootstrap)
         .await
         .context("index company-bootstrap operations")?;
+        // Fleet's Runtime bootstrap advances one exact immutable generation
+        // at a time. This survives Core restarts, so a stopped or compromised
+        // old container cannot regain readiness by replaying a still-live
+        // bridge capability after its replacement has been accepted.
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS restless_authority.runtime_bridge_generations (\
+               cell_id UUID PRIMARY KEY, \
+               owner_id UUID NOT NULL, \
+               plane_id UUID NOT NULL, \
+               company_id UUID NOT NULL UNIQUE, \
+               company_handle TEXT NOT NULL, \
+               runtime_id TEXT NOT NULL, \
+               runtime_generation BIGINT NOT NULL CHECK (runtime_generation > 0), \
+               runtime_image TEXT NOT NULL, \
+               volume_name TEXT NOT NULL, \
+               source_revision TEXT NOT NULL, \
+               credential_operation_id UUID NOT NULL UNIQUE, \
+               credential_id UUID NOT NULL, \
+               credential_epoch BIGINT NOT NULL CHECK (credential_epoch > 0), \
+               credential_expires_at TIMESTAMPTZ NOT NULL, \
+               updated_at TIMESTAMPTZ NOT NULL DEFAULT now()\
+             )",
+        )
+        .execute(&mut *bootstrap)
+        .await
+        .context("create durable Runtime-bridge generations")?;
+        sqlx::query(
+            "ALTER TABLE restless_authority.runtime_bridge_generations \
+             DROP COLUMN IF EXISTS desired_revision",
+        )
+        .execute(&mut *bootstrap)
+        .await
+        .context("remove mutable desired revision from Runtime process identity")?;
+        sqlx::query(
+            "ALTER TABLE restless_authority.runtime_bridge_generations \
+             ADD COLUMN IF NOT EXISTS credential_operation_id UUID NOT NULL DEFAULT gen_random_uuid(), \
+             ADD COLUMN IF NOT EXISTS credential_id UUID NOT NULL DEFAULT gen_random_uuid(), \
+             ADD COLUMN IF NOT EXISTS credential_epoch BIGINT NOT NULL DEFAULT 1 CHECK (credential_epoch > 0), \
+             ADD COLUMN IF NOT EXISTS credential_expires_at TIMESTAMPTZ NOT NULL DEFAULT now()",
+        )
+        .execute(&mut *bootstrap)
+        .await
+        .context("add renewable Runtime-bridge credential lease")?;
+        sqlx::query(
+            "CREATE UNIQUE INDEX IF NOT EXISTS runtime_bridge_credential_operation \
+             ON restless_authority.runtime_bridge_generations (credential_operation_id)",
+        )
+        .execute(&mut *bootstrap)
+        .await
+        .context("index Runtime-bridge credential refresh operations")?;
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS restless_authority.model_cooldowns (\
                company TEXT NOT NULL, model TEXT NOT NULL, kind TEXT NOT NULL, reason TEXT NOT NULL, \
@@ -403,6 +453,7 @@ impl AuthorityStore {
         proposal_id: Uuid,
         decision: &str,
         rationale: &str,
+        actor_id: &str,
     ) -> Result<i64> {
         let body = serde_json::json!({
             "proposal_id": proposal_id,
@@ -411,12 +462,13 @@ impl AuthorityStore {
         });
         let inserted = sqlx::query_scalar::<_, i64>(
             "INSERT INTO restless_authority.records (company,kind,actor_id,body) \
-             VALUES ($1,'company_identity_decision','owner',$2) \
+             VALUES ($1,'company_identity_decision',$3,$2) \
              ON CONFLICT (company,kind,(body->>'proposal_id'),(body->>'decision')) \
              WHERE kind='company_identity_decision' DO NOTHING RETURNING id",
         )
         .bind(company)
         .bind(body)
+        .bind(actor_id)
         .fetch_optional(&self.pool)
         .await?;
         if let Some(id) = inserted {
@@ -909,5 +961,72 @@ mod mandate_tests {
         assert!(validate_mandate("  \n").is_err());
         assert!(validate_mandate("valid\0invalid").is_err());
         assert!(validate_mandate(&"a".repeat(MAX_MANDATE_BYTES + 1)).is_err());
+    }
+}
+
+#[cfg(test)]
+mod identity_decision_attribution_tests {
+    use super::*;
+
+    /// Sprint 45 / C45-T2 regression: `record_company_identity_decision` used
+    /// to hard-code the literal string `"owner"` as `actor_id` regardless of
+    /// who actually decided. In hosted/multiplayer mode the acting human's
+    /// actor id is a durable `human-{uuid}`, never that literal, so the old
+    /// behaviour silently mis-attributed every hosted decision to nobody real.
+    #[tokio::test]
+    async fn identity_decision_is_attributed_to_the_real_deciding_actor_not_a_literal() {
+        let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            eprintln!(
+                "RESTLESS_TEST_DATABASE_URL unset; skipping identity decision attribution scenario"
+            );
+            return;
+        };
+        let store = AuthorityStore::connect(&url)
+            .await
+            .expect("connect Authority store");
+        let company = format!("identitydecisionattr{}", Uuid::new_v4().simple());
+        let proposal_id = Uuid::new_v4();
+        let human_actor = format!("human-{}", Uuid::new_v4());
+
+        let record_id = store
+            .record_company_identity_decision(
+                &company,
+                proposal_id,
+                "promote",
+                "Established one grammar with product truth.",
+                &human_actor,
+            )
+            .await
+            .expect("record identity decision");
+
+        let stored: (Option<String>,) = sqlx::query_as(
+            "SELECT actor_id FROM restless_authority.records WHERE id=$1 AND company=$2",
+        )
+        .bind(record_id)
+        .bind(&company)
+        .fetch_one(&store.pool)
+        .await
+        .expect("read back identity decision record");
+
+        assert_eq!(
+            stored.0.as_deref(),
+            Some(human_actor.as_str()),
+            "identity decision must attribute the real deciding actor, not a hard-coded literal"
+        );
+        assert_ne!(stored.0.as_deref(), Some("owner"));
+
+        // Idempotent recovery of the same (company, proposal, decision) still
+        // returns the original attributed row rather than silently rewriting it.
+        let recovered_id = store
+            .record_company_identity_decision(
+                &company,
+                proposal_id,
+                "promote",
+                "Established one grammar with product truth.",
+                "a-different-later-caller",
+            )
+            .await
+            .expect("recover identity decision");
+        assert_eq!(recovered_id, record_id);
     }
 }
