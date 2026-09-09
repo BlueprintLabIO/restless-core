@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.restless.run/core/company-collaboration/v1/collaboration.events.schema.json",
+  "title": "Restless Core collaboration event hint",
+  "description": "A body-free, recipient-authorized wake hint from one Room's compactable operational event stream. Clients refetch authoritative projections and resume from the durable cursor.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "kind",
+    "room_id",
+    "actor_id",
+    "message_id",
+    "created_at"
+  ],
+  "properties": {
+    "id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "room.archived.v1",
+        "room.created.v1",
+        "room.mention.cancelled.v1",
+        "room.mention.created.v1",
+        "room.mention.resolved.v1",
+        "room.message.created.v1",
+        "room.participant.joined.v1",
+        "room.participant.left.v1",
+        "room.read_cursor.advanced.v1"
+      ]
+    },
+    "room_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "actor_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "message_id": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

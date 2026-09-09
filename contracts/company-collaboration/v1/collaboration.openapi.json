@@ -1,0 +1,971 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Restless Core company collaboration",
+    "version": "1",
+    "description": "The Core-owned, current-only network contract for company bootstrap, Rooms, Threads, Mentions and replay."
+  },
+  "paths": {
+    "/internal/v1/companies/bootstrap": {
+      "post": {
+        "operationId": "bootstrapCompany",
+        "description": "Provision the durable company substrate on the exact account plane. This operation never starts a Company Runtime or issues a Runtime Bridge capability.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ExactPlaneHost"
+          }
+        ],
+        "security": [
+          {
+            "CompanyBootstrapBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompanyBootstrapRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The exact durable ready receipt. An identical retry returns byte-identical bytes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyBootstrapReadyReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ContractError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ContractError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ContractError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ContractError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ContractError"
+          },
+          "415": {
+            "$ref": "#/components/responses/ContractError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ContractError"
+          }
+        }
+      }
+    },
+    "/api/companies/{company}/mentions": {
+      "get": {
+        "operationId": "listMyMentions",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Company"
+          },
+          {
+            "name": "after_created_event_id",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/NonNegativeCursor"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/PageLimit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/CollaborationProjection"
+          }
+        }
+      }
+    },
+    "/api/companies/{company}/rooms": {
+      "get": {
+        "operationId": "listRooms",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Company"
+          },
+          {
+            "name": "before_created_at",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "before_room_id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/PageLimit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/CollaborationProjection"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createRoom",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Company"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRoomCommand"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/CollaborationProjection"
+          },
+          "201": {
+            "$ref": "#/components/responses/CollaborationProjection"
+          },
+          "409": {
+            "$ref": "#/components/responses/ContractError"
+          }
+        }
+      }
+    },
+    "/api/companies/{company}/rooms/{room}/participants": {
+      "get": {
+        "operationId": "listRoomParticipants",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Company"
+          },
+          {
+            "$ref": "#/components/parameters/Room"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/CollaborationProjection"
+          }
+        }
+      },
+      "post": {
+        "operationId": "addRoomParticipant",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Company"
+          },
+          {
+            "$ref": "#/components/parameters/Room"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoomParticipantCommand"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/CollaborationProjection"
+          }
+        }
+      }
+    },
+    "/api/companies/{company}/rooms/{room}/participants/{actor}": {
+      "delete": {
+        "operationId": "removeRoomParticipant",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Company"
+          },
+          {
+            "$ref": "#/components/parameters/Room"
+          },
+          {
+            "$ref": "#/components/parameters/Actor"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/CollaborationProjection"
+          }
+        }
+      }
+    },
+    "/api/companies/{company}/rooms/{room}/messages": {
+      "get": {
+        "operationId": "listRoomMessages",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Company"
+          },
+          {
+            "$ref": "#/components/parameters/Room"
+          },
+          {
+            "name": "after_message_id",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/NonNegativeCursor"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/PageLimit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/CollaborationProjection"
+          }
+        }
+      },
+      "post": {
+        "operationId": "sendRoomMessage",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Company"
+          },
+          {
+            "$ref": "#/components/parameters/Room"
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/RoomMessageCommand"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/CollaborationProjection"
+          },
+          "201": {
+            "$ref": "#/components/responses/CollaborationProjection"
+          },
+          "409": {
+            "$ref": "#/components/responses/ContractError"
+          }
+        }
+      }
+    },
+    "/api/companies/{company}/rooms/{room}/messages/{parent}/replies": {
+      "post": {
+        "operationId": "replyToRoomMessage",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Company"
+          },
+          {
+            "$ref": "#/components/parameters/Room"
+          },
+          {
+            "$ref": "#/components/parameters/ParentMessage"
+          }
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/RoomMessageCommand"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/CollaborationProjection"
+          },
+          "201": {
+            "$ref": "#/components/responses/CollaborationProjection"
+          },
+          "409": {
+            "$ref": "#/components/responses/ContractError"
+          }
+        }
+      }
+    },
+    "/api/companies/{company}/rooms/{room}/threads/{message}": {
+      "get": {
+        "operationId": "listRoomThread",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Company"
+          },
+          {
+            "$ref": "#/components/parameters/Room"
+          },
+          {
+            "$ref": "#/components/parameters/Message"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/CollaborationProjection"
+          }
+        }
+      }
+    },
+    "/api/companies/{company}/rooms/{room}/events": {
+      "get": {
+        "operationId": "replayRoomEvents",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Company"
+          },
+          {
+            "$ref": "#/components/parameters/Room"
+          },
+          {
+            "name": "after_event_id",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/NonNegativeCursor"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/PageLimit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A body-free, Room-authorized page of committed event hints.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoomEventReplayPage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/companies/{company}/rooms/{room}/events/live": {
+      "get": {
+        "operationId": "streamRoomEvents",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Company"
+          },
+          {
+            "$ref": "#/components/parameters/Room"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Server-sent Room event wake hints. Clients resume through the bounded replay endpoint.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/companies/{company}/rooms/{room}/read-cursor": {
+      "get": {
+        "operationId": "getRoomReadCursor",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Company"
+          },
+          {
+            "$ref": "#/components/parameters/Room"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/CollaborationProjection"
+          }
+        }
+      },
+      "post": {
+        "operationId": "markRoomRead",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Company"
+          },
+          {
+            "$ref": "#/components/parameters/Room"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoomReadCursorCommand"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/CollaborationProjection"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "CompanyBootstrapBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "The dedicated per-plane company-bootstrap token. Runtime-bootstrap tokens have a different audience and are refused."
+      }
+    },
+    "parameters": {
+      "ExactPlaneHost": {
+        "name": "Host",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "maxLength": 253
+        }
+      },
+      "Company": {
+        "name": "company",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^[a-z_][a-z0-9_]{0,62}$"
+        }
+      },
+      "Room": {
+        "name": "room",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "Actor": {
+        "name": "actor",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      },
+      "ParentMessage": {
+        "name": "parent",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/PositiveId"
+        }
+      },
+      "Message": {
+        "name": "message",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/PositiveId"
+        }
+      },
+      "PageLimit": {
+        "name": "limit",
+        "in": "query",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500
+        }
+      }
+    },
+    "requestBodies": {
+      "RoomMessageCommand": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/RoomMessageCommand"
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "ContractError": {
+        "description": "The request was rejected without changing durable state.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ContractError"
+            }
+          }
+        }
+      },
+      "CollaborationProjection": {
+        "description": "An access-checked Core collaboration projection or canonical command receipt.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "CompanyBootstrapRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "contract_version",
+          "operation_id",
+          "owner_id",
+          "plane_id",
+          "plane_hostname",
+          "plane_desired_revision",
+          "account_plane_image",
+          "core_release",
+          "release_manifest_digest",
+          "company_id",
+          "cell_id",
+          "model",
+          "reasoning_effort"
+        ],
+        "properties": {
+          "contract_version": {
+            "const": 1
+          },
+          "operation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "owner_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "plane_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "plane_hostname": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 253,
+            "pattern": "^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$"
+          },
+          "plane_desired_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "account_plane_image": {
+            "type": "string",
+            "maxLength": 512,
+            "pattern": "^(?:[a-z0-9.-]+(?::[0-9]+)?/)[a-z0-9._/-]+@sha256:[0-9a-f]{64}$"
+          },
+          "core_release": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9._+-]+$"
+          },
+          "release_manifest_digest": {
+            "$ref": "#/components/schemas/Sha256Digest"
+          },
+          "company_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "cell_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "model": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 160,
+            "pattern": "^[a-z0-9-]+/[A-Za-z0-9._+:/-]+$"
+          },
+          "reasoning_effort": {
+            "type": "string",
+            "enum": [
+              "none",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max",
+              "ultra"
+            ]
+          }
+        }
+      },
+      "CompanyBootstrapReadyReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "contract_version",
+          "operation_id",
+          "owner_id",
+          "plane_id",
+          "plane_hostname",
+          "plane_desired_revision",
+          "account_plane_image",
+          "core_release",
+          "release_manifest_digest",
+          "company_id",
+          "cell_id",
+          "model",
+          "reasoning_effort",
+          "status"
+        ],
+        "properties": {
+          "contract_version": {
+            "$ref": "#/components/schemas/CompanyBootstrapRequest/properties/contract_version"
+          },
+          "operation_id": {
+            "$ref": "#/components/schemas/CompanyBootstrapRequest/properties/operation_id"
+          },
+          "owner_id": {
+            "$ref": "#/components/schemas/CompanyBootstrapRequest/properties/owner_id"
+          },
+          "plane_id": {
+            "$ref": "#/components/schemas/CompanyBootstrapRequest/properties/plane_id"
+          },
+          "plane_hostname": {
+            "$ref": "#/components/schemas/CompanyBootstrapRequest/properties/plane_hostname"
+          },
+          "plane_desired_revision": {
+            "$ref": "#/components/schemas/CompanyBootstrapRequest/properties/plane_desired_revision"
+          },
+          "account_plane_image": {
+            "$ref": "#/components/schemas/CompanyBootstrapRequest/properties/account_plane_image"
+          },
+          "core_release": {
+            "$ref": "#/components/schemas/CompanyBootstrapRequest/properties/core_release"
+          },
+          "release_manifest_digest": {
+            "$ref": "#/components/schemas/CompanyBootstrapRequest/properties/release_manifest_digest"
+          },
+          "company_id": {
+            "$ref": "#/components/schemas/CompanyBootstrapRequest/properties/company_id"
+          },
+          "cell_id": {
+            "$ref": "#/components/schemas/CompanyBootstrapRequest/properties/cell_id"
+          },
+          "model": {
+            "$ref": "#/components/schemas/CompanyBootstrapRequest/properties/model"
+          },
+          "reasoning_effort": {
+            "$ref": "#/components/schemas/CompanyBootstrapRequest/properties/reasoning_effort"
+          },
+          "status": {
+            "const": "ready"
+          }
+        }
+      },
+      "CreateRoomCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "title",
+          "command_id"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "company",
+              "group",
+              "direct"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "command_id": {
+            "type": "string"
+          },
+          "participant_actor_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          }
+        }
+      },
+      "RoomParticipantCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "actor_id"
+        ],
+        "properties": {
+          "actor_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "RoomMessageCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "body",
+          "command_id"
+        ],
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "command_id": {
+            "type": "string"
+          },
+          "mentions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NewRoomMessageMention"
+            },
+            "default": []
+          },
+          "resolves_mention_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "default": null
+          }
+        }
+      },
+      "NewRoomMessageMention": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "actor_id"
+        ],
+        "properties": {
+          "actor_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "work_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "why_this_actor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expected_response": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recommendation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "alternatives": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          },
+          "uncertainty": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "affected_scope": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "deadline_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "fallback": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "independent_work_can_continue": {
+            "type": "boolean",
+            "default": true
+          }
+        }
+      },
+      "RoomReadCursorCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "through_message_id"
+        ],
+        "properties": {
+          "through_message_id": {
+            "$ref": "#/components/schemas/PositiveId"
+          }
+        }
+      },
+      "RoomEventReplayPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "events",
+          "requested_after_event_id",
+          "next_after_event_id",
+          "snapshot_cursor",
+          "compacted_through_event_id",
+          "oldest_available_event_id",
+          "has_more",
+          "resync_required"
+        ],
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CollaborationEventHint"
+            }
+          },
+          "requested_after_event_id": {
+            "$ref": "#/components/schemas/NonNegativeCursor"
+          },
+          "next_after_event_id": {
+            "$ref": "#/components/schemas/NonNegativeCursor"
+          },
+          "snapshot_cursor": {
+            "$ref": "#/components/schemas/NonNegativeCursor"
+          },
+          "compacted_through_event_id": {
+            "$ref": "#/components/schemas/NonNegativeCursor"
+          },
+          "oldest_available_event_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "resync_required": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CollaborationEventHint": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "room_id",
+          "actor_id",
+          "message_id",
+          "created_at"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/PositiveId"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "room_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "actor_id": {
+            "type": "string"
+          },
+          "message_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PositiveId": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "NonNegativeCursor": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "Sha256Digest": {
+        "type": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      },
+      "ContractError": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "error",
+          "message"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

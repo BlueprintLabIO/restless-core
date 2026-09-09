@@ -227,15 +227,82 @@ impl OrgIntel {
         }))
     }
 
+    /// Bind the cell to the company identity allocated by the one hosted
+    /// bootstrap coordinator.  This operation never manufactures a human
+    /// membership and never changes an existing binding: later entry and
+    /// membership-control assertions must present these exact coordinates.
+    pub async fn ensure_company_access_identity(
+        &self,
+        expected: CompanyAccessIdentity,
+    ) -> Result<()> {
+        if expected.company_id.is_nil() || expected.cell_id.is_nil() {
+            return Err(OrgIntelError::CompanyAccessMismatch(
+                "hosted company and cell identities must be non-nil".into(),
+            ));
+        }
+        let mut tx = self.pool.begin().await?;
+        let bound = sqlx::query_as::<_, (Uuid, Uuid)>(
+            "SELECT company_id,cell_id FROM company_access_identity \
+             WHERE singleton=TRUE FOR UPDATE",
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        match bound {
+            Some((company_id, cell_id))
+                if company_id == expected.company_id && cell_id == expected.cell_id => {}
+            Some(_) => {
+                return Err(OrgIntelError::CompanyAccessMismatch(
+                    "hosted bootstrap coordinates differ from the immutable company/cell binding"
+                        .into(),
+                ));
+            }
+            None => {
+                sqlx::query(
+                    "INSERT INTO company_access_identity (singleton,company_id,cell_id) \
+                     VALUES (TRUE,$1,$2)",
+                )
+                .bind(expected.company_id)
+                .bind(expected.cell_id)
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Readiness for the released collaboration service means the schema has
+    /// the current actor, Room, replay and mention surfaces.  A successful
+    /// migration call alone is not enough evidence if a database was restored
+    /// or damaged between migration and bootstrap acknowledgement.
+    pub async fn collaboration_surfaces_ready(&self) -> Result<bool> {
+        Ok(sqlx::query_scalar(
+            "SELECT to_regclass('actors') IS NOT NULL \
+                AND to_regclass('rooms') IS NOT NULL \
+                AND to_regclass('room_participants') IS NOT NULL \
+                AND to_regclass('room_read_cursors') IS NOT NULL \
+                AND to_regclass('room_conversation_focus') IS NOT NULL \
+                AND to_regclass('room_event_streams') IS NOT NULL \
+                AND to_regclass('messages') IS NOT NULL \
+                AND to_regclass('events') IS NOT NULL \
+                AND to_regclass('message_mentions') IS NOT NULL \
+                AND to_regclass('room_creation_commands') IS NOT NULL \
+                AND to_regclass('actor_cognitive_leases') IS NOT NULL \
+                AND to_regclass('model_invocation_policy') IS NOT NULL \
+                AND to_regclass('model_invocation_admissions') IS NOT NULL",
+        )
+        .fetch_one(&self.pool)
+        .await?)
+    }
+
     /// Atomically bind a verified human principal and consume its handoff.
     ///
-    /// `allow_initial_company_binding` is reserved for a bootstrap coordinator
-    /// that has already proved there is exactly one unbound local company. An
-    /// ordinary company route must never set it from a client-selected slug.
+    /// Company/cell identity is established only by the dedicated hosted
+    /// company-bootstrap contract. An entry assertion may consume human access
+    /// after that binding exists, but can never manufacture the binding itself.
     pub async fn consume_human_access_context(
         &self,
         context: HumanAccessContext<'_>,
-        allow_initial_company_binding: bool,
     ) -> Result<HumanPrincipalActorBinding> {
         let issuer = context.issuer.trim_end_matches('/');
         if issuer.is_empty() || context.subject.trim().is_empty() {
@@ -276,16 +343,6 @@ impl OrgIntel {
                 return Err(OrgIntelError::CompanyAccessMismatch(
                     "signed company/cell coordinates differ from the immutable binding".into(),
                 ));
-            }
-            None if allow_initial_company_binding => {
-                sqlx::query(
-                    "INSERT INTO company_access_identity (singleton,company_id,cell_id) \
-                     VALUES (TRUE,$1,$2)",
-                )
-                .bind(context.company_id)
-                .bind(context.cell_id)
-                .execute(&mut *tx)
-                .await?;
             }
             None => {
                 return Err(OrgIntelError::CompanyAccessMismatch(
@@ -485,7 +542,6 @@ impl OrgIntel {
     pub async fn apply_external_membership_control(
         &self,
         context: ExternalMembershipControlContext<'_>,
-        allow_initial_company_binding: bool,
     ) -> Result<ExternalMembershipControlReceipt> {
         let issuer = context.issuer.trim_end_matches('/');
         if issuer.is_empty()
@@ -561,16 +617,6 @@ impl OrgIntel {
                 return Err(OrgIntelError::CompanyAccessMismatch(
                     "signed company/cell coordinates differ from the immutable binding".into(),
                 ));
-            }
-            None if allow_initial_company_binding => {
-                sqlx::query(
-                    "INSERT INTO company_access_identity (singleton,company_id,cell_id) \
-                     VALUES (TRUE,$1,$2)",
-                )
-                .bind(context.company_id)
-                .bind(context.cell_id)
-                .execute(&mut *tx)
-                .await?;
             }
             None => {
                 return Err(OrgIntelError::CompanyAccessMismatch(

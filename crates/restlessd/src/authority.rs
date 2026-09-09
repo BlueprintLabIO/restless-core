@@ -13,7 +13,7 @@ use chrono::{DateTime, Utc};
 use restless_orgintel::OrgIntel;
 use sha2::{Digest as _, Sha256};
 use sqlx::postgres::PgPoolOptions;
-use sqlx::{PgPool, Row as _};
+use sqlx::{PgPool, Postgres, Row as _, Transaction};
 use uuid::Uuid;
 
 pub const GOVERNANCE_KINDS: &[&str] = &[
@@ -257,6 +257,54 @@ impl AuthorityStore {
         .execute(&pool)
         .await
         .context("version Authority migration markers")?;
+        // Fleet's company-bootstrap operation is Authority truth, not an
+        // OrgIntel event.  The reservation is committed before any cell or
+        // filesystem provisioning starts, so a process crash leaves the exact
+        // request fingerprint and company/cell custody available for retry.
+        // The receipt bytes are retained verbatim: a lost HTTP response must
+        // replay byte-for-byte rather than reconstructing a plausible answer.
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS restless_authority.company_bootstrap_operations (\
+               operation_id UUID PRIMARY KEY, \
+               request_fingerprint BYTEA NOT NULL CHECK (octet_length(request_fingerprint)=32), \
+               owner_id UUID NOT NULL, \
+               plane_id UUID NOT NULL, \
+               plane_hostname TEXT NOT NULL CHECK (octet_length(plane_hostname) BETWEEN 1 AND 253), \
+               plane_desired_revision BIGINT NOT NULL CHECK (plane_desired_revision > 0), \
+               account_plane_image TEXT NOT NULL CHECK (octet_length(account_plane_image) BETWEEN 1 AND 512), \
+               core_release TEXT NOT NULL CHECK (octet_length(core_release) BETWEEN 1 AND 64), \
+               release_manifest_digest TEXT NOT NULL CHECK (octet_length(release_manifest_digest)=71), \
+               company_id UUID NOT NULL UNIQUE, \
+               cell_id UUID NOT NULL UNIQUE, \
+               company_handle TEXT NOT NULL UNIQUE CHECK (octet_length(company_handle) BETWEEN 1 AND 63), \
+               model TEXT NOT NULL CHECK (octet_length(model) BETWEEN 1 AND 160), \
+               reasoning_effort TEXT NOT NULL CHECK (reasoning_effort IN ('none','low','medium','high','xhigh','max','ultra')), \
+               config_fingerprint BYTEA NOT NULL CHECK (octet_length(config_fingerprint)=32), \
+               status TEXT NOT NULL CHECK (status IN ('provisioning','ready')), \
+               receipt_bytes BYTEA, \
+               created_at TIMESTAMPTZ NOT NULL DEFAULT now(), \
+               ready_at TIMESTAMPTZ, \
+               updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), \
+               CHECK (operation_id <> '00000000-0000-0000-0000-000000000000'), \
+               CHECK (owner_id <> '00000000-0000-0000-0000-000000000000'), \
+               CHECK (plane_id <> '00000000-0000-0000-0000-000000000000'), \
+               CHECK (company_id <> '00000000-0000-0000-0000-000000000000'), \
+               CHECK (cell_id <> '00000000-0000-0000-0000-000000000000'), \
+               CHECK ((status='provisioning' AND receipt_bytes IS NULL AND ready_at IS NULL) \
+                   OR (status='ready' AND receipt_bytes IS NOT NULL AND ready_at IS NOT NULL))\
+             )",
+        )
+        .execute(&mut *bootstrap)
+        .await
+        .context("create durable company-bootstrap operations")?;
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS company_bootstrap_plane_status \
+             ON restless_authority.company_bootstrap_operations \
+             (owner_id,plane_id,status,created_at)",
+        )
+        .execute(&mut *bootstrap)
+        .await
+        .context("index company-bootstrap operations")?;
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS restless_authority.model_cooldowns (\
                company TEXT NOT NULL, model TEXT NOT NULL, kind TEXT NOT NULL, reason TEXT NOT NULL, \
@@ -622,6 +670,21 @@ impl AuthorityStore {
         config_approvals: &[String],
     ) -> Result<()> {
         let mut tx = self.pool.begin().await?;
+        Self::initialise_company_in_transaction(&mut tx, company, config_approvals).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Initialise Authority state while a higher-level lifecycle transaction
+    /// already owns serialization. Hosted company bootstrap uses this form so
+    /// callers queued on its advisory lock cannot consume every pool
+    /// connection and starve the lock holder of the connection it needs to
+    /// finish.
+    pub(crate) async fn initialise_company_in_transaction(
+        tx: &mut Transaction<'_, Postgres>,
+        company: &str,
+        config_approvals: &[String],
+    ) -> Result<()> {
         for party in config_approvals {
             let party = party.trim().to_lowercase();
             if party.is_empty() {
@@ -637,7 +700,7 @@ impl AuthorityStore {
                 "principal": "owner",
                 "source": "initial_company_config"
             }))
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
         }
         sqlx::query(
@@ -646,9 +709,8 @@ impl AuthorityStore {
         )
         .bind(company)
         .bind(IMPORT_VERSION)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
-        tx.commit().await?;
         Ok(())
     }
 

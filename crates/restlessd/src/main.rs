@@ -17,6 +17,7 @@ mod cell;
 mod cell_wake;
 mod codex;
 mod company;
+mod company_bootstrap;
 mod connected_tool;
 mod context;
 mod credential;
@@ -94,6 +95,10 @@ impl OrgIntelConfig {
     }
 
     fn read_only(profile: &restlessd::appliance::MachineProfile) -> Result<Self> {
+        if let Some(config) = Self::from_plane_environment()? {
+            config.ensure_profile_isolation(profile)?;
+            return Ok(config);
+        }
         let config = Self::read_from_root(&profile.state_root)?
             .unwrap_or_else(|| Self::default_for_profile(profile));
         config.ensure_profile_isolation(profile)?;
@@ -101,6 +106,10 @@ impl OrgIntelConfig {
     }
 
     fn load_or_seed(profile: &restlessd::appliance::MachineProfile) -> Result<Self> {
+        if let Some(config) = Self::from_plane_environment()? {
+            config.ensure_profile_isolation(profile)?;
+            return Ok(config);
+        }
         let path = profile.state_root.join("orgintel.toml");
         if path.exists() {
             return Self::read_only(profile);
@@ -124,6 +133,20 @@ impl OrgIntelConfig {
             .with_context(|| format!("parse {}", path.display()))
     }
 
+    /// Cloud supplies the account-plane database credential as deployment
+    /// state. Keep it in memory: persisting this value into `orgintel.toml`
+    /// would copy a rotated secret into the long-lived plane volume.
+    fn from_plane_environment() -> Result<Option<Self>> {
+        let Some(raw) = std::env::var_os("RESTLESS_PLANE_DATABASE_URL") else {
+            return Ok(None);
+        };
+        let raw = raw
+            .into_string()
+            .map_err(|_| anyhow::anyhow!("RESTLESS_PLANE_DATABASE_URL must be valid UTF-8"))?;
+        validate_plane_database_url(&raw)?;
+        Ok(Some(Self { database_url: raw }))
+    }
+
     fn ensure_profile_isolation(
         &self,
         profile: &restlessd::appliance::MachineProfile,
@@ -144,6 +167,31 @@ impl OrgIntelConfig {
         }
         Ok(())
     }
+}
+
+fn validate_plane_database_url(raw: &str) -> Result<()> {
+    if raw.is_empty() || raw.len() > 2_048 || raw.trim() != raw || raw.contains(['\r', '\n']) {
+        anyhow::bail!("RESTLESS_PLANE_DATABASE_URL must be one bounded URL value");
+    }
+    // Never put the raw URL in diagnostics: it normally contains the plane's
+    // database password.
+    let parsed = url::Url::parse(raw).map_err(|_| {
+        anyhow::anyhow!("RESTLESS_PLANE_DATABASE_URL must be a valid PostgreSQL URL")
+    })?;
+    let database = parsed.path().strip_prefix('/').unwrap_or_default();
+    if !matches!(parsed.scheme(), "postgres" | "postgresql")
+        || parsed.host_str().is_none()
+        || parsed.username().is_empty()
+        || parsed.password().is_none_or(str::is_empty)
+        || database.is_empty()
+        || database.contains('/')
+        || parsed.fragment().is_some()
+    {
+        anyhow::bail!(
+            "RESTLESS_PLANE_DATABASE_URL must identify one password-authenticated PostgreSQL database"
+        );
+    }
+    Ok(())
 }
 
 fn database_target(database_url: &str) -> Result<(String, Option<u16>, String)> {
@@ -4825,6 +4873,27 @@ mod tests {
             database_target(&dev.database_url).unwrap(),
             database_target(&test.database_url).unwrap()
         );
+    }
+
+    #[test]
+    fn hosted_plane_database_url_is_exact_password_authenticated_postgres() {
+        validate_plane_database_url(
+            "postgresql://restless:secret@plane-database:5432/restless?sslmode=require",
+        )
+        .unwrap();
+        for invalid in [
+            " postgres://restless:secret@plane-database/restless",
+            "postgres://restless@plane-database/restless",
+            "postgres://restless:secret@plane-database/",
+            "postgres://restless:secret@plane-database/one/two",
+            "https://restless:secret@plane-database/restless",
+            "postgres://restless:secret@plane-database/restless#credential-copy",
+        ] {
+            assert!(
+                validate_plane_database_url(invalid).is_err(),
+                "accepted invalid plane database URL shape"
+            );
+        }
     }
 
     #[tokio::test]

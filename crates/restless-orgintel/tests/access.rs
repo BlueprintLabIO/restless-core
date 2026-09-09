@@ -1,7 +1,8 @@
 use chrono::{Duration, Utc};
 use restless_orgintel::{
-    ExternalMembershipControlContext, ExternalMembershipStatus, HumanAccessContext,
-    MembershipControlOutcome, OrgIntel, OrgIntelError, MEMBERSHIP_CONTROL_CONTRACT_VERSION,
+    CompanyAccessIdentity, ExternalMembershipControlContext, ExternalMembershipStatus,
+    HumanAccessContext, MembershipControlOutcome, OrgIntel, OrgIntelError,
+    MEMBERSHIP_CONTROL_CONTRACT_VERSION,
 };
 use uuid::Uuid;
 
@@ -13,6 +14,15 @@ async fn company() -> Option<OrgIntel> {
             .await
             .expect("ensure scratch company schema"),
     )
+}
+
+async fn bind_company(org: &OrgIntel, company_id: Uuid, cell_id: Uuid) {
+    org.ensure_company_access_identity(CompanyAccessIdentity {
+        company_id,
+        cell_id,
+    })
+    .await
+    .expect("bind company through the dedicated bootstrap primitive");
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -75,6 +85,51 @@ fn control<'a>(
 }
 
 #[tokio::test]
+async fn entry_and_membership_control_cannot_bootstrap_an_unbound_company() {
+    let Some(org) = company().await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping access scenario");
+        return;
+    };
+    let company_id = Uuid::new_v4();
+    let cell_id = Uuid::new_v4();
+    let now = Utc::now();
+
+    let entry = org
+        .consume_human_access_context(context(
+            "https://cloud.restless.run",
+            "user-1",
+            company_id,
+            cell_id,
+            "membership-1",
+            "owner",
+            1,
+            Uuid::new_v4(),
+            now,
+        ))
+        .await
+        .unwrap_err();
+    assert!(matches!(entry, OrgIntelError::CompanyAccessMismatch(_)));
+
+    let terminal = org
+        .apply_external_membership_control(control(
+            "https://cloud.restless.run",
+            "user-1",
+            company_id,
+            cell_id,
+            "membership-1",
+            "owner",
+            ExternalMembershipStatus::Removed,
+            2,
+            Uuid::new_v4(),
+            now,
+        ))
+        .await
+        .unwrap_err();
+    assert!(matches!(terminal, OrgIntelError::CompanyAccessMismatch(_)));
+    assert_eq!(org.company_access_identity().await.unwrap(), None);
+}
+
+#[tokio::test]
 async fn access_binding_is_durable_replay_safe_and_monotonic() {
     let Some(org) = company().await else {
         eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping access scenario");
@@ -85,22 +140,20 @@ async fn access_binding_is_durable_replay_safe_and_monotonic() {
     let cell_id = Uuid::new_v4();
     let issued_at = Utc::now();
     let first_jti = Uuid::new_v4();
+    bind_company(&org, company_id, cell_id).await;
 
     let first = org
-        .consume_human_access_context(
-            context(
-                issuer,
-                "user-1",
-                company_id,
-                cell_id,
-                "membership-1",
-                "member",
-                3,
-                first_jti,
-                issued_at,
-            ),
-            true,
-        )
+        .consume_human_access_context(context(
+            issuer,
+            "user-1",
+            company_id,
+            cell_id,
+            "membership-1",
+            "member",
+            3,
+            first_jti,
+            issued_at,
+        ))
         .await
         .expect("first verified entry");
     assert_eq!(first.membership_version, 3);
@@ -118,39 +171,33 @@ async fn access_binding_is_durable_replay_safe_and_monotonic() {
         .unwrap());
 
     let replay = org
-        .consume_human_access_context(
-            context(
-                issuer,
-                "user-1",
-                company_id,
-                cell_id,
-                "membership-1",
-                "member",
-                3,
-                first_jti,
-                issued_at,
-            ),
-            false,
-        )
+        .consume_human_access_context(context(
+            issuer,
+            "user-1",
+            company_id,
+            cell_id,
+            "membership-1",
+            "member",
+            3,
+            first_jti,
+            issued_at,
+        ))
         .await
         .unwrap_err();
     assert!(matches!(replay, OrgIntelError::ReplayedEntry));
 
     let updated = org
-        .consume_human_access_context(
-            context(
-                issuer,
-                "user-1",
-                company_id,
-                cell_id,
-                "membership-1",
-                "admin",
-                4,
-                Uuid::new_v4(),
-                issued_at + Duration::seconds(1),
-            ),
-            false,
-        )
+        .consume_human_access_context(context(
+            issuer,
+            "user-1",
+            company_id,
+            cell_id,
+            "membership-1",
+            "admin",
+            4,
+            Uuid::new_v4(),
+            issued_at + Duration::seconds(1),
+        ))
         .await
         .expect("newer membership state");
     assert_eq!(updated.actor_id, first.actor_id);
@@ -165,20 +212,17 @@ async fn access_binding_is_durable_replay_safe_and_monotonic() {
         .unwrap());
 
     let stale = org
-        .consume_human_access_context(
-            context(
-                issuer,
-                "user-1",
-                company_id,
-                cell_id,
-                "membership-1",
-                "member",
-                3,
-                Uuid::new_v4(),
-                issued_at + Duration::seconds(2),
-            ),
-            false,
-        )
+        .consume_human_access_context(context(
+            issuer,
+            "user-1",
+            company_id,
+            cell_id,
+            "membership-1",
+            "member",
+            3,
+            Uuid::new_v4(),
+            issued_at + Duration::seconds(2),
+        ))
         .await
         .unwrap_err();
     assert!(matches!(stale, OrgIntelError::CompanyAccessMismatch(_)));
@@ -194,39 +238,34 @@ async fn replacement_membership_requires_strictly_newer_issuance() {
     let company_id = Uuid::new_v4();
     let cell_id = Uuid::new_v4();
     let issued_at = Utc::now();
+    bind_company(&org, company_id, cell_id).await;
     let first = org
-        .consume_human_access_context(
-            context(
-                issuer,
-                "user-1",
-                company_id,
-                cell_id,
-                "membership-old",
-                "member",
-                4,
-                Uuid::new_v4(),
-                issued_at,
-            ),
-            true,
-        )
+        .consume_human_access_context(context(
+            issuer,
+            "user-1",
+            company_id,
+            cell_id,
+            "membership-old",
+            "member",
+            4,
+            Uuid::new_v4(),
+            issued_at,
+        ))
         .await
         .expect("initial membership");
 
     let unordered_replacement = org
-        .consume_human_access_context(
-            context(
-                issuer,
-                "user-1",
-                company_id,
-                cell_id,
-                "membership-new",
-                "member",
-                1,
-                Uuid::new_v4(),
-                issued_at,
-            ),
-            false,
-        )
+        .consume_human_access_context(context(
+            issuer,
+            "user-1",
+            company_id,
+            cell_id,
+            "membership-new",
+            "member",
+            1,
+            Uuid::new_v4(),
+            issued_at,
+        ))
         .await
         .unwrap_err();
     assert!(matches!(
@@ -239,20 +278,17 @@ async fn replacement_membership_requires_strictly_newer_issuance() {
         .unwrap());
 
     let replacement = org
-        .consume_human_access_context(
-            context(
-                issuer,
-                "user-1",
-                company_id,
-                cell_id,
-                "membership-new",
-                "member",
-                1,
-                Uuid::new_v4(),
-                issued_at + Duration::seconds(1),
-            ),
-            false,
-        )
+        .consume_human_access_context(context(
+            issuer,
+            "user-1",
+            company_id,
+            cell_id,
+            "membership-new",
+            "member",
+            1,
+            Uuid::new_v4(),
+            issued_at + Duration::seconds(1),
+        ))
         .await
         .expect("strictly newer replacement membership");
     assert_eq!(replacement.actor_id, first.actor_id);
@@ -271,38 +307,33 @@ async fn company_coordinates_and_membership_identity_cannot_be_rebound() {
     let company_id = Uuid::new_v4();
     let cell_id = Uuid::new_v4();
     let issued_at = Utc::now();
-    org.consume_human_access_context(
-        context(
-            "https://cloud.restless.run",
-            "user-1",
-            company_id,
-            cell_id,
-            "membership-1",
-            "owner",
-            1,
-            Uuid::new_v4(),
-            issued_at,
-        ),
-        true,
-    )
+    bind_company(&org, company_id, cell_id).await;
+    org.consume_human_access_context(context(
+        "https://cloud.restless.run",
+        "user-1",
+        company_id,
+        cell_id,
+        "membership-1",
+        "owner",
+        1,
+        Uuid::new_v4(),
+        issued_at,
+    ))
     .await
     .unwrap();
 
     let wrong_cell = org
-        .consume_human_access_context(
-            context(
-                "https://cloud.restless.run",
-                "user-1",
-                company_id,
-                Uuid::new_v4(),
-                "membership-1",
-                "owner",
-                2,
-                Uuid::new_v4(),
-                issued_at + Duration::seconds(1),
-            ),
-            false,
-        )
+        .consume_human_access_context(context(
+            "https://cloud.restless.run",
+            "user-1",
+            company_id,
+            Uuid::new_v4(),
+            "membership-1",
+            "owner",
+            2,
+            Uuid::new_v4(),
+            issued_at + Duration::seconds(1),
+        ))
         .await
         .unwrap_err();
     assert!(matches!(
@@ -311,20 +342,17 @@ async fn company_coordinates_and_membership_identity_cannot_be_rebound() {
     ));
 
     let stolen_membership = org
-        .consume_human_access_context(
-            context(
-                "https://cloud.restless.run",
-                "user-2",
-                company_id,
-                cell_id,
-                "membership-1",
-                "owner",
-                2,
-                Uuid::new_v4(),
-                issued_at + Duration::seconds(2),
-            ),
-            false,
-        )
+        .consume_human_access_context(context(
+            "https://cloud.restless.run",
+            "user-2",
+            company_id,
+            cell_id,
+            "membership-1",
+            "owner",
+            2,
+            Uuid::new_v4(),
+            issued_at + Duration::seconds(2),
+        ))
         .await
         .unwrap_err();
     assert!(matches!(
@@ -345,6 +373,7 @@ async fn terminal_control_is_monotonic_replay_safe_and_reactivated_only_by_newer
     let now = Utc::now();
     let jti = Uuid::new_v4();
     let before = org.list_actors_including_retired().await.unwrap().len();
+    bind_company(&org, company_id, cell_id).await;
 
     let removed = control(
         issuer,
@@ -359,7 +388,7 @@ async fn terminal_control_is_monotonic_replay_safe_and_reactivated_only_by_newer
         now,
     );
     let receipt = org
-        .apply_external_membership_control(removed, true)
+        .apply_external_membership_control(removed)
         .await
         .expect("terminal control before first entry");
     assert_eq!(receipt.outcome, MembershipControlOutcome::Applied);
@@ -381,7 +410,7 @@ async fn terminal_control_is_monotonic_replay_safe_and_reactivated_only_by_newer
     resigned_retry.expires_at = now + Duration::seconds(46);
     resigned_retry.key_id = "control-key-2";
     let replay = org
-        .apply_external_membership_control(resigned_retry, false)
+        .apply_external_membership_control(resigned_retry)
         .await
         .expect("same outbox delivery may be freshly signed and remain idempotent");
     assert_eq!(replay.outcome, MembershipControlOutcome::AlreadyApplied);
@@ -390,28 +419,25 @@ async fn terminal_control_is_monotonic_replay_safe_and_reactivated_only_by_newer
     let mut jti_drift = removed;
     jti_drift.membership_role = "admin";
     assert!(matches!(
-        org.apply_external_membership_control(jti_drift, false)
+        org.apply_external_membership_control(jti_drift)
             .await
             .unwrap_err(),
         OrgIntelError::PrincipalBindingConflict(_)
     ));
 
     let lower = org
-        .apply_external_membership_control(
-            control(
-                issuer,
-                "user-1",
-                company_id,
-                cell_id,
-                "membership-1",
-                "member",
-                ExternalMembershipStatus::Suspended,
-                4,
-                Uuid::new_v4(),
-                now + Duration::seconds(1),
-            ),
-            false,
-        )
+        .apply_external_membership_control(control(
+            issuer,
+            "user-1",
+            company_id,
+            cell_id,
+            "membership-1",
+            "member",
+            ExternalMembershipStatus::Suspended,
+            4,
+            Uuid::new_v4(),
+            now + Duration::seconds(1),
+        ))
         .await
         .expect("older delivery receives a receipt");
     assert_eq!(lower.outcome, MembershipControlOutcome::Superseded);
@@ -419,41 +445,35 @@ async fn terminal_control_is_monotonic_replay_safe_and_reactivated_only_by_newer
     assert_eq!(lower.observed_version, 5);
 
     assert!(matches!(
-        org.apply_external_membership_control(
-            control(
-                issuer,
-                "user-1",
-                company_id,
-                cell_id,
-                "membership-1",
-                "member",
-                ExternalMembershipStatus::Suspended,
-                5,
-                Uuid::new_v4(),
-                now + Duration::seconds(2),
-            ),
-            false,
-        )
-        .await
-        .unwrap_err(),
+        org.apply_external_membership_control(control(
+            issuer,
+            "user-1",
+            company_id,
+            cell_id,
+            "membership-1",
+            "member",
+            ExternalMembershipStatus::Suspended,
+            5,
+            Uuid::new_v4(),
+            now + Duration::seconds(2),
+        ),)
+            .await
+            .unwrap_err(),
         OrgIntelError::CompanyAccessMismatch(_)
     ));
 
     let old_entry = org
-        .consume_human_access_context(
-            context(
-                issuer,
-                "user-1",
-                company_id,
-                cell_id,
-                "membership-1",
-                "member",
-                5,
-                Uuid::new_v4(),
-                now + Duration::seconds(3),
-            ),
-            false,
-        )
+        .consume_human_access_context(context(
+            issuer,
+            "user-1",
+            company_id,
+            cell_id,
+            "membership-1",
+            "member",
+            5,
+            Uuid::new_v4(),
+            now + Duration::seconds(3),
+        ))
         .await
         .unwrap_err();
     assert!(matches!(old_entry, OrgIntelError::CompanyAccessMismatch(_)));
@@ -463,20 +483,17 @@ async fn terminal_control_is_monotonic_replay_safe_and_reactivated_only_by_newer
     );
 
     let active = org
-        .consume_human_access_context(
-            context(
-                issuer,
-                "user-1",
-                company_id,
-                cell_id,
-                "membership-1",
-                "member",
-                6,
-                Uuid::new_v4(),
-                now + Duration::seconds(4),
-            ),
-            false,
-        )
+        .consume_human_access_context(context(
+            issuer,
+            "user-1",
+            company_id,
+            cell_id,
+            "membership-1",
+            "member",
+            6,
+            Uuid::new_v4(),
+            now + Duration::seconds(4),
+        ))
         .await
         .expect("strictly newer active handoff supersedes denial");
     assert!(org
@@ -485,21 +502,18 @@ async fn terminal_control_is_monotonic_replay_safe_and_reactivated_only_by_newer
         .unwrap());
 
     let suspended = org
-        .apply_external_membership_control(
-            control(
-                issuer,
-                "user-1",
-                company_id,
-                cell_id,
-                "membership-1",
-                "admin",
-                ExternalMembershipStatus::Suspended,
-                7,
-                Uuid::new_v4(),
-                now + Duration::seconds(5),
-            ),
-            false,
-        )
+        .apply_external_membership_control(control(
+            issuer,
+            "user-1",
+            company_id,
+            cell_id,
+            "membership-1",
+            "admin",
+            ExternalMembershipStatus::Suspended,
+            7,
+            Uuid::new_v4(),
+            now + Duration::seconds(5),
+        ))
         .await
         .expect("newer terminal state applies to existing binding");
     assert_eq!(suspended.outcome, MembershipControlOutcome::Applied);
@@ -513,20 +527,17 @@ async fn terminal_control_is_monotonic_replay_safe_and_reactivated_only_by_newer
     );
 
     let reactivated = org
-        .consume_human_access_context(
-            context(
-                issuer,
-                "user-1",
-                company_id,
-                cell_id,
-                "membership-1",
-                "admin",
-                8,
-                Uuid::new_v4(),
-                now + Duration::seconds(6),
-            ),
-            false,
-        )
+        .consume_human_access_context(context(
+            issuer,
+            "user-1",
+            company_id,
+            cell_id,
+            "membership-1",
+            "admin",
+            8,
+            Uuid::new_v4(),
+            now + Duration::seconds(6),
+        ))
         .await
         .expect("strictly newer active handoff reactivates binding");
     assert_eq!(reactivated.actor_id, active.actor_id);
@@ -546,21 +557,19 @@ async fn concurrent_handoff_and_terminal_control_converge_by_membership_version(
     let company_id = Uuid::new_v4();
     let cell_id = Uuid::new_v4();
     let now = Utc::now();
+    bind_company(&org, company_id, cell_id).await;
     let active_v1 = org
-        .consume_human_access_context(
-            context(
-                issuer,
-                "user-1",
-                company_id,
-                cell_id,
-                "membership-1",
-                "member",
-                1,
-                Uuid::new_v4(),
-                now,
-            ),
-            true,
-        )
+        .consume_human_access_context(context(
+            issuer,
+            "user-1",
+            company_id,
+            cell_id,
+            "membership-1",
+            "member",
+            1,
+            Uuid::new_v4(),
+            now,
+        ))
         .await
         .expect("initial active membership");
 
@@ -590,8 +599,8 @@ async fn concurrent_handoff_and_terminal_control_converge_by_membership_version(
         now + Duration::seconds(1),
     );
     let (active_retry_result, terminal_result) = tokio::join!(
-        org.consume_human_access_context(active_retry, false),
-        org.apply_external_membership_control(terminal_v2, false),
+        org.consume_human_access_context(active_retry),
+        org.apply_external_membership_control(terminal_v2),
     );
     assert!(terminal_result.is_ok());
     assert!(
@@ -632,8 +641,8 @@ async fn concurrent_handoff_and_terminal_control_converge_by_membership_version(
         now + Duration::seconds(2),
     );
     let (active_result, terminal_retry_result) = tokio::join!(
-        org.consume_human_access_context(active_v3, false),
-        org.apply_external_membership_control(terminal_retry, false),
+        org.consume_human_access_context(active_v3),
+        org.apply_external_membership_control(terminal_retry),
     );
     let active_v3 = active_result.expect("newer active handoff wins");
     let terminal_retry = terminal_retry_result.expect("old terminal delivery gets a receipt");
@@ -659,39 +668,34 @@ async fn membership_control_receipt_survives_restart_and_other_memberships_stay_
     let company_id = Uuid::new_v4();
     let cell_id = Uuid::new_v4();
     let now = Utc::now();
+    bind_company(&org, company_id, cell_id).await;
 
     let first = org
-        .consume_human_access_context(
-            context(
-                issuer,
-                "user-1",
-                company_id,
-                cell_id,
-                "membership-1",
-                "member",
-                1,
-                Uuid::new_v4(),
-                now,
-            ),
-            true,
-        )
+        .consume_human_access_context(context(
+            issuer,
+            "user-1",
+            company_id,
+            cell_id,
+            "membership-1",
+            "member",
+            1,
+            Uuid::new_v4(),
+            now,
+        ))
         .await
         .unwrap();
     let other = org
-        .consume_human_access_context(
-            context(
-                issuer,
-                "user-2",
-                company_id,
-                cell_id,
-                "membership-2",
-                "member",
-                1,
-                Uuid::new_v4(),
-                now,
-            ),
-            false,
-        )
+        .consume_human_access_context(context(
+            issuer,
+            "user-2",
+            company_id,
+            cell_id,
+            "membership-2",
+            "member",
+            1,
+            Uuid::new_v4(),
+            now,
+        ))
         .await
         .unwrap();
     let delivered = control(
@@ -706,7 +710,7 @@ async fn membership_control_receipt_survives_restart_and_other_memberships_stay_
         Uuid::new_v4(),
         now + Duration::seconds(1),
     );
-    org.apply_external_membership_control(delivered, false)
+    org.apply_external_membership_control(delivered)
         .await
         .unwrap();
     assert!(!org
@@ -723,7 +727,7 @@ async fn membership_control_receipt_survives_restart_and_other_memberships_stay_
         .await
         .expect("restart same company store");
     let replay = restarted
-        .apply_external_membership_control(delivered, false)
+        .apply_external_membership_control(delivered)
         .await
         .expect("durable receipt after restart");
     assert_eq!(replay.outcome, MembershipControlOutcome::AlreadyApplied);

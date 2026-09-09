@@ -1066,6 +1066,8 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             .await
             .context("load Fleet entry verification keys before listening")?;
     }
+    let company_bootstrap = crate::company_bootstrap::routes::<OwnerState>(&daemon, &entry)
+        .context("configure company-bootstrap endpoint")?;
     let state = OwnerState {
         daemon,
         charter_writes: Arc::new(tokio::sync::Mutex::new(())),
@@ -1196,6 +1198,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         // identity only — never company, owner or configuration detail.
         .route("/health", get(release_health))
         .merge(membership_controls)
+        .merge(company_bootstrap)
         .route("/entry", post(consume_entry_assertion))
         .route("/entry/logout", post(end_entry_session))
         .route("/desktop/{company}", get(open_desktop))
@@ -1242,6 +1245,14 @@ async fn enforce_owner_boundary(
     mut request: Request,
     next: Next,
 ) -> Response<Body> {
+    if request.uri().path() == crate::company_bootstrap::COMPANY_BOOTSTRAP_PATH {
+        // Fleet's dedicated file-backed bearer and exact deployment tuple are
+        // the complete authority for this machine contract. It must not be
+        // turned into a browser session route by either local or network
+        // owner-entry policy; the endpoint performs its own stricter Host,
+        // forwarding, envelope and audience checks.
+        return next.run(request).await;
+    }
     if request.uri().path() == MEMBERSHIP_CONTROL_PATH && state.entry.network().is_none() {
         // The handler returns a stable 404. Do not reinterpret this internal
         // signed-control route as a local browser mutation first.
@@ -1653,7 +1664,7 @@ async fn apply_membership_control(
             return api_error(StatusCode::UNAUTHORIZED, refusal.code(), refusal.message());
         }
     };
-    let (_company, org, allow_initial_binding) =
+    let (_company, org) =
         match resolve_company_coordinates(&state, control.company_id, control.cell_id).await {
             Ok(resolved) => resolved,
             Err(error) => {
@@ -1676,27 +1687,24 @@ async fn apply_membership_control(
             .reconciliation_guard(&control.issuer, &control.subject, control.company_id);
     let _reconciliation = reconciliation_guard.lock().await;
     let receipt = match org
-        .apply_external_membership_control(
-            restless_orgintel::ExternalMembershipControlContext {
-                issuer: &control.issuer,
-                subject: &control.subject,
-                assertion_id: control.assertion_id,
-                issued_at: control.issued_at,
-                expires_at: control.expires_at,
-                key_id: &control.key_id,
-                assertion_version: control.assertion_version,
-                owner_id: control.owner_id,
-                plane_id: control.plane_id,
-                plane_hostname: &control.plane_hostname,
-                company_id: control.company_id,
-                cell_id: control.cell_id,
-                membership_id: &control.membership_id,
-                membership_role: &control.membership_role,
-                membership_status: control.membership_status,
-                membership_version: control.membership_version,
-            },
-            allow_initial_binding,
-        )
+        .apply_external_membership_control(restless_orgintel::ExternalMembershipControlContext {
+            issuer: &control.issuer,
+            subject: &control.subject,
+            assertion_id: control.assertion_id,
+            issued_at: control.issued_at,
+            expires_at: control.expires_at,
+            key_id: &control.key_id,
+            assertion_version: control.assertion_version,
+            owner_id: control.owner_id,
+            plane_id: control.plane_id,
+            plane_hostname: &control.plane_hostname,
+            company_id: control.company_id,
+            cell_id: control.cell_id,
+            membership_id: &control.membership_id,
+            membership_role: &control.membership_role,
+            membership_status: control.membership_status,
+            membership_version: control.membership_version,
+        })
         .await
     {
         Ok(receipt) => receipt,
@@ -1818,7 +1826,7 @@ async fn consume_entry_assertion(
             return api_error(StatusCode::UNAUTHORIZED, refusal.code(), refusal.message());
         }
     };
-    let (company, org, allow_initial_binding) = match resolve_entry_company(&state, &access).await {
+    let (company, org) = match resolve_entry_company(&state, &access).await {
         Ok(resolved) => resolved,
         Err(error) => {
             tracing::warn!(
@@ -1840,21 +1848,18 @@ async fn consume_entry_assertion(
             .reconciliation_guard(&access.issuer, &access.subject, access.company_id);
     let _reconciliation = reconciliation_guard.lock().await;
     let binding = match org
-        .consume_human_access_context(
-            restless_orgintel::HumanAccessContext {
-                issuer: &access.issuer,
-                subject: &access.subject,
-                company_id: access.company_id,
-                cell_id: access.cell_id,
-                membership_id: &access.membership_id,
-                membership_role: &access.membership_role,
-                membership_version: access.membership_version,
-                assertion_id: access.assertion_id,
-                issued_at: access.issued_at,
-                expires_at: access.expires_at,
-            },
-            allow_initial_binding,
-        )
+        .consume_human_access_context(restless_orgintel::HumanAccessContext {
+            issuer: &access.issuer,
+            subject: &access.subject,
+            company_id: access.company_id,
+            cell_id: access.cell_id,
+            membership_id: &access.membership_id,
+            membership_role: &access.membership_role,
+            membership_version: access.membership_version,
+            assertion_id: access.assertion_id,
+            issued_at: access.issued_at,
+            expires_at: access.expires_at,
+        })
         .await
     {
         Ok(binding) => binding,
@@ -2049,25 +2054,23 @@ fn parse_entry_request(
 async fn resolve_entry_company(
     state: &OwnerState,
     access: &VerifiedAccessContext,
-) -> Result<(String, restless_orgintel::OrgIntel, bool)> {
+) -> Result<(String, restless_orgintel::OrgIntel)> {
     resolve_company_coordinates(state, access.company_id, access.cell_id).await
 }
 
 /// Resolve immutable signed coordinates to one configured company. A slug is
-/// never accepted from this internal boundary; the only unbound bootstrap case
-/// is one unambiguous configured company.
+/// never accepted from this internal boundary, and entry/control assertions
+/// cannot create the binding owned by the dedicated bootstrap endpoint.
 async fn resolve_company_coordinates(
     state: &OwnerState,
     company_id: Uuid,
     cell_id: Uuid,
-) -> Result<(String, restless_orgintel::OrgIntel, bool)> {
+) -> Result<(String, restless_orgintel::OrgIntel)> {
     let companies = crate::configured_companies(&state.daemon.root)?;
     if companies.is_empty() {
         anyhow::bail!("the account plane has no configured company");
     }
-    let only_company = (companies.len() == 1).then(|| companies[0].clone());
     let mut exact = Vec::new();
-    let mut unbound = Vec::new();
     for company in companies {
         let org = state.daemon.orgintel.get(&company).await?;
         match org.company_access_identity().await? {
@@ -2079,26 +2082,15 @@ async fn resolve_company_coordinates(
                     "company UUID matched but cell UUID differed for configured company {company}"
                 );
             }
-            Some(_) => {}
-            None => unbound.push((company, org)),
+            Some(_) | None => {}
         }
     }
     match exact.len() {
         1 => {
             let (company, org) = exact.pop().expect("length checked");
-            Ok((company, org, false))
+            Ok((company, org))
         }
-        0 => {
-            let Some(only_company) = only_company else {
-                anyhow::bail!("no immutable company binding matched and bootstrap is ambiguous");
-            };
-            let position = unbound
-                .iter()
-                .position(|(company, _)| company == &only_company)
-                .ok_or_else(|| anyhow::anyhow!("the only company is bound to another identity"))?;
-            let (company, org) = unbound.swap_remove(position);
-            Ok((company, org, true))
-        }
+        0 => anyhow::bail!("no immutable company binding matched"),
         _ => anyhow::bail!("more than one company carries the same immutable identity"),
     }
 }
@@ -3525,9 +3517,12 @@ fn room_error(error: restless_orgintel::OrgIntelError) -> Response<Body> {
     }
 }
 
+type PageBoundsError = (&'static str, &'static str);
+type TimestampUuidCursor = (DateTime<Utc>, Uuid);
+
 fn room_page_bounds(
     query: RoomPageQuery,
-) -> std::result::Result<(Option<i64>, i64), (&'static str, &'static str)> {
+) -> std::result::Result<(Option<i64>, i64), PageBoundsError> {
     if query.after_message_id.is_some_and(|cursor| cursor < 0) {
         return Err(("message_cursor", "after_message_id must be non-negative"));
     }
@@ -3543,7 +3538,7 @@ fn room_page_bounds(
 
 fn room_list_bounds(
     query: RoomListQuery,
-) -> std::result::Result<(Option<(DateTime<Utc>, Uuid)>, i64), (&'static str, &'static str)> {
+) -> std::result::Result<(Option<TimestampUuidCursor>, i64), PageBoundsError> {
     let before = match (query.before_created_at, query.before_room_id) {
         (None, None) => None,
         (Some(created_at), Some(room_id)) => {
@@ -3573,7 +3568,7 @@ fn room_list_bounds(
 
 fn attachment_list_bounds(
     query: AttachmentListQuery,
-) -> std::result::Result<(Option<(DateTime<Utc>, Uuid)>, i64, bool), (&'static str, &'static str)> {
+) -> std::result::Result<(Option<TimestampUuidCursor>, i64, bool), PageBoundsError> {
     let before = match (query.before_created_at, query.before_attachment_id) {
         (None, None) => None,
         (Some(created_at), Some(attachment_id)) => {
@@ -8762,23 +8757,26 @@ mod tests {
         let company_id = Uuid::new_v4();
         let cell_id = Uuid::new_v4();
         let now = Utc::now();
+        org.ensure_company_access_identity(restless_orgintel::CompanyAccessIdentity {
+            company_id,
+            cell_id,
+        })
+        .await
+        .expect("bind company through hosted bootstrap primitive");
 
         let initial = org
-            .consume_human_access_context(
-                restless_orgintel::HumanAccessContext {
-                    issuer,
-                    subject,
-                    company_id,
-                    cell_id,
-                    membership_id: "membership-1",
-                    membership_role: "member",
-                    membership_version: 1,
-                    assertion_id: Uuid::new_v4(),
-                    issued_at: now,
-                    expires_at: now + ChronoDuration::seconds(60),
-                },
-                true,
-            )
+            .consume_human_access_context(restless_orgintel::HumanAccessContext {
+                issuer,
+                subject,
+                company_id,
+                cell_id,
+                membership_id: "membership-1",
+                membership_role: "member",
+                membership_version: 1,
+                assertion_id: Uuid::new_v4(),
+                issued_at: now,
+                expires_at: now + ChronoDuration::seconds(60),
+            })
             .await
             .expect("initial active handoff");
         let initial_session = sessions.establish(
@@ -8829,7 +8827,7 @@ mod tests {
             terminal_acquired_tx.send(()).unwrap();
             release_terminal_rx.await.unwrap();
             let receipt = terminal_org
-                .apply_external_membership_control(external_control_context(&terminal_v2), false)
+                .apply_external_membership_control(external_control_context(&terminal_v2))
                 .await
                 .expect("terminal control applies");
             revoke_sessions_for_membership_receipt(&terminal_sessions, &terminal_v2, &receipt);
@@ -8844,21 +8842,18 @@ mod tests {
         let stale_task = tokio::spawn(async move {
             let _held = stale_guard.lock().await;
             let binding = match stale_org
-                .consume_human_access_context(
-                    restless_orgintel::HumanAccessContext {
-                        issuer,
-                        subject,
-                        company_id,
-                        cell_id,
-                        membership_id: "membership-1",
-                        membership_role: "member",
-                        membership_version: 1,
-                        assertion_id: Uuid::new_v4(),
-                        issued_at: now + ChronoDuration::seconds(1),
-                        expires_at: now + ChronoDuration::seconds(60),
-                    },
-                    false,
-                )
+                .consume_human_access_context(restless_orgintel::HumanAccessContext {
+                    issuer,
+                    subject,
+                    company_id,
+                    cell_id,
+                    membership_id: "membership-1",
+                    membership_role: "member",
+                    membership_version: 1,
+                    assertion_id: Uuid::new_v4(),
+                    issued_at: now + ChronoDuration::seconds(1),
+                    expires_at: now + ChronoDuration::seconds(60),
+                })
                 .await
             {
                 Ok(binding) => binding,
@@ -8914,21 +8909,18 @@ mod tests {
             active_acquired_tx.send(()).unwrap();
             release_active_rx.await.unwrap();
             let binding = active_org
-                .consume_human_access_context(
-                    restless_orgintel::HumanAccessContext {
-                        issuer,
-                        subject,
-                        company_id,
-                        cell_id,
-                        membership_id: "membership-1",
-                        membership_role: "admin",
-                        membership_version: 3,
-                        assertion_id: Uuid::new_v4(),
-                        issued_at: now + ChronoDuration::seconds(2),
-                        expires_at: now + ChronoDuration::seconds(60),
-                    },
-                    false,
-                )
+                .consume_human_access_context(restless_orgintel::HumanAccessContext {
+                    issuer,
+                    subject,
+                    company_id,
+                    cell_id,
+                    membership_id: "membership-1",
+                    membership_role: "admin",
+                    membership_version: 3,
+                    assertion_id: Uuid::new_v4(),
+                    issued_at: now + ChronoDuration::seconds(2),
+                    expires_at: now + ChronoDuration::seconds(60),
+                })
                 .await
                 .expect("newer active handoff applies");
             let identity = VerifiedIdentity {
@@ -8982,7 +8974,7 @@ mod tests {
         let late_terminal_task = tokio::spawn(async move {
             let _held = late_guard.lock().await;
             let receipt = late_org
-                .apply_external_membership_control(external_control_context(&late_terminal), false)
+                .apply_external_membership_control(external_control_context(&late_terminal))
                 .await
                 .expect("late terminal delivery gets a receipt");
             revoke_sessions_for_membership_receipt(&late_sessions, &late_terminal, &receipt);
@@ -9910,7 +9902,7 @@ mod tests {
             )
             .await
             .unwrap();
-        let mut attachment_ids = vec![Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
+        let mut attachment_ids = [Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
         let database_url = std::env::var("RESTLESS_TEST_DATABASE_URL").unwrap();
         let mut raw = sqlx::PgConnection::connect(&database_url).await.unwrap();
         sqlx::query(&format!("SET search_path TO {}", fixture.org.schema()))

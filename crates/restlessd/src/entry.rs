@@ -881,6 +881,14 @@ impl EntryMode {
             Self::Network(entry) => Some(entry),
         }
     }
+
+    /// Immutable account-plane coordinates already validated for network
+    /// entry. Internal Fleet contracts reuse this exact tuple instead of
+    /// reparsing a second, potentially divergent set of environment values.
+    pub(crate) fn network_coordinates(&self) -> Option<(Uuid, Uuid, &str)> {
+        self.network()
+            .map(|entry| (entry.owner_id, entry.plane_id, entry.host.as_str()))
+    }
 }
 
 fn canonical_service_url(variable: &str, raw: &str, allow_insecure: bool) -> anyhow::Result<Url> {
