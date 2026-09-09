@@ -69,19 +69,24 @@ async fn create_private_document(
     text: &str,
 ) -> restless_orgintel::DocumentReadView {
     let content = document_content("claim", text);
-    org.create_document(NewDocument {
-        title: "Native document",
-        kind: DocumentKind::Brief,
-        visibility: DocumentVisibility::Participants,
-        linked_room_id: None,
-        inherit_room_visibility: false,
-        owner_actor_id: "owner",
-        created_by_actor_id: "owner",
-        content_json: &content,
-        reason: "Initial version",
-    })
-    .await
-    .unwrap()
+    let created = org
+        .create_document(NewDocument {
+            command_id: Uuid::new_v4(),
+            title: "Native document",
+            kind: DocumentKind::Brief,
+            visibility: DocumentVisibility::Participants,
+            linked_room_id: None,
+            inherit_room_visibility: false,
+            owner_actor_id: "owner",
+            created_by_actor_id: "owner",
+            content_json: &content,
+            reason: "Initial version",
+        })
+        .await
+        .unwrap();
+    org.get_document_for_actor(created.document_id, "owner")
+        .await
+        .unwrap()
 }
 
 async fn connection_for(org: &OrgIntel) -> PgConnection {
@@ -104,6 +109,7 @@ async fn comments_are_access_scoped_replayable_bounded_and_concurrently_resolved
     let created = create_private_document(&org, "A claim worth reviewing").await;
     let document_id = created.document.id;
     org.set_document_participant(SetDocumentParticipant {
+        command_id: Uuid::new_v4(),
         document_id,
         actor_id: "owner",
         expected_document_version: 1,
@@ -453,6 +459,7 @@ async fn review_acceptance_is_explicit_idempotent_and_has_one_concurrent_winner(
     let post_acceptance_content = document_content("claim", "A later owner revision");
     let post_acceptance = org
         .create_named_document_version(NewNamedDocumentVersion {
+            command_id: Uuid::new_v4(),
             document_id,
             actor_id: "owner",
             expected_current_version_id: accepted_version.version.id,
@@ -467,7 +474,7 @@ async fn review_acceptance_is_explicit_idempotent_and_has_one_concurrent_winner(
             actor_id: "owner",
             command_id: Uuid::new_v4(),
             expected_document_version: 4,
-            expected_current_version_id: post_acceptance.current_version.version.id,
+            expected_current_version_id: post_acceptance.result_id,
             summary: "Review the later revision",
         })
         .await
@@ -475,9 +482,10 @@ async fn review_acceptance_is_explicit_idempotent_and_has_one_concurrent_winner(
     let newest_content = document_content("claim", "The base moved again");
     let newest = org
         .create_named_document_version(NewNamedDocumentVersion {
+            command_id: Uuid::new_v4(),
             document_id,
             actor_id: "owner",
-            expected_current_version_id: post_acceptance.current_version.version.id,
+            expected_current_version_id: post_acceptance.result_id,
             content_json: &newest_content,
             reason: "Move the pending review base",
         })
@@ -489,7 +497,7 @@ async fn review_acceptance_is_explicit_idempotent_and_has_one_concurrent_winner(
             actor_id: "owner",
             command_id: Uuid::new_v4(),
             expected_document_version: 6,
-            expected_current_version_id: newest.current_version.version.id,
+            expected_current_version_id: newest.result_id,
             summary: "Review the current revision, not its stale predecessor",
         })
         .await
@@ -508,9 +516,10 @@ async fn review_acceptance_is_explicit_idempotent_and_has_one_concurrent_winner(
     let final_base = document_content("claim", "One final base change");
     let final_advanced = org
         .create_named_document_version(NewNamedDocumentVersion {
+            command_id: Uuid::new_v4(),
             document_id,
             actor_id: "owner",
-            expected_current_version_id: newest.current_version.version.id,
+            expected_current_version_id: newest.result_id,
             content_json: &final_base,
             reason: "Invalidate the second review",
         })
@@ -558,7 +567,7 @@ async fn review_acceptance_is_explicit_idempotent_and_has_one_concurrent_winner(
             .current_version
             .version
             .id,
-        final_advanced.current_version.version.id
+        final_advanced.result_id
     );
 
     let mut connection = connection_for(&org).await;
@@ -610,6 +619,7 @@ async fn agent_proposals_detect_stale_bases_and_never_overwrite_history() {
     let document_id = created.document.id;
     let initial_version_id = created.current_version.version.id;
     org.set_document_participant(SetDocumentParticipant {
+        command_id: Uuid::new_v4(),
         document_id,
         actor_id: "owner",
         expected_document_version: 1,
@@ -622,6 +632,7 @@ async fn agent_proposals_detect_stale_bases_and_never_overwrite_history() {
     let direct_agent_edit = document_content("claim", "An unreviewed agent overwrite");
     assert!(matches!(
         org.create_named_document_version(NewNamedDocumentVersion {
+            command_id: Uuid::new_v4(),
             document_id,
             actor_id: "research-analyst",
             expected_current_version_id: initial_version_id,
@@ -681,6 +692,7 @@ async fn agent_proposals_detect_stale_bases_and_never_overwrite_history() {
     let owner_edit = document_content("claim", "Owner changed the claim first");
     let advanced = org
         .create_named_document_version(NewNamedDocumentVersion {
+            command_id: Uuid::new_v4(),
             document_id,
             actor_id: "owner",
             expected_current_version_id: initial_version_id,
@@ -709,10 +721,7 @@ async fn agent_proposals_detect_stale_bases_and_never_overwrite_history() {
         .get_document_for_actor(document_id, "owner")
         .await
         .unwrap();
-    assert_eq!(
-        after_stale.current_version.version.id,
-        advanced.current_version.version.id
-    );
+    assert_eq!(after_stale.current_version.version.id, advanced.result_id);
     let stale_replay = org
         .resolve_document_revision_proposal(ResolveDocumentRevisionProposal {
             document_id,
@@ -753,7 +762,7 @@ async fn agent_proposals_detect_stale_bases_and_never_overwrite_history() {
             document_id,
             actor_id: "research-analyst",
             command_id: Uuid::new_v4(),
-            base_version_id: advanced.current_version.version.id,
+            base_version_id: advanced.result_id,
             scope: DocumentRevisionScope::WholeDocument,
             block_id: None,
             proposed_content_json: &whole,

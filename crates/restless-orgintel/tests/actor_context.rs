@@ -252,6 +252,7 @@ async fn source_freshness_trust_bounds_and_company_isolation_survive_restart() {
     });
     let hidden_document = org
         .create_document(NewDocument {
+            command_id: Uuid::new_v4(),
             title: "Private source",
             kind: DocumentKind::OperatingNote,
             visibility: DocumentVisibility::Participants,
@@ -262,6 +263,10 @@ async fn source_freshness_trust_bounds_and_company_isolation_survive_restart() {
             content_json: &document_content,
             reason: "Access-bound source fixture",
         })
+        .await
+        .unwrap();
+    let hidden_document_view = org
+        .get_document_for_actor(hidden_document.document_id, "owner")
         .await
         .unwrap();
     let hidden_room_sources = vec![source(
@@ -289,8 +294,8 @@ async fn source_freshness_trust_bounds_and_company_isolation_survive_restart() {
         .contains("not visible"));
     let hidden_document_sources = vec![source(
         ActorContextSourceRef::Document {
-            document_id: hidden_document.document.id,
-            named_version_id: hidden_document.current_version.version.id,
+            document_id: hidden_document.document_id,
+            named_version_id: hidden_document_view.current_version.version.id,
         },
         "A guessed private Doc id must not be link-laundered",
     )];
@@ -313,6 +318,7 @@ async fn source_freshness_trust_bounds_and_company_isolation_survive_restart() {
 
     let shared_document = org
         .create_document(NewDocument {
+            command_id: Uuid::new_v4(),
             title: "Shared source",
             kind: DocumentKind::OperatingNote,
             visibility: DocumentVisibility::Participants,
@@ -325,10 +331,15 @@ async fn source_freshness_trust_bounds_and_company_isolation_survive_restart() {
         })
         .await
         .unwrap();
+    let shared_document_view = org
+        .get_document_for_actor(shared_document.document_id, "owner")
+        .await
+        .unwrap();
     org.set_document_participant(SetDocumentParticipant {
-        document_id: shared_document.document.id,
+        command_id: Uuid::new_v4(),
+        document_id: shared_document.document_id,
         actor_id: "owner",
-        expected_document_version: shared_document.document.version,
+        expected_document_version: 1,
         participant_actor_id: "delivery-build",
         access: DocumentAccess::Read,
     })
@@ -346,7 +357,7 @@ async fn source_freshness_trust_bounds_and_company_isolation_survive_restart() {
         .unwrap();
     revoker.execute("BEGIN").await.unwrap();
     sqlx::query("SELECT id FROM native_documents WHERE id=$1 FOR UPDATE")
-        .bind(shared_document.document.id)
+        .bind(shared_document.document_id)
         .fetch_one(&mut revoker)
         .await
         .unwrap();
@@ -354,15 +365,15 @@ async fn source_freshness_trust_bounds_and_company_isolation_survive_restart() {
         "UPDATE native_document_participants SET removed_at=now() \
          WHERE document_id=$1 AND actor_id='delivery-build'",
     )
-    .bind(shared_document.document.id)
+    .bind(shared_document.document_id)
     .execute(&mut revoker)
     .await
     .unwrap();
     let racing_org = org.clone();
     let racing_sources = vec![source(
         ActorContextSourceRef::Document {
-            document_id: shared_document.document.id,
-            named_version_id: shared_document.current_version.version.id,
+            document_id: shared_document.document_id,
+            named_version_id: shared_document_view.current_version.version.id,
         },
         "Access must remain valid through checkpoint commit",
     )];

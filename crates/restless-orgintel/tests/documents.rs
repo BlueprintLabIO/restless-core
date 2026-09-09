@@ -5,8 +5,8 @@
 use restless_orgintel::{
     DocumentAccess, DocumentError, DocumentKind, DocumentStatus, DocumentVisibility,
     ImportRuntimeDocument, NativeDocumentPortableEnvelope, NewDocument, NewNamedDocumentVersion,
-    OrgIntel, RestoreDocumentVersion, RoomKind, SetDocumentParticipant, UpdateDocumentMetadata,
-    NATIVE_DOCUMENT_PORTABLE_ENVELOPE_VERSION,
+    OrgIntel, RemoveDocumentParticipant, RequestDocumentReview, RestoreDocumentVersion, RoomKind,
+    SetDocumentParticipant, UpdateDocumentMetadata, NATIVE_DOCUMENT_PORTABLE_ENVELOPE_VERSION,
 };
 use serde_json::{json, Value};
 use sqlx::{Connection as _, PgConnection};
@@ -164,8 +164,9 @@ async fn room_visibility_participants_versions_restore_and_concurrency_are_coher
         .await
         .unwrap();
     let first_content = content("claim", "First observation");
-    let created = org
+    let created_result = org
         .create_document(NewDocument {
+            command_id: Uuid::new_v4(),
             title: "Research brief",
             kind: DocumentKind::Brief,
             visibility: DocumentVisibility::Participants,
@@ -176,6 +177,10 @@ async fn room_visibility_participants_versions_restore_and_concurrency_are_coher
             content_json: &first_content,
             reason: "Initial brief",
         })
+        .await
+        .unwrap();
+    let created = org
+        .get_document_for_actor(created_result.document_id, "owner")
         .await
         .unwrap();
     let document_id = created.document.id;
@@ -230,12 +235,12 @@ async fn room_visibility_participants_versions_restore_and_concurrency_are_coher
     .unwrap();
     let forced_failure = org
         .update_document_metadata(UpdateDocumentMetadata {
+            command_id: Uuid::new_v4(),
             document_id,
             actor_id: "owner",
             expected_version: 1,
             title: "This must roll back",
             kind: DocumentKind::Plan,
-            status: DocumentStatus::Accepted,
             visibility: DocumentVisibility::Participants,
             linked_room_id: Some(room.id),
             inherit_room_visibility: false,
@@ -273,12 +278,14 @@ async fn room_visibility_participants_versions_restore_and_concurrency_are_coher
         Err(DocumentError::Unavailable)
     ));
     assert!(org
-        .list_documents_for_actor("blair", false)
+        .list_documents_for_actor("blair", false, None, 100)
         .await
         .unwrap()
+        .items
         .is_empty());
 
     org.set_document_participant(SetDocumentParticipant {
+        command_id: Uuid::new_v4(),
         document_id,
         actor_id: "owner",
         expected_document_version: 1,
@@ -289,6 +296,7 @@ async fn room_visibility_participants_versions_restore_and_concurrency_are_coher
     .unwrap();
     let stale = org
         .set_document_participant(SetDocumentParticipant {
+            command_id: Uuid::new_v4(),
             document_id,
             actor_id: "owner",
             expected_document_version: 1,
@@ -300,6 +308,7 @@ async fn room_visibility_participants_versions_restore_and_concurrency_are_coher
     assert!(matches!(stale, DocumentError::Conflict(_)));
     assert_eq!(document_events(&mut connection, document_id).await.len(), 2);
     org.set_document_participant(SetDocumentParticipant {
+        command_id: Uuid::new_v4(),
         document_id,
         actor_id: "owner",
         expected_document_version: 2,
@@ -312,6 +321,7 @@ async fn room_visibility_participants_versions_restore_and_concurrency_are_coher
     let second_content = content("claim", "Revised observation");
     assert!(matches!(
         org.create_named_document_version(NewNamedDocumentVersion {
+            command_id: Uuid::new_v4(),
             document_id,
             actor_id: "research-analyst",
             expected_current_version_id: first_version_id,
@@ -324,6 +334,7 @@ async fn room_visibility_participants_versions_restore_and_concurrency_are_coher
     assert_eq!(document_events(&mut connection, document_id).await.len(), 3);
     let revised = org
         .create_named_document_version(NewNamedDocumentVersion {
+            command_id: Uuid::new_v4(),
             document_id,
             actor_id: "alex",
             expected_current_version_id: first_version_id,
@@ -332,15 +343,20 @@ async fn room_visibility_participants_versions_restore_and_concurrency_are_coher
         })
         .await
         .unwrap();
-    let second_version_id = revised.current_version.version.id;
-    assert_eq!(revised.document.version, 4);
-    assert_eq!(revised.current_version.version.version_number, 2);
+    let second_version_id = revised.result_id;
+    let revised_view = org
+        .get_document_for_actor(document_id, "owner")
+        .await
+        .unwrap();
+    assert_eq!(revised_view.document.version, 4);
+    assert_eq!(revised_view.current_version.version.version_number, 2);
     assert_eq!(
-        revised.current_version.version.document_status,
+        revised_view.current_version.version.document_status,
         DocumentStatus::Draft
     );
     assert!(matches!(
         org.create_named_document_version(NewNamedDocumentVersion {
+            command_id: Uuid::new_v4(),
             document_id,
             actor_id: "alex",
             expected_current_version_id: first_version_id,
@@ -354,19 +370,24 @@ async fn room_visibility_participants_versions_restore_and_concurrency_are_coher
 
     let narrowed = org
         .update_document_metadata(UpdateDocumentMetadata {
+            command_id: Uuid::new_v4(),
             document_id,
             actor_id: "owner",
             expected_version: 4,
             title: "Research brief",
             kind: DocumentKind::Brief,
-            status: DocumentStatus::InReview,
             visibility: DocumentVisibility::Participants,
             linked_room_id: Some(room.id),
             inherit_room_visibility: false,
         })
         .await
         .unwrap();
-    assert_eq!(narrowed.document.version, 5);
+    assert_eq!(narrowed.operation, "document_metadata_update");
+    let narrowed_view = org
+        .get_document_for_actor(document_id, "owner")
+        .await
+        .unwrap();
+    assert_eq!(narrowed_view.document.version, 5);
     assert!(matches!(
         org.get_document_for_actor(document_id, "research-analyst")
             .await,
@@ -380,8 +401,22 @@ async fn room_visibility_participants_versions_restore_and_concurrency_are_coher
         DocumentAccess::Read
     );
 
+    let review_command_id = Uuid::new_v4();
+    let review = org
+        .request_document_review(RequestDocumentReview {
+            document_id,
+            actor_id: "owner",
+            command_id: review_command_id,
+            expected_document_version: 5,
+            expected_current_version_id: second_version_id,
+            summary: "Review the current evidence",
+        })
+        .await
+        .unwrap();
+
     let restored = org
         .restore_document_version(RestoreDocumentVersion {
+            command_id: Uuid::new_v4(),
             document_id,
             actor_id: "owner",
             expected_current_version_id: second_version_id,
@@ -390,25 +425,35 @@ async fn room_visibility_participants_versions_restore_and_concurrency_are_coher
         })
         .await
         .unwrap();
-    assert_eq!(restored.document.version, 6);
-    assert_eq!(restored.current_version.version.version_number, 3);
+    let restored_view = org
+        .get_document_for_actor(document_id, "owner")
+        .await
+        .unwrap();
+    assert_eq!(restored_view.document.version, 7);
+    assert_eq!(restored_view.current_version.version.version_number, 3);
     assert_eq!(
-        restored.current_version.version.restored_from_version_id,
+        restored_view
+            .current_version
+            .version
+            .restored_from_version_id,
         Some(first_version_id)
     );
-    assert_eq!(restored.current_version.version.content_json, first_content);
     assert_eq!(
-        restored.current_version.version.document_status,
+        restored_view.current_version.version.content_json,
+        first_content
+    );
+    assert_eq!(
+        restored_view.current_version.version.document_status,
         DocumentStatus::InReview
     );
     let history = org
-        .list_document_versions_for_actor(document_id, "owner")
+        .list_document_versions_for_actor(document_id, "owner", None, 25)
         .await
         .unwrap();
-    assert_eq!(history.len(), 3);
-    assert_eq!(history[0].version.id, restored.current_version.version.id);
-    assert_eq!(history[1].version.id, second_version_id);
-    assert_eq!(history[2].version.id, first_version_id);
+    assert_eq!(history.items.len(), 3);
+    assert_eq!(history.items[0].id, restored.result_id);
+    assert_eq!(history.items[1].id, second_version_id);
+    assert_eq!(history.items[2].id, first_version_id);
 
     let immutable =
         sqlx::query("UPDATE native_document_versions SET reason='tampered' WHERE id=$1")
@@ -422,65 +467,44 @@ async fn room_visibility_participants_versions_restore_and_concurrency_are_coher
 
     assert!(matches!(
         org.restore_document_version(RestoreDocumentVersion {
+            command_id: Uuid::new_v4(),
             document_id,
             actor_id: "owner",
-            expected_current_version_id: restored.current_version.version.id,
-            source_version_id: restored.current_version.version.id,
+            expected_current_version_id: restored.result_id,
+            source_version_id: restored.result_id,
             reason: "No-op restore",
         })
         .await,
         Err(DocumentError::Invalid(_))
     ));
-    assert_eq!(document_events(&mut connection, document_id).await.len(), 6);
-    org.remove_document_participant(document_id, "owner", "blair", 6)
-        .await
-        .unwrap();
+    assert_eq!(document_events(&mut connection, document_id).await.len(), 7);
+    org.remove_document_participant(RemoveDocumentParticipant {
+        command_id: Uuid::new_v4(),
+        document_id,
+        actor_id: "owner",
+        expected_document_version: 7,
+        participant_actor_id: "blair",
+    })
+    .await
+    .unwrap();
     assert!(matches!(
         org.get_document_for_actor(document_id, "blair").await,
         Err(DocumentError::Unavailable)
     ));
-    assert_eq!(document_events(&mut connection, document_id).await.len(), 7);
+    assert_eq!(document_events(&mut connection, document_id).await.len(), 8);
     assert!(matches!(
         org.set_document_participant(SetDocumentParticipant {
+            command_id: Uuid::new_v4(),
             document_id,
             actor_id: "alex",
-            expected_document_version: 7,
+            expected_document_version: 8,
             participant_actor_id: "blair",
             access: DocumentAccess::Read,
         })
         .await,
         Err(DocumentError::Unavailable)
     ));
-    assert_eq!(document_events(&mut connection, document_id).await.len(), 7);
-
-    let archived = org
-        .update_document_metadata(UpdateDocumentMetadata {
-            document_id,
-            actor_id: "owner",
-            expected_version: 7,
-            title: "Research brief",
-            kind: DocumentKind::Brief,
-            status: DocumentStatus::Archived,
-            visibility: DocumentVisibility::Participants,
-            linked_room_id: Some(room.id),
-            inherit_room_visibility: false,
-        })
-        .await
-        .unwrap();
-    assert_eq!(archived.document.status, DocumentStatus::Archived);
-    assert_eq!(archived.document.version, 8);
-    assert!(org
-        .list_documents_for_actor("owner", false)
-        .await
-        .unwrap()
-        .is_empty());
-    assert_eq!(
-        org.list_documents_for_actor("owner", true)
-            .await
-            .unwrap()
-            .len(),
-        1
-    );
+    assert_eq!(document_events(&mut connection, document_id).await.len(), 8);
 
     let events = document_events(&mut connection, document_id).await;
     assert_eq!(events.len(), 8);
@@ -496,9 +520,9 @@ async fn room_visibility_participants_versions_restore_and_concurrency_are_coher
             "document.participant.added.v1",
             "document.named_version.created.v1",
             "document.metadata.updated.v1",
+            "document.review.requested.v1",
             "document.version.restored.v1",
             "document.participant.removed.v1",
-            "document.metadata.updated.v1",
         ]
     );
     assert_eq!(
@@ -562,7 +586,6 @@ async fn room_visibility_participants_versions_restore_and_concurrency_are_coher
         json!({
             "document_id": document_id,
             "document_version": 5,
-            "status": "in_review",
             "visibility": "participants",
             "linked_room_id": room.id,
             "inherit_room_visibility": false,
@@ -573,11 +596,10 @@ async fn room_visibility_participants_versions_restore_and_concurrency_are_coher
         json!({
             "document_id": document_id,
             "document_version": 6,
-            "named_version_id": restored.current_version.version.id,
-            "named_version_number": 3,
-            "previous_named_version_id": second_version_id,
-            "restored_from_version_id": first_version_id,
-            "status": "in_review",
+            "review_id": review.id,
+            "requested_named_version_id": second_version_id,
+            "requested_by_actor_id": "owner",
+            "command_id": review_command_id,
         })
     );
     assert_eq!(
@@ -585,8 +607,11 @@ async fn room_visibility_participants_versions_restore_and_concurrency_are_coher
         json!({
             "document_id": document_id,
             "document_version": 7,
-            "participant_actor_id": "blair",
-            "participant_status": "removed",
+            "named_version_id": restored.result_id,
+            "named_version_number": 3,
+            "previous_named_version_id": second_version_id,
+            "restored_from_version_id": first_version_id,
+            "status": "in_review",
         })
     );
     assert_eq!(
@@ -594,10 +619,8 @@ async fn room_visibility_participants_versions_restore_and_concurrency_are_coher
         json!({
             "document_id": document_id,
             "document_version": 8,
-            "status": "archived",
-            "visibility": "participants",
-            "linked_room_id": room.id,
-            "inherit_room_visibility": false,
+            "participant_actor_id": "blair",
+            "participant_status": "removed",
         })
     );
     for event in &events {
@@ -625,6 +648,7 @@ async fn company_visibility_is_human_readable_not_agent_global() {
     let body = content("company-note", "Company context");
     let created = org
         .create_document(NewDocument {
+            command_id: Uuid::new_v4(),
             title: "Company note",
             kind: DocumentKind::OperatingNote,
             visibility: DocumentVisibility::Company,
@@ -639,19 +663,20 @@ async fn company_visibility_is_human_readable_not_agent_global() {
         .unwrap();
 
     assert_eq!(
-        org.get_document_for_actor(created.document.id, "alex")
+        org.get_document_for_actor(created.document_id, "alex")
             .await
             .unwrap()
             .access,
         DocumentAccess::Read
     );
     assert!(matches!(
-        org.get_document_for_actor(created.document.id, "research-analyst")
+        org.get_document_for_actor(created.document_id, "research-analyst")
             .await,
         Err(DocumentError::Unavailable)
     ));
     assert!(matches!(
         org.create_document(NewDocument {
+            command_id: Uuid::new_v4(),
             title: "Invalid inheritance",
             kind: DocumentKind::Freeform,
             visibility: DocumentVisibility::Company,
@@ -677,6 +702,7 @@ async fn explicit_revocation_cannot_split_authorization_from_current_version_rea
     let first_content = content("before-revocation", "Visible before revocation");
     let created = org
         .create_document(NewDocument {
+            command_id: Uuid::new_v4(),
             title: "Revocation boundary",
             kind: DocumentKind::DecisionNote,
             visibility: DocumentVisibility::Participants,
@@ -689,9 +715,14 @@ async fn explicit_revocation_cannot_split_authorization_from_current_version_rea
         })
         .await
         .unwrap();
-    let document_id = created.document.id;
-    let first_version_id = created.current_version.version.id;
+    let document_id = created.document_id;
+    let created_view = org
+        .get_document_for_actor(document_id, "owner")
+        .await
+        .unwrap();
+    let first_version_id = created_view.current_version.version.id;
     org.set_document_participant(SetDocumentParticipant {
+        command_id: Uuid::new_v4(),
         document_id,
         actor_id: "owner",
         expected_document_version: 1,
@@ -718,7 +749,13 @@ async fn explicit_revocation_cannot_split_authorization_from_current_version_rea
     let revoking = org.clone();
     let mut revocation = tokio::spawn(async move {
         revoking
-            .remove_document_participant(document_id, "owner", "blair", 2)
+            .remove_document_participant(RemoveDocumentParticipant {
+                command_id: Uuid::new_v4(),
+                document_id,
+                actor_id: "owner",
+                expected_document_version: 2,
+                participant_actor_id: "blair",
+            })
             .await
     });
     assert!(
@@ -742,6 +779,7 @@ async fn explicit_revocation_cannot_split_authorization_from_current_version_rea
 
     let post_revocation = content("after-revocation", "Created only after revocation");
     org.create_named_document_version(NewNamedDocumentVersion {
+        command_id: Uuid::new_v4(),
         document_id,
         actor_id: "owner",
         expected_current_version_id: first_version_id,
@@ -756,6 +794,85 @@ async fn explicit_revocation_cannot_split_authorization_from_current_version_rea
         org.get_document_for_actor(document_id, "blair").await,
         Err(DocumentError::Unavailable)
     ));
+}
+
+#[tokio::test]
+async fn participant_grant_revalidates_the_target_actor_under_retirement_lock() {
+    let Some(org) = company("documentactorretire").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping document Actor retirement race");
+        return;
+    };
+    let database_url = std::env::var("RESTLESS_TEST_DATABASE_URL").unwrap();
+    let initial = content("retirement", "Do not grant access after retirement");
+    let created = org
+        .create_document(NewDocument {
+            command_id: Uuid::new_v4(),
+            title: "Retirement boundary",
+            kind: DocumentKind::OperatingNote,
+            visibility: DocumentVisibility::Participants,
+            linked_room_id: None,
+            inherit_room_visibility: false,
+            owner_actor_id: "owner",
+            created_by_actor_id: "owner",
+            content_json: &initial,
+            reason: "Retirement race fixture",
+        })
+        .await
+        .unwrap();
+
+    let mut retirement = schema_connection(&database_url, org.schema()).await;
+    let mut retirement_tx = retirement.begin().await.unwrap();
+    sqlx::query("SELECT id FROM actors WHERE id='blair' FOR UPDATE")
+        .fetch_one(&mut *retirement_tx)
+        .await
+        .unwrap();
+    let granting = org.clone();
+    let document_id = created.document_id;
+    let grant = tokio::spawn(async move {
+        granting
+            .set_document_participant(SetDocumentParticipant {
+                command_id: Uuid::new_v4(),
+                document_id,
+                actor_id: "owner",
+                expected_document_version: 1,
+                participant_actor_id: "blair",
+                access: DocumentAccess::Read,
+            })
+            .await
+    });
+    sleep(Duration::from_millis(100)).await;
+    assert!(
+        !grant.is_finished(),
+        "grant did not wait for Actor retirement"
+    );
+    sqlx::query(
+        "UPDATE actors SET retired_at=now(),retired_by='owner',retirement_reason='left' \
+         WHERE id='blair'",
+    )
+    .execute(&mut *retirement_tx)
+    .await
+    .unwrap();
+    retirement_tx.commit().await.unwrap();
+
+    let result = timeout(Duration::from_secs(5), grant)
+        .await
+        .expect("grant should finish after retirement")
+        .unwrap();
+    assert!(matches!(result, Err(DocumentError::Invalid(_))));
+    let participants = org
+        .list_document_participants_for_actor(created.document_id, "owner", None, 50)
+        .await
+        .unwrap();
+    assert_eq!(participants.items.len(), 1);
+    assert_eq!(participants.items[0].actor_id, "owner");
+    assert_eq!(
+        org.get_document_for_actor(created.document_id, "owner")
+            .await
+            .unwrap()
+            .document
+            .version,
+        1
+    );
 }
 
 #[tokio::test]
@@ -778,6 +895,7 @@ async fn room_inherited_revocation_cannot_split_authorization_from_content_read(
     let first_content = content("room-before", "Visible while in the Room");
     let created = org
         .create_document(NewDocument {
+            command_id: Uuid::new_v4(),
             title: "Inherited revocation boundary",
             kind: DocumentKind::Brief,
             visibility: DocumentVisibility::Participants,
@@ -790,8 +908,12 @@ async fn room_inherited_revocation_cannot_split_authorization_from_content_read(
         })
         .await
         .unwrap();
-    let document_id = created.document.id;
-    let first_version_id = created.current_version.version.id;
+    let document_id = created.document_id;
+    let created_view = org
+        .get_document_for_actor(document_id, "owner")
+        .await
+        .unwrap();
+    let first_version_id = created_view.current_version.version.id;
 
     // Room removal serializes Actor -> Room. The document read takes Document
     // -> Actor -> Room, so queuing the reader first proves the inherited access
@@ -834,6 +956,7 @@ async fn room_inherited_revocation_cannot_split_authorization_from_content_read(
 
     let post_revocation = content("room-after", "Created after Room removal");
     org.create_named_document_version(NewNamedDocumentVersion {
+        command_id: Uuid::new_v4(),
         document_id,
         actor_id: "owner",
         expected_current_version_id: first_version_id,
@@ -866,6 +989,7 @@ async fn runtime_checkpoint_round_trip_is_authorized_deterministic_and_idempoten
     let initial_content = content("stable-runtime-block", "Original observation");
     let created = org
         .create_document(NewDocument {
+            command_id: Uuid::new_v4(),
             title: "Runtime checkpoint",
             kind: DocumentKind::Report,
             visibility: DocumentVisibility::Company,
@@ -878,8 +1002,12 @@ async fn runtime_checkpoint_round_trip_is_authorized_deterministic_and_idempoten
         })
         .await
         .unwrap();
-    let document_id = created.document.id;
-    let source_version_id = created.current_version.version.id;
+    let document_id = created.document_id;
+    let created_view = org
+        .get_document_for_actor(document_id, "owner")
+        .await
+        .unwrap();
+    let source_version_id = created_view.current_version.version.id;
 
     // Read authority is sufficient to export. The requesting Actor is recorded
     // in the event, not embedded in the checkpoint, so the same named version
@@ -897,7 +1025,7 @@ async fn runtime_checkpoint_round_trip_is_authorized_deterministic_and_idempoten
     assert_eq!(reader_export.source_named_version_id, source_version_id);
     assert_eq!(
         reader_export.source_content_hash,
-        created.current_version.version.content_hash
+        created_view.current_version.version.content_hash
     );
     assert_eq!(
         reader_export.content_hash,
@@ -997,9 +1125,10 @@ async fn runtime_checkpoint_round_trip_is_authorized_deterministic_and_idempoten
         );
     }
     assert_eq!(
-        org.list_document_versions_for_actor(document_id, "owner")
+        org.list_document_versions_for_actor(document_id, "owner", None, 25)
             .await
             .unwrap()
+            .items
             .len(),
         1
     );

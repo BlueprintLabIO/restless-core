@@ -131,6 +131,22 @@ pub struct DocumentVersionRow {
     pub created_at: DateTime<Utc>,
 }
 
+/// Bounded metadata for version-history pages. Large document bodies and their
+/// rendered projections are available only from the one-version read route.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct DocumentVersionSummary {
+    pub id: Uuid,
+    pub document_id: Uuid,
+    pub version_number: i64,
+    pub schema_version: i16,
+    pub content_hash: String,
+    pub document_status: DocumentStatus,
+    pub restored_from_version_id: Option<Uuid>,
+    pub created_by_actor_id: String,
+    pub reason: String,
+    pub created_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct DocumentParticipantRow {
     pub document_id: Uuid,
@@ -140,10 +156,34 @@ pub struct DocumentParticipantRow {
     pub added_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DocumentParticipantCursor {
+    pub added_at: DateTime<Utc>,
+    pub actor_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DocumentParticipantPage {
+    pub items: Vec<DocumentParticipantRow>,
+    pub next_cursor: Option<DocumentParticipantCursor>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct DocumentSummary {
     pub document: DocumentRow,
     pub access: DocumentAccess,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DocumentListCursor {
+    pub updated_at: DateTime<Utc>,
+    pub id: Uuid,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DocumentSummaryPage {
+    pub items: Vec<DocumentSummary>,
+    pub next_cursor: Option<DocumentListCursor>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -155,6 +195,40 @@ pub struct DocumentVersionView {
     /// Deterministic explicit export projection. The structured JSON remains
     /// authoritative; editing this text never mutates the Doc.
     pub markdown: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DocumentVersionCursor {
+    pub version_number: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DocumentVersionPage {
+    pub items: Vec<DocumentVersionSummary>,
+    pub next_cursor: Option<DocumentVersionCursor>,
+}
+
+/// Immutable, bounded result for a durable client command. Replaying an
+/// identical command returns this exact stored result even after the document
+/// has changed again.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, sqlx::FromRow)]
+pub struct DocumentCommandResult {
+    pub command_id: Uuid,
+    pub document_id: Uuid,
+    pub operation: String,
+    pub result_id: Uuid,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(sqlx::FromRow)]
+struct StoredDocumentCommandReceipt {
+    command_id: Uuid,
+    document_id: Uuid,
+    operation: String,
+    request_fingerprint: String,
+    result_id: Uuid,
+    actor_id: String,
+    created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -266,6 +340,7 @@ pub struct DocumentRuntimeImportProvenance {
 }
 
 pub struct NewDocument<'a> {
+    pub command_id: Uuid,
     pub title: &'a str,
     pub kind: DocumentKind,
     pub visibility: DocumentVisibility,
@@ -278,18 +353,19 @@ pub struct NewDocument<'a> {
 }
 
 pub struct UpdateDocumentMetadata<'a> {
+    pub command_id: Uuid,
     pub document_id: Uuid,
     pub actor_id: &'a str,
     pub expected_version: i64,
     pub title: &'a str,
     pub kind: DocumentKind,
-    pub status: DocumentStatus,
     pub visibility: DocumentVisibility,
     pub linked_room_id: Option<Uuid>,
     pub inherit_room_visibility: bool,
 }
 
 pub struct NewNamedDocumentVersion<'a> {
+    pub command_id: Uuid,
     pub document_id: Uuid,
     pub actor_id: &'a str,
     pub expected_current_version_id: Uuid,
@@ -298,6 +374,7 @@ pub struct NewNamedDocumentVersion<'a> {
 }
 
 pub struct RestoreDocumentVersion<'a> {
+    pub command_id: Uuid,
     pub document_id: Uuid,
     pub actor_id: &'a str,
     pub expected_current_version_id: Uuid,
@@ -306,6 +383,7 @@ pub struct RestoreDocumentVersion<'a> {
 }
 
 pub struct SetDocumentParticipant<'a> {
+    pub command_id: Uuid,
     pub document_id: Uuid,
     pub actor_id: &'a str,
     pub expected_document_version: i64,
@@ -313,10 +391,21 @@ pub struct SetDocumentParticipant<'a> {
     pub access: DocumentAccess,
 }
 
+pub struct RemoveDocumentParticipant<'a> {
+    pub command_id: Uuid,
+    pub document_id: Uuid,
+    pub actor_id: &'a str,
+    pub expected_document_version: i64,
+    pub participant_actor_id: &'a str,
+}
+
 const MAX_DOCUMENT_COMMENT_PAGE: i64 = 100;
 const MAX_DOCUMENT_THREAD_PAGE: i64 = 50;
 const MAX_DOCUMENT_REVIEW_PAGE: i64 = 50;
 const MAX_DOCUMENT_PROPOSAL_PAGE: i64 = 50;
+const MAX_DOCUMENT_LIST_PAGE: i64 = 100;
+const MAX_DOCUMENT_VERSION_PAGE: i64 = 25;
+const MAX_DOCUMENT_PARTICIPANT_PAGE: i64 = 50;
 const MAX_DOCUMENT_MENTIONS: usize = 32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
@@ -1781,6 +1870,12 @@ fn version_select() -> &'static str {
      FROM native_document_versions"
 }
 
+fn version_summary_select() -> &'static str {
+    "SELECT id,document_id,version_number,schema_version,content_hash,document_status,\
+            restored_from_version_id,created_by_actor_id,reason,created_at \
+     FROM native_document_versions"
+}
+
 fn runtime_import_provenance_select() -> &'static str {
     "SELECT document_id,imported_version_id,target_base_version_id,envelope_schema,\
             envelope_version,envelope_checksum,source_company_id,source_company_key,\
@@ -2222,29 +2317,56 @@ async fn replayed_document_command(
     tx: &mut Transaction<'_, Postgres>,
     command_id: Uuid,
     document_id: Uuid,
+    actor_id: &str,
     operation: &str,
     fingerprint: &str,
 ) -> DocumentResult<Option<Uuid>> {
-    let existing: Option<(Uuid, String, String, Uuid)> = sqlx::query_as(
-        "SELECT document_id,operation,request_fingerprint,result_id \
+    Ok(replayed_document_command_result(
+        tx,
+        command_id,
+        Some(document_id),
+        actor_id,
+        operation,
+        fingerprint,
+    )
+    .await?
+    .map(|result| result.result_id))
+}
+
+async fn replayed_document_command_result(
+    tx: &mut Transaction<'_, Postgres>,
+    command_id: Uuid,
+    expected_document_id: Option<Uuid>,
+    expected_actor_id: &str,
+    operation: &str,
+    fingerprint: &str,
+) -> DocumentResult<Option<DocumentCommandResult>> {
+    let existing = sqlx::query_as::<_, StoredDocumentCommandReceipt>(
+        "SELECT command_id,document_id,operation,request_fingerprint,result_id,actor_id,created_at \
          FROM native_document_command_receipts WHERE command_id=$1",
     )
     .bind(command_id)
     .fetch_optional(&mut **tx)
     .await?;
-    let Some((stored_document_id, stored_operation, stored_fingerprint, result_id)) = existing
-    else {
+    let Some(existing) = existing else {
         return Ok(None);
     };
-    if stored_document_id != document_id
-        || stored_operation != operation
-        || stored_fingerprint != fingerprint
+    if expected_document_id.is_some_and(|expected| expected != existing.document_id)
+        || existing.actor_id != expected_actor_id
+        || existing.operation != operation
+        || existing.request_fingerprint != fingerprint
     {
         return Err(DocumentError::Conflict(
             "command_id was already used with a different request".into(),
         ));
     }
-    Ok(Some(result_id))
+    Ok(Some(DocumentCommandResult {
+        command_id: existing.command_id,
+        document_id: existing.document_id,
+        operation: existing.operation,
+        result_id: existing.result_id,
+        created_at: existing.created_at,
+    }))
 }
 
 async fn record_document_command(
@@ -2255,11 +2377,12 @@ async fn record_document_command(
     fingerprint: &str,
     result_id: Uuid,
     actor_id: &str,
-) -> DocumentResult<()> {
-    sqlx::query(
+) -> DocumentResult<DocumentCommandResult> {
+    let result = sqlx::query_as::<_, DocumentCommandResult>(
         "INSERT INTO native_document_command_receipts \
          (command_id,document_id,operation,request_fingerprint,result_id,actor_id) \
-         VALUES ($1,$2,$3,$4,$5,$6)",
+         VALUES ($1,$2,$3,$4,$5,$6) \
+         RETURNING command_id,document_id,operation,result_id,created_at",
     )
     .bind(command_id)
     .bind(document_id)
@@ -2267,9 +2390,9 @@ async fn record_document_command(
     .bind(fingerprint)
     .bind(result_id)
     .bind(actor_id)
-    .execute(&mut **tx)
+    .fetch_one(&mut **tx)
     .await?;
-    Ok(())
+    Ok(result)
 }
 
 fn validated_comment_content(content_json: &Value) -> DocumentResult<ValidatedDocument> {
@@ -2593,7 +2716,7 @@ impl OrgIntel {
     pub async fn create_document(
         &self,
         input: NewDocument<'_>,
-    ) -> DocumentResult<DocumentReadView> {
+    ) -> DocumentResult<DocumentCommandResult> {
         let title = clean_bounded("title", input.title, 200)?;
         let reason = clean_bounded("version reason", input.reason, 500)?;
         validate_visibility_link(
@@ -2602,9 +2725,35 @@ impl OrgIntel {
             input.inherit_room_visibility,
         )?;
         let content = validate_document_json(input.content_json)?;
-        let document_id = Uuid::new_v4();
-        let version_id = Uuid::new_v4();
+        let fingerprint = request_fingerprint(
+            "document_create",
+            json!({
+                "title": title,
+                "kind": input.kind,
+                "visibility": input.visibility,
+                "linked_room_id": input.linked_room_id,
+                "inherit_room_visibility": input.inherit_room_visibility,
+                "owner_actor_id": input.owner_actor_id,
+                "created_by_actor_id": input.created_by_actor_id,
+                "content_json": content.content_json,
+                "reason": reason,
+            }),
+        );
         let mut tx = self.pool.begin().await?;
+        lock_document_command(&mut tx, input.command_id).await?;
+        if let Some(result) = replayed_document_command_result(
+            &mut tx,
+            input.command_id,
+            None,
+            input.created_by_actor_id,
+            "document_create",
+            &fingerprint,
+        )
+        .await?
+        {
+            tx.commit().await?;
+            return Ok(result);
+        }
         for actor in [input.owner_actor_id, input.created_by_actor_id] {
             if !active_actor(&mut tx, actor).await? {
                 return Err(DocumentError::Invalid(format!(
@@ -2619,6 +2768,9 @@ impl OrgIntel {
                 }
             }
         }
+
+        let document_id = Uuid::new_v4();
+        let version_id = Uuid::new_v4();
 
         sqlx::query(
             "INSERT INTO native_documents \
@@ -2666,6 +2818,16 @@ impl OrgIntel {
             .execute(&mut *tx)
             .await?;
         }
+        let result = record_document_command(
+            &mut tx,
+            input.command_id,
+            document_id,
+            "document_create",
+            &fingerprint,
+            document_id,
+            input.created_by_actor_id,
+        )
+        .await?;
         append_document_event(
             &mut tx,
             "document.created.v1",
@@ -2685,15 +2847,16 @@ impl OrgIntel {
         )
         .await?;
         tx.commit().await?;
-        self.get_document_for_actor(document_id, input.created_by_actor_id)
-            .await
+        Ok(result)
     }
 
     pub async fn list_documents_for_actor(
         &self,
         actor_id: &str,
         include_archived: bool,
-    ) -> DocumentResult<Vec<DocumentSummary>> {
+        cursor: Option<&DocumentListCursor>,
+        limit: i64,
+    ) -> DocumentResult<DocumentSummaryPage> {
         #[derive(sqlx::FromRow)]
         struct Listed {
             id: Uuid,
@@ -2712,7 +2875,10 @@ impl OrgIntel {
             access: DocumentAccess,
         }
 
-        let rows = sqlx::query_as::<_, Listed>(
+        let limit = bounded_page_limit(limit, MAX_DOCUMENT_LIST_PAGE)?;
+        let cursor_time = cursor.map(|value| value.updated_at);
+        let cursor_id = cursor.map(|value| value.id);
+        let mut rows = sqlx::query_as::<_, Listed>(
             "SELECT d.id,d.title,d.kind,d.status,d.visibility,d.linked_room_id,\
                     d.inherit_room_visibility,d.owner_actor_id,\
                     d.current_named_version_id,d.created_by_actor_id,d.created_at,d.updated_at,d.version,\
@@ -2727,6 +2893,7 @@ impl OrgIntel {
              LEFT JOIN native_document_participants p \
                ON p.document_id=d.id AND p.actor_id=$1 AND p.removed_at IS NULL \
              WHERE ($2 OR d.status<>'archived') \
+               AND ($3::timestamptz IS NULL OR (d.updated_at,d.id)<($3,$4)) \
                AND (d.owner_actor_id=$1 OR p.actor_id IS NOT NULL \
                     OR (d.visibility='company' AND a.actor_class='human') \
                     OR (d.visibility='participants' AND d.inherit_room_visibility \
@@ -2736,13 +2903,25 @@ impl OrgIntel {
                           WHERE room.id=d.linked_room_id AND room.archived_at IS NULL \
                             AND rp.actor_id=$1 AND rp.left_at IS NULL\
                         ))) \
-             ORDER BY d.updated_at DESC,d.id",
+             ORDER BY d.updated_at DESC,d.id DESC LIMIT $5",
         )
         .bind(actor_id)
         .bind(include_archived)
+        .bind(cursor_time)
+        .bind(cursor_id)
+        .bind(limit + 1)
         .fetch_all(&self.pool)
         .await?;
-        Ok(rows
+        let next_cursor = if rows.len() > limit as usize {
+            rows.truncate(limit as usize);
+            rows.last().map(|row| DocumentListCursor {
+                updated_at: row.updated_at,
+                id: row.id,
+            })
+        } else {
+            None
+        };
+        let items = rows
             .into_iter()
             .map(|row| DocumentSummary {
                 document: DocumentRow {
@@ -2762,7 +2941,8 @@ impl OrgIntel {
                 },
                 access: row.access,
             })
-            .collect())
+            .collect();
+        Ok(DocumentSummaryPage { items, next_cursor })
     }
 
     pub async fn document_access_for_actor(
@@ -2813,14 +2993,41 @@ impl OrgIntel {
     pub async fn update_document_metadata(
         &self,
         input: UpdateDocumentMetadata<'_>,
-    ) -> DocumentResult<DocumentReadView> {
+    ) -> DocumentResult<DocumentCommandResult> {
         let title = clean_bounded("title", input.title, 200)?;
         validate_visibility_link(
             input.visibility,
             input.linked_room_id,
             input.inherit_room_visibility,
         )?;
+        let fingerprint = request_fingerprint(
+            "document_metadata_update",
+            json!({
+                "document_id": input.document_id,
+                "actor_id": input.actor_id,
+                "expected_version": input.expected_version,
+                "title": title,
+                "kind": input.kind,
+                "visibility": input.visibility,
+                "linked_room_id": input.linked_room_id,
+                "inherit_room_visibility": input.inherit_room_visibility,
+            }),
+        );
         let mut tx = self.pool.begin().await?;
+        lock_document_command(&mut tx, input.command_id).await?;
+        if let Some(result) = replayed_document_command_result(
+            &mut tx,
+            input.command_id,
+            Some(input.document_id),
+            input.actor_id,
+            "document_metadata_update",
+            &fingerprint,
+        )
+        .await?
+        {
+            tx.commit().await?;
+            return Ok(result);
+        }
         let row = sqlx::query(
             "SELECT owner_actor_id,version FROM native_documents WHERE id=$1 FOR UPDATE",
         )
@@ -2851,18 +3058,27 @@ impl OrgIntel {
             )));
         }
         let document_version: i64 = sqlx::query_scalar(
-            "UPDATE native_documents SET title=$2,kind=$3,status=$4,visibility=$5,\
-             linked_room_id=$6,inherit_room_visibility=$7,version=version+1 \
+            "UPDATE native_documents SET title=$2,kind=$3,visibility=$4,\
+             linked_room_id=$5,inherit_room_visibility=$6,version=version+1 \
              WHERE id=$1 RETURNING version",
         )
         .bind(input.document_id)
         .bind(title)
         .bind(input.kind)
-        .bind(input.status)
         .bind(input.visibility)
         .bind(input.linked_room_id)
         .bind(input.inherit_room_visibility)
         .fetch_one(&mut *tx)
+        .await?;
+        let result = record_document_command(
+            &mut tx,
+            input.command_id,
+            input.document_id,
+            "document_metadata_update",
+            &fingerprint,
+            input.document_id,
+            input.actor_id,
+        )
         .await?;
         append_document_event(
             &mut tx,
@@ -2872,7 +3088,6 @@ impl OrgIntel {
             json!({
                 "document_id": input.document_id,
                 "document_version": document_version,
-                "status": input.status,
                 "visibility": input.visibility,
                 "linked_room_id": input.linked_room_id,
                 "inherit_room_visibility": input.inherit_room_visibility,
@@ -2880,17 +3095,40 @@ impl OrgIntel {
         )
         .await?;
         tx.commit().await?;
-        self.get_document_for_actor(input.document_id, input.actor_id)
-            .await
+        Ok(result)
     }
 
     pub async fn create_named_document_version(
         &self,
         input: NewNamedDocumentVersion<'_>,
-    ) -> DocumentResult<DocumentReadView> {
+    ) -> DocumentResult<DocumentCommandResult> {
         let reason = clean_bounded("version reason", input.reason, 500)?;
         let content = validate_document_json(input.content_json)?;
+        let fingerprint = request_fingerprint(
+            "named_version_create",
+            json!({
+                "document_id": input.document_id,
+                "actor_id": input.actor_id,
+                "expected_current_version_id": input.expected_current_version_id,
+                "content_json": content.content_json,
+                "reason": reason,
+            }),
+        );
         let mut tx = self.pool.begin().await?;
+        lock_document_command(&mut tx, input.command_id).await?;
+        if let Some(result) = replayed_document_command_result(
+            &mut tx,
+            input.command_id,
+            Some(input.document_id),
+            input.actor_id,
+            "named_version_create",
+            &fingerprint,
+        )
+        .await?
+        {
+            tx.commit().await?;
+            return Ok(result);
+        }
         let document = sqlx::query(
             "SELECT current_named_version_id,status FROM native_documents WHERE id=$1 FOR UPDATE",
         )
@@ -2947,6 +3185,16 @@ impl OrgIntel {
         .bind(version_id)
         .fetch_one(&mut *tx)
         .await?;
+        let result = record_document_command(
+            &mut tx,
+            input.command_id,
+            input.document_id,
+            "named_version_create",
+            &fingerprint,
+            version_id,
+            input.actor_id,
+        )
+        .await?;
         append_document_event(
             &mut tx,
             "document.named_version.created.v1",
@@ -2963,8 +3211,7 @@ impl OrgIntel {
         )
         .await?;
         tx.commit().await?;
-        self.get_document_for_actor(input.document_id, input.actor_id)
-            .await
+        Ok(result)
     }
 
     /// Restore one historical checkpoint by appending an attributed version.
@@ -2972,9 +3219,33 @@ impl OrgIntel {
     pub async fn restore_document_version(
         &self,
         input: RestoreDocumentVersion<'_>,
-    ) -> DocumentResult<DocumentReadView> {
+    ) -> DocumentResult<DocumentCommandResult> {
         let reason = clean_bounded("restore reason", input.reason, 500)?;
+        let fingerprint = request_fingerprint(
+            "named_version_restore",
+            json!({
+                "document_id": input.document_id,
+                "actor_id": input.actor_id,
+                "expected_current_version_id": input.expected_current_version_id,
+                "source_version_id": input.source_version_id,
+                "reason": reason,
+            }),
+        );
         let mut tx = self.pool.begin().await?;
+        lock_document_command(&mut tx, input.command_id).await?;
+        if let Some(result) = replayed_document_command_result(
+            &mut tx,
+            input.command_id,
+            Some(input.document_id),
+            input.actor_id,
+            "named_version_restore",
+            &fingerprint,
+        )
+        .await?
+        {
+            tx.commit().await?;
+            return Ok(result);
+        }
         let document = sqlx::query(
             "SELECT current_named_version_id,status FROM native_documents WHERE id=$1 FOR UPDATE",
         )
@@ -3048,6 +3319,16 @@ impl OrgIntel {
         .bind(version_id)
         .fetch_one(&mut *tx)
         .await?;
+        let result = record_document_command(
+            &mut tx,
+            input.command_id,
+            input.document_id,
+            "named_version_restore",
+            &fingerprint,
+            version_id,
+            input.actor_id,
+        )
+        .await?;
         append_document_event(
             &mut tx,
             "document.version.restored.v1",
@@ -3065,26 +3346,43 @@ impl OrgIntel {
         )
         .await?;
         tx.commit().await?;
-        self.get_document_for_actor(input.document_id, input.actor_id)
-            .await
+        Ok(result)
     }
 
     pub async fn list_document_versions_for_actor(
         &self,
         document_id: Uuid,
         actor_id: &str,
-    ) -> DocumentResult<Vec<DocumentVersionView>> {
+        cursor: Option<&DocumentVersionCursor>,
+        limit: i64,
+    ) -> DocumentResult<DocumentVersionPage> {
+        let limit = bounded_page_limit(limit, MAX_DOCUMENT_VERSION_PAGE)?;
+        let before_version_number = cursor.map(|value| value.version_number);
         let mut tx = self.pool.begin().await?;
         require_access(&mut tx, document_id, actor_id, DocumentAccess::Read).await?;
-        let versions = sqlx::query_as::<_, DocumentVersionRow>(&format!(
-            "{} WHERE document_id=$1 ORDER BY version_number DESC",
-            version_select()
+        let mut versions = sqlx::query_as::<_, DocumentVersionSummary>(&format!(
+            "{} WHERE document_id=$1 AND ($2::bigint IS NULL OR version_number<$2) \
+             ORDER BY version_number DESC LIMIT $3",
+            version_summary_select()
         ))
         .bind(document_id)
+        .bind(before_version_number)
+        .bind(limit + 1)
         .fetch_all(&mut *tx)
         .await?;
         tx.commit().await?;
-        versions.into_iter().map(version_view).collect()
+        let next_cursor = if versions.len() > limit as usize {
+            versions.truncate(limit as usize);
+            versions.last().map(|version| DocumentVersionCursor {
+                version_number: version.version_number,
+            })
+        } else {
+            None
+        };
+        Ok(DocumentVersionPage {
+            items: versions,
+            next_cursor,
+        })
     }
 
     pub async fn get_document_version_for_actor(
@@ -3408,26 +3706,81 @@ impl OrgIntel {
         &self,
         document_id: Uuid,
         actor_id: &str,
-    ) -> DocumentResult<Vec<DocumentParticipantRow>> {
+        cursor: Option<&DocumentParticipantCursor>,
+        limit: i64,
+    ) -> DocumentResult<DocumentParticipantPage> {
+        let limit = bounded_page_limit(limit, MAX_DOCUMENT_PARTICIPANT_PAGE)?;
+        let after_added_at = cursor.map(|value| value.added_at);
+        let after_actor_id = cursor.map(|value| value.actor_id.as_str());
         let mut tx = self.pool.begin().await?;
-        require_access(&mut tx, document_id, actor_id, DocumentAccess::Read).await?;
-        let participants = sqlx::query_as::<_, DocumentParticipantRow>(
+        let owner_actor_id: Option<String> =
+            sqlx::query_scalar("SELECT owner_actor_id FROM native_documents WHERE id=$1")
+                .bind(document_id)
+                .fetch_optional(&mut *tx)
+                .await?;
+        if owner_actor_id.as_deref() != Some(actor_id) {
+            return Err(DocumentError::Unavailable);
+        }
+        let mut participants = sqlx::query_as::<_, DocumentParticipantRow>(
             "SELECT document_id,actor_id,access,added_by_actor_id,added_at \
              FROM native_document_participants \
-             WHERE document_id=$1 AND removed_at IS NULL ORDER BY added_at,actor_id",
+             WHERE document_id=$1 AND removed_at IS NULL \
+               AND ($2::timestamptz IS NULL OR (added_at,actor_id)>($2,$3)) \
+             ORDER BY added_at,actor_id LIMIT $4",
         )
         .bind(document_id)
+        .bind(after_added_at)
+        .bind(after_actor_id)
+        .bind(limit + 1)
         .fetch_all(&mut *tx)
         .await?;
         tx.commit().await?;
-        Ok(participants)
+        let next_cursor = if participants.len() > limit as usize {
+            participants.truncate(limit as usize);
+            participants
+                .last()
+                .map(|participant| DocumentParticipantCursor {
+                    added_at: participant.added_at,
+                    actor_id: participant.actor_id.clone(),
+                })
+        } else {
+            None
+        };
+        Ok(DocumentParticipantPage {
+            items: participants,
+            next_cursor,
+        })
     }
 
     pub async fn set_document_participant(
         &self,
         input: SetDocumentParticipant<'_>,
-    ) -> DocumentResult<DocumentParticipantRow> {
+    ) -> DocumentResult<DocumentCommandResult> {
+        let fingerprint = request_fingerprint(
+            "participant_set",
+            json!({
+                "document_id": input.document_id,
+                "actor_id": input.actor_id,
+                "expected_document_version": input.expected_document_version,
+                "participant_actor_id": input.participant_actor_id,
+                "access": input.access,
+            }),
+        );
         let mut tx = self.pool.begin().await?;
+        lock_document_command(&mut tx, input.command_id).await?;
+        if let Some(result) = replayed_document_command_result(
+            &mut tx,
+            input.command_id,
+            Some(input.document_id),
+            input.actor_id,
+            "participant_set",
+            &fingerprint,
+        )
+        .await?
+        {
+            tx.commit().await?;
+            return Ok(result);
+        }
         let row = sqlx::query(
             "SELECT owner_actor_id,version FROM native_documents WHERE id=$1 FOR UPDATE",
         )
@@ -3453,7 +3806,14 @@ impl OrgIntel {
                 input.expected_document_version
             )));
         }
-        if !active_actor(&mut tx, input.participant_actor_id).await? {
+        let participant_is_active = sqlx::query_scalar::<_, String>(
+            "SELECT id FROM actors WHERE id=$1 AND retired_at IS NULL FOR SHARE",
+        )
+        .bind(input.participant_actor_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .is_some();
+        if !participant_is_active {
             return Err(DocumentError::Invalid(format!(
                 "Actor {:?} is not active",
                 input.participant_actor_id
@@ -3474,25 +3834,34 @@ impl OrgIntel {
         .bind(input.participant_actor_id)
         .fetch_one(&mut *tx)
         .await?;
-        let participant = sqlx::query_as::<_, DocumentParticipantRow>(
+        sqlx::query(
             "INSERT INTO native_document_participants \
              (document_id,actor_id,access,added_by_actor_id) VALUES ($1,$2,$3,$4) \
              ON CONFLICT(document_id,actor_id) DO UPDATE SET \
                access=EXCLUDED.access,added_by_actor_id=EXCLUDED.added_by_actor_id,\
-               added_at=now(),removed_at=NULL \
-             RETURNING document_id,actor_id,access,added_by_actor_id,added_at",
+               added_at=now(),removed_at=NULL",
         )
         .bind(input.document_id)
         .bind(input.participant_actor_id)
         .bind(input.access)
         .bind(input.actor_id)
-        .fetch_one(&mut *tx)
+        .execute(&mut *tx)
         .await?;
         let document_version: i64 = sqlx::query_scalar(
             "UPDATE native_documents SET version=version+1 WHERE id=$1 RETURNING version",
         )
         .bind(input.document_id)
         .fetch_one(&mut *tx)
+        .await?;
+        let result = record_document_command(
+            &mut tx,
+            input.command_id,
+            input.document_id,
+            "participant_set",
+            &fingerprint,
+            input.document_id,
+            input.actor_id,
+        )
         .await?;
         append_document_event(
             &mut tx,
@@ -3513,41 +3882,68 @@ impl OrgIntel {
         )
         .await?;
         tx.commit().await?;
-        Ok(participant)
+        Ok(result)
     }
 
     pub async fn remove_document_participant(
         &self,
-        document_id: Uuid,
-        actor_id: &str,
-        participant_actor_id: &str,
-        expected_document_version: i64,
-    ) -> DocumentResult<()> {
+        input: RemoveDocumentParticipant<'_>,
+    ) -> DocumentResult<DocumentCommandResult> {
+        let fingerprint = request_fingerprint(
+            "participant_remove",
+            json!({
+                "document_id": input.document_id,
+                "actor_id": input.actor_id,
+                "expected_document_version": input.expected_document_version,
+                "participant_actor_id": input.participant_actor_id,
+            }),
+        );
         let mut tx = self.pool.begin().await?;
+        lock_document_command(&mut tx, input.command_id).await?;
+        if let Some(result) = replayed_document_command_result(
+            &mut tx,
+            input.command_id,
+            Some(input.document_id),
+            input.actor_id,
+            "participant_remove",
+            &fingerprint,
+        )
+        .await?
+        {
+            tx.commit().await?;
+            return Ok(result);
+        }
         let row = sqlx::query(
             "SELECT owner_actor_id,version FROM native_documents WHERE id=$1 FOR UPDATE",
         )
-        .bind(document_id)
+        .bind(input.document_id)
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(DocumentError::Unavailable)?;
-        require_access(&mut tx, document_id, actor_id, DocumentAccess::Edit).await?;
+        require_access(
+            &mut tx,
+            input.document_id,
+            input.actor_id,
+            DocumentAccess::Edit,
+        )
+        .await?;
         let owner = row.get::<String, _>("owner_actor_id");
-        if owner != actor_id || participant_actor_id == owner {
+        if owner != input.actor_id || input.participant_actor_id == owner {
             return Err(DocumentError::Unavailable);
         }
         let actual = row.get::<i64, _>("version");
-        if actual != expected_document_version {
+        if actual != input.expected_document_version {
             return Err(DocumentError::Conflict(format!(
-                "metadata is version {actual}, expected {expected_document_version}"
+                "metadata is version {actual}, expected {}",
+                input.expected_document_version
             )));
         }
         let changed = sqlx::query(
             "UPDATE native_document_participants SET removed_at=now() \
              WHERE document_id=$1 AND actor_id=$2 AND removed_at IS NULL",
         )
-        .bind(document_id)
-        .bind(participant_actor_id)
+        .bind(input.document_id)
+        .bind(input.participant_actor_id)
         .execute(&mut *tx)
         .await?
         .rows_affected();
@@ -3557,24 +3953,34 @@ impl OrgIntel {
         let document_version: i64 = sqlx::query_scalar(
             "UPDATE native_documents SET version=version+1 WHERE id=$1 RETURNING version",
         )
-        .bind(document_id)
+        .bind(input.document_id)
         .fetch_one(&mut *tx)
+        .await?;
+        let result = record_document_command(
+            &mut tx,
+            input.command_id,
+            input.document_id,
+            "participant_remove",
+            &fingerprint,
+            input.document_id,
+            input.actor_id,
+        )
         .await?;
         append_document_event(
             &mut tx,
             "document.participant.removed.v1",
-            document_id,
-            actor_id,
+            input.document_id,
+            input.actor_id,
             json!({
-                "document_id": document_id,
+                "document_id": input.document_id,
                 "document_version": document_version,
-                "participant_actor_id": participant_actor_id,
+                "participant_actor_id": input.participant_actor_id,
                 "participant_status": "removed",
             }),
         )
         .await?;
         tx.commit().await?;
-        Ok(())
+        Ok(result)
     }
 
     pub async fn create_document_comment_thread(
@@ -3606,6 +4012,7 @@ impl OrgIntel {
             &mut tx,
             input.command_id,
             input.document_id,
+            input.actor_id,
             "comment_thread_create",
             &fingerprint,
         )
@@ -3767,6 +4174,7 @@ impl OrgIntel {
             &mut tx,
             input.command_id,
             input.document_id,
+            input.actor_id,
             "comment_reply",
             &fingerprint,
         )
@@ -3891,6 +4299,7 @@ impl OrgIntel {
             &mut tx,
             input.command_id,
             input.document_id,
+            input.actor_id,
             "comment_thread_resolve",
             &fingerprint,
         )
@@ -4118,6 +4527,7 @@ impl OrgIntel {
             &mut tx,
             input.command_id,
             input.document_id,
+            input.actor_id,
             "review_request",
             &fingerprint,
         )
@@ -4334,6 +4744,7 @@ impl OrgIntel {
             &mut tx,
             input.command_id,
             input.document_id,
+            input.actor_id,
             "review_accept",
             &fingerprint,
         )
@@ -4587,6 +4998,7 @@ impl OrgIntel {
             &mut tx,
             input.command_id,
             input.document_id,
+            input.actor_id,
             "revision_propose",
             &fingerprint,
         )
@@ -4800,6 +5212,7 @@ impl OrgIntel {
             &mut tx,
             input.command_id,
             input.document_id,
+            input.actor_id,
             operation,
             &fingerprint,
         )
