@@ -6,7 +6,7 @@
 //! participant-relative cursor semantics around it.
 
 use super::*;
-use crate::events::{EVENT_COMPACTION_KIND, MAX_EVENT_REPLAY_LIMIT};
+use crate::events::MAX_EVENT_REPLAY_LIMIT;
 use sha2::Sha256;
 use std::collections::{BTreeSet, HashMap};
 
@@ -492,18 +492,16 @@ async fn append_room_event(
     message_id: Option<i64>,
     body: serde_json::Value,
 ) -> Result<i64> {
-    Ok(sqlx::query_scalar(
-        "INSERT INTO events \
-         (kind,room_id,actor_id,message_id,body) \
-         VALUES ($1,$2,$3,$4,$5) RETURNING id",
+    Ok(
+        sqlx::query_scalar("SELECT orgintel_append_room_event($1,$2,$3,$4,$5)")
+            .bind(event_kind)
+            .bind(room_id)
+            .bind(actor_id)
+            .bind(message_id)
+            .bind(body)
+            .fetch_one(&mut **tx)
+            .await?,
     )
-    .bind(event_kind)
-    .bind(room_id)
-    .bind(actor_id)
-    .bind(message_id)
-    .bind(body)
-    .fetch_one(&mut **tx)
-    .await?)
 }
 
 /// Fence an Actor's current free-form conversation and terminally consume
@@ -2641,38 +2639,33 @@ impl OrgIntel {
         }
 
         let mut tx = self.pool.begin().await?;
-        // Match Room writer lock order before waiting for a stable committed
-        // event prefix. A guessed id and a former participant fail here and
-        // learn no cursor, retention or event metadata about the Room.
+        // Match Room writer lock order before capturing a stable committed
+        // prefix. A guessed id and a former participant fail here and learn no
+        // cursor, retention or event metadata about the Room.
         active_room_kind(&mut tx, room_id, requesting_actor).await?;
-        // Event identities are allocated before commit. The shared table lock
-        // drains earlier writers so advancing to `snapshot_cursor` cannot skip
-        // a lower id that commits later.
-        sqlx::query("LOCK TABLE events IN SHARE MODE")
-            .execute(&mut *tx)
-            .await?;
-
-        let compacted_through_event_id: i64 = sqlx::query_scalar(
-            "SELECT COALESCE(MAX((body->>'through_event_id')::BIGINT),0) \
-             FROM events WHERE kind=$1",
+        // Every Room writer takes this row FOR UPDATE before its event identity
+        // is allocated. Holding it FOR SHARE therefore exposes a committed
+        // prefix for this Room without stopping writers in any other Room.
+        let (snapshot_cursor, compacted_through_event_id): (i64, i64) = sqlx::query_as(
+            "SELECT last_event_id,compacted_through_event_id \
+             FROM room_event_streams WHERE room_id=$1 FOR SHARE",
         )
-        .bind(EVENT_COMPACTION_KIND)
+        .bind(room_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| {
+            OrgIntelError::InvalidRoom("an active Room lost its event stream watermark".into())
+        })?;
+        let oldest_available_event_id: Option<i64> = sqlx::query_scalar(
+            "SELECT MIN(id) FROM events \
+             WHERE room_id=$1 AND id>$2 \
+               AND (kind<>'room.read_cursor.advanced.v1' OR actor_id=$3)",
+        )
+        .bind(room_id)
+        .bind(compacted_through_event_id)
+        .bind(requesting_actor)
         .fetch_one(&mut *tx)
         .await?;
-        let (oldest_available_event_id, newest_event_id): (Option<i64>, Option<i64>) =
-            sqlx::query_as(
-                "SELECT MIN(id) FILTER ( \
-                           WHERE room_id=$1 AND id>$2 \
-                             AND (kind<>'room.read_cursor.advanced.v1' OR actor_id=$3) \
-                         ),MAX(id) \
-                 FROM events",
-            )
-            .bind(room_id)
-            .bind(compacted_through_event_id)
-            .bind(requesting_actor)
-            .fetch_one(&mut *tx)
-            .await?;
-        let snapshot_cursor = newest_event_id.unwrap_or(0);
         let resync_required =
             after_event_id < compacted_through_event_id || after_event_id > snapshot_cursor;
 
@@ -2710,9 +2703,9 @@ impl OrgIntel {
                 .expect("a page with another row contains the requested prefix")
                 .id
         } else {
-            // The lock proved there is no omitted event for this Room at or
-            // below this company cursor. Skip unrelated/private stream rows
-            // rather than forcing the client to rescan them forever.
+            // The Room watermark proves there is no omitted visible event at
+            // or below this Room's committed prefix. Hidden read-cursor hints
+            // can be skipped because they can never become visible later.
             snapshot_cursor
         };
         Ok(RoomEventReplayPage {

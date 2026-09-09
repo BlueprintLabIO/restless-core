@@ -1258,6 +1258,95 @@ async fn room_event_replay_requires_resync_after_compaction_and_access_after_rem
 }
 
 #[tokio::test]
+async fn a_slow_room_replay_does_not_block_an_unrelated_room_writer() {
+    let Some(org) = company("roomreplayisolation").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Room replay isolation scenario");
+        return;
+    };
+
+    let slow_room = org
+        .create_room(
+            "owner",
+            RoomKind::Group,
+            "Slow replay",
+            &["exec"],
+            "slow-room-replay-isolation",
+        )
+        .await
+        .unwrap();
+    let independent_room = org
+        .create_room(
+            "owner",
+            RoomKind::Group,
+            "Independent writer",
+            &["delivery-build"],
+            "independent-room-replay-isolation",
+        )
+        .await
+        .unwrap();
+
+    // Hold the exact lock used while one replay captures its committed Room
+    // prefix. A same-Room writer must wait; an unrelated Room writer must not.
+    let database_url = std::env::var("RESTLESS_TEST_DATABASE_URL").unwrap();
+    let mut raw = PgConnection::connect(&database_url).await.unwrap();
+    sqlx::query(&format!("SET search_path TO {}", org.schema()))
+        .execute(&mut raw)
+        .await
+        .unwrap();
+    let mut slow_replay = raw.begin().await.unwrap();
+    sqlx::query("SELECT room_id FROM room_event_streams WHERE room_id=$1 FOR SHARE")
+        .bind(slow_room.id)
+        .execute(&mut *slow_replay)
+        .await
+        .unwrap();
+
+    let blocked_org = org.clone();
+    let mut same_room_write = Box::pin(async move {
+        blocked_org
+            .send_room_message(
+                slow_room.id,
+                "owner",
+                "Wait for this Room's replay",
+                None,
+                "same-room-replay-lock",
+            )
+            .await
+    });
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), &mut same_room_write)
+            .await
+            .is_err(),
+        "the same Room writer must wait for its replay watermark lock"
+    );
+
+    let independent = tokio::time::timeout(
+        Duration::from_secs(2),
+        org.send_room_message(
+            independent_room.id,
+            "owner",
+            "This Room remains available",
+            None,
+            "independent-room-write",
+        ),
+    )
+    .await
+    .expect("an unrelated Room writer must not wait for the slow replay")
+    .unwrap();
+    assert!(independent.created);
+
+    slow_replay.commit().await.unwrap();
+    let same_room = tokio::time::timeout(Duration::from_secs(2), same_room_write)
+        .await
+        .expect("the same Room writer resumes after replay releases its watermark")
+        .unwrap();
+    assert!(same_room.created);
+    assert!(
+        same_room.event_id > independent.event_id,
+        "the blocked Room writer must allocate its event identity only after acquiring its stream row"
+    );
+}
+
+#[tokio::test]
 async fn legacy_owner_conversation_and_direct_room_share_message_truth() {
     let Some(org) = company("roomcompat").await else {
         eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Rooms compatibility scenario");

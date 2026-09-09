@@ -212,6 +212,25 @@ impl OrgIntel {
             return Ok(0);
         }
 
+        // Preserve an exact per-Room retention floor before deleting the
+        // compacted prefix. Replays hold their one stream row FOR SHARE, so a
+        // replay and compaction of that Room serialize without every ordinary
+        // Room replay taking a global event-table lock.
+        sqlx::query(
+            "WITH compacted_rooms AS ( \
+                 SELECT room_id,MAX(id) AS event_id FROM events \
+                 WHERE id<=$1 AND room_id IS NOT NULL GROUP BY room_id \
+             ) \
+             UPDATE room_event_streams AS stream \
+             SET compacted_through_event_id=GREATEST( \
+                     stream.compacted_through_event_id,compacted.event_id \
+                 ),updated_at=now() \
+             FROM compacted_rooms AS compacted \
+             WHERE stream.room_id=compacted.room_id",
+        )
+        .bind(through_event_id)
+        .execute(&mut *tx)
+        .await?;
         sqlx::query("INSERT INTO events (kind,body) VALUES ($1,$2)")
             .bind(EVENT_COMPACTION_KIND)
             .bind(serde_json::json!({ "through_event_id": through_event_id }))
