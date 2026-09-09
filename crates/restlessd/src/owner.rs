@@ -419,7 +419,7 @@ struct RoomReadCursorInput {
 #[derive(Debug, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 struct RoomPageQuery {
-    after_message_id: Option<i64>,
+    before_message_id: Option<i64>,
     limit: Option<i64>,
 }
 
@@ -3523,8 +3523,8 @@ type TimestampUuidCursor = (DateTime<Utc>, Uuid);
 fn room_page_bounds(
     query: RoomPageQuery,
 ) -> std::result::Result<(Option<i64>, i64), PageBoundsError> {
-    if query.after_message_id.is_some_and(|cursor| cursor < 0) {
-        return Err(("message_cursor", "after_message_id must be non-negative"));
+    if query.before_message_id.is_some_and(|cursor| cursor <= 0) {
+        return Err(("message_cursor", "before_message_id must be positive"));
     }
     let limit = query.limit.unwrap_or(50);
     if !(1..=100).contains(&limit) {
@@ -3533,7 +3533,7 @@ fn room_page_bounds(
             "Room message limit must be between 1 and 100",
         ));
     }
-    Ok((query.after_message_id, limit))
+    Ok((query.before_message_id, limit))
 }
 
 fn room_list_bounds(
@@ -3798,7 +3798,7 @@ async fn list_room_messages(
     AxumPath((company, room)): AxumPath<(String, Uuid)>,
     Query(query): Query<RoomPageQuery>,
 ) -> Response<Body> {
-    let (after_message_id, limit) = match room_page_bounds(query) {
+    let (before_message_id, limit) = match room_page_bounds(query) {
         Ok(bounds) => bounds,
         Err((error, message)) => return api_error(StatusCode::BAD_REQUEST, error, message),
     };
@@ -3807,7 +3807,7 @@ async fn list_room_messages(
         Err(response) => return response,
     };
     match org
-        .room_messages_after(principal.actor_id(), room, after_message_id, limit)
+        .room_messages_before(principal.actor_id(), room, before_message_id, limit)
         .await
     {
         Ok(page) => Json(page).into_response(),
@@ -4195,7 +4195,7 @@ async fn list_room_thread(
             "a Room thread needs a positive message id",
         );
     }
-    let (after_message_id, limit) = match room_page_bounds(query) {
+    let (before_message_id, limit) = match room_page_bounds(query) {
         Ok(bounds) => bounds,
         Err((error, message)) => return api_error(StatusCode::BAD_REQUEST, error, message),
     };
@@ -4204,7 +4204,13 @@ async fn list_room_thread(
         Err(response) => return response,
     };
     match org
-        .room_thread_after(principal.actor_id(), room, message, after_message_id, limit)
+        .room_thread_before(
+            principal.actor_id(),
+            room,
+            message,
+            before_message_id,
+            limit,
+        )
         .await
     {
         Ok(page) => Json(page).into_response(),
@@ -7404,16 +7410,16 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(first_page["messages"].as_array().unwrap().len(), 2);
         assert_eq!(first_page["has_more"], true);
-        let page_cursor = first_page["next_after_message_id"].as_i64().unwrap();
+        let page_cursor = first_page["next_before_message_id"].as_i64().unwrap();
         let (status, second_page) = room_request(
             &alice,
             Method::GET,
-            format!("{messages_path}?after_message_id={page_cursor}&limit=10"),
+            format!("{messages_path}?before_message_id={page_cursor}&limit=10"),
             None,
         )
         .await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(second_page["messages"].as_array().unwrap().len(), 2);
+        assert_eq!(second_page["messages"].as_array().unwrap().len(), 1);
         assert_eq!(second_page["has_more"], false);
 
         let thread_path = format!(

@@ -138,7 +138,7 @@ async fn room_send_is_idempotent_threaded_paginated_and_transactional() {
     assert_eq!(nested.message.thread_root_message_id, Some(root.message.id));
 
     let first_page = org
-        .room_messages_after("owner", room.id, None, 2)
+        .room_messages_before("owner", room.id, None, 2)
         .await
         .unwrap();
     assert_eq!(first_page.messages.len(), 2);
@@ -149,10 +149,10 @@ async fn room_send_is_idempotent_threaded_paginated_and_transactional() {
             .iter()
             .map(|message| message.id)
             .collect::<Vec<_>>(),
-        vec![root.message.id, standard_message.message.id]
+        vec![standard_message.message.id, second_root.message.id]
     );
     let second_page = org
-        .room_messages_after("owner", room.id, first_page.next_after_message_id, 2)
+        .room_messages_before("owner", room.id, first_page.next_before_message_id, 2)
         .await
         .unwrap();
     assert_eq!(
@@ -161,25 +161,13 @@ async fn room_send_is_idempotent_threaded_paginated_and_transactional() {
             .iter()
             .map(|message| message.id)
             .collect::<Vec<_>>(),
-        vec![second_root.message.id, reply.message.id]
+        vec![root.message.id]
     );
-    assert!(second_page.has_more);
-    let third_page = org
-        .room_messages_after("owner", room.id, second_page.next_after_message_id, 2)
-        .await
-        .unwrap();
-    assert_eq!(
-        third_page
-            .messages
-            .iter()
-            .map(|message| message.id)
-            .collect::<Vec<_>>(),
-        vec![nested.message.id]
-    );
-    assert!(!third_page.has_more);
+    assert!(!second_page.has_more);
+    assert_eq!(second_page.next_before_message_id, None);
 
     let thread = org
-        .room_thread_after("exec", room.id, nested.message.id, None, 10)
+        .room_thread_before("exec", room.id, nested.message.id, None, 10)
         .await
         .unwrap();
     assert_eq!(
@@ -190,6 +178,39 @@ async fn room_send_is_idempotent_threaded_paginated_and_transactional() {
             .collect::<Vec<_>>(),
         vec![root.message.id, reply.message.id, nested.message.id]
     );
+
+    let latest_thread_page = org
+        .room_thread_before("exec", room.id, nested.message.id, None, 1)
+        .await
+        .unwrap();
+    assert_eq!(
+        latest_thread_page
+            .messages
+            .iter()
+            .map(|message| message.id)
+            .collect::<Vec<_>>(),
+        vec![root.message.id, nested.message.id]
+    );
+    assert!(latest_thread_page.has_more);
+    let older_thread_page = org
+        .room_thread_before(
+            "exec",
+            room.id,
+            nested.message.id,
+            latest_thread_page.next_before_message_id,
+            1,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        older_thread_page
+            .messages
+            .iter()
+            .map(|message| message.id)
+            .collect::<Vec<_>>(),
+        vec![root.message.id, reply.message.id]
+    );
+    assert!(!older_thread_page.has_more);
 
     let cursor = org
         .mark_room_read_through(room.id, "exec", nested.message.id)
@@ -216,7 +237,7 @@ async fn room_send_is_idempotent_threaded_paginated_and_transactional() {
         .any(|event| event.kind == "room.read_cursor.advanced.v1"));
 
     assert!(org
-        .room_messages_after("delivery-build", room.id, None, 10)
+        .room_messages_before("delivery-build", room.id, None, 10)
         .await
         .unwrap_err()
         .to_string()
@@ -265,7 +286,7 @@ async fn room_send_is_idempotent_threaded_paginated_and_transactional() {
         "an invalid message cannot leave an operational event behind"
     );
     assert!(org
-        .room_messages_after("owner", room.id, None, 100)
+        .room_messages_before("owner", room.id, None, 100)
         .await
         .unwrap()
         .messages
@@ -579,7 +600,7 @@ async fn structured_mentions_are_retry_safe_recipient_relative_and_explicitly_re
         .to_string()
         .contains("cannot receive"));
     assert!(org
-        .room_messages_after("owner", room.id, None, 100)
+        .room_messages_before("owner", room.id, None, 100)
         .await
         .unwrap()
         .messages
@@ -823,7 +844,7 @@ async fn structured_mentions_are_retry_safe_recipient_relative_and_explicitly_re
         .unwrap();
 
     let page = org
-        .room_thread_after("owner", room.id, sent.message.id, None, 20)
+        .room_thread_before("owner", room.id, sent.message.id, None, 20)
         .await
         .unwrap();
     assert_eq!(page.mentions.len(), 2);
@@ -911,7 +932,7 @@ async fn room_send_retry_keeps_its_receipt_after_event_compaction() {
 
     let cursor_before_retry = org.event_stream_snapshot_cursor().await.unwrap();
     let messages_before_retry = org
-        .room_messages_after("owner", room.id, None, 10)
+        .room_messages_before("owner", room.id, None, 10)
         .await
         .unwrap()
         .messages
@@ -937,7 +958,7 @@ async fn room_send_retry_keeps_its_receipt_after_event_compaction() {
         "an exact retry must not append another operational event"
     );
     assert_eq!(
-        org.room_messages_after("owner", room.id, None, 10)
+        org.room_messages_before("owner", room.id, None, 10)
             .await
             .unwrap()
             .messages
@@ -1456,7 +1477,7 @@ async fn legacy_owner_conversation_and_direct_room_share_message_truth() {
         .find(|room| room.kind == RoomKind::Direct)
         .expect("the compatibility bridge creates one direct Room");
     let bridged = org
-        .room_messages_after("owner", direct.id, None, 20)
+        .room_messages_before("owner", direct.id, None, 20)
         .await
         .unwrap();
     assert_eq!(
@@ -1565,7 +1586,7 @@ async fn canonical_room_audiences_cannot_be_claimed_or_mutated_by_members() {
         .unwrap();
     let other_company = company("roomaccessother").await.unwrap();
     assert!(other_company
-        .room_messages_after("owner", company_room.id, None, 10)
+        .room_messages_before("owner", company_room.id, None, 10)
         .await
         .unwrap_err()
         .to_string()
@@ -2273,7 +2294,7 @@ async fn lifecycle_revocation_preserves_named_mentions_fences_output_and_reclaim
         .unwrap()
         .is_some());
     let thread = org
-        .room_thread_after("owner", room.id, question.message.id, None, 20)
+        .room_thread_before("owner", room.id, question.message.id, None, 20)
         .await
         .unwrap();
     assert_eq!(thread.mentions.len(), 1);
@@ -2456,7 +2477,7 @@ async fn actor_retirement_and_room_removal_share_one_lock_order_and_cancel_once(
     removed.unwrap();
 
     let mention = org
-        .room_messages_after("owner", room.id, None, 20)
+        .room_messages_before("owner", room.id, None, 20)
         .await
         .unwrap()
         .mentions

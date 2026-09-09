@@ -296,6 +296,10 @@ pub enum OrgIntelError {
     RoomAccessDenied(String),
     #[error("Room command conflicts with its original payload: {0}")]
     RoomCommandConflict(String),
+    #[error("invalid Actor context: {0}")]
+    InvalidContext(String),
+    #[error("Actor context conflict: {0}")]
+    ContextConflict(String),
     #[error("invalid operational event cursor: {0}")]
     InvalidEventCursor(String),
     #[error("entry assertion has already been consumed")]
@@ -1284,7 +1288,10 @@ pub struct RoomMessagePage {
     /// Structured mentions for the Messages in this page. Bodies are never
     /// duplicated here; clients join on `message_id`.
     pub mentions: Vec<MessageMentionRow>,
-    pub next_after_message_id: Option<i64>,
+    /// Oldest Message in this page when more history exists. Supplying it as
+    /// `before_message_id` returns the next older page. Pages themselves stay
+    /// chronological so clients never have to reverse conversational order.
+    pub next_before_message_id: Option<i64>,
     pub has_more: bool,
 }
 

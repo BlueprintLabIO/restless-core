@@ -1930,27 +1930,29 @@ impl OrgIntel {
         })
     }
 
-    /// Keyset pagination over Room messages, oldest first. A cursor is only a
-    /// watermark; it grants no access and is safe to replay after reconnect.
-    pub async fn room_messages_after(
+    /// Keyset pagination over Room messages. A normal read opens on the most
+    /// recent bounded page; `before_message_id` walks backwards through older
+    /// history. Each returned page remains chronological for direct rendering.
+    /// A cursor is only a watermark; it grants no access.
+    pub async fn room_messages_before(
         &self,
         requesting_actor: &str,
         room_id: Uuid,
-        after_message_id: Option<i64>,
+        before_message_id: Option<i64>,
         limit: i64,
     ) -> Result<RoomMessagePage> {
-        self.room_message_page(requesting_actor, room_id, after_message_id, limit, None)
+        self.room_message_page(requesting_actor, room_id, before_message_id, limit, None)
             .await
     }
 
     /// One reply tree. Passing any member of the tree resolves its canonical
     /// root before the page is read.
-    pub async fn room_thread_after(
+    pub async fn room_thread_before(
         &self,
         requesting_actor: &str,
         room_id: Uuid,
         thread_message_id: i64,
-        after_message_id: Option<i64>,
+        before_message_id: Option<i64>,
         limit: i64,
     ) -> Result<RoomMessagePage> {
         let mut tx = self.pool.begin().await?;
@@ -1968,7 +1970,7 @@ impl OrgIntel {
         self.room_message_page(
             requesting_actor,
             room_id,
-            after_message_id,
+            before_message_id,
             limit,
             Some(root_message_id),
         )
@@ -1979,59 +1981,80 @@ impl OrgIntel {
         &self,
         requesting_actor: &str,
         room_id: Uuid,
-        after_message_id: Option<i64>,
+        before_message_id: Option<i64>,
         limit: i64,
         thread_root_message_id: Option<i64>,
     ) -> Result<RoomMessagePage> {
         let limit = limit.clamp(1, 100);
         let mut tx = self.pool.begin().await?;
         active_room_kind(&mut tx, room_id, requesting_actor).await?;
-        let mut messages: Vec<RoomMessageRow> =
+        let (messages, has_more, next_before_message_id) =
             if let Some(thread_root_message_id) = thread_root_message_id {
-                sqlx::query_as(
+                // The root is a context anchor, not part of the reply page. It
+                // is therefore returned on every page while the cursor walks
+                // only the replies. Clients may deduplicate it by stable id.
+                let root = room_message_in_tx(&mut tx, room_id, thread_root_message_id).await?;
+                let mut replies: Vec<RoomMessageRow> = sqlx::query_as(
                     "SELECT id,room_id,from_actor,to_actor,body,outcome_standard, \
                         parent_message_id,thread_root_message_id,client_command_id,created_at, \
                         read_at AS legacy_read_at \
-                 FROM messages \
-                 WHERE room_id=$1 AND id>COALESCE($2,0) \
-                   AND (id=$3 OR thread_root_message_id=$3) \
-                 ORDER BY id LIMIT $4",
+                     FROM messages \
+                     WHERE room_id=$1 AND id<COALESCE($2,9223372036854775807) \
+                       AND thread_root_message_id=$3 \
+                     ORDER BY id DESC LIMIT $4",
                 )
                 .bind(room_id)
-                .bind(after_message_id)
+                .bind(before_message_id)
                 .bind(thread_root_message_id)
                 .bind(limit + 1)
                 .fetch_all(&mut *tx)
-                .await?
+                .await?;
+                let has_more = replies.len() as i64 > limit;
+                if has_more {
+                    replies.truncate(limit as usize);
+                }
+                replies.reverse();
+                let next_before_message_id = has_more.then(|| replies[0].id);
+                let mut messages = Vec::with_capacity(replies.len() + 1);
+                messages.push(root);
+                messages.extend(replies);
+                (messages, has_more, next_before_message_id)
             } else {
-                sqlx::query_as(
+                // A Room opens on recent top-level conversation. Replies are
+                // read through their Thread so a page containing only replies
+                // can never render as an apparently empty Room.
+                let mut roots: Vec<RoomMessageRow> = sqlx::query_as(
                     "SELECT id,room_id,from_actor,to_actor,body,outcome_standard, \
                         parent_message_id,thread_root_message_id,client_command_id,created_at, \
                         read_at AS legacy_read_at \
-                 FROM messages WHERE room_id=$1 AND id>COALESCE($2,0) \
-                 ORDER BY id LIMIT $3",
+                     FROM messages \
+                     WHERE room_id=$1 AND id<COALESCE($2,9223372036854775807) \
+                       AND parent_message_id IS NULL \
+                     ORDER BY id DESC LIMIT $3",
                 )
                 .bind(room_id)
-                .bind(after_message_id)
+                .bind(before_message_id)
                 .bind(limit + 1)
                 .fetch_all(&mut *tx)
-                .await?
+                .await?;
+                let has_more = roots.len() as i64 > limit;
+                if has_more {
+                    roots.truncate(limit as usize);
+                }
+                roots.reverse();
+                let next_before_message_id = has_more.then(|| roots[0].id);
+                (roots, has_more, next_before_message_id)
             };
-        let has_more = messages.len() as i64 > limit;
-        if has_more {
-            messages.truncate(limit as usize);
-        }
         let message_ids = messages
             .iter()
             .map(|message| message.id)
             .collect::<Vec<_>>();
         let mentions = message_mentions_for_messages_in_tx(&mut tx, &message_ids).await?;
         tx.commit().await?;
-        let next_after_message_id = messages.last().map(|message| message.id);
         Ok(RoomMessagePage {
             messages,
             mentions,
-            next_after_message_id,
+            next_before_message_id,
             has_more,
         })
     }
