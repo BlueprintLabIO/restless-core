@@ -11,12 +11,12 @@ use std::sync::Arc;
 
 use anyhow::{bail, Context as _, Result};
 use base64::Engine as _;
-use chrono::{DateTime, Utc};
 #[cfg(test)]
 use chrono::Duration;
-use ed25519_dalek::{Signer as _, SigningKey};
+use chrono::{DateTime, Utc};
 #[cfg(test)]
 use ed25519_dalek::{Signature, Verifier as _};
+use ed25519_dalek::{Signer as _, SigningKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use url::{Host, Url};

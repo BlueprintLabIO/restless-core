@@ -33,6 +33,13 @@ struct StoreRow {
     current_projection_json: Option<Value>,
 }
 
+fn sqlstate(error: &sqlx::Error) -> Option<String> {
+    error
+        .as_database_error()
+        .and_then(|database| database.code())
+        .map(|code| code.into_owned())
+}
+
 async fn fixture() -> Option<(OrgIntel, String, String, Uuid, Uuid, Value)> {
     let database_url = std::env::var("RESTLESS_TEST_DATABASE_URL").ok()?;
     let schema = format!("doclive{}", Uuid::new_v4().simple());
@@ -128,6 +135,75 @@ async fn live_state_is_seeded_cas_stored_replayed_and_recovered() {
     assert_eq!(seed.content_hash.len(), 64);
 
     let now = Utc::now();
+    let null_session_scope: bool = sqlx::query_scalar(
+        "SELECT orgintel_native_document_collaboration_consume($1,$2,$3,$4,$5,$6,$7)",
+    )
+    .bind(company_id)
+    .bind(document_id)
+    .bind(Option::<&str>::None)
+    .bind(Uuid::new_v4())
+    .bind("write")
+    .bind(now)
+    .bind(now + Duration::seconds(60))
+    .fetch_one(&mut db)
+    .await
+    .unwrap();
+    assert!(!null_session_scope);
+
+    let invalid_store = |error: &sqlx::Error| assert_eq!(sqlstate(error).as_deref(), Some("22023"));
+    let null_revision = sqlx::query_as::<_, StoreRow>(
+        "SELECT outcome,state_revision,checkpoint_named_version_id,content_hash,\
+                current_yjs_state,current_projection_json \
+         FROM orgintel_native_document_yjs_store($1,$2,$3,$4,$5,$6,$7)",
+    )
+    .bind(company_id)
+    .bind(document_id)
+    .bind(Option::<i64>::None)
+    .bind(seed.checkpoint_named_version_id)
+    .bind(Uuid::new_v4())
+    .bind(vec![1_u8, 2])
+    .bind(json!({"type":"doc","content":[]}))
+    .fetch_one(&mut db)
+    .await
+    .unwrap_err();
+    invalid_store(&null_revision);
+    let null_checkpoint = sqlx::query_as::<_, StoreRow>(
+        "SELECT outcome,state_revision,checkpoint_named_version_id,content_hash,\
+                current_yjs_state,current_projection_json \
+         FROM orgintel_native_document_yjs_store($1,$2,$3,$4,$5,$6,$7)",
+    )
+    .bind(company_id)
+    .bind(document_id)
+    .bind(0_i64)
+    .bind(Option::<Uuid>::None)
+    .bind(Uuid::new_v4())
+    .bind(vec![1_u8, 2])
+    .bind(json!({"type":"doc","content":[]}))
+    .fetch_one(&mut db)
+    .await
+    .unwrap_err();
+    invalid_store(&null_checkpoint);
+    let nil_store_id = sqlx::query_as::<_, StoreRow>(
+        "SELECT outcome,state_revision,checkpoint_named_version_id,content_hash,\
+                current_yjs_state,current_projection_json \
+         FROM orgintel_native_document_yjs_store($1,$2,$3,$4,$5,$6,$7)",
+    )
+    .bind(company_id)
+    .bind(document_id)
+    .bind(0_i64)
+    .bind(seed.checkpoint_named_version_id)
+    .bind(Uuid::nil())
+    .bind(vec![1_u8, 2])
+    .bind(json!({"type":"doc","content":[]}))
+    .fetch_one(&mut db)
+    .await
+    .unwrap_err();
+    invalid_store(&nil_store_id);
+    assert_eq!(
+        load(&mut db, company_id, document_id).await.source_kind,
+        "seed"
+    );
+
     let session_id = Uuid::new_v4();
     let consumed: bool = sqlx::query_scalar(
         "SELECT orgintel_native_document_collaboration_consume($1,$2,$3,$4,$5,$6,$7)",
@@ -220,13 +296,7 @@ async fn live_state_is_seeded_cas_stored_replayed_and_recovered() {
     .fetch_one(&mut db)
     .await
     .unwrap_err();
-    assert_eq!(
-        collision
-            .as_database_error()
-            .and_then(|error| error.code())
-            .as_deref(),
-        Some("23505")
-    );
+    assert_eq!(sqlstate(&collision).as_deref(), Some("23505"));
 
     let stale: StoreRow = sqlx::query_as(
         "SELECT outcome,state_revision,checkpoint_named_version_id,content_hash,\

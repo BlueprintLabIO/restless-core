@@ -94,7 +94,14 @@ DECLARE
   identity_matches BOOLEAN;
   subject_matches BOOLEAN;
 BEGIN
-  IF requested_company_id='00000000-0000-0000-0000-000000000000'::UUID
+  IF requested_company_id IS NULL
+     OR requested_document_id IS NULL
+     OR requested_actor_id IS NULL
+     OR requested_session_id IS NULL
+     OR requested_access IS NULL
+     OR requested_issued_at IS NULL
+     OR requested_expires_at IS NULL
+     OR requested_company_id='00000000-0000-0000-0000-000000000000'::UUID
      OR requested_document_id='00000000-0000-0000-0000-000000000000'::UUID
      OR requested_session_id='00000000-0000-0000-0000-000000000000'::UUID
      OR requested_access NOT IN ('read', 'write')
@@ -172,6 +179,14 @@ DECLARE
   current_version_id UUID;
   identity_matches BOOLEAN;
 BEGIN
+  IF requested_company_id IS NULL
+     OR requested_document_id IS NULL
+     OR requested_company_id='00000000-0000-0000-0000-000000000000'::UUID
+     OR requested_document_id='00000000-0000-0000-0000-000000000000'::UUID
+  THEN
+    RAISE EXCEPTION USING ERRCODE='P0002', MESSAGE='native document unavailable';
+  END IF;
+
   SELECT pg_catalog.count(*) = 1 INTO identity_matches
   FROM company_access_identity
   WHERE company_id=requested_company_id;
@@ -266,7 +281,16 @@ DECLARE
   identity_matches BOOLEAN;
   live native_document_yjs_state%ROWTYPE;
 BEGIN
-  IF expected_state_revision < 0
+  IF requested_company_id IS NULL
+     OR requested_document_id IS NULL
+     OR expected_state_revision IS NULL
+     OR expected_checkpoint_named_version_id IS NULL
+     OR requested_store_id IS NULL
+     OR requested_company_id='00000000-0000-0000-0000-000000000000'::UUID
+     OR requested_document_id='00000000-0000-0000-0000-000000000000'::UUID
+     OR expected_checkpoint_named_version_id='00000000-0000-0000-0000-000000000000'::UUID
+     OR requested_store_id='00000000-0000-0000-0000-000000000000'::UUID
+     OR expected_state_revision < 0
      OR requested_yjs_state IS NULL
      OR pg_catalog.octet_length(requested_yjs_state) NOT BETWEEN 2 AND 8388608
      OR requested_projection_json IS NULL
