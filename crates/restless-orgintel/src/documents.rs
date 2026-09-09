@@ -8,7 +8,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use sha2::{Digest as _, Sha256};
@@ -22,6 +22,14 @@ const MAX_DOCUMENT_BYTES: usize = 1_000_000;
 const MAX_DOCUMENT_NODES: usize = 20_000;
 const MAX_DOCUMENT_DEPTH: usize = 64;
 const MAX_DOCUMENT_TEXT_CHARS: usize = 500_000;
+pub const MAX_NATIVE_DOCUMENT_MARKDOWN_CHECKPOINT_BYTES: usize = 1_100_000;
+const MAX_DOCUMENT_SEARCH_QUERY_BYTES: usize = 256;
+const MAX_DOCUMENT_SEARCH_OFFSET: i64 = 10_000;
+const MAX_DOCUMENT_SEARCH_PAGE: i64 = 50;
+const MAX_DOCUMENT_SEARCH_SNIPPET_CHARS: usize = 400;
+const MAX_DOCUMENT_LINK_PAGE: i64 = 50;
+pub const NATIVE_DOCUMENT_MARKDOWN_EXPORT_SCHEMA: &str = "restless.native-document.markdown-export";
+pub const NATIVE_DOCUMENT_MARKDOWN_EXPORT_VERSION: u16 = 1;
 pub const NATIVE_DOCUMENT_PORTABLE_ENVELOPE_SCHEMA: &str =
     "restless.native-document.runtime-checkpoint";
 pub const NATIVE_DOCUMENT_PORTABLE_ENVELOPE_VERSION: u16 = 1;
@@ -309,6 +317,84 @@ pub struct DocumentImportResult {
     pub target_document_id: Uuid,
     pub imported_version: DocumentVersionView,
     pub envelope_checksum: String,
+}
+
+/// One explicit Markdown checkpoint of one immutable named version. The
+/// machine-readable front matter is repeated inside `markdown`, so saving only
+/// those bytes preserves the source identity needed for a safe later import.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DocumentMarkdownExport {
+    pub export_schema: String,
+    pub export_version: u16,
+    pub source_company_id: Option<Uuid>,
+    pub source_company_key: String,
+    pub source_document_id: Uuid,
+    pub source_named_version_id: Uuid,
+    pub source_named_version_number: i64,
+    pub source_content_hash: String,
+    pub exported_at: DateTime<Utc>,
+    pub markdown: String,
+}
+
+pub struct ImportDocumentMarkdown<'a> {
+    pub command_id: Uuid,
+    pub document_id: Uuid,
+    pub actor_id: &'a str,
+    pub expected_current_version_id: Uuid,
+    pub markdown: &'a str,
+    pub reason: &'a str,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct DocumentSearchHit {
+    pub document_id: Uuid,
+    pub named_version_id: Uuid,
+    pub title: String,
+    pub kind: DocumentKind,
+    pub snippet: String,
+    pub updated_at: DateTime<Utc>,
+    pub relevance: f32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DocumentSearchPage {
+    pub items: Vec<DocumentSearchHit>,
+    pub next_offset: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct DocumentReferenceSummary {
+    pub source_document_id: Uuid,
+    pub source_document_title: String,
+    pub source_named_version_id: Uuid,
+    pub ordinal: i64,
+    pub target_kind: String,
+    pub target_id: String,
+    pub label: String,
+}
+
+/// Bounded current link summary. `linked_room_id` is the only first-class
+/// metadata link in today's model; the remaining rows are derived solely from
+/// explicit typed reference nodes in the current named version.
+#[derive(Debug, Clone, Serialize)]
+pub struct DocumentLinkSummary {
+    pub document_id: Uuid,
+    pub linked_room_id: Option<Uuid>,
+    pub outgoing: Vec<DocumentReferenceSummary>,
+    pub outgoing_truncated: bool,
+    pub incoming_document_references: Vec<DocumentReferenceSummary>,
+    pub incoming_truncated: bool,
+}
+
+#[derive(Debug)]
+struct ParsedDocumentMarkdown {
+    source_company_id: Option<Uuid>,
+    source_company_key: String,
+    source_document_id: Uuid,
+    source_named_version_id: Uuid,
+    source_named_version_number: i64,
+    source_content_hash: String,
+    content_json: Value,
 }
 
 /// Durable receipt for one explicit Runtime import. The immutable named
@@ -1200,6 +1286,949 @@ fn portable_markdown(envelope: &NativeDocumentPortableEnvelope, content: &str) -
     )
 }
 
+fn markdown_export_body(content: &Value) -> DocumentResult<String> {
+    let blocks = content
+        .as_object()
+        .and_then(|document| document.get("content"))
+        .and_then(Value::as_array)
+        .ok_or_else(|| DocumentError::Corrupt("stored document content is not an array".into()))?;
+    let mut rendered = Vec::with_capacity(blocks.len());
+    for block in blocks {
+        let block_id = block
+            .get("attrs")
+            .and_then(Value::as_object)
+            .and_then(|attrs| attrs.get("block_id"))
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                DocumentError::Corrupt("stored document block has no block_id".into())
+            })?;
+        validate_block_id(block_id).map_err(|error| DocumentError::Corrupt(error.to_string()))?;
+        let mut portable = block.clone();
+        encode_markdown_semantic_nodes(&mut portable)?;
+        let body = render_markdown_block(&portable, 0)?;
+        rendered.push(format!("<!-- restless:block-id: {block_id} -->\n{body}"));
+    }
+    Ok(rendered.join("\n\n").trim_end().to_string())
+}
+
+fn encode_markdown_semantic_nodes(value: &mut Value) -> DocumentResult<()> {
+    let replacement = value.as_object().and_then(|node| {
+        let node_type = node.get("type").and_then(Value::as_str)?;
+        let attrs = node.get("attrs").and_then(Value::as_object)?;
+        match node_type {
+            "reference" => {
+                let kind = attrs.get("kind")?.as_str()?;
+                let id = attrs.get("id")?.as_str()?;
+                let label = attrs.get("label")?.as_str()?;
+                Some(json!({
+                    "type": "text",
+                    "text": label,
+                    "marks": [{
+                        "type": "link",
+                        "attrs": {
+                            "href": format!(
+                                "/__restless/reference/{}/{}",
+                                percent_encode_component(kind),
+                                percent_encode_component(id)
+                            )
+                        }
+                    }]
+                }))
+            }
+            "mention" => {
+                let actor_id = attrs.get("actor_id")?.as_str()?;
+                let label = attrs.get("label")?.as_str()?;
+                Some(json!({
+                    "type": "text",
+                    "text": format!("@{label}"),
+                    "marks": [{
+                        "type": "link",
+                        "attrs": {
+                            "href": format!(
+                                "/__restless/actor/{}",
+                                percent_encode_component(actor_id)
+                            )
+                        }
+                    }]
+                }))
+            }
+            _ => None,
+        }
+    });
+    if let Some(replacement) = replacement {
+        *value = replacement;
+        return Ok(());
+    }
+    if let Some(children) = value
+        .as_object_mut()
+        .and_then(|node| node.get_mut("content"))
+        .and_then(Value::as_array_mut)
+    {
+        for child in children {
+            encode_markdown_semantic_nodes(child)?;
+        }
+    }
+    Ok(())
+}
+
+fn percent_encode_component(value: &str) -> String {
+    let mut encoded = String::new();
+    for byte in value.as_bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            encoded.push(*byte as char);
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    encoded
+}
+
+fn percent_decode_component(value: &str) -> DocumentResult<String> {
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            if index + 2 >= bytes.len() {
+                return Err(DocumentError::Invalid(
+                    "Markdown Restless reference has invalid percent encoding".into(),
+                ));
+            }
+            let hex = std::str::from_utf8(&bytes[index + 1..index + 3]).map_err(|_| {
+                DocumentError::Invalid(
+                    "Markdown Restless reference has invalid percent encoding".into(),
+                )
+            })?;
+            decoded.push(u8::from_str_radix(hex, 16).map_err(|_| {
+                DocumentError::Invalid(
+                    "Markdown Restless reference has invalid percent encoding".into(),
+                )
+            })?);
+            index += 3;
+        } else {
+            decoded.push(bytes[index]);
+            index += 1;
+        }
+    }
+    String::from_utf8(decoded)
+        .map_err(|_| DocumentError::Invalid("Markdown Restless reference is not UTF-8".into()))
+}
+
+fn markdown_export(
+    company_id: Option<Uuid>,
+    company_key: &str,
+    document_id: Uuid,
+    version: &DocumentVersionRow,
+    exported_at: DateTime<Utc>,
+) -> DocumentResult<DocumentMarkdownExport> {
+    let body = markdown_export_body(&version.content_json)?;
+    let hosted_company_id = company_id
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "unbound".into());
+    let markdown = format!(
+        "---\nrestless_document_export: {}\nrestless_document_export_version: {}\n\
+         source_company_id: {}\nsource_company_key: {}\nsource_document_id: {}\n\
+         source_named_version_id: {}\nsource_named_version_number: {}\n\
+         source_content_hash: {}\nexported_at: {}\n---\n\n{}",
+        NATIVE_DOCUMENT_MARKDOWN_EXPORT_SCHEMA,
+        NATIVE_DOCUMENT_MARKDOWN_EXPORT_VERSION,
+        hosted_company_id,
+        company_key,
+        document_id,
+        version.id,
+        version.version_number,
+        version.content_hash,
+        exported_at.to_rfc3339_opts(SecondsFormat::Micros, true),
+        body
+    );
+    if markdown.len() > MAX_NATIVE_DOCUMENT_MARKDOWN_CHECKPOINT_BYTES {
+        return Err(DocumentError::Invalid(format!(
+            "Markdown export exceeds {MAX_NATIVE_DOCUMENT_MARKDOWN_CHECKPOINT_BYTES} bytes"
+        )));
+    }
+    Ok(DocumentMarkdownExport {
+        export_schema: NATIVE_DOCUMENT_MARKDOWN_EXPORT_SCHEMA.into(),
+        export_version: NATIVE_DOCUMENT_MARKDOWN_EXPORT_VERSION,
+        source_company_id: company_id,
+        source_company_key: company_key.into(),
+        source_document_id: document_id,
+        source_named_version_id: version.id,
+        source_named_version_number: version.version_number,
+        source_content_hash: version.content_hash.clone(),
+        exported_at,
+        markdown,
+    })
+}
+
+fn parse_document_markdown(markdown: &str) -> DocumentResult<ParsedDocumentMarkdown> {
+    if markdown.is_empty() || markdown.len() > MAX_NATIVE_DOCUMENT_MARKDOWN_CHECKPOINT_BYTES {
+        return Err(DocumentError::Invalid(format!(
+            "Markdown import must contain 1 to {MAX_NATIVE_DOCUMENT_MARKDOWN_CHECKPOINT_BYTES} bytes"
+        )));
+    }
+    if markdown.contains('\0') || markdown.contains('\r') {
+        return Err(DocumentError::Invalid(
+            "Markdown import must use UTF-8 LF line endings without NUL".into(),
+        ));
+    }
+    let remainder = markdown.strip_prefix("---\n").ok_or_else(|| {
+        DocumentError::Invalid("Markdown import needs Restless export front matter".into())
+    })?;
+    let (header, body) = remainder.split_once("\n---\n").ok_or_else(|| {
+        DocumentError::Invalid("Markdown import has incomplete Restless front matter".into())
+    })?;
+    let mut fields = BTreeMap::<String, String>::new();
+    for line in header.lines() {
+        let (key, value) = line.split_once(':').ok_or_else(|| {
+            DocumentError::Invalid("Markdown export front matter contains an invalid field".into())
+        })?;
+        let key = key.trim();
+        let value = value.trim();
+        if key.is_empty()
+            || value.is_empty()
+            || fields.insert(key.to_string(), value.to_string()).is_some()
+        {
+            return Err(DocumentError::Invalid(
+                "Markdown export front matter has an empty or repeated field".into(),
+            ));
+        }
+    }
+    let allowed = [
+        "restless_document_export",
+        "restless_document_export_version",
+        "source_company_id",
+        "source_company_key",
+        "source_document_id",
+        "source_named_version_id",
+        "source_named_version_number",
+        "source_content_hash",
+        "exported_at",
+    ];
+    if fields.len() != allowed.len() || fields.keys().any(|key| !allowed.contains(&key.as_str())) {
+        return Err(DocumentError::Invalid(
+            "Markdown export front matter has missing or unsupported fields".into(),
+        ));
+    }
+    let field = |name: &str| {
+        fields
+            .get(name)
+            .map(String::as_str)
+            .ok_or_else(|| DocumentError::Invalid(format!("Markdown export is missing {name}")))
+    };
+    if field("restless_document_export")? != NATIVE_DOCUMENT_MARKDOWN_EXPORT_SCHEMA
+        || field("restless_document_export_version")?
+            .parse::<u16>()
+            .ok()
+            != Some(NATIVE_DOCUMENT_MARKDOWN_EXPORT_VERSION)
+    {
+        return Err(DocumentError::Invalid(
+            "Markdown export schema or version is unsupported".into(),
+        ));
+    }
+    let parse_uuid = |name: &str| -> DocumentResult<Uuid> {
+        let value = Uuid::parse_str(field(name)?)
+            .map_err(|_| DocumentError::Invalid(format!("Markdown export {name} is not a UUID")))?;
+        if value.is_nil() {
+            return Err(DocumentError::Invalid(format!(
+                "Markdown export {name} must not be nil"
+            )));
+        }
+        Ok(value)
+    };
+    let source_company_id = match field("source_company_id")? {
+        "unbound" => None,
+        _ => Some(parse_uuid("source_company_id")?),
+    };
+    let source_company_key =
+        clean_bounded("source company key", field("source_company_key")?, 128)?;
+    let source_document_id = parse_uuid("source_document_id")?;
+    let source_named_version_id = parse_uuid("source_named_version_id")?;
+    let source_named_version_number = field("source_named_version_number")?
+        .parse::<i64>()
+        .ok()
+        .filter(|value| *value > 0)
+        .ok_or_else(|| {
+            DocumentError::Invalid("Markdown source named version number must be positive".into())
+        })?;
+    let source_content_hash = field("source_content_hash")?.to_string();
+    if !valid_sha256_hex(&source_content_hash) {
+        return Err(DocumentError::Invalid(
+            "Markdown source content hash is invalid".into(),
+        ));
+    }
+    DateTime::parse_from_rfc3339(field("exported_at")?)
+        .map_err(|_| DocumentError::Invalid("Markdown exported_at must be RFC 3339".into()))?;
+    let content_json = markdown_body_to_document(body.trim_end())?;
+    Ok(ParsedDocumentMarkdown {
+        source_company_id,
+        source_company_key,
+        source_document_id,
+        source_named_version_id,
+        source_named_version_number,
+        source_content_hash,
+        content_json,
+    })
+}
+
+fn markdown_body_to_document(body: &str) -> DocumentResult<Value> {
+    let lines = body.lines().collect::<Vec<_>>();
+    let mut blocks = Vec::new();
+    let mut pending_block_id: Option<String> = None;
+    let mut used_block_ids = HashSet::new();
+    let mut index = 0;
+    while index < lines.len() {
+        let line = lines[index];
+        if line.trim().is_empty() {
+            index += 1;
+            continue;
+        }
+        let unindented = line.trim_start_matches([' ', '\t']);
+        if unindented.len() != line.len() && markdown_list_item(unindented).is_some() {
+            return Err(DocumentError::Invalid(
+                "nested or indented Markdown lists are not supported by checkpoint import".into(),
+            ));
+        }
+        if let Some(block_id) = markdown_block_marker(line) {
+            if pending_block_id.is_some() {
+                return Err(DocumentError::Invalid(
+                    "Markdown contains adjacent block identity markers".into(),
+                ));
+            }
+            let block_id = validate_block_id(block_id)?;
+            if !used_block_ids.insert(block_id.clone()) {
+                return Err(DocumentError::Invalid(
+                    "Markdown repeats a Restless block identity".into(),
+                ));
+            }
+            pending_block_id = Some(block_id);
+            index += 1;
+            continue;
+        }
+
+        let source_start = index;
+        let mut block = if let Some((fence, language)) = markdown_fence(line) {
+            index += 1;
+            let mut code = Vec::new();
+            while index < lines.len() && lines[index].trim() != fence {
+                code.push(lines[index]);
+                index += 1;
+            }
+            if index == lines.len() {
+                return Err(DocumentError::Invalid(
+                    "Markdown code fence is not closed".into(),
+                ));
+            }
+            index += 1;
+            let mut attrs = json!({});
+            if !language.is_empty() {
+                let language = clean_bounded("Markdown code language", language, 64)?;
+                attrs["language"] = Value::String(language);
+            }
+            json!({
+                "type": "codeBlock",
+                "attrs": attrs,
+                "content": if code.is_empty() {
+                    Vec::<Value>::new()
+                } else {
+                    vec![json!({"type":"text","text":code.join("\n")})]
+                }
+            })
+        } else if let Some((level, text)) = markdown_heading(line) {
+            index += 1;
+            json!({
+                "type": "heading",
+                "attrs": {"level": level},
+                "content": parse_markdown_inline(text, 0, &[])?
+            })
+        } else if line.trim() == "---" {
+            index += 1;
+            json!({"type":"horizontalRule","attrs":{}})
+        } else if line.starts_with("> ") || line == ">" {
+            let mut quoted = Vec::new();
+            while index < lines.len() {
+                if let Some(value) = lines[index].strip_prefix("> ") {
+                    quoted.push(value);
+                } else if lines[index] == ">" {
+                    quoted.push("");
+                } else {
+                    break;
+                }
+                index += 1;
+            }
+            let mut quoted_document = markdown_body_to_document(&quoted.join("\n"))?;
+            let mut quoted_content = quoted_document
+                .get_mut("content")
+                .and_then(Value::as_array_mut)
+                .map(std::mem::take)
+                .unwrap_or_default();
+            // Nested blocks do not carry stable editor identities in the
+            // exported Markdown syntax. Drop parser-generated top-level ids
+            // rather than pretending they are source identities.
+            for child in &mut quoted_content {
+                if let Some(attrs) = child.get_mut("attrs").and_then(Value::as_object_mut) {
+                    attrs.remove("block_id");
+                }
+            }
+            json!({
+                "type": "blockquote",
+                "attrs": {},
+                "content": quoted_content
+            })
+        } else if markdown_table_header(&lines, index) {
+            let headings = split_markdown_table_row(lines[index])?;
+            index += 2;
+            let mut rows = vec![markdown_table_row(&headings, true)?];
+            while index < lines.len() && lines[index].trim_start().starts_with('|') {
+                let cells = split_markdown_table_row(lines[index])?;
+                if cells.len() != headings.len() {
+                    return Err(DocumentError::Invalid(
+                        "Markdown table rows must have the same number of cells".into(),
+                    ));
+                }
+                rows.push(markdown_table_row(&cells, false)?);
+                index += 1;
+            }
+            json!({"type":"table","attrs":{},"content":rows})
+        } else if let Some((list_kind, _, _)) = markdown_list_item(line) {
+            let mut items = Vec::new();
+            let mut ordered_start = 1_i64;
+            while index < lines.len() {
+                let Some((next_kind, item_start, item_text)) = markdown_list_item(lines[index])
+                else {
+                    break;
+                };
+                if !same_markdown_list_container(next_kind, list_kind) {
+                    break;
+                }
+                if items.is_empty() {
+                    ordered_start = item_start;
+                }
+                let paragraph = json!({
+                    "type":"paragraph",
+                    "content":parse_markdown_inline(item_text, 0, &[])?
+                });
+                let item = match next_kind {
+                    MarkdownListKind::Task(checked) => json!({
+                        "type":"taskItem",
+                        "attrs":{"checked":checked},
+                        "content":[paragraph]
+                    }),
+                    _ => json!({"type":"listItem","content":[paragraph]}),
+                };
+                items.push(item);
+                index += 1;
+            }
+            match list_kind {
+                MarkdownListKind::Bullet => {
+                    json!({"type":"bulletList","attrs":{},"content":items})
+                }
+                MarkdownListKind::Ordered => json!({
+                    "type":"orderedList",
+                    "attrs":{"start":ordered_start},
+                    "content":items
+                }),
+                MarkdownListKind::Task(_) => {
+                    json!({"type":"taskList","attrs":{},"content":items})
+                }
+            }
+        } else {
+            let mut paragraph = Vec::new();
+            while index < lines.len()
+                && !lines[index].trim().is_empty()
+                && markdown_block_marker(lines[index]).is_none()
+                && (index == source_start || !markdown_starts_structured_block(&lines, index))
+            {
+                paragraph.push(lines[index]);
+                index += 1;
+            }
+            json!({
+                "type":"paragraph",
+                "attrs":{},
+                "content":parse_markdown_paragraph(&paragraph)?
+            })
+        };
+        let source = lines[source_start..index].join("\n");
+        let block_id = pending_block_id
+            .take()
+            .unwrap_or_else(|| markdown_generated_block_id(blocks.len(), &source));
+        used_block_ids.insert(block_id.clone());
+        block
+            .as_object_mut()
+            .expect("Markdown block is an object")
+            .entry("attrs")
+            .or_insert_with(|| json!({}))
+            .as_object_mut()
+            .expect("Markdown block attrs are an object")
+            .insert("block_id".into(), Value::String(block_id));
+        blocks.push(block);
+    }
+    if pending_block_id.is_some() {
+        return Err(DocumentError::Invalid(
+            "Markdown ends with an unused block identity marker".into(),
+        ));
+    }
+    let document = json!({"type":"doc","content":blocks});
+    Ok(validate_document_json(&document)?.content_json)
+}
+
+fn markdown_block_marker(line: &str) -> Option<&str> {
+    line.strip_prefix("<!-- restless:block-id: ")
+        .and_then(|value| value.strip_suffix(" -->"))
+}
+
+fn markdown_generated_block_id(index: usize, source: &str) -> String {
+    let hash = sha256_hex(source.as_bytes());
+    format!("md-{index:04}-{}", &hash[..12])
+}
+
+fn markdown_fence(line: &str) -> Option<(&str, &str)> {
+    let trimmed = line.trim();
+    if let Some(language) = trimmed.strip_prefix("````") {
+        Some(("````", language.trim()))
+    } else {
+        trimmed
+            .strip_prefix("```")
+            .map(|language| ("```", language.trim()))
+    }
+}
+
+fn markdown_heading(line: &str) -> Option<(u64, &str)> {
+    let hashes = line.bytes().take_while(|byte| *byte == b'#').count();
+    if !(1..=6).contains(&hashes) || line.as_bytes().get(hashes) != Some(&b' ') {
+        return None;
+    }
+    Some((hashes as u64, line[hashes + 1..].trim_end()))
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MarkdownListKind {
+    Bullet,
+    Ordered,
+    Task(bool),
+}
+
+fn same_markdown_list_container(left: MarkdownListKind, right: MarkdownListKind) -> bool {
+    matches!(
+        (left, right),
+        (MarkdownListKind::Bullet, MarkdownListKind::Bullet)
+            | (MarkdownListKind::Ordered, MarkdownListKind::Ordered)
+            | (MarkdownListKind::Task(_), MarkdownListKind::Task(_))
+    )
+}
+
+fn markdown_list_item(line: &str) -> Option<(MarkdownListKind, i64, &str)> {
+    if let Some(text) = line.strip_prefix("- [ ] ") {
+        return Some((MarkdownListKind::Task(false), 1, text));
+    }
+    if let Some(text) = line
+        .strip_prefix("- [x] ")
+        .or_else(|| line.strip_prefix("- [X] "))
+    {
+        return Some((MarkdownListKind::Task(true), 1, text));
+    }
+    if let Some(text) = line.strip_prefix("- ").or_else(|| line.strip_prefix("* ")) {
+        return Some((MarkdownListKind::Bullet, 1, text));
+    }
+    let digits = line.bytes().take_while(u8::is_ascii_digit).count();
+    if digits == 0 || line.get(digits..digits + 2) != Some(". ") {
+        return None;
+    }
+    let start = line[..digits].parse::<i64>().ok()?;
+    (1..=100_000).contains(&start).then_some((
+        MarkdownListKind::Ordered,
+        start,
+        &line[digits + 2..],
+    ))
+}
+
+fn markdown_starts_structured_block(lines: &[&str], index: usize) -> bool {
+    let line = lines[index];
+    markdown_fence(line).is_some()
+        || markdown_heading(line).is_some()
+        || markdown_list_item(line).is_some()
+        || line.starts_with("> ")
+        || line == ">"
+        || line.trim() == "---"
+        || markdown_table_header(lines, index)
+}
+
+fn markdown_table_header(lines: &[&str], index: usize) -> bool {
+    if index + 1 >= lines.len() || !lines[index].trim_start().starts_with('|') {
+        return false;
+    }
+    let Ok(separator) = split_markdown_table_row(lines[index + 1]) else {
+        return false;
+    };
+    !separator.is_empty()
+        && separator.iter().all(|cell| {
+            let cell = cell.trim().trim_matches(':');
+            cell.len() >= 3 && cell.bytes().all(|byte| byte == b'-')
+        })
+}
+
+fn split_markdown_table_row(line: &str) -> DocumentResult<Vec<String>> {
+    let line = line.trim();
+    let line = line
+        .strip_prefix('|')
+        .and_then(|line| line.strip_suffix('|'))
+        .ok_or_else(|| {
+            DocumentError::Invalid("Markdown table rows must begin and end with |".into())
+        })?;
+    let mut cells = vec![String::new()];
+    let mut escaped = false;
+    for character in line.chars() {
+        if escaped {
+            cells.last_mut().expect("table has a cell").push(character);
+            escaped = false;
+        } else if character == '\\' {
+            escaped = true;
+        } else if character == '|' {
+            cells.push(String::new());
+        } else {
+            cells.last_mut().expect("table has a cell").push(character);
+        }
+    }
+    if escaped {
+        cells.last_mut().expect("table has a cell").push('\\');
+    }
+    for cell in &mut cells {
+        *cell = cell.trim().replace("<br>", "  \n");
+    }
+    if cells.is_empty() || cells.len() > 64 {
+        return Err(DocumentError::Invalid(
+            "Markdown tables must contain 1 to 64 columns".into(),
+        ));
+    }
+    Ok(cells)
+}
+
+fn markdown_table_row(cells: &[String], heading: bool) -> DocumentResult<Value> {
+    let cell_type = if heading { "tableHeader" } else { "tableCell" };
+    let mut projected = Vec::with_capacity(cells.len());
+    for cell in cells {
+        let lines = cell.lines().collect::<Vec<_>>();
+        projected.push(json!({
+            "type":cell_type,
+            "content":[{
+                "type":"paragraph",
+                "content":parse_markdown_paragraph(&lines)?
+            }]
+        }));
+    }
+    Ok(json!({"type":"tableRow","content":projected}))
+}
+
+fn parse_markdown_paragraph(lines: &[&str]) -> DocumentResult<Vec<Value>> {
+    let mut nodes = Vec::new();
+    for (index, line) in lines.iter().enumerate() {
+        let hard_break = line.ends_with("  ");
+        let line = if hard_break {
+            line.trim_end_matches(' ')
+        } else {
+            line
+        };
+        nodes.extend(parse_markdown_inline(line, 0, &[])?);
+        if index + 1 < lines.len() {
+            if hard_break {
+                nodes.push(json!({"type":"hardBreak"}));
+            } else {
+                push_markdown_text(&mut nodes, " ", &[]);
+            }
+        }
+    }
+    Ok(nodes)
+}
+
+fn parse_markdown_inline(input: &str, depth: usize, marks: &[Value]) -> DocumentResult<Vec<Value>> {
+    if depth > 16 {
+        return Err(DocumentError::Invalid(
+            "Markdown inline formatting is nested too deeply".into(),
+        ));
+    }
+    let mut nodes = Vec::new();
+    let mut plain = String::new();
+    let mut rest = input;
+    while !rest.is_empty() {
+        if let Some(escaped) = rest.strip_prefix('\\') {
+            if let Some(character) = escaped.chars().next() {
+                plain.push(character);
+                rest = &escaped[character.len_utf8()..];
+            } else {
+                plain.push('\\');
+                rest = escaped;
+            }
+            continue;
+        }
+
+        let delimited = [
+            ("**", "**", "bold"),
+            ("__", "__", "bold"),
+            ("~~", "~~", "strike"),
+            ("*", "*", "italic"),
+            ("_", "_", "italic"),
+        ]
+        .into_iter()
+        .find_map(|(open, close, mark)| {
+            rest.strip_prefix(open).and_then(|tail| {
+                tail.find(close)
+                    .filter(|end| *end > 0)
+                    .map(|end| (open, close, mark, tail, end))
+            })
+        });
+        if let Some((open, close, mark, tail, end)) = delimited {
+            push_markdown_text(&mut nodes, &plain, marks);
+            plain.clear();
+            let mut nested_marks = marks.to_vec();
+            nested_marks.push(json!({"type":mark}));
+            nodes.extend(parse_markdown_inline(
+                &tail[..end],
+                depth + 1,
+                &nested_marks,
+            )?);
+            rest = &tail[end + close.len()..];
+            let _ = open;
+            continue;
+        }
+        if let Some(tail) = rest.strip_prefix('`') {
+            if let Some(end) = tail.find('`').filter(|end| *end > 0) {
+                push_markdown_text(&mut nodes, &plain, marks);
+                plain.clear();
+                let mut code_marks = marks.to_vec();
+                code_marks.push(json!({"type":"code"}));
+                push_markdown_text(&mut nodes, &tail[..end], &code_marks);
+                rest = &tail[end + 1..];
+                continue;
+            }
+        }
+        if let Some(label_tail) = rest.strip_prefix('[') {
+            // Exported literal brackets are escaped. Once an unescaped `[` has
+            // no complete link suffix, consume the remainder as literal text
+            // instead of searching the same shrinking suffix again for every
+            // following `[`. Successful scans consume everything they inspect;
+            // one failed scan terminates inline parsing, keeping this path
+            // linear even for a maximum-sized hostile bracket run.
+            let Some(label_end) = markdown_link_label_end(label_tail) else {
+                append_markdown_literal(&mut plain, rest);
+                break;
+            };
+            let href_tail = &label_tail[label_end + 2..];
+            let Some(href_end) = markdown_link_closing_index(href_tail) else {
+                append_markdown_literal(&mut plain, rest);
+                break;
+            };
+            push_markdown_text(&mut nodes, &plain, marks);
+            plain.clear();
+            let label = unescape_markdown(&label_tail[..label_end])?;
+            let (href, title) = parse_markdown_link_target(&href_tail[..href_end])?;
+            if let Some(path) = href.strip_prefix("/__restless/reference/") {
+                if title.is_some() {
+                    return Err(DocumentError::Invalid(
+                        "Markdown Restless references do not accept link titles".into(),
+                    ));
+                }
+                let (kind, id) = path.split_once('/').ok_or_else(|| {
+                    DocumentError::Invalid("Markdown Restless reference is incomplete".into())
+                })?;
+                let kind = percent_decode_component(kind)?;
+                let id = percent_decode_component(id)?;
+                nodes.push(json!({
+                    "type":"reference",
+                    "attrs":{"kind":kind,"id":id,"label":label}
+                }));
+            } else if let Some(actor_id) = href.strip_prefix("/__restless/actor/") {
+                if title.is_some() {
+                    return Err(DocumentError::Invalid(
+                        "Markdown Restless mentions do not accept link titles".into(),
+                    ));
+                }
+                let actor_id = percent_decode_component(actor_id)?;
+                let label = label.strip_prefix('@').unwrap_or(&label).to_string();
+                nodes.push(json!({
+                    "type":"mention",
+                    "attrs":{"actor_id":actor_id,"label":label}
+                }));
+            } else {
+                if !safe_href(href) {
+                    return Err(DocumentError::Invalid(
+                        "Markdown link href is unsafe or unsupported".into(),
+                    ));
+                }
+                let mut attrs = json!({"href":href});
+                if let Some(title) = title {
+                    attrs["title"] = Value::String(title);
+                }
+                let mut link_marks = marks.to_vec();
+                link_marks.push(json!({"type":"link","attrs":attrs}));
+                push_markdown_text(&mut nodes, &label, &link_marks);
+            }
+            rest = &href_tail[href_end + 1..];
+            continue;
+        }
+        let character = rest.chars().next().expect("non-empty Markdown remainder");
+        plain.push(character);
+        rest = &rest[character.len_utf8()..];
+    }
+    push_markdown_text(&mut nodes, &plain, marks);
+    Ok(nodes)
+}
+
+fn markdown_link_label_end(value: &str) -> Option<usize> {
+    let mut escaped = false;
+    for (index, character) in value.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if character == '\\' {
+            escaped = true;
+            continue;
+        }
+        if character == ']' && value[index + character.len_utf8()..].starts_with('(') {
+            return Some(index);
+        }
+    }
+    None
+}
+
+fn append_markdown_literal(output: &mut String, value: &str) {
+    let mut characters = value.chars();
+    while let Some(character) = characters.next() {
+        if character == '\\' {
+            output.push(characters.next().unwrap_or('\\'));
+        } else {
+            output.push(character);
+        }
+    }
+}
+
+/// Return the closing `)` for a link target. Parentheses inside the optional
+/// JSON-escaped quoted title are data. The href itself cannot contain
+/// whitespace, and the exporter percent-encodes its parentheses.
+fn markdown_link_closing_index(value: &str) -> Option<usize> {
+    let mut after_href = false;
+    let mut in_title = false;
+    let mut escaped = false;
+    for (index, character) in value.char_indices() {
+        if in_title {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == '"' {
+                in_title = false;
+            }
+            continue;
+        }
+        if character == ')' {
+            return Some(index);
+        }
+        if after_href {
+            if character == '"' {
+                in_title = true;
+            }
+        } else if character.is_whitespace() {
+            after_href = true;
+        }
+    }
+    None
+}
+
+fn parse_markdown_link_target(value: &str) -> DocumentResult<(&str, Option<String>)> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(DocumentError::Invalid(
+            "Markdown link href must not be empty".into(),
+        ));
+    }
+    let Some(title_start) = value.find(char::is_whitespace) else {
+        return Ok((value, None));
+    };
+    let href = &value[..title_start];
+    let encoded_title = value[title_start..].trim();
+    if href.is_empty() || encoded_title.is_empty() {
+        return Err(DocumentError::Invalid(
+            "Markdown link target is incomplete".into(),
+        ));
+    }
+    let title = serde_json::from_str::<String>(encoded_title).map_err(|_| {
+        DocumentError::Invalid("Markdown link title must be one JSON-escaped quoted string".into())
+    })?;
+    Ok((href, Some(title)))
+}
+
+fn push_markdown_text(nodes: &mut Vec<Value>, text: &str, marks: &[Value]) {
+    if text.is_empty() {
+        return;
+    }
+    let mut node = json!({"type":"text","text":text});
+    if !marks.is_empty() {
+        node["marks"] = Value::Array(marks.to_vec());
+    }
+    nodes.push(node);
+}
+
+fn unescape_markdown(value: &str) -> DocumentResult<String> {
+    let mut output = String::new();
+    let mut characters = value.chars();
+    while let Some(character) = characters.next() {
+        if character == '\\' {
+            output.push(characters.next().ok_or_else(|| {
+                DocumentError::Invalid("Markdown ends with an incomplete escape".into())
+            })?);
+        } else {
+            output.push(character);
+        }
+    }
+    Ok(output)
+}
+
+fn search_match_char_index(value: &str, query: &str) -> Option<usize> {
+    let byte_index = value.find(query).or_else(|| {
+        let folded_value = value.to_lowercase();
+        let folded_query = query.to_lowercase();
+        folded_value
+            .find(&folded_query)
+            // Unicode case folding can change byte length. Only use the folded
+            // byte offset when it still identifies a source character boundary.
+            .filter(|index| value.is_char_boundary(*index))
+    })?;
+    Some(value[..byte_index].chars().count())
+}
+
+fn bound_search_snippet(value: &str, query: &str) -> String {
+    let snippet = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    let characters = snippet.chars().collect::<Vec<_>>();
+    if characters.len() <= MAX_DOCUMENT_SEARCH_SNIPPET_CHARS {
+        return snippet;
+    }
+    let match_index = search_match_char_index(&snippet, query)
+        .or_else(|| {
+            query
+                .split_whitespace()
+                .find_map(|term| search_match_char_index(&snippet, term))
+        })
+        .unwrap_or(0);
+    // Reserve room for both possible ellipses. Keeping roughly a quarter of
+    // the window before the match gives enough local context while ensuring a
+    // maximum-sized query remains visible in full.
+    let window = MAX_DOCUMENT_SEARCH_SNIPPET_CHARS.saturating_sub(2);
+    let mut start = match_index.saturating_sub(window / 4);
+    let mut end = (start + window).min(characters.len());
+    if end == characters.len() {
+        start = end.saturating_sub(window);
+    }
+    end = (start + window).min(characters.len());
+    let mut bounded = String::new();
+    if start > 0 {
+        bounded.push('…');
+    }
+    bounded.extend(characters[start..end].iter());
+    if end < characters.len() {
+        bounded.push('…');
+    }
+    bounded
+}
+
 fn portable_envelope_value(envelope: &NativeDocumentPortableEnvelope) -> DocumentResult<Value> {
     serde_json::to_value(envelope)
         .map_err(|error| DocumentError::Invalid(format!("portable envelope is not JSON: {error}")))
@@ -1738,7 +2767,16 @@ fn render_markdown_inline(value: &Value) -> DocumentResult<String> {
                             let title = attrs
                                 .get("title")
                                 .and_then(Value::as_str)
-                                .map(|title| format!(" \"{}\"", title.replace('"', "\\\"")))
+                                .map(|title| {
+                                    serde_json::to_string(title)
+                                        .map(|encoded| format!(" {encoded}"))
+                                        .map_err(|error| {
+                                            DocumentError::Corrupt(format!(
+                                                "stored link title cannot be projected to Markdown: {error}"
+                                            ))
+                                        })
+                                })
+                                .transpose()?
                                 .unwrap_or_default();
                             rendered = format!("[{rendered}]({href}{title})");
                         }
@@ -2850,6 +3888,216 @@ impl OrgIntel {
         Ok(result)
     }
 
+    /// Search only the current derived projection of Documents visible to one
+    /// active Actor. Query text is data, never authority, and results are
+    /// paged and snippet-bounded before leaving OrgIntel.
+    pub async fn search_documents_for_actor(
+        &self,
+        actor_id: &str,
+        query: &str,
+        include_archived: bool,
+        offset: i64,
+        limit: i64,
+    ) -> DocumentResult<DocumentSearchPage> {
+        let actor_id = clean_bounded("searching Actor", actor_id, 200)?;
+        let query = query.trim();
+        if query.is_empty() || query.len() > MAX_DOCUMENT_SEARCH_QUERY_BYTES {
+            return Err(DocumentError::Invalid(format!(
+                "Document search query must contain 1 to {MAX_DOCUMENT_SEARCH_QUERY_BYTES} bytes"
+            )));
+        }
+        if !(0..=MAX_DOCUMENT_SEARCH_OFFSET).contains(&offset) {
+            return Err(DocumentError::Invalid(format!(
+                "Document search offset must be between 0 and {MAX_DOCUMENT_SEARCH_OFFSET}"
+            )));
+        }
+        let limit = bounded_page_limit(limit, MAX_DOCUMENT_SEARCH_PAGE)?;
+
+        let mut tx = self.pool.begin().await?;
+        let actor_class: String = sqlx::query_scalar(
+            "SELECT actor_class FROM actors WHERE id=$1 AND retired_at IS NULL FOR SHARE",
+        )
+        .bind(&actor_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(DocumentError::Unavailable)?;
+        let is_human = actor_class == "human";
+        let mut hits = sqlx::query_as::<_, DocumentSearchHit>(
+            "WITH search_query AS (SELECT websearch_to_tsquery('simple',$2) AS terms) \
+             SELECT projection.document_id,projection.named_version_id,projection.title,\
+                    projection.kind,\
+                    CASE WHEN position(lower($2) in lower(projection.plain_text))>0 \
+                      THEN substr(\
+                        projection.plain_text,\
+                        GREATEST(position(lower($2) in lower(projection.plain_text))-300,1),\
+                        1200\
+                      ) \
+                      ELSE LEFT(projection.plain_text,1200) END AS snippet,\
+                    projection.updated_at,\
+                    GREATEST(\
+                      ts_rank_cd(projection.search_vector,search_query.terms),\
+                      public.similarity(projection.title,$2)\
+                    )::real AS relevance \
+             FROM native_document_search_projection projection \
+             JOIN native_documents document ON document.id=projection.document_id \
+             CROSS JOIN search_query \
+             WHERE ($5 OR document.status<>'archived') \
+               AND (\
+                 document.owner_actor_id=$1 \
+                 OR EXISTS (\
+                   SELECT 1 FROM native_document_participants participant \
+                   WHERE participant.document_id=document.id \
+                     AND participant.actor_id=$1 AND participant.removed_at IS NULL\
+                 ) \
+                 OR (document.visibility='company' AND $6) \
+                 OR (\
+                   document.visibility='participants' \
+                   AND document.inherit_room_visibility \
+                   AND EXISTS (\
+                     SELECT 1 FROM rooms room \
+                     JOIN room_participants participant ON participant.room_id=room.id \
+                     WHERE room.id=document.linked_room_id \
+                       AND room.archived_at IS NULL \
+                       AND participant.actor_id=$1 AND participant.left_at IS NULL\
+                   )\
+                 )\
+               ) \
+               AND (\
+                 projection.search_vector @@ search_query.terms \
+                 OR public.similarity(projection.title,$2)>=0.2 \
+                 OR position(lower($2) in lower(projection.title))>0\
+               ) \
+             ORDER BY relevance DESC,projection.updated_at DESC,projection.document_id DESC \
+             LIMIT $4 OFFSET $3",
+        )
+        .bind(&actor_id)
+        .bind(query)
+        .bind(offset)
+        .bind(limit + 1)
+        .bind(include_archived)
+        .bind(is_human)
+        .fetch_all(&mut *tx)
+        .await?;
+        let has_more = hits.len() as i64 > limit;
+        if has_more {
+            hits.truncate(limit as usize);
+        }
+        for hit in &mut hits {
+            hit.snippet = bound_search_snippet(&hit.snippet, query);
+        }
+        tx.commit().await?;
+        Ok(DocumentSearchPage {
+            items: hits,
+            next_offset: has_more.then_some(offset + limit),
+        })
+    }
+
+    /// Return a bounded summary of explicit current organisational references.
+    /// The one metadata Room link is reported separately. Incoming links are
+    /// filtered through the requesting Actor's current access; an inaccessible
+    /// source Document therefore cannot be discovered through a backlink.
+    pub async fn document_links_for_actor(
+        &self,
+        document_id: Uuid,
+        actor_id: &str,
+        limit: i64,
+    ) -> DocumentResult<DocumentLinkSummary> {
+        let limit = bounded_page_limit(limit, MAX_DOCUMENT_LINK_PAGE)?;
+        let mut tx = self.pool.begin().await?;
+        require_access(&mut tx, document_id, actor_id, DocumentAccess::Read).await?;
+        let linked_room_id: Option<Uuid> =
+            sqlx::query_scalar("SELECT linked_room_id FROM native_documents WHERE id=$1")
+                .bind(document_id)
+                .fetch_one(&mut *tx)
+                .await?;
+        let actor_class: String =
+            sqlx::query_scalar("SELECT actor_class FROM actors WHERE id=$1 AND retired_at IS NULL")
+                .bind(actor_id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or(DocumentError::Unavailable)?;
+        let mut outgoing = sqlx::query_as::<_, DocumentReferenceSummary>(
+            "SELECT reference.source_document_id,document.title AS source_document_title,\
+                    reference.source_named_version_id,reference.ordinal,\
+                    reference.target_kind,reference.target_id,reference.label \
+             FROM native_document_reference_projection reference \
+             JOIN native_documents document ON document.id=reference.source_document_id \
+             WHERE reference.source_document_id=$1 \
+             ORDER BY reference.ordinal LIMIT $2",
+        )
+        .bind(document_id)
+        .bind(limit + 1)
+        .fetch_all(&mut *tx)
+        .await?;
+        let outgoing_truncated = outgoing.len() as i64 > limit;
+        if outgoing_truncated {
+            outgoing.truncate(limit as usize);
+        }
+
+        let mut incoming = sqlx::query_as::<_, DocumentReferenceSummary>(
+            "SELECT reference.source_document_id,source.title AS source_document_title,\
+                    reference.source_named_version_id,reference.ordinal,\
+                    reference.target_kind,reference.target_id,reference.label \
+             FROM native_document_reference_projection reference \
+             JOIN native_documents source ON source.id=reference.source_document_id \
+             WHERE reference.target_kind='document' AND reference.target_id=$1 \
+               AND reference.source_document_id<>$2 \
+               AND (\
+                 source.owner_actor_id=$3 \
+                 OR EXISTS (\
+                   SELECT 1 FROM native_document_participants participant \
+                   WHERE participant.document_id=source.id \
+                     AND participant.actor_id=$3 AND participant.removed_at IS NULL\
+                 ) \
+                 OR (source.visibility='company' AND $4) \
+                 OR (\
+                   source.visibility='participants' \
+                   AND source.inherit_room_visibility \
+                   AND EXISTS (\
+                     SELECT 1 FROM rooms room \
+                     JOIN room_participants participant ON participant.room_id=room.id \
+                     WHERE room.id=source.linked_room_id \
+                       AND room.archived_at IS NULL \
+                       AND participant.actor_id=$3 AND participant.left_at IS NULL\
+                   )\
+                 )\
+               ) \
+             ORDER BY source.updated_at DESC,reference.source_document_id,reference.ordinal \
+             LIMIT $5",
+        )
+        .bind(document_id.to_string())
+        .bind(document_id)
+        .bind(actor_id)
+        .bind(actor_class == "human")
+        .bind(limit + 1)
+        .fetch_all(&mut *tx)
+        .await?;
+        let incoming_truncated = incoming.len() as i64 > limit;
+        if incoming_truncated {
+            incoming.truncate(limit as usize);
+        }
+        tx.commit().await?;
+        Ok(DocumentLinkSummary {
+            document_id,
+            linked_room_id,
+            outgoing,
+            outgoing_truncated,
+            incoming_document_references: incoming,
+            incoming_truncated,
+        })
+    }
+
+    /// Repair every disposable search/reference row from current authoritative
+    /// metadata and immutable named versions. This is an internal operation,
+    /// not an end-user mutation and therefore does not emit an event.
+    pub async fn rebuild_document_retrieval_projections(&self) -> DocumentResult<i64> {
+        Ok(
+            sqlx::query_scalar("SELECT orgintel_rebuild_native_document_retrieval()")
+                .fetch_one(&self.pool)
+                .await?,
+        )
+    }
+
     pub async fn list_documents_for_actor(
         &self,
         actor_id: &str,
@@ -3404,6 +4652,199 @@ impl OrgIntel {
         .ok_or(DocumentError::Unavailable)?;
         tx.commit().await?;
         version_view(version)
+    }
+
+    /// Export exactly one immutable named version as a self-identifying
+    /// Markdown checkpoint. The export is a read projection only; importing a
+    /// modified copy is a separate command that appends a new named version.
+    pub async fn export_document_version_as_markdown(
+        &self,
+        document_id: Uuid,
+        version_id: Uuid,
+        actor_id: &str,
+    ) -> DocumentResult<DocumentMarkdownExport> {
+        let mut tx = self.pool.begin().await?;
+        require_access(&mut tx, document_id, actor_id, DocumentAccess::Read).await?;
+        let version = sqlx::query_as::<_, DocumentVersionRow>(&format!(
+            "{} WHERE document_id=$1 AND id=$2",
+            version_select()
+        ))
+        .bind(document_id)
+        .bind(version_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(DocumentError::Unavailable)?;
+        version_view(version.clone())?;
+        let company_id: Option<Uuid> = sqlx::query_scalar(
+            "SELECT company_id FROM company_access_identity WHERE singleton=TRUE",
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        let export = markdown_export(company_id, &self.schema, document_id, &version, Utc::now())?;
+        tx.commit().await?;
+        Ok(export)
+    }
+
+    /// Parse one Restless Markdown checkpoint and append it as a new immutable
+    /// named version. The command receipt is replayed before mutable access is
+    /// consulted, so a committed response remains recoverable after an editor
+    /// is removed. Any different command against the same base conflicts.
+    pub async fn import_markdown_as_named_document_version(
+        &self,
+        input: ImportDocumentMarkdown<'_>,
+    ) -> DocumentResult<DocumentCommandResult> {
+        let actor_id = clean_bounded("importing Actor", input.actor_id, 200)?;
+        let reason = clean_bounded("Markdown import reason", input.reason, 500)?;
+        let parsed = parse_document_markdown(input.markdown)?;
+        let content = validate_document_json(&parsed.content_json)?;
+        let fingerprint = request_fingerprint(
+            "markdown_import",
+            json!({
+                "document_id": input.document_id,
+                "actor_id": actor_id,
+                "expected_current_version_id": input.expected_current_version_id,
+                "source_company_id": parsed.source_company_id,
+                "source_company_key": parsed.source_company_key,
+                "source_document_id": parsed.source_document_id,
+                "source_named_version_id": parsed.source_named_version_id,
+                "source_named_version_number": parsed.source_named_version_number,
+                "source_content_hash": parsed.source_content_hash,
+                "imported_content_hash": content.content_hash,
+                "markdown_sha256": sha256_hex(input.markdown.as_bytes()),
+                "reason": reason,
+            }),
+        );
+
+        let mut tx = self.pool.begin().await?;
+        lock_document_command(&mut tx, input.command_id).await?;
+        if let Some(result) = replayed_document_command_result(
+            &mut tx,
+            input.command_id,
+            Some(input.document_id),
+            &actor_id,
+            "markdown_import",
+            &fingerprint,
+        )
+        .await?
+        {
+            tx.commit().await?;
+            return Ok(result);
+        }
+
+        let document = sqlx::query(
+            "SELECT current_named_version_id,status FROM native_documents WHERE id=$1 FOR UPDATE",
+        )
+        .bind(input.document_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(DocumentError::Unavailable)?;
+        require_document_judgement_actor(&mut tx, &actor_id).await?;
+        require_access(&mut tx, input.document_id, &actor_id, DocumentAccess::Edit).await?;
+
+        let current = document.get::<Uuid, _>("current_named_version_id");
+        if current != input.expected_current_version_id {
+            return Err(DocumentError::Conflict(format!(
+                "current named version is {current}, expected {}",
+                input.expected_current_version_id
+            )));
+        }
+        let company_id: Option<Uuid> = sqlx::query_scalar(
+            "SELECT company_id FROM company_access_identity WHERE singleton=TRUE",
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        if parsed.source_company_id != company_id
+            || parsed.source_company_key != self.schema
+            || parsed.source_document_id != input.document_id
+            || parsed.source_named_version_id != input.expected_current_version_id
+        {
+            return Err(DocumentError::Invalid(
+                "Markdown source provenance does not identify the expected current checkpoint"
+                    .into(),
+            ));
+        }
+        let source = sqlx::query_as::<_, DocumentVersionRow>(&format!(
+            "{} WHERE document_id=$1 AND id=$2",
+            version_select()
+        ))
+        .bind(input.document_id)
+        .bind(parsed.source_named_version_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(DocumentError::Unavailable)?;
+        version_view(source.clone())?;
+        if parsed.source_named_version_number != source.version_number
+            || parsed.source_content_hash != source.content_hash
+        {
+            return Err(DocumentError::Invalid(
+                "Markdown source provenance does not match the immutable named version".into(),
+            ));
+        }
+
+        let next_number: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(max(version_number),0)+1 FROM native_document_versions WHERE document_id=$1",
+        )
+        .bind(input.document_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        let version_id = Uuid::new_v4();
+        let status = document.get::<DocumentStatus, _>("status");
+        sqlx::query(
+            "INSERT INTO native_document_versions \
+             (id,document_id,version_number,schema_version,content_json,plain_text,content_hash,\
+              document_status,created_by_actor_id,reason) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+        )
+        .bind(version_id)
+        .bind(input.document_id)
+        .bind(next_number)
+        .bind(DOCUMENT_SCHEMA_VERSION)
+        .bind(&content.content_json)
+        .bind(&content.plain_text)
+        .bind(&content.content_hash)
+        .bind(status)
+        .bind(&actor_id)
+        .bind(&reason)
+        .execute(&mut *tx)
+        .await?;
+        let document_version: i64 = sqlx::query_scalar(
+            "UPDATE native_documents SET current_named_version_id=$2,version=version+1 \
+             WHERE id=$1 RETURNING version",
+        )
+        .bind(input.document_id)
+        .bind(version_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        let result = record_document_command(
+            &mut tx,
+            input.command_id,
+            input.document_id,
+            "markdown_import",
+            &fingerprint,
+            version_id,
+            &actor_id,
+        )
+        .await?;
+        append_document_event(
+            &mut tx,
+            "document.markdown.imported.v1",
+            input.document_id,
+            &actor_id,
+            json!({
+                "document_id": input.document_id,
+                "document_version": document_version,
+                "named_version_id": version_id,
+                "named_version_number": next_number,
+                "previous_named_version_id": current,
+                "source_named_version_id": parsed.source_named_version_id,
+                "source_content_hash": parsed.source_content_hash,
+                "content_hash": content.content_hash,
+                "status": status,
+            }),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(result)
     }
 
     /// Inspect the durable receipt for a Runtime-imported named version. Read
@@ -5580,5 +7021,180 @@ mod tests {
             after.content_json["content"][0]["attrs"]["block_id"]
         );
         assert_ne!(before.content_hash, after.content_hash);
+    }
+
+    #[test]
+    fn markdown_checkpoint_round_trip_preserves_provenance_blocks_and_typed_references() {
+        let document_id = Uuid::new_v4();
+        let version_id = Uuid::new_v4();
+        let content = json!({
+            "type":"doc",
+            "content":[
+                {
+                    "type":"heading",
+                    "attrs":{"level":2,"block_id":"claim"},
+                    "content":[{"type":"text","text":"Evidence first","marks":[{"type":"bold"}]}]
+                },
+                {
+                    "type":"paragraph",
+                    "attrs":{"block_id":"links"},
+                    "content":[
+                        {"type":"reference","attrs":{"kind":"document","id":document_id,"label":"Source Doc"}},
+                        {"type":"text","text":" with "},
+                        {"type":"mention","attrs":{"actor_id":"research-analyst","label":"Research Analyst"}},
+                        {"type":"text","text":" and "},
+                        {"type":"text","text":" external ]( evidence ","marks":[{"type":"link","attrs":{
+                            "href":"https://restless.run",
+                            "title":r#"Human "proof" (reviewed) \ path"#
+                        }}]}
+                    ]
+                }
+            ]
+        });
+        let validated = validate_document_json(&content).unwrap();
+        let created_at = Utc::now();
+        let version = DocumentVersionRow {
+            id: version_id,
+            document_id,
+            version_number: 7,
+            schema_version: DOCUMENT_SCHEMA_VERSION,
+            content_json: validated.content_json,
+            plain_text: validated.plain_text,
+            content_hash: validated.content_hash.clone(),
+            document_status: DocumentStatus::Draft,
+            restored_from_version_id: None,
+            created_by_actor_id: "owner".into(),
+            reason: "Checkpoint".into(),
+            created_at,
+        };
+        let export = markdown_export(None, "company_test", document_id, &version, created_at)
+            .expect("Markdown export");
+        assert!(export
+            .markdown
+            .contains(&format!("source_named_version_id: {version_id}")));
+        assert!(export
+            .markdown
+            .contains("<!-- restless:block-id: claim -->"));
+        assert!(export.markdown.contains("/__restless/reference/document/"));
+        assert!(export
+            .markdown
+            .contains("/__restless/actor/research-analyst"));
+
+        let parsed = parse_document_markdown(&export.markdown).expect("Markdown import");
+        assert_eq!(parsed.source_document_id, document_id);
+        assert_eq!(parsed.source_named_version_id, version_id);
+        assert_eq!(parsed.source_named_version_number, 7);
+        assert_eq!(parsed.source_content_hash, validated.content_hash);
+        let reparsed = validate_document_json(&parsed.content_json).unwrap();
+        assert_eq!(
+            reparsed.content_json["content"][0]["attrs"]["block_id"],
+            "claim"
+        );
+        let encoded = reparsed.content_json.to_string();
+        assert!(encoded.contains("\"type\":\"reference\""));
+        assert!(encoded.contains("\"type\":\"mention\""));
+        assert!(encoded.contains("https://restless.run"));
+        assert_eq!(
+            reparsed.content_json["content"][1]["content"][4]["text"],
+            " external ]( evidence "
+        );
+        assert_eq!(
+            reparsed.content_json["content"][1]["content"][4]["marks"][0]["attrs"]["title"],
+            r#"Human "proof" (reviewed) \ path"#
+        );
+
+        let unsafe_markdown = export
+            .markdown
+            .replace("https://restless.run", "javascript:alert(1)");
+        assert!(parse_document_markdown(&unsafe_markdown)
+            .unwrap_err()
+            .to_string()
+            .contains("unsafe"));
+        assert!(parse_document_markdown(
+            &"x".repeat(MAX_NATIVE_DOCUMENT_MARKDOWN_CHECKPOINT_BYTES + 1)
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn markdown_inline_hostile_unmatched_brackets_are_bounded() {
+        let document_id = Uuid::new_v4();
+        let version_id = Uuid::new_v4();
+        let content = validate_document_json(&json!({
+            "type":"doc",
+            "content":[{"type":"paragraph","attrs":{"block_id":"source"},"content":[
+                {"type":"text","text":"source"}
+            ]}]
+        }))
+        .unwrap();
+        let created_at = Utc::now();
+        let export = markdown_export(
+            None,
+            "company_test",
+            document_id,
+            &DocumentVersionRow {
+                id: version_id,
+                document_id,
+                version_number: 1,
+                schema_version: DOCUMENT_SCHEMA_VERSION,
+                content_json: content.content_json,
+                plain_text: content.plain_text,
+                content_hash: content.content_hash,
+                document_status: DocumentStatus::Draft,
+                restored_from_version_id: None,
+                created_by_actor_id: "owner".into(),
+                reason: "Checkpoint".into(),
+                created_at,
+            },
+            created_at,
+        )
+        .unwrap();
+        let (front_matter, _) = export.markdown.split_once("\n---\n\n").unwrap();
+        let prefix = format!("{front_matter}\n---\n\n");
+        let hostile_body = "[".repeat(
+            MAX_NATIVE_DOCUMENT_MARKDOWN_CHECKPOINT_BYTES
+                .checked_sub(prefix.len())
+                .unwrap(),
+        );
+        let hostile = format!("{prefix}{hostile_body}");
+        assert_eq!(hostile.len(), MAX_NATIVE_DOCUMENT_MARKDOWN_CHECKPOINT_BYTES);
+        assert!(parse_document_markdown(&hostile)
+            .unwrap_err()
+            .to_string()
+            .contains("content exceeds"));
+    }
+
+    #[test]
+    fn markdown_multiblock_quotes_round_trip_and_nested_lists_fail_explicitly() {
+        let quote = markdown_body_to_document("> first\n> \n> second").unwrap();
+        assert_eq!(quote["content"][0]["type"], "blockquote");
+        assert_eq!(quote["content"][0]["content"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            quote["content"][0]["content"][0]["content"][0]["text"],
+            "first"
+        );
+        assert_eq!(
+            quote["content"][0]["content"][1]["content"][0]["text"],
+            "second"
+        );
+
+        let nested = markdown_body_to_document("- parent\n    - nested")
+            .unwrap_err()
+            .to_string();
+        assert!(nested.contains("nested or indented Markdown lists"));
+    }
+
+    #[test]
+    fn search_snippet_centres_a_late_match_within_the_bound() {
+        let value = format!(
+            "{} target phrase {}",
+            "before ".repeat(100),
+            "after ".repeat(100)
+        );
+        let snippet = bound_search_snippet(&value, "target phrase");
+        assert!(snippet.contains("target phrase"));
+        assert!(snippet.starts_with('…'));
+        assert!(snippet.ends_with('…'));
+        assert!(snippet.chars().count() <= MAX_DOCUMENT_SEARCH_SNIPPET_CHARS);
     }
 }

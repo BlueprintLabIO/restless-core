@@ -7,11 +7,24 @@
 use super::*;
 
 const DOCUMENT_BODY_LIMIT: usize = 1_250_000;
+// A JSON string can encode one permitted Markdown byte as six bytes (`\u00XX`).
+// Keep the larger allowance scoped to the import route and reserve bounded
+// headroom for the UUID, reason, property names, and JSON punctuation.
+const DOCUMENT_MARKDOWN_JSON_ESCAPE_BYTES_PER_BYTE: usize = 6;
+const DOCUMENT_MARKDOWN_IMPORT_ENVELOPE_HEADROOM: usize = 8 * 1024;
+const DOCUMENT_MARKDOWN_IMPORT_BODY_LIMIT: usize =
+    restless_orgintel::MAX_NATIVE_DOCUMENT_MARKDOWN_CHECKPOINT_BYTES
+        * DOCUMENT_MARKDOWN_JSON_ESCAPE_BYTES_PER_BYTE
+        + DOCUMENT_MARKDOWN_IMPORT_ENVELOPE_HEADROOM;
 const DEFAULT_PAGE_LIMIT: i64 = 50;
 const MAX_DOCUMENT_PAGE_LIMIT: i64 = 100;
 const MAX_DOCUMENT_CHILD_PAGE_LIMIT: i64 = 50;
 const MAX_DOCUMENT_VERSION_PAGE_LIMIT: i64 = 25;
 const MAX_DOCUMENT_PARTICIPANT_PAGE_LIMIT: i64 = 50;
+const MAX_DOCUMENT_SEARCH_PAGE_LIMIT: i64 = 50;
+const MAX_DOCUMENT_LINK_PAGE_LIMIT: i64 = 50;
+const MAX_DOCUMENT_SEARCH_OFFSET: i64 = 10_000;
+const MAX_DOCUMENT_SEARCH_QUERY_BYTES: usize = 256;
 const IDEMPOTENCY_KEY: &str = "idempotency-key";
 
 pub(super) fn routes<S>() -> Router<S>
@@ -25,8 +38,21 @@ where
             get(list_documents).post(create_document),
         )
         .route(
+            "/companies/{company}/documents/search",
+            get(search_documents),
+        )
+        .route(
             "/companies/{company}/documents/{document}",
             get(get_document).patch(update_document),
+        )
+        .route(
+            "/companies/{company}/documents/{document}/links",
+            get(get_document_links),
+        )
+        .route(
+            "/companies/{company}/documents/{document}/imports/markdown",
+            post(import_document_markdown)
+                .layer(DefaultBodyLimit::max(DOCUMENT_MARKDOWN_IMPORT_BODY_LIMIT)),
         )
         .route(
             "/companies/{company}/documents/{document}/versions",
@@ -35,6 +61,10 @@ where
         .route(
             "/companies/{company}/documents/{document}/versions/{version}",
             get(get_document_version),
+        )
+        .route(
+            "/companies/{company}/documents/{document}/versions/{version}/export/markdown",
+            get(export_document_markdown),
         )
         .route(
             "/companies/{company}/documents/{document}/versions/{version}/restore",
@@ -154,6 +184,23 @@ struct ParticipantListQuery {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct DocumentSearchQuery {
+    q: String,
+    #[serde(default)]
+    include_archived: bool,
+    #[serde(default)]
+    offset: i64,
+    limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct DocumentLinkQuery {
+    limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CreateDocumentInput {
     title: String,
     kind: restless_orgintel::DocumentKind,
@@ -204,6 +251,14 @@ struct CreateDocumentVersionInput {
 #[serde(deny_unknown_fields)]
 struct RestoreDocumentVersionInput {
     expected_current_version_id: Uuid,
+    reason: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ImportDocumentMarkdownInput {
+    expected_current_version_id: Uuid,
+    markdown: String,
     reason: String,
 }
 
@@ -546,6 +601,51 @@ async fn list_documents(
     }
 }
 
+async fn search_documents(
+    State(state): State<RoomApiState>,
+    DocumentPrincipal(principal): DocumentPrincipal,
+    AxumPath(company): AxumPath<String>,
+    Query(query): Query<DocumentSearchQuery>,
+) -> Response<Body> {
+    if query.q.trim().is_empty() || query.q.len() > MAX_DOCUMENT_SEARCH_QUERY_BYTES {
+        return document_api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "document_search",
+            format!(
+                "Document search query must contain 1 to {MAX_DOCUMENT_SEARCH_QUERY_BYTES} bytes"
+            ),
+        );
+    }
+    if !(0..=MAX_DOCUMENT_SEARCH_OFFSET).contains(&query.offset) {
+        return document_api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "document_search",
+            format!("Document search offset must be between 0 and {MAX_DOCUMENT_SEARCH_OFFSET}"),
+        );
+    }
+    let limit = match page_limit(query.limit, MAX_DOCUMENT_SEARCH_PAGE_LIMIT) {
+        Ok(limit) => limit,
+        Err(failure) => return failure.into_response(),
+    };
+    let org = match document_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .search_documents_for_actor(
+            principal.actor_id(),
+            &query.q,
+            query.include_archived,
+            query.offset,
+            limit,
+        )
+        .await
+    {
+        Ok(page) => document_json(StatusCode::OK, page),
+        Err(error) => document_error(error),
+    }
+}
+
 async fn create_document(
     State(state): State<RoomApiState>,
     DocumentPrincipal(principal): DocumentPrincipal,
@@ -595,6 +695,60 @@ async fn get_document(
         .await
     {
         Ok(document) => document_json(StatusCode::OK, document),
+        Err(error) => document_error(error),
+    }
+}
+
+async fn get_document_links(
+    State(state): State<RoomApiState>,
+    DocumentPrincipal(principal): DocumentPrincipal,
+    AxumPath((company, document)): AxumPath<(String, Uuid)>,
+    Query(query): Query<DocumentLinkQuery>,
+) -> Response<Body> {
+    let limit = match page_limit(query.limit, MAX_DOCUMENT_LINK_PAGE_LIMIT) {
+        Ok(limit) => limit,
+        Err(failure) => return failure.into_response(),
+    };
+    let org = match document_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .document_links_for_actor(document, principal.actor_id(), limit)
+        .await
+    {
+        Ok(links) => document_json(StatusCode::OK, links),
+        Err(error) => document_error(error),
+    }
+}
+
+async fn import_document_markdown(
+    State(state): State<RoomApiState>,
+    DocumentPrincipal(principal): DocumentPrincipal,
+    AxumPath((company, document)): AxumPath<(String, Uuid)>,
+    headers: HeaderMap,
+    Json(input): Json<ImportDocumentMarkdownInput>,
+) -> Response<Body> {
+    let command_id = match command_id(&headers) {
+        Ok(command_id) => command_id,
+        Err(failure) => return failure.into_response(),
+    };
+    let org = match document_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .import_markdown_as_named_document_version(restless_orgintel::ImportDocumentMarkdown {
+            command_id,
+            document_id: document,
+            actor_id: principal.actor_id(),
+            expected_current_version_id: input.expected_current_version_id,
+            markdown: &input.markdown,
+            reason: &input.reason,
+        })
+        .await
+    {
+        Ok(result) => document_json(StatusCode::CREATED, result),
         Err(error) => document_error(error),
     }
 }
@@ -712,6 +866,39 @@ async fn get_document_version(
         .await
     {
         Ok(version) => document_json(StatusCode::OK, version),
+        Err(error) => document_error(error),
+    }
+}
+
+async fn export_document_markdown(
+    State(state): State<RoomApiState>,
+    DocumentPrincipal(principal): DocumentPrincipal,
+    AxumPath((company, document, version)): AxumPath<(String, Uuid, Uuid)>,
+) -> Response<Body> {
+    let org = match document_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .export_document_version_as_markdown(document, version, principal.actor_id())
+        .await
+    {
+        Ok(export) => {
+            let mut response = Response::new(Body::from(export.markdown));
+            *response.status_mut() = StatusCode::OK;
+            response.headers_mut().insert(
+                CONTENT_TYPE,
+                HeaderValue::from_static("text/markdown; charset=utf-8"),
+            );
+            let disposition =
+                format!("attachment; filename=\"document-{document}-version-{version}.md\"");
+            if let Ok(disposition) = HeaderValue::from_str(&disposition) {
+                response
+                    .headers_mut()
+                    .insert(CONTENT_DISPOSITION, disposition);
+            }
+            no_store(response)
+        }
         Err(error) => document_error(error),
     }
 }
@@ -1252,6 +1439,26 @@ mod tests {
     use super::*;
     use axum::body::to_bytes;
     use tower::ServiceExt as _;
+
+    #[test]
+    fn markdown_import_body_limit_covers_worst_case_json_escaping() {
+        let one_control_byte = serde_json::to_string("\u{1}").unwrap();
+        assert_eq!(one_control_byte.len() - 2, 6);
+        let non_markdown_envelope = serde_json::to_vec(&serde_json::json!({
+            "expected_current_version_id": Uuid::nil(),
+            "markdown": "",
+            "reason": "\u{1}".repeat(500),
+        }))
+        .unwrap()
+        .len();
+        assert!(non_markdown_envelope <= DOCUMENT_MARKDOWN_IMPORT_ENVELOPE_HEADROOM);
+        assert_eq!(
+            DOCUMENT_MARKDOWN_IMPORT_BODY_LIMIT,
+            restless_orgintel::MAX_NATIVE_DOCUMENT_MARKDOWN_CHECKPOINT_BYTES
+                * DOCUMENT_MARKDOWN_JSON_ESCAPE_BYTES_PER_BYTE
+                + DOCUMENT_MARKDOWN_IMPORT_ENVELOPE_HEADROOM
+        );
+    }
 
     struct DocumentRouteFixture {
         state: RoomApiState,
@@ -2605,5 +2812,174 @@ mod tests {
             restored_view["version"]["restored_from_version_id"],
             initial_version.to_string()
         );
+    }
+
+    #[tokio::test]
+    async fn document_retrieval_routes_export_import_search_and_bound_links() {
+        let Some(fixture) = DocumentRouteFixture::new().await else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Document retrieval routes");
+            return;
+        };
+        let owner = fixture.app("owner", "owner", &fixture.company);
+        let documents = format!("/companies/{}/documents", fixture.company);
+        let (status, created) = request_json(
+            &owner,
+            Method::POST,
+            &documents,
+            Some(Uuid::new_v4()),
+            Some(create_body("Retrieval route target")),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        let document = uuid_field(&created, "document_id");
+        let (status, current) = request_json(
+            &owner,
+            Method::GET,
+            format!("{documents}/{document}"),
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let version = uuid_field(&current["current_version"]["version"], "id");
+
+        let export_path = format!("{documents}/{document}/versions/{version}/export/markdown");
+        let export_response = request(&owner, Method::GET, &export_path, None, None).await;
+        assert_eq!(export_response.status(), StatusCode::OK);
+        assert_eq!(
+            export_response.headers().get(CACHE_CONTROL),
+            Some(&HeaderValue::from_static("no-store"))
+        );
+        assert_eq!(
+            export_response.headers().get(CONTENT_TYPE),
+            Some(&HeaderValue::from_static("text/markdown; charset=utf-8"))
+        );
+        assert!(export_response
+            .headers()
+            .get(CONTENT_DISPOSITION)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .contains(&version.to_string()));
+        let export = String::from_utf8(
+            to_bytes(export_response.into_body(), DOCUMENT_BODY_LIMIT)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(export.contains(&format!("source_document_id: {document}")));
+        assert!(export.contains(&format!("source_named_version_id: {version}")));
+
+        let (status, search) = request_json(
+            &owner,
+            Method::GET,
+            format!("{documents}/search?q=Initial%20evidence&limit=1"),
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(search["items"][0]["document_id"], document.to_string());
+        assert!(
+            search["items"][0]["snippet"]
+                .as_str()
+                .unwrap()
+                .chars()
+                .count()
+                <= 400
+        );
+        let (status, links) = request_json(
+            &owner,
+            Method::GET,
+            format!("{documents}/{document}/links?limit=1"),
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(links["document_id"], document.to_string());
+        assert!(links["outgoing"].as_array().unwrap().is_empty());
+
+        let import_path = format!("{documents}/{document}/imports/markdown");
+        let edited = export.replace("Initial evidence", "Imported route evidence");
+        let import_body = serde_json::json!({
+            "expected_current_version_id": version,
+            "markdown": edited,
+            "reason": "Import the reviewed Markdown"
+        });
+        let (status, body) = request_json(
+            &owner,
+            Method::POST,
+            &import_path,
+            None,
+            Some(import_body.clone()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(body["error"], "idempotency_key");
+        let (status, body) = request_json(
+            &owner,
+            Method::POST,
+            &import_path,
+            Some(Uuid::new_v4()),
+            Some(serde_json::json!({
+                "expected_current_version_id": version,
+                "markdown": "x".repeat(DOCUMENT_BODY_LIMIT + 1),
+                "reason": "Exercise the route-specific transport bound"
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(body["error"], "document");
+        let import_key = Uuid::new_v4();
+        let (status, imported) = request_json(
+            &owner,
+            Method::POST,
+            &import_path,
+            Some(import_key),
+            Some(import_body.clone()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(imported["operation"], "markdown_import");
+        let replay = request_json(
+            &owner,
+            Method::POST,
+            &import_path,
+            Some(import_key),
+            Some(import_body.clone()),
+        )
+        .await;
+        assert_eq!(replay, (StatusCode::CREATED, imported));
+        let stale = request_json(
+            &owner,
+            Method::POST,
+            &import_path,
+            Some(Uuid::new_v4()),
+            Some(import_body),
+        )
+        .await;
+        assert_eq!(stale.0, StatusCode::CONFLICT);
+
+        let guessed = Uuid::new_v4();
+        let (status, _) = request_json(
+            &owner,
+            Method::GET,
+            format!("{documents}/{guessed}/versions/{version}/export/markdown"),
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        for path in [
+            format!("{documents}/search?q={}&limit=1", "q".repeat(257)),
+            format!("{documents}/search?q=evidence&offset=10001"),
+            format!("{documents}/search?q=evidence&limit=51"),
+            format!("{documents}/{document}/links?limit=51"),
+        ] {
+            let (status, _) = request_json(&owner, Method::GET, path, None, None).await;
+            assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        }
     }
 }

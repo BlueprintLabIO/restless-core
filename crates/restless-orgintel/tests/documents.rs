@@ -4,9 +4,10 @@
 
 use restless_orgintel::{
     DocumentAccess, DocumentError, DocumentKind, DocumentStatus, DocumentVisibility,
-    ImportRuntimeDocument, NativeDocumentPortableEnvelope, NewDocument, NewNamedDocumentVersion,
-    OrgIntel, RemoveDocumentParticipant, RequestDocumentReview, RestoreDocumentVersion, RoomKind,
-    SetDocumentParticipant, UpdateDocumentMetadata, NATIVE_DOCUMENT_PORTABLE_ENVELOPE_VERSION,
+    ImportDocumentMarkdown, ImportRuntimeDocument, NativeDocumentPortableEnvelope, NewDocument,
+    NewNamedDocumentVersion, OrgIntel, RemoveDocumentParticipant, RequestDocumentReview,
+    RestoreDocumentVersion, RoomKind, SetDocumentParticipant, UpdateDocumentMetadata,
+    NATIVE_DOCUMENT_PORTABLE_ENVELOPE_VERSION,
 };
 use serde_json::{json, Value};
 use sqlx::{Connection as _, PgConnection};
@@ -1501,4 +1502,417 @@ async fn runtime_checkpoint_round_trip_is_authorized_deterministic_and_idempoten
             .content_hash,
         provenance.imported_content_hash
     );
+}
+
+#[tokio::test]
+async fn markdown_import_is_a_new_authorized_version_with_loss_safe_command_replay() {
+    let Some(org) = company("markdownops").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Markdown operations scenario");
+        return;
+    };
+    let initial = content("claim", "Original Markdown evidence");
+    let created = org
+        .create_document(NewDocument {
+            command_id: Uuid::new_v4(),
+            title: "Markdown evidence",
+            kind: DocumentKind::Report,
+            visibility: DocumentVisibility::Participants,
+            linked_room_id: None,
+            inherit_room_visibility: false,
+            owner_actor_id: "owner",
+            created_by_actor_id: "owner",
+            content_json: &initial,
+            reason: "Initial checkpoint",
+        })
+        .await
+        .unwrap();
+    let document_id = created.document_id;
+    let initial_view = org
+        .get_document_for_actor(document_id, "owner")
+        .await
+        .unwrap();
+    let initial_version_id = initial_view.current_version.version.id;
+    let database_url = std::env::var("RESTLESS_TEST_DATABASE_URL").unwrap();
+    let mut connection = schema_connection(&database_url, org.schema()).await;
+    let events_before_export = document_events(&mut connection, document_id).await.len();
+    let export = org
+        .export_document_version_as_markdown(document_id, initial_version_id, "owner")
+        .await
+        .unwrap();
+    let repeated_export = org
+        .export_document_version_as_markdown(document_id, initial_version_id, "owner")
+        .await
+        .unwrap();
+    assert_eq!(
+        repeated_export.source_content_hash,
+        export.source_content_hash
+    );
+    assert_eq!(
+        document_events(&mut connection, document_id).await.len(),
+        events_before_export,
+        "Markdown GET export must remain a read projection"
+    );
+    assert!(export
+        .markdown
+        .contains(&format!("source_document_id: {document_id}")));
+    assert!(export
+        .markdown
+        .contains(&format!("source_named_version_id: {initial_version_id}")));
+    assert!(export
+        .markdown
+        .contains("<!-- restless:block-id: claim -->"));
+    let edited = export
+        .markdown
+        .replace("Original Markdown evidence", "Imported Markdown evidence");
+
+    assert!(matches!(
+        org.import_markdown_as_named_document_version(ImportDocumentMarkdown {
+            command_id: Uuid::new_v4(),
+            document_id,
+            actor_id: "alex",
+            expected_current_version_id: initial_version_id,
+            markdown: &edited,
+            reason: "Reader must not import",
+        })
+        .await,
+        Err(DocumentError::Unavailable)
+    ));
+
+    org.set_document_participant(SetDocumentParticipant {
+        command_id: Uuid::new_v4(),
+        document_id,
+        actor_id: "owner",
+        expected_document_version: 1,
+        participant_actor_id: "alex",
+        access: DocumentAccess::Edit,
+    })
+    .await
+    .unwrap();
+    let command_id = Uuid::new_v4();
+    let imported = org
+        .import_markdown_as_named_document_version(ImportDocumentMarkdown {
+            command_id,
+            document_id,
+            actor_id: "alex",
+            expected_current_version_id: initial_version_id,
+            markdown: &edited,
+            reason: "Apply reviewed Markdown",
+        })
+        .await
+        .unwrap();
+    assert_eq!(imported.operation, "markdown_import");
+    let imported_view = org
+        .get_document_version_for_actor(document_id, imported.result_id, "owner")
+        .await
+        .unwrap();
+    assert_eq!(imported_view.version.version_number, 2);
+    assert_eq!(imported_view.version.created_by_actor_id, "alex");
+    assert_eq!(imported_view.version.reason, "Apply reviewed Markdown");
+    assert_eq!(
+        imported_view.version.plain_text,
+        "Imported Markdown evidence"
+    );
+    assert_eq!(
+        imported_view.version.content_json["content"][0]["attrs"]["block_id"],
+        "claim"
+    );
+
+    org.remove_document_participant(RemoveDocumentParticipant {
+        command_id: Uuid::new_v4(),
+        document_id,
+        actor_id: "owner",
+        expected_document_version: 3,
+        participant_actor_id: "alex",
+    })
+    .await
+    .unwrap();
+    let replay = org
+        .import_markdown_as_named_document_version(ImportDocumentMarkdown {
+            command_id,
+            document_id,
+            actor_id: "alex",
+            expected_current_version_id: initial_version_id,
+            markdown: &edited,
+            reason: "Apply reviewed Markdown",
+        })
+        .await
+        .unwrap();
+    assert_eq!(replay, imported);
+    assert!(matches!(
+        org.import_markdown_as_named_document_version(ImportDocumentMarkdown {
+            command_id,
+            document_id,
+            actor_id: "alex",
+            expected_current_version_id: initial_version_id,
+            markdown: &export.markdown,
+            reason: "Apply reviewed Markdown",
+        })
+        .await,
+        Err(DocumentError::Conflict(_))
+    ));
+    assert!(matches!(
+        org.import_markdown_as_named_document_version(ImportDocumentMarkdown {
+            command_id: Uuid::new_v4(),
+            document_id,
+            actor_id: "owner",
+            expected_current_version_id: initial_version_id,
+            markdown: &edited,
+            reason: "Stale competing import",
+        })
+        .await,
+        Err(DocumentError::Conflict(_))
+    ));
+    assert!(matches!(
+        org.import_markdown_as_named_document_version(ImportDocumentMarkdown {
+            command_id: Uuid::new_v4(),
+            document_id: Uuid::new_v4(),
+            actor_id: "owner",
+            expected_current_version_id: initial_version_id,
+            markdown: &edited,
+            reason: "Guessed target",
+        })
+        .await,
+        Err(DocumentError::Unavailable)
+    ));
+
+    for event in document_events(&mut connection, document_id).await {
+        assert_body_free_event_hint(&event.body);
+    }
+}
+
+#[tokio::test]
+async fn document_search_and_backlinks_are_bounded_access_safe_and_rebuildable() {
+    let Some(org) = company("documentretrieval").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Document retrieval scenario");
+        return;
+    };
+    let target_content = content(
+        "target",
+        &format!("{} targettoken {}", "x".repeat(1_500), "y".repeat(700)),
+    );
+    let target = org
+        .create_document(NewDocument {
+            command_id: Uuid::new_v4(),
+            title: "Target evidence",
+            kind: DocumentKind::Brief,
+            visibility: DocumentVisibility::Company,
+            linked_room_id: None,
+            inherit_room_visibility: false,
+            owner_actor_id: "owner",
+            created_by_actor_id: "owner",
+            content_json: &target_content,
+            reason: "Search target",
+        })
+        .await
+        .unwrap();
+    let target_id = target.document_id;
+    let reference_content = |block_id: &str, text: &str| {
+        json!({
+            "type":"doc",
+            "content":[{
+                "type":"paragraph",
+                "attrs":{"block_id":block_id},
+                "content":[
+                    {"type":"text","text":text},
+                    {"type":"reference","attrs":{
+                        "kind":"document",
+                        "id":target_id,
+                        "label":"Target evidence"
+                    }},
+                    {"type":"text","text":" then "},
+                    {"type":"reference","attrs":{
+                        "kind":"actor",
+                        "id":"research-analyst",
+                        "label":"Research Analyst"
+                    }}
+                ]
+            }]
+        })
+    };
+    let visible_source_content = reference_content("visible-source", "sharedtoken ");
+    let visible_source = org
+        .create_document(NewDocument {
+            command_id: Uuid::new_v4(),
+            title: "Shared source",
+            kind: DocumentKind::Plan,
+            visibility: DocumentVisibility::Company,
+            linked_room_id: None,
+            inherit_room_visibility: false,
+            owner_actor_id: "owner",
+            created_by_actor_id: "owner",
+            content_json: &visible_source_content,
+            reason: "Visible backlink",
+        })
+        .await
+        .unwrap();
+    let secret_source_content = reference_content("secret-source", "secrettoken ");
+    let secret_source = org
+        .create_document(NewDocument {
+            command_id: Uuid::new_v4(),
+            title: "Private source",
+            kind: DocumentKind::DecisionNote,
+            visibility: DocumentVisibility::Participants,
+            linked_room_id: None,
+            inherit_room_visibility: false,
+            owner_actor_id: "owner",
+            created_by_actor_id: "owner",
+            content_json: &secret_source_content,
+            reason: "Private backlink",
+        })
+        .await
+        .unwrap();
+
+    let search = org
+        .search_documents_for_actor("alex", "targettoken", false, 0, 1)
+        .await
+        .unwrap();
+    assert_eq!(search.items.len(), 1);
+    assert_eq!(search.items[0].document_id, target_id);
+    assert!(search.items[0].snippet.chars().count() <= 400);
+    assert!(search.items[0].snippet.contains("targettoken"));
+    assert!(org
+        .search_documents_for_actor("alex", "secrettoken", false, 0, 50)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    let paged = org
+        .search_documents_for_actor("owner", "evidence", false, 0, 1)
+        .await
+        .unwrap();
+    assert_eq!(paged.items.len(), 1);
+    assert_eq!(paged.next_offset, Some(1));
+    assert!(org
+        .search_documents_for_actor("owner", &"q".repeat(257), false, 0, 50)
+        .await
+        .is_err());
+    assert!(org
+        .search_documents_for_actor("owner", "evidence", false, 10_001, 50)
+        .await
+        .is_err());
+    assert!(org
+        .search_documents_for_actor("owner", "evidence", false, 0, 51)
+        .await
+        .is_err());
+
+    let links = org
+        .document_links_for_actor(target_id, "alex", 50)
+        .await
+        .unwrap();
+    assert_eq!(links.incoming_document_references.len(), 1);
+    assert_eq!(
+        links.incoming_document_references[0].source_document_id,
+        visible_source.document_id
+    );
+    assert_ne!(
+        links.incoming_document_references[0].source_document_id,
+        secret_source.document_id
+    );
+    let outgoing = org
+        .document_links_for_actor(visible_source.document_id, "alex", 50)
+        .await
+        .unwrap();
+    assert_eq!(outgoing.outgoing.len(), 2);
+    assert_eq!(outgoing.outgoing[0].target_kind, "document");
+    assert_eq!(outgoing.outgoing[0].target_id, target_id.to_string());
+    assert_eq!(outgoing.outgoing[1].target_kind, "actor");
+    assert_eq!(outgoing.outgoing[1].target_id, "research-analyst");
+    assert!(matches!(
+        org.document_links_for_actor(secret_source.document_id, "alex", 50)
+            .await,
+        Err(DocumentError::Unavailable)
+    ));
+    assert!(matches!(
+        org.document_links_for_actor(Uuid::new_v4(), "owner", 50)
+            .await,
+        Err(DocumentError::Unavailable)
+    ));
+
+    let database_url = std::env::var("RESTLESS_TEST_DATABASE_URL").unwrap();
+    let mut connection = schema_connection(&database_url, org.schema()).await;
+    sqlx::query(
+        "UPDATE native_document_search_projection SET title='corrupt',plain_text='corrupt' \
+         WHERE document_id=$1",
+    )
+    .bind(target_id)
+    .execute(&mut connection)
+    .await
+    .unwrap();
+    sqlx::query("DELETE FROM native_document_reference_projection WHERE source_document_id=$1")
+        .bind(visible_source.document_id)
+        .execute(&mut connection)
+        .await
+        .unwrap();
+    assert!(org
+        .search_documents_for_actor("alex", "targettoken", false, 0, 50)
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+    assert!(org
+        .document_links_for_actor(visible_source.document_id, "alex", 50)
+        .await
+        .unwrap()
+        .outgoing
+        .is_empty());
+    assert_eq!(
+        org.rebuild_document_retrieval_projections().await.unwrap(),
+        3
+    );
+    assert_eq!(
+        org.search_documents_for_actor("alex", "targettoken", false, 0, 50)
+            .await
+            .unwrap()
+            .items[0]
+            .document_id,
+        target_id
+    );
+    assert_eq!(
+        org.document_links_for_actor(visible_source.document_id, "alex", 50)
+            .await
+            .unwrap()
+            .outgoing
+            .len(),
+        2
+    );
+
+    // Retained pre-release/corrupt content can contain a future or malformed
+    // reference-like node because the database only enforces a JSON object.
+    // Projection repair must omit that node instead of aborting the company.
+    let malformed_version_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO native_document_versions \
+         (id,document_id,version_number,schema_version,content_json,plain_text,content_hash,\
+          document_status,created_by_actor_id,reason) \
+         VALUES ($1,$2,2,1,$3,'malformed retained content',repeat('a',64),'draft','owner',\
+                 'Retained malformed projection source')",
+    )
+    .bind(malformed_version_id)
+    .bind(secret_source.document_id)
+    .bind(json!({
+        "type":"doc",
+        "content":[{"type":"reference","attrs":{"kind":"future","id":"","label":""}}]
+    }))
+    .execute(&mut connection)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE native_documents SET current_named_version_id=$2 WHERE id=$1")
+        .bind(secret_source.document_id)
+        .bind(malformed_version_id)
+        .execute(&mut connection)
+        .await
+        .unwrap();
+    assert_eq!(
+        org.rebuild_document_retrieval_projections().await.unwrap(),
+        3
+    );
+    let malformed_reference_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM native_document_reference_projection \
+         WHERE source_document_id=$1",
+    )
+    .bind(secret_source.document_id)
+    .fetch_one(&mut connection)
+    .await
+    .unwrap();
+    assert_eq!(malformed_reference_count, 0);
 }
