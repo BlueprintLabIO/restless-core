@@ -13,7 +13,16 @@ one accepted artifact can honestly carry the evidence; do not manufacture a proc
 A review that may revise a producer must declare that producer with both `--requires` and `--revises`
 in the same `restless work add`; revision power without the paired prerequisite is invalid.
 
-When the chosen input is an official remote MCP, live-probe the provider's own endpoint and requested
+Own ordinary capability setup and recovery within existing authority. First inspect `restless
+connected-tool list`. For an enabled connection needed by blocked Work, use `restless connected-tool
+attach --name <slug> --work <work-id>`. This uses the existing grant without OAuth, assigns the Work's
+actual producer, and leaves Work blocked. Add any necessary Work-linked feedback, then resume last
+with `restless work resume`. A running session does not gain tools retroactively. Never report a
+successful attachment as a successful provider read: the fresh worker must verify workspace identity
+and read live data. Escalate only a real permission, provider-login or unresolved technical boundary,
+not ordinary attachment. Do not repeat installation or reconnect merely because the Work changed.
+
+When the chosen input is a new official remote MCP, live-probe the provider's own endpoint and requested
 scopes, then use `restless connected-tool install --name <slug> --endpoint <https-url> --purpose
 <why> --actor <selected-actor> --work <work-id> --attempt <attempt-id> --scope <scope>...`. This
 prepares the provider-hosted owner identity/consent handoff and observes completion; never ask the

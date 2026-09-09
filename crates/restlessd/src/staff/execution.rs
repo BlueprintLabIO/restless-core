@@ -1022,9 +1022,11 @@ async fn run_staff(
          {posture}\n\
          {workspace}\n\
          {spine}\n\
+         # Capability recovery [shared operating guidance]\n{sourcing}\n\n\
          # Trusted assignment context [OrgIntel decision]\n{task}\n\n\
          Work until the task is done or you are stuck. {ending}",
         crate::context::COMPANY_OPERATING_RULES.trim(),
+        sourcing = crate::capability_sourcing::SOURCE_CAPABILITY.trim(),
         ending = match turn_kind {
             StaffTurnKind::Work => "The session ends when you stop writing; you will then be asked for a decision envelope.",
             StaffTurnKind::OwnerConversation => "After using any tools you need, end with the complete owner-facing reply and its required intent marker. Do not narrate private reasoning in that reply.",

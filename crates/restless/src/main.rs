@@ -1574,6 +1574,13 @@ enum CredentialCommand {
 enum ConnectedToolCommand {
     /// List Authority-observed connections. Raw OAuth material is never shown.
     List,
+    /// Attach an enabled connection to blocked Work before resuming. Never starts OAuth.
+    Attach {
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        work: String,
+    },
     /// Discover OAuth, prepare one owner consent handoff, and install after observation.
     Install {
         #[arg(long)]
@@ -2175,6 +2182,10 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
         Command::ConnectedTool { company, command } => match command {
             ConnectedToolCommand::List => serde_json::json!({
                 "cmd": "connected-tools", "company": company,
+            }),
+            ConnectedToolCommand::Attach { name, work } => serde_json::json!({
+                "cmd": "connected-tool-attach", "company": company,
+                "tool_name": name, "work_id": work, "actor": acting_actor(),
             }),
             ConnectedToolCommand::Install {
                 name,

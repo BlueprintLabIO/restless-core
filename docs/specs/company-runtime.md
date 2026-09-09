@@ -278,6 +278,14 @@ The Runtime Bridge may:
 
 This ownership does not turn the Bridge into a planner. OrgIntel still decides who the actor is and what Work or conversation is owed; Runtime files still own project instructions and skills; Authority still owns credentials and consequential capability. The Bridge only materialises those decisions faithfully for the selected replaceable harness.
 
+Capability recovery is ordinary actor work within existing authority. `connected-tool attach`
+reassigns an already-enabled connection to the actual producer of blocked Work without changing its
+endpoint, scopes, credentials or enabled state, and without starting OAuth. The accountable lead
+attaches first, supplies any changed Work feedback, then resumes last. The next Attempt receives the
+MCP at launch; an existing session does not acquire tools retroactively. A running source or target
+Attempt must be stopped before this recovery. Provider identity and live reads still need fresh
+worker observation. New consent and revoked grants remain separate owner/provider boundaries.
+
 ## 4.3 Non-responsibilities
 
 The Runtime Bridge must not:

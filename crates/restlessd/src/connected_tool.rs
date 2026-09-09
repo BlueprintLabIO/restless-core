@@ -466,6 +466,64 @@ fn decode_row(row: sqlx::postgres::PgRow) -> Result<ConnectedTool> {
     })
 }
 
+/// Operational recovery, not provider consent. Keep the Work blocked until
+/// the lead explicitly resumes it, so no worker races the attachment.
+pub(crate) async fn attach_existing(
+    pool: &PgPool,
+    org: &OrgIntel,
+    company: &str,
+    name: &str,
+    work_id: Uuid,
+    requested_by: &str,
+) -> Result<ConnectedTool> {
+    let work = org.get_work(work_id).await?.context("Work not found")?;
+    if work.status != restless_orgintel::WorkStatus::Blocked {
+        bail!("attach requires blocked Work; interrupt active Work before changing its tools, then resume last");
+    }
+    let existing = get(pool, company, name)
+        .await?
+        .context("connection not installed; installation needs separate provider consent")?;
+    if existing.status != ConnectionStatus::Enabled {
+        bail!("connection is not enabled; attach cannot enable a disabled or failed grant");
+    }
+    if org
+        .list_running_work_attempts()
+        .await?
+        .iter()
+        .any(|attempt| {
+            Some(attempt.work_id) == existing.assigned_work_id || attempt.work_id == work_id
+        })
+    {
+        bail!("connection has a running source or target Attempt; finish or interrupt it before attachment");
+    }
+    let updated = sqlx::query(
+        "UPDATE restless_authority.provider_connections SET assigned_actor=$3, assigned_work_id=$4, \
+         assigned_attempt_id=NULL, updated_at=now() WHERE company=$1 AND name=$2 AND status='enabled' \
+         AND assigned_work_id IS NOT DISTINCT FROM $5 AND assigned_actor=$6",
+    )
+    .bind(company).bind(name).bind(&work.owner_id).bind(work_id)
+    .bind(existing.assigned_work_id).bind(&existing.assigned_actor)
+    .execute(pool).await?.rows_affected();
+    if updated != 1 {
+        bail!(
+            "connection changed during attachment; inspect the current connection before retrying"
+        );
+    }
+    org.emit_event(
+        "provider_connection_attached",
+        Some(requested_by),
+        serde_json::json!({
+            "name": name, "work_id": work_id, "assigned_actor": work.owner_id,
+            "previous_work_id": existing.assigned_work_id, "requires_fresh_attempt": true,
+            "provider_authority_changed": false,
+        }),
+    )
+    .await?;
+    get(pool, company, name)
+        .await?
+        .context("attached connection disappeared")
+}
+
 pub(crate) async fn session_servers(
     pool: &PgPool,
     company: &str,

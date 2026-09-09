@@ -803,6 +803,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
             "requested_scopes",
             "actor",
         ],
+        "connected-tool-attach" => &["tool_name", "work_id", "actor"],
         "connected-tool-observe" => &[
             "tool_name",
             "workspace_reference",
@@ -1402,6 +1403,7 @@ mod tests {
             "watch",
             "connected-tools",
             "connected-tool-install",
+            "connected-tool-attach",
             "connected-tool-reconnect",
             "connected-tool-observe",
             "connected-tool-disable",
@@ -1412,6 +1414,22 @@ mod tests {
                 "dispatch command {command:?} has no checked input view"
             );
         }
+    }
+
+    #[test]
+    fn connected_tool_attach_cannot_supply_new_provider_authority() {
+        let request: Request = serde_json::from_str(
+            r#"{"cmd":"connected-tool-attach","company":"acme_test","tool_name":"crm","work_id":"ebc5691f-f865-402c-8b31-d8389b5a9ea7","actor":"lead"}"#,
+        ).unwrap();
+        assert_eq!(request.connected_tool.tool_name.as_deref(), Some("crm"));
+        assert!(request.connected_tool.endpoint.is_none());
+        assert!(request.connected_tool.requested_scopes.is_empty());
+        assert!(!command_fields("connected-tool-attach")
+            .unwrap()
+            .contains(&"endpoint"));
+        assert!(!command_fields("connected-tool-attach")
+            .unwrap()
+            .contains(&"requested_scopes"));
     }
 
     #[test]

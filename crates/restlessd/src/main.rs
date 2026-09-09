@@ -1209,6 +1209,11 @@ fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Result
         | "work-handoff"
         | "effect"
         | "effect-reconcile"
+        | "connected-tool-attach"
+        | "connected-tool-install"
+        | "connected-tool-reconnect"
+        | "connected-tool-observe"
+        | "connected-tool-disable"
         | "identity-evidence-add"
         | "identity-propose"
         | "identity-brief"
@@ -2063,6 +2068,22 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
         "connected-tools" => match connected_tool::list(daemon.authority.pool(), company).await {
             Ok(connections) => Response::ok_serialized(connections),
             Err(error) => Response::err(format!("{error:#}")),
+        },
+        "connected-tool-attach" => {
+            let result = async {
+                let name = request.connected_tool.tool_name.as_deref()
+                    .context("connected-tool attach needs name")?;
+                let work_id = request.connected_tool.work_id.as_deref()
+                    .context("connected-tool attach needs Work")?.parse::<uuid::Uuid>()?;
+                let actor = request.orgintel.actor.as_deref()
+                    .context("connected-tool attach needs acting actor")?;
+                let org = daemon.orgintel.get(company).await?;
+                connected_tool::attach_existing(daemon.authority.pool(), &org, company, name, work_id, actor).await
+            }.await;
+            match result {
+                Ok(connection) => Response::ok_serialized(connection),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
         },
         "connected-tool-install" | "connected-tool-reconnect" => match (
             request.connected_tool.tool_name.as_deref(),
@@ -5135,5 +5156,16 @@ mod tests {
             authorize(Principal::Owner, "goals").unwrap(),
             Principal::Owner
         );
+    }
+
+    #[test]
+    fn connected_tool_requester_is_the_authenticated_runtime_actor() {
+        let mut request = decoded_request(serde_json::json!({
+            "cmd": "connected-tool-attach", "company": "acme_test",
+            "tool_name": "crm", "work_id": uuid::Uuid::new_v4().to_string()
+        }));
+        bind_runtime_actor(&mut request, "lead").unwrap();
+        assert_eq!(request.orgintel.actor.as_deref(), Some("lead"));
+        assert!(bind_runtime_actor(&mut request, "impostor").is_err());
     }
 }
