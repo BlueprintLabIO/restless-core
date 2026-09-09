@@ -223,37 +223,48 @@
 	</aside>
 
 	<section class="work-stage cockpit-pane">
-		<header class="cockpit-pane-head">
-			<div>
+		<header class="cockpit-pane-head work-stage-head">
+			<div class="work-heading">
 				<h1>
 					{selectedGoal === UNASSIGNED_QUERY
 						? 'Unassigned work'
 						: (goals.find((goal) => goal.id === selectedGoal)?.title ?? 'Company work')}
 				</h1>
 			</div>
-			{#if lens === 'map'}
-				<div class="map-key" aria-label="Map relationships">
-					<span><i></i>Requires</span>
-					<span><i class="revision"></i>Revises</span>
+			<div class="work-utilities">
+				<a
+					class="documents-entry"
+					href={`/${encodeURIComponent(companyId)}/work/documents`}
+					aria-label="Open company documents"
+				>
+					<MatrixGlyph rows={GLYPHS.rules} size={7} />
+					<span class="documents-label-long">Documents</span>
+					<span class="documents-label-short" aria-hidden="true">Docs</span>
+				</a>
+				{#if lens === 'map'}
+					<div class="map-key" aria-label="Map relationships">
+						<span><i></i>Requires</span>
+						<span><i class="revision"></i>Revises</span>
+					</div>
+				{/if}
+				{#if completedWork.length}
+					<button
+						class="history-control"
+						class:on={showHistory}
+						type="button"
+						aria-pressed={showHistory}
+						onclick={toggleHistory}
+					>
+						<MatrixGlyph rows={showHistory ? GLYPHS.check : GLYPHS.ring} size={8} />
+						{showHistory ? 'Hide history' : `${completedWork.length} completed`}
+					</button>
+				{/if}
+				<div class="lens-switch" class:board={lens === 'board'} role="group" aria-label="Work view">
+					<button type="button" aria-pressed={lens === 'map'} onclick={showMap}>Map</button>
+					<button type="button" aria-pressed={lens === 'board'} onclick={() => (lens = 'board')}
+						>Board</button
+					>
 				</div>
-			{/if}
-			{#if completedWork.length}
-				<button
-					class="history-control"
-					class:on={showHistory}
-					type="button"
-					aria-pressed={showHistory}
-					onclick={toggleHistory}
-				>
-					<MatrixGlyph rows={showHistory ? GLYPHS.check : GLYPHS.ring} size={8} />
-					{showHistory ? 'Hide history' : `${completedWork.length} completed`}
-				</button>
-			{/if}
-			<div class="lens-switch" class:board={lens === 'board'} role="group" aria-label="Work view">
-				<button type="button" aria-pressed={lens === 'map'} onclick={showMap}>Map</button>
-				<button type="button" aria-pressed={lens === 'board'} onclick={() => (lens = 'board')}
-					>Board</button
-				>
 			</div>
 		</header>
 
@@ -324,3 +335,118 @@
 		{/if}
 	</section>
 </div>
+
+<style>
+	.work-heading {
+		min-width: 0;
+	}
+
+	.work-heading h1 {
+		overflow: hidden;
+		white-space: nowrap;
+		text-overflow: ellipsis;
+	}
+
+	.work-utilities {
+		display: flex;
+		min-width: 0;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 8px;
+		margin-left: auto;
+	}
+
+	.documents-entry {
+		display: inline-flex;
+		min-height: 30px;
+		align-items: center;
+		justify-content: center;
+		gap: 7px;
+		padding: 5px 10px;
+		border: 1px solid color-mix(in srgb, var(--surface-work) 32%, var(--control-edge));
+		border-radius: var(--radius-control);
+		background: color-mix(in srgb, var(--surface-work) 7%, var(--surface));
+		box-shadow: var(--bevel-subtle), var(--control-depth);
+		font: 600 var(--t-label) var(--font-sans);
+		color: var(--ink);
+		text-decoration: none;
+		white-space: nowrap;
+		transition:
+			border-color var(--motion-state) var(--ease-standard),
+			background var(--motion-state) var(--ease-standard),
+			transform var(--motion-press) var(--ease-out),
+			box-shadow var(--motion-state) var(--ease-standard);
+	}
+
+	.documents-entry :global(.matrix-glyph) {
+		color: var(--surface-work);
+	}
+
+	.documents-entry:hover {
+		border-color: color-mix(in srgb, var(--surface-work) 52%, var(--control-edge));
+		background: color-mix(in srgb, var(--surface-work) 12%, var(--surface));
+		box-shadow:
+			var(--bevel-subtle),
+			0 2px 7px color-mix(in srgb, var(--surface-work) 14%, transparent);
+	}
+
+	.documents-entry:active {
+		transform: translateY(1px);
+		box-shadow: var(--bevel-subtle), var(--control-depth-pressed);
+	}
+
+	.documents-entry:focus-visible {
+		outline: 3px solid color-mix(in srgb, var(--intent-conversation) 30%, transparent);
+		outline-offset: 2px;
+	}
+
+	.documents-label-short {
+		display: none;
+	}
+
+	@media (max-width: 760px) {
+		:global(.bridge-root) .work-stage {
+			grid-template-rows: auto minmax(0, 1fr);
+		}
+
+		.work-stage-head {
+			min-height: var(--pane-head-h);
+			flex-wrap: wrap;
+			padding: 8px 10px;
+		}
+
+		.work-heading {
+			flex: 1 1 160px;
+		}
+
+		.work-utilities {
+			flex: 1 1 auto;
+			flex-wrap: wrap;
+		}
+	}
+
+	@media (max-width: 520px) {
+		.documents-label-long {
+			display: none;
+		}
+
+		.documents-label-short {
+			display: inline;
+		}
+
+		.documents-entry {
+			padding-inline: 8px;
+		}
+
+		.work-utilities :global(.lens-switch button) {
+			min-width: 52px;
+			padding-inline: 8px;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.documents-entry {
+			transition: none;
+		}
+	}
+</style>
