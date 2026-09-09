@@ -9,6 +9,8 @@
 
 #[path = "owner_documents.rs"]
 mod documents_api;
+#[path = "owner_member_collaboration.rs"]
+mod member_collaboration_api;
 #[path = "owner_rooms_lifecycle.rs"]
 mod rooms_lifecycle_api;
 
@@ -1205,6 +1207,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .merge(room_api_routes::<OwnerState>())
         .merge(rooms_lifecycle_api::routes::<OwnerState>())
         .merge(documents_api::routes::<OwnerState>())
+        .merge(member_collaboration_api::routes::<OwnerState>())
         .fallback(api_not_found)
         .layer(DefaultBodyLimit::max(32 * 1024 * 1024));
 
@@ -1425,6 +1428,7 @@ fn membership_boundary_violation(
         || is_actor_conversation_route(path)
         || is_company_route_family(path, "rooms")
         || is_company_route_family(path, "documents")
+        || is_company_collaboration_bootstrap_route(method, path)
         || is_attachment_download_route(method, path)
     {
         return None;
@@ -1434,6 +1438,20 @@ fn membership_boundary_violation(
         code: "membership_role",
         message: "this membership may collaborate but may not perform owner operations",
     })
+}
+
+fn is_company_collaboration_bootstrap_route(method: &Method, path: &str) -> bool {
+    if !matches!(*method, Method::GET | Method::HEAD) {
+        return false;
+    }
+    let Some(rest) = path.strip_prefix("/api/companies/") else {
+        return false;
+    };
+    let mut segments = rest.split('/');
+    segments.next().is_some_and(|company| !company.is_empty())
+        && segments.next() == Some("collaboration")
+        && segments.next() == Some("bootstrap")
+        && segments.next().is_none()
 }
 
 fn is_attachment_download_route(method: &Method, path: &str) -> bool {

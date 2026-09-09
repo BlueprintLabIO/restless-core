@@ -33,6 +33,7 @@ mod substrate;
 mod types;
 mod visual;
 mod voice;
+mod work_collaboration;
 
 pub use access::*;
 pub use actor_context::*;

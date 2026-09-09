@@ -134,6 +134,20 @@ pub enum WorkStatus {
     Abandoned,
 }
 
+/// Who may observe one Work node through collaboration surfaces. This is an
+/// OrgIntel audience rule only: it grants no Authority capability and no
+/// permission to mutate Work or control the Runtime.
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, ts_rs::TS,
+)]
+#[sqlx(type_name = "work_collaboration_visibility", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum WorkCollaborationVisibility {
+    #[default]
+    Company,
+    Room,
+}
+
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, ts_rs::TS,
 )]
@@ -401,6 +415,29 @@ pub struct WorkRow {
     pub attempt_limit: Option<i32>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct WorkCollaborationScopeRow {
+    pub work_id: Uuid,
+    pub visibility: WorkCollaborationVisibility,
+    pub room_id: Option<Uuid>,
+    pub revision: i64,
+}
+
+pub struct SetWorkCollaborationScope<'a> {
+    pub command_id: Uuid,
+    pub work_id: Uuid,
+    pub actor_id: &'a str,
+    pub expected_revision: i64,
+    pub visibility: WorkCollaborationVisibility,
+    pub room_id: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct WorkCollaborationScopeResult {
+    pub scope: WorkCollaborationScopeRow,
+    pub created: bool,
 }
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
