@@ -634,6 +634,29 @@ pub async fn dispatch_actor_conversation(
         reply_work_id.or_else(|| judgements.first().map(|handoff| handoff.work_id));
     let conversation_workspace =
         completed_attempt_review_workspace(org, &container, review_work_id).await;
+    let context_focus =
+        pending_mention
+            .as_ref()
+            .map_or(restless_orgintel::ActorContextFocus::General, |claim| {
+                restless_orgintel::ActorContextFocus::RoomMention {
+                    mention_id: claim.context.mention.id,
+                }
+            });
+    let mut spine =
+        match super::context::shared_spine(config, org, actor, is_accountable_lead, context_focus)
+            .await
+        {
+            Ok(spine) => spine,
+            Err(error) => {
+                lease_guard.finish().await;
+                runtime.registry.release(&config.name, actor);
+                return Err(error.into());
+            }
+        };
+    spine.push_str(&format!(
+        "\n# Why you woke\n{}\n{}\n",
+        reason, conversation_workspace.review_context,
+    ));
     let company = config.name.clone();
     let actor = actor.to_string();
     let name = actor_row.display.clone();
@@ -646,12 +669,6 @@ pub async fn dispatch_actor_conversation(
     let reasoning_effort = config.reasoning_effort.clone();
     let authority = runtime.authority.clone();
     let capabilities = runtime.capabilities.clone();
-    let spine = format!(
-        "\n# The company you work for\n{}\n\n# Why you woke\n{}\n{}\n",
-        config.mission.trim(),
-        reason,
-        conversation_workspace.review_context,
-    );
     let live_turn = runtime
         .activities
         .start_messages(&company, &actor, &owner_message_ids);

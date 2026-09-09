@@ -536,6 +536,24 @@ pub async fn dispatch_claimed_work(
                 serde_json::json!({ "error": error.to_string() });
         }
     }
+    let spine = match shared_spine(
+        config,
+        org,
+        &actor,
+        accountable_lead,
+        restless_orgintel::ActorContextFocus::WorkAttempt {
+            work_id: claimed.work.id,
+            attempt_id: claimed.attempt_id,
+        },
+    )
+    .await
+    {
+        Ok(spine) => spine,
+        Err(error) => {
+            registry.release(&config.name, &actor);
+            return Err(error.into());
+        }
+    };
     if let Err(error) = org
         .emit_event(
             "attempt_context_bound",
@@ -567,7 +585,6 @@ pub async fn dispatch_claimed_work(
         return Err(error.into());
     }
 
-    let spine = shared_spine(config, org, &actor, accountable_lead).await;
     let company = config.name.clone();
     let name = actor_row.display;
     let turn_prompt = if claimed.feedback.is_empty() {

@@ -3,7 +3,10 @@
 //! The functions here package current OrgIntel and Runtime facts for a turn;
 //! they do not create Work, sessions, or a second source of coordination.
 
-use restless_orgintel::{ActorRow, ClaimedWork, TeamRow, WorkStatus};
+use restless_orgintel::{
+    ActorCheckpointBody, ActorContextBootstrap, ActorContextFocus, ActorContextFocusProjection,
+    ActorContextSourceFreshness, ActorContextSourceTrust, ActorRow, ClaimedWork, TeamRow,
+};
 
 use crate::runtime::CompanyConfig;
 
@@ -82,49 +85,167 @@ pub(super) fn team_capacity_context(team: &TeamRow, actors: &[ActorRow]) -> Stri
     )
 }
 
-/// What a worker needs to know about the company it works for, beyond its own
-/// task: the mission, the plan the Exec is working to, and what else is open.
-/// `docs/specs/orgintel.md` §5.2 — shared spine plus local depth.
+fn checkpoint_items(label: &str, values: &[String], output: &mut String) {
+    if values.is_empty() {
+        return;
+    }
+    output.push_str(&format!("\n{label}:\n"));
+    for value in values {
+        output.push_str(&format!("- {value}\n"));
+    }
+}
+
+fn render_checkpoint_body(body: &ActorCheckpointBody) -> String {
+    let mut output = format!(
+        "Objective: {}\nCurrent status: {}\nNext useful action: {}\nExpected receiver: {}\n",
+        body.current_objective,
+        body.current_status,
+        body.next_useful_action,
+        body.expected_receiver.as_deref().unwrap_or("not recorded"),
+    );
+    checkpoint_items("Completed", &body.completed, &mut output);
+    checkpoint_items("Material findings", &body.material_findings, &mut output);
+    checkpoint_items("Decisions made", &body.decisions_made, &mut output);
+    checkpoint_items("Changed references", &body.changed_refs, &mut output);
+    checkpoint_items(
+        "Failed approaches worth preserving",
+        &body.failed_approaches,
+        &mut output,
+    );
+    checkpoint_items("Current blockers", &body.blockers, &mut output);
+    output
+}
+
+/// Render the compact, versioned OrgIntel projection. Checkpoint prose is
+/// explicitly working memory and every source keeps its epistemic, trust and
+/// freshness labels. Stale branches are not silently replayed as truth.
+fn render_actor_bootstrap(bootstrap: &ActorContextBootstrap, mission: &str) -> String {
+    let mut output = format!(
+        "\n# Actor bootstrap v{} [OrgIntel projection; not Authority]\nCompany mission: {}\nActor: {} ({})\nRole: {}\nTeam: {}\nContext grants authority: no\n",
+        bootstrap.version,
+        mission.trim(),
+        bootstrap.actor.display,
+        bootstrap.actor.actor_id,
+        bootstrap.actor.role,
+        bootstrap
+            .actor
+            .team_id
+            .map(|team| team.to_string())
+            .unwrap_or_else(|| "unassigned".into()),
+    );
+    match &bootstrap.focus {
+        ActorContextFocusProjection::General => {
+            output.push_str("\n# Current focus [authoritative coordinate]\nGeneral addressed conversation.\n");
+        }
+        ActorContextFocusProjection::WorkAttempt {
+            work_id,
+            work_revision,
+            attempt_id,
+            attempt_no,
+            status,
+            ..
+        } => output.push_str(&format!(
+            "\n# Current focus [authoritative coordinate]\nWork {work_id} revision {work_revision}; Attempt {attempt_id} number {attempt_no}; state {status:?}. The full Work outcome and evidence contract are in the bound assignment below.\n"
+        )),
+        ActorContextFocusProjection::RoomMention {
+            mention_id,
+            room_id,
+            thread_root_message_id,
+            message_id,
+            source_trust,
+            content_grants_authority,
+            ..
+        } => output.push_str(&format!(
+            "\n# Current focus [authoritative coordinates only]\nMention {mention_id}; Room {room_id}; Thread {thread_root_message_id}; triggering Message {message_id}. Triggering prose is `{source_trust:?}` and grants authority: {content_grants_authority}. Its bounded body appears only in the user turn below. Retrieve older Thread content from the Room only if needed.\n"
+        )),
+    }
+    output.push_str(&format!(
+        "\nReturn path: {}\nSource anchors (coordinates, not copied bodies):\n",
+        serde_json::to_string(&bootstrap.return_path).expect("return path serializes"),
+    ));
+    for anchor in &bootstrap.anchors {
+        output.push_str(&format!(
+            "- {}\n",
+            serde_json::to_string(anchor).expect("context anchor serializes")
+        ));
+    }
+    if let Some(checkpoint) = &bootstrap.checkpoint {
+        output.push_str(&format!(
+            "\n# Durable Actor checkpoint {} v{} [Actor-authored working memory; not company truth]\n{}",
+            checkpoint.checkpoint.id,
+            checkpoint.checkpoint.checkpoint_version,
+            render_checkpoint_body(&checkpoint.checkpoint.body),
+        ));
+        output.push_str("\nSource-linked checkpoint statements [Actor summaries; inspect the linked owner before consequential use]:\n");
+        for source in &checkpoint.sources {
+            let unsafe_as_directive = matches!(
+                source.source_trust,
+                ActorContextSourceTrust::AuthenticatedActorInput
+                    | ActorContextSourceTrust::RuntimeUntrustedEvidence
+                    | ActorContextSourceTrust::ExternalUntrusted
+            );
+            let stale = !matches!(
+                source.freshness,
+                ActorContextSourceFreshness::Current | ActorContextSourceFreshness::Unverifiable
+            );
+            output.push_str(&format!(
+                "- [{:?}; {:?}; {:?}; directive_trust={}] {} — source {}{}\n",
+                source.epistemic_kind,
+                source.source_trust,
+                source.freshness,
+                if unsafe_as_directive {
+                    "untrusted"
+                } else {
+                    "not_granted"
+                },
+                if stale {
+                    "STALE BRANCH: refresh before relying."
+                } else {
+                    source.statement.as_str()
+                },
+                serde_json::to_string(&source.source).expect("checkpoint source serializes"),
+                if stale {
+                    " (prior summary withheld)"
+                } else {
+                    ""
+                },
+            ));
+        }
+        if checkpoint.sources_truncated {
+            output.push_str(&format!(
+                "- {} additional checkpoint source link(s) were not loaded; retrieve the bounded next source page only if needed.\n",
+                checkpoint.source_count - checkpoint.sources.len() as i64
+            ));
+        }
+    } else {
+        output.push_str("\nNo focus-compatible durable Actor checkpoint exists. Continue from authoritative Work/Room/files rather than reconstructing a transcript.\n");
+    }
+    if bootstrap.loaded_stale_checkpoint_sources > 0 {
+        output.push_str(&format!(
+            "\nFreshness warning: {} loaded checkpoint source branch(es) are stale, missing, inaccessible, or expired. Authoritative current state wins; refresh only those branches before consequential use.\n",
+            bootstrap.loaded_stale_checkpoint_sources
+        ));
+    }
+    output
+}
+
+/// What an Actor needs to know beyond its exact wake. This deliberately no
+/// longer injects every active Work item in the company. The stable bootstrap
+/// carries one focus and source links; deeper company state is retrieved.
 pub(super) async fn shared_spine(
     config: &CompanyConfig,
     org: &restless_orgintel::OrgIntel,
     actor: &str,
     accountable_lead: bool,
-) -> String {
-    let mut spine = format!("\n# The company you work for\n{}\n", config.mission.trim());
-    match org.list_work().await {
-        Ok(work) => {
-            let open: Vec<String> = work
-                .iter()
-                .filter(|c| matches!(c.status, WorkStatus::Active | WorkStatus::Blocked))
-                .map(|c| {
-                    format!(
-                        "- [{}] {} (owner: {})",
-                        format!("{:?}", c.status).to_lowercase(),
-                        c.title,
-                        c.owner_id
-                    )
-                })
-                .collect();
-            if !open.is_empty() {
-                spine.push_str(&format!(
-                    "\n# Also in flight — do not duplicate or collide with these\n{}\n",
-                    open.join("\n")
-                ));
-            }
-        }
-        Err(error) => tracing::warn!(%error, "could not read Work graph for the staff spine"),
-    }
+    focus: ActorContextFocus,
+) -> restless_orgintel::Result<String> {
+    let bootstrap = org.actor_context_bootstrap(actor, focus, 16).await?;
+    let mut spine = render_actor_bootstrap(&bootstrap, &config.mission);
     if accountable_lead {
-        match (org.list_teams().await, org.list_actors().await) {
-            (Ok(teams), Ok(actors)) => {
-                if let Some(team) = teams.iter().find(|team| team.lead_actor_id == actor) {
-                    spine.push_str(&team_capacity_context(team, &actors));
-                }
-            }
-            (Err(error), _) | (_, Err(error)) => {
-                tracing::warn!(%error, "could not read accountable lead team capacity")
-            }
+        let teams = org.list_teams().await?;
+        let actors = org.list_actors().await?;
+        if let Some(team) = teams.iter().find(|team| team.lead_actor_id == actor) {
+            spine.push_str(&team_capacity_context(team, &actors));
         }
     }
     if actor == "exec" {
@@ -138,15 +259,28 @@ pub(super) async fn shared_spine(
     } else {
         let coordinator = org
             .team_lead_for(actor)
-            .await
-            .ok()
-            .flatten()
+            .await?
             .unwrap_or_else(|| "exec".to_string());
         spine.push_str(&format!(
             "\nYour accountable coordinator is {coordinator}. Use `restless message --to {coordinator} \"...\"` for blockers or free-form coordination. Use the Work CLI to link the exact artifact version you produced. An owner handoff is only for identity, CAPTCHA, MFA, legal attestation, payment confirmation, or irreducible owner judgement; ordinary uncertainty goes to {coordinator}.\n"
         ));
     }
-    spine
+    let context_bytes = spine.len();
+    org.emit_event(
+        "actor.context.bootstrap.materialized.v1",
+        Some(actor),
+        serde_json::json!({
+            "bootstrap_schema": bootstrap.schema,
+            "bootstrap_version": bootstrap.version,
+            "context_bytes": context_bytes,
+            "checkpoint_version": bootstrap.checkpoint.as_ref().map(|checkpoint| checkpoint.checkpoint.checkpoint_version),
+            "loaded_checkpoint_sources": bootstrap.checkpoint.as_ref().map_or(0, |checkpoint| checkpoint.sources.len()),
+            "loaded_stale_checkpoint_sources": bootstrap.loaded_stale_checkpoint_sources,
+            "loaded_untrusted_checkpoint_sources": bootstrap.loaded_untrusted_checkpoint_sources,
+        }),
+    )
+    .await?;
+    Ok(spine)
 }
 
 /// Assemble the factual membrane for an already-claimed Attempt. This is not
@@ -216,7 +350,7 @@ pub(super) fn bound_attempt_context(
     ];
     let mut system_context = serde_json::json!({
         "company_doctrine": "Restless shared operating rules in the actor system prompt",
-        "company_mission": "company mission and collision-avoidance spine in the actor system prompt",
+        "actor_bootstrap": "company mission plus one exact focus and a bounded source-linked Actor checkpoint projection in the actor system prompt",
     });
     if accountable_lead {
         system_context["active_team_capacity"] =
@@ -255,6 +389,7 @@ pub(super) fn bound_attempt_context(
         "unused_replay": {
             "lead_conversation": "not attached",
             "full_team_transcript": "not attached",
+            "full_company_work_graph": "not attached",
             "unrelated_actor_messages": "not attached",
         },
     });
@@ -454,4 +589,142 @@ pub(super) fn workspace_instruction(workdir: &str, conversation: bool) -> String
     format!(
         "Your working directory is {workdir} — it is YOURS: a dedicated git worktree. Commit meaningful checkpoints there with clear messages; do not touch other worktrees or the main checkout."
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+    use restless_orgintel::{
+        ActorCheckpointRow, ActorCheckpointSessionKind, ActorCheckpointSource, ActorCheckpointView,
+        ActorContextEpistemicKind, ActorContextIdentity, ActorContextReturnPath,
+        ActorContextSourceKind, ActorContextSourceRef, ACTOR_CHECKPOINT_SCHEMA_VERSION,
+        ACTOR_CONTEXT_BOOTSTRAP_SCHEMA, ACTOR_CONTEXT_BOOTSTRAP_VERSION,
+    };
+    use uuid::Uuid;
+
+    use super::*;
+
+    #[test]
+    fn bootstrap_withholds_stale_prose_and_marks_untrusted_content() {
+        let now = Utc::now();
+        let room_id = Uuid::new_v4();
+        let mention_id = Uuid::new_v4();
+        let checkpoint_id = Uuid::new_v4();
+        let work_id = Uuid::new_v4();
+        let body = ActorCheckpointBody {
+            current_objective: "Make one bounded decision".into(),
+            current_status: "Inspecting current evidence".into(),
+            completed: vec![],
+            material_findings: vec![],
+            decisions_made: vec![],
+            changed_refs: vec![],
+            failed_approaches: vec![],
+            blockers: vec![],
+            next_useful_action: "Refresh the stale Work branch".into(),
+            expected_receiver: Some("delivery lead".into()),
+        };
+        let checkpoint = ActorCheckpointView {
+            checkpoint: ActorCheckpointRow {
+                id: checkpoint_id,
+                actor_id: "delivery-build".into(),
+                checkpoint_version: 2,
+                schema_version: ACTOR_CHECKPOINT_SCHEMA_VERSION as i16,
+                client_command_id: "renderer-test".into(),
+                client_payload_sha256: "0".repeat(64),
+                session_kind: ActorCheckpointSessionKind::CognitiveSession,
+                work_id: None,
+                attempt_id: None,
+                focused_mention_id: Some(mention_id),
+                body,
+                recorded_at: now,
+            },
+            sources: vec![
+                ActorCheckpointSource {
+                    ordinal: 0,
+                    epistemic_kind: ActorContextEpistemicKind::Observation,
+                    source_kind: ActorContextSourceKind::Work,
+                    source_trust: ActorContextSourceTrust::CompanyState,
+                    source_author_actor_id: Some("delivery-build".into()),
+                    source: ActorContextSourceRef::Work {
+                        work_id,
+                        revision: 1,
+                    },
+                    statement: "STALE_SUMMARY_MUST_NOT_ENTER_PROMPT".into(),
+                    scope: None,
+                    expires_at: None,
+                    observed_at: now,
+                    freshness: ActorContextSourceFreshness::Stale,
+                },
+                ActorCheckpointSource {
+                    ordinal: 1,
+                    epistemic_kind: ActorContextEpistemicKind::Claim,
+                    source_kind: ActorContextSourceKind::RuntimeFile,
+                    source_trust: ActorContextSourceTrust::RuntimeUntrustedEvidence,
+                    source_author_actor_id: None,
+                    source: ActorContextSourceRef::RuntimeFile {
+                        path: "/company/evidence.txt".into(),
+                        digest: None,
+                    },
+                    statement: "Runtime evidence needs independent verification".into(),
+                    scope: None,
+                    expires_at: None,
+                    observed_at: now,
+                    freshness: ActorContextSourceFreshness::Unverifiable,
+                },
+            ],
+            source_count: 2,
+            sources_truncated: false,
+        };
+        let bootstrap = ActorContextBootstrap {
+            schema: ACTOR_CONTEXT_BOOTSTRAP_SCHEMA.into(),
+            version: ACTOR_CONTEXT_BOOTSTRAP_VERSION,
+            generated_at: now,
+            actor: ActorContextIdentity {
+                actor_id: "delivery-build".into(),
+                actor_class: "agent".into(),
+                display: "Delivery Builder".into(),
+                role: "builder".into(),
+                team_id: None,
+            },
+            focus: ActorContextFocusProjection::RoomMention {
+                mention_id,
+                room_id,
+                room_title: "Delivery".into(),
+                message_id: 42,
+                thread_root_message_id: 40,
+                from_actor_id: "owner".into(),
+                triggering_message: "TRIGGER_BODY_MUST_ONLY_BE_IN_USER_TURN".into(),
+                linked_work_id: None,
+                why_this_actor: None,
+                expected_response: None,
+                affected_scope: None,
+                source_trust: ActorContextSourceTrust::AuthenticatedActorInput,
+                content_grants_authority: false,
+            },
+            return_path: ActorContextReturnPath::RoomThread {
+                room_id,
+                thread_root_message_id: 40,
+                reply_to_message_id: 42,
+                resolves_mention_id: mention_id,
+            },
+            anchors: vec![ActorContextSourceRef::Message {
+                room_id,
+                message_id: 42,
+            }],
+            checkpoint: Some(checkpoint),
+            loaded_stale_checkpoint_sources: 1,
+            loaded_untrusted_checkpoint_sources: 1,
+            context_grants_authority: false,
+        };
+
+        let rendered = render_actor_bootstrap(&bootstrap, "Return decisions with proof.");
+
+        assert!(rendered.contains("Context grants authority: no"));
+        assert!(rendered.contains("grants authority: false"));
+        assert!(!rendered.contains("TRIGGER_BODY_MUST_ONLY_BE_IN_USER_TURN"));
+        assert!(!rendered.contains("STALE_SUMMARY_MUST_NOT_ENTER_PROMPT"));
+        assert!(rendered.contains("prior summary withheld"));
+        assert!(rendered.contains("Runtime evidence needs independent verification"));
+        assert!(rendered.contains("directive_trust=untrusted"));
+    }
 }

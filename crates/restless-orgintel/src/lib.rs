@@ -14,6 +14,7 @@ use sqlx::{PgPool, Postgres, Row as _, Transaction};
 use uuid::Uuid;
 
 mod access;
+mod actor_context;
 mod actors;
 mod artifacts;
 mod attempts;
@@ -34,6 +35,7 @@ mod visual;
 mod voice;
 
 pub use access::*;
+pub use actor_context::*;
 pub use documents::*;
 pub use events::EventReplayPage;
 pub use invocations::*;
