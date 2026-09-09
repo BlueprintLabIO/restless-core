@@ -967,6 +967,91 @@ async fn room_send_retry_keeps_its_receipt_after_event_compaction() {
 }
 
 #[tokio::test]
+async fn room_list_is_bounded_newest_first_and_keyset_paginated() {
+    let Some(org) = company("roomlistpage").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Room list pagination scenario");
+        return;
+    };
+
+    let mut visible_ids = Vec::new();
+    for index in 0..3 {
+        visible_ids.push(
+            org.create_room(
+                "owner",
+                RoomKind::Group,
+                &format!("Visible {index}"),
+                &["exec"],
+                &format!("visible-room-{index}"),
+            )
+            .await
+            .unwrap()
+            .id,
+        );
+    }
+    let private = org
+        .create_room(
+            "owner",
+            RoomKind::Group,
+            "Private",
+            &["delivery-build"],
+            "private-room-list",
+        )
+        .await
+        .unwrap();
+
+    // Equal timestamps exercise the UUID tie-breaker rather than relying on
+    // timing differences between test statements.
+    let database_url = std::env::var("RESTLESS_TEST_DATABASE_URL").unwrap();
+    let mut raw = PgConnection::connect(&database_url).await.unwrap();
+    sqlx::query(&format!("SET search_path TO {}", org.schema()))
+        .execute(&mut raw)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE rooms SET created_at='2026-01-01T00:00:00Z'")
+        .execute(&mut raw)
+        .await
+        .unwrap();
+
+    visible_ids.sort_by(|left, right| right.cmp(left));
+    let first = org.room_page_for_actor("exec", None, 2).await.unwrap();
+    assert_eq!(
+        first.rooms.iter().map(|room| room.id).collect::<Vec<_>>(),
+        visible_ids[..2]
+    );
+    assert!(first.has_more);
+    let cursor = (
+        first.next_before_created_at.unwrap(),
+        first.next_before_room_id.unwrap(),
+    );
+
+    let second = org
+        .room_page_for_actor("exec", Some(cursor), 2)
+        .await
+        .unwrap();
+    assert_eq!(
+        second.rooms.iter().map(|room| room.id).collect::<Vec<_>>(),
+        visible_ids[2..]
+    );
+    assert!(!second.has_more);
+    assert!(second.next_before_created_at.is_none());
+    assert!(second.next_before_room_id.is_none());
+    assert!(first
+        .rooms
+        .iter()
+        .chain(second.rooms.iter())
+        .all(|room| room.id != private.id));
+
+    for limit in [0, 101] {
+        assert!(org
+            .room_page_for_actor("exec", None, limit)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("Room list limit"));
+    }
+}
+
+#[tokio::test]
 async fn room_event_replay_is_authorized_isolated_ordered_and_body_free() {
     let Some(org) = company("roomreplay").await else {
         eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Room replay scenario");
@@ -1363,9 +1448,10 @@ async fn legacy_owner_conversation_and_direct_room_share_message_truth() {
         .unwrap();
 
     let direct = org
-        .list_rooms_for_actor("owner")
+        .room_page_for_actor("owner", None, 100)
         .await
         .unwrap()
+        .rooms
         .into_iter()
         .find(|room| room.kind == RoomKind::Direct)
         .expect("the compatibility bridge creates one direct Room");
@@ -2454,9 +2540,10 @@ async fn retiring_a_group_room_owner_archives_the_room_and_terminally_cancels_me
         .contains("different semantics"));
 
     assert!(!org
-        .list_rooms_for_actor("exec")
+        .room_page_for_actor("exec", None, 100)
         .await
         .unwrap()
+        .rooms
         .iter()
         .any(|candidate| candidate.id == room.id));
     assert!(!org

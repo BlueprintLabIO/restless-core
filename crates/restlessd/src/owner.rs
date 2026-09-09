@@ -32,7 +32,7 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Redirect};
 use axum::routing::{any, delete, get, post};
 use axum::{Extension, Json, Router};
-use chrono::{Duration as ChronoDuration, Utc};
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use futures_util::{SinkExt as _, StreamExt as _};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
@@ -410,6 +410,14 @@ struct RoomReadCursorInput {
 #[serde(deny_unknown_fields)]
 struct RoomPageQuery {
     after_message_id: Option<i64>,
+    limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct RoomListQuery {
+    before_created_at: Option<String>,
+    before_room_id: Option<Uuid>,
     limit: Option<i64>,
 }
 
@@ -3519,6 +3527,36 @@ fn room_page_bounds(
     Ok((query.after_message_id, limit))
 }
 
+fn room_list_bounds(
+    query: RoomListQuery,
+) -> std::result::Result<(Option<(DateTime<Utc>, Uuid)>, i64), (&'static str, &'static str)> {
+    let before = match (query.before_created_at, query.before_room_id) {
+        (None, None) => None,
+        (Some(created_at), Some(room_id)) => {
+            let created_at = DateTime::parse_from_rfc3339(&created_at)
+                .map_err(|_| {
+                    (
+                        "room_cursor",
+                        "before_created_at must be an RFC 3339 timestamp",
+                    )
+                })?
+                .with_timezone(&Utc);
+            Some((created_at, room_id))
+        }
+        _ => {
+            return Err((
+                "room_cursor",
+                "before_created_at and before_room_id must be supplied together",
+            ));
+        }
+    };
+    let limit = query.limit.unwrap_or(50);
+    if !(1..=100).contains(&limit) {
+        return Err(("room_limit", "Room list limit must be between 1 and 100"));
+    }
+    Ok((before, limit))
+}
+
 fn room_event_bounds(
     query: RoomEventQuery,
     headers: Option<&HeaderMap>,
@@ -3576,13 +3614,21 @@ async fn list_rooms(
     State(state): State<RoomApiState>,
     RoomPrincipal(principal): RoomPrincipal,
     AxumPath(company): AxumPath<String>,
+    Query(query): Query<RoomListQuery>,
 ) -> Response<Body> {
+    let (before, limit) = match room_list_bounds(query) {
+        Ok(bounds) => bounds,
+        Err((error, message)) => return api_error(StatusCode::BAD_REQUEST, error, message),
+    };
     let org = match room_orgintel(&state, &principal, &company).await {
         Ok(org) => org,
         Err(response) => return response,
     };
-    match org.list_rooms_for_actor(principal.actor_id()).await {
-        Ok(rooms) => Json(serde_json::json!({ "rooms": rooms })).into_response(),
+    match org
+        .room_page_for_actor(principal.actor_id(), before, limit)
+        .await
+    {
+        Ok(page) => Json(page).into_response(),
         Err(error) => room_error(error),
     }
 }
@@ -7044,6 +7090,65 @@ mod tests {
             let (status, body) = room_request(&alice, method, path, request_body).await;
             assert_eq!(status, StatusCode::FORBIDDEN);
             assert_eq!(body["error"], "room_access");
+        }
+    }
+
+    #[tokio::test]
+    async fn room_list_route_requires_an_exact_bounded_keyset_cursor() {
+        let Some(fixture) = RoomRouteFixture::new().await else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Room list route scenario");
+            return;
+        };
+        for index in 0..3 {
+            fixture
+                .org
+                .create_room(
+                    "owner",
+                    restless_orgintel::RoomKind::Group,
+                    &format!("Alice room {index}"),
+                    &["alice"],
+                    &format!("alice-room-page-{index}"),
+                )
+                .await
+                .unwrap();
+        }
+        let alice = fixture.app("alice", "member", &fixture.company);
+        let rooms_path = format!("/companies/{}/rooms", fixture.company);
+
+        let (status, first) =
+            room_request(&alice, Method::GET, format!("{rooms_path}?limit=1"), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(first["rooms"].as_array().unwrap().len(), 1);
+        assert_eq!(first["has_more"], true);
+        let first_id = first["rooms"][0]["id"].as_str().unwrap();
+        let before_created_at = first["next_before_created_at"].as_str().unwrap();
+        let before_room_id = first["next_before_room_id"].as_str().unwrap();
+
+        let (status, second) = room_request(
+            &alice,
+            Method::GET,
+            format!(
+                "{rooms_path}?limit=1&before_created_at={before_created_at}&before_room_id={before_room_id}"
+            ),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(second["rooms"].as_array().unwrap().len(), 1);
+        assert_ne!(second["rooms"][0]["id"], first_id);
+
+        for invalid_path in [
+            format!("{rooms_path}?limit=0"),
+            format!("{rooms_path}?limit=101"),
+            format!("{rooms_path}?before_room_id={before_room_id}"),
+            format!("{rooms_path}?before_created_at=not-a-time&before_room_id={before_room_id}"),
+        ] {
+            let (status, body) = room_request(&alice, Method::GET, invalid_path, None).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+            assert!(matches!(
+                body["error"].as_str(),
+                Some("room_limit" | "room_cursor")
+            ));
         }
     }
 

@@ -12,6 +12,7 @@ use std::collections::{BTreeSet, HashMap};
 
 const MAX_ROOM_PARTICIPANTS: usize = 100;
 const MAX_ROOM_MESSAGE_BYTES: usize = 64 * 1024;
+const MAX_ROOM_LIST_LIMIT: i64 = 100;
 const MAX_ACTIVE_ROOMS_CREATED_PER_ACTOR: i64 = 128;
 const MAX_MESSAGE_MENTIONS: usize = 16;
 const MAX_PENDING_MENTIONS_AUTHORED_PER_ACTOR: i64 = 256;
@@ -1101,21 +1102,71 @@ impl OrgIntel {
         .await
     }
 
-    /// Active Rooms visible to one server-derived Actor.
-    pub async fn list_rooms_for_actor(&self, actor_id: &str) -> Result<Vec<RoomRow>> {
-        Ok(sqlx::query_as(
-            "SELECT room.id,room.kind,room.title,room.created_by,room.canonical_key, \
-                    room.created_at,room.archived_at \
-             FROM rooms room \
-             JOIN room_participants participant ON participant.room_id=room.id \
-             JOIN actors actor ON actor.id=participant.actor_id \
-             WHERE participant.actor_id=$1 AND participant.left_at IS NULL \
-               AND actor.retired_at IS NULL AND room.archived_at IS NULL \
-             ORDER BY room.created_at,room.id",
-        )
-        .bind(actor_id)
-        .fetch_all(&self.pool)
-        .await?)
+    /// One bounded, newest-first keyset page of active Rooms visible to one
+    /// server-derived Actor. Room creation coordinates are immutable, so an
+    /// unchanged view never duplicates a Room across pages; newly committed
+    /// Rooms naturally appear on a subsequent refresh of the first page.
+    pub async fn room_page_for_actor(
+        &self,
+        actor_id: &str,
+        before: Option<(DateTime<Utc>, Uuid)>,
+        limit: i64,
+    ) -> Result<RoomListPage> {
+        if !(1..=MAX_ROOM_LIST_LIMIT).contains(&limit) {
+            return Err(OrgIntelError::InvalidRoom(format!(
+                "Room list limit must be between 1 and {MAX_ROOM_LIST_LIMIT}"
+            )));
+        }
+        let mut rooms: Vec<RoomRow> = match before {
+            Some((created_at, room_id)) => {
+                sqlx::query_as(
+                    "SELECT room.id,room.kind,room.title,room.created_by,room.canonical_key, \
+                            room.created_at,room.archived_at \
+                     FROM rooms room \
+                     JOIN room_participants participant ON participant.room_id=room.id \
+                     JOIN actors actor ON actor.id=participant.actor_id \
+                     WHERE participant.actor_id=$1 AND participant.left_at IS NULL \
+                       AND actor.retired_at IS NULL AND room.archived_at IS NULL \
+                       AND (room.created_at,room.id)<($2,$3) \
+                     ORDER BY room.created_at DESC,room.id DESC LIMIT $4",
+                )
+                .bind(actor_id)
+                .bind(created_at)
+                .bind(room_id)
+                .bind(limit + 1)
+                .fetch_all(&self.pool)
+                .await?
+            }
+            None => {
+                sqlx::query_as(
+                    "SELECT room.id,room.kind,room.title,room.created_by,room.canonical_key, \
+                            room.created_at,room.archived_at \
+                     FROM rooms room \
+                     JOIN room_participants participant ON participant.room_id=room.id \
+                     JOIN actors actor ON actor.id=participant.actor_id \
+                     WHERE participant.actor_id=$1 AND participant.left_at IS NULL \
+                       AND actor.retired_at IS NULL AND room.archived_at IS NULL \
+                     ORDER BY room.created_at DESC,room.id DESC LIMIT $2",
+                )
+                .bind(actor_id)
+                .bind(limit + 1)
+                .fetch_all(&self.pool)
+                .await?
+            }
+        };
+        let has_more = rooms.len() as i64 > limit;
+        if has_more {
+            rooms.truncate(limit as usize);
+        }
+        let next = has_more
+            .then(|| rooms.last().map(|room| (room.created_at, room.id)))
+            .flatten();
+        Ok(RoomListPage {
+            rooms,
+            next_before_created_at: next.map(|cursor| cursor.0),
+            next_before_room_id: next.map(|cursor| cursor.1),
+            has_more,
+        })
     }
 
     /// Current participants, disclosed only to another active participant.

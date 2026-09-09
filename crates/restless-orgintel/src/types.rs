@@ -1074,6 +1074,17 @@ pub struct RoomRow {
     pub archived_at: Option<DateTime<Utc>>,
 }
 
+/// One stable keyset page of active Rooms visible to an Actor. Newest Rooms
+/// come first; the cursor is the immutable `(created_at,id)` tuple of the last
+/// returned Room and both parts must be supplied together on the next request.
+#[derive(Debug, Clone, Serialize)]
+pub struct RoomListPage {
+    pub rooms: Vec<RoomRow>,
+    pub next_before_created_at: Option<DateTime<Utc>>,
+    pub next_before_room_id: Option<Uuid>,
+    pub has_more: bool,
+}
+
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct RoomParticipantRow {
     pub room_id: Uuid,
