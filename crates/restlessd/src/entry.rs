@@ -15,6 +15,7 @@ use base64::Engine as _;
 use chrono::{DateTime, Utc};
 use ed25519_dalek::{Signature, Signer as _, SigningKey, Verifier as _, VerifyingKey};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest as _, Sha256};
 use tokio::sync::{Mutex as AsyncMutex, RwLock};
 use tokio_util::sync::CancellationToken;
 use url::Url;
@@ -244,6 +245,7 @@ pub(crate) struct RequestPrincipal {
     actor_id: String,
     membership_role: String,
     company: Option<String>,
+    cache_partition: String,
 }
 
 impl RequestPrincipal {
@@ -252,17 +254,39 @@ impl RequestPrincipal {
             actor_id: "owner".into(),
             membership_role: "owner".into(),
             company: None,
+            cache_partition: "local-owner-v1".into(),
         }
     }
 
     pub(crate) fn from_verified(identity: &VerifiedIdentity) -> Option<Self> {
+        let actor_id = identity.actor.clone()?;
+        let company = match &identity.scope {
+            CompanyScope::Owner => None,
+            CompanyScope::Company { company } => Some(company.clone()),
+        };
+        let mut partition = Sha256::new();
+        for part in [
+            "restless-cache-partition-v1",
+            identity.issuer.as_deref().unwrap_or("local"),
+            identity.user.as_str(),
+            actor_id.as_str(),
+            company.as_deref().unwrap_or("*"),
+            identity.membership_id.as_deref().unwrap_or("local"),
+        ] {
+            partition.update(part.as_bytes());
+            partition.update([0]);
+        }
+        partition.update(
+            identity
+                .membership_version
+                .unwrap_or_default()
+                .to_be_bytes(),
+        );
         Some(Self {
-            actor_id: identity.actor.clone()?,
+            actor_id,
             membership_role: identity.role.clone(),
-            company: match &identity.scope {
-                CompanyScope::Owner => None,
-                CompanyScope::Company { company } => Some(company.clone()),
-            },
+            company,
+            cache_partition: format!("{:x}", partition.finalize()),
         })
     }
 
@@ -272,6 +296,10 @@ impl RequestPrincipal {
 
     pub(crate) fn membership_role(&self) -> &str {
         &self.membership_role
+    }
+
+    pub(crate) fn cache_partition(&self) -> &str {
+        &self.cache_partition
     }
 
     pub(crate) fn permits_company(&self, company: &str) -> bool {
@@ -1656,6 +1684,35 @@ mod tests {
         assert!(principal.permits_company("aris"));
         assert!(!principal.permits_company("other"));
         assert_eq!(principal.membership_role(), "member");
+
+        let partition = principal.cache_partition().to_string();
+        assert_eq!(partition.len(), 64);
+        assert!(partition.bytes().all(|byte| byte.is_ascii_hexdigit()));
+        assert_eq!(
+            RequestPrincipal::from_verified(&scoped)
+                .unwrap()
+                .cache_partition(),
+            partition
+        );
+
+        let mut renewed = scoped.clone();
+        renewed.membership_version = Some(3);
+        assert_ne!(
+            RequestPrincipal::from_verified(&renewed)
+                .unwrap()
+                .cache_partition(),
+            partition
+        );
+
+        let mut other_actor = scoped.clone();
+        other_actor.user = "other-user".into();
+        other_actor.actor = Some("human-2".into());
+        assert_ne!(
+            RequestPrincipal::from_verified(&other_actor)
+                .unwrap()
+                .cache_partition(),
+            partition
+        );
     }
 
     #[test]

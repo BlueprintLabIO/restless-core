@@ -336,6 +336,15 @@ struct ConversationSendResponse {
     requested_outcome_standard: Option<restless_orgintel::OutcomeStandard>,
 }
 
+#[derive(Debug, Serialize)]
+struct CompanyPrincipalView<'a> {
+    actor_id: &'a str,
+    membership_role: &'a str,
+    /// Opaque browser-cache namespace derived only from verified identity and
+    /// current membership. It is a partition hint, never an authorization token.
+    cache_partition: &'a str,
+}
+
 /// Authenticated Room handlers use their own extractor so a missing principal
 /// remains an explicit 401 even if a future router composition accidentally
 /// omits the outer entry middleware. The value itself can only be installed by
@@ -1082,6 +1091,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
     let api = Router::new()
         .route("/appliance", get(appliance_status))
         .route("/companies", get(company_catalog))
+        .route("/companies/{company}/principal", get(company_principal))
         .route("/companies/{company}/archive", post(archive_company))
         .route("/companies/{company}/restore", post(restore_company))
         .route("/companies/{company}/attention", get(attention_view))
@@ -1380,6 +1390,7 @@ fn membership_boundary_violation(
         // handlers perform their own principal and audience authorization.
         || !is_owner_data_surface(path)
         || path == "/entry/logout"
+        || is_company_principal_route(path)
         || is_actor_conversation_route(path)
         || is_company_route_family(path, "rooms")
         || is_company_route_family(path, "documents")
@@ -1424,6 +1435,16 @@ fn is_company_route_family(path: &str, family: &str) -> bool {
     };
     let mut segments = rest.split('/');
     segments.next().is_some_and(|company| !company.is_empty()) && segments.next() == Some(family)
+}
+
+fn is_company_principal_route(path: &str) -> bool {
+    let Some(rest) = path.strip_prefix("/api/companies/") else {
+        return false;
+    };
+    let mut segments = rest.split('/');
+    segments.next().is_some_and(|company| !company.is_empty())
+        && segments.next() == Some("principal")
+        && segments.next().is_none()
 }
 
 fn is_actor_conversation_route(path: &str) -> bool {
@@ -2236,6 +2257,28 @@ async fn company_catalog(
         })
         .collect::<Vec<_>>();
     Json(catalog).into_response()
+}
+
+async fn company_principal(
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+) -> Response<Body> {
+    if !principal.permits_company(&company) {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "company",
+            "this session has no access to that company",
+        );
+    }
+    (
+        [(CACHE_CONTROL, HeaderValue::from_static("no-store"))],
+        Json(CompanyPrincipalView {
+            actor_id: principal.actor_id(),
+            membership_role: principal.membership_role(),
+            cache_partition: principal.cache_partition(),
+        }),
+    )
+        .into_response()
 }
 
 fn company_catalog_entry(
@@ -6908,6 +6951,62 @@ mod tests {
     use sqlx::Connection as _;
     use tower::ServiceExt as _;
 
+    #[tokio::test]
+    async fn company_principal_exposes_only_a_verified_cache_partition() {
+        let principal = RequestPrincipal::from_verified(&VerifiedIdentity {
+            user: "user-alice".into(),
+            issuer: Some("https://cloud.restless.test".into()),
+            owner: "owner-1".into(),
+            scope: CompanyScope::Company {
+                company: "acme".into(),
+            },
+            role: "member".into(),
+            actor: Some("alice".into()),
+            company_id: Some(Uuid::new_v4()),
+            cell_id: Some(Uuid::new_v4()),
+            membership_id: Some("membership-1".into()),
+            membership_version: Some(4),
+        })
+        .expect("verified human principal");
+        let expected_partition = principal.cache_partition().to_string();
+        let app = Router::new()
+            .route("/companies/{company}/principal", get(company_principal))
+            .layer(Extension(principal));
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/companies/acme/principal")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get(CACHE_CONTROL).unwrap(),
+            HeaderValue::from_static("no-store")
+        );
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["actor_id"], "alice");
+        assert_eq!(body["membership_role"], "member");
+        assert_eq!(body["cache_partition"], expected_partition);
+        assert_eq!(body.as_object().unwrap().len(), 3);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/companies/other/principal")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
     struct RoomRouteFixture {
         state: RoomApiState,
         company: String,
@@ -9132,6 +9231,12 @@ mod tests {
             &principal,
         )
         .is_none());
+        assert!(membership_boundary_violation(
+            &Method::GET,
+            "/api/companies/aris/principal",
+            &principal,
+        )
+        .is_none());
         let attachment_path = format!("/api/companies/aris/attachments/{}", Uuid::new_v4());
         assert!(
             membership_boundary_violation(&Method::GET, &attachment_path, &principal).is_none()
@@ -9187,6 +9292,7 @@ mod tests {
         for unrelated in [
             "/api/companies/aris/not-rooms/admin",
             "/api/companies/aris/rooms-admin",
+            "/api/companies/aris/principal/admin",
             "/api/companies/aris/reports/conversation",
             "/api/companies/aris/documents-admin",
         ] {
