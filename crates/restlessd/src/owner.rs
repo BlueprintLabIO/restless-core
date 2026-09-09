@@ -4330,7 +4330,11 @@ async fn get_room_read_cursor(
         Err(response) => return response,
     };
     match org.room_read_cursor(principal.actor_id(), room).await {
-        Ok(cursor) => Json(serde_json::json!({ "cursor": cursor })).into_response(),
+        Ok(cursor) => Json(serde_json::json!({
+            "actor_id": principal.actor_id(),
+            "cursor": cursor,
+        }))
+        .into_response(),
         Err(error) => room_error(error),
     }
 }
@@ -7292,6 +7296,12 @@ mod tests {
         assert_eq!(conflict["error"], "room_command");
         let response = room_get_response(&alice, &rooms_path, None).await;
         assert_eq!(response.status(), StatusCode::OK);
+        let cursor_path = format!("/companies/{}/rooms/{room}/read-cursor", fixture.company);
+        let (status, unread) = room_request(&bob, Method::GET, &cursor_path, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(unread["actor_id"], "bob");
+        assert!(unread["cursor"].is_null());
+
         let messages_path = format!("/companies/{}/rooms/{room}/messages", fixture.company);
 
         let (status, _) = room_request(
@@ -8310,6 +8320,7 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(added["actor_id"], "carol");
 
+        let cursor_path = format!("/companies/{}/rooms/{room}/read-cursor", fixture.company);
         let messages_path = format!("/companies/{}/rooms/{room}/messages", fixture.company);
         let mut message_ids = Vec::new();
         for (command_id, body) in [("read-one", "One"), ("read-two", "Two")] {
@@ -8326,7 +8337,6 @@ mod tests {
             assert_eq!(status, StatusCode::CREATED);
             message_ids.push(sent["message"]["id"].as_i64().unwrap());
         }
-        let cursor_path = format!("/companies/{}/rooms/{room}/read-cursor", fixture.company);
         let (status, newest) = room_request(
             &bob,
             Method::POST,
@@ -8351,6 +8361,7 @@ mod tests {
         assert_eq!(stale_retry["last_read_message_id"], message_ids[1]);
         let (status, current) = room_request(&bob, Method::GET, &cursor_path, None).await;
         assert_eq!(status, StatusCode::OK);
+        assert_eq!(current["actor_id"], "bob");
         assert_eq!(current["cursor"]["last_read_message_id"], message_ids[1]);
 
         let (status, removed) = room_request(
