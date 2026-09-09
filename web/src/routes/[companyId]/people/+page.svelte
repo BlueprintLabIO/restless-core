@@ -5,6 +5,7 @@
 
 	import { tick } from 'svelte';
 	import { page } from '$app/state';
+	import MessageCircle from '@lucide/svelte/icons/message-circle';
 	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
 	import SemanticMark from '$lib/primitives/SemanticMark.svelte';
 	import Composer from '$lib/primitives/Composer.svelte';
@@ -285,7 +286,12 @@
 	<section class="people-index cockpit-pane">
 		<header class="cockpit-pane-head">
 			<h1>People</h1>
-			<span class="pane-count">{people.length}</span>
+			<div class="people-head-actions">
+				<a class="rooms-entry" href={`/${companyId}/people/rooms`}>
+					<MessageCircle size={14} strokeWidth={1.9} aria-hidden="true" /> Rooms
+				</a>
+				<span class="pane-count">{people.length}</span>
+			</div>
 		</header>
 		<div class="people-list">
 			{#if exec}
@@ -343,6 +349,14 @@
 	<section class="people-talk cockpit-pane">
 		{#if selected}
 			<header class="talk-head">
+				<a
+					class="rooms-entry mobile"
+					href={`/${companyId}/people/rooms`}
+					aria-label="Open Rooms"
+					title="Rooms"
+				>
+					<MessageCircle size={15} strokeWidth={1.9} aria-hidden="true" />
+				</a>
 				<span class="person-avatar tone-{personTone({ actor_id: selected.actor_id })}"
 					>{initials(selected.display)}</span
 				>
@@ -515,6 +529,41 @@
 {/snippet}
 
 <style>
+	.people-head-actions {
+		display: flex;
+		align-items: center;
+		gap: 7px;
+	}
+
+	.rooms-entry {
+		height: 26px;
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		padding: 0 7px;
+		border: 1px solid color-mix(in srgb, var(--intent-conversation) 20%, var(--border));
+		border-radius: var(--radius-control);
+		background: var(--intent-conversation-soft);
+		font-size: var(--t-label);
+		font-weight: 600;
+		color: var(--intent-conversation);
+		text-decoration: none;
+	}
+
+	.rooms-entry:hover,
+	.rooms-entry:focus-visible {
+		border-color: color-mix(in srgb, var(--intent-conversation) 38%, var(--border));
+		background: color-mix(in srgb, var(--intent-conversation) 12%, var(--surface));
+	}
+
+	.rooms-entry.mobile {
+		display: none;
+		width: 28px;
+		padding: 0;
+		justify-content: center;
+		flex: 0 0 auto;
+	}
+
 	.team-group {
 		border-bottom: 1px solid var(--border);
 	}
@@ -758,5 +807,11 @@
 
 	.inspection-empty {
 		padding: 14px 12px;
+	}
+
+	@media (max-width: 760px) {
+		.rooms-entry.mobile {
+			display: inline-flex;
+		}
 	}
 </style>

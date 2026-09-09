@@ -29,6 +29,7 @@
 		ariaLabel = 'Message',
 		disabled = false,
 		minlength = 2,
+		allowAttachments = true,
 		actionLabel = '',
 		flareKey = 0,
 		focusKey = 0,
@@ -41,6 +42,8 @@
 		ariaLabel?: string;
 		disabled?: boolean;
 		minlength?: number;
+		/** Hide file affordances when the owning API accepts text only. */
+		allowAttachments?: boolean;
 		/** Visible on hover and assistive tech when a send has a special effect. */
 		actionLabel?: string;
 		/** Increment to play the one-shot semantic-light acknowledgement. */
@@ -281,7 +284,7 @@
 			oncompositionstart={() => (composing = true)}
 			oncompositionend={() => (composing = false)}></textarea>
 		<div class="hc-toolbar">
-			<AttachmentPicker bind:files {disabled} />
+			{#if allowAttachments}<AttachmentPicker bind:files {disabled} />{/if}
 			{#if controls}<div class="hc-slot">{@render controls()}</div>{/if}
 			<button
 				class="hc-voice"
