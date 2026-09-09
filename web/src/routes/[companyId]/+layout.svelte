@@ -2,6 +2,7 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import AppShell, { type ShellTab } from '$lib/components/AppShell.svelte';
+	import CompanyQueryPersistence from '$lib/components/CompanyQueryPersistence.svelte';
 	import ExecutiveRail from '$lib/components/ExecutiveRail.svelte';
 	import { cockpitContextPath, reviewAction } from '$lib/model/attention';
 	import {
@@ -212,6 +213,8 @@
 		];
 	});
 </script>
+
+<CompanyQueryPersistence {companyId} />
 
 {#snippet executiveRail()}
 	<ExecutiveRail
