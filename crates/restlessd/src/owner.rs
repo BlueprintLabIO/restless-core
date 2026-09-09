@@ -7,6 +7,11 @@
 //! approval actions, and browser attach/lease transport. It is not a generic
 //! REST facade over the company computer.
 
+#[path = "owner_documents.rs"]
+mod documents_api;
+#[path = "owner_rooms_lifecycle.rs"]
+mod rooms_lifecycle_api;
+
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::convert::Infallible;
 use std::net::{IpAddr, SocketAddr};
@@ -1175,6 +1180,8 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         )
         .route("/companies/{company}/browser/return", post(return_control))
         .merge(room_api_routes::<OwnerState>())
+        .merge(rooms_lifecycle_api::routes::<OwnerState>())
+        .merge(documents_api::routes::<OwnerState>())
         .fallback(api_not_found)
         .layer(DefaultBodyLimit::max(32 * 1024 * 1024));
 
