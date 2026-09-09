@@ -1,6 +1,7 @@
 # Sprint 45 — Trusted human entry and durable attribution
 
-**Status:** Draft for founder alignment
+**Status:** In progress — T0/T1/T5 already satisfied by existing code, T2 materially advanced;
+T3/T4/T6 remain open (see ticket outline)
 **Programme:** [Core company collaboration](company-collaboration-programme.md)
 **Paired Cloud sprint:** Cloud 16
 **Depends on:** current Core account-plane entry and released identity contract
@@ -49,13 +50,21 @@ deferred” posture. No invited-member surface may ship before request principal
 
 ## Ticket outline
 
-- [ ] C45-T0 — canon and compatibility decision
-- [ ] C45-T1 — access-context schema, key rotation and negative corpus
-- [ ] C45-T2 — request-principal propagation and handler audit
-- [ ] C45-T3 — durable human Actor mapping and actor-class migration
-- [ ] C45-T4 — ownership/company bootstrap separation
-- [ ] C45-T5 — agent-session issuer boundary
-- [ ] C45-T6 — self-hosted and hosted end-to-end proof
+- [x] C45-T0 — canon and compatibility decision — ARCHITECTURE.md decisions #24/#28/#31 already record
+      this; no further action found needed.
+- [x] C45-T1 — access-context schema, key rotation and negative corpus — already implemented
+      (`entry.rs` JWKS/EdDSA verification, versioned `AssertionClaims`, thorough negative-case tests).
+- [~] C45-T2 — request-principal propagation and handler audit — concrete literal-`"owner"`
+      attribution violations found and fixed; not an exhaustive line-by-line audit. See
+      [sprint-45/c45-t2-request-principal-attribution.md](sprint-45/c45-t2-request-principal-attribution.md).
+- [ ] C45-T3 — durable human Actor mapping and actor-class migration — mapping is solid;
+      `kind` is still load-bearing in several call sites and has not actually been migrated away from.
+- [ ] C45-T4 — ownership/company bootstrap separation — bootstrap (immutable `company_id`) is solid;
+      membership-owner vs. root-Authority-owner separation has not been started (single unified
+      "owner" concept today).
+- [x] C45-T5 — agent-session issuer boundary — already implemented (`capability.rs`
+      `CapabilityIssuer`; Runtime Bridge can only present, never mint, identity/permission).
+- [ ] C45-T6 — self-hosted and hosted end-to-end proof — not started.
 
 ## Deletion and exclusions
 
