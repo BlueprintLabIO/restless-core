@@ -11,8 +11,12 @@ use std::sync::Arc;
 
 use anyhow::{bail, Context as _, Result};
 use base64::Engine as _;
-use chrono::{DateTime, Duration, Utc};
-use ed25519_dalek::{Signature, Signer as _, SigningKey, Verifier as _};
+use chrono::{DateTime, Utc};
+#[cfg(test)]
+use chrono::Duration;
+use ed25519_dalek::{Signer as _, SigningKey};
+#[cfg(test)]
+use ed25519_dalek::{Signature, Verifier as _};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use url::{Host, Url};
@@ -90,6 +94,7 @@ pub(crate) struct DocumentCollaborationTokenInput<'a> {
     pub(crate) ttl_seconds: i64,
 }
 
+#[cfg(test)]
 pub(crate) struct ExpectedDocumentCollaborationScope<'a> {
     pub(crate) issuer: &'a str,
     pub(crate) session_principal: &'a str,
@@ -264,6 +269,7 @@ fn fresh_seed() -> [u8; 32] {
     hasher.finalize().into()
 }
 
+#[cfg(test)]
 fn decode_segment<T: for<'de> Deserialize<'de>>(segment: &str, name: &str) -> Result<T> {
     let raw = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(segment)
@@ -272,6 +278,7 @@ fn decode_segment<T: for<'de> Deserialize<'de>>(segment: &str, name: &str) -> Re
         .with_context(|| format!("native Documents collaboration {name} is not valid JSON"))
 }
 
+#[cfg(test)]
 fn validate_claims(
     claims: &DocumentCollaborationClaims,
     expected: &ExpectedDocumentCollaborationScope<'_>,
