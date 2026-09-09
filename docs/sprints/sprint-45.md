@@ -71,7 +71,11 @@ deferred” posture. No invited-member surface may ship before request principal
       [sprint-45/c45-t4-ownership-bootstrap-separation.md](sprint-45/c45-t4-ownership-bootstrap-separation.md).
 - [x] C45-T5 — agent-session issuer boundary — already implemented (`capability.rs`
       `CapabilityIssuer`; Runtime Bridge can only present, never mint, identity/permission).
-- [ ] C45-T6 — self-hosted and hosted end-to-end proof — not started.
+- [~] C45-T6 — self-hosted and hosted end-to-end proof — self-hosted composition proof added
+      (JWKS verify -> durable Actor mapping -> reidentification -> revocation, against a real HTTP
+      JWKS server and real scratch Postgres). Full HTTP-router proof and hosted (Cloud) proof remain
+      open. See
+      [sprint-45/c45-t6-self-hosted-composition-proof.md](sprint-45/c45-t6-self-hosted-composition-proof.md).
 
 ## Deletion and exclusions
 
