@@ -315,7 +315,7 @@ export async function sendActorMessage(
 	interrupt = false,
 	outcomeStandard?: OutcomeStandard,
 	attentionId?: string,
-	clientCommandId = crypto.randomUUID()
+	clientCommandId: string = crypto.randomUUID()
 ): Promise<MessageSendResult> {
 	const form = new FormData();
 	form.set('client_command_id', clientCommandId);
