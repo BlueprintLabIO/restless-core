@@ -295,7 +295,10 @@ impl OrgIntel {
             .after_connect(move |connection, _meta| {
                 let schema = pinned.clone();
                 Box::pin(async move {
-                    sqlx::query(&format!("SET search_path TO {schema}"))
+                    // Keep pg_temp last so SECURITY DEFINER functions created
+                    // with `SET search_path FROM CURRENT` cannot resolve an
+                    // attacker-controlled temporary relation first.
+                    sqlx::query(&format!("SET search_path TO {schema}, pg_catalog, pg_temp"))
                         .execute(connection)
                         .await?;
                     Ok(())
@@ -315,7 +318,7 @@ impl OrgIntel {
             .after_connect(move |connection, _meta| {
                 let schema = pinned.clone();
                 Box::pin(async move {
-                    sqlx::query(&format!("SET search_path TO {schema}"))
+                    sqlx::query(&format!("SET search_path TO {schema}, pg_catalog, pg_temp"))
                         .execute(connection)
                         .await?;
                     Ok(())
