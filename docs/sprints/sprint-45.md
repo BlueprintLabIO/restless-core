@@ -59,9 +59,11 @@ deferred” posture. No invited-member surface may ship before request principal
       [sprint-45/c45-t2-request-principal-attribution.md](sprint-45/c45-t2-request-principal-attribution.md).
 - [ ] C45-T3 — durable human Actor mapping and actor-class migration — mapping is solid;
       `kind` is still load-bearing in several call sites and has not actually been migrated away from.
-- [ ] C45-T4 — ownership/company bootstrap separation — bootstrap (immutable `company_id`) is solid;
-      membership-owner vs. root-Authority-owner separation has not been started (single unified
-      "owner" concept today).
+- [~] C45-T4 — ownership/company bootstrap separation — bootstrap (immutable `company_id`) was already
+      solid; the membership-owner vs. root-Authority-owner split now exists as a real, tested
+      mechanism (new Authority-store fact + transfer endpoint), but no existing owner-only check has
+      been migrated to consume it yet. See
+      [sprint-45/c45-t4-ownership-bootstrap-separation.md](sprint-45/c45-t4-ownership-bootstrap-separation.md).
 - [x] C45-T5 — agent-session issuer boundary — already implemented (`capability.rs`
       `CapabilityIssuer`; Runtime Bridge can only present, never mint, identity/permission).
 - [ ] C45-T6 — self-hosted and hosted end-to-end proof — not started.
