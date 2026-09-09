@@ -1,7 +1,11 @@
 <script lang="ts">
 	import MessageCircle from '@lucide/svelte/icons/message-circle';
 	import SemanticMark from '$lib/primitives/SemanticMark.svelte';
-	import type { RoomMention, RoomMessage as RoomMessageRecord } from '$lib/model/rooms';
+	import type {
+		RoomMention,
+		RoomMessage as RoomMessageRecord,
+		RoomMessageRevision
+	} from '$lib/model/rooms';
 
 	let {
 		message,
@@ -10,7 +14,19 @@
 		isAgent = false,
 		mentions = [],
 		thread = false,
-		onthread = null
+		onthread = null,
+		canEdit = false,
+		canDelete = false,
+		historyOpen = false,
+		revisions = [],
+		historyStatus = 'live',
+		historyFailure = '',
+		historyHasMore = false,
+		historyLoadingMore = false,
+		onhistory = null,
+		onloadhistory = null,
+		onedit = null,
+		ondelete = null
 	}: {
 		message: RoomMessageRecord;
 		author: string;
@@ -19,7 +35,50 @@
 		mentions?: RoomMention[];
 		thread?: boolean;
 		onthread?: (() => void) | null;
+		canEdit?: boolean;
+		canDelete?: boolean;
+		historyOpen?: boolean;
+		revisions?: RoomMessageRevision[];
+		historyStatus?: 'unknown' | 'live' | 'stale';
+		historyFailure?: string;
+		historyHasMore?: boolean;
+		historyLoadingMore?: boolean;
+		onhistory?: (() => void) | null;
+		onloadhistory?: (() => void) | null;
+		onedit?: ((body: string, commandId: string) => Promise<void>) | null;
+		ondelete?: ((commandId: string) => Promise<void>) | null;
 	} = $props();
+
+	let editing = $state(false);
+	let editBody = $state('');
+	let editCommandId = $state<string | null>(null);
+	let editCommandBody = $state('');
+	let editError = $state('');
+	let saving = $state(false);
+	let confirmingDelete = $state(false);
+	let deleteCommandId = $state<string | null>(null);
+	let deleteError = $state('');
+	let deleting = $state(false);
+
+	function clearDeletedState() {
+		// A server tombstone always wins over unsaved local UI. In particular,
+		// never leave the previous body resident in an edit field after an SSE
+		// deletion arrives while this component is awaiting a mutation.
+		editing = false;
+		editBody = '';
+		editCommandId = null;
+		editCommandBody = '';
+		editError = '';
+		saving = false;
+		confirmingDelete = false;
+		deleteCommandId = null;
+		deleteError = '';
+		deleting = false;
+	}
+
+	$effect(() => {
+		if (message.deleted_at) clearDeletedState();
+	});
 
 	const time = $derived.by(() => {
 		const value = new Date(message.created_at);
@@ -27,6 +86,82 @@
 			? ''
 			: value.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }).toLowerCase();
 	});
+
+	function retryable(cause: unknown): boolean {
+		const status = (cause as { status?: unknown }).status;
+		return (
+			typeof status !== 'number' ||
+			status === 408 ||
+			status === 425 ||
+			status === 429 ||
+			status >= 500
+		);
+	}
+
+	function beginEdit() {
+		editBody = message.body;
+		editCommandId = null;
+		editCommandBody = '';
+		editError = '';
+		confirmingDelete = false;
+		editing = true;
+	}
+
+	function cancelEdit() {
+		editing = false;
+		editError = '';
+		editCommandId = null;
+		editCommandBody = '';
+	}
+
+	async function saveEdit() {
+		const body = editBody.trim();
+		if (!body || body === message.body || !onedit || saving) return;
+		const commandId =
+			editCommandId && editCommandBody === body ? editCommandId : crypto.randomUUID();
+		saving = true;
+		editError = '';
+		try {
+			await onedit(body, commandId);
+			cancelEdit();
+		} catch (cause) {
+			if (message.deleted_at) {
+				clearDeletedState();
+				return;
+			}
+			if (retryable(cause)) {
+				editCommandId = commandId;
+				editCommandBody = body;
+			} else {
+				editCommandId = null;
+				editCommandBody = '';
+			}
+			editError = cause instanceof Error ? cause.message : 'The edit was not saved.';
+		} finally {
+			saving = false;
+		}
+	}
+
+	async function confirmDelete() {
+		if (!ondelete || deleting) return;
+		const commandId = deleteCommandId ?? crypto.randomUUID();
+		deleting = true;
+		deleteError = '';
+		try {
+			await ondelete(commandId);
+			confirmingDelete = false;
+			deleteCommandId = null;
+		} catch (cause) {
+			if (message.deleted_at) {
+				clearDeletedState();
+				return;
+			}
+			deleteCommandId = retryable(cause) ? commandId : null;
+			deleteError = cause instanceof Error ? cause.message : 'The message was not deleted.';
+		} finally {
+			deleting = false;
+		}
+	}
 </script>
 
 <article class="room-message" class:you={isYou} class:thread>
@@ -38,18 +173,111 @@
 		/>
 		<strong>{author}</strong>
 		{#if time}<time datetime={message.created_at}>{time}</time>{/if}
+		{#if message.edited_at && !message.deleted_at}<span class="lifecycle">edited</span>{/if}
 		{#if mentions.length}
 			<span class="mention-receipt">
 				{mentions.map((mention) => `@${mention.mentioned_actor_id}`).join(', ')}
 			</span>
 		{/if}
 	</header>
-	<p>{message.body}</p>
-	{#if onthread}
-		<button type="button" class="thread-action" onclick={() => onthread?.()}>
-			<MessageCircle size={13} strokeWidth={2} aria-hidden="true" />
-			Reply
-		</button>
+	{#if message.deleted_at}
+		<p class="deleted">Message deleted</p>
+	{:else if editing}
+		<div class="edit-panel">
+			<label>
+				<span class="sr-only">Edit message</span>
+				<textarea bind:value={editBody} maxlength={65536} rows={3}></textarea>
+			</label>
+			<div class="edit-controls">
+				<button type="button" class="primary-action" disabled={saving} onclick={saveEdit}>
+					{saving ? 'Saving…' : editCommandId ? 'Retry save' : 'Save'}
+				</button>
+				<button type="button" disabled={saving} onclick={cancelEdit}>Cancel</button>
+			</div>
+			{#if editError}<p class="action-error" role="alert">{editError}</p>{/if}
+		</div>
+	{:else}
+		<p>{message.body}</p>
+	{/if}
+	{#if onthread || (!message.deleted_at && !editing && (canEdit || canDelete || onhistory))}
+		<div class="message-actions">
+			{#if onthread}
+				<button type="button" onclick={() => onthread?.()}>
+					<MessageCircle size={13} strokeWidth={2} aria-hidden="true" />
+					{message.deleted_at ? 'View thread' : 'Reply'}
+				</button>
+			{/if}
+			{#if !message.deleted_at && !editing && canEdit}
+				<button type="button" onclick={beginEdit}>Edit</button>
+			{/if}
+			{#if !message.deleted_at && !editing && onhistory}
+				<button type="button" aria-expanded={historyOpen} onclick={() => onhistory?.()}>
+					{historyOpen ? 'Hide edits' : 'Edits'}
+				</button>
+			{/if}
+			{#if !message.deleted_at && !editing && canDelete}
+				<button
+					type="button"
+					class="delete-action"
+					aria-expanded={confirmingDelete}
+					onclick={() => {
+						confirmingDelete = !confirmingDelete;
+						deleteError = '';
+					}}>Delete</button
+				>
+			{/if}
+		</div>
+	{/if}
+	{#if confirmingDelete && !message.deleted_at}
+		<div class="delete-confirm" role="group" aria-label="Confirm message deletion">
+			<span>Delete this message?</span>
+			<button type="button" class="danger-action" disabled={deleting} onclick={confirmDelete}>
+				{deleting ? 'Deleting…' : deleteCommandId ? 'Retry delete' : 'Delete'}
+			</button>
+			<button
+				type="button"
+				disabled={deleting}
+				onclick={() => {
+					confirmingDelete = false;
+					deleteError = '';
+					deleteCommandId = null;
+				}}>Cancel</button
+			>
+		</div>
+		{#if deleteError}<p class="action-error" role="alert">{deleteError}</p>{/if}
+	{/if}
+	{#if historyOpen && !message.deleted_at}
+		<section class="revision-history" aria-label="Message edits">
+			{#if historyStatus === 'unknown'}
+				<p class="history-state">Loading edits…</p>
+			{:else if historyFailure}
+				<p class="action-error" role="alert">{historyFailure}</p>
+			{:else if revisions.length}
+				{#each revisions as revision (revision.id)}
+					<article>
+						<header>
+							<strong>Edit {revision.revision_number}</strong>
+							<time datetime={revision.created_at}>
+								{new Date(revision.created_at).toLocaleString()}
+							</time>
+						</header>
+						<p>{revision.body}</p>
+					</article>
+				{/each}
+				{#if historyHasMore}
+					<button
+						type="button"
+						class="load-history"
+						disabled={historyLoadingMore}
+						onclick={() => onloadhistory?.()}
+					>
+						{historyLoadingMore ? 'Loading…' : 'Older edits'}
+					</button>
+				{/if}
+			{:else}
+				<p class="history-state">No earlier edits.</p>
+			{/if}
+		</section>
 	{/if}
 </article>
 
@@ -88,10 +316,15 @@
 	}
 
 	time,
-	.mention-receipt {
+	.mention-receipt,
+	.lifecycle {
 		flex: 0 0 auto;
 		font: 500 var(--t-label) var(--font-mono);
 		color: var(--text-tertiary);
+	}
+
+	.lifecycle {
+		font-style: italic;
 	}
 
 	.mention-receipt {
@@ -112,11 +345,25 @@
 		color: var(--ink);
 	}
 
-	.thread-action {
+	p.deleted {
+		font-style: italic;
+		color: var(--text-tertiary);
+	}
+
+	.message-actions {
+		display: inline-flex;
+		align-items: center;
+		gap: 2px;
+		margin: 8px 0 0 31px;
+	}
+
+	.message-actions button,
+	.edit-controls button,
+	.delete-confirm button,
+	.load-history {
 		display: inline-flex;
 		align-items: center;
 		gap: 5px;
-		margin: 8px 0 0 31px;
 		padding: 3px 6px;
 		border: 1px solid transparent;
 		border-radius: var(--radius-control);
@@ -131,18 +378,156 @@
 			transform var(--motion-press) var(--ease-out);
 	}
 
-	.thread-action:hover,
-	.thread-action:focus-visible {
+	.message-actions button:hover,
+	.message-actions button:focus-visible,
+	.edit-controls button:hover,
+	.edit-controls button:focus-visible,
+	.delete-confirm button:hover,
+	.delete-confirm button:focus-visible,
+	.load-history:hover,
+	.load-history:focus-visible {
 		border-color: color-mix(in srgb, var(--intent-conversation) 24%, var(--border));
 		background: var(--intent-conversation-soft);
 	}
 
-	.thread-action:active {
+	.message-actions button:active,
+	.edit-controls button:active,
+	.delete-confirm button:active,
+	.load-history:active {
 		transform: translateY(1px);
 	}
 
-	.thread-action:focus-visible {
+	.message-actions button:focus-visible,
+	.edit-controls button:focus-visible,
+	.delete-confirm button:focus-visible,
+	.load-history:focus-visible {
 		outline: 2px solid color-mix(in srgb, var(--intent-conversation) 32%, transparent);
 		outline-offset: 2px;
+	}
+
+	.message-actions .delete-action,
+	.delete-confirm .danger-action {
+		color: var(--state-danger);
+	}
+
+	.edit-panel,
+	.delete-confirm,
+	.revision-history {
+		margin: 8px 0 0 31px;
+	}
+
+	.edit-panel textarea {
+		width: min(100%, 680px);
+		min-height: 76px;
+		resize: vertical;
+		padding: 8px 9px;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-control);
+		background: var(--surface);
+		font: inherit;
+		line-height: 1.5;
+		color: var(--ink);
+	}
+
+	.edit-panel textarea:focus-visible {
+		outline: 2px solid color-mix(in srgb, var(--intent-conversation) 32%, transparent);
+		outline-offset: 2px;
+	}
+
+	.edit-controls,
+	.delete-confirm {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	.edit-controls {
+		margin-top: 6px;
+	}
+
+	.edit-controls .primary-action {
+		border-color: color-mix(in srgb, var(--intent-conversation) 24%, var(--border));
+		background: var(--intent-conversation-soft);
+	}
+
+	.delete-confirm {
+		width: fit-content;
+		padding: 6px 8px;
+		border: 1px solid color-mix(in srgb, var(--state-danger) 20%, var(--border));
+		border-radius: var(--radius-control);
+		background: color-mix(in srgb, var(--state-danger) 5%, var(--surface));
+		font-size: var(--t-label);
+	}
+
+	.action-error,
+	.history-state {
+		margin: 6px 0 0 31px;
+		font-size: var(--t-label);
+		color: var(--state-danger);
+	}
+
+	.edit-panel .action-error,
+	.revision-history .action-error,
+	.revision-history .history-state {
+		margin-left: 0;
+	}
+
+	.history-state {
+		color: var(--text-tertiary);
+	}
+
+	.revision-history {
+		max-height: 280px;
+		overflow: auto;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-control);
+		background: var(--surface-alt);
+	}
+
+	.revision-history article {
+		padding: 8px 10px;
+		border-bottom: 1px solid var(--border);
+	}
+
+	.revision-history article header {
+		gap: 8px;
+	}
+
+	.revision-history article header time {
+		margin-left: auto;
+	}
+
+	.revision-history article p {
+		margin: 5px 0 0;
+		font-size: var(--t-label);
+		line-height: 1.5;
+	}
+
+	.load-history {
+		width: 100%;
+		justify-content: center;
+		border-radius: 0;
+	}
+
+	button:disabled {
+		cursor: wait;
+		opacity: 0.62;
+	}
+
+	@media (max-width: 760px) {
+		.message-actions button,
+		.edit-controls button,
+		.delete-confirm button,
+		.load-history {
+			min-height: 40px;
+			padding-inline: 9px;
+		}
+
+		.message-actions,
+		.edit-panel,
+		.delete-confirm,
+		.revision-history {
+			margin-left: 0;
+		}
 	}
 </style>

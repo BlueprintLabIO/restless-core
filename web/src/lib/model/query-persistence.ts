@@ -1,6 +1,6 @@
 import type { QueryClient } from '@tanstack/query-core';
 
-export const QUERY_CACHE_SCHEMA = 1;
+export const QUERY_CACHE_SCHEMA = 2;
 export const QUERY_CACHE_MAX_AGE_MS = 12 * 60 * 60_000;
 export const QUERY_CACHE_MAX_ENTRIES = 12;
 export const QUERY_CACHE_MAX_ENTRY_BYTES = 128 * 1024;
@@ -230,6 +230,9 @@ function safeRoomMessage(value: unknown, room: string): Record<string, unknown> 
 	const fromActor = string(message.from_actor, 256);
 	const body = string(message.body, 16_384);
 	const createdAt = string(message.created_at, 128);
+	const revisionNumber = integer(message.revision_number);
+	const editedAt = nullableString(message.edited_at, 128);
+	const deletedAt = nullableString(message.deleted_at, 128);
 	const parentMessageId = nullableInteger(message.parent_message_id);
 	const threadRootMessageId = nullableInteger(message.thread_root_message_id);
 	if (
@@ -237,6 +240,8 @@ function safeRoomMessage(value: unknown, room: string): Record<string, unknown> 
 		!fromActor ||
 		body === null ||
 		!createdAt ||
+		revisionNumber === null ||
+		revisionNumber < 0 ||
 		parentMessageId === undefined ||
 		threadRootMessageId === undefined
 	)
@@ -252,6 +257,9 @@ function safeRoomMessage(value: unknown, room: string): Record<string, unknown> 
 		thread_root_message_id: threadRootMessageId,
 		client_command_id: null,
 		created_at: createdAt,
+		revision_number: revisionNumber,
+		edited_at: editedAt,
+		deleted_at: deletedAt,
 		legacy_read_at: null
 	};
 }

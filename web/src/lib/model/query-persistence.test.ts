@@ -133,6 +133,9 @@ function roomMessage(id: number, room = 'general') {
 		thread_root_message_id: null,
 		client_command_id: `command-${id}`,
 		created_at: '2026-09-09T01:00:00Z',
+		revision_number: 0,
+		edited_at: null,
+		deleted_at: null,
 		legacy_read_at: '2026-09-09T01:00:00Z'
 	};
 }

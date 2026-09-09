@@ -2,15 +2,23 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 // @ts-expect-error Node's strip-only test runner needs the explicit TypeScript suffix.
 import * as roomsModel from './rooms.ts';
-import type { RoomEvent, RoomTransport } from './rooms';
+import type { RoomEvent, RoomMention, RoomTransport } from './rooms';
 
 const {
+	deleteRoomMessage,
+	editRoomMessage,
+	editRoomMessagePages,
+	getRoomMessageRevisions,
 	getRoomMessages,
 	getRoomReadCursor,
 	getRoomThread,
 	openRoomEventStream,
 	roomDraftKey,
-	sendRoomMessage
+	removeRoomMessageSearchResult,
+	searchRoomMessages,
+	searchRooms,
+	sendRoomMessage,
+	tombstoneRoomMessagePages
 } = roomsModel;
 
 class FakeEventSource {
@@ -193,4 +201,169 @@ test('Thread sends preserve the caller command id and exact current write shape'
 	} finally {
 		globalThis.fetch = original;
 	}
+});
+
+test('Room lifecycle transports preserve strict cursors and idempotency headers', async () => {
+	const original = globalThis.fetch;
+	const calls: Array<{ url: string; init?: RequestInit }> = [];
+	const controller = new AbortController();
+	globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+		calls.push({ url: String(input), init });
+		return new Response(JSON.stringify({ revisions: [], messages: [], rooms: [], created: true }), {
+			status: 200,
+			headers: { 'content-type': 'application/json' }
+		});
+	}) as typeof fetch;
+	try {
+		await searchRooms(
+			'acme group',
+			'launch review',
+			{ beforeCreatedAt: '2026-09-09T00:00:00Z', beforeRoomId: 'room/id' },
+			12,
+			controller.signal
+		);
+		await searchRoomMessages('acme group', 'hard evidence', 41, 13, controller.signal);
+		await getRoomMessageRevisions('acme group', 'room/id', 9, 3, 7, controller.signal);
+		await editRoomMessage('acme group', 'room/id', 9, 'Revised', 2, 'edit-command');
+		await deleteRoomMessage('acme group', 'room/id', 9, 'delete-command');
+
+		assert.equal(
+			calls[0]?.url,
+			'/api/companies/acme%20group/rooms/search?q=launch+review&limit=12&before_created_at=2026-09-09T00%3A00%3A00Z&before_room_id=room%2Fid'
+		);
+		assert.equal(
+			calls[1]?.url,
+			'/api/companies/acme%20group/room-messages/search?q=hard+evidence&limit=13&before_message_id=41'
+		);
+		assert.equal(
+			calls[2]?.url,
+			'/api/companies/acme%20group/rooms/room%2Fid/messages/9/revisions?limit=7&before_revision_number=3'
+		);
+		assert.equal(calls[3]?.init?.method, 'PATCH');
+		assert.equal(
+			(calls[3]?.init?.headers as Record<string, string>)['idempotency-key'],
+			'edit-command'
+		);
+		assert.deepEqual(JSON.parse(String(calls[3]?.init?.body)), {
+			body: 'Revised',
+			expected_revision_number: 2
+		});
+		assert.equal(calls[4]?.init?.method, 'DELETE');
+		assert.equal(
+			(calls[4]?.init?.headers as Record<string, string>)['idempotency-key'],
+			'delete-command'
+		);
+		assert.equal(calls[4]?.init?.body, undefined);
+		assert.equal(calls[0]?.init?.signal, controller.signal);
+		assert.equal(calls[1]?.init?.signal, controller.signal);
+		assert.equal(calls[2]?.init?.signal, controller.signal);
+	} finally {
+		globalThis.fetch = original;
+	}
+});
+
+test('a delivered deletion event fails closed across cached body and mention projections', () => {
+	const pages = tombstoneRoomMessagePages(
+		[
+			{
+				messages: [
+					{
+						id: 9,
+						room_id: 'room',
+						from_actor: 'owner',
+						to_actor: 'exec',
+						body: 'sensitive body',
+						outcome_standard: null,
+						parent_message_id: null,
+						thread_root_message_id: null,
+						client_command_id: 'command',
+						created_at: '2026-09-09T00:00:00Z',
+						revision_number: 0,
+						edited_at: null,
+						deleted_at: null,
+						legacy_read_at: null
+					}
+				],
+				mentions: [{ id: 'mention', message_id: 9 } as RoomMention],
+				next_before_message_id: null,
+				has_more: false
+			}
+		],
+		9,
+		'2026-09-09T00:01:00Z'
+	);
+	assert.equal(pages[0]?.messages[0]?.body, '');
+	assert.equal(pages[0]?.messages[0]?.deleted_at, '2026-09-09T00:01:00Z');
+	assert.deepEqual(pages[0]?.mentions, []);
+});
+
+test('a confirmed edit updates live bodies but never resurrects a tombstone', () => {
+	const pages = [
+		{
+			messages: [
+				{
+					id: 9,
+					room_id: 'room',
+					from_actor: 'owner',
+					to_actor: null,
+					body: 'Old',
+					outcome_standard: null,
+					parent_message_id: null,
+					thread_root_message_id: null,
+					client_command_id: 'command',
+					created_at: '2026-09-09T00:00:00Z',
+					revision_number: 0,
+					edited_at: null,
+					deleted_at: null,
+					legacy_read_at: null
+				},
+				{
+					id: 10,
+					room_id: 'room',
+					from_actor: 'owner',
+					to_actor: null,
+					body: '',
+					outcome_standard: null,
+					parent_message_id: null,
+					thread_root_message_id: null,
+					client_command_id: 'command-2',
+					created_at: '2026-09-09T00:00:00Z',
+					revision_number: 0,
+					edited_at: null,
+					deleted_at: '2026-09-09T00:01:00Z',
+					legacy_read_at: null
+				}
+			],
+			mentions: [],
+			next_before_message_id: null,
+			has_more: false
+		}
+	];
+	const edited = editRoomMessagePages(pages, 9, 'New', '2026-09-09T00:02:00Z', 1);
+	const tombstone = editRoomMessagePages(edited, 10, 'Secret', '2026-09-09T00:03:00Z', 1);
+	assert.equal(edited[0]?.messages[0]?.body, 'New');
+	assert.equal(edited[0]?.messages[0]?.edited_at, '2026-09-09T00:02:00Z');
+	assert.equal(edited[0]?.messages[0]?.revision_number, 1);
+	assert.equal(tombstone[0]?.messages[1]?.body, '');
+
+	const searchPages = [
+		{
+			messages: [
+				{
+					id: 9,
+					room_id: 'room',
+					from_actor: 'owner',
+					thread_root_message_id: null,
+					snippet: 'Old'
+				}
+			],
+			next_before_message_id: null,
+			has_more: false
+		}
+	];
+	const deletedSearch = removeRoomMessageSearchResult(searchPages, 9);
+	assert.equal(
+		deletedSearch[0]?.messages.some((message) => message.id === 9),
+		false
+	);
 });

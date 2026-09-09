@@ -41,6 +41,9 @@ export interface RoomMessage {
 	thread_root_message_id: number | null;
 	client_command_id: string | null;
 	created_at: string;
+	revision_number: number;
+	edited_at: string | null;
+	deleted_at: string | null;
 	legacy_read_at: string | null;
 }
 
@@ -78,6 +81,101 @@ export interface RoomMessagePage {
 	mentions: RoomMention[];
 	next_before_message_id: number | null;
 	has_more: boolean;
+}
+
+export interface RoomMessageRevision {
+	id: string;
+	revision_number: number;
+	editor_actor_id: string;
+	body: string;
+	created_at: string;
+}
+
+export interface RoomMessageRevisionPage {
+	revisions: RoomMessageRevision[];
+	next_before_revision_number: number | null;
+	has_more: boolean;
+}
+
+export interface RoomMessageEditResult {
+	revision: RoomMessageRevision;
+	created: boolean;
+}
+
+export interface RoomMessageTombstone {
+	id: string;
+	room_id: string;
+	message_id: number;
+	deleted_by_actor_id: string;
+	created_event_id: number;
+	created_at: string;
+}
+
+export interface RoomMessageDeleteResult {
+	tombstone: RoomMessageTombstone;
+	created: boolean;
+}
+
+export interface RoomMessageSearchResult {
+	id: number;
+	room_id: string;
+	from_actor: string;
+	thread_root_message_id: number | null;
+	snippet: string;
+}
+
+export interface RoomMessageSearchPage {
+	messages: RoomMessageSearchResult[];
+	next_before_message_id: number | null;
+	has_more: boolean;
+}
+
+/**
+ * Apply a body-free deletion event before any network revalidation. Once the
+ * server has told this client that a Message is deleted, stale or failed
+ * refetches must never resurrect its body or structured mention context.
+ */
+export function tombstoneRoomMessagePages(
+	pages: RoomMessagePage[],
+	messageId: number,
+	deletedAt: string
+): RoomMessagePage[] {
+	return pages.map((page) => ({
+		...page,
+		messages: page.messages.map((message) =>
+			message.id === messageId
+				? { ...message, body: '', deleted_at: message.deleted_at ?? deletedAt }
+				: message
+		),
+		mentions: page.mentions.filter((mention) => mention.message_id !== messageId)
+	}));
+}
+
+export function editRoomMessagePages(
+	pages: RoomMessagePage[],
+	messageId: number,
+	body: string,
+	editedAt: string,
+	revisionNumber: number
+): RoomMessagePage[] {
+	return pages.map((page) => ({
+		...page,
+		messages: page.messages.map((message) =>
+			message.id === messageId && !message.deleted_at
+				? { ...message, body, edited_at: editedAt, revision_number: revisionNumber }
+				: message
+		)
+	}));
+}
+
+export function removeRoomMessageSearchResult(
+	pages: RoomMessageSearchPage[],
+	messageId: number
+): RoomMessageSearchPage[] {
+	return pages.map((page) => ({
+		...page,
+		messages: page.messages.filter((message) => message.id !== messageId)
+	}));
 }
 
 export interface RoomReadCursor {
@@ -166,6 +264,35 @@ export function getRooms(
 	return roomJson(`${roomPath(company)}?${query}`);
 }
 
+export function searchRooms(
+	company: string,
+	search: string,
+	cursor: RoomListCursor | null = null,
+	limit = 30,
+	signal?: AbortSignal
+): Promise<RoomListPage> {
+	const query = new URLSearchParams({ q: search, limit: String(limit) });
+	if (cursor) {
+		query.set('before_created_at', cursor.beforeCreatedAt);
+		query.set('before_room_id', cursor.beforeRoomId);
+	}
+	return roomJson(`${roomPath(company)}/search?${query}`, { signal });
+}
+
+export function searchRoomMessages(
+	company: string,
+	search: string,
+	beforeMessageId: number | null = null,
+	limit = 20,
+	signal?: AbortSignal
+): Promise<RoomMessageSearchPage> {
+	const query = new URLSearchParams({ q: search, limit: String(limit) });
+	if (beforeMessageId !== null) query.set('before_message_id', String(beforeMessageId));
+	return roomJson(`/api/companies/${encodeURIComponent(company)}/room-messages/search?${query}`, {
+		signal
+	});
+}
+
 export async function getRoomParticipants(
 	company: string,
 	room: string
@@ -199,6 +326,54 @@ export function getRoomThread(
 	return roomJson(
 		`${roomPath(company, room)}/threads/${encodeURIComponent(rootMessageId)}?${query}`
 	);
+}
+
+export function getRoomMessageRevisions(
+	company: string,
+	room: string,
+	messageId: number,
+	beforeRevisionNumber: number | null = null,
+	limit = 10,
+	signal?: AbortSignal
+): Promise<RoomMessageRevisionPage> {
+	const query = new URLSearchParams({ limit: String(limit) });
+	if (beforeRevisionNumber !== null) {
+		query.set('before_revision_number', String(beforeRevisionNumber));
+	}
+	return roomJson(
+		`${roomPath(company, room)}/messages/${encodeURIComponent(messageId)}/revisions?${query}`,
+		{ signal }
+	);
+}
+
+export function editRoomMessage(
+	company: string,
+	room: string,
+	messageId: number,
+	body: string,
+	expectedRevisionNumber: number,
+	commandId: string
+): Promise<RoomMessageEditResult> {
+	return roomJson(`${roomPath(company, room)}/messages/${encodeURIComponent(messageId)}`, {
+		method: 'PATCH',
+		headers: {
+			'content-type': 'application/json',
+			'idempotency-key': commandId
+		},
+		body: JSON.stringify({ body, expected_revision_number: expectedRevisionNumber })
+	});
+}
+
+export function deleteRoomMessage(
+	company: string,
+	room: string,
+	messageId: number,
+	commandId: string
+): Promise<RoomMessageDeleteResult> {
+	return roomJson(`${roomPath(company, room)}/messages/${encodeURIComponent(messageId)}`, {
+		method: 'DELETE',
+		headers: { 'idempotency-key': commandId }
+	});
 }
 
 export async function getRoomReadCursor(company: string, room: string): Promise<RoomReadState> {
