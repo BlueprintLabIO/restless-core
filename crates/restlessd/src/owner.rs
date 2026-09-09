@@ -7669,14 +7669,6 @@ mod tests {
                 "affected_scope": "public release"
             }]
         });
-        let mut work_scoped = command.clone();
-        work_scoped["command_id"] = serde_json::json!("member-work-mention");
-        work_scoped["mentions"][0]["work_id"] = serde_json::json!(Uuid::new_v4());
-        let (status, denied) =
-            room_request(&alice, Method::POST, &messages_path, Some(work_scoped)).await;
-        assert_eq!(status, StatusCode::FORBIDDEN);
-        assert_eq!(denied["error"], "work_scope");
-
         let (status, sent) =
             room_request(&alice, Method::POST, &messages_path, Some(command.clone())).await;
         assert_eq!(status, StatusCode::CREATED);
@@ -7783,6 +7775,131 @@ mod tests {
             let response = room_get_response(&bob, format!("{mentions_path}{query}"), None).await;
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         }
+    }
+
+    #[tokio::test]
+    async fn member_room_message_may_link_only_work_visible_in_that_exact_room() {
+        let Some(fixture) = RoomRouteFixture::new().await else {
+            eprintln!(
+                "RESTLESS_TEST_DATABASE_URL unset; skipping member Work mention route scenario"
+            );
+            return;
+        };
+        let shared_room = fixture
+            .org
+            .create_room(
+                "alice",
+                restless_orgintel::RoomKind::Group,
+                "Shared game room",
+                &["bob"],
+                "member-work-mention-shared-room",
+            )
+            .await
+            .unwrap();
+        let other_room = fixture
+            .org
+            .create_room(
+                "alice",
+                restless_orgintel::RoomKind::Group,
+                "Other game room",
+                &["bob"],
+                "member-work-mention-other-room",
+            )
+            .await
+            .unwrap();
+        let add_work = |title: &'static str| restless_orgintel::NewWork {
+            owner_id: "exec",
+            title,
+            outcome: "A playable browser game outcome",
+            goal_id: None,
+            priority: 1,
+            expected_artifact: "A reviewable build",
+            workspace: restless_orgintel::WorkspaceSpec::default(),
+            attempt_limit: Some(2),
+        };
+        let company_work = fixture
+            .org
+            .add_work(add_work("Company game direction"))
+            .await
+            .unwrap();
+        let shared_work = fixture
+            .org
+            .add_work(add_work("Shared Room playtest"))
+            .await
+            .unwrap();
+        let other_work = fixture
+            .org
+            .add_work(add_work("Other Room launch plan"))
+            .await
+            .unwrap();
+        for (work_id, room_id) in [(shared_work, shared_room.id), (other_work, other_room.id)] {
+            fixture
+                .org
+                .set_work_collaboration_scope(restless_orgintel::SetWorkCollaborationScope {
+                    command_id: Uuid::new_v4(),
+                    work_id,
+                    actor_id: "alice",
+                    expected_revision: 1,
+                    visibility: restless_orgintel::WorkCollaborationVisibility::Room,
+                    room_id: Some(room_id),
+                })
+                .await
+                .unwrap();
+        }
+
+        let sessions = SessionStore::default();
+        let alice_token = sessions.establish(
+            RoomRouteFixture::identity("alice", "member", &fixture.company),
+            Duration::from_secs(60),
+        );
+        let alice = fixture.network_app(sessions.resolve_lease(&alice_token).unwrap());
+        let messages_path = format!(
+            "/companies/{}/rooms/{}/messages",
+            fixture.company, shared_room.id
+        );
+        for (work_id, command_id) in [
+            (company_work, "member-links-company-work"),
+            (shared_work, "member-links-exact-room-work"),
+        ] {
+            let (status, response) = room_request(
+                &alice,
+                Method::POST,
+                &messages_path,
+                Some(serde_json::json!({
+                    "body": "Please review this Work.",
+                    "command_id": command_id,
+                    "mentions": [{
+                        "actor_id": "bob",
+                        "work_id": work_id,
+                        "why_this_actor": "Bob owns the playtest judgement",
+                        "expected_response": "Say whether the build is ready"
+                    }]
+                })),
+            )
+            .await;
+            assert_eq!(status, StatusCode::CREATED);
+            assert_eq!(response["message"]["from_actor"], "alice");
+            assert_eq!(response["mentions"][0]["work_id"], work_id.to_string());
+        }
+
+        let (status, denied) = room_request(
+            &alice,
+            Method::POST,
+            &messages_path,
+            Some(serde_json::json!({
+                "body": "This Work belongs to another Room.",
+                "command_id": "member-links-other-room-work",
+                "mentions": [{
+                    "actor_id": "bob",
+                    "work_id": other_work,
+                    "why_this_actor": "Bob owns the playtest judgement",
+                    "expected_response": "Say whether the build is ready"
+                }]
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(denied["error"], "room_access");
     }
 
     #[tokio::test]
