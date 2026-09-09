@@ -6180,12 +6180,48 @@ fn verified_attachment_response(
     Ok(response)
 }
 
+/// Approving, declining or revoking standing authorization for a real
+/// external effect is exactly what ARCHITECTURE.md decision #28 means by
+/// root Authority — not the broader company administration that ordinary
+/// membership ownership already covers (settings, lifecycle, harnesses).
+/// C45-T4's ownership separation exists so this can require the actual
+/// Authority owner specifically, once one has been established away from the
+/// bootstrap default, rather than merely "an owner-role member."
+async fn require_authority_owner(
+    state: &OwnerState,
+    company: &str,
+    principal: &RequestPrincipal,
+) -> Result<(), Response<Body>> {
+    let org = state.daemon.orgintel.get(company).await.ok();
+    let current = match effective_authority_owner(state, company, org.as_ref()).await {
+        Ok(view) => view,
+        Err(error) => {
+            return Err(api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "authority_owner",
+                format!("{error:#}"),
+            ))
+        }
+    };
+    if principal.actor_id() != current.actor_id {
+        return Err(api_error(
+            StatusCode::FORBIDDEN,
+            "authority_owner",
+            "only the current Authority owner may decide standing approval for real effects",
+        ));
+    }
+    Ok(())
+}
+
 async fn grant(
     State(state): State<OwnerState>,
     Extension(principal): Extension<RequestPrincipal>,
     AxumPath(company): AxumPath<String>,
     Json(input): Json<PartyAction>,
 ) -> impl IntoResponse {
+    if let Err(refusal) = require_authority_owner(&state, &company, &principal).await {
+        return refusal;
+    }
     let org = state.daemon.orgintel.get(&company).await.ok();
     match approval::grant(
         &state.daemon.root,
@@ -6208,6 +6244,9 @@ async fn decline(
     AxumPath(company): AxumPath<String>,
     Json(input): Json<PartyAction>,
 ) -> impl IntoResponse {
+    if let Err(refusal) = require_authority_owner(&state, &company, &principal).await {
+        return refusal;
+    }
     let org = state.daemon.orgintel.get(&company).await.ok();
     match approval::decline(
         &state.daemon.root,
@@ -6230,6 +6269,9 @@ async fn revoke(
     AxumPath(company): AxumPath<String>,
     Json(input): Json<PartyAction>,
 ) -> impl IntoResponse {
+    if let Err(refusal) = require_authority_owner(&state, &company, &principal).await {
+        return refusal;
+    }
     let org = state.daemon.orgintel.get(&company).await.ok();
     match approval::revoke(
         &state.daemon.root,
