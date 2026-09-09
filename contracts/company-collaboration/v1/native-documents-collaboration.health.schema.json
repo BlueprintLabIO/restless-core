@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.restless.run/core/company-collaboration/v1/native-documents-collaboration.health.schema.json",
+  "title": "Restless Core native Documents collaboration health",
+  "description": "Responses from the private liveness and readiness endpoints of the company-cell collaboration sidecar. Readiness is true only when the document-content store is reachable; it never claims that the Company Runtime is awake.",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "protocol_version",
+        "schema_version"
+      ],
+      "properties": {
+        "status": {
+          "const": "live"
+        },
+        "protocol_version": {
+          "const": 1
+        },
+        "schema_version": {
+          "const": 1
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "storage",
+        "protocol_version",
+        "schema_version"
+      ],
+      "properties": {
+        "status": {
+          "const": "ready"
+        },
+        "storage": {
+          "const": "ready"
+        },
+        "protocol_version": {
+          "const": 1
+        },
+        "schema_version": {
+          "const": 1
+        }
+      }
+    }
+  ]
+}

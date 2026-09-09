@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +10,11 @@ import test from 'node:test';
 import {
   CONTRACT_SET_FORMAT,
   CONTRACT_SET_NAME,
+  NATIVE_DOCUMENTS_CAPABILITY,
+  NATIVE_DOCUMENTS_DESCRIPTOR_ARTIFACT,
+  NATIVE_DOCUMENTS_HEALTH_ARTIFACT,
+  NATIVE_DOCUMENTS_PROTOCOL_ARTIFACT,
+  NATIVE_DOCUMENTS_TOKEN_ARTIFACT,
   createCompanyCollaborationContractSet,
   readCoreReleaseTuple,
 } from './create-company-collaboration-contract-set.mjs';
@@ -18,13 +24,15 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const sourceRevision = '1'.repeat(40);
 const accountPlaneImage = `ghcr.io/blueprintlabio/restless-account-plane@sha256:${'a'.repeat(64)}`;
 const companyRuntimeImage = `ghcr.io/blueprintlabio/restless-company-runtime@sha256:${'b'.repeat(64)}`;
+const nativeDocumentsImage = `ghcr.io/blueprintlabio/restless-native-documents@sha256:${'c'.repeat(64)}`;
 
 function digest(bytes) {
   return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 }
 
-async function generatedFixture() {
+async function generatedFixture(t) {
   const outputRoot = await mkdtemp(join(tmpdir(), 'restless-core-contract-'));
+  t.after(() => rm(outputRoot, { recursive: true, force: true }));
   const release = await readCoreReleaseTuple({
     sourceRoot: root,
     sourceRevision,
@@ -35,12 +43,13 @@ async function generatedFixture() {
     sourceRoot: root,
     outputRoot,
     release,
+    nativeDocumentsImage,
   });
   return { outputRoot, release, contractSet };
 }
 
-test('the Core contract set is canonical, immutable and release-complete', async () => {
-  const fixture = await generatedFixture();
+test('the Core contract set is canonical, immutable and release-complete', async (t) => {
+  const fixture = await generatedFixture(t);
   const bytes = await readFile(fixture.contractSet.manifestPath);
   const manifest = JSON.parse(bytes);
   assert.deepEqual(Object.keys(manifest), ['format', 'contract_set', 'release', 'capabilities', 'artifacts']);
@@ -52,9 +61,45 @@ test('the Core contract set is canonical, immutable and release-complete', async
   assert.equal(manifest.release.images.account_plane, accountPlaneImage);
   assert.equal(manifest.release.images.company_runtime, companyRuntimeImage);
   assert.deepEqual(manifest.capabilities, [...manifest.capabilities].sort());
+  assert.ok(manifest.capabilities.includes(NATIVE_DOCUMENTS_CAPABILITY));
   assert.deepEqual(
     manifest.artifacts.map((artifact) => artifact.id),
-    ['restless.core.collaboration.events', 'restless.core.collaboration.openapi'],
+    [
+      'restless.core.collaboration.events',
+      'restless.core.collaboration.openapi',
+      NATIVE_DOCUMENTS_DESCRIPTOR_ARTIFACT,
+      NATIVE_DOCUMENTS_HEALTH_ARTIFACT,
+      NATIVE_DOCUMENTS_PROTOCOL_ARTIFACT,
+      NATIVE_DOCUMENTS_TOKEN_ARTIFACT,
+    ],
+  );
+  const descriptorArtifact = manifest.artifacts.find(
+    ({ id }) => id === NATIVE_DOCUMENTS_DESCRIPTOR_ARTIFACT,
+  );
+  const descriptor = JSON.parse(
+    await readFile(join(fixture.contractSet.bundleRoot, descriptorArtifact.path)),
+  );
+  assert.equal(descriptor.image, nativeDocumentsImage);
+  assert.equal(
+    descriptor.routing.reserved_route_prefix,
+    '/api/companies/{company_id}/documents/{document_id}/collaboration',
+  );
+  assert.equal(descriptor.availability.instance_scope, 'company-cell');
+  assert.equal(descriptor.availability.public_exposure, 'owner-plane-proxy-only');
+  assert.equal(descriptor.availability.runtime_dependency, 'none');
+  assert.equal(descriptor.storage.scope, 'document-content-only');
+  assert.ok(descriptor.token.maximum_ttl_seconds <= 300);
+  assert.deepEqual(
+    [
+      descriptor.protocol.artifact_id,
+      descriptor.health.artifact_id,
+      descriptor.token.artifact_id,
+    ].sort(),
+    [
+      NATIVE_DOCUMENTS_HEALTH_ARTIFACT,
+      NATIVE_DOCUMENTS_PROTOCOL_ARTIFACT,
+      NATIVE_DOCUMENTS_TOKEN_ARTIFACT,
+    ].sort(),
   );
   assert.equal(fixture.contractSet.manifestDigest, digest(bytes));
   assert.equal(bytes.toString('utf8'), `${JSON.stringify(manifest, null, 2)}\n`);
@@ -63,12 +108,13 @@ test('the Core contract set is canonical, immutable and release-complete', async
     sourceRoot: root,
     outputRoot: fixture.outputRoot,
     release: fixture.release,
+    nativeDocumentsImage,
   });
   assert.deepEqual(replay, fixture.contractSet);
 });
 
-test('the release manifest can only bind an existing verified contract set', async () => {
-  const fixture = await generatedFixture();
+test('the release manifest can only bind an existing verified contract set', async (t) => {
+  const fixture = await generatedFixture(t);
   const created = await createCoreReleaseManifest({
     contractSetManifestPath: fixture.contractSet.manifestPath,
     outputRoot: fixture.outputRoot,
@@ -99,10 +145,13 @@ test('the release manifest can only bind an existing verified contract set', asy
   assert.deepEqual(replay, created);
 });
 
-test('artifact tampering prevents release-manifest creation', async () => {
-  const fixture = await generatedFixture();
+test('artifact tampering prevents release-manifest creation', async (t) => {
+  const fixture = await generatedFixture(t);
   const manifest = JSON.parse(await readFile(fixture.contractSet.manifestPath));
-  const artifactPath = join(fixture.contractSet.bundleRoot, manifest.artifacts[0].path);
+  const artifactPath = join(
+    fixture.contractSet.bundleRoot,
+    manifest.artifacts.find(({ id }) => id === NATIVE_DOCUMENTS_PROTOCOL_ARTIFACT).path,
+  );
   await writeFile(artifactPath, '{}\n');
   await assert.rejects(
     createCoreReleaseManifest({
@@ -111,6 +160,60 @@ test('artifact tampering prevents release-manifest creation', async () => {
     }),
     /bytes do not match/,
   );
+});
+
+test('native Documents hosting requires one immutable image and refuses bundle tampering', async (t) => {
+  const fixture = await generatedFixture(t);
+  await assert.rejects(
+    createCompanyCollaborationContractSet({
+      sourceRoot: root,
+      outputRoot: fixture.outputRoot,
+      release: fixture.release,
+    }),
+    /native Documents image is invalid/,
+  );
+  await assert.rejects(
+    createCompanyCollaborationContractSet({
+      sourceRoot: root,
+      outputRoot: fixture.outputRoot,
+      release: fixture.release,
+      nativeDocumentsImage: 'ghcr.io/blueprintlabio/restless-native-documents:latest',
+    }),
+    /native Documents image is invalid/,
+  );
+
+  const manifest = JSON.parse(await readFile(fixture.contractSet.manifestPath));
+  const descriptorArtifact = manifest.artifacts.find(
+    ({ id }) => id === NATIVE_DOCUMENTS_DESCRIPTOR_ARTIFACT,
+  );
+  await writeFile(join(fixture.contractSet.bundleRoot, descriptorArtifact.path), '{}\n');
+  await assert.rejects(
+    createCompanyCollaborationContractSet({
+      sourceRoot: root,
+      outputRoot: fixture.outputRoot,
+      release: fixture.release,
+      nativeDocumentsImage,
+    }),
+    /immutable release artifact already exists with different bytes/,
+  );
+});
+
+test('the CLI requires the native Documents image before release generation', () => {
+  const result = spawnSync(
+    process.execPath,
+    [
+      join(root, 'scripts/create-company-collaboration-contract-set.mjs'),
+      '--output',
+      '/tmp/restless-contract-cli-missing-image',
+      '--account-plane-image',
+      accountPlaneImage,
+      '--company-runtime-image',
+      companyRuntimeImage,
+    ],
+    { encoding: 'utf8' },
+  );
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /--native-documents-image is required/);
 });
 
 test('the OpenAPI bootstrap shapes are exact 13-field input and 14-field receipt', async () => {
