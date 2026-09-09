@@ -694,6 +694,9 @@ mod tests {
                 thread_root_message_id: Some(40),
                 client_command_id: Some("mention".into()),
                 created_at: now,
+                revision_number: 0,
+                edited_at: None,
+                deleted_at: None,
                 legacy_read_at: None,
             },
         });

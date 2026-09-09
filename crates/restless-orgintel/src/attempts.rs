@@ -278,10 +278,13 @@ impl OrgIntel {
         ));
         let feedback = sqlx::query_as::<_, MessageRow>(
             "SELECT id,from_actor,to_actor,body,outcome_standard,created_at,read_at FROM (\
-               SELECT m.id,m.from_actor,m.to_actor,m.body,m.outcome_standard,m.created_at,m.read_at \
+               SELECT m.id,m.from_actor,m.to_actor,COALESCE(revision.body,m.body) AS body,\
+                      m.outcome_standard,m.created_at,m.read_at \
                FROM work_feedback f JOIN messages m ON m.id=f.message_id \
+               LEFT JOIN room_message_revisions revision ON revision.id=m.latest_revision_id \
                WHERE f.work_id=$1 \
                  AND COALESCE(f.routed_to_actor,m.to_actor)=$2 \
+                 AND m.deleted_at IS NULL \
                ORDER BY m.id DESC LIMIT 100\
              ) recent ORDER BY id",
         )
@@ -655,9 +658,14 @@ impl OrgIntel {
             artifact_lines,
             reason,
         );
+        let room_id =
+            ensure_direct_message_room_in_tx(&mut tx, recovery.observed_by, Some(&coordinator_id))
+                .await?;
         let message_id: i64 = sqlx::query_scalar(
-            "INSERT INTO messages (from_actor, to_actor, body) VALUES ($1,$2,$3) RETURNING id",
+            "INSERT INTO messages (room_id,from_actor,to_actor,body) \
+             VALUES ($1,$2,$3,$4) RETURNING id",
         )
+        .bind(room_id)
         .bind(recovery.observed_by)
         .bind(&coordinator_id)
         .bind(&body)
@@ -1092,10 +1100,13 @@ impl OrgIntel {
                 notices.len(),
                 if notices.len() == 1 { "" } else { "s" },
             );
+            let room_id =
+                ensure_direct_message_room_in_tx(&mut tx, "daemon", Some(&lead_actor_id)).await?;
             let message_id: i64 = sqlx::query_scalar(
-                "INSERT INTO messages (from_actor, to_actor, body) \
-                 VALUES ('daemon',$1,$2) RETURNING id",
+                "INSERT INTO messages (room_id,from_actor,to_actor,body) \
+                 VALUES ($1,'daemon',$2,$3) RETURNING id",
             )
+            .bind(room_id)
             .bind(&lead_actor_id)
             .bind(&body)
             .fetch_one(&mut *tx)

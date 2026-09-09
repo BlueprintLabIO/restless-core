@@ -1631,16 +1631,19 @@ impl OrgIntel {
             ActorContextFocus::RoomMention { mention_id } => {
                 let row = sqlx::query(
                     "SELECT mention.room_id,room.title AS room_title,mention.message_id,\
-                            mention.thread_root_message_id,message.from_actor,message.body,\
+                            mention.thread_root_message_id,message.from_actor,\
+                            COALESCE(revision.body,message.body) AS body,\
                             mention.work_id,mention.why_this_actor,mention.expected_response,\
                             mention.affected_scope \
                      FROM message_mentions mention \
                      JOIN rooms room ON room.id=mention.room_id \
                      JOIN messages message ON message.id=mention.message_id AND message.room_id=mention.room_id \
+                     LEFT JOIN room_message_revisions revision ON revision.id=message.latest_revision_id \
                      JOIN room_participants participant ON participant.room_id=mention.room_id \
                        AND participant.actor_id=mention.mentioned_actor_id \
                      WHERE mention.id=$1 AND mention.mentioned_actor_id=$2 \
                        AND mention.resolution_message_id IS NULL AND mention.cancelled_event_id IS NULL \
+                       AND message.deleted_at IS NULL \
                        AND participant.left_at IS NULL AND room.archived_at IS NULL \
                      FOR SHARE OF room,participant,message,mention",
                 )

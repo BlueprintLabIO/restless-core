@@ -1453,9 +1453,9 @@ async fn a_slow_room_replay_does_not_block_an_unrelated_room_writer() {
 }
 
 #[tokio::test]
-async fn legacy_owner_conversation_and_direct_room_share_message_truth() {
-    let Some(org) = company("roomcompat").await else {
-        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Rooms compatibility scenario");
+async fn owner_conversation_and_direct_room_share_message_truth() {
+    let Some(org) = company("roomdirect").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping direct Room scenario");
         return;
     };
 
@@ -1475,13 +1475,13 @@ async fn legacy_owner_conversation_and_direct_room_share_message_truth() {
         .rooms
         .into_iter()
         .find(|room| room.kind == RoomKind::Direct)
-        .expect("the compatibility bridge creates one direct Room");
-    let bridged = org
+        .expect("the message APIs create one explicit direct Room");
+    let messages = org
         .room_messages_before("owner", direct.id, None, 20)
         .await
         .unwrap();
     assert_eq!(
-        bridged
+        messages
             .messages
             .iter()
             .map(|message| message.id)

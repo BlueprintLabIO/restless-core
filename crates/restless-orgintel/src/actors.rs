@@ -594,9 +594,12 @@ impl OrgIntel {
         // recover the commission after a daemon restart. Keep the charter in
         // `teams.brief`; the message points to that source instead of copying
         // a second mutable version of it.
+        let room_id =
+            ensure_direct_message_room_in_tx(&mut tx, created_by, Some(lead_actor_id)).await?;
         sqlx::query(
-            "INSERT INTO messages (from_actor,to_actor,body) VALUES ($1,$2,$3)",
+            "INSERT INTO messages (room_id,from_actor,to_actor,body) VALUES ($1,$2,$3,$4)",
         )
+        .bind(room_id)
         .bind(created_by)
         .bind(lead_actor_id)
         .bind(format!(

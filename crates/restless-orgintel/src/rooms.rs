@@ -13,6 +13,10 @@ use std::collections::{BTreeSet, HashMap};
 const MAX_ROOM_PARTICIPANTS: usize = 100;
 const MAX_ROOM_MESSAGE_BYTES: usize = 64 * 1024;
 const MAX_ROOM_LIST_LIMIT: i64 = 100;
+const MAX_ROOM_MESSAGE_REVISION_LIMIT: i64 = 10;
+const MAX_ROOM_SEARCH_QUERY_BYTES: usize = 256;
+const MAX_ROOM_SEARCH_LIMIT: i64 = 25;
+const MAX_ROOM_SEARCH_SNIPPET_CHARACTERS: i32 = 480;
 const MAX_ACTIVE_ROOMS_CREATED_PER_ACTOR: i64 = 128;
 const MAX_MESSAGE_MENTIONS: usize = 16;
 const MAX_PENDING_MENTIONS_AUTHORED_PER_ACTOR: i64 = 256;
@@ -95,6 +99,52 @@ fn room_creation_digest(kind: RoomKind, title: &str, participant_actor_ids: &[St
         digest.update(part.as_bytes());
     }
     format!("{:x}", digest.finalize())
+}
+
+fn room_message_edit_digest(
+    room_id: Uuid,
+    message_id: i64,
+    editor_actor: &str,
+    expected_revision_number: i64,
+    body: &str,
+) -> String {
+    let mut digest = Sha256::new();
+    for part in [
+        "restless.room-message.edit.v1".to_string(),
+        room_id.to_string(),
+        message_id.to_string(),
+        editor_actor.to_string(),
+        expected_revision_number.to_string(),
+        body.to_string(),
+    ] {
+        digest.update((part.len() as u64).to_be_bytes());
+        digest.update(part.as_bytes());
+    }
+    format!("{:x}", digest.finalize())
+}
+
+fn room_message_delete_digest(room_id: Uuid, message_id: i64, deleting_actor: &str) -> String {
+    let mut digest = Sha256::new();
+    for part in [
+        "restless.room-message.delete.v1".to_string(),
+        room_id.to_string(),
+        message_id.to_string(),
+        deleting_actor.to_string(),
+    ] {
+        digest.update((part.len() as u64).to_be_bytes());
+        digest.update(part.as_bytes());
+    }
+    format!("{:x}", digest.finalize())
+}
+
+fn validated_room_command_id(client_command_id: &str) -> Result<&str> {
+    let client_command_id = client_command_id.trim();
+    if client_command_id.is_empty() || client_command_id.len() > 128 {
+        return Err(OrgIntelError::InvalidRoom(
+            "a retryable Room command needs a 1 to 128 byte client command id".into(),
+        ));
+    }
+    Ok(client_command_id)
 }
 
 fn bounded_optional(
@@ -273,6 +323,7 @@ pub(crate) async fn lock_runtime_addressable_actors_in_tx(
     actor_ids: &[String],
     allow_humans: bool,
     additional_active_actor_ids: &[String],
+    actors_for_update: bool,
 ) -> Result<()> {
     let mut actor_ids = actor_ids
         .iter()
@@ -315,13 +366,23 @@ pub(crate) async fn lock_runtime_addressable_actors_in_tx(
     .fetch_all(&mut **tx)
     .await?;
 
-    let active_actors = sqlx::query_as::<_, (String, String, Option<Uuid>)>(
-        "SELECT id,actor_class,team_id FROM actors \
-         WHERE id=ANY($1) AND retired_at IS NULL ORDER BY id FOR SHARE",
-    )
-    .bind(&all_actor_ids)
-    .fetch_all(&mut **tx)
-    .await?;
+    let active_actors = if actors_for_update {
+        sqlx::query_as::<_, (String, String, Option<Uuid>)>(
+            "SELECT id,actor_class,team_id FROM actors \
+             WHERE id=ANY($1) AND retired_at IS NULL ORDER BY id FOR UPDATE",
+        )
+        .bind(&all_actor_ids)
+        .fetch_all(&mut **tx)
+        .await?
+    } else {
+        sqlx::query_as::<_, (String, String, Option<Uuid>)>(
+            "SELECT id,actor_class,team_id FROM actors \
+             WHERE id=ANY($1) AND retired_at IS NULL ORDER BY id FOR SHARE",
+        )
+        .bind(&all_actor_ids)
+        .fetch_all(&mut **tx)
+        .await?
+    };
     if active_actors
         .iter()
         .map(|(actor_id, _, _)| actor_id)
@@ -378,10 +439,17 @@ async fn room_message_in_tx(
     message_id: i64,
 ) -> Result<RoomMessageRow> {
     sqlx::query_as(
-        "SELECT id,room_id,from_actor,to_actor,body,outcome_standard, \
-                parent_message_id,thread_root_message_id,client_command_id,created_at, \
-                read_at AS legacy_read_at \
-         FROM messages WHERE room_id=$1 AND id=$2",
+        "SELECT message.id,message.room_id,message.from_actor,message.to_actor, \
+                CASE WHEN message.deleted_at IS NULL \
+                     THEN COALESCE(revision.body,message.body) ELSE '' END AS body, \
+                message.outcome_standard,message.parent_message_id,message.thread_root_message_id, \
+                message.client_command_id,message.created_at, \
+                COALESCE(revision.revision_number,0) AS revision_number, \
+                message.edited_at,message.deleted_at, \
+                message.read_at AS legacy_read_at \
+         FROM messages message \
+         LEFT JOIN room_message_revisions revision ON revision.id=message.latest_revision_id \
+         WHERE message.room_id=$1 AND message.id=$2",
     )
     .bind(room_id)
     .bind(message_id)
@@ -411,6 +479,128 @@ async fn durable_room_message_event_id(
     })
 }
 
+async fn room_message_revision_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    revision_id: Uuid,
+) -> Result<RoomMessageRevisionRow> {
+    sqlx::query_as(
+        "SELECT id,room_id,message_id,revision_number,editor_actor_id,body, \
+                created_event_id,created_at \
+         FROM room_message_revisions WHERE id=$1",
+    )
+    .bind(revision_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or_else(|| OrgIntelError::InvalidRoom("Room message revision does not exist".into()))
+}
+
+async fn room_message_tombstone_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    tombstone_id: Uuid,
+) -> Result<RoomMessageTombstoneRow> {
+    sqlx::query_as(
+        "SELECT id,room_id,message_id,deleted_by_actor_id,created_event_id,created_at \
+         FROM room_message_tombstones WHERE id=$1",
+    )
+    .bind(tombstone_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or_else(|| OrgIntelError::InvalidRoom("Room message tombstone does not exist".into()))
+}
+
+async fn replay_room_message_send_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    room_id: Uuid,
+    author_actor: &str,
+    client_command_id: &str,
+    payload_sha256: &str,
+) -> Result<Option<RoomMessageSendResult>> {
+    let Some((message_id, prior_digest)) = sqlx::query_as::<_, (i64, String)>(
+        "SELECT id,client_payload_sha256 FROM messages \
+         WHERE room_id=$1 AND from_actor=$2 AND client_command_id=$3",
+    )
+    .bind(room_id)
+    .bind(author_actor)
+    .bind(client_command_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    else {
+        return Ok(None);
+    };
+    if prior_digest != payload_sha256 {
+        return Err(OrgIntelError::RoomCommandConflict(format!(
+            "command {client_command_id:?} was already used for another message"
+        )));
+    }
+    Ok(Some(RoomMessageSendResult {
+        message: room_message_in_tx(tx, room_id, message_id).await?,
+        event_id: durable_room_message_event_id(tx, room_id, message_id).await?,
+        mentions: message_mentions_for_message_in_tx(tx, message_id).await?,
+        resolved_mention: resolved_mention_for_message_in_tx(tx, message_id).await?,
+        created: false,
+    }))
+}
+
+async fn replay_room_message_edit_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    room_id: Uuid,
+    editor_actor: &str,
+    client_command_id: &str,
+    payload_sha256: &str,
+) -> Result<Option<RoomMessageEditResult>> {
+    let Some((revision_id, prior_digest)) = sqlx::query_as::<_, (Uuid, String)>(
+        "SELECT id,client_payload_sha256 FROM room_message_revisions \
+         WHERE room_id=$1 AND editor_actor_id=$2 AND client_command_id=$3",
+    )
+    .bind(room_id)
+    .bind(editor_actor)
+    .bind(client_command_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    else {
+        return Ok(None);
+    };
+    if prior_digest != payload_sha256 {
+        return Err(OrgIntelError::RoomCommandConflict(format!(
+            "command {client_command_id:?} was already used for another Message edit"
+        )));
+    }
+    Ok(Some(RoomMessageEditResult {
+        revision: room_message_revision_in_tx(tx, revision_id).await?,
+        created: false,
+    }))
+}
+
+async fn replay_room_message_delete_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    room_id: Uuid,
+    deleting_actor: &str,
+    client_command_id: &str,
+    payload_sha256: &str,
+) -> Result<Option<RoomMessageDeleteResult>> {
+    let Some((tombstone_id, prior_digest)) = sqlx::query_as::<_, (Uuid, String)>(
+        "SELECT id,client_payload_sha256 FROM room_message_tombstones \
+         WHERE room_id=$1 AND deleted_by_actor_id=$2 AND client_command_id=$3",
+    )
+    .bind(room_id)
+    .bind(deleting_actor)
+    .bind(client_command_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    else {
+        return Ok(None);
+    };
+    if prior_digest != payload_sha256 {
+        return Err(OrgIntelError::RoomCommandConflict(format!(
+            "command {client_command_id:?} was already used for another Message deletion"
+        )));
+    }
+    Ok(Some(RoomMessageDeleteResult {
+        tombstone: room_message_tombstone_in_tx(tx, tombstone_id).await?,
+        created: false,
+    }))
+}
+
 async fn message_mentions_for_messages_in_tx(
     tx: &mut Transaction<'_, Postgres>,
     message_ids: &[i64],
@@ -424,7 +614,10 @@ async fn message_mentions_for_messages_in_tx(
                 uncertainty,affected_scope,deadline_at,fallback,independent_work_can_continue, \
                 created_event_id,resolution_message_id,resolved_event_id,cancelled_event_id, \
                 cancelled_by,cancellation_reason,created_at,resolved_at,cancelled_at \
-         FROM message_mentions WHERE message_id=ANY($1) \
+         FROM message_mentions mention \
+         WHERE mention.message_id=ANY($1) \
+           AND EXISTS (SELECT 1 FROM messages message \
+                       WHERE message.id=mention.message_id AND message.deleted_at IS NULL) \
          ORDER BY message_id,mentioned_actor_id",
     )
     .bind(message_ids)
@@ -1169,6 +1362,85 @@ impl OrgIntel {
         })
     }
 
+    /// Fuzzy, bounded Room-title search over only the active Rooms visible to
+    /// one Actor. Title matches remain a Room query; they never broaden a
+    /// Message-content search into every Message in a similarly named Room.
+    pub async fn search_rooms_for_actor(
+        &self,
+        actor_id: &str,
+        query: &str,
+        before: Option<(DateTime<Utc>, Uuid)>,
+        limit: i64,
+    ) -> Result<RoomListPage> {
+        let query = query.trim();
+        if query.is_empty() || query.len() > MAX_ROOM_SEARCH_QUERY_BYTES {
+            return Err(OrgIntelError::InvalidRoom(format!(
+                "a Room search query needs 1 to {MAX_ROOM_SEARCH_QUERY_BYTES} bytes"
+            )));
+        }
+        if !(1..=MAX_ROOM_LIST_LIMIT).contains(&limit) {
+            return Err(OrgIntelError::InvalidRoom(format!(
+                "Room search limit must be between 1 and {MAX_ROOM_LIST_LIMIT}"
+            )));
+        }
+        let mut rooms: Vec<RoomRow> = match before {
+            Some((created_at, room_id)) => {
+                sqlx::query_as(
+                    "SELECT room.id,room.kind,room.title,room.created_by,room.canonical_key, \
+                            room.created_at,room.archived_at \
+                     FROM rooms room \
+                     JOIN room_participants participant ON participant.room_id=room.id \
+                     JOIN actors actor ON actor.id=participant.actor_id \
+                     WHERE participant.actor_id=$1 AND participant.left_at IS NULL \
+                       AND actor.retired_at IS NULL AND room.archived_at IS NULL \
+                       AND (lower(room.title) LIKE '%'||lower($2)||'%' \
+                            OR room.title OPERATOR(public.%) $2) \
+                       AND (room.created_at,room.id)<($3,$4) \
+                     ORDER BY room.created_at DESC,room.id DESC LIMIT $5",
+                )
+                .bind(actor_id)
+                .bind(query)
+                .bind(created_at)
+                .bind(room_id)
+                .bind(limit + 1)
+                .fetch_all(&self.pool)
+                .await?
+            }
+            None => {
+                sqlx::query_as(
+                    "SELECT room.id,room.kind,room.title,room.created_by,room.canonical_key, \
+                            room.created_at,room.archived_at \
+                     FROM rooms room \
+                     JOIN room_participants participant ON participant.room_id=room.id \
+                     JOIN actors actor ON actor.id=participant.actor_id \
+                     WHERE participant.actor_id=$1 AND participant.left_at IS NULL \
+                       AND actor.retired_at IS NULL AND room.archived_at IS NULL \
+                       AND (lower(room.title) LIKE '%'||lower($2)||'%' \
+                            OR room.title OPERATOR(public.%) $2) \
+                     ORDER BY room.created_at DESC,room.id DESC LIMIT $3",
+                )
+                .bind(actor_id)
+                .bind(query)
+                .bind(limit + 1)
+                .fetch_all(&self.pool)
+                .await?
+            }
+        };
+        let has_more = rooms.len() as i64 > limit;
+        if has_more {
+            rooms.truncate(limit as usize);
+        }
+        let next = has_more
+            .then(|| rooms.last().map(|room| (room.created_at, room.id)))
+            .flatten();
+        Ok(RoomListPage {
+            rooms,
+            next_before_created_at: next.map(|cursor| cursor.0),
+            next_before_room_id: next.map(|cursor| cursor.1),
+            has_more,
+        })
+    }
+
     /// Current participants, disclosed only to another active participant.
     pub async fn room_participants(
         &self,
@@ -1502,6 +1774,47 @@ impl OrgIntel {
             .map(|mention| mention.actor_id.clone())
             .collect::<Vec<_>>();
         let mut tx = self.pool.begin().await?;
+        // A committed send receipt is read before mutable Actor/Room state.
+        // This keeps a lost response replayable after removal, retirement or
+        // archival and prevents current policy from rewriting history.
+        if let Some(result) = replay_room_message_send_in_tx(
+            &mut tx,
+            room_id,
+            author_actor,
+            client_command_id,
+            &payload_sha256,
+        )
+        .await?
+        {
+            tx.commit().await?;
+            return Ok(result);
+        }
+        // Serialize only this semantic command. After waiting, re-read the
+        // receipt before any mutable validation so concurrent duplicates
+        // deterministically replay instead of surfacing a unique-key error.
+        sqlx::query(
+            "SELECT pg_advisory_xact_lock(\
+               hashtextextended('restless-room-send:' || current_schema() || ':' || \
+                                $1::text || ':' || $2 || ':' || $3,0)\
+             )",
+        )
+        .bind(room_id)
+        .bind(author_actor)
+        .bind(client_command_id)
+        .execute(&mut *tx)
+        .await?;
+        if let Some(result) = replay_room_message_send_in_tx(
+            &mut tx,
+            room_id,
+            author_actor,
+            client_command_id,
+            &payload_sha256,
+        )
+        .await?
+        {
+            tx.commit().await?;
+            return Ok(result);
+        }
         // Team responsibility and every participating Actor are locked before
         // the Room, matching retirement/removal and preventing Actor↔Room
         // cycles. The author is only required to be active; mention targets
@@ -1511,38 +1824,10 @@ impl OrgIntel {
             &target_ids,
             true,
             &[author_actor.to_string()],
+            resolution_claim_token.is_some(),
         )
         .await?;
         let kind = active_room_kind(&mut tx, room_id, author_actor).await?;
-
-        if let Some((message_id, prior_digest)) = sqlx::query_as::<_, (i64, String)>(
-            "SELECT id,client_payload_sha256 FROM messages \
-             WHERE room_id=$1 AND from_actor=$2 AND client_command_id=$3",
-        )
-        .bind(room_id)
-        .bind(author_actor)
-        .bind(client_command_id)
-        .fetch_optional(&mut *tx)
-        .await?
-        {
-            if prior_digest != payload_sha256 {
-                return Err(OrgIntelError::RoomCommandConflict(format!(
-                    "command {client_command_id:?} was already used for another message"
-                )));
-            }
-            let message = room_message_in_tx(&mut tx, room_id, message_id).await?;
-            let event_id = durable_room_message_event_id(&mut tx, room_id, message_id).await?;
-            let mentions = message_mentions_for_message_in_tx(&mut tx, message_id).await?;
-            let resolved_mention = resolved_mention_for_message_in_tx(&mut tx, message_id).await?;
-            tx.commit().await?;
-            return Ok(RoomMessageSendResult {
-                message,
-                event_id,
-                created: false,
-                mentions,
-                resolved_mention,
-            });
-        }
 
         if !mentions.is_empty() {
             // Quota locks are semantic and transaction-scoped: every process
@@ -1621,15 +1906,9 @@ impl OrgIntel {
                     "a Runtime mention claim may only authorize its exact resolving reply".into(),
                 ));
             };
-            sqlx::query("SELECT id FROM actors WHERE id=$1 AND retired_at IS NULL FOR UPDATE")
-                .bind(author_actor)
-                .fetch_optional(&mut *tx)
-                .await?
-                .ok_or_else(|| {
-                    OrgIntelError::RoomAccessDenied(
-                        "the claimed mention Actor is no longer active".into(),
-                    )
-                })?;
+            // The claimed path selected UPDATE strength for every Actor in
+            // canonical order above. Never upgrade a shared Actor lock here:
+            // identical concurrent retries would otherwise deadlock.
             let lease_live: bool = sqlx::query_scalar(
                 "SELECT EXISTS(SELECT 1 FROM actor_cognitive_leases \
                  WHERE actor_id=$1 AND lease_token=$2 AND focused_mention_id=$3 \
@@ -1698,8 +1977,8 @@ impl OrgIntel {
         let inserted_id: Option<i64> = sqlx::query_scalar(
             "INSERT INTO messages \
              (room_id,from_actor,to_actor,body,parent_message_id,thread_root_message_id, \
-              client_command_id,client_payload_sha256,outcome_standard) \
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) \
+              client_command_id,client_payload_sha256,outcome_standard,current_plain_text) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$4) \
              ON CONFLICT (room_id,from_actor,client_command_id) \
                WHERE client_command_id IS NOT NULL DO NOTHING \
              RETURNING id",
@@ -1930,6 +2209,495 @@ impl OrgIntel {
         })
     }
 
+    /// Append one immutable revision to a Message authored by the requesting
+    /// Actor. `expected_revision_number=0` names the original Message body;
+    /// later values fence concurrent editors without rewriting history.
+    pub async fn edit_room_message(
+        &self,
+        room_id: Uuid,
+        editor_actor: &str,
+        message_id: i64,
+        expected_revision_number: i64,
+        body: &str,
+        client_command_id: &str,
+    ) -> Result<RoomMessageEditResult> {
+        if body.trim().is_empty() || body.len() > MAX_ROOM_MESSAGE_BYTES {
+            return Err(OrgIntelError::InvalidRoom(format!(
+                "a Room message revision needs 1 to {MAX_ROOM_MESSAGE_BYTES} bytes"
+            )));
+        }
+        if expected_revision_number < 0 {
+            return Err(OrgIntelError::InvalidRoom(
+                "a Room message revision number cannot be negative".into(),
+            ));
+        }
+        let client_command_id = validated_room_command_id(client_command_id)?;
+        let payload_sha256 = room_message_edit_digest(
+            room_id,
+            message_id,
+            editor_actor,
+            expected_revision_number,
+            body,
+        );
+
+        let mut tx = self.pool.begin().await?;
+        // A receipt is an immutable fact. Recover it before consulting mutable
+        // actor, participant, or Room lifecycle so a lost response remains
+        // replayable after retirement, removal, or archival.
+        if let Some(result) = replay_room_message_edit_in_tx(
+            &mut tx,
+            room_id,
+            editor_actor,
+            client_command_id,
+            &payload_sha256,
+        )
+        .await?
+        {
+            tx.commit().await?;
+            return Ok(result);
+        }
+        // The Actor is the command-id serialization boundary and is locked
+        // before the Room, matching every other Room lifecycle operation.
+        sqlx::query("SELECT id FROM actors WHERE id=$1 FOR UPDATE")
+            .bind(editor_actor)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| {
+                OrgIntelError::RoomAccessDenied(
+                    "the active actor is not an active participant in this Room".into(),
+                )
+            })?;
+        if let Some(result) = replay_room_message_edit_in_tx(
+            &mut tx,
+            room_id,
+            editor_actor,
+            client_command_id,
+            &payload_sha256,
+        )
+        .await?
+        {
+            tx.commit().await?;
+            return Ok(result);
+        }
+        active_room_access(&mut tx, room_id, editor_actor).await?;
+
+        let message = sqlx::query(
+            "SELECT message.from_actor,message.deleted_at,message.current_plain_text, \
+                    COALESCE(revision.revision_number,0) AS revision_number \
+             FROM messages message \
+             LEFT JOIN room_message_revisions revision ON revision.id=message.latest_revision_id \
+             WHERE message.room_id=$1 AND message.id=$2 FOR UPDATE OF message",
+        )
+        .bind(room_id)
+        .bind(message_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| OrgIntelError::InvalidRoom("Room message does not exist".into()))?;
+        let author_actor: String = message.get("from_actor");
+        if author_actor != editor_actor {
+            return Err(OrgIntelError::RoomAccessDenied(
+                "only the original Message author may append a revision".into(),
+            ));
+        }
+        if message
+            .get::<Option<DateTime<Utc>>, _>("deleted_at")
+            .is_some()
+        {
+            return Err(OrgIntelError::RoomCommandConflict(
+                "a deleted Room Message cannot be edited".into(),
+            ));
+        }
+        let current_revision_number: i64 = message.get("revision_number");
+        if current_revision_number != expected_revision_number {
+            return Err(OrgIntelError::RoomCommandConflict(format!(
+                "expected Message revision {expected_revision_number}, current revision is {current_revision_number}"
+            )));
+        }
+        if message
+            .get::<Option<String>, _>("current_plain_text")
+            .as_deref()
+            == Some(body)
+        {
+            return Err(OrgIntelError::InvalidRoom(
+                "a Message edit must change the visible body".into(),
+            ));
+        }
+
+        let revision_id = Uuid::new_v4();
+        let revision_number = current_revision_number + 1;
+        let created_event_id = append_room_event(
+            &mut tx,
+            "room.message.edited.v1",
+            room_id,
+            editor_actor,
+            Some(message_id),
+            serde_json::json!({
+                "message_id": message_id,
+                "revision_id": revision_id,
+                "revision_number": revision_number,
+            }),
+        )
+        .await?;
+        let revision: RoomMessageRevisionRow = sqlx::query_as(
+            "INSERT INTO room_message_revisions \
+             (id,room_id,message_id,revision_number,editor_actor_id,body,plain_text, \
+              client_command_id,client_payload_sha256,created_event_id) \
+             VALUES ($1,$2,$3,$4,$5,$6,$6,$7,$8,$9) \
+             RETURNING id,room_id,message_id,revision_number,editor_actor_id,body, \
+                       created_event_id,created_at",
+        )
+        .bind(revision_id)
+        .bind(room_id)
+        .bind(message_id)
+        .bind(revision_number)
+        .bind(editor_actor)
+        .bind(body)
+        .bind(client_command_id)
+        .bind(&payload_sha256)
+        .bind(created_event_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        sqlx::query(
+            "UPDATE messages SET latest_revision_id=$3,current_plain_text=$4,edited_at=$5 \
+             WHERE room_id=$1 AND id=$2",
+        )
+        .bind(room_id)
+        .bind(message_id)
+        .bind(revision_id)
+        .bind(body)
+        .bind(revision.created_at)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(RoomMessageEditResult {
+            revision,
+            created: true,
+        })
+    }
+
+    /// Preserve one Message as a body-free tombstone. Authors may delete their
+    /// own Messages; a non-direct Room's durable owner may also moderate it.
+    /// Direct peers never gain moderation power from canonical owner shape.
+    /// Pending mentions from the deleted source are cancelled explicitly.
+    pub async fn delete_room_message(
+        &self,
+        room_id: Uuid,
+        deleting_actor: &str,
+        message_id: i64,
+        client_command_id: &str,
+    ) -> Result<RoomMessageDeleteResult> {
+        let client_command_id = validated_room_command_id(client_command_id)?;
+        let payload_sha256 = room_message_delete_digest(room_id, message_id, deleting_actor);
+        let mut tx = self.pool.begin().await?;
+
+        if let Some(result) = replay_room_message_delete_in_tx(
+            &mut tx,
+            room_id,
+            deleting_actor,
+            client_command_id,
+            &payload_sha256,
+        )
+        .await?
+        {
+            tx.commit().await?;
+            return Ok(result);
+        }
+
+        // Discover only lock coordinates first. No data leaves this method
+        // until exact Room access is proven below. Lock every affected Actor
+        // in stable order before the Room to preserve the lifecycle order.
+        let mut actor_ids = sqlx::query_scalar::<_, String>(
+            "SELECT mentioned_actor_id FROM message_mentions \
+             WHERE room_id=$1 AND message_id=$2 AND resolution_message_id IS NULL \
+               AND cancelled_event_id IS NULL ORDER BY mentioned_actor_id",
+        )
+        .bind(room_id)
+        .bind(message_id)
+        .fetch_all(&mut *tx)
+        .await?;
+        actor_ids.push(deleting_actor.to_string());
+        actor_ids.sort();
+        actor_ids.dedup();
+        sqlx::query("SELECT id FROM actors WHERE id=ANY($1) ORDER BY id FOR UPDATE")
+            .bind(&actor_ids)
+            .fetch_all(&mut *tx)
+            .await?;
+        if let Some(result) = replay_room_message_delete_in_tx(
+            &mut tx,
+            room_id,
+            deleting_actor,
+            client_command_id,
+            &payload_sha256,
+        )
+        .await?
+        {
+            tx.commit().await?;
+            return Ok(result);
+        }
+        let (room_kind, requester_role) =
+            active_room_access(&mut tx, room_id, deleting_actor).await?;
+
+        let message = sqlx::query(
+            "SELECT from_actor,deleted_at FROM messages \
+             WHERE room_id=$1 AND id=$2 FOR UPDATE",
+        )
+        .bind(room_id)
+        .bind(message_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| OrgIntelError::InvalidRoom("Room message does not exist".into()))?;
+        let author_actor: String = message.get("from_actor");
+        let may_moderate =
+            room_kind != RoomKind::Direct && requester_role == RoomParticipantRole::Owner;
+        if author_actor != deleting_actor && !may_moderate {
+            return Err(OrgIntelError::RoomAccessDenied(
+                "only the Message author may delete it in a direct Room; other Rooms also permit their owner to moderate".into(),
+            ));
+        }
+        if message
+            .get::<Option<DateTime<Utc>>, _>("deleted_at")
+            .is_some()
+        {
+            return Err(OrgIntelError::RoomCommandConflict(
+                "the Room Message already has a deletion tombstone".into(),
+            ));
+        }
+
+        let tombstone_id = Uuid::new_v4();
+        let created_event_id = append_room_event(
+            &mut tx,
+            "room.message.deleted.v1",
+            room_id,
+            deleting_actor,
+            Some(message_id),
+            serde_json::json!({
+                "message_id": message_id,
+                "tombstone_id": tombstone_id,
+            }),
+        )
+        .await?;
+        let tombstone: RoomMessageTombstoneRow = sqlx::query_as(
+            "INSERT INTO room_message_tombstones \
+             (id,room_id,message_id,deleted_by_actor_id,client_command_id, \
+              client_payload_sha256,created_event_id) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7) \
+             RETURNING id,room_id,message_id,deleted_by_actor_id,created_event_id,created_at",
+        )
+        .bind(tombstone_id)
+        .bind(room_id)
+        .bind(message_id)
+        .bind(deleting_actor)
+        .bind(client_command_id)
+        .bind(&payload_sha256)
+        .bind(created_event_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        sqlx::query(
+            "UPDATE messages SET current_plain_text='',deleted_at=$3,deleted_by_actor_id=$4 \
+             WHERE room_id=$1 AND id=$2",
+        )
+        .bind(room_id)
+        .bind(message_id)
+        .bind(tombstone.created_at)
+        .bind(deleting_actor)
+        .execute(&mut *tx)
+        .await?;
+
+        let pending_mentions: Vec<(Uuid, String)> = sqlx::query_as(
+            "SELECT id,mentioned_actor_id FROM message_mentions \
+             WHERE room_id=$1 AND message_id=$2 AND resolution_message_id IS NULL \
+               AND cancelled_event_id IS NULL ORDER BY mentioned_actor_id FOR UPDATE",
+        )
+        .bind(room_id)
+        .bind(message_id)
+        .fetch_all(&mut *tx)
+        .await?;
+        for (mention_id, mentioned_actor_id) in pending_mentions {
+            sqlx::query(
+                "UPDATE actor_cognitive_leases \
+                 SET revoked_at=COALESCE(revoked_at,now()),revoked_by=$3,revocation_reason=$4 \
+                 WHERE actor_id=$1 AND focused_mention_id=$2 AND claimed_until>now()",
+            )
+            .bind(&mentioned_actor_id)
+            .bind(mention_id)
+            .bind(deleting_actor)
+            .bind("the source Room Message was deleted")
+            .execute(&mut *tx)
+            .await?;
+            let cancelled_event_id = append_room_event(
+                &mut tx,
+                "room.mention.cancelled.v1",
+                room_id,
+                deleting_actor,
+                Some(message_id),
+                serde_json::json!({
+                    "mention_id": mention_id,
+                    "mentioned_actor_id": mentioned_actor_id,
+                    "reason": "the source Room Message was deleted",
+                }),
+            )
+            .await?;
+            sqlx::query(
+                "UPDATE message_mentions SET cancelled_event_id=$2,cancelled_by=$3, \
+                        cancellation_reason=$4,cancelled_at=$5,claim_token=NULL, \
+                        claimed_at=NULL,claimed_until=NULL \
+                 WHERE id=$1 AND resolution_message_id IS NULL AND cancelled_event_id IS NULL",
+            )
+            .bind(mention_id)
+            .bind(cancelled_event_id)
+            .bind(deleting_actor)
+            .bind("the source Room Message was deleted")
+            .bind(tombstone.created_at)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
+        Ok(RoomMessageDeleteResult {
+            tombstone,
+            created: true,
+        })
+    }
+
+    /// Bounded immutable revision history for one accessible, live Message.
+    /// A tombstone removes every body-bearing normal projection; immutable
+    /// rows remain available only to future explicit audit authority.
+    pub async fn room_message_revisions_before(
+        &self,
+        requesting_actor: &str,
+        room_id: Uuid,
+        message_id: i64,
+        before_revision_number: Option<i64>,
+        limit: i64,
+    ) -> Result<RoomMessageRevisionPage> {
+        if !(1..=MAX_ROOM_MESSAGE_REVISION_LIMIT).contains(&limit) {
+            return Err(OrgIntelError::InvalidRoom(format!(
+                "Room Message revision limit must be between 1 and {MAX_ROOM_MESSAGE_REVISION_LIMIT}"
+            )));
+        }
+        if before_revision_number.is_some_and(|value| value <= 0) {
+            return Err(OrgIntelError::InvalidRoom(
+                "a Room Message revision cursor must be positive".into(),
+            ));
+        }
+        let mut tx = self.pool.begin().await?;
+        active_room_access(&mut tx, room_id, requesting_actor).await?;
+        let message = room_message_in_tx(&mut tx, room_id, message_id).await?;
+        if message.deleted_at.is_some() {
+            return Err(OrgIntelError::InvalidRoom(
+                "revision history is unavailable for a deleted Room Message".into(),
+            ));
+        }
+        let mut revisions: Vec<RoomMessageRevisionRow> = sqlx::query_as(
+            "SELECT id,room_id,message_id,revision_number,editor_actor_id,body, \
+                    created_event_id,created_at \
+             FROM room_message_revisions \
+             WHERE room_id=$1 AND message_id=$2 \
+               AND revision_number<COALESCE($3,9223372036854775807) \
+             ORDER BY revision_number DESC LIMIT $4",
+        )
+        .bind(room_id)
+        .bind(message_id)
+        .bind(before_revision_number)
+        .bind(limit + 1)
+        .fetch_all(&mut *tx)
+        .await?;
+        let has_more = revisions.len() as i64 > limit;
+        if has_more {
+            revisions.truncate(limit as usize);
+        }
+        let next_before_revision_number = has_more.then(|| {
+            revisions
+                .last()
+                .expect("a page with more revisions is non-empty")
+                .revision_number
+        });
+        tx.commit().await?;
+        Ok(RoomMessageRevisionPage {
+            revisions,
+            next_before_revision_number,
+            has_more,
+        })
+    }
+
+    /// Search current, non-deleted Message text across only the Rooms visible
+    /// to one active Actor. The immutable Message id is the newest-first keyset
+    /// cursor; query text never grants Room access.
+    pub async fn search_room_messages(
+        &self,
+        requesting_actor: &str,
+        query: &str,
+        before_message_id: Option<i64>,
+        limit: i64,
+    ) -> Result<RoomMessageSearchPage> {
+        let query = query.trim();
+        if query.is_empty() || query.len() > MAX_ROOM_SEARCH_QUERY_BYTES {
+            return Err(OrgIntelError::InvalidRoom(format!(
+                "a Room search query needs 1 to {MAX_ROOM_SEARCH_QUERY_BYTES} bytes"
+            )));
+        }
+        if !(1..=MAX_ROOM_SEARCH_LIMIT).contains(&limit) {
+            return Err(OrgIntelError::InvalidRoom(format!(
+                "Room search limit must be between 1 and {MAX_ROOM_SEARCH_LIMIT}"
+            )));
+        }
+        if before_message_id.is_some_and(|value| value <= 0) {
+            return Err(OrgIntelError::InvalidRoom(
+                "a Room search cursor must be positive".into(),
+            ));
+        }
+
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("SELECT id FROM actors WHERE id=$1 AND retired_at IS NULL FOR SHARE")
+            .bind(requesting_actor)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| {
+                OrgIntelError::RoomAccessDenied("Room search requires one active Actor".into())
+            })?;
+        let mut messages: Vec<RoomMessageRow> = sqlx::query_as(
+            "SELECT message.id,message.room_id,message.from_actor,message.to_actor, \
+                    LEFT(COALESCE(revision.body,message.body),$5) AS body,message.outcome_standard, \
+                    message.parent_message_id,message.thread_root_message_id, \
+                    message.client_command_id,message.created_at, \
+                    COALESCE(revision.revision_number,0) AS revision_number,message.edited_at, \
+                    message.deleted_at,message.read_at AS legacy_read_at \
+             FROM messages message \
+             JOIN rooms room ON room.id=message.room_id AND room.archived_at IS NULL \
+             JOIN room_participants participant ON participant.room_id=room.id \
+               AND participant.actor_id=$1 AND participant.left_at IS NULL \
+             LEFT JOIN room_message_revisions revision ON revision.id=message.latest_revision_id \
+             WHERE message.deleted_at IS NULL \
+               AND message.id<COALESCE($3,9223372036854775807) \
+               AND to_tsvector('simple',message.current_plain_text) \
+                     @@ websearch_to_tsquery('simple',$2) \
+             ORDER BY message.id DESC LIMIT $4",
+        )
+        .bind(requesting_actor)
+        .bind(query)
+        .bind(before_message_id)
+        .bind(limit + 1)
+        .bind(MAX_ROOM_SEARCH_SNIPPET_CHARACTERS)
+        .fetch_all(&mut *tx)
+        .await?;
+        let has_more = messages.len() as i64 > limit;
+        if has_more {
+            messages.truncate(limit as usize);
+        }
+        let next_before_message_id = has_more.then(|| {
+            messages
+                .last()
+                .expect("a search page with more results is non-empty")
+                .id
+        });
+        tx.commit().await?;
+        Ok(RoomMessageSearchPage {
+            messages,
+            next_before_message_id,
+            has_more,
+        })
+    }
+
     /// Keyset pagination over Room messages. A normal read opens on the most
     /// recent bounded page; `before_message_id` walks backwards through older
     /// history. Each returned page remains chronological for direct rendering.
@@ -1988,20 +2756,29 @@ impl OrgIntel {
         let limit = limit.clamp(1, 100);
         let mut tx = self.pool.begin().await?;
         active_room_kind(&mut tx, room_id, requesting_actor).await?;
-        let (messages, has_more, next_before_message_id) =
-            if let Some(thread_root_message_id) = thread_root_message_id {
-                // The root is a context anchor, not part of the reply page. It
-                // is therefore returned on every page while the cursor walks
-                // only the replies. Clients may deduplicate it by stable id.
-                let root = room_message_in_tx(&mut tx, room_id, thread_root_message_id).await?;
-                let mut replies: Vec<RoomMessageRow> = sqlx::query_as(
-                    "SELECT id,room_id,from_actor,to_actor,body,outcome_standard, \
-                        parent_message_id,thread_root_message_id,client_command_id,created_at, \
-                        read_at AS legacy_read_at \
-                     FROM messages \
-                     WHERE room_id=$1 AND id<COALESCE($2,9223372036854775807) \
-                       AND thread_root_message_id=$3 \
-                     ORDER BY id DESC LIMIT $4",
+        let (messages, has_more, next_before_message_id) = if let Some(thread_root_message_id) =
+            thread_root_message_id
+        {
+            // The root is a context anchor, not part of the reply page. It
+            // is therefore returned on every page while the cursor walks
+            // only the replies. Clients may deduplicate it by stable id.
+            let root = room_message_in_tx(&mut tx, room_id, thread_root_message_id).await?;
+            let mut replies: Vec<RoomMessageRow> = sqlx::query_as(
+                    "SELECT message.id,message.room_id,message.from_actor,message.to_actor, \
+                        CASE WHEN message.deleted_at IS NULL \
+                             THEN COALESCE(revision.body,message.body) ELSE '' END AS body, \
+                        message.outcome_standard,message.parent_message_id, \
+                        message.thread_root_message_id,message.client_command_id, \
+                        message.created_at,COALESCE(revision.revision_number,0) AS revision_number, \
+                        message.edited_at,message.deleted_at, \
+                        message.read_at AS legacy_read_at \
+                     FROM messages message \
+                     LEFT JOIN room_message_revisions revision \
+                       ON revision.id=message.latest_revision_id \
+                     WHERE message.room_id=$1 \
+                       AND message.id<COALESCE($2,9223372036854775807) \
+                       AND message.thread_root_message_id=$3 \
+                     ORDER BY message.id DESC LIMIT $4",
                 )
                 .bind(room_id)
                 .bind(before_message_id)
@@ -2009,42 +2786,50 @@ impl OrgIntel {
                 .bind(limit + 1)
                 .fetch_all(&mut *tx)
                 .await?;
-                let has_more = replies.len() as i64 > limit;
-                if has_more {
-                    replies.truncate(limit as usize);
-                }
-                replies.reverse();
-                let next_before_message_id = has_more.then(|| replies[0].id);
-                let mut messages = Vec::with_capacity(replies.len() + 1);
-                messages.push(root);
-                messages.extend(replies);
-                (messages, has_more, next_before_message_id)
-            } else {
-                // A Room opens on recent top-level conversation. Replies are
-                // read through their Thread so a page containing only replies
-                // can never render as an apparently empty Room.
-                let mut roots: Vec<RoomMessageRow> = sqlx::query_as(
-                    "SELECT id,room_id,from_actor,to_actor,body,outcome_standard, \
-                        parent_message_id,thread_root_message_id,client_command_id,created_at, \
-                        read_at AS legacy_read_at \
-                     FROM messages \
-                     WHERE room_id=$1 AND id<COALESCE($2,9223372036854775807) \
-                       AND parent_message_id IS NULL \
-                     ORDER BY id DESC LIMIT $3",
+            let has_more = replies.len() as i64 > limit;
+            if has_more {
+                replies.truncate(limit as usize);
+            }
+            replies.reverse();
+            let next_before_message_id = has_more.then(|| replies[0].id);
+            let mut messages = Vec::with_capacity(replies.len() + 1);
+            messages.push(root);
+            messages.extend(replies);
+            (messages, has_more, next_before_message_id)
+        } else {
+            // A Room opens on recent top-level conversation. Replies are
+            // read through their Thread so a page containing only replies
+            // can never render as an apparently empty Room.
+            let mut roots: Vec<RoomMessageRow> = sqlx::query_as(
+                    "SELECT message.id,message.room_id,message.from_actor,message.to_actor, \
+                        CASE WHEN message.deleted_at IS NULL \
+                             THEN COALESCE(revision.body,message.body) ELSE '' END AS body, \
+                        message.outcome_standard,message.parent_message_id, \
+                        message.thread_root_message_id,message.client_command_id, \
+                        message.created_at,COALESCE(revision.revision_number,0) AS revision_number, \
+                        message.edited_at,message.deleted_at, \
+                        message.read_at AS legacy_read_at \
+                     FROM messages message \
+                     LEFT JOIN room_message_revisions revision \
+                       ON revision.id=message.latest_revision_id \
+                     WHERE message.room_id=$1 \
+                       AND message.id<COALESCE($2,9223372036854775807) \
+                       AND message.parent_message_id IS NULL \
+                     ORDER BY message.id DESC LIMIT $3",
                 )
                 .bind(room_id)
                 .bind(before_message_id)
                 .bind(limit + 1)
                 .fetch_all(&mut *tx)
                 .await?;
-                let has_more = roots.len() as i64 > limit;
-                if has_more {
-                    roots.truncate(limit as usize);
-                }
-                roots.reverse();
-                let next_before_message_id = has_more.then(|| roots[0].id);
-                (roots, has_more, next_before_message_id)
-            };
+            let has_more = roots.len() as i64 > limit;
+            if has_more {
+                roots.truncate(limit as usize);
+            }
+            roots.reverse();
+            let next_before_message_id = has_more.then(|| roots[0].id);
+            (roots, has_more, next_before_message_id)
+        };
         let message_ids = messages
             .iter()
             .map(|message| message.id)
@@ -2117,9 +2902,17 @@ impl OrgIntel {
             .map(|mention| mention.room_id)
             .collect::<Vec<_>>();
         let messages: Vec<RoomMessageRow> = sqlx::query_as(
-            "SELECT id,room_id,from_actor,to_actor,body,outcome_standard,parent_message_id, \
-                    thread_root_message_id,client_command_id,created_at,read_at AS legacy_read_at \
-             FROM messages WHERE id=ANY($1)",
+            "SELECT message.id,message.room_id,message.from_actor,message.to_actor, \
+                    CASE WHEN message.deleted_at IS NULL \
+                         THEN COALESCE(revision.body,message.body) ELSE '' END AS body, \
+                    message.outcome_standard,message.parent_message_id, \
+                    message.thread_root_message_id,message.client_command_id, \
+                    message.created_at,COALESCE(revision.revision_number,0) AS revision_number, \
+                    message.edited_at,message.deleted_at, \
+                    message.read_at AS legacy_read_at \
+             FROM messages message \
+             LEFT JOIN room_message_revisions revision ON revision.id=message.latest_revision_id \
+             WHERE message.id=ANY($1)",
         )
         .bind(&message_ids)
         .fetch_all(&mut *tx)

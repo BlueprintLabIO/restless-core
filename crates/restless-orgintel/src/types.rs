@@ -1147,6 +1147,15 @@ pub struct RoomMessageRow {
     pub thread_root_message_id: Option<i64>,
     pub client_command_id: Option<String>,
     pub created_at: DateTime<Utc>,
+    /// Optimistic-concurrency coordinate for the currently visible body.
+    /// Zero names the immutable original Message; each appended edit raises it
+    /// by one.
+    pub revision_number: i64,
+    /// Present when the visible body comes from an appended revision.
+    pub edited_at: Option<DateTime<Utc>>,
+    /// A deleted Message remains addressable for Thread/reference integrity,
+    /// but normal projections replace its body with an empty tombstone.
+    pub deleted_at: Option<DateTime<Utc>>,
     pub legacy_read_at: Option<DateTime<Utc>>,
 }
 
@@ -1154,6 +1163,62 @@ impl RoomMessageRow {
     pub fn effective_thread_root_id(&self) -> i64 {
         self.thread_root_message_id.unwrap_or(self.id)
     }
+}
+
+/// One immutable edit appended to a Room Message. The original Message keeps
+/// its author and creation coordinates; this record owns the replacement body.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct RoomMessageRevisionRow {
+    pub id: Uuid,
+    pub room_id: Uuid,
+    pub message_id: i64,
+    pub revision_number: i64,
+    pub editor_actor_id: String,
+    pub body: String,
+    pub created_event_id: i64,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Retry-safe result of one append-only Message edit.
+#[derive(Debug, Clone, Serialize)]
+pub struct RoomMessageEditResult {
+    pub revision: RoomMessageRevisionRow,
+    pub created: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RoomMessageRevisionPage {
+    pub revisions: Vec<RoomMessageRevisionRow>,
+    pub next_before_revision_number: Option<i64>,
+    pub has_more: bool,
+}
+
+/// One immutable deletion tombstone. It preserves attribution and references
+/// without exposing the deleted body through normal Room reads or search.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct RoomMessageTombstoneRow {
+    pub id: Uuid,
+    pub room_id: Uuid,
+    pub message_id: i64,
+    pub deleted_by_actor_id: String,
+    pub created_event_id: i64,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Retry-safe result of one Message tombstone command.
+#[derive(Debug, Clone, Serialize)]
+pub struct RoomMessageDeleteResult {
+    pub tombstone: RoomMessageTombstoneRow,
+    pub created: bool,
+}
+
+/// One authorised, bounded search page. Results are newest first so the
+/// immutable Message id is a stable keyset cursor even as new Messages arrive.
+#[derive(Debug, Clone, Serialize)]
+pub struct RoomMessageSearchPage {
+    pub messages: Vec<RoomMessageRow>,
+    pub next_before_message_id: Option<i64>,
+    pub has_more: bool,
 }
 
 /// The only V1 mention targets: an explicitly named durable Actor, with the

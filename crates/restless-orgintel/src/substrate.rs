@@ -230,12 +230,15 @@ impl OrgIntel {
         let actor_id: String = attempt.get("actor_id");
         let cursor: i64 = attempt.get("feedback_checkpoint_cursor");
         let messages = sqlx::query_as::<_, MessageRow>(
-            "SELECT message.id,message.from_actor,message.to_actor,message.body,message.outcome_standard, \
+            "SELECT message.id,message.from_actor,message.to_actor,\
+                    COALESCE(revision.body,message.body) AS body,message.outcome_standard, \
                     message.created_at, message.read_at \
              FROM work_feedback feedback JOIN messages message ON message.id=feedback.message_id \
+             LEFT JOIN room_message_revisions revision ON revision.id=message.latest_revision_id \
              WHERE feedback.work_id=$1 \
                AND COALESCE(feedback.routed_to_actor,message.to_actor)=$2 \
                AND message.id>$3 \
+               AND message.deleted_at IS NULL \
                AND NOT EXISTS (SELECT 1 FROM work_attempt_feedback delivered \
                                WHERE delivered.attempt_id=$4 AND delivered.message_id=message.id) \
              ORDER BY message.id",

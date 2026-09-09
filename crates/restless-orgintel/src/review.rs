@@ -508,9 +508,13 @@ impl OrgIntel {
         .bind(resolution.trim())
         .execute(&mut *tx)
         .await?;
+        let room_id =
+            ensure_direct_message_room_in_tx(&mut tx, resolved_by, Some(&work_owner)).await?;
         let message_id: i64 = sqlx::query_scalar(
-            "INSERT INTO messages (from_actor,to_actor,body) VALUES ($1,$2,$3) RETURNING id",
+            "INSERT INTO messages (room_id,from_actor,to_actor,body) \
+             VALUES ($1,$2,$3,$4) RETURNING id",
         )
+        .bind(room_id)
         .bind(resolved_by)
         .bind(&work_owner)
         .bind(resolution.trim())
@@ -668,10 +672,13 @@ impl OrgIntel {
             .fetch_optional(&mut *tx)
             .await?;
             if existing_message.is_none() {
+                let room_id =
+                    ensure_direct_message_room_in_tx(&mut tx, "owner", Some(&owner_id)).await?;
                 let message_id: i64 = sqlx::query_scalar(
-                    "INSERT INTO messages (from_actor,to_actor,body) \
-                     VALUES ('owner',$1,$2) RETURNING id",
+                    "INSERT INTO messages (room_id,from_actor,to_actor,body) \
+                     VALUES ($1,'owner',$2,$3) RETURNING id",
                 )
+                .bind(room_id)
                 .bind(&owner_id)
                 .bind(feedback)
                 .fetch_one(&mut *tx)

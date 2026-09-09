@@ -494,9 +494,14 @@ impl OrgIntel {
                 // pending or neither, never a fired schedule with no delivery.
                 // Work-linked schedules already release Work above and must
                 // not race that deterministic kickoff with conversation.
+                let room_id =
+                    ensure_direct_message_room_in_tx(&mut tx, "daemon", Some(&row.actor_id))
+                        .await?;
                 sqlx::query(
-                    "INSERT INTO messages (from_actor,to_actor,body) VALUES ('daemon',$1,$2)",
+                    "INSERT INTO messages (room_id,from_actor,to_actor,body) \
+                     VALUES ($1,'daemon',$2,$3)",
                 )
+                .bind(room_id)
                 .bind(&row.actor_id)
                 .bind(format!(
                     "[SCHEDULE DUE {} AT {}] {}\n\nThis is a time-based opportunity to inspect current facts. It is not evidence that production is necessary or complete.",
@@ -628,9 +633,12 @@ impl OrgIntel {
                 created: false,
             });
         }
+        let room_id = ensure_direct_message_room_in_tx(&mut tx, "daemon", Some(actor_id)).await?;
         let message_id: i64 = sqlx::query_scalar(
-            "INSERT INTO messages (from_actor,to_actor,body) VALUES ('daemon',$1,$2) RETURNING id",
+            "INSERT INTO messages (room_id,from_actor,to_actor,body) \
+             VALUES ($1,'daemon',$2,$3) RETURNING id",
         )
+        .bind(room_id)
         .bind(actor_id)
         .bind(format!(
             "[SCHEDULE RECOVERY {schedule_id} FOR {scheduled_for}] {}\n\nRecovery requested by {recovered_by}: {reason}\n\nThis is one explicit recovery of a recorded skipped occurrence. It wakes judgement only and does not itself authorise or prove any external effect.",
@@ -739,9 +747,12 @@ impl OrgIntel {
                 "recovery retry is stale; latest wake message is {expected_prior}"
             )));
         }
+        let room_id = ensure_direct_message_room_in_tx(&mut tx, "daemon", Some(actor_id)).await?;
         let message_id: i64 = sqlx::query_scalar(
-            "INSERT INTO messages (from_actor,to_actor,body) VALUES ('daemon',$1,$2) RETURNING id",
+            "INSERT INTO messages (room_id,from_actor,to_actor,body) \
+             VALUES ($1,'daemon',$2,$3) RETURNING id",
         )
+        .bind(room_id)
         .bind(actor_id)
         .bind(format!(
             "[SCHEDULE RECOVERY RETRY {schedule_id} FOR {scheduled_for}; KEY {retry_key}; AFTER MESSAGE {prior_message_id}]\n\nRetry requested by {retried_by}: {reason}\n\nThis is one explicit retry after reconciliation of the named prior wake. Repeating this retry key cannot create another message."

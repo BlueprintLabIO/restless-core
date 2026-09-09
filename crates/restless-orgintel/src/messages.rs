@@ -23,9 +23,12 @@ impl OrgIntel {
         if to.is_none() {
             reject_unfenced_owner_output_in_tx(&mut tx, from).await?;
         }
+        let room_id = ensure_direct_message_room_in_tx(&mut tx, from, to).await?;
         let row = sqlx::query(
-            "INSERT INTO messages (from_actor, to_actor, body) VALUES ($1, $2, $3) RETURNING id",
+            "INSERT INTO messages (room_id,from_actor,to_actor,body) \
+             VALUES ($1,$2,$3,$4) RETURNING id",
         )
+        .bind(room_id)
         .bind(from)
         .bind(to)
         .bind(body)
@@ -49,9 +52,12 @@ impl OrgIntel {
         validate_conversation_body(body)?;
         let mut tx = self.pool.begin().await?;
         validate_cognitive_lease_in_tx(&mut tx, lease).await?;
+        let room_id = ensure_direct_message_room_in_tx(&mut tx, &lease.actor_id, to).await?;
         let id: i64 = sqlx::query_scalar(
-            "INSERT INTO messages (from_actor,to_actor,body) VALUES ($1,$2,$3) RETURNING id",
+            "INSERT INTO messages (room_id,from_actor,to_actor,body) \
+             VALUES ($1,$2,$3,$4) RETURNING id",
         )
+        .bind(room_id)
         .bind(&lease.actor_id)
         .bind(to)
         .bind(body)
@@ -244,13 +250,15 @@ impl OrgIntel {
             }
         }
         let reply_message_id = if let Some(body) = owner_reply {
+            let room_id = ensure_direct_message_room_in_tx(&mut tx, &lease.actor_id, None).await?;
             let inserted: Option<i64> = sqlx::query_scalar(
                 "INSERT INTO messages \
-                 (from_actor,to_actor,body,client_command_id,client_payload_sha256) \
-                 VALUES ($1,NULL,$2,$3,$4) \
+                 (room_id,from_actor,to_actor,body,client_command_id,client_payload_sha256) \
+                 VALUES ($1,$2,NULL,$3,$4,$5) \
                  ON CONFLICT DO NOTHING \
                  RETURNING id",
             )
+            .bind(room_id)
             .bind(&lease.actor_id)
             .bind(body)
             .bind(&command_id)
@@ -463,9 +471,12 @@ impl OrgIntel {
                 "exec".to_string()
             };
         }
+        let room_id = ensure_direct_message_room_in_tx(&mut tx, from, Some(&routed_to)).await?;
         let message_id: i64 = sqlx::query_scalar(
-            "INSERT INTO messages (from_actor,to_actor,body) VALUES ($1,$2,$3) RETURNING id",
+            "INSERT INTO messages (room_id,from_actor,to_actor,body) \
+             VALUES ($1,$2,$3,$4) RETURNING id",
         )
+        .bind(room_id)
         .bind(from)
         .bind(&routed_to)
         .bind(body)
@@ -548,8 +559,8 @@ impl OrgIntel {
     /// pass the Actor id derived from the verified access context; raw IdP
     /// subject and membership identifiers never become Message attribution.
     ///
-    /// This compatibility API intentionally has no caller-controlled retry
-    /// key. New HTTP commands should use `send_room_message_with_standard` so
+    /// This convenience API intentionally has no caller-controlled retry key.
+    /// Network commands should use `send_room_message_with_standard` so
     /// mobile/network retries are idempotent at the command boundary.
     pub async fn send_human_conversation_message(
         &self,
@@ -660,6 +671,7 @@ impl OrgIntel {
             &[target_actor.to_string()],
             false,
             &[from_actor.to_string()],
+            false,
         )
         .await?;
         let sender_is_human: bool = sqlx::query_scalar(
@@ -685,11 +697,14 @@ impl OrgIntel {
         )
         .await?;
 
+        let room_id =
+            ensure_direct_message_room_in_tx(&mut tx, from_actor, Some(target_actor)).await?;
         let inserted: Option<(i64, Uuid)> = sqlx::query_as(
             "INSERT INTO messages \
-             (from_actor,to_actor,body,client_command_id,client_payload_sha256,outcome_standard) \
-             VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING RETURNING id,room_id",
+             (room_id,from_actor,to_actor,body,client_command_id,client_payload_sha256,outcome_standard) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING RETURNING id,room_id",
         )
+        .bind(room_id)
         .bind(from_actor)
         .bind(target_actor)
         .bind(body)
@@ -866,6 +881,7 @@ impl OrgIntel {
              JOIN actors actor ON actor.id=participant.actor_id \
              WHERE attachment.attachment_id=$1 AND participant.actor_id=$2 \
                AND attachment.purge_requested_at IS NULL AND attachment.purged_at IS NULL \
+               AND message.deleted_at IS NULL \
                AND participant.left_at IS NULL AND actor.retired_at IS NULL \
                AND actor.actor_class='human'",
         )
@@ -1346,7 +1362,7 @@ impl OrgIntel {
     }
 
     /// Network owner/agent conversation boundary. Unlike the arbitrary-human
-    /// compatibility facade, this admits only the singleton Exec or a current
+    /// owner conversation surface, this admits only the singleton Exec or a current
     /// accountable lead and locks that role in the same transaction as the
     /// Message insert. Lead replacement/disband therefore linearizes with the
     /// send instead of stranding a post-lifecycle message.
@@ -1426,6 +1442,7 @@ impl OrgIntel {
                 &[target_actor.to_string()],
                 false,
                 &[from_actor.to_string()],
+                false,
             )
             .await?;
         }
@@ -1735,33 +1752,36 @@ impl OrgIntel {
                 "owner attachment staging requires an idempotent conversation command".into(),
             ));
         }
-        let inserted: Option<i64> = if let Some((client_command_id, client_payload_sha256)) =
-            idempotency
-        {
-            sqlx::query_scalar(
-                "INSERT INTO messages \
-                 (from_actor,to_actor,body,client_command_id,client_payload_sha256) \
-                 VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING RETURNING id",
-            )
-            .bind(from)
-            .bind(to)
-            .bind(body)
-            .bind(client_command_id.trim())
-            .bind(client_payload_sha256)
-            .fetch_optional(&mut *tx)
-            .await?
-        } else {
-            Some(
+        let room_id = ensure_direct_message_room_in_tx(&mut tx, from, Some(to)).await?;
+        let inserted: Option<i64> =
+            if let Some((client_command_id, client_payload_sha256)) = idempotency {
                 sqlx::query_scalar(
-                    "INSERT INTO messages (from_actor,to_actor,body) VALUES ($1,$2,$3) RETURNING id",
+                    "INSERT INTO messages \
+                 (room_id,from_actor,to_actor,body,client_command_id,client_payload_sha256) \
+                 VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING RETURNING id",
                 )
+                .bind(room_id)
                 .bind(from)
                 .bind(to)
                 .bind(body)
-                .fetch_one(&mut *tx)
-                .await?,
-            )
-        };
+                .bind(client_command_id.trim())
+                .bind(client_payload_sha256)
+                .fetch_optional(&mut *tx)
+                .await?
+            } else {
+                Some(
+                    sqlx::query_scalar(
+                        "INSERT INTO messages (room_id,from_actor,to_actor,body) \
+                     VALUES ($1,$2,$3,$4) RETURNING id",
+                    )
+                    .bind(room_id)
+                    .bind(from)
+                    .bind(to)
+                    .bind(body)
+                    .fetch_one(&mut *tx)
+                    .await?,
+                )
+            };
         let Some(id) = inserted else {
             let (message_id, prior_digest): (i64, String) = sqlx::query_as(
                 "SELECT message.id,message.client_payload_sha256 \
@@ -1803,10 +1823,13 @@ impl OrgIntel {
                 let notice_body = format!(
                     "Material owner correction for Work {work_id}; owner message {id} is addressed to producer {owner}: {body}"
                 );
+                let notice_room_id =
+                    ensure_direct_message_room_in_tx(&mut tx, "daemon", Some(lead)).await?;
                 let notice_id: i64 = sqlx::query_scalar(
-                    "INSERT INTO messages (from_actor,to_actor,body) \
-                     VALUES ('daemon',$1,$2) RETURNING id",
+                    "INSERT INTO messages (room_id,from_actor,to_actor,body) \
+                     VALUES ($1,'daemon',$2,$3) RETURNING id",
                 )
+                .bind(notice_room_id)
                 .bind(lead)
                 .bind(&notice_body)
                 .fetch_one(&mut *tx)
@@ -1880,14 +1903,16 @@ impl OrgIntel {
         work_id: Uuid,
     ) -> Result<Vec<ExternalMessageSourceRow>> {
         Ok(sqlx::query_as(
-            "SELECT source.source_ref, source.message_id, message.from_actor, message.body, \
+            "SELECT source.source_ref, source.message_id, message.from_actor, \
+                    COALESCE(revision.body,message.body) AS body, \
                     source.provider, source.provider_event_id, source.provider_email_id, \
                     source.provider_message_id, source.provider_thread_id, source.source_url, \
                     source.metadata, source.projected_at \
              FROM external_message_sources source \
              JOIN messages message ON message.id=source.message_id \
+             LEFT JOIN room_message_revisions revision ON revision.id=message.latest_revision_id \
              JOIN work_feedback feedback ON feedback.message_id=message.id \
-             WHERE feedback.work_id=$1 \
+             WHERE feedback.work_id=$1 AND message.deleted_at IS NULL \
              ORDER BY source.projected_at, source.message_id",
         )
         .bind(work_id)
@@ -1928,11 +1953,7 @@ impl OrgIntel {
         body: &str,
         lease: Option<&ActorCognitiveLease>,
     ) -> Result<i64> {
-        if body.trim().is_empty() {
-            return Err(OrgIntelError::InvalidWork(
-                "Work feedback message cannot be empty".into(),
-            ));
-        }
+        validate_conversation_body(body)?;
         let mut tx = self.pool.begin().await?;
         if let Some(lease) = lease {
             validate_cognitive_lease_in_tx(&mut tx, lease).await?;
@@ -1957,9 +1978,12 @@ impl OrgIntel {
                 accountable_lead
             )));
         }
+        let room_id = ensure_direct_message_room_in_tx(&mut tx, from, None).await?;
         let id: i64 = sqlx::query_scalar(
-            "INSERT INTO messages (from_actor, to_actor, body) VALUES ($1,NULL,$2) RETURNING id",
+            "INSERT INTO messages (room_id,from_actor,to_actor,body) \
+             VALUES ($1,$2,NULL,$3) RETURNING id",
         )
+        .bind(room_id)
         .bind(from)
         .bind(body)
         .fetch_one(&mut *tx)
@@ -2001,9 +2025,11 @@ impl OrgIntel {
         };
         Ok(sqlx::query_as(
             "SELECT id,from_actor,to_actor,body,outcome_standard,created_at,read_at FROM (\
-               SELECT m.id,m.from_actor,m.to_actor,m.body,m.outcome_standard,m.created_at,m.read_at \
+               SELECT m.id,m.from_actor,m.to_actor,COALESCE(revision.body,m.body) AS body,\
+                      m.outcome_standard,m.created_at,m.read_at \
                FROM messages m JOIN work_feedback f ON f.message_id=m.id \
-               WHERE f.work_id=$1 AND m.room_id=$2 \
+               LEFT JOIN room_message_revisions revision ON revision.id=m.latest_revision_id \
+               WHERE f.work_id=$1 AND m.room_id=$2 AND m.deleted_at IS NULL \
                ORDER BY m.created_at DESC,m.id DESC LIMIT $3\
              ) recent ORDER BY created_at,id",
         )
@@ -2014,8 +2040,7 @@ impl OrgIntel {
         .await?)
     }
 
-    /// Owner-specific compatibility facade for the established cockpit and
-    /// agent context builders.
+    /// Owner-specific view used by the cockpit and agent context builders.
     pub async fn owner_work_conversation(
         &self,
         actor: &str,
@@ -2029,26 +2054,28 @@ impl OrgIntel {
     /// An actor's unread inbox (`None` = the owner's), oldest first.
     pub async fn inbox(&self, actor: Option<&str>) -> Result<Vec<MessageRow>> {
         Ok(sqlx::query_as(
-            "SELECT id,from_actor,to_actor,body,outcome_standard,created_at,read_at FROM messages \
-             WHERE read_at IS NULL \
-               AND NOT EXISTS (SELECT 1 FROM message_mentions WHERE message_id=messages.id) \
+            "SELECT message.id,message.from_actor,message.to_actor,\
+                    COALESCE(revision.body,message.body) AS body,message.outcome_standard,\
+                    message.created_at,message.read_at \
+             FROM messages message \
+             LEFT JOIN room_message_revisions revision ON revision.id=message.latest_revision_id \
+             WHERE message.read_at IS NULL AND message.deleted_at IS NULL \
+               AND NOT EXISTS (SELECT 1 FROM message_mentions WHERE message_id=message.id) \
                AND (\
                ($1::text IS NOT NULL AND (\
                  EXISTS (SELECT 1 FROM work_feedback feedback \
-                         WHERE feedback.message_id=messages.id \
+                         WHERE feedback.message_id=message.id \
                            AND feedback.routed_to_actor=$1) \
-                 OR (to_actor=$1 AND NOT EXISTS (\
+                 OR (message.to_actor=$1 AND NOT EXISTS (\
                    SELECT 1 FROM work_feedback feedback \
-                   WHERE feedback.message_id=messages.id \
+                   WHERE feedback.message_id=message.id \
                      AND feedback.routed_to_actor IS NOT NULL\
                  ))\
                )) OR \
-               ($1::text IS NULL AND to_actor IS NULL AND (\
-                 room_id IS NULL OR EXISTS (\
-                   SELECT 1 FROM rooms WHERE rooms.id=messages.room_id AND rooms.kind='direct'\
-                 )\
+               ($1::text IS NULL AND message.to_actor IS NULL AND EXISTS (\
+                 SELECT 1 FROM rooms WHERE rooms.id=message.room_id AND rooms.kind='direct'\
                ))\
-             ) ORDER BY id",
+             ) ORDER BY message.id",
         )
         .bind(actor)
         .fetch_all(&self.pool)
@@ -2069,11 +2096,14 @@ impl OrgIntel {
         let max_bytes = max_bytes.clamp(1, 1024 * 1024);
         Ok(sqlx::query_as(
             "WITH eligible AS (\
-               SELECT message.id,message.from_actor,message.to_actor,message.body,\
+               SELECT message.id,message.from_actor,message.to_actor,\
+                      COALESCE(revision.body,message.body) AS body,\
                       message.outcome_standard,message.created_at,message.read_at,\
-                      octet_length(message.body) AS body_bytes \
+                      octet_length(COALESCE(revision.body,message.body)) AS body_bytes \
                FROM messages message \
-               WHERE message.read_at IS NULL AND message.from_actor<>$1 \
+               LEFT JOIN room_message_revisions revision ON revision.id=message.latest_revision_id \
+               WHERE message.read_at IS NULL AND message.deleted_at IS NULL \
+                 AND message.from_actor<>$1 \
                  AND NOT EXISTS (SELECT 1 FROM message_mentions mention \
                                  WHERE mention.message_id=message.id) \
                  AND (\
@@ -2129,7 +2159,8 @@ impl OrgIntel {
     pub async fn owed_conversation_count(&self, actor: &str) -> Result<i64> {
         Ok(sqlx::query_scalar(
             "SELECT count(*) FROM messages message \
-             WHERE message.read_at IS NULL AND message.from_actor<>$1 \
+             WHERE message.read_at IS NULL AND message.deleted_at IS NULL \
+               AND message.from_actor<>$1 \
                AND NOT EXISTS (SELECT 1 FROM message_mentions WHERE message_id=message.id) \
                AND (\
                  EXISTS (SELECT 1 FROM work_feedback feedback \
@@ -2173,20 +2204,24 @@ impl OrgIntel {
         .fetch_optional(&mut *tx)
         .await?;
         let messages = sqlx::query_as::<_, MessageRow>(
-            "SELECT id,from_actor,to_actor,body,outcome_standard,created_at,read_at FROM messages \
-             WHERE read_at IS NULL \
+            "SELECT message.id,message.from_actor,message.to_actor,\
+                    COALESCE(revision.body,message.body) AS body,message.outcome_standard,\
+                    message.created_at,message.read_at \
+             FROM messages message \
+             LEFT JOIN room_message_revisions revision ON revision.id=message.latest_revision_id \
+             WHERE message.read_at IS NULL AND message.deleted_at IS NULL \
                AND (\
                  EXISTS (SELECT 1 FROM work_feedback feedback \
-                         WHERE feedback.message_id=messages.id \
+                         WHERE feedback.message_id=message.id \
                            AND feedback.routed_to_actor=$1) \
-                 OR (to_actor=$1 AND NOT EXISTS (\
+                 OR (message.to_actor=$1 AND NOT EXISTS (\
                    SELECT 1 FROM work_feedback feedback \
-                   WHERE feedback.message_id=messages.id \
+                   WHERE feedback.message_id=message.id \
                      AND feedback.routed_to_actor IS NOT NULL\
                  ))\
                ) \
-               AND NOT EXISTS (SELECT 1 FROM message_mentions WHERE message_id=messages.id) \
-             ORDER BY id FOR UPDATE",
+               AND NOT EXISTS (SELECT 1 FROM message_mentions WHERE message_id=message.id) \
+             ORDER BY message.id FOR UPDATE OF message",
         )
         .bind(actor)
         .fetch_all(&mut *tx)
@@ -2246,8 +2281,8 @@ impl OrgIntel {
 
     /// Ordinary direct conversation between one authenticated human Actor and
     /// one company Actor, oldest first. Attribution and audience come from the
-    /// canonical Room; the historical nullable-owner recipient is only a
-    /// compatibility projection on those same Message rows.
+    /// canonical Room; a nullable recipient still spells the owner inbox, but
+    /// Room identity is explicit on every Message row.
     pub async fn human_conversation(
         &self,
         human_actor: &str,
@@ -2263,8 +2298,13 @@ impl OrgIntel {
         let limit = limit.clamp(1, 200);
         Ok(sqlx::query_as(
             "SELECT id,from_actor,to_actor,body,outcome_standard,created_at,read_at FROM (\
-               SELECT id,from_actor,to_actor,body,outcome_standard,created_at,read_at \
-               FROM messages WHERE room_id=$1 ORDER BY id DESC LIMIT $2\
+               SELECT message.id,message.from_actor,message.to_actor,\
+                      COALESCE(revision.body,message.body) AS body,message.outcome_standard,\
+                      message.created_at,message.read_at \
+               FROM messages message \
+               LEFT JOIN room_message_revisions revision ON revision.id=message.latest_revision_id \
+               WHERE message.room_id=$1 AND message.deleted_at IS NULL \
+               ORDER BY message.id DESC LIMIT $2\
              ) recent ORDER BY id",
         )
         .bind(room_id)
@@ -2320,9 +2360,13 @@ impl OrgIntel {
         let limit = limit.clamp(1, 200);
         Ok(sqlx::query_as(
             "SELECT id,from_actor,to_actor,body,outcome_standard,created_at,read_at FROM (\
-               SELECT id,from_actor,to_actor,body,outcome_standard,created_at,read_at \
-               FROM messages WHERE room_id=$1 AND id>$2 \
-               ORDER BY id DESC LIMIT $3\
+               SELECT message.id,message.from_actor,message.to_actor,\
+                      COALESCE(revision.body,message.body) AS body,message.outcome_standard,\
+                      message.created_at,message.read_at \
+               FROM messages message \
+               LEFT JOIN room_message_revisions revision ON revision.id=message.latest_revision_id \
+               WHERE message.room_id=$1 AND message.id>$2 AND message.deleted_at IS NULL \
+               ORDER BY message.id DESC LIMIT $3\
              ) recent ORDER BY id",
         )
         .bind(room_id)
@@ -2333,7 +2377,7 @@ impl OrgIntel {
     }
 
     /// Ordinary conversation between the owner and one actor, oldest first.
-    /// This remains as the owner-specific compatibility facade.
+    /// This is the owner-specific direct-Room view.
     pub async fn owner_conversation(&self, actor: &str, limit: i64) -> Result<Vec<MessageRow>> {
         self.human_conversation("owner", actor, limit).await
     }
@@ -2539,7 +2583,7 @@ async fn link_owner_attachments_in_tx(
 
 /// Automatic owner-facing conversation output must cross the exact durable
 /// lease fence. Productive Work and human/service messages have no cognitive
-/// lease and retain the legacy path; a live agent conversation cannot bypass
+/// lease and use their explicit Room path; a live agent conversation cannot bypass
 /// its token through the ordinary CLI/message helper.
 async fn reject_unfenced_owner_output_in_tx(
     tx: &mut Transaction<'_, Postgres>,

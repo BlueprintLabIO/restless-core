@@ -41,6 +41,102 @@ pub use events::EventReplayPage;
 pub use invocations::*;
 pub use types::*;
 
+/// Resolve the canonical direct Room for one durable Message write, creating
+/// that Room and its immutable two-Actor audience inside the caller's
+/// transaction when necessary. Internal workflows use this boundary instead
+/// of relying on database inference from nullable legacy fields.
+///
+/// `to_actor = None` still means the owner is the directed recipient; it does
+/// not mean the Message has no audience. The returned Room id is always bound
+/// explicitly by the eventual `INSERT INTO messages` statement.
+pub(crate) async fn ensure_direct_message_room_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    from_actor: &str,
+    to_actor: Option<&str>,
+) -> Result<Uuid> {
+    let from_actor = from_actor.trim();
+    let peer_actor = to_actor.unwrap_or("owner").trim();
+    if from_actor.is_empty() || peer_actor.is_empty() {
+        return Err(OrgIntelError::InvalidRoom(
+            "a directed Message needs stable sender and recipient Actors".into(),
+        ));
+    }
+    let (first_actor, second_actor) = if from_actor <= peer_actor {
+        (from_actor, peer_actor)
+    } else {
+        (peer_actor, from_actor)
+    };
+    let canonical_key = rooms::direct_room_canonical_key(first_actor, second_actor);
+    let participant_actor_ids = if first_actor == second_actor {
+        vec![first_actor]
+    } else {
+        vec![first_actor, second_actor]
+    };
+    let existing_actor_ids =
+        sqlx::query_scalar::<_, String>("SELECT id FROM actors WHERE id=ANY($1) ORDER BY id")
+            .bind(&participant_actor_ids)
+            .fetch_all(&mut **tx)
+            .await?;
+    if existing_actor_ids
+        != participant_actor_ids
+            .iter()
+            .map(|actor_id| (*actor_id).to_string())
+            .collect::<Vec<_>>()
+    {
+        return Err(OrgIntelError::InvalidRoom(
+            "every directed Message participant must be a durable Actor".into(),
+        ));
+    }
+
+    // The candidate UUID is the canonical pre-release Room identity used by
+    // the original data migration. The unique canonical key arbitrates races;
+    // every contender then reads the same committed Room.
+    sqlx::query(
+        "INSERT INTO rooms (id,kind,title,created_by,canonical_key) \
+         VALUES (md5('restless:room:' || $1)::uuid,'direct',$2,$3,$1) \
+         ON CONFLICT (canonical_key) DO NOTHING",
+    )
+    .bind(&canonical_key)
+    .bind(if first_actor == second_actor {
+        format!("Notes for {first_actor}")
+    } else {
+        format!("{first_actor} / {second_actor}")
+    })
+    .bind(first_actor)
+    .execute(&mut **tx)
+    .await?;
+    let (room_id, room_creator): (Uuid, String) = sqlx::query_as(
+        "SELECT id,created_by FROM rooms \
+         WHERE canonical_key=$1 AND kind='direct' AND archived_at IS NULL",
+    )
+    .bind(&canonical_key)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or_else(|| {
+        OrgIntelError::InvalidRoom("the canonical direct Room is missing or archived".into())
+    })?;
+
+    // A trusted internal directed write reactivates the exact canonical
+    // audience. Sort order above keeps participant FK acquisition stable.
+    for actor_id in participant_actor_ids {
+        sqlx::query(
+            "INSERT INTO room_participants (room_id,actor_id,role) \
+             VALUES ($1,$2,CASE WHEN $2=$3 THEN 'owner'::room_participant_role \
+                                ELSE 'member'::room_participant_role END) \
+             ON CONFLICT (room_id,actor_id) DO UPDATE \
+             SET role=EXCLUDED.role,joined_at=now(),left_at=NULL \
+             WHERE room_participants.left_at IS NOT NULL \
+                OR room_participants.role<>EXCLUDED.role",
+        )
+        .bind(room_id)
+        .bind(actor_id)
+        .bind(&room_creator)
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(room_id)
+}
+
 /// Company schema names are SQL identifiers injected into DDL — validated so
 /// `SET search_path` can never carry injection. Deliberately stricter than
 /// company names elsewhere: lowercase, starts with a letter.
@@ -259,9 +355,12 @@ async fn invalidate_from(
     .fetch_one(&mut **tx)
     .await?;
     if !feedback_exists {
+        let room_id = ensure_direct_message_room_in_tx(tx, reviewer, Some(&target_owner)).await?;
         let message_id: i64 = sqlx::query_scalar(
-            "INSERT INTO messages (from_actor,to_actor,body) VALUES ($1,$2,$3) RETURNING id",
+            "INSERT INTO messages (room_id,from_actor,to_actor,body) \
+             VALUES ($1,$2,$3,$4) RETURNING id",
         )
+        .bind(room_id)
         .bind(reviewer)
         .bind(&target_owner)
         .bind(reason)
@@ -278,7 +377,11 @@ async fn invalidate_from(
         .lead_actor_id
         .filter(|lead| lead != &target_owner)
     {
-        sqlx::query("INSERT INTO messages (from_actor,to_actor,body) VALUES ($1,$2,$3)")
+        let room_id = ensure_direct_message_room_in_tx(tx, reviewer, Some(&lead)).await?;
+        sqlx::query(
+            "INSERT INTO messages (room_id,from_actor,to_actor,body) VALUES ($1,$2,$3,$4)",
+        )
+            .bind(room_id)
             .bind(reviewer)
             .bind(&lead)
             .bind(format!(
