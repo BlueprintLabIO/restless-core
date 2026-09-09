@@ -15,9 +15,11 @@ const STORE_NAME = 'partitions';
 
 type QueryKey = readonly unknown[];
 
+export type CompanyMembershipRole = 'owner' | 'admin' | 'member';
+
 export interface CompanyPrincipal {
 	actor_id: string;
-	membership_role: string;
+	membership_role: CompanyMembershipRole;
 	cache_partition: string;
 }
 
@@ -489,12 +491,21 @@ export async function getCompanyPrincipal(
 	const actorId = string(value?.actor_id, 256);
 	const membershipRole = string(value?.membership_role, 128);
 	const cachePartition = string(value?.cache_partition, 512);
-	if (!actorId || !membershipRole || !cachePartition) {
+	if (
+		!actorId ||
+		!membershipRole ||
+		!['owner', 'admin', 'member'].includes(membershipRole) ||
+		!cachePartition
+	) {
 		throw Object.assign(new Error('The company principal response is invalid.'), {
 			code: 'invalid_principal'
 		});
 	}
-	return { actor_id: actorId, membership_role: membershipRole, cache_partition: cachePartition };
+	return {
+		actor_id: actorId,
+		membership_role: membershipRole as CompanyMembershipRole,
+		cache_partition: cachePartition
+	};
 }
 
 function requestResult<T>(request: IDBRequest<T>): Promise<T> {

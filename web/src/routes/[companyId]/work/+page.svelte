@@ -1,21 +1,42 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
-	import { attentionQuery, cockpitQuery } from '$lib/model/queries.svelte';
+	import {
+		attentionQuery,
+		cockpitQuery,
+		collaborationBootstrapQuery,
+		companyPrincipalQuery
+	} from '$lib/model/queries.svelte';
+	import type { CollaborationWork } from '$lib/model/collaboration';
 	import type { WorkRow } from '$lib/model/generated/orgintel';
+	import type { WorkGraphItem } from '$lib/work/layout';
 	import WorkGraph from '$lib/work/WorkGraph.svelte';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
-	const attentionProjection = $derived(attentionQuery(companyId));
-	const cockpitProjection = $derived(cockpitQuery(companyId));
+	const principalProjection = $derived(companyPrincipalQuery(companyId));
+	const ownerAccess = $derived(principalProjection.view?.membership_role === 'owner');
+	const attentionProjection = $derived(attentionQuery(companyId, () => ownerAccess));
+	const cockpitProjection = $derived(cockpitQuery(companyId, () => ownerAccess));
+	const collaborationProjection = $derived(
+		collaborationBootstrapQuery(companyId, () => principalProjection.view)
+	);
 	const attention = $derived(attentionProjection.view);
 	const cockpit = $derived(cockpitProjection.view);
+	const collaboration = $derived(collaborationProjection.view);
 	const error = $derived(
-		attentionProjection.failure?.message ?? cockpitProjection.failure?.message ?? ''
+		principalProjection.failure?.message ??
+			(ownerAccess
+				? (attentionProjection.failure?.message ?? cockpitProjection.failure?.message)
+				: collaborationProjection.failure?.message) ??
+			''
 	);
 	const loaded = $derived(
-		attentionProjection.status !== 'unknown' || cockpitProjection.status !== 'unknown'
+		principalProjection.status !== 'unknown' &&
+			(ownerAccess
+				? attentionProjection.status !== 'unknown' || cockpitProjection.status !== 'unknown'
+				: collaborationProjection.status !== 'unknown')
 	);
+	type WorkItem = WorkRow | CollaborationWork;
 	let lens = $state<'map' | 'board'>(
 		page.url.searchParams.get('lens') === 'board' ? 'board' : 'map'
 	);
@@ -26,15 +47,21 @@
 	let showHistory = $state(false);
 
 	$effect(() => {
-		if (!cockpit || goalSelectionInitialized) return;
+		if (!loaded || goalSelectionInitialized) return;
 		const requestedGoal = page.url.searchParams.get('goal');
-		selectedGoal = cockpit.goals.find((goal) => goal.id === requestedGoal)?.id ?? '';
+		selectedGoal = goals.find((goal) => goal.id === requestedGoal)?.id ?? '';
 		if (!selectedGoal && requestedGoal === UNASSIGNED_QUERY) selectedGoal = UNASSIGNED_QUERY;
 		goalSelectionInitialized = true;
 	});
 
-	const graph = $derived(attention?.workGraph ?? null);
-	const goals = $derived(cockpit?.goals ?? []);
+	const graph = $derived(
+		ownerAccess ? (attention?.workGraph ?? null) : (collaboration?.work_graph ?? null)
+	);
+	const goals = $derived(ownerAccess ? (cockpit?.goals ?? []) : (collaboration?.goals ?? []));
+	const people = $derived(ownerAccess ? (cockpit?.people ?? []) : (collaboration?.people ?? []));
+	const companyName = $derived(
+		ownerAccess ? (cockpit?.company.name ?? companyId) : (collaboration?.company.name ?? companyId)
+	);
 	const unassignedWork = $derived((graph?.work ?? []).filter((item) => item.goal_id === null));
 	const goalWork = $derived(
 		(graph?.work ?? []).filter(
@@ -49,7 +76,9 @@
 			.toSorted((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at))
 	);
 	const evidenceBackedCompleted = $derived(
-		completedWork.filter((item) => artifactCount(item) > 0 || gateCount(item).passed > 0)
+		ownerAccess
+			? completedWork.filter((item) => artifactCount(item) > 0 || gateCount(item).passed > 0)
+			: completedWork
 	);
 	const recentlyLanded = $derived(evidenceBackedCompleted.slice(0, 3));
 	// Map and board consume this exact row set. History expands the same
@@ -70,7 +99,7 @@
 			(edge) => visibleIds.has(edge.from_work_id) && visibleIds.has(edge.to_work_id)
 		)
 	);
-	function attemptOf(work: WorkRow) {
+	function attemptOf(work: WorkGraphItem) {
 		return (
 			graph?.attempts
 				.filter((attempt) => attempt.work_id === work.id)
@@ -84,16 +113,17 @@
 		);
 	}
 
-	function artifactCount(work: WorkRow): number {
+	function artifactCount(work: WorkGraphItem): number {
 		return graph?.artifacts.filter((artifact) => artifact.work_id === work.id).length ?? 0;
 	}
 
-	function gateCount(work: WorkRow): { passed: number; total: number } {
-		const gates = graph?.gates.filter((gate) => gate.work_id === work.id) ?? [];
+	function gateCount(work: WorkGraphItem): { passed: number; total: number } {
+		if (!graph || !('gates' in graph)) return { passed: 0, total: 0 };
+		const gates = graph.gates.filter((gate) => gate.work_id === work.id);
 		const latest = attemptOf(work);
 		const passed = latest
 			? gates.filter((gate) =>
-					graph?.gate_runs.some(
+					graph.gate_runs.some(
 						(run) => run.gate_id === gate.id && run.attempt_id === latest.id && run.passed
 					)
 				).length
@@ -101,7 +131,7 @@
 		return { passed, total: gates.length };
 	}
 
-	function attemptState(work: WorkRow): string {
+	function attemptState(work: WorkGraphItem): string {
 		return attemptOf(work)?.state ?? 'Not started';
 	}
 
@@ -138,7 +168,7 @@
 
 	function ownerName(actorId: string): string {
 		return (
-			cockpit?.people.find((person) => person.actor_id === actorId)?.display ??
+			people.find((person) => person.actor_id === actorId)?.display ??
 			actorId.replaceAll('-', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
 		);
 	}
@@ -165,9 +195,17 @@
 		});
 		return `/${encodeURIComponent(companyId)}/work/${encodeURIComponent(workId)}?${query}`;
 	}
+
+	function boardSignal(work: WorkItem): string {
+		const attempt = attemptState(work).replaceAll('_', ' ');
+		const gates = gateCount(work);
+		if (gates.total) return `${attempt} · ${gates.passed}/${gates.total} gates`;
+		const outputs = artifactCount(work);
+		return outputs ? `${attempt} · ${outputs} ${outputs === 1 ? 'output' : 'outputs'}` : attempt;
+	}
 </script>
 
-<svelte:head><title>Work — {cockpit?.company.name ?? companyId}</title></svelte:head>
+<svelte:head><title>Work — {companyName}</title></svelte:head>
 
 <div class="cockpit-screen work-screen">
 	{#if error}<div class="cockpit-error">{error}</div>{/if}
@@ -308,7 +346,7 @@
 							>
 								<span><i></i>R{item.revision} · {item.status}</span>
 								<strong>{item.title}</strong>
-								<p>{attemptState(item)} · {gateCount(item).passed}/{gateCount(item).total} gates</p>
+								<p>{boardSignal(item)}</p>
 								<footer>
 									<span>{ownerName(item.owner_id)}</span><span>{artifactCount(item)} outputs</span>
 								</footer>

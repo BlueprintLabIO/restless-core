@@ -1,11 +1,26 @@
 import dagre from '@dagrejs/dagre';
-import type { WorkEdgeKind, WorkEdgeRow, WorkRow } from '$lib/model/generated/orgintel';
+import type { WorkEdgeKind, WorkStatus } from '$lib/model/generated/orgintel';
+
+export interface WorkGraphItem {
+	id: string;
+	owner_id: string;
+	title: string;
+	status: WorkStatus;
+	priority: number;
+	revision: number;
+}
+
+export interface WorkGraphEdge {
+	from_work_id: string;
+	to_work_id: string;
+	kind: WorkEdgeKind;
+}
 
 export const WORK_NODE_WIDTH = 224;
 export const WORK_NODE_HEIGHT = 126;
 
 export interface WorkGraphNodeData {
-	item: WorkRow;
+	item: WorkGraphItem;
 	owner: string;
 	attemptState: string;
 	artifactCount: number;
@@ -37,9 +52,9 @@ export interface WorkGraphLayout {
 }
 
 export function layoutWorkGraph(
-	work: WorkRow[],
-	edges: WorkEdgeRow[],
-	dataFor: (item: WorkRow) => WorkGraphNodeData
+	work: WorkGraphItem[],
+	edges: WorkGraphEdge[],
+	dataFor: (item: WorkGraphItem) => WorkGraphNodeData
 ): WorkGraphLayout {
 	const graph = new dagre.graphlib.Graph({ multigraph: true })
 		.setGraph({

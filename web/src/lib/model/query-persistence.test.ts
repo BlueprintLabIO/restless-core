@@ -194,6 +194,7 @@ test('cache keys are exact, company-scoped, and exclude sensitive query families
 	assert.equal(companyForPersistableQuery(['room-messages', 'acme', 'general']), 'acme');
 	for (const key of [
 		['cockpit', 'acme'],
+		['company-collaboration', 'acme', 'alice', 'member', 'partition-a'],
 		['company', 'acme', { probeCredentials: false }],
 		['conversation', 'acme', 'exec'],
 		['room-thread', 'acme', 'general', 1],
@@ -376,6 +377,27 @@ test('principal lookup uses the current no-store company boundary and validates 
 			url: '/api/companies/acme%20group/principal',
 			cache: 'no-store',
 			credentials: 'same-origin'
+		});
+	} finally {
+		globalThis.fetch = original;
+	}
+});
+
+test('principal lookup rejects an unrecognised membership role', async () => {
+	const original = globalThis.fetch;
+	globalThis.fetch = (async () =>
+		new Response(
+			JSON.stringify({
+				actor_id: 'alice',
+				membership_role: 'operator',
+				cache_partition: 'opaque-a'
+			}),
+			{ status: 200, headers: { 'content-type': 'application/json' } }
+		)) as typeof fetch;
+	try {
+		await assert.rejects(getCompanyPrincipal('acme'), (error: Error & { code?: string }) => {
+			assert.equal(error.code, 'invalid_principal');
+			return true;
 		});
 	} finally {
 		globalThis.fetch = original;

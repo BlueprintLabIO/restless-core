@@ -38,13 +38,22 @@
 		type DocumentRow,
 		type PendingDocumentCreation
 	} from '$lib/model/documents';
-	import { cockpitQuery } from '$lib/model/queries.svelte';
+	import {
+		collaborationBootstrapQuery,
+		companyPrincipalQuery,
+		cockpitQuery
+	} from '$lib/model/queries.svelte';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	const client = useQueryClient();
 	const list = documentsQuery(() => companyId);
 	const principal = documentPrincipalQuery(() => companyId);
-	const cockpit = $derived(cockpitQuery(companyId));
+	const shellPrincipal = $derived(companyPrincipalQuery(companyId));
+	const ownerAccess = $derived(shellPrincipal.view?.membership_role === 'owner');
+	const collaboration = $derived(
+		collaborationBootstrapQuery(companyId, () => shellPrincipal.view)
+	);
+	const cockpit = $derived(cockpitQuery(companyId, () => ownerAccess));
 	const requestedDocumentId = $derived(page.url.searchParams.get('document') ?? '');
 	const selectedDocumentId = $derived(requestedDocumentId || list.summaries[0]?.document.id || '');
 	const detail = documentQuery(
@@ -191,7 +200,13 @@
 </script>
 
 <svelte:window bind:online />
-<svelte:head><title>Documents — {cockpit.view?.company.name ?? companyId}</title></svelte:head>
+<svelte:head
+	><title
+		>Documents — {ownerAccess
+			? (cockpit.view?.company.name ?? companyId)
+			: (collaboration.view?.company.name ?? companyId)}</title
+	></svelte:head
+>
 
 <div
 	class="cockpit-screen documents-screen"
@@ -387,7 +402,7 @@
 				{companyId}
 				view={documentView}
 				panel={inspectorPanel}
-				people={cockpit.view?.people ?? []}
+				people={ownerAccess ? (cockpit.view?.people ?? []) : (collaboration.view?.people ?? [])}
 				{online}
 				editing={documentDirty}
 				{commentBlockId}

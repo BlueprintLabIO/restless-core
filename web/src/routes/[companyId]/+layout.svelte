@@ -6,9 +6,17 @@
 	import ExecutiveRail from '$lib/components/ExecutiveRail.svelte';
 	import { cockpitContextPath, reviewAction } from '$lib/model/attention';
 	import {
+		collaboratorHome,
+		companyShellTabs,
+		hasOwnerSurfaceAccess,
+		mayOpenCompanyRoute
+	} from '$lib/model/company-access';
+	import {
 		attentionQuery,
 		cockpitQuery,
+		collaborationBootstrapQuery,
 		companiesQuery,
+		companyPrincipalQuery,
 		companyQuery,
 		conversationQuery
 	} from '$lib/model/queries.svelte';
@@ -17,7 +25,13 @@
 	let { children } = $props();
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
-	const companyCatalog = companiesQuery();
+	const principalProjection = $derived(companyPrincipalQuery(companyId));
+	const principal = $derived(principalProjection.view);
+	const ownerAccess = $derived(hasOwnerSurfaceAccess(principal));
+	const collaboration = $derived(
+		collaborationBootstrapQuery(companyId, () => principal)
+	);
+	const companyCatalog = companiesQuery(() => ownerAccess);
 	const companies = $derived(companyCatalog.view);
 	let execRailOpen = $state(true);
 	let focusRailRestore = $state<boolean | null>(null);
@@ -25,10 +39,10 @@
 	/* The shell and the Attention surface read one source rather than polling the
 	 * same endpoint on two clocks. The badge can no longer disagree with the
 	 * queue it is counting. */
-	const attention = $derived(attentionQuery(companyId));
-	const cockpitProjection = $derived(cockpitQuery(companyId));
+	const attention = $derived(attentionQuery(companyId, () => ownerAccess));
+	const cockpitProjection = $derived(cockpitQuery(companyId, () => ownerAccess));
 	const cockpit = $derived(cockpitProjection.view);
-	const companyProjection = $derived(companyQuery(companyId));
+	const companyProjection = $derived(companyQuery(companyId, () => ownerAccess));
 	const companyDefaultStandard = $derived(
 		companyProjection.view?.company.outcome_standard ??
 			cockpit?.company.outcome_standard ??
@@ -36,7 +50,9 @@
 	);
 	$effect(() => companyProjection.attach());
 
-	const companyName = $derived(attention.view?.company.name ?? '');
+	const companyName = $derived(
+		ownerAccess ? (attention.view?.company.name ?? '') : (collaboration.view?.company.name ?? '')
+	);
 	const liveNeedsYou = $derived(attention.view?.items ?? []);
 	const focusedReviewId = $derived(page.url.searchParams.get('review'));
 	const focusedReview = $derived(
@@ -49,7 +65,14 @@
 	const focusedAttention = $derived(focusedReview ?? focusedConversation);
 	const railActorId = $derived(focusedAttention?.responsibleActor?.id ?? 'exec');
 	const railConversation = $derived(
-		conversationQuery(companyId, railActorId, focusedAttention?.workId, focusedAttention?.id)
+		conversationQuery(
+			companyId,
+			railActorId,
+			focusedAttention?.workId,
+			focusedAttention?.id,
+			() => ownerAccess,
+			principal?.actor_id ?? 'owner'
+		)
 	);
 	const railActorName = $derived(
 		railActorId === 'exec'
@@ -66,6 +89,11 @@
 			(page.url.pathname === `/${companyId}` && page.url.searchParams.has('computer'))
 	);
 	$effect(() => railConversation.attach());
+	$effect(() => {
+		const authenticated = principal;
+		if (!authenticated || mayOpenCompanyRoute(companyId, page.url.pathname, authenticated)) return;
+		void goto(collaboratorHome(companyId), { replaceState: true });
+	});
 	$effect(() => {
 		if (focusedAttention) execRailOpen = true;
 	});
@@ -100,6 +128,7 @@
 		interrupt: boolean,
 		outcomeStandard?: import('$lib/model/company').OutcomeStandard
 	): Promise<{ error?: string; notice?: string }> {
+		if (!ownerAccess) return { error: 'This company membership cannot send owner directions.' };
 		try {
 			const contextPath = includeContext ? cockpitContextPath(companyId, page.url) : undefined;
 			const result = await railConversation.send(
@@ -159,6 +188,7 @@
 	 * rail there would render a second conversation with a different actor beside
 	 * it — and duplicate itself outright when the Exec is the selection (S06-T2). */
 	const railVisible = $derived.by(() => {
+		if (!ownerAccess) return false;
 		const path = page.url.pathname;
 		const people = `/${companyId}/people`;
 		return !(
@@ -179,39 +209,15 @@
 	});
 
 	const tabs = $derived.by((): ShellTab[] => {
-		const path = page.url.pathname;
-		const root = `/${companyId}`;
-		return [
-			{
-				key: 'attention',
-				label: 'Attention',
-				href: root,
-				on: path === root,
-				/* No badge until the source has answered once: a badge that is
-				 * absent because nothing is waiting must not be confusable with a
-				 * badge that is absent because nobody has asked yet. */
-				badge: attention.status === 'unknown' ? undefined : liveNeedsYou.length || undefined
-			},
-			{
-				key: 'work',
-				label: 'Work',
-				href: `${root}/work`,
-				on: path === `${root}/work` || path.startsWith(`${root}/work/`)
-			},
-			{
-				key: 'people',
-				label: 'People',
-				href: `${root}/people`,
-				on: path === `${root}/people` || path.startsWith(`${root}/people/`)
-			},
-			{
-				key: 'company',
-				label: 'Company',
-				href: `${root}/company`,
-				on: path === `${root}/company` || path.startsWith(`${root}/company/`)
-			}
-		];
+		return companyShellTabs(
+			companyId,
+			page.url.pathname,
+			principal,
+			attention.status === 'unknown' ? undefined : liveNeedsYou.length
+		);
 	});
+
+	const childAllowed = $derived(mayOpenCompanyRoute(companyId, page.url.pathname, principal));
 </script>
 
 <CompanyQueryPersistence {companyId} />
@@ -223,7 +229,7 @@
 		participantRole={railActorRole}
 		turn={railConversation.activeTurn}
 		{companyId}
-		membershipRole="owner"
+		membershipRole={principal?.membership_role ?? 'member'}
 		connected={railConnected}
 		defaultOutcomeStandard={companyDefaultStandard}
 		contextLabel={currentContext}
@@ -247,6 +253,8 @@
 	companyName={companyName || companyId.charAt(0).toUpperCase() + companyId.slice(1)}
 	{companies}
 	{tabs}
+	homeHref={ownerAccess ? '/' : collaboratorHome(companyId)}
+	canSwitchCompanies={ownerAccess}
 	execName={railActorName}
 	execLive={railConnected}
 	railOpen={execRailOpen}
@@ -254,5 +262,40 @@
 	onexectoggle={() => (execRailOpen = !execRailOpen)}
 	rail={railVisible ? executiveRail : null}
 >
-	{@render children()}
+	{#if childAllowed}
+		{@render children()}
+	{:else if principalProjection.failure}
+		<section class="company-access-state cockpit-pane" role="alert">
+			<h1>Company unavailable</h1>
+			<p>{principalProjection.failure.message}</p>
+		</section>
+	{:else}
+		<section class="company-access-state cockpit-pane" role="status" aria-live="polite">
+			<p>{principal ? 'Opening your company workspace…' : 'Verifying company access…'}</p>
+		</section>
+	{/if}
 </AppShell>
+
+<style>
+	.company-access-state {
+		width: 100%;
+		display: grid;
+		place-content: center;
+		gap: var(--space-2);
+		padding: var(--space-6);
+		text-align: center;
+	}
+
+	.company-access-state h1,
+	.company-access-state p {
+		margin: 0;
+	}
+
+	.company-access-state h1 {
+		font-size: var(--t-head);
+	}
+
+	.company-access-state p {
+		color: var(--text-tertiary);
+	}
+</style>

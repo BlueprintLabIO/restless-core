@@ -9,11 +9,10 @@
 </script>
 
 <script lang="ts">
-	/* Bridge Light has one owner shell: company identity, four work surfaces, and
-	 * a single Exec control at the right that carries live presence and opens or
-	 * closes the transcript. The executive transcript is a persistent sibling of
-	 * the workspace on desktop; it is not a chat mode or a disclosure hidden
-	 * behind another navigation control. */
+	/* Bridge Light has one company shell. Owners receive the four owner surfaces
+	 * and bounded Exec control; collaborators receive only Work and People. The
+	 * executive transcript remains a persistent sibling of the owner workspace,
+	 * never a collaboration control inferred from company membership. */
 
 	import type { Snippet } from 'svelte';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
@@ -27,6 +26,8 @@
 		companyName,
 		companies = [],
 		tabs,
+		homeHref = '/',
+		canSwitchCompanies = true,
 		execName = 'Exec',
 		execLive = false,
 		railOpen = true,
@@ -39,6 +40,10 @@
 		companyName: string;
 		companies?: CompanyCatalogEntry[];
 		tabs: ShellTab[];
+		/** Owner portfolio for owners; the current collaboration home for members. */
+		homeHref?: string;
+		/** Company discovery and lifecycle status are owner-only account-plane projections. */
+		canSwitchCompanies?: boolean;
 		execName?: string;
 		execLive?: boolean;
 		railOpen?: boolean;
@@ -70,40 +75,49 @@
 <div class="bridge-root" class:immersive>
 	<header class="bridge-topbar" aria-label="Global navigation">
 		<div class="tb-brand">
-			<a class="tb-brand-home" href="/" aria-label={`${PRODUCT_NAME} companies`}>
+			<a class="tb-brand-home" href={homeHref} aria-label={`${PRODUCT_NAME} company home`}>
 				<span class="tb-mark"><MatrixGlyph rows={GLYPHS.r} size={13} glow /></span>
 				<span class="tb-name">{PRODUCT_NAME}</span>
 			</a>
 			<span class="tb-company-slash" aria-hidden="true">/</span>
-			<details class="company-switcher">
-				<summary aria-label={`Switch company. Current company: ${companyName}`}>
+			{#if canSwitchCompanies}
+				<details class="company-switcher">
+					<summary aria-label={`Switch company. Current company: ${companyName}`}>
+						<span class="tb-co">{companyName}</span>
+						<ChevronDown class="company-chevron" size={14} strokeWidth={2} aria-hidden="true" />
+					</summary>
+					<div class="company-switcher-menu">
+						<a class="company-overview-link" href="/">
+							<MatrixGlyph rows={GLYPHS.r} size={8} />
+							<span><strong>All companies</strong><small>Owner portfolio</small></span>
+						</a>
+						<div class="company-switcher-rule" role="separator"></div>
+						{#each activeCompanies as company (company.id)}
+							<a class:current={company.id === companyId} href={`/${company.id}`}>
+								<i class="runtime-{company.runtime_status}" aria-hidden="true"></i>
+								<span><strong>{company.name}</strong><small>{company.runtime_status}</small></span>
+								{#if company.id === companyId}<span class="switcher-current">Current</span>{/if}
+							</a>
+						{:else}
+							<a class="current" href={`/${companyId}`}>
+								<i aria-hidden="true"></i><span
+									><strong>{companyName}</strong><small>Current company</small></span
+								>
+							</a>
+						{/each}
+					</div>
+				</details>
+			{:else}
+				<span
+					class="company-switcher company-switcher-static"
+					aria-label={`Current company: ${companyName}`}
+				>
 					<span class="tb-co">{companyName}</span>
-					<ChevronDown class="company-chevron" size={14} strokeWidth={2} aria-hidden="true" />
-				</summary>
-				<div class="company-switcher-menu">
-					<a class="company-overview-link" href="/">
-						<MatrixGlyph rows={GLYPHS.r} size={8} />
-						<span><strong>All companies</strong><small>Owner portfolio</small></span>
-					</a>
-					<div class="company-switcher-rule" role="separator"></div>
-					{#each activeCompanies as company (company.id)}
-						<a class:current={company.id === companyId} href={`/${company.id}`}>
-							<i class="runtime-{company.runtime_status}" aria-hidden="true"></i>
-							<span><strong>{company.name}</strong><small>{company.runtime_status}</small></span>
-							{#if company.id === companyId}<span class="switcher-current">Current</span>{/if}
-						</a>
-					{:else}
-						<a class="current" href={`/${companyId}`}>
-							<i aria-hidden="true"></i><span
-								><strong>{companyName}</strong><small>Current company</small></span
-							>
-						</a>
-					{/each}
-				</div>
-			</details>
+				</span>
+			{/if}
 		</div>
 
-		<nav class="tb-tabs" aria-label="Owner surfaces">
+		<nav class="tb-tabs" aria-label="Company navigation">
 			{#each tabs as tab (tab.key)}
 				<a
 					class="tb-tab"

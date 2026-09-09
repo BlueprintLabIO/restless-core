@@ -12,7 +12,11 @@
 	import WifiOff from '@lucide/svelte/icons/wifi-off';
 	import X from '@lucide/svelte/icons/x';
 	import RoomMessage from '$lib/components/RoomMessage.svelte';
-	import { cockpitQuery } from '$lib/model/queries.svelte';
+	import {
+		collaborationBootstrapQuery,
+		companyPrincipalQuery,
+		cockpitQuery
+	} from '$lib/model/queries.svelte';
 	import {
 		roomActivityStream,
 		roomMessageRevisionsQuery,
@@ -42,7 +46,14 @@
 	const SEARCH_DEBOUNCE_MS = 250;
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
-	const cockpitProjection = $derived(cockpitQuery(companyId));
+	const principalProjection = $derived(companyPrincipalQuery(companyId));
+	const cockpitProjection = $derived(
+		cockpitQuery(companyId, () => principalProjection.view?.membership_role === 'owner')
+	);
+	const ownerAccess = $derived(principalProjection.view?.membership_role === 'owner');
+	const collaboration = $derived(
+		collaborationBootstrapQuery(companyId, () => principalProjection.view)
+	);
 	const roomList = $derived(roomsQuery(companyId));
 	const requestedRoomId = $derived(page.url.searchParams.get('room') ?? '');
 	const selectedRoomId = $derived(requestedRoomId || roomList.rooms[0]?.id || '');
@@ -246,7 +257,9 @@
 		const local = locallyReadRoom === selectedRoomId ? locallyReadThrough : 0;
 		return Math.max(server ?? 0, local) || server;
 	});
-	const people = $derived(cockpitProjection.view?.people ?? []);
+	const people = $derived(
+		ownerAccess ? (cockpitProjection.view?.people ?? []) : (collaboration.view?.people ?? [])
+	);
 	const participants = $derived(participantProjection?.participants ?? []);
 	const participantSummary = $derived.by(() => {
 		const names = participants.map((participant) => actorName(participant.actor_id));
@@ -301,7 +314,7 @@
 
 	function actorIsAgent(actorId: string): boolean {
 		const kind = people.find((person) => person.actor_id === actorId)?.kind;
-		return kind === 'exec' || kind === 'staff';
+		return actorId === 'exec' || kind === 'exec' || kind === 'staff';
 	}
 
 	function mentionsFor(messageId: number) {
@@ -523,7 +536,12 @@
 </script>
 
 <svelte:window bind:online />
-<svelte:head><title>Rooms — {cockpitProjection.view?.company.name ?? companyId}</title></svelte:head
+<svelte:head
+	><title
+		>Rooms — {ownerAccess
+			? (cockpitProjection.view?.company.name ?? companyId)
+			: (collaboration.view?.company.name ?? companyId)}</title
+	></svelte:head
 >
 
 <div
@@ -534,7 +552,11 @@
 	<section class="room-list-pane cockpit-pane" aria-label="Rooms">
 		<header class="cockpit-pane-head rooms-index-head">
 			<div>
-				<a href={`/${companyId}/people`} aria-label="Back to People" title="Back to People">
+				<a
+					href={`/${encodeURIComponent(companyId)}/people`}
+					aria-label="Back to People"
+					title="Back to People"
+				>
 					<ArrowLeft size={15} strokeWidth={2} aria-hidden="true" />
 				</a>
 				<h1>Rooms</h1>

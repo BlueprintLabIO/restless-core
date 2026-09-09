@@ -1,6 +1,11 @@
 <script lang="ts">
-	import type { WorkEdgeRow, WorkRow } from '$lib/model/generated/orgintel';
-	import { layoutWorkGraph, WORK_NODE_HEIGHT, WORK_NODE_WIDTH } from './layout';
+	import {
+		layoutWorkGraph,
+		WORK_NODE_HEIGHT,
+		WORK_NODE_WIDTH,
+		type WorkGraphEdge,
+		type WorkGraphItem
+	} from './layout';
 
 	let {
 		work,
@@ -12,13 +17,13 @@
 		gateSummary,
 		workHref
 	}: {
-		work: WorkRow[];
-		edges: WorkEdgeRow[];
+		work: WorkGraphItem[];
+		edges: WorkGraphEdge[];
 		totalCount: number;
 		ownerName: (actorId: string) => string;
-		attemptState: (item: WorkRow) => string;
-		artifactCount: (item: WorkRow) => number;
-		gateSummary: (item: WorkRow) => { passed: number; total: number };
+		attemptState: (item: WorkGraphItem) => string;
+		artifactCount: (item: WorkGraphItem) => number;
+		gateSummary: (item: WorkGraphItem) => { passed: number; total: number };
 		workHref: (workId: string) => string;
 	} = $props();
 
@@ -40,7 +45,7 @@
 	);
 	const scopeLabel = $derived(edges.length ? 'Current path' : 'Current Work');
 
-	function stateLabel(item: WorkRow): string {
+	function stateLabel(item: WorkGraphItem): string {
 		return item.status === 'proposed'
 			? 'Next'
 			: item.status === 'active'

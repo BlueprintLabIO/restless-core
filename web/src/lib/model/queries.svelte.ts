@@ -18,20 +18,40 @@ import {
 	type MessageSendResult
 } from './attention';
 import { getCockpit, getCompanies, type CockpitView, type CompanyCatalogEntry } from './cockpit';
+import {
+	collaborationMatchesPrincipal,
+	getCollaborationBootstrap,
+	type CollaborationBootstrap
+} from './collaboration';
 import { getBrowserStatus, getCompany, type BrowserStatus, type CompanyView } from './company';
 import { getCompanyIdentity, type CompanyIdentitySnapshot } from './identity';
+import { getCompanyPrincipal, type CompanyPrincipal } from './query-persistence';
 import type { ThreadMessage } from './view';
 
 export type QuerySourceStatus = 'unknown' | 'live' | 'stale';
 export type ActivityTransport = 'idle' | 'connecting' | 'live' | 'reconnecting';
+type QueryEnabled = boolean | (() => boolean);
 
 const STALE_MS = 5_000;
 const REFRESH_MS = 10_000;
 const RETAIN_MS = 10 * 60_000;
 
+function queryEnabled(value: QueryEnabled): boolean {
+	return typeof value === 'function' ? value() : value;
+}
+
 export const queryKeys = {
 	companies: ['companies'] as const,
 	portfolio: ['portfolio'] as const,
+	principal: (company: string) => ['company-principal', company] as const,
+	collaboration: (company: string, principal: CompanyPrincipal | null | undefined) =>
+		[
+			'company-collaboration',
+			company,
+			principal?.actor_id ?? null,
+			principal?.membership_role ?? null,
+			principal?.cache_partition ?? null
+		] as const,
 	attention: (company: string) => ['attention', company] as const,
 	cockpit: (company: string) => ['cockpit', company] as const,
 	company: (company: string, probeCredentials: boolean) =>
@@ -41,6 +61,94 @@ export const queryKeys = {
 		['conversation', company, actor, workId ?? null] as const,
 	browserStatus: (company: string) => ['browser-status', company] as const
 };
+
+export function companyPrincipalQuery(companyId: string) {
+	const query = createQuery(() => ({
+		queryKey: queryKeys.principal(companyId),
+		queryFn: ({ signal }) => getCompanyPrincipal(companyId, signal),
+		enabled: Boolean(companyId),
+		staleTime: STALE_MS,
+		gcTime: RETAIN_MS,
+		refetchInterval: REFRESH_MS,
+		refetchIntervalInBackground: true,
+		retry: (failureCount, error) => {
+			const status = (error as { status?: unknown }).status;
+			const code = (error as { code?: unknown }).code;
+			return (
+				status !== 401 &&
+				status !== 403 &&
+				status !== 404 &&
+				code !== 'invalid_principal' &&
+				failureCount < 1
+			);
+		}
+	}));
+	return {
+		get view() {
+			return (query.data as CompanyPrincipal | undefined) ?? null;
+		},
+		get status() {
+			return statusOf(query);
+		},
+		get failure() {
+			return (query.error as (Error & { status?: number; code?: string }) | null) ?? null;
+		},
+		refresh: () => refresh(query)
+	};
+}
+
+export function collaborationBootstrapQuery(
+	companyId: string,
+	principal: () => CompanyPrincipal | null | undefined
+) {
+	const query = createQuery(() => ({
+		queryKey: queryKeys.collaboration(companyId, principal()),
+		queryFn: async ({ signal }) => {
+			const expected = principal();
+			if (!expected || expected.membership_role === 'owner') {
+				throw Object.assign(new Error('The company principal changed during collaboration.'), {
+					code: 'collaboration_principal_changed'
+				});
+			}
+			const view = await getCollaborationBootstrap(companyId, signal);
+			if (!collaborationMatchesPrincipal(view, expected)) {
+				throw Object.assign(new Error('The company collaboration principal does not match.'), {
+					code: 'collaboration_principal_changed'
+				});
+			}
+			return view;
+		},
+		enabled: Boolean(companyId) && Boolean(principal()) && principal()?.membership_role !== 'owner',
+		staleTime: STALE_MS,
+		gcTime: RETAIN_MS,
+		refetchInterval: REFRESH_MS,
+		refetchIntervalInBackground: true,
+		retry: (failureCount, error) => {
+			const status = (error as { status?: unknown }).status;
+			const code = (error as { code?: unknown }).code;
+			return (
+				status !== 401 &&
+				status !== 403 &&
+				status !== 404 &&
+				code !== 'invalid_collaboration' &&
+				code !== 'collaboration_principal_changed' &&
+				failureCount < 1
+			);
+		}
+	}));
+	return {
+		get view() {
+			return (query.data as CollaborationBootstrap | undefined) ?? null;
+		},
+		get status() {
+			return statusOf(query);
+		},
+		get failure() {
+			return (query.error as (Error & { status?: number; code?: string }) | null) ?? null;
+		},
+		refresh: () => refresh(query)
+	};
+}
 
 function statusOf(query: {
 	data?: unknown;
@@ -55,10 +163,11 @@ function refresh<T>(query: { refetch: () => Promise<T> }): Promise<T> {
 	return query.refetch();
 }
 
-export function attentionQuery(companyId: string) {
+export function attentionQuery(companyId: string, enabled: QueryEnabled = true) {
 	const query = createQuery(() => ({
 		queryKey: queryKeys.attention(companyId),
 		queryFn: () => getAttention(companyId),
+		enabled: queryEnabled(enabled),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
 		refetchInterval: REFRESH_MS,
@@ -79,10 +188,11 @@ export function attentionQuery(companyId: string) {
 	};
 }
 
-export function companiesQuery() {
+export function companiesQuery(enabled: QueryEnabled = true) {
 	const query = createQuery(() => ({
 		queryKey: queryKeys.companies,
 		queryFn: getCompanies,
+		enabled: queryEnabled(enabled),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
 		refetchInterval: REFRESH_MS,
@@ -191,10 +301,11 @@ export function portfolioQuery() {
 	};
 }
 
-export function cockpitQuery(companyId: string) {
+export function cockpitQuery(companyId: string, enabled: QueryEnabled = true) {
 	const query = createQuery(() => ({
 		queryKey: queryKeys.cockpit(companyId),
 		queryFn: () => getCockpit(companyId),
+		enabled: queryEnabled(enabled),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
 		refetchInterval: REFRESH_MS,
@@ -215,12 +326,13 @@ export function cockpitQuery(companyId: string) {
 	};
 }
 
-export function companyQuery(companyId: string) {
+export function companyQuery(companyId: string, enabled: QueryEnabled = true) {
 	const client = useQueryClient();
 	let probeCredentials = $state(false);
 	const query = createQuery(() => ({
 		queryKey: queryKeys.company(companyId, probeCredentials),
 		queryFn: () => getCompany(companyId, probeCredentials),
+		enabled: queryEnabled(enabled),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
 		refetchInterval: REFRESH_MS,
@@ -299,12 +411,14 @@ export function browserStatusQuery(companyId: string) {
 
 function threadMessage(
 	message: ActorConversation['messages'][number],
-	actorDisplay: string
+	actorDisplay: string,
+	viewerActorId: string
 ): ThreadMessage {
+	const fromViewer = message.from_actor === viewerActorId;
 	return {
 		id: String(message.id),
-		from: message.from_actor === 'owner' ? 'you' : 'agent',
-		author: message.from_actor === 'owner' ? 'You' : actorDisplay,
+		from: fromViewer ? 'you' : 'agent',
+		author: fromViewer ? 'You' : actorDisplay,
 		text: message.body,
 		createdAt: message.created_at,
 		replyToMessageId: null,
@@ -333,13 +447,17 @@ export function conversationQuery(
 	companyId: string,
 	actorId: string,
 	workId?: string,
-	attentionId?: string
+	attentionId?: string,
+	enabled: QueryEnabled = true,
+	viewerActorId = 'owner',
+	followLiveActivity: QueryEnabled = true
 ) {
 	const client = useQueryClient();
 	const key = queryKeys.conversation(companyId, actorId, workId);
 	const query = createQuery(() => ({
 		queryKey: key,
 		queryFn: () => getActorConversation(companyId, actorId, workId),
+		enabled: queryEnabled(enabled),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
 		refetchInterval: REFRESH_MS,
@@ -363,6 +481,7 @@ export function conversationQuery(
 	} | null = null;
 
 	const follow = (messageId: number, since: Date | string): void => {
+		if (!queryEnabled(followLiveActivity)) return;
 		if (followingMessageId === messageId && stop) return;
 		stop?.();
 		followingMessageId = messageId;
@@ -393,11 +512,11 @@ export function conversationQuery(
 	$effect(() => {
 		const conversation = query.data as ActorConversation | undefined;
 		const last = conversation?.messages.at(-1);
-		if (last?.from_actor === 'owner') {
+		if (last?.from_actor === viewerActorId && queryEnabled(followLiveActivity)) {
 			follow(last.id, last.created_at);
 			return;
 		}
-		if (last && last.from_actor !== 'owner') {
+		if (last && last.from_actor !== viewerActorId) {
 			pending = null;
 			if (live?.phase === 'complete' || live?.phase === 'failed') {
 				stop?.();
@@ -418,7 +537,7 @@ export function conversationQuery(
 			const actorDisplay =
 				conversation?.actor.id === 'exec' ? 'Exec' : (conversation?.actor.display ?? actorId);
 			const messages = (conversation?.messages ?? []).map((message) =>
-				threadMessage(message, actorDisplay)
+				threadMessage(message, actorDisplay, viewerActorId)
 			);
 			return pending && !messages.some((message) => message.id === pending?.id)
 				? [...messages, pending]
@@ -437,6 +556,7 @@ export function conversationQuery(
 			return (query.data as ActorConversation | undefined)?.focus?.started_at ?? null;
 		},
 		get activeTurn(): ActiveAgentTurn | null {
+			if (!queryEnabled(followLiveActivity)) return null;
 			const current = live;
 			const messageId = current?.triggerMessageId ?? followingMessageId ?? Number(pending?.id);
 			if (!Number.isFinite(messageId)) return null;
@@ -528,7 +648,7 @@ export function conversationQuery(
 				attachments: [],
 				contextPath: contextPath ?? null
 			};
-			follow(result.messageId, sentAt);
+			if (queryEnabled(followLiveActivity)) follow(result.messageId, sentAt);
 			void client.invalidateQueries({ queryKey: key });
 			return result;
 		}
@@ -574,6 +694,7 @@ export function invalidateCompany(client: QueryClient, companyId: string): Promi
 	return Promise.all([
 		client.invalidateQueries({ queryKey: queryKeys.attention(companyId) }),
 		client.invalidateQueries({ queryKey: queryKeys.cockpit(companyId) }),
+		client.invalidateQueries({ queryKey: ['company-collaboration', companyId] }),
 		client.invalidateQueries({ queryKey: queryKeys.company(companyId, false) })
 	]).then(() => undefined);
 }

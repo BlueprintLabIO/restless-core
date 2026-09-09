@@ -13,20 +13,30 @@
 	import ConversationMessage from '$lib/primitives/ConversationMessage.svelte';
 	import ConversationTurnDock from '$lib/primitives/ConversationTurnDock.svelte';
 	import { cockpitContextPath } from '$lib/model/attention';
-	import { attentionQuery, cockpitQuery, conversationQuery } from '$lib/model/queries.svelte';
+	import type { CollaborationPerson, CollaborationTeam } from '$lib/model/collaboration';
 	import {
-		personTone,
-		type CockpitPerson,
-		type CockpitTeam,
-		type CockpitView
-	} from '$lib/model/cockpit';
+		attentionQuery,
+		cockpitQuery,
+		collaborationBootstrapQuery,
+		companyPrincipalQuery,
+		conversationQuery
+	} from '$lib/model/queries.svelte';
+	import { personTone, type CockpitPerson, type CockpitTeam } from '$lib/model/cockpit';
 	import { mergeAdjacentAgentMessages } from '$lib/model/view';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
-	const cockpitProjection = $derived(cockpitQuery(companyId));
-	const attentionProjection = $derived(attentionQuery(companyId));
+	const principalProjection = $derived(companyPrincipalQuery(companyId));
+	const ownerAccess = $derived(principalProjection.view?.membership_role === 'owner');
+	const cockpitProjection = $derived(cockpitQuery(companyId, () => ownerAccess));
+	const attentionProjection = $derived(attentionQuery(companyId, () => ownerAccess));
+	const collaborationProjection = $derived(
+		collaborationBootstrapQuery(companyId, () => principalProjection.view)
+	);
 	const cockpit = $derived(cockpitProjection.view);
 	const attention = $derived(attentionProjection.view);
+	const collaboration = $derived(collaborationProjection.view);
+	type Person = CockpitPerson | CollaborationPerson;
+	type Team = CockpitTeam | CollaborationTeam;
 	let selectedId = $state('');
 	let error = $state('');
 
@@ -41,7 +51,17 @@
 	let transcriptTailHeight = $state(0);
 	let initiallyScrolledFor = $state('');
 	const selectedConversation = $derived(
-		selectedId && isContact(cockpit, selectedId) ? conversationQuery(companyId, selectedId) : null
+		selectedId && isContact(selectedId)
+			? conversationQuery(
+					companyId,
+					selectedId,
+					undefined,
+					undefined,
+					true,
+					principalProjection.view?.actor_id ?? 'owner',
+					() => ownerAccess
+				)
+			: null
 	);
 	$effect(() => selectedConversation?.attach());
 	const messages = $derived(selectedConversation?.messages ?? []);
@@ -49,17 +69,23 @@
 	const turn = $derived(selectedConversation?.activeTurn ?? null);
 
 	$effect(() => {
-		const nextCockpit = cockpit;
-		if (!nextCockpit) return;
-		error = cockpitProjection.failure?.message ?? attentionProjection.failure?.message ?? '';
-		if (!nextCockpit.people.some((person) => person.actor_id === selectedId)) {
+		const nextPeople = people;
+		if (!ownerAccess && !collaboration && !collaborationProjection.failure) return;
+		if (ownerAccess && !cockpit && !cockpitProjection.failure) return;
+		error =
+			principalProjection.failure?.message ??
+			(ownerAccess
+				? (cockpitProjection.failure?.message ?? attentionProjection.failure?.message)
+				: collaborationProjection.failure?.message) ??
+			'';
+		if (!nextPeople.some((person) => person.actor_id === selectedId)) {
 			const requestedPerson = page.url.searchParams.get('person');
 			selectedId =
-				(requestedPerson && nextCockpit.people.some((person) => person.actor_id === requestedPerson)
+				(requestedPerson && nextPeople.some((person) => person.actor_id === requestedPerson)
 					? requestedPerson
 					: null) ??
-				nextCockpit.people.find((person) => person.kind === 'exec')?.actor_id ??
-				nextCockpit.people.find((person) => person.kind === 'staff')?.actor_id ??
+				nextPeople.find((person) => person.kind === 'exec')?.actor_id ??
+				nextPeople.find((person) => person.kind === 'staff')?.actor_id ??
 				'';
 		}
 	});
@@ -142,10 +168,12 @@
 	}
 
 	const people = $derived(
-		cockpit?.people.filter((person) => person.kind !== 'owner' && person.kind !== 'system') ?? []
+		(ownerAccess ? (cockpit?.people ?? []) : (collaboration?.people ?? [])).filter(
+			(person) => person.kind !== 'owner' && person.kind !== 'system'
+		)
 	);
 	const exec = $derived(people.find((person) => person.kind === 'exec') ?? null);
-	const teams = $derived(cockpit?.teams ?? []);
+	const teams = $derived(ownerAccess ? (cockpit?.teams ?? []) : (collaboration?.teams ?? []));
 	const teamGroups = $derived(
 		teams.map((team) => ({
 			team,
@@ -179,7 +207,9 @@
 			? (people.find((person) => person.actor_id === selectedTeam.lead_actor_id) ?? null)
 			: null
 	);
-	const graph = $derived(attention?.workGraph ?? null);
+	const graph = $derived(
+		ownerAccess ? (attention?.workGraph ?? null) : (collaboration?.work_graph ?? null)
+	);
 	const selectedWork = $derived(
 		selected ? (graph?.work ?? []).filter((work) => work.owner_id === selected.actor_id) : []
 	);
@@ -188,9 +218,11 @@
 	const focusWork = $derived(activeWork[0] ?? waitingWork[0] ?? selectedWork[0] ?? null);
 
 	const canSend = $derived(
-		cockpit?.source_health.orgintel === 'available' &&
+		(ownerAccess
+			? cockpit?.source_health.orgintel === 'available'
+			: collaboration?.source_health.orgintel === 'available') &&
 			selected !== null &&
-			isContact(cockpit, selected.actor_id)
+			isContact(selected.actor_id)
 	);
 	const attachmentHref = (attachment: { uploadId: string }) =>
 		`/api/companies/${encodeURIComponent(companyId)}/attachments/${encodeURIComponent(attachment.uploadId)}`;
@@ -204,25 +236,26 @@
 			.join('');
 	}
 
-	function exceptionalState(person: CockpitPerson): string | null {
-		if (person.model_cooldown) return 'cooling down';
+	function exceptionalState(person: Person): string | null {
+		if ('model_cooldown' in person && person.model_cooldown) return 'cooling down';
 		if (person.session_running) return 'working';
 		return null;
 	}
 
-	function isContact(view: CockpitView | null, actorId: string): boolean {
-		const person = view?.people.find((candidate) => candidate.actor_id === actorId);
-		return (
-			person?.kind === 'exec' ||
-			(view?.teams.some((team) => team.lead_actor_id === actorId) ?? false)
-		);
+	function isContact(actorId: string): boolean {
+		const person = people.find((candidate) => candidate.actor_id === actorId);
+		return person?.kind === 'exec' || teams.some((team) => team.lead_actor_id === actorId);
 	}
 
-	function teamState(team: CockpitTeam): string {
+	function teamState(team: Team): string {
 		const members = `${team.member_count} member${team.member_count === 1 ? '' : 's'}`;
 		const moving = `${team.in_motion_count} in motion`;
 		const blocked = team.blocked_count ? ` · ${team.blocked_count} blocked` : '';
 		return `${members} · ${moving}${blocked}`;
+	}
+
+	function isOwnerTeam(team: Team): team is CockpitTeam {
+		return 'outcome_standard_source' in team;
 	}
 
 	function roleLabel(value: string): string {
@@ -272,13 +305,19 @@
 		}
 	}
 
-	function selectTeam(team: CockpitTeam) {
+	function selectTeam(team: Team) {
 		const lead = people.find((person) => person.actor_id === team.lead_actor_id);
 		if (lead) selectedId = lead.actor_id;
 	}
 </script>
 
-<svelte:head><title>People — {cockpit?.company.name ?? companyId}</title></svelte:head>
+<svelte:head
+	><title
+		>People — {ownerAccess
+			? (cockpit?.company.name ?? companyId)
+			: (collaboration?.company.name ?? companyId)}</title
+	></svelte:head
+>
 
 <div class="cockpit-screen people-screen">
 	{#if error}<div class="cockpit-error">{error}</div>{/if}
@@ -365,7 +404,7 @@
 					<small title={`Actor ${selected.actor_id}`}
 						>{roleLabel(selected.role)} · {selected.actor_id}</small
 					>
-					{#if selectedTeam}
+					{#if selectedTeam && isOwnerTeam(selectedTeam)}
 						<small
 							class="team-standard"
 							title={`Selected via ${selectedTeam.outcome_standard_source.replaceAll('_', ' ')}`}
@@ -505,7 +544,7 @@
 	</section>
 </div>
 
-{#snippet personRow(person: CockpitPerson, level: 'exec' | 'lead' | 'member')}
+{#snippet personRow(person: Person, level: 'exec' | 'lead' | 'member')}
 	<button
 		type="button"
 		class="person-row {level}"
