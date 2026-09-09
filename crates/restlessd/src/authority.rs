@@ -444,6 +444,101 @@ impl AuthorityStore {
         Ok(id)
     }
 
+    /// The durable human Actor who currently holds root Authority for this
+    /// company, if that fact has ever been explicitly recorded (Sprint 45 /
+    /// C45-T4). Absent for every company that has never transferred
+    /// ownership away from its bootstrap default — callers combine this with
+    /// their own bootstrap/membership-owner fallback, never assume `None`
+    /// means "nobody owns Authority".
+    pub async fn current_authority_owner(&self, company: &str) -> Result<Option<String>> {
+        Ok(sqlx::query_scalar(
+            "SELECT actor_id FROM restless_authority.records \
+             WHERE company=$1 AND kind='authority_ownership_transfer' \
+             ORDER BY id DESC LIMIT 1",
+        )
+        .bind(company)
+        .fetch_optional(&self.pool)
+        .await?)
+    }
+
+    /// Transfer root Authority ownership from one durable Actor to another.
+    ///
+    /// Membership ownership and root Authority ownership are separate facts
+    /// (ARCHITECTURE.md decision #28): this never touches
+    /// `human_principal_actor_bindings.membership_role`, which stays
+    /// Cloud/Better-Auth-owned truth. `expected_current_owner` is the
+    /// caller's own computation of who holds Authority right now — the
+    /// recorded transfer chain if one exists, else the bootstrap membership
+    /// owner (or the local singleton `"owner"`). This call re-checks that
+    /// computation against the authoritative chain under an advisory lock so
+    /// two racing transfers cannot both believe they were first, and so a
+    /// caller cannot transfer away Authority it does not currently hold —
+    /// once a chain exists. Before the first transfer, this store has no
+    /// independent way to verify who the true bootstrap owner is; the caller
+    /// (owner.rs's `effective_authority_owner` plus its
+    /// `principal.actor_id() == current.actor_id` check) must derive
+    /// `expected_current_owner` from server-side membership/bootstrap data,
+    /// never from client input.
+    pub async fn transfer_authority_owner(
+        &self,
+        company: &str,
+        expected_current_owner: &str,
+        to_actor_id: &str,
+        rationale: &str,
+    ) -> Result<i64> {
+        if to_actor_id.trim().is_empty() {
+            bail!("Authority ownership transfer needs a destination Actor");
+        }
+        if rationale.trim().is_empty() {
+            bail!("Authority ownership transfer needs a rationale");
+        }
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("begin Authority ownership transfer")?;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
+            .bind(format!("authority-owner:{company}"))
+            .execute(&mut *tx)
+            .await
+            .context("serialize Authority ownership transfer")?;
+        let current: Option<String> = sqlx::query_scalar(
+            "SELECT actor_id FROM restless_authority.records \
+             WHERE company=$1 AND kind='authority_ownership_transfer' \
+             ORDER BY id DESC LIMIT 1",
+        )
+        .bind(company)
+        .fetch_optional(&mut *tx)
+        .await
+        .context("read current Authority owner before transfer")?;
+        let effective_current = current.as_deref().unwrap_or(expected_current_owner);
+        if effective_current != expected_current_owner {
+            bail!(
+                "Authority ownership already changed to a different Actor; refresh and retry"
+            );
+        }
+        if effective_current == to_actor_id {
+            bail!("that Actor already holds Authority ownership");
+        }
+        let id = sqlx::query_scalar::<_, i64>(
+            "INSERT INTO restless_authority.records (company,kind,actor_id,body) \
+             VALUES ($1,'authority_ownership_transfer',$2,$3) RETURNING id",
+        )
+        .bind(company)
+        .bind(to_actor_id)
+        .bind(serde_json::json!({
+            "from_actor_id": effective_current,
+            "rationale": rationale.trim(),
+        }))
+        .fetch_one(&mut *tx)
+        .await
+        .context("record Authority ownership transfer")?;
+        tx.commit()
+            .await
+            .context("commit Authority ownership transfer")?;
+        Ok(id)
+    }
+
     /// Record one owner identity decision idempotently. Authority owns the
     /// decision; OrgIntel projects the resulting release and can safely retry
     /// after a crash between the two stores.
@@ -1028,5 +1123,122 @@ mod identity_decision_attribution_tests {
             .await
             .expect("recover identity decision");
         assert_eq!(recovered_id, record_id);
+    }
+}
+
+#[cfg(test)]
+mod authority_ownership_transfer_tests {
+    use super::*;
+
+    async fn store() -> Option<AuthorityStore> {
+        let url = std::env::var("RESTLESS_TEST_DATABASE_URL").ok()?;
+        Some(
+            AuthorityStore::connect(&url)
+                .await
+                .expect("connect Authority store"),
+        )
+    }
+
+    /// C45-T4: membership ownership and root Authority ownership are
+    /// separate facts. A company that has never explicitly transferred
+    /// Authority reports no owner from the Authority store at all — callers
+    /// must supply their own bootstrap fallback, never assume the absence of
+    /// a transfer record means Authority is unowned.
+    #[tokio::test]
+    async fn a_company_with_no_transfer_reports_no_authority_owner() {
+        let Some(store) = store().await else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Authority ownership scenario");
+            return;
+        };
+        let company = format!("authorityowner{}", Uuid::new_v4().simple());
+        assert_eq!(store.current_authority_owner(&company).await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn transfer_moves_ownership_and_is_attributed_and_ordered() {
+        let Some(store) = store().await else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Authority ownership scenario");
+            return;
+        };
+        let company = format!("authorityowner{}", Uuid::new_v4().simple());
+        let bootstrap_owner = "human-bootstrap";
+        let successor = "human-successor";
+
+        store
+            .transfer_authority_owner(&company, bootstrap_owner, successor, "planned handover")
+            .await
+            .expect("first transfer from the bootstrap default");
+        assert_eq!(
+            store.current_authority_owner(&company).await.unwrap(),
+            Some(successor.to_string())
+        );
+
+        // A second, unrelated company's Authority ownership is untouched.
+        let other_company = format!("authorityowner{}", Uuid::new_v4().simple());
+        assert_eq!(
+            store.current_authority_owner(&other_company).await.unwrap(),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn transfer_refuses_a_stale_expected_owner_once_a_transfer_chain_exists() {
+        let Some(store) = store().await else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Authority ownership scenario");
+            return;
+        };
+        let company = format!("authorityowner{}", Uuid::new_v4().simple());
+        let bootstrap_owner = "human-bootstrap";
+
+        // Before any transfer exists, the store cannot independently verify
+        // who the true bootstrap owner is — that verification is the
+        // caller's job, checking `expected_current_owner` against
+        // server-derived membership/bootstrap data (owner.rs's
+        // `effective_authority_owner`) before ever reaching this call. What
+        // the store alone guarantees is race/staleness safety once a chain
+        // exists: the exact resulting owner is the only one who can move it
+        // again.
+        store
+            .transfer_authority_owner(&company, bootstrap_owner, "human-successor", "handover")
+            .await
+            .expect("legitimate first transfer");
+
+        // The bootstrap default no longer holds Authority; claiming it still
+        // does must fail even though it was correct a moment ago.
+        assert!(store
+            .transfer_authority_owner(&company, bootstrap_owner, "human-third", "stale retry")
+            .await
+            .is_err());
+        assert_eq!(
+            store.current_authority_owner(&company).await.unwrap(),
+            Some("human-successor".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn transfer_refuses_an_empty_destination_or_rationale_and_a_self_transfer() {
+        let Some(store) = store().await else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Authority ownership scenario");
+            return;
+        };
+        let company = format!("authorityowner{}", Uuid::new_v4().simple());
+        assert!(store
+            .transfer_authority_owner(&company, "human-bootstrap", "", "rationale")
+            .await
+            .is_err());
+        assert!(store
+            .transfer_authority_owner(&company, "human-bootstrap", "human-successor", "")
+            .await
+            .is_err());
+        assert!(store
+            .transfer_authority_owner(
+                &company,
+                "human-bootstrap",
+                "human-bootstrap",
+                "transfer to self"
+            )
+            .await
+            .is_err());
+        assert_eq!(store.current_authority_owner(&company).await.unwrap(), None);
     }
 }

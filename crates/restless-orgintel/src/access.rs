@@ -214,6 +214,23 @@ fn membership_control_fingerprint(context: ExternalMembershipControlContext<'_>)
 }
 
 impl OrgIntel {
+    /// The durable human Actor currently holding the external membership
+    /// `owner` role, if this company has a network-entered membership at
+    /// all. This is Cloud/Better-Auth-owned truth (`membership_role` changes
+    /// only through `apply_external_membership_control`); Core never writes
+    /// it. It exists so a root-Authority-ownership fact that has never been
+    /// explicitly transferred can fall back to the bootstrap membership
+    /// owner (Sprint 45 / C45-T4), not so Core can transfer membership.
+    pub async fn current_membership_owner_actor_id(&self) -> Result<Option<String>> {
+        Ok(sqlx::query_scalar(
+            "SELECT actor_id FROM human_principal_actor_bindings \
+             WHERE membership_role='owner' AND membership_status='active' \
+             ORDER BY first_verified_at ASC LIMIT 1",
+        )
+        .fetch_optional(&self.pool)
+        .await?)
+    }
+
     /// Immutable hosted coordinates already bound to this company schema.
     pub async fn company_access_identity(&self) -> Result<Option<CompanyAccessIdentity>> {
         Ok(sqlx::query_as::<_, (Uuid, Uuid)>(

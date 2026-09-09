@@ -507,6 +507,12 @@ struct CompanyRecoveryInput {
 }
 
 #[derive(Debug, Deserialize)]
+struct AuthorityOwnerTransferInput {
+    to_actor_id: String,
+    rationale: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct CharterRevisionInput {
     markdown: String,
     base_revision: String,
@@ -1158,6 +1164,14 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route(
             "/companies/{company}/company/recover",
             post(recover_company_computer),
+        )
+        .route(
+            "/companies/{company}/company/authority-owner",
+            get(company_authority_owner),
+        )
+        .route(
+            "/companies/{company}/company/authority-owner/transfer",
+            post(transfer_company_authority_owner),
         )
         .route(
             "/companies/{company}/resources/{resource}/open",
@@ -3107,6 +3121,114 @@ async fn recover_company_computer(
             "recovery",
             format!("{error:#}"),
         ),
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct AuthorityOwnerView {
+    actor_id: String,
+    source: &'static str,
+}
+
+/// Membership ownership and root Authority ownership are separate facts
+/// (ARCHITECTURE.md decision #28); an explicit bootstrap may initially bind
+/// them to one human Actor, and this is that bootstrap default until an
+/// explicit transfer moves Authority away from it. Network mode falls back
+/// to the current external membership owner; local mode has exactly one
+/// Actor and needs no membership lookup.
+async fn effective_authority_owner(
+    state: &OwnerState,
+    company: &str,
+    org: Option<&restless_orgintel::OrgIntel>,
+) -> Result<AuthorityOwnerView, anyhow::Error> {
+    if let Some(actor_id) = state.daemon.authority.current_authority_owner(company).await? {
+        return Ok(AuthorityOwnerView {
+            actor_id,
+            source: "explicit_transfer",
+        });
+    }
+    if state.entry.network().is_some() {
+        let Some(org) = org else {
+            anyhow::bail!("company projection is unavailable");
+        };
+        let Some(actor_id) = org.current_membership_owner_actor_id().await? else {
+            anyhow::bail!("this company has no active membership owner yet");
+        };
+        return Ok(AuthorityOwnerView {
+            actor_id,
+            source: "bootstrap_membership_owner",
+        });
+    }
+    Ok(AuthorityOwnerView {
+        actor_id: "owner".into(),
+        source: "local_default",
+    })
+}
+
+async fn company_authority_owner(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+) -> impl IntoResponse {
+    let org = state.daemon.orgintel.get(&company).await.ok();
+    match effective_authority_owner(&state, &company, org.as_ref()).await {
+        Ok(view) => Json(view).into_response(),
+        Err(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "authority_owner",
+            format!("{error:#}"),
+        ),
+    }
+}
+
+async fn transfer_company_authority_owner(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<AuthorityOwnerTransferInput>,
+) -> impl IntoResponse {
+    if input.to_actor_id.trim().is_empty() || input.rationale.trim().is_empty() {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "authority_owner",
+            "transfer needs a destination Actor and a concrete rationale",
+        );
+    }
+    let org = state.daemon.orgintel.get(&company).await.ok();
+    let current = match effective_authority_owner(&state, &company, org.as_ref()).await {
+        Ok(view) => view,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "authority_owner",
+                format!("{error:#}"),
+            )
+        }
+    };
+    if principal.actor_id() != current.actor_id {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "authority_owner",
+            "only the current Authority owner may transfer it",
+        );
+    }
+    match state
+        .daemon
+        .authority
+        .transfer_authority_owner(
+            &company,
+            &current.actor_id,
+            input.to_actor_id.trim(),
+            input.rationale.trim(),
+        )
+        .await
+    {
+        Ok(record_id) => Json(serde_json::json!({
+            "actor_id": input.to_actor_id.trim(),
+            "source": "explicit_transfer",
+            "authority_record_id": record_id,
+        }))
+        .into_response(),
+        Err(error) => api_error(StatusCode::CONFLICT, "authority_owner", format!("{error:#}")),
     }
 }
 
