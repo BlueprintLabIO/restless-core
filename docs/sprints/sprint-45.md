@@ -57,8 +57,13 @@ deferred” posture. No invited-member surface may ship before request principal
 - [~] C45-T2 — request-principal propagation and handler audit — concrete literal-`"owner"`
       attribution violations found and fixed; not an exhaustive line-by-line audit. See
       [sprint-45/c45-t2-request-principal-attribution.md](sprint-45/c45-t2-request-principal-attribution.md).
-- [ ] C45-T3 — durable human Actor mapping and actor-class migration — mapping is solid;
-      `kind` is still load-bearing in several call sites and has not actually been migrated away from.
+- [~] C45-T3 — durable human Actor mapping and actor-class migration — mapping is solid; the two
+      `kind`-checks that were genuinely equivalent to an `actor_class` check (`!= "system"`, a closed
+      bijection to `actor_class != "service"`) are migrated. The two `kind == "staff"` checks that
+      distinguish Staff from Exec (both class "agent") are correctly left alone — that distinction
+      needs a real organisational-role field, which does not exist yet (see
+      `human_principal_actor_bindings` — real humans currently get the placeholder
+      `role='company-member'` for everyone, not their membership role).
 - [~] C45-T4 — ownership/company bootstrap separation — bootstrap (immutable `company_id`) was already
       solid; the membership-owner vs. root-Authority-owner split now exists as a real, tested
       mechanism (new Authority-store fact + transfer endpoint), but no existing owner-only check has
