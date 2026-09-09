@@ -23,6 +23,7 @@ mod documents;
 mod events;
 mod goals_work;
 mod identity;
+mod invocations;
 mod messages;
 mod review;
 mod rooms;
@@ -35,6 +36,7 @@ mod voice;
 pub use access::*;
 pub use documents::*;
 pub use events::EventReplayPage;
+pub use invocations::*;
 pub use types::*;
 
 /// Company schema names are SQL identifiers injected into DDL — validated so

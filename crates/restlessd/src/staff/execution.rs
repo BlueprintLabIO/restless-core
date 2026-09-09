@@ -4,7 +4,8 @@
 //! remains in OrgIntel and completion/recovery lives beside its Runtime
 //! observations.
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context as _, Result};
+use sha2::Digest as _;
 use tokio_util::sync::CancellationToken;
 
 use crate::acp::{self, AgentAuth};
@@ -78,14 +79,6 @@ pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcom
     .await?;
 
     for (index, model) in run.candidates.iter().enumerate() {
-        run.org
-            .emit_event(
-                "model_attempt",
-                Some(&run.actor),
-                serde_json::json!({ "model": model, "configured_effort": run.reasoning_effort, "attempt": index + 1 }),
-            )
-            .await?;
-
         let auth = match crate::exec::agent_auth_for_model(
             model,
             &run.reasoning_effort,
@@ -158,6 +151,96 @@ pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcom
             || budget.remaining_micro_usd().unwrap_or_default() as f64 / 1_000_000.0,
             crate::spend::MeteredTurnPermit::allowance_usd,
         );
+        let source = match run.turn_kind {
+            StaffTurnKind::Work => restless_orgintel::ModelInvocationSource::Work {
+                work_id: run
+                    .work_id
+                    .context("Work model invocation is missing its Work id")?,
+                attempt_id: run
+                    .attempt_id
+                    .context("Work model invocation is missing its Attempt id")?,
+            },
+            StaffTurnKind::OwnerConversation => {
+                run.org
+                    .current_cognitive_model_invocation_source(&run.actor, false)
+                    .await?
+            }
+            StaffTurnKind::RoomMention => {
+                run.org
+                    .current_cognitive_model_invocation_source(&run.actor, true)
+                    .await?
+            }
+        };
+        // The durable source + exact model is the stable identity of this
+        // launch. Candidate position is deliberately absent: cooldown and
+        // failover ordering may change after a restart. Harness or reasoning
+        // drift reuses this key and is rejected by OrgIntel's full semantic
+        // fingerprint instead of manufacturing another provider call.
+        let invocation_command_id = model_invocation_command_id(source, model);
+        let admission = match run
+            .org
+            .admit_model_invocation(restless_orgintel::NewModelInvocationAdmission {
+                client_command_id: &invocation_command_id,
+                actor_id: &run.actor,
+                model,
+                harness: run.worker_harness.as_str(),
+                configured_effort: &run.reasoning_effort,
+                source,
+            })
+            .await?
+        {
+            restless_orgintel::ModelInvocationAdmissionDecision::Admitted(admission) => admission,
+            restless_orgintel::ModelInvocationAdmissionDecision::AlreadyAdmitted(receipt) => {
+                drop(metered_turn);
+                bail!(
+                    "refusing to dispatch a provider twice for replayed model invocation admission {}",
+                    receipt.id
+                );
+            }
+            restless_orgintel::ModelInvocationAdmissionDecision::Denied { scope, budget } => {
+                drop(metered_turn);
+                return Ok(StaffOutcome {
+                    termination: Termination::Blocked,
+                    summary: format!(
+                        "[invocation_budget] {scope:?} model-invocation limit reached for {}: company {}/{}, Actor {}/{} in the current {}-second window ending {}",
+                        run.company,
+                        budget.company_used,
+                        budget.company_limit,
+                        budget.actor_used,
+                        budget.actor_limit,
+                        budget.window_seconds,
+                        budget.window_ends_at.to_rfc3339(),
+                    ),
+                    output_tokens: None,
+                });
+            }
+            restless_orgintel::ModelInvocationAdmissionDecision::AlreadySettled(receipt) => {
+                drop(metered_turn);
+                bail!(
+                    "model invocation command unexpectedly replayed settled receipt {}",
+                    receipt.id
+                );
+            }
+            restless_orgintel::ModelInvocationAdmissionDecision::Expired(receipt) => {
+                drop(metered_turn);
+                bail!(
+                    "model invocation command unexpectedly replayed expired receipt {}",
+                    receipt.id
+                );
+            }
+        };
+        run.org
+            .emit_event(
+                "model_attempt",
+                Some(&run.actor),
+                serde_json::json!({
+                    "model": model,
+                    "configured_effort": run.reasoning_effort,
+                    "attempt": index + 1,
+                    "invocation_admission_id": admission.id(),
+                }),
+            )
+            .await?;
         let spine = continuity_note.as_ref().map_or_else(
             || run.spine.clone(),
             |failure| {
@@ -169,30 +252,33 @@ pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcom
                 )
             },
         );
-        let outcome = run_staff(StaffBrief {
-            container: run.container.clone(),
-            auth,
-            workdir: run.workdir.clone(),
-            company: run.company.clone(),
-            actor: run.actor.clone(),
-            responsibility: run.responsibility.clone(),
-            work_id: run.work_id,
-            attempt_id: run.attempt_id,
-            org: run.org.clone(),
-            name: run.name.clone(),
-            task: run.task.clone(),
-            turn_prompt: run.turn_prompt.clone(),
-            role: run.role.clone(),
-            spine,
-            remaining_budget_usd,
-            enforce_spend_budget: billing == crate::model_gateway::ModelBilling::MeteredApi,
-            turn_kind: run.turn_kind,
-            accountable_lead: run.accountable_lead,
-            worker_harness: run.worker_harness,
-            mcp_servers: mcp_servers.clone(),
-            observer: run.observer.clone(),
-            cancellation: run.cancellation.clone(),
-        })
+        let outcome = run_admitted_staff(
+            &admission,
+            StaffBrief {
+                container: run.container.clone(),
+                auth,
+                workdir: run.workdir.clone(),
+                company: run.company.clone(),
+                actor: run.actor.clone(),
+                responsibility: run.responsibility.clone(),
+                work_id: run.work_id,
+                attempt_id: run.attempt_id,
+                org: run.org.clone(),
+                name: run.name.clone(),
+                task: run.task.clone(),
+                turn_prompt: run.turn_prompt.clone(),
+                role: run.role.clone(),
+                spine,
+                remaining_budget_usd,
+                enforce_spend_budget: billing == crate::model_gateway::ModelBilling::MeteredApi,
+                turn_kind: run.turn_kind,
+                accountable_lead: run.accountable_lead,
+                worker_harness: run.worker_harness,
+                mcp_servers: mcp_servers.clone(),
+                observer: run.observer.clone(),
+                cancellation: run.cancellation.clone(),
+            },
+        )
         .await;
 
         let failure_kind = match &outcome {
@@ -210,6 +296,78 @@ pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcom
             }
             _ => None,
         };
+
+        let (termination, usage_snapshots, reported_turn_cost_usd, summary_sha256) = match &outcome
+        {
+            Ok((termination, summary, snapshots, _)) => {
+                let reported = final_staff_usage(billing, snapshots)
+                    .and_then(|(_, reported_turn_cost_usd)| reported_turn_cost_usd);
+                (
+                    format!("{termination:?}"),
+                    snapshots.len(),
+                    reported,
+                    format!("{:x}", sha2::Sha256::digest(summary.as_bytes())),
+                )
+            }
+            Err(error) => {
+                let summary = format!("{error:#}");
+                (
+                    "runtime_error".to_string(),
+                    0,
+                    None,
+                    format!("{:x}", sha2::Sha256::digest(summary.as_bytes())),
+                )
+            }
+        };
+        let invocation_outcome = if run.cancellation.is_cancelled() {
+            restless_orgintel::ModelInvocationOutcome::Cancelled
+        } else {
+            match &outcome {
+                Ok((Termination::Blocked, _, _, _)) => {
+                    restless_orgintel::ModelInvocationOutcome::Blocked
+                }
+                Ok(_) => restless_orgintel::ModelInvocationOutcome::Completed,
+                Err(_) => restless_orgintel::ModelInvocationOutcome::Failed,
+            }
+        };
+        let settlement_evidence = serde_json::json!({
+            "provider_attempt": index + 1,
+            "termination": termination,
+            "failure_kind": failure_kind.map(health::BlockKind::as_str),
+            "usage_snapshots": usage_snapshots,
+            "reported_turn_cost_usd": reported_turn_cost_usd,
+            "summary_sha256": summary_sha256,
+        });
+        let first_settlement = run
+            .org
+            .settle_model_invocation(
+                &admission,
+                restless_orgintel::ModelInvocationSettlement {
+                    outcome: invocation_outcome,
+                    evidence: settlement_evidence.clone(),
+                },
+            )
+            .await;
+        if let Err(first_error) = first_settlement {
+            // A PostgreSQL acknowledgement can be lost after commit. Reuse
+            // the same unforgeable permit and exact evidence once; OrgIntel
+            // returns the original settlement rather than recording another.
+            run.org
+                .settle_model_invocation(
+                    &admission,
+                    restless_orgintel::ModelInvocationSettlement {
+                        outcome: invocation_outcome,
+                        evidence: settlement_evidence,
+                    },
+                )
+                .await
+                .with_context(|| {
+                    format!(
+                        "settle exact model invocation admission {} after first acknowledgement failed: {first_error}",
+                        admission.id()
+                    )
+                })?;
+        }
 
         // The host relay has already made the canonical charged-use decision.
         // ACP snapshots are retained as telemetry before deciding whether to
@@ -320,6 +478,39 @@ pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcom
     }
 
     unreachable!("validated Staff model policy always has a candidate")
+}
+
+fn model_invocation_command_id(
+    source: restless_orgintel::ModelInvocationSource,
+    model: &str,
+) -> String {
+    let source_identity = match source {
+        restless_orgintel::ModelInvocationSource::Work {
+            work_id,
+            attempt_id,
+        } => format!("work:{work_id}:{attempt_id}"),
+        restless_orgintel::ModelInvocationSource::OwnerConversation {
+            cognitive_lease_token,
+        } => format!("owner_conversation:{cognitive_lease_token}"),
+        restless_orgintel::ModelInvocationSource::RoomMention {
+            cognitive_lease_token,
+            mention_id,
+        } => format!("room_mention:{cognitive_lease_token}:{mention_id}"),
+    };
+    let source_sha256 = format!("{:x}", sha2::Sha256::digest(source_identity.as_bytes()));
+    let model_sha256 = format!("{:x}", sha2::Sha256::digest(model.as_bytes()));
+    format!("runtime-model-invocation:v2:{source_sha256}:{model_sha256}")
+}
+
+/// The only production call into the provider-backed Staff process. The
+/// permit cannot be constructed outside OrgIntel, making a direct launch
+/// bypass a compile-time error rather than a convention.
+async fn run_admitted_staff(
+    admission: &restless_orgintel::ModelInvocationAdmission,
+    brief: StaffBrief,
+) -> Result<(Termination, String, Vec<acp::TurnUsage>, Option<u64>)> {
+    let _durable_launch_fence = admission.id();
+    run_staff(brief).await
 }
 
 async fn record_staff_failover(
@@ -905,6 +1096,34 @@ mod live_product_tests {
         REVIEW_TARGET_ARTIFACT_KIND, REVIEW_TARGET_LIVE_PROBE_GATE,
     };
     use sha2::Digest;
+
+    #[test]
+    fn invocation_command_identity_does_not_depend_on_candidate_position() {
+        let work_id = uuid::Uuid::new_v4();
+        let attempt_id = uuid::Uuid::new_v4();
+        let source = restless_orgintel::ModelInvocationSource::Work {
+            work_id,
+            attempt_id,
+        };
+        let first_order = model_invocation_command_id(source, "openai/gpt-test");
+        let reordered = model_invocation_command_id(source, "openai/gpt-test");
+        assert_eq!(first_order, reordered);
+        assert_ne!(
+            first_order,
+            model_invocation_command_id(source, "anthropic/claude-test")
+        );
+        assert_ne!(
+            reordered,
+            model_invocation_command_id(
+                restless_orgintel::ModelInvocationSource::Work {
+                    work_id,
+                    attempt_id: uuid::Uuid::new_v4(),
+                },
+                "openai/gpt-test",
+            )
+        );
+        assert!(first_order.len() <= 200);
+    }
 
     #[test]
     fn resumable_staff_halts_never_become_provider_failures() {
