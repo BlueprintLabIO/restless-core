@@ -3288,7 +3288,10 @@ async fn cockpit_view(
         .unwrap_or_default();
     let people = actors
         .iter()
-        .filter(|actor| actor.kind != "system")
+        // "system" is the only actor kind ensure_actor_with_model maps to the
+        // "service" class (C45-T3): this is a class check, not a bootstrap-
+        // identity check, so it uses actor_class.
+        .filter(|actor| actor.actor_class != "service")
         .map(|actor| {
             let spent: f64 = spend_breakdown
                 .iter()

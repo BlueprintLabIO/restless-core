@@ -403,7 +403,10 @@ async fn collaboration_bootstrap(
         .collect::<HashMap<_, _>>();
     let people = actors
         .iter()
-        .filter(|actor| actor.kind != "system")
+        // "system" is the only actor kind ensure_actor_with_model maps to the
+        // "service" class (C45-T3): this is a class check, not a bootstrap-
+        // identity check, so it uses actor_class.
+        .filter(|actor| actor.actor_class != "service")
         .map(|actor| MemberPersonView {
             actor_id: actor.id.clone(),
             kind: actor.kind.clone(),
