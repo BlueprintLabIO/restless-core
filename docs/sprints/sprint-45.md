@@ -66,8 +66,11 @@ deferred” posture. No invited-member surface may ship before request principal
       `role='company-member'` for everyone, not their membership role).
 - [~] C45-T4 — ownership/company bootstrap separation — bootstrap (immutable `company_id`) was already
       solid; the membership-owner vs. root-Authority-owner split now exists as a real, tested
-      mechanism (new Authority-store fact + transfer endpoint), but no existing owner-only check has
-      been migrated to consume it yet. See
+      mechanism (new Authority-store fact + transfer endpoint). First consumer migrated: approval
+      grant/revoke/decline (the actual consequential-effect decision, not company administration) now
+      requires the Authority owner specifically. Remaining owner-only checks are deliberately
+      unmigrated — most of them (archive/restore/settings/harnesses) are company administration and
+      should stay on membership ownership, not move to Authority ownership. See
       [sprint-45/c45-t4-ownership-bootstrap-separation.md](sprint-45/c45-t4-ownership-bootstrap-separation.md).
 - [x] C45-T5 — agent-session issuer boundary — already implemented (`capability.rs`
       `CapabilityIssuer`; Runtime Bridge can only present, never mint, identity/permission).
