@@ -1040,6 +1040,40 @@ pub struct OwnerAttachmentRecord {
     pub message_id: i64,
 }
 
+/// Owner-facing retention metadata for one attachment. Content remains behind
+/// the participant-authorized download route; this projection exists so the
+/// company owner can see and govern the finite retained-byte inventory.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct OwnerAttachmentRetentionRow {
+    pub attachment_id: Uuid,
+    pub sender_actor_id: String,
+    pub target_actor_id: String,
+    pub canonical_name: String,
+    pub canonical_media_type: String,
+    pub size_bytes: i64,
+    pub content_sha256: String,
+    pub message_id: i64,
+    pub linked_at: DateTime<Utc>,
+    pub staging_finished_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub purge_requested_at: Option<DateTime<Utc>>,
+    pub purge_requested_by: Option<String>,
+    pub purge_reason: Option<String>,
+    pub purged_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct OwnerAttachmentRetentionPage {
+    pub attachments: Vec<OwnerAttachmentRetentionRow>,
+    pub next_before_created_at: Option<DateTime<Utc>>,
+    pub next_before_attachment_id: Option<Uuid>,
+    pub has_more: bool,
+    pub retained_files: i64,
+    pub retained_bytes: i64,
+    pub purge_pending_files: i64,
+    pub purge_pending_bytes: i64,
+}
+
 /// The audience shape of one durable Room. Organisational access still comes
 /// from active [`RoomParticipantRow`] records; this enum is presentation and
 /// compatibility shape, never an authority grant.

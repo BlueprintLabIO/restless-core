@@ -875,6 +875,110 @@ impl OrgIntel {
         .await?)
     }
 
+    /// Bounded retention inventory for an active human company administrator.
+    /// Membership role is server-derived and enforced by the HTTP boundary;
+    /// this domain floor prevents a retired or service Actor from becoming an
+    /// attachment-retention principal through an internal call.
+    pub async fn owner_attachment_retention_page(
+        &self,
+        requesting_actor: &str,
+        before: Option<(DateTime<Utc>, Uuid)>,
+        limit: i64,
+        include_purged: bool,
+    ) -> Result<OwnerAttachmentRetentionPage> {
+        if !(1..=100).contains(&limit) {
+            return Err(OrgIntelError::InvalidRoom(
+                "attachment inventory limit must be between 1 and 100".into(),
+            ));
+        }
+        let mut tx = self.pool.begin().await?;
+        sqlx::query(
+            "SELECT id FROM actors WHERE id=$1 AND actor_class='human' \
+             AND retired_at IS NULL FOR SHARE",
+        )
+        .bind(requesting_actor)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| {
+            OrgIntelError::RoomAccessDenied(
+                "attachment retention may only be viewed by an active human principal".into(),
+            )
+        })?;
+        let (retained_files, retained_bytes, purge_pending_files, purge_pending_bytes): (
+            i64,
+            i64,
+            i64,
+            i64,
+        ) = sqlx::query_as(
+            "SELECT COUNT(*)::BIGINT,COALESCE(SUM(size_bytes),0)::BIGINT, \
+                    COUNT(*) FILTER (WHERE purge_requested_at IS NOT NULL)::BIGINT, \
+                    COALESCE(SUM(size_bytes) FILTER ( \
+                        WHERE purge_requested_at IS NOT NULL \
+                    ),0)::BIGINT \
+             FROM owner_attachments \
+             WHERE message_id IS NOT NULL AND purged_at IS NULL",
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let mut attachments: Vec<OwnerAttachmentRetentionRow> = match before {
+            Some((created_at, attachment_id)) => {
+                sqlx::query_as(
+                    "SELECT attachment_id,sender_actor_id,target_actor_id,canonical_name, \
+                            canonical_media_type,size_bytes,content_sha256,message_id,linked_at, \
+                            staging_finished_at,created_at,purge_requested_at,purge_requested_by, \
+                            purge_reason,purged_at \
+                     FROM owner_attachments \
+                     WHERE message_id IS NOT NULL AND ($1 OR purged_at IS NULL) \
+                       AND (created_at,attachment_id)<($2,$3) \
+                     ORDER BY created_at DESC,attachment_id DESC LIMIT $4",
+                )
+                .bind(include_purged)
+                .bind(created_at)
+                .bind(attachment_id)
+                .bind(limit + 1)
+                .fetch_all(&mut *tx)
+                .await?
+            }
+            None => {
+                sqlx::query_as(
+                    "SELECT attachment_id,sender_actor_id,target_actor_id,canonical_name, \
+                            canonical_media_type,size_bytes,content_sha256,message_id,linked_at, \
+                            staging_finished_at,created_at,purge_requested_at,purge_requested_by, \
+                            purge_reason,purged_at \
+                     FROM owner_attachments \
+                     WHERE message_id IS NOT NULL AND ($1 OR purged_at IS NULL) \
+                     ORDER BY created_at DESC,attachment_id DESC LIMIT $2",
+                )
+                .bind(include_purged)
+                .bind(limit + 1)
+                .fetch_all(&mut *tx)
+                .await?
+            }
+        };
+        tx.commit().await?;
+        let has_more = attachments.len() as i64 > limit;
+        if has_more {
+            attachments.truncate(limit as usize);
+        }
+        let next = has_more.then(|| {
+            attachments
+                .last()
+                .map(|attachment| (attachment.created_at, attachment.attachment_id))
+        });
+        let next = next.flatten();
+        Ok(OwnerAttachmentRetentionPage {
+            attachments,
+            next_before_created_at: next.map(|cursor| cursor.0),
+            next_before_attachment_id: next.map(|cursor| cursor.1),
+            has_more,
+            retained_files,
+            retained_bytes,
+            purge_pending_files,
+            purge_pending_bytes,
+        })
+    }
+
     /// Register daemon-generated attachment identities before any company
     /// filesystem bytes are written. The table lock makes the per-company
     /// file/byte caps exact under concurrent browser requests; it is staging

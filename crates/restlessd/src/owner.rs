@@ -389,6 +389,16 @@ struct AttachmentPurgeInput {
     reason: String,
 }
 
+#[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct AttachmentListQuery {
+    before_created_at: Option<String>,
+    before_attachment_id: Option<Uuid>,
+    limit: Option<i64>,
+    #[serde(default)]
+    include_purged: bool,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RoomMessageInput {
@@ -1031,6 +1041,10 @@ where
         .route(
             "/companies/{company}/rooms/{room}/read-cursor",
             get(get_room_read_cursor).post(mark_room_read),
+        )
+        .route(
+            "/companies/{company}/attachments",
+            get(list_retained_attachments),
         )
         .route(
             "/companies/{company}/attachments/{attachment}",
@@ -3557,6 +3571,39 @@ fn room_list_bounds(
     Ok((before, limit))
 }
 
+fn attachment_list_bounds(
+    query: AttachmentListQuery,
+) -> std::result::Result<(Option<(DateTime<Utc>, Uuid)>, i64, bool), (&'static str, &'static str)> {
+    let before = match (query.before_created_at, query.before_attachment_id) {
+        (None, None) => None,
+        (Some(created_at), Some(attachment_id)) => {
+            let created_at = DateTime::parse_from_rfc3339(&created_at)
+                .map_err(|_| {
+                    (
+                        "attachment_cursor",
+                        "before_created_at must be an RFC 3339 timestamp",
+                    )
+                })?
+                .with_timezone(&Utc);
+            Some((created_at, attachment_id))
+        }
+        _ => {
+            return Err((
+                "attachment_cursor",
+                "before_created_at and before_attachment_id must be supplied together",
+            ));
+        }
+    };
+    let limit = query.limit.unwrap_or(50);
+    if !(1..=100).contains(&limit) {
+        return Err((
+            "attachment_limit",
+            "attachment inventory limit must be between 1 and 100",
+        ));
+    }
+    Ok((before, limit, query.include_purged))
+}
+
 fn room_event_bounds(
     query: RoomEventQuery,
     headers: Option<&HeaderMap>,
@@ -5757,6 +5804,54 @@ async fn download_attachment(
             "attachment",
             format!("{error:#}"),
         ),
+    }
+}
+
+async fn list_retained_attachments(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath(company): AxumPath<String>,
+    Query(query): Query<AttachmentListQuery>,
+) -> Response<Body> {
+    if principal.membership_role() != "owner" {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "membership_role",
+            "only the company membership owner may view retained attachment inventory",
+        );
+    }
+    let (before, limit, include_purged) = match attachment_list_bounds(query) {
+        Ok(bounds) => bounds,
+        Err((error, message)) => return api_error(StatusCode::BAD_REQUEST, error, message),
+    };
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .owner_attachment_retention_page(principal.actor_id(), before, limit, include_purged)
+        .await
+    {
+        Ok(page) => Json(serde_json::json!({
+            "attachments": page.attachments,
+            "next_before_created_at": page.next_before_created_at,
+            "next_before_attachment_id": page.next_before_attachment_id,
+            "has_more": page.has_more,
+            "usage": {
+                "retained_files": page.retained_files,
+                "retained_bytes": page.retained_bytes,
+                "purge_pending_files": page.purge_pending_files,
+                "purge_pending_bytes": page.purge_pending_bytes,
+            },
+            "limits": {
+                "retained_files": MAX_RETAINED_ATTACHMENT_FILES,
+                "retained_bytes": MAX_RETAINED_ATTACHMENT_BYTES,
+                "per_principal_files": MAX_PRINCIPAL_RETAINED_ATTACHMENT_FILES,
+                "per_principal_bytes": MAX_PRINCIPAL_RETAINED_ATTACHMENT_BYTES,
+            }
+        }))
+        .into_response(),
+        Err(error) => room_error(error),
     }
 }
 
@@ -9785,6 +9880,161 @@ mod tests {
 
         assert!(ATTACHMENT_STAGE_STALE_AFTER >= ChronoDuration::minutes(5));
         assert!(ATTACHMENT_GC_CLAIM_FOR >= ChronoDuration::minutes(1));
+    }
+
+    #[tokio::test]
+    async fn attachment_inventory_is_owner_only_bounded_and_retention_truthful() {
+        let Some(fixture) = RoomRouteFixture::new().await else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping attachment inventory scenario");
+            return;
+        };
+        let room = fixture
+            .org
+            .create_room(
+                "owner",
+                restless_orgintel::RoomKind::Group,
+                "Retention inventory",
+                &["exec"],
+                "attachment-inventory-room",
+            )
+            .await
+            .unwrap();
+        let message = fixture
+            .org
+            .send_room_message(
+                room.id,
+                "owner",
+                "Retained evidence",
+                None,
+                "attachment-inventory-message",
+            )
+            .await
+            .unwrap();
+        let mut attachment_ids = vec![Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
+        let database_url = std::env::var("RESTLESS_TEST_DATABASE_URL").unwrap();
+        let mut raw = sqlx::PgConnection::connect(&database_url).await.unwrap();
+        sqlx::query(&format!("SET search_path TO {}", fixture.org.schema()))
+            .execute(&mut raw)
+            .await
+            .unwrap();
+        for (index, attachment_id) in attachment_ids.iter().enumerate() {
+            sqlx::query(
+                "INSERT INTO owner_attachments ( \
+                    attachment_id,sender_actor_id,target_actor_id,client_command_id, \
+                    client_payload_sha256,canonical_name,canonical_media_type,size_bytes, \
+                    content_sha256,message_id,linked_at,staging_finished_at,created_at \
+                 ) VALUES ($1,'owner','exec',$2,$3,$4,'application/octet-stream',$5,$6,$7, \
+                           now(),now(),'2026-01-01T00:00:00Z')",
+            )
+            .bind(attachment_id)
+            .bind(format!("inventory-{index}"))
+            .bind(format!("{:064x}", index + 1))
+            .bind(format!("evidence-{index}.bin"))
+            .bind(((index + 1) * 10) as i64)
+            .bind(format!("{:064x}", index + 11))
+            .bind(message.message.id)
+            .execute(&mut raw)
+            .await
+            .unwrap();
+        }
+        // One retained item is queued for purge and one is already a durable
+        // tombstone whose bytes no longer count against storage.
+        sqlx::query(
+            "UPDATE owner_attachments SET purge_requested_at=now(), \
+                    purge_requested_by='owner',purge_reason='retention ended' \
+             WHERE attachment_id=$1",
+        )
+        .bind(attachment_ids[1])
+        .execute(&mut raw)
+        .await
+        .unwrap();
+        sqlx::query(
+            "UPDATE owner_attachments SET purge_requested_at=now(), \
+                    purge_requested_by='owner',purge_reason='retention ended',purged_at=now() \
+             WHERE attachment_id=$1",
+        )
+        .bind(attachment_ids[2])
+        .execute(&mut raw)
+        .await
+        .unwrap();
+
+        let collection = format!("/companies/{}/attachments", fixture.company);
+        let (status, denied) = room_request(
+            &fixture.app("exec", "member", &fixture.company),
+            Method::GET,
+            &collection,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(denied["error"], "membership_role");
+
+        attachment_ids[..2].sort_by(|left, right| right.cmp(left));
+        let owner = fixture.app("owner", "owner", &fixture.company);
+        let (status, first) =
+            room_request(&owner, Method::GET, format!("{collection}?limit=1"), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(first["attachments"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            first["attachments"][0]["attachment_id"],
+            attachment_ids[0].to_string()
+        );
+        assert_eq!(first["has_more"], true);
+        assert_eq!(first["usage"]["retained_files"], 2);
+        assert_eq!(first["usage"]["retained_bytes"], 30);
+        assert_eq!(first["usage"]["purge_pending_files"], 1);
+        assert_eq!(first["usage"]["purge_pending_bytes"], 20);
+        assert_eq!(
+            first["limits"]["retained_files"],
+            MAX_RETAINED_ATTACHMENT_FILES
+        );
+        let before_created_at = first["next_before_created_at"].as_str().unwrap();
+        let before_attachment_id = first["next_before_attachment_id"].as_str().unwrap();
+        let (status, second) = room_request(
+            &owner,
+            Method::GET,
+            format!(
+                "{collection}?limit=1&before_created_at={before_created_at}&before_attachment_id={before_attachment_id}"
+            ),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            second["attachments"][0]["attachment_id"],
+            attachment_ids[1].to_string()
+        );
+        assert_eq!(second["has_more"], false);
+
+        let (status, audit) = room_request(
+            &owner,
+            Method::GET,
+            format!("{collection}?limit=100&include_purged=true"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(audit["attachments"].as_array().unwrap().len(), 3);
+        assert!(audit["attachments"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|attachment| attachment["purged_at"].is_string()));
+
+        for invalid in [
+            format!("{collection}?limit=0"),
+            format!("{collection}?before_attachment_id={before_attachment_id}"),
+            format!(
+                "{collection}?before_created_at=not-a-time&before_attachment_id={before_attachment_id}"
+            ),
+        ] {
+            let (status, body) = room_request(&owner, Method::GET, invalid, None).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+            assert!(matches!(
+                body["error"].as_str(),
+                Some("attachment_limit" | "attachment_cursor")
+            ));
+        }
     }
 
     #[tokio::test]
