@@ -5,6 +5,8 @@ members = [
     "crates/restless",
     "crates/restless-model-gateway",
     "crates/restless-orgintel",
+    "crates/restless-runtime-bridge-protocol",
+    "crates/restless-runtime-bridge",
 ]
 
 # Restless is a clean-slate autonomous-company control plane.
