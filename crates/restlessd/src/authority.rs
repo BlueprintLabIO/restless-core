@@ -108,8 +108,10 @@ impl AuthorityStore {
             .await
             .context("serialize Authority bootstrap")?;
         // Fixed identifiers only. No company or request data is interpolated.
+        // Runs on the locked transaction, not the bare pool -- an unlocked
+        // connection here would race every other caller's unlocked DDL.
         sqlx::query("CREATE SCHEMA IF NOT EXISTS restless_authority")
-            .execute(&pool)
+            .execute(&mut *bootstrap)
             .await
             .context("create Authority schema")?;
         sqlx::query(
@@ -124,14 +126,14 @@ impl AuthorityStore {
                UNIQUE (company, legacy_orgintel_event_id)\
              )",
         )
-        .execute(&pool)
+        .execute(&mut *bootstrap)
         .await
         .context("create Authority records")?;
         sqlx::query(
             "CREATE INDEX IF NOT EXISTS authority_records_company_kind_id \
              ON restless_authority.records (company, kind, id)",
         )
-        .execute(&pool)
+        .execute(&mut *bootstrap)
         .await
         .context("index Authority records")?;
         sqlx::query(
@@ -140,7 +142,7 @@ impl AuthorityStore {
              (company, (body->>'idempotency_key'), ((body->>'execution_no')::integer)) \
              WHERE kind = 'effect_intent'",
         )
-        .execute(&pool)
+        .execute(&mut *bootstrap)
         .await
         .context("index effect execution intents")?;
         sqlx::query(
@@ -149,7 +151,7 @@ impl AuthorityStore {
              (company, (body->>'idempotency_key'), ((body->>'execution_no')::integer)) \
              WHERE kind = 'effect' AND body ? 'execution_no'",
         )
-        .execute(&pool)
+        .execute(&mut *bootstrap)
         .await
         .context("index effect execution receipts")?;
         sqlx::query(
@@ -157,7 +159,7 @@ impl AuthorityStore {
              ON restless_authority.records (company, (body->>'provider_event_id')) \
              WHERE kind = 'inbound_effect'",
         )
-        .execute(&pool)
+        .execute(&mut *bootstrap)
         .await
         .context("index inbound provider events")?;
         for (name, sql) in [
@@ -221,25 +223,17 @@ impl AuthorityStore {
                 .await
                 .with_context(|| format!("index {name}"))?;
         }
-        // Tests and multi-plane startup can initialise this shared account
-        // store concurrently. PostgreSQL's IF NOT EXISTS does not serialize
-        // two simultaneous index catalogue writes, so keep this one-time DDL
-        // under a transaction-scoped database lock.
-        let mut identity_ddl = pool.begin().await?;
-        sqlx::query("SELECT pg_advisory_xact_lock(7310026)")
-            .execute(&mut *identity_ddl)
-            .await
-            .context("lock company identity Authority migration")?;
+        // Was a second transaction with its own advisory lock (7310026); merged
+        // into the one above since a single caller always acquired both in order.
         sqlx::query(
             "CREATE UNIQUE INDEX IF NOT EXISTS authority_company_identity_decision \
              ON restless_authority.records \
              (company, kind, (body->>'proposal_id'), (body->>'decision')) \
              WHERE kind = 'company_identity_decision'",
         )
-        .execute(&mut *identity_ddl)
+        .execute(&mut *bootstrap)
         .await
         .context("index company identity decisions")?;
-        identity_ddl.commit().await?;
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS restless_authority.company_migrations (\
                company TEXT PRIMARY KEY, \
@@ -247,14 +241,14 @@ impl AuthorityStore {
                imported_at TIMESTAMPTZ NOT NULL DEFAULT now()\
              )",
         )
-        .execute(&pool)
+        .execute(&mut *bootstrap)
         .await
         .context("create Authority migration markers")?;
         sqlx::query(
             "ALTER TABLE restless_authority.company_migrations \
              ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1",
         )
-        .execute(&pool)
+        .execute(&mut *bootstrap)
         .await
         .context("version Authority migration markers")?;
         // Fleet's company-bootstrap operation is Authority truth, not an
@@ -362,17 +356,39 @@ impl AuthorityStore {
                PRIMARY KEY (company, model)\
              )",
         )
-        .execute(&pool)
+        .execute(&mut *bootstrap)
         .await
         .context("create model cooldowns")?;
-        crate::legal::ensure_schema(&pool).await?;
-        crate::finance::ensure_schema(&pool).await?;
-        crate::airwallex::ensure_schema(&pool).await?;
-        crate::connected_tool::ensure_schema(&pool).await?;
+        // Commit before the other modules' ensure_schema(&pool) calls: they run
+        // on a separate session that can't see these objects until it commits.
         bootstrap
             .commit()
             .await
             .context("complete Authority bootstrap")?;
+        // Each ensure_schema below still runs its own unguarded `&pool` DDL, and
+        // `CREATE TABLE IF NOT EXISTS` isn't race-free against pg_type catalogue
+        // collisions -- serialize them with a session-level lock (no single
+        // transaction spans these four independent calls to scope it to).
+        let mut serializer = pool.acquire().await.context("acquire schema serializer")?;
+        sqlx::query("SELECT pg_advisory_lock($1)")
+            .bind(0x5253_544c_4155_5448_i64)
+            .execute(&mut *serializer)
+            .await
+            .context("serialize dependent-module Authority schema bootstrap")?;
+        let ensure_result = async {
+            crate::legal::ensure_schema(&pool).await?;
+            crate::finance::ensure_schema(&pool).await?;
+            crate::airwallex::ensure_schema(&pool).await?;
+            crate::connected_tool::ensure_schema(&pool).await?;
+            Ok::<_, anyhow::Error>(())
+        }
+        .await;
+        sqlx::query("SELECT pg_advisory_unlock($1)")
+            .bind(0x5253_544c_4155_5448_i64)
+            .execute(&mut *serializer)
+            .await
+            .context("release dependent-module Authority schema bootstrap lock")?;
+        ensure_result?;
         Ok(Self { pool })
     }
 
