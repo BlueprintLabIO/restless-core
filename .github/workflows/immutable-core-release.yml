@@ -335,9 +335,12 @@ jobs:
             echo "${RELEASE_REPOSITORY}:${GITHUB_SHA} already exists; release artifacts are append-only" >&2
             exit 1
           fi
-          oras push "${RELEASE_REPOSITORY}:${GITHUB_SHA}" \
+          # oras rejects an absolute file path as a supply-chain guard against
+          # embedding the runner's host path in the pushed artifact's file
+          # name; push from RUNNER_TEMP with a relative name instead.
+          (cd "$RUNNER_TEMP" && oras push "${RELEASE_REPOSITORY}:${GITHUB_SHA}" \
             --artifact-type application/vnd.restless.core.release-bundle.v1 \
-            "$RUNNER_TEMP/core-release-bundle.tar.gz:application/vnd.restless.core.release-bundle.v1+tar+gzip"
+            "core-release-bundle.tar.gz:application/vnd.restless.core.release-bundle.v1+tar+gzip")
           digest="$(oras manifest fetch --descriptor "${RELEASE_REPOSITORY}:${GITHUB_SHA}" | jq -r .digest)"
           [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
           reference="${RELEASE_REPOSITORY}@${digest}"
