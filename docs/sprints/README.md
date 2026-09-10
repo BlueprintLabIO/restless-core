@@ -129,6 +129,19 @@ hard green requirement.
 - [`sprint-39.md`](./sprint-39.md) — implemented release candidate: extends existing Attention into a
   work-through conversation with accountable leadership and implements Restless Managed, Codex and
   Claude Agent at one controlled runtime boundary. Provider-backed three-harness qualification remains.
+- [Open Company Runtime programme](./open-company-runtime-programme.md) — draft five-sprint sequence
+  from certified harnesses to exact owner takeover, Claude portability, governed application roles,
+  evidence-gated full desktop applications and a comparative proof of the stronger product claim.
+- [`sprint-40.md`](./sprint-40.md) — draft: proves one complete **Take the controls** and return journey
+  against the exact Restless-owned Codex thread and worktree.
+- [`sprint-41.md`](./sprint-41.md) — planned: proves the same truthful native takeover contract for
+  Claude Code, using exact resume where supported and explicit reconstruction otherwise.
+- [`sprint-42.md`](./sprint-42.md) — planned: models installed software separately from the certified
+  roles it may play, without creating an application marketplace or universal plugin ontology.
+- [`sprint-43.md`](./sprint-43.md) — activation-gated: admits a full graphical vendor application only
+  if terminal, editor, preview and remote-client access leave a repeated owner job unsolved.
+- [`sprint-44.md`](./sprint-44.md) — planned: runs the comparative company-outcome corpus and settles
+  which “better than direct harness use” positioning Restless has actually earned.
 
 Sprint 26 is the completed first stage of the
 [Harness → NPC → benchmark programme](../../experiment/HARNESS_NPC_BENCHMARK_PROGRAMME.md). EXP-16 and

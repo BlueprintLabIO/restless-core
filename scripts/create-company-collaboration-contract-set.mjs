@@ -189,10 +189,12 @@ export async function readCoreReleaseTuple({
   sourceRevision,
   accountPlaneImage,
   companyRuntimeImage,
+  nativeDocumentsImage,
 }) {
   requireMatch(sourceRevision, SOURCE_REVISION, 'source revision');
   requireMatch(accountPlaneImage, OCI_DIGEST, 'account-plane image');
   requireMatch(companyRuntimeImage, OCI_DIGEST, 'company Runtime image');
+  requireMatch(nativeDocumentsImage, OCI_DIGEST, 'native Documents image');
   const [cargo, release, entry, compose] = await Promise.all([
     readFile(join(sourceRoot, 'Cargo.toml'), 'utf8'),
     readFile(join(sourceRoot, 'crates/restlessd/src/release.rs'), 'utf8'),
@@ -205,6 +207,7 @@ export async function readCoreReleaseTuple({
     images: Object.freeze({
       account_plane: accountPlaneImage,
       company_runtime: companyRuntimeImage,
+      native_documents: nativeDocumentsImage,
     }),
     contracts: Object.freeze({
       api: sourceNumber(release, /API_CONTRACT_VERSION:\s*u32\s*=\s*(\d+)/, 'API contract version'),
@@ -221,16 +224,16 @@ export async function createCompanyCollaborationContractSet({
   sourceRoot = scriptRoot,
   outputRoot,
   release,
-  nativeDocumentsImage,
 }) {
   if (!outputRoot) fail('output root is required');
-  const descriptorBytes = canonical(nativeDocumentsDescriptor(nativeDocumentsImage));
+  const descriptorBytes = canonical(nativeDocumentsDescriptor(release?.images?.native_documents));
   exactKeys(release, ['core_version', 'source_revision', 'images', 'contracts', 'deployment'], 'release');
   requireMatch(release.core_version, /^[A-Za-z0-9._+-]{1,64}$/, 'release.core_version');
   requireMatch(release.source_revision, SOURCE_REVISION, 'release.source_revision');
-  exactKeys(release.images, ['account_plane', 'company_runtime'], 'release.images');
+  exactKeys(release.images, ['account_plane', 'company_runtime', 'native_documents'], 'release.images');
   requireMatch(release.images.account_plane, OCI_DIGEST, 'release.images.account_plane');
   requireMatch(release.images.company_runtime, OCI_DIGEST, 'release.images.company_runtime');
+  requireMatch(release.images.native_documents, OCI_DIGEST, 'release.images.native_documents');
   exactKeys(release.contracts, ['api', 'identity_assertion', 'schema'], 'release.contracts');
   positiveInteger(release.contracts.api, 'release.contracts.api');
   positiveInteger(release.contracts.identity_assertion, 'release.contracts.identity_assertion');
@@ -243,6 +246,7 @@ export async function createCompanyCollaborationContractSet({
     images: {
       account_plane: release.images.account_plane,
       company_runtime: release.images.company_runtime,
+      native_documents: release.images.native_documents,
     },
     contracts: {
       api: release.contracts.api,
@@ -331,18 +335,17 @@ function exactCleanRevision(root) {
 
 async function main() {
   const args = cliArguments(process.argv.slice(2));
-  requireMatch(args['--native-documents-image'], OCI_DIGEST, 'native Documents image');
   const release = await readCoreReleaseTuple({
     sourceRoot: scriptRoot,
     sourceRevision: exactCleanRevision(scriptRoot),
     accountPlaneImage: args['--account-plane-image'],
     companyRuntimeImage: args['--company-runtime-image'],
+    nativeDocumentsImage: args['--native-documents-image'],
   });
   const created = await createCompanyCollaborationContractSet({
     sourceRoot: scriptRoot,
     outputRoot: args['--output'],
     release,
-    nativeDocumentsImage: args['--native-documents-image'],
   });
   process.stdout.write(`${JSON.stringify(created)}\n`);
 }

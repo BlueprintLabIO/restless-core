@@ -19,12 +19,13 @@ import {
   readCoreReleaseTuple,
 } from './create-company-collaboration-contract-set.mjs';
 import { createCoreReleaseManifest } from './create-core-release-manifest.mjs';
+import { createCoreReleaseBundle } from './create-core-release-bundle.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const sourceRevision = '1'.repeat(40);
 const accountPlaneImage = `ghcr.io/blueprintlabio/restless-account-plane@sha256:${'a'.repeat(64)}`;
 const companyRuntimeImage = `ghcr.io/blueprintlabio/restless-company-runtime@sha256:${'b'.repeat(64)}`;
-const nativeDocumentsImage = `ghcr.io/blueprintlabio/restless-native-documents@sha256:${'c'.repeat(64)}`;
+const nativeDocumentsImage = `ghcr.io/blueprintlabio/restless-native-documents-collaboration@sha256:${'c'.repeat(64)}`;
 
 function digest(bytes) {
   return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
@@ -38,12 +39,12 @@ async function generatedFixture(t) {
     sourceRevision,
     accountPlaneImage,
     companyRuntimeImage,
+    nativeDocumentsImage,
   });
   const contractSet = await createCompanyCollaborationContractSet({
     sourceRoot: root,
     outputRoot,
     release,
-    nativeDocumentsImage,
   });
   return { outputRoot, release, contractSet };
 }
@@ -60,6 +61,7 @@ test('the Core contract set is canonical, immutable and release-complete', async
   assert.equal(manifest.release.source_revision, sourceRevision);
   assert.equal(manifest.release.images.account_plane, accountPlaneImage);
   assert.equal(manifest.release.images.company_runtime, companyRuntimeImage);
+  assert.equal(manifest.release.images.native_documents, nativeDocumentsImage);
   assert.deepEqual(manifest.capabilities, [...manifest.capabilities].sort());
   assert.ok(manifest.capabilities.includes(NATIVE_DOCUMENTS_CAPABILITY));
   assert.deepEqual(
@@ -112,7 +114,6 @@ test('the Core contract set is canonical, immutable and release-complete', async
     sourceRoot: root,
     outputRoot: fixture.outputRoot,
     release: fixture.release,
-    nativeDocumentsImage,
   });
   assert.deepEqual(replay, fixture.contractSet);
 });
@@ -149,6 +150,54 @@ test('the release manifest can only bind an existing verified contract set', asy
   assert.deepEqual(replay, created);
 });
 
+test('the signed bundle index binds exact release, contract and native Documents bytes', async (t) => {
+  const fixture = await generatedFixture(t);
+  const release = await createCoreReleaseManifest({
+    contractSetManifestPath: fixture.contractSet.manifestPath,
+    outputRoot: fixture.outputRoot,
+  });
+  const releaseSignature = join(fixture.outputRoot, 'release-manifest.sigstore.json');
+  const contractSignature = join(fixture.outputRoot, 'contract-set.sigstore.json');
+  await writeFile(releaseSignature, '{"mediaType":"application/vnd.dev.sigstore.bundle+json;version=0.3"}\n');
+  await writeFile(contractSignature, '{"mediaType":"application/vnd.dev.sigstore.bundle+json;version=0.3"}\n');
+  const outputPath = join(fixture.outputRoot, 'core-release-bundle.json');
+  const created = await createCoreReleaseBundle({
+    bundleRoot: fixture.outputRoot,
+    releaseManifestPath: release.manifestPath,
+    contractSetPath: fixture.contractSet.manifestPath,
+    releaseSignaturePath: releaseSignature,
+    contractSignaturePath: contractSignature,
+    repository: 'BlueprintLabIO/restless-core',
+    workflowRef: 'BlueprintLabIO/restless-core/.github/workflows/immutable-core-release.yml@refs/heads/dev',
+    outputPath,
+  });
+  const bytes = await readFile(outputPath);
+  const index = JSON.parse(bytes);
+  assert.equal(created.indexDigest, digest(bytes));
+  assert.equal(index.source.revision, sourceRevision);
+  assert.deepEqual(index.images, fixture.release.images);
+  assert.equal(index.release_manifest.sha256, release.manifestDigest);
+  assert.equal(index.contract_set.sha256, fixture.contractSet.manifestDigest);
+
+  const changedRelease = JSON.parse(await readFile(release.manifestPath));
+  changedRelease.images.native_documents =
+    `ghcr.io/blueprintlabio/restless-native-documents@sha256:${'9'.repeat(64)}`;
+  await writeFile(release.manifestPath, `${JSON.stringify(changedRelease, null, 2)}\n`);
+  await assert.rejects(
+    createCoreReleaseBundle({
+      bundleRoot: fixture.outputRoot,
+      releaseManifestPath: release.manifestPath,
+      contractSetPath: fixture.contractSet.manifestPath,
+      releaseSignaturePath: releaseSignature,
+      contractSignaturePath: contractSignature,
+      repository: 'BlueprintLabIO/restless-core',
+      workflowRef: 'BlueprintLabIO/restless-core/.github/workflows/immutable-core-release.yml@refs/heads/dev',
+      outputPath,
+    }),
+    /not from its canonical repository|release tuple differs|descriptor image differs/,
+  );
+});
+
 test('artifact tampering prevents release-manifest creation', async (t) => {
   const fixture = await generatedFixture(t);
   const manifest = JSON.parse(await readFile(fixture.contractSet.manifestPath));
@@ -168,20 +217,24 @@ test('artifact tampering prevents release-manifest creation', async (t) => {
 
 test('native Documents hosting requires one immutable image and refuses bundle tampering', async (t) => {
   const fixture = await generatedFixture(t);
+  const missingNativeDocuments = structuredClone(fixture.release);
+  delete missingNativeDocuments.images.native_documents;
   await assert.rejects(
     createCompanyCollaborationContractSet({
       sourceRoot: root,
       outputRoot: fixture.outputRoot,
-      release: fixture.release,
+      release: missingNativeDocuments,
     }),
     /native Documents image is invalid/,
   );
+  const mutableNativeDocuments = structuredClone(fixture.release);
+  mutableNativeDocuments.images.native_documents =
+    'ghcr.io/blueprintlabio/restless-native-documents:latest';
   await assert.rejects(
     createCompanyCollaborationContractSet({
       sourceRoot: root,
       outputRoot: fixture.outputRoot,
-      release: fixture.release,
-      nativeDocumentsImage: 'ghcr.io/blueprintlabio/restless-native-documents:latest',
+      release: mutableNativeDocuments,
     }),
     /native Documents image is invalid/,
   );
@@ -196,7 +249,6 @@ test('native Documents hosting requires one immutable image and refuses bundle t
       sourceRoot: root,
       outputRoot: fixture.outputRoot,
       release: fixture.release,
-      nativeDocumentsImage,
     }),
     /immutable release artifact already exists with different bytes/,
   );
@@ -252,6 +304,15 @@ test('the account-plane Compose contract mounts distinct bootstrap audiences', a
     'RESTLESS_ACCOUNT_PLANE_IMAGE: "{{ACCOUNT_PLANE_IMAGE}}"',
     'RESTLESS_COMPANY_BOOTSTRAP_TOKEN_FILE: /run/secrets/company_bootstrap_token',
     'RESTLESS_RUNTIME_BOOTSTRAP_TOKEN_FILE: /run/secrets/runtime_bootstrap_token',
+    'RESTLESS_PUBLISHED_SERVICE_PROVIDER: cloud-http',
+    'RESTLESS_PUBLISHED_SERVICE_PROVIDER_URL: ${RESTLESS_PUBLISHED_SERVICE_PROVIDER_URL}',
+    'RESTLESS_PUBLISHED_SERVICE_PROVIDER_TOKEN: ${RESTLESS_PUBLISHED_SERVICE_PROVIDER_TOKEN}',
+    'INFISICAL_API_URL: ${INFISICAL_API_URL}',
+    'INFISICAL_PROJECT_ID: ${INFISICAL_PROJECT_ID}',
+    'INFISICAL_ENVIRONMENT: ${INFISICAL_ENVIRONMENT}',
+    'INFISICAL_UNIVERSAL_AUTH_CLIENT_ID: ${INFISICAL_UNIVERSAL_AUTH_CLIENT_ID}',
+    'INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET: ${INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET}',
+    'name: restless-plane-{{PLANE_ID}}_database',
     'environment: RESTLESS_COMPANY_BOOTSTRAP_TOKEN',
     'environment: RESTLESS_RUNTIME_BOOTSTRAP_TOKEN',
     '- source: company_bootstrap_token',
@@ -260,7 +321,7 @@ test('the account-plane Compose contract mounts distinct bootstrap audiences', a
     'target: runtime_bootstrap_token',
     'mode: 0400',
   ]) assert.match(compose, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-  assert.equal(compose.match(/mode: 0400/g)?.length, 2);
+  assert.equal(compose.match(/mode: 0400/g)?.length, 4);
   assert.doesNotMatch(compose, /RESTLESS_CORE_RELEASE/);
 });
 
@@ -274,4 +335,31 @@ test('mutable image references are not accepted as release inputs', async () => 
     }),
     /account-plane image is invalid/,
   );
+});
+
+test('the release workflow preserves one branch-neutral, signed digest handoff', async () => {
+  const workflow = await readFile(join(root, '.github/workflows/immutable-core-release.yml'), 'utf8');
+  assert.match(workflow, /on:\n  workflow_dispatch:/);
+  assert.doesNotMatch(workflow, /branches:/);
+  assert.equal(workflow.match(/ref: \$\{\{ github\.sha \}\}/g)?.length, 2);
+  assert.equal(workflow.match(/provenance: mode=max/g)?.length, 3);
+  assert.equal(workflow.match(/sbom: true/g)?.length, 3);
+  for (const required of [
+    'cosign sign --yes "$ACCOUNT_PLANE_IMAGE"',
+    'cosign sign --yes "$COMPANY_RUNTIME_IMAGE"',
+    'cosign sign --yes "$NATIVE_DOCUMENTS_IMAGE"',
+    'release-manifest.sigstore.json',
+    'contract-set.sigstore.json',
+    'core-release-bundle.sigstore.json',
+    'node scripts/create-core-release-bundle.mjs',
+    'docker buildx imagetools inspect --raw "$image"',
+    'oras push "${RELEASE_REPOSITORY}:${GITHUB_SHA}"',
+    'reference="${RELEASE_REPOSITORY}@${digest}"',
+    'format:"restless.core.release-handoff.v1"',
+    'core-release-handoff.sigstore.json',
+  ]) assert.ok(workflow.includes(required), `release workflow is missing ${required}`);
+  assert.ok(workflow.indexOf('node scripts/create-core-release-bundle.mjs')
+    < workflow.indexOf('tar --sort=name'));
+  assert.ok(workflow.indexOf('cosign sign --yes "$reference"')
+    < workflow.indexOf('format:"restless.core.release-handoff.v1"'));
 });

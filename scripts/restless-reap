@@ -227,8 +227,9 @@ fi
 
 # --- 5. Agent-registered supervisor services ------------------------------
 # The durable leak, and the reason killing a leaked dev server never worked:
-# `restless.conf` ends with `[include] files=/company/services/supervisor/*.conf`,
-# so an agent registers its own program and supervisord owns it from then on.
+# The uid-2000 company supervisor includes
+# `/company/services/supervisor/*.conf`, so an agent registers its own program
+# and that unprivileged supervisor owns it from then on.
 # Every observed one was written `autorestart=true`, so a TERM was answered
 # with an immediate restart. Worse, the conf lives on the company's named
 # volume, so the leak is durable — it survives container replacement and comes
@@ -275,13 +276,13 @@ INNER
         prog="${entry%%:*}"; conf="${entry#*:}"
         # Stop before removing the conf: dropping the file first leaves
         # supervisord supervising a program it can no longer name.
-        docker exec "$name" supervisorctl -c /etc/supervisor/conf.d/restless.conf \
+        docker exec "$name" company-supervisorctl \
           stop "$prog" >/dev/null 2>&1 || true
         docker exec "$name" rm -f "/company/services/supervisor/$conf" >/dev/null 2>&1 || true
         note "  stopped and deregistered $prog"
       done
-      docker exec "$name" sh -c 'supervisorctl -c /etc/supervisor/conf.d/restless.conf reread >/dev/null 2>&1
-        supervisorctl -c /etc/supervisor/conf.d/restless.conf update >/dev/null 2>&1' || true
+      docker exec "$name" sh -c 'company-supervisorctl reread >/dev/null 2>&1
+        company-supervisorctl update >/dev/null 2>&1' || true
     fi
   done
   if [ "$SVC_TOTAL" -eq 0 ]; then
