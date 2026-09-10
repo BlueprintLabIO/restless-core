@@ -1,4 +1,4 @@
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use restless_orgintel::{
     CompanyAccessIdentity, ExternalMembershipControlContext, ExternalMembershipStatus,
     HumanAccessContext, MembershipControlOutcome, OrgIntel, OrgIntelError,
@@ -293,7 +293,15 @@ async fn replacement_membership_requires_strictly_newer_issuance() {
     let issuer = "https://cloud.restless.run";
     let company_id = Uuid::new_v4();
     let cell_id = Uuid::new_v4();
-    let issued_at = Utc::now();
+    // Real entry assertions carry `iat` as whole-second Unix time
+    // (entry.rs: `DateTime::from_timestamp(claims.iat, 0)`), so a genuine
+    // "same instant" replacement always compares equal. `Utc::now()` here
+    // has nanosecond precision that Postgres TIMESTAMPTZ truncates to
+    // microseconds on round-trip, which could occasionally make the second
+    // call's in-memory `issued_at` compare greater than the first call's
+    // stored-and-reread value -- a false pass with no bearing on production.
+    // Truncating to whole seconds here matches reality and removes the race.
+    let issued_at = DateTime::from_timestamp(Utc::now().timestamp(), 0).unwrap();
     bind_company(&org, company_id, cell_id).await;
     let first = org
         .consume_human_access_context(context(
