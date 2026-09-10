@@ -218,14 +218,36 @@ export interface DocumentReviewRow {
 	version: number;
 }
 
+export type DocumentWorkReviewStatus = 'pending' | 'accepted' | 'changes_requested' | 'stale';
+
+export interface DocumentWorkReviewDependency {
+	review_id: string;
+	document_id: string;
+	requested_version_id: string;
+	work_id: string;
+	reviewer_actor_id: string;
+	status: DocumentWorkReviewStatus;
+	feedback: string | null;
+	resolved_by_actor_id: string | null;
+	resolved_at: string | null;
+	resumed_at: string | null;
+	created_at: string;
+}
+
+export interface DocumentReviewView {
+	review: DocumentReviewRow;
+	work_dependency: DocumentWorkReviewDependency | null;
+}
+
 export interface DocumentReviewPage {
-	items: DocumentReviewRow[];
+	items: DocumentReviewView[];
 	next_cursor: DocumentPageCursor | null;
 }
 
 export interface DocumentReviewResolution {
 	review: DocumentReviewRow;
 	accepted_version: DocumentVersionView | null;
+	work_dependency: DocumentWorkReviewDependency | null;
 }
 
 export interface DocumentRevisionProposalSummary {
@@ -570,7 +592,7 @@ export function getDocumentReview(
 	document: string,
 	review: string,
 	signal?: AbortSignal
-): Promise<DocumentReviewRow> {
+): Promise<DocumentReviewView> {
 	return documentJson(`${documentsPath(company, document)}/reviews/${encodeURIComponent(review)}`, {
 		signal
 	});
@@ -582,15 +604,17 @@ export function requestDocumentReview(
 	expectedDocumentVersion: number,
 	expectedCurrentVersionId: string,
 	summary: string,
-	commandId: string
-): Promise<DocumentReviewRow> {
+	commandId: string,
+	workDependency: { work_id: string; reviewer_actor_id: string } | null = null
+): Promise<DocumentReviewView> {
 	return documentJson(
 		`${documentsPath(company, document)}/reviews`,
 		mutation(
 			{
 				expected_document_version: expectedDocumentVersion,
 				expected_current_version_id: expectedCurrentVersionId,
-				summary
+					summary,
+					work_dependency: workDependency
 			},
 			commandId
 		)

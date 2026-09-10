@@ -1,6 +1,11 @@
 import { createInfiniteQuery, createQuery, useQueryClient } from '@tanstack/svelte-query';
 import type { InfiniteData } from '@tanstack/svelte-query';
 import {
+	locateRoomMessageTarget,
+	type RoomMessageTarget,
+	type RoomMessageTargetLocation
+} from './room-deep-link';
+import {
 	editRoomMessagePages,
 	getRoomEventSnapshot,
 	getRoomMessageRevisions,
@@ -373,6 +378,16 @@ export function roomThreadQuery(companyId: string, roomId: string, rootMessageId
 			return query.isFetchingNextPage;
 		},
 		loadMore: () => query.fetchNextPage(),
+		locateTarget(target: RoomMessageTarget): Promise<RoomMessageTargetLocation> {
+			return locateRoomMessageTarget(target, {
+				pages: () => query.data?.pages ?? [],
+				hasMore: () => Boolean(query.hasNextPage),
+				loadMore: async () => {
+					const result = await query.fetchNextPage();
+					if (result.isError) throw result.error;
+				}
+			});
+		},
 		refresh: () => query.refetch(),
 		accept(result: RoomMessageSendResult): void {
 			client.setQueryData<InfiniteData<RoomMessagePage, number | null>>(

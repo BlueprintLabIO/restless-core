@@ -354,9 +354,9 @@
 			</header>
 			<DocumentEditor
 				{companyId}
+				companyUuid={collaboration.view?.company.company_id ?? null}
 				view={documentView}
 				principalActorId={principal.principal?.actor_id ?? ''}
-				cachePartition={principal.principal?.cache_partition ?? ''}
 				{online}
 				onaccept={acceptDocument}
 				oncomment={openBlockComment}

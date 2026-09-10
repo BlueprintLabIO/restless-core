@@ -1,8 +1,6 @@
 import { createInfiniteQuery, createQuery, useQueryClient } from '@tanstack/svelte-query';
 import type { InfiniteData, QueryClient } from '@tanstack/svelte-query';
 import {
-	allowDocumentDraftPersistence,
-	documentAccessToken,
 	failClosedDocumentRead,
 	isAuthoritativeDocumentFailure,
 	type DocumentTarget,
@@ -33,7 +31,7 @@ import {
 	type DocumentRevisionResolution,
 	type DocumentReviewPage,
 	type DocumentReviewResolution,
-	type DocumentReviewRow,
+	type DocumentReviewView,
 	type DocumentVersionCursor,
 	type DocumentVersionPage,
 	type DocumentVersionView
@@ -99,11 +97,8 @@ async function guardedDocumentRead<T>(
 	documentId: string | null,
 	read: () => Promise<T>
 ): Promise<T> {
-	const accessToken = documentAccessToken(companyId, documentId);
 	try {
-		const result = await read();
-		allowDocumentDraftPersistence(companyId, documentId, accessToken);
-		return result;
+		return await read();
 	} catch (error) {
 		failClosedDocumentRead(client, error, companyId, documentId);
 		throw error;
@@ -472,7 +467,9 @@ export function documentReviewsQuery(companyId: QueryId, documentId: QueryId) {
 	return {
 		get reviews() {
 			const data = readableData(query);
-			return data ? uniqueById(data.pages.flatMap((page) => page.items)) : [];
+			return data
+				? uniqueById(data.pages.flatMap((page) => page.items).map((item) => item.review))
+				: [];
 		},
 		get status() {
 			return sourceStatus(query);
@@ -487,20 +484,20 @@ export function documentReviewsQuery(companyId: QueryId, documentId: QueryId) {
 			return query.isFetchingNextPage;
 		},
 		loadMore: () => query.fetchNextPage(),
-		accept(target: DocumentTarget, review: DocumentReviewRow): void {
+		accept(target: DocumentTarget, review: DocumentReviewView): void {
 			prependInfiniteItem(
 				client,
 				documentQueryKeys.reviews(target.companyId, target.documentId),
 				review,
-				(item) => item.id
+				(item) => item.review.id
 			);
 		},
 		acceptResolution(target: DocumentTarget, result: DocumentReviewResolution): void {
 			replaceInfiniteItem(
 				client,
 				documentQueryKeys.reviews(target.companyId, target.documentId),
-				result.review,
-				(item) => item.id
+				{ review: result.review, work_dependency: result.work_dependency },
+				(item) => item.review.id
 			);
 		}
 	};

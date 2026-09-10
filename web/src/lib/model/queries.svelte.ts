@@ -105,7 +105,7 @@ export function collaborationBootstrapQuery(
 		queryKey: queryKeys.collaboration(companyId, principal()),
 		queryFn: async ({ signal }) => {
 			const expected = principal();
-			if (!expected || expected.membership_role === 'owner') {
+			if (!expected) {
 				throw Object.assign(new Error('The company principal changed during collaboration.'), {
 					code: 'collaboration_principal_changed'
 				});
@@ -118,7 +118,7 @@ export function collaborationBootstrapQuery(
 			}
 			return view;
 		},
-		enabled: Boolean(companyId) && Boolean(principal()) && principal()?.membership_role !== 'owner',
+		enabled: Boolean(companyId) && Boolean(principal()),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
 		refetchInterval: REFRESH_MS,

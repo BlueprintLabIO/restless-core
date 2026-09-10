@@ -13,6 +13,11 @@
 	import X from '@lucide/svelte/icons/x';
 	import RoomMessage from '$lib/components/RoomMessage.svelte';
 	import {
+		parsePositiveRoomMessageId,
+		parseRoomMessageTarget,
+		type RoomMessageTargetUnavailableReason
+	} from '$lib/model/room-deep-link';
+	import {
 		collaborationBootstrapQuery,
 		companyPrincipalQuery,
 		cockpitQuery
@@ -57,9 +62,10 @@
 	const roomList = $derived(roomsQuery(companyId));
 	const requestedRoomId = $derived(page.url.searchParams.get('room') ?? '');
 	const selectedRoomId = $derived(requestedRoomId || roomList.rooms[0]?.id || '');
-	const requestedThread = $derived(Number(page.url.searchParams.get('thread')));
-	const threadRootId = $derived(
-		Number.isSafeInteger(requestedThread) && requestedThread > 0 ? requestedThread : null
+	const threadRootId = $derived(parsePositiveRoomMessageId(page.url.searchParams.get('thread')));
+	const requestedMessageTarget = $derived(parseRoomMessageTarget(page.url.searchParams));
+	const exactMessageTarget = $derived(
+		requestedMessageTarget.kind === 'target' ? requestedMessageTarget.target : null
 	);
 
 	const roomProjection = $derived(
@@ -101,6 +107,9 @@
 	let debouncedMessageSearch = $state('');
 	let messageSearchOpen = $state(false);
 	let historyMessageId = $state<number | null>(null);
+	let exactTargetKey = $state('');
+	let exactTargetState = $state<'none' | 'invalid' | 'locating' | 'found' | 'unavailable'>('none');
+	let exactTargetUnavailableReason = $state<RoomMessageTargetUnavailableReason | null>(null);
 	let roomSearchTimer: ReturnType<typeof setTimeout> | undefined;
 	let messageSearchTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -246,6 +255,68 @@
 			? [...threadMessages, pendingMessage]
 			: threadMessages
 	);
+	$effect(() => {
+		const parsed = requestedMessageTarget;
+		const projection = threadProjection;
+		const projectionStatus = projection?.status;
+		const projectionFailure = projection?.failure;
+		if (parsed.kind === 'none') {
+			exactTargetKey = '';
+			exactTargetState = 'none';
+			exactTargetUnavailableReason = null;
+			return;
+		}
+		if (parsed.kind === 'invalid') {
+			exactTargetKey = '';
+			exactTargetState = 'invalid';
+			exactTargetUnavailableReason = null;
+			return;
+		}
+
+		const target = parsed.target;
+		const key = [
+			companyId,
+			target.roomId,
+			target.threadRootMessageId,
+			target.messageId,
+			target.mentionId
+		].join(':');
+		if (
+			selectedRoomId.toLowerCase() !== target.roomId ||
+			threadRootId !== target.threadRootMessageId
+		) {
+			exactTargetKey = '';
+			exactTargetState = 'invalid';
+			exactTargetUnavailableReason = null;
+			return;
+		}
+		if (threadMessages.find((message) => message.id === target.messageId)?.deleted_at) {
+			exactTargetKey = key;
+			exactTargetState = 'unavailable';
+			exactTargetUnavailableReason = 'deleted';
+			return;
+		}
+		if (exactTargetKey === key) return;
+		if (!projection || projectionStatus === 'unknown') {
+			exactTargetState = projectionFailure ? 'unavailable' : 'locating';
+			exactTargetUnavailableReason = projectionFailure ? 'paging-unavailable' : null;
+			return;
+		}
+
+		exactTargetKey = key;
+		exactTargetState = 'locating';
+		exactTargetUnavailableReason = null;
+		void projection.locateTarget(target).then((location) => {
+			if (exactTargetKey !== key) return;
+			if (location.state === 'found') {
+				exactTargetState = 'found';
+				exactTargetUnavailableReason = null;
+				return;
+			}
+			exactTargetState = 'unavailable';
+			exactTargetUnavailableReason = location.reason;
+		});
+	});
 	const lastLoadedMessageId = $derived.by(() => {
 		const loaded = [roomMessages.at(-1)?.id, threadMessages.at(-1)?.id].filter(
 			(value): value is number => typeof value === 'number'
@@ -278,8 +349,16 @@
 	$effect(() => {
 		const scope = threadRootId ? `${selectedRoomId}:${threadRootId}` : '';
 		const scroller = threadScrollEl;
+		const target = exactMessageTarget;
 		if (!scope) {
 			threadOpenedFor = '';
+			return;
+		}
+		if (
+			target &&
+			target.roomId === selectedRoomId.toLowerCase() &&
+			target.threadRootMessageId === threadRootId
+		) {
 			return;
 		}
 		if (!scroller || !threadMessages.length || threadOpenedFor === scope) return;
@@ -533,6 +612,17 @@
 		const date = new Date(value);
 		return Number.isNaN(date.getTime()) ? value : date.toDateString();
 	}
+
+	function exactTargetUnavailableCopy(reason: RoomMessageTargetUnavailableReason | null): string {
+		if (reason === 'deleted') return 'The linked message was deleted.';
+		if (reason === 'page-limit') {
+			return 'The linked message is too far back to load from this link.';
+		}
+		if (reason === 'paging-unavailable') {
+			return 'The linked message is unavailable while older messages cannot be loaded.';
+		}
+		return 'The linked message is no longer available in this Thread.';
+	}
 </script>
 
 <svelte:window bind:online />
@@ -663,6 +753,11 @@
 					{/if}
 				</div>
 			</header>
+			{#if exactTargetState === 'invalid' && threadRootId === null}
+				<div class="exact-target-state unavailable" role="status">
+					This linked message address is invalid.
+				</div>
+			{/if}
 			{#if messageSearchOpen}
 				<label class="message-search-field">
 					<Search size={14} strokeWidth={1.9} aria-hidden="true" />
@@ -793,8 +888,12 @@
 			{#if threadRootId === null}{@render messageComposer()}{/if}
 		{:else}
 			<div class="conversation-empty choose-room">
-				<Users size={24} strokeWidth={1.6} aria-hidden="true" />
-				<strong>Choose a Room.</strong>
+				{#if exactTargetState === 'invalid'}
+					<strong>This linked message address is invalid.</strong>
+				{:else}
+					<Users size={24} strokeWidth={1.6} aria-hidden="true" />
+					<strong>Choose a Room.</strong>
+				{/if}
 			</div>
 		{/if}
 	</section>
@@ -809,6 +908,19 @@
 					<strong>Thread</strong><small>{Math.max(0, visibleThread.length - 1)} replies</small>
 				</div>
 			</header>
+			{#if exactTargetState === 'locating'}
+				<div class="exact-target-state" role="status" aria-live="polite">
+					Finding the linked message…
+				</div>
+			{:else if exactTargetState === 'invalid'}
+				<div class="exact-target-state unavailable" role="status">
+					This linked message address is invalid.
+				</div>
+			{:else if exactTargetState === 'unavailable'}
+				<div class="exact-target-state unavailable" role="status">
+					{exactTargetUnavailableCopy(exactTargetUnavailableReason)}
+				</div>
+			{/if}
 			<div class="thread-messages" bind:this={threadScrollEl}>
 				{#if threadProjection?.hasMore}
 					<button
@@ -826,6 +938,8 @@
 						author={message.id < 0 ? 'You' : actorName(message.from_actor)}
 						isYou={message.id < 0 || message.from_actor === currentActorId}
 						isAgent={actorIsAgent(message.from_actor)}
+						targeted={exactTargetState === 'found' && exactMessageTarget?.messageId === message.id}
+						focusKey={exactTargetKey}
 						mentions={mentionsFor(message.id)}
 						thread
 						canEdit={message.id > 0 && !message.deleted_at && message.from_actor === currentActorId}
@@ -1186,6 +1300,21 @@
 		border-bottom: 1px solid color-mix(in srgb, var(--intent-authority) 20%, var(--border));
 		background: color-mix(in srgb, var(--intent-authority-soft) 58%, var(--surface));
 		font-size: var(--t-label);
+		color: var(--intent-authority);
+	}
+
+	.exact-target-state {
+		flex: 0 0 auto;
+		padding: 7px 13px;
+		border-bottom: 1px solid color-mix(in srgb, var(--intent-direction) 22%, var(--border));
+		background: color-mix(in srgb, var(--intent-direction-soft) 66%, var(--surface));
+		font-size: var(--t-label);
+		color: var(--intent-direction);
+	}
+
+	.exact-target-state.unavailable {
+		border-bottom-color: color-mix(in srgb, var(--intent-authority) 22%, var(--border));
+		background: color-mix(in srgb, var(--intent-authority-soft) 56%, var(--surface));
 		color: var(--intent-authority);
 	}
 

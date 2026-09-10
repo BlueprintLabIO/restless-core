@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { tick } from 'svelte';
 	import MessageCircle from '@lucide/svelte/icons/message-circle';
 	import SemanticMark from '$lib/primitives/SemanticMark.svelte';
 	import type {
@@ -12,6 +13,8 @@
 		author,
 		isYou = false,
 		isAgent = false,
+		targeted = false,
+		focusKey = '',
 		mentions = [],
 		thread = false,
 		onthread = null,
@@ -32,6 +35,8 @@
 		author: string;
 		isYou?: boolean;
 		isAgent?: boolean;
+		targeted?: boolean;
+		focusKey?: string;
 		mentions?: RoomMention[];
 		thread?: boolean;
 		onthread?: (() => void) | null;
@@ -59,6 +64,27 @@
 	let deleteCommandId = $state<string | null>(null);
 	let deleteError = $state('');
 	let deleting = $state(false);
+	let messageElement = $state<HTMLElement | undefined>();
+	let focusedFor = '';
+
+	$effect(() => {
+		const key = targeted ? focusKey : '';
+		const element = messageElement;
+		if (!key) {
+			focusedFor = '';
+			return;
+		}
+		if (!element || focusedFor === key) return;
+		focusedFor = key;
+		void tick().then(() => {
+			if (!targeted || focusKey !== key || messageElement !== element) return;
+			const reducedMotion =
+				typeof window !== 'undefined' &&
+				window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+			element.focus({ preventScroll: true });
+			element.scrollIntoView({ block: 'center', behavior: reducedMotion ? 'auto' : 'smooth' });
+		});
+	});
 
 	function clearDeletedState() {
 		// A server tombstone always wins over unsaved local UI. In particular,
@@ -164,7 +190,15 @@
 	}
 </script>
 
-<article class="room-message" class:you={isYou} class:thread>
+<article
+	bind:this={messageElement}
+	class="room-message"
+	class:you={isYou}
+	class:thread
+	class:targeted
+	tabindex="-1"
+>
+	{#if targeted}<span class="sr-only">Linked mention message.</span>{/if}
 	<header>
 		<SemanticMark
 			meaning={isYou ? 'direction' : isAgent ? 'executive' : 'people'}
@@ -293,6 +327,20 @@
 	.room-message.you {
 		background: var(--chat-owner-bg);
 		box-shadow: inset 2px 0 0 var(--chat-owner-edge);
+	}
+
+	.room-message.targeted,
+	.room-message.you.targeted {
+		z-index: 1;
+		background: color-mix(in srgb, var(--intent-direction) 9%, var(--surface));
+		box-shadow:
+			inset 3px 0 0 var(--intent-direction),
+			inset 0 0 0 1px color-mix(in srgb, var(--intent-direction) 34%, transparent);
+	}
+
+	.room-message.targeted:focus {
+		outline: 2px solid color-mix(in srgb, var(--intent-direction) 58%, transparent);
+		outline-offset: -3px;
 	}
 
 	.room-message.thread {

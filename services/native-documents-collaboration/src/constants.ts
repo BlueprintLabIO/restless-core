@@ -1,0 +1,17 @@
+export const PROTOCOL_VERSION = 1;
+export const SCHEMA_VERSION = 1;
+export const TOKEN_AUDIENCE = 'restless-native-documents-collaboration';
+export const TOKEN_TYPE = 'restless-native-documents-collaboration+jwt';
+export const JWKS_PATH = '/.well-known/restless-native-documents-jwks.json';
+export const LIVE_PATH = '/internal/v1/native-documents/live';
+export const READY_PATH = '/internal/v1/native-documents/ready';
+export const MAX_TOKEN_BYTES = 4 * 1024;
+export const MAX_JWKS_BYTES = 32 * 1024;
+export const MAX_AWARENESS_MESSAGE_BYTES = 32 * 1024;
+export const MAX_YJS_STATE_BYTES = 8 * 1024 * 1024;
+export const MIN_TOKEN_TTL_SECONDS = 15;
+export const MAX_TOKEN_TTL_SECONDS = 120;
+export const JWKS_CACHE_SECONDS = 300;
+export const TOKEN_REFRESH_LEAD_SECONDS = 15;
+export const AUTHENTICATION_CLOSE_CODE = 4401;
+export const FORBIDDEN_CLOSE_CODE = 4403;
