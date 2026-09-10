@@ -83,7 +83,11 @@ jobs:
     name: Publish immutable artifacts
     needs: qualify
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    # Three sequential multi-arch (amd64+arm64, QEMU-emulated) Rust builds.
+    # The first, cache-cold account-plane build alone used the full prior
+    # 90m budget; give this job enough room for a cold cache on all three,
+    # and the GHA layer cache warms subsequent runs well under this.
+    timeout-minutes: 240
     outputs:
       account_plane: ${{ steps.refs.outputs.account_plane }}
       company_runtime: ${{ steps.refs.outputs.company_runtime }}
