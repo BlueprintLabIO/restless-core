@@ -97,6 +97,7 @@ pub async fn wake(
     spend: &SpendLedger,
     authority: &crate::authority::AuthorityStore,
     capabilities: &crate::capability::CapabilityIssuer,
+    runtime_bridges: &crate::runtime_bridge::RuntimeBridgeRegistry,
     org: &OrgIntel,
     reason: &str,
     conversation_inbox: &[restless_orgintel::MessageRow],
@@ -106,6 +107,11 @@ pub async fn wake(
     cancellation: &CancellationToken,
 ) -> Result<WakeReport> {
     let container = runtime::container_name(&config.name);
+    let hosted_identity = if runtime_bridges.is_hosted() {
+        Some(crate::runtime_bridge::expected_identity(authority, &config.name).await?)
+    } else {
+        None
+    };
     let focused_mention = pending_mention.is_some();
     // Exec conversation is free-form. Machine work is created and claimed
     // through OrgIntel's Work graph, never inferred from this wake.
@@ -122,7 +128,11 @@ pub async fn wake(
     // must not be woken. Nothing below this line is free — context assembly
     // reads the volume and the turn spends money — so the cheap deterministic
     // checks come first (F2, F3, F12).
-    if let Some(blocked) = health::preflight(&config.name).await? {
+    if let Some(identity) = &hosted_identity {
+        if let Err(error) = crate::runtime_bridge::preflight(runtime_bridges, identity).await {
+            return blocked_wake(org, config, &format!("[runtime] {error:#}")).await;
+        }
+    } else if let Some(blocked) = health::preflight(&config.name).await? {
         return blocked_wake(org, config, &blocked.message()).await;
     }
     let initial_budget = spend.budget_state(config);
@@ -143,6 +153,7 @@ pub async fn wake(
         initial_budget
             .remaining_micro_usd()
             .map(|remaining| remaining as f64 / 1_000_000.0),
+        hosted_identity.as_ref().map(|_| (String::new(), None)),
     )
     .await?;
     let package = context::assemble(&snapshot);
@@ -281,42 +292,93 @@ pub async fn wake(
             | crate::runtime::AgentHarness::ClaudeAgent => {
                 let controls = acp::AgentControls::company_actor(package.system_prompt.clone())?
                     .with_mcp_servers(mcp_servers);
-                acp::with_agent(
-                    &container,
-                    harness,
-                    &auth,
-                    "/company",
-                    "exec",
-                    "portfolio",
-                    controls,
-                    observer.clone(),
-                    {
-                        let company = config.name.clone();
-                        let model = model.clone();
-                        let cancellation = cancellation.clone();
-                        let session_org = org.clone();
-                        let turn_context = turn_context.clone();
-                        move |session| {
-                            Box::pin(async move {
-                                run_ready_exec_session(
-                                    session,
-                                    &session_org,
-                                    &turn_context,
-                                    &company,
-                                    &model,
-                                    remaining,
-                                    metered,
-                                    focused_mention,
-                                    &cancellation,
-                                )
-                                .await
-                            })
-                        }
-                    },
-                )
-                .await
+                if let Some(identity) = &hosted_identity {
+                    let transport = crate::runtime_bridge::open_agent_transport(
+                        runtime_bridges,
+                        identity,
+                        &auth,
+                        "/company",
+                        "exec",
+                        "portfolio",
+                        harness,
+                        &package.system_prompt,
+                    )
+                    .await?;
+                    acp::with_remote_agent(
+                        transport,
+                        harness,
+                        &auth,
+                        "/company",
+                        "exec",
+                        "portfolio",
+                        controls,
+                        observer.clone(),
+                        {
+                            let company = config.name.clone();
+                            let model = model.clone();
+                            let cancellation = cancellation.clone();
+                            let session_org = org.clone();
+                            let turn_context = turn_context.clone();
+                            move |session| {
+                                Box::pin(async move {
+                                    run_ready_exec_session(
+                                        session,
+                                        &session_org,
+                                        &turn_context,
+                                        &company,
+                                        &model,
+                                        remaining,
+                                        metered,
+                                        focused_mention,
+                                        &cancellation,
+                                    )
+                                    .await
+                                })
+                            }
+                        },
+                    )
+                    .await
+                } else {
+                    acp::with_agent(
+                        &container,
+                        harness,
+                        &auth,
+                        "/company",
+                        "exec",
+                        "portfolio",
+                        controls,
+                        observer.clone(),
+                        {
+                            let company = config.name.clone();
+                            let model = model.clone();
+                            let cancellation = cancellation.clone();
+                            let session_org = org.clone();
+                            let turn_context = turn_context.clone();
+                            move |session| {
+                                Box::pin(async move {
+                                    run_ready_exec_session(
+                                        session,
+                                        &session_org,
+                                        &turn_context,
+                                        &company,
+                                        &model,
+                                        remaining,
+                                        metered,
+                                        focused_mention,
+                                        &cancellation,
+                                    )
+                                    .await
+                                })
+                            }
+                        },
+                    )
+                    .await
+                }
             }
             crate::runtime::AgentHarness::Codex => {
+                if hosted_identity.is_some() {
+                    anyhow::bail!("hosted Runtime Exec requires the restless-managed ACP harness");
+                }
                 crate::codex::with_agent(
                     &container,
                     &auth,
@@ -385,26 +447,28 @@ pub async fn wake(
             // provider history, so retain all durable company state and drop
             // only the exact portfolio-session locator. The next wake then
             // reconstructs from the bounded company snapshot.
-            match harness {
-                crate::runtime::AgentHarness::RestlessManaged
-                | crate::runtime::AgentHarness::ClaudeAgent => {
-                    acp::discard_session_locator(
-                        &container,
-                        harness,
-                        &config.name,
-                        "exec",
-                        "portfolio",
-                    )
-                    .await?;
-                }
-                crate::runtime::AgentHarness::Codex => {
-                    crate::codex::discard_session_locator(
-                        &container,
-                        &config.name,
-                        "exec",
-                        "portfolio",
-                    )
-                    .await?;
+            if hosted_identity.is_none() {
+                match harness {
+                    crate::runtime::AgentHarness::RestlessManaged
+                    | crate::runtime::AgentHarness::ClaudeAgent => {
+                        acp::discard_session_locator(
+                            &container,
+                            harness,
+                            &config.name,
+                            "exec",
+                            "portfolio",
+                        )
+                        .await?;
+                    }
+                    crate::runtime::AgentHarness::Codex => {
+                        crate::codex::discard_session_locator(
+                            &container,
+                            &config.name,
+                            "exec",
+                            "portfolio",
+                        )
+                        .await?;
+                    }
                 }
             }
             org.emit_event(
@@ -523,7 +587,13 @@ pub(crate) async fn agent_auth_for_model(
         company: company.to_string(),
         session_id: session_id.clone(),
         coordination_token_env: "RESTLESS_SESSION_CAPABILITY".to_string(),
-        coordination_token: capabilities.issue_actor_session(company, actor, &session_id)?,
+        coordination_token: capabilities.issue_actor_session(
+            company,
+            actor,
+            &session_id,
+            work_id,
+            attempt_id,
+        )?,
         gateway_token_env: access.token_env,
         gateway_token: access.token,
         gateway_url: access.runtime_url,
@@ -1069,9 +1139,15 @@ async fn gather_snapshot(
     pending_mention: Option<&restless_orgintel::MessageMentionContext>,
     spent_usd: f64,
     remaining_usd: Option<f64>,
+    hosted_files: Option<(String, Option<String>)>,
 ) -> Result<ContextSnapshot> {
-    let current_plan = read_company_file(container, "/company/org/exec/current-plan.md").await?;
-    let latest_journal = latest_journal_entry(container).await?;
+    let (current_plan, latest_journal) = match hosted_files {
+        Some(files) => files,
+        None => (
+            read_company_file(container, "/company/org/exec/current-plan.md").await?,
+            latest_journal_entry(container).await?,
+        ),
+    };
     let work = org.list_work().await?;
     let open: Vec<_> = work
         .into_iter()

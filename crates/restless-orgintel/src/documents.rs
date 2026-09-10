@@ -511,6 +511,20 @@ pub enum DocumentCommentStatus {
 pub enum DocumentReviewStatus {
     Requested,
     Accepted,
+    ChangesRequested,
+    Stale,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(
+    type_name = "native_document_work_review_status",
+    rename_all = "snake_case"
+)]
+#[serde(rename_all = "snake_case")]
+pub enum DocumentWorkReviewStatus {
+    Pending,
+    Accepted,
+    ChangesRequested,
     Stale,
 }
 
@@ -655,6 +669,14 @@ pub struct RequestDocumentReview<'a> {
     pub expected_document_version: i64,
     pub expected_current_version_id: Uuid,
     pub summary: &'a str,
+    pub work_dependency: Option<DocumentWorkReviewDependencyInput<'a>>,
+}
+
+pub struct DocumentWorkReviewDependencyInput<'a> {
+    pub work_id: Uuid,
+    pub attempt_id: Uuid,
+    pub expected_work_revision: i64,
+    pub reviewer_actor_id: &'a str,
 }
 
 pub struct AcceptDocumentReview<'a> {
@@ -665,17 +687,52 @@ pub struct AcceptDocumentReview<'a> {
     pub expected_document_version: i64,
     pub expected_review_version: i64,
     pub accepted_version_name: &'a str,
+    pub feedback: &'a str,
+}
+
+pub struct RequestDocumentReviewChanges<'a> {
+    pub document_id: Uuid,
+    pub review_id: Uuid,
+    pub actor_id: &'a str,
+    pub command_id: Uuid,
+    pub expected_document_version: i64,
+    pub expected_review_version: i64,
+    pub feedback: &'a str,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct DocumentWorkReviewDependencyRow {
+    pub review_id: Uuid,
+    pub document_id: Uuid,
+    pub requested_version_id: Uuid,
+    pub work_id: Uuid,
+    pub attempt_id: Uuid,
+    pub work_revision: i64,
+    pub reviewer_actor_id: String,
+    pub status: DocumentWorkReviewStatus,
+    pub feedback: Option<String>,
+    pub resolved_by_actor_id: Option<String>,
+    pub resolved_at: Option<DateTime<Utc>>,
+    pub resumed_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DocumentReviewView {
+    pub review: DocumentReviewRow,
+    pub work_dependency: Option<DocumentWorkReviewDependencyRow>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct DocumentReviewResolution {
     pub review: DocumentReviewRow,
     pub accepted_version: Option<DocumentVersionView>,
+    pub work_dependency: Option<DocumentWorkReviewDependencyRow>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct DocumentReviewPage {
-    pub items: Vec<DocumentReviewRow>,
+    pub items: Vec<DocumentReviewView>,
     pub next_cursor: Option<DocumentPageCursor>,
 }
 
@@ -3310,6 +3367,211 @@ fn review_columns() -> &'static str {
      stale_detected_by_actor_id,stale_at,created_at,version"
 }
 
+fn work_review_dependency_select() -> &'static str {
+    concat!(
+        "SELECT ",
+        "review_id,document_id,requested_version_id,work_id,attempt_id,work_revision,",
+        "reviewer_actor_id,status,feedback,",
+        "resolved_by_actor_id,resolved_at,resumed_at,created_at ",
+        "FROM native_document_work_review_dependencies"
+    )
+}
+
+fn work_review_dependency_columns() -> &'static str {
+    "review_id,document_id,requested_version_id,work_id,attempt_id,work_revision,reviewer_actor_id,status,feedback,\
+     resolved_by_actor_id,resolved_at,resumed_at,created_at"
+}
+
+async fn load_work_review_dependency(
+    tx: &mut Transaction<'_, Postgres>,
+    document_id: Uuid,
+    review_id: Uuid,
+    for_update: bool,
+) -> DocumentResult<Option<DocumentWorkReviewDependencyRow>> {
+    let lock = if for_update { " FOR UPDATE" } else { "" };
+    Ok(
+        sqlx::query_as::<_, DocumentWorkReviewDependencyRow>(&format!(
+            "{} WHERE document_id=$1 AND review_id=$2{}",
+            work_review_dependency_select(),
+            lock
+        ))
+        .bind(document_id)
+        .bind(review_id)
+        .fetch_optional(&mut **tx)
+        .await?,
+    )
+}
+
+async fn append_work_review_feedback(
+    tx: &mut Transaction<'_, Postgres>,
+    work_id: Uuid,
+    reviewer_actor_id: &str,
+    work_owner_id: &str,
+    feedback: &str,
+) -> DocumentResult<()> {
+    let room_id =
+        crate::ensure_direct_message_room_in_tx(tx, reviewer_actor_id, Some(work_owner_id))
+            .await
+            .map_err(|error| DocumentError::Conflict(error.to_string()))?;
+    let message_id: i64 = sqlx::query_scalar(
+        "INSERT INTO messages (room_id,from_actor,to_actor,body) \
+         VALUES ($1,$2,$3,$4) RETURNING id",
+    )
+    .bind(room_id)
+    .bind(reviewer_actor_id)
+    .bind(work_owner_id)
+    .bind(feedback)
+    .fetch_one(&mut **tx)
+    .await?;
+    sqlx::query("INSERT INTO work_feedback (work_id,message_id,linked_by) VALUES ($1,$2,$3)")
+        .bind(work_id)
+        .bind(message_id)
+        .bind(reviewer_actor_id)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+struct LockedDocumentReviewWork {
+    owner_id: String,
+    work_status: crate::WorkStatus,
+    attempt_state: crate::WorkAttemptState,
+    exhausted: bool,
+}
+
+async fn lock_bound_work(
+    tx: &mut Transaction<'_, Postgres>,
+    work_id: Uuid,
+    attempt_id: Uuid,
+    expected_work_revision: i64,
+) -> DocumentResult<LockedDocumentReviewWork> {
+    if attempt_id.is_nil() || expected_work_revision < 1 {
+        return Err(DocumentError::Invalid(
+            "a document review dependency needs an exact Attempt and positive Work revision".into(),
+        ));
+    }
+    let row = sqlx::query(
+        "SELECT w.owner_id,w.status AS work_status,w.revision AS work_revision,\
+                a.actor_id AS attempt_actor_id,a.revision AS attempt_revision,\
+                a.state AS attempt_state,\
+                a.id=(SELECT latest.id FROM work_attempts latest \
+                      WHERE latest.work_id=w.id AND latest.revision=w.revision \
+                        AND latest.state <> 'superseded' \
+                      ORDER BY latest.attempt_no DESC,latest.id DESC LIMIT 1) \
+                  AS is_latest_attempt,\
+                w.attempt_limit IS NOT NULL AND (SELECT count(*) FROM work_attempts counted \
+                  WHERE counted.work_id=w.id AND counted.revision=w.revision \
+                    AND counted.state <> 'superseded') >= w.attempt_limit AS exhausted \
+         FROM work w JOIN work_attempts a ON a.id=$2 AND a.work_id=w.id \
+         WHERE w.id=$1 FOR UPDATE OF w,a",
+    )
+    .bind(work_id)
+    .bind(attempt_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or(DocumentError::Unavailable)?;
+    let work_revision = row.get::<i64, _>("work_revision");
+    let attempt_revision = row.get::<i64, _>("attempt_revision");
+    if work_revision != expected_work_revision || attempt_revision != expected_work_revision {
+        return Err(DocumentError::Conflict(
+            "document review Work/Attempt revision coordinates are stale".into(),
+        ));
+    }
+    let owner_id = row.get::<String, _>("owner_id");
+    if row.get::<String, _>("attempt_actor_id") != owner_id {
+        return Err(DocumentError::Conflict(
+            "document review Attempt no longer belongs to the exact Work owner".into(),
+        ));
+    }
+    if !row.get::<bool, _>("is_latest_attempt") {
+        return Err(DocumentError::Conflict(
+            "document review dependency must name the latest exact Work Attempt".into(),
+        ));
+    }
+    let work_status = row.get::<crate::WorkStatus, _>("work_status");
+    let attempt_state = row.get::<crate::WorkAttemptState, _>("attempt_state");
+    let accountability = crate::actors::lock_work_accountability_for_update_in_tx(tx, work_id)
+        .await
+        .map_err(|error| DocumentError::Conflict(error.to_string()))?;
+    if accountability.owner_id != owner_id
+        || accountability.status != work_status
+        || accountability.revision != expected_work_revision
+    {
+        return Err(DocumentError::Conflict(
+            "dependent Work accountability changed while the review was admitted".into(),
+        ));
+    }
+    Ok(LockedDocumentReviewWork {
+        owner_id,
+        work_status,
+        attempt_state,
+        exhausted: row.get("exhausted"),
+    })
+}
+
+async fn resume_bound_work(
+    tx: &mut Transaction<'_, Postgres>,
+    dependency: &DocumentWorkReviewDependencyRow,
+    reviewer_actor_id: &str,
+    feedback: &str,
+) -> DocumentResult<()> {
+    let bound = lock_bound_work(
+        tx,
+        dependency.work_id,
+        dependency.attempt_id,
+        dependency.work_revision,
+    )
+    .await?;
+    if bound.work_status != crate::WorkStatus::Blocked
+        || bound.attempt_state != crate::WorkAttemptState::Blocked
+    {
+        return Err(DocumentError::Conflict(
+            "the exact dependent Work Attempt must finish blocked before review can resolve it"
+                .into(),
+        ));
+    }
+    append_work_review_feedback(
+        tx,
+        dependency.work_id,
+        reviewer_actor_id,
+        &bound.owner_id,
+        feedback,
+    )
+    .await?;
+    let updated = sqlx::query(
+        "UPDATE work SET status='active',resolution=$2, \
+                attempt_limit=CASE WHEN $3 AND attempt_limit IS NOT NULL \
+                                      AND attempt_limit < 2147483647 \
+                                   THEN attempt_limit + 1 ELSE attempt_limit END \
+         WHERE id=$1 AND status='blocked'",
+    )
+    .bind(dependency.work_id)
+    .bind(format!(
+        "document review resolved by {reviewer_actor_id}: {feedback}"
+    ))
+    .bind(bound.exhausted)
+    .execute(&mut **tx)
+    .await?;
+    if updated.rows_affected() != 1 {
+        return Err(DocumentError::Conflict(
+            "dependent Work is no longer blocked".into(),
+        ));
+    }
+    sqlx::query("INSERT INTO events (kind,actor_id,body) VALUES ('work_repaired',$1,$2)")
+        .bind(reviewer_actor_id)
+        .bind(json!({
+            "work_id": dependency.work_id,
+            "attempt_id": dependency.attempt_id,
+            "work_revision": dependency.work_revision,
+            "reason": feedback,
+            "source": "native_document_review",
+            "attempt_limit_extended": bound.exhausted,
+        }))
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
 fn revision_proposal_select() -> &'static str {
     "SELECT id,document_id,base_version_id,scope,block_id,proposed_content_json,\
             proposed_plain_text,proposed_content_hash,summary,proposed_by_actor_id,status,\
@@ -3585,6 +3847,17 @@ fn review_request_projection(mut review: DocumentReviewRow) -> DocumentReviewRow
     review
 }
 
+fn work_review_request_projection(
+    mut dependency: DocumentWorkReviewDependencyRow,
+) -> DocumentWorkReviewDependencyRow {
+    dependency.status = DocumentWorkReviewStatus::Pending;
+    dependency.feedback = None;
+    dependency.resolved_by_actor_id = None;
+    dependency.resolved_at = None;
+    dependency.resumed_at = None;
+    dependency
+}
+
 fn revision_proposal_creation_projection(
     mut proposal: DocumentRevisionProposalRow,
 ) -> DocumentRevisionProposalRow {
@@ -3653,6 +3926,79 @@ async fn append_semantic_named_version(
     .fetch_one(&mut **tx)
     .await
     .map_err(DocumentError::from)
+}
+
+#[derive(Clone, Copy)]
+enum LiveCheckpointPolicy {
+    /// Checkpoints, reviews and proposals may advance only the exact live body
+    /// they observed. Refuse a stale semantic write instead of discarding a
+    /// collaborator's newer edits.
+    RequireMatchingProjection,
+    /// Restore/import are explicit body-replacement operations. They may
+    /// discard a different live body so the next connection seeds from the
+    /// replacement immutable version.
+    ReplaceProjection,
+}
+
+/// Reconcile the mutable Yjs body whenever Core advances the immutable named
+/// version. Every caller already holds the document row `FOR UPDATE`, while
+/// sidecar stores take that row `FOR SHARE`, making this transition atomic
+/// with respect to collaborative writes.
+async fn reconcile_live_document_checkpoint(
+    tx: &mut Transaction<'_, Postgres>,
+    document_id: Uuid,
+    named_version_id: Uuid,
+    content_json: &Value,
+    policy: LiveCheckpointPolicy,
+) -> DocumentResult<()> {
+    let live_projection: Option<Value> = sqlx::query_scalar(
+        "SELECT projection_json FROM native_document_yjs_state \
+         WHERE document_id=$1 FOR UPDATE",
+    )
+    .bind(document_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    let Some(live_projection) = live_projection else {
+        return Ok(());
+    };
+    if live_projection == *content_json {
+        let advanced = sqlx::query(
+            "UPDATE native_document_yjs_state \
+             SET checkpoint_named_version_id=$2,checkpoint_state_revision=state_revision \
+             WHERE document_id=$1",
+        )
+        .bind(document_id)
+        .bind(named_version_id)
+        .execute(&mut **tx)
+        .await?;
+        if advanced.rows_affected() != 1 {
+            return Err(DocumentError::Corrupt(
+                "live document checkpoint vanished during its locked transition".into(),
+            ));
+        }
+        return Ok(());
+    }
+
+    match policy {
+        LiveCheckpointPolicy::RequireMatchingProjection => Err(DocumentError::Conflict(
+            "live collaborative content changed; checkpoint that body before advancing the named version"
+                .into(),
+        )),
+        LiveCheckpointPolicy::ReplaceProjection => {
+            let discarded =
+                sqlx::query("DELETE FROM native_document_yjs_state WHERE document_id=$1")
+                    .bind(document_id)
+                    .execute(&mut **tx)
+                    .await?;
+            if discarded.rows_affected() != 1 {
+                return Err(DocumentError::Corrupt(
+                    "live document checkpoint vanished during its locked replacement".into(),
+                ));
+            }
+            Ok(())
+        }
+    }
 }
 
 fn validated_proposal_content(
@@ -4433,6 +4779,14 @@ impl OrgIntel {
         .bind(version_id)
         .fetch_one(&mut *tx)
         .await?;
+        reconcile_live_document_checkpoint(
+            &mut tx,
+            input.document_id,
+            version_id,
+            &content.content_json,
+            LiveCheckpointPolicy::RequireMatchingProjection,
+        )
+        .await?;
         let result = record_document_command(
             &mut tx,
             input.command_id,
@@ -4566,6 +4920,14 @@ impl OrgIntel {
         .bind(input.document_id)
         .bind(version_id)
         .fetch_one(&mut *tx)
+        .await?;
+        reconcile_live_document_checkpoint(
+            &mut tx,
+            input.document_id,
+            version_id,
+            &source.content_json,
+            LiveCheckpointPolicy::ReplaceProjection,
+        )
         .await?;
         let result = record_document_command(
             &mut tx,
@@ -4814,6 +5176,14 @@ impl OrgIntel {
         .bind(input.document_id)
         .bind(version_id)
         .fetch_one(&mut *tx)
+        .await?;
+        reconcile_live_document_checkpoint(
+            &mut tx,
+            input.document_id,
+            version_id,
+            &content.content_json,
+            LiveCheckpointPolicy::ReplaceProjection,
+        )
         .await?;
         let result = record_document_command(
             &mut tx,
@@ -5112,6 +5482,14 @@ impl OrgIntel {
         .bind(input.target_document_id)
         .bind(imported_version_id)
         .fetch_one(&mut *tx)
+        .await?;
+        reconcile_live_document_checkpoint(
+            &mut tx,
+            input.target_document_id,
+            imported_version_id,
+            &content.content_json,
+            LiveCheckpointPolicy::ReplaceProjection,
+        )
         .await?;
         append_document_event(
             &mut tx,
@@ -5935,8 +6313,28 @@ impl OrgIntel {
     pub async fn request_document_review(
         &self,
         input: RequestDocumentReview<'_>,
-    ) -> DocumentResult<DocumentReviewRow> {
+    ) -> DocumentResult<DocumentReviewView> {
         let summary = clean_bounded("review summary", input.summary, 1_000)?;
+        let work_dependency = input
+            .work_dependency
+            .map(|dependency| -> DocumentResult<(Uuid, Uuid, i64, String)> {
+                if dependency.work_id.is_nil()
+                    || dependency.attempt_id.is_nil()
+                    || dependency.expected_work_revision < 1
+                {
+                    return Err(DocumentError::Invalid(
+                        "a Work-bound review needs exact Work, Attempt, and positive revision coordinates"
+                            .into(),
+                    ));
+                }
+                Ok((
+                    dependency.work_id,
+                    dependency.attempt_id,
+                    dependency.expected_work_revision,
+                    clean_bounded("reviewer actor id", dependency.reviewer_actor_id, 200)?,
+                ))
+            })
+            .transpose()?;
         let fingerprint = request_fingerprint(
             "review_request",
             json!({
@@ -5945,6 +6343,12 @@ impl OrgIntel {
                 "expected_document_version": input.expected_document_version,
                 "expected_current_version_id": input.expected_current_version_id,
                 "summary": summary,
+                "work_dependency": work_dependency.as_ref().map(|(work_id, attempt_id, work_revision, reviewer)| json!({
+                    "work_id": work_id,
+                    "attempt_id": attempt_id,
+                    "work_revision": work_revision,
+                    "reviewer_actor_id": reviewer,
+                })),
             }),
         );
         let mut tx = self.pool.begin().await?;
@@ -5983,8 +6387,15 @@ impl OrgIntel {
             .fetch_optional(&mut *tx)
             .await?
             .ok_or_else(|| DocumentError::Corrupt("review receipt has no review".into()))?;
+            let work_dependency =
+                load_work_review_dependency(&mut tx, input.document_id, review_id, false)
+                    .await?
+                    .map(work_review_request_projection);
             tx.commit().await?;
-            return Ok(review_request_projection(review));
+            return Ok(DocumentReviewView {
+                review: review_request_projection(review),
+                work_dependency,
+            });
         }
         let actual_version = document.get::<i64, _>("version");
         let current_version_id = document.get::<Uuid, _>("current_named_version_id");
@@ -6000,6 +6411,40 @@ impl OrgIntel {
                 input.expected_current_version_id
             )));
         }
+        if let Some((work_id, attempt_id, work_revision, reviewer_actor_id)) = &work_dependency {
+            let reviewer_class: Option<String> = sqlx::query_scalar(
+                "SELECT actor_class FROM actors WHERE id=$1 AND retired_at IS NULL FOR SHARE",
+            )
+            .bind(reviewer_actor_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if reviewer_class.as_deref() != Some("human") {
+                return Err(DocumentError::Invalid(
+                    "a Work-bound document review needs one active human reviewer".into(),
+                ));
+            }
+            require_access(
+                &mut tx,
+                input.document_id,
+                reviewer_actor_id,
+                DocumentAccess::Edit,
+            )
+            .await?;
+            let bound = lock_bound_work(&mut tx, *work_id, *attempt_id, *work_revision).await?;
+            if bound.owner_id != input.actor_id {
+                return Err(DocumentError::Unavailable);
+            }
+            match (bound.work_status, bound.attempt_state) {
+                (crate::WorkStatus::Active, crate::WorkAttemptState::Running)
+                | (crate::WorkStatus::Blocked, crate::WorkAttemptState::Blocked) => {}
+                _ => {
+                    return Err(DocumentError::Conflict(
+                        "a Work-bound review must be requested by its running exact Attempt or replayed against that blocked Attempt"
+                            .into(),
+                    ))
+                }
+            }
+        }
         let prior_requested = sqlx::query_as::<_, DocumentReviewRow>(&format!(
             "{} WHERE document_id=$1 AND status='requested' FOR UPDATE",
             review_select()
@@ -6013,6 +6458,20 @@ impl OrgIntel {
                     "named version {current_version_id} already has an active review request"
                 )));
             }
+            let prior_dependency =
+                load_work_review_dependency(&mut tx, input.document_id, prior.id, true).await?;
+            if let Some(dependency) = &prior_dependency {
+                resume_bound_work(
+                    &mut tx,
+                    dependency,
+                    input.actor_id,
+                    &format!(
+                        "Native Document review {} became stale when named version {} replaced {}. Re-check the current named version and request a new review if one is still needed.",
+                        prior.id, current_version_id, prior.requested_version_id
+                    ),
+                )
+                .await?;
+            }
             sqlx::query(
                 "UPDATE native_document_reviews SET status='stale',\
                  stale_against_version_id=$3,stale_detected_by_actor_id=$4,stale_at=now(),\
@@ -6021,6 +6480,15 @@ impl OrgIntel {
             .bind(input.document_id)
             .bind(prior.id)
             .bind(current_version_id)
+            .bind(input.actor_id)
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query(
+                "UPDATE native_document_work_review_dependencies SET status='stale',\
+                 resolved_by_actor_id=$2,resolved_at=now(),resumed_at=now() \
+                 WHERE review_id=$1 AND status='pending'",
+            )
+            .bind(prior.id)
             .bind(input.actor_id)
             .execute(&mut *tx)
             .await?;
@@ -6054,6 +6522,33 @@ impl OrgIntel {
         .bind(&summary)
         .fetch_one(&mut *tx)
         .await?;
+        let created_dependency = if let Some((
+            work_id,
+            attempt_id,
+            work_revision,
+            reviewer_actor_id,
+        )) = &work_dependency
+        {
+            Some(
+                sqlx::query_as::<_, DocumentWorkReviewDependencyRow>(&format!(
+                    "INSERT INTO native_document_work_review_dependencies\
+                 (review_id,document_id,requested_version_id,work_id,attempt_id,work_revision,reviewer_actor_id)\
+                 VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING {}",
+                    work_review_dependency_columns()
+                ))
+                .bind(review_id)
+                .bind(input.document_id)
+                .bind(current_version_id)
+                .bind(work_id)
+                .bind(attempt_id)
+                .bind(work_revision)
+                .bind(reviewer_actor_id)
+                .fetch_one(&mut *tx)
+                .await?,
+            )
+        } else {
+            None
+        };
         let document_version: i64 = sqlx::query_scalar(
             "UPDATE native_documents SET status='in_review',version=version+1 \
              WHERE id=$1 RETURNING version",
@@ -6061,6 +6556,38 @@ impl OrgIntel {
         .bind(input.document_id)
         .fetch_one(&mut *tx)
         .await?;
+        if let Some(dependency) = &created_dependency {
+            let blocked = sqlx::query(
+                "UPDATE work SET status='blocked',resolution=$2 \
+                 WHERE id=$1 AND revision=$3 AND status IN ('active','blocked')",
+            )
+            .bind(dependency.work_id)
+            .bind(format!(
+                "awaiting native Document review {} of named version {}",
+                review_id, current_version_id
+            ))
+            .bind(dependency.work_revision)
+            .execute(&mut *tx)
+            .await?;
+            if blocked.rows_affected() != 1 {
+                return Err(DocumentError::Conflict(
+                    "dependent Work changed before its review could be bound".into(),
+                ));
+            }
+            // A post-terminal binding replaces the generic supervisor
+            // exception with a concrete human review obligation. For a live
+            // Attempt this remains false when `finish_work_attempt` observes
+            // the pending dependency.
+            sqlx::query(
+                "UPDATE work_attempts SET supervisor_notice_owed=false \
+                 WHERE id=$1 AND work_id=$2 AND revision=$3 AND state='blocked'",
+            )
+            .bind(dependency.attempt_id)
+            .bind(dependency.work_id)
+            .bind(dependency.work_revision)
+            .execute(&mut *tx)
+            .await?;
+        }
         record_document_command(
             &mut tx,
             input.command_id,
@@ -6082,12 +6609,19 @@ impl OrgIntel {
                 "review_id": review_id,
                 "requested_named_version_id": current_version_id,
                 "requested_by_actor_id": input.actor_id,
+                "work_id": work_dependency.as_ref().map(|(work_id, _, _, _)| work_id),
+                "attempt_id": work_dependency.as_ref().map(|(_, attempt_id, _, _)| attempt_id),
+                "work_revision": work_dependency.as_ref().map(|(_, _, work_revision, _)| work_revision),
+                "reviewer_actor_id": work_dependency.as_ref().map(|(_, _, _, reviewer)| reviewer),
                 "command_id": input.command_id,
             }),
         )
         .await?;
         tx.commit().await?;
-        Ok(review)
+        Ok(DocumentReviewView {
+            review,
+            work_dependency: created_dependency,
+        })
     }
 
     pub async fn get_document_review_for_actor(
@@ -6095,7 +6629,7 @@ impl OrgIntel {
         document_id: Uuid,
         review_id: Uuid,
         actor_id: &str,
-    ) -> DocumentResult<DocumentReviewRow> {
+    ) -> DocumentResult<DocumentReviewView> {
         let mut tx = self.pool.begin().await?;
         require_access(&mut tx, document_id, actor_id, DocumentAccess::Read).await?;
         let review = sqlx::query_as::<_, DocumentReviewRow>(&format!(
@@ -6107,8 +6641,13 @@ impl OrgIntel {
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(DocumentError::Unavailable)?;
+        let work_dependency =
+            load_work_review_dependency(&mut tx, document_id, review_id, false).await?;
         tx.commit().await?;
-        Ok(review)
+        Ok(DocumentReviewView {
+            review,
+            work_dependency,
+        })
     }
 
     pub async fn list_document_reviews(
@@ -6135,13 +6674,36 @@ impl OrgIntel {
         .bind(limit + 1)
         .fetch_all(&mut *tx)
         .await?;
-        tx.commit().await?;
         let next_cursor = page_tail(&mut rows, limit, |row| DocumentPageCursor {
             created_at: row.created_at,
             id: row.id,
         });
+        let review_ids = rows.iter().map(|review| review.id).collect::<Vec<_>>();
+        let dependencies = if review_ids.is_empty() {
+            Vec::new()
+        } else {
+            sqlx::query_as::<_, DocumentWorkReviewDependencyRow>(&format!(
+                "{} WHERE document_id=$1 AND review_id=ANY($2)",
+                work_review_dependency_select()
+            ))
+            .bind(document_id)
+            .bind(&review_ids)
+            .fetch_all(&mut *tx)
+            .await?
+        };
+        let mut dependencies = dependencies
+            .into_iter()
+            .map(|dependency| (dependency.review_id, dependency))
+            .collect::<BTreeMap<_, _>>();
+        tx.commit().await?;
         Ok(DocumentReviewPage {
-            items: rows,
+            items: rows
+                .into_iter()
+                .map(|review| DocumentReviewView {
+                    work_dependency: dependencies.remove(&review.id),
+                    review,
+                })
+                .collect(),
             next_cursor,
         })
     }
@@ -6152,6 +6714,11 @@ impl OrgIntel {
     ) -> DocumentResult<DocumentReviewResolution> {
         let version_name =
             clean_bounded("accepted version name", input.accepted_version_name, 500)?;
+        let feedback = if input.feedback.trim().is_empty() {
+            None
+        } else {
+            Some(clean_bounded("review feedback", input.feedback, 4_000)?)
+        };
         let fingerprint = request_fingerprint(
             "review_accept",
             json!({
@@ -6161,6 +6728,7 @@ impl OrgIntel {
                 "expected_document_version": input.expected_document_version,
                 "expected_review_version": input.expected_review_version,
                 "accepted_version_name": version_name,
+                "feedback": feedback,
             }),
         );
         let mut tx = self.pool.begin().await?;
@@ -6173,6 +6741,13 @@ impl OrgIntel {
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(DocumentError::Unavailable)?;
+        let work_dependency =
+            load_work_review_dependency(&mut tx, input.document_id, input.review_id, true).await?;
+        if let Some(dependency) = &work_dependency {
+            if dependency.reviewer_actor_id != input.actor_id {
+                return Err(DocumentError::Unavailable);
+            }
+        }
         require_document_judgement_actor(&mut tx, input.actor_id).await?;
         require_access(
             &mut tx,
@@ -6219,7 +6794,7 @@ impl OrgIntel {
                     Some(version_view(version)?)
                 }
                 DocumentReviewStatus::Stale => None,
-                DocumentReviewStatus::Requested => {
+                DocumentReviewStatus::Requested | DocumentReviewStatus::ChangesRequested => {
                     return Err(DocumentError::Corrupt(
                         "review acceptance receipt names an unresolved review".into(),
                     ));
@@ -6229,7 +6804,16 @@ impl OrgIntel {
             return Ok(DocumentReviewResolution {
                 review,
                 accepted_version,
+                work_dependency,
             });
+        }
+        if work_dependency
+            .as_ref()
+            .is_some_and(|dependency| dependency.status != DocumentWorkReviewStatus::Pending)
+        {
+            return Err(DocumentError::Conflict(
+                "the Work-bound review is no longer pending".into(),
+            ));
         }
         let actual_document_version = document.get::<i64, _>("version");
         if actual_document_version != input.expected_document_version {
@@ -6260,6 +6844,18 @@ impl OrgIntel {
         }
         let current_version_id = document.get::<Uuid, _>("current_named_version_id");
         if current_version_id != review.requested_version_id {
+            if let Some(dependency) = &work_dependency {
+                resume_bound_work(
+                    &mut tx,
+                    dependency,
+                    input.actor_id,
+                    &format!(
+                        "Native Document review {} became stale because named version {} replaced {}. Re-check the current named version before continuing.",
+                        input.review_id, current_version_id, review.requested_version_id
+                    ),
+                )
+                .await?;
+            }
             let stale = sqlx::query_as::<_, DocumentReviewRow>(&format!(
                 "UPDATE native_document_reviews SET status='stale',\
                  stale_against_version_id=$3,stale_detected_by_actor_id=$4,stale_at=now(),\
@@ -6272,6 +6868,21 @@ impl OrgIntel {
             .bind(input.actor_id)
             .fetch_one(&mut *tx)
             .await?;
+            let stale_dependency = if work_dependency.is_some() {
+                sqlx::query_as::<_, DocumentWorkReviewDependencyRow>(&format!(
+                    "UPDATE native_document_work_review_dependencies SET status='stale',\
+                     resolved_by_actor_id=$3,resolved_at=now(),resumed_at=now() \
+                     WHERE document_id=$1 AND review_id=$2 AND status='pending' RETURNING {}",
+                    work_review_dependency_columns()
+                ))
+                .bind(input.document_id)
+                .bind(input.review_id)
+                .bind(input.actor_id)
+                .fetch_optional(&mut *tx)
+                .await?
+            } else {
+                None
+            };
             record_document_command(
                 &mut tx,
                 input.command_id,
@@ -6301,6 +6912,7 @@ impl OrgIntel {
             return Ok(DocumentReviewResolution {
                 review: stale,
                 accepted_version: None,
+                work_dependency: stale_dependency,
             });
         }
         if document.get::<DocumentStatus, _>("status") != DocumentStatus::InReview {
@@ -6350,6 +6962,14 @@ impl OrgIntel {
         .bind(accepted_version.id)
         .fetch_one(&mut *tx)
         .await?;
+        reconcile_live_document_checkpoint(
+            &mut tx,
+            input.document_id,
+            accepted_version.id,
+            &source_content.content_json,
+            LiveCheckpointPolicy::RequireMatchingProjection,
+        )
+        .await?;
         let accepted_review = sqlx::query_as::<_, DocumentReviewRow>(&format!(
             "UPDATE native_document_reviews SET status='accepted',accepted_version_id=$3,\
              accepted_by_actor_id=$4,accepted_at=now(),material_unresolved_thread_ids=$5,\
@@ -6391,10 +7011,280 @@ impl OrgIntel {
             }),
         )
         .await?;
+        let resolved_dependency = if let Some(dependency) = work_dependency {
+            let work_feedback = feedback.clone().unwrap_or_else(|| {
+                format!("Accepted native Document version {}.", accepted_version.id)
+            });
+            resume_bound_work(&mut tx, &dependency, input.actor_id, &work_feedback).await?;
+            Some(
+                sqlx::query_as::<_, DocumentWorkReviewDependencyRow>(&format!(
+                    "UPDATE native_document_work_review_dependencies SET status='accepted',\
+                     feedback=$3,resolved_by_actor_id=$4,resolved_at=now(),resumed_at=now() \
+                     WHERE document_id=$1 AND review_id=$2 AND status='pending' RETURNING {}",
+                    work_review_dependency_columns()
+                ))
+                .bind(input.document_id)
+                .bind(input.review_id)
+                .bind(feedback.as_deref())
+                .bind(input.actor_id)
+                .fetch_one(&mut *tx)
+                .await?,
+            )
+        } else {
+            None
+        };
         tx.commit().await?;
         Ok(DocumentReviewResolution {
             review: accepted_review,
             accepted_version: Some(version_view(accepted_version)?),
+            work_dependency: resolved_dependency,
+        })
+    }
+
+    pub async fn request_document_review_changes(
+        &self,
+        input: RequestDocumentReviewChanges<'_>,
+    ) -> DocumentResult<DocumentReviewResolution> {
+        let feedback = clean_bounded("review feedback", input.feedback, 4_000)?;
+        let fingerprint = request_fingerprint(
+            "review_request_changes",
+            json!({
+                "document_id": input.document_id,
+                "review_id": input.review_id,
+                "actor_id": input.actor_id,
+                "expected_document_version": input.expected_document_version,
+                "expected_review_version": input.expected_review_version,
+                "feedback": feedback,
+            }),
+        );
+        let mut tx = self.pool.begin().await?;
+        lock_document_command(&mut tx, input.command_id).await?;
+        let document = sqlx::query(
+            "SELECT current_named_version_id,status,version \
+             FROM native_documents WHERE id=$1 FOR UPDATE",
+        )
+        .bind(input.document_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(DocumentError::Unavailable)?;
+        let dependency =
+            load_work_review_dependency(&mut tx, input.document_id, input.review_id, true)
+                .await?
+                .ok_or_else(|| {
+                    DocumentError::Invalid(
+                        "request-changes is available only for an explicit Work-bound review"
+                            .into(),
+                    )
+                })?;
+        if dependency.reviewer_actor_id != input.actor_id {
+            return Err(DocumentError::Unavailable);
+        }
+        require_document_judgement_actor(&mut tx, input.actor_id).await?;
+        require_access(
+            &mut tx,
+            input.document_id,
+            input.actor_id,
+            DocumentAccess::Edit,
+        )
+        .await?;
+        if replayed_document_command(
+            &mut tx,
+            input.command_id,
+            input.document_id,
+            input.actor_id,
+            "review_request_changes",
+            &fingerprint,
+        )
+        .await?
+        .is_some()
+        {
+            let review = sqlx::query_as::<_, DocumentReviewRow>(&format!(
+                "{} WHERE document_id=$1 AND id=$2",
+                review_select()
+            ))
+            .bind(input.document_id)
+            .bind(input.review_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| DocumentError::Corrupt("review receipt has no review".into()))?;
+            let dependency =
+                load_work_review_dependency(&mut tx, input.document_id, input.review_id, false)
+                    .await?
+                    .ok_or_else(|| {
+                        DocumentError::Corrupt("review receipt has no Work dependency".into())
+                    })?;
+            tx.commit().await?;
+            return Ok(DocumentReviewResolution {
+                review,
+                accepted_version: None,
+                work_dependency: Some(dependency),
+            });
+        }
+        if dependency.status != DocumentWorkReviewStatus::Pending {
+            return Err(DocumentError::Conflict(
+                "the Work-bound review is no longer pending".into(),
+            ));
+        }
+        let actual_document_version = document.get::<i64, _>("version");
+        if actual_document_version != input.expected_document_version {
+            return Err(DocumentError::Conflict(format!(
+                "metadata is version {actual_document_version}, expected {}",
+                input.expected_document_version
+            )));
+        }
+        let review = sqlx::query_as::<_, DocumentReviewRow>(&format!(
+            "{} WHERE document_id=$1 AND id=$2 FOR UPDATE",
+            review_select()
+        ))
+        .bind(input.document_id)
+        .bind(input.review_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(DocumentError::Unavailable)?;
+        if review.version != input.expected_review_version {
+            return Err(DocumentError::Conflict(format!(
+                "review is version {}, expected {}",
+                review.version, input.expected_review_version
+            )));
+        }
+        if review.status != DocumentReviewStatus::Requested {
+            return Err(DocumentError::Conflict(
+                "review is no longer awaiting a decision".into(),
+            ));
+        }
+        let current_version_id = document.get::<Uuid, _>("current_named_version_id");
+        if current_version_id != review.requested_version_id {
+            resume_bound_work(
+                &mut tx,
+                &dependency,
+                input.actor_id,
+                &format!(
+                    "Native Document review {} became stale because named version {} replaced {}. Re-check the current named version before continuing.",
+                    input.review_id, current_version_id, review.requested_version_id
+                ),
+            )
+            .await?;
+            let stale = sqlx::query_as::<_, DocumentReviewRow>(&format!(
+                "UPDATE native_document_reviews SET status='stale',\
+                 stale_against_version_id=$3,stale_detected_by_actor_id=$4,stale_at=now(),\
+                 version=version+1 WHERE document_id=$1 AND id=$2 RETURNING {}",
+                review_columns()
+            ))
+            .bind(input.document_id)
+            .bind(input.review_id)
+            .bind(current_version_id)
+            .bind(input.actor_id)
+            .fetch_one(&mut *tx)
+            .await?;
+            let stale_dependency = sqlx::query_as::<_, DocumentWorkReviewDependencyRow>(&format!(
+                "UPDATE native_document_work_review_dependencies SET status='stale',\
+                 resolved_by_actor_id=$3,resolved_at=now(),resumed_at=now() \
+                 WHERE document_id=$1 AND review_id=$2 AND status='pending' RETURNING {}",
+                work_review_dependency_columns()
+            ))
+            .bind(input.document_id)
+            .bind(input.review_id)
+            .bind(input.actor_id)
+            .fetch_one(&mut *tx)
+            .await?;
+            record_document_command(
+                &mut tx,
+                input.command_id,
+                input.document_id,
+                "review_request_changes",
+                &fingerprint,
+                input.review_id,
+                input.actor_id,
+            )
+            .await?;
+            append_document_event(
+                &mut tx,
+                "document.review.stale.v1",
+                input.document_id,
+                input.actor_id,
+                json!({
+                    "document_id": input.document_id,
+                    "review_id": input.review_id,
+                    "requested_named_version_id": review.requested_version_id,
+                    "current_named_version_id": current_version_id,
+                    "stale_detected_by_actor_id": input.actor_id,
+                    "command_id": input.command_id,
+                }),
+            )
+            .await?;
+            tx.commit().await?;
+            return Ok(DocumentReviewResolution {
+                review: stale,
+                accepted_version: None,
+                work_dependency: Some(stale_dependency),
+            });
+        }
+        if document.get::<DocumentStatus, _>("status") != DocumentStatus::InReview {
+            return Err(DocumentError::Conflict(
+                "document is no longer in review".into(),
+            ));
+        }
+        resume_bound_work(&mut tx, &dependency, input.actor_id, &feedback).await?;
+        let changed_review = sqlx::query_as::<_, DocumentReviewRow>(&format!(
+            "UPDATE native_document_reviews SET status='changes_requested',version=version+1 \
+             WHERE document_id=$1 AND id=$2 RETURNING {}",
+            review_columns()
+        ))
+        .bind(input.document_id)
+        .bind(input.review_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        let document_version: i64 = sqlx::query_scalar(
+            "UPDATE native_documents SET status='draft',version=version+1 \
+             WHERE id=$1 RETURNING version",
+        )
+        .bind(input.document_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        let resolved_dependency = sqlx::query_as::<_, DocumentWorkReviewDependencyRow>(&format!(
+            "UPDATE native_document_work_review_dependencies SET status='changes_requested',\
+                 feedback=$3,resolved_by_actor_id=$4,resolved_at=now(),resumed_at=now() \
+                 WHERE document_id=$1 AND review_id=$2 AND status='pending' RETURNING {}",
+            work_review_dependency_columns()
+        ))
+        .bind(input.document_id)
+        .bind(input.review_id)
+        .bind(&feedback)
+        .bind(input.actor_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        record_document_command(
+            &mut tx,
+            input.command_id,
+            input.document_id,
+            "review_request_changes",
+            &fingerprint,
+            input.review_id,
+            input.actor_id,
+        )
+        .await?;
+        append_document_event(
+            &mut tx,
+            "document.review.changes_requested.v1",
+            input.document_id,
+            input.actor_id,
+            json!({
+                "document_id": input.document_id,
+                "document_version": document_version,
+                "review_id": input.review_id,
+                "requested_named_version_id": review.requested_version_id,
+                "work_id": dependency.work_id,
+                "requested_by_actor_id": input.actor_id,
+                "feedback": feedback,
+                "command_id": input.command_id,
+            }),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(DocumentReviewResolution {
+            review: changed_review,
+            accepted_version: None,
+            work_dependency: Some(resolved_dependency),
         })
     }
 
@@ -6844,6 +7734,14 @@ impl OrgIntel {
         .bind(input.document_id)
         .bind(accepted_version.id)
         .fetch_one(&mut *tx)
+        .await?;
+        reconcile_live_document_checkpoint(
+            &mut tx,
+            input.document_id,
+            accepted_version.id,
+            &accepted_content.content_json,
+            LiveCheckpointPolicy::RequireMatchingProjection,
+        )
         .await?;
         let accepted = sqlx::query_as::<_, DocumentRevisionProposalRow>(&format!(
             "UPDATE native_document_revision_proposals SET status='accepted',\

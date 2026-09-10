@@ -15,7 +15,8 @@ use anyhow::{bail, Context, Result};
 use base64::Engine as _;
 use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac};
-use restless_orgintel::{ArtifactRefState, NewArtifactRef, OrgIntel};
+use restless_orgintel::{ArtifactRefState, NewArtifactRef, OrgIntel, WorkAttemptState};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sqlx::Row as _;
@@ -29,16 +30,67 @@ use restlessd::published_service_contract::{
 };
 use restlessd::published_service_fixture::{load_marker, LocalFixtureConfig, LocalFixtureMarker};
 
+mod http_provider;
+use http_provider::{HttpPublicationProvider, ProviderObservation, HTTP_PROVIDER};
+
 const PROVIDER_ENV: &str = "RESTLESS_PUBLISHED_SERVICE_PROVIDER";
 const FIXTURE_BINARY_ENV: &str = "RESTLESS_PUBLISHED_SERVICE_FIXTURE_BIN";
 const LOCAL_PROVIDER: &str = "local-test";
 const LOCAL_DOCKER_PROVIDER: &str = "local-docker-test";
+pub(super) const BUILD_CONTRACT_VERSION: &str = "published-service-build.v1";
+
+#[derive(Debug, Clone, Serialize)]
+pub(super) struct CandidateBuildRequest {
+    pub(super) contract_version: String,
+    pub(super) operation_id: String,
+    pub(super) owner_id: Uuid,
+    pub(super) company_id: Uuid,
+    pub(super) cell_id: Uuid,
+    pub(super) company_handle: String,
+    pub(super) work_id: Uuid,
+    pub(super) attempt_id: Uuid,
+    pub(super) producing_actor: String,
+    pub(super) source_artifact_ref_id: Uuid,
+    pub(super) source_commit: String,
+    pub(super) context_path: String,
+    pub(super) dockerfile: String,
+    pub(super) idempotency_key: String,
+    pub(super) requested_at: DateTime<Utc>,
+    pub(super) deadline: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct CandidateBuildReceipt {
+    pub(super) status: String,
+    pub(super) contract_version: String,
+    pub(super) operation_id: String,
+    pub(super) provider_operation_id: String,
+    pub(super) image: String,
+    pub(super) image_digest: String,
+    pub(super) context_digest: String,
+    pub(super) source_commit: String,
+    pub(super) runtime_generation: String,
+    pub(super) work_id: String,
+    pub(super) attempt_id: String,
+    pub(super) source_artifact_ref_id: String,
+    pub(super) producing_actor: String,
+    pub(super) built_at: DateTime<Utc>,
+    pub(super) pushed_at: DateTime<Utc>,
+    pub(super) verified_at: DateTime<Utc>,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FixtureDisposition {
     Started,
     Existing,
     Restarted,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConfiguredProvider {
+    Local,
+    Http,
 }
 
 #[derive(Debug, Clone)]
@@ -70,6 +122,153 @@ impl PublicationManager {
             authority,
             signing_key,
         })
+    }
+
+    /// Ask the worker-local, credential-custody provider to build one hardened
+    /// completed-Attempt snapshot and return the remotely verified OCI digest.
+    /// Registry credentials never cross this account-plane boundary.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn build_candidate_image(
+        &self,
+        org: &OrgIntel,
+        company: &str,
+        actor: &str,
+        source_artifact_ref_id: &str,
+        context_subpath: Option<&str>,
+        dockerfile: &str,
+        idempotency_key: &str,
+        deadline: DateTime<Utc>,
+    ) -> Result<Value> {
+        if self.configured_provider(company)? != ConfiguredProvider::Http {
+            bail!("candidate image builds require the production cloud-http provider");
+        }
+        if idempotency_key.is_empty()
+            || idempotency_key.len() > 256
+            || idempotency_key.chars().any(char::is_whitespace)
+        {
+            bail!(
+                "candidate build idempotency key must be a bounded identifier without whitespace"
+            );
+        }
+        if deadline <= Utc::now() || deadline > Utc::now() + chrono::Duration::minutes(15) {
+            bail!("candidate build deadline must be within the next 15 minutes");
+        }
+        validate_relative_build_path(dockerfile, "dockerfile")?;
+        if let Some(path) = context_subpath {
+            validate_relative_build_path(path, "context subpath")?;
+        }
+
+        let source_id = Uuid::parse_str(source_artifact_ref_id)
+            .context("source_artifact_ref_id must be an OrgIntel artifact UUID")?;
+        let source = org
+            .get_artifact_ref(source_id)
+            .await?
+            .context("candidate build source artifact does not exist")?;
+        if source.kind != "published_service_source" || source.state != ArtifactRefState::Available
+        {
+            bail!("candidate build source must be an available published_service_source artifact");
+        }
+        if source.created_by != actor {
+            bail!("candidate build actor did not produce the source artifact");
+        }
+        let work_id = source
+            .work_id
+            .context("candidate build source has no Work provenance")?;
+        let attempt_id = source
+            .attempt_id
+            .context("candidate build source has no Attempt provenance")?;
+        let source_commit = source
+            .source_commit
+            .clone()
+            .context("candidate build source has no exact source commit")?;
+        let attempt = org
+            .list_work_attempts(Some(work_id))
+            .await?
+            .into_iter()
+            .find(|attempt| attempt.id == attempt_id)
+            .context("candidate build source Attempt does not exist")?;
+        if attempt.actor_id != actor || attempt.state != WorkAttemptState::Produced {
+            bail!("candidate build requires its producing actor's completed successful Attempt");
+        }
+        if attempt.terminal_source_commit.as_deref() != Some(source_commit.as_str())
+            || attempt.terminal_dirty_entries != Some(0)
+            || attempt.terminal_observed_at.is_none()
+        {
+            bail!("candidate build source is not bound to the clean terminal Attempt observation");
+        }
+
+        let bootstrap = sqlx::query_as::<_, (Uuid, Uuid, Uuid)>(
+            "SELECT owner_id,company_id,cell_id \
+             FROM restless_authority.company_bootstrap_operations \
+             WHERE company_handle=$1 AND status='ready'",
+        )
+        .bind(company)
+        .fetch_optional(self.authority.pool())
+        .await?
+        .context("company has no ready Cloud Runtime cell for candidate building")?;
+        let context_path = match context_subpath {
+            Some(path) => format!("reviews/git/{source_commit}/{path}"),
+            None => format!("reviews/git/{source_commit}"),
+        };
+        let identity = json!({
+            "company": company,
+            "source_artifact_ref_id": source_id,
+            "context_path": context_path,
+            "dockerfile": dockerfile,
+            "idempotency_key": idempotency_key,
+        });
+        let operation_digest = format!("{:x}", Sha256::digest(serde_json::to_vec(&identity)?));
+        let request = CandidateBuildRequest {
+            contract_version: BUILD_CONTRACT_VERSION.into(),
+            operation_id: format!("build-{}", &operation_digest[..24]),
+            owner_id: bootstrap.0,
+            company_id: bootstrap.1,
+            cell_id: bootstrap.2,
+            company_handle: company.to_string(),
+            work_id,
+            attempt_id,
+            producing_actor: actor.to_string(),
+            source_artifact_ref_id: source_id,
+            source_commit: source_commit.clone(),
+            context_path,
+            dockerfile: dockerfile.to_string(),
+            idempotency_key: idempotency_key.to_string(),
+            // Delivery timestamps are derived from the explicit stable deadline,
+            // so a lost Core response can replay byte-identical build inputs.
+            requested_at: deadline - chrono::Duration::minutes(15),
+            deadline,
+        };
+        let (receipt, recovered) = HttpPublicationProvider::from_env()?
+            .build_candidate(&request)
+            .await?;
+        if source
+            .runtime_generation
+            .as_deref()
+            .is_some_and(|expected| expected != receipt.runtime_generation)
+        {
+            bail!("provider-observed Runtime generation disagrees with source provenance");
+        }
+        let note = serde_json::to_string(&receipt).context("encode candidate build receipt")?;
+        let label = format!("Published service image {}", receipt.image_digest);
+        let image_artifact_ref_id = org
+            .link_work_artifact(NewArtifactRef {
+                kind: "published_service_image",
+                uri: &receipt.image,
+                note: &note,
+                created_by: actor,
+                work_id: Some(work_id),
+                attempt_id: Some(attempt_id),
+                digest: Some(&receipt.image_digest),
+                source_commit: Some(&source_commit),
+                runtime_generation: Some(&receipt.runtime_generation),
+                label: &label,
+            })
+            .await?;
+        Ok(json!({
+            "image_artifact_ref_id": image_artifact_ref_id,
+            "receipt": receipt,
+            "recovered": recovered,
+        }))
     }
 
     pub(crate) async fn create_candidate(
@@ -309,7 +508,7 @@ impl PublicationManager {
         company: &str,
         publication_id: &str,
     ) -> Result<Value> {
-        self.ensure_local_provider_allowed(company)?;
+        let configured_provider = self.configured_provider(company)?;
         let request = self.request_by_publication(company, publication_id).await?;
         let already_authorized = self
             .has_record(company, "publication_authorized", publication_id)
@@ -382,7 +581,37 @@ impl PublicationManager {
             &grant,
         )
         .await?;
-        let (marker, disposition) = match self.ensure_fixture(company, &request).await {
+        let provider_result = match configured_provider {
+            ConfiguredProvider::Local => {
+                self.ensure_fixture(company, &request)
+                    .await
+                    .map(|(marker, disposition)| {
+                        (marker.receipt, marker.tls_certificate_pem, disposition)
+                    })
+            }
+            ConfiguredProvider::Http => {
+                let key = self.invitation_key(
+                    company,
+                    &request.publication_id,
+                    &request.candidate.manifest_digest,
+                )?;
+                HttpPublicationProvider::from_env()?
+                    .provision(&request, &key)
+                    .await
+                    .map(|(receipt, adopted)| {
+                        (
+                            receipt,
+                            None,
+                            if adopted {
+                                FixtureDisposition::Existing
+                            } else {
+                                FixtureDisposition::Started
+                            },
+                        )
+                    })
+            }
+        };
+        let (receipt, tls_certificate_pem, disposition) = match provider_result {
             Ok(value) => value,
             Err(error) => {
                 self.record_provider_failure(company, &request, &error)
@@ -394,7 +623,7 @@ impl PublicationManager {
             "publication_id": publication_id,
             "candidate_digest": request.candidate.manifest_digest,
             "resource_grant_record_id": resource_grant_id,
-            "receipt": marker.receipt,
+            "receipt": receipt,
         });
         let (ready_id, replayed, recovered) = match disposition {
             FixtureDisposition::Started => (
@@ -412,13 +641,18 @@ impl PublicationManager {
             FixtureDisposition::Existing => {
                 let record = self
                     .latest_provider_receipt_record(company, publication_id)
-                    .await?
-                    .context("active provider has no Authority ready receipt")?;
-                let unresolved_failure = self
-                    .latest_provider_failure_record(company, publication_id)
-                    .await?
-                    .is_some_and(|failure| failure > record);
-                if unresolved_failure {
+                    .await?;
+                let unresolved_failure = match record.as_ref() {
+                    Some((record_id, _)) => self
+                        .latest_provider_failure_record(company, publication_id)
+                        .await?
+                        .is_some_and(|failure| failure > *record_id),
+                    None => true,
+                };
+                let receipt_changed = record
+                    .as_ref()
+                    .is_some_and(|(_, recorded_body)| recorded_body != &ready_body);
+                if unresolved_failure || receipt_changed {
                     (
                         self.authority
                             .emit(
@@ -432,7 +666,13 @@ impl PublicationManager {
                         true,
                     )
                 } else {
-                    (record, true, false)
+                    (
+                        record
+                            .map(|(record_id, _)| record_id)
+                            .context("provider receipt disappeared")?,
+                        true,
+                        false,
+                    )
                 }
             }
             FixtureDisposition::Restarted => (
@@ -456,7 +696,7 @@ impl PublicationManager {
                     "authority_record_id": ready_id,
                     "publication_id": publication_id,
                     "candidate_digest": request.candidate.manifest_digest,
-                    "endpoint": marker.receipt.endpoint,
+                    "endpoint": receipt.endpoint,
                     "recovered": recovered,
                 }),
             )
@@ -468,8 +708,8 @@ impl PublicationManager {
             "ready_record_id": ready_id,
             "replayed": replayed,
             "recovered": recovered,
-            "receipt": marker.receipt,
-            "tls_certificate_pem": marker.tls_certificate_pem,
+            "receipt": receipt,
+            "tls_certificate_pem": tls_certificate_pem,
         }))
     }
 
@@ -584,12 +824,34 @@ impl PublicationManager {
         {
             bail!("publication is stopped");
         }
-        let directory = self.publication_directory(company, publication_id)?;
-        let marker = load_marker(&directory.join("ready.json"))?;
-        self.validate_marker(&request, &marker)?;
-        if !process_is_fixture(marker.receipt.provider_process_id)? {
-            bail!("published service is not running");
-        }
+        let (endpoint, local_self_signed_tls) = match self.configured_provider(company)? {
+            ConfiguredProvider::Local => {
+                let directory = self.publication_directory(company, publication_id)?;
+                let marker = load_marker(&directory.join("ready.json"))?;
+                self.validate_marker(&request, &marker)?;
+                if !process_is_fixture(marker.receipt.provider_process_id)? {
+                    bail!("published service is not running");
+                }
+                (
+                    marker.receipt.endpoint,
+                    marker.tls_certificate_pem.is_some(),
+                )
+            }
+            ConfiguredProvider::Http => {
+                let key = self.invitation_key(
+                    company,
+                    publication_id,
+                    &request.candidate.manifest_digest,
+                )?;
+                let observation = HttpPublicationProvider::from_env()?
+                    .observe(&request, &key)
+                    .await?;
+                let receipt = observation
+                    .receipt()
+                    .context("published service is not ready at the Cloud provider")?;
+                (receipt.endpoint.clone(), false)
+            }
+        };
         let expires_at = request.expires_at.min(now + chrono::Duration::minutes(15));
         let token = match request.audience {
             Audience::Public => None,
@@ -619,12 +881,12 @@ impl PublicationManager {
             }
         };
         Ok(PreparedPublicationAccess {
-            endpoint: marker.receipt.endpoint,
+            endpoint,
             token,
             subject: (request.audience != Audience::Public).then(|| "owner".to_string()),
             candidate_digest: request.candidate.manifest_digest,
             expires_at,
-            local_self_signed_tls: marker.tls_certificate_pem.is_some(),
+            local_self_signed_tls,
         })
     }
 
@@ -646,6 +908,11 @@ impl PublicationManager {
         let publication_id = required_str(&invitation, "publication_id")?;
         let digest = required_str(&invitation, "token_digest")?;
         let request = self.request_by_publication(company, publication_id).await?;
+        if self.configured_provider(company)? == ConfiguredProvider::Http {
+            bail!(
+                "the cloud-http published-service provider does not yet expose the dynamic invitation-revocation operation; refusing to record an unenforced revocation"
+            );
+        }
         let directory = self.publication_directory(company, publication_id)?;
         if directory.is_dir() {
             append_line_once(&directory.join("revoked.sha256"), digest)?;
@@ -672,6 +939,31 @@ impl PublicationManager {
 
     pub(crate) async fn observe(&self, company: &str, publication_id: &str) -> Result<Value> {
         let request = self.request_by_publication(company, publication_id).await?;
+        if self.configured_provider(company)? == ConfiguredProvider::Http {
+            let key =
+                self.invitation_key(company, publication_id, &request.candidate.manifest_digest)?;
+            let provider_observation = HttpPublicationProvider::from_env()?
+                .observe(&request, &key)
+                .await?;
+            let body = json!({
+                "publication_id": publication_id,
+                "candidate_digest": request.candidate.manifest_digest,
+                "active": matches!(provider_observation, ProviderObservation::Ready(_)),
+                "provider_status": provider_observation.status(),
+                "provider_observation": provider_observation.as_value(),
+                "observed_at": Utc::now(),
+            });
+            let record_id = self
+                .authority
+                .emit(
+                    company,
+                    "publication_observation",
+                    Some("authority"),
+                    body.clone(),
+                )
+                .await?;
+            return Ok(json!({"observation_record_id": record_id, "observation": body}));
+        }
         let directory = self.publication_directory(company, publication_id)?;
         let marker = load_marker(&directory.join("ready.json"))?;
         let observations: ServiceObservations =
@@ -770,6 +1062,52 @@ impl PublicationManager {
         let request = self.request_by_publication(company, publication_id).await?;
         if reason.trim().is_empty() {
             bail!("publication stop needs a reason");
+        }
+        if self.configured_provider(company)? == ConfiguredProvider::Http {
+            let cleanup = HttpPublicationProvider::from_env()?
+                .cleanup(&request)
+                .await?;
+            let stopped = json!({
+                "publication_id": publication_id,
+                "candidate_digest": request.candidate.manifest_digest,
+                "reason": reason,
+                "stopped_at": Utc::now(),
+                "provider_process_absent": cleanup.provider_process_absent,
+            });
+            let stopped_id = insert_once(
+                self.authority.pool(),
+                company,
+                "publication_stopped",
+                actor,
+                &stopped,
+            )
+            .await?;
+            let cleanup_body = serde_json::to_value(&cleanup)?;
+            let cleanup_id = insert_once(
+                self.authority.pool(),
+                company,
+                "publication_cleanup",
+                "authority",
+                &cleanup_body,
+            )
+            .await?;
+            org.emit_event(
+                "publication_stopped",
+                Some("authority"),
+                json!({
+                    "authority_record_id": stopped_id,
+                    "cleanup_record_id": cleanup_id,
+                    "publication_id": publication_id,
+                }),
+            )
+            .await?;
+            return Ok(json!({
+                "publication_id": publication_id,
+                "status": "stopped",
+                "stopped_record_id": stopped_id,
+                "cleanup_record_id": cleanup_id,
+                "cleanup": cleanup,
+            }));
         }
         let directory = self.publication_directory(company, publication_id)?;
         let marker_path = directory.join("ready.json");
@@ -887,18 +1225,14 @@ impl PublicationManager {
         Ok(Value::Object(kinds))
     }
 
-    /// Reconcile every locally authorized publication once during daemon boot.
-    /// A provider process may deliberately outlive the daemon; its exact
-    /// marker/receipt makes this a read-before-restart path, not a blind replay.
+    /// Reconcile every authorized publication once during daemon boot. Both a
+    /// local process and a remote Cloud operation may outlive the daemon; the
+    /// stable publication identity makes this a read-before-replay path.
     pub(crate) async fn reconcile_company(
         &self,
         org: &OrgIntel,
         company: &str,
     ) -> Result<Vec<Value>> {
-        let provider = std::env::var(PROVIDER_ENV).unwrap_or_default();
-        if provider != LOCAL_PROVIDER && provider != LOCAL_DOCKER_PROVIDER {
-            return Ok(Vec::new());
-        }
         let mut outcomes = Vec::new();
         for record in self
             .authority
@@ -920,6 +1254,42 @@ impl PublicationManager {
     }
 
     async fn cleanup_stopped(&self, company: &str, publication_id: &str) -> Result<Value> {
+        if self.configured_provider(company)? == ConfiguredProvider::Http {
+            let existing = self
+                .authority
+                .find_body(
+                    company,
+                    "publication_cleanup",
+                    "publication_id",
+                    publication_id,
+                )
+                .await?;
+            if existing.is_some() {
+                return Ok(json!({
+                    "publication_id": publication_id,
+                    "status": "stopped",
+                    "cleanup": existing,
+                }));
+            }
+            let request = self.request_by_publication(company, publication_id).await?;
+            let cleanup = HttpPublicationProvider::from_env()?
+                .cleanup(&request)
+                .await?;
+            let cleanup_body = serde_json::to_value(&cleanup)?;
+            let _ = insert_once(
+                self.authority.pool(),
+                company,
+                "publication_cleanup",
+                "authority",
+                &cleanup_body,
+            )
+            .await?;
+            return Ok(json!({
+                "publication_id": publication_id,
+                "status": "stopped",
+                "cleanup": cleanup,
+            }));
+        }
         let directory = self.publication_directory(company, publication_id)?;
         if directory.exists() {
             bail!("stopped publication still has provider state; owner stop must repair it");
@@ -1006,9 +1376,9 @@ impl PublicationManager {
         &self,
         company: &str,
         publication_id: &str,
-    ) -> Result<Option<i64>> {
-        sqlx::query_scalar(
-            "SELECT id FROM restless_authority.records WHERE company=$1 \
+    ) -> Result<Option<(i64, Value)>> {
+        let row = sqlx::query(
+            "SELECT id,body FROM restless_authority.records WHERE company=$1 \
              AND kind IN ('publication_ready','publication_recovered') \
              AND body->>'publication_id'=$2 ORDER BY id DESC LIMIT 1",
         )
@@ -1016,7 +1386,8 @@ impl PublicationManager {
         .bind(publication_id)
         .fetch_optional(self.authority.pool())
         .await
-        .context("read latest provider receipt")
+        .context("read latest provider receipt")?;
+        Ok(row.map(|row| (row.get("id"), row.get("body"))))
     }
 
     async fn latest_provider_failure_record(
@@ -1068,19 +1439,30 @@ impl PublicationManager {
         Ok(())
     }
 
-    fn ensure_local_provider_allowed(&self, company: &str) -> Result<()> {
+    fn configured_provider(&self, company: &str) -> Result<ConfiguredProvider> {
         let provider = std::env::var(PROVIDER_ENV).unwrap_or_default();
-        if provider != LOCAL_PROVIDER && provider != LOCAL_DOCKER_PROVIDER {
-            bail!(
+        match provider.as_str() {
+            LOCAL_PROVIDER | LOCAL_DOCKER_PROVIDER => {
+                if !company.ends_with("_test") {
+                    bail!(
+                        "the local publication provider is restricted to throwaway _test companies"
+                    );
+                }
+                Ok(ConfiguredProvider::Local)
+            }
+            HTTP_PROVIDER => {
+                // Parse and validate the credential-bearing provider origin before
+                // Authority records a successful external effect.
+                let _ = HttpPublicationProvider::from_env()?;
+                Ok(ConfiguredProvider::Http)
+            }
+            _ => bail!(
                 "no published-service provider is configured; Core's local fixture requires \
                  {PROVIDER_ENV}={LOCAL_PROVIDER} (contract fixture) or \
-                 {LOCAL_DOCKER_PROVIDER} (exact isolated image), while real public ingress belongs to Cloud 14"
-            );
+                 {LOCAL_DOCKER_PROVIDER} (exact isolated image), and production Cloud requires \
+                 {PROVIDER_ENV}={HTTP_PROVIDER}"
+            ),
         }
-        if !company.ends_with("_test") {
-            bail!("the local publication provider is restricted to throwaway _test companies");
-        }
-        Ok(())
     }
 
     async fn ensure_fixture(
@@ -1338,6 +1720,27 @@ fn validate_path_segment(name: &str, value: &str) -> Result<()> {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
     {
         bail!("{name} is not a safe bounded path segment");
+    }
+    Ok(())
+}
+
+fn validate_relative_build_path(value: &str, name: &str) -> Result<()> {
+    if value.is_empty()
+        || value.len() > 512
+        || value.starts_with('/')
+        || value.ends_with('/')
+        || value.contains('\\')
+        || value.split('/').any(|segment| {
+            segment.is_empty()
+                || segment == "."
+                || segment == ".."
+                || segment.len() > 128
+                || !segment
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
+        })
+    {
+        bail!("{name} must be a canonical relative path of bounded literal segments");
     }
     Ok(())
 }

@@ -9,10 +9,20 @@ use super::*;
 use crate::document_collaboration_token::{
     DocumentCollaborationAccess, DocumentCollaborationTokenInput, DEFAULT_TTL_SECONDS,
 };
+use axum::http::header::{ACCEPT, AUTHORIZATION};
 
 const DOCUMENT_BODY_LIMIT: usize = 1_250_000;
 pub(super) const DOCUMENT_COLLABORATION_JWKS_PATH: &str =
     "/.well-known/restless-native-documents-jwks.json";
+const NATIVE_DOCUMENTS_READINESS_ROUTE: &str =
+    "/internal/v1/cells/{cell_id}/native-documents/readiness";
+const NATIVE_DOCUMENTS_READINESS_PATH: &str = "/internal/v1/native-documents/ready";
+const NATIVE_DOCUMENTS_SERVICE_PORT: u16 = 6688;
+const NATIVE_DOCUMENTS_PROTOCOL_VERSION: u32 = 1;
+const NATIVE_DOCUMENTS_SCHEMA_VERSION: u32 = 1;
+const MAX_NATIVE_DOCUMENTS_HEALTH_BYTES: usize = 2 * 1024;
+const MAX_NATIVE_DOCUMENTS_PROXY_MESSAGE_BYTES: usize = 8 * 1024 * 1024 + 64 * 1024;
+const CELL_READINESS_TOKEN_ENV: &str = "RESTLESS_CELL_READINESS_TOKEN";
 // A JSON string can encode one permitted Markdown byte as six bytes (`\u00XX`).
 // Keep the larger allowance scoped to the import route and reserve bounded
 // headroom for the UUID, reason, property names, and JSON punctuation.
@@ -113,6 +123,10 @@ where
             post(accept_document_review),
         )
         .route(
+            "/companies/{company}/documents/{document}/reviews/{review}/request-changes",
+            post(request_document_review_changes),
+        )
+        .route(
             "/companies/{company}/documents/{document}/proposals",
             get(list_document_proposals),
         )
@@ -137,10 +151,441 @@ where
     S: Clone + Send + Sync + 'static,
     RoomApiState: FromRef<S>,
 {
-    Router::<S>::new().route(
-        DOCUMENT_COLLABORATION_JWKS_PATH,
-        get(document_collaboration_jwks),
+    Router::<S>::new()
+        .route(
+            DOCUMENT_COLLABORATION_JWKS_PATH,
+            get(document_collaboration_jwks),
+        )
+        .route(
+            NATIVE_DOCUMENTS_READINESS_ROUTE,
+            get(native_documents_readiness),
+        )
+        .route(
+            "/api/companies/{company_id}/documents/{document_id}/collaboration",
+            get(native_documents_collaboration),
+        )
+}
+
+#[derive(Clone)]
+pub(super) struct NativeDocumentsProxy {
+    client: reqwest::Client,
+    readiness_secret: Option<Arc<[u8]>>,
+    service: NativeDocumentsService,
+}
+
+#[derive(Clone)]
+enum NativeDocumentsService {
+    PerCellDns,
+    #[cfg(test)]
+    Fixed {
+        host: Arc<str>,
+        port: u16,
+    },
+}
+
+impl NativeDocumentsProxy {
+    pub(super) fn from_environment() -> Result<Self> {
+        let readiness_secret = match std::env::var_os(CELL_READINESS_TOKEN_ENV) {
+            Some(raw) => {
+                let value = raw
+                    .into_string()
+                    .map_err(|_| anyhow::anyhow!("{CELL_READINESS_TOKEN_ENV} must be UTF-8"))?;
+                if value.len() < 32
+                    || value.len() > 512
+                    || value.trim() != value
+                    || value.bytes().any(|byte| byte.is_ascii_control())
+                {
+                    anyhow::bail!(
+                        "{CELL_READINESS_TOKEN_ENV} must be one normalized secret of 32-512 bytes"
+                    );
+                }
+                Some(Arc::from(value.into_bytes()))
+            }
+            None => None,
+        };
+        let client = reqwest::Client::builder()
+            .connect_timeout(Duration::from_millis(1_500))
+            .timeout(Duration::from_secs(2))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .context("build native Documents readiness client")?;
+        Ok(Self {
+            client,
+            readiness_secret,
+            service: NativeDocumentsService::PerCellDns,
+        })
+    }
+
+    #[cfg(test)]
+    pub(super) fn disabled_for_test() -> Self {
+        Self {
+            client: reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .expect("test native Documents client"),
+            readiness_secret: None,
+            service: NativeDocumentsService::PerCellDns,
+        }
+    }
+
+    fn service_address(&self, cell_id: Uuid) -> (String, u16) {
+        match &self.service {
+            NativeDocumentsService::PerCellDns => (
+                format!("restless-docs-{cell_id}"),
+                NATIVE_DOCUMENTS_SERVICE_PORT,
+            ),
+            #[cfg(test)]
+            NativeDocumentsService::Fixed { host, port } => (host.to_string(), *port),
+        }
+    }
+
+    fn readiness_authorized(&self, headers: &HeaderMap) -> bool {
+        let Some(secret) = self.readiness_secret.as_deref() else {
+            return false;
+        };
+        let mut values = headers.get_all(AUTHORIZATION).iter();
+        let Some(candidate) = values
+            .next()
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("Bearer "))
+        else {
+            return false;
+        };
+        values.next().is_none() && constant_time_document_secret(secret, candidate.as_bytes())
+    }
+
+    async fn observe_readiness(&self, cell_id: Uuid) -> Result<NativeDocumentsHealth> {
+        let (host, port) = self.service_address(cell_id);
+        let url = format!("http://{host}:{port}{NATIVE_DOCUMENTS_READINESS_PATH}");
+        let mut response = self
+            .client
+            .get(&url)
+            .header(ACCEPT, "application/json")
+            .send()
+            .await
+            .context("reach native Documents sidecar readiness")?;
+        if response.status() != reqwest::StatusCode::OK || response.url().as_str() != url {
+            anyhow::bail!("native Documents sidecar is not ready");
+        }
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .split(';')
+            .next()
+            .unwrap_or_default()
+            .trim();
+        if content_type != "application/json" {
+            anyhow::bail!("native Documents readiness response is not JSON");
+        }
+        if response
+            .headers()
+            .get(reqwest::header::CONTENT_LENGTH)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse::<usize>().ok())
+            .is_some_and(|length| length == 0 || length > MAX_NATIVE_DOCUMENTS_HEALTH_BYTES)
+        {
+            anyhow::bail!("native Documents readiness response is outside its bound");
+        }
+        let mut body = Vec::new();
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .context("read native Documents readiness response")?
+        {
+            if body.len() + chunk.len() > MAX_NATIVE_DOCUMENTS_HEALTH_BYTES {
+                anyhow::bail!("native Documents readiness response is outside its bound");
+            }
+            body.extend_from_slice(&chunk);
+        }
+        let observation: NativeDocumentsHealth =
+            serde_json::from_slice(&body).context("decode native Documents readiness response")?;
+        if observation
+            != (NativeDocumentsHealth {
+                status: "ready".into(),
+                protocol_version: NATIVE_DOCUMENTS_PROTOCOL_VERSION,
+                schema_version: NATIVE_DOCUMENTS_SCHEMA_VERSION,
+            })
+        {
+            anyhow::bail!(
+                "native Documents readiness response does not match the released contract"
+            );
+        }
+        Ok(observation)
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+struct NativeDocumentsHealth {
+    status: String,
+    protocol_version: u32,
+    schema_version: u32,
+}
+
+fn constant_time_document_secret(left: &[u8], right: &[u8]) -> bool {
+    let mut difference = left.len() ^ right.len();
+    let width = left.len().max(right.len());
+    for index in 0..width {
+        difference |= usize::from(
+            left.get(index).copied().unwrap_or_default()
+                ^ right.get(index).copied().unwrap_or_default(),
+        );
+    }
+    difference == 0
+}
+
+pub(super) fn is_collaboration_proxy_path(path: &str) -> bool {
+    let Some(rest) = path.strip_prefix("/api/companies/") else {
+        return false;
+    };
+    let mut segments = rest.split('/');
+    canonical_document_uuid(segments.next())
+        && segments.next() == Some("documents")
+        && canonical_document_uuid(segments.next())
+        && segments.next() == Some("collaboration")
+        && segments.next().is_none()
+}
+
+fn canonical_document_uuid(value: Option<&str>) -> bool {
+    value.is_some_and(|value| {
+        Uuid::parse_str(value)
+            .ok()
+            .is_some_and(|parsed| parsed.to_string() == value)
+    })
+}
+
+async fn native_documents_readiness(
+    State(state): State<RoomApiState>,
+    OriginalUri(uri): OriginalUri,
+    AxumPath(cell_id): AxumPath<Uuid>,
+    headers: HeaderMap,
+) -> Response<Body> {
+    if uri.query().is_some()
+        || headers.contains_key(COOKIE)
+        || headers.contains_key(ORIGIN)
+        || !state.native_documents_proxy.readiness_authorized(&headers)
+    {
+        return native_documents_proxy_error(
+            StatusCode::UNAUTHORIZED,
+            "native_documents_readiness_unauthorized",
+        );
+    }
+    if resolve_native_documents_company(&state, None, Some(cell_id))
+        .await
+        .is_err()
+    {
+        return native_documents_proxy_error(
+            StatusCode::NOT_FOUND,
+            "native_documents_cell_not_found",
+        );
+    }
+    match state
+        .native_documents_proxy
+        .observe_readiness(cell_id)
+        .await
+    {
+        Ok(observation) => native_documents_proxy_json(StatusCode::OK, observation),
+        Err(error) => {
+            tracing::warn!(%cell_id, %error, "native Documents sidecar is not ready");
+            native_documents_proxy_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "native_documents_not_ready",
+            )
+        }
+    }
+}
+
+async fn native_documents_collaboration(
+    State(state): State<RoomApiState>,
+    DocumentPrincipal(principal): DocumentPrincipal,
+    session_lease: Option<Extension<SessionLease>>,
+    OriginalUri(uri): OriginalUri,
+    AxumPath((company_id, document_id)): AxumPath<(Uuid, Uuid)>,
+    upgrade: WebSocketUpgrade,
+) -> Response<Body> {
+    if uri.query().is_some() || !is_collaboration_proxy_path(uri.path()) {
+        return native_documents_proxy_error(
+            StatusCode::BAD_REQUEST,
+            "native_documents_collaboration_route",
+        );
+    }
+    if state.network_mode
+        && session_lease
+            .as_ref()
+            .is_none_or(|Extension(lease)| lease.is_ended())
+    {
+        return native_documents_proxy_error(StatusCode::UNAUTHORIZED, "no_session");
+    }
+    let (company, org, identity) = match resolve_native_documents_company(
+        &state,
+        Some(company_id),
+        None,
     )
+    .await
+    {
+        Ok(value) => value,
+        Err(error) => {
+            tracing::warn!(%company_id, %error, "native Documents company route did not resolve");
+            return native_documents_proxy_error(
+                StatusCode::NOT_FOUND,
+                "native_documents_company_not_found",
+            );
+        }
+    };
+    if !principal.permits_company(&company) {
+        return native_documents_proxy_error(StatusCode::FORBIDDEN, "company_out_of_scope");
+    }
+    match org
+        .document_access_for_actor(document_id, principal.actor_id())
+        .await
+    {
+        Ok(Some(_)) => {}
+        Ok(None) => {
+            return native_documents_proxy_error(
+                StatusCode::NOT_FOUND,
+                "native_documents_document_not_found",
+            )
+        }
+        Err(error) => return document_error(error),
+    }
+    let proxy = state.native_documents_proxy.clone();
+    let session_lease = session_lease.map(|Extension(lease)| lease);
+    upgrade
+        .max_message_size(MAX_NATIVE_DOCUMENTS_PROXY_MESSAGE_BYTES)
+        .max_frame_size(MAX_NATIVE_DOCUMENTS_PROXY_MESSAGE_BYTES)
+        .on_upgrade(move |socket| async move {
+            if let Err(error) = proxy_native_documents_websocket(
+                socket,
+                company_id,
+                identity.cell_id,
+                document_id,
+                proxy,
+                session_lease,
+            )
+            .await
+            {
+                tracing::warn!(%company_id, %document_id, %error, "native Documents websocket ended");
+            }
+        })
+        .into_response()
+}
+
+async fn resolve_native_documents_company(
+    state: &RoomApiState,
+    company_id: Option<Uuid>,
+    cell_id: Option<Uuid>,
+) -> Result<(
+    String,
+    restless_orgintel::OrgIntel,
+    restless_orgintel::CompanyAccessIdentity,
+)> {
+    let companies = match &state.source {
+        RoomOrgIntelSource::Daemon(daemon) => crate::configured_companies(&daemon.root)?,
+        #[cfg(test)]
+        RoomOrgIntelSource::Fixed { companies, .. } => companies.keys().cloned().collect(),
+    };
+    let mut matches = Vec::new();
+    for company in companies {
+        let org = state.orgintel(&company).await?;
+        let Some(identity) = org.company_access_identity().await? else {
+            continue;
+        };
+        if company_id.is_none_or(|expected| identity.company_id == expected)
+            && cell_id.is_none_or(|expected| identity.cell_id == expected)
+        {
+            matches.push((company, org, identity));
+        }
+    }
+    match matches.len() {
+        1 => Ok(matches.pop().expect("length checked")),
+        0 => anyhow::bail!("no immutable native Documents company binding matched"),
+        _ => anyhow::bail!("native Documents company binding is ambiguous"),
+    }
+}
+
+async fn proxy_native_documents_websocket(
+    browser: WebSocket,
+    company_id: Uuid,
+    cell_id: Uuid,
+    document_id: Uuid,
+    proxy: NativeDocumentsProxy,
+    session_lease: Option<SessionLease>,
+) -> Result<()> {
+    let (host, port) = proxy.service_address(cell_id);
+    let stream = match session_lease.as_ref() {
+        Some(lease) => tokio::select! {
+            result = tokio::time::timeout(
+                Duration::from_secs(2),
+                tokio::net::TcpStream::connect((host.as_str(), port)),
+            ) => result.context("native Documents sidecar connect timed out")??,
+            _ = lease.ended() => return Ok(()),
+        },
+        None => tokio::time::timeout(
+            Duration::from_secs(2),
+            tokio::net::TcpStream::connect((host.as_str(), port)),
+        )
+        .await
+        .context("native Documents sidecar connect timed out")??,
+    };
+    let target = format!(
+        "ws://{host}:{port}/api/companies/{company_id}/documents/{document_id}/collaboration"
+    );
+    let (sidecar, _) = match session_lease.as_ref() {
+        Some(lease) => tokio::select! {
+            result = client_async(target, stream) => result?,
+            _ = lease.ended() => return Ok(()),
+        },
+        None => client_async(target, stream).await?,
+    };
+    let (mut browser_tx, mut browser_rx) = browser.split();
+    let (mut sidecar_tx, mut sidecar_rx) = sidecar.split();
+    loop {
+        tokio::select! {
+            _ = optional_session_ended(session_lease.as_ref()) => break,
+            incoming = browser_rx.next() => match incoming {
+                Some(Ok(message)) => {
+                    let translated = match message {
+                        AxumMessage::Text(value) => tungstenite::Message::Text(value.to_string().into()),
+                        AxumMessage::Binary(value) => tungstenite::Message::Binary(value),
+                        AxumMessage::Ping(value) => tungstenite::Message::Ping(value),
+                        AxumMessage::Pong(value) => tungstenite::Message::Pong(value),
+                        AxumMessage::Close(_) => break,
+                    };
+                    sidecar_tx.send(translated).await?;
+                }
+                _ => break,
+            },
+            incoming = sidecar_rx.next() => match incoming {
+                Some(Ok(message)) => {
+                    let translated = match message {
+                        tungstenite::Message::Text(value) => AxumMessage::Text(value.to_string().into()),
+                        tungstenite::Message::Binary(value) => AxumMessage::Binary(value),
+                        tungstenite::Message::Ping(value) => AxumMessage::Ping(value),
+                        tungstenite::Message::Pong(value) => AxumMessage::Pong(value),
+                        tungstenite::Message::Close(_) => break,
+                        tungstenite::Message::Frame(_) => continue,
+                    };
+                    browser_tx.send(translated).await?;
+                }
+                _ => break,
+            }
+        }
+    }
+    Ok(())
+}
+
+fn native_documents_proxy_json(status: StatusCode, value: impl Serialize) -> Response<Body> {
+    let mut response = (status, Json(value)).into_response();
+    response
+        .headers_mut()
+        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+}
+
+fn native_documents_proxy_error(status: StatusCode, code: &'static str) -> Response<Body> {
+    native_documents_proxy_json(status, serde_json::json!({ "error": code }))
 }
 
 struct DocumentPrincipal(RequestPrincipal);
@@ -319,6 +764,16 @@ struct AcceptDocumentReviewInput {
     expected_document_version: i64,
     expected_review_version: i64,
     accepted_version_name: String,
+    #[serde(default)]
+    feedback: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RequestDocumentReviewChangesInput {
+    expected_document_version: i64,
+    expected_review_version: i64,
+    feedback: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1346,6 +1801,10 @@ async fn request_document_review(
             expected_document_version: input.expected_document_version,
             expected_current_version_id: input.expected_current_version_id,
             summary: &input.summary,
+            // A human owner/member may request an ordinary document review.
+            // Only a capability-bound hosted Runtime Attempt may bind that
+            // review to Work; the coordination route supplies that operation.
+            work_dependency: None,
         })
         .await
     {
@@ -1396,6 +1855,39 @@ async fn accept_document_review(
             expected_document_version: input.expected_document_version,
             expected_review_version: input.expected_review_version,
             accepted_version_name: &input.accepted_version_name,
+            feedback: &input.feedback,
+        })
+        .await
+    {
+        Ok(resolution) => document_json(StatusCode::OK, resolution),
+        Err(error) => document_error(error),
+    }
+}
+
+async fn request_document_review_changes(
+    State(state): State<RoomApiState>,
+    DocumentPrincipal(principal): DocumentPrincipal,
+    AxumPath((company, document, review)): AxumPath<(String, Uuid, Uuid)>,
+    headers: HeaderMap,
+    Json(input): Json<RequestDocumentReviewChangesInput>,
+) -> Response<Body> {
+    let command_id = match command_id(&headers) {
+        Ok(command_id) => command_id,
+        Err(failure) => return failure.into_response(),
+    };
+    let org = match document_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .request_document_review_changes(restless_orgintel::RequestDocumentReviewChanges {
+            document_id: document,
+            review_id: review,
+            actor_id: principal.actor_id(),
+            command_id,
+            expected_document_version: input.expected_document_version,
+            expected_review_version: input.expected_review_version,
+            feedback: &input.feedback,
         })
         .await
     {
@@ -1553,6 +2045,117 @@ mod tests {
     use tower::ServiceExt as _;
 
     #[test]
+    fn collaboration_proxy_route_is_uuid_exact() {
+        let company = Uuid::new_v4();
+        let document = Uuid::new_v4();
+        let exact = format!("/api/companies/{company}/documents/{document}/collaboration");
+        assert!(is_collaboration_proxy_path(&exact));
+        for invalid in [
+            format!("{exact}/"),
+            format!("{exact}/token"),
+            format!(
+                "/api/companies/{}/documents/{document}/collaboration",
+                company.to_string().to_uppercase()
+            ),
+            format!("/api/companies/company-slug/documents/{document}/collaboration"),
+            format!("/api/companies/{company}/documents/not-a-uuid/collaboration"),
+        ] {
+            assert!(!is_collaboration_proxy_path(&invalid), "accepted {invalid}");
+        }
+    }
+
+    #[test]
+    fn cell_readiness_bearer_is_exact_and_constant_time_checked() {
+        let secret = b"native-documents-readiness-secret-123456".to_vec();
+        let proxy = NativeDocumentsProxy {
+            client: reqwest::Client::new(),
+            readiness_secret: Some(Arc::from(secret.clone())),
+            service: NativeDocumentsService::PerCellDns,
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!(
+                "Bearer {}",
+                String::from_utf8(secret.clone()).unwrap()
+            ))
+            .unwrap(),
+        );
+        assert!(proxy.readiness_authorized(&headers));
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_static("Bearer native-documents-readiness-secret-123457"),
+        );
+        assert!(!proxy.readiness_authorized(&headers));
+        assert!(constant_time_document_secret(&secret, &secret));
+        assert!(!constant_time_document_secret(
+            &secret,
+            &secret[..secret.len() - 1]
+        ));
+    }
+
+    #[tokio::test]
+    async fn sidecar_readiness_requires_the_exact_released_observation() {
+        async fn serve(value: serde_json::Value) -> (u16, tokio::task::JoinHandle<()>) {
+            let app = Router::new().route(
+                NATIVE_DOCUMENTS_READINESS_PATH,
+                get(move || {
+                    let value = value.clone();
+                    async move { Json(value) }
+                }),
+            );
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+            (port, task)
+        }
+
+        let (port, task) = serve(serde_json::json!({
+            "status": "ready",
+            "protocol_version": NATIVE_DOCUMENTS_PROTOCOL_VERSION,
+            "schema_version": NATIVE_DOCUMENTS_SCHEMA_VERSION,
+        }))
+        .await;
+        let proxy = NativeDocumentsProxy {
+            client: reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .unwrap(),
+            readiness_secret: None,
+            service: NativeDocumentsService::Fixed {
+                host: "127.0.0.1".into(),
+                port,
+            },
+        };
+        assert_eq!(
+            proxy.observe_readiness(Uuid::new_v4()).await.unwrap(),
+            NativeDocumentsHealth {
+                status: "ready".into(),
+                protocol_version: NATIVE_DOCUMENTS_PROTOCOL_VERSION,
+                schema_version: NATIVE_DOCUMENTS_SCHEMA_VERSION,
+            }
+        );
+        task.abort();
+
+        let (port, task) = serve(serde_json::json!({
+            "status": "ready",
+            "protocol_version": NATIVE_DOCUMENTS_PROTOCOL_VERSION,
+            "schema_version": NATIVE_DOCUMENTS_SCHEMA_VERSION,
+            "invented": true,
+        }))
+        .await;
+        let proxy = NativeDocumentsProxy {
+            service: NativeDocumentsService::Fixed {
+                host: "127.0.0.1".into(),
+                port,
+            },
+            ..proxy
+        };
+        assert!(proxy.observe_readiness(Uuid::new_v4()).await.is_err());
+        task.abort();
+    }
+
+    #[test]
     fn markdown_import_body_limit_covers_worst_case_json_escaping() {
         let one_control_byte = serde_json::to_string("\u{1}").unwrap();
         assert_eq!(one_control_byte.len() - 2, 6);
@@ -1569,6 +2172,25 @@ mod tests {
             restless_orgintel::MAX_NATIVE_DOCUMENT_MARKDOWN_CHECKPOINT_BYTES
                 * DOCUMENT_MARKDOWN_JSON_ESCAPE_BYTES_PER_BYTE
                 + DOCUMENT_MARKDOWN_IMPORT_ENVELOPE_HEADROOM
+        );
+    }
+
+    #[test]
+    fn human_document_review_payload_cannot_create_a_work_binding() {
+        let input = serde_json::json!({
+            "expected_document_version": 1,
+            "expected_current_version_id": Uuid::new_v4(),
+            "summary": "Review this named version",
+            "work_dependency": {
+                "work_id": Uuid::new_v4(),
+                "attempt_id": Uuid::new_v4(),
+                "expected_work_revision": 1,
+                "reviewer_actor_id": "owner"
+            }
+        });
+        assert!(
+            serde_json::from_value::<super::RequestDocumentReviewInput>(input).is_err(),
+            "the human HTTP route must reject Runtime-only Work binding fields"
         );
     }
 
@@ -1593,7 +2215,13 @@ mod tests {
                 org.ensure_actor("owner", "owner", "owner", "The Owner")
                     .await
                     .unwrap();
+                org.ensure_actor("exec", "exec", "exec", "The Exec")
+                    .await
+                    .unwrap();
                 org.ensure_actor("alice", "human", "member", "Alice")
+                    .await
+                    .unwrap();
+                org.ensure_actor("blair", "human", "member", "Blair")
                     .await
                     .unwrap();
                 org.ensure_actor("research-analyst", "staff", "analyst", "Research Analyst")
@@ -1824,6 +2452,183 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::FORBIDDEN);
         assert_eq!(body["error"], "request_principal");
+    }
+
+    #[tokio::test]
+    async fn work_bound_review_projection_routes_the_exact_designated_reviewer() {
+        let Some(fixture) = DocumentRouteFixture::new().await else {
+            eprintln!(
+                "RESTLESS_TEST_DATABASE_URL unset; skipping Work-bound review projection scenario"
+            );
+            return;
+        };
+        let owner = fixture.app("owner", "owner", &fixture.company);
+        let alice = fixture.app("alice", "member", &fixture.company);
+        let blair = fixture.app("blair", "member", &fixture.company);
+        let documents = format!("/companies/{}/documents", fixture.company);
+        let (status, created) = request_json(
+            &owner,
+            Method::POST,
+            &documents,
+            Some(Uuid::new_v4()),
+            Some(create_body("Exact review assignment")),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        let document = uuid_field(&created, "document_id");
+        let (status, document_view) = request_json(
+            &owner,
+            Method::GET,
+            format!("{documents}/{document}"),
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let current_version_id = Uuid::parse_str(
+            document_view["current_version"]["version"]["id"]
+                .as_str()
+                .unwrap(),
+        )
+        .unwrap();
+        let (status, _) = request_json(
+            &owner,
+            Method::PUT,
+            format!("{documents}/{document}/participants/alice"),
+            Some(Uuid::new_v4()),
+            Some(serde_json::json!({
+                "expected_document_version": 1,
+                "access": "edit"
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, _) = request_json(
+            &owner,
+            Method::PUT,
+            format!("{documents}/{document}/participants/research-analyst"),
+            Some(Uuid::new_v4()),
+            Some(serde_json::json!({
+                "expected_document_version": 2,
+                "access": "edit"
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let work_id = fixture
+            .org
+            .add_work(restless_orgintel::NewWork {
+                owner_id: "research-analyst",
+                title: "Ship reviewed evidence",
+                outcome: "Ship reviewed evidence",
+                goal_id: None,
+                priority: 1,
+                expected_artifact: "accepted native Document",
+                workspace: restless_orgintel::WorkspaceSpec::default(),
+                attempt_limit: Some(1),
+            })
+            .await
+            .unwrap();
+        let attempt = fixture
+            .org
+            .claim_ready_work("document-review-http-test")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(attempt.work.id, work_id);
+        fixture
+            .org
+            .finish_work_attempt(
+                attempt.attempt_id,
+                restless_orgintel::WorkAttemptState::Blocked,
+                "waiting for exact native Document review",
+            )
+            .await
+            .unwrap();
+
+        let command_id = Uuid::new_v4();
+        let requested = fixture
+            .org
+            .request_document_review(restless_orgintel::RequestDocumentReview {
+                document_id: document,
+                actor_id: "research-analyst",
+                command_id,
+                expected_document_version: 3,
+                expected_current_version_id: current_version_id,
+                summary: "Alice reviews the exact evidence",
+                work_dependency: Some(restless_orgintel::DocumentWorkReviewDependencyInput {
+                    work_id,
+                    attempt_id: attempt.attempt_id,
+                    expected_work_revision: attempt.work.revision,
+                    reviewer_actor_id: "alice",
+                }),
+            })
+            .await
+            .unwrap();
+        assert_eq!(requested.work_dependency.as_ref().unwrap().work_id, work_id);
+        assert_eq!(
+            requested
+                .work_dependency
+                .as_ref()
+                .unwrap()
+                .reviewer_actor_id,
+            "alice"
+        );
+        let review_id = requested.review.id.to_string();
+        let replay = fixture
+            .org
+            .request_document_review(restless_orgintel::RequestDocumentReview {
+                document_id: document,
+                actor_id: "research-analyst",
+                command_id,
+                expected_document_version: 3,
+                expected_current_version_id: current_version_id,
+                summary: "Alice reviews the exact evidence",
+                work_dependency: Some(restless_orgintel::DocumentWorkReviewDependencyInput {
+                    work_id,
+                    attempt_id: attempt.attempt_id,
+                    expected_work_revision: attempt.work.revision,
+                    reviewer_actor_id: "alice",
+                }),
+            })
+            .await
+            .unwrap();
+        assert_eq!(replay.review.id, requested.review.id);
+        assert_eq!(
+            replay.work_dependency.as_ref().unwrap().work_id,
+            requested.work_dependency.as_ref().unwrap().work_id
+        );
+
+        let reviews = format!("{documents}/{document}/reviews");
+        let (status, assigned) = request_json(
+            &alice,
+            Method::GET,
+            format!("{reviews}/{review_id}"),
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(assigned["work_dependency"]["work_id"], work_id.to_string());
+        let (status, assigned_page) = request_json(&alice, Method::GET, &reviews, None, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            assigned_page["items"][0]["work_dependency"]["reviewer_actor_id"],
+            "alice"
+        );
+
+        let (status, _) = request_json(
+            &blair,
+            Method::GET,
+            format!("{reviews}/{review_id}"),
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (status, _) = request_json(&blair, Method::GET, &reviews, None, None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
@@ -2832,7 +3637,8 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::CREATED);
-        let review_one_id = Uuid::parse_str(review_one["id"].as_str().unwrap()).unwrap();
+        let review_one_id = Uuid::parse_str(review_one["review"]["id"].as_str().unwrap()).unwrap();
+        assert!(review_one["work_dependency"].is_null());
 
         let (status, advanced) = request_json(
             &owner,
@@ -2863,7 +3669,7 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::CREATED);
-        let review_two_id = Uuid::parse_str(review_two["id"].as_str().unwrap()).unwrap();
+        let review_two_id = Uuid::parse_str(review_two["review"]["id"].as_str().unwrap()).unwrap();
         let (status, review_two_replay) = request_json(
             &owner,
             Method::POST,
@@ -2873,8 +3679,9 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::CREATED);
-        assert_eq!(review_two_replay["id"], review_two_id.to_string());
-        assert_eq!(review_two_replay["status"], "requested");
+        assert_eq!(review_two_replay["review"]["id"], review_two_id.to_string());
+        assert_eq!(review_two_replay["review"]["status"], "requested");
+        assert!(review_two_replay["work_dependency"].is_null());
 
         let (status, review_one_after) = request_json(
             &owner,
@@ -2885,7 +3692,8 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(review_one_after["status"], "stale");
+        assert_eq!(review_one_after["review"]["status"], "stale");
+        assert!(review_one_after["work_dependency"].is_null());
 
         let review_accept_key = Uuid::new_v4();
         let review_accept_body = serde_json::json!({

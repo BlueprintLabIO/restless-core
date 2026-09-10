@@ -336,10 +336,11 @@ This repo is built in sprints by two founders collaborating on the `dev` branch.
     `restless-dev doctor` prints the same report. Run the check after any run that creates a
     company, and before reporting a heavy task complete.
   - **A supervisor program you register is durable, and `autorestart=true` outlives you.**
-    `/company/services/supervisor/*.conf` is included by the Company Runtime's supervisor, and the
-    conf lives on the company volume — so it survives container replacement and starts again on the
-    next `up`. Killing the process cannot work; supervisord restarts it within seconds. Deregister
-    it instead: `supervisorctl stop <prog>`, remove the conf, then `supervisorctl reread && update`.
+    `/company/services/supervisor/*.conf` is included by the Runtime's unprivileged company
+    supervisor, and the conf lives on the company volume — so it survives container replacement and
+    starts again on the next `up`. Killing the process cannot work; supervisord restarts it within
+    seconds. Deregister it instead: `company-supervisorctl stop <prog>`, remove the conf, then
+    `company-supervisorctl reread && update`.
     Prefer `autorestart=false` for anything a single task needs, and register a durable program only
     when the company genuinely needs the service after your turn ends.
   - **Only `_test` companies are ever disposable.** A company without the suffix is owner data.

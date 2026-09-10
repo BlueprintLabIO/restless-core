@@ -411,6 +411,7 @@ async fn room_visibility_participants_versions_restore_and_concurrency_are_coher
             expected_document_version: 5,
             expected_current_version_id: second_version_id,
             summary: "Review the current evidence",
+            work_dependency: None,
         })
         .await
         .unwrap();
@@ -597,9 +598,13 @@ async fn room_visibility_participants_versions_restore_and_concurrency_are_coher
         json!({
             "document_id": document_id,
             "document_version": 6,
-            "review_id": review.id,
+            "review_id": review.review.id,
             "requested_named_version_id": second_version_id,
             "requested_by_actor_id": "owner",
+            "work_id": null,
+            "attempt_id": null,
+            "work_revision": null,
+            "reviewer_actor_id": null,
             "command_id": review_command_id,
         })
     );

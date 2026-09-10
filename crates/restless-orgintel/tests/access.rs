@@ -25,6 +25,62 @@ async fn bind_company(org: &OrgIntel, company_id: Uuid, cell_id: Uuid) {
     .expect("bind company through the dedicated bootstrap primitive");
 }
 
+#[tokio::test]
+async fn runtime_activity_revision_is_exact_monotonic_and_durable() {
+    let Ok(database_url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping access scenario");
+        return;
+    };
+    let schema = format!("access{}", Uuid::new_v4().simple());
+    let org = OrgIntel::ensure(&database_url, &schema)
+        .await
+        .expect("ensure scratch company schema");
+    let company_id = Uuid::new_v4();
+    let cell_id = Uuid::new_v4();
+    let identity = CompanyAccessIdentity {
+        company_id,
+        cell_id,
+    };
+    bind_company(&org, company_id, cell_id).await;
+
+    assert!(org
+        .admit_runtime_activity_revision(identity, "restless-cell-test", 3)
+        .await
+        .unwrap());
+    assert!(
+        org.admit_runtime_activity_revision(identity, "restless-cell-test", 3)
+            .await
+            .unwrap(),
+        "an exact delivery retry remains idempotent"
+    );
+    assert!(
+        !org.admit_runtime_activity_revision(identity, "restless-cell-test", 2)
+            .await
+            .unwrap(),
+        "a delayed older revision is rejected"
+    );
+    assert!(
+        !org.admit_runtime_activity_revision(identity, "another-runtime", 4)
+            .await
+            .unwrap(),
+        "the bound runtime identity cannot silently change"
+    );
+    assert!(org
+        .admit_runtime_activity_revision(identity, "restless-cell-test", 4)
+        .await
+        .unwrap());
+
+    drop(org);
+    let reopened = OrgIntel::ensure(&database_url, &schema).await.unwrap();
+    assert!(
+        !reopened
+            .admit_runtime_activity_revision(identity, "restless-cell-test", 3)
+            .await
+            .unwrap(),
+        "the replay guard survives a fresh OrgIntel handle"
+    );
+}
+
 #[allow(clippy::too_many_arguments)]
 fn context<'a>(
     issuer: &'a str,

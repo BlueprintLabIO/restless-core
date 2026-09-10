@@ -1193,6 +1193,207 @@ impl AgentSession {
     }
 }
 
+/// Drive the same ACP session semantics over an already-supervised hosted
+/// Runtime transport. Process launch, capability injection, cancellation and
+/// cleanup remain the Runtime bridge's responsibility; this function owns the
+/// ACP initialize/session/model/prompt contract exactly as Core does locally.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the remote ACP boundary keeps exact actor/model/session observation explicit"
+)]
+pub async fn with_remote_agent<F, T>(
+    transport: tokio::io::DuplexStream,
+    harness: crate::runtime::AgentHarness,
+    auth: &AgentAuth,
+    workdir: &str,
+    actor: &str,
+    responsibility: &str,
+    controls: AgentControls,
+    observer: Option<SessionObserver>,
+    drive: F,
+) -> Result<T>
+where
+    F: for<'a> FnOnce(
+        &'a AgentSession,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<T>> + Send + 'a>,
+    >,
+{
+    if harness != crate::runtime::AgentHarness::RestlessManaged {
+        anyhow::bail!("hosted ACP transport supports only the restless-managed harness");
+    }
+    if responsibility.trim().is_empty() {
+        anyhow::bail!("ACP session responsibility scope must not be empty");
+    }
+    let profile = AcpProfile::new(harness)?;
+    let session_model = profile.session_model(&auth.model)?;
+    let (read, write) = tokio::io::split(transport);
+    let streams = ByteStreams::new(write.compat_write(), read.compat());
+    let transcript = Arc::new(Mutex::new(TurnTranscript::default()));
+    let sink = Arc::clone(&transcript);
+    let event_observer = observer.clone();
+    let live_observer_enabled = Arc::new(AtomicBool::new(true));
+    let observer_enabled = Arc::clone(&live_observer_enabled);
+    let failure = Arc::new(Mutex::new(None::<anyhow::Error>));
+    let failure_slot = Arc::clone(&failure);
+    let launch_auth = auth.clone();
+    let launch_id = auth.session_id.clone();
+    let launch_actor = actor.to_string();
+    let launch_responsibility = responsibility.to_string();
+    let launch_workdir = workdir.to_string();
+    let mcp_servers = controls.mcp_servers;
+    let mcp_server_count = mcp_servers.len();
+
+    let result = Client
+        .builder()
+        .on_receive_notification(
+            move |notification: SessionNotification, _cx| {
+                let sink = Arc::clone(&sink);
+                let event_observer = event_observer.clone();
+                let observer_enabled = Arc::clone(&observer_enabled);
+                async move {
+                    let mut event = live_event(&notification.update);
+                    if let Ok(mut transcript) = sink.lock() {
+                        transcript.note(&notification.update);
+                        if matches!(&notification.update, SessionUpdate::UsageUpdate(_)) {
+                            event = transcript.usage.map(|usage| LiveSessionEvent::UsageUpdate {
+                                used: usage.used,
+                                size: usage.size,
+                                cost_usd: usage.cost_usd,
+                            });
+                        }
+                    }
+                    if observer_enabled.load(Ordering::Acquire) {
+                        if let (Some(observer), Some(event)) = (event_observer.as_ref(), event) {
+                            observer(event);
+                        }
+                    }
+                    Ok(())
+                }
+            },
+            acp::on_receive_notification!(),
+        )
+        .on_receive_request(
+            move |request: RequestPermissionRequest,
+                  responder: acp::Responder<RequestPermissionResponse>,
+                  _cx| async move {
+                let option = request
+                    .options
+                    .iter()
+                    .find(|option| {
+                        matches!(
+                            option.kind,
+                            PermissionOptionKind::AllowOnce | PermissionOptionKind::AllowAlways
+                        )
+                    })
+                    .or_else(|| request.options.first());
+                let outcome = match option {
+                    Some(option) => RequestPermissionOutcome::Selected(
+                        SelectedPermissionOutcome::new(option.option_id.clone()),
+                    ),
+                    None => RequestPermissionOutcome::Cancelled,
+                };
+                responder.respond(RequestPermissionResponse::new(outcome))
+            },
+            acp::on_receive_request!(),
+        )
+        .connect_with(streams, async move |cx: ConnectionTo<Agent>| {
+            let step = async {
+                let initialized = cx
+                    .send_request(InitializeRequest::new(ProtocolVersion::V1))
+                    .block_task()
+                    .await
+                    .context("hosted acp initialize")?;
+                let session = cx
+                    .send_request(
+                        NewSessionRequest::new(launch_workdir.clone())
+                            .mcp_servers(mcp_servers)
+                            .meta(profile.session_meta(&controls.system_prompt, &session_model)),
+                    )
+                    .block_task()
+                    .await
+                    .context("hosted acp session/new")?;
+                let (model_config_id, model_value) = exact_model_config_selection(
+                    &session.config_options.unwrap_or_default(),
+                    &session_model,
+                )
+                .context("select exact hosted ACP session model")?;
+                let configured = cx
+                    .send_request(SetSessionConfigOptionRequest::new(
+                        session.session_id.clone(),
+                        model_config_id.clone(),
+                        model_value.as_str(),
+                    ))
+                    .block_task()
+                    .await
+                    .context("hosted acp session/set_config_option")?;
+                if !model_config_is_selected(
+                    &configured.config_options,
+                    &model_config_id,
+                    &model_value,
+                ) {
+                    anyhow::bail!("hosted ACP agent did not confirm exact selected model");
+                }
+                let tool_contract_digest = format!(
+                    "{:x}",
+                    Sha256::digest(format!(
+                        "hosted-runtime-bridge\0harness:{}\0actor:{}\0responsibility:{}",
+                        harness.as_str(),
+                        launch_actor,
+                        launch_responsibility
+                    ))
+                );
+                let capabilities = serde_json::json!({
+                    "native_tools": profile.native_tools(),
+                    "native_agent_build": profile.native_agent_build(),
+                    "mcp_server_count": mcp_server_count,
+                    "session_load": initialized.agent_capabilities.load_session,
+                    "model_selection": "exact",
+                    "effort_selection": "exact_process_flag",
+                    "permission_mode": "runtime_sandbox",
+                    "transport": "hosted_runtime_bridge",
+                    "tariff_version": profile.tariff_version(),
+                });
+                let agent = AgentSession {
+                    cx,
+                    session_id: session.session_id,
+                    transcript,
+                    observer,
+                    live_observer_enabled,
+                    launch_id,
+                    harness,
+                    harness_build: profile.build().to_string(),
+                    transport: "hosted-runtime-bridge-acp".into(),
+                    model: launch_auth.model,
+                    effort: launch_auth.effort,
+                    resumed: false,
+                    reconstructed: false,
+                    reconstruction_reason: None,
+                    tool_contract_digest,
+                    capabilities,
+                };
+                drive(&agent).await
+            };
+            match step.await {
+                Ok(outcome) => Ok(outcome),
+                Err(error) => {
+                    let message = format!("{error:#}");
+                    if let Ok(mut slot) = failure_slot.lock() {
+                        *slot = Some(error);
+                    }
+                    Err(acp::Error::internal_error().data(serde_json::json!(message)))
+                }
+            }
+        })
+        .await;
+    if let Ok(mut slot) = failure.lock() {
+        if let Some(error) = slot.take() {
+            return Err(error);
+        }
+    }
+    Ok(result?)
+}
+
 /// Spawn OMP's ACP server inside the company container, authenticate against the
 /// gateway, open a session rooted at `workdir`, and hand it to `drive`. The
 /// process dies when the returned future completes — agents are ordinary
@@ -2182,7 +2383,7 @@ mod tests {
                 session_id: launch_id.clone(),
                 coordination_token_env: "RESTLESS_SESSION_CAPABILITY".into(),
                 coordination_token: capabilities
-                    .issue_actor_session(&company, actor, &launch_id)
+                    .issue_actor_session(&company, actor, &launch_id, None, None)
                     .unwrap(),
                 gateway_token_env: "RESTLESS_MODEL_CAPABILITY".into(),
                 gateway_token: capabilities

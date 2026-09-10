@@ -27,6 +27,7 @@ use uuid::Uuid;
 pub const COMPANY_IMAGE: &str = "restless-company-image:latest";
 const COMPANY_IMAGE_ENV: &str = "RESTLESS_COMPANY_IMAGE";
 const SOURCE_DIGEST_LABEL: &str = "io.restless.source-digest";
+const COMPANY_SUPERVISOR_CONFIG: &str = "/etc/supervisor/conf.d/company.conf";
 
 /// Owner browsers reconnect eagerly across appliance replacement. While the
 /// one startup inventory owns Docker observation, fail incidental health reads
@@ -1199,7 +1200,7 @@ async fn browser_doctor(company: &str) -> BrowserDoctor {
             &name,
             "supervisorctl",
             "-c",
-            "/etc/supervisor/conf.d/restless.conf",
+            COMPANY_SUPERVISOR_CONFIG,
             "status",
             program,
         ])
@@ -1272,7 +1273,7 @@ async fn supervisor_doctor(company: &str) -> SupervisorDoctor {
         &name,
         "supervisorctl",
         "-c",
-        "/etc/supervisor/conf.d/restless.conf",
+        COMPANY_SUPERVISOR_CONFIG,
         "status",
     ])
     .await;

@@ -211,6 +211,158 @@ pub(crate) async fn observe_workspace(container: &str, workdir: &str) -> Workspa
     observe_git_workspace(&*command, workdir).await
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct HostedWorkspacePreparation {
+    pub(crate) workdir: String,
+    pub(crate) environment_fingerprint: String,
+    pub(crate) observation: WorkspaceObservation,
+    pub(crate) reused: bool,
+}
+
+pub(crate) fn hosted_workspace_identity(
+    work: &WorkRow,
+    attempt_id: Uuid,
+) -> Result<restless_runtime_bridge_protocol::WorkspaceIdentity> {
+    let repo = work.repo.clone().context("Work repo is missing")?;
+    let workdir = workdir_for(work)?;
+    let worktree = workdir
+        .strip_prefix("/company/worktrees/")
+        .context("Work worktree is outside the hosted workspace root")?
+        .to_string();
+    Ok(restless_runtime_bridge_protocol::WorkspaceIdentity {
+        attempt_id,
+        work_id: work.id,
+        work_revision: work.revision,
+        repo,
+        worktree,
+    })
+}
+
+pub(crate) fn hosted_candidate_identity(
+    observation: &WorkspaceObservation,
+    environment_fingerprint: &str,
+) -> Result<restless_runtime_bridge_protocol::CandidateIdentity> {
+    if observation.dirty_entries != 0 {
+        bail!("hosted candidate has uncommitted entries");
+    }
+    Ok(restless_runtime_bridge_protocol::CandidateIdentity {
+        source_commit: observation
+            .source_commit
+            .clone()
+            .context("hosted candidate has no exact terminal commit")?,
+        source_tree: observation
+            .source_tree
+            .clone()
+            .context("hosted candidate has no exact terminal tree")?,
+        status_digest: observation
+            .status_digest
+            .clone()
+            .context("hosted candidate has no exact terminal status digest")?,
+        environment_fingerprint: environment_fingerprint.to_string(),
+    })
+}
+
+fn hosted_observation(
+    observation: &restless_runtime_bridge_protocol::WorkspaceObservation,
+) -> WorkspaceObservation {
+    WorkspaceObservation {
+        workdir: observation.workdir.clone(),
+        source_commit: Some(observation.source_commit.clone()),
+        source_tree: Some(observation.source_tree.clone()),
+        status_digest: Some(observation.status_digest.clone()),
+        dirty_entries: usize::try_from(observation.dirty_entries).unwrap_or(usize::MAX),
+    }
+}
+
+/// Materialize one exact Attempt through the outbound hosted Runtime bridge.
+/// No host process or Docker socket participates in this path.
+pub(crate) async fn ensure_hosted_worktree(
+    registry: &crate::runtime_bridge::RuntimeBridgeRegistry,
+    runtime_identity: &restless_runtime_bridge_protocol::RuntimeIdentity,
+    work: &WorkRow,
+    effective_base_ref: Option<&str>,
+    attempt_id: Uuid,
+    org: &restless_orgintel::OrgIntel,
+) -> Result<HostedWorkspacePreparation> {
+    let workspace = hosted_workspace_identity(work, attempt_id)?;
+    let attempt = org
+        .list_work_attempts(Some(work.id))
+        .await?
+        .into_iter()
+        .find(|attempt| attempt.id == attempt_id)
+        .context("Attempt disappeared before hosted workspace materialisation")?;
+    if attempt.revision != work.revision {
+        bail!("Attempt revision differs from its claimed Work revision");
+    }
+    if attempt.requested_source_ref.as_deref() != effective_base_ref {
+        bail!(
+            "Attempt requested source {:?}, but hosted dispatch supplied {:?}",
+            attempt.requested_source_ref,
+            effective_base_ref
+        );
+    }
+    let expected_source_commit = attempt
+        .materialized_at
+        .map(|_| {
+            attempt
+                .source_commit
+                .clone()
+                .context("materialized Attempt lost its exact source commit")
+        })
+        .transpose()?;
+    let expected_source_tree = attempt
+        .materialized_at
+        .map(|_| {
+            attempt
+                .source_tree
+                .clone()
+                .context("materialized Attempt lost its exact source tree")
+        })
+        .transpose()?;
+    let prepared = crate::runtime_bridge::prepare_workspace(
+        registry,
+        runtime_identity,
+        workspace,
+        attempt.requested_source_ref.clone(),
+        expected_source_commit,
+        expected_source_tree,
+    )
+    .await?;
+    let observation = hosted_observation(&prepared.observation);
+    org.bind_attempt_execution_coordinates(
+        attempt_id,
+        attempt.requested_source_ref.as_deref(),
+        observation.source_commit.as_deref(),
+        observation.source_tree.as_deref(),
+        &prepared.observation.environment_fingerprint,
+    )
+    .await?;
+    Ok(HostedWorkspacePreparation {
+        workdir: prepared.observation.workdir.clone(),
+        environment_fingerprint: prepared.observation.environment_fingerprint,
+        observation,
+        reused: prepared.reused,
+    })
+}
+
+pub(crate) async fn observe_hosted_workspace(
+    registry: &crate::runtime_bridge::RuntimeBridgeRegistry,
+    runtime_identity: &restless_runtime_bridge_protocol::RuntimeIdentity,
+    work: &WorkRow,
+    attempt_id: Uuid,
+    expected_environment_fingerprint: &str,
+) -> Result<WorkspaceObservation> {
+    let workspace = hosted_workspace_identity(work, attempt_id)?;
+    let observation = crate::runtime_bridge::observe_workspace(
+        registry,
+        runtime_identity,
+        workspace,
+        expected_environment_fingerprint,
+    )
+    .await?;
+    Ok(hosted_observation(&observation))
+}
+
 pub(crate) fn workdir_for(work: &WorkRow) -> Result<String> {
     if work.repo.is_none() {
         return Ok("/company".into());

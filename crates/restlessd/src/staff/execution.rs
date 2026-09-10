@@ -53,6 +53,14 @@ pub(super) struct StaffRun {
     pub(super) reasoning_effort: String,
     pub(super) authority: crate::authority::AuthorityStore,
     pub(super) capabilities: crate::capability::CapabilityIssuer,
+    /// Hosted planes route the same ACP contract through the exact outbound
+    /// Company Runtime bridge. Local appliance mode keeps its deliberately
+    /// separate direct-Docker adapter.
+    pub(super) runtime_bridges: crate::runtime_bridge::RuntimeBridgeRegistry,
+    /// Claimed Work pins the exact generation used for its execution
+    /// coordinates. A later replacement must fence, never silently move the
+    /// already-admitted Attempt to a newer Runtime.
+    pub(super) hosted_identity: Option<restless_runtime_bridge_protocol::RuntimeIdentity>,
     pub(super) turn_kind: StaffTurnKind,
     /// One durable actor keeps the same accountable posture whether Work or
     /// conversation woke it.
@@ -68,6 +76,24 @@ pub(super) struct StaffOutcome {
 }
 
 pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcome> {
+    let hosted_identity = if run.runtime_bridges.is_hosted() {
+        if run.worker_harness != crate::runtime::AgentHarness::RestlessManaged {
+            bail!("hosted Staff Work requires the certified restless-managed ACP harness");
+        }
+        let durable =
+            crate::runtime_bridge::expected_identity(&run.authority, &run.company).await?;
+        let identity = run
+            .hosted_identity
+            .clone()
+            .unwrap_or_else(|| durable.clone());
+        if identity != durable {
+            bail!("claimed Staff Work Runtime generation changed before model admission");
+        }
+        crate::runtime_bridge::preflight(&run.runtime_bridges, &identity).await?;
+        Some(identity)
+    } else {
+        None
+    };
     let mut continuity_note: Option<String> = None;
     let mcp_servers = crate::connected_tool::session_servers(
         run.authority.pool(),
@@ -274,6 +300,8 @@ pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcom
                 turn_kind: run.turn_kind,
                 accountable_lead: run.accountable_lead,
                 worker_harness: run.worker_harness,
+                runtime_bridges: run.runtime_bridges.clone(),
+                hosted_identity: hosted_identity.clone(),
                 mcp_servers: mcp_servers.clone(),
                 observer: run.observer.clone(),
                 cancellation: run.cancellation.clone(),
@@ -652,6 +680,8 @@ struct StaffBrief {
     turn_kind: StaffTurnKind,
     accountable_lead: bool,
     worker_harness: crate::runtime::AgentHarness,
+    runtime_bridges: crate::runtime_bridge::RuntimeBridgeRegistry,
+    hosted_identity: Option<restless_runtime_bridge_protocol::RuntimeIdentity>,
     mcp_servers: Vec<agent_client_protocol::schema::v1::McpServer>,
     observer: Option<acp::SessionObserver>,
     cancellation: CancellationToken,
@@ -1005,6 +1035,8 @@ async fn run_staff(
         turn_kind,
         accountable_lead,
         worker_harness,
+        runtime_bridges,
+        hosted_identity,
         mcp_servers,
         observer,
         cancellation,
@@ -1049,6 +1081,7 @@ async fn run_staff(
     match worker_harness {
         crate::runtime::AgentHarness::RestlessManaged
         | crate::runtime::AgentHarness::ClaudeAgent => {
+            let launch_system_prompt = system_prompt.clone();
             let controls =
                 acp::AgentControls::company_actor(system_prompt)?.with_mcp_servers(mcp_servers);
             let controls = if turn_kind.is_conversation() {
@@ -1056,20 +1089,49 @@ async fn run_staff(
             } else {
                 controls
             };
-            acp::with_agent(
-                &container,
-                worker_harness,
-                &auth,
-                &workdir,
-                &actor,
-                &responsibility,
-                controls,
-                observer,
-                move |session| Box::pin(drive.run(session)),
-            )
-            .await
+            if let Some(identity) = hosted_identity {
+                let transport = crate::runtime_bridge::open_agent_transport(
+                    &runtime_bridges,
+                    &identity,
+                    &auth,
+                    &workdir,
+                    &actor,
+                    &responsibility,
+                    worker_harness,
+                    &launch_system_prompt,
+                )
+                .await?;
+                acp::with_remote_agent(
+                    transport,
+                    worker_harness,
+                    &auth,
+                    &workdir,
+                    &actor,
+                    &responsibility,
+                    controls,
+                    observer,
+                    move |session| Box::pin(drive.run(session)),
+                )
+                .await
+            } else {
+                acp::with_agent(
+                    &container,
+                    worker_harness,
+                    &auth,
+                    &workdir,
+                    &actor,
+                    &responsibility,
+                    controls,
+                    observer,
+                    move |session| Box::pin(drive.run(session)),
+                )
+                .await
+            }
         }
         crate::runtime::AgentHarness::Codex => {
+            if hosted_identity.is_some() {
+                bail!("hosted Staff Work does not permit the local Codex process adapter");
+            }
             crate::codex::with_agent(
                 &container,
                 &auth,
@@ -1165,7 +1227,7 @@ mod live_product_tests {
             session_id: launch_id.clone(),
             coordination_token_env: "RESTLESS_SESSION_CAPABILITY".into(),
             coordination_token: capabilities
-                .issue_actor_session(company, actor, &launch_id)
+                .issue_actor_session(company, actor, &launch_id, None, None)
                 .unwrap(),
             gateway_token_env: "RESTLESS_MODEL_CAPABILITY".into(),
             gateway_token: capabilities
@@ -1336,6 +1398,7 @@ mod live_product_tests {
             staff: crate::staff::StaffRegistry::default(),
             activities: crate::activity::AgentActivityStreams::default(),
             cell_wakes: crate::cell_wake::CellWakeHub::default(),
+            runtime_bridges: crate::runtime_bridge::RuntimeBridgeRegistry::default(),
             lifecycle: restlessd::appliance::LifecycleGate::default(),
             in_flight: std::sync::Arc::new(std::sync::Mutex::new(
                 crate::schedule::WakeClaims::default(),
@@ -1529,6 +1592,8 @@ mod live_product_tests {
             turn_kind: StaffTurnKind::Work,
             accountable_lead: false,
             worker_harness,
+            runtime_bridges: crate::runtime_bridge::RuntimeBridgeRegistry::default(),
+            hosted_identity: None,
             mcp_servers: Vec::new(),
             observer: None,
             cancellation: CancellationToken::new(),
@@ -1606,6 +1671,8 @@ mod live_product_tests {
             turn_kind: StaffTurnKind::OwnerConversation,
             accountable_lead: true,
             worker_harness: crate::runtime::AgentHarness::RestlessManaged,
+            runtime_bridges: crate::runtime_bridge::RuntimeBridgeRegistry::default(),
+            hosted_identity: None,
             mcp_servers: Vec::new(),
             observer: None,
             cancellation: CancellationToken::new(),
@@ -1876,6 +1943,7 @@ mod live_product_tests {
             staff: crate::staff::StaffRegistry::default(),
             activities: crate::activity::AgentActivityStreams::default(),
             cell_wakes: crate::cell_wake::CellWakeHub::default(),
+            runtime_bridges: crate::runtime_bridge::RuntimeBridgeRegistry::default(),
             lifecycle: restlessd::appliance::LifecycleGate::default(),
             in_flight: std::sync::Arc::new(std::sync::Mutex::new(
                 crate::schedule::WakeClaims::default(),
@@ -1966,6 +2034,8 @@ mod live_product_tests {
             turn_kind: StaffTurnKind::OwnerConversation,
             accountable_lead: false,
             worker_harness: crate::runtime::AgentHarness::RestlessManaged,
+            runtime_bridges: crate::runtime_bridge::RuntimeBridgeRegistry::default(),
+            hosted_identity: None,
             mcp_servers: Vec::new(),
             observer: None,
             cancellation: CancellationToken::new(),
@@ -2010,6 +2080,8 @@ mod live_product_tests {
             turn_kind: StaffTurnKind::OwnerConversation,
             accountable_lead: true,
             worker_harness: crate::runtime::AgentHarness::RestlessManaged,
+            runtime_bridges: crate::runtime_bridge::RuntimeBridgeRegistry::default(),
+            hosted_identity: None,
             mcp_servers: Vec::new(),
             observer: None,
             cancellation: CancellationToken::new(),
@@ -2092,6 +2164,8 @@ mod live_product_tests {
             turn_kind: StaffTurnKind::Work,
             accountable_lead: false,
             worker_harness: crate::runtime::AgentHarness::Codex,
+            runtime_bridges: crate::runtime_bridge::RuntimeBridgeRegistry::default(),
+            hosted_identity: None,
             mcp_servers: Vec::new(),
             observer: None,
             cancellation: CancellationToken::new(),
@@ -2135,6 +2209,8 @@ mod live_product_tests {
                 turn_kind: StaffTurnKind::OwnerConversation,
                 accountable_lead: true,
                 worker_harness: crate::runtime::AgentHarness::RestlessManaged,
+                runtime_bridges: crate::runtime_bridge::RuntimeBridgeRegistry::default(),
+                hosted_identity: None,
                 mcp_servers: Vec::new(),
                 observer: None,
                 cancellation: CancellationToken::new(),
@@ -2167,6 +2243,8 @@ mod live_product_tests {
                 turn_kind: StaffTurnKind::Work,
                 accountable_lead: false,
                 worker_harness: crate::runtime::AgentHarness::Codex,
+                runtime_bridges: crate::runtime_bridge::RuntimeBridgeRegistry::default(),
+                hosted_identity: None,
                 mcp_servers: Vec::new(),
                 observer: None,
                 cancellation: CancellationToken::new(),
@@ -2199,6 +2277,8 @@ mod live_product_tests {
                 turn_kind: StaffTurnKind::Work,
                 accountable_lead: false,
                 worker_harness: crate::runtime::AgentHarness::Codex,
+                runtime_bridges: crate::runtime_bridge::RuntimeBridgeRegistry::default(),
+                hosted_identity: None,
                 mcp_servers: Vec::new(),
                 observer: None,
                 cancellation: CancellationToken::new(),
@@ -2237,6 +2317,8 @@ mod live_product_tests {
                 turn_kind: StaffTurnKind::Work,
                 accountable_lead: false,
                 worker_harness: crate::runtime::AgentHarness::Codex,
+                runtime_bridges: crate::runtime_bridge::RuntimeBridgeRegistry::default(),
+                hosted_identity: None,
                 mcp_servers: Vec::new(),
                 observer: None,
                 cancellation: cancellation.clone(),
@@ -2318,6 +2400,8 @@ mod live_product_tests {
                 turn_kind: StaffTurnKind::Work,
                 accountable_lead: false,
                 worker_harness: crate::runtime::AgentHarness::Codex,
+                runtime_bridges: crate::runtime_bridge::RuntimeBridgeRegistry::default(),
+                hosted_identity: None,
                 mcp_servers: Vec::new(),
                 observer: None,
                 cancellation: CancellationToken::new(),
@@ -2381,6 +2465,8 @@ mod live_product_tests {
             turn_kind: StaffTurnKind::OwnerConversation,
             accountable_lead: true,
             worker_harness: crate::runtime::AgentHarness::RestlessManaged,
+            runtime_bridges: crate::runtime_bridge::RuntimeBridgeRegistry::default(),
+            hosted_identity: None,
             mcp_servers: Vec::new(),
             observer: None,
             cancellation: CancellationToken::new(),

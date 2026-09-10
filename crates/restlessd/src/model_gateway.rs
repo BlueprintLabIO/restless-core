@@ -40,6 +40,7 @@ const OMP_GATEWAY_HOST_URL: &str = "http://127.0.0.1:7796";
 const RELAY_RUNTIME_URL: &str = "http://host.docker.internal:7790";
 const MODEL_CAPABILITY_ENV: &str = "RESTLESS_MODEL_CAPABILITY";
 const DISABLED_LOCAL_DISCOVERY_URL: &str = "http://127.0.0.1:1/v1";
+pub(crate) const HOSTED_MODEL_GATEWAY_PREFIX: &str = "/internal/v1/model-gateway";
 pub(crate) const RESPONSES_TARIFF_VERSION: &str = "omp-18.0.10-gpt-5.6-2026-08-30";
 pub(crate) const ANTHROPIC_TARIFF_VERSION: &str = "anthropic-list-2026-05-12";
 
@@ -76,10 +77,31 @@ impl GatewayEndpoints {
             broker_bind: format!("127.0.0.1:{broker_port}"),
             gateway_host_url: format!("http://127.0.0.1:{gateway_port}"),
             gateway_bind: format!("127.0.0.1:{gateway_port}"),
-            relay_runtime_url: format!("http://host.docker.internal:{relay_port}"),
+            relay_runtime_url: runtime_relay_url(relay_port)?,
             relay_bind: format!("0.0.0.0:{relay_port}"),
             relay_loopback_probe: format!("127.0.0.1:{relay_port}"),
         })
+    }
+}
+
+fn runtime_relay_url(local_relay_port: u16) -> Result<String> {
+    match std::env::var("RESTLESS_ENTRY_MODE").as_deref() {
+        Ok("network") => {
+            let expected_host = std::env::var("RESTLESS_ENTRY_HOST")
+                .context("network model relay requires RESTLESS_ENTRY_HOST")?
+                .to_ascii_lowercase();
+            let expected = format!("https://{expected_host}{HOSTED_MODEL_GATEWAY_PREFIX}");
+            let configured = std::env::var("RESTLESS_HOSTED_MODEL_RELAY_URL")
+                .context("network mode requires RESTLESS_HOSTED_MODEL_RELAY_URL")?;
+            if configured != expected {
+                bail!(
+                    "RESTLESS_HOSTED_MODEL_RELAY_URL must be the exact account-plane model endpoint {expected}"
+                );
+            }
+            Ok(configured)
+        }
+        Ok("local") | Err(_) => Ok(format!("http://host.docker.internal:{local_relay_port}")),
+        Ok(other) => bail!("RESTLESS_ENTRY_MODE must be local or network, not {other:?}"),
     }
 }
 
@@ -100,6 +122,7 @@ fn preflight_runtime_relay_port(loopback_bind: &str) -> Result<()> {
 }
 
 static CLIENT: OnceLock<ClientConfig> = OnceLock::new();
+static HOSTED_RELAY_STATE: OnceLock<RelayState> = OnceLock::new();
 
 /// Companies the account plane could not admit a model route for at boot.
 /// Consulted before a company wakes so the refusal names the exact reason
@@ -671,23 +694,20 @@ pub async fn start(
         .map(|(provider, credential)| (provider, credential.billing()))
         .collect();
 
-    let relay = start_runtime_relay(
-        RelayState {
-            root: root.to_path_buf(),
-            capabilities,
-            spend,
-            upstream_token: gateway_token,
-            upstream_url: endpoints.gateway_host_url,
-            responses_routes,
-            anthropic_routes,
-            http: reqwest::Client::builder()
-                .timeout(Duration::from_secs(15 * 60))
-                .build()
-                .context("build Runtime model relay client")?,
-        },
-        &endpoints.relay_bind,
-    )
-    .await?;
+    let relay_state = RelayState {
+        root: root.to_path_buf(),
+        capabilities,
+        spend,
+        upstream_token: gateway_token,
+        upstream_url: endpoints.gateway_host_url,
+        responses_routes,
+        anthropic_routes,
+        http: reqwest::Client::builder()
+            .timeout(Duration::from_secs(15 * 60))
+            .build()
+            .context("build Runtime model relay client")?,
+    };
+    let relay = start_runtime_relay(relay_state.clone(), &endpoints.relay_bind).await?;
     if CLIENT
         .set(ClientConfig {
             providers,
@@ -697,6 +717,10 @@ pub async fn start(
     {
         relay.abort();
         bail!("model gateway client was already installed");
+    }
+    if HOSTED_RELAY_STATE.set(relay_state).is_err() {
+        relay.abort();
+        bail!("hosted model relay state was already installed");
     }
     Ok(Some(Processes {
         broker,
@@ -958,6 +982,77 @@ struct DirectResponsesRoute {
 struct DirectAnthropicRoute {
     base_url: String,
     api_key: String,
+}
+
+pub(crate) fn hosted_routes<S>() -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    Router::<S>::new()
+        .route("/v1/models", get(hosted_relay_models))
+        .route("/v1/pi/stream", post(hosted_relay_pi_stream))
+        .route("/v1/responses", post(hosted_relay_responses))
+        .route("/v1/messages", post(hosted_relay_anthropic_messages))
+        .route(
+            "/v1/messages/count_tokens",
+            post(hosted_relay_anthropic_count_tokens),
+        )
+        .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
+}
+
+pub(crate) fn is_hosted_model_gateway_path(path: &str) -> bool {
+    path.strip_prefix(HOSTED_MODEL_GATEWAY_PREFIX)
+        .is_some_and(|suffix| suffix == "/v1/models" || suffix.starts_with("/v1/"))
+}
+
+fn hosted_relay_state(headers: &HeaderMap) -> std::result::Result<RelayState, Response<Body>> {
+    if headers.contains_key("origin") || headers.contains_key("cookie") {
+        return Err(relay_error(
+            StatusCode::BAD_REQUEST,
+            "hosted model relay accepts machine requests only",
+        ));
+    }
+    HOSTED_RELAY_STATE.get().cloned().ok_or_else(|| {
+        relay_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "hosted model relay is not ready",
+        )
+    })
+}
+
+async fn hosted_relay_models(headers: HeaderMap) -> Response<Body> {
+    match hosted_relay_state(&headers) {
+        Ok(state) => relay_models(State(state), headers).await,
+        Err(response) => response,
+    }
+}
+
+async fn hosted_relay_pi_stream(headers: HeaderMap, body: Bytes) -> Response<Body> {
+    match hosted_relay_state(&headers) {
+        Ok(state) => relay_pi_stream(State(state), headers, body).await,
+        Err(response) => response,
+    }
+}
+
+async fn hosted_relay_responses(headers: HeaderMap, body: Bytes) -> Response<Body> {
+    match hosted_relay_state(&headers) {
+        Ok(state) => relay_responses(State(state), headers, body).await,
+        Err(response) => response,
+    }
+}
+
+async fn hosted_relay_anthropic_messages(headers: HeaderMap, body: Bytes) -> Response<Body> {
+    match hosted_relay_state(&headers) {
+        Ok(state) => relay_anthropic_messages(State(state), headers, body).await,
+        Err(response) => response,
+    }
+}
+
+async fn hosted_relay_anthropic_count_tokens(headers: HeaderMap, body: Bytes) -> Response<Body> {
+    match hosted_relay_state(&headers) {
+        Ok(state) => relay_anthropic_count_tokens(State(state), headers, body).await,
+        Err(response) => response,
+    }
 }
 
 fn direct_responses_routes(

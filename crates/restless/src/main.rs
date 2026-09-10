@@ -78,6 +78,13 @@ enum Command {
         #[command(subcommand)]
         command: PublishCommand,
     },
+    /// Native Document operations available to a bound hosted Work Attempt.
+    Document {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
+        company: Option<String>,
+        #[command(subcommand)]
+        command: DocumentCommand,
+    },
     /// Bring a company environment up (create if absent, then start).
     Up {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
@@ -422,6 +429,22 @@ enum ApplianceCommand {
 
 #[derive(Subcommand)]
 enum PublishCommand {
+    /// Build one completed Attempt snapshot and push its verified immutable image.
+    Build {
+        #[arg(long)]
+        source_artifact: String,
+        /// Optional directory inside the hardened Attempt snapshot.
+        #[arg(long)]
+        context: Option<String>,
+        #[arg(long, default_value = "Dockerfile")]
+        dockerfile: String,
+        #[arg(long)]
+        deadline: String,
+        #[arg(long)]
+        key: String,
+        #[arg(long, env = "RESTLESS_ACTOR")]
+        actor: Option<String>,
+    },
     /// Bind a versioned service manifest to an exact immutable source artifact.
     Candidate {
         #[arg(long)]
@@ -499,6 +522,32 @@ enum PublishCommand {
     },
     /// List all publication records for the company.
     List,
+}
+
+#[derive(Subcommand)]
+enum DocumentCommand {
+    /// Pause this exact Attempt's Work for a named-version human review.
+    RequestReview {
+        #[arg(long)]
+        document: String,
+        #[arg(long = "document-revision")]
+        document_revision: i64,
+        #[arg(long = "named-version")]
+        named_version: String,
+        #[arg(long)]
+        work: String,
+        #[arg(long)]
+        attempt: String,
+        #[arg(long = "work-revision")]
+        work_revision: i64,
+        #[arg(long)]
+        reviewer: String,
+        #[arg(long)]
+        summary: String,
+        /// Stable UUID chosen before the first request; retry it unchanged.
+        #[arg(long)]
+        key: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -2037,9 +2086,54 @@ fn stamp(mut request: serde_json::Value) -> serde_json::Value {
 /// One request/response pair; `watch` and `attach` handle their own I/O.
 fn request_json(command: Command) -> Result<serde_json::Value> {
     Ok(match command {
+        Command::Document { company, command } => {
+            let company = company.context("no company: pass -c or set RESTLESS_COMPANY")?;
+            match command {
+                DocumentCommand::RequestReview {
+                    document,
+                    document_revision,
+                    named_version,
+                    work,
+                    attempt,
+                    work_revision,
+                    reviewer,
+                    summary,
+                    key,
+                } => serde_json::json!({
+                    "cmd": "document-review-request",
+                    "company": company,
+                    "document_id": document,
+                    "expected_document_version": document_revision,
+                    "named_version_id": named_version,
+                    "document_work_id": work,
+                    "document_attempt_id": attempt,
+                    "expected_work_revision": work_revision,
+                    "reviewer_actor_id": reviewer,
+                    "review_summary": summary,
+                    "document_command_id": key,
+                }),
+            }
+        }
         Command::Publish { company, command } => {
             let company = company.context("no company: pass -c or set RESTLESS_COMPANY")?;
             match command {
+                PublishCommand::Build {
+                    source_artifact,
+                    context,
+                    dockerfile,
+                    deadline,
+                    key,
+                    actor,
+                } => serde_json::json!({
+                    "cmd": "publish-build",
+                    "company": company,
+                    "actor": actor.unwrap_or_else(|| "owner".into()),
+                    "source_artifact_ref_id": source_artifact,
+                    "build_context": context,
+                    "dockerfile": dockerfile,
+                    "build_deadline": deadline,
+                    "idempotency_key": key,
+                }),
                 PublishCommand::Candidate {
                     source_artifact,
                     manifest,
@@ -3606,7 +3700,7 @@ fn doctor(company: Option<String>) -> Result<()> {
             && report["supervisor"]["status"].as_str() != Some("available")
         {
             actions.push(format!(
-                "restless attach -c {company} -- supervisorctl -c /etc/supervisor/conf.d/restless.conf status"
+                "restless attach -c {company} -- company-supervisorctl status"
             ));
         }
     } else {

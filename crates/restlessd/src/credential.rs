@@ -13,7 +13,10 @@
 
 use anyhow::{bail, Context as _, Result};
 use serde::Deserialize;
+use sha2::{Digest as _, Sha256};
+use std::io::Read as _;
 use url::Url;
+use uuid::Uuid;
 
 use crate::runtime::CompanyConfig;
 
@@ -172,12 +175,146 @@ pub(crate) async fn store_reference(reference: &str, value: &str) -> Result<()> 
         ),
         CredentialReference::Infisical(locator) => {
             let settings = InfisicalSettings::from_env()?;
+            infisical_ensure_folder(&settings, locator.path).await?;
             infisical_upsert(&settings, &locator, &value).await
         }
         CredentialReference::OmpOauth(provider) => bail!(
             "omp-oauth:{provider} is created through the owner OAuth handover, not by storing a raw value"
         ),
     }
+}
+
+/// Put the generated per-cell native Documents database capability into the
+/// exact secret location consumed by Cloud's company-cell provider. The raw
+/// URL is read only inside the account plane, forwarded to Infisical, and
+/// checked by digest after readback. Bootstrap must not become ready if this
+/// custody handoff is absent or ambiguous.
+pub(crate) async fn publish_native_documents_store(
+    plane_id: Uuid,
+    cell_id: Uuid,
+    credential_path: &std::path::Path,
+) -> Result<()> {
+    if plane_id.is_nil() || cell_id.is_nil() {
+        bail!("native Documents credential needs non-nil plane and cell identities");
+    }
+    let link = std::fs::symlink_metadata(credential_path).with_context(|| {
+        format!(
+            "inspect native Documents credential at {}",
+            credential_path.display()
+        )
+    })?;
+    if link.file_type().is_symlink()
+        || !link.file_type().is_file()
+        || !(32..=2048).contains(&link.len())
+    {
+        bail!("native Documents credential must be one bounded regular non-symlink file");
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+        if link.permissions().mode() & 0o077 != 0 || link.nlink() != 1 {
+            bail!("native Documents credential must be private and unlinked");
+        }
+    }
+    let file = std::fs::File::open(credential_path).with_context(|| {
+        format!(
+            "open native Documents credential at {}",
+            credential_path.display()
+        )
+    })?;
+    let opened = file
+        .metadata()
+        .context("read opened native Documents credential metadata")?;
+    if !opened.is_file() || opened.len() != link.len() {
+        bail!("native Documents credential changed before it was opened");
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        if opened.dev() != link.dev() || opened.ino() != link.ino() {
+            bail!("native Documents credential changed identity before it was opened");
+        }
+    }
+    let value =
+        std::io::read_to_string(file.take(2049)).context("read native Documents credential")?;
+    if value.trim() != value || value.lines().count() != 1 {
+        bail!("native Documents credential must be one normalized URL");
+    }
+    let parsed = Url::parse(&value).context("parse native Documents credential URL")?;
+    if !matches!(parsed.scheme(), "postgres" | "postgresql")
+        || parsed.username().is_empty()
+        || parsed.password().is_none()
+        || parsed.path().len() <= 1
+        || parsed.fragment().is_some()
+    {
+        bail!("native Documents credential URL is invalid");
+    }
+
+    let reference = format!("/plane-credentials/{plane_id}/cells/{cell_id}/native-documents-store");
+    let locator = parse_infisical_locator(&reference)?;
+    let settings = InfisicalSettings::from_env()?;
+    infisical_publish_verified(&settings, &locator, &value).await
+}
+
+/// Prove that this account plane can reach and use only its own durable
+/// credential-custody namespace. The marker contains no secret material. It
+/// is created once when the namespace is empty and read on every readiness
+/// observation, so an expired machine identity or unavailable Infisical
+/// backend makes the plane non-ready instead of relying on startup intent.
+pub(crate) async fn probe_plane_custody(plane_id: Uuid) -> Result<()> {
+    if plane_id.is_nil() {
+        bail!("credential custody probe needs a non-nil plane identity");
+    }
+    let reference = format!("/plane-credentials/{plane_id}/readiness-marker");
+    let locator = parse_infisical_locator(&reference)?;
+    let settings = InfisicalSettings::from_env()?;
+    let expected = format!("restless-plane-custody-v1:{plane_id}");
+    match infisical_get(&settings, &locator)
+        .await
+        .context("read account-plane credential custody marker")?
+    {
+        Some(value) if Sha256::digest(value.as_bytes()) == Sha256::digest(expected.as_bytes()) => {
+            Ok(())
+        }
+        Some(_) => bail!("account-plane credential custody marker has unexpected content"),
+        None => {
+            infisical_ensure_folder(&settings, locator.path)
+                .await
+                .context("prepare account-plane credential custody namespace")?;
+            infisical_upsert(&settings, &locator, &expected)
+                .await
+                .context("create account-plane credential custody marker")?;
+            let readback = infisical_get(&settings, &locator)
+                .await
+                .context("verify account-plane credential custody marker")?
+                .context("account-plane credential custody marker remained absent")?;
+            if Sha256::digest(readback.as_bytes()) != Sha256::digest(expected.as_bytes()) {
+                bail!("account-plane credential custody marker readback did not match");
+            }
+            Ok(())
+        }
+    }
+}
+
+async fn infisical_publish_verified(
+    settings: &InfisicalSettings,
+    locator: &InfisicalLocator<'_>,
+    value: &str,
+) -> Result<()> {
+    infisical_ensure_folder(settings, locator.path)
+        .await
+        .context("prepare native Documents credential custody")?;
+    infisical_upsert(settings, locator, value)
+        .await
+        .context("publish native Documents credential")?;
+    let readback = infisical_get(settings, locator)
+        .await
+        .context("verify native Documents credential custody")?
+        .context("native Documents credential was absent after publication")?;
+    if Sha256::digest(value.as_bytes()) != Sha256::digest(readback.as_bytes()) {
+        bail!("native Documents credential readback did not match its published digest");
+    }
+    Ok(())
 }
 
 /// Move a bootstrap-only daemon environment credential into durable Infisical
@@ -398,6 +535,14 @@ fn required_env(name: &str) -> Result<String> {
     Ok(value)
 }
 
+fn infisical_client() -> Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(3))
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .context("build bounded Infisical client")
+}
+
 async fn infisical_login(client: &reqwest::Client, settings: &InfisicalSettings) -> Result<String> {
     let endpoint = infisical_endpoint(
         &settings.base_url,
@@ -437,7 +582,7 @@ async fn infisical_get(
     settings: &InfisicalSettings,
     locator: &InfisicalLocator<'_>,
 ) -> Result<Option<String>> {
-    let client = reqwest::Client::new();
+    let client = infisical_client()?;
     let access_token = infisical_login(&client, settings).await?;
     let endpoint = infisical_endpoint(&settings.base_url, &["api", "v4", "secrets", locator.name])?;
     let response = client
@@ -481,7 +626,7 @@ async fn infisical_upsert(
     locator: &InfisicalLocator<'_>,
     value: &str,
 ) -> Result<()> {
-    let client = reqwest::Client::new();
+    let client = infisical_client()?;
     let access_token = infisical_login(&client, settings).await?;
     let endpoint = infisical_endpoint(&settings.base_url, &["api", "v4", "secrets", "batch"])?;
     let response = client
@@ -515,7 +660,7 @@ async fn infisical_ensure_folder(settings: &InfisicalSettings, path: &str) -> Re
     if path == "/" {
         return Ok(());
     }
-    let client = reqwest::Client::new();
+    let client = infisical_client()?;
     let access_token = infisical_login(&client, settings).await?;
     let endpoint = infisical_endpoint(&settings.base_url, &["api", "v2", "folders"])?;
     let mut parent = "/".to_string();
@@ -772,6 +917,96 @@ mod tests {
         assert_eq!(
             writes[0]["secrets"][0]["secretValue"],
             "new-provider-secret"
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn native_documents_publication_creates_exact_custody_and_verifies_readback() {
+        let folders = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
+        let stored = Arc::new(Mutex::new(String::new()));
+        let app = Router::new()
+            .route(
+                "/api/v1/auth/universal-auth/login",
+                post(|| async { Json(serde_json::json!({ "accessToken": "short-lived" })) }),
+            )
+            .route(
+                "/api/v2/folders",
+                post({
+                    let folders = Arc::clone(&folders);
+                    move |Json(body): Json<serde_json::Value>| {
+                        let folders = Arc::clone(&folders);
+                        async move {
+                            folders.lock().unwrap().push(body);
+                            Json(serde_json::json!({ "folder": {} }))
+                        }
+                    }
+                }),
+            )
+            .route(
+                "/api/v4/secrets/batch",
+                patch({
+                    let stored = Arc::clone(&stored);
+                    move |Json(body): Json<serde_json::Value>| {
+                        let stored = Arc::clone(&stored);
+                        async move {
+                            *stored.lock().unwrap() = body["secrets"][0]["secretValue"]
+                                .as_str()
+                                .unwrap()
+                                .to_string();
+                            Json(serde_json::json!({ "secrets": [] }))
+                        }
+                    }
+                }),
+            )
+            .route(
+                "/api/v4/secrets/{name}",
+                get({
+                    let stored = Arc::clone(&stored);
+                    move |Path(name): Path<String>| {
+                        let stored = Arc::clone(&stored);
+                        async move {
+                            assert_eq!(name, "native-documents-store");
+                            Json(serde_json::json!({
+                                "secret": { "secretValue": stored.lock().unwrap().clone() }
+                            }))
+                        }
+                    }
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let settings = InfisicalSettings {
+            base_url: Url::parse(&format!("http://{address}")).unwrap(),
+            project_id: "project".into(),
+            environment: "prod".into(),
+            client_id: "client".into(),
+            client_secret: "bootstrap-secret".into(),
+            organization_slug: None,
+        };
+        let plane_id = Uuid::parse_str("33333333-3333-7333-8333-333333333333").unwrap();
+        let cell_id = Uuid::parse_str("44444444-4444-7444-8444-444444444444").unwrap();
+        let path = format!("/plane-credentials/{plane_id}/cells/{cell_id}/native-documents-store");
+        let locator = parse_infisical_locator(&path).unwrap();
+        let secret = "postgresql://docs:secret@postgres.internal/restless_cell_company";
+
+        infisical_publish_verified(&settings, &locator, secret)
+            .await
+            .unwrap();
+        assert_eq!(stored.lock().unwrap().as_str(), secret);
+        let folders = folders.lock().unwrap();
+        assert_eq!(folders.len(), 4);
+        assert_eq!(folders[0]["name"], "plane-credentials");
+        assert_eq!(folders[0]["path"], "/");
+        assert_eq!(folders[1]["name"], plane_id.to_string());
+        assert_eq!(folders[1]["path"], "/plane-credentials");
+        assert_eq!(folders[2]["name"], "cells");
+        assert_eq!(folders[2]["path"], format!("/plane-credentials/{plane_id}"));
+        assert_eq!(folders[3]["name"], cell_id.to_string());
+        assert_eq!(
+            folders[3]["path"],
+            format!("/plane-credentials/{plane_id}/cells")
         );
         server.abort();
     }

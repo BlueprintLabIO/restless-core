@@ -356,23 +356,37 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
     let Some(_lifecycle_lease) = daemon.lifecycle.try_enter() else {
         return;
     };
-    if !matches!(runtime::status(company).await, Ok(ContainerStatus::Running)) {
-        return;
-    }
     let Ok(config) = CompanyConfig::load(&daemon.root, company) else {
         return;
     };
+    if daemon.runtime_bridges.is_hosted() {
+        let Ok(identity) =
+            crate::runtime_bridge::expected_identity(&daemon.authority, company).await
+        else {
+            return;
+        };
+        if daemon.runtime_bridges.readiness(&identity)
+            != crate::runtime_bridge::BridgeReadiness::Ready
+        {
+            return;
+        }
+    } else if !matches!(runtime::status(company).await, Ok(ContainerStatus::Running)) {
+        return;
+    }
     let Ok(org) = daemon.orgintel.get(company).await else {
         return;
     };
 
-    if let Err(error) =
-        crate::staff::reconcile_execution_substrate(&org, &runtime::container_name(company)).await
-    {
-        tracing::warn!(
-            company,
-            "could not reconcile exact execution substrate: {error:#}"
-        );
+    if !daemon.runtime_bridges.is_hosted() {
+        if let Err(error) =
+            crate::staff::reconcile_execution_substrate(&org, &runtime::container_name(company))
+                .await
+        {
+            tracing::warn!(
+                company,
+                "could not reconcile exact execution substrate: {error:#}"
+            );
+        }
     }
 
     // Live Attempt completion flushes this outbox immediately. A daemon crash
@@ -446,6 +460,7 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
                     capabilities: &daemon.capabilities,
                     registry: &daemon.staff,
                     activities: &daemon.activities,
+                    runtime_bridges: &daemon.runtime_bridges,
                 },
                 &team.lead_actor_id,
                 "addressed message or team judgement became ready",
@@ -481,6 +496,7 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
                     capabilities: &daemon.capabilities,
                     registry: &daemon.staff,
                     activities: &daemon.activities,
+                    runtime_bridges: &daemon.runtime_bridges,
                 },
                 &actor,
                 "a durable named-Actor Room mention remains owed",
@@ -530,6 +546,7 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
             &org,
             &daemon.staff,
             &daemon.activities,
+            &daemon.runtime_bridges,
             claimed,
         )
         .await
@@ -717,6 +734,7 @@ async fn run_exec_turn_with_lease(
         &daemon.spend,
         &daemon.authority,
         &daemon.capabilities,
+        &daemon.runtime_bridges,
         org,
         reason,
         &conversation_inbox,

@@ -25,7 +25,7 @@ use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::entry::EntryMode;
-use crate::{authority::AuthorityStore, cell, release, runtime, Daemon};
+use crate::{authority::AuthorityStore, cell, credential, release, runtime, Daemon};
 
 pub(crate) const COMPANY_BOOTSTRAP_PATH: &str = "/internal/v1/companies/bootstrap";
 pub(crate) const COMPANY_BOOTSTRAP_CONTRACT_VERSION: u32 = 1;
@@ -269,11 +269,42 @@ impl BootstrapDeployment {
 }
 
 #[derive(Clone)]
+enum NativeDocumentsCredentialPublisher {
+    Infisical,
+    #[cfg(test)]
+    Recorded(Arc<std::sync::Mutex<Vec<(Uuid, Uuid)>>>),
+}
+
+impl NativeDocumentsCredentialPublisher {
+    async fn publish(&self, plane_id: Uuid, cell_id: Uuid, path: &Path) -> Result<()> {
+        match self {
+            Self::Infisical => {
+                credential::publish_native_documents_store(plane_id, cell_id, path).await
+            }
+            #[cfg(test)]
+            Self::Recorded(published) => {
+                let metadata = fs::symlink_metadata(path)
+                    .context("inspect recorded native Documents credential")?;
+                if !metadata.is_file() || metadata.file_type().is_symlink() {
+                    anyhow::bail!("recorded native Documents credential is not a regular file");
+                }
+                published
+                    .lock()
+                    .expect("credential publisher")
+                    .push((plane_id, cell_id));
+                Ok(())
+            }
+        }
+    }
+}
+
+#[derive(Clone)]
 struct CompanyBootstrapService {
     deployment: BootstrapDeployment,
     root: PathBuf,
     database_url: String,
     authority: AuthorityStore,
+    native_documents_credential_publisher: NativeDocumentsCredentialPublisher,
 }
 
 impl CompanyBootstrapService {
@@ -285,18 +316,14 @@ impl CompanyBootstrapService {
         let request_fingerprint = digest(&serde_json::to_vec(&request).map_err(unavailable)?);
         let config_fingerprint = digest(rendered_config.as_bytes());
 
-        match reserve_operation(
+        let _reservation = reserve_operation(
             &self.authority,
             &request,
             &company_handle,
             &request_fingerprint,
             &config_fingerprint,
         )
-        .await?
-        {
-            Reservation::Ready(receipt) => return validate_receipt_bytes(&request, receipt),
-            Reservation::Provisioning => {}
-        }
+        .await?;
 
         // One database transaction holds the canonical advisory lock through
         // every idempotent external step. A second process may reserve/retry,
@@ -314,15 +341,16 @@ impl CompanyBootstrapService {
         {
             return Err(BootstrapFailure::Conflict);
         }
-        if stored.status == "ready" {
-            completion.commit().await.map_err(unavailable)?;
-            return validate_receipt_bytes(
+        let ready_receipt = if stored.status == "ready" {
+            Some(validate_receipt_bytes(
                 &request,
                 stored.receipt_bytes.ok_or_else(|| {
                     unavailable(anyhow::anyhow!("ready bootstrap has no receipt"))
                 })?,
-            );
-        }
+            )?)
+        } else {
+            None
+        };
 
         ensure_company_config(&self.root, &desired_config, &rendered_config).await?;
         AuthorityStore::initialise_company_in_transaction(&mut completion, &company_handle, &[])
@@ -352,8 +380,30 @@ impl CompanyBootstrapService {
         org.ensure_actor_with_model("exec", "exec", "exec", "The Exec", Some(&request.model))
             .await
             .map_err(company_substrate_error)?;
+        let native_documents_credential =
+            cell::ensure_native_documents_store(&self.root, &self.database_url, &company_handle)
+                .await
+                .map_err(unavailable)?;
+        self.native_documents_credential_publisher
+            .publish(
+                request.plane_id,
+                request.cell_id,
+                &native_documents_credential,
+            )
+            .await
+            .map_err(unavailable)?;
         verify_company_substrate(&org, &request).await?;
         drop(org);
+
+        // A durable ready receipt proves a past handoff, not present
+        // readiness. Exact retries re-run the idempotent substrate checks and
+        // credential-custody handoff before returning the original receipt.
+        // This repairs lost/expired external custody without minting a new
+        // bootstrap identity.
+        if let Some(receipt) = ready_receipt {
+            completion.commit().await.map_err(unavailable)?;
+            return Ok(receipt);
+        }
 
         let receipt = CompanyBootstrapReceipt::from(&request);
         let receipt_bytes = serde_json::to_vec(&receipt).map_err(unavailable)?;
@@ -397,6 +447,7 @@ where
             root: daemon.root.clone(),
             database_url: daemon.orgintel.database_url.clone(),
             authority: daemon.authority.clone(),
+            native_documents_credential_publisher: NativeDocumentsCredentialPublisher::Infisical,
         })),
         None => BootstrapEndpoint::Disabled,
     };
@@ -536,7 +587,7 @@ struct StoredOperation {
 
 enum Reservation {
     Provisioning,
-    Ready(Vec<u8>),
+    Ready,
 }
 
 async fn reserve_operation(
@@ -554,18 +605,22 @@ async fn reserve_operation(
         {
             return Err(BootstrapFailure::Conflict);
         }
-        let reservation =
-            match stored.status.as_str() {
-                "provisioning" => Reservation::Provisioning,
-                "ready" => Reservation::Ready(stored.receipt_bytes.ok_or_else(|| {
-                    unavailable(anyhow::anyhow!("ready bootstrap has no receipt"))
-                })?),
-                _ => {
+        let reservation = match stored.status.as_str() {
+            "provisioning" => Reservation::Provisioning,
+            "ready" => {
+                if stored.receipt_bytes.is_none() {
                     return Err(unavailable(anyhow::anyhow!(
-                        "company bootstrap contains an unknown state"
-                    )))
+                        "ready bootstrap has no receipt"
+                    )));
                 }
-            };
+                Reservation::Ready
+            }
+            _ => {
+                return Err(unavailable(anyhow::anyhow!(
+                    "company bootstrap contains an unknown state"
+                )))
+            }
+        };
         tx.commit().await.map_err(unavailable)?;
         return Ok(reservation);
     }
@@ -1142,11 +1197,15 @@ mod tests {
             request.operation_id
         ));
         fs::create_dir_all(root.join("companies")).unwrap();
+        let published_credentials = Arc::new(std::sync::Mutex::new(Vec::new()));
         let service = Arc::new(CompanyBootstrapService {
             deployment: deployment(),
             root: root.clone(),
             database_url: database_url.clone(),
             authority: authority.clone(),
+            native_documents_credential_publisher: NativeDocumentsCredentialPublisher::Recorded(
+                Arc::clone(&published_credentials),
+            ),
         });
 
         let mut attempts = Vec::new();
@@ -1165,6 +1224,13 @@ mod tests {
         drop(receipts);
         let replay = service.execute(request.clone()).await.unwrap();
         assert_eq!(replay, first);
+        {
+            let published = published_credentials.lock().unwrap();
+            assert_eq!(published.len(), 9);
+            assert!(published
+                .iter()
+                .all(|identity| identity == &(request.plane_id, request.cell_id)));
+        }
 
         let endpoint = Arc::new(BootstrapEndpoint::Enabled(service.clone()));
         let app = Router::new()
@@ -1197,6 +1263,11 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(http_receipt.as_ref(), first.as_slice());
+        assert_eq!(
+            published_credentials.lock().unwrap().len(),
+            10,
+            "every exact retry must revalidate external credential custody"
+        );
 
         for (candidate, status) in [
             (

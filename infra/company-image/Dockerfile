@@ -15,7 +15,7 @@ FROM rust:1-bookworm AS cli
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
-RUN cargo build --release -p restless
+RUN cargo build --release -p restless -p restless-runtime-bridge
 
 FROM node:24-bookworm-slim AS runtime-harnesses
 
@@ -43,7 +43,8 @@ RUN apt-get update \
         supervisor \
 		tint2 \
         tigervnc-standalone-server \
-        tini \
+		tini \
+		util-linux \
 		unzip \
 		wmctrl \
 		websockify \
@@ -176,15 +177,22 @@ RUN set -eux; \
 
 RUN groupadd --gid 2000 company \
     && useradd --uid 2000 --gid 2000 --no-create-home --home-dir /company/home company \
-    && useradd --uid 2001 --gid 2000 --no-create-home --home-dir /tmp/restless-effect effect
+    && useradd --uid 2001 --gid 2000 --no-create-home --home-dir /tmp/restless-effect effect \
+    && install -d -o company -g company -m 0770 /company
 
 COPY infra/company-image/entrypoint.sh /usr/local/bin/company-init
+COPY infra/company-image/company-volume-init.sh /usr/local/bin/company-volume-init
+COPY infra/company-image/assert-runtime-privileges.py /usr/local/bin/assert-runtime-privileges
 COPY infra/company-image/wait-for-display.sh /usr/local/bin/wait-for-company-display
 COPY infra/company-image/start-chromium.sh /usr/local/bin/start-company-chromium
 COPY infra/company-image/start-desktop-panel.sh /usr/local/bin/start-company-desktop-panel
 COPY infra/company-image/focus-chromium.sh /usr/local/bin/focus-company-chromium
 COPY infra/company-image/start-terminal.sh /usr/local/bin/start-company-terminal
 COPY infra/company-image/start-godot.sh /usr/local/bin/start-company-godot
+COPY infra/company-image/start-runtime-bridge.sh /usr/local/bin/start-runtime-bridge
+COPY infra/company-image/start-company-supervisor.sh /usr/local/bin/start-company-supervisor
+COPY infra/company-image/company-supervisorctl.sh /usr/local/bin/company-supervisorctl
+COPY infra/company-image/validate-company-supervisor-config.py /usr/local/bin/validate-company-supervisor-config
 COPY infra/company-image/refresh-desktop-launchers.sh /usr/local/bin/refresh-company-desktop-launchers
 COPY infra/company-image/git-credential-restless /usr/local/bin/git-credential-restless
 COPY infra/company-image/skills /opt/restless/skills
@@ -201,10 +209,15 @@ COPY tools/codex-runner/restless-codex-parity-preflight.mjs /usr/local/lib/restl
 COPY tools/codex-runner/restless-codex-task-run.mjs /usr/local/lib/restless/restless-codex-task-run.mjs
 COPY tools/codex-runner/restless-codex-longitudinal-run.mjs /usr/local/lib/restless/restless-codex-longitudinal-run.mjs
 COPY infra/company-image/supervisord.conf /etc/supervisor/conf.d/restless.conf
-RUN chmod 0555 /usr/local/bin/company-init /usr/local/bin/wait-for-company-display \
+COPY infra/company-image/company-supervisord.conf /etc/supervisor/conf.d/company.conf
+RUN chmod 0555 /usr/local/bin/company-init /usr/local/bin/company-volume-init \
+        /usr/local/bin/assert-runtime-privileges /usr/local/bin/wait-for-company-display \
         /usr/local/bin/start-company-chromium /usr/local/bin/start-company-desktop-panel \
         /usr/local/bin/focus-company-chromium /usr/local/bin/start-company-terminal \
         /usr/local/bin/start-company-godot /usr/local/bin/refresh-company-desktop-launchers \
+        /usr/local/bin/start-runtime-bridge \
+        /usr/local/bin/start-company-supervisor /usr/local/bin/company-supervisorctl \
+        /usr/local/bin/validate-company-supervisor-config \
         /usr/local/bin/git-credential-restless \
         /usr/local/lib/restless/restless-scenario.mjs \
         /usr/local/lib/restless/restless-web-review.mjs \
@@ -215,6 +228,7 @@ RUN chmod 0555 /usr/local/bin/company-init /usr/local/bin/wait-for-company-displ
     && chmod -R a=rX /opt/restless/skills \
     && chmod 0444 /usr/local/lib/restless/browser-broker.mjs \
         /usr/local/lib/restless/release-health.mjs /etc/supervisor/conf.d/restless.conf \
+        /etc/supervisor/conf.d/company.conf \
         /etc/restless/tint2rc /usr/share/applications/company-browser.desktop \
         /usr/share/applications/company-terminal.desktop /usr/share/applications/company-godot.desktop
 RUN ln -s /usr/local/lib/restless/restless-scenario.mjs /usr/local/bin/restless-scenario
@@ -225,6 +239,7 @@ RUN ln -s /usr/local/lib/restless/restless-codex-runner.mjs /usr/local/bin/restl
 # container (TCP: unix sockets do not cross the Docker Desktop file share —
 # probed in T10). RESTLESS_COMPANY is set per container at `docker run`.
 COPY --from=cli /src/target/release/restless /usr/local/bin/restless
+COPY --from=cli /src/target/release/restless-runtime-bridge /usr/local/bin/restless-runtime-bridge
 ENV RESTLESS_COORDINATOR=host.docker.internal:7791
 
 # PID 1 is the seed + long-lived init. Agents never enter this path.

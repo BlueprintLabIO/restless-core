@@ -805,6 +805,7 @@ mod tests {
             staff: crate::staff::StaffRegistry::default(),
             activities: crate::activity::AgentActivityStreams::default(),
             cell_wakes: crate::cell_wake::CellWakeHub::default(),
+            runtime_bridges: crate::runtime_bridge::RuntimeBridgeRegistry::default(),
             lifecycle: restlessd::appliance::LifecycleGate::default(),
             in_flight: Arc::new(std::sync::Mutex::new(crate::schedule::WakeClaims::default())),
             schedule_wake: Arc::new(tokio::sync::Notify::new()),
@@ -984,6 +985,7 @@ mod tests {
             staff: crate::staff::StaffRegistry::default(),
             activities: crate::activity::AgentActivityStreams::default(),
             cell_wakes: crate::cell_wake::CellWakeHub::default(),
+            runtime_bridges: crate::runtime_bridge::RuntimeBridgeRegistry::default(),
             lifecycle: restlessd::appliance::LifecycleGate::default(),
             in_flight: std::sync::Arc::new(std::sync::Mutex::new(
                 crate::schedule::WakeClaims::default(),
@@ -1092,6 +1094,7 @@ mod tests {
             staff: crate::staff::StaffRegistry::default(),
             activities: crate::activity::AgentActivityStreams::default(),
             cell_wakes: crate::cell_wake::CellWakeHub::default(),
+            runtime_bridges: crate::runtime_bridge::RuntimeBridgeRegistry::default(),
             lifecycle: restlessd::appliance::LifecycleGate::default(),
             in_flight: std::sync::Arc::new(std::sync::Mutex::new(
                 crate::schedule::WakeClaims::default(),

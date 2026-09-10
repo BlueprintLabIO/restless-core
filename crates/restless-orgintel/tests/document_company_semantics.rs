@@ -6,9 +6,11 @@
 use restless_orgintel::{
     AcceptDocumentReview, DocumentAccess, DocumentCommentStatus, DocumentError, DocumentKind,
     DocumentRevisionDecision, DocumentRevisionScope, DocumentRevisionStatus, DocumentStatus,
-    DocumentVisibility, NewDocument, NewDocumentCommentThread, NewNamedDocumentVersion, OrgIntel,
-    ProposeDocumentRevision, ReplyToDocumentComment, RequestDocumentReview,
+    DocumentVisibility, DocumentWorkReviewDependencyInput, DocumentWorkReviewStatus, NewDocument,
+    NewDocumentCommentThread, NewNamedDocumentVersion, NewWork, OrgIntel, ProposeDocumentRevision,
+    ReplyToDocumentComment, RequestDocumentReview, RequestDocumentReviewChanges,
     ResolveDocumentCommentThread, ResolveDocumentRevisionProposal, SetDocumentParticipant,
+    WorkAttemptState, WorkStatus, WorkspaceSpec,
 };
 use serde_json::{json, Value};
 use sqlx::{Connection as _, PgConnection};
@@ -21,6 +23,9 @@ async fn company(prefix: &str) -> Option<OrgIntel> {
         .await
         .expect("ensure scratch company schema");
     org.ensure_actor("owner", "owner", "owner", "The Owner")
+        .await
+        .unwrap();
+    org.ensure_actor("exec", "exec", "exec", "The Exec")
         .await
         .unwrap();
     org.ensure_actor("alex", "human", "member", "Alex")
@@ -97,6 +102,56 @@ async fn connection_for(org: &OrgIntel) -> PgConnection {
         .await
         .unwrap();
     connection
+}
+
+#[derive(Clone, Copy)]
+struct BoundWork {
+    work_id: Uuid,
+    attempt_id: Uuid,
+    revision: i64,
+}
+
+async fn running_work(org: &OrgIntel, title: &str) -> BoundWork {
+    let work_id = org
+        .add_work(NewWork {
+            owner_id: "research-analyst",
+            title,
+            outcome: title,
+            goal_id: None,
+            priority: 1,
+            expected_artifact: "reviewed native Document",
+            workspace: WorkspaceSpec::default(),
+            attempt_limit: Some(1),
+        })
+        .await
+        .unwrap();
+    let attempt = org
+        .claim_ready_work("document-review-test")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(attempt.work.id, work_id);
+    BoundWork {
+        work_id,
+        attempt_id: attempt.attempt_id,
+        revision: attempt.work.revision,
+    }
+}
+
+async fn blocked_work(org: &OrgIntel, title: &str) -> BoundWork {
+    let work = running_work(org, title).await;
+    org.finish_work_attempt(
+        work.attempt_id,
+        WorkAttemptState::Blocked,
+        "waiting for the explicitly bound native Document review",
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        org.get_work(work.work_id).await.unwrap().unwrap().status,
+        WorkStatus::Blocked
+    );
+    work
 }
 
 #[tokio::test]
@@ -327,6 +382,7 @@ async fn review_acceptance_is_explicit_idempotent_and_has_one_concurrent_winner(
             expected_document_version: 1,
             expected_current_version_id: requested_version_id,
             summary: "Check this before it becomes company guidance",
+            work_dependency: None,
         })
         .await
         .unwrap();
@@ -338,19 +394,23 @@ async fn review_acceptance_is_explicit_idempotent_and_has_one_concurrent_winner(
             expected_document_version: 1,
             expected_current_version_id: requested_version_id,
             summary: "Check this before it becomes company guidance",
+            work_dependency: None,
         })
         .await
         .unwrap();
-    assert_eq!(requested.id, request_replay.id);
-    assert_eq!(requested.created_at, request_replay.created_at);
+    assert_eq!(requested.review.id, request_replay.review.id);
+    assert_eq!(
+        requested.review.created_at,
+        request_replay.review.created_at
+    );
     assert!(matches!(
-        org.get_document_review_for_actor(document_id, requested.id, "blair")
+        org.get_document_review_for_actor(document_id, requested.review.id, "blair")
             .await,
         Err(DocumentError::Unavailable)
     ));
     assert!(matches!(
         other
-            .get_document_review_for_actor(document_id, requested.id, "owner")
+            .get_document_review_for_actor(document_id, requested.review.id, "owner")
             .await,
         Err(DocumentError::Unavailable)
     ));
@@ -359,13 +419,13 @@ async fn review_acceptance_is_explicit_idempotent_and_has_one_concurrent_winner(
         .await
         .unwrap();
     assert_eq!(review_page.items.len(), 1);
-    assert_eq!(review_page.items[0].id, requested.id);
+    assert_eq!(review_page.items[0].review.id, requested.review.id);
 
     let left_command = Uuid::new_v4();
     let right_command = Uuid::new_v4();
     let left_org = org.clone();
     let right_org = org.clone();
-    let review_id = requested.id;
+    let review_id = requested.review.id;
     let (left, right) = tokio::join!(
         left_org.accept_document_review(AcceptDocumentReview {
             document_id,
@@ -375,6 +435,7 @@ async fn review_acceptance_is_explicit_idempotent_and_has_one_concurrent_winner(
             expected_document_version: 2,
             expected_review_version: 1,
             accepted_version_name: "Accepted evidence v1",
+            feedback: "",
         }),
         right_org.accept_document_review(AcceptDocumentReview {
             document_id,
@@ -384,6 +445,7 @@ async fn review_acceptance_is_explicit_idempotent_and_has_one_concurrent_winner(
             expected_document_version: 2,
             expected_review_version: 1,
             accepted_version_name: "Competing acceptance",
+            feedback: "",
         })
     );
     assert_eq!(left.is_ok() as u8 + right.is_ok() as u8, 1);
@@ -421,6 +483,7 @@ async fn review_acceptance_is_explicit_idempotent_and_has_one_concurrent_winner(
             expected_document_version: 2,
             expected_review_version: 1,
             accepted_version_name: winning_name,
+            feedback: "",
         })
         .await
         .unwrap();
@@ -446,15 +509,19 @@ async fn review_acceptance_is_explicit_idempotent_and_has_one_concurrent_winner(
             expected_document_version: 1,
             expected_current_version_id: requested_version_id,
             summary: "Check this before it becomes company guidance",
+            work_dependency: None,
         })
         .await
         .unwrap();
     assert_eq!(
-        request_after_acceptance.status,
+        request_after_acceptance.review.status,
         restless_orgintel::DocumentReviewStatus::Requested
     );
-    assert_eq!(request_after_acceptance.version, 1);
-    assert!(request_after_acceptance.accepted_version_id.is_none());
+    assert_eq!(request_after_acceptance.review.version, 1);
+    assert!(request_after_acceptance
+        .review
+        .accepted_version_id
+        .is_none());
 
     let post_acceptance_content = document_content("claim", "A later owner revision");
     let post_acceptance = org
@@ -476,6 +543,7 @@ async fn review_acceptance_is_explicit_idempotent_and_has_one_concurrent_winner(
             expected_document_version: 4,
             expected_current_version_id: post_acceptance.result_id,
             summary: "Review the later revision",
+            work_dependency: None,
         })
         .await
         .unwrap();
@@ -499,18 +567,20 @@ async fn review_acceptance_is_explicit_idempotent_and_has_one_concurrent_winner(
             expected_document_version: 6,
             expected_current_version_id: newest.result_id,
             summary: "Review the current revision, not its stale predecessor",
+            work_dependency: None,
         })
         .await
         .unwrap();
     assert_eq!(
-        org.get_document_review_for_actor(document_id, first_later_review.id, "owner")
+        org.get_document_review_for_actor(document_id, first_later_review.review.id, "owner")
             .await
             .unwrap()
+            .review
             .status,
         restless_orgintel::DocumentReviewStatus::Stale
     );
     assert_eq!(
-        second_later_review.status,
+        second_later_review.review.status,
         restless_orgintel::DocumentReviewStatus::Requested
     );
     let final_base = document_content("claim", "One final base change");
@@ -529,12 +599,13 @@ async fn review_acceptance_is_explicit_idempotent_and_has_one_concurrent_winner(
     let stale_review = org
         .accept_document_review(AcceptDocumentReview {
             document_id,
-            review_id: second_later_review.id,
+            review_id: second_later_review.review.id,
             actor_id: "owner",
             command_id: stale_accept_command,
             expected_document_version: 8,
             expected_review_version: 1,
             accepted_version_name: "Must not be created",
+            feedback: "",
         })
         .await
         .unwrap();
@@ -546,12 +617,13 @@ async fn review_acceptance_is_explicit_idempotent_and_has_one_concurrent_winner(
     let stale_review_replay = org
         .accept_document_review(AcceptDocumentReview {
             document_id,
-            review_id: second_later_review.id,
+            review_id: second_later_review.review.id,
             actor_id: "owner",
             command_id: stale_accept_command,
             expected_document_version: 8,
             expected_review_version: 1,
             accepted_version_name: "Must not be created",
+            feedback: "",
         })
         .await
         .unwrap();
@@ -607,6 +679,583 @@ async fn review_acceptance_is_explicit_idempotent_and_has_one_concurrent_winner(
         accepted_event_count, 1,
         "accept replay duplicated its event"
     );
+}
+
+#[tokio::test]
+async fn work_bound_reviews_are_exact_replayable_and_stale_safe() {
+    let Some(org) = company("docworkreview_test_").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Work-bound review scenario");
+        return;
+    };
+    let other = company("docworkreviewother_test_").await.unwrap();
+    let untouched_work = blocked_work(&org, "Unrelated blocked Work").await;
+    let changes_work = blocked_work(&org, "Revise another brief").await;
+    let stale_work = blocked_work(&org, "Ship an exact later version").await;
+    let replaced_work = blocked_work(&org, "Re-check a replaced review version").await;
+    let work = running_work(&org, "Ship the reviewed brief").await;
+    let work_id = work.work_id;
+    let untouched_work_id = untouched_work.work_id;
+    let changes_work_id = changes_work.work_id;
+    let stale_work_id = stale_work.work_id;
+    let replaced_work_id = replaced_work.work_id;
+    let created = create_private_document(&org, "The release brief").await;
+    let document_id = created.document.id;
+    for (expected_document_version, participant_actor_id) in
+        [(1, "research-analyst"), (2, "alex"), (3, "blair")]
+    {
+        org.set_document_participant(SetDocumentParticipant {
+            command_id: Uuid::new_v4(),
+            document_id,
+            actor_id: "owner",
+            expected_document_version,
+            participant_actor_id,
+            access: DocumentAccess::Edit,
+        })
+        .await
+        .unwrap();
+    }
+    let unauthorized_binding = org
+        .request_document_review(RequestDocumentReview {
+            document_id,
+            actor_id: "blair",
+            command_id: Uuid::new_v4(),
+            expected_document_version: 4,
+            expected_current_version_id: created.current_version.version.id,
+            summary: "Attempt to bind somebody else's Work",
+            work_dependency: Some(DocumentWorkReviewDependencyInput {
+                work_id: untouched_work_id,
+                attempt_id: untouched_work.attempt_id,
+                expected_work_revision: untouched_work.revision,
+                reviewer_actor_id: "alex",
+            }),
+        })
+        .await;
+    assert!(
+        matches!(unauthorized_binding, Err(DocumentError::Unavailable)),
+        "unexpected unauthorized binding result: {unauthorized_binding:?}"
+    );
+    let wrong_attempt = org
+        .request_document_review(RequestDocumentReview {
+            document_id,
+            actor_id: "research-analyst",
+            command_id: Uuid::new_v4(),
+            expected_document_version: 4,
+            expected_current_version_id: created.current_version.version.id,
+            summary: "Attempt to mix Work and Attempt identities",
+            work_dependency: Some(DocumentWorkReviewDependencyInput {
+                work_id,
+                attempt_id: untouched_work.attempt_id,
+                expected_work_revision: work.revision,
+                reviewer_actor_id: "alex",
+            }),
+        })
+        .await;
+    assert!(matches!(wrong_attempt, Err(DocumentError::Unavailable)));
+    let stale_revision = org
+        .request_document_review(RequestDocumentReview {
+            document_id,
+            actor_id: "research-analyst",
+            command_id: Uuid::new_v4(),
+            expected_document_version: 4,
+            expected_current_version_id: created.current_version.version.id,
+            summary: "Attempt to bind a stale Work revision",
+            work_dependency: Some(DocumentWorkReviewDependencyInput {
+                work_id,
+                attempt_id: work.attempt_id,
+                expected_work_revision: work.revision + 1,
+                reviewer_actor_id: "alex",
+            }),
+        })
+        .await;
+    assert!(matches!(stale_revision, Err(DocumentError::Conflict(_))));
+    let review_command = Uuid::new_v4();
+    let review = org
+        .request_document_review(RequestDocumentReview {
+            document_id,
+            actor_id: "research-analyst",
+            command_id: review_command,
+            expected_document_version: 4,
+            expected_current_version_id: created.current_version.version.id,
+            summary: "Alex reviews this exact version before the Work continues",
+            work_dependency: Some(DocumentWorkReviewDependencyInput {
+                work_id,
+                attempt_id: work.attempt_id,
+                expected_work_revision: work.revision,
+                reviewer_actor_id: "alex",
+            }),
+        })
+        .await
+        .unwrap();
+    let created_dependency = review.work_dependency.as_ref().unwrap();
+    assert_eq!(created_dependency.work_id, work_id);
+    assert_eq!(created_dependency.reviewer_actor_id, "alex");
+    assert_eq!(created_dependency.status, DocumentWorkReviewStatus::Pending);
+    assert_eq!(created_dependency.attempt_id, work.attempt_id);
+    assert_eq!(created_dependency.work_revision, work.revision);
+    assert_eq!(
+        org.get_work(work_id).await.unwrap().unwrap().status,
+        WorkStatus::Blocked,
+        "requesting the review must pause the exact Work before the Attempt settles"
+    );
+    assert!(matches!(
+        org.accept_document_review(AcceptDocumentReview {
+            document_id,
+            review_id: review.review.id,
+            actor_id: "alex",
+            command_id: Uuid::new_v4(),
+            expected_document_version: 5,
+            expected_review_version: 1,
+            accepted_version_name: "Too early",
+            feedback: "The Attempt is still running",
+        })
+        .await,
+        Err(DocumentError::Conflict(_))
+    ));
+    let settled = org
+        .finish_work_attempt(
+            work.attempt_id,
+            WorkAttemptState::Produced,
+            "an optimistic terminal envelope must not bypass the pending review",
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        settled,
+        WorkAttemptState::Blocked,
+        "the pending named-version review must govern Attempt settlement"
+    );
+    let mut attempt_connection = connection_for(&org).await;
+    let supervisor_notice_owed: bool =
+        sqlx::query_scalar("SELECT supervisor_notice_owed FROM work_attempts WHERE id=$1")
+            .bind(work.attempt_id)
+            .fetch_one(&mut attempt_connection)
+            .await
+            .unwrap();
+    assert!(
+        !supervisor_notice_owed,
+        "an exact pending human review replaces a generic supervisor exception"
+    );
+    let reviewer_view = org
+        .get_document_review_for_actor(document_id, review.review.id, "alex")
+        .await
+        .unwrap();
+    assert_eq!(reviewer_view.review.id, review.review.id);
+    assert_eq!(reviewer_view.work_dependency.unwrap().work_id, work_id);
+    let reviewer_page = org
+        .list_document_reviews(document_id, "alex", None, 10)
+        .await
+        .unwrap();
+    assert_eq!(reviewer_page.items.len(), 1);
+    assert_eq!(
+        reviewer_page.items[0]
+            .work_dependency
+            .as_ref()
+            .unwrap()
+            .reviewer_actor_id,
+        "alex"
+    );
+    assert!(matches!(
+        org.get_document_review_for_actor(document_id, review.review.id, "exec")
+            .await,
+        Err(DocumentError::Unavailable)
+    ));
+    assert!(matches!(
+        org.list_document_reviews(document_id, "exec", None, 10)
+            .await,
+        Err(DocumentError::Unavailable)
+    ));
+    assert!(matches!(
+        org.accept_document_review(AcceptDocumentReview {
+            document_id,
+            review_id: review.review.id,
+            actor_id: "blair",
+            command_id: Uuid::new_v4(),
+            expected_document_version: 5,
+            expected_review_version: 1,
+            accepted_version_name: "Wrong reviewer",
+            feedback: "Looks good",
+        })
+        .await,
+        Err(DocumentError::Unavailable)
+    ));
+    assert!(matches!(
+        other
+            .accept_document_review(AcceptDocumentReview {
+                document_id,
+                review_id: review.review.id,
+                actor_id: "alex",
+                command_id: Uuid::new_v4(),
+                expected_document_version: 5,
+                expected_review_version: 1,
+                accepted_version_name: "Wrong company",
+                feedback: "Looks good",
+            })
+            .await,
+        Err(DocumentError::Unavailable)
+    ));
+    let accept_command = Uuid::new_v4();
+    let accepted = org
+        .accept_document_review(AcceptDocumentReview {
+            document_id,
+            review_id: review.review.id,
+            actor_id: "alex",
+            command_id: accept_command,
+            expected_document_version: 5,
+            expected_review_version: 1,
+            accepted_version_name: "Accepted release brief",
+            feedback: "The evidence supports launch.",
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        accepted.work_dependency.as_ref().unwrap().status,
+        DocumentWorkReviewStatus::Accepted
+    );
+    assert_eq!(
+        org.get_work(work_id).await.unwrap().unwrap().status,
+        WorkStatus::Active
+    );
+    assert_eq!(
+        org.get_work(untouched_work_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .status,
+        WorkStatus::Blocked
+    );
+    let request_replay = org
+        .request_document_review(RequestDocumentReview {
+            document_id,
+            actor_id: "research-analyst",
+            command_id: review_command,
+            expected_document_version: 4,
+            expected_current_version_id: created.current_version.version.id,
+            summary: "Alex reviews this exact version before the Work continues",
+            work_dependency: Some(DocumentWorkReviewDependencyInput {
+                work_id,
+                attempt_id: work.attempt_id,
+                expected_work_revision: work.revision,
+                reviewer_actor_id: "alex",
+            }),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        request_replay.review.status,
+        restless_orgintel::DocumentReviewStatus::Requested
+    );
+    let replayed_dependency = request_replay.work_dependency.unwrap();
+    assert_eq!(replayed_dependency.work_id, work_id);
+    assert_eq!(replayed_dependency.reviewer_actor_id, "alex");
+    assert_eq!(
+        replayed_dependency.status,
+        DocumentWorkReviewStatus::Pending
+    );
+    let replay = org
+        .accept_document_review(AcceptDocumentReview {
+            document_id,
+            review_id: review.review.id,
+            actor_id: "alex",
+            command_id: accept_command,
+            expected_document_version: 5,
+            expected_review_version: 1,
+            accepted_version_name: "Accepted release brief",
+            feedback: "The evidence supports launch.",
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        replay.work_dependency.as_ref().unwrap().resolved_at,
+        accepted.work_dependency.as_ref().unwrap().resolved_at
+    );
+    let mut connection = connection_for(&org).await;
+    let requested_event: Value = sqlx::query_scalar(
+        "SELECT body FROM events WHERE document_id=$1 AND kind='document.review.requested.v1'",
+    )
+    .bind(document_id)
+    .fetch_one(&mut connection)
+    .await
+    .unwrap();
+    assert_eq!(requested_event["work_id"], json!(work_id));
+    assert_eq!(requested_event["reviewer_actor_id"], "alex");
+    let feedback_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM work_feedback WHERE work_id=$1")
+            .bind(work_id)
+            .fetch_one(&mut connection)
+            .await
+            .unwrap();
+    assert_eq!(
+        feedback_count, 1,
+        "lost-response replay duplicated feedback"
+    );
+    let retarget = sqlx::query(
+        "UPDATE native_document_work_review_dependencies SET work_id=$2 WHERE review_id=$1",
+    )
+    .bind(review.review.id)
+    .bind(untouched_work_id)
+    .execute(&mut connection)
+    .await;
+    assert!(
+        matches!(retarget, Err(sqlx::Error::Database(_))),
+        "a review receipt must never be retargetable to another Work"
+    );
+
+    let changes_doc = create_private_document(&org, "An unsupported claim").await;
+    for (expected_document_version, participant_actor_id) in [(1, "research-analyst"), (2, "alex")]
+    {
+        org.set_document_participant(SetDocumentParticipant {
+            command_id: Uuid::new_v4(),
+            document_id: changes_doc.document.id,
+            actor_id: "owner",
+            expected_document_version,
+            participant_actor_id,
+            access: DocumentAccess::Edit,
+        })
+        .await
+        .unwrap();
+    }
+    let changes_review = org
+        .request_document_review(RequestDocumentReview {
+            document_id: changes_doc.document.id,
+            actor_id: "research-analyst",
+            command_id: Uuid::new_v4(),
+            expected_document_version: 3,
+            expected_current_version_id: changes_doc.current_version.version.id,
+            summary: "Review the evidence",
+            work_dependency: Some(DocumentWorkReviewDependencyInput {
+                work_id: changes_work_id,
+                attempt_id: changes_work.attempt_id,
+                expected_work_revision: changes_work.revision,
+                reviewer_actor_id: "alex",
+            }),
+        })
+        .await
+        .unwrap();
+    let changes_command = Uuid::new_v4();
+    let changes = org
+        .request_document_review_changes(RequestDocumentReviewChanges {
+            document_id: changes_doc.document.id,
+            review_id: changes_review.review.id,
+            actor_id: "alex",
+            command_id: changes_command,
+            expected_document_version: 4,
+            expected_review_version: 1,
+            feedback: "Cite the primary measurement.",
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        changes.review.status,
+        restless_orgintel::DocumentReviewStatus::ChangesRequested
+    );
+    assert_eq!(
+        changes.work_dependency.as_ref().unwrap().status,
+        DocumentWorkReviewStatus::ChangesRequested
+    );
+    assert_eq!(
+        org.get_work(changes_work_id).await.unwrap().unwrap().status,
+        WorkStatus::Active
+    );
+    let changes_replay = org
+        .request_document_review_changes(RequestDocumentReviewChanges {
+            document_id: changes_doc.document.id,
+            review_id: changes_review.review.id,
+            actor_id: "alex",
+            command_id: changes_command,
+            expected_document_version: 4,
+            expected_review_version: 1,
+            feedback: "Cite the primary measurement.",
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        changes_replay.work_dependency.as_ref().unwrap().resolved_at,
+        changes.work_dependency.as_ref().unwrap().resolved_at
+    );
+
+    let stale_doc = create_private_document(&org, "First version").await;
+    for (expected_document_version, participant_actor_id) in [(1, "research-analyst"), (2, "alex")]
+    {
+        org.set_document_participant(SetDocumentParticipant {
+            command_id: Uuid::new_v4(),
+            document_id: stale_doc.document.id,
+            actor_id: "owner",
+            expected_document_version,
+            participant_actor_id,
+            access: DocumentAccess::Edit,
+        })
+        .await
+        .unwrap();
+    }
+    let stale_review = org
+        .request_document_review(RequestDocumentReview {
+            document_id: stale_doc.document.id,
+            actor_id: "research-analyst",
+            command_id: Uuid::new_v4(),
+            expected_document_version: 3,
+            expected_current_version_id: stale_doc.current_version.version.id,
+            summary: "Review this immutable version",
+            work_dependency: Some(DocumentWorkReviewDependencyInput {
+                work_id: stale_work_id,
+                attempt_id: stale_work.attempt_id,
+                expected_work_revision: stale_work.revision,
+                reviewer_actor_id: "alex",
+            }),
+        })
+        .await
+        .unwrap();
+    let moved = org
+        .create_named_document_version(NewNamedDocumentVersion {
+            command_id: Uuid::new_v4(),
+            document_id: stale_doc.document.id,
+            actor_id: "owner",
+            expected_current_version_id: stale_doc.current_version.version.id,
+            content_json: &document_content("claim", "A newer version"),
+            reason: "Move the review source",
+        })
+        .await
+        .unwrap();
+    let stale = org
+        .accept_document_review(AcceptDocumentReview {
+            document_id: stale_doc.document.id,
+            review_id: stale_review.review.id,
+            actor_id: "alex",
+            command_id: Uuid::new_v4(),
+            expected_document_version: 5,
+            expected_review_version: 1,
+            accepted_version_name: "Must not exist",
+            feedback: "Approved",
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        stale.review.status,
+        restless_orgintel::DocumentReviewStatus::Stale
+    );
+    assert_eq!(
+        stale.work_dependency.as_ref().unwrap().status,
+        DocumentWorkReviewStatus::Stale
+    );
+    assert_eq!(
+        org.get_work(stale_work_id).await.unwrap().unwrap().status,
+        WorkStatus::Active,
+        "detecting a stale named-version review must release its exact dependent Work"
+    );
+    assert!(stale.work_dependency.as_ref().unwrap().resumed_at.is_some());
+    assert_eq!(
+        org.get_work(untouched_work_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .status,
+        WorkStatus::Blocked,
+        "stale resolution must not wake unrelated blocked Work"
+    );
+    assert_eq!(
+        org.get_document_for_actor(stale_doc.document.id, "owner")
+            .await
+            .unwrap()
+            .current_version
+            .version
+            .id,
+        moved.result_id
+    );
+
+    let replaced_doc = create_private_document(&org, "Review source one").await;
+    for (expected_document_version, participant_actor_id) in [(1, "research-analyst"), (2, "alex")]
+    {
+        org.set_document_participant(SetDocumentParticipant {
+            command_id: Uuid::new_v4(),
+            document_id: replaced_doc.document.id,
+            actor_id: "owner",
+            expected_document_version,
+            participant_actor_id,
+            access: DocumentAccess::Edit,
+        })
+        .await
+        .unwrap();
+    }
+    let replaced_review = org
+        .request_document_review(RequestDocumentReview {
+            document_id: replaced_doc.document.id,
+            actor_id: "research-analyst",
+            command_id: Uuid::new_v4(),
+            expected_document_version: 3,
+            expected_current_version_id: replaced_doc.current_version.version.id,
+            summary: "Review this exact source before it changes",
+            work_dependency: Some(DocumentWorkReviewDependencyInput {
+                work_id: replaced_work_id,
+                attempt_id: replaced_work.attempt_id,
+                expected_work_revision: replaced_work.revision,
+                reviewer_actor_id: "alex",
+            }),
+        })
+        .await
+        .unwrap();
+    let replacement_version = org
+        .create_named_document_version(NewNamedDocumentVersion {
+            command_id: Uuid::new_v4(),
+            document_id: replaced_doc.document.id,
+            actor_id: "owner",
+            expected_current_version_id: replaced_doc.current_version.version.id,
+            content_json: &document_content("claim", "Review source two"),
+            reason: "Replace the requested source",
+        })
+        .await
+        .unwrap();
+    let superseding_review = org
+        .request_document_review(RequestDocumentReview {
+            document_id: replaced_doc.document.id,
+            actor_id: "owner",
+            command_id: Uuid::new_v4(),
+            expected_document_version: 5,
+            expected_current_version_id: replacement_version.result_id,
+            summary: "Review only the replacement source",
+            work_dependency: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        superseding_review.review.status,
+        restless_orgintel::DocumentReviewStatus::Requested
+    );
+    let replaced = org
+        .get_document_review_for_actor(replaced_doc.document.id, replaced_review.review.id, "alex")
+        .await
+        .unwrap();
+    assert_eq!(
+        replaced.review.status,
+        restless_orgintel::DocumentReviewStatus::Stale
+    );
+    assert_eq!(
+        replaced.work_dependency.as_ref().unwrap().status,
+        DocumentWorkReviewStatus::Stale
+    );
+    assert!(replaced
+        .work_dependency
+        .as_ref()
+        .unwrap()
+        .resumed_at
+        .is_some());
+    assert_eq!(
+        org.get_work(replaced_work_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .status,
+        WorkStatus::Active,
+        "replacing a requested named version must release its exact dependent Work"
+    );
+    assert_eq!(
+        org.get_work(untouched_work_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .status,
+        WorkStatus::Blocked
+    );
+    other.drop_schema().await.unwrap();
+    org.drop_schema().await.unwrap();
 }
 
 #[tokio::test]

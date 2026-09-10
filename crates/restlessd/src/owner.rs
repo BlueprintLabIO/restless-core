@@ -7,10 +7,16 @@
 //! approval actions, and browser attach/lease transport. It is not a generic
 //! REST facade over the company computer.
 
+#[path = "owner_capacity_activity.rs"]
+mod capacity_activity;
 #[path = "owner_documents.rs"]
 mod documents_api;
 #[path = "owner_member_collaboration.rs"]
 mod member_collaboration_api;
+#[path = "owner_notifications.rs"]
+mod notification_delivery_api;
+#[path = "owner_plane_readiness.rs"]
+mod plane_readiness;
 #[path = "owner_rooms_lifecycle.rs"]
 mod rooms_lifecycle_api;
 
@@ -103,6 +109,9 @@ struct OwnerState {
     document_collaboration_tokens:
         crate::document_collaboration_token::DocumentCollaborationTokenIssuer,
     document_collaboration_issuer: Arc<str>,
+    native_documents_proxy: documents_api::NativeDocumentsProxy,
+    capacity_activity: capacity_activity::CapacityActivityService,
+    plane_readiness: plane_readiness::PlaneReadinessService,
 }
 
 /// The Room API depends only on company-scoped OrgIntel access. Keeping that
@@ -119,6 +128,7 @@ struct RoomApiState {
     document_collaboration_tokens:
         crate::document_collaboration_token::DocumentCollaborationTokenIssuer,
     document_collaboration_issuer: Arc<str>,
+    native_documents_proxy: documents_api::NativeDocumentsProxy,
 }
 
 #[derive(Clone)]
@@ -141,6 +151,7 @@ impl FromRef<OwnerState> for RoomApiState {
             network_mode: state.entry.network().is_some(),
             document_collaboration_tokens: state.document_collaboration_tokens.clone(),
             document_collaboration_issuer: state.document_collaboration_issuer.clone(),
+            native_documents_proxy: state.native_documents_proxy.clone(),
         }
     }
 }
@@ -184,6 +195,7 @@ impl RoomApiState {
                     [23; 32],
                 ),
             document_collaboration_issuer: "http://127.0.0.1:7788".into(),
+            native_documents_proxy: documents_api::NativeDocumentsProxy::disabled_for_test(),
         }
     }
 }
@@ -1103,6 +1115,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
     }
     let company_bootstrap = crate::company_bootstrap::routes::<OwnerState>(&daemon, &entry)
         .context("configure company-bootstrap endpoint")?;
+    let runtime_bridge = crate::runtime_bridge::routes::<OwnerState>(&daemon, &entry)
+        .context("configure hosted Runtime-bridge endpoints")?;
+    let cell_readiness = crate::owner_cell_readiness::routes::<OwnerState>(&daemon, &entry)
+        .context("configure Fleet cell-readiness endpoint")?;
     let document_collaboration_tokens =
         crate::document_collaboration_token::DocumentCollaborationTokenIssuer::open(&daemon.root)
             .context("open native Documents collaboration signer")?;
@@ -1111,6 +1127,13 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .map(|(_, _, host)| format!("https://{host}"))
         .unwrap_or_else(|| format!("http://{address}"))
         .into();
+    let native_documents_proxy = documents_api::NativeDocumentsProxy::from_environment()
+        .context("configure native Documents owner-plane proxy")?;
+    let capacity_activity =
+        capacity_activity::CapacityActivityService::from_environment(&daemon, &entry)
+            .context("configure Fleet capacity-activity endpoint")?;
+    let plane_readiness = plane_readiness::PlaneReadinessService::from_environment(&daemon, &entry)
+        .context("configure Fleet plane-readiness endpoint")?;
     let state = OwnerState {
         daemon,
         charter_writes: Arc::new(tokio::sync::Mutex::new(())),
@@ -1122,6 +1145,9 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         sessions: Arc::new(SessionStore::default()),
         document_collaboration_tokens,
         document_collaboration_issuer,
+        native_documents_proxy,
+        capacity_activity,
+        plane_readiness,
     };
 
     let api = Router::new()
@@ -1248,6 +1274,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(apply_membership_control),
         )
         .layer(DefaultBodyLimit::max(32 * 1024));
+    let notification_delivery = notification_delivery_api::routes::<OwnerState>()?;
     let app = Router::new()
         .nest("/api", api)
         // Ungated on purpose: a fleet probe must be able to ask which release
@@ -1255,8 +1282,17 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         // identity only — never company, owner or configuration detail.
         .route("/health", get(release_health))
         .merge(documents_api::public_routes::<OwnerState>())
+        .merge(capacity_activity::routes::<OwnerState>())
+        .merge(plane_readiness::routes())
         .merge(membership_controls)
+        .merge(notification_delivery)
         .merge(company_bootstrap)
+        .merge(runtime_bridge)
+        .merge(cell_readiness)
+        .nest(
+            crate::model_gateway::HOSTED_MODEL_GATEWAY_PREFIX,
+            crate::model_gateway::hosted_routes::<OwnerState>(),
+        )
         .route("/entry", post(consume_entry_assertion))
         .route("/entry/logout", post(end_entry_session))
         .route("/desktop/{company}", get(open_desktop))
@@ -1303,12 +1339,36 @@ async fn enforce_owner_boundary(
     mut request: Request,
     next: Next,
 ) -> Response<Body> {
-    if request.uri().path() == crate::company_bootstrap::COMPANY_BOOTSTRAP_PATH {
+    if request.uri().path() == crate::company_bootstrap::COMPANY_BOOTSTRAP_PATH
+        || request.uri().path() == crate::runtime_bridge::RUNTIME_BRIDGE_BOOTSTRAP_PATH
+        || request.uri().path() == crate::runtime_bridge::RUNTIME_BRIDGE_PATH
+        || crate::model_gateway::is_hosted_model_gateway_path(request.uri().path())
+        || crate::owner_cell_readiness::is_cell_readiness_path(request.uri().path())
+    {
         // Fleet's dedicated file-backed bearer and exact deployment tuple are
         // the complete authority for this machine contract. It must not be
         // turned into a browser session route by either local or network
         // owner-entry policy; the endpoint performs its own stricter Host,
         // forwarding, envelope and audience checks.
+        return next.run(request).await;
+    }
+    if notification_delivery_api::is_notification_delivery_path(request.uri().path()) {
+        // This machine-only projection authenticates its own file-backed
+        // bearer and exposes no private body. It must not acquire or depend on
+        // a browser session, otherwise external delivery dies exactly when the
+        // recipient is signed out.
+        return next.run(request).await;
+    }
+    if capacity_activity::is_capacity_activity_path(request.uri().path()) {
+        // Fleet's dedicated read-only bearer, exact Host and exact cell tuple
+        // are checked by the handler. This is a machine lifecycle route, not
+        // an owner browser session route.
+        return next.run(request).await;
+    }
+    if plane_readiness::is_plane_readiness_path(request.uri().path()) {
+        // Fleet's readiness bearer and exact deployment tuple are checked by
+        // the handler. It deliberately bypasses browser entry because Fleet
+        // cannot issue a browser assertion until this observation is ready.
         return next.run(request).await;
     }
     if request.uri().path() == MEMBERSHIP_CONTROL_PATH && state.entry.network().is_none() {
@@ -1610,13 +1670,15 @@ fn network_boundary_violation(
 
     // S27-T2: scope comes from the verified assertion, never from the route,
     // the host or a forwarding header. Checked per request, not once at entry.
-    if let Some(company) = company_in_path(path) {
-        if !identity.scope.permits(company) {
-            return Some(BoundaryRefusal {
-                status: StatusCode::FORBIDDEN,
-                code: "company_out_of_scope",
-                message: "this session is not scoped to that company",
-            });
+    if !documents_api::is_collaboration_proxy_path(path) {
+        if let Some(company) = company_in_path(path) {
+            if !identity.scope.permits(company) {
+                return Some(BoundaryRefusal {
+                    status: StatusCode::FORBIDDEN,
+                    code: "company_out_of_scope",
+                    message: "this session is not scoped to that company",
+                });
+            }
         }
     }
 
@@ -8863,6 +8925,7 @@ mod tests {
             staff: crate::staff::StaffRegistry::default(),
             activities: crate::activity::AgentActivityStreams::default(),
             cell_wakes: crate::cell_wake::CellWakeHub::default(),
+            runtime_bridges: crate::runtime_bridge::RuntimeBridgeRegistry::default(),
             lifecycle: restlessd::appliance::LifecycleGate::default(),
             in_flight: Arc::new(std::sync::Mutex::new(crate::schedule::WakeClaims::default())),
             schedule_wake: Arc::new(tokio::sync::Notify::new()),

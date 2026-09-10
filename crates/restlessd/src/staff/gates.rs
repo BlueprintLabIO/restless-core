@@ -9,7 +9,11 @@ use std::sync::{Arc, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context as _, Result};
-use restless_orgintel::{NewGateRunEvidence, RuntimeResourceLeaseRow, WorkGateRow};
+use restless_orgintel::{NewGateRunEvidence, RuntimeResourceLeaseRow, WorkGateRow, WorkRow};
+use restless_runtime_bridge_protocol::{
+    CandidateIdentity, GateCompletionStatus, GateDefinition, GateResource,
+    GateResources as HostedGateResources, RuntimeIdentity,
+};
 use sha2::{Digest as _, Sha256};
 use tokio::sync::Mutex;
 
@@ -122,6 +126,325 @@ pub(super) async fn run_gates(
         }
     }
     Ok(org.gates_passed(work_id, attempt_id).await?)
+}
+
+/// Run the exact same frozen Work gate set through the outbound hosted
+/// Runtime. Core/OrgIntel remains the resource-lease authority; Runtime gets
+/// one candidate-bound, typed argv request and returns a receipt that must
+/// echo every leased coordinate before it can enter the gate ledger.
+pub(super) async fn run_hosted_gates(
+    org: &restless_orgintel::OrgIntel,
+    registry: &crate::runtime_bridge::RuntimeBridgeRegistry,
+    runtime_identity: &RuntimeIdentity,
+    work: &WorkRow,
+    attempt_id: uuid::Uuid,
+    candidate: &CandidateIdentity,
+) -> Result<bool> {
+    let attempt = org
+        .list_work_attempts(Some(work.id))
+        .await?
+        .into_iter()
+        .find(|attempt| attempt.id == attempt_id)
+        .context("governed hosted gate Attempt disappeared")?;
+    if attempt.work_id != work.id
+        || attempt.revision != work.revision
+        || attempt.environment_fingerprint != candidate.environment_fingerprint
+        || attempt.terminal_source_commit.as_deref() != Some(candidate.source_commit.as_str())
+        || attempt.terminal_source_tree.as_deref() != Some(candidate.source_tree.as_str())
+        || attempt.terminal_status_digest.as_deref() != Some(candidate.status_digest.as_str())
+        || attempt.terminal_dirty_entries != Some(0)
+    {
+        bail!("hosted gate candidate differs from the exact terminal Attempt evidence");
+    }
+    let mut gates = org.list_work_gates(work.id).await?;
+    gates.sort_by_key(|gate| (stage_order(&gate.stage), gate.sequence_no));
+    if frozen_gate_set_digest(&gates) != attempt.gate_set_digest {
+        bail!("Work gate definitions changed after the Attempt was claimed");
+    }
+
+    for gate in gates {
+        if gate.work_id != work.id {
+            bail!("frozen gate belongs to another Work");
+        }
+        let definition = hosted_gate_definition(&gate)?;
+        let definition_digest =
+            restless_runtime_bridge_protocol::gate_definition_digest(&definition);
+        let key = format!(
+            "{}:{definition_digest}:{}",
+            candidate.source_tree, candidate.environment_fingerprint
+        );
+        let lock = {
+            let locks = IN_FLIGHT.get_or_init(|| Mutex::new(HashMap::new()));
+            let mut locks = locks.lock().await;
+            locks.retain(|_, lock| lock.strong_count() > 0);
+            if let Some(lock) = locks.get(&key).and_then(Weak::upgrade) {
+                lock
+            } else {
+                let lock = Arc::new(Mutex::new(()));
+                locks.insert(key, Arc::downgrade(&lock));
+                lock
+            }
+        };
+        let _one_execution = lock.lock().await;
+        if let Some(cached) = org
+            .find_cached_gate_run(
+                gate.id,
+                &candidate.source_tree,
+                &definition_digest,
+                &candidate.environment_fingerprint,
+            )
+            .await?
+        {
+            if cached.attempt_id != attempt_id {
+                org.record_governed_gate_run(NewGateRunEvidence {
+                    gate_id: gate.id,
+                    attempt_id,
+                    exit_code: cached.exit_code,
+                    output_digest: &cached.output_digest,
+                    output_excerpt: &cached.output_excerpt,
+                    passed: cached.passed,
+                    candidate_tree: &candidate.source_tree,
+                    definition_digest: &definition_digest,
+                    toolchain_fingerprint: &candidate.environment_fingerprint,
+                    status: "cached",
+                    duration_ms: Some(0),
+                    cache_source_run_id: Some(cached.id),
+                    leaked_processes: 0,
+                })
+                .await?;
+            }
+            if !cached.passed {
+                return Ok(false);
+            }
+            continue;
+        }
+
+        let operation_id = crate::runtime_bridge::gate_operation_id(
+            runtime_identity,
+            &super::workspace::hosted_workspace_identity(work, attempt_id)?,
+            candidate,
+            &definition_digest,
+        );
+        let (resources, leases) =
+            allocate_hosted_resources(org, attempt_id, &definition, operation_id).await?;
+        let execution = crate::runtime_bridge::run_gate(
+            registry,
+            runtime_identity,
+            super::workspace::hosted_workspace_identity(work, attempt_id)?,
+            candidate.clone(),
+            definition.clone(),
+            resources,
+        )
+        .await;
+        let release = release_hosted_resources(
+            org,
+            leases,
+            if execution.is_ok() {
+                "hosted governed gate finished"
+            } else {
+                "hosted governed gate transport failed"
+            },
+        )
+        .await;
+        let receipt = execution?;
+        release?;
+        let status = match receipt.status {
+            GateCompletionStatus::Conclusive => "conclusive",
+            GateCompletionStatus::Timeout => "timeout",
+            GateCompletionStatus::InfrastructureError => "infrastructure_error",
+        };
+        org.record_governed_gate_run(NewGateRunEvidence {
+            gate_id: gate.id,
+            attempt_id,
+            exit_code: receipt.exit_code,
+            output_digest: &receipt.output_digest,
+            output_excerpt: &receipt.output_excerpt,
+            passed: receipt.passed,
+            candidate_tree: &receipt.candidate.source_tree,
+            definition_digest: &receipt.definition_digest,
+            toolchain_fingerprint: &receipt.candidate.environment_fingerprint,
+            status,
+            duration_ms: Some(i64::try_from(receipt.duration_ms).unwrap_or(i64::MAX)),
+            cache_source_run_id: None,
+            leaked_processes: i32::try_from(receipt.leaked_processes).unwrap_or(i32::MAX),
+        })
+        .await?;
+        if !receipt.passed {
+            return Ok(false);
+        }
+    }
+    Ok(org.gates_passed(work.id, attempt_id).await?)
+}
+
+fn frozen_gate_set_digest(gates: &[WorkGateRow]) -> String {
+    let mut ordered = gates.iter().collect::<Vec<_>>();
+    ordered.sort_by_key(|gate| gate.sequence_no);
+    let mut source = String::new();
+    for gate in ordered {
+        source.push_str(&format!(
+            "{}\0{}\0{}\0{}\0{}\0{}\0{}\n",
+            gate.name,
+            gate.cwd,
+            gate.command,
+            gate.sequence_no,
+            gate.stage,
+            gate.timeout_seconds,
+            gate.resources,
+        ));
+    }
+    format!("{:x}", Sha256::digest(source.as_bytes()))
+}
+
+fn hosted_gate_definition(gate: &WorkGateRow) -> Result<GateDefinition> {
+    let argv: Vec<String> = serde_json::from_value(gate.command.clone())
+        .with_context(|| format!("gate {} has invalid argv", gate.name))?;
+    let requested: Vec<String> = serde_json::from_value(gate.resources.clone())
+        .with_context(|| format!("gate {} has invalid resources", gate.name))?;
+    let resources = requested
+        .into_iter()
+        .map(|resource| match resource.as_str() {
+            "port" => Ok(GateResource::Port),
+            "display" => Ok(GateResource::Display),
+            _ => bail!(
+                "gate {} requests unsupported resource {resource:?}",
+                gate.name
+            ),
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(GateDefinition {
+        gate_id: gate.id,
+        name: gate.name.clone(),
+        sequence_no: gate.sequence_no,
+        stage: gate.stage.clone(),
+        cwd: gate.cwd.clone(),
+        argv,
+        timeout_seconds: u32::try_from(gate.timeout_seconds)
+            .context("gate timeout is outside the hosted Runtime contract")?,
+        resources,
+    })
+}
+
+async fn allocate_hosted_resources(
+    org: &restless_orgintel::OrgIntel,
+    attempt_id: uuid::Uuid,
+    definition: &GateDefinition,
+    operation_id: uuid::Uuid,
+) -> Result<(HostedGateResources, Vec<RuntimeResourceLeaseRow>)> {
+    let holder = operation_id.simple().to_string();
+    let root = format!(
+        "/company/run/gates/{}/{}",
+        attempt_id.simple(),
+        operation_id.simple()
+    );
+    let tempdir = format!("{root}/tmp");
+    let marker = format!("{root}/process-group.pid");
+    let mut leases = Vec::new();
+    let allocation = async {
+        for (kind, value) in [
+            ("tempdir", tempdir.as_str()),
+            ("process_group", marker.as_str()),
+        ] {
+            let lease = org
+                .acquire_runtime_resource(
+                    attempt_id,
+                    Some(definition.gate_id),
+                    kind,
+                    value,
+                    &holder,
+                )
+                .await?
+                .with_context(|| format!("exact hosted gate {kind} resource is already leased"))?;
+            leases.push(lease);
+        }
+        let port = if definition.resources.contains(&GateResource::Port) {
+            let lease = acquire_deterministic_numbered(
+                org,
+                attempt_id,
+                definition.gate_id,
+                operation_id,
+                "port",
+                24_000,
+                49_000,
+                &holder,
+            )
+            .await?;
+            let value = lease.value.parse::<u16>()?;
+            leases.push(lease);
+            Some(value)
+        } else {
+            None
+        };
+        let display = if definition.resources.contains(&GateResource::Display) {
+            let lease = acquire_deterministic_numbered(
+                org,
+                attempt_id,
+                definition.gate_id,
+                operation_id,
+                "display",
+                100,
+                999,
+                &holder,
+            )
+            .await?;
+            let value = lease.value.parse::<u16>()?;
+            leases.push(lease);
+            Some(value)
+        } else {
+            None
+        };
+        anyhow::Ok(HostedGateResources {
+            holder_token: holder,
+            tempdir,
+            process_group_marker: marker,
+            port,
+            display,
+        })
+    }
+    .await;
+    match allocation {
+        Ok(resources) => Ok((resources, leases)),
+        Err(error) => {
+            let release =
+                release_hosted_resources(org, leases, "hosted gate resource allocation failed")
+                    .await;
+            match release {
+                Ok(()) => Err(error),
+                Err(release_error) => Err(error.context(format!(
+                    "hosted gate allocation failed and acquired leases could not be released: {release_error:#}"
+                ))),
+            }
+        }
+    }
+}
+
+async fn acquire_deterministic_numbered(
+    org: &restless_orgintel::OrgIntel,
+    attempt_id: uuid::Uuid,
+    gate_id: uuid::Uuid,
+    operation_id: uuid::Uuid,
+    kind: &str,
+    low: u16,
+    high: u16,
+    holder: &str,
+) -> Result<RuntimeResourceLeaseRow> {
+    let width = u32::from(high - low) + 1;
+    let offset = (operation_id.as_u128() % u128::from(width)) as u32;
+    let value = (u32::from(low) + offset).to_string();
+    org.acquire_runtime_resource(attempt_id, Some(gate_id), kind, &value, holder)
+        .await?
+        .with_context(|| format!("deterministic hosted gate {kind} resource {value} is leased"))
+}
+
+async fn release_hosted_resources(
+    org: &restless_orgintel::OrgIntel,
+    leases: Vec<RuntimeResourceLeaseRow>,
+    reason: &str,
+) -> Result<()> {
+    for lease in leases {
+        org.release_runtime_resource(lease.id, &lease.holder_token, reason)
+            .await?;
+    }
+    Ok(())
 }
 
 struct GateExecution<'a> {

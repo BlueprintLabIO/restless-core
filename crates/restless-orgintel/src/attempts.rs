@@ -46,6 +46,46 @@ fn resolve_attempt_base(
 }
 
 impl OrgIntel {
+    /// Whether the scheduler could claim at least one Work node right now.
+    ///
+    /// This is the read-only half of [`Self::claim_ready_work`]. The hosted
+    /// account plane uses it to decide whether a sleeping company Runtime is
+    /// owed a wake. It deliberately repeats the claim predicate: reporting a
+    /// merely active or proposed Work row would turn blocked work into a
+    /// permanent wake loop.
+    pub async fn has_ready_work(&self) -> Result<bool> {
+        Ok(sqlx::query_scalar(
+            "SELECT EXISTS( \
+               SELECT 1 FROM work w \
+               WHERE w.status IN ('proposed','active') \
+                 AND NOT EXISTS (SELECT 1 FROM teams t \
+                                 WHERE t.lead_actor_id = w.owner_id AND t.disbanded_at IS NULL) \
+                 AND w.owner_id NOT IN ('owner','exec','world','daemon') \
+                 AND NOT EXISTS (SELECT 1 FROM work_attempts a \
+                                 WHERE a.work_id = w.id AND a.state = 'running') \
+                 AND NOT EXISTS (SELECT 1 FROM work_attempts a \
+                                 WHERE a.actor_id = w.owner_id AND a.state = 'running') \
+                 AND NOT EXISTS (SELECT 1 FROM actor_cognitive_leases lease \
+                                 WHERE lease.actor_id = w.owner_id \
+                                   AND lease.claimed_until > now()) \
+                 AND NOT EXISTS (SELECT 1 FROM owner_handoffs h \
+                                 WHERE h.work_id = w.id AND h.state = 'pending') \
+                 AND NOT EXISTS ( \
+                   SELECT 1 FROM work_edges e JOIN work upstream ON upstream.id = e.from_work_id \
+                   WHERE e.to_work_id = w.id AND e.kind = 'requires' \
+                     AND upstream.status <> 'completed' \
+                 ) \
+                 AND (w.attempt_limit IS NULL OR ( \
+                      SELECT count(*) FROM work_attempts a \
+                      WHERE a.work_id = w.id AND a.revision = w.revision \
+                        AND a.state <> 'superseded' \
+                 ) < w.attempt_limit) \
+             )",
+        )
+        .fetch_one(&self.pool)
+        .await?)
+    }
+
     /// Atomically lease the highest-priority ready Work node. Readiness is a
     /// database fact: all hard requirements completed, no pending owner
     /// handoff, no live Attempt, and any explicit attempt limit still has room.
@@ -768,6 +808,31 @@ impl OrgIntel {
             WorkAttemptState::Superseded
         };
         let mut effective_summary = summary.to_string();
+        let pending_named_document_review: Option<Uuid> =
+            if effective != WorkAttemptState::Superseded {
+                sqlx::query_scalar(
+                    "SELECT review_id FROM native_document_work_review_dependencies \
+                     WHERE work_id=$1 AND attempt_id=$2 AND work_revision=$3 \
+                       AND status='pending'",
+                )
+                .bind(work_id)
+                .bind(attempt_id)
+                .bind(work_revision)
+                .fetch_optional(&mut *tx)
+                .await?
+            } else {
+                None
+            };
+        if let Some(review_id) = pending_named_document_review {
+            // Requesting a named-version review is the Attempt's durable
+            // settlement intent. A later malformed/optimistic terminal
+            // envelope may not race that obligation and complete the Work.
+            effective = WorkAttemptState::Blocked;
+            effective_summary = format!(
+                "awaiting native Document review {review_id}; {}",
+                summary.trim()
+            );
+        }
         let mut qualified_outcome_review = None;
         // Ordinary feedback is queued information, never an implicit
         // interrupt. Feedback delivered by a safe checkpoint is already in
@@ -915,7 +980,7 @@ impl OrgIntel {
         let material_supervisor_notice = matches!(
             effective,
             WorkAttemptState::Blocked | WorkAttemptState::Failed | WorkAttemptState::Abandoned
-        );
+        ) && pending_named_document_review.is_none();
         sqlx::query(
             "UPDATE work_attempts SET state=$2, summary=$3, finished_at=now(), \
                     supervisor_notice_owed=$4, supervisor_notice_message_id=NULL \

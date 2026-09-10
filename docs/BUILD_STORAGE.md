@@ -75,14 +75,14 @@ Three separate defects combined:
 
 ### Why killing the process did not work
 
-The deepest cause was durable, not transient. `restless.conf` ends with
-`[include] files=/company/services/supervisor/*.conf`, so an agent can register its own supervisor
-program — and every observed one was written `autorestart=true`. A `kill` was answered with a
+The deepest cause was durable, not transient. The unprivileged company supervisor includes
+`/company/services/supervisor/*.conf`, so an agent can register its own supervisor program — and
+every observed one was written `autorestart=true`. A `kill` was answered with a
 restart within seconds. Because the conf lives on the company's **named volume**, the leak also
 survived container replacement and came back running on the next `up`. Nine such programs had
 accumulated in one company, each pinning a throwaway worktree alive.
 
-The reaper now deregisters rather than kills: `supervisorctl stop`, remove the conf, then
+The reaper now deregisters rather than kills: `company-supervisorctl stop`, remove the conf, then
 `reread && update`. It only does so for a container with **no attached agent**, since nothing in a
 conf records which of them a live agent still needs. The include directory is the exact ownership
 boundary — platform services (desktop, chromium, browser-broker) are declared in the main conf and

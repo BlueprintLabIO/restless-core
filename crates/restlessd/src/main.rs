@@ -33,12 +33,14 @@ mod launch;
 mod legal;
 mod model_gateway;
 mod owner;
+mod owner_cell_readiness;
 mod owner_brief;
 mod plane;
 mod publication;
 mod reconcile;
 mod release;
 mod runtime;
+mod runtime_bridge;
 mod schedule;
 mod spend;
 mod staff;
@@ -288,9 +290,13 @@ async fn ensure_cell_orgintel(
              the legacy schema is left in place for verification"
         );
     }
-    OrgIntel::ensure(&cell_url, company)
+    let org = OrgIntel::ensure(&cell_url, company)
         .await
-        .with_context(|| format!("open cell OrgIntel for {company}"))
+        .with_context(|| format!("open cell OrgIntel for {company}"))?;
+    cell::ensure_native_documents_store(root, admin_url, company)
+        .await
+        .with_context(|| format!("provision native Documents storage capability for {company}"))?;
+    Ok(org)
 }
 
 /// Lazily ensured per-cell OrgIntel handles (one pool per company, against
@@ -310,7 +316,7 @@ impl OrgIntelRegistry {
         cell::ensure_database(&self.root, &self.database_url, company).await
     }
 
-    async fn get(&self, company: &str) -> Result<OrgIntel> {
+    pub(crate) async fn get(&self, company: &str) -> Result<OrgIntel> {
         let config = self.root.join("companies").join(format!("{company}.toml"));
         if !config.is_file() {
             anyhow::bail!(
@@ -388,6 +394,9 @@ pub(crate) struct Daemon {
     /// scheduler and realtime projections. Notifications are wake hints only;
     /// each consumer rereads its durable source of truth.
     pub(crate) cell_wakes: cell_wake::CellWakeHub,
+    /// Exact outbound bridges from hosted Company Runtimes. Local appliance
+    /// mode keeps its deliberately separate direct-Docker adapter.
+    pub(crate) runtime_bridges: runtime_bridge::RuntimeBridgeRegistry,
     /// Crash-safe admission barrier for appliance replacement. The marker is
     /// host lifecycle state; live Work remains in the registries below and in
     /// OrgIntel rather than being copied into this gate.
@@ -721,6 +730,11 @@ async fn main() -> Result<()> {
         staff: staff::StaffRegistry::default(),
         activities: activity::AgentActivityStreams::default(),
         cell_wakes: cell_wake::CellWakeHub::default(),
+        runtime_bridges: if owner_config.is_network() {
+            runtime_bridge::RuntimeBridgeRegistry::hosted()
+        } else {
+            runtime_bridge::RuntimeBridgeRegistry::default()
+        },
         lifecycle: restlessd::appliance::LifecycleGate::new(
             restlessd::appliance::drain_marker_exists(&root),
         ),
@@ -795,23 +809,28 @@ async fn main() -> Result<()> {
     let recovery_configs = company_configs.clone();
     tokio::spawn(async move {
         let recovery_started = std::time::Instant::now();
-        let running_companies = loop {
-            let attempt_started = std::time::Instant::now();
-            match runtime::running_configured_companies(&recovery_configs).await {
-                Ok(companies) => {
-                    tracing::info!(
-                        elapsed_ms = attempt_started.elapsed().as_millis(),
-                        running = companies.len(),
-                        "runtime recovery inventory complete"
-                    );
-                    break companies;
-                }
-                Err(error) => {
-                    tracing::warn!(
-                        elapsed_ms = attempt_started.elapsed().as_millis(),
-                        "runtime recovery inventory deferred: {error:#}"
-                    );
-                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        let hosted_runtime = recovery_daemon.runtime_bridges.is_hosted();
+        let running_companies = if hosted_runtime {
+            Vec::new()
+        } else {
+            loop {
+                let attempt_started = std::time::Instant::now();
+                match runtime::running_configured_companies(&recovery_configs).await {
+                    Ok(companies) => {
+                        tracing::info!(
+                            elapsed_ms = attempt_started.elapsed().as_millis(),
+                            running = companies.len(),
+                            "runtime recovery inventory complete"
+                        );
+                        break companies;
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            elapsed_ms = attempt_started.elapsed().as_millis(),
+                            "runtime recovery inventory deferred: {error:#}"
+                        );
+                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    }
                 }
             }
         };
@@ -820,16 +839,20 @@ async fn main() -> Result<()> {
         // parallel after the one shared inventory instead of multiplying slow
         // Docker round trips across the appliance readiness path.
         let sweep_started = std::time::Instant::now();
-        tokio::join!(
-            effect::sweep_orphans(&running_companies),
-            staff::sweep_orphans(&recovery_daemon.orgintel, &running_companies)
-        );
+        if !hosted_runtime {
+            tokio::join!(
+                effect::sweep_orphans(&running_companies),
+                staff::sweep_orphans(&recovery_daemon.orgintel, &running_companies)
+            );
+        }
         tracing::info!(
             elapsed_ms = sweep_started.elapsed().as_millis(),
             "runtime orphan recovery complete"
         );
 
-        reconcile_owner_attachments(&recovery_daemon, &recovery_configs).await;
+        if !hosted_runtime {
+            reconcile_owner_attachments(&recovery_daemon, &recovery_configs).await;
+        }
 
         // Published services are provider-owned processes, not Runtime
         // children. Reconcile only isolated test companies after orphan repair;
@@ -870,7 +893,9 @@ async fn main() -> Result<()> {
         );
         loop {
             tokio::time::sleep(owner::OWNER_ATTACHMENT_RECONCILE_INTERVAL).await;
-            reconcile_owner_attachments(&recovery_daemon, &recovery_configs).await;
+            if !hosted_runtime {
+                reconcile_owner_attachments(&recovery_daemon, &recovery_configs).await;
+            }
         }
     });
 
@@ -1153,13 +1178,58 @@ where
     Ok(())
 }
 
+/// Execute one Runtime-originated coordination JSONL request through the
+/// existing capability-authenticated dispatcher. The hosted bridge calls this
+/// instead of acquiring a Docker-network TCP route. Streaming `watch` is not
+/// part of the one-request bridge contract.
+pub(crate) async fn proxy_runtime_coordination(
+    daemon: std::sync::Arc<Daemon>,
+    request: serde_json::Value,
+) -> Result<serde_json::Value> {
+    if request.get("cmd").and_then(serde_json::Value::as_str) == Some("watch") {
+        anyhow::bail!("streaming watch is not supported by Runtime coordination proxy");
+    }
+    let mut encoded =
+        serde_json::to_vec(&request).context("encode Runtime coordination request")?;
+    if encoded.is_empty() || encoded.len() > 128 * 1024 {
+        anyhow::bail!("Runtime coordination request exceeds its bound");
+    }
+    encoded.push(b'\n');
+    let (mut client, server) = tokio::io::duplex(256 * 1024);
+    let task =
+        tokio::spawn(async move { serve(server, &daemon, ConnectionOrigin::RuntimeTcp).await });
+    client.write_all(&encoded).await?;
+    let mut response = String::new();
+    let mut reader = BufReader::new(client);
+    tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        reader.read_line(&mut response),
+    )
+    .await
+    .context("Runtime coordination response timed out")??;
+    task.abort();
+    if response.is_empty() || response.len() > 128 * 1024 || !response.ends_with('\n') {
+        anyhow::bail!("Runtime coordination response exceeds its bound");
+    }
+    serde_json::from_str(response.trim_end_matches('\n'))
+        .context("decode Runtime coordination response")
+}
+
 fn authenticate_request(
     request: &mut Request,
     capabilities: &capability::CapabilityIssuer,
     origin: ConnectionOrigin,
 ) -> std::result::Result<Principal, String> {
     match origin {
-        ConnectionOrigin::LocalOwner => authorize(Principal::Owner, &request.cmd),
+        ConnectionOrigin::LocalOwner => {
+            if request.cmd == "document-review-request" {
+                return Err(
+                    "document-review-request is a hosted Runtime Attempt operation, not human owner authority"
+                        .into(),
+                );
+            }
+            authorize(Principal::Owner, &request.cmd)
+        }
         ConnectionOrigin::RuntimeTcp => {
             Principal::legacy_runtime_claim(request.principal.as_deref())?;
             let token = request
@@ -1179,8 +1249,9 @@ fn authenticate_request(
                     grant.company, requested_company
                 ));
             }
-            request.company = Some(grant.company);
             bind_runtime_actor(request, &grant.actor)?;
+            bind_runtime_document_scope(request, &grant)?;
+            request.company = Some(grant.company);
             authorize(Principal::CompanyExec, &request.cmd)
         }
     }
@@ -1222,8 +1293,9 @@ fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Result
         | "voice-brief"
         | "voice-render"
         | "voice-review"
-        | "voice-learn" => pin_actor(&mut request.orgintel.actor, actor, "actor")?,
-        "publish-candidate" | "publish-request" => {
+        | "voice-learn"
+        | "document-review-request" => pin_actor(&mut request.orgintel.actor, actor, "actor")?,
+        "publish-build" | "publish-candidate" | "publish-request" => {
             pin_actor(&mut request.publication.actor, actor, "publication actor")?
         }
         "work-add"
@@ -1248,6 +1320,38 @@ fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Result
         }
         "browser-request" => pin_actor(&mut request.common.id, actor, "browser requester")?,
         _ => {}
+    }
+    Ok(())
+}
+
+/// The only native Document mutation available to a hosted agent must carry
+/// the same exact productive coordinates as its signed ActorSession. A bridge
+/// Exec grant and a coordination/conversation session therefore fail closed.
+fn bind_runtime_document_scope(
+    request: &Request,
+    grant: &capability::CoordinationGrant,
+) -> std::result::Result<(), String> {
+    if request.cmd != "document-review-request" {
+        return Ok(());
+    }
+    let granted_work = grant.work_id.ok_or_else(|| {
+        "document-review-request requires a Work-bound ActorSession capability".to_string()
+    })?;
+    let granted_attempt = grant.attempt_id.ok_or_else(|| {
+        "document-review-request requires an Attempt-bound ActorSession capability".to_string()
+    })?;
+    let requested_work = parse_required_uuid(
+        request.document.document_work_id.as_deref(),
+        "document_work_id",
+    )?;
+    let requested_attempt = parse_required_uuid(
+        request.document.document_attempt_id.as_deref(),
+        "document_attempt_id",
+    )?;
+    if requested_work != granted_work || requested_attempt != granted_attempt {
+        return Err(format!(
+            "document review coordinates ({requested_work}, {requested_attempt}) do not match the signed ActorSession ({granted_work}, {granted_attempt})"
+        ));
     }
     Ok(())
 }
@@ -1456,6 +1560,143 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
         None => return Response::err("missing company"),
     };
     match request.cmd.as_str() {
+        "document-review-request" => {
+            if principal != Principal::CompanyExec {
+                return Response::err_kind(
+                    "authority",
+                    "document-review-request requires an authenticated hosted Runtime Attempt",
+                );
+            }
+            let document_id = match parse_required_uuid(
+                request.document.document_id.as_deref(),
+                "document_id",
+            ) {
+                Ok(value) if !value.is_nil() => value,
+                Ok(_) => return Response::err("document_id must be non-nil"),
+                Err(error) => return Response::err(error),
+            };
+            let named_version_id = match parse_required_uuid(
+                request.document.named_version_id.as_deref(),
+                "named_version_id",
+            ) {
+                Ok(value) if !value.is_nil() => value,
+                Ok(_) => return Response::err("named_version_id must be non-nil"),
+                Err(error) => return Response::err(error),
+            };
+            let work_id = match parse_required_uuid(
+                request.document.document_work_id.as_deref(),
+                "document_work_id",
+            ) {
+                Ok(value) if !value.is_nil() => value,
+                Ok(_) => return Response::err("document_work_id must be non-nil"),
+                Err(error) => return Response::err(error),
+            };
+            let attempt_id = match parse_required_uuid(
+                request.document.document_attempt_id.as_deref(),
+                "document_attempt_id",
+            ) {
+                Ok(value) if !value.is_nil() => value,
+                Ok(_) => return Response::err("document_attempt_id must be non-nil"),
+                Err(error) => return Response::err(error),
+            };
+            let command_id = match parse_required_uuid(
+                request.document.document_command_id.as_deref(),
+                "document_command_id",
+            ) {
+                Ok(value) if !value.is_nil() => value,
+                Ok(_) => return Response::err("document_command_id must be non-nil"),
+                Err(error) => return Response::err(error),
+            };
+            let Some(expected_document_version) = request.document.expected_document_version else {
+                return Response::err("document-review-request needs expected_document_version");
+            };
+            let Some(expected_work_revision) = request.document.expected_work_revision else {
+                return Response::err("document-review-request needs expected_work_revision");
+            };
+            if expected_document_version < 1 || expected_work_revision < 1 {
+                return Response::err("document and Work revisions must be positive");
+            }
+            let Some(reviewer_actor_id) = request.document.reviewer_actor_id.as_deref() else {
+                return Response::err("document-review-request needs reviewer_actor_id");
+            };
+            let Some(summary) = request.document.review_summary.as_deref() else {
+                return Response::err("document-review-request needs review_summary");
+            };
+            let Some(actor_id) = request.orgintel.actor.as_deref() else {
+                return Response::err_kind(
+                    "authority",
+                    "document-review-request has no authenticated Runtime actor",
+                );
+            };
+            match daemon.orgintel.get(company).await {
+                Ok(org) => match org
+                    .request_document_review(restless_orgintel::RequestDocumentReview {
+                        document_id,
+                        actor_id,
+                        command_id,
+                        expected_document_version,
+                        expected_current_version_id: named_version_id,
+                        summary,
+                        work_dependency: Some(
+                            restless_orgintel::DocumentWorkReviewDependencyInput {
+                                work_id,
+                                attempt_id,
+                                expected_work_revision,
+                                reviewer_actor_id,
+                            },
+                        ),
+                    })
+                    .await
+                {
+                    Ok(review) => Response::ok_serialized(review),
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "publish-build" => {
+            let Some(actor) = request.publication.actor.as_deref() else {
+                return Response::err("publish-build needs actor");
+            };
+            let Some(source) = request.publication.source_artifact_ref_id.as_deref() else {
+                return Response::err("publish-build needs source_artifact_ref_id");
+            };
+            let Some(dockerfile) = request.publication.dockerfile.as_deref() else {
+                return Response::err("publish-build needs dockerfile");
+            };
+            let Some(key) = request.publication.idempotency_key.as_deref() else {
+                return Response::err("publish-build needs idempotency_key");
+            };
+            let deadline = match request
+                .publication
+                .build_deadline
+                .as_deref()
+                .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+            {
+                Some(value) => value.with_timezone(&chrono::Utc),
+                None => return Response::err("publish-build needs RFC3339 build_deadline"),
+            };
+            match daemon.orgintel.get(company).await {
+                Ok(org) => match daemon
+                    .publication
+                    .build_candidate_image(
+                        &org,
+                        company,
+                        actor,
+                        source,
+                        request.publication.build_context.as_deref(),
+                        dockerfile,
+                        key,
+                        deadline,
+                    )
+                    .await
+                {
+                    Ok(value) => Response::ok(value),
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
         "publish-candidate" => {
             let actor = match request.publication.actor.as_deref() {
                 Some(actor) => actor,
@@ -5073,7 +5314,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         let issuer = capability::CapabilityIssuer::open(&root).unwrap();
         let token = issuer
-            .issue_actor_session("acme_test", "delivery-lead", "session_1")
+            .issue_actor_session("acme_test", "delivery-lead", "session_1", None, None)
             .unwrap();
 
         let mut valid = decoded_request(serde_json::json!({
@@ -5097,7 +5338,7 @@ mod tests {
             "company": "acme_test",
             "principal": "owner",
             "session_capability": issuer
-                .issue_actor_session("acme_test", "delivery-lead", "session_2")
+                .issue_actor_session("acme_test", "delivery-lead", "session_2", None, None)
                 .unwrap()
         }));
         assert!(
@@ -5110,7 +5351,7 @@ mod tests {
             "cmd": "message",
             "company": "other_test",
             "session_capability": issuer
-                .issue_actor_session("acme_test", "delivery-lead", "session_3")
+                .issue_actor_session("acme_test", "delivery-lead", "session_3", None, None)
                 .unwrap(),
             "from": "delivery-lead",
             "body": "forged"
@@ -5124,7 +5365,7 @@ mod tests {
             "cmd": "message",
             "company": "acme_test",
             "session_capability": issuer
-                .issue_actor_session("acme_test", "delivery-lead", "session_4")
+                .issue_actor_session("acme_test", "delivery-lead", "session_4", None, None)
                 .unwrap(),
             "from": "exec",
             "body": "forged"
@@ -5133,6 +5374,66 @@ mod tests {
             authenticate_request(&mut foreign_actor, &issuer, ConnectionOrigin::RuntimeTcp)
                 .unwrap_err()
                 .contains("cannot claim")
+        );
+
+        let work_id = uuid::Uuid::new_v4();
+        let attempt_id = uuid::Uuid::new_v4();
+        let document_id = uuid::Uuid::new_v4();
+        let named_version_id = uuid::Uuid::new_v4();
+        let command_id = uuid::Uuid::new_v4();
+        let scoped_token = issuer
+            .issue_actor_session(
+                "acme_test",
+                "delivery-lead",
+                "session_document",
+                Some(work_id),
+                Some(attempt_id),
+            )
+            .unwrap();
+        let document_request = |token: &str, requested_attempt: uuid::Uuid| {
+            decoded_request(serde_json::json!({
+                "cmd": "document-review-request",
+                "company": "acme_test",
+                "session_capability": token,
+                "document_id": document_id,
+                "expected_document_version": 3,
+                "named_version_id": named_version_id,
+                "document_work_id": work_id,
+                "document_attempt_id": requested_attempt,
+                "expected_work_revision": 1,
+                "reviewer_actor_id": "alex",
+                "review_summary": "Review this exact named version",
+                "document_command_id": command_id,
+            }))
+        };
+        let mut valid_document = document_request(&scoped_token, attempt_id);
+        assert_eq!(
+            authenticate_request(&mut valid_document, &issuer, ConnectionOrigin::RuntimeTcp,)
+                .unwrap(),
+            Principal::CompanyExec
+        );
+        assert_eq!(
+            valid_document.orgintel.actor.as_deref(),
+            Some("delivery-lead")
+        );
+        let mut mixed_attempt = document_request(&scoped_token, uuid::Uuid::new_v4());
+        assert!(
+            authenticate_request(&mut mixed_attempt, &issuer, ConnectionOrigin::RuntimeTcp,)
+                .unwrap_err()
+                .contains("do not match the signed ActorSession")
+        );
+        let bridge_token = issuer.issue_runtime_bridge("acme_test").unwrap();
+        let mut ambient_exec = document_request(&bridge_token, attempt_id);
+        assert!(
+            authenticate_request(&mut ambient_exec, &issuer, ConnectionOrigin::RuntimeTcp,)
+                .unwrap_err()
+                .contains("Work-bound ActorSession")
+        );
+        let mut human_document = document_request("unused", attempt_id);
+        assert!(
+            authenticate_request(&mut human_document, &issuer, ConnectionOrigin::LocalOwner,)
+                .unwrap_err()
+                .contains("hosted Runtime Attempt operation")
         );
 
         let mut local = decoded_request(serde_json::json!({

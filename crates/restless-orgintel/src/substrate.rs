@@ -307,7 +307,27 @@ impl OrgIntel {
         .bind(holder_token)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(inserted)
+        if inserted.is_some() {
+            return Ok(inserted);
+        }
+        // A lost Runtime response or Core restart may replay the exact gate
+        // operation while its durable leases are still live. Recover only an
+        // identical owner/Attempt/gate tuple; another holder continues to see
+        // the resource as unavailable.
+        let existing = sqlx::query_as::<_, RuntimeResourceLeaseRow>(
+            "SELECT id,attempt_id,gate_id,kind,value,holder_token,acquired_at,released_at,release_reason \
+             FROM runtime_resource_leases \
+             WHERE kind=$1 AND value=$2 AND released_at IS NULL",
+        )
+        .bind(kind)
+        .bind(value)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(existing.filter(|lease| {
+            lease.attempt_id == attempt_id
+                && lease.gate_id == gate_id
+                && lease.holder_token == holder_token
+        }))
     }
 
     pub async fn release_runtime_resource(

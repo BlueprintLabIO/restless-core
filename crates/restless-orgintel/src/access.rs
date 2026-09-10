@@ -244,6 +244,84 @@ impl OrgIntel {
         }))
     }
 
+    /// Admit Fleet's authenticated desired Runtime revision for the one cell
+    /// bound to this company. The highest accepted revision survives account-
+    /// plane restarts, so a delayed activity request can never be echoed as
+    /// current after Fleet has advanced the Runtime.
+    pub async fn admit_runtime_activity_revision(
+        &self,
+        expected: CompanyAccessIdentity,
+        runtime_id: &str,
+        desired_revision: i64,
+    ) -> Result<bool> {
+        if expected.company_id.is_nil()
+            || expected.cell_id.is_nil()
+            || desired_revision < 1
+            || runtime_id.is_empty()
+            || runtime_id.len() > 160
+        {
+            return Err(OrgIntelError::CompanyAccessMismatch(
+                "Runtime activity coordinates are invalid".into(),
+            ));
+        }
+
+        let mut tx = self.pool.begin().await?;
+        let bound = sqlx::query_as::<_, (Uuid, Uuid)>(
+            "SELECT company_id,cell_id FROM company_access_identity \
+             WHERE singleton=TRUE FOR SHARE",
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        if bound != Some((expected.company_id, expected.cell_id)) {
+            return Err(OrgIntelError::CompanyAccessMismatch(
+                "Runtime activity coordinates differ from the immutable company/cell binding"
+                    .into(),
+            ));
+        }
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))")
+            .bind(expected.cell_id.to_string())
+            .execute(&mut *tx)
+            .await?;
+
+        let current = sqlx::query_as::<_, (String, i64)>(
+            "SELECT runtime_id,desired_revision FROM runtime_activity_revision \
+             WHERE cell_id=$1 FOR UPDATE",
+        )
+        .bind(expected.cell_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let admitted = match current {
+            None => {
+                sqlx::query(
+                    "INSERT INTO runtime_activity_revision \
+                     (cell_id,runtime_id,desired_revision) VALUES ($1,$2,$3)",
+                )
+                .bind(expected.cell_id)
+                .bind(runtime_id)
+                .bind(desired_revision)
+                .execute(&mut *tx)
+                .await?;
+                true
+            }
+            Some((current_runtime_id, current_revision))
+                if current_runtime_id == runtime_id && desired_revision >= current_revision =>
+            {
+                sqlx::query(
+                    "UPDATE runtime_activity_revision \
+                     SET desired_revision=$2,observed_at=now() WHERE cell_id=$1",
+                )
+                .bind(expected.cell_id)
+                .bind(desired_revision)
+                .execute(&mut *tx)
+                .await?;
+                true
+            }
+            Some(_) => false,
+        };
+        tx.commit().await?;
+        Ok(admitted)
+    }
+
     /// Bind the cell to the company identity allocated by the one hosted
     /// bootstrap coordinator.  This operation never manufactures a human
     /// membership and never changes an existing binding: later entry and

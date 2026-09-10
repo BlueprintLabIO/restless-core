@@ -471,6 +471,12 @@ pub(crate) struct PublicationInput {
     #[serde(default)]
     pub(crate) source_artifact_ref_id: Option<String>,
     #[serde(default)]
+    pub(crate) build_context: Option<String>,
+    #[serde(default)]
+    pub(crate) dockerfile: Option<String>,
+    #[serde(default)]
+    pub(crate) build_deadline: Option<String>,
+    #[serde(default)]
     pub(crate) candidate_artifact_ref_id: Option<String>,
     #[serde(default)]
     pub(crate) service_manifest: Option<serde_json::Value>,
@@ -498,6 +504,32 @@ pub(crate) struct PublicationInput {
     pub(crate) invitee: Option<String>,
     #[serde(default)]
     pub(crate) stop_reason: Option<String>,
+}
+
+/// Inputs for the one agent-authored native Document operation. Work and
+/// Attempt names deliberately do not reuse generic OrgIntel fields: the
+/// authenticated Runtime boundary compares this exact tuple with the signed
+/// actor-session scope before the dispatcher may touch company state.
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct DocumentInput {
+    #[serde(default)]
+    pub(crate) document_id: Option<String>,
+    #[serde(default)]
+    pub(crate) expected_document_version: Option<i64>,
+    #[serde(default)]
+    pub(crate) named_version_id: Option<String>,
+    #[serde(default)]
+    pub(crate) document_work_id: Option<String>,
+    #[serde(default)]
+    pub(crate) document_attempt_id: Option<String>,
+    #[serde(default)]
+    pub(crate) expected_work_revision: Option<i64>,
+    #[serde(default)]
+    pub(crate) reviewer_actor_id: Option<String>,
+    #[serde(default)]
+    pub(crate) review_summary: Option<String>,
+    #[serde(default)]
+    pub(crate) document_command_id: Option<String>,
 }
 
 /// The in-memory dispatch view after Request::decode has selected and checked
@@ -531,6 +563,8 @@ pub(crate) struct Request {
     pub(crate) owner: OwnerInput,
     #[serde(flatten)]
     pub(crate) publication: PublicationInput,
+    #[serde(flatten)]
+    pub(crate) document: DocumentInput,
 }
 
 const ENVELOPE_FIELDS: &[&str] = &["cmd", "company", "principal", "session_capability"];
@@ -581,10 +615,12 @@ impl Request {
         // allowlist has accepted the public spelling. Without this boundary,
         // a valid CLI `--actor` is silently consumed by OrgIntelInput and the
         // publication handler sees no accountable producer.
-        if matches!(command.as_str(), "publish-candidate" | "publish-request")
-            && value
-                .as_object()
-                .is_some_and(|object| object.contains_key("actor"))
+        if matches!(
+            command.as_str(),
+            "publish-build" | "publish-candidate" | "publish-request"
+        ) && value
+            .as_object()
+            .is_some_and(|object| object.contains_key("actor"))
         {
             let object = value
                 .as_object_mut()
@@ -609,6 +645,14 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         | "browser-status" | "browser-release" | "watch" | "connected-tools" | "identity-show"
         | "publish-list" => &[],
         "schedule-wake" => &["adapter"],
+        "publish-build" => &[
+            "actor",
+            "source_artifact_ref_id",
+            "build_context",
+            "dockerfile",
+            "build_deadline",
+            "idempotency_key",
+        ],
         "publish-candidate" => &["actor", "source_artifact_ref_id", "service_manifest"],
         "publish-request" => &[
             "actor",
@@ -632,6 +676,17 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         "publish-revoke" => &["invitation_id"],
         "publish-stop" => &["publication_id", "stop_reason"],
         "publish-show" => &["publication_id"],
+        "document-review-request" => &[
+            "document_id",
+            "expected_document_version",
+            "named_version_id",
+            "document_work_id",
+            "document_attempt_id",
+            "expected_work_revision",
+            "reviewer_actor_id",
+            "review_summary",
+            "document_command_id",
+        ],
         "up" => &["from", "from_company", "reconcile"],
         "down" => &["destroy"],
         "company-create"
@@ -1318,6 +1373,47 @@ mod tests {
     }
 
     #[test]
+    fn document_review_request_has_one_exact_domain_view() {
+        let request = Request::decode(
+            r#"{
+                "cmd":"document-review-request",
+                "company":"acme_test",
+                "document_id":"00000000-0000-0000-0000-000000000001",
+                "expected_document_version":3,
+                "named_version_id":"00000000-0000-0000-0000-000000000002",
+                "document_work_id":"00000000-0000-0000-0000-000000000003",
+                "document_attempt_id":"00000000-0000-0000-0000-000000000004",
+                "expected_work_revision":2,
+                "reviewer_actor_id":"alex",
+                "review_summary":"Review this exact named version",
+                "document_command_id":"00000000-0000-0000-0000-000000000005"
+            }"#,
+        )
+        .expect("decode exact document review operation");
+        assert_eq!(request.document.expected_work_revision, Some(2));
+        assert_eq!(request.document.reviewer_actor_id.as_deref(), Some("alex"));
+        assert!(request.orgintel.actor.is_none());
+        assert!(Request::decode(
+            r#"{
+                "cmd":"document-review-request",
+                "company":"acme_test",
+                "document_id":"00000000-0000-0000-0000-000000000001",
+                "actor":"owner"
+            }"#,
+        )
+        .is_err());
+        assert!(Request::decode(
+            r#"{
+                "cmd":"document-review-request",
+                "company":"acme_test",
+                "document_id":"00000000-0000-0000-0000-000000000001",
+                "work_id":"00000000-0000-0000-0000-000000000003"
+            }"#,
+        )
+        .is_err());
+    }
+
+    #[test]
     fn every_dispatch_command_has_a_checked_domain_view() {
         // Kept next to the boundary rather than parsed from Rust source: the
         // dispatcher legitimately contains nested string matches such as
@@ -1407,6 +1503,7 @@ mod tests {
             "connected-tool-reconnect",
             "connected-tool-observe",
             "connected-tool-disable",
+            "document-review-request",
         ];
         for command in COMMANDS {
             assert!(

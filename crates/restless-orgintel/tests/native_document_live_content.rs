@@ -5,7 +5,8 @@
 
 use chrono::{Duration, Utc};
 use restless_orgintel::{
-    CompanyAccessIdentity, DocumentKind, DocumentVisibility, NewDocument, OrgIntel,
+    CompanyAccessIdentity, DocumentError, DocumentKind, DocumentVisibility, NewDocument,
+    NewNamedDocumentVersion, OrgIntel, RestoreDocumentVersion,
 };
 use serde_json::{json, Value};
 use sqlx::{Connection as _, PgConnection};
@@ -331,4 +332,137 @@ async fn live_state_is_seeded_cas_stored_replayed_and_recovered() {
     assert_eq!(after_restart.yjs_state, Some(first_state));
     assert_eq!(after_restart.projection_json, first_projection);
     assert_eq!(after_restart.content_hash, stored.content_hash);
+}
+
+#[tokio::test]
+async fn named_version_changes_atomically_advance_or_reset_the_live_checkpoint() {
+    let Some((org, database_url, _schema, company_id, document_id, seed_projection)) =
+        fixture().await
+    else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping native Docs checkpoint proof");
+        return;
+    };
+    let mut db = connection(&database_url, org.schema()).await;
+    let seed = load(&mut db, company_id, document_id).await;
+    let live_state = vec![1_u8, 2, 3, 4];
+
+    let stored: StoreRow = sqlx::query_as(
+        "SELECT outcome,state_revision,checkpoint_named_version_id,content_hash,\
+                current_yjs_state,current_projection_json \
+         FROM orgintel_native_document_yjs_store($1,$2,$3,$4,$5,$6,$7)",
+    )
+    .bind(company_id)
+    .bind(document_id)
+    .bind(0_i64)
+    .bind(seed.checkpoint_named_version_id)
+    .bind(Uuid::new_v4())
+    .bind(&live_state)
+    .bind(&seed_projection)
+    .fetch_one(&mut db)
+    .await
+    .unwrap();
+    assert_eq!(stored.outcome, "stored");
+
+    let unchanged = org
+        .create_named_document_version(NewNamedDocumentVersion {
+            command_id: Uuid::new_v4(),
+            document_id,
+            actor_id: "owner",
+            expected_current_version_id: seed.checkpoint_named_version_id,
+            content_json: &seed_projection,
+            reason: "Checkpoint the converged live body",
+        })
+        .await
+        .unwrap();
+    let advanced = load(&mut db, company_id, document_id).await;
+    assert_eq!(advanced.source_kind, "state");
+    assert_eq!(advanced.state_revision, 1);
+    assert_eq!(advanced.yjs_state, Some(live_state.clone()));
+    assert_eq!(advanced.checkpoint_named_version_id, unchanged.result_id);
+    assert_eq!(advanced.checkpoint_state_revision, 1);
+
+    let replacement_projection = json!({
+        "type": "doc",
+        "content": [{
+            "type": "paragraph",
+            "attrs": {"block_id": "replacement"},
+            "content": [{"type": "text", "text": "A restored direction"}]
+        }]
+    });
+    let stale_checkpoint = org
+        .create_named_document_version(NewNamedDocumentVersion {
+            command_id: Uuid::new_v4(),
+            document_id,
+            actor_id: "owner",
+            expected_current_version_id: unchanged.result_id,
+            content_json: &replacement_projection,
+            reason: "A stale non-collaborative body",
+        })
+        .await
+        .unwrap_err();
+    assert!(matches!(stale_checkpoint, DocumentError::Conflict(_)));
+    let after_refusal = load(&mut db, company_id, document_id).await;
+    assert_eq!(
+        after_refusal.checkpoint_named_version_id,
+        unchanged.result_id
+    );
+    assert_eq!(after_refusal.yjs_state, Some(live_state.clone()));
+
+    let replacement_state = vec![5_u8, 6, 7, 8];
+    let live_change: StoreRow = sqlx::query_as(
+        "SELECT outcome,state_revision,checkpoint_named_version_id,content_hash,\
+                current_yjs_state,current_projection_json \
+         FROM orgintel_native_document_yjs_store($1,$2,$3,$4,$5,$6,$7)",
+    )
+    .bind(company_id)
+    .bind(document_id)
+    .bind(1_i64)
+    .bind(unchanged.result_id)
+    .bind(Uuid::new_v4())
+    .bind(&replacement_state)
+    .bind(&replacement_projection)
+    .fetch_one(&mut db)
+    .await
+    .unwrap();
+    assert_eq!(live_change.outcome, "stored");
+    assert_eq!(live_change.state_revision, 2);
+
+    let changed = org
+        .restore_document_version(RestoreDocumentVersion {
+            command_id: Uuid::new_v4(),
+            document_id,
+            actor_id: "owner",
+            expected_current_version_id: unchanged.result_id,
+            source_version_id: seed.checkpoint_named_version_id,
+            reason: "Explicitly restore the initial direction",
+        })
+        .await
+        .unwrap();
+    let reset = load(&mut db, company_id, document_id).await;
+    assert_eq!(reset.source_kind, "seed");
+    assert_eq!(reset.state_revision, 0);
+    assert_eq!(reset.yjs_state, None);
+    assert_eq!(reset.projection_json, seed_projection);
+    assert_eq!(reset.checkpoint_named_version_id, changed.result_id);
+
+    let stale_writer: StoreRow = sqlx::query_as(
+        "SELECT outcome,state_revision,checkpoint_named_version_id,content_hash,\
+                current_yjs_state,current_projection_json \
+         FROM orgintel_native_document_yjs_store($1,$2,$3,$4,$5,$6,$7)",
+    )
+    .bind(company_id)
+    .bind(document_id)
+    .bind(2_i64)
+    .bind(unchanged.result_id)
+    .bind(Uuid::new_v4())
+    .bind(&replacement_state)
+    .bind(&replacement_projection)
+    .fetch_one(&mut db)
+    .await
+    .unwrap();
+    assert_eq!(stale_writer.outcome, "conflict");
+    assert_eq!(stale_writer.state_revision, 0);
+    assert_eq!(stale_writer.checkpoint_named_version_id, changed.result_id);
+    assert_eq!(stale_writer.current_yjs_state, None);
+    assert_eq!(stale_writer.current_projection_json, Some(seed_projection));
 }

@@ -280,6 +280,12 @@ async fn coordinates_leases_gate_cache_and_feedback_are_exact() {
         .await
         .unwrap()
         .unwrap();
+    let replayed_lease_a = org
+        .acquire_runtime_resource(a.attempt_id, None, "port", "24632", "holder-a")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(replayed_lease_a.id, lease_a.id);
     assert!(org
         .acquire_runtime_resource(b.attempt_id, None, "port", "24632", "holder-b")
         .await

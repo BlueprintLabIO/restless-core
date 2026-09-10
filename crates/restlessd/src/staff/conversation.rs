@@ -106,6 +106,7 @@ pub struct ConversationRuntime<'a> {
     pub capabilities: &'a crate::capability::CapabilityIssuer,
     pub registry: &'a StaffRegistry,
     pub activities: &'a AgentActivityStreams,
+    pub runtime_bridges: &'a crate::runtime_bridge::RuntimeBridgeRegistry,
 }
 
 struct ClaimedConversationInputs {
@@ -632,8 +633,13 @@ pub async fn dispatch_actor_conversation(
     let container = runtime::container_name(&config.name);
     let review_work_id =
         reply_work_id.or_else(|| judgements.first().map(|handoff| handoff.work_id));
-    let conversation_workspace =
-        completed_attempt_review_workspace(org, &container, review_work_id).await;
+    let conversation_workspace = if runtime.runtime_bridges.is_hosted() {
+        unavailable_review_workspace(
+            "hosted review-copy inspection is not yet exposed by the typed Runtime bridge",
+        )
+    } else {
+        completed_attempt_review_workspace(org, &container, review_work_id).await
+    };
     let context_focus =
         pending_mention
             .as_ref()
@@ -669,6 +675,7 @@ pub async fn dispatch_actor_conversation(
     let reasoning_effort = config.reasoning_effort.clone();
     let authority = runtime.authority.clone();
     let capabilities = runtime.capabilities.clone();
+    let runtime_bridges = runtime.runtime_bridges.clone();
     let live_turn = runtime
         .activities
         .start_messages(&company, &actor, &owner_message_ids);
@@ -698,6 +705,8 @@ pub async fn dispatch_actor_conversation(
             reasoning_effort,
             authority,
             capabilities,
+            runtime_bridges,
+            hosted_identity: None,
             turn_kind: if pending_mention.is_some() {
                 StaffTurnKind::RoomMention
             } else {

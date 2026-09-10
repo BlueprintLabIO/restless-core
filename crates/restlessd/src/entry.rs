@@ -32,6 +32,7 @@ const ALGORITHM: &str = "EdDSA";
 const MAX_ASSERTION_LIFETIME_SECONDS: i64 = 60;
 const MAX_CLOCK_SKEW_SECONDS: i64 = 30;
 const MAX_JWKS_BYTES: usize = 64 * 1024;
+const MAX_JWKS_CA_BYTES: u64 = 64 * 1024;
 const MAX_JWKS_AGE: Duration = Duration::from_secs(MAX_ASSERTION_LIFETIME_SECONDS as u64);
 const DEFAULT_SESSION_TTL: Duration = Duration::from_secs(60 * 60);
 
@@ -881,11 +882,14 @@ impl EntryMode {
                     }
                     Err(_) => DEFAULT_SESSION_TTL,
                 };
-                let client = reqwest::Client::builder()
-                    .redirect(reqwest::redirect::Policy::none())
-                    .timeout(Duration::from_secs(5))
-                    .build()
-                    .context_msg("build entry JWKS client")?;
+                let jwks_ca_file = match std::env::var_os("RESTLESS_ENTRY_JWKS_CA_FILE") {
+                    None => None,
+                    Some(value) if value.is_empty() => {
+                        anyhow::bail!("RESTLESS_ENTRY_JWKS_CA_FILE must not be empty")
+                    }
+                    Some(value) => Some(std::path::PathBuf::from(value)),
+                };
+                let client = entry_jwks_client(jwks_ca_file.as_deref())?;
                 Ok(Self::Network(std::sync::Arc::new(NetworkEntry {
                     issuer: issuer.as_str().trim_end_matches('/').into(),
                     owner_id,
@@ -921,10 +925,14 @@ impl EntryMode {
 
 fn canonical_service_url(variable: &str, raw: &str, allow_insecure: bool) -> anyhow::Result<Url> {
     let url = Url::parse(raw).with_context(|| format!("parse {variable}"))?;
-    let safe_scheme = url.scheme() == "https"
-        || (allow_insecure
-            && url.scheme() == "http"
-            && matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "::1")));
+    let loopback_host = match url.host() {
+        Some(url::Host::Domain("localhost")) => true,
+        Some(url::Host::Ipv4(address)) => address.is_loopback(),
+        Some(url::Host::Ipv6(address)) => address.is_loopback(),
+        _ => false,
+    };
+    let safe_scheme =
+        url.scheme() == "https" || (allow_insecure && url.scheme() == "http" && loopback_host);
     if !safe_scheme
         || url.host_str().is_none()
         || !url.username().is_empty()
@@ -935,6 +943,85 @@ fn canonical_service_url(variable: &str, raw: &str, allow_insecure: bool) -> any
         anyhow::bail!("{variable} must be an HTTPS URL without credentials, query, or fragment");
     }
     Ok(url)
+}
+
+fn entry_jwks_client(ca_file: Option<&std::path::Path>) -> anyhow::Result<reqwest::Client> {
+    let mut builder = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(5));
+    if let Some(path) = ca_file {
+        builder = builder.add_root_certificate(read_entry_jwks_ca(path)?);
+    }
+    builder.build().context_msg("build entry JWKS client")
+}
+
+fn read_entry_jwks_ca(path: &std::path::Path) -> anyhow::Result<reqwest::Certificate> {
+    use std::io::Read as _;
+
+    let before = std::fs::symlink_metadata(path)
+        .with_context(|| format!("inspect RESTLESS_ENTRY_JWKS_CA_FILE at {}", path.display()))?;
+    if before.file_type().is_symlink()
+        || !before.file_type().is_file()
+        || before.len() == 0
+        || before.len() > MAX_JWKS_CA_BYTES
+    {
+        anyhow::bail!(
+            "RESTLESS_ENTRY_JWKS_CA_FILE must be one non-empty bounded regular non-symlink PEM file"
+        );
+    }
+
+    let file = std::fs::File::open(path)
+        .with_context(|| format!("open RESTLESS_ENTRY_JWKS_CA_FILE at {}", path.display()))?;
+    let opened = file
+        .metadata()
+        .context("read opened RESTLESS_ENTRY_JWKS_CA_FILE metadata")?;
+    if !opened.file_type().is_file() || opened.len() != before.len() {
+        anyhow::bail!("RESTLESS_ENTRY_JWKS_CA_FILE changed before it was opened");
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        if opened.dev() != before.dev() || opened.ino() != before.ino() {
+            anyhow::bail!("RESTLESS_ENTRY_JWKS_CA_FILE changed identity before it was opened");
+        }
+    }
+
+    let mut pem = Vec::with_capacity(opened.len() as usize);
+    file.take(MAX_JWKS_CA_BYTES + 1)
+        .read_to_end(&mut pem)
+        .context("read RESTLESS_ENTRY_JWKS_CA_FILE")?;
+    if pem.len() as u64 != opened.len() || pem.len() as u64 > MAX_JWKS_CA_BYTES {
+        anyhow::bail!("RESTLESS_ENTRY_JWKS_CA_FILE changed while it was read");
+    }
+    let text =
+        std::str::from_utf8(&pem).context("RESTLESS_ENTRY_JWKS_CA_FILE must be UTF-8 PEM")?;
+    let text = text.trim_matches(|character: char| character.is_ascii_whitespace());
+    let lines = text.lines().collect::<Vec<_>>();
+    if lines.len() < 3
+        || lines.first() != Some(&"-----BEGIN CERTIFICATE-----")
+        || lines.last() != Some(&"-----END CERTIFICATE-----")
+        || lines[1..lines.len() - 1].iter().any(|line| {
+            line.is_empty()
+                || !line
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'='))
+        })
+    {
+        anyhow::bail!(
+            "RESTLESS_ENTRY_JWKS_CA_FILE must contain exactly one PEM CERTIFICATE and no other data"
+        );
+    }
+    let encoded = lines[1..lines.len() - 1].concat();
+    let der = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .context("RESTLESS_ENTRY_JWKS_CA_FILE contains invalid PEM base64")?;
+    let certificate = rustls::pki_types::CertificateDer::from(der.clone());
+    let mut roots = rustls::RootCertStore::empty();
+    roots
+        .add(certificate)
+        .context("RESTLESS_ENTRY_JWKS_CA_FILE is not a valid X.509 trust anchor")?;
+    reqwest::Certificate::from_der(&der)
+        .context("RESTLESS_ENTRY_JWKS_CA_FILE is not a valid X.509 certificate")
 }
 
 fn validate_issuer_jwks(issuer: &Url, jwks: &Url) -> anyhow::Result<()> {
@@ -1661,6 +1748,87 @@ mod tests {
             &Url::parse("https://cloud.restless.run/keys.json").unwrap(),
         )
         .is_err());
+    }
+
+    #[test]
+    fn entry_service_urls_allow_https_and_only_explicit_loopback_http() {
+        canonical_service_url("TEST_URL", "https://fleet-jwks_test.local", false)
+            .expect("HTTPS remains the default");
+        canonical_service_url("TEST_URL", "http://localhost:7788", true)
+            .expect("explicit local development HTTP");
+        canonical_service_url("TEST_URL", "http://127.0.0.1:7788", true)
+            .expect("explicit IPv4 loopback HTTP");
+        canonical_service_url("TEST_URL", "http://[::1]:7788", true)
+            .expect("explicit IPv6 loopback HTTP");
+
+        for refused in [
+            "http://localhost:7788",
+            "http://fleet-jwks_test.local",
+            "ftp://localhost",
+            "https://user@fleet-jwks_test.local",
+            "https://fleet-jwks_test.local?redirect=attacker",
+            "https://fleet-jwks_test.local#attacker",
+        ] {
+            let allow_insecure = refused != "http://localhost:7788";
+            assert!(
+                canonical_service_url("TEST_URL", refused, allow_insecure).is_err(),
+                "must refuse {refused} with allow_insecure={allow_insecure}"
+            );
+        }
+    }
+
+    #[test]
+    fn optional_entry_jwks_ca_is_validated_before_client_construction() {
+        entry_jwks_client(None).expect("default WebPKI client remains available");
+        let directory = std::env::temp_dir().join(format!(
+            "restless-entry-jwks-ca_test-{}",
+            Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+
+        let certificate =
+            rcgen::generate_simple_self_signed(vec!["fleet-jwks_test.local".to_string()]).unwrap();
+        let ca_path = directory.join("ca.pem");
+        std::fs::write(&ca_path, certificate.cert.pem()).unwrap();
+        entry_jwks_client(Some(&ca_path)).expect("one valid extra CA");
+
+        let malformed_path = directory.join("malformed.pem");
+        std::fs::write(&malformed_path, b"not a certificate").unwrap();
+        assert!(entry_jwks_client(Some(&malformed_path)).is_err());
+
+        let trailing_path = directory.join("trailing.pem");
+        std::fs::write(
+            &trailing_path,
+            format!("{}\nnot part of the certificate", certificate.cert.pem()),
+        )
+        .unwrap();
+        assert!(entry_jwks_client(Some(&trailing_path)).is_err());
+
+        let oversized_path = directory.join("oversized.pem");
+        std::fs::write(&oversized_path, vec![b'x'; MAX_JWKS_CA_BYTES as usize + 1]).unwrap();
+        assert!(entry_jwks_client(Some(&oversized_path)).is_err());
+
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn optional_entry_jwks_ca_refuses_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let directory = std::env::temp_dir().join(format!(
+            "restless-entry-jwks-ca-symlink_test-{}",
+            Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        let certificate =
+            rcgen::generate_simple_self_signed(vec!["fleet-jwks_test.local".to_string()]).unwrap();
+        let target = directory.join("target.pem");
+        let indirect = directory.join("ca.pem");
+        std::fs::write(&target, certificate.cert.pem()).unwrap();
+        symlink(&target, &indirect).unwrap();
+        assert!(entry_jwks_client(Some(&indirect)).is_err());
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

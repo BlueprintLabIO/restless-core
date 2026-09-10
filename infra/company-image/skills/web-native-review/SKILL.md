@@ -15,8 +15,8 @@ replace operating the live site.
    the primary source of visual language; an external reference calibrates maturity only and a
    component library supplies mechanics only.
 2. Serve the candidate as a durable project service under `/company/services/supervisor`, with
-   `autorestart=true`. A detached shell process is not a prepared ReviewTarget. Run `supervisorctl -c
-   /etc/supervisor/conf.d/restless.conf reread`, `update`, and `status`, then probe the exact loopback
+   `autorestart=true`. A detached shell process is not a prepared ReviewTarget. Run
+   `company-supervisorctl reread`, `update`, and `status`, then probe the exact loopback
    URL.
 3. Capture every primary route with:
 

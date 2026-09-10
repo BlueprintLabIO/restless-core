@@ -26,6 +26,7 @@ mod goals_work;
 mod identity;
 mod invocations;
 mod messages;
+mod notifications;
 mod review;
 mod rooms;
 mod schedules;
@@ -40,6 +41,7 @@ pub use actor_context::*;
 pub use documents::*;
 pub use events::EventReplayPage;
 pub use invocations::*;
+pub use notifications::*;
 pub use types::*;
 
 /// Resolve the canonical direct Room for one durable Message write, creating

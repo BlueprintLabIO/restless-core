@@ -59,6 +59,28 @@ fn cell_url_path(root: &std::path::Path, company: &str) -> std::path::PathBuf {
     root.join("cells").join(company).join("database.url")
 }
 
+/// The collaboration sidecar receives this credential as one read-only secret
+/// file. It is deliberately separate from `database.url`: the latter is the
+/// cell owner used by Core migrations and may read every OrgIntel table.
+pub(crate) fn native_documents_store_credential_path(
+    root: &std::path::Path,
+    company: &str,
+) -> std::path::PathBuf {
+    root.join("cells")
+        .join(company)
+        .join("native-documents-database.url")
+}
+
+fn native_documents_role_name(company: &str) -> String {
+    use sha2::{Digest, Sha256};
+
+    let cell = cell_object_name(company);
+    let digest = format!("{:x}", Sha256::digest(format!("native-documents:{cell}")));
+    let suffix = format!("_docs_{}", &digest[..8]);
+    let prefix_len = 63usize.saturating_sub(suffix.len());
+    format!("{}{}", &cell[..cell.len().min(prefix_len)], suffix)
+}
+
 /// A password with no shell-, URL- or SQL-significant characters, so it needs
 /// no escaping anywhere it is later interpolated.
 fn generate_password() -> String {
@@ -81,13 +103,120 @@ fn generate_password() -> String {
 /// Rewrite an admin connection URL to point at a different database, keeping
 /// host and port, and replacing the credentials with this cell's.
 fn cell_url(admin_url: &str, database: &str, role: &str, password: &str) -> Result<String> {
-    let parsed = url::Url::parse(admin_url).context("parse OrgIntel admin database_url")?;
-    let host = parsed.host_str().unwrap_or("localhost");
-    let mut authority = format!("{role}:{password}@{host}");
-    if let Some(port) = parsed.port() {
-        authority.push_str(&format!(":{port}"));
+    let mut parsed = url::Url::parse(admin_url).context("parse OrgIntel admin database_url")?;
+    parsed
+        .set_username(role)
+        .map_err(|_| anyhow::anyhow!("set cell database role"))?;
+    parsed
+        .set_password(Some(password))
+        .map_err(|_| anyhow::anyhow!("set cell database password"))?;
+    parsed.set_path(&format!("/{database}"));
+    parsed.set_fragment(None);
+    Ok(parsed.to_string())
+}
+
+fn database_url(admin_url: &str, database: &str) -> Result<String> {
+    let mut parsed = url::Url::parse(admin_url).context("parse OrgIntel admin database_url")?;
+    parsed.set_path(&format!("/{database}"));
+    parsed.set_fragment(None);
+    Ok(parsed.to_string())
+}
+
+fn existing_native_documents_password(
+    path: &std::path::Path,
+    admin_url: &str,
+    database: &str,
+    role: &str,
+) -> Result<Option<String>> {
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error).with_context(|| format!("inspect {}", path.display())),
+    };
+    if !metadata.file_type().is_file() || metadata.file_type().is_symlink() || metadata.len() > 2048
+    {
+        bail!(
+            "native Documents database credential {} is not one bounded regular file",
+            path.display()
+        );
     }
-    Ok(format!("postgres://{authority}/{database}"))
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        if metadata.mode() & 0o077 != 0 || metadata.nlink() != 1 {
+            bail!(
+                "native Documents database credential {} must be private and unlinked",
+                path.display()
+            );
+        }
+    }
+    let value =
+        std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+    if value.trim() != value || value.lines().count() != 1 {
+        bail!(
+            "native Documents database credential {} must contain one normalized URL",
+            path.display()
+        );
+    }
+    let parsed = url::Url::parse(&value)
+        .with_context(|| format!("parse native Documents credential {}", path.display()))?;
+    if !matches!(parsed.scheme(), "postgres" | "postgresql")
+        || parsed.username() != role
+        || parsed.password().is_none()
+        || parsed.path() != format!("/{database}")
+        || parsed.fragment().is_some()
+    {
+        bail!(
+            "native Documents database credential {} does not match its cell scope",
+            path.display()
+        );
+    }
+    let password = parsed.password().expect("password checked above");
+    if password.len() != 48 || !password.bytes().all(|byte| byte.is_ascii_alphanumeric()) {
+        bail!(
+            "native Documents database credential {} has an invalid password encoding",
+            path.display()
+        );
+    }
+    let expected = url::Url::parse(&cell_url(admin_url, database, role, password)?)
+        .context("parse expected native Documents credential")?;
+    if parsed != expected {
+        bail!(
+            "native Documents database credential {} does not use the configured database endpoint",
+            path.display()
+        );
+    }
+    Ok(Some(password.to_string()))
+}
+
+fn persist_private_credential(path: &std::path::Path, value: &str) -> Result<()> {
+    use std::io::Write as _;
+
+    let directory = path
+        .parent()
+        .context("native Documents credential has no parent")?;
+    std::fs::create_dir_all(directory)
+        .with_context(|| format!("create {}", directory.display()))?;
+    let temporary = directory.join(format!(
+        ".native-documents-database.{}.tmp",
+        uuid::Uuid::new_v4().simple()
+    ));
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(0o600);
+    }
+    let mut file = options
+        .open(&temporary)
+        .with_context(|| format!("create {}", temporary.display()))?;
+    file.write_all(value.as_bytes())
+        .with_context(|| format!("write {}", temporary.display()))?;
+    file.sync_all()
+        .with_context(|| format!("sync {}", temporary.display()))?;
+    std::fs::rename(&temporary, path).with_context(|| format!("install {}", path.display()))?;
+    restrict_to_owner(path)
 }
 
 /// Ensure this cell's role, database and recorded connection string exist, and
@@ -163,6 +292,178 @@ pub async fn ensure_database(
     Ok(url)
 }
 
+/// Provision the only database capability granted to the native Documents
+/// collaboration sidecar. The cell owner remains Core-private; this second
+/// login can connect to one cell database, use one company schema, and execute
+/// exactly the three bounded collaboration functions from migration 0053.
+///
+/// Call this only after OrgIntel migrations have completed. Re-running it
+/// restores the least-privilege grants and default privileges, so a release
+/// cannot silently broaden the sidecar by adding a new function later.
+pub(crate) async fn ensure_native_documents_store(
+    root: &std::path::Path,
+    admin_url: &str,
+    company: &str,
+) -> Result<std::path::PathBuf> {
+    if !valid_identifier(company) {
+        bail!("company {company:?} is not a valid cell identifier");
+    }
+    let cell_database = cell_object_name(company);
+    let sidecar_role = native_documents_role_name(company);
+    let credential_path = native_documents_store_credential_path(root, company);
+    ensure_database(root, admin_url, company).await?;
+
+    // Role creation is cluster-global and credential installation is a file
+    // effect, so serialize them with a session advisory lock. A crashed caller
+    // releases the lock with its connection; the next call repairs grants and
+    // either reuses the installed secret or rotates an incomplete role.
+    let mut admin = PgConnection::connect(admin_url)
+        .await
+        .context("connect to the OrgIntel admin database to provision native Documents")?;
+    let lock_name = format!("restless-native-documents:{sidecar_role}");
+    sqlx::query("SELECT pg_advisory_lock(hashtextextended($1, 0))")
+        .bind(&lock_name)
+        .execute(&mut admin)
+        .await
+        .context("lock native Documents database provisioning")?;
+
+    let password = existing_native_documents_password(
+        &credential_path,
+        admin_url,
+        &cell_database,
+        &sidecar_role,
+    )?
+    .unwrap_or_else(generate_password);
+    let role_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=$1)")
+            .bind(&sidecar_role)
+            .fetch_one(&mut admin)
+            .await?;
+    let role_attributes = format!(
+        "{sidecar_role} WITH LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE \
+         NOREPLICATION NOBYPASSRLS CONNECTION LIMIT 16 PASSWORD '{password}' \
+         VALID UNTIL 'infinity'"
+    );
+    if role_exists {
+        admin
+            .execute(format!("ALTER ROLE {role_attributes}").as_str())
+            .await
+            .with_context(|| format!("repair native Documents role {sidecar_role}"))?;
+    } else {
+        admin
+            .execute(format!("CREATE ROLE {role_attributes}").as_str())
+            .await
+            .with_context(|| format!("create native Documents role {sidecar_role}"))?;
+    }
+    admin
+        .execute(format!("ALTER ROLE {sidecar_role} RESET ALL").as_str())
+        .await
+        .with_context(|| format!("reset native Documents role configuration {sidecar_role}"))?;
+    let inherited_roles: Vec<String> = sqlx::query_scalar(
+        "SELECT pg_catalog.quote_ident(granted.rolname) \
+         FROM pg_catalog.pg_auth_members membership \
+         JOIN pg_catalog.pg_roles member ON member.oid=membership.member \
+         JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid \
+         WHERE member.rolname=$1",
+    )
+    .bind(&sidecar_role)
+    .fetch_all(&mut admin)
+    .await
+    .context("inspect native Documents role memberships")?;
+    for inherited_role in inherited_roles {
+        admin
+            .execute(format!("REVOKE {inherited_role} FROM {sidecar_role}").as_str())
+            .await
+            .with_context(|| {
+                format!("remove inherited capability from native Documents role {sidecar_role}")
+            })?;
+    }
+    for statement in [
+        format!("REVOKE ALL PRIVILEGES ON DATABASE {cell_database} FROM {sidecar_role}"),
+        format!("REVOKE CONNECT, TEMPORARY ON DATABASE {cell_database} FROM PUBLIC"),
+        format!("GRANT CONNECT ON DATABASE {cell_database} TO {sidecar_role}"),
+        format!(
+            "ALTER ROLE {sidecar_role} IN DATABASE {cell_database} \
+             SET search_path TO {company}, pg_catalog"
+        ),
+        format!(
+            "ALTER ROLE {sidecar_role} IN DATABASE {cell_database} SET statement_timeout TO '5s'"
+        ),
+        format!("ALTER ROLE {sidecar_role} IN DATABASE {cell_database} SET lock_timeout TO '2s'"),
+        format!(
+            "ALTER ROLE {sidecar_role} IN DATABASE {cell_database} \
+             SET idle_in_transaction_session_timeout TO '5s'"
+        ),
+    ] {
+        admin.execute(statement.as_str()).await.with_context(|| {
+            format!("apply native Documents database boundary for {sidecar_role}")
+        })?;
+    }
+
+    let admin_cell_url = database_url(admin_url, &cell_database)?;
+    let mut cell_admin = PgConnection::connect(&admin_cell_url)
+        .await
+        .with_context(|| format!("connect to cell database {cell_database} as administrator"))?;
+    for statement in [
+        format!("REVOKE ALL ON SCHEMA {company} FROM PUBLIC"),
+        format!("REVOKE ALL ON SCHEMA {company} FROM {sidecar_role}"),
+        "REVOKE ALL ON SCHEMA public FROM PUBLIC".to_string(),
+        format!("REVOKE ALL ON SCHEMA public FROM {sidecar_role}"),
+        format!("GRANT USAGE ON SCHEMA {company} TO {sidecar_role}"),
+        format!("REVOKE ALL ON ALL TABLES IN SCHEMA {company} FROM {sidecar_role}"),
+        format!("REVOKE ALL ON ALL SEQUENCES IN SCHEMA {company} FROM {sidecar_role}"),
+        format!("REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA {company} FROM PUBLIC"),
+        format!("REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA {company} FROM {sidecar_role}"),
+        format!(
+            "ALTER DEFAULT PRIVILEGES FOR ROLE {cell_database} \
+             REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC"
+        ),
+        format!(
+            "GRANT EXECUTE ON FUNCTION {company}.orgintel_native_document_collaboration_consume(\
+             UUID,UUID,TEXT,UUID,TEXT,TIMESTAMPTZ,TIMESTAMPTZ) TO {sidecar_role}"
+        ),
+        format!(
+            "GRANT EXECUTE ON FUNCTION {company}.orgintel_native_document_yjs_load(UUID,UUID) \
+             TO {sidecar_role}"
+        ),
+        format!(
+            "GRANT EXECUTE ON FUNCTION {company}.orgintel_native_document_yjs_store(\
+             UUID,UUID,BIGINT,UUID,UUID,BYTEA,JSONB) TO {sidecar_role}"
+        ),
+    ] {
+        cell_admin
+            .execute(statement.as_str())
+            .await
+            .with_context(|| {
+                format!("apply native Documents schema boundary for {sidecar_role}")
+            })?;
+    }
+    cell_admin.close().await.ok();
+
+    let sidecar_url = cell_url(admin_url, &cell_database, &sidecar_role, &password)?;
+    if !credential_path.exists() {
+        persist_private_credential(&credential_path, &sidecar_url)?;
+    }
+    admin.close().await.ok();
+
+    // Prove the installed credential can open only the intended database
+    // before making the path available to the deployment layer.
+    let mut probe = PgConnection::connect(&sidecar_url)
+        .await
+        .context("connect with the native Documents database credential")?;
+    let current_database: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(&mut probe)
+        .await?;
+    let current_schema: String = sqlx::query_scalar("SELECT current_schema()")
+        .fetch_one(&mut probe)
+        .await?;
+    probe.close().await.ok();
+    if current_database != cell_database || current_schema != company {
+        bail!("native Documents database credential resolved outside its exact company cell");
+    }
+    Ok(credential_path)
+}
+
 /// Remove one explicitly named throwaway cell and its persisted credential.
 /// The caller enforces the `_test` authority boundary; this function still
 /// validates the identifier before it reaches DDL and never accepts a path or
@@ -176,6 +477,7 @@ pub async fn destroy_database(
         bail!("company {company:?} is not a valid cell identifier");
     }
     let object = cell_object_name(company);
+    let native_documents_role = native_documents_role_name(company);
     let path = cell_url_path(root, company);
     let credential_exists = path.exists();
     let database_exists = {
@@ -198,6 +500,10 @@ pub async fn destroy_database(
             .execute(format!("DROP DATABASE IF EXISTS {object}").as_str())
             .await
             .with_context(|| format!("drop test cell database {object}"))?;
+        admin
+            .execute(format!("DROP ROLE IF EXISTS {native_documents_role}").as_str())
+            .await
+            .with_context(|| format!("drop native Documents role {native_documents_role}"))?;
         admin
             .execute(format!("DROP ROLE IF EXISTS {object}").as_str())
             .await
@@ -386,6 +692,35 @@ mod tests {
     }
 
     #[test]
+    fn cell_url_preserves_transport_options_but_not_fragments() {
+        let url = cell_url(
+            "postgres://admin:s@db.internal:6543/restless?sslmode=require&application_name=plane#ignored",
+            "restless_cell_x",
+            "restless_cell_x_docs",
+            "pw",
+        )
+        .unwrap();
+        assert_eq!(
+            url,
+            "postgres://restless_cell_x_docs:pw@db.internal:6543/restless_cell_x?sslmode=require&application_name=plane"
+        );
+    }
+
+    #[test]
+    fn native_documents_role_is_safe_distinct_and_bounded() {
+        let role =
+            native_documents_role_name("this_is_a_deliberately_long_company_handle_for_test");
+        assert!(role.len() <= 63);
+        assert_ne!(
+            role,
+            cell_object_name("this_is_a_deliberately_long_company_handle_for_test")
+        );
+        assert!(role
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'));
+    }
+
+    #[test]
     fn generated_passwords_are_long_and_differ() {
         let a = generate_password();
         let b = generate_password();
@@ -395,5 +730,195 @@ mod tests {
             a.chars().all(|c| c.is_ascii_alphanumeric()),
             "password must need no escaping in URL, shell or SQL contexts"
         );
+    }
+
+    #[tokio::test]
+    async fn native_documents_store_is_an_exact_cell_capability() {
+        let Ok(admin_url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping native Documents store proof");
+            return;
+        };
+        let nonce = uuid::Uuid::new_v4().simple().to_string();
+        let company = format!("docs_{}_test", &nonce[..12]);
+        let other_company = format!("docs_{}_test", &nonce[12..24]);
+        let root = std::env::temp_dir().join(format!("restless-native-documents-{nonce}"));
+
+        let owner_url = ensure_database(&root, &admin_url, &company).await.unwrap();
+        let org = restless_orgintel::OrgIntel::ensure(&owner_url, &company)
+            .await
+            .unwrap();
+        org.close().await;
+        let credential_path = ensure_native_documents_store(&root, &admin_url, &company)
+            .await
+            .unwrap();
+        let first_credential = std::fs::read_to_string(&credential_path).unwrap();
+        let role = native_documents_role_name(&company);
+        let owner_role = cell_object_name(&company);
+        let mut admin = PgConnection::connect(&admin_url).await.unwrap();
+        admin
+            .execute(format!("GRANT {owner_role} TO {role}").as_str())
+            .await
+            .unwrap();
+        admin
+            .execute(
+                format!("ALTER ROLE {role} SET application_name TO 'privilege-drift'").as_str(),
+            )
+            .await
+            .unwrap();
+        admin.close().await.unwrap();
+        let second_path = ensure_native_documents_store(&root, &admin_url, &company)
+            .await
+            .unwrap();
+        assert_eq!(credential_path, second_path);
+        assert_eq!(
+            first_credential,
+            std::fs::read_to_string(&second_path).unwrap(),
+            "idempotent provisioning must not rotate a live sidecar secret"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            assert_eq!(
+                std::fs::metadata(&credential_path)
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
+
+        let mut sidecar = PgConnection::connect(&first_credential).await.unwrap();
+        let identity: (String, String) =
+            sqlx::query_as("SELECT current_database(), current_schema()")
+                .fetch_one(&mut sidecar)
+                .await
+                .unwrap();
+        assert_eq!(identity, (cell_object_name(&company), company.clone()));
+        let boundary: (bool, bool, bool, bool) = sqlx::query_as(
+            "SELECT has_database_privilege(current_user, current_database(), 'CONNECT'), \
+                    has_database_privilege(current_user, current_database(), 'TEMP'), \
+                    has_schema_privilege(current_user, current_schema(), 'USAGE'), \
+                    has_schema_privilege(current_user, current_schema(), 'CREATE')",
+        )
+        .fetch_one(&mut sidecar)
+        .await
+        .unwrap();
+        assert_eq!(boundary, (true, false, true, false));
+
+        for signature in [
+            format!(
+                "{company}.orgintel_native_document_collaboration_consume(uuid,uuid,text,uuid,text,timestamp with time zone,timestamp with time zone)"
+            ),
+            format!("{company}.orgintel_native_document_yjs_load(uuid,uuid)"),
+            format!(
+                "{company}.orgintel_native_document_yjs_store(uuid,uuid,bigint,uuid,uuid,bytea,jsonb)"
+            ),
+        ] {
+            let permitted: bool = sqlx::query_scalar(
+                "SELECT has_function_privilege(current_user, $1, 'EXECUTE')",
+            )
+            .bind(signature)
+            .fetch_one(&mut sidecar)
+            .await
+            .unwrap();
+            assert!(permitted, "sidecar lacks its admitted function capability");
+        }
+        let direct_table_access: bool = sqlx::query_scalar(
+            "SELECT has_table_privilege(current_user, \
+             current_schema() || '.native_document_yjs_state', 'SELECT')",
+        )
+        .fetch_one(&mut sidecar)
+        .await
+        .unwrap();
+        assert!(!direct_table_access);
+        let error = sidecar
+            .execute(format!("SELECT 1 FROM {company}.native_document_yjs_state LIMIT 1").as_str())
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error.as_database_error().and_then(|error| error.code()),
+            Some(std::borrow::Cow::Borrowed("42501"))
+        );
+        sidecar.close().await.unwrap();
+
+        let mut owner = PgConnection::connect(&owner_url).await.unwrap();
+        owner
+            .execute(
+                format!(
+                    "CREATE FUNCTION {company}.native_documents_unadmitted_test() \
+                     RETURNS INTEGER LANGUAGE SQL AS 'SELECT 1'"
+                )
+                .as_str(),
+            )
+            .await
+            .unwrap();
+        owner.close().await.unwrap();
+        let mut sidecar = PgConnection::connect(&first_credential).await.unwrap();
+        let unadmitted: bool =
+            sqlx::query_scalar("SELECT has_function_privilege(current_user, $1, 'EXECUTE')")
+                .bind(format!("{company}.native_documents_unadmitted_test()"))
+                .fetch_one(&mut sidecar)
+                .await
+                .unwrap();
+        assert!(!unadmitted, "new functions must be denied by default");
+        sidecar.close().await.unwrap();
+
+        let mut admin = PgConnection::connect(&admin_url).await.unwrap();
+        let attributes: (bool, bool, bool, bool, bool, bool, bool, i32) = sqlx::query_as(
+            "SELECT rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolcanlogin, \
+                    rolreplication, rolbypassrls, rolconnlimit \
+             FROM pg_roles WHERE rolname=$1",
+        )
+        .bind(&role)
+        .fetch_one(&mut admin)
+        .await
+        .unwrap();
+        assert_eq!(
+            attributes,
+            (false, false, false, false, true, false, false, 16)
+        );
+        let memberships: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_auth_members membership \
+             JOIN pg_roles member ON member.oid=membership.member \
+             WHERE member.rolname=$1",
+        )
+        .bind(&role)
+        .fetch_one(&mut admin)
+        .await
+        .unwrap();
+        assert_eq!(memberships, 0, "repair must strip inherited roles");
+        let global_configuration: Option<Vec<String>> =
+            sqlx::query_scalar("SELECT rolconfig FROM pg_roles WHERE rolname=$1")
+                .bind(&role)
+                .fetch_one(&mut admin)
+                .await
+                .unwrap();
+        assert_eq!(
+            global_configuration, None,
+            "repair must strip unexpected global role settings"
+        );
+        admin.close().await.unwrap();
+
+        ensure_database(&root, &admin_url, &other_company)
+            .await
+            .unwrap();
+        let mut wrong_cell_url = url::Url::parse(&first_credential).unwrap();
+        wrong_cell_url.set_path(&format!("/{}", cell_object_name(&other_company)));
+        let cross_cell = PgConnection::connect(wrong_cell_url.as_str())
+            .await
+            .unwrap_err();
+        assert_eq!(
+            cross_cell
+                .as_database_error()
+                .and_then(|error| error.code()),
+            Some(std::borrow::Cow::Borrowed("42501"))
+        );
+
+        destroy_database(&root, &admin_url, &other_company)
+            .await
+            .unwrap();
+        destroy_database(&root, &admin_url, &company).await.unwrap();
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

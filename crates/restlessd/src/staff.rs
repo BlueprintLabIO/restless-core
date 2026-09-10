@@ -24,10 +24,12 @@ use context::{bound_attempt_context, shared_spine};
 pub use conversation::{dispatch_actor_conversation, ConversationRuntime};
 use execution::{run_staff_with_failover, StaffRun, StaffTurnKind};
 pub(crate) use recovery::reconcile_execution_substrate;
-use recovery::{record_staff_outcome, record_unknown_recovery, StaffAttemptContext};
+use recovery::{
+    record_hosted_staff_outcome, record_staff_outcome, record_unknown_recovery, StaffAttemptContext,
+};
 use workspace::{
-    cleanup_attempt_runtime, ensure_worktree, observe_workspace, recorded_start_observation,
-    valid_slug, workdir_for,
+    cleanup_attempt_runtime, ensure_hosted_worktree, ensure_worktree, observe_workspace,
+    recorded_start_observation, valid_slug, workdir_for, WorkspaceObservation,
 };
 
 #[cfg(test)]
@@ -39,8 +41,6 @@ use execution::{final_staff_usage, staff_spend_limit_reached, termination_prompt
 use gates::reap_orphan_gate_processes;
 #[cfg(test)]
 use recovery::gate_cwd;
-#[cfg(test)]
-use workspace::WorkspaceObservation;
 
 /// Resource guardrail, not a coordination policy. OrgIntel readiness and one
 /// live process per durable actor still determine which Staff may run.
@@ -390,6 +390,7 @@ pub async fn dispatch_claimed_work(
     org: &restless_orgintel::OrgIntel,
     registry: &StaffRegistry,
     activities: &crate::activity::AgentActivityStreams,
+    runtime_bridges: &crate::runtime_bridge::RuntimeBridgeRegistry,
     claimed: ClaimedWork,
 ) -> Result<()> {
     let actor = claimed.work.owner_id.clone();
@@ -401,6 +402,16 @@ pub async fn dispatch_claimed_work(
             bail!("invalid repo name {repo:?}");
         }
     }
+    let hosted_identity = if runtime_bridges.is_hosted() {
+        if config.worker_harness != crate::runtime::AgentHarness::RestlessManaged {
+            bail!("hosted delegated Work requires the certified restless-managed ACP harness");
+        }
+        let identity = crate::runtime_bridge::expected_identity(authority, &config.name).await?;
+        crate::runtime_bridge::preflight(runtime_bridges, &identity).await?;
+        Some(identity)
+    } else {
+        None
+    };
     // Reserve the durable actor before the first await after the database
     // claim. Otherwise a queued free-form Exec wake can claim its separate
     // in-memory slot while model/workspace setup is yielding, launching two
@@ -431,15 +442,59 @@ pub async fn dispatch_claimed_work(
         }
         org.set_attempt_model(claimed.attempt_id, first_model)
             .await?;
-        let workdir = if claimed.work.repo.is_some() {
-            ensure_worktree(
+        let (workdir, start_observation, hosted_environment_fingerprint) = if let Some(identity) =
+            hosted_identity.as_ref()
+        {
+            if claimed.work.repo.is_some() {
+                let prepared = ensure_hosted_worktree(
+                    runtime_bridges,
+                    identity,
+                    &claimed.work,
+                    claimed.effective_base_ref.as_deref(),
+                    claimed.attempt_id,
+                    org,
+                )
+                .await?;
+                if prepared.observation.dirty_entries != 0 {
+                    bail!("hosted Attempt worktree is dirty before agent admission");
+                }
+                (
+                    prepared.workdir,
+                    prepared.observation,
+                    Some(prepared.environment_fingerprint),
+                )
+            } else {
+                let environment =
+                    crate::runtime_bridge::ready_environment_fingerprint(runtime_bridges, identity)
+                        .await?;
+                org.bind_attempt_execution_coordinates(
+                    claimed.attempt_id,
+                    None,
+                    None,
+                    None,
+                    &environment,
+                )
+                .await?;
+                (
+                    "/company".to_string(),
+                    WorkspaceObservation {
+                        workdir: "/company".into(),
+                        ..WorkspaceObservation::default()
+                    },
+                    Some(environment),
+                )
+            }
+        } else if claimed.work.repo.is_some() {
+            let workdir = ensure_worktree(
                 config,
                 &claimed.work,
                 claimed.effective_base_ref.as_deref(),
                 claimed.attempt_id,
                 org,
             )
-            .await?
+            .await?;
+            let observation = observe_workspace(&container, &workdir).await;
+            (workdir, observation, None)
         } else {
             let container_image = tokio::process::Command::new("docker")
                 .args(["inspect", "--format", "{{.Image}}", &container])
@@ -465,24 +520,33 @@ pub async fn dispatch_claimed_work(
                 &environment,
             )
             .await?;
-            "/company".to_string()
+            let workdir = "/company".to_string();
+            let observation = observe_workspace(&container, &workdir).await;
+            (workdir, observation, None)
         };
         let accountable_lead = org
             .list_teams()
             .await?
             .iter()
             .any(|team| team.lead_actor_id == actor);
-        let start_observation = observe_workspace(&container, &workdir).await;
         anyhow::Ok((
             actor_row,
             candidates,
             workdir,
             accountable_lead,
             start_observation,
+            hosted_environment_fingerprint,
         ))
     }
     .await;
-    let (actor_row, candidates, workdir, accountable_lead, start_observation) = match setup {
+    let (
+        actor_row,
+        candidates,
+        workdir,
+        accountable_lead,
+        start_observation,
+        hosted_environment_fingerprint,
+    ) = match setup {
         Ok(setup) => setup,
         Err(error) => {
             registry.release(&config.name, &actor);
@@ -612,6 +676,8 @@ pub async fn dispatch_claimed_work(
     let reasoning_effort = config.reasoning_effort.clone();
     let authority = authority.clone();
     let capabilities = capabilities.clone();
+    let runtime_bridges = runtime_bridges.clone();
+    let hosted = hosted_identity.is_some();
     let role = actor_row.role;
     let attempt_id = claimed.attempt_id;
     let work_id = claimed.work.id;
@@ -640,6 +706,8 @@ pub async fn dispatch_claimed_work(
             reasoning_effort,
             authority,
             capabilities,
+            runtime_bridges: runtime_bridges.clone(),
+            hosted_identity: hosted_identity.clone(),
             turn_kind: StaffTurnKind::Work,
             accountable_lead,
             observer,
@@ -653,20 +721,38 @@ pub async fn dispatch_claimed_work(
             Ok(outcome) => live_turn.fail(&outcome.summary),
             Err(error) => live_turn.fail(&format!("Work supervision stopped: {error:#}")),
         }
-        record_staff_outcome(
-            &org,
-            StaffAttemptContext {
-                container: &gate_container,
-                actor: &actor,
-                name: &name,
+        let semantic_outcome = outcome.map(|outcome| (outcome.termination, outcome.summary));
+        if hosted {
+            record_hosted_staff_outcome(
+                &org,
+                &actor,
+                &name,
                 work_id,
                 attempt_id,
-                workdir: &workdir,
+                &workdir,
                 start_observation,
-            },
-            outcome.map(|outcome| (outcome.termination, outcome.summary)),
-        )
-        .await;
+                hosted_environment_fingerprint.as_deref(),
+                &runtime_bridges,
+                hosted_identity.as_ref(),
+                semantic_outcome,
+            )
+            .await;
+        } else {
+            record_staff_outcome(
+                &org,
+                StaffAttemptContext {
+                    container: &gate_container,
+                    actor: &actor,
+                    name: &name,
+                    work_id,
+                    attempt_id,
+                    workdir: &workdir,
+                    start_observation,
+                },
+                semantic_outcome,
+            )
+            .await;
+        }
         registry.release(&company, &actor);
     });
     Ok(())
