@@ -33,12 +33,13 @@ FROM node:24-bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive
 
 # ca-certificates for provider TLS; curl so the image can probe its own health
-# without a second tool. Nothing else: this tier stays narrow because it is the
-# one holding the credentials.
+# without a second tool. Explicitly refresh the base image's PCRE2 library from
+# Debian security; installing curl alone leaves that inherited package unchanged.
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
         ca-certificates \
         curl \
+        libpcre2-8-0 \
         tini \
     && rm -rf /var/lib/apt/lists/*
 
