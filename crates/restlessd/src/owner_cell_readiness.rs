@@ -129,7 +129,7 @@ struct CellReadinessService {
 }
 
 #[derive(Clone)]
-struct ReadinessSecret(Arc<PathBuf>);
+pub(super) struct ReadinessSecret(Arc<PathBuf>);
 
 impl std::fmt::Debug for ReadinessSecret {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -138,12 +138,12 @@ impl std::fmt::Debug for ReadinessSecret {
 }
 
 impl ReadinessSecret {
-    fn read(path: &Path) -> Result<Self> {
+    pub(super) fn read(path: &Path) -> Result<Self> {
         read_secret_bytes(path)?;
         Ok(Self(Arc::new(path.to_path_buf())))
     }
 
-    fn authorizes(&self, headers: &HeaderMap) -> bool {
+    pub(super) fn authorizes(&self, headers: &HeaderMap) -> bool {
         // Secret projection is rotated with atomic rename. Reopening it here
         // avoids pinning an obsolete inode or credential until Core restarts.
         let Ok(secret) = read_secret_bytes(&self.0) else {

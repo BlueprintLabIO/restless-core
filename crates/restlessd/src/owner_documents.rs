@@ -5,11 +5,12 @@
 //! both come from the verified owner-entry principal and the exact route.
 
 use super::*;
+use crate::owner_cell_readiness::ReadinessSecret;
 
 use crate::document_collaboration_token::{
     DocumentCollaborationAccess, DocumentCollaborationTokenInput, DEFAULT_TTL_SECONDS,
 };
-use axum::http::header::{ACCEPT, AUTHORIZATION};
+use axum::http::header::ACCEPT;
 
 const DOCUMENT_BODY_LIMIT: usize = 1_250_000;
 pub(super) const DOCUMENT_COLLABORATION_JWKS_PATH: &str =
@@ -22,7 +23,7 @@ const NATIVE_DOCUMENTS_PROTOCOL_VERSION: u32 = 1;
 const NATIVE_DOCUMENTS_SCHEMA_VERSION: u32 = 1;
 const MAX_NATIVE_DOCUMENTS_HEALTH_BYTES: usize = 2 * 1024;
 const MAX_NATIVE_DOCUMENTS_PROXY_MESSAGE_BYTES: usize = 8 * 1024 * 1024 + 64 * 1024;
-const CELL_READINESS_TOKEN_ENV: &str = "RESTLESS_CELL_READINESS_TOKEN";
+const CELL_READINESS_TOKEN_FILE_ENV: &str = "RESTLESS_CELL_READINESS_TOKEN_FILE";
 // A JSON string can encode one permitted Markdown byte as six bytes (`\u00XX`).
 // Keep the larger allowance scoped to the import route and reserve bounded
 // headroom for the UUID, reason, property names, and JSON punctuation.
@@ -169,7 +170,7 @@ where
 #[derive(Clone)]
 pub(super) struct NativeDocumentsProxy {
     client: reqwest::Client,
-    readiness_secret: Option<Arc<[u8]>>,
+    readiness_secret: Option<ReadinessSecret>,
     service: NativeDocumentsService,
 }
 
@@ -185,21 +186,18 @@ enum NativeDocumentsService {
 
 impl NativeDocumentsProxy {
     pub(super) fn from_environment() -> Result<Self> {
-        let readiness_secret = match std::env::var_os(CELL_READINESS_TOKEN_ENV) {
+        if std::env::var_os("RESTLESS_CELL_READINESS_TOKEN").is_some() {
+            anyhow::bail!("native Documents readiness requires {CELL_READINESS_TOKEN_FILE_ENV}, not an environment bearer");
+        }
+        let readiness_secret = match std::env::var_os(CELL_READINESS_TOKEN_FILE_ENV) {
             Some(raw) => {
-                let value = raw
-                    .into_string()
-                    .map_err(|_| anyhow::anyhow!("{CELL_READINESS_TOKEN_ENV} must be UTF-8"))?;
-                if value.len() < 32
-                    || value.len() > 512
-                    || value.trim() != value
-                    || value.bytes().any(|byte| byte.is_ascii_control())
-                {
+                let path = std::path::PathBuf::from(raw);
+                if !path.is_absolute() {
                     anyhow::bail!(
-                        "{CELL_READINESS_TOKEN_ENV} must be one normalized secret of 32-512 bytes"
+                        "{CELL_READINESS_TOKEN_FILE_ENV} must be an absolute secret-file path"
                     );
                 }
-                Some(Arc::from(value.into_bytes()))
+                Some(ReadinessSecret::read(&path)?)
             }
             None => None,
         };
@@ -240,18 +238,9 @@ impl NativeDocumentsProxy {
     }
 
     fn readiness_authorized(&self, headers: &HeaderMap) -> bool {
-        let Some(secret) = self.readiness_secret.as_deref() else {
-            return false;
-        };
-        let mut values = headers.get_all(AUTHORIZATION).iter();
-        let Some(candidate) = values
-            .next()
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.strip_prefix("Bearer "))
-        else {
-            return false;
-        };
-        values.next().is_none() && constant_time_document_secret(secret, candidate.as_bytes())
+        self.readiness_secret
+            .as_ref()
+            .is_some_and(|secret| secret.authorizes(headers))
     }
 
     async fn observe_readiness(&self, cell_id: Uuid) -> Result<NativeDocumentsHealth> {
@@ -322,18 +311,6 @@ struct NativeDocumentsHealth {
     status: String,
     protocol_version: u32,
     schema_version: u32,
-}
-
-fn constant_time_document_secret(left: &[u8], right: &[u8]) -> bool {
-    let mut difference = left.len() ^ right.len();
-    let width = left.len().max(right.len());
-    for index in 0..width {
-        difference |= usize::from(
-            left.get(index).copied().unwrap_or_default()
-                ^ right.get(index).copied().unwrap_or_default(),
-        );
-    }
-    difference == 0
 }
 
 pub(super) fn is_collaboration_proxy_path(path: &str) -> bool {
@@ -2065,13 +2042,56 @@ mod tests {
     }
 
     #[test]
-    fn cell_readiness_bearer_is_exact_and_constant_time_checked() {
+    fn native_documents_uses_the_cell_secret_file_and_observes_rotation() {
+        use axum::http::header::AUTHORIZATION;
+        if std::env::var_os("RESTLESS_DOCS_READINESS_TEST_CHILD").is_some() {
+            let proxy = NativeDocumentsProxy::from_environment().unwrap();
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                AUTHORIZATION,
+                HeaderValue::from_static("Bearer native-documents-readiness-secret-123456"),
+            );
+            assert!(proxy.readiness_authorized(&headers));
+            println!("MOUNTED_READINESS_AUTHORIZED");
+            return;
+        }
+        struct Scratch(std::path::PathBuf);
+        impl Drop for Scratch {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let directory =
+            std::env::temp_dir().join(format!("restless-docs-readiness-{}", Uuid::new_v4()));
+        std::fs::create_dir(&directory).unwrap();
+        let directory = Scratch(directory);
+        let path = directory.0.join("cell_readiness_token");
         let secret = b"native-documents-readiness-secret-123456".to_vec();
+        std::fs::write(&path, &secret).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
         let proxy = NativeDocumentsProxy {
             client: reqwest::Client::new(),
-            readiness_secret: Some(Arc::from(secret.clone())),
+            readiness_secret: Some(ReadinessSecret::read(&path).unwrap()),
             service: NativeDocumentsService::PerCellDns,
         };
+        // Exercise the actual environment loader in a child so parallel tests
+        // never see a process-wide secret environment mutation.
+        let child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "owner::documents_api::tests::native_documents_uses_the_cell_secret_file_and_observes_rotation", "--nocapture"])
+            .env("RESTLESS_DOCS_READINESS_TEST_CHILD", "1")
+            .env(CELL_READINESS_TOKEN_FILE_ENV, &path)
+            .env_remove("RESTLESS_CELL_READINESS_TOKEN")
+            .output().unwrap();
+        assert!(
+            child.status.success(),
+            "{}",
+            String::from_utf8_lossy(&child.stderr)
+        );
+        assert!(String::from_utf8_lossy(&child.stdout).contains("MOUNTED_READINESS_AUTHORIZED"));
         let mut headers = HeaderMap::new();
         headers.insert(
             AUTHORIZATION,
@@ -2087,11 +2107,25 @@ mod tests {
             HeaderValue::from_static("Bearer native-documents-readiness-secret-123457"),
         );
         assert!(!proxy.readiness_authorized(&headers));
-        assert!(constant_time_document_secret(&secret, &secret));
-        assert!(!constant_time_document_secret(
-            &secret,
-            &secret[..secret.len() - 1]
-        ));
+        let replacement = directory.0.join("replacement");
+        std::fs::write(&replacement, b"native-documents-readiness-secret-123457").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&replacement, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        std::fs::rename(&replacement, &path).unwrap();
+        assert!(proxy.readiness_authorized(&headers));
+        headers.append(AUTHORIZATION, HeaderValue::from_static("Bearer duplicate"));
+        assert!(!proxy.readiness_authorized(&headers));
+        headers.remove(AUTHORIZATION);
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_static("Bearer native-documents-readiness-secret-123456"),
+        );
+        assert!(!proxy.readiness_authorized(&headers));
+        std::fs::remove_file(&path).unwrap();
+        assert!(!proxy.readiness_authorized(&headers));
     }
 
     #[tokio::test]
