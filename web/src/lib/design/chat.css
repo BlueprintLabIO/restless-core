@@ -241,10 +241,7 @@
 .bridge-root .hc-field:focus-within {
 	border-color: var(--intent-conversation);
 	background: color-mix(in srgb, var(--intent-conversation-soft) 36%, white);
-	box-shadow:
-		var(--bevel),
-		0 0 0 3px color-mix(in srgb, var(--intent-conversation) 15%, transparent),
-		0 9px 24px rgba(43, 51, 66, 0.09);
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--intent-conversation) 15%, transparent);
 }
 
 .bridge-root .hc-field > :not(.hc-flare) {

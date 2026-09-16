@@ -38,23 +38,23 @@
 }
 
 .bridge-root {
-	--bg-app: #e9edf3;
+	--bg-app: #eff1f6;
 	--surface: rgba(255, 255, 255, 0.9);
-	--surface-alt: rgba(244, 247, 251, 0.9);
+	--surface-alt: #f1f3f8;
 	/* Opaque paint for the two surfaces that carry prose. These are the colours
 	 * the old translucent panes resolved to over --bg-app, so the look holds
 	 * while the text stops compositing through a blur layer. */
-	--surface-pane: #fafbfd;
-	--surface-rail: #fcfdff;
-	--r4: #dce2ea;
+	--surface-pane: #fafbfe;
+	--surface-rail: #f7f9fc;
+	--r4: #e5e8f0;
 	--sidebar-bg: rgba(248, 250, 252, 0.62);
 	--glass: rgba(250, 251, 253, 0.74);
 	--glass-strong: rgba(255, 255, 255, 0.9);
 	--glass-pane: rgba(255, 255, 255, 0.78);
 	--glass-pane-strong: rgba(255, 255, 255, 0.92);
-	--accent: #222733;
-	--accent-soft: rgba(34, 39, 51, 0.065);
-	--accent-strong: #12151b;
+	--accent: #48546c;
+	--accent-soft: #e9edf5;
+	--accent-strong: #37435b;
 	/* ---------- ink ----------
 	 * Three levels, and they are a hierarchy lever in their own right: a line is
 	 * "less important" because it is lighter, not because it is smaller.
@@ -65,34 +65,34 @@
 	 * stroke set at 52% opacity is light grey with even lighter grey edges, and
 	 * there is barely any ink left to antialias. Most of what read as "blurry
 	 * type" in this app was never blur; it was absence of ink. */
-	--ink: #171b24;
+	--ink: #293244;
 	--text-secondary: rgba(23, 27, 36, 0.84);
 	--text-tertiary: rgba(23, 27, 36, 0.66);
 	--text-inverse: #f8fafc;
-	--border: rgba(48, 57, 74, 0.09);
-	--border-strong: rgba(48, 57, 74, 0.16);
+	--border: rgba(76, 88, 117, 0.1);
+	--border-strong: rgba(76, 88, 117, 0.18);
 	--status-offline: #aab1bd;
-	--intent-conversation: #2f6ca8;
-	--intent-conversation-soft: rgba(63, 120, 182, 0.09);
+	--intent-conversation: #456687;
+	--intent-conversation-soft: #e8eff8;
 	/* Conversation rows stay full-width and calm, but speaker ownership must be
 	 * legible before reading the author line. These are sender surfaces, not
 	 * intent colours: every chat presentation consumes the same pair. */
-	--chat-owner-bg: #edf4fb;
-	--chat-agent-bg: #f8fafc;
-	--chat-context-bg: #eef6f3;
-	--chat-owner-edge: rgba(47, 108, 168, 0.5);
-	--intent-feedback: #237563;
-	--intent-feedback-soft: rgba(45, 138, 120, 0.09);
-	--intent-direction: #6447a6;
-	--intent-direction-soft: rgba(115, 89, 182, 0.09);
-	--intent-authority: #8f5c16;
-	--intent-authority-soft: rgba(184, 118, 32, 0.1);
-	--state-success: #2f7752;
-	--state-success-soft: rgba(60, 138, 98, 0.09);
-	--state-danger: #ad4944;
-	--state-danger-soft: rgba(193, 91, 85, 0.09);
-	--surface-attention: #6f58a8;
-	--surface-attention-soft: rgba(111, 88, 168, 0.1);
+	--chat-owner-bg: #eaf0f8;
+	--chat-agent-bg: #f7f9fc;
+	--chat-context-bg: #eaf3ef;
+	--chat-owner-edge: #a7bcd3;
+	--intent-feedback: #466f63;
+	--intent-feedback-soft: #e7f1ec;
+	--intent-direction: #6a588e;
+	--intent-direction-soft: #eee9f7;
+	--intent-authority: #836536;
+	--intent-authority-soft: #f5edde;
+	--state-success: #486f58;
+	--state-success-soft: #e8f1e9;
+	--state-danger: #9b545b;
+	--state-danger-soft: #f7e9eb;
+	--surface-attention: var(--intent-direction);
+	--surface-attention-soft: var(--intent-direction-soft);
 	--surface-work: var(--intent-feedback);
 	--surface-people: var(--intent-conversation);
 	--surface-authority: var(--intent-authority);
@@ -131,16 +131,17 @@
 	--pane-head-h: 58px;
 	--exec-rail-w: 382px;
 	--glass-blur: 22px;
-	--shadow-soft: 0 1px 2px rgba(43, 51, 66, 0.045), 0 7px 20px rgba(43, 51, 66, 0.045);
-	--shadow-lift: 0 6px 16px rgba(43, 51, 66, 0.1), 0 26px 60px rgba(43, 51, 66, 0.12);
-	--bevel: inset 0 1px 0 rgba(255, 255, 255, 0.96);
-	--bevel-subtle: inset 0 1px 0 rgba(255, 255, 255, 0.72);
-	--control-edge: #c9d0d9;
-	--control-depth:
-		inset 0 1px 0 rgba(255, 255, 255, 0.88), 0 1px 1px rgba(43, 51, 66, 0.08),
-		0 3px 8px rgba(43, 51, 66, 0.055);
-	--control-depth-pressed: inset 0 1px 2px rgba(43, 51, 66, 0.1), 0 1px 2px rgba(43, 51, 66, 0.04);
-	--dot: rgba(34, 39, 51, 0.055);
+	/* Pastel fills carry colour; darker semantic ink preserves readability.
+	 * Ordinary controls sit on the surface. Only overlays need real elevation.
+	 * Keep transparent shadow layers composable with existing shadow lists. */
+	--shadow-soft: 0 2px 8px rgba(65, 76, 104, 0.025);
+	--shadow-lift: 0 8px 28px rgba(65, 76, 104, 0.12);
+	--bevel: inset 0 0 0 transparent;
+	--bevel-subtle: inset 0 0 0 transparent;
+	--control-edge: #cdd5e2;
+	--control-depth: 0 1px 2px rgba(65, 76, 104, 0.025);
+	--control-depth-pressed: inset 0 0 0 transparent;
+	--dot: rgba(76, 88, 117, 0.03);
 	--topbar-h: 46px;
 	/* the seam under the chrome — same channel as the pane gutter, so the bar
 	 * reads as separate from the surface below it rather than welded to it */
@@ -155,9 +156,9 @@
 	overflow: hidden;
 	background-color: var(--bg-app);
 	background-image:
-		radial-gradient(circle at 78% 12%, rgba(90, 111, 203, 0.12), transparent 30%),
-		radial-gradient(circle at 16% 90%, rgba(57, 151, 126, 0.09), transparent 28%),
-		radial-gradient(circle at 48% 58%, rgba(216, 156, 70, 0.045), transparent 24%),
+		radial-gradient(circle at 78% 12%, rgba(156, 149, 203, 0.07), transparent 40%),
+		radial-gradient(circle at 16% 90%, rgba(142, 183, 164, 0.06), transparent 38%),
+		radial-gradient(circle at 48% 58%, rgba(216, 190, 154, 0.025), transparent 34%),
 		radial-gradient(var(--dot) 1px, transparent 1.3px);
 	background-size:
 		auto,

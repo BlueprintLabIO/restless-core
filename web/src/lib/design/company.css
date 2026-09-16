@@ -1,19 +1,16 @@
-/* Company is the owner's instrument deck: one recessed chassis, a raised
- * navigation spine and calm source-owned working planes. The geometry uses the
- * same Bridge Light bevel/control tokens as the rest of the cockpit. */
+/* Company shares the cockpit's quiet, softly tinted working surfaces.
+ * Separation comes from spacing and tone rather than recessed chrome. */
 
 .bridge-root {
-	--company-edge: color-mix(in srgb, var(--border-strong) 86%, #657086);
-	--company-edge-soft: color-mix(in srgb, var(--border) 82%, #cbd2dc);
-	--company-deck: #edf1f6;
-	--company-panel: #f9fbfd;
-	--company-inset: #eef2f7;
+	--company-edge: var(--border-strong);
+	--company-edge-soft: var(--border);
+	--company-deck: var(--bg-app);
+	--company-panel: var(--surface-pane);
+	--company-inset: var(--surface-alt);
 	--company-blue: var(--intent-conversation);
 	--company-amber: var(--intent-authority);
-	--company-surface-shadow:
-		var(--bevel), 0 1px 2px rgba(43, 51, 66, 0.055), 0 8px 22px rgba(43, 51, 66, 0.055);
-	--company-inset-shadow:
-		inset 0 1px 3px rgba(43, 51, 66, 0.08), inset 0 -1px 0 rgba(255, 255, 255, 0.82);
+	--company-surface-shadow: var(--shadow-soft);
+	--company-inset-shadow: inset 0 0 0 transparent;
 }
 
 /* ---------- chassis and spine ---------- */
@@ -41,13 +38,8 @@
 	padding: 11px;
 	border: 1px solid var(--company-edge);
 	border-radius: var(--radius-pane);
-	background:
-		linear-gradient(180deg, rgba(255, 255, 255, 0.72), transparent 38%),
-		linear-gradient(145deg, #f7f9fc, #edf1f6);
-	box-shadow:
-		var(--bevel),
-		inset 0 -1px 0 rgba(55, 65, 81, 0.06),
-		var(--shadow-soft);
+	background: var(--surface-alt);
+	box-shadow: var(--shadow-soft);
 	overflow: visible;
 }
 
@@ -56,7 +48,7 @@
 	position: absolute;
 	inset: 5px;
 	z-index: 0;
-	border: 1px solid rgba(255, 255, 255, 0.68);
+	border: 0;
 	border-radius: calc(var(--radius-pane) - 2px);
 	pointer-events: none;
 }
@@ -131,15 +123,8 @@
 
 .bridge-root .company-spine nav a.active {
 	border-color: color-mix(in srgb, var(--company-blue) 24%, var(--company-edge-soft));
-	background: linear-gradient(
-		180deg,
-		color-mix(in srgb, var(--company-blue) 7%, #fff),
-		color-mix(in srgb, var(--company-blue) 4%, #eef2f7)
-	);
-	box-shadow:
-		var(--bevel),
-		0 1px 2px rgba(43, 51, 66, 0.08),
-		0 5px 12px rgba(47, 108, 168, 0.06);
+	background: var(--intent-conversation-soft);
+	box-shadow: none;
 	color: var(--ink);
 	font-weight: 600;
 }
@@ -163,20 +148,16 @@
 	place-items: center;
 	border: 1px solid var(--company-edge-soft);
 	border-radius: var(--radius-control);
-	background: linear-gradient(180deg, #fff, #edf1f5);
-	box-shadow:
-		var(--bevel-subtle),
-		0 1px 2px rgba(43, 51, 66, 0.07);
+	background: var(--surface-pane);
+	box-shadow: none;
 	color: var(--text-tertiary);
 }
 
 .bridge-root .company-spine nav a.active i {
 	border-color: color-mix(in srgb, var(--company-blue) 34%, var(--company-edge-soft));
-	background: linear-gradient(180deg, #477eaf, #2f6ca8);
-	box-shadow:
-		inset 0 1px 0 rgba(255, 255, 255, 0.24),
-		0 2px 5px rgba(47, 108, 168, 0.2);
-	color: var(--text-inverse);
+	background: var(--intent-conversation-soft);
+	box-shadow: none;
+	color: var(--intent-conversation);
 }
 
 .bridge-root .company-source-summary {
@@ -201,12 +182,8 @@
 	display: flex;
 	border: 1px solid var(--company-edge);
 	border-radius: var(--radius-pane);
-	background:
-		linear-gradient(180deg, rgba(255, 255, 255, 0.68), transparent 18%), var(--company-panel);
-	box-shadow:
-		var(--bevel),
-		inset 0 -1px 0 rgba(43, 51, 66, 0.05),
-		var(--shadow-soft);
+	background: var(--company-panel);
+	box-shadow: var(--shadow-soft);
 	overflow: hidden;
 }
 

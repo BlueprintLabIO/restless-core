@@ -1112,10 +1112,7 @@
 		background:
 			linear-gradient(145deg, color-mix(in srgb, var(--folio-tone) 5%, white), transparent 42%),
 			var(--surface-pane);
-		box-shadow:
-			var(--bevel),
-			0 2px 0 color-mix(in srgb, var(--folio-tone) 10%, transparent),
-			0 20px 44px rgba(43, 51, 66, 0.13);
+		box-shadow: var(--shadow-soft);
 	}
 	.owner-folio.category-review {
 		--folio-tone: var(--intent-feedback);
@@ -1134,14 +1131,8 @@
 		position: absolute;
 		z-index: 1;
 		inset: 0 auto 0 0;
-		width: 5px;
-		background: linear-gradient(
-			180deg,
-			color-mix(in srgb, var(--folio-tone) 72%, white),
-			var(--folio-tone) 54%,
-			color-mix(in srgb, var(--folio-tone) 68%, var(--ink))
-		);
-		box-shadow: 2px 0 8px color-mix(in srgb, var(--folio-tone) 18%, transparent);
+		width: 3px;
+		background: color-mix(in srgb, var(--folio-tone) 60%, var(--surface-pane));
 	}
 	.folio-opening {
 		padding: clamp(26px, 4vw, 42px) clamp(26px, 4vw, 46px) clamp(22px, 3vw, 32px);

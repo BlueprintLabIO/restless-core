@@ -635,10 +635,7 @@
 			color-mix(in srgb, var(--intent-feedback-soft) 82%, white),
 			color-mix(in srgb, var(--intent-feedback-soft) 58%, var(--surface-alt))
 		);
-		box-shadow:
-			var(--bevel),
-			0 2px 0 color-mix(in srgb, var(--intent-feedback) 10%, transparent),
-			0 12px 28px rgba(35, 117, 99, 0.12);
+		box-shadow: var(--shadow-soft);
 	}
 	.review-empty-mark {
 		width: 38px;
@@ -648,9 +645,7 @@
 		border: 1px solid color-mix(in srgb, var(--intent-feedback) 28%, var(--border));
 		border-radius: var(--radius-control);
 		background: color-mix(in srgb, var(--intent-feedback-soft) 76%, white);
-		box-shadow:
-			inset 0 1px 0 rgba(255, 255, 255, 0.88),
-			0 3px 8px rgba(35, 117, 99, 0.09);
+		box-shadow: var(--control-depth);
 		color: var(--intent-feedback);
 	}
 	.review-empty-card strong {
