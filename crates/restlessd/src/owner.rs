@@ -1150,10 +1150,50 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         plane_readiness,
     };
 
+    // Resume a first native sign-in across a daemon restart. Explicit defaults
+    // always win; the same write lock fences competing completed logins.
+    if state.entry.network().is_none() {
+        for company in crate::configured_companies(&state.daemon.root).unwrap_or_default() {
+            if let Ok(config) = runtime::CompanyConfig::load(&state.daemon.root, &company) {
+                if !config.agent_intelligence.contains_key("default") {
+                    for harness in config.native_harnesses.keys() {
+                        tokio::spawn(adopt_first_native_connection(state.clone(), company.clone(), harness.clone()));
+                    }
+                }
+            }
+        }
+    }
+
     let api = Router::new()
         .route("/appliance", get(appliance_status))
-        .route("/companies", get(company_catalog))
+        .route("/companies", get(company_catalog).post(create_company))
         .route("/companies/{company}/principal", get(company_principal))
+        .route(
+            "/companies/{company}/setup",
+            get(company_setup).put(update_company_setup),
+        )
+        .route(
+            "/companies/{company}/provider",
+            get(company_provider).put(update_company_provider),
+        )
+        .route(
+            "/companies/{company}/startup-doctor",
+            get(startup_doctor_report),
+        )
+        .route(
+            "/companies/{company}/harness-auth",
+            get(native_harness_status),
+        )
+        .route(
+            "/companies/{company}/harness-auth/{harness}",
+            post(native_harness_update),
+        )
+        .route("/companies/{company}/intelligence", get(intelligence_view))
+        .route("/companies/{company}/vault", get(company_vault))
+        .route(
+            "/companies/{company}/intelligence/{actor}",
+            axum::routing::put(update_agent_intelligence),
+        )
         .route("/companies/{company}/archive", post(archive_company))
         .route("/companies/{company}/restore", post(restore_company))
         .route("/companies/{company}/attention", get(attention_view))
@@ -2330,6 +2370,537 @@ fn local_host(value: &str) -> Option<String> {
         .map(|ip| ip.to_string())
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CreateCompanyInput {
+    #[serde(default)]
+    display_name: Option<String>,
+    name: String,
+    mission: String,
+    model: String,
+}
+
+async fn create_company(
+    State(state): State<OwnerState>,
+    Json(input): Json<CreateCompanyInput>,
+) -> Response<Body> {
+    // Hosted creation belongs to Fleet's authenticated bootstrap, not a
+    // company-scoped browser session. Local entry already verifies Host/Origin.
+    if state.entry.network().is_some() {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "company_creation",
+            "Create hosted companies through your account provider.",
+        );
+    }
+    let name = input.name.trim();
+    let mission = input.mission.trim();
+    let model = input.model.trim();
+    if let Err(error) = runtime::validate_company_name(name) {
+        return api_error(StatusCode::BAD_REQUEST, "company", error.to_string());
+    }
+    if mission.len() > 4000
+        || model.is_empty()
+        || model.len() > 200
+        || input
+            .display_name
+            .as_ref()
+            .is_some_and(|name| name.trim().is_empty() || name.len() > 120)
+    {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "company",
+            "Enter a purpose (up to 4,000 characters) and a model (up to 200 characters).",
+        );
+    }
+    let config: runtime::CompanyConfig = match serde_json::from_value(serde_json::json!({
+        "name": name, "mission": mission, "model": model, "display_name": input.display_name,
+    })) {
+        Ok(config) => config,
+        Err(error) => return api_error(StatusCode::BAD_REQUEST, "company", error.to_string()),
+    };
+    if let Err(error) = config.model_candidates() {
+        return api_error(StatusCode::BAD_REQUEST, "company", error.to_string());
+    }
+    if let Err(error) = crate::create_local_company(&state.daemon, config.clone()).await {
+        let status = if error
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|error| error.kind() == std::io::ErrorKind::AlreadyExists)
+        {
+            StatusCode::CONFLICT
+        } else {
+            StatusCode::SERVICE_UNAVAILABLE
+        };
+        return api_error(status, "company", format!("{error:#}"));
+    }
+    (
+        StatusCode::CREATED,
+        Json(company_catalog_entry(
+            config,
+            "active",
+            Some(runtime::ContainerStatus::Absent),
+        )),
+    )
+        .into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CompanyProviderInput {
+    provider: String,
+    model: Option<String>,
+    #[serde(default)]
+    disconnect: bool,
+    reference: String,
+    secret: Option<String>,
+    revision: String,
+}
+
+async fn provider_view(config: &runtime::CompanyConfig) -> serde_json::Value {
+    let primary = config.model.split('/').next().unwrap_or_default();
+    let mut providers = std::collections::BTreeSet::from([
+        "anthropic".to_string(),
+        "openai".into(),
+        "openai-codex".into(),
+        "google".into(),
+        "groq".into(),
+        "mistral".into(),
+        "deepseek".into(),
+        "openrouter".into(),
+        "xai".into(),
+        "zai".into(),
+        "moonshot".into(),
+        "litellm".into(),
+        primary.to_string(),
+    ]);
+    providers.extend(
+        config
+            .credentials
+            .keys()
+            .filter_map(|key| key.strip_prefix("model.inference.").map(str::to_owned)),
+    );
+    let connections = futures_util::future::join_all(providers.iter().map(|provider| async move {
+        let reference = config.credentials.get(&format!("model.inference.{provider}"))
+            .or_else(|| if provider == primary { config.credentials.get("model.inference") } else { None });
+        let probe = match reference { Some(reference) => Some(credential::probe_reference(reference).await), None => None };
+        serde_json::json!({
+            "provider": provider, "reference": reference,
+            "credential_status": probe.as_ref().map(|p| p.status.as_str()).unwrap_or("absent"),
+            "credential_detail": probe.and_then(|p| p.detail),
+            "gateway_loaded": model_gateway::billing_for_model(&format!("{provider}/status")).is_ok(),
+        })
+    })).await;
+    let health = credential::infisical_health().await;
+    serde_json::json!({
+        "revision": company_setup_view(config)["revision"],
+        "primary_provider": primary,
+        "connections": connections,
+        "infisical_configured": credential::infisical_configured(),
+        "infisical_status": health.status.as_str(), "infisical_detail": health.detail,
+        "startup_issue": model_gateway::unstartable_reason(&config.name),
+    })
+}
+
+async fn company_provider(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+) -> Response<Body> {
+    if state.entry.network().is_some() {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "provider",
+            "Provider credentials are managed by your account host.",
+        );
+    }
+    match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => Json(provider_view(&config).await).into_response(),
+        Err(_) => api_error(StatusCode::NOT_FOUND, "company", "Company does not exist."),
+    }
+}
+
+async fn update_company_provider(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<CompanyProviderInput>,
+) -> Response<Body> {
+    if state.entry.network().is_some() {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "provider",
+            "Provider credentials are managed by your account host.",
+        );
+    }
+    let _write = state.charter_writes.lock().await;
+    let mut config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => config,
+        Err(_) => return api_error(StatusCode::NOT_FOUND, "company", "Company does not exist."),
+    };
+    if company_setup_view(&config)["revision"].as_str() != Some(input.revision.as_str()) {
+        return api_error(
+            StatusCode::CONFLICT,
+            "provider_revision",
+            "Company settings changed. Refresh provider status and try again.",
+        );
+    }
+    let provider = input.provider.trim();
+    if provider.is_empty()
+        || provider.len() > 80
+        || !provider
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || b"-_.".contains(&c))
+    {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "provider",
+            "Use a provider ID containing letters, numbers, hyphens, dots or underscores.",
+        );
+    }
+    if input.disconnect {
+        config
+            .credentials
+            .remove(&format!("model.inference.{provider}"));
+        if config.model.split('/').next() == Some(provider) {
+            config.credentials.remove("model.inference");
+        }
+    if runtime::CompanyConfig::save(&state.daemon.root, &config).is_err() {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "provider",
+                "Could not remove the credential reference.",
+            );
+        }
+        return Json(provider_view(&config).await).into_response();
+    }
+    let reference = input.reference.trim();
+    if reference.len() > 512
+        || !(reference.starts_with("infisical:")
+            || reference.starts_with("env:")
+            || reference.starts_with("omp-oauth:"))
+    {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "provider",
+            "Use an Infisical, environment, or broker OAuth reference.",
+        );
+    }
+    match credential::omp_oauth_provider(reference) {
+        Ok(Some(oauth_provider)) if oauth_provider != provider => {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "provider",
+                "The OAuth provider must match the selected model provider.",
+            )
+        }
+        Err(_) => {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "provider",
+                "Invalid credential reference.",
+            )
+        }
+        _ => {}
+    }
+    if let Some(secret) = input.secret.as_deref().filter(|s| !s.is_empty()) {
+        if !reference.starts_with("infisical:") || secret.len() > 32768 {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "provider",
+                "API keys can only be stored in Infisical.",
+            );
+        }
+        if credential::store_reference(reference, secret)
+            .await
+            .is_err()
+        {
+            return api_error(StatusCode::SERVICE_UNAVAILABLE, "provider", "Could not store the API key in Infisical. Check the host's Infisical configuration and access.");
+        }
+    }
+    let probe = credential::probe_reference(reference).await;
+    if probe.status != credential::ProbeStatus::Present {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "provider",
+            probe
+                .detail
+                .unwrap_or_else(|| "The credential is not available.".into()),
+        );
+    }
+    config
+        .credentials
+        .insert(format!("model.inference.{provider}"), reference.to_string());
+        if !config.agent_intelligence.contains_key("default") {
+        if let Some(model) = input.model.as_deref().filter(|m| !m.is_empty() && m.len() <= 200 && !m.chars().any(|c| c.is_whitespace() || c.is_control())) {
+            config.agent_intelligence.insert("default".into(), runtime::AgentIntelligence { connection:format!("direct:{provider}"), model:model.into() });
+        }
+    }
+    if runtime::CompanyConfig::save(&state.daemon.root, &config).is_err() {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "provider",
+            "Could not save the credential reference.",
+        );
+    }
+    Json(provider_view(&config).await).into_response()
+}
+
+async fn startup_doctor_report(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+) -> Response<Body> {
+    if runtime::CompanyConfig::load(&state.daemon.root, &company).is_err() {
+        return api_error(StatusCode::NOT_FOUND, "company", "Company does not exist.");
+    }
+    let report = std::fs::read(
+        state
+            .daemon
+            .root
+            .join("diagnostics")
+            .join(format!("{company}-startup-doctor.json")),
+    )
+    .ok()
+    .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+    .unwrap_or(serde_json::json!({"state":"pending"}));
+    Json(report).into_response()
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NativeHarnessInput {
+    action: String,
+    model: String,
+    secret: Option<String>,
+}
+async fn native_harness_status(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+) -> Response<Body> {
+    if state.entry.network().is_some() {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "harness",
+            "Manage native authentication on the account host.",
+        );
+    }
+    let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(c) => c,
+        Err(_) => return api_error(StatusCode::NOT_FOUND, "company", "Company does not exist."),
+    };
+    Json(serde_json::json!({"connections":[crate::native_harness::view(&config,"codex").await,crate::native_harness::view(&config,"claude-agent").await]})).into_response()
+}
+async fn native_harness_update(
+    State(state): State<OwnerState>,
+    AxumPath((company, harness)): AxumPath<(String, String)>,
+    Json(input): Json<NativeHarnessInput>,
+) -> Response<Body> {
+    if state.entry.network().is_some() {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "harness",
+            "Manage native authentication on the account host.",
+        );
+    }
+    if crate::native_harness::validate(&harness).is_err()
+        || input.model.is_empty()
+        || input.model.len() > 120
+        || !input
+            .model
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-_.:".contains(&b))
+    {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "harness",
+            "Choose a valid harness and model.",
+        );
+    }
+    let _write = state.charter_writes.lock().await;
+    let result: anyhow::Result<serde_json::Value> = async {
+        let mut config = runtime::CompanyConfig::load(&state.daemon.root, &company)?;
+        let mut entry = config.native_harnesses.get(&harness).cloned().unwrap_or(
+            runtime::NativeHarnessConfig {
+                mode: "disconnected".into(),
+                model: input.model.clone(),
+                credential_reference: None,
+            },
+        );
+        entry.model = input.model;
+        match input.action.as_str() {
+            "login" => {
+                runtime::up(&config, false).await?;
+                crate::materialize_runtime_bridge(&state.daemon, &company).await?;
+                crate::native_harness::command(&company, &harness, "logout").await?;
+                crate::native_harness::command(&company, &harness, "login").await?;
+                entry.mode = "oauth".into();
+                entry.credential_reference = None;
+            }
+            "api_key" => {
+                let secret = input
+                    .secret
+                    .as_deref()
+                    .filter(|s| !s.trim().is_empty() && s.len() <= 32768)
+                    .ok_or_else(|| anyhow::anyhow!("Enter an API key"))?;
+                let reference = format!(
+                    "infisical:/companies/{company}/HARNESS_{}_API_KEY",
+                    harness.replace('-', "_")
+                );
+                credential::store_reference(&reference, secret)
+                    .await
+                    .map_err(|_| anyhow::anyhow!("Could not store the harness key in Infisical"))?;
+                // Stop pending OAuth so it cannot unexpectedly switch this connection later.
+                let _ = crate::native_harness::command(&company, &harness, "logout").await;
+                entry.mode = "api_key".into();
+                entry.credential_reference = Some(reference);
+            }
+            "disconnect" => {
+                crate::native_harness::command(&company, &harness, "logout").await?;
+                entry.mode = "disconnected".into();
+                entry.credential_reference = None;
+            }
+            "cancel" => {
+                crate::native_harness::command(&company, &harness, "cancel").await?;
+            }
+            "model" => {}
+            _ => anyhow::bail!("Unknown harness action"),
+        }
+        config.native_harnesses.insert(harness.clone(), entry);
+        runtime::CompanyConfig::save(&state.daemon.root, &config)?;
+        if matches!(input.action.as_str(), "login" | "api_key") {
+            tokio::spawn(adopt_first_native_connection(state.clone(), company.clone(), harness.clone()));
+        }
+        Ok(crate::native_harness::view(&config, &harness).await)
+    }
+    .await;
+    match result {
+        Ok(value) => Json(value).into_response(),
+        Err(error) => api_error(StatusCode::BAD_REQUEST, "harness", error.to_string()),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CompanySetupInput {
+    display_name: String,
+    mission: String,
+    model: String,
+    revision: String,
+}
+
+fn company_setup_view(config: &runtime::CompanyConfig) -> serde_json::Value {
+    let revision = format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(config).expect("company config serializes"))
+    );
+    serde_json::json!({
+        "display_name": config.display_name.clone().unwrap_or_else(|| company_display_name(&config.name)),
+        "mission": config.mission, "model": config.model, "revision": revision,
+    })
+}
+
+async fn company_setup(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+) -> Response<Body> {
+    match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => Json(company_setup_view(&config)).into_response(),
+        Err(error) => api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+    }
+}
+
+async fn update_company_setup(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<CompanySetupInput>,
+) -> Response<Body> {
+    if state.entry.network().is_some() {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "company_setup",
+            "Hosted model configuration is managed by your account provider.",
+        );
+    }
+    let _write = state.charter_writes.lock().await;
+    let mut config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => config,
+        Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+    };
+    if company_setup_view(&config)["revision"].as_str() != Some(input.revision.as_str()) {
+        return api_error(
+            StatusCode::CONFLICT,
+            "setup_revision",
+            "Settings changed in another tab. Reload the saved settings before trying again.",
+        );
+    }
+    if input.display_name.trim().is_empty()
+        || input.display_name.len() > 120
+        || input.model.len() > 200
+        || input.mission.len() > 4000
+    {
+        return api_error(StatusCode::BAD_REQUEST, "company_setup", "Enter a company name (up to 120 characters), purpose (up to 4,000), and model (up to 200).");
+    }
+    if input.mission != config.mission {
+        if let Err(error) = authority::validate_mandate(&input.mission) {
+            return api_error(StatusCode::BAD_REQUEST, "company_setup", error.to_string());
+        }
+    }
+    config.display_name = Some(input.display_name.trim().to_string());
+    config.model = input.model.trim().to_string();
+    if let Err(error) = config
+        .model_candidates()
+        .and_then(|_| config.validate_harness_models())
+    {
+        return api_error(StatusCode::BAD_REQUEST, "company_setup", error.to_string());
+    }
+    let selected_model = config.model.clone();
+    let saved = if input.mission != config.mission {
+        authority::revise_mandate(
+            &state.daemon.authority,
+            &state.daemon.root,
+            config,
+            input.mission,
+        )
+        .await
+        .map(|_| ())
+    } else {
+        runtime::CompanyConfig::save(&state.daemon.root, &config)
+    };
+    if let Err(error) = saved {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "company_setup",
+            format!("Settings could not be saved: {error:#}"),
+        );
+    }
+    let actor_update = async {
+        let org = state.daemon.orgintel.get(&company).await?;
+        let actor = org.active_actor("exec").await?;
+        if actor.and_then(|actor| actor.model).as_deref() != Some(selected_model.as_str()) {
+            org.change_actor_model(
+                "exec",
+                &selected_model,
+                "owner",
+                "Owner updated company setup",
+            )
+            .await?;
+        }
+        anyhow::Ok(())
+    }
+    .await;
+    if let Err(error) = actor_update {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "company_setup",
+            format!("Settings saved, but the executive model could not be updated: {error:#}"),
+        );
+    }
+    match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => Json(company_setup_view(&config)).into_response(),
+        Err(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "company_setup",
+            format!("Settings saved but could not be reread: {error:#}"),
+        ),
+    }
+}
+
 async fn company_catalog(
     State(state): State<OwnerState>,
     Extension(principal): Extension<RequestPrincipal>,
@@ -2431,7 +3002,10 @@ fn company_catalog_entry(
     let name = config.name.clone();
     CompanyCatalogEntry {
         id: config.name.clone(),
-        name: company_display_name(&config.name),
+        name: config
+            .display_name
+            .clone()
+            .unwrap_or_else(|| company_display_name(&config.name)),
         mission: config.mission,
         model: config.model,
         spend_ceiling_usd: config.spend_ceiling_usd.as_usd(),
@@ -3175,8 +3749,7 @@ async fn recover_company_computer(
             )
         }
     };
-    match company_projection::recover(&state.daemon, &config, action, principal.actor_id()).await
-    {
+    match company_projection::recover(&state.daemon, &config, action, principal.actor_id()).await {
         Ok(outcome) => Json(outcome).into_response(),
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -3203,7 +3776,12 @@ async fn effective_authority_owner(
     company: &str,
     org: Option<&restless_orgintel::OrgIntel>,
 ) -> Result<AuthorityOwnerView, anyhow::Error> {
-    if let Some(actor_id) = state.daemon.authority.current_authority_owner(company).await? {
+    if let Some(actor_id) = state
+        .daemon
+        .authority
+        .current_authority_owner(company)
+        .await?
+    {
         return Ok(AuthorityOwnerView {
             actor_id,
             source: "explicit_transfer",
@@ -3290,7 +3868,11 @@ async fn transfer_company_authority_owner(
             "authority_record_id": record_id,
         }))
         .into_response(),
-        Err(error) => api_error(StatusCode::CONFLICT, "authority_owner", format!("{error:#}")),
+        Err(error) => api_error(
+            StatusCode::CONFLICT,
+            "authority_owner",
+            format!("{error:#}"),
+        ),
     }
 }
 
@@ -3372,18 +3954,22 @@ async fn cockpit_view(
             // but either is observed activity on People.
             let session_running =
                 conversation_running || state.daemon.staff.is_actor_running(&company, &actor.id);
+            let model = if config.agent_intelligence.contains_key(&actor.id) || config.agent_intelligence.contains_key("default") {
+                let effective = config.for_agent(&actor.id);
+                let harness = if actor.id == "exec" { effective.coordination_harness } else { effective.worker_harness };
+                Some(effective.native_model(harness).unwrap_or(effective.model))
+            } else { actor.model.clone() };
             CockpitPerson {
                 actor_id: actor.id.clone(),
                 kind: actor.kind.clone(),
                 role: actor.role.clone(),
                 display: actor.display.clone(),
-                model: actor.model.clone(),
+                model: model.clone(),
                 team_id: actor.team_id,
                 spent_usd: round_owner_usd(spent),
                 session_running,
                 session_observed_at: session_running.then_some(observed_at),
-                model_cooldown: actor
-                    .model
+                model_cooldown: model
                     .as_deref()
                     .and_then(|model| cooldowns.iter().find(|cooldown| cooldown.model == model))
                     .map(|cooldown| CockpitModelCooldown {
@@ -3611,7 +4197,10 @@ async fn cockpit_view(
     Json(CockpitView {
         company: CockpitCompany {
             id: company,
-            name: config.name,
+            name: config
+                .display_name
+                .clone()
+                .unwrap_or_else(|| company_display_name(&config.name)),
             mission: config.mission,
             model: config.model,
             outcome_standard: config.outcome_standard,
@@ -6815,7 +7404,7 @@ fn desktop_client_url(company: &str, mode: DesktopClientMode) -> String {
         DesktopClientMode::Control => ("remote", "0"),
     };
     format!(
-        "/desktop/{company}/vnc.html?autoconnect=1&reconnect=1&reconnect_delay=1000&shared=1&resize={resize}&view_only={view_only}&path=desktop/{company}/websockify"
+        "/desktop/{company}/vnc.html?autoconnect=1&reconnect=1&reconnect_delay=1000&shared=1&show_dot=1&resize={resize}&view_only={view_only}&path=desktop/{company}/websockify"
     )
 }
 
@@ -10338,10 +10927,12 @@ mod tests {
         let observer = desktop_client_url("company_test", DesktopClientMode::Observe);
         assert!(observer.contains("resize=scale"));
         assert!(observer.contains("view_only=1"));
+        assert!(observer.contains("show_dot=1"));
 
         let controller = desktop_client_url("company_test", DesktopClientMode::Control);
         assert!(controller.contains("resize=remote"));
         assert!(controller.contains("view_only=0"));
+        assert!(controller.contains("show_dot=1"));
         assert!(controller.contains("reconnect=1"));
     }
 
@@ -11113,5 +11704,196 @@ mod tests {
 
         let malformed = "Answer.\n\n<!--restless-details:not-json-->";
         assert_eq!(split_message_details(malformed), ("Answer.", None));
+    }
+}
+
+async fn intelligence_view(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+) -> Response<Body> {
+    if state.entry.network().is_some() {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "intelligence",
+            "Manage intelligence on the account host.",
+        );
+    }
+    let result: Result<serde_json::Value> = async {
+        let config=runtime::CompanyConfig::load(&state.daemon.root,&company)?;
+        let providers=provider_view(&config).await;
+        let natives=futures_util::future::join_all(["codex","claude-agent"].iter().map(|id|crate::native_harness::view(&config,id))).await;
+        let mut connections=Vec::new();
+        for row in providers["connections"].as_array().into_iter().flatten() {
+            if row["credential_status"]=="present" {connections.push(serde_json::json!({"id":format!("direct:{}",row["provider"].as_str().unwrap_or_default()),"provider":row["provider"],"kind":"direct","loaded":row["gateway_loaded"]}));}
+        }
+        for row in &natives {
+            if matches!(row["auth"]["state"].as_str(),Some("connected"|"key_saved")) {connections.push(serde_json::json!({"id":format!("harness:{}",row["harness"].as_str().unwrap_or_default()),"provider":row["harness"],"kind":"harness","model":row["model"],"models":row["auth"]["models"],"loaded":true}));}
+        }
+        let org=state.daemon.orgintel.get(&company).await?;
+        let agents=org.list_actors().await?.into_iter().filter(|a|a.actor_class=="agent").map(|a| {
+            let effective=config.for_agent(&a.id);
+            let harness=if a.id=="exec" {effective.coordination_harness} else {effective.worker_harness};
+            let model=effective.native_model(harness).unwrap_or_else(||effective.agent_preference(&a.id,a.model.as_deref()).unwrap_or(&effective.model).to_string());
+            serde_json::json!({"id":a.id,"name":a.display,"role":a.role,"assignment":config.agent_intelligence.get(&a.id),"effective_model":model,"harness":harness})
+        }).collect::<Vec<_>>();
+        let known=natives.iter().all(|row|row["auth"]["state"]!="unavailable") && providers["connections"].as_array().into_iter().flatten().all(|row|row["credential_status"]!="invalid");
+        Ok(serde_json::json!({"revision":company_setup_view(&config)["revision"],"default":config.agent_intelligence.get("default"),"has_connections": if connections.is_empty() && !known {serde_json::Value::Null} else {serde_json::Value::Bool(!connections.is_empty())},"connections":connections,"agents":agents}))
+    }.await;
+    match result {
+        Ok(value) => Json(value).into_response(),
+        Err(_) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "intelligence",
+            "Could not read intelligence settings. Try again.",
+        ),
+    }
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AgentIntelligenceInput {
+    connection: String,
+    model: String,
+    revision: String,
+    #[serde(default)]
+    reset: bool,
+}
+async fn update_agent_intelligence(
+    State(state): State<OwnerState>,
+    AxumPath((company, actor)): AxumPath<(String, String)>,
+    Json(input): Json<AgentIntelligenceInput>,
+) -> Response<Body> {
+    if state.entry.network().is_some() {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "intelligence",
+            "Manage intelligence on the account host.",
+        );
+    }
+    let _write = state.charter_writes.lock().await;
+    let mut config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(c) => c,
+        Err(_) => return api_error(StatusCode::NOT_FOUND, "company", "Company does not exist."),
+    };
+    if company_setup_view(&config)["revision"].as_str() != Some(&input.revision) {
+        return api_error(
+            StatusCode::CONFLICT,
+            "revision",
+            "Settings changed. Refresh and try again.",
+        );
+    }
+    let result: Result<()> = async {
+        if actor != "default" {
+            let org = state.daemon.orgintel.get(&company).await?;
+            let person = org.active_actor(&actor).await?.context("Agent does not exist")?;
+            if person.actor_class != "agent" { bail!("Only agents can have an intelligence assignment"); }
+        }
+        if input.reset {
+            config.agent_intelligence.remove(&actor);
+        } else {
+            let model = input.model.trim();
+            if model.is_empty()
+                || model.len() > 200
+                || model.chars().any(|c| c.is_whitespace() || c.is_control())
+            {
+                bail!("Choose a model or enter a custom model ID");
+            }
+            if let Some(provider) = input.connection.strip_prefix("direct:") {
+                let reference = config
+                    .credentials
+                    .get(&format!("model.inference.{provider}"))
+                    .or_else(|| {
+                        if config.model.starts_with(&format!("{provider}/")) {
+                            config.credentials.get("model.inference")
+                        } else {
+                            None
+                        }
+                    })
+                    .context("Add this provider connection first")?;
+                if credential::probe_reference(reference).await.status
+                    != credential::ProbeStatus::Present
+                {
+                    bail!("This provider credential is unavailable");
+                }
+            } else if let Some(harness) = input.connection.strip_prefix("harness:") {
+                crate::native_harness::validate(harness)?;
+                let status = crate::native_harness::view(&config, harness).await;
+                if !matches!(
+                    status["auth"]["state"].as_str(),
+                    Some("connected" | "key_saved")
+                ) {
+                    bail!("Sign in to this harness first");
+                }
+                if model.contains('/') {
+                    bail!("Native harness models use an unqualified model ID");
+                }
+            } else {
+                bail!("Choose an available connection");
+            }
+            config.agent_intelligence.insert(
+                actor.clone(),
+                runtime::AgentIntelligence {
+                    connection: input.connection,
+                    model: model.into(),
+                },
+            );
+            config.for_agent(&actor).validate_harness_models()?;
+        }
+        runtime::CompanyConfig::save(&state.daemon.root, &config)?;
+        if let Ok(mut claims) = state.daemon.in_flight.lock() { claims.record_usable_wake(&company); }
+        state.daemon.schedule_wake.notify_one();
+        Ok(())
+    }
+    .await;
+    match result {
+        Ok(()) => Json(
+            serde_json::json!({"saved":true,"revision":company_setup_view(&config)["revision"]}),
+        )
+        .into_response(),
+        Err(error) => api_error(StatusCode::BAD_REQUEST, "intelligence", error.to_string()),
+    }
+}
+
+async fn company_vault(State(state): State<OwnerState>, AxumPath(company): AxumPath<String>) -> Response<Body> {
+    if state.entry.network().is_some() { return api_error(StatusCode::FORBIDDEN, "vault", "Manage the vault on the account host."); }
+    let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => config,
+        Err(_) => return api_error(StatusCode::NOT_FOUND, "company", "Company does not exist."),
+    };
+    let health = credential::infisical_health().await;
+    let inventory = if health.status == credential::ProbeStatus::Present { credential::company_vault_inventory(&company).await } else { Err(anyhow::anyhow!("Vault is unavailable")) };
+    let mut references = config.credentials.iter().map(|(name,reference)| serde_json::json!({"name":name,"reference":reference})).collect::<Vec<_>>();
+    for (id, native) in &config.native_harnesses {
+        if let Some(reference) = &native.credential_reference { references.push(serde_json::json!({"name":format!("{id} harness"),"reference":reference})); }
+        if native.mode == "oauth" { references.push(serde_json::json!({"name":format!("{id} OAuth"),"reference":"Private native CLI profile in company computer"})); }
+    }
+    match inventory {
+        Ok(secrets) => Json(serde_json::json!({"status":"connected","secrets":secrets,"references":references})).into_response(),
+        Err(_) => Json(serde_json::json!({"status":"unavailable","secrets":null,"references":references,"message":"Cannot read Infisical right now. Check the local vault service and try again."})).into_response(),
+    }
+}
+
+/// Complete first-connection setup after the vendor has confirmed authentication.
+async fn adopt_first_native_connection(state: OwnerState, company: String, harness: String) {
+    for attempt in 0..300 {
+        let Ok(config) = runtime::CompanyConfig::load(&state.daemon.root, &company) else { return; };
+        if config.agent_intelligence.contains_key("default") { return; }
+        let status = crate::native_harness::view(&config, &harness).await;
+        if matches!(status["auth"]["state"].as_str(), Some("connected" | "key_saved")) {
+            let _write = state.charter_writes.lock().await;
+            let Ok(mut current) = runtime::CompanyConfig::load(&state.daemon.root, &company) else { return; };
+            if current.agent_intelligence.contains_key("default") { return; }
+            let Some(connection) = current.native_harnesses.get(&harness) else { return; };
+            if !matches!(connection.mode.as_str(), "oauth" | "api_key") { return; }
+            let models = status["auth"]["models"].as_array();
+            let model = models.and_then(|ms| ms.iter().find(|m| m["default"] == true).or_else(||ms.first())).and_then(|m|m["id"].as_str()).unwrap_or(&connection.model).to_string();
+            current.agent_intelligence.insert("default".into(), runtime::AgentIntelligence { connection:format!("harness:{harness}"),model });
+            if runtime::CompanyConfig::save(&state.daemon.root, &current).is_ok() {
+                if let Ok(mut claims)=state.daemon.in_flight.lock() { claims.record_usable_wake(&company); }
+                state.daemon.schedule_wake.notify_one();
+            }
+            return;
+        }
+        if matches!(status["auth"]["state"].as_str(), Some("cancelled" | "expired" | "failed")) || (attempt > 3 && status["auth"]["state"] == "disconnected") { return; }
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
     }
 }

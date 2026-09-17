@@ -32,9 +32,10 @@ mod ingress;
 mod launch;
 mod legal;
 mod model_gateway;
+mod native_harness;
 mod owner;
-mod owner_cell_readiness;
 mod owner_brief;
+mod owner_cell_readiness;
 mod plane;
 mod publication;
 mod reconcile;
@@ -71,6 +72,44 @@ fn round_usd(usd: f64) -> f64 {
     } else {
         rounded
     }
+}
+
+/// The CLI and local owner API share one company creation path. Serialise
+/// first creation so simultaneous requests cannot overwrite the same identity.
+async fn create_local_company(daemon: &Daemon, mut config: runtime::CompanyConfig) -> Result<()> {
+    static CREATION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    runtime::validate_company_name(&config.name)?;
+    let _guard = CREATION.lock().await;
+    for directory in ["companies", "archived-companies"] {
+        if daemon
+            .root
+            .join(directory)
+            .join(format!("{}.toml", config.name))
+            .exists()
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                format!(
+                    "Company {} already exists. Open or restore it instead.",
+                    config.name
+                ),
+            )
+            .into());
+        }
+    }
+    runtime::CompanyConfig::save(&daemon.root, &config)?;
+    daemon
+        .authority
+        .initialise_company(&config.name, &approval::legacy_config_approvals(&config))
+        .await
+        .context("initialise company Authority")?;
+    let org = daemon.orgintel.get(&config.name).await?;
+    ensure_standing_actors(&org, Some(&config.model)).await?;
+    approval::purge_legacy_config_approvals(&daemon.root, &mut config)?;
+    if std::env::var("RESTLESS_TEST_DISABLE_SCHEDULER").as_deref() != Ok("1") {
+        tokio::spawn(native_harness::startup_doctor(daemon.root.clone(), config, daemon.capabilities.clone()));
+    }
+    Ok(())
 }
 
 /// OrgIntel connection settings at `$RESTLESS_HOME/orgintel.toml`.
@@ -776,16 +815,6 @@ async fn main() -> Result<()> {
             {
                 Ok(processes) => {
                     tracing::info!("model gateway ready");
-                    while !*recovery_ready_rx.borrow() {
-                        if recovery_ready_rx.changed().await.is_err() {
-                            return;
-                        }
-                    }
-                    if test_scheduler_disabled {
-                        tracing::warn!("automatic scheduler disabled for an isolated test plane");
-                    } else {
-                        tokio::spawn(schedule::run(std::sync::Arc::clone(&schedule_daemon)));
-                    }
                     let _processes = processes;
                     std::future::pending::<()>().await;
                 }
@@ -796,6 +825,19 @@ async fn main() -> Result<()> {
                     tokio::time::sleep(std::time::Duration::from_secs(30)).await;
                 }
             }
+        }
+    });
+
+    tokio::spawn(async move {
+        while !*recovery_ready_rx.borrow() {
+            if recovery_ready_rx.changed().await.is_err() {
+                return;
+            }
+        }
+        if test_scheduler_disabled {
+            tracing::warn!("automatic scheduler disabled for an isolated test plane");
+        } else {
+            tokio::spawn(schedule::run(std::sync::Arc::clone(&schedule_daemon)));
         }
     });
 
@@ -891,6 +933,15 @@ async fn main() -> Result<()> {
             elapsed_ms = recovery_started.elapsed().as_millis(),
             "startup recovery barrier opened"
         );
+        if !hosted_runtime && !test_scheduler_disabled {
+            for config in &recovery_configs {
+                tokio::spawn(native_harness::startup_doctor(
+                    recovery_daemon.root.clone(),
+                    config.clone(),
+                    recovery_daemon.capabilities.clone(),
+                ));
+            }
+        }
         loop {
             tokio::time::sleep(owner::OWNER_ATTACHMENT_RECONCILE_INTERVAL).await;
             if !hosted_runtime {
@@ -2075,48 +2126,19 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
         },
         "company-create" => match request.common.body {
             Some(raw) => {
-                let path = daemon
-                    .root
-                    .join("companies")
-                    .join(format!("{company}.toml"));
-                if path.exists() {
-                    return Response::err_kind(
-                        "conflict",
-                        format!("company {company} already exists at {}", path.display()),
-                    );
-                }
                 match toml::from_str::<runtime::CompanyConfig>(&raw) {
                     Ok(config) if config.name != company => Response::err(format!(
                         "company config name mismatch: command names {company}, file says {}",
                         config.name
                     )),
-                    Ok(mut config) => {
-                        let initialise = async {
-                            runtime::CompanyConfig::save(&daemon.root, &config)?;
-                            daemon
-                                .authority
-                                .initialise_company(
-                                    company,
-                                    &approval::legacy_config_approvals(&config),
-                                )
-                                .await
-                                .context("initialise company Authority")?;
-                            let org = daemon.orgintel.get(company).await?;
-                            ensure_standing_actors(&org, Some(&config.model)).await?;
-                            approval::purge_legacy_config_approvals(
-                                &daemon.root,
-                                &mut config,
-                            )?;
-                            Result::<()>::Ok(())
+                    Ok(config) => match create_local_company(daemon, config).await {
+                        Ok(()) => Response::ok(format!("created company {company}")),
+                        Err(error) if error.downcast_ref::<std::io::Error>()
+                            .is_some_and(|error| error.kind() == std::io::ErrorKind::AlreadyExists) => {
+                            Response::err_kind("conflict", format!("{error:#}"))
                         }
-                        .await;
-                        match initialise {
-                            Ok(()) => Response::ok(format!("created company {company}")),
-                            Err(error) => Response::err(format!(
-                                "company initialisation was incomplete: {error:#}"
-                            )),
-                        }
-                    }
+                        Err(error) => Response::err(format!("company initialisation was incomplete: {error:#}")),
+                    },
                     Err(error) => Response::err(format!("invalid company TOML: {error}")),
                 }
             }

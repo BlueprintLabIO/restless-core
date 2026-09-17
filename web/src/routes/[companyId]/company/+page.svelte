@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { tick } from 'svelte';
+	import CompanySettings from '$lib/components/CompanySettings.svelte';
 	import InfoTip from '$lib/components/InfoTip.svelte';
 	import { reviseCompanyCharter } from '$lib/model/company';
 	import Markdown from '$lib/primitives/Markdown.svelte';
@@ -14,6 +15,7 @@
 		view ? withoutDocumentTitle(view.charter.purpose, view.company.name) : ''
 	);
 	let editing = $state(false);
+	let nameVersion = $state(0);
 	let saving = $state(false);
 	let draft = $state('');
 	let openedMarkdown = $state('');
@@ -50,6 +52,7 @@
 		try {
 			const outcome = await reviseCompanyCharter(companyId, draft, baseRevision);
 			source.accept(outcome.company);
+			nameVersion += 1;
 			notice = outcome.message;
 			if (outcome.evidence_status === 'incomplete') {
 				notice += ' Authority recorded the request but could not confirm its final evidence.';
@@ -97,12 +100,12 @@
 	}
 </script>
 
-<svelte:head><title>Company charter — {view?.company.name ?? companyId}</title></svelte:head>
+<svelte:head><title>Charter — {view?.company.name ?? companyId}</title></svelte:head>
 
 <div class="company-page charter-page">
 	<header class="company-page-head">
 		<div class="charter-heading">
-			<h1>{view ? `${view.company.name} operating charter` : 'Operating charter'}</h1>
+			<h1>Charter</h1>
 			<InfoTip
 				text="The durable purpose, business model, strategic intent and operating principles that guide this company. This is not its legal constitution or current Work plan."
 			/>
@@ -140,6 +143,9 @@
 	{#if notice}<p class="charter-save-message" role="status">{notice}</p>{/if}
 
 	{#if view}
+		<div style="margin-bottom: 24px">
+			{#key `${companyId}:${nameVersion}`}<CompanySettings {companyId} section="name" />{/key}
+		</div>
 		<div class="charter-layout">
 			<article class="charter-document">
 				{#if editing}
@@ -157,7 +163,13 @@
 							spellcheck="true"></textarea>
 					</div>
 				{:else}
-					<div class="charter-purpose"><Markdown text={charterText} /></div>
+					<div class="charter-purpose">
+						{#if charterText}<Markdown text={charterText} />{:else}<p>
+								What should this company achieve? Write its purpose, or discuss it with Exec and
+								save the agreed charter here.
+							</p>
+							<button class="btn primary" onclick={beginEditing}>Write company charter</button>{/if}
+					</div>
 				{/if}
 				<footer>
 					<span>Effective {when(view.charter.effective_at)}</span>

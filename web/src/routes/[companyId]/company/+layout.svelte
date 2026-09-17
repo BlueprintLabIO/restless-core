@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import Activity from '@lucide/svelte/icons/activity';
+	import Settings from '@lucide/svelte/icons/settings';
 	import BookOpen from '@lucide/svelte/icons/book-open';
 	import KeyRound from '@lucide/svelte/icons/key-round';
 	import ListChecks from '@lucide/svelte/icons/list-checks';
@@ -17,9 +18,11 @@
 	$effect(() => source.attach());
 	const computerSurface = $derived(page.url.pathname === `/${companyId}/company/computer`);
 	const routes = $derived([
-		{ label: 'Company charter', href: `/${companyId}/company`, exact: true, icon: BookOpen },
-		{ label: 'Company identity', href: `/${companyId}/company/identity`, icon: Fingerprint },
-		{ label: 'Decision history', href: `/${companyId}/company/decisions`, icon: ListChecks },
+		{ label: 'Intelligence provider', href: `/${companyId}/company/provider`, icon: Settings },
+		{ label: 'Vault', href: `/${companyId}/company/vault`, icon: KeyRound },
+		{ label: 'Charter', href: `/${companyId}/company`, exact: true, icon: BookOpen },
+		{ label: 'Identity', href: `/${companyId}/company/identity`, icon: Fingerprint },
+		{ label: 'Decisions', href: `/${companyId}/company/decisions`, icon: ListChecks },
 		{
 			label: 'Authority & limits',
 			href: `/${companyId}/company/authority`,
@@ -27,8 +30,8 @@
 		},
 		{ label: 'Resources & access', href: `/${companyId}/company/resources`, icon: KeyRound },
 		{ label: 'External actions', href: `/${companyId}/company/actions`, icon: RadioTower },
-		{ label: 'Company computer', href: `/${companyId}/company/computer`, icon: Monitor },
-		{ label: 'Company doctor', href: `/${companyId}/company/doctor`, icon: Activity }
+		{ label: 'Computer', href: `/${companyId}/company/computer`, icon: Monitor },
+		{ label: 'Doctor', href: `/${companyId}/company/doctor`, icon: Activity }
 	]);
 
 	function active(route: { href: string; exact?: boolean }): boolean {

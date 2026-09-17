@@ -414,6 +414,9 @@ mod tests {
 
     fn config(approved: &[&str]) -> CompanyConfig {
         CompanyConfig {
+            agent_intelligence: Default::default(),
+            native_harnesses: Default::default(),
+            display_name: None,
             name: "aris".to_string(),
             mission: String::new(),
             spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(30_000_000),

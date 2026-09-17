@@ -44,6 +44,30 @@ export async function getCompanies(): Promise<CompanyCatalogEntry[]> {
 	return response.json();
 }
 
+export async function createCompany(input: {
+	display_name?: string;
+	name: string;
+	mission: string;
+	model: string;
+}): Promise<CompanyCatalogEntry> {
+	const response = await fetch('/api/companies', {
+		method: 'POST',
+		credentials: 'same-origin',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify(input)
+	});
+	if (!response.ok) {
+		let message = 'Could not create the company. Please try again.';
+		try {
+			message = (await response.json()).message ?? message;
+		} catch {
+			/* Keep a useful transport error. */
+		}
+		throw new Error(message);
+	}
+	return response.json();
+}
+
 async function changeCompanyLifecycle(
 	company: string,
 	action: 'archive' | 'restore'

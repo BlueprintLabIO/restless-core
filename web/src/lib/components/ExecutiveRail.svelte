@@ -6,6 +6,8 @@
 
 	import { tick } from 'svelte';
 	import { SvelteDate } from 'svelte/reactivity';
+	import Plus from '@lucide/svelte/icons/plus';
+	import ArrowUpRight from '@lucide/svelte/icons/arrow-up-right';
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 	import Composer from '$lib/primitives/Composer.svelte';
 	import ConversationHistoryTools from '$lib/primitives/ConversationHistoryTools.svelte';
@@ -26,7 +28,7 @@
 		companyId,
 		membershipRole,
 		connected = false,
-		defaultOutcomeStandard = 'exceptional',
+		needsProvider = false,
 		contextLabel = 'Current screen',
 		focusAfterMessageId = 0,
 		focusStartedAt = null,
@@ -49,7 +51,7 @@
 		 * available. Runtime/provider administration stays outside the owner cockpit.
 		 */
 		connected?: boolean;
-		defaultOutcomeStandard?: OutcomeStandard;
+		needsProvider?: boolean;
 		contextLabel?: string;
 		focusAfterMessageId?: number;
 		focusStartedAt?: string | null;
@@ -138,7 +140,6 @@
 	let newFocusPending = $state(false);
 	let pendingFocusAfterMessageId = $state(0);
 	let composerFocusKey = $state(0);
-	let outcomeStandardOverride = $state<OutcomeStandard | ''>('');
 
 	const activeFocusAfterMessageId = $derived(
 		newFocusPending ? pendingFocusAfterMessageId : focusAfterMessageId
@@ -247,7 +248,7 @@
 	async function submitAsk(event: SubmitEvent) {
 		event.preventDefault();
 		const text = composer.trim();
-		if (!text || sending || deciding || !onask) return;
+		if (!text || sending || deciding || !onask || needsProvider) return;
 		sending = true;
 		askError = '';
 		askNotice = '';
@@ -255,20 +256,12 @@
 		const files = composerFiles;
 		composer = '';
 		try {
-			const outcome = await onask(
-				text,
-				files,
-				includeContext,
-				newFocusPending,
-				!!turn,
-				outcomeStandardOverride || undefined
-			);
+			const outcome = await onask(text, files, includeContext, newFocusPending, !!turn);
 			if (outcome.error) {
 				composer = sent;
 				askError = outcome.error;
 			} else {
 				composerFiles = [];
-				outcomeStandardOverride = '';
 				newFocusPending = false;
 				askNotice = outcome.notice ?? '';
 			}
@@ -359,7 +352,7 @@
 		{#if reviewError}<p class="review-error" role="alert">{reviewError}</p>{/if}
 
 		<div class="exr-panel">
-			{#if !connected}
+			{#if !connected && !needsProvider}
 				<div class="exr-lock">
 					<div class="exr-lock-card">
 						<span class="exr-lock-badge" aria-hidden="true"
@@ -374,7 +367,7 @@
 					</div>
 				</div>
 			{/if}
-			<div class="exr-chat" inert={!connected}>
+			<div class="exr-chat" inert={!connected && !needsProvider}>
 				<div class="exr-msgs" bind:this={scrollEl}>
 					{#each visibleMessages as message, i (message.id)}
 						{#if focusDividerBefore(i)}
@@ -415,8 +408,14 @@
 							</div>
 						{:else}
 							<div class="exr-empty">
-								<p class="exr-empty-h">Ask anything.</p>
-								<p class="exr-empty-p">{capabilityHint}</p>
+								<p class="exr-empty-h">
+									{needsProvider ? 'Connect intelligence' : 'Ask anything.'}
+								</p>
+								<p class="exr-empty-p">
+									{needsProvider
+										? `Add a connection to start talking with ${participantName}.`
+										: capabilityHint}
+								</p>
 							</div>
 						{/if}
 					{/each}
@@ -438,69 +437,90 @@
 					{/if}
 				</div>
 
-				<form class="exr-composer" onsubmit={submitAsk}>
-					<Composer
-						bind:value={composer}
-						bind:files={composerFiles}
-						actionLabel={turn ? 'Queue direction' : 'Send'}
-						disabled={!canOperate || sending || deciding || !onask}
-						minlength={1}
-						placeholder={review || workContext
-							? 'Message the lead…'
-							: 'Ask, redirect, or make a judgement…'}
-						ariaLabel={review || workContext
-							? `Message ${participantName}`
-							: `Ask ${participantName}`}
-						flareKey={contextFlare}
-						focusKey={composerFocusKey}
+				{#if needsProvider}
+					<a class="provider-connect" href={`/${companyId}/company/provider`}
+						><Plus size={15} strokeWidth={1.8} aria-hidden="true" /><span
+							>Add intelligence provider</span
+						><ArrowUpRight size={14} strokeWidth={1.8} aria-hidden="true" /></a
 					>
-						{#snippet controls()}
-							{#if !review && !workContext}
-								<div class="exec-context-line">
-									<label
-										class="outcome-standard-control"
-										title="Choose the outcome ambition for this request; unchanged inherits company policy"
-									>
-										<span>Outcome standard</span>
-										<select bind:value={outcomeStandardOverride} aria-label="Outcome standard">
-											<option value=""
-												>{defaultOutcomeStandard[0].toUpperCase() + defaultOutcomeStandard.slice(1)} ·
-												inherited</option
-											>
-											<option value="fast">Fast</option>
-											<option value="thorough">Thorough</option>
-											<option value="exceptional">Exceptional</option>
-											<option value="frontier">Frontier</option>
-										</select>
-									</label>
-									<button
-										type="button"
-										class="exec-context-chip"
-										class:off={!includeContext}
-										aria-pressed={includeContext}
-										title="Link this message to the current screen"
-										onclick={toggleContext}
-									>
-										<MatrixGlyph rows={GLYPHS.work} size={8} />
-										<span>{includeContext ? contextLabel : 'Link current screen'}</span>
-									</button>
-								</div>
-							{/if}
-						{/snippet}
-					</Composer>
-					{#if askError}
-						<p class="exr-error" role="alert">{askError}</p>
-					{/if}
-					{#if askNotice}
-						<p class="exr-notice" role="status">{askNotice}</p>
-					{/if}
-				</form>
+				{:else}
+					<form class="exr-composer" onsubmit={submitAsk}>
+						<Composer
+							bind:value={composer}
+							bind:files={composerFiles}
+							actionLabel={turn ? 'Queue direction' : 'Send'}
+							disabled={!canOperate || sending || deciding || !onask}
+							minlength={1}
+							placeholder={review || workContext
+								? 'Message the lead…'
+								: 'Ask, redirect, or make a judgement…'}
+							ariaLabel={review || workContext
+								? `Message ${participantName}`
+								: `Ask ${participantName}`}
+							flareKey={contextFlare}
+							focusKey={composerFocusKey}
+						>
+							{#snippet controls()}
+								{#if !review && !workContext}
+									<div class="exec-context-line">
+										<button
+											type="button"
+											class="exec-context-chip"
+											class:off={!includeContext}
+											aria-pressed={includeContext}
+											title="Link this message to the current screen"
+											onclick={toggleContext}
+										>
+											<MatrixGlyph rows={GLYPHS.work} size={8} />
+											<span>{includeContext ? contextLabel : 'Link current screen'}</span>
+										</button>
+									</div>
+								{/if}
+							{/snippet}
+						</Composer>
+						{#if askError}
+							<p class="exr-error" role="alert">{askError}</p>
+						{/if}
+						{#if askNotice}
+							<p class="exr-notice" role="status">{askNotice}</p>
+						{/if}
+					</form>
+				{/if}
 			</div>
 		</div>
 	</div>
 </aside>
 
 <style>
+	.provider-connect {
+		display: flex;
+		align-items: center;
+		justify-content: flex-start;
+		gap: var(--space-3);
+		min-height: 44px;
+		margin: var(--space-3);
+		padding: var(--space-3);
+		border: 1px solid var(--control-edge);
+		border-radius: var(--radius-control);
+		background: var(--surface-pane);
+		color: var(--intent-conversation);
+		box-shadow: var(--bevel);
+		font-size: var(--t-label);
+		font-weight: 500;
+		text-decoration: none;
+	}
+	.provider-connect span {
+		flex: 1;
+	}
+	.provider-connect:hover {
+		background: var(--surface-alt);
+		border-color: var(--intent-conversation);
+	}
+	.provider-connect:focus-visible {
+		outline: 2px solid var(--intent-conversation);
+		outline-offset: 3px;
+	}
+
 	.exr-head-primary {
 		min-width: 0;
 		flex: 1 1 auto;

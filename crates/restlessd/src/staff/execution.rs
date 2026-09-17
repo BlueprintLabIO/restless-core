@@ -634,6 +634,7 @@ pub(super) fn final_staff_usage(
     let reported_session_cost_usd = match billing {
         crate::model_gateway::ModelBilling::MeteredApi => usage.cost_usd,
         crate::model_gateway::ModelBilling::Subscription => Some(0.0),
+        crate::model_gateway::ModelBilling::NativeApi => usage.cost_usd,
     };
     Some((usage, reported_session_cost_usd))
 }

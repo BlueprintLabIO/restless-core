@@ -29,9 +29,9 @@
 	let desktopUrl = $state('');
 	const browserStatus = $derived(browserProjection.view);
 	let controller = $state<'observer' | 'owner'>('observer');
+	let controlRequested = $state(false);
 	let working = $state('');
 	let error = $state('');
-	let autoClaimPending = $state(false);
 	let lastDesktopActivity = $state(0);
 	let lastLeaseRenewal = $state(0);
 	let activityRenewing = $state(false);
@@ -48,9 +48,9 @@
 				? `${control.requesting_actor} controls`
 				: 'A company actor controls';
 		}
-		if (browserStatus) return 'Ready for control';
+		if (browserStatus) return 'Viewing only';
 		return runtimeBrowser?.controller === 'unclaimed'
-			? 'Ready for control'
+			? 'Viewing only'
 			: (runtimeBrowser?.controller ?? 'Controller unknown');
 	});
 
@@ -76,7 +76,11 @@
 	$effect(() => {
 		const current = browserStatus;
 		if (!current) return;
-		if (current.control?.controller === 'owner' && current.control.client_id === clientId) {
+		if (
+			controlRequested &&
+			current.control?.controller === 'owner' &&
+			current.control.client_id === clientId
+		) {
 			controller = 'owner';
 			if (focus) desktopUrl = controlledUrl();
 		} else if (controller === 'owner') {
@@ -111,7 +115,6 @@
 		try {
 			desktopUrl = await issueDesktopTicket(companyId, 'runtime-rescue', clientId);
 			controller = 'observer';
-			autoClaimPending = true;
 			if (navigate) await morphTo(`/${companyId}/company/computer?focus=desktop`);
 			await browserProjection.refresh();
 		} catch (cause) {
@@ -122,19 +125,20 @@
 		}
 	}
 
-	async function takeControl(silent = false) {
+	async function takeControl() {
 		if (!clientId || working) return;
 		working = 'control';
 		error = '';
 		try {
 			await browserControl(companyId, 'take', clientId);
+			controlRequested = true;
 			controller = 'owner';
 			desktopUrl = controlledUrl();
 			lastDesktopActivity = Date.now();
 			lastLeaseRenewal = Date.now();
 			await browserProjection.refresh();
 		} catch (cause) {
-			if (!silent) error = cause instanceof Error ? cause.message : 'Control is held elsewhere.';
+			error = cause instanceof Error ? cause.message : 'Control is held elsewhere.';
 		} finally {
 			working = '';
 		}
@@ -146,6 +150,7 @@
 		error = '';
 		try {
 			await browserControl(companyId, 'return', clientId);
+			controlRequested = false;
 			controller = 'observer';
 			desktopUrl = observedUrl();
 			lastDesktopActivity = 0;
@@ -165,18 +170,12 @@
 
 	async function desktopReady() {
 		await browserProjection.refresh();
-		if (!autoClaimPending) return;
-		autoClaimPending = false;
-		await takeControl(true);
 	}
 
 	function desktopActivity() {
 		const now = Date.now();
 		lastDesktopActivity = now;
-		if (controller !== 'owner') {
-			void takeControl();
-			return;
-		}
+		if (controller !== 'owner') return;
 		if (activityRenewing || now - lastLeaseRenewal < 8_000) return;
 		activityRenewing = true;
 		lastLeaseRenewal = now;
@@ -201,7 +200,7 @@
 	}
 </script>
 
-<svelte:head><title>Company computer — {view?.company.name ?? companyId}</title></svelte:head>
+<svelte:head><title>Computer — {view?.company.name ?? companyId}</title></svelte:head>
 
 {#if focus}
 	<div class="company-desktop-focus">
@@ -209,7 +208,7 @@
 			<div class="computer-focus-identity">
 				<span class="computer-focus-icon"><Monitor size={15} strokeWidth={1.8} /></span>
 				<div>
-					<h1>Company computer</h1>
+					<h1>Computer</h1>
 					<span
 						><i
 							class="source-lamp status-{runtimeBrowser?.status === 'available' ? 'live' : 'stale'}"
@@ -225,7 +224,7 @@
 						type="button"
 						disabled={!!working}
 						title="Returns input to the company actor. It does not complete Work or an owner decision."
-						onclick={() => returnControl()}>Return control</button
+						onclick={() => returnControl()}>Release control</button
 					>
 				{:else}
 					<button
@@ -233,7 +232,7 @@
 						type="button"
 						disabled={!!working || !desktopUrl}
 						title="Claims input only if the computer is not held by another owner tab or company actor."
-						onclick={() => takeControl()}>Try control</button
+						onclick={() => takeControl()}>Take control</button
 					>
 				{/if}
 				<button
@@ -244,7 +243,14 @@
 				>
 			</div>
 		</header>
-		{#if error}<div class="computer-error" role="alert">{error}</div>{/if}
+		<div class="desktop-notices">
+			{#if controller !== 'owner'}
+				<p class="desktop-control-hint">
+					Viewing only. Click <strong>Take control</strong> to use the mouse and keyboard.
+				</p>
+			{/if}
+			{#if error}<div class="computer-error" role="alert">{error}</div>{/if}
+		</div>
 		<DesktopViewport
 			src={desktopUrl}
 			title="Live Company computer"
@@ -274,7 +280,7 @@
 					<div class="computer-portal-glyph" aria-hidden="true">
 						<Monitor size={28} strokeWidth={1.45} />
 					</div>
-					<h1>Company computer</h1>
+					<h1>Computer</h1>
 					<div class="computer-portal-controller">
 						<span class="source-lamp status-{canAttach ? 'live' : 'stale'}" aria-hidden="true"
 						></span>
@@ -291,7 +297,7 @@
 					</button>
 					<p>
 						{canAttach
-							? 'Opens with input when the computer is free. Control returns after one minute without desktop activity.'
+							? 'Opens read-only. Click Take control to enable input. Control is released after one minute without desktop activity.'
 							: 'The desktop has not passed its live probe. Open Doctor for the smallest available repair.'}
 					</p>
 				</div>

@@ -505,6 +505,42 @@ fn read_env(locator: &str) -> Result<String> {
     Ok(value)
 }
 
+/// Authenticate and check the configured project, never infer connectivity from env vars.
+pub(crate) async fn infisical_health() -> Probe {
+    let check = async {
+        let settings = InfisicalSettings::from_env()?;
+        let client = infisical_client()?;
+        let token = infisical_login(&client, &settings).await?;
+        let url = infisical_endpoint(
+            &settings.base_url,
+            &["api", "v1", "projects", &settings.project_id],
+        )?;
+        let response = client.get(url).bearer_auth(token).send().await?;
+        if !response.status().is_success() {
+            bail!(
+                "Infisical project check returned HTTP {}",
+                response.status().as_u16()
+            );
+        }
+        Ok::<(), anyhow::Error>(())
+    }
+    .await;
+    match check {
+        Ok(()) => Probe {
+            status: ProbeStatus::Present,
+            detail: None,
+        },
+        Err(error) => Probe {
+            status: ProbeStatus::Invalid,
+            detail: Some(format!("{error:#}")),
+        },
+    }
+}
+
+pub(crate) fn infisical_configured() -> bool {
+    InfisicalSettings::from_env().is_ok()
+}
+
 impl InfisicalSettings {
     fn from_env() -> Result<Self> {
         let base_url = std::env::var("INFISICAL_API_URL")
@@ -739,6 +775,9 @@ mod tests {
             credentials.insert((*capability).to_string(), (*reference).to_string());
         }
         CompanyConfig {
+            agent_intelligence: Default::default(),
+            native_harnesses: Default::default(),
+            display_name: None,
             name: "aris".to_string(),
             mission: String::new(),
             spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(30_000_000),
@@ -1060,5 +1099,49 @@ mod tests {
         );
         assert!(normalize_secret_value("\r\n").is_err());
         assert!(normalize_secret_value("re_bad\tvalue").is_err());
+    }
+}
+
+/// Metadata-only inventory, strictly bounded to this company's vault directory.
+pub(crate) async fn company_vault_inventory(company: &str) -> Result<Vec<serde_json::Value>> {
+    crate::runtime::validate_company_name(company)?;
+    let settings = InfisicalSettings::from_env()?;
+    let client = infisical_client()?;
+    let token = infisical_login(&client, &settings).await?;
+    let path = format!("/companies/{company}");
+    let response = client.get(infisical_endpoint(&settings.base_url, &["api", "v4", "secrets"])? )
+        .bearer_auth(token)
+        .query(&[("projectId", settings.project_id.as_str()), ("environment", settings.environment.as_str()),
+            ("secretPath", path.as_str()), ("recursive", "true"), ("viewSecretValue", "false"), ("expandSecretReferences", "false")])
+        .send().await?;
+    if response.status() == reqwest::StatusCode::NOT_FOUND { return Ok(Vec::new()); }
+    if !response.status().is_success() { bail!("Vault inventory returned HTTP {}", response.status().as_u16()); }
+    let body: serde_json::Value = response.json().await?;
+    vault_metadata(&path, &body)
+}
+
+fn vault_metadata(base: &str, body: &serde_json::Value) -> Result<Vec<serde_json::Value>> {
+    let mut rows = Vec::new();
+    for secret in body["secrets"].as_array().context("Vault returned an invalid inventory")? {
+        let path = secret["secretPath"].as_str().context("Vault secret has no directory")?;
+        if path != base && !path.starts_with(&format!("{base}/")) { bail!("Vault returned a secret outside this company"); }
+        let name = secret["secretKey"].as_str().context("Vault secret has no name")?;
+        rows.push(serde_json::json!({"name":name,"path":path,"reference":format!("infisical:{path}/{name}"),"updated_at":secret["updatedAt"]}));
+    }
+    rows.sort_by_key(|row| row["reference"].as_str().unwrap_or_default().to_owned());
+    Ok(rows)
+}
+
+#[cfg(test)]
+mod vault_inventory_tests {
+    #[test]
+    fn inventory_omits_values_and_rejects_other_company_paths() {
+        let body=serde_json::json!({"secrets":[{"secretKey":"KEY","secretPath":"/companies/one_test/nested","secretValue":"never-expose-this","secretComment":"also-sensitive"}]});
+        let rows=super::vault_metadata("/companies/one_test", &body).unwrap();
+        let text=serde_json::to_string(&rows).unwrap();
+        assert!(!text.contains("never-expose-this"));
+        assert!(!text.contains("also-sensitive"));
+        assert_eq!(rows[0]["reference"], "infisical:/companies/one_test/nested/KEY");
+        assert!(super::vault_metadata("/companies/one", &body).is_err());
     }
 }

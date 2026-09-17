@@ -79,9 +79,9 @@ pub(crate) fn runtime_coordinator() -> Result<String> {
 /// Everything a wake needs to start an agent against a provider.
 ///
 /// The agent binary is `omp` (Oh My Pi), which speaks ACP natively and
-/// reports its own token and dollar usage per turn. The process receives a
-/// signed model-relay capability, never the provider credential, OMP root
-/// bearer, or Infisical machine identity.
+/// reports its own token and dollar usage per turn. Managed routes receive a
+/// signed model-relay capability. Explicit native harness connections use their
+/// own CLI profile or API key; the Infisical machine identity stays on the host.
 #[derive(Clone)]
 pub struct AgentAuth {
     /// Provider-qualified model, e.g. `moonshot/k3-256k`.
@@ -97,9 +97,7 @@ pub struct AgentAuth {
     pub gateway_token_env: String,
     pub gateway_token: String,
     pub gateway_url: String,
-    /// Whether the provider reports a charged API cost or only a catalogue
-    /// estimate for subscription access. The Runtime still receives no
-    /// provider credential either way.
+    /// Distinguishes metered relay, subscription, and unmetered native API access.
     pub billing: crate::model_gateway::ModelBilling,
 }
 
@@ -244,6 +242,8 @@ impl AcpProfile {
             crate::runtime::AgentHarness::RestlessManaged => Ok(provider_model.to_string()),
             crate::runtime::AgentHarness::ClaudeAgent => provider_model
                 .strip_prefix("anthropic/")
+                .or_else(|| provider_model.strip_prefix("native-claude-oauth/"))
+                .or_else(|| provider_model.strip_prefix("native-claude-api/"))
                 .filter(|model| !model.is_empty())
                 .map(str::to_string)
                 .with_context(|| {
@@ -735,7 +735,14 @@ pub(crate) async fn prepare_agent_runtime(
         let settings = claude_agent_settings(&model)?;
         write_private_container_file(
             container,
-            &format!("{}/settings.json", profile.config_dir()),
+            &format!(
+                "{}/settings.json",
+                if auth.model.starts_with("native-claude-") {
+                    crate::native_harness::CLAUDE_HOME
+                } else {
+                    profile.config_dir()
+                }
+            ),
             &settings,
         )
         .await?;
@@ -1352,7 +1359,7 @@ where
                     "effort_selection": "exact_process_flag",
                     "permission_mode": "runtime_sandbox",
                     "transport": "hosted_runtime_bridge",
-                    "tariff_version": profile.tariff_version(),
+                    "tariff_version": if launch_auth.model.starts_with("native-") {None} else {profile.tariff_version()},
                 });
                 let agent = AgentSession {
                     cx,
@@ -1476,7 +1483,14 @@ where
             format!("PI_CODING_AGENT_DIR={AGENT_CONFIG_DIR}")
         }
         crate::runtime::AgentHarness::ClaudeAgent => {
-            format!("CLAUDE_CONFIG_DIR={CLAUDE_AGENT_CONFIG_DIR}")
+            format!(
+                "CLAUDE_CONFIG_DIR={}",
+                if auth.model.starts_with("native-claude-") {
+                    crate::native_harness::CLAUDE_HOME
+                } else {
+                    CLAUDE_AGENT_CONFIG_DIR
+                }
+            )
         }
         crate::runtime::AgentHarness::Codex => unreachable!(),
     });
@@ -1498,7 +1512,14 @@ where
     // `docker exec -e NAME` copies NAME from the docker client's environment.
     // Passing NAME=VALUE in argv would expose the scoped model capability to
     // host process listings during session bootstrap.
-    if harness == crate::runtime::AgentHarness::ClaudeAgent {
+    if auth.model.starts_with("native-claude-") {
+        args.push(auth.gateway_token_env.clone());
+        for value in ["ANTHROPIC_AUTH_TOKEN=", "CLAUDE_CODE_OAUTH_TOKEN=", "ANTHROPIC_BASE_URL=https://api.anthropic.com"] {
+            args.push("-e".into());
+            args.push(value.into());
+        }
+        if auth.model.starts_with("native-claude-oauth/") {args.push("-e".into());args.push("ANTHROPIC_API_KEY=".into());}
+    } else if harness == crate::runtime::AgentHarness::ClaudeAgent {
         args.push("ANTHROPIC_AUTH_TOKEN".to_string());
         for value in [
             format!("ANTHROPIC_BASE_URL={}", auth.gateway_url),
@@ -1930,7 +1951,7 @@ where
                     "model_selection": "exact",
                     "effort_selection": if launch_profile.harness == crate::runtime::AgentHarness::ClaudeAgent { "exact_acp" } else { "exact_process_flag" },
                     "permission_mode": if launch_profile.harness == crate::runtime::AgentHarness::ClaudeAgent { "default_reasserted" } else { "runtime_sandbox" },
-                    "tariff_version": launch_profile.tariff_version(),
+                    "tariff_version": if launch_auth.model.starts_with("native-") {None} else {launch_profile.tariff_version()},
                 });
                 capture_notifications.store(true, Ordering::Release);
                 tracing::info!(
@@ -1988,7 +2009,10 @@ where
         ))
     };
     let secret_cleanup = async {
-        purge_exact_secret_residue(container, profile.config_dir(), &auth.gateway_token).await?;
+        if !auth.model.starts_with("native-") {
+            purge_exact_secret_residue(container, profile.config_dir(), &auth.gateway_token)
+                .await?;
+        }
         purge_exact_secret_residue(container, profile.config_dir(), &auth.coordination_token).await
     }
     .await;

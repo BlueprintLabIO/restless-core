@@ -2,7 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
-	import OwnerMenu from '$lib/components/OwnerMenu.svelte';
+	import CreateCompany from '$lib/components/CreateCompany.svelte';
 	import { getApplianceStatus, type ApplianceStatus } from '$lib/model/appliance';
 	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
 	import SemanticMark from '$lib/primitives/SemanticMark.svelte';
@@ -85,13 +85,7 @@
 		{/if}
 		{#if loaded}
 			<div class="tb-right">
-				<OwnerMenu
-					{companies}
-					onchanged={() => {
-						void companyCatalog.refresh();
-						void portfolio.refresh();
-					}}
-				/>
+				<CreateCompany />
 			</div>
 		{/if}
 	</header>
@@ -116,7 +110,9 @@
 			{:else if appliance?.model_gateway === 'starting'}
 				<div class="appliance-notice" role="status">
 					<span>Model access is starting.</span>
-					<p>Companies will wake after provider access is ready. The owner surface remains available.</p>
+					<p>
+						Companies will wake after provider access is ready. The owner surface remains available.
+					</p>
 				</div>
 			{/if}
 			<header class="portfolio-head">
@@ -230,8 +226,8 @@
 						<h2>No active companies</h2>
 						<p>
 							{archivedCompanies.length
-								? 'Restore an archived company from Owner settings.'
-								: 'This owner installation has no configured companies.'}
+								? 'Use + to create a company.'
+								: 'Use + to create your first company.'}
 						</p>
 					</div>
 				{/if}

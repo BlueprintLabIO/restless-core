@@ -1063,7 +1063,10 @@ pub async fn project(
     Ok(AttentionView {
         company: CompanySummary {
             id: config.name.clone(),
-            name: title_case(&config.name),
+            name: config
+                .display_name
+                .clone()
+                .unwrap_or_else(|| title_case(&config.name)),
             mission: config.mission.clone(),
             model: config.model.clone(),
         },

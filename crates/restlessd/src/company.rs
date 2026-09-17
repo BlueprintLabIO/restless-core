@@ -457,7 +457,10 @@ pub(crate) async fn project(
     CompanyView {
         company: CompanyIdentity {
             id: config.name.clone(),
-            name: display_name(&config.name),
+            name: config
+                .display_name
+                .clone()
+                .unwrap_or_else(|| display_name(&config.name)),
             outcome_standard: config.outcome_standard,
         },
         sources: Sources {
@@ -540,7 +543,7 @@ fn harness_settings(
                     None => "The pinned build was not observed from the running Company computer. Start or reconcile it before selecting this harness.".into(),
                 },
             )
-        } else if let Some(reason) = unstartable.as_deref() {
+        } else if let Some(reason) = unstartable.as_deref().filter(|_| !config.native_harnesses.contains_key(harness.as_str())) {
             ("not_ready", format!("Provider access is not ready: {reason}"))
         } else if !coordination_available {
             (
@@ -551,7 +554,7 @@ fn harness_settings(
         } else {
             (
                 "ready",
-                "Pinned build, model policy, provider admission, and Runtime coordination are ready."
+                "Pinned build, model policy and Runtime coordination are ready. Native sign-in is shown separately in Intelligence provider."
                     .into(),
             )
         };
@@ -565,7 +568,7 @@ fn harness_settings(
             runtime::AgentHarness::Codex => (
                 "Codex",
                 "Native App Server",
-                "Host OpenAI-compatible route; Runtime receives only a scoped session capability.",
+                "Independent native Codex OAuth/API key when configured in Intelligence provider; otherwise the host relay.",
                 vec![
                     "Optional native events appear only when the App Server reports them.",
                     "Input submitted during a running turn is queued unless native acknowledgement is observed.",
@@ -574,9 +577,9 @@ fn harness_settings(
             runtime::AgentHarness::ClaudeAgent => (
                 "Claude Agent",
                 "ACP",
-                "Host Anthropic API key through the scoped relay; Claude subscription login is unsupported.",
+                "Independent native Claude subscription login or API key when configured in Intelligence provider; otherwise the host Anthropic relay.",
                 vec![
-                    "API authentication only; claude.ai subscription login is not supported.",
+                    "Native sign-in is completed in the company desktop; native API calls bypass relay metering.",
                     "Input submitted during a running turn is queued for the next turn.",
                 ],
             ),

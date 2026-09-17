@@ -1170,6 +1170,9 @@ mod tests {
             .strip_prefix("restless-co-")
             .expect("fixture container follows the Company Runtime name contract");
         let config = CompanyConfig {
+            agent_intelligence: Default::default(),
+            native_harnesses: Default::default(),
+            display_name: None,
             name: company_name.to_string(),
             mission: "Sprint 26 integrated fixture".into(),
             spend_ceiling_usd: SpendCeiling::from_micro_usd(0),

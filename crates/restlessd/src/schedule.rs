@@ -97,7 +97,7 @@ impl WakeClaims {
         );
     }
 
-    fn record_usable_wake(&mut self, company: &str) {
+    pub(crate) fn record_usable_wake(&mut self, company: &str) {
         self.backoff.remove(company);
     }
 

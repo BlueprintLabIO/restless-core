@@ -365,8 +365,9 @@ async function launch(operation) {
   const model = providerModel(exactModel);
   const effort = requireString(operation.effort, 'effort');
   if (!ALLOWED_EFFORTS.has(effort)) throw new Error(`unsupported reasoning effort ${effort}`);
+  const native = exactModel.startsWith('native-codex-');
   const baseUrl = providerBaseUrl(operation.provider_base_url);
-  if (!process.env[MODEL_CAPABILITY_ENV]) {
+  if (!native && !process.env[MODEL_CAPABILITY_ENV]) {
     throw new Error(`missing scoped ${MODEL_CAPABILITY_ENV}`);
   }
   const codexHome = requireString(process.env.CODEX_HOME, 'CODEX_HOME');
@@ -374,6 +375,7 @@ async function launch(operation) {
   const disabledFeatureArgs = DISABLED_CODEX_FEATURES.flatMap((feature) => ['--disable', feature]);
   const args = [
     'app-server', '--stdio', '--strict-config', ...disabledFeatureArgs,
+    ...(native ? ['-c', 'model_provider="openai"'] : [
     '-c', 'model_provider="restless"',
     '-c', 'model_providers.restless.name="Restless scoped relay"',
     '-c', `model_providers.restless.base_url=${JSON.stringify(baseUrl)}`,
@@ -382,6 +384,7 @@ async function launch(operation) {
     '-c', 'model_providers.restless.request_max_retries=0',
     '-c', 'model_providers.restless.stream_max_retries=0',
     '-c', 'model_providers.restless.stream_idle_timeout_ms=900000',
+    ]),
     '-c', `model_reasoning_effort=${JSON.stringify(effort)}`,
     ...mcp.args,
   ];
@@ -393,8 +396,8 @@ async function launch(operation) {
     http_proxy: DENIED_TASK_PROXY,
     https_proxy: DENIED_TASK_PROXY,
     all_proxy: DENIED_TASK_PROXY,
-    NO_PROXY: MODEL_RELAY_NO_PROXY,
-    no_proxy: MODEL_RELAY_NO_PROXY,
+    NO_PROXY: native ? MODEL_RELAY_NO_PROXY + ',api.openai.com,chatgpt.com,auth.openai.com' : MODEL_RELAY_NO_PROXY,
+    no_proxy: native ? MODEL_RELAY_NO_PROXY + ',api.openai.com,chatgpt.com,auth.openai.com' : MODEL_RELAY_NO_PROXY,
   };
   attachAppServer(spawn(operation.codex_bin || 'codex', args, {
     cwd,
@@ -403,10 +406,11 @@ async function launch(operation) {
   }));
   const initialized = await request('initialize', { clientInfo: CLIENT, capabilities: null });
   notify('initialized');
+  if (exactModel.startsWith('native-codex-api/')) await request('account/login/start', {type:'apiKey', apiKey:process.env.OPENAI_API_KEY});
   const common = {
     cwd,
     model,
-    modelProvider: 'restless',
+    modelProvider: native ? 'openai' : 'restless',
     allowProviderModelFallback: false,
     approvalPolicy: 'never',
     sandbox: 'danger-full-access',
@@ -431,12 +435,12 @@ async function launch(operation) {
     cwd_observed: result.cwd ?? null,
     approval_policy_observed: result.approvalPolicy ?? null,
     sandbox_observed: result.sandboxPolicy ?? result.sandbox ?? null,
-    network_policy_observed: 'host-model-relay-only-v1',
+    network_policy_observed: native ? 'native-provider-auth-v1' : 'host-model-relay-only-v1',
     disabled_features_observed: DISABLED_CODEX_FEATURES,
     mcp_contract_digest: createHash('sha256').update(JSON.stringify(mcp.contract)).digest('hex'),
     runner_digest: createHash('sha256').update(readFileSync(new URL(import.meta.url))).digest('hex'),
   };
-  if (observed.model_observed !== model || observed.provider_observed !== 'restless') {
+  if (observed.model_observed !== model || observed.provider_observed !== (native ? 'openai' : 'restless')) {
     throw new Error(`exact model/provider admission failed: ${JSON.stringify(observed)}`);
   }
   if (observed.effort_observed !== effort) {

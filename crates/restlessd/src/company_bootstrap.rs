@@ -791,6 +791,9 @@ fn desired_company_config(
     company_handle: &str,
 ) -> runtime::CompanyConfig {
     runtime::CompanyConfig {
+        agent_intelligence: Default::default(),
+            native_harnesses: Default::default(),
+        display_name: None,
         name: company_handle.to_string(),
         mission: String::new(),
         spend_ceiling_usd: runtime::SpendCeiling::from_micro_usd(10_000_000),

@@ -600,6 +600,9 @@ mod tests {
         crate::runtime::CompanyConfig::save(
             root,
             &crate::runtime::CompanyConfig {
+                agent_intelligence: Default::default(),
+            native_harnesses: Default::default(),
+                display_name: None,
                 name: name.to_string(),
                 mission: "isolated inbound test".into(),
                 spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(0),

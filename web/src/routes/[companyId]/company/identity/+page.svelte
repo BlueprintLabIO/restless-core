@@ -195,12 +195,12 @@
 	}
 </script>
 
-<svelte:head><title>Company identity — {companyId}</title></svelte:head>
+<svelte:head><title>Identity — {companyId}</title></svelte:head>
 
 <div class="company-page identity-page">
 	<header class="company-page-head">
 		<div class="identity-title">
-			<h1>Company identity</h1>
+			<h1>Identity</h1>
 			<InfoTip
 				text="The owner-released truth and expression evidence Restless uses when producing company work. Drafts can propose changes; they cannot make themselves authoritative."
 			/>

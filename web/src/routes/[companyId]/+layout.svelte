@@ -1,5 +1,8 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { setContext } from 'svelte';
+	const setupDraft = $state<{ name: string | null }>({ name: null });
+	setContext('company-setup-draft', setupDraft);
 	import { goto } from '$app/navigation';
 	import AppShell, { type ShellTab } from '$lib/components/AppShell.svelte';
 	import CompanyQueryPersistence from '$lib/components/CompanyQueryPersistence.svelte';
@@ -20,6 +23,7 @@
 		companyQuery,
 		conversationQuery
 	} from '$lib/model/queries.svelte';
+	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
 	import { actorCanReceive } from '$lib/model/cockpit';
 
 	let { children } = $props();
@@ -28,9 +32,8 @@
 	const principalProjection = $derived(companyPrincipalQuery(companyId));
 	const principal = $derived(principalProjection.view);
 	const ownerAccess = $derived(hasOwnerSurfaceAccess(principal));
-	const collaboration = $derived(
-		collaborationBootstrapQuery(companyId, () => principal)
-	);
+	const intelligence = $derived(intelligenceQuery(companyId, () => ownerAccess));
+	const collaboration = $derived(collaborationBootstrapQuery(companyId, () => principal));
 	const companyCatalog = companiesQuery(() => ownerAccess);
 	const companies = $derived(companyCatalog.view);
 	let execRailOpen = $state(true);
@@ -43,15 +46,14 @@
 	const cockpitProjection = $derived(cockpitQuery(companyId, () => ownerAccess));
 	const cockpit = $derived(cockpitProjection.view);
 	const companyProjection = $derived(companyQuery(companyId, () => ownerAccess));
-	const companyDefaultStandard = $derived(
-		companyProjection.view?.company.outcome_standard ??
-			cockpit?.company.outcome_standard ??
-			'exceptional'
-	);
+
 	$effect(() => companyProjection.attach());
 
 	const companyName = $derived(
-		ownerAccess ? (attention.view?.company.name ?? '') : (collaboration.view?.company.name ?? '')
+		setupDraft.name ??
+			(ownerAccess
+				? (attention.view?.company.name ?? '')
+				: (collaboration.view?.company.name ?? ''))
 	);
 	const liveNeedsYou = $derived(attention.view?.items ?? []);
 	const focusedReviewId = $derived(page.url.searchParams.get('review'));
@@ -231,7 +233,7 @@
 		{companyId}
 		membershipRole={principal?.membership_role ?? 'member'}
 		connected={railConnected}
-		defaultOutcomeStandard={companyDefaultStandard}
+		needsProvider={intelligence.view?.has_connections === false}
 		contextLabel={currentContext}
 		focusAfterMessageId={railConversation.focusAfterMessageId}
 		focusStartedAt={railConversation.focusStartedAt}

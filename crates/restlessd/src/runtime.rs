@@ -336,7 +336,28 @@ impl AgentHarness {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NativeHarnessConfig {
+    pub mode: String,
+    pub model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_reference: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentIntelligence {
+    pub connection: String,
+    pub model: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompanyConfig {
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub agent_intelligence: std::collections::BTreeMap<String, AgentIntelligence>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub native_harnesses: std::collections::BTreeMap<String, NativeHarnessConfig>,
+    /// Owner-facing name; the durable company handle remains unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
     /// Company name; also the container/volume suffix and schema name.
     pub name: String,
     /// Owner-set mission, seeded to /company/mission.md on `up`.
@@ -397,6 +418,54 @@ fn valid_reasoning_effort(value: &str) -> bool {
 }
 
 impl CompanyConfig {
+    /// Resolve an agent override or the company default into an execution route.
+    pub fn for_agent(&self, actor: &str) -> Self {
+        let mut config = self.clone();
+        if let Some(route) = self.agent_intelligence.get(actor).or_else(|| self.agent_intelligence.get("default")) {
+            config.model_failover.clear();
+            if let Some(provider) = route.connection.strip_prefix("direct:") {
+                config.model = format!("{provider}/{}", route.model);
+                config.coordination_harness = AgentHarness::RestlessManaged;
+                config.worker_harness = AgentHarness::RestlessManaged;
+            } else if let Some(id) = route.connection.strip_prefix("harness:") {
+                if let Some(harness) = AgentHarness::parse_canonical(id) {
+                    config.coordination_harness = harness;
+                    config.worker_harness = harness;
+                    if let Some(native) = config.native_harnesses.get_mut(id) {
+                        native.model = route.model.clone();
+                    }
+                }
+            }
+        }
+        config
+    }
+    pub fn agent_preference<'a>(
+        &'a self,
+        actor: &str,
+        previous: Option<&'a str>,
+    ) -> Option<&'a str> {
+        if self.agent_intelligence.contains_key(actor) || self.agent_intelligence.contains_key("default") {
+            Some(&self.model)
+        } else {
+            previous
+        }
+    }
+
+    pub fn native_model(&self, harness: AgentHarness) -> Option<String> {
+        let connection = self.native_harnesses.get(harness.as_str())?;
+        let provider = match harness {
+            AgentHarness::Codex => "codex",
+            AgentHarness::ClaudeAgent => "claude",
+            _ => return None,
+        };
+        let mode = if connection.mode == "api_key" {
+            "api"
+        } else {
+            "oauth"
+        };
+        Some(format!("native-{provider}-{mode}/{}", connection.model))
+    }
+
     pub fn load(root: &Path, name: &str) -> Result<Self> {
         Self::load_from(root.join("companies").join(format!("{name}.toml")), name)
     }
@@ -493,6 +562,17 @@ impl CompanyConfig {
     pub(crate) fn validate_harness_models(&self) -> Result<()> {
         let models = self.model_candidates()?;
         for harness in [self.coordination_harness, self.worker_harness] {
+            if let Some(connection) = self.native_harnesses.get(harness.as_str()) {
+                if !matches!(
+                    connection.mode.as_str(),
+                    "oauth" | "api_key" | "disconnected"
+                ) || connection.model.trim().is_empty()
+                    || connection.model.contains('/')
+                {
+                    bail!("invalid native harness connection");
+                }
+                continue;
+            }
             let required_provider = match harness {
                 AgentHarness::RestlessManaged => continue,
                 AgentHarness::Codex => "litellm",
@@ -880,12 +960,8 @@ fn running_company_names(configs: &[CompanyConfig], docker_names: &str) -> Vec<S
 /// release/Fleet path, not to the credential-holding account plane.
 pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
     let company = &config.name;
-    // A company the account plane could not admit a model route for cannot
-    // think, so waking its Runtime would only defer the failure into its first
-    // Attempt. Refuse here with the exact reason (cross-layer contract §1.4.1).
-    if let Some(reason) = crate::model_gateway::unstartable_reason(company) {
-        bail!("company {company} cannot start: {reason}");
-    }
+    // The computer must boot before native sign-in can happen. Model admission
+    // belongs to the session boundary, not to creation of the company computer.
     let image = company_image();
     let mut fetched = false;
     let mut replaced = false;
@@ -936,6 +1012,9 @@ pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
             let memory = resource_bound("RESTLESS_COMPANY_MEMORY", DEFAULT_MEMORY);
             let pids = resource_bound("RESTLESS_COMPANY_PIDS_LIMIT", DEFAULT_PIDS_LIMIT);
             let mut args: Vec<&str> = vec!["run", "-d", "--name", &name, "--hostname", company];
+            if cfg!(target_os = "linux") {
+                args.extend(["--add-host", "host.docker.internal:host-gateway"]);
+            }
             if let Some(cpus) = cpus.as_deref() {
                 args.extend(["--cpus", cpus]);
             }
@@ -970,6 +1049,40 @@ pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
                 &image,
             ]);
             run_ok(&args).await?;
+        }
+    }
+    // Docker Desktop supplies this DNS name; native Linux Docker needs an
+    // explicit mapping. Also repair computers created before the flag existed.
+    if cfg!(target_os = "linux") {
+        let name = container_name(company);
+        if !docker_observe(&["exec", &name, "getent", "hosts", "host.docker.internal"])
+            .await?
+            .status
+            .success()
+        {
+            if let Some(gateway) = inspect_value(&[
+                "inspect",
+                "-f",
+                "{{range .NetworkSettings.Networks}}{{.Gateway}}{{end}}",
+                &name,
+            ])
+            .await?
+            {
+                let address: std::net::IpAddr = gateway
+                    .trim()
+                    .parse()
+                    .context("observe Linux Docker host gateway")?;
+                run_ok(&[
+                    "exec",
+                    &name,
+                    "sh",
+                    "-c",
+                    "printf '%s host.docker.internal\\n' \"$1\" >> /etc/hosts",
+                    "restless-host-gateway",
+                    &address.to_string(),
+                ])
+                .await?;
+            }
         }
     }
     seed_mission(config).await?;
@@ -2126,6 +2239,9 @@ pub fn clone_config(root: &Path, from: &str, to: &str) -> Result<CompanyConfig> 
     let source =
         CompanyConfig::load(root, from).with_context(|| format!("load source company {from}"))?;
     let config = CompanyConfig {
+        agent_intelligence: Default::default(),
+        native_harnesses: Default::default(),
+        display_name: None,
         name: to.to_string(),
         // A scenario gets no live secret bindings.
         credentials: std::collections::BTreeMap::new(),
@@ -2624,6 +2740,55 @@ outcome_standard = "frontier"
     }
 
     #[test]
+    fn agent_intelligence_routes_are_independent_and_override_old_preferences() {
+        let config: CompanyConfig = toml::from_str(
+            r#"
+name = "intelligence_test"
+mission = "test"
+model = "moonshot/kimi-k3"
+model_failover = ["zai/glm-5"]
+[agent_intelligence.exec]
+connection = "direct:openai"
+model = "gpt-5.4"
+[agent_intelligence.alice]
+connection = "direct:anthropic"
+model = "claude-sonnet-4-6"
+"#,
+        )
+        .unwrap();
+        let exec = config.for_agent("exec");
+        let alice = config.for_agent("alice");
+        assert_eq!(exec.model, "openai/gpt-5.4");
+        assert_eq!(alice.model, "anthropic/claude-sonnet-4-6");
+        assert_eq!(
+            exec.agent_preference("exec", Some("moonshot/kimi-k3")),
+            Some("openai/gpt-5.4")
+        );
+        assert!(exec.model_failover.is_empty());
+        assert_eq!(exec.coordination_harness, AgentHarness::RestlessManaged);
+        assert_eq!(alice.worker_harness, AgentHarness::RestlessManaged);
+        assert_eq!(config.for_agent("bob").model, "moonshot/kimi-k3");
+        assert_eq!(config.model_failover.len(), 1);
+        assert_eq!(
+            config.agent_preference("bob", Some("zai/glm-5")),
+            Some("zai/glm-5")
+        );
+        let restored: CompanyConfig = toml::from_str(&toml::to_string(&config).unwrap()).unwrap();
+        assert_eq!(restored.for_agent("alice").model, alice.model);
+        let mut config = config;
+        config.agent_intelligence.insert("default".into(), super::AgentIntelligence {
+            connection: "direct:anthropic".into(), model: "claude-sonnet-4-6".into(),
+        });
+        assert_eq!(config.for_agent("bob").model, "anthropic/claude-sonnet-4-6");
+        assert_eq!(config.for_agent("exec").model, "openai/gpt-5.4");
+        config.agent_intelligence.remove("exec");
+        let inherited = config.for_agent("exec");
+        assert_eq!(inherited.agent_preference("exec", Some("openai/gpt-5.6-terra")), Some("anthropic/claude-sonnet-4-6"));
+        assert!(inherited.model_failover.is_empty());
+
+    }
+
+    #[test]
     fn model_policy_preserves_order_and_rejects_duplicates() {
         let mut config: CompanyConfig = toml::from_str(
             r#"name = "policy_test"
@@ -2773,6 +2938,9 @@ worker_harness = "claude_agent"
         ));
         std::fs::create_dir_all(root.join("companies")).unwrap();
         let config = CompanyConfig {
+            agent_intelligence: Default::default(),
+            native_harnesses: Default::default(),
+            display_name: None,
             name: "archive_contract_test".into(),
             mission: "Preserve me".into(),
             spend_ceiling_usd: SpendCeiling::from_micro_usd(5_000_000),

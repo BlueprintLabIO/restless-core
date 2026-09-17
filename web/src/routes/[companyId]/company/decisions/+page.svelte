@@ -26,12 +26,12 @@
 	}
 </script>
 
-<svelte:head><title>Decision history — {view?.company.name ?? companyId}</title></svelte:head>
+<svelte:head><title>Decisions — {view?.company.name ?? companyId}</title></svelte:head>
 
 <div class="company-page decisions-page">
 	<header class="company-page-head">
 		<div class="decision-history-heading">
-			<h1>Decision history</h1>
+			<h1>Decisions</h1>
 			<InfoTip
 				text="Recorded owner decisions and the work they actually released. This is a read-only projection of source-owned company state."
 			/>

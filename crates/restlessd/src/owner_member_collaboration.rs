@@ -81,7 +81,10 @@ impl MemberCollaborationState {
                     .with_context(|| format!("open collaboration state for {company:?}"))?;
                 Ok(Some(CompanySource {
                     handle: config.name.clone(),
-                    display: company_display_name(&config.name),
+                    display: config
+                        .display_name
+                        .clone()
+                        .unwrap_or_else(|| company_display_name(&config.name)),
                     mission: config.mission,
                     org,
                 }))

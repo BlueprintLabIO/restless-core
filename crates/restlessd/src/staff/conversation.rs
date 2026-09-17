@@ -407,6 +407,8 @@ pub async fn dispatch_actor_conversation(
     actor: &str,
     reason: &str,
 ) -> Result<bool> {
+    let effective_config=config.for_agent(actor);
+    let config=&effective_config;
     if actor == "exec" || matches!(actor, "owner" | "world" | "daemon") {
         return Ok(false);
     }
@@ -434,7 +436,8 @@ pub async fn dispatch_actor_conversation(
     });
     if crate::model_gateway::actor_policy_is_cooling(
         config,
-        actor_row.model.as_deref(),
+        config.coordination_harness,
+        config.agent_preference(actor, actor_row.model.as_deref()),
         runtime.authority,
     )
     .await?
@@ -460,7 +463,8 @@ pub async fn dispatch_actor_conversation(
 
     let candidates = crate::model_gateway::available_actor_candidates(
         config,
-        actor_row.model.as_deref(),
+        config.coordination_harness,
+        config.agent_preference(actor, actor_row.model.as_deref()),
         runtime.authority,
     )
     .await?;

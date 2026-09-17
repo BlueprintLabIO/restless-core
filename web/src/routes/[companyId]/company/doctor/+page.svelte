@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
+	import HarnessDiagnostics from '$lib/components/HarnessDiagnostics.svelte';
 	import { page } from '$app/state';
 	import Activity from '@lucide/svelte/icons/activity';
 	import ArrowUpRight from '@lucide/svelte/icons/arrow-up-right';
@@ -12,6 +14,24 @@
 	$effect(() => source.attach());
 	const view = $derived(source.view);
 
+	let startup = $state<{ ran_at?: string; error?: string; setup_failed?: boolean }>({});
+	onMount(() => {
+		let stopped = false;
+		let timer: ReturnType<typeof setTimeout>;
+		const read = async () => {
+			try {
+				const r = await fetch(`/api/companies/${companyId}/startup-doctor`);
+				if (r.ok) startup = await r.json();
+			} finally {
+				if (!stopped && !startup.ran_at) timer = setTimeout(read, 5000);
+			}
+		};
+		void read();
+		return () => {
+			stopped = true;
+			clearTimeout(timer);
+		};
+	});
 	let working = $state('');
 	let notice = $state('');
 	let error = $state('');
@@ -55,18 +75,23 @@
 	}
 </script>
 
-<svelte:head><title>Company doctor — {view?.company.name ?? companyId}</title></svelte:head>
+<svelte:head><title>Doctor — {view?.company.name ?? companyId}</title></svelte:head>
 
 <div class="company-page doctor-page">
 	<header class="company-page-head">
-		<h1>Company doctor</h1>
+		<h1>Doctor</h1>
 		<a class="doctor-computer-link" href={`/${companyId}/company/computer`}>
-			<Monitor size={14} strokeWidth={1.8} /> Company computer <ArrowUpRight
-				size={13}
-				strokeWidth={1.8}
-			/>
+			<Monitor size={14} strokeWidth={1.8} /> Computer <ArrowUpRight size={13} strokeWidth={1.8} />
 		</a>
 	</header>
+	<p
+		role="status"
+		title="Doctor runs automatically when the local host starts and when a company is created."
+	>
+		{startup.ran_at
+			? `Automatic startup check: ${when(startup.ran_at)}${startup.error || startup.setup_failed ? ' · Setup needs attention; see diagnostics below.' : ''}`
+			: 'Automatic startup check is pending.'}
+	</p>
 
 	{#if error}<div class="computer-error" role="alert">{error}</div>{/if}
 	{#if notice}<div class="computer-notice" role="status">{notice}</div>{/if}
@@ -145,4 +170,5 @@
 	{:else}
 		<div class="company-page-wait" aria-label="Running company doctor"></div>
 	{/if}
+	<HarnessDiagnostics {companyId} />
 </div>

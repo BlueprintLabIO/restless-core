@@ -106,6 +106,8 @@ pub async fn wake(
     observer: Option<acp::SessionObserver>,
     cancellation: &CancellationToken,
 ) -> Result<WakeReport> {
+    let effective_config=config.for_agent("exec");
+    let config=&effective_config;
     let container = runtime::container_name(&config.name);
     let hosted_identity = if runtime_bridges.is_hosted() {
         Some(crate::runtime_bridge::expected_identity(authority, &config.name).await?)
@@ -158,7 +160,7 @@ pub async fn wake(
     .await?;
     let package = context::assemble(&snapshot);
     let candidates =
-        crate::model_gateway::available_candidates(config, exec_model.as_deref(), authority)
+        crate::model_gateway::available_candidates(config, config.agent_preference("exec", exec_model.as_deref()), authority)
             .await?;
     org.emit_event(
         "wake",
@@ -571,16 +573,20 @@ pub(crate) async fn agent_auth_for_model(
     attempt_id: Option<uuid::Uuid>,
 ) -> Result<acp::AgentAuth> {
     let session_id = uuid::Uuid::new_v4().simple().to_string();
-    let access = crate::model_gateway::client()?.auth_for(
-        model,
-        capabilities,
-        company,
-        actor,
-        &session_id,
-        responsibility,
-        work_id,
-        attempt_id,
-    )?;
+    let access = if model.starts_with("native-") {
+        crate::native_harness::session_access(company, actor, model).await?
+    } else {
+        crate::model_gateway::client()?.auth_for(
+            model,
+            capabilities,
+            company,
+            actor,
+            &session_id,
+            responsibility,
+            work_id,
+            attempt_id,
+        )?
+    };
     Ok(acp::AgentAuth {
         model: model.to_string(),
         effort: effort.to_string(),
@@ -659,6 +665,7 @@ async fn record_usage(
     let reported_turn_cost_usd = match auth.billing {
         crate::model_gateway::ModelBilling::MeteredApi => usage.cost_usd,
         crate::model_gateway::ModelBilling::Subscription => Some(0.0),
+        crate::model_gateway::ModelBilling::NativeApi => usage.cost_usd,
     };
     // ACP reports remain useful session telemetry, but the relay owns
     // canonical charged-use records. Never turn this presentation float into a

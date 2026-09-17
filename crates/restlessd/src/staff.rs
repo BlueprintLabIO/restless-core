@@ -394,6 +394,8 @@ pub async fn dispatch_claimed_work(
     claimed: ClaimedWork,
 ) -> Result<()> {
     let actor = claimed.work.owner_id.clone();
+    let effective_config=config.for_agent(&actor);
+    let config=&effective_config;
     if actor == "owner" {
         bail!("{actor} is not a Staff execution actor");
     }
@@ -427,7 +429,8 @@ pub async fn dispatch_claimed_work(
             .with_context(|| format!("Work owner {actor:?} is not an OrgIntel actor"))?;
         let candidates = crate::model_gateway::available_actor_candidates(
             config,
-            actor_row.model.as_deref(),
+            config.worker_harness,
+            config.agent_preference(&actor, actor_row.model.as_deref()),
             authority,
         )
         .await?;

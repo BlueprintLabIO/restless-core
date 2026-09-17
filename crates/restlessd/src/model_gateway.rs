@@ -5,8 +5,8 @@
 //! mature pi-native traffic and exposes one narrow first-party Responses relay
 //! for the pinned Codex runtime. Both place credentials only on the host and
 //! give company processes a short-lived signed exact-model capability.
-//! Provider keys, OMP's root bearer, and Infisical machine-identity credentials
-//! never cross into the Company Runtime.
+//! This module keeps provider keys and broker credentials outside the Runtime.
+//! Explicit native harness auth is a separate boundary documented in native_harness.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -193,11 +193,19 @@ impl ClientConfig {
 /// Return the boot-time billing contract for one exact model route without
 /// issuing a session capability or contacting the provider.
 pub fn billing_for_model(model: &str) -> Result<ModelBilling> {
+    if model.starts_with("native-") {
+        return Ok(if model.split('/').next().unwrap_or("").ends_with("-api") {
+            ModelBilling::NativeApi
+        } else {
+            ModelBilling::Subscription
+        });
+    }
     client()?.billing_for(model)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelBilling {
+    NativeApi,
     MeteredApi,
     Subscription,
 }
@@ -205,6 +213,7 @@ pub enum ModelBilling {
 impl ModelBilling {
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::NativeApi => "native_api_unmetered",
             Self::MeteredApi => "metered_api",
             Self::Subscription => "subscription",
         }
@@ -226,7 +235,11 @@ pub async fn available_candidates(
     preferred: Option<&str>,
     authority: &crate::authority::AuthorityStore,
 ) -> Result<Vec<String>> {
-    let ordered = ordered_candidates(config, preferred)?;
+    let ordered = if let Some(model) = config.native_model(config.coordination_harness) {
+        vec![model]
+    } else {
+        ordered_candidates(config, preferred)?
+    };
     let cooldowns = authority.active_model_cooldowns(&config.name).await?;
     filter_cooling_candidates(ordered, &cooldowns)
 }
@@ -238,10 +251,15 @@ pub async fn available_candidates(
 /// capability silently.
 pub async fn available_actor_candidates(
     config: &CompanyConfig,
+    harness: crate::runtime::AgentHarness,
     preferred: Option<&str>,
     authority: &crate::authority::AuthorityStore,
 ) -> Result<Vec<String>> {
-    let ordered = actor_candidates(config, preferred)?;
+    let ordered = if let Some(model) = config.native_model(harness) {
+        vec![model]
+    } else {
+        actor_candidates(config, preferred)?
+    };
     let cooldowns = authority.active_model_cooldowns(&config.name).await?;
     filter_cooling_candidates(ordered, &cooldowns)
 }
@@ -252,10 +270,15 @@ pub async fn available_actor_candidates(
 /// every database scan.
 pub async fn actor_policy_is_cooling(
     config: &CompanyConfig,
+    harness: crate::runtime::AgentHarness,
     preferred: Option<&str>,
     authority: &crate::authority::AuthorityStore,
 ) -> Result<bool> {
-    let ordered = actor_candidates(config, preferred)?;
+    let ordered = if let Some(model) = config.native_model(harness) {
+        vec![model]
+    } else {
+        actor_candidates(config, preferred)?
+    };
     let cooldowns = authority.active_model_cooldowns(&config.name).await?;
     Ok(candidates_all_cooling(&ordered, &cooldowns))
 }
@@ -310,7 +333,7 @@ fn filter_cooling_candidates(
                 )
             })
             .unwrap_or_else(|| "no configured candidates".into());
-        bail!("all model candidates are cooling down; next: {next}");
+        bail!("This intelligence connection is temporarily unavailable. Retry after {next}, or choose another connection in Intelligence provider.");
     }
     Ok(ordered)
 }
@@ -2118,6 +2141,7 @@ impl MeteredStream {
                 .and_then(|usage| usage.pointer("/cost/total"))
                 .and_then(ceiling_micro_usd),
             ModelBilling::Subscription => Some(0),
+            ModelBilling::NativeApi => None,
         };
         let Some(micro_usd) = micro_usd else {
             self.failed = true;
@@ -2169,6 +2193,7 @@ impl MeteredStream {
                 .ok()
                 .and_then(|(_, model)| response_tariff_micro_usd(model, input, output, cached)),
             ModelBilling::Subscription => Some(0),
+            ModelBilling::NativeApi => None,
         };
         let Some(micro_usd) = micro_usd else {
             self.failed = true;
@@ -2389,7 +2414,7 @@ pub(crate) fn anthropic_model_has_pinned_tariff(provider_model: &str) -> bool {
 pub fn client() -> Result<&'static ClientConfig> {
     CLIENT
         .get()
-        .context("host model gateway is not installed; restlessd did not finish booting")
+        .context("No direct intelligence provider is active. Connect a direct provider in Intelligence provider and restart Restless, or assign this agent to a connected harness.")
 }
 
 pub fn oauth_is_loaded(provider: &str) -> Result<bool> {
@@ -2486,6 +2511,21 @@ impl Admission {
     }
 }
 
+fn configured_provider_ids(config: &CompanyConfig) -> Result<BTreeSet<String>> {
+    let mut providers = config
+        .model_candidates()?
+        .iter()
+        .map(|model| split_model(model).map(|(provider, _)| provider.to_string()))
+        .collect::<Result<std::collections::BTreeSet<_>>>()?;
+    providers.extend(
+        config
+            .credentials
+            .keys()
+            .filter_map(|key| key.strip_prefix("model.inference.").map(str::to_owned)),
+    );
+    Ok(providers)
+}
+
 async fn provider_credentials(
     configs: &[CompanyConfig],
 ) -> Result<BTreeMap<String, ProviderCredential>> {
@@ -2495,8 +2535,11 @@ async fn provider_credentials(
     // authorised by another company, but iteration order must never decide it.
     for config in configs {
         let (primary_provider, _) = split_model(&config.model)?;
-        for model in config.model_candidates()? {
-            let (provider, _) = split_model(model)?;
+        // Every explicitly connected provider is available to actor-selected models,
+        // not only the company's default and failover routes.
+        let providers = configured_provider_ids(config)?;
+        for provider in &providers {
+            let provider = provider.as_str();
             let provider_capability = format!("model.inference.{provider}");
             let reference = config.credentials.get(&provider_capability).or_else(|| {
                 (provider == primary_provider)
@@ -2781,6 +2824,9 @@ mod tests {
         CompanyConfig::save(
             &root,
             &CompanyConfig {
+                agent_intelligence: Default::default(),
+            native_harnesses: Default::default(),
+                display_name: None,
                 name: "acme_test".into(),
                 mission: "relay test".into(),
                 spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(2),
@@ -2824,6 +2870,18 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(AUTHORIZATION, format!("Bearer {token}").parse().unwrap());
         headers
+    }
+
+    #[test]
+    fn explicitly_connected_providers_are_loaded_alongside_the_default() {
+        let config: CompanyConfig = serde_json::from_value(serde_json::json!({
+            "name": "multi_provider_test", "mission": "Test provider connections", "model": "zai/glm-5.3",
+            "credentials": {"model.inference.anthropic": "env:ANTHROPIC_TEST", "model.inference.openai": "env:OPENAI_TEST", "resend.production": "env:RESEND_TEST"}
+        })).unwrap();
+        assert_eq!(
+            configured_provider_ids(&config).unwrap(),
+            BTreeSet::from(["zai".into(), "anthropic".into(), "openai".into()])
+        );
     }
 
     #[test]
@@ -3011,6 +3069,9 @@ mod tests {
     #[test]
     fn exact_readiness_is_reserved_for_runtime_pinned_catalogues() {
         let config = CompanyConfig {
+            agent_intelligence: Default::default(),
+            native_harnesses: Default::default(),
+            display_name: None,
             name: "catalogue_test".into(),
             mission: String::new(),
             spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(2),
@@ -3036,6 +3097,9 @@ mod tests {
     #[test]
     fn one_companys_unroutable_model_does_not_stop_the_others() {
         let company = |name: &str, model: &str, failover: Vec<String>| CompanyConfig {
+            agent_intelligence: Default::default(),
+            native_harnesses: Default::default(),
+            display_name: None,
             name: name.into(),
             mission: String::new(),
             spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(2),
@@ -3091,6 +3155,9 @@ mod tests {
     #[test]
     fn claude_agent_admission_requires_a_host_api_key_not_subscription_oauth() {
         let config = CompanyConfig {
+            agent_intelligence: Default::default(),
+            native_harnesses: Default::default(),
+            display_name: None,
             name: "claude_test".into(),
             mission: String::new(),
             spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(2),
@@ -3796,6 +3863,9 @@ mod tests {
     #[test]
     fn one_cooldown_read_drives_exec_and_staff_candidate_order() {
         let config = CompanyConfig {
+            agent_intelligence: Default::default(),
+            native_harnesses: Default::default(),
+            display_name: None,
             name: "continuity_test".into(),
             mission: String::new(),
             spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(10_000_000),
@@ -3870,6 +3940,9 @@ mod tests {
     #[test]
     fn explicit_staff_model_never_inherits_the_exec_fallback_chain() {
         let config = CompanyConfig {
+            agent_intelligence: Default::default(),
+            native_harnesses: Default::default(),
+            display_name: None,
             name: "exact_staff_test".into(),
             mission: String::new(),
             spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(10_000_000),

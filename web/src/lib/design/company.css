@@ -1772,8 +1772,25 @@
 	gap: 7px;
 }
 
-.bridge-root .company-desktop-focus > .computer-error {
+.bridge-root .company-desktop-focus > .desktop-notices {
 	grid-row: 2;
+}
+
+.bridge-root .desktop-control-hint {
+	margin: 0;
+	padding: var(--space-3) var(--space-4);
+	background: var(--surface-pane);
+	color: var(--ink);
+	font-size: var(--t-body);
+	border-bottom: 1px solid var(--control-edge);
+}
+
+.bridge-root .desktop-focus-actions .btn {
+	min-height: 44px;
+	padding-inline: var(--space-4);
+}
+
+.bridge-root .company-desktop-focus .computer-error {
 	margin: 0;
 	border-radius: 0;
 }

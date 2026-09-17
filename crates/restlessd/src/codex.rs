@@ -326,7 +326,7 @@ impl CodexSession {
             "runner_digest": self.runner_digest,
             "tool_contract_digest": self.tool_contract_digest,
             "mcp_contract_digest": self.mcp_contract_digest,
-            "responses_tariff_version": crate::model_gateway::RESPONSES_TARIFF_VERSION,
+            "responses_tariff_version": if self.model.starts_with("native-") { None } else { Some(crate::model_gateway::RESPONSES_TARIFF_VERSION) },
             "observed": self.observed,
             "fresh_process_capability": true,
         })
@@ -525,12 +525,16 @@ where
     if responsibility.trim().is_empty() || system_prompt.trim().is_empty() {
         bail!("Codex session needs responsibility and developer instructions");
     }
-    if auth.gateway_token_env != MODEL_CAPABILITY_ENV {
+    if !auth.model.starts_with("native-codex-") && auth.gateway_token_env != MODEL_CAPABILITY_ENV {
         bail!("Codex runner requires the scoped Restless model capability");
     }
     let (mcp_contract, mcp_runtime_env, mcp_contract_digest) = codex_mcp_contract(&mcp_servers)?;
     let locator_path = locator_path(&auth.company, actor, responsibility);
-    let codex_home = home_path(&auth.company, actor, responsibility);
+    let codex_home = if auth.model.starts_with("native-codex-") {
+        crate::native_harness::CODEX_HOME.to_string()
+    } else {
+        home_path(&auth.company, actor, responsibility)
+    };
     let prior = read_locator(container, &locator_path).await?;
     if let Some(locator) = &prior {
         if locator.version != 2
@@ -578,6 +582,14 @@ where
         bail!("prepare Codex session directories failed");
     }
 
+    if auth.model.starts_with("native-codex-") {
+        crate::acp::write_private_container_file(
+            container,
+            &format!("{codex_home}/runner.mjs"),
+            include_str!("../../../tools/codex-runner/restless-codex-runner.mjs"),
+        )
+        .await?;
+    }
     let mut args = crate::acp::agent_exec_prefix(workdir);
     for value in [
         format!("RESTLESS_ACTOR={actor}"),
@@ -596,6 +608,8 @@ where
     args.push(auth.coordination_token_env.clone());
     args.push("-e".to_string());
     args.push(auth.gateway_token_env.clone());
+    if auth.model.starts_with("native-codex-") {args.push("-e".into());args.push("OPENAI_BASE_URL=https://api.openai.com/v1".into());}
+    if auth.model.starts_with("native-codex-oauth/") {args.push("-e".into());args.push("OPENAI_API_KEY=".into());}
     for name in mcp_runtime_env.keys() {
         args.push("-e".to_string());
         args.push(name.clone());
@@ -607,8 +621,15 @@ where
         "umask 007; printf '%s\\n' \"$$\" > \"$1\"; shift; exec \"$@\"".to_string(),
         "restless-codex".to_string(),
         session_marker.clone(),
-        RUNNER.to_string(),
+        if auth.model.starts_with("native-codex-") {
+            "node".to_string()
+        } else {
+            RUNNER.to_string()
+        },
     ]);
+    if auth.model.starts_with("native-codex-") {
+        args.push(format!("{codex_home}/runner.mjs"));
+    }
     let mut child = Command::new("docker")
         .env(&auth.coordination_token_env, &auth.coordination_token)
         .env(&auth.gateway_token_env, &auth.gateway_token)
@@ -727,7 +748,10 @@ where
         ))
     };
     let secret_cleanup = async {
-        crate::acp::purge_exact_secret_residue(container, &codex_home, &auth.gateway_token).await?;
+        if !auth.model.starts_with("native-") {
+            crate::acp::purge_exact_secret_residue(container, &codex_home, &auth.gateway_token)
+                .await?;
+        }
         crate::acp::purge_exact_secret_residue(container, &codex_home, &auth.coordination_token)
             .await
     }
