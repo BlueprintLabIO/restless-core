@@ -260,6 +260,11 @@
 	execName={railActorName}
 	execLive={railConnected}
 	railOpen={execRailOpen}
+	expandExec={page.url.pathname === `/${companyId}` &&
+		attention.status === 'live' &&
+		liveNeedsYou.length === 0 &&
+		!page.url.searchParams.has('computer') &&
+		!focusedAttention}
 	immersive={immersiveComputer}
 	onexectoggle={() => (execRailOpen = !execRailOpen)}
 	rail={railVisible ? executiveRail : null}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resizePane } from '$lib/actions/resize-pane';
 	import { page } from '$app/state';
 	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
 	import {
@@ -207,7 +208,19 @@
 
 <svelte:head><title>Work — {companyName}</title></svelte:head>
 
-<div class="cockpit-screen work-screen">
+<div
+	class="cockpit-screen work-screen"
+	use:resizePane={{
+		key: `${companyId}:work`,
+		label: 'Resize work panes',
+		target: '.goal-spine',
+		variable: '--work-index-w',
+		min: 170,
+		minOther: 280,
+		defaultSize: 228,
+		enabled: true
+	}}
+>
 	{#if error}<div class="cockpit-error">{error}</div>{/if}
 	<aside class="goal-spine cockpit-pane" aria-label="Company goals">
 		<header class="cockpit-pane-head compact">

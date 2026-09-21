@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resizePane } from '$lib/actions/resize-pane';
 	/* People distinguishes accountable contacts from inspectable contributors.
 	 * Teams, actor class and membership come from source-owned projections; the
 	 * page never infers them from ids, role strings or Work titles. */
@@ -319,7 +320,19 @@
 	></svelte:head
 >
 
-<div class="cockpit-screen people-screen">
+<div
+	class="cockpit-screen people-screen"
+	use:resizePane={{
+		key: `${companyId}:people`,
+		label: 'Resize people panes',
+		target: '.people-index',
+		variable: '--people-index-w',
+		min: 180,
+		minOther: 280,
+		defaultSize: 240,
+		enabled: true
+	}}
+>
 	{#if error}<div class="cockpit-error">{error}</div>{/if}
 
 	<section class="people-index cockpit-pane">

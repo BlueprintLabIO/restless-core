@@ -31,8 +31,8 @@
 
 .bridge-root .company-spine {
 	position: relative;
-	width: 230px;
-	min-width: 230px;
+	width: var(--company-index-w, 230px);
+	min-width: var(--company-index-w, 230px);
 	display: flex;
 	flex-direction: column;
 	padding: 11px;

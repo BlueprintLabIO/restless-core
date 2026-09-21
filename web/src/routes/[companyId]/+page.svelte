@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resizePane } from '$lib/actions/resize-pane';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
@@ -420,6 +421,16 @@
 {#if focusedReview}
 	<section
 		class="review-canvas"
+		use:resizePane={{
+			key: `${companyId}:review`,
+			label: 'Resize review source pane',
+			target: '.review-source',
+			variable: '--review-source-w',
+			min: 220,
+			minOther: 280,
+			defaultSize: (width) => width * 0.42,
+			enabled: focusedReview.reviewSources.length > 0
+		}}
 		class:with-source={focusedReview.reviewSources.length > 0}
 		aria-label={`Review ${focusedReview.title}`}
 	>
@@ -551,7 +562,19 @@
 			</div>
 		</header>
 		{#if error}<div class="focus-error">{error}</div>{/if}
-		<div class="browser-workspace">
+		<div
+			class="browser-workspace"
+			use:resizePane={{
+				key: `${companyId}:handover`,
+				label: 'Resize handover conversation',
+				target: '.handover-conversation',
+				variable: '--handover-w',
+				side: 'end',
+				min: 240,
+				minOther: 320,
+				defaultSize: 300
+			}}
+		>
 			<aside
 				class="handover-conversation"
 				aria-label={requestingActor
@@ -644,7 +667,20 @@
 		</div>
 	</div>
 {:else}
-	<div class="cockpit-screen attention-screen" class:queue-clear={queueClear}>
+	<div
+		class="cockpit-screen attention-screen"
+		class:queue-clear={queueClear}
+		use:resizePane={{
+			key: `${companyId}:attention`,
+			label: 'Resize attention panes',
+			target: '.attention-index',
+			variable: '--attention-index-w',
+			min: 180,
+			minOther: 280,
+			defaultSize: 280,
+			enabled: !queueClear
+		}}
+	>
 		{#if error}<div class="cockpit-error attention-error">{error}</div>{/if}
 		<aside class="cockpit-pane attention-index" aria-hidden={queueClear} inert={queueClear}>
 			<div class="attention-index-scroll">
@@ -939,7 +975,7 @@
 		background: var(--surface-alt);
 	}
 	.review-canvas.with-source {
-		grid-template-columns: minmax(320px, 0.42fr) minmax(0, 1fr);
+		grid-template-columns: minmax(0, var(--review-source-w, 42%)) minmax(0, 1fr);
 	}
 	.review-source,
 	.review-outcome {
@@ -1584,7 +1620,7 @@
 		min-width: 0;
 		min-height: 0;
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) minmax(238px, 274px);
+		grid-template-columns: minmax(0, 1fr) var(--handover-w, 274px);
 	}
 	.handover-conversation {
 		grid-column: 2;
@@ -1710,7 +1746,7 @@
 	}
 	@media (max-width: 1040px) {
 		.browser-workspace {
-			grid-template-columns: minmax(0, 1fr) 224px;
+			grid-template-columns: minmax(0, 1fr) var(--handover-w, 224px);
 		}
 		.handover-conversation-head {
 			padding-inline: 10px;

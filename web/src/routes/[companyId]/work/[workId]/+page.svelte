@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resizePane } from '$lib/actions/resize-pane';
 	import { page } from '$app/state';
 	import Markdown from '$lib/primitives/Markdown.svelte';
 	import ConversationTurnDock from '$lib/primitives/ConversationTurnDock.svelte';
@@ -383,7 +384,19 @@
 		{/if}
 
 		<div class="work-detail-scroll">
-			<div class="work-detail-layout">
+			<div
+				class="work-detail-layout"
+				use:resizePane={{
+					key: `${companyId}:work-detail`,
+					label: 'Resize Work facts pane',
+					target: '.work-detail-rail',
+					variable: '--work-facts-w',
+					side: 'end',
+					min: 220,
+					minOther: 280,
+					defaultSize: 300
+				}}
+			>
 				<main class="work-detail-main">
 					{#if readerSummary}
 						<section class="work-reader-summary" aria-label={readerSummaryLabel}>

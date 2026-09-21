@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resizePane } from '$lib/actions/resize-pane';
 	import { page } from '$app/state';
 	import Activity from '@lucide/svelte/icons/activity';
 	import Settings from '@lucide/svelte/icons/settings';
@@ -44,7 +45,19 @@
 {#if computerSurface}
 	<div class="company-focus-shell">{@render children()}</div>
 {:else}
-	<div class="company-area">
+	<div
+		class="company-area"
+		use:resizePane={{
+			key: `${companyId}:company`,
+			label: 'Resize company panes',
+			target: '.company-spine',
+			variable: '--company-index-w',
+			min: 170,
+			minOther: 280,
+			defaultSize: 230,
+			enabled: true
+		}}
+	>
 		<aside class="company-spine">
 			<div class="company-spine-head">
 				<h2>Company</h2>

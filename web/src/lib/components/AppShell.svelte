@@ -15,6 +15,7 @@
 	 * never a collaboration control inferred from company membership. */
 
 	import type { Snippet } from 'svelte';
+	import { resizePane } from '$lib/actions/resize-pane';
 	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
 	import { MODEL_PRESETS } from '$lib/model/model-presets';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
@@ -32,6 +33,7 @@
 		canSwitchCompanies = true,
 		execName = 'Exec',
 		execLive = false,
+		expandExec = false,
 		railOpen = true,
 		immersive = false,
 		onexectoggle = null,
@@ -48,6 +50,7 @@
 		canSwitchCompanies?: boolean;
 		execName?: string;
 		execLive?: boolean;
+		expandExec?: boolean;
 		railOpen?: boolean;
 		/** Gives a prepared live outcome the full browser window while preserving one bounded Exec control. */
 		immersive?: boolean;
@@ -214,7 +217,20 @@
 		</button>
 	{/if}
 
-	<div class="bridge-body">
+	<div
+		class="bridge-body"
+		use:resizePane={{
+			key: `${companyId}:exec`,
+			label: 'Resize Exec pane',
+			target: '.bridge-exrail',
+			variable: '--exec-rail-w',
+			side: 'end',
+			min: 320,
+			minOther: 320,
+			defaultSize: (width) => (expandExec ? width * 0.62 : 380),
+			enabled: !!rail && railOpen && !immersive
+		}}
+	>
 		<div class="bridge-workspace">
 			<main class="bridge-content">{@render children()}</main>
 		</div>
