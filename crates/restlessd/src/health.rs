@@ -314,6 +314,11 @@ pub fn classify(end: &acp::TurnEnd) -> Verdict {
 /// routing it through `classify` would be a category error.
 #[must_use]
 pub fn classify_provider_error(text: &str) -> Option<Blocked> {
+    // A runner framing error may include arbitrary transcript text or numeric
+    // offsets. It is not evidence of an HTTP status from the provider.
+    if text.contains("unparseable Codex app-server output") {
+        return Some(Blocked::transport("Codex session transport received an invalid JSON message"));
+    }
     let lower = text.to_lowercase();
     let has = |needle: &str| lower.contains(needle);
 
@@ -682,6 +687,14 @@ mod tests {
             };
             assert_eq!(blocked(classify(&end)).kind, expected, "{text}");
         }
+    }
+
+    #[test]
+    fn codex_framing_errors_do_not_classify_transcript_as_http_status() {
+        let error = r#"Codex runner failed before readiness: {"type":"runner_error","message":"unparseable Codex app-server output","details":{"error":"Unterminated string at position 40402","tail":"401 credit quota"}}"#;
+        let result = classify_provider_error(error).unwrap();
+        assert_eq!(result.kind, BlockKind::Transport);
+        assert!(result.detail.contains("invalid JSON"));
     }
 
     #[test]

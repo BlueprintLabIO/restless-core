@@ -22,9 +22,27 @@ function waitForExit(child) {
 function fakeCodex(directory) {
   const path = join(directory, 'fake-codex');
   writeFileSync(path, `#!/usr/bin/env node
-const readline = require('node:readline');
-const input = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
-function out(value) { process.stdout.write(JSON.stringify(value) + '\\n'); }
+// Test peer uses LF framing too: the regression covers legal Unicode in both directions.
+const input = new (require('node:events').EventEmitter)();
+let buffer = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', chunk => {
+  buffer += chunk;
+  let i;
+  while ((i = buffer.indexOf('\\n')) >= 0) {
+    const line = buffer.slice(0, i);
+    buffer = buffer.slice(i + 1);
+    input.emit('line', line);
+  }
+});
+function out(value) {
+  const bytes = Buffer.from(JSON.stringify(value) + '\\n');
+  const split = bytes.indexOf(Buffer.from('\\u2028')) + 1;
+  if (split > 0) {
+    process.stdout.write(bytes.subarray(0, split));
+    setTimeout(() => process.stdout.write(bytes.subarray(split)), 5);
+  } else process.stdout.write(bytes);
+}
 const requiredDisabled = ['multi_agent', 'plugins', 'remote_plugin', 'plugin_sharing', 'skill_search', 'skill_mcp_dependency_install', 'apps', 'browser_use', 'browser_use_external', 'browser_use_full_cdp_access', 'computer_use', 'image_generation', 'in_app_browser'];
 const disabled = process.argv.flatMap((value, index, all) => value === '--disable' ? [all[index + 1]] : []);
 if (!requiredDisabled.every((feature) => disabled.includes(feature))) process.exit(91);
@@ -34,10 +52,11 @@ let pendingTurnStart = null;
 input.on('line', (line) => {
   const message = JSON.parse(line);
   if (message.method === 'initialize') {
-    out({ id: message.id, result: { userAgent: 'codex-cli 0.test', codexHome: process.env.CODEX_HOME } });
+    out({ id: message.id, result: { userAgent: 'codex-cli 0.test', history: 'x'.repeat(75000) + '\\u2028& Benefits\\u2029😀', codexHome: process.env.CODEX_HOME } });
   } else if (message.method === 'initialized') {
     out({ method: 'remoteControl/status/changed', params: { status: 'disabled' } });
   } else if (message.method === 'thread/start') {
+    if (message.params.developerInstructions !== 'Test instructions.\\u2028Next\\u2029😀') process.exit(94);
     out({ id: message.id, result: { thread: { id: 'thread-test' }, model: message.params.model, modelProvider: message.params.modelProvider, reasoningEffort: 'high', cwd: message.params.cwd, approvalPolicy: message.params.approvalPolicy, sandbox: message.params.sandbox } });
     out({ method: 'thread/started', params: { thread: { id: 'thread-test' } } });
   } else if (message.method === 'turn/start') {
@@ -59,7 +78,7 @@ input.on('line', (line) => {
   return path;
 }
 
-test('normalises app-server session, turn, steer, usage and interrupt events', async () => {
+test('normalises events and preserves large JSON frames with Unicode separators across UTF-8 chunks', async () => {
   const temporary = mkdtempSync(join(tmpdir(), 'restless-codex-runner-test.'));
   let child = null;
   let stderr = '';
@@ -83,7 +102,7 @@ test('normalises app-server session, turn, steer, usage and interrupt events', a
       model: 'litellm/gpt-5.6-sol',
       effort: 'high',
       provider_base_url: 'http://host.docker.internal:7790',
-      developer_instructions: 'Test instructions.',
+      developer_instructions: 'Test instructions.\u2028Next\u2029😀',
       codex_bin: fakeCodex(temporary),
     });
     await new Promise((resolve, reject) => {

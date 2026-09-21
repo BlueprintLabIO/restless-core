@@ -12,7 +12,24 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { createInterface } from 'node:readline';
+// JSONL is framed by LF, not by every character a terminal considers a line
+// break. In particular, U+2028/U+2029 are legal unescaped JSON string content.
+function readJsonLines(stream, onLine) {
+  stream.setEncoding('utf8');
+  let pending = '';
+  stream.on('data', (chunk) => {
+    pending += chunk;
+    let end;
+    while ((end = pending.indexOf('\n')) !== -1) {
+      const line = pending.slice(0, end);
+      pending = pending.slice(end + 1);
+      onLine(line);
+    }
+  });
+  stream.on('end', () => {
+    if (pending.trim()) onLine(pending);
+  });
+}
 
 const PROTOCOL_VERSION = 1;
 const CLIENT = {
@@ -334,12 +351,12 @@ function handleServerMessage(message) {
 function attachAppServer(child) {
   appServer = child;
   appInput = child.stdin;
-  createInterface({ input: child.stdout, crlfDelay: Infinity }).on('line', (line) => {
+  readJsonLines(child.stdout, (line) => {
     if (!line.trim()) return;
     try {
       handleServerMessage(JSON.parse(line));
     } catch (error) {
-      fail('unparseable Codex app-server output', { error: error.message, tail: line.slice(-1000) });
+      fail('unparseable Codex app-server output', { error: error.message, byte_length: Buffer.byteLength(line) });
     }
   });
   child.stderr.setEncoding('utf8');
@@ -520,9 +537,8 @@ async function dispatch(operation) {
   }
 }
 
-const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
 let chain = Promise.resolve();
-input.on('line', (line) => {
+readJsonLines(process.stdin, (line) => {
   if (!line.trim()) return;
   chain = chain.then(async () => {
     let operation = null;
@@ -549,7 +565,7 @@ input.on('line', (line) => {
     }
   });
 });
-input.on('close', () => {
+process.stdin.on('end', () => {
   chain.finally(() => {
     if (appInput && !appInput.destroyed) appInput.end();
   });
