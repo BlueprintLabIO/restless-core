@@ -152,6 +152,7 @@
 	<button
 		type="button"
 		class="turn-summary"
+		title="Show or hide live tools and activity. Reply text streams below."
 		aria-expanded={expanded}
 		aria-controls={`turn-${turn.triggerMessageId}`}
 		onclick={toggleExpanded}
@@ -178,6 +179,17 @@
 			>{/if}
 		<span class="turn-chevron" aria-hidden="true">⌄</span>
 	</button>
+
+	{#if reply && !expanded && turn.transport !== 'idle'}
+		<article
+			class="streamed-reply visible-reply"
+			aria-label={`${participantName} streaming reply`}
+			aria-busy={working}
+		>
+			<div class="streamed-copy"><Markdown text={reply} /></div>
+			{#if working}<span class="stream-caret" aria-hidden="true"></span>{/if}
+		</article>
+	{/if}
 
 	<div id={`turn-${turn.triggerMessageId}`} class="turn-disclosure" aria-hidden={!expanded}>
 		<div class="turn-clip">
@@ -221,6 +233,8 @@
 	.conversation-turn-dock {
 		position: relative;
 		width: 100%;
+		min-width: 0;
+		max-width: 100%;
 		flex: 0 0 auto;
 		border-block: 1px solid color-mix(in srgb, var(--intent-conversation) 18%, var(--border));
 		background: color-mix(in srgb, var(--intent-conversation-soft) 30%, var(--surface));
@@ -232,6 +246,7 @@
 		min-width: 0;
 		display: flex;
 		align-items: center;
+		flex-wrap: wrap;
 		gap: 8px;
 		padding: 8px 12px 7px 14px;
 		border: 0;
@@ -304,7 +319,8 @@
 		margin-left: auto;
 		color: var(--text-tertiary);
 		font: 500 var(--t-caption) var(--font-mono);
-		white-space: nowrap;
+		white-space: normal;
+		overflow-wrap: anywhere;
 	}
 	.output-usage + .turn-chevron,
 	.context-usage + .turn-chevron {
@@ -358,6 +374,8 @@
 	}
 
 	.live-sequence {
+		min-width: 0;
+		grid-template-columns: minmax(0, 1fr);
 		display: grid;
 		gap: 7px;
 	}

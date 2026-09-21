@@ -21,6 +21,12 @@
 <div class="md">{@html html}</div>
 
 <style>
+	.md :global(img),
+	.md :global(video),
+	.md :global(svg) {
+		max-width: 100%;
+		height: auto;
+	}
 	.md {
 		min-width: 0;
 		overflow-wrap: anywhere;
@@ -99,10 +105,12 @@
 	.md :global(pre code) {
 		padding: 0;
 		background: transparent;
-		white-space: pre;
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
 	}
 	.md :global(table) {
 		width: 100%;
+		table-layout: fixed;
 		border-collapse: collapse;
 		margin: 0 0 0.6em;
 	}
