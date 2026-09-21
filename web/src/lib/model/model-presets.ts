@@ -89,4 +89,3 @@ export const MODEL_PRESETS = [
 		]
 	}
 ];
-export const DEFAULT_COMPANY_MODEL = 'zai/glm-5.3';
