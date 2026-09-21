@@ -2,7 +2,7 @@
 
 [![Watch the Restless product walkthrough](docs/media/restless-product-poster.png)](https://github.com/BlueprintLabIO/restless-core/blob/dev/docs/media/restless-product-tour.mp4)
 
-**[Watch the product walkthrough](https://github.com/BlueprintLabIO/restless-core/blob/dev/docs/media/restless-product-tour.mp4)** — a Full HD walkthrough recorded from the live development build, edited for pacing.
+**[Watch the product walkthrough](https://github.com/BlueprintLabIO/restless-core/blob/dev/docs/media/restless-product-tour.mp4)** — 38 seconds inside an illustrative studio business: shared documents, feedback, a playable prototype, the company computer and authority controls. Real development UI, with narration and [captions](docs/media/restless-product-tour.vtt).
 
 **Run your business with AI. Spend your attention on the work that needs you.**
 
@@ -198,8 +198,12 @@ production run. It illustrates the experience to demonstrate with a real pilot.*
 
 ## Product tour
 
-These are real screenshots from the local Restless development build on 21 September
-2026. They show the existing Site Renovation company, not a staged game studio. All images and the video use a consistent **1920 × 1080 (16:9)** frame.
+The video above uses a staged Lantern Studio scenario in the real Restless development
+build. It demonstrates the collaboration surfaces and a playable example, rather than
+a completed autonomous company run. [Media notes](docs/media/README.md) describe the capture.
+
+The screenshots below were captured on 21 September 2026 from the existing Site
+Renovation company. All images and the video use a consistent **1920 × 1080 (16:9)** frame.
 Account emails are masked in provider screenshots; product state is otherwise unchanged.
 Empty states are identified below.
 
