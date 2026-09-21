@@ -266,10 +266,8 @@ Rooms have explicit participants. A conversation belongs to its audience, making
 human and agent collaboration boundary inspectable rather than assuming every agent
 or person can read every discussion.
 
-![Room members showing the human owner and Exec](docs/screenshots/restless-room-members.jpg)
-
-*This direct room contains one human and one agent. It illustrates membership, not a
-multi-human editing benchmark or a complete permissions administration screen.*
+The inspected direct room contained one human and one agent. That establishes its
+membership display, not a multi-human editing benchmark.
 
 ### Know which resources are available
 
