@@ -2,10 +2,12 @@
 
 The README media uses a consistent 1920 × 1080 (16:9) frame.
 
-- `restless-product-tour.mp4`: approximately 38 seconds, opening directly on the studio example and ending on authority controls. No opening title card or closing promotional cards. H.264 at 60 fps with stereo narration and music; chapter markers and embedded English captions are included.
+- `restless-product-tour.mp4`: approximately 38 seconds, opening directly on the studio example and ending on authority controls. No opening title card or closing promotional cards. H.264 at 60 fps with stereo narration and music; chapter markers are included; English captions are available in the adjacent VTT file. The web encode is 7.1 MB.
 - `restless-product-tour.vtt`: English captions with timing adjusted to this cut.
-- `restless-product-poster.png`: a frame from the document review sequence, used as the README's click-through poster.
+- `restless-product-poster.png`: a frame from the document review sequence, retained as a standalone poster.
 - `../screenshots/*.png`: Full HD captures of the existing Site Renovation company. Provider account emails are explicitly masked. PNG publication avoids another lossy export, although the browser supplies JPEG source captures.
+
+The README embeds a GitHub-hosted video attachment so visitors can play it inline. The repository MP4 remains a download fallback; GitHub's blob viewer is not used as the playback destination.
 
 ## Video capture
 

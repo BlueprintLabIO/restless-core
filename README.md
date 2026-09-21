@@ -1,8 +1,8 @@
 # Restless
 
-[![Watch the Restless product walkthrough](docs/media/restless-product-poster.png)](https://github.com/BlueprintLabIO/restless-core/blob/dev/docs/media/restless-product-tour.mp4)
+https://github.com/user-attachments/assets/9e8fa0e4-c8ad-43a1-af92-c7ef9d3602a6
 
-**[Watch the product walkthrough](https://github.com/BlueprintLabIO/restless-core/blob/dev/docs/media/restless-product-tour.mp4)** — 38 seconds inside an illustrative studio business: shared documents, feedback, a playable prototype, the company computer and authority controls. Real development UI, with narration and [captions](docs/media/restless-product-tour.vtt).
+**[Watch the product walkthrough](https://github.com/user-attachments/assets/9e8fa0e4-c8ad-43a1-af92-c7ef9d3602a6)** — 38 seconds inside an illustrative studio business: shared documents, feedback, a playable prototype, the company computer and authority controls. Real development UI, with narration and [captions](docs/media/restless-product-tour.vtt). [Download MP4](https://github.com/BlueprintLabIO/restless-core/raw/refs/heads/dev/docs/media/restless-product-tour.mp4).
 
 **Run your business with AI. Spend your attention on the work that needs you.**
 
