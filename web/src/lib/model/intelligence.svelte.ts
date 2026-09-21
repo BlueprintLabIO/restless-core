@@ -13,6 +13,7 @@ export type IntelligenceAgent = {
 	role: string;
 	assignment: { connection: string; model: string } | null;
 	effective_model: string;
+	thinking_effort?: string;
 	harness: string;
 };
 export type IntelligenceView = {
