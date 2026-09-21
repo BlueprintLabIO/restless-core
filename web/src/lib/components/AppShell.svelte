@@ -16,8 +16,7 @@
 
 	import type { Snippet } from 'svelte';
 	import { resizePane } from '$lib/actions/resize-pane';
-	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
-	import { MODEL_PRESETS } from '$lib/model/model-presets';
+	import IntelligencePopover from './IntelligencePopover.svelte';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import MessageSquare from '@lucide/svelte/icons/message-square';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
@@ -65,22 +64,6 @@
 		rail?: Snippet | null;
 		children: Snippet;
 	} = $props();
-
-	const intelligence = $derived(intelligenceQuery(companyId, () => !!rail));
-	const exec = $derived(intelligence.view?.agents.find((agent) => agent.id === 'exec'));
-	const connection = $derived(
-		exec?.assignment?.connection ?? intelligence.view?.default?.connection
-	);
-	const provider = $derived.by(() => {
-		if (!exec) return 'Unavailable';
-		if (connection === 'harness:codex' || exec.effective_model.startsWith('native-codex-'))
-			return 'ChatGPT / Codex';
-		if (connection === 'harness:claude-agent' || exec.effective_model.startsWith('native-claude-'))
-			return 'Claude Code';
-		const id = connection?.replace('direct:', '') ?? exec.effective_model.split('/')[0];
-		return MODEL_PRESETS.find((p) => p.id === id)?.name ?? id;
-	});
-	let detailsDismissed = $state(false);
 
 	const activeCompanies = $derived(
 		companies.filter((company) => company.lifecycle_status === 'active')
@@ -159,44 +142,22 @@
 
 		<div class="tb-right">
 			{#if rail}
-				<div class="exec-hover" class:dismissed={detailsDismissed}>
-					<button
-						class="tb-exec"
-						class:live={execLive}
-						class:on={railOpen}
-						type="button"
-						aria-controls="bridge-exrail"
-						aria-expanded={railOpen}
-						aria-describedby="exec-intelligence-popover"
-						onpointerenter={() => (detailsDismissed = false)}
-						onfocus={() => (detailsDismissed = false)}
-						onkeydown={(event) => {
-							if (event.key === 'Escape') detailsDismissed = true;
-						}}
-						onclick={() => onexectoggle?.()}
-					>
-						<!-- Shape says what the control does, colour says whether the Exec can
-					     answer: the button tints and glows live, greys when unreachable. -->
-						<MessageSquare size={13} strokeWidth={2} aria-hidden="true" />
-						{execName}
-					</button>
-					<div id="exec-intelligence-popover" class="exec-intelligence-popover" role="tooltip">
-						<strong>Exec intelligence</strong>
-						{#if intelligence.error}<p>Could not load intelligence settings.</p>
-						{:else if !intelligence.view}<p>Loading intelligence…</p>
-						{:else if !exec}<p>No Exec configuration available.</p>
-						{:else}
-							<dl>
-								<dt>Provider</dt>
-								<dd>{provider}</dd>
-								<dt>Model</dt>
-								<dd>{exec.effective_model.split('/').at(-1)}</dd>
-								<dt>Thinking effort</dt>
-								<dd>{exec.thinking_effort ?? 'Unavailable'}</dd>
-							</dl>
-						{/if}
-					</div>
-				</div>
+				<IntelligencePopover {companyId}>
+					{#snippet children(tooltipId)}
+						<button
+							class="tb-exec"
+							class:live={execLive}
+							class:on={railOpen}
+							type="button"
+							aria-controls="bridge-exrail"
+							aria-expanded={railOpen}
+							aria-describedby={tooltipId}
+							onclick={() => onexectoggle?.()}
+						>
+							<MessageSquare size={13} strokeWidth={2} aria-hidden="true" />{execName}
+						</button>
+					{/snippet}
+				</IntelligencePopover>
 			{/if}
 		</div>
 	</header>
@@ -239,53 +200,7 @@
 </div>
 
 <style>
-	.bridge-topbar:has(.exec-hover:not(.dismissed):is(:hover, :focus-within)) {
+	.bridge-topbar:has(:global(.intelligence-hover:not(.dismissed):is(:hover, :focus-within))) {
 		z-index: calc(var(--z-rail) + 1);
-	}
-	.exec-hover {
-		position: relative;
-	}
-	.exec-intelligence-popover {
-		position: absolute;
-		right: 0;
-		top: calc(100% + 8px);
-		z-index: 100;
-		width: min(290px, calc(100vw - 32px));
-		padding: var(--space-4);
-		border: 1px solid var(--control-edge);
-		border-radius: var(--radius-control);
-		background: var(--surface-pane);
-		color: var(--ink);
-		box-shadow: 0 6px 20px rgb(0 0 0 / 12%);
-		visibility: hidden;
-		font-size: var(--t-body);
-	}
-	.exec-intelligence-popover::before {
-		content: '';
-		position: absolute;
-		top: -9px;
-		left: 0;
-		right: 0;
-		height: 9px;
-	}
-	.exec-hover:not(.dismissed):hover .exec-intelligence-popover,
-	.exec-hover:not(.dismissed):focus-within .exec-intelligence-popover {
-		visibility: visible;
-	}
-	dl {
-		display: grid;
-		grid-template-columns: auto minmax(0, 1fr);
-		gap: var(--space-3);
-		margin: var(--space-4) 0 0;
-	}
-	dt {
-		color: var(--text-tertiary);
-	}
-	dd {
-		margin: 0;
-		overflow-wrap: anywhere;
-	}
-	p {
-		margin-bottom: 0;
 	}
 </style>

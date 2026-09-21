@@ -228,6 +228,7 @@
 	<ExecutiveRail
 		messages={railConversation.messages}
 		participantName={railActorName}
+		participantId={railActorId}
 		participantRole={railActorRole}
 		turn={railConversation.activeTurn}
 		{companyId}

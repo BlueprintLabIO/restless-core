@@ -1,0 +1,124 @@
+<script lang="ts">
+	import type { Snippet } from 'svelte';
+	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
+	import { MODEL_PRESETS } from '$lib/model/model-presets';
+	let {
+		companyId,
+		actorId = 'exec',
+		label = 'Exec',
+		align = 'end',
+		children
+	}: {
+		companyId: string;
+		actorId?: string;
+		label?: string;
+		align?: 'start' | 'end';
+		children: Snippet<[string]>;
+	} = $props();
+	const tooltipId = $props.id();
+	const intelligence = $derived(intelligenceQuery(companyId, () => true));
+	const exec = $derived(intelligence.view?.agents.find((agent) => agent.id === actorId));
+	const connection = $derived(
+		exec?.assignment?.connection ?? intelligence.view?.default?.connection
+	);
+	const provider = $derived.by(() => {
+		if (!exec) return 'Unavailable';
+		if (connection === 'harness:codex' || exec.effective_model.startsWith('native-codex-'))
+			return 'ChatGPT / Codex';
+		if (connection === 'harness:claude-agent' || exec.effective_model.startsWith('native-claude-'))
+			return 'Claude Code';
+		const id = connection?.replace('direct:', '') ?? exec.effective_model.split('/')[0];
+		return MODEL_PRESETS.find((p) => p.id === id)?.name ?? id;
+	});
+	let detailsDismissed = $state(false);
+</script>
+
+<svelte:window
+	onkeydown={(event) => {
+		if (event.key === 'Escape') detailsDismissed = true;
+	}}
+/>
+<div
+	class="intelligence-hover"
+	role="group"
+	class:dismissed={detailsDismissed}
+	class:align-start={align === 'start'}
+	onpointerenter={() => (detailsDismissed = false)}
+	onfocusin={() => (detailsDismissed = false)}
+>
+	{@render children(tooltipId)}
+	<div id={tooltipId} class="intelligence-popover" role="tooltip">
+		<strong>{label} intelligence</strong>
+		{#if intelligence.error}<p>Could not load intelligence settings.</p>
+		{:else if !intelligence.view}<p>Loading intelligence…</p>
+		{:else if !exec}<p>No configuration available.</p>
+		{:else}<dl>
+				<dt>Provider</dt>
+				<dd>{provider}</dd>
+				<dt>Model</dt>
+				<dd>{exec.effective_model.split('/').at(-1)}</dd>
+				<dt>Thinking effort</dt>
+				<dd>{exec.thinking_effort ?? 'Unavailable'}</dd>
+			</dl>{/if}
+	</div>
+</div>
+
+<style>
+	:global(
+		body:has(.intelligence-hover:hover) .intelligence-hover:not(:hover) .intelligence-popover
+	) {
+		visibility: hidden;
+	}
+
+	.intelligence-hover {
+		position: relative;
+	}
+	.intelligence-popover {
+		position: absolute;
+		right: 0;
+		top: calc(100% + 8px);
+		z-index: 100;
+		width: min(290px, calc(100vw - 32px));
+		padding: var(--space-4);
+		border: 1px solid var(--control-edge);
+		border-radius: var(--radius-control);
+		background: var(--surface-pane);
+		color: var(--ink);
+		box-shadow: 0 6px 20px rgb(0 0 0 / 12%);
+		visibility: hidden;
+		font-size: var(--t-body);
+	}
+	.intelligence-popover::before {
+		content: '';
+		position: absolute;
+		top: -9px;
+		left: 0;
+		right: 0;
+		height: 9px;
+	}
+	.intelligence-hover:not(.dismissed):hover .intelligence-popover,
+	.intelligence-hover:not(.dismissed):focus-within .intelligence-popover {
+		visibility: visible;
+	}
+	dl {
+		display: grid;
+		grid-template-columns: auto minmax(0, 1fr);
+		gap: var(--space-3);
+		margin: var(--space-4) 0 0;
+	}
+	dt {
+		color: var(--text-tertiary);
+	}
+	dd {
+		margin: 0;
+		overflow-wrap: anywhere;
+	}
+	p {
+		margin-bottom: 0;
+	}
+
+	.align-start .intelligence-popover {
+		left: 0;
+		right: auto;
+	}
+</style>

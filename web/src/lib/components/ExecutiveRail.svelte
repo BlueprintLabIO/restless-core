@@ -5,6 +5,7 @@
 	 * chat inside the outcome surface. */
 
 	import { tick } from 'svelte';
+	import IntelligencePopover from './IntelligencePopover.svelte';
 	import { SvelteDate } from 'svelte/reactivity';
 	import Plus from '@lucide/svelte/icons/plus';
 	import ArrowUpRight from '@lucide/svelte/icons/arrow-up-right';
@@ -23,6 +24,7 @@
 	let {
 		messages = [],
 		participantName = 'Exec',
+		participantId = 'exec',
 		participantRole = 'Executive',
 		turn = null,
 		companyId,
@@ -40,6 +42,7 @@
 	}: {
 		messages?: ThreadMessage[];
 		participantName?: string;
+		participantId?: string;
 		participantRole?: string;
 		turn?: ActiveAgentTurn | null;
 		companyId: string;
@@ -309,12 +312,24 @@
 						<ArrowLeft size={18} aria-hidden="true" />
 					</button>
 				{/if}
-				<div class="exr-who">
-					<SemanticMark meaning={review || workContext ? 'work' : 'executive'} />
-					<span>
-						<strong class="exr-name">{participantName}</strong>
-					</span>
-				</div>
+				<IntelligencePopover
+					{companyId}
+					actorId={participantId}
+					label={participantName}
+					align="start"
+				>
+					{#snippet children(tooltipId)}
+						<button
+							class="exr-who intelligence-trigger"
+							type="button"
+							aria-label={`${participantName} intelligence settings`}
+							aria-describedby={tooltipId}
+						>
+							<SemanticMark meaning={review || workContext ? 'work' : 'executive'} />
+							<strong class="exr-name">{participantName}</strong>
+						</button>
+					{/snippet}
+				</IntelligencePopover>
 				{#if newFocusAvailable}
 					<button
 						class="exr-new-focus"
@@ -492,6 +507,19 @@
 </aside>
 
 <style>
+	.intelligence-trigger {
+		border: 0;
+		padding: 0;
+		background: transparent;
+		color: inherit;
+		cursor: help;
+	}
+	.intelligence-trigger:focus-visible {
+		outline: 2px solid var(--intent-conversation);
+		outline-offset: 4px;
+		border-radius: var(--radius-control);
+	}
+
 	.provider-connect {
 		display: flex;
 		align-items: center;
