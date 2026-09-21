@@ -556,6 +556,10 @@
 		align-items: center;
 		gap: 10px;
 	}
+	.exr-head-primary > :global(.intelligence-hover) {
+		min-width: 0;
+		margin-right: auto;
+	}
 	.exr-head-primary .exr-who {
 		min-width: 0;
 		flex: 1 1 auto;

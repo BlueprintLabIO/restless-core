@@ -16,7 +16,6 @@
 
 	import type { Snippet } from 'svelte';
 	import { resizePane } from '$lib/actions/resize-pane';
-	import IntelligencePopover from './IntelligencePopover.svelte';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import MessageSquare from '@lucide/svelte/icons/message-square';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
@@ -142,22 +141,17 @@
 
 		<div class="tb-right">
 			{#if rail}
-				<IntelligencePopover {companyId}>
-					{#snippet children(tooltipId)}
-						<button
-							class="tb-exec"
-							class:live={execLive}
-							class:on={railOpen}
-							type="button"
-							aria-controls="bridge-exrail"
-							aria-expanded={railOpen}
-							aria-describedby={tooltipId}
-							onclick={() => onexectoggle?.()}
-						>
-							<MessageSquare size={13} strokeWidth={2} aria-hidden="true" />{execName}
-						</button>
-					{/snippet}
-				</IntelligencePopover>
+				<button
+					class="tb-exec"
+					class:live={execLive}
+					class:on={railOpen}
+					type="button"
+					aria-controls="bridge-exrail"
+					aria-expanded={railOpen}
+					onclick={() => onexectoggle?.()}
+				>
+					<MessageSquare size={13} strokeWidth={2} aria-hidden="true" />{execName}
+				</button>
 			{/if}
 		</div>
 	</header>
@@ -198,9 +192,3 @@
 		{#if rail}{@render rail()}{/if}
 	</div>
 </div>
-
-<style>
-	.bridge-topbar:has(:global(.intelligence-hover:not(.dismissed):is(:hover, :focus-within))) {
-		z-index: calc(var(--z-rail) + 1);
-	}
-</style>
