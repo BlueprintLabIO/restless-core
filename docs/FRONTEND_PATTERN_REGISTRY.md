@@ -119,3 +119,24 @@ Desktop/mobile evidence: pending final rendered acceptance in Sprint 38 T6.
 
 Elements removed during final restraint pass: app-store card grid, duplicated provider metadata,
 full-screen morph, gradient/glow decoration, hover-only copy replacement and automatic iframe load.
+
+## Streaming Markdown
+
+`web/src/lib/primitives/Markdown.svelte` uses `svelte-streamdown` 4.2.0
+([source](https://github.com/beynar/svelte-streamdown/tree/085b97daaa046d1ddd5b73354322e6f16c7b6628), MIT).
+It serves `conversation-band`: stable completed blocks while the live tail changes,
+partial tables/fences, and highlighted code with an accessible copy control.
+Restless owns typography and geometry; no Tailwind runtime or upstream visual theme is imported.
+Raw HTML rendering and model-supplied components are disabled; links and images go through
+Streamdown's URL checks. Animations are disabled, including for reduced-motion users.
+Only the visible live-reply surface is rendered. Static documents use the same component
+without incomplete-Markdown repair. Mermaid and math remain lightweight source fallbacks.
+
+Regression check against a running local cockpit:
+`RESTLESS_TEST_SOURCE_COMPANY=<existing-company> npm run verify:markdown` from `web/`.
+Install Playwright Chromium first (`npx playwright install chromium`) if needed.
+The check proxies GETs only and supplies conversation/SSE fixtures to a browser-only
+`markdown_renderer_test` path; it does not create or write a company. It verifies DOM
+identity across updates, partial tables and code, highlighting/copy, unsafe HTML/URL
+handling, final-message handoff, and narrow/mobile overflow. The temporary SSE server
+and browser are closed on success or failure.

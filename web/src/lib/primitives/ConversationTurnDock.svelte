@@ -186,7 +186,7 @@
 			aria-label={`${participantName} streaming reply`}
 			aria-busy={working}
 		>
-			<div class="streamed-copy"><Markdown text={reply} /></div>
+			<div class="streamed-copy"><Markdown text={reply} streaming={working} /></div>
 			{#if working}<span class="stream-caret" aria-hidden="true"></span>{/if}
 		</article>
 	{/if}
@@ -194,13 +194,13 @@
 	<div id={`turn-${turn.triggerMessageId}`} class="turn-disclosure" aria-hidden={!expanded}>
 		<div class="turn-clip">
 			<div class="turn-body" bind:this={replyScroll}>
-				{#if timeline.length}
+				{#if expanded && timeline.length}
 					<article class="streamed-reply" data-live={working}>
 						<header><strong>{participantName}</strong><span>live notes</span></header>
 						<div class="live-sequence" aria-label="Chronological live activity">
 							{#each timeline as item (item.id)}
 								{#if item.kind === 'text'}
-									<div class="streamed-copy"><Markdown text={item.text} /></div>
+									<div class="streamed-copy"><Markdown text={item.text} streaming={working} /></div>
 								{:else}
 									<div class="trace-row" class:active={item.activity.status === 'active'}>
 										<span class="trace-state" aria-hidden="true"></span>
