@@ -83,7 +83,7 @@ RUN npm install -g bun@1.3.14 \
 # separately supported ACP backend. Pinning the CLI makes thread, event,
 # approval and usage semantics part of the company-image contract rather than
 # whatever npm happens to publish on rebuild day.
-ARG CODEX_CLI_VERSION=0.151.0
+ARG CODEX_CLI_VERSION=0.155.1
 RUN npm install -g "@openai/codex@${CODEX_CLI_VERSION}" \
     && test "$(codex --version)" = "codex-cli ${CODEX_CLI_VERSION}" \
     && npm cache clean --force

@@ -322,7 +322,7 @@ impl AgentHarness {
     pub(crate) const fn build(self) -> &'static str {
         match self {
             Self::RestlessManaged => "omp-18.0.10",
-            Self::Codex => "codex-cli-0.151.0",
+            Self::Codex => "codex-cli-0.155.1",
             Self::ClaudeAgent => "claude-agent-acp-0.73.0",
         }
     }

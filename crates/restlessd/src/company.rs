@@ -1838,7 +1838,7 @@ model = "moonshot/kimi-k3"
             schema_version: crate::release::SCHEMA_VERSION,
             harnesses: [
                 ("restless-managed".into(), "omp-18.0.10".into()),
-                ("codex".into(), "codex-cli-0.151.0".into()),
+                ("codex".into(), "codex-cli-0.155.1".into()),
                 ("claude-agent".into(), "claude-agent-acp-0.73.0".into()),
             ]
             .into_iter()
