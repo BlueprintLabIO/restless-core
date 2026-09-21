@@ -1,8 +1,8 @@
 # Restless
 
-[![Watch the 30-second Restless product tour](docs/media/restless-product-tour.gif)](https://github.com/BlueprintLabIO/restless-core/blob/dev/docs/media/restless-product-tour.mp4)
+[![Watch the Restless product walkthrough](docs/media/restless-product-poster.png)](https://github.com/BlueprintLabIO/restless-core/blob/dev/docs/media/restless-product-tour.mp4)
 
-**[Watch the 30-second product tour](https://github.com/BlueprintLabIO/restless-core/blob/dev/docs/media/restless-product-tour.mp4)** — a captioned tour of the actual development build, assembled from screenshots.
+**[Watch the product walkthrough](https://github.com/BlueprintLabIO/restless-core/blob/dev/docs/media/restless-product-tour.mp4)** — a Full HD walkthrough recorded from the live development build, edited for pacing.
 
 **Run your business with AI. Spend your attention on the work that needs you.**
 
@@ -199,9 +199,9 @@ production run. It illustrates the experience to demonstrate with a real pilot.*
 ## Product tour
 
 These are real screenshots from the local Restless development build on 21 September
-2026. They show the existing Site Renovation company, not a staged game studio. Some
-captures are cropped to the relevant controls; the interface and data have not been
-recreated or retouched. Empty states are identified below.
+2026. They show the existing Site Renovation company, not a staged game studio. All images and the video use a consistent **1920 × 1080 (16:9)** frame.
+Account emails are masked in provider screenshots; product state is otherwise unchanged.
+Empty states are identified below.
 
 ### A company computer you can actually enter
 
@@ -210,7 +210,7 @@ applications. Open its desktop inside Restless to inspect the same environment. 
 opens in viewing mode; **Take control** enables input when your participation is needed,
 and **Leave computer** returns you to the workspace.
 
-![Live embedded company desktop with viewing and takeover controls](docs/screenshots/restless-computer.jpg)
+![Live embedded company desktop with viewing and takeover controls](docs/screenshots/restless-computer.png)
 
 *The live desktop is displaying a provider login page. The capture demonstrates the
 embedded computer and viewing controls, not a completed login. The company environment
@@ -224,7 +224,7 @@ bounded. **Authority & limits** makes the distinction visible: what the company 
 do independently, what it must ask you about, and what it cannot grant itself.
 The same screen shows the outcome standard, model spend ceiling and standing grants.
 
-![Authority boundaries, owner decisions and model spend ceiling](docs/screenshots/restless-authority.jpg)
+![Authority boundaries, owner decisions and model spend ceiling](docs/screenshots/restless-authority.png)
 
 *The selected outcome standard is an ambition for new work, not evidence of superior
 output. No authority setting or spend ceiling was changed for this capture.*
@@ -233,11 +233,11 @@ output. No authority setting or spend ceiling was changed for this capture.*
 
 People connects an agent's role to its actual work and accountable lead. You can see
 who is producing, who owns the outcome, and where to take a question. In this example,
-Bart is a researcher and Alice is accountable for the launch work.
+Coraline is a reviewer and Alice is accountable for the launch work.
 
-![People view showing researcher role, accountable lead and current work](docs/screenshots/restless-roles.jpg)
+![People view showing reviewer role, accountable lead and current work](docs/screenshots/restless-roles.png)
 
-*The blocked and completed states are real observations from the captured company.*
+*The work states are real observations from the captured company.*
 
 ### Choose intelligence per agent
 
@@ -245,9 +245,9 @@ Use a company default or assign a different connection and model to a particular
 The assignment panel makes the choice visible alongside the role. A researcher, lead
 and reviewer can have different model requirements without becoming separate companies.
 
-![Per-agent connection and model assignment](docs/screenshots/restless-agent-models.jpg)
+![Per-agent connection and model assignment](docs/screenshots/restless-agent-models.png)
 
-*This is the actual model assignment editor, cropped to omit account details. It was
+*This is the actual model assignment editor, with the account email masked. It was
 opened for inspection and cancelled without saving.*
 
 ### Bring your provider
@@ -256,7 +256,7 @@ Native Codex and Claude connections sit alongside API-key providers and compatib
 gateways. Provider setup is a company concern, while individual agents can inherit or
 override the selected intelligence. The capture below shows the API connection form.
 
-![API provider setup with secure key storage status](docs/screenshots/restless-providers.jpg)
+![API provider setup with secure key storage status](docs/screenshots/restless-providers.png)
 
 *The key field is empty. No credential was entered or changed.*
 
@@ -275,7 +275,7 @@ membership display, not a multi-human editing benchmark.
 and timestamp. A configured model route is distinguished from a verified response;
 a running service is distinguished from an outcome someone can open.
 
-![Resource availability and timestamped evidence](docs/screenshots/restless-resources.jpg)
+![Resource availability and timestamped evidence](docs/screenshots/restless-resources.png)
 
 ### Keep credential custody separate
 
@@ -283,7 +283,7 @@ The Vault gives the owner a view of company credential storage while keeping sec
 values hidden. Intelligence connections can use the appropriate credential path
 without putting raw keys into ordinary company conversation.
 
-![Vault connection and hidden-value credential inventory](docs/screenshots/restless-vault.jpg)
+![Vault connection and hidden-value credential inventory](docs/screenshots/restless-vault.png)
 
 *This company has no entries in the displayed Vault inventory. Other credential
 locations exist; this is an honest empty state, not a populated secrets demo.*
@@ -294,7 +294,7 @@ The external-action record is separate from ordinary internal work. It is the pl
 to inspect governed effects and provider outcomes; builds, edits and shell activity
 stay with the work that produced them.
 
-![External action record in its current empty state](docs/screenshots/restless-external-actions.jpg)
+![External action record in its current empty state](docs/screenshots/restless-external-actions.png)
 
 *No governed external action is recorded in this company. The screenshot shows the
 surface, not proof of a successful external transaction.*
@@ -305,7 +305,7 @@ Doctor brings together authority, organisational state and company-runtime check
 It exposes which boundary is available so an empty or disconnected surface need not
 be mistaken for a healthy system.
 
-![Doctor showing authority, runtime, browser and desktop checks](docs/screenshots/restless-doctor.jpg)
+![Doctor showing authority, runtime, browser and desktop checks](docs/screenshots/restless-doctor.png)
 
 *The checks shown were healthy at capture time. Earlier in this session the computer
 entry had not passed its probe; after the available state appeared, the actual desktop
@@ -314,10 +314,10 @@ separate document collaboration connection.*
 
 ### Follow outcomes and revisions
 
-Work shows linked outcomes, outputs and revision paths. The map helps explain what
-is waiting on what, while individual work remains the place to inspect the result.
+Work shows outcomes and their current state. Switch between the dependency map and
+the board to understand what is next, in motion, waiting or complete.
 
-![Work map with linked outcomes and revision paths](docs/screenshots/restless-work.jpg)
+![Work board with outcome states](docs/screenshots/restless-work.png)
 
 ### See the company at a glance
 
@@ -325,7 +325,7 @@ The interactive company floor provides a spatial view of colleagues and teams. I
 another entry point to the same work, alongside the focused Attention, Work, People
 and Company surfaces.
 
-![Interactive company floor](docs/screenshots/restless-office.jpg)
+![Interactive company floor](docs/screenshots/restless-office.png)
 
 Native document collaboration is also part of the product, but its editor stayed in
 “Connecting” during this capture session. We have not substituted a mockup or claimed
