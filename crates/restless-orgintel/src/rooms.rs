@@ -3349,6 +3349,24 @@ impl OrgIntel {
         Ok(removed.rows_affected() == 1)
     }
 
+    /// Fence a live cognitive session after its supervising daemon established
+    /// that the session's wake was interrupted. The old token can no longer
+    /// renew or commit a reply, allowing the durable unread input to be
+    /// admitted by the recovery wake without waiting for its normal lease TTL.
+    pub async fn revoke_interrupted_actor_cognitive_session(&self, actor_id: &str) -> Result<bool> {
+        Ok(sqlx::query(
+            "UPDATE actor_cognitive_leases \
+             SET revoked_at=now(),revoked_by='exec', \
+                 revocation_reason='daemon recovery fenced an interrupted Exec wake' \
+             WHERE actor_id=$1 AND claimed_until>now() AND revoked_at IS NULL",
+        )
+        .bind(actor_id)
+        .execute(&self.pool)
+        .await?
+        .rows_affected()
+            > 0)
+    }
+
     /// Bind the oldest currently serviceable mention to an already-owned
     /// Actor lease. Holding the Actor row prevents another replica from
     /// claiming a different mention for the same Actor at the same time.

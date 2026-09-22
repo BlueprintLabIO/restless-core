@@ -621,6 +621,7 @@ async fn recover_interrupted_exec_wake(
         .lock()
         .expect("in-flight guard")
         .is_active(company)
+        || daemon.staff.is_actor_running(company, "exec")
     {
         return false;
     }
@@ -634,6 +635,18 @@ async fn recover_interrupted_exec_wake(
         latest_wake.as_ref().map(|event| event.id),
         latest_wake_end.as_ref().map(|event| event.id),
     ) {
+        return false;
+    }
+
+    // Reaching this branch means this daemon acquired the appliance singleton
+    // after the original wake was left without its terminal event; a healthy
+    // peer cannot coexist under that lock. A restart loses the renewing task
+    // but not its five-minute cognitive lease. Fence that orphaned token
+    // before admitting the recovered wake: it can no longer renew or
+    // atomically consume the durable input, while the replacement rehydrates
+    // the same unread message.
+    if let Err(error) = org.revoke_interrupted_actor_cognitive_session("exec").await {
+        tracing::warn!(company, "could not fence interrupted Exec lease: {error:#}");
         return false;
     }
 
