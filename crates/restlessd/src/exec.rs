@@ -109,6 +109,10 @@ pub async fn wake(
 ) -> Result<WakeReport> {
     let effective_config=config.for_agent("exec");
     let config=&effective_config;
+    anyhow::ensure!(
+        config.has_effective_model_route(config.coordination_harness),
+        "Choose an intelligence provider and model in Company → Intelligence provider before starting the Exec."
+    );
     let container = runtime::container_name(&config.name);
     let hosted_identity = if runtime_bridges.is_hosted() {
         Some(crate::runtime_bridge::expected_identity(authority, &config.name).await?)
@@ -118,7 +122,7 @@ pub async fn wake(
     let focused_mention = pending_mention.is_some();
     // Exec conversation is free-form. Machine work is created and claimed
     // through OrgIntel's Work graph, never inferred from this wake.
-    org.ensure_actor_with_model("exec", "exec", "exec", "The Exec", Some(&config.model))
+    org.ensure_actor_with_model("exec", "exec", "exec", "The Exec", config.configured_model())
         .await?;
     org.ensure_actor("owner", "owner", "owner", "The Owner")
         .await?;

@@ -562,6 +562,11 @@ pub async fn start(
         // Refusing to boot here would make a freshly provisioned hosted plane
         // unstartable until its first company existed, which inverts Cloud's
         // provisioning order: Fleet creates the plane, then the cell.
+        let admission = admit(configs, &provider_credentials)?;
+        for (company, reason) in &admission.unstartable {
+            tracing::warn!(company, reason, "company cannot start: {reason}");
+        }
+        let _ = UNSTARTABLE.set(admission.unstartable);
         tracing::warn!(
             companies = configs.len(),
             "no company model provider is available; the plane will serve the cockpit \
@@ -2539,7 +2544,12 @@ async fn provider_credentials(
     // configs deliberately carry none; they may use an installation route
     // authorised by another company, but iteration order must never decide it.
     for config in configs {
-        let (primary_provider, _) = split_model(&config.model)?;
+        let effective = config.for_agent("exec");
+        let primary_provider = effective
+            .configured_model()
+            .map(split_model)
+            .transpose()?
+            .map(|(provider, _)| provider);
         // Every explicitly connected provider is available to actor-selected models,
         // not only the company's default and failover routes.
         let providers = configured_provider_ids(config)?;
@@ -2547,7 +2557,7 @@ async fn provider_credentials(
             let provider = provider.as_str();
             let provider_capability = format!("model.inference.{provider}");
             let reference = config.credentials.get(&provider_capability).or_else(|| {
-                (provider == primary_provider)
+                (Some(provider) == primary_provider)
                     .then(|| config.credentials.get("model.inference"))
                     .flatten()
             });
@@ -2611,13 +2621,28 @@ fn admit(
 ) -> Result<Admission> {
     let mut unstartable = BTreeMap::<String, String>::new();
     for config in configs {
-        let (primary_provider, _) = split_model(&config.model)?;
+        let effective = config.for_agent("exec");
+        if effective
+            .native_model(effective.coordination_harness)
+            .is_some()
+        {
+            continue;
+        }
+        let Some(model) = effective.configured_model() else {
+            unstartable.insert(
+                config.name.clone(),
+                "Choose an intelligence provider and model in Company → Intelligence provider."
+                    .to_string(),
+            );
+            continue;
+        };
+        let (primary_provider, _) = split_model(model)?;
         if !credentials.contains_key(primary_provider) {
             unstartable.insert(
                 config.name.clone(),
                 format!(
                     "no usable host credential for model {}; set credentials.model.inference.{primary_provider}",
-                    config.model
+                    model
                 ),
             );
             continue;
@@ -2819,6 +2844,107 @@ async fn wait_for_gateway(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ambient_provider_credentials_do_not_admit_an_unconfigured_company() {
+        let config: CompanyConfig = toml::from_str(
+            r#"name = "unconfigured_test"
+mission = "Choose intelligence later"
+"#,
+        )
+        .unwrap();
+        let credentials = BTreeMap::from([(
+            "openai".to_string(),
+            ProviderCredential::ApiKey("ambient-but-unselected".into()),
+        )]);
+        let admission = admit(&[config], &credentials).unwrap();
+        assert_eq!(
+            admission.unstartable.get("unconfigured_test").map(String::as_str),
+            Some("Choose an intelligence provider and model in Company → Intelligence provider.")
+        );
+    }
+
+    #[test]
+    fn ambient_provider_credentials_do_not_admit_the_legacy_unconfigured_sentinel() {
+        let config: CompanyConfig = toml::from_str(
+            r#"name = "legacy_unconfigured_test"
+mission = "Choose intelligence later"
+model = "unconfigured/pending"
+"#,
+        )
+        .unwrap();
+        let credentials = BTreeMap::from([(
+            "unconfigured".to_string(),
+            ProviderCredential::ApiKey("ambient-but-unselected".into()),
+        )]);
+        let admission = admit(&[config], &credentials).unwrap();
+        assert_eq!(
+            admission
+                .unstartable
+                .get("legacy_unconfigured_test")
+                .map(String::as_str),
+            Some("Choose an intelligence provider and model in Company → Intelligence provider.")
+        );
+    }
+
+    #[test]
+    fn explicit_default_intelligence_assignment_makes_empty_legacy_model_startable() {
+        let mut config: CompanyConfig = toml::from_str(
+            r#"name = "configured_later_test"
+mission = "Choose intelligence later"
+"#,
+        )
+        .unwrap();
+        config.agent_intelligence.insert(
+            "default".into(),
+            crate::runtime::AgentIntelligence {
+                connection: "direct:openai".into(),
+                model: "gpt-5".into(),
+            },
+        );
+        let credentials = BTreeMap::from([(
+            "openai".to_string(),
+            ProviderCredential::ApiKey("explicitly-selected".into()),
+        )]);
+        assert!(config.model_candidates().unwrap().is_empty());
+        assert!(config.has_configured_model_route());
+        assert_eq!(config.for_agent("exec").model, "openai/gpt-5");
+        assert!(admit(&[config], &credentials).unwrap().unstartable.is_empty());
+    }
+
+    #[test]
+    fn native_default_assignment_does_not_require_a_direct_gateway_credential() {
+        let mut config: CompanyConfig = toml::from_str(
+            r#"name = "native_later_test"
+mission = "Choose native intelligence"
+"#,
+        )
+        .unwrap();
+        config.native_harnesses.insert(
+            "codex".into(),
+            crate::runtime::NativeHarnessConfig {
+                mode: "oauth".into(),
+                model: "gpt-5".into(),
+                credential_reference: None,
+            },
+        );
+        config.agent_intelligence.insert(
+            "default".into(),
+            crate::runtime::AgentIntelligence {
+                connection: "harness:codex".into(),
+                model: "gpt-5".into(),
+            },
+        );
+        assert!(config.has_configured_model_route());
+        assert_eq!(
+            config
+                .for_agent("exec")
+                .native_model(crate::runtime::AgentHarness::Codex)
+                .as_deref(),
+            Some("native-codex-oauth/gpt-5")
+        );
+        assert!(admit(&[config], &BTreeMap::new()).unwrap().unstartable.is_empty());
+    }
 
     fn test_root() -> std::path::PathBuf {
         let root = std::env::temp_dir().join(format!(

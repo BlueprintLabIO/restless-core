@@ -79,7 +79,17 @@ fn round_usd(usd: f64) -> f64 {
 
 /// The CLI and local owner API share one company creation path. Serialise
 /// first creation so simultaneous requests cannot overwrite the same identity.
-async fn create_local_company(daemon: &Daemon, mut config: runtime::CompanyConfig) -> Result<()> {
+async fn create_local_company(daemon: &Daemon, config: runtime::CompanyConfig) -> Result<()> {
+    let run_startup_doctor =
+        std::env::var("RESTLESS_TEST_DISABLE_SCHEDULER").as_deref() != Ok("1");
+    create_local_company_inner(daemon, config, run_startup_doctor).await
+}
+
+async fn create_local_company_inner(
+    daemon: &Daemon,
+    mut config: runtime::CompanyConfig,
+    run_startup_doctor: bool,
+) -> Result<()> {
     static CREATION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     runtime::validate_company_name(&config.name)?;
     let _guard = CREATION.lock().await;
@@ -107,9 +117,9 @@ async fn create_local_company(daemon: &Daemon, mut config: runtime::CompanyConfi
         .await
         .context("initialise company Authority")?;
     let org = daemon.orgintel.get(&config.name).await?;
-    ensure_standing_actors(&org, Some(&config.model)).await?;
+    ensure_standing_actors(&org, config.configured_model()).await?;
     approval::purge_legacy_config_approvals(&daemon.root, &mut config)?;
-    if std::env::var("RESTLESS_TEST_DISABLE_SCHEDULER").as_deref() != Ok("1") {
+    if run_startup_doctor {
         let root = daemon.root.clone();
         let capabilities = daemon.capabilities.clone();
         let schedule_wake = daemon.schedule_wake.clone();
@@ -738,7 +748,7 @@ async fn main() -> Result<()> {
             // current company's pool alive; the runtime registry below remains
             // lazy and caches only companies that are actually used.
             let org = ensure_cell_orgintel(&root, &orgintel_config.database_url, &company).await?;
-            ensure_standing_actors(&org, Some(&config.model)).await?;
+            ensure_standing_actors(&org, config.configured_model()).await?;
             let imported = authority
                 .import_legacy_company(&company, &org, &approval::legacy_config_approvals(&config))
                 .await?;
@@ -2693,7 +2703,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             daemon.orgintel.get(company).await,
             runtime::CompanyConfig::load(&daemon.root, company),
         ) {
-            (Ok(org), Ok(config)) => match ensure_standing_actors(&org, Some(&config.model)).await {
+            (Ok(org), Ok(config)) => match ensure_standing_actors(&org, config.configured_model()).await {
                 Ok(()) => match org.table_names().await {
                     Ok(tables) => Response::ok(serde_json::json!({
                         "schema": org.schema(),
@@ -5251,6 +5261,73 @@ mod tests {
         };
         assert!(error.to_string().contains("not configured"));
         assert!(!root.join("cells/destroyed_test/database.url").exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn local_company_creation_persists_an_unconfigured_exec_without_launching() {
+        let Ok(database_url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping local creation scenario");
+            return;
+        };
+        let parsed = url::Url::parse(&database_url).unwrap();
+        assert!(parsed.path().ends_with("_test"));
+        let company = format!(
+            "unconfigured_create_{}_test",
+            &uuid::Uuid::new_v4().simple().to_string()[..10]
+        );
+        let root = std::env::temp_dir().join(&company);
+        std::fs::create_dir_all(root.join("companies")).unwrap();
+        let authority = authority::AuthorityStore::connect(&database_url).await.unwrap();
+        let daemon = Daemon {
+            root: root.clone(),
+            capabilities: capability::CapabilityIssuer::open(&root).unwrap(),
+            spend: spend::SpendLedger::open(&root).unwrap(),
+            publication: publication::PublicationManager::new(&root, authority.clone()).unwrap(),
+            launch: launch::LaunchBroker::new(&root).unwrap(),
+            authority,
+            orgintel: OrgIntelRegistry {
+                database_url: database_url.clone(),
+                root: root.clone(),
+                handles: std::sync::Mutex::new(HashMap::new()),
+            },
+            staff: staff::StaffRegistry::default(),
+            activities: activity::AgentActivityStreams::default(),
+            cell_wakes: cell_wake::CellWakeHub::default(),
+            runtime_bridges: runtime_bridge::RuntimeBridgeRegistry::default(),
+            lifecycle: restlessd::appliance::LifecycleGate::default(),
+            in_flight: std::sync::Arc::new(std::sync::Mutex::new(
+                schedule::WakeClaims::default(),
+            )),
+            schedule_wake: std::sync::Arc::new(tokio::sync::Notify::new()),
+        };
+        let config: runtime::CompanyConfig = toml::from_str(&format!(
+            "name = {company:?}\nmission = \"Choose intelligence later\"\n"
+        ))
+        .unwrap();
+        create_local_company_inner(&daemon, config, false).await.unwrap();
+        let restored = runtime::CompanyConfig::load(&root, &company).unwrap();
+        assert!(restored.model_candidates().unwrap().is_empty());
+        assert!(!restored.has_configured_model_route());
+        let org = daemon.orgintel.get(&company).await.unwrap();
+        assert_eq!(org.active_actor("exec").await.unwrap().unwrap().model, None);
+        assert!(!daemon.staff.is_actor_running(&company, "exec"));
+        let wake_error = schedule::run_exec_turn(
+            &daemon,
+            &restored,
+            &org,
+            "test wake must remain closed",
+            &tokio_util::sync::CancellationToken::new(),
+        )
+        .await
+        .unwrap_err();
+        assert!(wake_error.to_string().contains("Intelligence provider"));
+        org.close().await;
+        daemon.orgintel.forget(&company);
+        daemon.authority.delete_test_company(&company).await.unwrap();
+        crate::cell::destroy_database(&root, &database_url, &company)
+            .await
+            .unwrap();
         std::fs::remove_dir_all(root).unwrap();
     }
 

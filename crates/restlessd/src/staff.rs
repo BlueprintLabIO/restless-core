@@ -396,6 +396,10 @@ pub async fn dispatch_claimed_work(
     let actor = claimed.work.owner_id.clone();
     let effective_config=config.for_agent(&actor);
     let config=&effective_config;
+    anyhow::ensure!(
+        config.has_effective_model_route(config.worker_harness),
+        "Choose an intelligence provider and model in Company → Intelligence provider before starting an agent."
+    );
     if actor == "owner" {
         bail!("{actor} is not a Staff execution actor");
     }

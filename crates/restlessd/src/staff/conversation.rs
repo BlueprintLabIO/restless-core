@@ -464,6 +464,10 @@ pub async fn dispatch_actor_conversation(
 ) -> Result<bool> {
     let effective_config=config.for_agent(actor);
     let config=&effective_config;
+    anyhow::ensure!(
+        config.has_effective_model_route(config.coordination_harness),
+        "Choose an intelligence provider and model in Company → Intelligence provider before starting an agent."
+    );
     if actor == "exec" || matches!(actor, "owner" | "world" | "daemon") {
         return Ok(false);
     }

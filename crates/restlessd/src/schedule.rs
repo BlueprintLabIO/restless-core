@@ -359,6 +359,9 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
     let Ok(config) = CompanyConfig::load(&daemon.root, company) else {
         return;
     };
+    if !config.has_configured_model_route() {
+        return;
+    }
     if daemon.runtime_bridges.is_hosted() {
         let Ok(identity) =
             crate::runtime_bridge::expected_identity(&daemon.authority, company).await
@@ -693,10 +696,21 @@ pub(crate) async fn run_exec_turn(
     reason: &str,
     cancellation: &CancellationToken,
 ) -> Result<exec::WakeReport> {
+    let effective_config = config.for_agent("exec");
+    anyhow::ensure!(
+        effective_config.has_effective_model_route(effective_config.coordination_harness),
+        "Choose an intelligence provider and model in Company → Intelligence provider before starting the Exec."
+    );
     // The lease row is FK-bound to the durable Actor. Fresh companies may
     // reach this entry point before `exec::wake` has ever bootstrapped it, so
     // initialise the stable principals before competing for the mutex.
-    org.ensure_actor_with_model("exec", "exec", "exec", "The Exec", Some(&config.model))
+    org.ensure_actor_with_model(
+        "exec",
+        "exec",
+        "exec",
+        "The Exec",
+        effective_config.configured_model(),
+    )
         .await?;
     org.ensure_actor("owner", "owner", "owner", "The Owner")
         .await?;

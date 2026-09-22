@@ -2508,7 +2508,8 @@ struct CreateCompanyInput {
     display_name: Option<String>,
     name: String,
     mission: String,
-    model: String,
+    #[serde(default)]
+    model: Option<String>,
 }
 
 async fn create_company(
@@ -2526,12 +2527,11 @@ async fn create_company(
     }
     let name = input.name.trim();
     let mission = input.mission.trim();
-    let model = input.model.trim();
+    let model = input.model.as_deref().unwrap_or_default().trim();
     if let Err(error) = runtime::validate_company_name(name) {
         return api_error(StatusCode::BAD_REQUEST, "company", error.to_string());
     }
     if mission.len() > 4000
-        || model.is_empty()
         || model.len() > 200
         || input
             .display_name
@@ -2541,7 +2541,7 @@ async fn create_company(
         return api_error(
             StatusCode::BAD_REQUEST,
             "company",
-            "Enter a purpose (up to 4,000 characters) and a model (up to 200 characters).",
+            "Enter a purpose up to 4,000 characters and a model up to 200 characters.",
         );
     }
     let config: runtime::CompanyConfig = match serde_json::from_value(serde_json::json!({
@@ -2588,7 +2588,12 @@ struct CompanyProviderInput {
 }
 
 async fn provider_view(config: &runtime::CompanyConfig) -> serde_json::Value {
-    let primary = config.model.split('/').next().unwrap_or_default();
+    let primary = config
+        .agent_intelligence
+        .get("default")
+        .and_then(|route| route.connection.strip_prefix("direct:"))
+        .or_else(|| config.configured_model()?.split('/').next())
+        .unwrap_or_default();
     let mut providers = std::collections::BTreeSet::from([
         "anthropic".to_string(),
         "openai".into(),
@@ -2602,8 +2607,10 @@ async fn provider_view(config: &runtime::CompanyConfig) -> serde_json::Value {
         "zai".into(),
         "moonshot".into(),
         "litellm".into(),
-        primary.to_string(),
     ]);
+    if !primary.is_empty() {
+        providers.insert(primary.to_string());
+    }
     providers.extend(
         config
             .credentials
@@ -2628,7 +2635,7 @@ async fn provider_view(config: &runtime::CompanyConfig) -> serde_json::Value {
         "connections": connections,
         "infisical_configured": credential::infisical_configured(),
         "infisical_status": health.status.as_str(), "infisical_detail": health.detail,
-        "startup_issue": model_gateway::unstartable_reason(&config.name),
+        "startup_issue": company_model_issue(config),
     })
 }
 
@@ -3130,7 +3137,7 @@ fn company_catalog_entry(
         Some(runtime::ContainerStatus::Absent) => "absent",
         None => "unavailable",
     };
-    let name = config.name.clone();
+    let unstartable_reason = company_model_issue(&config);
     CompanyCatalogEntry {
         id: config.name.clone(),
         name: config
@@ -3142,7 +3149,21 @@ fn company_catalog_entry(
         spend_ceiling_usd: config.spend_ceiling_usd.as_usd(),
         runtime_status,
         lifecycle_status,
-        unstartable_reason: crate::model_gateway::unstartable_reason(&name),
+        unstartable_reason,
+    }
+}
+
+fn company_model_issue(config: &runtime::CompanyConfig) -> Option<String> {
+    let exec = config.for_agent("exec");
+    if exec.native_model(exec.coordination_harness).is_some() {
+        None
+    } else if exec.configured_model().is_none() {
+        Some(
+            "Choose an intelligence provider and model in Company → Intelligence provider."
+                .to_string(),
+        )
+    } else {
+        crate::model_gateway::unstartable_reason(&config.name)
     }
 }
 
@@ -11900,6 +11921,28 @@ mod tests {
 
         let malformed = "Answer.\n\n<!--restless-details:not-json-->";
         assert_eq!(split_message_details(malformed), ("Answer.", None));
+    }
+
+    #[test]
+    fn worker_only_intelligence_does_not_hide_exec_setup_requirement() {
+        let mut config: runtime::CompanyConfig = toml::from_str(
+            r#"name = "worker_only_test"
+mission = "Configure Exec separately"
+"#,
+        )
+        .unwrap();
+        config.agent_intelligence.insert(
+            "writer".into(),
+            runtime::AgentIntelligence {
+                connection: "direct:openai".into(),
+                model: "gpt-5".into(),
+            },
+        );
+        assert!(config.has_configured_model_route());
+        assert_eq!(
+            company_model_issue(&config).as_deref(),
+            Some("Choose an intelligence provider and model in Company → Intelligence provider.")
+        );
     }
 }
 

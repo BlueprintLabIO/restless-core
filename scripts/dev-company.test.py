@@ -52,7 +52,7 @@ class DevelopmentCompanyTest(unittest.TestCase):
         result = self.config()
         self.assertEqual(result.returncode, 0, result.stderr)
         config = tomllib.loads(result.stdout)
-        self.assertEqual(config['model'], 'unconfigured/pending')
+        self.assertNotIn('model', config)
         self.assertNotIn('credentials', config)
 
     def test_credential_reference_cannot_inject_toml(self):

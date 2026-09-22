@@ -1,8 +1,8 @@
 # First-run configuration shared by the development launcher and its tests.
 # Existing company files are never rewritten by these helpers.
 dev_company_validate() {
-  local model="${RESTLESS_DEV_MODEL:-unconfigured/pending}"
-  if [[ ! "$model" =~ ^[a-zA-Z0-9_.:-]+/[a-zA-Z0-9_./:-]+$ ]] ||
+  local model="${RESTLESS_DEV_MODEL:-}"
+  if { [ -n "$model" ] && [[ ! "$model" =~ ^[a-zA-Z0-9_.:-]+/[a-zA-Z0-9_./:-]+$ ]]; } ||
      { [ -n "${RESTLESS_DEV_CREDENTIAL_REFERENCE:-}" ] && [ -z "${RESTLESS_DEV_MODEL:-}" ]; }; then
     cat >&2 <<'HELP'
 Choose a model for your API connection:
@@ -23,8 +23,12 @@ HELP
 dev_company_write() {
   local company_name="$1" credential="${RESTLESS_DEV_CREDENTIAL_REFERENCE:-}"
   dev_company_validate || return 1
-  printf 'name = "%s"\nmission = "Help the owner and their team turn business goals into useful work. Ask for their direction before starting new projects."\nmodel = "%s"\nreasoning_effort = "high"\n' \
-    "$company_name" "${RESTLESS_DEV_MODEL:-unconfigured/pending}"
+  printf 'name = "%s"\nmission = "Help the owner and their team turn business goals into useful work. Ask for their direction before starting new projects."\n' \
+    "$company_name"
+  if [ -n "${RESTLESS_DEV_MODEL:-}" ]; then
+    printf 'model = "%s"\n' "$RESTLESS_DEV_MODEL"
+  fi
+  printf 'reasoning_effort = "high"\n'
   if [ -n "$credential" ]; then
     credential="${credential//\\/\\\\}"
     credential="${credential//\"/\\\"}"

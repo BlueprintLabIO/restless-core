@@ -48,7 +48,7 @@ export async function createCompany(input: {
 	display_name?: string;
 	name: string;
 	mission: string;
-	model: string;
+	model?: string;
 }): Promise<CompanyCatalogEntry> {
 	const response = await fetch('/api/companies', {
 		method: 'POST',

@@ -389,9 +389,9 @@ pub struct CompanyConfig {
     #[serde(default)]
     pub outcome_standard: restless_orgintel::OutcomeStandard,
     /// Provider-qualified model the agent runs on, e.g. `zai/glm-5.2`.
-    /// Required: there is no sensible default provider, and the adapter-model
-    /// indirection this replaced (`company-general-v1` → a gateway route)
-    /// was vestigial once agents named providers directly.
+    /// A new company starts empty until the owner explicitly selects an
+    /// intelligence connection. Empty never means "infer from host state".
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub model: String,
     /// Certified harness used by Exec and non-producing lead conversations.
     #[serde(default)]
@@ -435,7 +435,26 @@ fn valid_reasoning_effort(value: &str) -> bool {
     )
 }
 
+const LEGACY_UNCONFIGURED_MODEL: &str = "unconfigured/pending";
+
 impl CompanyConfig {
+    pub fn configured_model(&self) -> Option<&str> {
+        let model = self.model.as_str();
+        (!model.trim().is_empty() && model != LEGACY_UNCONFIGURED_MODEL).then_some(model)
+    }
+
+    pub fn has_configured_model_route(&self) -> bool {
+        self.configured_model().is_some()
+            || self
+                .agent_intelligence
+                .values()
+                .any(|route| !route.connection.trim().is_empty() && !route.model.trim().is_empty())
+    }
+
+    pub fn has_effective_model_route(&self, harness: AgentHarness) -> bool {
+        self.configured_model().is_some() || self.native_model(harness).is_some()
+    }
+
     /// Resolve an agent override or the company default into an execution route.
     pub fn for_agent(&self, actor: &str) -> Self {
         let mut config = self.clone();
@@ -553,9 +572,15 @@ impl CompanyConfig {
     /// Primary followed by the exact owner-configured fallback order. The
     /// closed validation here protects both TOML and CLI writes.
     pub fn model_candidates(&self) -> Result<Vec<&str>> {
+        let Some(primary) = self.configured_model() else {
+            if self.model_failover.is_empty() {
+                return Ok(Vec::new());
+            }
+            bail!("model failover candidates require a configured primary model");
+        };
         let mut seen = std::collections::BTreeSet::new();
         let mut candidates = Vec::with_capacity(1 + self.model_failover.len());
-        for model in std::iter::once(self.model.as_str())
+        for model in std::iter::once(primary)
             .chain(self.model_failover.iter().map(String::as_str))
         {
             let Some((provider, id)) = model.split_once('/') else {
@@ -2475,9 +2500,128 @@ mod tests {
         bound_docker_call, company_statuses, container_name, docker_observe,
         is_immutable_image_digest, read_owner_attachment, remove_owner_attachment,
         resolve_company_image, resolve_resource_bound, running_company_names, sort_source_files,
-        store_owner_attachment, ContainerStatus, COMPANY_IMAGE, DEFAULT_CPUS, DEFAULT_MEMORY,
-        DEFAULT_PIDS_LIMIT,
+        store_owner_attachment, AgentIntelligence, ContainerStatus, NativeHarnessConfig,
+        COMPANY_IMAGE, DEFAULT_CPUS, DEFAULT_MEMORY, DEFAULT_PIDS_LIMIT,
     };
+
+    #[test]
+    fn unconfigured_company_round_trips_without_inventing_a_model_route() {
+        let root = std::env::temp_dir().join(format!(
+            "restless-unconfigured-company-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(root.join("companies")).unwrap();
+        let config: CompanyConfig = toml::from_str(
+            r#"name = "unconfigured_test"
+mission = "Choose intelligence later"
+"#,
+        )
+        .unwrap();
+        assert_eq!(config.configured_model(), None);
+        assert!(!config.has_configured_model_route());
+        assert!(config.model_candidates().unwrap().is_empty());
+        assert_eq!(config.for_agent("exec").configured_model(), None);
+        CompanyConfig::save(&root, &config).unwrap();
+        let persisted =
+            std::fs::read_to_string(root.join("companies/unconfigured_test.toml")).unwrap();
+        assert!(!persisted.lines().any(|line| line.starts_with("model =")));
+        let restored = CompanyConfig::load(&root, "unconfigured_test").unwrap();
+        assert_eq!(restored.configured_model(), None);
+        assert!(restored.model_candidates().unwrap().is_empty());
+        let mut invalid = restored;
+        invalid.model_failover.push("openai/gpt-5".into());
+        assert!(invalid.model_candidates().is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn legacy_unconfigured_sentinel_round_trips_without_becoming_a_model_route() {
+        let root = std::env::temp_dir().join(format!(
+            "restless-legacy-unconfigured-company-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(root.join("companies")).unwrap();
+        let config: CompanyConfig = toml::from_str(
+            r#"name = "legacy_unconfigured_test"
+mission = "Choose intelligence later"
+model = "unconfigured/pending"
+"#,
+        )
+        .unwrap();
+        assert_eq!(config.configured_model(), None);
+        assert!(!config.has_configured_model_route());
+        assert!(config.model_candidates().unwrap().is_empty());
+        assert_eq!(config.for_agent("exec").configured_model(), None);
+        CompanyConfig::save(&root, &config).unwrap();
+        let restored = CompanyConfig::load(&root, "legacy_unconfigured_test").unwrap();
+        assert_eq!(restored.model, "unconfigured/pending");
+        assert_eq!(restored.configured_model(), None);
+        assert!(restored.model_candidates().unwrap().is_empty());
+
+        let explicit_real_route: CompanyConfig = toml::from_str(
+            r#"name = "explicit_unconfigured_provider"
+mission = "Use an explicitly configured provider"
+model = "unconfigured/real-model"
+"#,
+        )
+        .unwrap();
+        assert_eq!(
+            explicit_real_route.configured_model(),
+            Some("unconfigured/real-model")
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn effective_routes_accept_native_assignments_without_weakening_direct_guards() {
+        let mut empty: CompanyConfig = toml::from_str(
+            r#"name = "effective_route_test"
+mission = "Choose intelligence"
+"#,
+        )
+        .unwrap();
+        assert!(!empty.has_effective_model_route(AgentHarness::RestlessManaged));
+
+        empty.model = "openai/gpt-5".into();
+        assert!(empty.has_effective_model_route(AgentHarness::RestlessManaged));
+        empty.model = "unconfigured/pending".into();
+        assert!(!empty.has_effective_model_route(AgentHarness::RestlessManaged));
+
+        empty.native_harnesses.insert(
+            "codex".into(),
+            NativeHarnessConfig {
+                mode: "oauth".into(),
+                model: "gpt-5".into(),
+                credential_reference: None,
+            },
+        );
+        empty.agent_intelligence.insert(
+            "default".into(),
+            AgentIntelligence {
+                connection: "harness:codex".into(),
+                model: "gpt-5".into(),
+            },
+        );
+        let exec = empty.for_agent("exec");
+        assert!(exec.configured_model().is_none());
+        assert!(exec.has_effective_model_route(exec.coordination_harness));
+
+        let mut actor_specific = empty.clone();
+        actor_specific.model.clear();
+        actor_specific.agent_intelligence.remove("default");
+        actor_specific.agent_intelligence.insert(
+            "writer".into(),
+            AgentIntelligence {
+                connection: "harness:codex".into(),
+                model: "gpt-5".into(),
+            },
+        );
+        let writer = actor_specific.for_agent("writer");
+        assert!(writer.configured_model().is_none());
+        assert!(writer.has_effective_model_route(writer.worker_harness));
+        let exec = actor_specific.for_agent("exec");
+        assert!(!exec.has_effective_model_route(exec.coordination_harness));
+    }
     use uuid::Uuid;
 
     #[tokio::test]
