@@ -58,6 +58,7 @@
 		companyId: string;
 		view: DocumentReadView;
 		panel: DocumentInspectorPanel;
+		requestedReviewId?: string;
 		people?: PersonReference[];
 		online?: boolean;
 		editing?: boolean;
@@ -65,19 +66,22 @@
 		onpanelchange?: (panel: DocumentInspectorPanel) => void;
 		oncommenttargetchange?: (blockId: string | null) => void;
 		onaccept?: (target: DocumentTarget, view: DocumentReadView) => void;
+		ondismiss?: () => void;
 	}
 
 	let {
 		companyId,
 		view,
 		panel,
+		requestedReviewId = '',
 		people = [],
 		online = true,
 		editing = false,
 		commentBlockId = null,
 		onpanelchange = () => {},
 		oncommenttargetchange = () => {},
-		onaccept = () => {}
+		onaccept = () => {},
+		ondismiss
 	}: Props = $props();
 
 	const client = useQueryClient();
@@ -170,7 +174,10 @@
 		threads.threads.find((item) => item.thread.id === selectedThreadId) ?? null
 	);
 	const requestedReview = $derived(
-		reviews.reviews.find((review) => review.status === 'requested') ?? null
+		reviews.reviews.find(
+			(review) =>
+				review.status === 'requested' && (!requestedReviewId || review.id === requestedReviewId)
+		) ?? null
 	);
 	const openProposals = $derived(
 		proposals.proposals.filter((proposal) => proposal.status === 'proposed')
@@ -583,6 +590,18 @@
 </script>
 
 <aside class="document-inspector" aria-label="Document review and discussion">
+	{#if ondismiss}
+		<div class="inspector-dismiss">
+			<button
+				type="button"
+				class="flat-action"
+				onclick={ondismiss}
+				title="Close this tray without accepting or rejecting a review"
+			>
+				<X size={14} aria-hidden="true" /> Dismiss
+			</button>
+		</div>
+	{/if}
 	<nav class="inspector-tabs" aria-label="Document details">
 		<button
 			type="button"
@@ -596,22 +615,24 @@
 				<b>{threads.threads.filter((item) => item.thread.status === 'open').length}</b>
 			{/if}
 		</button>
-		<button
-			type="button"
-			class:active={panel === 'review'}
-			aria-pressed={panel === 'review'}
-			onclick={() => onpanelchange('review')}
-		>
-			<Scale size={14} strokeWidth={1.8} aria-hidden="true" /> Review
-			{#if openProposals.length}<b>{openProposals.length}</b>{/if}
-		</button>
+		{#if requestedReview || openProposals.length || panel === 'review'}
+			<button
+				type="button"
+				class:active={panel === 'review'}
+				aria-pressed={panel === 'review'}
+				onclick={() => onpanelchange('review')}
+			>
+				<Scale size={14} strokeWidth={1.8} aria-hidden="true" /> Review
+				{#if openProposals.length}<b>{openProposals.length}</b>{/if}
+			</button>
+		{/if}
 		<button
 			type="button"
 			class:active={panel === 'versions'}
 			aria-pressed={panel === 'versions'}
 			onclick={() => onpanelchange('versions')}
 		>
-			<History size={14} strokeWidth={1.8} aria-hidden="true" /> Versions
+			<History size={14} strokeWidth={1.8} aria-hidden="true" /> History
 		</button>
 	</nav>
 
@@ -765,12 +786,10 @@
 			<header class="inspector-head">
 				<div>
 					<h2>Review</h2>
-					<p>Named checkpoints carry acceptance.</p>
+					<p>Review the saved document and proposed changes.</p>
 				</div>
 			</header>
-			{#if editing && canJudge}<p class="pending-draft">
-					Save the local draft as a named version before changing review state.
-				</p>{/if}
+			{#if editing && canJudge}<p class="pending-draft">Waiting for edits to finish saving.</p>{/if}
 			{#if requestedReview}
 				<section class="review-request current">
 					<header>
@@ -917,13 +936,11 @@
 		<div class="inspector-body versions-body">
 			<header class="inspector-head">
 				<div>
-					<h2>Versions</h2>
-					<p>Meaningful checkpoints remain immutable.</p>
+					<h2>History</h2>
+					<p>Versions are saved automatically. Restoring keeps the current draft in history.</p>
 				</div>
 			</header>
-			{#if editing && canJudge}<p class="pending-draft">
-					Save or discard the local draft before restoring an earlier version.
-				</p>{/if}
+			{#if editing && canJudge}<p class="pending-draft">Waiting for edits to finish saving.</p>{/if}
 			{#if versionFailure}<p class="inline-error" role="alert">{versionFailure}</p>{/if}
 			<div class="version-line" aria-label="Document version history">
 				{#each versions.versions as item (item.id)}
@@ -939,7 +956,7 @@
 						</header>
 						<p>{item.reason}</p>
 						<footer>
-							<span>{actorName(item.created_by_actor_id)}</span><time datetime={item.created_at}
+							<span>{item.created_by_actor_id === 'daemon' ? 'Restless' : actorName(item.created_by_actor_id)}</span><time datetime={item.created_at}
 								>{shortDate(item.created_at)}</time
 							>
 						</footer>
@@ -998,6 +1015,11 @@
 </aside>
 
 <style>
+	.inspector-dismiss {
+		display: flex;
+		justify-content: flex-end;
+		padding: 5px 8px;
+	}
 	.document-inspector {
 		min-width: 0;
 		min-height: 0;
@@ -1007,9 +1029,10 @@
 		overflow: hidden;
 	}
 	.inspector-tabs {
-		min-height: var(--pane-head-h);
+		min-height: 40px;
 		display: grid;
-		grid-template-columns: repeat(3, minmax(0, 1fr));
+		grid-auto-flow: column;
+		grid-auto-columns: minmax(0, 1fr);
 		align-items: end;
 		padding: 0 6px;
 		border-bottom: 1px solid var(--border);

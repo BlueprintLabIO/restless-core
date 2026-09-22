@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
-	import { tick } from 'svelte';
+	import { tick, untrack, type Snippet } from 'svelte';
+	import DocumentActions from './DocumentActions.svelte';
 	import { Editor } from '@tiptap/core';
 	import { HocuspocusProvider } from '@hocuspocus/provider';
 	import * as Y from 'yjs';
@@ -8,7 +9,6 @@
 	import BoldIcon from '@lucide/svelte/icons/bold';
 	import Braces from '@lucide/svelte/icons/braces';
 	import Check from '@lucide/svelte/icons/check';
-	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import CodeIcon from '@lucide/svelte/icons/code';
 	import Heading2 from '@lucide/svelte/icons/heading-2';
 	import ItalicIcon from '@lucide/svelte/icons/italic';
@@ -35,7 +35,6 @@
 	} from '$lib/model/document-collaboration';
 	import {
 		createDocumentEditorExtensions,
-		projectDocumentContent,
 		selectedDocumentBlockId
 	} from '$lib/model/document-editor-schema';
 	import {
@@ -44,16 +43,12 @@
 		type DocumentTarget
 	} from '$lib/model/document-cache';
 	import {
-		checkpointMetadataInput,
-		createDocumentVersion,
 		documentText,
-		DOCUMENT_KINDS,
 		getDocument,
 		isDocumentConflict,
 		isRetryableDocumentFailure,
 		pendingDocumentCommand,
 		updateDocumentMetadata,
-		type DocumentContent,
 		type DocumentKind,
 		type DocumentReadView,
 		type PendingDocumentCommand
@@ -65,9 +60,12 @@
 		view: DocumentReadView;
 		principalActorId: string;
 		online?: boolean;
+		actions?: Snippet;
+		moreActions?: Snippet;
 		onaccept?: (target: DocumentTarget, view: DocumentReadView) => void;
 		oncomment?: (blockId: string | null) => void;
 		ondirtychange?: (dirty: boolean) => void;
+		onleavechange?: (ready: boolean) => void;
 	}
 
 	let {
@@ -76,9 +74,12 @@
 		view,
 		principalActorId,
 		online = true,
+		actions,
+		moreActions,
 		onaccept = () => {},
 		oncomment = () => {},
-		ondirtychange = () => {}
+		ondirtychange = () => {},
+		onleavechange = () => {}
 	}: Props = $props();
 	const client = useQueryClient();
 
@@ -87,7 +88,10 @@
 	let collaborationState = $state<DocumentCollaborationState>('connecting');
 	let collaborationAccess = $state<DocumentCollaborationAccess | null>(null);
 	let collaborationFailure = $state('');
+	let documentRestored = $state(false);
 	let retryGeneration = $state(0);
+	let activeProvider = $state.raw<HocuspocusProvider | null>(null);
+	const offlineProviders = new WeakSet<HocuspocusProvider>();
 	let title = $state('');
 	let kind = $state<DocumentKind>('freeform');
 	let serverView = $state<DocumentReadView | null>(null);
@@ -96,22 +100,33 @@
 	let baseDocumentVersion = $state(0);
 	let titleDirty = $state(false);
 	let kindDirty = $state(false);
-	let bodyCheckpointDirty = $state(false);
-	let editRevision = $state(0);
 	let saving = $state(false);
 	let saveFailure = $state('');
 	let conflict = $state<DocumentReadView | null>(null);
-	let checkpointOpen = $state(false);
-	let checkpointReason = $state('');
-	let checkpointCommand = $state<PendingDocumentCommand | null>(null);
 	let metadataCommand = $state<PendingDocumentCommand | null>(null);
 	let lastReportedDirty = false;
+	let unsyncedChanges = $state(0);
 
 	const editor = $derived(editorState.editor);
 	const canWriteLive = $derived(
 		collaborationState === 'synced' && collaborationAccess === 'write' && view.access === 'edit'
 	);
-	const dirty = $derived(bodyCheckpointDirty || titleDirty || kindDirty);
+	const dirty = $derived(
+		titleDirty ||
+			kindDirty ||
+			saving ||
+			unsyncedChanges > 0 ||
+			(collaborationState !== 'synced' && collaborationState !== 'read-only')
+	);
+	$effect(() => {
+		onleavechange(
+			!titleDirty &&
+				!kindDirty &&
+				!saving &&
+				unsyncedChanges === 0 &&
+				(collaborationState === 'synced' || collaborationState === 'read-only')
+		);
+	});
 	const statusLabel = $derived(documentCollaborationStateLabel(collaborationState));
 
 	function canonical(value: unknown): string {
@@ -126,33 +141,11 @@
 		return JSON.stringify(value);
 	}
 
-	function currentContent(instance = editorState.editor): DocumentContent | null {
-		if (!instance) return null;
-		return projectDocumentContent(instance.getJSON());
-	}
-
-	function refreshCheckpointState(instance = editorState.editor): void {
-		const source = serverView;
-		if (!instance || !source) return;
-		try {
-			bodyCheckpointDirty =
-				canonical(currentContent(instance)) !==
-				canonical(source.current_version.version.content_json);
-			saveFailure = '';
-		} catch (cause) {
-			bodyCheckpointDirty = true;
-			saveFailure =
-				cause instanceof Error ? cause.message : 'This document cannot be checkpointed.';
-		}
-	}
-
 	function updateMetadataDirty(): void {
 		const source = serverView;
 		if (!source) return;
 		titleDirty = title.trim() !== source.document.title;
 		kindDirty = kind !== source.document.kind;
-		editRevision += 1;
-		checkpointCommand = null;
 		metadataCommand = null;
 		saveFailure = '';
 	}
@@ -166,14 +159,9 @@
 		kind = source.document.kind;
 		titleDirty = false;
 		kindDirty = false;
-		bodyCheckpointDirty = false;
 		conflict = null;
-		checkpointOpen = false;
-		checkpointReason = '';
-		checkpointCommand = null;
 		metadataCommand = null;
 		saveFailure = '';
-		refreshCheckpointState();
 	}
 
 	$effect(() => {
@@ -189,7 +177,10 @@
 			serverView = incoming;
 			return;
 		}
-		if ((titleDirty || kindDirty) && incoming.document.version !== baseDocumentVersion) {
+		if (
+			(titleDirty && incoming.document.title !== serverView?.document.title) ||
+			(kindDirty && incoming.document.kind !== serverView?.document.kind)
+		) {
 			conflict = incoming;
 			return;
 		}
@@ -198,7 +189,6 @@
 		baseDocumentVersion = incoming.document.version;
 		if (!titleDirty) title = incoming.document.title;
 		if (!kindDirty) kind = incoming.document.kind;
-		refreshCheckpointState();
 	});
 
 	$effect(() => {
@@ -221,164 +211,196 @@
 		const actorId = principalActorId;
 		void retryGeneration;
 
-		if (!browser) return;
-		editorState = { editor: null };
-		collaborationAccess = null;
-		collaborationFailure = '';
-		if (!identity) {
-			collaborationState = 'degraded';
-			collaborationFailure =
-				'This company has no verified collaboration identity. The latest named version is read only.';
-			return;
-		}
+		// Provider constructors invoke status callbacks synchronously. Those
+		// reads must not turn connection status into a lifecycle dependency.
+		return untrack(() => {
+			if (!browser) return;
+			editorState = { editor: null };
+			collaborationAccess = null;
+			collaborationFailure = '';
+			documentRestored = false;
+			unsyncedChanges = 0;
+			if (!identity) {
+				collaborationState = 'degraded';
+				collaborationFailure =
+					'This company has no verified collaboration identity. The latest named version is read only.';
+				return;
+			}
 
-		let url: string;
-		let name: string;
-		try {
-			url = documentCollaborationWebSocketUrl(window.location.origin, identity, documentId);
-			name = documentCollaborationName(identity, documentId);
-		} catch (cause) {
-			collaborationState = 'degraded';
-			collaborationFailure =
-				cause instanceof Error ? cause.message : 'The collaboration target is invalid.';
-			return;
-		}
+			let url: string;
+			let name: string;
+			try {
+				url = documentCollaborationWebSocketUrl(window.location.origin, identity, documentId);
+				name = documentCollaborationName(identity, documentId);
+			} catch (cause) {
+				collaborationState = 'degraded';
+				collaborationFailure =
+					cause instanceof Error ? cause.message : 'The collaboration target is invalid.';
+				return;
+			}
 
-		let disposed = false;
-		let mountedEditor: Editor | null = null;
-		let hadConnection = false;
-		const controller = new AbortController();
-		const yDocument = new Y.Doc();
-		collaborationState = 'connecting';
+			let disposed = false;
+			let mountedEditor: Editor | null = null;
+			let hadConnection = false;
+			const controller = new AbortController();
+			const yDocument = new Y.Doc();
+			collaborationState = 'connecting';
 
-		const provider = new HocuspocusProvider({
-			url,
-			name,
-			document: yDocument,
-			flushDelay: 80,
-			token: async () => {
-				try {
-					const grant = await requestDocumentCollaborationToken(
-						routeCompany,
-						documentId,
-						controller.signal
-					);
-					if (disposed) throw new Error('Document collaboration stopped.');
-					collaborationAccess = grant.access;
-					return grant.token;
-				} catch (cause) {
-					if (!disposed) {
-						collaborationState = transitionDocumentCollaborationState(collaborationState, 'failed');
-						collaborationFailure =
-							cause instanceof Error ? cause.message : 'A collaboration token could not be issued.';
+			const provider = new HocuspocusProvider({
+				url,
+				name,
+				document: yDocument,
+				flushDelay: 80,
+				token: async () => {
+					try {
+						const grant = await requestDocumentCollaborationToken(
+							routeCompany,
+							documentId,
+							controller.signal
+						);
+						if (disposed) throw new Error('Document collaboration stopped.');
+						collaborationAccess = grant.access;
+						return grant.token;
+					} catch (cause) {
+						if (!disposed) {
+							collaborationState = transitionDocumentCollaborationState(
+								collaborationState,
+								'failed'
+							);
+							collaborationFailure =
+								cause instanceof Error
+									? cause.message
+									: 'A collaboration token could not be issued.';
+						}
+						throw new Error('A fresh collaboration token could not be issued.');
 					}
-					throw new Error('A fresh collaboration token could not be issued.');
-				}
-			},
-			onOpen: () => {
-				hadConnection = true;
-			},
-			onStatus: ({ status }) => {
-				if (disposed || collaborationState === 'degraded') return;
-				if (status === 'connecting') {
+				},
+				onOpen: () => {
+					hadConnection = true;
+				},
+				onStatus: ({ status }) => {
+					if (disposed || collaborationState === 'degraded') return;
+					if (status === 'connecting') {
+						collaborationState = transitionDocumentCollaborationState(
+							collaborationState,
+							'socket-connecting'
+						);
+					} else if (status === 'disconnected') {
+						collaborationState = hadConnection
+							? 'reconnecting'
+							: transitionDocumentCollaborationState(collaborationState, 'socket-disconnected');
+					}
+				},
+				onAuthenticationFailed: () => {
+					if (disposed) return;
+					collaborationState = transitionDocumentCollaborationState(collaborationState, 'failed');
+					collaborationFailure =
+						'Collaboration access was rejected. The latest named version remains read only.';
+				},
+				onClose: ({ event }) => {
+					if (disposed || collaborationState === 'degraded') return;
+					// Hocuspocus carries logical close reasons with code 1000.
+					if (event.reason === 'Document restored') {
+						documentRestored = true;
+						collaborationState = 'degraded';
+						collaborationFailure =
+							'Someone restored an earlier version. Copy any recent changes you want to keep from this read-only draft, then load the restored version.';
+						provider.disconnect();
+						return;
+					}
+					if (event.code === 4401 || event.code === 4403) {
+						collaborationState = 'degraded';
+						collaborationFailure =
+							'Collaboration access ended. Refresh access before making more changes.';
+						return;
+					}
+					collaborationState = hadConnection ? 'reconnecting' : collaborationState;
+				},
+				onUnsyncedChanges: ({ number }) => {
+					if (!disposed) unsyncedChanges = number;
+				},
+				onSynced: ({ state: synced }) => {
+					if (disposed || !synced) return;
+					const writable = collaborationAccess === 'write' && readAccess === 'edit';
 					collaborationState = transitionDocumentCollaborationState(
 						collaborationState,
-						'socket-connecting'
+						writable ? 'synced-write' : 'synced-read'
 					);
-				} else if (status === 'disconnected') {
-					collaborationState = hadConnection
-						? 'reconnecting'
-						: transitionDocumentCollaborationState(collaborationState, 'socket-disconnected');
-				}
-			},
-			onAuthenticationFailed: () => {
-				if (disposed) return;
-				collaborationState = transitionDocumentCollaborationState(collaborationState, 'failed');
-				collaborationFailure =
-					'Collaboration access was rejected. The latest named version remains read only.';
-			},
-			onClose: ({ event }) => {
-				if (disposed || collaborationState === 'degraded') return;
-				if (event.code === 4401 || event.code === 4403) {
-					collaborationState = 'degraded';
-					collaborationFailure =
-						'Collaboration access ended. Refresh access before making more changes.';
-					return;
-				}
-				collaborationState = hadConnection ? 'reconnecting' : collaborationState;
-			},
-			onSynced: ({ state: synced }) => {
-				if (disposed || !synced) return;
-				const writable = collaborationAccess === 'write' && readAccess === 'edit';
-				collaborationState = transitionDocumentCollaborationState(
-					collaborationState,
-					writable ? 'synced-write' : 'synced-read'
-				);
-				collaborationFailure = '';
-				void tick().then(() => {
-					if (disposed || mountedEditor || !editorElement) return;
-					mountedEditor = new Editor({
-						element: editorElement,
-						extensions: createDocumentEditorExtensions(yDocument, provider, writable),
-						editable: writable,
-						editorProps: {
-							attributes: {
-								class: 'tiptap native-document-body',
-								'aria-label': writable ? 'Collaborative document body' : 'Document body'
+					collaborationFailure = '';
+					void tick().then(() => {
+						if (disposed || mountedEditor || !editorElement) return;
+						mountedEditor = new Editor({
+							element: editorElement,
+							extensions: createDocumentEditorExtensions(yDocument, provider, writable),
+							editable: writable,
+							editorProps: {
+								attributes: {
+									class: 'tiptap native-document-body',
+									'aria-label': writable ? 'Collaborative document body' : 'Document body'
+								}
+							},
+							onCreate: ({ editor: instance }) => {
+								editorState = { editor: instance };
+							},
+							onTransaction: ({ editor: instance }) => {
+								editorState = { editor: instance };
 							}
-						},
-						onCreate: ({ editor: instance }) => {
-							editorState = { editor: instance };
-							refreshCheckpointState(instance);
-						},
-						onTransaction: ({ editor: instance }) => {
-							editorState = { editor: instance };
-						},
-						onUpdate: ({ editor: instance }) => {
-							editRevision += 1;
-							checkpointCommand = null;
-							metadataCommand = null;
-							refreshCheckpointState(instance);
-						}
+						});
+						editorState = { editor: mountedEditor };
+						provider.awareness?.setLocalStateField('user', {
+							id: actorId,
+							name: actorId
+						});
 					});
-					editorState = { editor: mountedEditor };
-					provider.awareness?.setLocalStateField('user', {
-						id: actorId,
-						name: actorId
-					});
-				});
-			}
+				}
+			});
+
+			activeProvider = provider;
+
+			const connectDeadline = setTimeout(() => {
+				if (
+					disposed ||
+					collaborationState === 'synced' ||
+					collaborationState === 'read-only' ||
+					collaborationState === 'degraded'
+				)
+					return;
+				collaborationState = 'degraded';
+				collaborationFailure =
+					'Live collaboration did not become ready. The latest named version remains read only.';
+			}, 10_000);
+
+			return () => {
+				disposed = true;
+				clearTimeout(connectDeadline);
+				controller.abort();
+				mountedEditor?.destroy();
+				if (activeProvider === provider) activeProvider = null;
+				provider.destroy();
+				yDocument.destroy();
+				if (editorState.editor === mountedEditor) editorState = { editor: null };
+			};
 		});
-
-		const connectDeadline = setTimeout(() => {
-			if (
-				disposed ||
-				collaborationState === 'synced' ||
-				collaborationState === 'read-only' ||
-				collaborationState === 'degraded'
-			)
-				return;
-			collaborationState = 'degraded';
-			collaborationFailure =
-				'Live collaboration did not become ready. The latest named version remains read only.';
-		}, 10_000);
-
-		return () => {
-			disposed = true;
-			clearTimeout(connectDeadline);
-			controller.abort();
-			mountedEditor?.destroy();
-			provider.destroy();
-			yDocument.destroy();
-			if (editorState.editor === mountedEditor) editorState = { editor: null };
-		};
 	});
 
 	$effect(() => {
-		if (online) return;
-		collaborationState = 'degraded';
-		collaborationFailure =
-			'You are offline. Unsynced live changes remain in this tab and will retry when the connection returns.';
+		const provider = activeProvider;
+		const connected = online;
+		untrack(() => {
+			if (!provider) return;
+			if (!connected) {
+				offlineProviders.add(provider);
+				collaborationState = 'degraded';
+				collaborationFailure =
+					'You are offline. Unsynced live changes remain in this tab and will retry when the connection returns.';
+				provider.disconnect();
+			} else if (offlineProviders.delete(provider)) {
+				collaborationState = 'reconnecting';
+				collaborationFailure = '';
+				// Reauthenticate on the same Y.Doc so pending local changes survive.
+				void provider.connect();
+			}
+		});
 	});
 
 	function run(command: (instance: Editor) => boolean): void {
@@ -416,124 +438,70 @@
 		oncomment(instance ? selectedDocumentBlockId(instance) : null);
 	}
 
-	async function flush(): Promise<void> {
-		if (!dirty || !canWriteLive || conflict || saving) return;
-		const reason = checkpointReason.trim();
-		if (!reason) {
-			checkpointOpen = true;
-			return;
-		}
-		const source = serverView;
-		const instance = editorState.editor;
-		if (!source || !instance) return;
-		let contentAtStart: DocumentContent;
-		try {
-			contentAtStart = projectDocumentContent(instance.getJSON());
-		} catch (cause) {
-			saveFailure =
-				cause instanceof Error ? cause.message : 'This document cannot be checkpointed.';
-			return;
-		}
-		const target = { companyId, documentId: source.document.id };
-		const titleDirtyAtStart = titleDirty;
-		const kindDirtyAtStart = kindDirty;
-		const baseDocumentVersionAtStart = baseDocumentVersion;
+	async function saveTitle(retryHistoryAdvance = true): Promise<void> {
 		if (
-			(titleDirtyAtStart || kindDirtyAtStart) &&
-			source.document.version !== baseDocumentVersionAtStart
-		) {
-			conflict = source;
+			!titleDirty ||
+			!canWriteLive ||
+			view.document.owner_actor_id !== principalActorId ||
+			saving ||
+			conflict ||
+			!serverView
+		)
+			return;
+		if (!title.trim()) {
+			saveFailure = 'Give the document a title.';
 			return;
 		}
-		const startedAtRevision = editRevision;
-		const titleAtStart = title.trim();
-		const kindAtStart = kind;
-		const checkpointInput = {
-			expected_current_version_id: source.current_version.version.id,
-			content_json: contentAtStart,
-			reason
+		const target = { companyId, documentId: serverView.document.id };
+		const source = serverView.document;
+		const input = {
+			expected_version: baseDocumentVersion,
+			title: title.trim(),
+			kind: source.kind,
+			visibility: source.visibility,
+			linked_room_id: source.linked_room_id,
+			inherit_room_visibility: source.inherit_room_visibility
 		};
-		const versionCommand = pendingDocumentCommand(checkpointCommand, canonical(checkpointInput));
-		const metadataInput = checkpointMetadataInput(
-			source.document,
-			baseDocumentVersionAtStart,
-			titleAtStart,
-			kindAtStart,
-			titleDirtyAtStart,
-			kindDirtyAtStart
-		);
-		const metadataCommandAtStart = metadataInput
-			? pendingDocumentCommand(metadataCommand, canonical(metadataInput))
-			: null;
-		checkpointCommand = versionCommand;
-		metadataCommand = metadataCommandAtStart;
+		const command = pendingDocumentCommand(metadataCommand, canonical(input));
+		metadataCommand = command;
 		saving = true;
 		saveFailure = '';
 		try {
-			const versionReceipt = await createDocumentVersion(
-				target.companyId,
-				target.documentId,
-				checkpointInput,
-				versionCommand.id
-			);
-			let accepted = await getDocument(target.companyId, versionReceipt.document_id);
-			if (accepted.current_version.version.id !== versionReceipt.result_id) {
-				if (sameDocumentTarget(target, companyId, view.document.id)) {
-					conflict = accepted;
-					checkpointCommand = null;
-					metadataCommand = null;
-				}
-				return;
-			}
-			if (metadataInput && metadataCommandAtStart && titleAtStart) {
-				await updateDocumentMetadata(
-					target.companyId,
-					target.documentId,
-					metadataInput,
-					metadataCommandAtStart.id
-				);
-				accepted = await getDocument(target.companyId, target.documentId);
-			}
+			await updateDocumentMetadata(target.companyId, target.documentId, input, command.id);
+			const accepted = await getDocument(target.companyId, target.documentId);
 			if (!sameDocumentTarget(target, companyId, view.document.id)) return;
 			serverView = accepted;
-			loadedVersionId = accepted.current_version.version.id;
 			baseDocumentVersion = accepted.document.version;
+			titleDirty = title.trim() !== accepted.document.title;
+			metadataCommand = null;
 			onaccept(target, accepted);
-			if (editRevision === startedAtRevision) {
-				title = accepted.document.title;
-				kind = accepted.document.kind;
-				titleDirty = false;
-				kindDirty = false;
-				bodyCheckpointDirty = false;
-				checkpointOpen = false;
-				checkpointReason = '';
-				checkpointCommand = null;
-				metadataCommand = null;
-			} else {
-				titleDirty = title.trim() !== accepted.document.title;
-				kindDirty = kind !== accepted.document.kind;
-				refreshCheckpointState(instance);
-			}
 		} catch (cause) {
 			failClosedDocumentRead(client, cause, target.companyId, target.documentId);
 			if (!sameDocumentTarget(target, companyId, view.document.id)) return;
-			if (!isRetryableDocumentFailure(cause)) {
-				checkpointCommand = null;
-				metadataCommand = null;
-			}
+			if (!isRetryableDocumentFailure(cause)) metadataCommand = null;
 			if (isDocumentConflict(cause)) {
 				try {
-					conflict = await getDocument(target.companyId, target.documentId);
-				} catch (refreshCause) {
-					failClosedDocumentRead(client, refreshCause, target.companyId, target.documentId);
-					saveFailure =
-						refreshCause instanceof Error
-							? refreshCause.message
-							: 'The latest named version could not be loaded.';
+					const latest = await getDocument(target.companyId, target.documentId);
+					if (!sameDocumentTarget(target, companyId, view.document.id)) return;
+					if (
+						retryHistoryAdvance &&
+						latest.document.title === source.title &&
+						latest.document.kind === source.kind &&
+						latest.document.visibility === source.visibility &&
+						latest.document.linked_room_id === source.linked_room_id &&
+						latest.document.inherit_room_visibility === source.inherit_room_visibility
+					) {
+						// A history snapshot advanced the revision, but nobody changed this metadata.
+						serverView = latest;
+						baseDocumentVersion = latest.document.version;
+						loadedVersionId = latest.current_version.version.id;
+						saving = false;
+						await saveTitle(false);
+					} else conflict = latest;
+				} catch {
+					saveFailure = 'Could not reload the document title.';
 				}
-			} else {
-				saveFailure = cause instanceof Error ? cause.message : 'The named version was not created.';
-			}
+			} else saveFailure = cause instanceof Error ? cause.message : 'The title was not saved.';
 		} finally {
 			if (sameDocumentTarget(target, companyId, view.document.id)) saving = false;
 		}
@@ -550,9 +518,7 @@
 		titleDirty = false;
 		kindDirty = false;
 		conflict = null;
-		checkpointCommand = null;
 		metadataCommand = null;
-		refreshCheckpointState();
 		onaccept({ companyId, documentId: latest.document.id }, latest);
 	}
 
@@ -565,10 +531,8 @@
 		titleDirty = title.trim() !== latest.document.title;
 		kindDirty = kind !== latest.document.kind;
 		conflict = null;
-		checkpointCommand = null;
 		metadataCommand = null;
-		checkpointOpen = true;
-		refreshCheckpointState();
+		void saveTitle();
 	}
 </script>
 
@@ -578,49 +542,44 @@
 			<label for="document-title">Document title</label>
 			<input
 				id="document-title"
+				onblur={() => void saveTitle()}
+				onkeydown={(event) => {
+					if (event.key === 'Enter') event.currentTarget.blur();
+				}}
 				value={title}
-				disabled={!canWriteLive}
+				disabled={!canWriteLive || view.document.owner_actor_id !== principalActorId}
 				oninput={(event) => {
 					title = event.currentTarget.value;
 					updateMetadataDirty();
 				}}
 			/>
 		</div>
-		<label class="kind-control">
-			<span>Type</span>
-			<select
-				value={kind}
-				disabled={!canWriteLive}
-				onchange={(event) => {
-					kind = event.currentTarget.value as typeof kind;
-					updateMetadataDirty();
-				}}
-			>
-				{#each DOCUMENT_KINDS as option (option.value)}
-					<option value={option.value}>{option.label}</option>
-				{/each}
-			</select>
-			<ChevronDown size={14} strokeWidth={1.8} aria-hidden="true" />
-		</label>
-		<div class="collaboration-state state-{collaborationState}" aria-live="polite">
+		<div
+			class="collaboration-state state-{collaborationState}"
+			aria-live="polite"
+			title={canWriteLive ? 'Edits and version history save automatically.' : statusLabel}
+		>
 			{#if collaborationState === 'synced'}
 				<Check size={14} strokeWidth={2} aria-hidden="true" />
 			{:else if collaborationState === 'connecting' || collaborationState === 'reconnecting'}
 				<RefreshCw class="spinning" size={14} strokeWidth={1.8} aria-hidden="true" />
 			{/if}
-			<span>{statusLabel}{dirty && canWriteLive ? ' · new version available' : ''}</span>
-		</div>
-		{#if view.access === 'edit'}
-			<button
-				type="button"
-				class="save-version-button"
-				aria-expanded={checkpointOpen}
-				disabled={!dirty || saving || !canWriteLive}
-				onclick={() => (checkpointOpen = !checkpointOpen)}
+			<span
+				>{unsyncedChanges > 0 || saving
+					? 'Saving…'
+					: titleDirty
+						? 'Unsaved title'
+						: canWriteLive
+							? 'Saved'
+							: statusLabel}</span
 			>
-				Save version
-			</button>
-		{/if}
+		</div>
+		<div class="editor-actions">
+			{@render actions?.()}
+			{#if moreActions}
+				<DocumentActions>{@render moreActions()}</DocumentActions>
+			{/if}
+		</div>
 	</header>
 
 	{#if editor}
@@ -770,50 +729,11 @@
 		</div>
 	{/if}
 
-	{#if checkpointOpen && dirty && !conflict}
-		<form
-			class="checkpoint-band"
-			onsubmit={(event) => {
-				event.preventDefault();
-				void flush();
-			}}
-		>
-			<label for="checkpoint-reason">
-				<span>Version name</span>
-				<input
-					id="checkpoint-reason"
-					bind:value={checkpointReason}
-					maxlength="160"
-					placeholder="Ready for review"
-					disabled={!canWriteLive || saving}
-					oninput={() => {
-						checkpointCommand = null;
-						metadataCommand = null;
-					}}
-				/>
-			</label>
-			<div>
-				<button
-					type="button"
-					class="btn small"
-					disabled={saving}
-					onclick={() => (checkpointOpen = false)}>Cancel</button
-				>
-				<button
-					type="submit"
-					class="btn small primary"
-					disabled={!canWriteLive || saving || !checkpointReason.trim()}
-					>{saving ? 'Creating…' : 'Create named version'}</button
-				>
-			</div>
-		</form>
-	{/if}
-
 	{#if conflict}
 		<section class="conflict-band" aria-labelledby="document-conflict-title">
 			<div>
-				<h2 id="document-conflict-title">A named version changed elsewhere.</h2>
-				<p>The live body is already merged. Choose which title and type to carry forward.</p>
+				<h2 id="document-conflict-title">The title changed elsewhere.</h2>
+				<p>The live body is already merged. Choose which title to carry forward.</p>
 			</div>
 			<div class="conflict-compare">
 				<div>
@@ -841,18 +761,18 @@
 				type="button"
 				class="btn small"
 				disabled={!online}
-				onclick={() => (retryGeneration += 1)}>Retry</button
+				onclick={() => (retryGeneration += 1)}>{documentRestored ? 'Load restored version' : 'Retry'}</button
 			>
 		</div>
 	{/if}
 
 	{#if saveFailure}
 		<div class="editor-error" role="alert">
-			<span>{saveFailure}</span>{#if checkpointReason.trim()}<button
+			<span>{saveFailure}</span>{#if titleDirty}<button
 					type="button"
 					class="btn small"
 					disabled={!canWriteLive || saving}
-					onclick={() => void flush()}>Retry version</button
+					onclick={() => void saveTitle()}>Retry title</button
 				>{/if}
 		</div>
 	{/if}
@@ -878,6 +798,7 @@
 
 <style>
 	.document-editor {
+		container: document-editor / inline-size;
 		min-width: 0;
 		min-height: 0;
 		display: flex;
@@ -888,14 +809,13 @@
 	.editor-head {
 		min-height: var(--pane-head-h);
 		display: grid;
-		grid-template-columns: minmax(180px, 1fr) auto auto auto;
+		grid-template-columns: minmax(0, 1fr) auto auto;
 		align-items: center;
 		gap: var(--space-3);
 		padding: var(--space-2) var(--space-4);
 		border-bottom: 1px solid var(--border);
 	}
-	.document-title-field label,
-	.kind-control > span {
+	.document-title-field label {
 		position: absolute;
 		width: 1px;
 		height: 1px;
@@ -922,26 +842,16 @@
 	.document-title-field input:disabled {
 		opacity: 1;
 	}
-	.kind-control {
-		position: relative;
+	.editor-actions {
 		display: flex;
 		align-items: center;
+		gap: 6px;
 	}
-	.kind-control select {
-		appearance: none;
-		padding: 5px 27px 5px 9px;
-		border: 1px solid var(--control-edge);
-		border-radius: var(--radius-control);
-		background: var(--surface);
-		color: var(--text-secondary);
-		font: 500 var(--t-body) var(--font-ui);
-	}
-	.kind-control :global(svg) {
-		position: absolute;
-		right: 8px;
-		pointer-events: none;
+	.document-title-field {
+		min-width: 0;
 	}
 	.collaboration-state {
+		min-width: 0;
 		display: flex;
 		align-items: center;
 		gap: 6px;
@@ -949,27 +859,24 @@
 		font: 500 var(--t-label) var(--font-mono);
 		white-space: nowrap;
 	}
+	.collaboration-state > span {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.collaboration-state :global(svg) {
+		flex-shrink: 0;
+	}
+
 	.collaboration-state.state-synced {
 		color: var(--surface-work);
 	}
 	.collaboration-state.state-degraded {
 		color: var(--state-danger);
 	}
-	.save-version-button {
-		min-height: 30px;
-		padding: 5px 10px;
-		border: 1px solid var(--control-edge);
-		border-radius: var(--radius-control);
-		background: var(--surface);
-		box-shadow: var(--control-depth);
-		color: var(--ink);
-		font: 600 var(--t-body) var(--font-ui);
-		cursor: pointer;
-	}
-	.save-version-button:disabled,
 	.format-toolbar button:disabled {
 		opacity: 0.42;
-		box-shadow: none;
 		cursor: not-allowed;
 	}
 	.format-toolbar {
@@ -1014,35 +921,6 @@
 		background: var(--border);
 		flex: none;
 	}
-	.checkpoint-band {
-		display: flex;
-		align-items: end;
-		justify-content: flex-end;
-		gap: var(--space-2);
-		padding: var(--space-2) var(--space-4);
-		border-bottom: 1px solid color-mix(in srgb, var(--surface-work) 22%, var(--border));
-		background: color-mix(in srgb, var(--surface-work) 5%, var(--surface));
-	}
-	.checkpoint-band label {
-		width: min(430px, 100%);
-		display: grid;
-		gap: 4px;
-	}
-	.checkpoint-band label span {
-		color: var(--text-secondary);
-		font-weight: 600;
-	}
-	.checkpoint-band input {
-		width: 100%;
-		height: 32px;
-		padding: 5px 8px;
-		border: 1px solid var(--control-edge);
-		border-radius: var(--radius-control);
-		background: #fff;
-		color: var(--ink);
-		font: var(--t-body) var(--font-ui);
-	}
-	.checkpoint-band > div,
 	.conflict-actions {
 		display: flex;
 		gap: var(--space-2);
@@ -1245,15 +1123,19 @@
 			transform: rotate(360deg);
 		}
 	}
-	@media (max-width: 760px) {
+	@container document-editor (max-width: 760px) {
 		.editor-head {
-			grid-template-columns: minmax(0, 1fr) auto auto;
+			grid-template-columns: minmax(0, 1fr) auto;
 			gap: var(--space-2);
 			padding-inline: var(--space-3);
 		}
 		.collaboration-state {
-			grid-column: 1 / -1;
-			min-height: 18px;
+			grid-column: 1;
+			grid-row: 2;
+		}
+		.editor-actions {
+			grid-column: 2;
+			grid-row: 1 / 3;
 		}
 		.format-toolbar {
 			padding-inline: var(--space-3);
@@ -1267,13 +1149,6 @@
 		}
 		.conflict-compare {
 			grid-template-columns: 1fr;
-		}
-		.checkpoint-band {
-			align-items: stretch;
-			flex-direction: column;
-		}
-		.checkpoint-band label {
-			width: 100%;
 		}
 		.collaboration-error > div {
 			align-items: flex-start;

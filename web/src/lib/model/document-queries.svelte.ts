@@ -413,6 +413,8 @@ export function documentCommentsQuery(companyId: QueryId, documentId: QueryId, t
 		getNextPageParam: (page: DocumentCommentPage) => cursorOrUndefined(page.next_cursor),
 		staleTime: DOCUMENT_STALE_MS,
 		gcTime: DOCUMENT_RETAIN_MS,
+		refetchInterval: DOCUMENT_REFRESH_MS,
+		refetchIntervalInBackground: true,
 		retry: retryDocumentRead
 	}));
 	return {

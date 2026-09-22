@@ -351,7 +351,9 @@ export class NativeDocumentsCollaborationServer {
             // current store mutex releases. The next authenticated connection
             // will seed from Core's new checkpoint.
             const timer = setTimeout(() => {
-              this.server.hocuspocus.closeConnections(documentName);
+              for (const connection of document.getConnections()) {
+                connection.close({ code: 4409, reason: 'Document restored' });
+              }
               void this.server.hocuspocus.unloadDocument(document);
             }, 0);
             timer.unref();

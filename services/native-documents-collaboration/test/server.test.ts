@@ -315,14 +315,16 @@ test('an immutable checkpoint move evicts the stale live document before the nex
   const url = `${server.webSocketUrl}/api/companies/${COMPANY_ID}/documents/${DOCUMENT_ID}/collaboration`;
   const firstDocument = new Y.Doc();
   let checkpointClosed = false;
+  let closeReason = "";
   let first!: HocuspocusProvider;
   first = new HocuspocusProvider({
     url,
     name: collaborationDocumentName(target),
     token: await signer.sign(),
     document: firstDocument,
-    onClose: () => {
+    onClose: ({ event }) => {
       if (store.moved) {
+        closeReason = event.reason;
         checkpointClosed = true;
         first.destroy();
       }
@@ -332,6 +334,7 @@ test('an immutable checkpoint move evicts the stale live document before the nex
   await eventually(() => first.isAuthenticated && first.isSynced, 'initial checkpoint sync');
   firstDocument.getText('content').insert(4, '-stale');
   await eventually(() => checkpointClosed, 'stale checkpoint eviction');
+  assert.equal(closeReason, 'Document restored');
 
   const replacementDocument = new Y.Doc();
   const second = new HocuspocusProvider({

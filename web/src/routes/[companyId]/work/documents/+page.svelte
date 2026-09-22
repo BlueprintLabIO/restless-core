@@ -18,7 +18,6 @@
 	import {
 		documentQuery,
 		documentQueryKeys,
-		documentPrincipalQuery,
 		documentsQuery
 	} from '$lib/model/document-queries.svelte';
 	import {
@@ -28,12 +27,10 @@
 	} from '$lib/model/document-cache';
 	import {
 		createDocument,
-		DOCUMENT_KINDS,
 		getDocument,
 		isRetryableDocumentFailure,
 		pendingDocumentCreation,
 		type CreateDocumentInput,
-		type DocumentKind,
 		type DocumentReadView,
 		type DocumentRow,
 		type PendingDocumentCreation
@@ -47,12 +44,9 @@
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	const client = useQueryClient();
 	const list = documentsQuery(() => companyId);
-	const principal = documentPrincipalQuery(() => companyId);
 	const shellPrincipal = $derived(companyPrincipalQuery(companyId));
 	const ownerAccess = $derived(shellPrincipal.view?.membership_role === 'owner');
-	const collaboration = $derived(
-		collaborationBootstrapQuery(companyId, () => shellPrincipal.view)
-	);
+	const collaboration = $derived(collaborationBootstrapQuery(companyId, () => shellPrincipal.view));
 	const cockpit = $derived(cockpitQuery(companyId, () => ownerAccess));
 	const requestedDocumentId = $derived(page.url.searchParams.get('document') ?? '');
 	const selectedDocumentId = $derived(requestedDocumentId || list.summaries[0]?.document.id || '');
@@ -70,7 +64,6 @@
 	let search = $state('');
 	let creating = $state(false);
 	let createTitle = $state('');
-	let createKind = $state<DocumentKind>('freeform');
 	let createBusy = $state(false);
 	let createFailure = $state('');
 	let createAttempt = $state<PendingDocumentCreation | null>(null);
@@ -88,7 +81,7 @@
 	});
 
 	const sourceFailure = $derived(
-		principal.failure?.message ?? list.failure?.message ?? detail.failure?.message ?? ''
+		shellPrincipal.failure?.message ?? list.failure?.message ?? detail.failure?.message ?? ''
 	);
 
 	function documentHref(documentId: string): string {
@@ -145,7 +138,7 @@
 		createAttemptCompanyId = targetCompanyId;
 		const semanticInput: Omit<CreateDocumentInput, 'content_json'> = {
 			title,
-			kind: createKind,
+			kind: 'freeform',
 			visibility: 'company' as const,
 			linked_room_id: null,
 			inherit_room_visibility: false,
@@ -166,7 +159,6 @@
 			if (companyId !== target.companyId) return;
 			creating = false;
 			createTitle = '';
-			createKind = 'freeform';
 			createAttempt = null;
 			createAttemptCompanyId = '';
 			await openDocument(created.document.id);
@@ -180,10 +172,6 @@
 		}
 	}
 
-	function kindLabel(value: string): string {
-		return DOCUMENT_KINDS.find((kind) => kind.value === value)?.label ?? value;
-	}
-
 	function shortDate(value: string): string {
 		const date = new Date(value);
 		if (Number.isNaN(date.getTime())) return value;
@@ -195,7 +183,7 @@
 	}
 
 	function summaryLine(document: DocumentRow): string {
-		return `${kindLabel(document.kind)} · ${statusLabel(document.status)} · ${shortDate(document.updated_at)}`;
+		return `${statusLabel(document.status)} · ${shortDate(document.updated_at)}`;
 	}
 </script>
 
@@ -237,7 +225,6 @@
 						createAttempt = null;
 						createAttemptCompanyId = '';
 						createTitle = '';
-						createKind = 'freeform';
 					}
 					creating = !creating;
 					createFailure = '';
@@ -263,16 +250,7 @@
 						oninput={() => (createAttempt = null)}
 					/></label
 				>
-				<label
-					><span>Type</span><select
-						bind:value={createKind}
-						disabled={!online || createBusy}
-						onchange={() => (createAttempt = null)}
-						>{#each DOCUMENT_KINDS as kind (kind.value)}<option value={kind.value}
-								>{kind.label}</option
-							>{/each}</select
-					></label
-				>
+
 				{#if createFailure}<p role="alert">{createFailure}</p>{/if}
 				<button
 					type="submit"
@@ -356,12 +334,27 @@
 				{companyId}
 				companyUuid={collaboration.view?.company.company_id ?? null}
 				view={documentView}
-				principalActorId={principal.principal?.actor_id ?? ''}
+				principalActorId={shellPrincipal.view?.actor_id ?? ''}
 				{online}
 				onaccept={acceptDocument}
 				oncomment={openBlockComment}
 				ondirtychange={(value) => (documentDirty = value)}
-			/>
+			>
+				{#snippet actions()}
+					<button
+						type="button"
+						class="btn small"
+						aria-label="Comments and history"
+						aria-expanded={inspectorOpen}
+						onclick={() => (inspectorOpen ? closeInspector() : changePanel('comments'))}
+					>
+						<MessageSquare size={15} aria-hidden="true" />
+					</button>
+				{/snippet}
+				{#snippet moreActions()}
+					<button type="button" onclick={() => changePanel('review')}>Request review…</button>
+				{/snippet}
+			</DocumentEditor>
 		{:else if selectedDocumentId && detail.status === 'unknown'}
 			<div class="document-stage-loading" aria-label="Loading document">
 				<i></i><i></i><i></i><i></i>
@@ -406,6 +399,7 @@
 				{online}
 				editing={documentDirty}
 				{commentBlockId}
+				ondismiss={closeInspector}
 				onpanelchange={changePanel}
 				oncommenttargetchange={(value: string | null) => (commentBlockId = value)}
 				onaccept={acceptDocument}
@@ -423,8 +417,16 @@
 <style>
 	.documents-screen {
 		display: grid;
-		grid-template-columns: minmax(220px, 270px) minmax(430px, 1fr) minmax(300px, 360px);
+		grid-template-columns: minmax(220px, 270px) minmax(0, 1fr);
 		gap: var(--pane-gap);
+	}
+	@media (min-width: 1451px) {
+		.documents-screen.inspector-open {
+			grid-template-columns: minmax(220px, 270px) minmax(0, 1fr) minmax(300px, 360px);
+		}
+		.documents-screen.inspector-open .inspector-pane {
+			display: flex;
+		}
 	}
 	.document-index,
 	.document-stage,
@@ -498,8 +500,7 @@
 		color: var(--text-secondary);
 		font-weight: 600;
 	}
-	.create-document input,
-	.create-document select {
+	.create-document input {
 		min-width: 0;
 		width: 100%;
 		height: 32px;
@@ -687,7 +688,7 @@
 		line-height: 1.6;
 	}
 	.inspector-pane {
-		display: flex;
+		display: none;
 		flex-direction: column;
 		background: var(--surface-rail);
 	}

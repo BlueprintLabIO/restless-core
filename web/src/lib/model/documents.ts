@@ -604,8 +604,7 @@ export function requestDocumentReview(
 	expectedDocumentVersion: number,
 	expectedCurrentVersionId: string,
 	summary: string,
-	commandId: string,
-	workDependency: { work_id: string; reviewer_actor_id: string } | null = null
+	commandId: string
 ): Promise<DocumentReviewView> {
 	return documentJson(
 		`${documentsPath(company, document)}/reviews`,
@@ -613,8 +612,7 @@ export function requestDocumentReview(
 			{
 				expected_document_version: expectedDocumentVersion,
 				expected_current_version_id: expectedCurrentVersionId,
-					summary,
-					work_dependency: workDependency
+				summary
 			},
 			commandId
 		)

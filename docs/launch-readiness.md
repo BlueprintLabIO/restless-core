@@ -171,6 +171,17 @@ fixtures. Each run must verify its own cleanup.
   test databases, roles and containers were removed. The editor and account
   service remain separate unpublished pieces; this is not yet a complete
   published-source multiplayer qualification.
+- The editor was then qualified separately against that Core package. Its
+  type checks report zero errors or warnings and its production build passes.
+  Real browser checks cover editing, a comment on a newly added paragraph,
+  automatic history, restoration, mobile actions, requesting review and an
+  accepted version appearing in history. Two open editor tabs exposed a restore
+  bug: the old editor stopped at “Reconnecting” after a late edit. The Documents
+  service now identifies that closure, and the editor keeps the old draft visible
+  for copying before loading the restored version. The browser recovery check
+  and six server tests pass. This two-tab check used one browser identity; the
+  independent-human protocol checks remain separate evidence. Account setup is
+  still unpublished, and the complete fresh multiplayer installation remains open.
 
 The feedback route is shipped. Component results do not close the other five
 checks: their final evidence must name the published revision and include the
