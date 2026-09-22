@@ -7,10 +7,10 @@ revision and exercise the installation a new user receives.
 | Check | Required evidence | Current state |
 | --- | --- | --- |
 | Ship the demonstrated product | Reviewed collaboration/settings changes, migrations and assets committed; clean published checkout builds and runs the demonstrated flows | Accounts, documents, conversation routing, Company settings, provider-first setup, and collaboration owner workflow shipped in `cc933fc`; remaining model and independent-browser requirements stay open |
-| First installation and intelligence | Fresh state and checkout; README commands; successful native Codex, native Claude and API-backed requests; actionable connection failures | Clean setup verified at `c88e29d`; Docker-to-Core connection blocked on this host; Claude/API requests deferred by owner |
-| First useful outcome | Published starter exercise produces an actual business document, then accepts a human-requested revision | Native document CLI journey passes; model-produced proposal and revision remain open |
+| First installation and intelligence | Fresh state and checkout; README commands; successful native Codex, native Claude and API-backed requests; actionable connection failures | Clean setup verified at `c88e29d`; normal Docker bridge reaches Core with the approved narrow firewall rule; native Codex works; Claude/API requests deferred by owner |
+| First useful outcome | Published starter exercise produces an actual business document, then accepts a human-requested revision | Real Codex delegation produced and reviewed a proposal; explicit Request changes updated the same document; human edits and comments survived reload |
 | Human multiplayer | Two independent authenticated humans; invitation, shared editing, reconnect, comments, permission boundaries and removal through the supported product path | Independent-account protocol journey passes; simultaneous independent browsers remain open |
-| Completion and recovery | Real model delegation, produced output, review and revision; interrupted execution recovers preserved work and delivers a final owner notification without a prompting message | Durable delivery, recipient isolation and restart/replay tests pass at `932f5e4`; real model journey remains open |
+| Completion and recovery | Real model delegation, produced output, review and revision; interrupted execution recovers preserved work and delivers a final owner notification without a prompting message | Real delegation, preserved output and unsolicited initial completion observed; interrupted owner request resumed after the lease fix; human-requested revision completed |
 | Founder feedback | Visible, working route from the README to onboarding help and founder feedback | Shipped; links verified |
 
 ## Docker bridge reachability
@@ -357,3 +357,60 @@ complete user journeys.
 - This evidence does not close the real-model journey, Docker bridge/network
   issue, expired Claude sign-in, absent API-provider key, or the requirement for
   simultaneous independent browser contexts.
+
+## Live business smoke — 22 September 2026
+
+- The approved temporary firewall rule allowed normal Docker bridge traffic to
+  Core's isolated model and coordinator ports. Native Codex (`gpt-5.6-terra`)
+  then ran the published Northstar Books exercise, delegated real Work, produced
+  a native proposal and reviewed it. The reviewer corrected an unintended timing
+  condition while preserving the $2,400 price, two-week delivery, two revision
+  rounds and three exclusions. The work appeared on the board and map.
+- The proposal and its four named versions survived a daemon restart. Exec
+  delivered a completion message without another user prompt. That restart
+  occurred after production had stopped for human review; it is not evidence
+  that an active request resumes.
+- Opening the delivered document exposed an obsolete URL. `4cda425` adds a
+  compatibility redirect; the same link now opens the actual document in the
+  browser. `d2e8cb0` publishes the first-outcome guide linked from the README.
+- The human received read-only access, and Exec could not revise a document
+  owned by its producer. `9a56c8e`, `9ce06de` and `0d47c6e` clarify exact human
+  edit access, review permissions and routing a bounded revision back to its
+  producer. These preserve document permissions. Live revision verification
+  follows the explicit human review action.
+- A second restart interrupted the active revision request. The request
+  remained saved, but a stale execution lease delayed automatic recovery.
+  `e98dd73` fenced the interrupted lease; the saved request was consumed
+  and Exec replied without another prompt. The revision itself still failed
+  because Exec stopped at its missing document access instead of routing the
+  change to the producer. Recovery and successful revision are recorded
+  separately. No new test suite was added.
+- `fffb521` removes conflicting direct-edit instructions. Both Exec context
+  surfaces now distinguish edits it can make itself from edits that must be
+  sent back to the document's producer. A normal retry is running against the
+  rebuilt daemon routed the message correctly. The producer was waiting at a
+  human review boundary, so ordinary chat did not restart that Work.
+- Manual browser use found missing review controls: the outcome card offered
+  no review button, and feedback was treated as ordinary chat. `5916365` exposes
+  the review screen and an explicit Request changes form that remains available
+  while its lead is offline. It uses the existing authenticated review endpoint;
+  it does not infer review decisions from chat. Submitting the actual requested
+  changes declined the old handoff, cleared Attention, advanced Work to revision
+  2 and started a new producer attempt. Native document evidence also has a
+  working canonical Open document link.
+- The resumed producer completed checkpoint v5 with 50% due on approval and
+  50% on delivery, the approval checklist, and the original price, schedule,
+  revision allowance and exclusions preserved. The same native document became
+  editable for the human. A manual browser edit and anchored comment both
+  survived reload. This closes the useful-outcome revision check through the
+  supported review action; it does not claim ordinary chat bypasses that action.
+
+## Remaining launch checks
+
+- Native Claude and an API-provider request remain deferred at the owner's
+  request; only the existing Codex connection was used for this live business run.
+- Distinct authenticated accounts have passed protocol collaboration and
+  sequential browser use. Simultaneous independent browser sessions and external
+  SMTP delivery remain unverified.
+- A known local prerelease migration-59 checksum needs the documented repair
+  before upgrading that existing owner database. The owner runtime was untouched.
