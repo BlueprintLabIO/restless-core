@@ -4,7 +4,7 @@ The README media uses a consistent **1920 × 1080 (16:9)** frame.
 
 - `restless-product-tour.mp4`: approximately 99 seconds of live product use, H.264 at 25 fps with stereo narration and music. Opens in a creative brief and ends with saved feedback, with fast-start playback.
 - `restless-product-tour.vtt`: English captions, also embedded in the MP4.
-- `restless-product-poster.png`: the actual game running inside the shared company computer.
+- `restless-product-poster.png`: the actual game running inside the shared company computer, with its built-in desktop callout.
 - `../screenshots/*.jpg`: Full HD Lantern Studio captures of documents, review, a shared room and the embedded company computer.
 - `../screenshots/*.png`: Full HD Site Renovation captures. Provider account emails are masked.
 
@@ -19,7 +19,7 @@ The film follows a studio taking an idea to its first playable prototype. Its pe
 3. **Commission the playable.** Ask for a coder to build the game and a separate tester to check it.
 4. **See how the work connects.** The workboard shows the responsible people. The dependency map connects the build to testing and shows the path for revisions.
 5. **Follow the actual build.** Watch native agent activity, then inspect the completed build, saved output and passing automated check.
-6. **Play the result.** Take control of the shared computer. One keeper lights half the lantern; the second completes it and brings the coast to life.
+6. **Play the result.** A monitor icon and “Built-in company computer” callout identify the shared desktop as the playthrough opens. Take control of the shared computer. One keeper lights half the lantern; the second completes it and brings the coast to life.
 7. **Save the creative decision.** “Keep the quiet pace. Let each keeper discover the other beam before adding more mechanics.” The comment stays beside the brief.
 
 Lantern Studio is a worked example of a general business workspace. The opening and closing narration connect it to people bringing ideas, craft and judgement to any business.
