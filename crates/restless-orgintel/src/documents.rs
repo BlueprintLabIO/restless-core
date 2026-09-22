@@ -1082,7 +1082,7 @@ fn validate_node_attrs(
             }
         }
         "codeBlock" => {
-            if let Some(language) = attrs.get("language") {
+            if let Some(language) = attrs.get("language").filter(|value| !value.is_null()) {
                 bounded_string("code-block language", language, 64)?;
             }
         }
@@ -1180,7 +1180,7 @@ fn validate_marks(value: Option<&Value>) -> DocumentResult<()> {
                     "link href must be https, http, mailto, an absolute path, or a fragment".into(),
                 ));
             }
-            if let Some(title) = attrs.get("title") {
+            if let Some(title) = attrs.get("title").filter(|value| !value.is_null()) {
                 bounded_string("link title", title, 300)?;
             }
         } else if !attrs.is_empty() {
@@ -4001,6 +4001,66 @@ async fn reconcile_live_document_checkpoint(
     }
 }
 
+/// The document row must already be locked. Preserve the committed live body
+/// as ordinary version history without replacing its Yjs seed or active editors.
+async fn snapshot_live_document(
+    tx: &mut Transaction<'_, Postgres>,
+    document_id: Uuid,
+    actor_id: &str,
+    reason: &str,
+) -> DocumentResult<Option<Uuid>> {
+    let live: Option<Value> = sqlx::query_scalar(
+        "SELECT projection_json FROM native_document_yjs_state WHERE document_id=$1 FOR UPDATE",
+    )
+    .bind(document_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    let Some(live) = live else { return Ok(None) };
+    let current = sqlx::query(
+        "SELECT document.current_named_version_id,document.status,version.content_json \
+         FROM native_documents document JOIN native_document_versions version \
+         ON version.id=document.current_named_version_id WHERE document.id=$1",
+    )
+    .bind(document_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    if current.get::<Value, _>("content_json") == live {
+        return Ok(None);
+    }
+    let content = validate_document_json(&live)?;
+    let number: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(max(version_number),0)+1 FROM native_document_versions WHERE document_id=$1",
+    ).bind(document_id).fetch_one(&mut **tx).await?;
+    let id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO native_document_versions \
+         (id,document_id,version_number,schema_version,content_json,plain_text,content_hash,document_status,created_by_actor_id,reason) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+    ).bind(id).bind(document_id).bind(number).bind(DOCUMENT_SCHEMA_VERSION)
+     .bind(&content.content_json).bind(&content.plain_text).bind(&content.content_hash)
+     .bind(current.get::<DocumentStatus, _>("status")).bind(actor_id).bind(reason)
+     .execute(&mut **tx).await?;
+    sqlx::query(
+        "UPDATE native_documents SET current_named_version_id=$2,version=version+1 WHERE id=$1",
+    )
+    .bind(document_id)
+    .bind(id)
+    .execute(&mut **tx)
+    .await?;
+    reconcile_live_document_checkpoint(
+        tx,
+        document_id,
+        id,
+        &content.content_json,
+        LiveCheckpointPolicy::RequireMatchingProjection,
+    )
+    .await?;
+    append_document_event(tx, "document.named_version.created.v1", document_id, actor_id,
+        json!({"document_id":document_id,"named_version_id":id,"named_version_number":number,
+               "previous_named_version_id":current.get::<Uuid, _>("current_named_version_id"),"automatic":true})).await?;
+    Ok(Some(id))
+}
+
 fn validated_proposal_content(
     scope: DocumentRevisionScope,
     block_id: Option<&str>,
@@ -4692,6 +4752,45 @@ impl OrgIntel {
         Ok(result)
     }
 
+    /// Preserve editing bursts after ten idle seconds, or at least every five
+    /// minutes during sustained editing. Database state makes retries/restarts
+    /// safe; no browser timer or running Company Runtime is required.
+    pub async fn snapshot_document_history(&self, limit: i64) -> DocumentResult<usize> {
+        if !(1..=100).contains(&limit) {
+            return Err(DocumentError::Invalid("invalid history batch size".into()));
+        }
+        self.ensure_actor("daemon", "system", "system-sender", "The daemon")
+            .await
+            .map_err(|error| match error {
+                crate::OrgIntelError::Db(error) => DocumentError::Database(error),
+                other => DocumentError::Corrupt(other.to_string()),
+            })?;
+        let mut tx = self.pool.begin().await?;
+        let ids: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT document.id FROM native_documents document \
+             JOIN native_document_versions version ON version.id=document.current_named_version_id \
+             JOIN native_document_yjs_state live ON live.document_id=document.id \
+             WHERE live.projection_json<>version.content_json \
+               AND (live.persisted_at <= now()-interval '10 seconds' \
+                    OR version.created_at <= now()-interval '5 minutes') \
+             ORDER BY live.persisted_at,document.id LIMIT $1 FOR UPDATE OF document SKIP LOCKED",
+        )
+        .bind(limit)
+        .fetch_all(&mut *tx)
+        .await?;
+        let mut saved = 0;
+        for id in ids {
+            if snapshot_live_document(&mut tx, id, "daemon", "Automatic save")
+                .await?
+                .is_some()
+            {
+                saved += 1;
+            }
+        }
+        tx.commit().await?;
+        Ok(saved)
+    }
+
     pub async fn create_named_document_version(
         &self,
         input: NewNamedDocumentVersion<'_>,
@@ -4710,19 +4809,6 @@ impl OrgIntel {
         );
         let mut tx = self.pool.begin().await?;
         lock_document_command(&mut tx, input.command_id).await?;
-        if let Some(result) = replayed_document_command_result(
-            &mut tx,
-            input.command_id,
-            Some(input.document_id),
-            input.actor_id,
-            "named_version_create",
-            &fingerprint,
-        )
-        .await?
-        {
-            tx.commit().await?;
-            return Ok(result);
-        }
         let document = sqlx::query(
             "SELECT current_named_version_id,status FROM native_documents WHERE id=$1 FOR UPDATE",
         )
@@ -4738,6 +4824,20 @@ impl OrgIntel {
             DocumentAccess::Edit,
         )
         .await?;
+        // A durable receipt preserves retry identity, not revoked edit authority.
+        if let Some(result) = replayed_document_command_result(
+            &mut tx,
+            input.command_id,
+            Some(input.document_id),
+            input.actor_id,
+            "named_version_create",
+            &fingerprint,
+        )
+        .await?
+        {
+            tx.commit().await?;
+            return Ok(result);
+        }
         let current = document.get::<Uuid, _>("current_named_version_id");
         let status = document.get::<DocumentStatus, _>("status");
         if current != input.expected_current_version_id {
@@ -4870,6 +4970,10 @@ impl OrgIntel {
                 input.expected_current_version_id
             )));
         }
+        let current =
+            snapshot_live_document(&mut tx, input.document_id, input.actor_id, "Before restore")
+                .await?
+                .unwrap_or(current);
         if input.source_version_id == current {
             return Err(DocumentError::Invalid(
                 "restore source is already the current named version".into(),
@@ -5820,6 +5924,18 @@ impl OrgIntel {
         );
         let mut tx = self.pool.begin().await?;
         lock_document_command(&mut tx, input.command_id).await?;
+        // Take the write lock before access checks acquire their shared lock:
+        // two simultaneous anchored comments must not deadlock on an upgrade.
+        if block_id.is_some() {
+            let exists: Option<Uuid> =
+                sqlx::query_scalar("SELECT id FROM native_documents WHERE id=$1 FOR UPDATE")
+                    .bind(input.document_id)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+            if exists.is_none() {
+                return Err(DocumentError::Unavailable);
+            }
+        }
         require_access(
             &mut tx,
             input.document_id,
@@ -5875,6 +5991,10 @@ impl OrgIntel {
             });
         }
         require_mentioned_actor_access(&mut tx, input.document_id, &mentions).await?;
+        if block_id.is_some() {
+            snapshot_live_document(&mut tx, input.document_id, input.actor_id, "Comment added")
+                .await?;
+        }
         let current: DocumentVersionRow = sqlx::query_as(&format!(
             "{} WHERE document_id=$1 AND id=(SELECT current_named_version_id \
              FROM native_documents WHERE id=$1)",
@@ -5888,7 +6008,7 @@ impl OrgIntel {
         if let Some(block_id) = &block_id {
             if !top_level_block_ids(&current.content_json)?.contains(block_id) {
                 return Err(DocumentError::Invalid(
-                    "comment block_id is not present in the current named version".into(),
+                    "That paragraph is no longer in the document. Select another paragraph or comment on the whole document.".into(),
                 ));
             }
         }
@@ -6213,9 +6333,10 @@ impl OrgIntel {
         let mut tx = self.pool.begin().await?;
         require_access(&mut tx, document_id, actor_id, DocumentAccess::Read).await?;
         let current: Value = sqlx::query_scalar(
-            "SELECT version.content_json FROM native_documents document \
+            "SELECT COALESCE(live.projection_json, version.content_json) FROM native_documents document \
              JOIN native_document_versions version \
                ON version.document_id=document.id AND version.id=document.current_named_version_id \
+             LEFT JOIN native_document_yjs_state live ON live.document_id=document.id \
              WHERE document.id=$1",
         )
         .bind(document_id)
@@ -6445,6 +6566,18 @@ impl OrgIntel {
                 }
             }
         }
+        let current_version_id = if work_dependency.is_none() {
+            snapshot_live_document(
+                &mut tx,
+                input.document_id,
+                input.actor_id,
+                "Review requested",
+            )
+            .await?
+            .unwrap_or(current_version_id)
+        } else {
+            current_version_id
+        };
         let prior_requested = sqlx::query_as::<_, DocumentReviewRow>(&format!(
             "{} WHERE document_id=$1 AND status='requested' FOR UPDATE",
             review_select()
@@ -7838,6 +7971,28 @@ mod tests {
             .markdown
             .contains("[the source](https://restless.run)"));
         assert_eq!(validated.content_hash.len(), 64);
+    }
+
+    #[test]
+    fn live_codec_nullable_attributes_preserve_content_and_render_safely() {
+        let document = json!({"type":"doc","content":[
+            {"type":"paragraph","attrs":{"block_id":"link"},"content":[
+                {"type":"text","text":"Source","marks":[{"type":"link","attrs":{"href":"https://example.com","title":null}}]}
+            ]},
+            {"type":"codeBlock","attrs":{"block_id":"code","language":null},"content":[{"type":"text","text":"<script>"}]}
+        ]});
+        let validated = validate_document_json(&document).unwrap();
+        assert_eq!(validated.content_json, document);
+        assert!(validated.rendered_html.contains("&lt;script&gt;"));
+        assert!(validated.markdown.contains("[Source](https://example.com)"));
+        for invalid in [json!(123), json!(false), json!({}), json!([])] {
+            let mut bad_title = document.clone();
+            bad_title["content"][0]["content"][0]["marks"][0]["attrs"]["title"] = invalid.clone();
+            assert!(validate_document_json(&bad_title).is_err());
+            let mut bad_language = document.clone();
+            bad_language["content"][1]["attrs"]["language"] = invalid;
+            assert!(validate_document_json(&bad_language).is_err());
+        }
     }
 
     #[test]

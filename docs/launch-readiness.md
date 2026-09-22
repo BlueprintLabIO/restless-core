@@ -44,9 +44,10 @@ fixtures. Each run must verify its own cleanup.
   provisioning, preserved credentials and data after restart, and removal of its
   containers, volumes and network. Provisioning now waits for the HTTP API after
   removing temporary bootstrap configuration and recreating the backend.
-- The native Documents service passed all 25 tests with real PostgreSQL and no
-  skipped tests. These checks cover the pending source changes, not a published
-  release yet.
+- The native Documents service shipped in `32a4b28` after all 25 tests passed
+  with real PostgreSQL and no skipped tests. It preserves a single initial live
+  body, rejects writes from a restored document's old body, and durably applies
+  scoped agent edits without replacing concurrent human changes.
 - The first Rust workspace run found a stale permission expectation: replaying a
   document checkpoint after edit access is revoked must return unavailable. The
   corrected test passed, including replay after access is restored without
@@ -159,6 +160,17 @@ fixtures. Each run must verify its own cleanup.
   Git/Cargo workspace verified those transitions and the explicit exported-source
   override. This fixes the stale embedded revision found during qualification;
   it does not qualify the currently dirty working tree as a release.
+
+- The Core collaboration package was isolated from the other unpublished work
+  and passed six real database history/comment tests, 16 document HTTP tests,
+  three Runtime configuration tests and three local Documents tests. The latter
+  includes an actual Docker start, reuse, recovery and cleanup. The normal daemon
+  build passed. Its binary also passed the account-service integration: separate
+  verified people, invitations, private document sharing, concurrent edits,
+  reconnection, session removal and removal recovery after a Core outage. All
+  test databases, roles and containers were removed. The editor and account
+  service remain separate unpublished pieces; this is not yet a complete
+  published-source multiplayer qualification.
 
 The feedback route is shipped. Component results do not close the other five
 checks: their final evidence must name the published revision and include the

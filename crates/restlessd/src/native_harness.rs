@@ -90,8 +90,14 @@ pub async fn session_access(
         .native_harnesses
         .get(harness)
         .context("Connect this harness first")?;
-    let selected = if harness == "codex" {runtime::AgentHarness::Codex} else {runtime::AgentHarness::ClaudeAgent};
-    if config.native_model(selected).as_deref() != Some(model) {bail!("Harness settings changed; retry with the current model");}
+    let selected = if harness == "codex" {
+        runtime::AgentHarness::Codex
+    } else {
+        runtime::AgentHarness::ClaudeAgent
+    };
+    if config.native_model(selected).as_deref() != Some(model) {
+        bail!("Harness settings changed; retry with the current model");
+    }
     let (token_env, token, billing) = match connection.mode.as_str() {
         "api_key" => (
             if harness == "codex" {
@@ -128,19 +134,46 @@ pub async fn session_access(
     })
 }
 /// Runs independently for every company at startup/creation; one failure never blocks others.
-pub async fn startup_doctor(root: std::path::PathBuf, config: runtime::CompanyConfig, capabilities: crate::capability::CapabilityIssuer) {
-    let setup_failed = async {
-        runtime::up(&config, false).await?;
-        let bridge=capabilities.issue_runtime_bridge(&config.name)?;
-        runtime::install_runtime_bridge_capability(&config.name, &bridge).await
-    }.await.is_err();
+pub async fn startup_doctor(
+    root: std::path::PathBuf,
+    config: runtime::CompanyConfig,
+    capabilities: crate::capability::CapabilityIssuer,
+    org: restless_orgintel::OrgIntel,
+) {
+    let (documents, setup_failed) = tokio::join!(
+        async {
+            let owner_config = crate::owner::OwnerConfig::from_env()?;
+            if let Some(issuer) = owner_config.local_documents_issuer() {
+                crate::local_documents::ensure(&root, &config.name, &org, &issuer).await?;
+                Ok::<_, anyhow::Error>(json!({"status":"ready"}))
+            } else {
+                Ok(json!({"status":"managed_externally"}))
+            }
+        },
+        async {
+            async {
+                runtime::up(&config, false).await?;
+                let bridge = capabilities.issue_runtime_bridge(&config.name)?;
+                runtime::install_runtime_bridge_capability(&config.name, &bridge).await
+            }
+            .await
+            .is_err()
+        }
+    );
+    let documents = match documents {
+        Ok(status) => status,
+        Err(error) => {
+            tracing::warn!(company=%config.name, %error, "automatic Documents setup failed");
+            json!({"status":"unavailable", "error":format!("{error:#}")})
+        }
+    };
     let result = runtime::doctor(&config.name).await;
     let report = match result {
         Ok(report) => {
-            json!({"ran_at":chrono::Utc::now(),"setup_failed":setup_failed,"report":report})
+            json!({"ran_at":chrono::Utc::now(),"setup_failed":setup_failed,"documents":documents,"report":report})
         }
         Err(_) => {
-            json!({"ran_at":chrono::Utc::now(),"error":"Automatic computer setup or Doctor failed. Open Company Doctor for current diagnostics."})
+            json!({"ran_at":chrono::Utc::now(),"documents":documents,"error":"Automatic computer setup or Doctor failed. Open Company Doctor for current diagnostics."})
         }
     };
     let dir = root.join("diagnostics");

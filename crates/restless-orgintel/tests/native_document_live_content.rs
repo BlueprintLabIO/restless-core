@@ -466,3 +466,279 @@ async fn named_version_changes_atomically_advance_or_reset_the_live_checkpoint()
     assert_eq!(stale_writer.current_yjs_state, None);
     assert_eq!(stale_writer.current_projection_json, Some(seed_projection));
 }
+
+async fn store_history_body(
+    db: &mut PgConnection,
+    company: Uuid,
+    document: Uuid,
+    previous: &LoadRow,
+    content: &Value,
+) -> StoreRow {
+    sqlx::query_as("SELECT outcome,state_revision,checkpoint_named_version_id,content_hash,current_yjs_state,current_projection_json FROM orgintel_native_document_yjs_store($1,$2,$3,$4,$5,$6,$7)")
+        .bind(company).bind(document).bind(previous.state_revision).bind(previous.checkpoint_named_version_id)
+        .bind(Uuid::new_v4()).bind(vec![1_u8,2,3]).bind(content).fetch_one(db).await.unwrap()
+}
+
+#[tokio::test]
+async fn automatic_history_waits_for_idle_deduplicates_and_preserves_live_lineage() {
+    let Some((org, url, schema, company, document, mut body)) = fixture().await else {
+        return;
+    };
+    let mut db = connection(&url, &schema).await;
+    let seed = load(&mut db, company, document).await;
+    body["content"][0]["content"][0]["text"] = json!("An automatically preserved edit");
+    body["content"][0]["content"][0]["marks"] =
+        json!([{"type":"link","attrs":{"href":"https://example.com","title":null}}]);
+    body["content"].as_array_mut().unwrap().push(json!({"type":"codeBlock","attrs":{"block_id":"code","language":null},"content":[{"type":"text","text":"let answer = 42;"}]}));
+    assert_eq!(
+        store_history_body(&mut db, company, document, &seed, &body)
+            .await
+            .outcome,
+        "stored"
+    );
+    assert_eq!(
+        org.snapshot_document_history(20).await.unwrap(),
+        0,
+        "do not checkpoint every keystroke"
+    );
+    sqlx::query("UPDATE native_document_yjs_state SET persisted_at=now()-interval '11 seconds' WHERE document_id=$1")
+        .bind(document).execute(&mut db).await.unwrap();
+    let (a, b) = tokio::join!(
+        org.snapshot_document_history(20),
+        org.snapshot_document_history(20)
+    );
+    assert_eq!(
+        a.unwrap() + b.unwrap(),
+        1,
+        "concurrent maintenance must create exactly one version"
+    );
+    assert_eq!(org.snapshot_document_history(20).await.unwrap(), 0);
+    let saved = load(&mut db, company, document).await;
+    assert_eq!(saved.projection_json, body);
+    assert_eq!(saved.yjs_state, Some(vec![1, 2, 3]));
+    assert_eq!(saved.state_revision, 1);
+    assert_eq!(saved.checkpoint_state_revision, 1);
+    assert_eq!(
+        saved.seeded_from_named_version_id,
+        seed.seeded_from_named_version_id
+    );
+    assert_ne!(
+        saved.checkpoint_named_version_id,
+        seed.checkpoint_named_version_id
+    );
+    let snapshot: Value =
+        sqlx::query_scalar("SELECT content_json FROM native_document_versions WHERE id=$1")
+            .bind(saved.checkpoint_named_version_id)
+            .fetch_one(&mut db)
+            .await
+            .unwrap();
+    assert_eq!(snapshot, body);
+    let mut next_body = body.clone();
+    next_body["content"][0]["content"][0]["text"] = json!("The next edit survives");
+    let stale = store_history_body(&mut db, company, document, &seed, &next_body).await;
+    assert_eq!(stale.outcome, "conflict");
+    assert_eq!(
+        stale.checkpoint_named_version_id,
+        saved.checkpoint_named_version_id
+    );
+    assert_eq!(stale.current_yjs_state, saved.yjs_state);
+    assert_eq!(
+        store_history_body(&mut db, company, document, &saved, &next_body)
+            .await
+            .outcome,
+        "stored"
+    );
+    assert_eq!(
+        load(&mut db, company, document).await.projection_json,
+        next_body
+    );
+}
+
+#[tokio::test]
+async fn restore_preserves_unsnapshotted_live_edits_and_is_retry_safe() {
+    let Some((org, url, schema, company, document, original)) = fixture().await else {
+        return;
+    };
+    let mut db = connection(&url, &schema).await;
+    let seed = load(&mut db, company, document).await;
+    let mut body = original.clone();
+    body["content"][0]["content"][0]["text"] = json!("Keep this draft before restoring");
+    assert_eq!(
+        store_history_body(&mut db, company, document, &seed, &body)
+            .await
+            .outcome,
+        "stored"
+    );
+    let command = Uuid::new_v4();
+    for _ in 0..2 {
+        org.restore_document_version(RestoreDocumentVersion {
+            command_id: command,
+            document_id: document,
+            actor_id: "owner",
+            expected_current_version_id: seed.checkpoint_named_version_id,
+            source_version_id: seed.checkpoint_named_version_id,
+            reason: "Restore original",
+        })
+        .await
+        .unwrap();
+    }
+    let versions: Vec<(Value,String)> = sqlx::query_as("SELECT content_json,reason FROM native_document_versions WHERE document_id=$1 ORDER BY version_number")
+        .bind(document).fetch_all(&mut db).await.unwrap();
+    assert_eq!(versions.len(), 3);
+    assert_eq!(versions[1], (body, "Before restore".into()));
+    assert_eq!(versions[2].0, original);
+    assert_eq!(
+        load(&mut db, company, document).await.projection_json,
+        original
+    );
+}
+
+#[tokio::test]
+async fn review_captures_current_live_body_without_manual_checkpoint() {
+    let Some((org, url, schema, company, document, mut body)) = fixture().await else {
+        return;
+    };
+    let mut db = connection(&url, &schema).await;
+    let seed = load(&mut db, company, document).await;
+    body["content"][0]["content"][0]["text"] = json!("Review what I just edited");
+    assert_eq!(
+        store_history_body(&mut db, company, document, &seed, &body)
+            .await
+            .outcome,
+        "stored"
+    );
+    let view = org.get_document_for_actor(document, "owner").await.unwrap();
+    org.request_document_review(restless_orgintel::RequestDocumentReview {
+        command_id: Uuid::new_v4(),
+        document_id: document,
+        actor_id: "owner",
+        expected_document_version: view.document.version,
+        expected_current_version_id: seed.checkpoint_named_version_id,
+        summary: "Please review",
+        work_dependency: None,
+    })
+    .await
+    .unwrap();
+    let reviewed: Value=sqlx::query_scalar("SELECT version.content_json FROM native_document_reviews review JOIN native_document_versions version ON version.id=review.requested_version_id WHERE review.document_id=$1")
+        .bind(document).fetch_one(&mut db).await.unwrap();
+    assert_eq!(reviewed, body);
+    assert_eq!(
+        load(&mut db, company, document)
+            .await
+            .seeded_from_named_version_id,
+        seed.seeded_from_named_version_id
+    );
+}
+
+#[tokio::test]
+async fn comments_anchor_live_blocks_without_waiting_for_idle_history() {
+    use restless_orgintel::{
+        DocumentAccess, DocumentCommentAnchorState, NewDocumentCommentThread,
+        SetDocumentParticipant,
+    };
+    let Some((org, url, schema, company, document, mut body)) = fixture().await else {
+        return;
+    };
+    org.ensure_actor("colleague", "human", "colleague", "A colleague")
+        .await
+        .unwrap();
+    let view = org.get_document_for_actor(document, "owner").await.unwrap();
+    org.set_document_participant(SetDocumentParticipant {
+        command_id: Uuid::new_v4(),
+        document_id: document,
+        actor_id: "owner",
+        expected_document_version: view.document.version,
+        participant_actor_id: "colleague",
+        access: DocumentAccess::Comment,
+    })
+    .await
+    .unwrap();
+    let mut db = connection(&url, &schema).await;
+    let seed = load(&mut db, company, document).await;
+    body["content"].as_array_mut().unwrap().push(json!({
+        "type":"paragraph", "attrs":{"block_id":"new-live-paragraph"},
+        "content":[{"type":"text","text":"A just-written paragraph"}]
+    }));
+    assert_eq!(
+        store_history_body(&mut db, company, document, &seed, &body)
+            .await
+            .outcome,
+        "stored"
+    );
+    let comment = json!({"type":"doc","content":[{"type":"paragraph","attrs":{"block_id":"feedback"},"content":[{"type":"text","text":"Please clarify this."}]}]});
+    let command = Uuid::new_v4();
+    let input = |command_id| NewDocumentCommentThread {
+        command_id,
+        document_id: document,
+        actor_id: "colleague",
+        block_id: Some("new-live-paragraph"),
+        content_json: &comment,
+    };
+    let (first, second) = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        tokio::join!(
+            org.create_document_comment_thread(input(command)),
+            org.create_document_comment_thread(input(Uuid::new_v4()))
+        )
+    })
+    .await
+    .expect("concurrent anchors do not deadlock");
+    let first = first.unwrap();
+    second.unwrap();
+    assert_eq!(
+        first.thread.anchor_state,
+        DocumentCommentAnchorState::Active
+    );
+    let saved = load(&mut db, company, document).await;
+    assert_eq!(
+        saved.seeded_from_named_version_id,
+        seed.seeded_from_named_version_id
+    );
+    assert_eq!(saved.projection_json, body);
+    assert_ne!(
+        saved.checkpoint_named_version_id,
+        seed.checkpoint_named_version_id
+    );
+    assert_eq!(
+        first.thread.thread.anchored_version_id,
+        saved.checkpoint_named_version_id
+    );
+    let version_body: Value =
+        sqlx::query_scalar("SELECT content_json FROM native_document_versions WHERE id=$1")
+            .bind(saved.checkpoint_named_version_id)
+            .fetch_one(&mut db)
+            .await
+            .unwrap();
+    assert_eq!(version_body, body);
+    body["content"].as_array_mut().unwrap().pop();
+    assert_eq!(
+        store_history_body(&mut db, company, document, &saved, &body)
+            .await
+            .outcome,
+        "stored"
+    );
+    let threads = org
+        .list_document_comment_threads(document, "colleague", None, 10)
+        .await
+        .unwrap();
+    assert!(threads
+        .items
+        .iter()
+        .all(|thread| thread.anchor_state == DocumentCommentAnchorState::Orphaned));
+    let replay = org
+        .create_document_comment_thread(input(command))
+        .await
+        .unwrap();
+    assert_eq!(replay.thread.thread.id, first.thread.thread.id);
+    assert!(matches!(
+        org.create_document_comment_thread(input(Uuid::new_v4()))
+            .await,
+        Err(DocumentError::Invalid(_))
+    ));
+    assert_eq!(
+        load(&mut db, company, document)
+            .await
+            .checkpoint_named_version_id,
+        saved.checkpoint_named_version_id,
+        "replayed and refused comments do not advance document history"
+    );
+}

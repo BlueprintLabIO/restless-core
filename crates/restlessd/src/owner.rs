@@ -206,6 +206,7 @@ pub(crate) struct OwnerConfig {
     review_address: SocketAddr,
     review_public_url: String,
     entry: EntryMode,
+    runtime_mode: crate::runtime_mode::RuntimeMode,
 }
 
 #[derive(Clone)]
@@ -998,6 +999,35 @@ fn cockpit_payment_intent(payment: finance::PaymentIntent) -> CockpitPaymentInte
 }
 
 impl OwnerConfig {
+    pub(crate) fn local_documents_issuer(&self) -> Option<String> {
+        (!self.hosted_runtime()).then(|| self.document_issuer())
+    }
+
+    fn document_issuer(&self) -> String {
+        self.entry
+            .network_coordinates()
+            .map(|(_, _, host)| format!("https://{host}"))
+            .unwrap_or_else(|| format!("http://{}", self.address))
+    }
+
+    pub(crate) fn local_documents_jwks_url(&self) -> String {
+        // The local sidecar reaches Core over loopback; token identity still uses
+        // the public network issuer. A wildcard listen address is not a destination.
+        let mut address = self.address;
+        if address.ip().is_unspecified() {
+            address.set_ip(if address.is_ipv4() {
+                std::net::Ipv4Addr::LOCALHOST.into()
+            } else {
+                std::net::Ipv6Addr::LOCALHOST.into()
+            });
+        }
+        format!("http://{address}/.well-known/restless-native-documents-jwks.json")
+    }
+
+    pub(crate) fn hosted_runtime(&self) -> bool {
+        self.runtime_mode == crate::runtime_mode::RuntimeMode::Hosted
+    }
+
     pub(crate) fn is_network(&self) -> bool {
         self.entry.network().is_some()
     }
@@ -1016,6 +1046,7 @@ impl OwnerConfig {
             .parse::<SocketAddr>()
             .context("parse RESTLESS_REVIEW_ADDR")?;
         let entry = EntryMode::from_env()?;
+        let runtime_mode = crate::runtime_mode::RuntimeMode::from_env(entry.network().is_some())?;
         // ADR 0007: the loopback bail is conditional on entry mode, never
         // removed. In local mode the network *is* the boundary, so binding
         // beyond loopback would publish an unauthenticated API.
@@ -1031,6 +1062,7 @@ impl OwnerConfig {
             review_address,
             review_public_url,
             entry,
+            runtime_mode,
         })
     }
 }
@@ -1100,12 +1132,40 @@ where
         .layer(DefaultBodyLimit::max(128 * 1024))
 }
 
+/// Observe the live Docs service; never provision or mutate company content.
+pub(crate) async fn document_service_doctor(daemon: &Daemon, company: &str) -> serde_json::Value {
+    let observation = async {
+        let org = daemon.orgintel.get(company).await?;
+        let identity = org
+            .company_access_identity()
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Documents identity has not been provisioned"))?;
+        let mut proxy = documents_api::NativeDocumentsProxy::from_environment()?;
+        if !daemon.runtime_bridges.is_hosted() {
+            proxy.use_local_services(daemon.root.clone());
+        }
+        proxy.observe_readiness(identity.cell_id).await
+    }
+    .await;
+    match observation {
+        Ok(health) => serde_json::json!({
+            "status": "available", "health": health,
+            "detail": "Live collaboration service and its storage capability respond; editing and delivery require separate workflow probes."
+        }),
+        Err(error) => {
+            tracing::warn!(%company, %error, "Doctor could not observe Documents readiness");
+            serde_json::json!({"status": "unavailable", "detail": "Documents collaboration service or its storage capability is unavailable."})
+        }
+    }
+}
+
 pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
     let OwnerConfig {
         address,
         review_address,
         review_public_url,
         entry,
+        runtime_mode,
     } = config;
     if let Some(network) = entry.network() {
         network
@@ -1117,8 +1177,12 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .context("configure company-bootstrap endpoint")?;
     let runtime_bridge = crate::runtime_bridge::routes::<OwnerState>(&daemon, &entry)
         .context("configure hosted Runtime-bridge endpoints")?;
-    let cell_readiness = crate::owner_cell_readiness::routes::<OwnerState>(&daemon, &entry)
-        .context("configure Fleet cell-readiness endpoint")?;
+    let cell_readiness = if runtime_mode == crate::runtime_mode::RuntimeMode::Hosted {
+        crate::owner_cell_readiness::routes::<OwnerState>(&daemon, &entry)
+            .context("configure Fleet cell-readiness endpoint")?
+    } else {
+        Router::new()
+    };
     let document_collaboration_tokens =
         crate::document_collaboration_token::DocumentCollaborationTokenIssuer::open(&daemon.root)
             .context("open native Documents collaboration signer")?;
@@ -1127,13 +1191,25 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .map(|(_, _, host)| format!("https://{host}"))
         .unwrap_or_else(|| format!("http://{address}"))
         .into();
-    let native_documents_proxy = documents_api::NativeDocumentsProxy::from_environment()
+    let mut native_documents_proxy = documents_api::NativeDocumentsProxy::from_environment()
         .context("configure native Documents owner-plane proxy")?;
-    let capacity_activity =
-        capacity_activity::CapacityActivityService::from_environment(&daemon, &entry)
-            .context("configure Fleet capacity-activity endpoint")?;
-    let plane_readiness = plane_readiness::PlaneReadinessService::from_environment(&daemon, &entry)
-        .context("configure Fleet plane-readiness endpoint")?;
+    if runtime_mode == crate::runtime_mode::RuntimeMode::Local {
+        native_documents_proxy.use_local_services(daemon.root.clone());
+    }
+    let (capacity_activity, plane_readiness) =
+        if runtime_mode == crate::runtime_mode::RuntimeMode::Hosted {
+            (
+                capacity_activity::CapacityActivityService::from_environment(&daemon, &entry)
+                    .context("configure Fleet capacity-activity endpoint")?,
+                plane_readiness::PlaneReadinessService::from_environment(&daemon, &entry)
+                    .context("configure Fleet plane-readiness endpoint")?,
+            )
+        } else {
+            (
+                capacity_activity::CapacityActivityService::Disabled,
+                plane_readiness::PlaneReadinessService::Disabled,
+            )
+        };
     let state = OwnerState {
         daemon,
         charter_writes: Arc::new(tokio::sync::Mutex::new(())),
@@ -9570,6 +9646,7 @@ mod tests {
                 review_address,
                 review_public_url: format!("http://{{ticket}}.localhost:{}", review_address.port()),
                 entry: EntryMode::Local,
+                runtime_mode: crate::runtime_mode::RuntimeMode::Local,
             },
         )
         .await

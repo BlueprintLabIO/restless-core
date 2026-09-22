@@ -87,6 +87,11 @@ impl GatewayEndpoints {
 fn runtime_relay_url(local_relay_port: u16) -> Result<String> {
     match std::env::var("RESTLESS_ENTRY_MODE").as_deref() {
         Ok("network") => {
+            if crate::runtime_mode::RuntimeMode::from_env(true)?
+                == crate::runtime_mode::RuntimeMode::Local
+            {
+                return Ok(format!("http://host.docker.internal:{local_relay_port}"));
+            }
             let expected_host = std::env::var("RESTLESS_ENTRY_HOST")
                 .context("network model relay requires RESTLESS_ENTRY_HOST")?
                 .to_ascii_lowercase();

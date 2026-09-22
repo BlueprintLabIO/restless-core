@@ -2181,6 +2181,9 @@ pub async fn destroy(
     spend: &crate::spend::SpendLedger,
 ) -> Result<String> {
     let mut removed = Vec::new();
+    crate::local_documents::remove(root, org)
+        .await
+        .context("remove local Documents service before dropping its cell")?;
 
     if status(company).await? != ContainerStatus::Absent {
         let name = container_name(company);

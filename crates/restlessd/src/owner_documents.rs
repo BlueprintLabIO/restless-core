@@ -6,6 +6,7 @@
 
 use super::*;
 use crate::owner_cell_readiness::ReadinessSecret;
+use serde_json::Value;
 
 use crate::document_collaboration_token::{
     DocumentCollaborationAccess, DocumentCollaborationTokenInput, DEFAULT_TTL_SECONDS,
@@ -177,6 +178,9 @@ pub(super) struct NativeDocumentsProxy {
 #[derive(Clone)]
 enum NativeDocumentsService {
     PerCellDns,
+    Local {
+        root: std::path::PathBuf,
+    },
     #[cfg(test)]
     Fixed {
         host: Arc<str>,
@@ -226,15 +230,83 @@ impl NativeDocumentsProxy {
         }
     }
 
-    fn service_address(&self, cell_id: Uuid) -> (String, u16) {
-        match &self.service {
+    pub(super) fn use_local_services(&mut self, root: std::path::PathBuf) {
+        self.service = NativeDocumentsService::Local { root };
+    }
+
+    pub(super) async fn agent_body(
+        &self,
+        root: &std::path::Path,
+        org: &restless_orgintel::OrgIntel,
+        actor: &str,
+        document: Uuid,
+        issuer: &str,
+        payload: &Value,
+    ) -> Result<Value> {
+        let access = match org.document_access_for_actor(document, actor).await? {
+            Some(restless_orgintel::DocumentAccess::Edit) => DocumentCollaborationAccess::Write,
+            Some(_) if payload["action"] == "read" => DocumentCollaborationAccess::Read,
+            _ => anyhow::bail!("native document is unavailable"),
+        };
+        let identity = org
+            .company_access_identity()
+            .await?
+            .context("Documents collaboration is not provisioned")?;
+        let signer =
+            crate::document_collaboration_token::DocumentCollaborationTokenIssuer::open(root)?;
+        let token = signer.issue(DocumentCollaborationTokenInput {
+            issuer,
+            session_principal: &format!("agent:{actor}"),
+            company_id: identity.company_id,
+            document_id: document,
+            actor_id: actor,
+            access,
+            now: Utc::now(),
+            ttl_seconds: DEFAULT_TTL_SECONDS,
+        })?;
+        let (host, port) = self.service_address(identity.cell_id)?;
+        let url = format!(
+            "http://{host}:{port}/api/companies/{}/documents/{document}/collaboration/body",
+            identity.company_id
+        );
+        let mut response = self
+            .client
+            .post(&url)
+            .timeout(Duration::from_secs(30))
+            .bearer_auth(token)
+            .json(payload)
+            .send()
+            .await
+            .context("reach live document body")?;
+        if response.status() != reqwest::StatusCode::OK {
+            anyhow::bail!(
+                "live document command failed (HTTP {}); retain the same edit key on retry",
+                response.status().as_u16()
+            );
+        }
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response.chunk().await? {
+            anyhow::ensure!(
+                bytes.len() + chunk.len() <= 12 * 1024 * 1024,
+                "live document response exceeds limit"
+            );
+            bytes.extend_from_slice(&chunk);
+        }
+        Ok(serde_json::from_slice(&bytes).context("decode live document response")?)
+    }
+
+    fn service_address(&self, cell_id: Uuid) -> Result<(String, u16)> {
+        Ok(match &self.service {
+            NativeDocumentsService::Local { root } => {
+                return crate::local_documents::address(root, cell_id)
+            }
             NativeDocumentsService::PerCellDns => (
                 format!("restless-docs-{cell_id}"),
                 NATIVE_DOCUMENTS_SERVICE_PORT,
             ),
             #[cfg(test)]
             NativeDocumentsService::Fixed { host, port } => (host.to_string(), *port),
-        }
+        })
     }
 
     fn readiness_authorized(&self, headers: &HeaderMap) -> bool {
@@ -243,8 +315,8 @@ impl NativeDocumentsProxy {
             .is_some_and(|secret| secret.authorizes(headers))
     }
 
-    async fn observe_readiness(&self, cell_id: Uuid) -> Result<NativeDocumentsHealth> {
-        let (host, port) = self.service_address(cell_id);
+    pub(super) async fn observe_readiness(&self, cell_id: Uuid) -> Result<NativeDocumentsHealth> {
+        let (host, port) = self.service_address(cell_id)?;
         let url = format!("http://{host}:{port}{NATIVE_DOCUMENTS_READINESS_PATH}");
         let mut response = self
             .client
@@ -307,7 +379,7 @@ impl NativeDocumentsProxy {
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-struct NativeDocumentsHealth {
+pub(super) struct NativeDocumentsHealth {
     status: String,
     protocol_version: u32,
     schema_version: u32,
@@ -490,7 +562,7 @@ async fn proxy_native_documents_websocket(
     proxy: NativeDocumentsProxy,
     session_lease: Option<SessionLease>,
 ) -> Result<()> {
-    let (host, port) = proxy.service_address(cell_id);
+    let (host, port) = proxy.service_address(cell_id)?;
     let stream = match session_lease.as_ref() {
         Some(lease) => tokio::select! {
             result = tokio::time::timeout(
@@ -1380,7 +1452,7 @@ async fn create_document_version(
         Ok(org) => org,
         Err(response) => return response,
     };
-    match org
+    let mut result = org
         .create_named_document_version(restless_orgintel::NewNamedDocumentVersion {
             command_id,
             document_id: document,
@@ -1389,8 +1461,46 @@ async fn create_document_version(
             content_json: &input.content_json,
             reason: &input.reason,
         })
-        .await
-    {
+        .await;
+    if matches!(&result, Err(restless_orgintel::DocumentError::Conflict(_))) {
+        // Browser sync acknowledges Yjs delivery, not the sidecar's debounced
+        // PostgreSQL save. Flush the existing live body before retrying Core's
+        // guarded checkpoint; a real content/version mismatch still conflicts.
+        let root = match &state.source {
+            RoomOrgIntelSource::Daemon(daemon) => Some(&daemon.root),
+            #[cfg(test)]
+            RoomOrgIntelSource::Fixed { .. } => None,
+        };
+        if let Some(root) = root {
+            if let Err(error) = state
+                .native_documents_proxy
+                .agent_body(
+                    root,
+                    &org,
+                    principal.actor_id(),
+                    document,
+                    &state.document_collaboration_issuer,
+                    &serde_json::json!({"action":"read"}),
+                )
+                .await
+            {
+                tracing::warn!(%error, %document, "could not persist live body before checkpoint retry");
+                return document_api_error(StatusCode::SERVICE_UNAVAILABLE, "document_collaboration_unavailable",
+                    "Live document persistence is unavailable. Keep this tab open and retry the same save.");
+            }
+            result = org
+                .create_named_document_version(restless_orgintel::NewNamedDocumentVersion {
+                    command_id,
+                    document_id: document,
+                    actor_id: principal.actor_id(),
+                    expected_current_version_id: input.expected_current_version_id,
+                    content_json: &input.content_json,
+                    reason: &input.reason,
+                })
+                .await;
+        }
+    }
+    match result {
         Ok(document) => document_json(StatusCode::CREATED, document),
         Err(error) => document_error(error),
     }
@@ -1592,6 +1702,34 @@ async fn create_document_comment(
         Ok(org) => org,
         Err(response) => return response,
     };
+    if input.block_id.is_some() {
+        // Yjs delivery can precede its debounced database write. Anchor the
+        // comment only after the shared body has reached durable storage.
+        let root = match &state.source {
+            RoomOrgIntelSource::Daemon(daemon) => Some(&daemon.root),
+            #[cfg(test)]
+            RoomOrgIntelSource::Fixed { .. } => None,
+        };
+        if let Some(root) = root {
+            if let Err(error) = state
+                .native_documents_proxy
+                .agent_body(
+                    root,
+                    &org,
+                    principal.actor_id(),
+                    document,
+                    &state.document_collaboration_issuer,
+                    &serde_json::json!({"action":"read"}),
+                )
+                .await
+            {
+                tracing::warn!(%error, %document, "could not persist live body before anchoring comment");
+                return document_api_error(StatusCode::SERVICE_UNAVAILABLE,
+                    "document_collaboration_unavailable",
+                    "The document could not finish syncing. Keep this tab open and retry your comment.");
+            }
+        }
+    }
     match org
         .create_document_comment_thread(restless_orgintel::NewDocumentCommentThread {
             document_id: document,
@@ -3237,10 +3375,12 @@ mod tests {
             Method::POST,
             &versions,
             Some(version_key),
-            Some(version_body),
+            Some(version_body.clone()),
         )
         .await;
-        assert_eq!(replay_version, (StatusCode::CREATED, version_result));
+        // Checkpoint retries now recheck edit access, even for a saved receipt.
+        // Revocation must deny this route without losing the original receipt.
+        assert_eq!(replay_version.0, StatusCode::NOT_FOUND);
         let replay_restore = request_json(
             &alice,
             Method::POST,
@@ -3249,7 +3389,10 @@ mod tests {
             Some(restore_body),
         )
         .await;
-        assert_eq!(replay_restore, (StatusCode::CREATED, restore_result));
+        assert_eq!(
+            replay_restore,
+            (StatusCode::CREATED, restore_result.clone())
+        );
         let replay_create = request_json(
             &owner,
             Method::POST,
@@ -3336,6 +3479,38 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+
+        let (status, _) = request_json(
+            &owner,
+            Method::PUT,
+            &alice_participant,
+            Some(Uuid::new_v4()),
+            Some(serde_json::json!({
+                "expected_document_version": 8,
+                "access": "edit"
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let replay_after_readmission = request_json(
+            &alice,
+            Method::POST,
+            &versions,
+            Some(version_key),
+            Some(version_body),
+        )
+        .await;
+        assert_eq!(
+            replay_after_readmission,
+            (StatusCode::CREATED, version_result)
+        );
+        let (status, after_replay) =
+            request_json(&owner, Method::GET, &document_path, None, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            after_replay["current_version"]["version"]["id"], restore_result["result_id"],
+            "readmission must return the old receipt without applying the edit again"
+        );
     }
 
     #[tokio::test]

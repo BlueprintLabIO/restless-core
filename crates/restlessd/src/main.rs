@@ -31,6 +31,7 @@ mod inbound;
 mod ingress;
 mod launch;
 mod legal;
+mod local_documents;
 mod model_gateway;
 mod native_harness;
 mod owner;
@@ -42,6 +43,7 @@ mod reconcile;
 mod release;
 mod runtime;
 mod runtime_bridge;
+mod runtime_mode;
 mod schedule;
 mod spend;
 mod staff;
@@ -107,7 +109,15 @@ async fn create_local_company(daemon: &Daemon, mut config: runtime::CompanyConfi
     ensure_standing_actors(&org, Some(&config.model)).await?;
     approval::purge_legacy_config_approvals(&daemon.root, &mut config)?;
     if std::env::var("RESTLESS_TEST_DISABLE_SCHEDULER").as_deref() != Ok("1") {
-        tokio::spawn(native_harness::startup_doctor(daemon.root.clone(), config, daemon.capabilities.clone()));
+        let root = daemon.root.clone();
+        let capabilities = daemon.capabilities.clone();
+        let schedule_wake = daemon.schedule_wake.clone();
+        tokio::spawn(async move {
+            native_harness::startup_doctor(root, config, capabilities, org).await;
+            // Register the new cell listener as soon as its runtime is ready;
+            // mentions must not wait for the periodic repair sweep.
+            schedule_wake.notify_one();
+        });
     }
     Ok(())
 }
@@ -769,7 +779,7 @@ async fn main() -> Result<()> {
         staff: staff::StaffRegistry::default(),
         activities: activity::AgentActivityStreams::default(),
         cell_wakes: cell_wake::CellWakeHub::default(),
-        runtime_bridges: if owner_config.is_network() {
+        runtime_bridges: if owner_config.hosted_runtime() {
             runtime_bridge::RuntimeBridgeRegistry::hosted()
         } else {
             runtime_bridge::RuntimeBridgeRegistry::default()
@@ -800,6 +810,10 @@ async fn main() -> Result<()> {
     let (recovery_ready_tx, mut recovery_ready_rx) = tokio::sync::watch::channel(false);
     let model_configs = company_configs.clone();
     let model_root = root.clone();
+    tokio::spawn(local_documents::maintain_history(std::sync::Arc::clone(
+        &daemon,
+    )));
+
     let model_capabilities = daemon.capabilities.clone();
     let model_spend = daemon.spend.clone();
     let schedule_daemon = std::sync::Arc::clone(&daemon);
@@ -935,11 +949,19 @@ async fn main() -> Result<()> {
         );
         if !hosted_runtime && !test_scheduler_disabled {
             for config in &recovery_configs {
-                tokio::spawn(native_harness::startup_doctor(
-                    recovery_daemon.root.clone(),
-                    config.clone(),
-                    recovery_daemon.capabilities.clone(),
-                ));
+                match recovery_daemon.orgintel.get(&config.name).await {
+                    Ok(org) => {
+                        tokio::spawn(native_harness::startup_doctor(
+                            recovery_daemon.root.clone(),
+                            config.clone(),
+                            recovery_daemon.capabilities.clone(),
+                            org,
+                        ));
+                    }
+                    Err(error) => {
+                        tracing::error!(company=%config.name, %error, "automatic company setup unavailable")
+                    }
+                }
             }
         }
         loop {
@@ -2119,7 +2141,10 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
         },
         "doctor" => match runtime::doctor(company).await {
             Ok(report) => match serde_json::to_value(report) {
-                Ok(value) => Response::ok(value),
+                Ok(mut value) => {
+                    value["documents"] = owner::document_service_doctor(daemon, company).await;
+                    Response::ok(value)
+                }
                 Err(error) => Response::err(format!("encode runtime report: {error}")),
             },
             Err(error) => Response::err(format!("{error:#}")),
