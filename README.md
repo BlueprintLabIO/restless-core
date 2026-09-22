@@ -257,6 +257,9 @@ See [web development](web/README.md) and [build storage](docs/BUILD_STORAGE.md) 
 To start a new company with teammates, follow the [self-hosted accounts setup](services/self-hosted-identity/README.md).
 It provides separate sign-ins, email invitations and removal of member access.
 
+Try [your first useful outcome](docs/first-outcome.md): delegate a client proposal,
+review the shared document, and ask for a revision.
+
 ## Example: a game studio, humans and AI together
 
 **Lantern Studio** is the example business in the walkthrough. Its brief: make a small
