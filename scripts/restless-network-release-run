@@ -212,7 +212,11 @@ if [[ "${RESTLESS_NETWORK_TEST_AUTO_WAKE:-0}" != 1 ]]; then
 fi
 
 docker volume create "$cell_volume" >/dev/null
-docker run -d --name "$cell" --network bridge -v "${cell_volume}:/company" \
+bridge_host_args=()
+if [[ "$(uname -s)" == "Linux" ]]; then
+  bridge_host_args=(--add-host host.docker.internal:host-gateway)
+fi
+docker run -d --name "$cell" --network bridge "${bridge_host_args[@]}" -v "${cell_volume}:/company" \
   -e RESTLESS_COMPANY="$company" \
   -e RESTLESS_COORDINATOR="host.docker.internal:${coordinator_port}" \
   "$runtime_ref" >/dev/null

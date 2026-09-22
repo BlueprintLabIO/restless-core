@@ -13,6 +13,32 @@ revision and exercise the installation a new user receives.
 | Completion and recovery | Real model delegation, produced output, review and revision; interrupted execution recovers preserved work and delivers a final owner notification without a prompting message | Durable delivery, recipient isolation and restart/replay tests pass at `932f5e4`; real model journey remains open |
 | Founder feedback | Visible, working route from the README to onboarding help and founder feedback | Shipped; links verified |
 
+## Docker bridge reachability
+
+Company Runtimes use normal Docker bridge networking and reach Core through
+`host.docker.internal`. On Linux, the release launcher supplies that hostname
+with Docker's `host-gateway` mapping. The Core model and coordinator listeners
+are `7790 + RESTLESS_PORT_OFFSET` and `7791 + RESTLESS_PORT_OFFSET`.
+
+If UFW blocks bridge-to-host traffic, allow only TCP from the Docker bridge
+subnet on `docker0` to those exact ports. For example, an offset of `16000`
+uses ports `23790` and `23791`:
+
+```sh
+sudo ufw allow in on docker0 from 172.17.0.0/16 to any port 23790 proto tcp
+sudo ufw allow in on docker0 from 172.17.0.0/16 to any port 23791 proto tcp
+```
+
+Remove those exact rules when the isolated run is finished:
+
+```sh
+sudo ufw delete allow in on docker0 from 172.17.0.0/16 to any port 23790 proto tcp
+sudo ufw delete allow in on docker0 from 172.17.0.0/16 to any port 23791 proto tcp
+```
+
+Do not replace bridge networking with host networking for a normal-installation
+claim, and do not add a broad Docker-to-host allow rule.
+
 ## Initial findings — 22 September 2026
 
 - Public `dev` and local HEAD both identify `b0890d274483d3c07b7c028874f83874cf3517aa`.
