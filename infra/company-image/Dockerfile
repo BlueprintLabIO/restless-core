@@ -149,7 +149,7 @@ RUN set -eux; \
         arm64) godot_platform=linux.arm64; godot_binary="Godot_v${GODOT_VERSION}-stable_linux.arm64"; godot_sha256=5dd0d86405cf7e8adf79fb6377b38ba682a2846cb378ffe5364f38c01ad29b9d ;; \
         *) echo "unsupported Godot image architecture: $TARGETARCH" >&2; exit 1 ;; \
     esac; \
-    curl --fail --location --silent --show-error --http1.1 --retry 5 --retry-all-errors --retry-delay 2 "https://downloads.godotengine.org/?flavor=stable&platform=${godot_platform}&slug=${godot_platform}.zip&version=${GODOT_VERSION}" --output /tmp/godot.zip; \
+    curl --fail --location --show-error --progress-bar --http1.1 --connect-timeout 30 --speed-limit 1024 --speed-time 60 --retry 5 --retry-all-errors --retry-delay 2 "https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}-stable/${godot_binary}.zip" --output /tmp/godot.zip; \
     echo "${godot_sha256}  /tmp/godot.zip" | sha256sum --check --status; \
     unzip -q /tmp/godot.zip -d /tmp/godot; \
     install -m 0755 "/tmp/godot/${godot_binary}" /usr/local/bin/godot; \
