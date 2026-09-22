@@ -34,9 +34,11 @@ struct GateResources {
     marker: String,
 }
 
-pub(super) async fn run_gates(
+pub(super) async fn run_gates_with_actor_session(
     org: &restless_orgintel::OrgIntel,
     container: &str,
+    company: &str,
+    capabilities: &crate::capability::CapabilityIssuer,
     work_id: uuid::Uuid,
     attempt_id: uuid::Uuid,
     workdir: &str,
@@ -51,6 +53,9 @@ pub(super) async fn run_gates(
         .into_iter()
         .find(|attempt| attempt.id == attempt_id)
         .context("governed gate Attempt disappeared")?;
+    if attempt.work_id != work_id || attempt.actor_id.trim().is_empty() {
+        bail!("governed gate Attempt has an invalid Work or actor binding");
+    }
     let toolchain = attempt.environment_fingerprint;
     let mut gates = org.list_work_gates(work_id).await?;
     gates.sort_by_key(|gate| (stage_order(&gate.stage), gate.sequence_no));
@@ -112,9 +117,23 @@ pub(super) async fn run_gates(
             }
             continue;
         }
+        // A local gate is still part of the exact productive Attempt. Its
+        // Runtime calls therefore use a fresh, short-lived ActorSession bound
+        // to this Work/Attempt, never an ambient bridge or an env-only label.
+        let coordinator = crate::runtime_coordinator()?;
+        let gate_session = capabilities.issue_actor_session(
+            company,
+            &attempt.actor_id,
+            &format!("gate-{}", uuid::Uuid::new_v4().simple()),
+            Some(work_id),
+            Some(attempt_id),
+        )?;
         let execution = GateExecution {
             org,
             container,
+            actor: &attempt.actor_id,
+            coordinator: &coordinator,
+            session_capability: &gate_session,
             attempt_id,
             workdir,
             candidate_tree,
@@ -126,6 +145,33 @@ pub(super) async fn run_gates(
         }
     }
     Ok(org.gates_passed(work_id, attempt_id).await?)
+}
+
+#[cfg(test)]
+pub(super) async fn run_gates(
+    org: &restless_orgintel::OrgIntel,
+    container: &str,
+    work_id: uuid::Uuid,
+    attempt_id: uuid::Uuid,
+    workdir: &str,
+    candidate_tree: &str,
+) -> Result<bool> {
+    let root =
+        std::env::temp_dir().join(format!("restless-gate-capability-{}", uuid::Uuid::new_v4()));
+    let capabilities = crate::capability::CapabilityIssuer::open(&root)?;
+    let result = run_gates_with_actor_session(
+        org,
+        container,
+        "test",
+        &capabilities,
+        work_id,
+        attempt_id,
+        workdir,
+        candidate_tree,
+    )
+    .await;
+    let _ = std::fs::remove_dir_all(root);
+    result
 }
 
 /// Run the exact same frozen Work gate set through the outbound hosted
@@ -450,6 +496,9 @@ async fn release_hosted_resources(
 struct GateExecution<'a> {
     org: &'a restless_orgintel::OrgIntel,
     container: &'a str,
+    actor: &'a str,
+    coordinator: &'a str,
+    session_capability: &'a str,
     attempt_id: uuid::Uuid,
     workdir: &'a str,
     candidate_tree: &'a str,
@@ -461,6 +510,9 @@ async fn execute_gate(execution: &GateExecution<'_>, gate: &WorkGateRow) -> Resu
     let GateExecution {
         org,
         container,
+        actor,
+        coordinator,
+        session_capability,
         attempt_id,
         workdir,
         candidate_tree,
@@ -504,7 +556,16 @@ async fn execute_gate(execution: &GateExecution<'_>, gate: &WorkGateRow) -> Resu
             String::from_utf8_lossy(&prepared.stderr).trim()
         );
     }
-    let result = execute_gate_inner(container, workdir, gate, &resources).await;
+    let result = execute_gate_inner(
+        container,
+        workdir,
+        gate,
+        &resources,
+        actor,
+        coordinator,
+        session_capability,
+    )
+    .await;
     let cleanup_reason = if result.is_ok() {
         "governed gate finished"
     } else {
@@ -590,6 +651,9 @@ async fn execute_gate_inner(
     workdir: &str,
     gate: &WorkGateRow,
     resources: &GateResources,
+    actor: &str,
+    coordinator: &str,
+    session_capability: &str,
 ) -> Result<GateEvidence> {
     let mut argv: Vec<String> = serde_json::from_value(gate.command.clone())
         .with_context(|| format!("gate {} has invalid argv", gate.name))?;
@@ -615,7 +679,14 @@ async fn execute_gate_inner(
         .kill_on_drop(true)
         .args(["exec", "-u", "company", "-w", cwd])
         .args(["-e", &format!("TMPDIR={}", resources.tempdir)])
-        .args(["-e", &format!("RESTLESS_GATE_TOKEN={}", resources.holder)]);
+        .args(["-e", &format!("RESTLESS_GATE_TOKEN={}", resources.holder)])
+        .args(["-e", &format!("RESTLESS_ACTOR={actor}")])
+        .args(["-e", &format!("RESTLESS_COORDINATOR={coordinator}")])
+        // Docker copies this value from the daemon environment. Keeping the
+        // signed capability out of argv prevents it from appearing in host
+        // process listings or the durable gate ledger.
+        .env("RESTLESS_SESSION_CAPABILITY", session_capability)
+        .args(["-e", "RESTLESS_SESSION_CAPABILITY"]);
     if let Some(port) = &resources.port {
         command.args(["-e", &format!("RESTLESS_GATE_PORT={port}")]);
     }

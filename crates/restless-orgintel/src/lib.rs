@@ -399,6 +399,45 @@ async fn invalidate_from(
             .execute(&mut **tx)
             .await?;
     }
+    // A rejected Work generation also retires its exact native-document
+    // review obligation. Leaving a pending dependency attached to the prior
+    // revision would make the next producer Attempt unable to request its own
+    // review: the document path correctly refuses to resume stale coordinates.
+    sqlx::query(
+        "WITH RECURSIVE affected(id) AS (\
+           VALUES ($1::uuid) \
+           UNION \
+           SELECT edge.to_work_id FROM work_edges edge \
+            JOIN affected prior ON edge.from_work_id = prior.id \
+            WHERE edge.kind = 'requires'\
+         ) UPDATE native_document_reviews review \
+           SET status='stale',stale_detected_by_actor_id=$2,stale_at=now(),version=version+1 \
+           FROM native_document_work_review_dependencies dependency \
+           WHERE dependency.work_id IN (SELECT id FROM affected) \
+             AND dependency.status='pending' \
+             AND review.id=dependency.review_id \
+             AND review.document_id=dependency.document_id \
+             AND review.status='requested'",
+    )
+    .bind(target)
+    .bind(reviewer)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query(
+        "WITH RECURSIVE affected(id) AS (\
+           VALUES ($1::uuid) \
+           UNION \
+           SELECT edge.to_work_id FROM work_edges edge \
+            JOIN affected prior ON edge.from_work_id = prior.id \
+            WHERE edge.kind = 'requires'\
+         ) UPDATE native_document_work_review_dependencies \
+           SET status='stale',resolved_by_actor_id=$2,resolved_at=now(),resumed_at=now() \
+           WHERE work_id IN (SELECT id FROM affected) AND status='pending'",
+    )
+    .bind(target)
+    .bind(reviewer)
+    .execute(&mut **tx)
+    .await?;
     sqlx::query(
         "WITH RECURSIVE affected(id) AS (\
            VALUES ($1::uuid) \

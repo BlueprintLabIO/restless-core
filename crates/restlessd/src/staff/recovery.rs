@@ -13,7 +13,7 @@ use sha2::Digest as _;
 
 use crate::exec::Termination;
 
-use super::gates::{run_gates, run_hosted_gates};
+use super::gates::{run_gates_with_actor_session, run_hosted_gates};
 use super::workspace::{
     cleanup_attempt_runtime, hosted_candidate_identity, hosted_workspace_identity,
     observe_hosted_workspace, observe_workspace, promote_integration_commit, WorkspaceObservation,
@@ -23,8 +23,10 @@ use super::workspace::{
 /// only after its declared artifact and deterministic gates are observed.
 pub(super) struct StaffAttemptContext<'a> {
     pub(super) container: &'a str,
+    pub(super) company: &'a str,
     pub(super) actor: &'a str,
     pub(super) name: &'a str,
+    pub(super) capabilities: &'a crate::capability::CapabilityIssuer,
     pub(super) work_id: uuid::Uuid,
     pub(super) attempt_id: uuid::Uuid,
     pub(super) workdir: &'a str,
@@ -33,6 +35,8 @@ pub(super) struct StaffAttemptContext<'a> {
 
 struct AttemptCompletionContext<'a> {
     container: &'a str,
+    company: &'a str,
+    capabilities: &'a crate::capability::CapabilityIssuer,
     work_id: uuid::Uuid,
     attempt_id: uuid::Uuid,
     workdir: &'a str,
@@ -105,8 +109,10 @@ pub(super) async fn record_staff_outcome(
 ) {
     let StaffAttemptContext {
         container,
+        company,
         actor,
         name,
+        capabilities,
         work_id,
         attempt_id,
         workdir,
@@ -155,6 +161,8 @@ pub(super) async fn record_staff_outcome(
                     org,
                     AttemptCompletionContext {
                         container,
+                        company,
+                        capabilities,
                         work_id,
                         attempt_id,
                         workdir,
@@ -171,6 +179,8 @@ pub(super) async fn record_staff_outcome(
                     org,
                     AttemptCompletionContext {
                         container,
+                        company,
+                        capabilities,
                         work_id,
                         attempt_id,
                         workdir,
@@ -896,6 +906,8 @@ async fn finish_claimed_attempt(
 ) -> Result<()> {
     let AttemptCompletionContext {
         container,
+        company,
+        capabilities,
         work_id,
         attempt_id,
         workdir,
@@ -1042,9 +1054,11 @@ async fn finish_claimed_attempt(
                         })
                     })
                     .unwrap_or_else(|| format!("attempt:{attempt_id}"));
-                let gates_passed = match run_gates(
+                let gates_passed = match run_gates_with_actor_session(
                     org,
                     container,
+                    company,
+                    capabilities,
                     work_id,
                     attempt_id,
                     workdir,

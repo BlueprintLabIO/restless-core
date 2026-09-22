@@ -683,6 +683,7 @@ pub async fn dispatch_claimed_work(
     let reasoning_effort = config.reasoning_effort.clone();
     let authority = authority.clone();
     let capabilities = capabilities.clone();
+    let gate_capabilities = capabilities.clone();
     let runtime_bridges = runtime_bridges.clone();
     let hosted = hosted_identity.is_some();
     let role = actor_row.role;
@@ -749,8 +750,10 @@ pub async fn dispatch_claimed_work(
                 &org,
                 StaffAttemptContext {
                     container: &gate_container,
+                    company: &company,
                     actor: &actor,
                     name: &name,
+                    capabilities: &gate_capabilities,
                     work_id,
                     attempt_id,
                     workdir: &workdir,

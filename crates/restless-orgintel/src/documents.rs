@@ -3541,6 +3541,22 @@ async fn lock_bound_work(
     })
 }
 
+/// A revision invalidation can predate native-review lifecycle support. Such
+/// a pending row is historical evidence, not an obligation that a new Attempt
+/// may resume. Only compare the Work generation here: the normal resume path
+/// still validates the exact Attempt before it changes any Work state.
+async fn dependency_work_generation_is_stale(
+    tx: &mut Transaction<'_, Postgres>,
+    dependency: &DocumentWorkReviewDependencyRow,
+) -> DocumentResult<bool> {
+    let revision: Option<i64> =
+        sqlx::query_scalar("SELECT revision FROM work WHERE id=$1 FOR SHARE")
+            .bind(dependency.work_id)
+            .fetch_optional(&mut **tx)
+            .await?;
+    Ok(revision != Some(dependency.work_revision))
+}
+
 async fn resume_bound_work(
     tx: &mut Transaction<'_, Postgres>,
     dependency: &DocumentWorkReviewDependencyRow,
@@ -6634,16 +6650,18 @@ impl OrgIntel {
             let prior_dependency =
                 load_work_review_dependency(&mut tx, input.document_id, prior.id, true).await?;
             if let Some(dependency) = &prior_dependency {
-                resume_bound_work(
-                    &mut tx,
-                    dependency,
-                    input.actor_id,
-                    &format!(
-                        "Native Document review {} became stale when named version {} replaced {}. Re-check the current named version and request a new review if one is still needed.",
-                        prior.id, current_version_id, prior.requested_version_id
-                    ),
-                )
-                .await?;
+                if !dependency_work_generation_is_stale(&mut tx, dependency).await? {
+                    resume_bound_work(
+                        &mut tx,
+                        dependency,
+                        input.actor_id,
+                        &format!(
+                            "Native Document review {} became stale when named version {} replaced {}. Re-check the current named version and request a new review if one is still needed.",
+                            prior.id, current_version_id, prior.requested_version_id
+                        ),
+                    )
+                    .await?;
+                }
             }
             sqlx::query(
                 "UPDATE native_document_reviews SET status='stale',\
