@@ -83,7 +83,11 @@ human recipient before requesting collaboration, review, or handoff. Use the cur
 revision and a stable key; do not assume the recipient is literally `owner` in a company with network
 members. Give every Staff reviewer the explicit access their check needs before asking them to read
 or checkpoint it. A human native-review recipient must already have `edit` access. A creator's
-ownership does not transfer to colleagues.
+ownership does not transfer to colleagues. When a document may return to Exec for a bounded owner
+revision, share the required access with Exec before delivery as well. If Exec receives that revision
+without access, find the document-owning producer through its Work and direct that producer to make
+the bounded update and share the named recipient; do not abandon the owner request or ask the human
+to repair internal access.
 
 ## 5. Three kinds of action
 

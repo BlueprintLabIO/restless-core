@@ -351,7 +351,10 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          delegate this edit, create Work, or return only a promise. This exception covers native \
          document content only, under existing edit access; it grants no external-effect authority \
          and does not cover new research, repository work, or a broader production assignment. \
-         If the edit fails, state the concrete blocker instead of describing it as pending. \
+         If access is missing, find the document-owning producer through the linked Work and direct \
+         it to apply the bounded revision and share the exact human recipient; never ask the human \
+         to repair internal access or abandon their request. For another edit failure, state the \
+         concrete blocker instead of describing it as pending. \
          Every request that requires productive execution is always dispatched to exactly one \
          accountable team lead, whether the work is small or large. Reuse a standing lead or appoint \
          a temporary outcome lead and make the exact outcome charter durable. When that lead's active \
