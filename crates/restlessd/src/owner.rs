@@ -2074,6 +2074,7 @@ async fn consume_entry_assertion(
     let _reconciliation = reconciliation_guard.lock().await;
     let binding = match org
         .consume_human_access_context(restless_orgintel::HumanAccessContext {
+            display_name: access.display_name.as_deref(),
             issuer: &access.issuer,
             subject: &access.subject,
             company_id: access.company_id,
@@ -10016,6 +10017,7 @@ mod tests {
 
         let initial = org
             .consume_human_access_context(restless_orgintel::HumanAccessContext {
+                display_name: None,
                 issuer,
                 subject,
                 company_id,
@@ -10093,6 +10095,7 @@ mod tests {
             let _held = stale_guard.lock().await;
             let binding = match stale_org
                 .consume_human_access_context(restless_orgintel::HumanAccessContext {
+                    display_name: None,
                     issuer,
                     subject,
                     company_id,
@@ -10160,6 +10163,7 @@ mod tests {
             release_active_rx.await.unwrap();
             let binding = active_org
                 .consume_human_access_context(restless_orgintel::HumanAccessContext {
+                    display_name: None,
                     issuer,
                     subject,
                     company_id,

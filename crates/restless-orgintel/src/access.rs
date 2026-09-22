@@ -14,6 +14,8 @@ pub struct CompanyAccessIdentity {
 
 #[derive(Debug, Clone, Copy)]
 pub struct HumanAccessContext<'a> {
+    /// Display-only metadata from the verified account service.
+    pub display_name: Option<&'a str>,
     pub issuer: &'a str,
     pub subject: &'a str,
     pub company_id: Uuid,
@@ -399,6 +401,14 @@ impl OrgIntel {
         &self,
         context: HumanAccessContext<'_>,
     ) -> Result<HumanPrincipalActorBinding> {
+        let display_name = context.display_name.map(str::trim);
+        if display_name.is_some_and(|name| {
+            name.is_empty() || name.len() > 256 || name.chars().any(char::is_control)
+        }) {
+            return Err(OrgIntelError::PrincipalBindingConflict(
+                "display name must contain 1–256 bytes of plain text".into(),
+            ));
+        }
         let issuer = context.issuer.trim_end_matches('/');
         if issuer.is_empty() || context.subject.trim().is_empty() {
             return Err(OrgIntelError::PrincipalBindingConflict(
@@ -602,6 +612,16 @@ impl OrgIntel {
                 Err(error) => return Err(error.into()),
             }
         };
+
+        // Update only the Actor already bound to this verified principal. A name
+        // never selects another Actor or changes organisational responsibility.
+        if let Some(display_name) = display_name {
+            sqlx::query("UPDATE actors SET display=$2 WHERE id=$1")
+                .bind(&actor_id)
+                .bind(display_name)
+                .execute(&mut *tx)
+                .await?;
+        }
 
         sqlx::query("DELETE FROM consumed_entry_assertions WHERE expires_at <= now()")
             .execute(&mut *tx)

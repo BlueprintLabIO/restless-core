@@ -23,6 +23,14 @@ identity adapter may issue equivalent contexts. Core verifies the signature and 
 handoff once, and maps the proven principal to one durable company Actor. The browser cannot nominate
 that Actor.
 
+The handoff may include an optional `display_name` (1–256 UTF-8 bytes of plain
+text, excluding control characters). Core uses it only to label the human Actor
+already bound to the verified issuer and principal. Matching names never merge
+people or grant roles. A fresh accepted assertion updates that person's name;
+replayed or stale assertions cannot. Issuers that omit it retain the current
+name. Deploy name-emitting issuers with a Core release that accepts this optional
+field; older strict verifiers refuse unknown fields.
+
 The handoff establishes a short-lived, revocable account-plane session. Every company command,
 query, SSE stream, desktop connection and document collaboration session derives its principal from
 that verified session. Membership answers entry only; organisational role and Authority capability

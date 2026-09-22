@@ -94,6 +94,7 @@ fn context<'a>(
     issued_at: chrono::DateTime<Utc>,
 ) -> HumanAccessContext<'a> {
     HumanAccessContext {
+        display_name: None,
         issuer,
         subject,
         company_id,
@@ -800,4 +801,100 @@ async fn membership_control_receipt_survives_restart_and_other_memberships_stay_
         .human_session_membership_is_current(&other.actor_id, "membership-2", 1, "member")
         .await
         .unwrap());
+}
+
+#[tokio::test]
+async fn verified_human_names_follow_the_bound_actor_without_changing_roles() {
+    let Some(org) = company().await else {
+        return;
+    };
+    let company_id = Uuid::new_v4();
+    let cell_id = Uuid::new_v4();
+    bind_company(&org, company_id, cell_id).await;
+    let mut access = context(
+        "https://accounts.example.test",
+        "person-1",
+        company_id,
+        cell_id,
+        "member-1",
+        "owner",
+        1,
+        Uuid::new_v4(),
+        Utc::now(),
+    );
+    access.display_name = Some("  Chloé Chen  ");
+    let first = org.consume_human_access_context(access).await.unwrap();
+    let actor = org.active_actor(&first.actor_id).await.unwrap().unwrap();
+    assert_eq!(actor.display, "Chloé Chen");
+    assert_eq!(actor.role, "company-member");
+    assert_eq!(actor.kind, "human");
+
+    // The same name belongs to a different human; names never select identities.
+    let mut second = access;
+    second.subject = "person-2";
+    second.membership_id = "member-2";
+    second.membership_role = "member";
+    second.assertion_id = Uuid::new_v4();
+    let other = org.consume_human_access_context(second).await.unwrap();
+    assert_ne!(other.actor_id, first.actor_id);
+
+    access.display_name = Some("Changed on a replay");
+    assert!(matches!(
+        org.consume_human_access_context(access).await,
+        Err(OrgIntelError::ReplayedEntry)
+    ));
+    assert_eq!(
+        org.active_actor(&first.actor_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .display,
+        "Chloé Chen"
+    );
+
+    access.assertion_id = Uuid::new_v4();
+    access.issued_at += Duration::seconds(1);
+    access.display_name = Some("Chloé Williams");
+    assert_eq!(
+        org.consume_human_access_context(access)
+            .await
+            .unwrap()
+            .actor_id,
+        first.actor_id
+    );
+    access.assertion_id = Uuid::new_v4();
+    access.display_name = None;
+    org.consume_human_access_context(access).await.unwrap();
+    assert_eq!(
+        org.active_actor(&first.actor_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .display,
+        "Chloé Williams"
+    );
+
+    access.assertion_id = Uuid::new_v4();
+    access.issued_at -= Duration::seconds(2);
+    access.display_name = Some("Stale name");
+    assert!(matches!(
+        org.consume_human_access_context(access).await,
+        Err(OrgIntelError::CompanyAccessMismatch(_))
+    ));
+    assert_eq!(
+        org.active_actor(&first.actor_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .display,
+        "Chloé Williams"
+    );
+    assert_eq!(
+        org.active_actor(&other.actor_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .display,
+        "Chloé Chen"
+    );
 }

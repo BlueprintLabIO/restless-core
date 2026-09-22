@@ -483,7 +483,11 @@ export async function getCompanyPrincipal(
 		signal
 	});
 	if (!response.ok) {
-		throw Object.assign(new Error(`${response.status} ${response.statusText}`), {
+		const message =
+			response.status === 401
+				? 'Your company session has ended. Sign in again. If your access was removed, ask the company owner for an invitation.'
+				: `${response.status} ${response.statusText}`;
+		throw Object.assign(new Error(message), {
 			status: response.status
 		});
 	}

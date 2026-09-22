@@ -135,11 +135,20 @@ fixtures. Each run must verify its own cleanup.
   document changes still depend on unpublished collaboration work.
 - Those browser checks used distinct accounts sequentially in one browser
   context. Concurrent edits, reconnection and removal of an open connection
-  passed with independent authenticated protocol clients. Simultaneous browser
-  sessions, the member-removal confirmation UI and the clean published setup
-  journey remain open. Human names also still appear as “Company member”. All
-  isolated accounts, databases, roles, computers and Documents containers were
-  removed after the run. External SMTP delivery remains unqualified.
+  passed with independent authenticated protocol clients. A later browser run
+  verified the member-removal confirmation: Cancel retains the member; Remove
+  access ends their existing company session. The owner still sees the removed
+  person's feedback. The ended-session screen now explains how to sign in or
+  request a new invitation instead of showing only “401 Unauthorized”.
+- Core now accepts an optional verified account name and displays it on the
+  bound human Actor. Browser comments show “Launch Colleague”; the name and
+  feedback survive membership removal. Eleven real database tests and the
+  signed-assertion test pass, including duplicate names, replay, stale updates
+  and unchanged roles. Frontend checks report zero errors/warnings and its
+  production build passes. The self-hosted service that supplies these names
+  remains part of the unpublished setup work.
+- Simultaneous independent browser contexts and the clean published setup
+  journey remain open. External SMTP delivery remains unqualified.
 - That browser investigation found a separate cockpit defect: a failed initial
   company-list request kept the page in its loading state and hid the error.
   The fix displays the failure and a retry action. Frontend checks reported zero

@@ -121,6 +121,9 @@ impl CompanyScope {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct AssertionClaims {
+    /// Optional presentation metadata; never used for identity or authority.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
     pub iss: String,
     pub aud: String,
     pub sub: String,
@@ -191,6 +194,7 @@ struct Jwk {
 /// OrgIntel consumes it and creates the durable Actor binding atomically.
 #[derive(Debug, Clone)]
 pub(crate) struct VerifiedAccessContext {
+    pub display_name: Option<String>,
     pub issuer: String,
     pub subject: String,
     pub assertion_id: Uuid,
@@ -658,6 +662,13 @@ fn validate_claims(
     {
         return Err(Refusal::InvalidMembership);
     }
+    if claims.display_name.as_ref().is_some_and(|name| {
+        name.trim().is_empty() || name.len() > 256 || name.chars().any(char::is_control)
+    }) {
+        return Err(Refusal::Malformed(
+            "display name must contain 1–256 bytes of plain text",
+        ));
+    }
     if claims.iat > now.timestamp() + MAX_CLOCK_SKEW_SECONDS {
         return Err(Refusal::NotYetValid);
     }
@@ -674,6 +685,7 @@ fn validate_claims(
     let expires_at = DateTime::from_timestamp(claims.exp, 0)
         .ok_or(Refusal::Malformed("expiry is out of range"))?;
     Ok(VerifiedAccessContext {
+        display_name: claims.display_name,
         issuer: claims.iss.trim_end_matches('/').to_string(),
         subject: claims.sub,
         assertion_id: claims.jti,
@@ -1327,6 +1339,7 @@ pub(crate) fn mint_from_env() -> anyhow::Result<String> {
         anyhow::bail!("RESTLESS_ENTRY_TEST_TTL_SECONDS must be between 1 and 60");
     }
     let claims = AssertionClaims {
+        display_name: None,
         iss: required("RESTLESS_ENTRY_ISSUER")?
             .trim_end_matches('/')
             .into(),
@@ -1375,6 +1388,7 @@ mod tests {
 
     fn claims() -> AssertionClaims {
         AssertionClaims {
+            display_name: None,
             iss: "https://cloud.restless.test".into(),
             aud: HANDOFF_AUDIENCE.into(),
             sub: "user-1".into(),
@@ -1457,6 +1471,37 @@ mod tests {
         assert_eq!(verified.membership_role, "owner");
         assert_eq!(verified.issued_at, at(950));
         assert_eq!(verified.expires_at, at(1_010));
+    }
+
+    #[tokio::test]
+    async fn handoff_display_names_are_optional_signed_presentation_metadata() {
+        let entry = NetworkEntry::for_test(&key());
+        let mut candidate = claims();
+        let absent = serde_json::to_value(&candidate).unwrap();
+        assert!(absent.get("display_name").is_none());
+        assert!(entry
+            .verify_at(&token(&candidate), at(1_000), SignaturePolicy::Enforce)
+            .await
+            .unwrap()
+            .display_name
+            .is_none());
+        candidate.display_name = Some("Chloé Chen".into());
+        let verified = entry
+            .verify_at(&token(&candidate), at(1_000), SignaturePolicy::Enforce)
+            .await
+            .unwrap();
+        assert_eq!(verified.display_name.as_deref(), Some("Chloé Chen"));
+        assert_eq!(verified.subject, "user-1");
+        assert_eq!(verified.membership_role, "owner");
+        for invalid in [
+            "".to_string(),
+            "  ".into(),
+            "a".repeat(257),
+            "Name\nOwner".into(),
+        ] {
+            candidate.display_name = Some(invalid);
+            assert!(matches!(refusal(&candidate).await, Refusal::Malformed(_)));
+        }
     }
 
     #[tokio::test]
@@ -2082,6 +2127,7 @@ mod tests {
             verified: &VerifiedAccessContext,
         ) -> restless_orgintel::HumanPrincipalActorBinding {
             org.consume_human_access_context(restless_orgintel::HumanAccessContext {
+                display_name: verified.display_name.as_deref(),
                 issuer: &verified.issuer,
                 subject: &verified.subject,
                 company_id: verified.company_id,

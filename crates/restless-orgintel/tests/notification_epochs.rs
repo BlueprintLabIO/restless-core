@@ -100,6 +100,7 @@ async fn mention_notification_presentation_is_immutable_after_actor_and_room_ren
     let now = Utc::now();
     let binding = org
         .consume_human_access_context(HumanAccessContext {
+            display_name: None,
             issuer: "https://fleet.example.test",
             subject: "owner-user",
             company_id: identity.company_id,
