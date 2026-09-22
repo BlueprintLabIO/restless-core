@@ -454,3 +454,24 @@ complete user journeys.
   worktree. All six changed source files matched published `4bcceba` before
   removal. Nonsecret evidence is archived as `final-closeout-evidence.tsv`;
   shared caches and protected runtimes were preserved.
+
+## Closeout follow-up — 23 September 2026
+
+- Source and saved evidence confirm that native document approval resumes the
+  bound Work intentionally. It approves a document version; the qualified
+  outcome review is the separate whole-Work acceptance. The lead explicitly
+  chose abandonment in the final smoke, so the stored status reflected that
+  action rather than an automatic completion bug.
+- Lead instructions now explain the remaining step: preserve the accepted
+  content, inspect the current candidate, and route a passing outcome review
+  through Exec for the owner's decision. Successful Work must not be abandoned
+  merely because that decision is still pending. This is a prompt clarification,
+  inspected against the existing handoff commands. Its effect on live agent
+  behavior has not been reverified; the earlier smoke remains the runtime evidence.
+- GitHub still reports seven open dependency alerts on `dev`. The published
+  lockfiles contain patched versions for each affected package: devalue 5.9.4,
+  fast-uri 3.1.8, hono 4.13.8 and qs 6.16.0. No further dependency changes were
+  needed for those alerts.
+- Browser inventory still exposes only one in-app browser. Simultaneous
+  independent-human verification remains unavailable; Claude/API requests
+  remain deferred and external SMTP delivery remains unverified.
