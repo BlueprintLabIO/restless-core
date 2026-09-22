@@ -995,3 +995,14 @@ export function isRetryableDocumentFailure(error: unknown): boolean {
 	if (typeof status !== 'number') return true;
 	return status === 408 || status === 425 || status === 429 || status >= 500;
 }
+
+export function resolveDocumentCollaboration(
+	company: string,
+	document: string,
+	request: string
+): Promise<unknown> {
+	return documentJson(
+		`${documentsPath(company, document)}/collaboration-requests/${encodeURIComponent(request)}/resolve`,
+		{ method: 'POST' }
+	);
+}

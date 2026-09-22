@@ -2272,48 +2272,23 @@
 
 .bridge-root .people-list {
 	min-height: 0;
+	min-width: 0;
 	flex: 1;
-	overflow: auto;
-}
-
-.bridge-root .people-focus-summary {
-	margin: 12px;
-	padding: 13px 14px;
-	border: 1px solid color-mix(in srgb, var(--intent-feedback) 18%, var(--border));
-	border-radius: var(--radius-pane);
-	background: color-mix(in srgb, var(--intent-feedback-soft) 58%, rgba(255, 255, 255, 0.7));
-	box-shadow: var(--bevel-subtle);
-}
-
-.bridge-root .people-focus-summary strong {
-	display: block;
-	font-size: var(--t-body);
-}
-
-.bridge-root .people-focus-summary p {
-	display: -webkit-box;
-	margin: 7px 0 10px;
-	overflow: hidden;
-	-webkit-box-orient: vertical;
-	-webkit-line-clamp: 4;
-	font-size: var(--t-label);
-	line-height: 1.45;
-	color: var(--text-secondary);
-}
-
-.bridge-root .people-focus-summary a {
-	font-size: var(--t-label);
-	font-weight: 650;
-	text-decoration: none;
-	color: var(--intent-feedback);
+	overflow-y: auto;
+	overflow-x: hidden;
 }
 
 /* The transcript scrolls inside the pane; the head and composer stay put. */
 .bridge-root .people-talk {
 	min-height: 0;
 	display: grid;
+	grid-template-columns: minmax(0, 1fr);
 	grid-template-rows: auto minmax(0, 1fr) auto;
 	overflow: hidden;
+}
+
+.bridge-root .people-talk.has-exchanges {
+	grid-template-rows: auto auto minmax(0, 1fr) auto;
 }
 
 .bridge-root .talk-head {

@@ -16,6 +16,7 @@ mod capability_sourcing;
 mod cell;
 mod cell_wake;
 mod codex;
+mod collaboration_doctor;
 mod company;
 mod company_bootstrap;
 mod connected_tool;
@@ -33,6 +34,7 @@ mod ingress;
 mod launch;
 mod legal;
 mod local_documents;
+mod mentions;
 mod model_gateway;
 mod native_harness;
 mod owner;
@@ -42,6 +44,7 @@ mod plane;
 mod publication;
 mod reconcile;
 mod release;
+mod room_commands;
 mod runtime;
 mod runtime_bridge;
 mod runtime_mode;
@@ -1378,8 +1381,9 @@ fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Result
         | "voice-render"
         | "voice-review"
         | "voice-learn"
-        | "document-review-request"
-        | "document-operation" => pin_actor(&mut request.orgintel.actor, actor, "actor")?,
+        | "document-operation"
+        | "room-operation"
+        | "document-review-request" => pin_actor(&mut request.orgintel.actor, actor, "actor")?,
         "publish-build" | "publish-candidate" | "publish-request" => {
             pin_actor(&mut request.publication.actor, actor, "publication actor")?
         }
@@ -1409,8 +1413,8 @@ fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Result
     Ok(())
 }
 
-/// The only native Document mutation available to a hosted agent must carry
-/// the same exact productive coordinates as its signed ActorSession. A bridge
+/// A Work-bound native Document review must carry the same exact productive
+/// coordinates as its signed ActorSession. A bridge
 /// Exec grant and a coordination/conversation session therefore fail closed.
 fn bind_runtime_document_scope(
     request: &Request,
@@ -1647,28 +1651,27 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
     match request.cmd.as_str() {
         "document-operation" => {
             let actor = if principal == Principal::Owner { "owner" } else {
-                match request.orgintel.actor.as_deref() {
-                    Some(actor) => actor,
-                    None => return Response::err("Missing authenticated actor"),
-                }
+                match request.orgintel.actor.as_deref() { Some(actor) => actor, None => return Response::err("Missing authenticated actor") }
             };
-            let Some(operation) = request.document_operation else {
-                return Response::err("Missing Document operation");
-            };
+            let Some(operation) = request.document_operation else { return Response::err("Missing Document operation"); };
             match daemon.orgintel.get(company).await {
-                Ok(org) => {
-                    match document_commands::execute_with_body(
-                        &daemon.root,
-                        &org,
-                        actor,
-                        operation,
-                    )
-                    .await
-                    {
-                        Ok(value) => Response::ok(value),
-                        Err(error) => Response::err(format!("{error:#}")),
-                    }
-                }
+                Ok(org) => match document_commands::execute_with_body(&daemon.root, &org, actor, operation).await {
+                    Ok(value) => Response::ok(value),
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "room-operation" => {
+            let actor = if principal == Principal::Owner { "owner" } else {
+                match request.orgintel.actor.as_deref() { Some(actor) => actor, None => return Response::err("Missing authenticated actor") }
+            };
+            let Some(operation) = request.room_operation else { return Response::err("Missing Room operation"); };
+            match daemon.orgintel.get(company).await {
+                Ok(org) => match room_commands::execute(&org, actor, operation).await {
+                    Ok(value) => Response::ok(value),
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
                 Err(error) => Response::err(format!("{error:#}")),
             }
         }
@@ -2176,6 +2179,10 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
         },
         "status" => match runtime::status(company).await {
             Ok(status) => Response::ok(format!("{company}: {status:?}")),
+            Err(error) => Response::err(format!("{error:#}")),
+        },
+        "doctor-collaboration" => match collaboration_doctor::run(daemon).await {
+            Ok(report) => Response::ok(report),
             Err(error) => Response::err(format!("{error:#}")),
         },
         "doctor" => match runtime::doctor(company).await {
@@ -2875,11 +2882,15 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                         )
                         .await
                     {
-                        Ok(()) => Response::ok(serde_json::json!({
-                            "actor_id": actor_id,
-                            "role": role,
-                            "display": display,
-                        })),
+                        Ok(()) => match org.active_actor(actor_id).await {
+                            Ok(Some(actor)) => Response::ok(serde_json::json!({
+                                "actor_id": actor_id,
+                                "role": role,
+                                "display": actor.display,
+                            })),
+                            Ok(None) => Response::err("created actor is no longer active"),
+                            Err(error) => Response::err(format!("{error:#}")),
+                        },
                         Err(error) => Response::err(format!("{error:#}")),
                     },
                     Err(error) => Response::err(format!("{error:#}")),
@@ -3853,7 +3864,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 };
                 match daemon.orgintel.get(company).await {
                     Ok(org) => match org
-                        .refresh_owner_handoff(id, changed_by, action, prepared, resume_when)
+                        .refresh_owner_handoff_preparation(id, changed_by, action, prepared, resume_when, request.owner.preparing)
                         .await
                     {
                         Ok(()) => Response::ok(serde_json::json!({
@@ -4056,12 +4067,11 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             }
             _ => Response::err("work-review needs handoff and accept|request_changes decision"),
         },
-        // Reading your own inbox marks read; inspecting another actor's
-        // (--as) does not — an observer must not hide mail from its
-        // addressee. A company actor carries its durable actor id, so its
-        // self-read can also prove which live Attempt actually received a
-        // Work-linked message. This is ordinary inbox delivery, not a second
-        // Work/message protocol.
+        // Conversation inbox reads are inspection; Runtime acknowledges the
+        // captured inputs atomically with its reply. A live Work Attempt still
+        // records self-read feedback delivery. Inspecting another actor never
+        // hides mail from its addressee; human owner reads retain their normal
+        // read acknowledgement.
         "inbox" => match daemon.orgintel.get(company).await {
             Ok(org) => {
                 let self_read_actor = if principal == Principal::CompanyExec {
@@ -4330,13 +4340,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                         Err(error) => Response::err(format!("{error:#}")),
                     };
                 }
-                if request.orgintel.recurrence.is_some()
-                    || request.orgintel.local_time.is_some()
-                    || request.orgintel.timezone.is_some()
-                    || request.orgintel.missed_policy.is_some()
-                    || request.orgintel.catch_up_grace_seconds.is_some()
-                    || request.orgintel.execution_requirement.is_some()
-                {
+                if has_recurring_schedule_fields(&request.orgintel) {
                     return Response::err("recurring schedule fields require --weekdays");
                 }
                 let Some(fire_at) = request.orgintel.fire_at.as_deref() else {
@@ -5178,9 +5182,44 @@ async fn resolve_team(
     }
 }
 
+fn has_recurring_schedule_fields(input: &wire::OrgIntelInput) -> bool {
+    input.recurrence.is_some()
+        || input.local_time.is_some()
+        || input.timezone.is_some()
+        || input.missed_policy.is_some()
+        || input.catch_up_grace_seconds.is_some()
+        // Older shipped CLIs sent this default even for --at. It is the
+        // one-shot runner's existing behavior, not a recurring cadence.
+        || input.execution_requirement.as_deref().is_some_and(|value| value != "local-mac")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn one_time_schedule_accepts_legacy_cli_default_without_accepting_recurring_policy() {
+        let mut payload = serde_json::json!({
+            "cmd":"schedule-add", "company":"schedule_test", "as_actor":"exec",
+            "reason":"Observe consent expiry", "fire_at":"2026-09-22T04:08:30Z",
+            "execution_requirement":"local-mac",
+        });
+        assert!(!has_recurring_schedule_fields(&decoded_request(payload.clone()).orgintel));
+        payload["execution_requirement"] = serde_json::Value::Null;
+        assert!(!has_recurring_schedule_fields(&decoded_request(payload.clone()).orgintel));
+        for (field, value) in [
+            ("execution_requirement", serde_json::json!("always-on")),
+            ("recurrence", serde_json::json!("weekdays")),
+            ("local_time", serde_json::json!("09:00")),
+            ("timezone", serde_json::json!("Australia/Sydney")),
+            ("missed_policy", serde_json::json!("skip")),
+            ("catch_up_grace_seconds", serde_json::json!(60)),
+        ] {
+            let mut recurring = payload.clone();
+            recurring[field] = value;
+            assert!(has_recurring_schedule_fields(&decoded_request(recurring).orgintel), "must not silently ignore {field}");
+        }
+    }
 
     fn decoded_request(value: serde_json::Value) -> Request {
         Request::decode(&value.to_string()).expect("decode request through the transport boundary")
@@ -5271,7 +5310,10 @@ mod tests {
             return;
         };
         let parsed = url::Url::parse(&database_url).unwrap();
-        assert!(parsed.path().ends_with("_test"));
+        assert!(
+            parsed.path().ends_with("_test"),
+            "local creation scenario requires a disposable test database"
+        );
         let company = format!(
             "unconfigured_create_{}_test",
             &uuid::Uuid::new_v4().simple().to_string()[..10]
@@ -5305,7 +5347,10 @@ mod tests {
             "name = {company:?}\nmission = \"Choose intelligence later\"\n"
         ))
         .unwrap();
-        create_local_company_inner(&daemon, config, false).await.unwrap();
+
+        create_local_company_inner(&daemon, config, false)
+            .await
+            .unwrap();
         let restored = runtime::CompanyConfig::load(&root, &company).unwrap();
         assert!(restored.model_candidates().unwrap().is_empty());
         assert!(!restored.has_configured_model_route());
@@ -5322,6 +5367,8 @@ mod tests {
         .await
         .unwrap_err();
         assert!(wake_error.to_string().contains("Intelligence provider"));
+        assert!(!daemon.staff.is_actor_running(&company, "exec"));
+
         org.close().await;
         daemon.orgintel.forget(&company);
         daemon.authority.delete_test_company(&company).await.unwrap();
@@ -5384,7 +5431,10 @@ mod tests {
     #[test]
     fn every_dispatch_verb_has_a_cli_spelling() {
         let daemon_source = include_str!("main.rs");
-        let cli_source = include_str!("../../restless/src/main.rs");
+        let cli_source = concat!(
+            include_str!("../../restless/src/main.rs"),
+            include_str!("../../restless/src/document.rs")
+        );
         let dispatch = daemon_source
             .split("match request.cmd.as_str() {")
             .nth(1)
@@ -5485,6 +5535,37 @@ mod tests {
         );
         assert_eq!(valid.company.as_deref(), Some("acme_test"));
         assert_eq!(valid.common.from.as_deref(), Some("delivery-lead"));
+
+        for (command, field) in [
+            ("document-operation", "document_operation"),
+            ("room-operation", "room_operation"),
+        ] {
+            let token = issuer
+                .issue_actor_session(
+                    "acme_test",
+                    "delivery-lead",
+                    "collaboration_session",
+                    None,
+                    None,
+                )
+                .unwrap();
+            let value = serde_json::json!({"cmd":command,"company":"acme_test","session_capability":token,field:{"operation":"list"}});
+            let mut collaboration = decoded_request(value.clone());
+            authenticate_request(&mut collaboration, &issuer, ConnectionOrigin::RuntimeTcp)
+                .unwrap();
+            assert_eq!(
+                collaboration.orgintel.actor.as_deref(),
+                Some("delivery-lead")
+            );
+            let mut forged = value;
+            forged["actor"] = serde_json::json!("owner");
+            assert!(authenticate_request(
+                &mut decoded_request(forged),
+                &issuer,
+                ConnectionOrigin::RuntimeTcp
+            )
+            .is_err());
+        }
 
         let mut owner_claim = decoded_request(serde_json::json!({
             "cmd": "approve",

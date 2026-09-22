@@ -24,6 +24,121 @@ struct DocumentEventRow {
     body: Value,
 }
 
+#[tokio::test]
+async fn collaboration_request_keeps_the_verified_owner_as_its_immutable_target() {
+    let Some(org) = company("documentownerrequest").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping document owner request scenario");
+        return;
+    };
+    org.ensure_actor("human-alice", "human", "owner", "Alice")
+        .await
+        .unwrap();
+    let database_url = std::env::var("RESTLESS_TEST_DATABASE_URL").unwrap();
+    let mut connection = schema_connection(&database_url, org.schema()).await;
+    sqlx::query(
+        "INSERT INTO human_principal_actor_bindings \
+         (issuer,subject,company_id,actor_id,membership_id,membership_role,membership_version,last_asserted_at) \
+         VALUES ('https://cloud.restless.test','alice',$1,'human-alice','membership-alice','owner',1,now())",
+    )
+    .bind(Uuid::new_v4())
+    .execute(&mut connection)
+    .await
+    .unwrap();
+
+    let created = org
+        .create_document(NewDocument {
+            command_id: Uuid::new_v4(),
+            title: "Owner collaboration request",
+            kind: DocumentKind::Plan,
+            visibility: DocumentVisibility::Participants,
+            linked_room_id: None,
+            inherit_room_visibility: false,
+            owner_actor_id: "research-analyst",
+            created_by_actor_id: "research-analyst",
+            content_json: &content("request", "Please collaborate"),
+            reason: "Initial checkpoint",
+        })
+        .await
+        .unwrap();
+    org.set_document_participant(SetDocumentParticipant {
+        command_id: Uuid::new_v4(),
+        document_id: created.document_id,
+        actor_id: "research-analyst",
+        expected_document_version: 1,
+        participant_actor_id: "alex",
+        access: DocumentAccess::Edit,
+    })
+    .await
+    .unwrap();
+    org.set_document_participant(SetDocumentParticipant {
+        command_id: Uuid::new_v4(),
+        document_id: created.document_id,
+        actor_id: "research-analyst",
+        expected_document_version: 2,
+        participant_actor_id: "human-alice",
+        access: DocumentAccess::Edit,
+    })
+    .await
+    .unwrap();
+
+    let request_id = Uuid::new_v4();
+    let request = org
+        .request_document_collaboration(
+            created.document_id,
+            "alex",
+            request_id,
+            "Please join this plan",
+        )
+        .await
+        .unwrap();
+    assert_eq!(request.requested_owner_actor_id, "human-alice");
+    assert_eq!(org.pending_document_attention().await.unwrap()[0].id, request_id);
+    assert!(matches!(
+        org.resolve_document_collaboration(created.document_id, "blair", request_id)
+            .await,
+        Err(DocumentError::Unavailable)
+    ));
+    assert!(matches!(
+        org.resolve_document_collaboration(created.document_id, "owner", request_id)
+            .await,
+        Err(DocumentError::Unavailable)
+    ));
+    org.remove_document_participant(RemoveDocumentParticipant {
+        command_id: Uuid::new_v4(),
+        document_id: created.document_id,
+        actor_id: "research-analyst",
+        expected_document_version: 3,
+        participant_actor_id: "human-alice",
+    })
+    .await
+    .unwrap();
+    assert!(org.pending_document_attention().await.unwrap().is_empty());
+    assert!(matches!(
+        org.resolve_document_collaboration(created.document_id, "human-alice", request_id)
+            .await,
+        Err(DocumentError::Unavailable)
+    ));
+    org.set_document_participant(SetDocumentParticipant {
+        command_id: Uuid::new_v4(),
+        document_id: created.document_id,
+        actor_id: "research-analyst",
+        expected_document_version: 4,
+        participant_actor_id: "human-alice",
+        access: DocumentAccess::Edit,
+    })
+    .await
+    .unwrap();
+    assert_eq!(org.pending_document_attention().await.unwrap()[0].id, request_id);
+    assert_eq!(
+        org.resolve_document_collaboration(created.document_id, "human-alice", request_id)
+            .await
+            .unwrap()
+            .resolved_by_actor_id
+            .as_deref(),
+        Some("human-alice")
+    );
+}
+
 async fn company(prefix: &str) -> Option<OrgIntel> {
     let url = std::env::var("RESTLESS_TEST_DATABASE_URL").ok()?;
     let name = format!("{prefix}{}", uuid::Uuid::new_v4().simple());

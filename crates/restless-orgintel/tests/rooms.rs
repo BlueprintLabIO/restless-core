@@ -13,7 +13,7 @@ use std::time::Duration;
 
 async fn company(prefix: &str) -> Option<OrgIntel> {
     let url = std::env::var("RESTLESS_TEST_DATABASE_URL").ok()?;
-    let name = format!("{prefix}{}", uuid::Uuid::new_v4().simple());
+    let name = format!("{prefix}{}_test", uuid::Uuid::new_v4().simple());
     let org = OrgIntel::ensure(&url, &name)
         .await
         .expect("ensure scratch company schema");
@@ -2892,6 +2892,51 @@ async fn cognitive_finalization_accepts_exact_in_turn_handoff_outcomes_only() {
 }
 
 #[tokio::test]
+async fn inspecting_conversation_inbox_preserves_atomic_reply_inputs() {
+    let Some(org) = company("inboxinspect").await else {
+        return;
+    };
+    let input = org
+        .send_message("owner", Some("exec"), "Please answer this")
+        .await
+        .unwrap();
+    assert_eq!(
+        org.consume_inbox_for_actor("exec").await.unwrap()[0].id,
+        input
+    );
+    let lease = org
+        .claim_actor_cognitive_session("exec", Duration::from_secs(60))
+        .await
+        .unwrap()
+        .unwrap();
+    for _ in 0..2 {
+        let observed = org.consume_inbox_for_actor("exec").await.unwrap();
+        assert_eq!(observed[0].id, input);
+        assert!(observed[0].read_at.is_none());
+    }
+    let later = org
+        .send_message("owner", Some("exec"), "A later question")
+        .await
+        .unwrap();
+    org.consume_inbox_for_actor("exec").await.unwrap();
+    let reply = org
+        .finalize_cognitive_conversation(&lease, Some("The first answer"), None, &[input], &[])
+        .await
+        .unwrap();
+    assert!(reply.is_some());
+    assert_eq!(
+        org.finalize_cognitive_conversation(&lease, Some("The first answer"), None, &[input], &[])
+            .await
+            .unwrap(),
+        reply
+    );
+    let remaining = org.conversation_inbox("exec").await.unwrap();
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].id, later);
+    org.release_actor_cognitive_session(&lease).await.unwrap();
+}
+
+#[tokio::test]
 async fn consumed_owner_input_cannot_be_replied_to_after_interrupt() {
     let Some(org) = company("cognitiveinterrupt").await else {
         eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping interrupt fence scenario");
@@ -3678,17 +3723,42 @@ async fn conversation_batches_are_bounded_exact_and_drain_without_duplication() 
     );
     let first_ids = first.iter().map(|message| message.id).collect::<Vec<_>>();
     assert_eq!(first_ids, all_ids[..6]);
-    org.finalize_cognitive_conversation(&lease, None, None, &first_ids, &[])
-        .await
-        .unwrap();
+    org.finalize_cognitive_conversation(
+        &lease,
+        Some("I received the first bounded batch."),
+        None,
+        &first_ids,
+        &[],
+    )
+    .await
+    .unwrap();
+    org.release_actor_cognitive_session(&lease).await.unwrap();
     let second = org.conversation_inbox("exec").await.unwrap();
     let second_ids = second.iter().map(|message| message.id).collect::<Vec<_>>();
     assert_eq!(second_ids, all_ids[6..]);
-    org.finalize_cognitive_conversation(&lease, None, None, &second_ids, &[])
+    let lease = org
+        .claim_actor_cognitive_session("exec", Duration::from_secs(60))
+        .await
+        .unwrap()
+        .unwrap();
+    org.finalize_cognitive_conversation(
+        &lease,
+        Some("I received the remaining bounded batch."),
+        None,
+        &second_ids,
+        &[],
+    )
         .await
         .unwrap();
     assert!(org.conversation_inbox("exec").await.unwrap().is_empty());
     assert_eq!(org.owed_conversation_count("exec").await.unwrap(), 0);
+    let owner_thread = org.owner_conversation("exec", 20).await.unwrap();
+    assert!(owner_thread
+        .iter()
+        .any(|message| message.body == "I received the first bounded batch."));
+    assert!(owner_thread
+        .iter()
+        .any(|message| message.body == "I received the remaining bounded batch."));
     org.release_actor_cognitive_session(&lease).await.unwrap();
 }
 

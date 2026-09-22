@@ -60,6 +60,60 @@ async fn commissioned_outcome_standard_keeps_its_owner_source() {
         OutcomeStandardSource::OwnerOverride
     );
     assert_eq!(team.standard_source_message_id, Some(message_id));
+
+    // Direct owner settings have their own audit record, not a fabricated message.
+    assert!(org
+        .set_team_outcome_standard(
+            team_id,
+            "exec",
+            OutcomeStandard::Frontier,
+            OutcomeStandard::Fast
+        )
+        .await
+        .is_err());
+    org.set_team_outcome_standard(
+        team_id,
+        "owner",
+        OutcomeStandard::Frontier,
+        OutcomeStandard::Thorough,
+    )
+    .await
+    .unwrap();
+    // A retry is harmless; an independently stale setting cannot overwrite it.
+    org.set_team_outcome_standard(
+        team_id,
+        "owner",
+        OutcomeStandard::Frontier,
+        OutcomeStandard::Thorough,
+    )
+    .await
+    .unwrap();
+    assert!(org
+        .set_team_outcome_standard(
+            team_id,
+            "owner",
+            OutcomeStandard::Frontier,
+            OutcomeStandard::Fast
+        )
+        .await
+        .is_err());
+    let updated = org
+        .list_teams()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|team| team.id == team_id)
+        .unwrap();
+    assert_eq!(updated.outcome_standard, OutcomeStandard::Thorough);
+    assert_eq!(
+        updated.outcome_standard_source,
+        OutcomeStandardSource::OwnerOverride
+    );
+    assert_eq!(updated.standard_source_message_id, None);
+    let events = org.events_of_kind("team_standard_changed").await.unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].actor_id.as_deref(), Some("owner"));
+    assert_eq!(events[0].body["standard"], "thorough");
 }
 
 #[tokio::test]
@@ -905,6 +959,9 @@ async fn unknown_attempt_recovery_is_one_capsule_addressed_to_the_accountable_le
     let org = OrgIntel::ensure(&url, &company)
         .await
         .expect("ensure scratch company schema");
+    org.ensure_actor("owner", "owner", "owner", "The Owner")
+        .await
+        .unwrap();
     org.ensure_actor("exec", "exec", "exec", "The Exec")
         .await
         .unwrap();
@@ -928,6 +985,17 @@ async fn unknown_attempt_recovery_is_one_capsule_addressed_to_the_accountable_le
         .unwrap();
     assert_eq!(commission.len(), 1);
     assert!(commission[0].body.contains(&team.to_string()));
+    // Reading the charter is inspection; complete its cognitive turn before
+    // measuring later recovery/feedback obligations.
+    let lease = org
+        .claim_actor_cognitive_session("product-direction", std::time::Duration::from_secs(60))
+        .await
+        .unwrap()
+        .unwrap();
+    org.finalize_cognitive_conversation(&lease, None, None, &[commission[0].id], &[])
+        .await
+        .unwrap();
+    org.release_actor_cognitive_session(&lease).await.unwrap();
     org.set_actor_team(
         "world-builder",
         Some(team),
@@ -1145,6 +1213,9 @@ async fn material_member_message_wakes_the_lead_and_late_direct_feedback_gets_a_
     };
     let company = format!("message{}", uuid::Uuid::new_v4().simple());
     let org = OrgIntel::ensure(&url, &company).await.unwrap();
+    org.ensure_actor("owner", "owner", "owner", "The Owner")
+        .await
+        .unwrap();
     org.ensure_actor("exec", "exec", "exec", "The Exec")
         .await
         .unwrap();
@@ -1165,6 +1236,17 @@ async fn material_member_message_wakes_the_lead_and_late_direct_feedback_gets_a_
         .unwrap();
     assert_eq!(commission.len(), 1);
     assert!(commission[0].body.contains(&team.to_string()));
+    // Reading the charter is inspection; complete its cognitive turn before
+    // measuring later recovery/feedback obligations.
+    let lease = org
+        .claim_actor_cognitive_session("product-direction", std::time::Duration::from_secs(60))
+        .await
+        .unwrap()
+        .unwrap();
+    org.finalize_cognitive_conversation(&lease, None, None, &[commission[0].id], &[])
+        .await
+        .unwrap();
+    org.release_actor_cognitive_session(&lease).await.unwrap();
     org.set_actor_team(
         "world-builder",
         Some(team),
@@ -1966,4 +2048,202 @@ async fn durable_people_and_one_level_rosters_refuse_ghosts_and_poaching() {
     }));
 
     org.drop_schema().await.expect("drop scratch schema");
+}
+
+#[tokio::test]
+async fn fictional_names_are_serial_and_failed_creations_do_not_skip_letters() {
+    let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+        return;
+    };
+    let company = format!("names{}_test", uuid::Uuid::new_v4().simple());
+    let org = OrgIntel::ensure(&url, &company).await.unwrap();
+    let result = async {
+        org.ensure_actor("exec", "exec", "exec", "Exec").await?;
+        let (a, b) = tokio::join!(
+            org.create_actor(
+                "site-direction",
+                "designer",
+                "ignored",
+                None,
+                "exec",
+                "design"
+            ),
+            org.create_actor(
+                "delivery-builder",
+                "engineer",
+                "ignored",
+                None,
+                "exec",
+                "build"
+            )
+        );
+        a?;
+        b?;
+        let mut names: Vec<_> = org
+            .list_actors()
+            .await?
+            .into_iter()
+            .filter(|a| a.kind == "staff")
+            .map(|a| a.display)
+            .collect();
+        names.sort();
+        assert_eq!(names, vec!["Alice", "Bart"]);
+        assert!(org
+            .create_actor(
+                "site-direction",
+                "designer",
+                "ignored",
+                None,
+                "exec",
+                "duplicate"
+            )
+            .await
+            .is_err());
+        org.create_actor(
+            "quality-reviewer",
+            "reviewer",
+            "ignored",
+            None,
+            "exec",
+            "review",
+        )
+        .await?;
+        assert_eq!(
+            org.active_actor("quality-reviewer").await?.unwrap().display,
+            "Coraline"
+        );
+        Ok::<(), restless_orgintel::OrgIntelError>(())
+    }
+    .await;
+    org.drop_schema().await.unwrap();
+    result.unwrap();
+}
+
+#[tokio::test]
+async fn team_names_follow_leads_through_creation_transfers_and_replacement() {
+    let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+        return;
+    };
+    let company = format!("teamnames{}_test", uuid::Uuid::new_v4().simple());
+    let org = OrgIntel::ensure(&url, &company).await.unwrap();
+    let result = async {
+        org.ensure_actor("exec", "exec", "exec", "Exec").await?;
+        org.create_actor("alpha-strategy", "lead", "ignored", None, "exec", "lead A")
+            .await?;
+        org.create_actor("beta-strategy", "lead", "ignored", None, "exec", "lead B")
+            .await?;
+        let a = org
+            .create_team("Alpha", "Build Alpha", "alpha-strategy", "exec")
+            .await?;
+        let b = org
+            .create_team("Beta", "Build Beta", "beta-strategy", "exec")
+            .await?;
+        let (first, second) = tokio::join!(
+            org.create_actor(
+                "alpha-writer",
+                "writer",
+                "ignored",
+                None,
+                "alpha-strategy",
+                "write"
+            ),
+            org.create_actor(
+                "alpha-reviewer",
+                "reviewer",
+                "ignored",
+                None,
+                "alpha-strategy",
+                "review"
+            )
+        );
+        first?;
+        second?;
+        let first_name = org.active_actor("alpha-writer").await?.unwrap().display;
+        let second_name = org.active_actor("alpha-reviewer").await?.unwrap().display;
+        assert!(first_name.starts_with('A') && second_name.starts_with('A'));
+        assert_ne!(first_name, second_name);
+        org.set_actor_team("alpha-writer", Some(a), "exec", "join")
+            .await?;
+        org.set_actor_team("alpha-reviewer", Some(a), "exec", "join")
+            .await?;
+        org.create_actor(
+            "gamma-strategy",
+            "lead",
+            "ignored",
+            None,
+            "exec",
+            "next lead",
+        )
+        .await?;
+        assert_eq!(
+            org.active_actor("gamma-strategy").await?.unwrap().display,
+            "Coraline",
+            "member names do not consume lead letters"
+        );
+        org.set_actor_team("alpha-writer", Some(b), "exec", "transfer")
+            .await?;
+        assert_eq!(
+            org.active_actor("alpha-writer").await?.unwrap().display,
+            "Batman"
+        );
+        org.set_actor_team("alpha-writer", Some(a), "exec", "return")
+            .await?;
+        let returned = org.active_actor("alpha-writer").await?.unwrap();
+        assert!(returned.display.starts_with('A'));
+        assert_ne!(
+            returned.display, first_name,
+            "historical names are not reassigned"
+        );
+        assert_eq!(returned.id, "alpha-writer");
+        org.set_team_lead(a, "gamma-strategy", "exec", "new leadership")
+            .await?;
+        for id in ["alpha-strategy", "alpha-writer", "alpha-reviewer"] {
+            let actor = org.active_actor(id).await?.unwrap();
+            assert!(actor.display.starts_with('C'), "{}: {}", id, actor.display);
+            assert_eq!(actor.team_id, Some(a));
+        }
+        assert_eq!(
+            org.active_actor("gamma-strategy").await?.unwrap().display,
+            "Coraline"
+        );
+        assert_eq!(
+            org.active_actor("beta-strategy").await?.unwrap().display,
+            "Bart"
+        );
+        Ok::<(), restless_orgintel::OrgIntelError>(())
+    }
+    .await;
+    org.drop_schema().await.unwrap();
+    result.unwrap();
+}
+
+#[tokio::test]
+async fn reopening_company_aligns_legacy_member_names_once() {
+    let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+        return;
+    };
+    let company = format!("legacynames{}_test", uuid::Uuid::new_v4().simple());
+    let org = OrgIntel::ensure(&url, &company).await.unwrap();
+    let result = async {
+        org.ensure_actor("exec", "exec", "exec", "Exec").await?;
+        org.create_actor("beta-strategy", "lead", "ignored", None, "exec", "lead").await?;
+        let team = org.create_team("Beta", "Build Beta", "beta-strategy", "exec").await?;
+        org.create_actor("beta-writer", "writer", "ignored", None, "exec", "write").await?;
+        org.set_actor_team("beta-writer", Some(team), "exec", "join").await?;
+        // Simulate a roster saved by the previous company-wide naming rule.
+        let pool = sqlx::PgPool::connect(&url).await?;
+        sqlx::query(&format!("UPDATE {}.actors SET display='Daria' WHERE id='beta-writer'", org.schema())).execute(&pool).await?;
+        let reopened = OrgIntel::ensure(&url, &company).await?;
+        let member = reopened.active_actor("beta-writer").await?.unwrap();
+        assert!(member.display.starts_with('A'));
+        assert_eq!(member.team_id, Some(team));
+        let again = OrgIntel::ensure(&url, &company).await?;
+        assert_eq!(again.active_actor("beta-writer").await?.unwrap().display, member.display);
+        let count: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM {}.events WHERE kind='actor_display_changed' AND body->>'from_display'='Daria'", org.schema())).fetch_one(&pool).await?;
+        assert_eq!(count, 1);
+        pool.close().await;
+        Ok::<(), restless_orgintel::OrgIntelError>(())
+    }.await;
+    org.drop_schema().await.unwrap();
+    result.unwrap();
 }

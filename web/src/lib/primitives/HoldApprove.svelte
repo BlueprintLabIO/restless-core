@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	/* Press-and-hold approval button. Pointer-driven rAF fill over `duration`;
 	 * releasing early resets, reaching 100% fires `onapprove` once. Renders a
 	 * plain submit button so it still works in a form without JS. */
@@ -54,6 +55,8 @@
 		if (!done) pct = 0;
 	}
 
+	onDestroy(stop);
+
 	function guardClick(event: MouseEvent) {
 		/* With JS on, a plain click must not bypass the hold. */
 		if (!done) event.preventDefault();
@@ -68,6 +71,19 @@
 	class:done
 	{disabled}
 	style="--pct: {pct}%"
+	onkeydown={(event) => {
+		if (event.key === ' ' || event.key === 'Enter') {
+			event.preventDefault();
+			if (!event.repeat) start();
+		}
+	}}
+	onkeyup={(event) => {
+		if (event.key === ' ' || event.key === 'Enter') {
+			event.preventDefault();
+			stop();
+		}
+	}}
+	onblur={stop}
 	onpointerdown={start}
 	onpointerup={stop}
 	onpointerleave={stop}

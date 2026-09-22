@@ -154,7 +154,7 @@
 		},
 		{
 			key: 'completed',
-			label: showHistory ? 'Completed history' : 'Recently landed',
+			label: 'Done',
 			rows: visibleWork.filter((item) => item.status === 'completed')
 		}
 	]);
@@ -229,6 +229,15 @@
 			</div>
 			<span class="pane-count">{goals.length}</span>
 		</header>
+		<a class="documents-entry" href={`/${encodeURIComponent(companyId)}/work/documents`}>
+			<MatrixGlyph rows={GLYPHS.rules} size={7} /> Documents
+		</a>
+		{#if completedWork.length}
+			<button type="button" aria-pressed={showHistory} onclick={toggleHistory}
+				>Completed <span>{completedWork.length}</span></button
+			>
+		{/if}
+
 		{#if loaded && graph}
 			<button
 				class:current={!selectedGoal}
@@ -283,33 +292,6 @@
 				</h1>
 			</div>
 			<div class="work-utilities">
-				<a
-					class="documents-entry"
-					href={`/${encodeURIComponent(companyId)}/work/documents`}
-					aria-label="Open company documents"
-				>
-					<MatrixGlyph rows={GLYPHS.rules} size={7} />
-					<span class="documents-label-long">Documents</span>
-					<span class="documents-label-short" aria-hidden="true">Docs</span>
-				</a>
-				{#if lens === 'map'}
-					<div class="map-key" aria-label="Map relationships">
-						<span><i></i>Requires</span>
-						<span><i class="revision"></i>Revises</span>
-					</div>
-				{/if}
-				{#if completedWork.length}
-					<button
-						class="history-control"
-						class:on={showHistory}
-						type="button"
-						aria-pressed={showHistory}
-						onclick={toggleHistory}
-					>
-						<MatrixGlyph rows={showHistory ? GLYPHS.check : GLYPHS.ring} size={8} />
-						{showHistory ? 'Hide history' : `${completedWork.length} completed`}
-					</button>
-				{/if}
 				<div class="lens-switch" class:board={lens === 'board'} role="group" aria-label="Work view">
 					<button type="button" aria-pressed={lens === 'map'} onclick={showMap}>Map</button>
 					<button type="button" aria-pressed={lens === 'board'} onclick={() => (lens = 'board')}
@@ -325,6 +307,13 @@
 			<p class="empty-state">Work is unavailable. No empty state is being inferred.</p>
 		{:else if lens === 'map'}
 			<div class="work-map" aria-label="Work dependency map">
+				<details class="map-legend">
+					<summary title="Explain the map lines">Map key</summary>
+					<div class="map-key" aria-label="Map relationships">
+						<span><i></i>Requires</span><span><i class="revision"></i>Revises</span>
+					</div>
+				</details>
+
 				{#if visibleWork.length}
 					<WorkGraph
 						work={visibleWork}
@@ -371,23 +360,88 @@
 									: 'Clear'}
 							</p>
 						{/each}
-						{#if column.key === 'completed' && !showHistory && completedWork.length > recentlyLanded.length}
+						{#if column.key === 'completed' && completedWork.length > recentlyLanded.length}
 							<button
 								class="board-history-toggle"
 								type="button"
-								onclick={() => (showHistory = true)}
+								onclick={() => (showHistory = !showHistory)}
 							>
-								View {completedWork.length} recorded completions
+								{showHistory ? 'Show recent only' : `View all ${completedWork.length} completed`}
 							</button>
 						{/if}
 					</section>
 				{/each}
 			</div>
 		{/if}
+		<nav class="mobile-work-links" aria-label="Work resources">
+			<a href={`/${encodeURIComponent(companyId)}/work/documents`}>Documents</a>
+			{#if completedWork.length}<button
+					type="button"
+					aria-pressed={showHistory}
+					onclick={toggleHistory}>Completed ({completedWork.length})</button
+				>{/if}
+		</nav>
 	</section>
 </div>
 
 <style>
+	.mobile-work-links {
+		display: none;
+	}
+	@media (max-width: 760px) {
+		:global(.bridge-root) .work-stage {
+			grid-template-rows: var(--pane-head-h) minmax(0, 1fr) auto;
+		}
+		.mobile-work-links {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 12px;
+			padding: 10px 12px;
+			border-top: 1px solid var(--border);
+			font-size: var(--t-label);
+		}
+		.mobile-work-links a {
+			color: var(--ink);
+		}
+		.mobile-work-links button {
+			padding: 0;
+			background: none;
+			border: none;
+			color: var(--ink);
+			font: inherit;
+			cursor: pointer;
+		}
+		.map-legend {
+			bottom: 50px !important;
+		}
+	}
+
+	.map-legend {
+		position: absolute;
+		z-index: 2;
+		right: 12px;
+		bottom: 12px;
+		padding: 7px 10px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-control);
+		background: var(--surface);
+		font-size: var(--t-label);
+	}
+	.map-legend summary {
+		cursor: pointer;
+	}
+	.map-legend .map-key {
+		display: flex;
+		margin-top: 8px;
+	}
+	.work-map {
+		position: relative;
+	}
+	.goal-spine > .documents-entry {
+		justify-content: flex-start;
+		margin: 8px;
+	}
 	.work-heading {
 		min-width: 0;
 	}
@@ -451,10 +505,6 @@
 		outline-offset: 2px;
 	}
 
-	.documents-label-short {
-		display: none;
-	}
-
 	@media (max-width: 760px) {
 		:global(.bridge-root) .work-stage {
 			grid-template-rows: auto minmax(0, 1fr);
@@ -477,14 +527,6 @@
 	}
 
 	@media (max-width: 520px) {
-		.documents-label-long {
-			display: none;
-		}
-
-		.documents-label-short {
-			display: inline;
-		}
-
 		.documents-entry {
 			padding-inline: 8px;
 		}

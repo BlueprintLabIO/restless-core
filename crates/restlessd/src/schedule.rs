@@ -254,7 +254,7 @@ async fn handle_notification(daemon: &Arc<Daemon>, in_flight: &InFlight, payload
                 daemon,
                 in_flight,
                 company,
-                "a focused Room mention is owed to the Exec",
+                "a focused collaboration mention is owed to the Exec",
             )
             .await;
         }
@@ -359,6 +359,9 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
     let Ok(config) = CompanyConfig::load(&daemon.root, company) else {
         return;
     };
+    // A just-created company has no intelligence route. Keep durable work and
+    // messages untouched until the owner explicitly selects one; never let a
+    // host credential or another company's gateway route become a default.
     if !config.has_configured_model_route() {
         return;
     }
@@ -408,9 +411,9 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
     // unread owner message remains. Recover it before claiming new schedules
     // or Work so the singleton Exec resumes one company-level thread at a
     // time. During a healthy live turn the in-flight claim suppresses this.
-    if recover_interrupted_exec_wake(daemon, in_flight, &org, company).await {
-        return;
-    }
+    // Exec recovery is actor-local. A stale lease or backoff must not starve
+    // addressed conversations for unrelated team leads in the same company.
+    recover_interrupted_exec_wake(daemon, in_flight, &org, company).await;
 
     if let Ok(schedules) = org.claim_due_schedules().await {
         for schedule in schedules {
@@ -464,6 +467,7 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
                     registry: &daemon.staff,
                     activities: &daemon.activities,
                     runtime_bridges: &daemon.runtime_bridges,
+                    schedule_wake: &daemon.schedule_wake,
                 },
                 &team.lead_actor_id,
                 "addressed message or team judgement became ready",
@@ -485,7 +489,15 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
     // office mail and judgements, but an active former lead still answers its
     // already-accepted named obligation. The Actor-wide lease below prevents
     // this recovery scan from duplicating a current-lead wake.
-    if let Ok(actors) = org.actors_owing_message_mentions(128).await {
+    let mention_actors: anyhow::Result<Vec<String>> = async {
+        let mut actors = org.actors_owing_message_mentions(128).await?;
+        actors.extend(org.actors_owing_document_mentions().await?);
+        actors.sort();
+        actors.dedup();
+        Ok(actors)
+    }
+    .await;
+    if let Ok(actors) = mention_actors {
         for actor in actors {
             if !daemon.staff.has_capacity(company) {
                 break;
@@ -500,9 +512,10 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
                     registry: &daemon.staff,
                     activities: &daemon.activities,
                     runtime_bridges: &daemon.runtime_bridges,
+                    schedule_wake: &daemon.schedule_wake,
                 },
                 &actor,
-                "a durable named-Actor Room mention remains owed",
+                "a durable named-Actor collaboration mention remains owed",
             )
             .await
             {
@@ -587,15 +600,10 @@ async fn recover_owed_exec_work(
 
     let judgements = org.undelivered_handoff_count("exec").await.unwrap_or(0);
     let conversation = org.owed_conversation_count("exec").await.unwrap_or(0);
-    let mention = org
-        .next_pending_message_mention("exec")
-        .await
-        .ok()
-        .flatten()
-        .is_some();
+    let mention = crate::mentions::pending(org, "exec").await.unwrap_or(false);
     let reason = match (judgements, conversation, mention) {
         (0, 0, false) => return,
-        (0, 0, true) => "a focused Room mention is owed to the Exec",
+        (0, 0, true) => "a focused collaboration mention is owed to the Exec",
         (0, _, _) => "unread conversation is owed to the Exec",
         (_, 0, false) => "organisational judgement is owed to the Exec",
         _ => "unread conversation and organisational judgement are owed to the Exec",
@@ -711,7 +719,7 @@ pub(crate) async fn run_exec_turn(
         "The Exec",
         effective_config.configured_model(),
     )
-        .await?;
+    .await?;
     org.ensure_actor("owner", "owner", "owner", "The Owner")
         .await?;
     let Some(lease_guard) =
@@ -772,11 +780,13 @@ async fn run_exec_turn_with_lease(
     // Otherwise process exactly one unresolved Room mention so a single model
     // context never has to answer several unrelated Threads at once.
     let pending_mention = if message_ids.is_empty() && owed_judgements.is_empty() {
-        org.claim_next_pending_message_mention(lease_guard.lease())
-            .await?
+        crate::mentions::claim(org, lease_guard.lease()).await?
     } else {
         None
     };
+    let mention_context = pending_mention
+        .as_ref()
+        .map(crate::mentions::MentionClaim::context);
     let live_turn = daemon
         .activities
         .start_messages(&config.name, "exec", &owner_message_ids);
@@ -793,7 +803,7 @@ async fn run_exec_turn_with_lease(
         human_is_membership_owner,
         &conversation_inbox,
         &judgements,
-        pending_mention.as_ref().map(|claim| &claim.context),
+        mention_context.as_ref(),
         observer,
         cancellation,
     )
@@ -801,8 +811,10 @@ async fn run_exec_turn_with_lease(
 
     if cancellation.is_cancelled() {
         if pending_mention.is_some() {
-            live_turn.fail("Interrupted before the focused Room mention was answered.");
-            anyhow::bail!("focused Room mention turn was interrupted before a complete answer");
+            live_turn.fail("Interrupted before the focused collaboration mention was answered.");
+            anyhow::bail!(
+                "focused collaboration mention turn was interrupted before a complete answer"
+            );
         } else if !owner_message_ids.is_empty() {
             // A replacement message is normally persisted before an
             // interruption. The full-screen owner chat can also cancel the
@@ -836,26 +848,22 @@ async fn run_exec_turn_with_lease(
             let mention = pending_mention
                 .as_ref()
                 .expect("the mention match guard proves a focused mention");
-            let recorded: anyhow::Result<i64> = async {
+            let recorded: anyhow::Result<Option<i64>> = async {
                 let reply = exec_owner_update(report.owner_reply.as_deref(), true)?
                     .expect("a required reply cannot be quiet");
                 lease_guard.confirm().await?;
-                Ok(org
-                    .reply_to_claimed_message_mention(mention, reply)
-                    .await?
-                    .message
-                    .id)
+                mention.reply(org, reply).await
             }
             .await;
             match recorded {
-                Ok(message_id) => live_turn.complete(Some(message_id), None),
+                Ok(message_id) => live_turn.complete(message_id, None),
                 Err(error) => {
                     tracing::warn!(
                         company = %config.name,
-                        mention_id = %mention.context.mention.id,
-                        "could not persist the focused Room mention reply: {error:#}"
+                        mention_id = %mention.id(),
+                        "could not persist the focused collaboration mention reply: {error:#}"
                     );
-                    live_turn.fail("Exec finished but its Room reply was not recorded.");
+                    live_turn.fail("Exec finished but its thread reply was not recorded.");
                     return Err(error);
                 }
             }
@@ -865,7 +873,7 @@ async fn run_exec_turn_with_lease(
             // retry, but its live projection must still reach a terminal fact.
             live_turn.fail(&report.reason);
             return Err(anyhow::anyhow!(
-                "focused Room mention did not produce a terminal complete answer: {}",
+                "focused collaboration mention did not produce a terminal complete answer: {}",
                 report.reason
             ));
         }

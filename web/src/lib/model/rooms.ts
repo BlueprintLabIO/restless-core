@@ -502,3 +502,36 @@ export function writeRoomDraft(key: string, draft: StoredRoomDraft): void {
 		// Storage can be unavailable or full. The in-memory draft remains usable.
 	}
 }
+
+export function createRoom(
+	company: string,
+	input: { kind: RoomKind; title: string; participant_actor_ids: string[]; command_id: string }
+): Promise<Room> {
+	return roomJson(roomPath(company), {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(input)
+	});
+}
+
+export function addRoomParticipant(
+	company: string,
+	room: string,
+	actor: string
+): Promise<RoomParticipant> {
+	return roomJson(`${roomPath(company, room)}/participants`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ actor_id: actor })
+	});
+}
+
+export function removeRoomParticipant(
+	company: string,
+	room: string,
+	actor: string
+): Promise<RoomParticipant> {
+	return roomJson(`${roomPath(company, room)}/participants/${encodeURIComponent(actor)}`, {
+		method: 'DELETE'
+	});
+}

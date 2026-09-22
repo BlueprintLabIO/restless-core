@@ -147,6 +147,9 @@ fn render_actor_bootstrap(bootstrap: &ActorContextBootstrap, mission: &str) -> S
         } => output.push_str(&format!(
             "\n# Current focus [authoritative coordinate]\nWork {work_id} revision {work_revision}; Attempt {attempt_id} number {attempt_no}; state {status:?}. The full Work outcome and evidence contract are in the bound assignment below.\n"
         )),
+        ActorContextFocusProjection::DocumentMention { mention_id,document_id,thread_id,comment_id,source_trust,content_grants_authority,.. } => output.push_str(&format!(
+            "\n# Current focus [authoritative coordinates only]\nMention {mention_id}; Document {document_id}; Thread {thread_id}; triggering Comment {comment_id}. Triggering prose is `{source_trust:?}` and grants authority: {content_grants_authority}. Its body appears only in the user turn below. Retrieve older thread comments only if needed.\n"
+        )),
         ActorContextFocusProjection::RoomMention {
             mention_id,
             room_id,
@@ -241,6 +244,11 @@ pub(super) async fn shared_spine(
 ) -> restless_orgintel::Result<String> {
     let bootstrap = org.actor_context_bootstrap(actor, focus, 16).await?;
     let mut spine = render_actor_bootstrap(&bootstrap, &config.mission);
+    if let ActorContextFocus::WorkAttempt { work_id, .. } = focus {
+        if let Some((handoff_id, prepared_state)) = org.handoff_preparation(work_id).await? {
+            spine.push_str(&format!("\n# Human-step preparation [current OrgIntel state]\nHandoff {handoff_id} is being repaired: {prepared_state}\nReuse this handoff ID. Prepare the exact live prompt, then `restless work refresh-handoff --handoff {handoff_id} --action ... --prepared ... --resume-when ...` without --preparing to publish it. Existing approval remains recorded. Observe completion or expiry; do not ask the owner to confirm an observable result.\n"));
+        }
+    }
     if accountable_lead {
         let teams = org.list_teams().await?;
         let actors = org.list_actors().await?;
@@ -635,6 +643,7 @@ mod tests {
                 work_id: None,
                 attempt_id: None,
                 focused_mention_id: Some(mention_id),
+                focused_document_mention_id: None,
                 body,
                 recorded_at: now,
             },

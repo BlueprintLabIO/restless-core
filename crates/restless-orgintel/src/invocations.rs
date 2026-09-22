@@ -24,6 +24,7 @@ pub enum ModelInvocationKind {
     Work,
     OwnerConversation,
     RoomMention,
+    DocumentMention,
 }
 
 impl ModelInvocationKind {
@@ -32,6 +33,7 @@ impl ModelInvocationKind {
             Self::Work => "work",
             Self::OwnerConversation => "owner_conversation",
             Self::RoomMention => "room_mention",
+            Self::DocumentMention => "document_mention",
         }
     }
 }
@@ -78,6 +80,10 @@ pub enum ModelInvocationSource {
     OwnerConversation {
         cognitive_lease_token: Uuid,
     },
+    DocumentMention {
+        cognitive_lease_token: Uuid,
+        mention_id: Uuid,
+    },
     RoomMention {
         cognitive_lease_token: Uuid,
         mention_id: Uuid,
@@ -90,6 +96,7 @@ impl ModelInvocationSource {
             Self::Work { .. } => ModelInvocationKind::Work,
             Self::OwnerConversation { .. } => ModelInvocationKind::OwnerConversation,
             Self::RoomMention { .. } => ModelInvocationKind::RoomMention,
+            Self::DocumentMention { .. } => ModelInvocationKind::DocumentMention,
         }
     }
 
@@ -98,6 +105,10 @@ impl ModelInvocationSource {
             Self::Work { attempt_id, .. } => attempt_id,
             Self::OwnerConversation {
                 cognitive_lease_token,
+            }
+            | Self::DocumentMention {
+                cognitive_lease_token,
+                ..
             }
             | Self::RoomMention {
                 cognitive_lease_token,
@@ -109,14 +120,18 @@ impl ModelInvocationSource {
     fn work_id(self) -> Option<Uuid> {
         match self {
             Self::Work { work_id, .. } => Some(work_id),
-            Self::OwnerConversation { .. } | Self::RoomMention { .. } => None,
+            Self::OwnerConversation { .. }
+            | Self::RoomMention { .. }
+            | Self::DocumentMention { .. } => None,
         }
     }
 
     fn attempt_id(self) -> Option<Uuid> {
         match self {
             Self::Work { attempt_id, .. } => Some(attempt_id),
-            Self::OwnerConversation { .. } | Self::RoomMention { .. } => None,
+            Self::OwnerConversation { .. }
+            | Self::RoomMention { .. }
+            | Self::DocumentMention { .. } => None,
         }
     }
 
@@ -126,6 +141,10 @@ impl ModelInvocationSource {
             Self::OwnerConversation {
                 cognitive_lease_token,
             }
+            | Self::DocumentMention {
+                cognitive_lease_token,
+                ..
+            }
             | Self::RoomMention {
                 cognitive_lease_token,
                 ..
@@ -133,10 +152,18 @@ impl ModelInvocationSource {
         }
     }
 
+    fn document_mention_id(self) -> Option<Uuid> {
+        match self {
+            Self::DocumentMention { mention_id, .. } => Some(mention_id),
+            _ => None,
+        }
+    }
     fn mention_id(self) -> Option<Uuid> {
         match self {
             Self::RoomMention { mention_id, .. } => Some(mention_id),
-            Self::Work { .. } | Self::OwnerConversation { .. } => None,
+            Self::Work { .. } | Self::OwnerConversation { .. } | Self::DocumentMention { .. } => {
+                None
+            }
         }
     }
 }
@@ -164,6 +191,7 @@ pub struct ModelInvocationReceiptRow {
     pub work_id: Option<Uuid>,
     pub attempt_id: Option<Uuid>,
     pub mention_id: Option<Uuid>,
+    pub document_mention_id: Option<Uuid>,
     pub window_started_at: DateTime<Utc>,
     pub admitted_at: DateTime<Utc>,
     pub reclaim_after: DateTime<Utc>,
@@ -191,6 +219,7 @@ struct ModelInvocationAdmissionDbRow {
     work_id: Option<Uuid>,
     attempt_id: Option<Uuid>,
     mention_id: Option<Uuid>,
+    document_mention_id: Option<Uuid>,
     window_started_at: DateTime<Utc>,
     admitted_at: DateTime<Utc>,
     reclaim_after: DateTime<Utc>,
@@ -218,6 +247,7 @@ impl ModelInvocationAdmissionDbRow {
             work_id: self.work_id,
             attempt_id: self.attempt_id,
             mention_id: self.mention_id,
+            document_mention_id: self.document_mention_id,
             window_started_at: self.window_started_at,
             admitted_at: self.admitted_at,
             reclaim_after: self.reclaim_after,
@@ -311,7 +341,7 @@ struct ModelInvocationPolicyRow {
 
 const RECEIPT_COLUMNS: &str =
     "id,client_command_id,client_payload_sha256,actor_id,kind,subject_id,model,\
-     harness,configured_effort,work_id,attempt_id,mention_id,window_started_at,admitted_at,reclaim_after,state,\
+     harness,configured_effort,work_id,attempt_id,mention_id,document_mention_id,window_started_at,admitted_at,reclaim_after,state,\
      settlement_payload_sha256,outcome,evidence,settled_at,expired_at,expiry_reason";
 
 fn validate_admission(request: &NewModelInvocationAdmission<'_>) -> Result<()> {
@@ -339,7 +369,7 @@ fn validate_admission(request: &NewModelInvocationAdmission<'_>) -> Result<()> {
 }
 
 fn admission_digest(request: &NewModelInvocationAdmission<'_>) -> String {
-    let semantics = serde_json::json!({
+    let mut semantics = serde_json::json!({
         "actor": request.actor_id,
         "attempt": request.source.attempt_id(),
         "domain": "restless.model-invocation-admission.v1",
@@ -352,6 +382,9 @@ fn admission_digest(request: &NewModelInvocationAdmission<'_>) -> String {
         "subject": request.source.subject_id(),
         "work": request.source.work_id(),
     });
+    if let Some(mention) = request.source.document_mention_id() {
+        semantics["document_mention"] = serde_json::json!(mention);
+    }
     let mut canonical = Vec::new();
     canonical_json(&semantics, &mut canonical);
     format!("{:x}", Sha256::digest(canonical))
@@ -416,31 +449,32 @@ impl OrgIntel {
         actor_id: &str,
         focused_mention: bool,
     ) -> Result<ModelInvocationSource> {
-        let current: Option<(Uuid, Option<Uuid>)> = sqlx::query_as(
-            "SELECT lease_token,focused_mention_id FROM actor_cognitive_leases \
+        let current: Option<(Uuid, Option<Uuid>, Option<Uuid>)> = sqlx::query_as(
+            "SELECT lease_token,focused_mention_id,focused_document_mention_id FROM actor_cognitive_leases \
              WHERE actor_id=$1 AND claimed_until>current_timestamp AND revoked_at IS NULL",
         )
         .bind(actor_id)
         .fetch_optional(&self.pool)
         .await?;
-        let Some((cognitive_lease_token, mention_id)) = current else {
+        let Some((cognitive_lease_token, mention_id, document_mention_id)) = current else {
             return Err(OrgIntelError::InvalidWork(
                 "no exact live cognitive lease exists for model invocation admission".into(),
             ));
         };
-        match (focused_mention, mention_id) {
-            (true, Some(mention_id)) => Ok(ModelInvocationSource::RoomMention {
+        match (focused_mention, mention_id, document_mention_id) {
+            (true, Some(mention_id), None) => Ok(ModelInvocationSource::RoomMention {
                 cognitive_lease_token,
                 mention_id,
             }),
-            (false, None) => Ok(ModelInvocationSource::OwnerConversation {
+            (true, None, Some(mention_id)) => Ok(ModelInvocationSource::DocumentMention {
+                cognitive_lease_token,
+                mention_id,
+            }),
+            (false, None, None) => Ok(ModelInvocationSource::OwnerConversation {
                 cognitive_lease_token,
             }),
-            (true, None) => Err(OrgIntelError::InvalidWork(
-                "focused mention invocation has no mention bound to its cognitive lease".into(),
-            )),
-            (false, Some(_)) => Err(OrgIntelError::InvalidWork(
-                "owner conversation invocation cannot bypass a focused Room mention".into(),
+            _ => Err(OrgIntelError::InvalidWork(
+                "model invocation does not match this lease's exact mention focus".into(),
             )),
         }
     }
@@ -547,9 +581,9 @@ impl OrgIntel {
             "INSERT INTO model_invocation_admissions \
              (id,admission_token,client_command_id,client_payload_sha256,actor_id,kind,\
               subject_id,model,harness,configured_effort,work_id,attempt_id,cognitive_lease_token,mention_id,\
-              window_started_at,admitted_at,reclaim_after) \
+              window_started_at,admitted_at,reclaim_after,document_mention_id) \
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,\
-                     $16+make_interval(secs=>$17)) RETURNING admission_token,{RECEIPT_COLUMNS}"
+                     $16+make_interval(secs=>$17),$18) RETURNING admission_token,{RECEIPT_COLUMNS}"
         );
         let row: ModelInvocationAdmissionDbRow = sqlx::query_as(&insert_sql)
             .bind(id)
@@ -569,6 +603,7 @@ impl OrgIntel {
             .bind(window_started_at)
             .bind(observed_at)
             .bind(policy.reclaim_after_seconds as f64)
+            .bind(request.source.document_mention_id())
             .fetch_one(&mut *tx)
             .await?;
         sqlx::query(
@@ -845,6 +880,22 @@ async fn validate_source_claim_in_tx(
         } => {
             validate_cognitive_source_in_tx(tx, actor_id, cognitive_lease_token, None).await?;
         }
+        ModelInvocationSource::DocumentMention {
+            cognitive_lease_token,
+            mention_id,
+        } => {
+            let context =
+                crate::documents::current_document_mention_context(tx, mention_id, actor_id)
+                    .await
+                    .map_err(|error| OrgIntelError::InvalidWork(error.to_string()))?;
+            let valid: bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM actor_cognitive_leases WHERE actor_id=$1 AND lease_token=$2 AND focused_document_mention_id=$3 AND focused_mention_id IS NULL AND claimed_until>now() AND revoked_at IS NULL FOR SHARE)")
+                .bind(actor_id).bind(cognitive_lease_token).bind(mention_id).fetch_one(&mut **tx).await?;
+            if !valid || context.mention.claim_token != Some(cognitive_lease_token) {
+                return Err(OrgIntelError::InvalidWork(
+                    "document mention is not bound to this live lease".into(),
+                ));
+            }
+        }
         ModelInvocationSource::RoomMention {
             cognitive_lease_token,
             mention_id,
@@ -873,7 +924,7 @@ async fn validate_cognitive_source_in_tx(
         && sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM actor_cognitive_leases \
              WHERE actor_id=$1 AND lease_token=$2 AND claimed_until>current_timestamp \
-               AND revoked_at IS NULL AND focused_mention_id IS NOT DISTINCT FROM $3)",
+               AND revoked_at IS NULL AND focused_document_mention_id IS NULL AND focused_mention_id IS NOT DISTINCT FROM $3)",
         )
         .bind(actor_id)
         .bind(lease_token)
@@ -928,7 +979,11 @@ async fn expire_abandoned_in_tx(
                  AND lease.lease_token=admission.cognitive_lease_token \
                  AND lease.claimed_until>current_timestamp \
                  AND lease.revoked_at IS NULL \
-                 AND lease.focused_mention_id IS NULL\
+                 AND lease.focused_mention_id IS NULL AND lease.focused_document_mention_id IS NULL\
+             )) OR\
+             (admission.kind='document_mention' AND (\
+               NOT EXISTS (SELECT 1 FROM actor_cognitive_leases lease WHERE lease.actor_id=admission.actor_id AND lease.lease_token=admission.cognitive_lease_token AND lease.claimed_until>current_timestamp AND lease.revoked_at IS NULL AND lease.focused_document_mention_id=admission.document_mention_id) OR \
+               NOT EXISTS (SELECT 1 FROM native_document_mentions mention WHERE mention.id=admission.document_mention_id AND mention.mentioned_actor_id=admission.actor_id AND mention.claim_token=admission.cognitive_lease_token AND mention.resolution_comment_id IS NULL AND mention.cancelled_at IS NULL)\
              )) OR\
              (admission.kind='room_mention' AND (\
                NOT EXISTS (\

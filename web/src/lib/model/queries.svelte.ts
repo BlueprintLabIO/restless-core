@@ -7,6 +7,7 @@
  */
 
 import { createQuery, useQueryClient } from '@tanstack/svelte-query';
+import { onMount } from 'svelte';
 import type { QueryClient } from '@tanstack/svelte-query';
 import {
 	getActorConversation,
@@ -164,6 +165,17 @@ function refresh<T>(query: { refetch: () => Promise<T> }): Promise<T> {
 }
 
 export function attentionQuery(companyId: string, enabled: QueryEnabled = true) {
+	const client = useQueryClient();
+	onMount(() => {
+		if (typeof BroadcastChannel === 'undefined') return;
+		const channel = new BroadcastChannel('restless-attention');
+		channel.onmessage = (event) => {
+			if (event.data === companyId && queryEnabled(enabled)) {
+				void client.invalidateQueries({ queryKey: queryKeys.attention(companyId) });
+			}
+		};
+		return () => channel.close();
+	});
 	const query = createQuery(() => ({
 		queryKey: queryKeys.attention(companyId),
 		queryFn: () => getAttention(companyId),
@@ -184,8 +196,18 @@ export function attentionQuery(companyId: string, enabled: QueryEnabled = true) 
 		get failure() {
 			return (query.error as (Error & { status?: number }) | null) ?? null;
 		},
-		refresh: () => refresh(query)
+		refresh: () => refreshAttention(client, companyId)
 	};
+}
+
+/** One server-owned queue, refreshed in this window and other open cockpit tabs. */
+export async function refreshAttention(client: QueryClient, companyId: string) {
+	if (typeof BroadcastChannel !== 'undefined') {
+		const channel = new BroadcastChannel('restless-attention');
+		channel.postMessage(companyId);
+		channel.close();
+	}
+	await client.invalidateQueries({ queryKey: queryKeys.attention(companyId) });
 }
 
 export function companiesQuery(enabled: QueryEnabled = true) {
@@ -503,7 +525,12 @@ export function conversationQuery(
 				}
 			},
 			() => {
-				if (followingMessageId === messageId) transport = 'reconnecting';
+				if (
+					followingMessageId === messageId &&
+					live?.phase !== 'complete' &&
+					live?.phase !== 'failed'
+				)
+					transport = 'reconnecting';
 			}
 		);
 		void since;
@@ -591,9 +618,7 @@ export function conversationQuery(
 				uncertainCommand.outcomeStandard === outcomeStandard &&
 				uncertainCommand.files.length === files.length &&
 				uncertainCommand.files.every((file, index) => file === files[index]);
-			const clientCommandId = sameUncertainIntent
-				? uncertainCommand!.id
-				: crypto.randomUUID();
+			const clientCommandId = sameUncertainIntent ? uncertainCommand!.id : crypto.randomUUID();
 			uncertainCommand = {
 				id: clientCommandId,
 				body,

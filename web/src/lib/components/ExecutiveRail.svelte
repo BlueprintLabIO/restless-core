@@ -4,7 +4,7 @@
 	 * The rail stays mounted and takes real space rather than nesting another
 	 * chat inside the outcome surface. */
 
-	import { tick } from 'svelte';
+	import { followChat } from '$lib/actions/follow-chat';
 	import IntelligencePopover from './IntelligencePopover.svelte';
 	import { SvelteDate } from 'svelte/reactivity';
 	import Plus from '@lucide/svelte/icons/plus';
@@ -19,7 +19,7 @@
 	import SemanticMark from '$lib/primitives/SemanticMark.svelte';
 	import type { ActiveAgentTurn } from '$lib/model/queries.svelte';
 	import type { OutcomeStandard } from '$lib/model/company';
-	import { mergeAdjacentAgentMessages, type ThreadMessage } from '$lib/model/view';
+	import type { ThreadMessage } from '$lib/model/view';
 
 	let {
 		messages = [],
@@ -108,6 +108,7 @@
 	function jumpToMessage(messageId: string) {
 		const message = document.getElementById(messageDomId(messageId));
 		if (!message) return;
+		scrollEl?.dispatchEvent(new Event('chat-scroll-pause'));
 		const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 		message.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' });
 		if (!reduceMotion) {
@@ -137,9 +138,7 @@
 	let reviewError = $state('');
 	let deciding = $state(false);
 	let scrollEl = $state<HTMLDivElement | undefined>();
-	let anchoredTurnId = $state<number | null>(null);
-	let transcriptTailHeight = $state(0);
-	let initiallyScrolledFor = $state('');
+	let scrollReset = $state(0);
 	let newFocusPending = $state(false);
 	let pendingFocusAfterMessageId = $state(0);
 	let composerFocusKey = $state(0);
@@ -148,9 +147,8 @@
 		newFocusPending ? pendingFocusAfterMessageId : focusAfterMessageId
 	);
 	const focusActive = $derived(newFocusPending || focusStartedAt !== null);
-	const visibleMessages = $derived(
-		mergeAdjacentAgentMessages(messages, focusActive ? activeFocusAfterMessageId : undefined)
-	);
+	// Each durable reply keeps its own timestamp, intent, and navigation target.
+	const visibleMessages = $derived(messages);
 	const hasMessagesAfterFocus = $derived(
 		focusActive &&
 			messages.some((message) => messageNumericId(message.id) > activeFocusAfterMessageId)
@@ -191,58 +189,14 @@
 		newFocusPending = true;
 		askError = '';
 		askNotice = '';
-		transcriptTailHeight = 0;
+		scrollReset += 1;
 		composerFocusKey += 1;
-		void tick().then(() => scrollEl?.scrollTo({ top: scrollEl.scrollHeight, behavior: 'smooth' }));
 	}
 
 	function toggleContext() {
 		includeContext = !includeContext;
 		if (includeContext) contextFlare += 1;
 	}
-
-	async function anchorSubmittedMessage(messageId: number) {
-		await tick();
-		const scroller = scrollEl;
-		const message = document.getElementById(messageDomId(String(messageId)));
-		if (!scroller || !message || anchoredTurnId !== messageId) return;
-
-		/* Leave one transcript-height of runway beneath the owner's message. The
-		 * live turn and durable reply can then grow below it without moving the
-		 * question away from the top of the reading area. */
-		transcriptTailHeight = Math.max(0, scroller.clientHeight - message.offsetHeight);
-		await tick();
-		const top =
-			message.getBoundingClientRect().top -
-			scroller.getBoundingClientRect().top +
-			scroller.scrollTop;
-		const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-		scroller.scrollTo({ top, behavior: reduceMotion ? 'auto' : 'smooth' });
-	}
-
-	/* A send creates a new reading viewport. Do this once per turn; subsequent
-	 * stream updates must not fight the owner's scroll position. */
-	$effect(() => {
-		const messageId = turn?.triggerMessageId ?? null;
-		if (!open || messageId === null || anchoredTurnId === messageId) return;
-		const firstMessageId = messages[0]?.id;
-		if (firstMessageId) initiallyScrolledFor = `${companyId}:${participantName}:${firstMessageId}`;
-		anchoredTurnId = messageId;
-		void anchorSubmittedMessage(messageId);
-	});
-
-	/* Existing conversations open at their latest message. This is hydration
-	 * behavior only; it deliberately does not run for every new message. */
-	$effect(() => {
-		const firstMessageId = messages[0]?.id;
-		if (!open || !firstMessageId || turn) return;
-		const conversationKey = `${companyId}:${participantName}:${firstMessageId}`;
-		if (initiallyScrolledFor === conversationKey) return;
-		initiallyScrolledFor = conversationKey;
-		anchoredTurnId = null;
-		transcriptTailHeight = 0;
-		void tick().then(() => scrollEl?.scrollTo({ top: scrollEl.scrollHeight }));
-	});
 
 	const attachmentHref = (attachment: { uploadId: string }) =>
 		`/api/companies/${encodeURIComponent(companyId)}/attachments/${encodeURIComponent(attachment.uploadId)}`;
@@ -252,6 +206,7 @@
 		event.preventDefault();
 		const text = composer.trim();
 		if (!text || sending || deciding || !onask || needsProvider) return;
+		scrollReset += 1;
 		sending = true;
 		askError = '';
 		askNotice = '';
@@ -383,7 +338,11 @@
 				</div>
 			{/if}
 			<div class="exr-chat" inert={!connected && !needsProvider}>
-				<div class="exr-msgs" bind:this={scrollEl}>
+				<div
+					class="exr-msgs"
+					bind:this={scrollEl}
+					use:followChat={`${companyId}:${participantId}:${scrollReset}`}
+				>
 					{#each visibleMessages as message, i (message.id)}
 						{#if focusDividerBefore(i)}
 							<div class="conversation-focus-boundary">
@@ -443,13 +402,6 @@
 						{/if}
 					{/if}
 					{#if turn}<ConversationTurnDock {participantName} {turn} />{/if}
-					{#if anchoredTurnId !== null}
-						<div
-							class="conversation-tail"
-							style:height={`${transcriptTailHeight}px`}
-							aria-hidden="true"
-						></div>
-					{/if}
 				</div>
 
 				{#if needsProvider}
@@ -576,11 +528,6 @@
 		flex: 1 1 auto;
 		display: flex;
 		flex-direction: column;
-	}
-	.conversation-tail {
-		width: 1px;
-		flex: 0 0 auto;
-		pointer-events: none;
 	}
 	.conversation-focus-boundary {
 		width: calc(100% - 28px);

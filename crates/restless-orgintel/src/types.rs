@@ -213,6 +213,7 @@ pub enum OwnerHandoffCategory {
 #[serde(rename_all = "snake_case")]
 pub enum OwnerHandoffState {
     Pending,
+    Preparing,
     Resolved,
     Declined,
     Withdrawn,
@@ -812,6 +813,7 @@ impl OwnerHandoffRow {
             "attempt_id": self.attempt_id,
             "requested_by": self.requested_by,
             "category": self.category,
+            "preparing": self.state == OwnerHandoffState::Preparing,
             "requested_action": self.requested_action,
             "prepared_state": self.prepared_state,
             "resume_condition": self.resume_condition,

@@ -1294,6 +1294,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route("/companies/{company}/restore", post(restore_company))
         .route("/companies/{company}/attention", get(attention_view))
         .route("/companies/{company}/cockpit", get(cockpit_view))
+        .route(
+            "/companies/{company}/teams/{team}/outcome-standard",
+            post(set_team_outcome_standard),
+        )
         .route("/companies/{company}/company", get(company_view))
         .route(
             "/companies/{company}/company/charter",
@@ -3753,6 +3757,59 @@ async fn revise_company_charter(
     .into_response()
 }
 
+#[derive(Debug, Deserialize)]
+struct TeamOutcomeStandardInput {
+    standard: restless_orgintel::OutcomeStandard,
+    expected_standard: restless_orgintel::OutcomeStandard,
+}
+
+async fn set_team_outcome_standard(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, team)): AxumPath<(String, uuid::Uuid)>,
+    Json(input): Json<TeamOutcomeStandardInput>,
+) -> impl IntoResponse {
+    if principal.membership_role() != "owner" {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "membership_role",
+            "only the owner may change the team quality target",
+        );
+    }
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "company",
+                format!("{error:#}"),
+            )
+        }
+    };
+    match org
+        .set_team_outcome_standard(
+            team,
+            principal.actor_id(),
+            input.expected_standard,
+            input.standard,
+        )
+        .await
+    {
+        Ok(()) => {
+            state.daemon.schedule_wake.notify_one();
+            Json(serde_json::json!({"standard":input.standard})).into_response()
+        }
+        Err(restless_orgintel::OrgIntelError::InvalidWork(message)) => {
+            api_error(StatusCode::CONFLICT, "outcome_standard", message)
+        }
+        Err(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "outcome_standard",
+            format!("{error:#}"),
+        ),
+    }
+}
+
 async fn set_company_outcome_standard(
     State(state): State<OwnerState>,
     Extension(principal): Extension<RequestPrincipal>,
@@ -5512,6 +5569,19 @@ fn conversation_message_view(message: restless_orgintel::MessageRow) -> Conversa
     }
 }
 
+/// Reuse the transcript decoder so Attention never guesses from prose or leaks metadata.
+pub(crate) fn conversation_owner_need(
+    message: restless_orgintel::MessageRow,
+) -> Option<(String, String)> {
+    let view = conversation_message_view(message);
+    let need = view.intent?.owner_need?;
+    let need = need.trim();
+    if need.is_empty() {
+        return None;
+    }
+    Some((view.body, need.to_owned()))
+}
+
 /// Reconnectable live projection for one agent turn. This endpoint never
 /// invents durable transcript, Work, or Attempt rows: it carries only the
 /// in-flight ACP state until OrgIntel records the final outcome.
@@ -5834,72 +5904,115 @@ async fn send_actor_message(
     }
     let attention_id = input.attention_id.clone();
     let attention_context = if let Some(attention_id) = attention_id.as_deref() {
-        let Some(reference) = attention_id.strip_prefix("orgintel:handoff:") else {
-            return api_error(
-                StatusCode::BAD_REQUEST,
-                "attention_context",
-                "work-through conversation requires an OrgIntel handoff Attention item",
-            );
-        };
-        let Ok(handoff_id) = Uuid::parse_str(reference) else {
-            return api_error(
-                StatusCode::BAD_REQUEST,
-                "attention_context",
-                "Attention handoff reference is invalid",
-            );
-        };
-        let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
-            Ok(config) => config,
-            Err(error) => {
+        if attention_id.starts_with("document:") {
+            if input.work_id.is_some() {
                 return api_error(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "company",
-                    format!("{error:#}"),
-                )
-            }
-        };
-        let projected = match attention::project(&config, &state.daemon.authority, Some(&org)).await
-        {
-            Ok(projected) => projected,
-            Err(error) => {
-                return api_error(
-                    StatusCode::SERVICE_UNAVAILABLE,
+                    StatusCode::BAD_REQUEST,
                     "attention_context",
-                    format!("{error:#}"),
-                )
+                    "native document conversation cannot carry a Work handoff",
+                );
             }
-        };
-        let handoff_input = projected
-            .work_graph
-            .as_ref()
-            .and_then(|graph| {
-                graph
-                    .handoffs
-                    .iter()
-                    .find(|handoff| handoff.id == handoff_id)
-            })
-            .map(restless_orgintel::OwnerHandoffRow::conversation_input);
-        let item = projected.items.into_iter().find(|item| {
-            item.id == attention_id
-                && item.source.reference == handoff_id.to_string()
-                && item.work_id == input.work_id
-                && item
-                    .responsible_actor
-                    .as_ref()
-                    .is_some_and(|responsible| responsible.id == actor)
-                && item
-                    .actions
-                    .iter()
-                    .any(|action| action.role == "conversation")
-        });
-        let Some((item, handoff_input)) = item.zip(handoff_input) else {
-            return api_error(
-                StatusCode::CONFLICT,
-                "attention_context",
-                "this Attention item was resolved or reassigned; refresh before sending",
-            );
-        };
-        Some((item, handoff_input))
+            let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+                Ok(config) => config,
+                Err(error) => {
+                    return api_error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "company",
+                        format!("{error:#}"),
+                    )
+                }
+            };
+            let projected =
+                match attention::project(&config, &state.daemon.authority, Some(&org)).await {
+                    Ok(projected) => projected,
+                    Err(error) => {
+                        return api_error(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "attention_context",
+                            format!("{error:#}"),
+                        )
+                    }
+                };
+            let item = projected.items.into_iter().find(|item| {
+                item.id == attention_id
+                    && item.native_document.is_some()
+                    && item
+                        .responsible_actor
+                        .as_ref()
+                        .is_some_and(|responsible| responsible.id == actor)
+            });
+            let Some(item) = item else {
+                return api_error(StatusCode::CONFLICT, "attention_context", "this document request is no longer available to this conversation; refresh before sending");
+            };
+            Some((item, None))
+        } else {
+            let Some(reference) = attention_id.strip_prefix("orgintel:handoff:") else {
+                return api_error(
+                    StatusCode::BAD_REQUEST,
+                    "attention_context",
+                    "work-through conversation requires an OrgIntel handoff Attention item",
+                );
+            };
+            let Ok(handoff_id) = Uuid::parse_str(reference) else {
+                return api_error(
+                    StatusCode::BAD_REQUEST,
+                    "attention_context",
+                    "Attention handoff reference is invalid",
+                );
+            };
+            let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+                Ok(config) => config,
+                Err(error) => {
+                    return api_error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "company",
+                        format!("{error:#}"),
+                    )
+                }
+            };
+            let projected =
+                match attention::project(&config, &state.daemon.authority, Some(&org)).await {
+                    Ok(projected) => projected,
+                    Err(error) => {
+                        return api_error(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "attention_context",
+                            format!("{error:#}"),
+                        )
+                    }
+                };
+            let handoff_input = projected
+                .work_graph
+                .as_ref()
+                .and_then(|graph| {
+                    graph
+                        .handoffs
+                        .iter()
+                        .find(|handoff| handoff.id == handoff_id)
+                })
+                .map(restless_orgintel::OwnerHandoffRow::conversation_input);
+            let item = projected.items.into_iter().find(|item| {
+                item.id == attention_id
+                    && item.source.reference == handoff_id.to_string()
+                    && item.work_id == input.work_id
+                    && item
+                        .responsible_actor
+                        .as_ref()
+                        .is_some_and(|responsible| responsible.id == actor)
+                    && item
+                        .actions
+                        .iter()
+                        .any(|action| action.role == "conversation")
+            });
+            let Some((item, handoff_input)) = item.zip(handoff_input) else {
+                return api_error(
+                    StatusCode::CONFLICT,
+                    "attention_context",
+                    "this Attention item was resolved or reassigned; refresh before sending",
+                );
+            };
+            Some((item, Some(handoff_input)))
+        }
     } else {
         None
     };
@@ -6003,7 +6116,7 @@ async fn send_actor_message(
                 &recorded_body,
                 attention_context
                     .as_ref()
-                    .map(|(_, handoff_input)| handoff_input),
+                    .and_then(|(_, handoff_input)| handoff_input.as_ref()),
                 &attachment_ids,
                 client_command_id,
                 &client_payload_sha256,
@@ -6531,6 +6644,16 @@ fn message_with_attention_context(body: &str, item: &attention::AttentionItem) -
             bounded_attention_text(&item.if_no_action, 1_000)
         ),
     ];
+    if let Some(document) = item.native_document.as_ref() {
+        lines.push(format!("Native document ID: {}", document.document_id));
+        lines.push(format!(
+            "Document {} request ID: {}",
+            document.kind, document.id
+        ));
+        if let Some(version) = document.named_version_id {
+            lines.push(format!("Requested named version ID: {version}"));
+        }
+    }
     if let Some(uncertainty) = item.uncertainty.as_deref() {
         lines.push(format!(
             "Uncertainty: {}",

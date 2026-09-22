@@ -1627,7 +1627,23 @@ fn parse_document_markdown(markdown: &str) -> DocumentResult<ParsedDocumentMarkd
     })
 }
 
-pub fn markdown_body_to_document(body: &str) -> DocumentResult<Value> {
+/// Parse a new document's Markdown body with the same restricted schema used by
+/// checkpoint import. This never replaces an existing live document.
+/// Generated block IDs are deterministic, so a retried create has the same fingerprint.
+pub fn document_json_from_markdown(body: &str) -> DocumentResult<Value> {
+    if body.is_empty()
+        || body.len() > MAX_NATIVE_DOCUMENT_MARKDOWN_CHECKPOINT_BYTES
+        || body.contains('\0')
+        || body.contains('\r')
+    {
+        return Err(DocumentError::Invalid(
+            "document Markdown must be bounded UTF-8 with LF line endings and no NUL".into(),
+        ));
+    }
+    markdown_body_to_document(body)
+}
+
+fn markdown_body_to_document(body: &str) -> DocumentResult<Value> {
     let lines = body.lines().collect::<Vec<_>>();
     let mut blocks = Vec::new();
     let mut pending_block_id: Option<String> = None;
@@ -2106,6 +2122,22 @@ fn parse_markdown_inline(input: &str, depth: usize, marks: &[Value]) -> Document
                 }));
             } else {
                 if !safe_href(href) {
+                    // File-relative links have no portable destination in a native
+                    // document. Preserve their complete source notation as text;
+                    // never turn a local path into an active cockpit URL.
+                    if !href.contains(':')
+                        && !href.starts_with("//")
+                        && !href.chars().any(char::is_control)
+                    {
+                        let remaining = &href_tail[href_end + 1..];
+                        push_markdown_text(
+                            &mut nodes,
+                            &rest[..rest.len() - remaining.len()],
+                            marks,
+                        );
+                        rest = remaining;
+                        continue;
+                    }
                     return Err(DocumentError::Invalid(
                         "Markdown link href is unsafe or unsupported".into(),
                     ));
@@ -5770,6 +5802,10 @@ impl OrgIntel {
         .bind(input.actor_id)
         .execute(&mut *tx)
         .await?;
+        if !input.access.permits(DocumentAccess::Comment) {
+            sqlx::query("UPDATE native_document_mentions SET cancelled_at=now() WHERE document_id=$1 AND mentioned_actor_id=$2 AND resolution_comment_id IS NULL AND cancelled_at IS NULL")
+            .bind(input.document_id).bind(input.participant_actor_id).execute(&mut *tx).await?;
+        }
         let document_version: i64 = sqlx::query_scalar(
             "UPDATE native_documents SET version=version+1 WHERE id=$1 RETURNING version",
         )
@@ -5873,6 +5909,8 @@ impl OrgIntel {
         if changed != 1 {
             return Err(DocumentError::Unavailable);
         }
+        sqlx::query("UPDATE native_document_mentions SET cancelled_at=now() WHERE document_id=$1 AND mentioned_actor_id=$2 AND resolution_comment_id IS NULL AND cancelled_at IS NULL")
+            .bind(input.document_id).bind(input.participant_actor_id).execute(&mut *tx).await?;
         let document_version: i64 = sqlx::query_scalar(
             "UPDATE native_documents SET version=version+1 WHERE id=$1 RETURNING version",
         )
@@ -6043,6 +6081,7 @@ impl OrgIntel {
         .bind(&mentions)
         .fetch_one(&mut *tx)
         .await?;
+        enqueue_document_mentions(&mut tx, &first_comment).await?;
         record_document_command(
             &mut tx,
             input.command_id,
@@ -6181,6 +6220,7 @@ impl OrgIntel {
         .bind(&mentions)
         .fetch_one(&mut *tx)
         .await?;
+        enqueue_document_mentions(&mut tx, &comment).await?;
         record_document_command(
             &mut tx,
             input.command_id,
@@ -7927,111 +7967,6 @@ impl OrgIntel {
     }
 }
 
-/// Core-owned retry state for a prepared native-document CRDT edit.
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct PreparedDocumentEdit {
-    pub prepared_json: Value,
-    pub result_json: Option<Value>,
-}
-
-impl OrgIntel {
-    pub async fn document_edit_command(
-        &self,
-        document: Uuid,
-        actor: &str,
-        command: Uuid,
-        request: &Value,
-        prepared: Option<&Value>,
-    ) -> DocumentResult<Option<PreparedDocumentEdit>> {
-        if !request.is_object() || serde_json::to_vec(request).unwrap_or_default().len() > 1_100_000
-        {
-            return Err(DocumentError::Invalid(
-                "invalid or oversized live edit request".into(),
-            ));
-        }
-        if prepared.is_some_and(|value| {
-            !value.is_object()
-                || serde_json::to_vec(value).unwrap_or_default().len() > 12 * 1024 * 1024
-        }) {
-            return Err(DocumentError::Invalid(
-                "invalid or oversized prepared edit".into(),
-            ));
-        }
-        let mut tx = self.pool.begin().await?;
-        require_access(&mut tx, document, actor, DocumentAccess::Edit).await?;
-        if let Some(value) = prepared {
-            sqlx::query(
-                "INSERT INTO native_document_prepared_edits \
-                 (command_id,document_id,actor_id,request_json,prepared_json) \
-                 VALUES ($1,$2,$3,$4,$5) ON CONFLICT (command_id) DO NOTHING",
-            )
-            .bind(command)
-            .bind(document)
-            .bind(actor)
-            .bind(request)
-            .bind(value)
-            .execute(&mut *tx)
-            .await?;
-        }
-        let row = sqlx::query(
-            "SELECT document_id,actor_id,request_json,prepared_json,result_json \
-             FROM native_document_prepared_edits WHERE command_id=$1",
-        )
-        .bind(command)
-        .fetch_optional(&mut *tx)
-        .await?;
-        let result = if let Some(row) = row {
-            if row.try_get::<Uuid, _>("document_id")? != document
-                || row.try_get::<String, _>("actor_id")? != actor
-                || row.try_get::<Value, _>("request_json")? != *request
-            {
-                return Err(DocumentError::Conflict(
-                    "edit key was already used with a different request".into(),
-                ));
-            }
-            Some(PreparedDocumentEdit {
-                prepared_json: row.try_get("prepared_json")?,
-                result_json: row.try_get("result_json")?,
-            })
-        } else {
-            None
-        };
-        tx.commit().await?;
-        Ok(result)
-    }
-
-    pub async fn complete_document_edit_command(
-        &self,
-        document: Uuid,
-        actor: &str,
-        command: Uuid,
-        result: &Value,
-    ) -> DocumentResult<Value> {
-        if !result.is_object() || serde_json::to_vec(result).unwrap_or_default().len() > 16_384 {
-            return Err(DocumentError::Invalid("invalid live edit result".into()));
-        }
-        let mut tx = self.pool.begin().await?;
-        require_access(&mut tx, document, actor, DocumentAccess::Edit).await?;
-        let row = sqlx::query(
-            "UPDATE native_document_prepared_edits \
-             SET result_json=COALESCE(result_json,$4), \
-                 completed_at=COALESCE(completed_at,now()) \
-             WHERE command_id=$1 AND document_id=$2 AND actor_id=$3 \
-             RETURNING result_json",
-        )
-        .bind(command)
-        .bind(document)
-        .bind(actor)
-        .bind(result)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or_else(|| DocumentError::Conflict("edit command was not prepared".into()))?;
-        let saved = row.try_get("result_json")?;
-        tx.commit().await?;
-        Ok(saved)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -8275,6 +8210,17 @@ mod tests {
     }
 
     #[test]
+    fn markdown_relative_links_preserve_source_without_active_navigation() {
+        let source = "See [evidence](capability-blocker.md).";
+        let imported = document_json_from_markdown(source).unwrap();
+        let encoded = serde_json::to_string(&imported).unwrap();
+        assert!(encoded.contains("[evidence](capability-blocker.md)"));
+        assert!(!encoded.contains("\"type\":\"link\""));
+        assert!(document_json_from_markdown("[bad](javascript:alert(1))").is_err());
+        assert!(document_json_from_markdown("[bad](//example.com)").is_err());
+    }
+
+    #[test]
     fn markdown_inline_hostile_unmatched_brackets_are_bounded() {
         let document_id = Uuid::new_v4();
         let version_id = Uuid::new_v4();
@@ -8481,4 +8427,494 @@ mod tests {
         org.drop_schema().await?;
         Ok(())
     }
+}
+
+/// A Core-owned retry record; the exact CRDT delta is opaque to Core.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct PreparedDocumentEdit {
+    pub prepared_json: Value,
+    pub result_json: Option<Value>,
+}
+
+impl OrgIntel {
+    /// Look up or atomically select the first prepared delta for this command.
+    /// Concurrent preparers must use the returned winner, never their local delta.
+    /// Access is rechecked even for completed commands and identical retries.
+    pub async fn document_edit_command(
+        &self,
+        document: Uuid,
+        actor: &str,
+        command: Uuid,
+        request: &Value,
+        prepared: Option<&Value>,
+    ) -> DocumentResult<Option<PreparedDocumentEdit>> {
+        if !request.is_object() || serde_json::to_vec(request).unwrap_or_default().len() > 1_100_000
+        {
+            return Err(DocumentError::Invalid(
+                "invalid or oversized live edit request".into(),
+            ));
+        }
+        if let Some(value) = prepared {
+            if !value.is_object()
+                || serde_json::to_vec(value).unwrap_or_default().len() > 12 * 1024 * 1024
+            {
+                return Err(DocumentError::Invalid(
+                    "invalid or oversized prepared edit".into(),
+                ));
+            }
+        }
+        let mut tx = self.pool.begin().await?;
+        require_access(&mut tx, document, actor, DocumentAccess::Edit).await?;
+        if let Some(value) = prepared {
+            sqlx::query("INSERT INTO native_document_prepared_edits (command_id,document_id,actor_id,request_json,prepared_json) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (command_id) DO NOTHING")
+                .bind(command).bind(document).bind(actor).bind(request).bind(value).execute(&mut *tx).await?;
+        }
+        let row = sqlx::query("SELECT document_id,actor_id,request_json,prepared_json,result_json FROM native_document_prepared_edits WHERE command_id=$1")
+            .bind(command).fetch_optional(&mut *tx).await?;
+        let result = if let Some(row) = row {
+            if row.try_get::<Uuid, _>("document_id")? != document
+                || row.try_get::<String, _>("actor_id")? != actor
+                || row.try_get::<Value, _>("request_json")? != *request
+            {
+                return Err(DocumentError::Conflict(
+                    "edit key was already used with a different request".into(),
+                ));
+            }
+            Some(PreparedDocumentEdit {
+                prepared_json: row.try_get("prepared_json")?,
+                result_json: row.try_get("result_json")?,
+            })
+        } else {
+            None
+        };
+        tx.commit().await?;
+        Ok(result)
+    }
+
+    /// Record successful durable application. The first acknowledgement wins.
+    pub async fn complete_document_edit_command(
+        &self,
+        document: Uuid,
+        actor: &str,
+        command: Uuid,
+        result: &Value,
+    ) -> DocumentResult<Value> {
+        if !result.is_object() || serde_json::to_vec(result).unwrap_or_default().len() > 16_384 {
+            return Err(DocumentError::Invalid("invalid live edit result".into()));
+        }
+        let mut tx = self.pool.begin().await?;
+        require_access(&mut tx, document, actor, DocumentAccess::Edit).await?;
+        let row = sqlx::query("UPDATE native_document_prepared_edits SET result_json=COALESCE(result_json,$4), completed_at=COALESCE(completed_at,now()) WHERE command_id=$1 AND document_id=$2 AND actor_id=$3 RETURNING result_json")
+            .bind(command).bind(document).bind(actor).bind(result).fetch_optional(&mut *tx).await?
+            .ok_or_else(|| DocumentError::Conflict("edit command was not prepared".into()))?;
+        let saved = row.try_get("result_json")?;
+        tx.commit().await?;
+        Ok(saved)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct DocumentCollaborationRequest {
+    pub id: Uuid,
+    pub document_id: Uuid,
+    pub requested_by_actor_id: String,
+    pub requested_owner_actor_id: String,
+    pub summary: String,
+    pub created_at: DateTime<Utc>,
+    pub resolved_at: Option<DateTime<Utc>>,
+    pub resolved_by_actor_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct DocumentAttentionReference {
+    pub id: Uuid,
+    pub document_id: Uuid,
+    pub title: String,
+    pub requested_by_actor_id: String,
+    pub summary: String,
+    pub created_at: DateTime<Utc>,
+    pub kind: String,
+    pub named_version_id: Option<Uuid>,
+}
+
+impl OrgIntel {
+    pub async fn request_document_collaboration(
+        &self,
+        document: Uuid,
+        actor: &str,
+        key: Uuid,
+        summary: &str,
+    ) -> DocumentResult<DocumentCollaborationRequest> {
+        let summary = clean_bounded("collaboration request", summary, 4000)?;
+        let mut tx = self.pool.begin().await?;
+        require_access(&mut tx, document, actor, DocumentAccess::Edit).await?;
+        let owner = sqlx::query_scalar(
+            "SELECT actor_id FROM human_principal_actor_bindings WHERE membership_role='owner' AND membership_status='active' ORDER BY first_verified_at ASC LIMIT 1",
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .unwrap_or_else(|| "owner".to_string());
+        // A co-editing invitation is not a grant. Share edit access first.
+        require_access(&mut tx, document, &owner, DocumentAccess::Edit).await?;
+        let inserted = sqlx::query("INSERT INTO native_document_collaboration_requests (id,document_id,requested_by_actor_id,requested_owner_actor_id,summary) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (id) DO NOTHING")
+            .bind(key).bind(document).bind(actor).bind(&owner).bind(&summary).execute(&mut *tx).await?.rows_affected() > 0;
+        let row = sqlx::query_as::<_, DocumentCollaborationRequest>(
+            "SELECT * FROM native_document_collaboration_requests WHERE id=$1",
+        )
+        .bind(key)
+        .fetch_one(&mut *tx)
+        .await?;
+        if row.document_id != document
+            || row.requested_by_actor_id != actor
+            || row.requested_owner_actor_id != owner
+            || row.summary != summary
+        {
+            return Err(DocumentError::Conflict(
+                "collaboration key was already used with a different request".into(),
+            ));
+        }
+        if inserted {
+            append_document_event(
+                &mut tx,
+                "document.collaboration.requested.v1",
+                document,
+                actor,
+                json!({"request_id":key}),
+            )
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(row)
+    }
+
+    pub async fn resolve_document_collaboration(
+        &self,
+        document: Uuid,
+        actor: &str,
+        request: Uuid,
+    ) -> DocumentResult<DocumentCollaborationRequest> {
+        let mut tx = self.pool.begin().await?;
+        require_access(&mut tx, document, actor, DocumentAccess::Read).await?;
+        let row = sqlx::query_as::<_,DocumentCollaborationRequest>("SELECT * FROM native_document_collaboration_requests WHERE id=$1 AND document_id=$2 FOR UPDATE")
+            .bind(request).bind(document).fetch_optional(&mut *tx).await?.ok_or(DocumentError::Unavailable)?;
+        if row.requested_owner_actor_id != actor {
+            return Err(DocumentError::Unavailable);
+        }
+        let row = if row.resolved_at.is_none() {
+            let updated = sqlx::query_as::<_,DocumentCollaborationRequest>("UPDATE native_document_collaboration_requests SET resolved_at=now(),resolved_by_actor_id=$2 WHERE id=$1 RETURNING *")
+                .bind(request).bind(actor).fetch_one(&mut *tx).await?;
+            append_document_event(
+                &mut tx,
+                "document.collaboration.resolved.v1",
+                document,
+                actor,
+                json!({"request_id":request}),
+            )
+            .await?;
+            updated
+        } else {
+            row
+        };
+        tx.commit().await?;
+        Ok(row)
+    }
+
+    /// Compose owner attention from document-owned requests, retaining exact review coordinates.
+    pub async fn pending_document_attention(
+        &self,
+    ) -> DocumentResult<Vec<DocumentAttentionReference>> {
+        let mut tx = self.pool.begin().await?;
+        let owner = sqlx::query_scalar(
+            "SELECT actor_id FROM human_principal_actor_bindings WHERE membership_role='owner' AND membership_status='active' ORDER BY first_verified_at ASC LIMIT 1",
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .unwrap_or_else(|| "owner".to_string());
+        let candidates = sqlx::query_as::<_,DocumentAttentionReference>(
+            "SELECT r.id,r.document_id,d.title,r.requested_by_actor_id,r.summary,r.created_at,'collaboration'::text AS kind,NULL::uuid AS named_version_id FROM native_document_collaboration_requests r JOIN native_documents d ON d.id=r.document_id WHERE r.resolved_at IS NULL AND r.requested_owner_actor_id=$1 AND d.status<>'archived' \
+             UNION ALL SELECT r.id,r.document_id,d.title,r.requested_by_actor_id,r.summary,r.created_at,'review'::text AS kind,r.requested_version_id AS named_version_id FROM native_document_reviews r JOIN native_documents d ON d.id=r.document_id LEFT JOIN native_document_work_review_dependencies w ON w.review_id=r.id AND w.document_id=r.document_id WHERE r.status='requested' AND d.status<>'archived' AND (w.review_id IS NULL OR (w.reviewer_actor_id=$1 AND w.status='pending')) ORDER BY created_at")
+            .bind(&owner)
+            .fetch_all(&mut *tx).await?;
+        let mut visible = Vec::new();
+        for candidate in candidates {
+            if access_in_transaction(&mut tx, candidate.document_id, &owner)
+                .await?
+                .is_some()
+            {
+                visible.push(candidate);
+            }
+        }
+        tx.commit().await?;
+        Ok(visible)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct DocumentMentionRow {
+    pub id: Uuid,
+    pub document_id: Uuid,
+    pub thread_id: Uuid,
+    pub comment_id: Uuid,
+    pub mentioned_actor_id: String,
+    #[serde(skip)]
+    pub claim_token: Option<Uuid>,
+    pub resolution_comment_id: Option<Uuid>,
+    pub cancelled_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DocumentMentionContext {
+    pub mention: DocumentMentionRow,
+    pub document_title: String,
+    pub thread: DocumentCommentThreadRow,
+    pub comment: DocumentCommentRow,
+}
+
+#[derive(Debug, Clone)]
+pub struct DocumentMentionClaim {
+    pub context: DocumentMentionContext,
+    pub lease: crate::ActorCognitiveLease,
+}
+
+async fn enqueue_document_mentions(
+    tx: &mut Transaction<'_, Postgres>,
+    comment: &DocumentCommentRow,
+) -> DocumentResult<()> {
+    for actor in &comment.mentioned_actor_ids {
+        if actor == &comment.author_actor_id {
+            continue;
+        }
+        sqlx::query("INSERT INTO native_document_mentions (id,document_id,thread_id,comment_id,mentioned_actor_id) SELECT $1,$2,$3,$4,id FROM actors WHERE id=$5 AND actor_class='agent' AND retired_at IS NULL ON CONFLICT (comment_id,mentioned_actor_id) DO NOTHING")
+            .bind(Uuid::new_v4()).bind(comment.document_id).bind(comment.thread_id)
+            .bind(comment.id).bind(actor).execute(&mut **tx).await?;
+    }
+    Ok(())
+}
+
+async fn document_mention_available(
+    tx: &mut Transaction<'_, Postgres>,
+    row: &DocumentMentionRow,
+) -> DocumentResult<bool> {
+    let active: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM actors a JOIN native_document_comment_threads t ON t.id=$2 AND t.document_id=$3 JOIN native_documents d ON d.id=t.document_id AND d.status<>'archived' WHERE a.id=$1 AND a.actor_class='agent' AND a.retired_at IS NULL AND t.status='open')")
+        .bind(&row.mentioned_actor_id).bind(row.thread_id).bind(row.document_id)
+        .fetch_one(&mut **tx).await?;
+    Ok(active
+        && access_in_transaction(tx, row.document_id, &row.mentioned_actor_id)
+            .await?
+            .is_some_and(|access| access.permits(DocumentAccess::Comment)))
+}
+
+async fn document_mention_context(
+    tx: &mut Transaction<'_, Postgres>,
+    mention: DocumentMentionRow,
+) -> DocumentResult<DocumentMentionContext> {
+    let document_title = sqlx::query_scalar("SELECT title FROM native_documents WHERE id=$1")
+        .bind(mention.document_id)
+        .fetch_one(&mut **tx)
+        .await?;
+    let thread = sqlx::query_as::<_, DocumentCommentThreadRow>(&format!(
+        "{} WHERE document_id=$1 AND id=$2",
+        comment_thread_select()
+    ))
+    .bind(mention.document_id)
+    .bind(mention.thread_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    let comment = sqlx::query_as::<_, DocumentCommentRow>(&format!(
+        "{} WHERE document_id=$1 AND thread_id=$2 AND id=$3",
+        comment_select()
+    ))
+    .bind(mention.document_id)
+    .bind(mention.thread_id)
+    .bind(mention.comment_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    Ok(DocumentMentionContext {
+        mention,
+        document_title,
+        thread,
+        comment: validate_comment_row(comment)?,
+    })
+}
+
+impl OrgIntel {
+    /// Observe the oldest serviceable obligation. Invalidated requests cannot
+    /// reappear just because access is later granted again.
+    pub async fn next_pending_document_mention(
+        &self,
+        actor: &str,
+    ) -> DocumentResult<Option<DocumentMentionContext>> {
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query_as::<_,DocumentMentionRow>("SELECT * FROM native_document_mentions WHERE mentioned_actor_id=$1 AND resolution_comment_id IS NULL AND cancelled_at IS NULL ORDER BY created_at,id")
+            .bind(actor).fetch_all(&mut *tx).await?;
+        for row in rows {
+            if document_mention_available(&mut tx, &row).await? {
+                let context = document_mention_context(&mut tx, row).await?;
+                tx.commit().await?;
+                return Ok(Some(context));
+            }
+            sqlx::query("UPDATE native_document_mentions SET cancelled_at=now() WHERE id=$1 AND resolution_comment_id IS NULL")
+                .bind(row.id)
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
+        Ok(None)
+    }
+
+    pub async fn actors_owing_document_mentions(&self) -> DocumentResult<Vec<String>> {
+        let actors: Vec<String> = sqlx::query_scalar("SELECT DISTINCT m.mentioned_actor_id FROM native_document_mentions m JOIN actors a ON a.id=m.mentioned_actor_id WHERE m.resolution_comment_id IS NULL AND m.cancelled_at IS NULL AND a.actor_class='agent' AND a.retired_at IS NULL ORDER BY m.mentioned_actor_id")
+            .fetch_all(&self.pool).await?;
+        let mut available = Vec::new();
+        for actor in actors {
+            if self.next_pending_document_mention(&actor).await?.is_some() {
+                available.push(actor);
+            }
+        }
+        Ok(available)
+    }
+
+    pub async fn claim_next_pending_document_mention(
+        &self,
+        lease: &crate::ActorCognitiveLease,
+    ) -> DocumentResult<Option<DocumentMentionClaim>> {
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query_as::<_,DocumentMentionRow>("SELECT * FROM native_document_mentions WHERE mentioned_actor_id=$1 AND resolution_comment_id IS NULL AND cancelled_at IS NULL ORDER BY created_at,id")
+            .bind(&lease.actor_id).fetch_all(&mut *tx).await?;
+        for mut row in rows {
+            if !document_mention_available(&mut tx, &row).await? {
+                sqlx::query("UPDATE native_document_mentions SET cancelled_at=now() WHERE id=$1 AND resolution_comment_id IS NULL")
+                    .bind(row.id)
+                    .execute(&mut *tx)
+                    .await?;
+                continue;
+            }
+            // Document -> Actor (through access) -> lease -> mention, matching
+            // document revocation and avoiding an Actor/Document lock inversion.
+            let focus: (Option<Uuid>,Option<Uuid>) = sqlx::query_as("SELECT focused_mention_id,focused_document_mention_id FROM actor_cognitive_leases WHERE actor_id=$1 AND lease_token=$2 AND claimed_until>now() AND revoked_at IS NULL FOR UPDATE")
+                .bind(&lease.actor_id).bind(lease.token).fetch_optional(&mut *tx).await?.ok_or(DocumentError::Unavailable)?;
+            if focus.0.is_some() || focus.1.is_some_and(|id| id != row.id) {
+                tx.commit().await?;
+                return Ok(None);
+            }
+            row=sqlx::query_as::<_,DocumentMentionRow>("SELECT * FROM native_document_mentions WHERE id=$1 AND resolution_comment_id IS NULL AND cancelled_at IS NULL FOR UPDATE")
+                .bind(row.id).fetch_optional(&mut *tx).await?.ok_or(DocumentError::Unavailable)?;
+            sqlx::query("UPDATE native_document_mentions SET claim_token=$2 WHERE id=$1")
+                .bind(row.id)
+                .bind(lease.token)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query("UPDATE actor_cognitive_leases SET focused_document_mention_id=$3 WHERE actor_id=$1 AND lease_token=$2")
+                .bind(&lease.actor_id).bind(lease.token).bind(row.id).execute(&mut *tx).await?;
+            row.claim_token = Some(lease.token);
+            let context = document_mention_context(&mut tx, row).await?;
+            tx.commit().await?;
+            return Ok(Some(DocumentMentionClaim {
+                context,
+                lease: lease.clone(),
+            }));
+        }
+        sqlx::query("UPDATE actor_cognitive_leases SET focused_document_mention_id=NULL WHERE actor_id=$1 AND lease_token=$2")
+            .bind(&lease.actor_id).bind(lease.token).execute(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(None)
+    }
+
+    /// Persist the answer and resolve exactly one obligation atomically.
+    /// The model supplies only answer text, never reply coordinates or attribution.
+    pub async fn reply_to_claimed_document_mention(
+        &self,
+        claim: &DocumentMentionClaim,
+        body: &str,
+    ) -> DocumentResult<DocumentCommentRow> {
+        let body = clean_bounded("document mention reply", body, 8000)?;
+        let content = validated_comment_content(
+            &json!({"type":"doc","content":[{"type":"paragraph","attrs":{"block_id":format!("reply-{}",claim.context.mention.id)},"content":[{"type":"text","text":body}]}]}),
+        )?;
+        let mut tx = self.pool.begin().await?;
+        require_access(
+            &mut tx,
+            claim.context.mention.document_id,
+            &claim.lease.actor_id,
+            DocumentAccess::Comment,
+        )
+        .await?;
+        // Keep the common lease stable through the reply transaction.
+        let live_focus: Option<Uuid> = sqlx::query_scalar::<_,Option<Uuid>>("SELECT focused_document_mention_id FROM actor_cognitive_leases WHERE actor_id=$1 AND lease_token=$2 AND claimed_until>now() AND revoked_at IS NULL FOR UPDATE")
+            .bind(&claim.lease.actor_id).bind(claim.lease.token).fetch_optional(&mut *tx).await?.flatten();
+        let row=sqlx::query_as::<_,DocumentMentionRow>("SELECT * FROM native_document_mentions WHERE id=$1 AND document_id=$2 AND mentioned_actor_id=$3 FOR UPDATE")
+            .bind(claim.context.mention.id).bind(claim.context.mention.document_id).bind(&claim.lease.actor_id).fetch_optional(&mut *tx).await?.ok_or(DocumentError::Unavailable)?;
+        if row.claim_token != Some(claim.lease.token) || row.cancelled_at.is_some() {
+            return Err(DocumentError::Unavailable);
+        }
+        if let Some(reply) = row.resolution_comment_id {
+            let prior = sqlx::query_as::<_, DocumentCommentRow>(&format!(
+                "{} WHERE id=$1",
+                comment_select()
+            ))
+            .bind(reply)
+            .fetch_one(&mut *tx)
+            .await?;
+            if prior.content_json != content.content_json {
+                return Err(DocumentError::Conflict(
+                    "mention reply was already committed with different content".into(),
+                ));
+            }
+            tx.commit().await?;
+            return validate_comment_row(prior);
+        }
+        if live_focus != Some(row.id) {
+            return Err(DocumentError::Unavailable);
+        }
+        let open: bool=sqlx::query_scalar("SELECT status='open' FROM native_document_comment_threads WHERE document_id=$1 AND id=$2 FOR UPDATE")
+            .bind(row.document_id).bind(row.thread_id).fetch_one(&mut *tx).await?;
+        if !open {
+            return Err(DocumentError::Unavailable);
+        }
+        let reply=sqlx::query_as::<_,DocumentCommentRow>(&format!("INSERT INTO native_document_comments (id,document_id,thread_id,reply_to_comment_id,author_actor_id,content_json,plain_text,content_hash) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING {}",comment_columns()))
+            .bind(Uuid::new_v4()).bind(row.document_id).bind(row.thread_id).bind(row.comment_id)
+            .bind(&claim.lease.actor_id).bind(&content.content_json).bind(&content.plain_text).bind(&content.content_hash).fetch_one(&mut *tx).await?;
+        sqlx::query("UPDATE native_document_mentions SET resolution_comment_id=$2 WHERE id=$1")
+            .bind(row.id)
+            .bind(reply.id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("UPDATE actor_cognitive_leases SET focused_document_mention_id=NULL WHERE actor_id=$1 AND lease_token=$2")
+            .bind(&claim.lease.actor_id).bind(claim.lease.token).execute(&mut *tx).await?;
+        append_document_event(&mut tx,"document.comment.replied.v1",row.document_id,&claim.lease.actor_id,json!({"document_id":row.document_id,"thread_id":row.thread_id,"comment_id":reply.id,"reply_to_comment_id":row.comment_id,"mention_id":row.id})).await?;
+        tx.commit().await?;
+        validate_comment_row(reply)
+    }
+}
+
+/// Used by the common Actor lease heartbeat; no separate document worker lease.
+pub(crate) async fn document_mention_lease_current(
+    tx: &mut Transaction<'_, Postgres>,
+    lease: &crate::ActorCognitiveLease,
+) -> DocumentResult<bool> {
+    let focus:Option<Uuid>=sqlx::query_scalar::<_,Option<Uuid>>("SELECT focused_document_mention_id FROM actor_cognitive_leases WHERE actor_id=$1 AND lease_token=$2")
+        .bind(&lease.actor_id).bind(lease.token).fetch_optional(&mut **tx).await?.flatten();
+    let Some(focus) = focus else {
+        return Ok(true);
+    };
+    let row=sqlx::query_as::<_,DocumentMentionRow>("SELECT * FROM native_document_mentions WHERE id=$1 AND claim_token=$2 AND resolution_comment_id IS NULL AND cancelled_at IS NULL")
+        .bind(focus).bind(lease.token).fetch_optional(&mut **tx).await?;
+    match row {
+        Some(row) => document_mention_available(tx, &row).await,
+        None => Ok(false),
+    }
+}
+
+pub(crate) async fn current_document_mention_context(
+    tx: &mut Transaction<'_, Postgres>,
+    id: Uuid,
+    actor: &str,
+) -> DocumentResult<DocumentMentionContext> {
+    let row=sqlx::query_as::<_,DocumentMentionRow>("SELECT * FROM native_document_mentions WHERE id=$1 AND mentioned_actor_id=$2 AND resolution_comment_id IS NULL AND cancelled_at IS NULL")
+        .bind(id).bind(actor).fetch_optional(&mut **tx).await?.ok_or(DocumentError::Unavailable)?;
+    if !document_mention_available(tx, &row).await? {
+        return Err(DocumentError::Unavailable);
+    }
+    document_mention_context(tx, row).await
 }

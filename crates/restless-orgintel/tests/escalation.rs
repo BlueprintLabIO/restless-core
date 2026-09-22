@@ -878,3 +878,228 @@ async fn judgement_routes_to_the_lead_before_the_owner() {
 
     org.drop_schema().await.expect("drop schema");
 }
+
+#[tokio::test]
+async fn expired_human_step_can_be_prepared_again_without_resolving_or_duplicating_it() {
+    let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping preparation repair scenario");
+        return;
+    };
+    let company = format!("handoff_preparing_{}_test", std::process::id());
+    let org = OrgIntel::ensure(&url, &company).await.unwrap();
+    for (id, kind, role) in [
+        ("owner", "owner", "owner"),
+        ("exec", "exec", "exec"),
+        ("auth-builder", "staff", "producer"),
+        ("unrelated-builder", "staff", "producer"),
+    ] {
+        org.ensure_actor(id, kind, role, id).await.unwrap();
+    }
+    let work = work_for(&org, "auth-builder", "Prepare provider sign-in").await;
+    let first = org
+        .claim_ready_work("initial preparation")
+        .await
+        .unwrap()
+        .unwrap();
+    let handoff = org
+        .request_owner_handoff(NewOwnerHandoff {
+            work_id: work,
+            attempt_id: Some(first.attempt_id),
+            requested_by: "auth-builder",
+            category: OwnerHandoffCategory::Identity,
+            requested_action: "Complete provider consent",
+            prepared_state: "Provider verification page and live device prompt",
+            resume_condition: "Authenticated account probe succeeds",
+        })
+        .await
+        .unwrap();
+    org.finish_work_attempt(
+        first.attempt_id,
+        restless_orgintel::WorkAttemptState::Blocked,
+        "waiting for consent",
+    )
+    .await
+    .unwrap();
+    assert!(!org.has_ready_work().await.unwrap());
+    assert!(
+        org.resume_work(work, "exec", "login process was lost")
+            .await
+            .is_err(),
+        "generic resume must not leave active-but-unclaimable Work"
+    );
+    assert!(org
+        .refresh_owner_handoff_preparation(
+            handoff,
+            "unrelated-builder",
+            "Wait for a replacement",
+            "Old process exited",
+            "Authenticated account probe succeeds",
+            true
+        )
+        .await
+        .is_err());
+    org.refresh_owner_handoff_preparation(
+        handoff,
+        "exec",
+        "Wait for a replacement",
+        "Old process exited",
+        "Authenticated account probe succeeds",
+        true,
+    )
+    .await
+    .unwrap();
+    let row = org
+        .list_owner_handoffs()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|h| h.id == handoff)
+        .unwrap();
+    assert_eq!(row.state, OwnerHandoffState::Preparing);
+    assert!(row.resolved_at.is_none());
+    drop(org);
+    let org = OrgIntel::ensure(&url, &company).await.unwrap();
+    assert_eq!(
+        org.handoff_preparation(work).await.unwrap(),
+        Some((handoff, "Old process exited".into())),
+        "restart must preserve the same preparing handoff identity and repair context"
+    );
+    assert!(org.has_ready_work().await.unwrap());
+    let repair = org
+        .claim_ready_work("replace expired prompt")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(repair.work.id, work);
+    assert_eq!(repair.attempt_no, 2);
+    assert!(org
+        .claim_ready_work("duplicate repair")
+        .await
+        .unwrap()
+        .is_none());
+    assert!(
+        org.request_owner_handoff(NewOwnerHandoff {
+            work_id: work,
+            attempt_id: Some(repair.attempt_id),
+            requested_by: "auth-builder",
+            category: OwnerHandoffCategory::Identity,
+            requested_action: "Duplicate",
+            prepared_state: "Duplicate",
+            resume_condition: "Duplicate",
+        })
+        .await
+        .is_err(),
+        "preparation retains the sole outstanding request"
+    );
+    org.refresh_owner_handoff(
+        handoff,
+        "auth-builder",
+        "Complete replacement consent",
+        "Fresh live provider prompt",
+        "Authenticated account probe succeeds",
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        org.get_work(work).await.unwrap().unwrap().status,
+        restless_orgintel::WorkStatus::Blocked
+    );
+    org.finish_work_attempt(
+        repair.attempt_id,
+        restless_orgintel::WorkAttemptState::Produced,
+        "replacement ready for owner",
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        org.get_work(work).await.unwrap().unwrap().status,
+        restless_orgintel::WorkStatus::Blocked,
+        "a success claim cannot complete an outstanding human boundary"
+    );
+    assert!(!org.has_ready_work().await.unwrap());
+    let due = chrono::Utc::now();
+    let timer = org
+        .add_schedule("auth-builder", Some(work), "Inspect consent or expiry", due)
+        .await
+        .unwrap();
+    assert_eq!(
+        org.claim_due_schedules_at(due + chrono::Duration::seconds(1))
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(
+        !org.has_ready_work().await.unwrap(),
+        "a timer is not consent"
+    );
+    let notices = org.inbox(Some("auth-builder")).await.unwrap();
+    assert_eq!(
+        notices
+            .iter()
+            .filter(|m| m.from_actor == "daemon"
+                && m.body.contains(&timer.to_string())
+                && m.body.contains(&work.to_string()))
+            .count(),
+        1,
+        "the linked human-step observer must receive its wake"
+    );
+    assert!(org
+        .claim_due_schedules_at(due + chrono::Duration::seconds(2))
+        .await
+        .unwrap()
+        .is_empty());
+    let rows = org.list_owner_handoffs().await.unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, handoff);
+    assert_eq!(rows[0].state, OwnerHandoffState::Pending);
+    assert_eq!(rows[0].attempt_id, Some(repair.attempt_id));
+    // Judgement is never an instruction to prepare another consent prompt.
+    let judgement_work = work_for(&org, "auth-builder", "Owner choice").await;
+    let choice = judgement(&org, "auth-builder", judgement_work).await;
+    assert!(org
+        .refresh_owner_handoff_preparation(choice, "exec", "Skip decision", "Retry", "Done", true)
+        .await
+        .is_err());
+    let payment_work = work_for(&org, "auth-builder", "Provider payment approval").await;
+    let payment = org
+        .request_owner_handoff(NewOwnerHandoff {
+            work_id: payment_work,
+            attempt_id: None,
+            requested_by: "auth-builder",
+            category: OwnerHandoffCategory::PaymentConfirmation,
+            requested_action: "Approve payment",
+            prepared_state: "Provider confirmation",
+            resume_condition: "Payment confirmed",
+        })
+        .await
+        .unwrap();
+    assert!(org
+        .refresh_owner_handoff_preparation(payment, "exec", "Skip payment", "Retry", "Done", true)
+        .await
+        .is_err());
+    org.refresh_owner_handoff_preparation(
+        handoff,
+        "exec",
+        "Preparing again",
+        "Replacement process ended",
+        "Authenticated account probe succeeds",
+        true,
+    )
+    .await
+    .unwrap();
+    org.abandon_work(work, "exec", "Owner cancelled this connection")
+        .await
+        .unwrap();
+    assert_eq!(
+        org.list_owner_handoffs()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|h| h.id == handoff)
+            .unwrap()
+            .state,
+        OwnerHandoffState::Withdrawn
+    );
+    org.drop_schema().await.unwrap();
+}

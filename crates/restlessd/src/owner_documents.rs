@@ -52,6 +52,10 @@ where
 {
     Router::<S>::new()
         .route(
+            "/companies/{company}/documents/{document}/collaboration-requests/{request}/resolve",
+            post(resolve_collaboration_request),
+        )
+        .route(
             "/companies/{company}/documents",
             get(list_documents).post(create_document),
         )
@@ -443,6 +447,24 @@ async fn native_documents_readiness(
                 "native_documents_not_ready",
             )
         }
+    }
+}
+
+async fn resolve_collaboration_request(
+    State(state): State<RoomApiState>,
+    DocumentPrincipal(principal): DocumentPrincipal,
+    AxumPath((company, document, request)): AxumPath<(String, Uuid, Uuid)>,
+) -> Response<Body> {
+    let org = match document_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .resolve_document_collaboration(document, principal.actor_id(), request)
+        .await
+    {
+        Ok(value) => document_json(StatusCode::OK, value),
+        Err(error) => document_error(error),
     }
 }
 

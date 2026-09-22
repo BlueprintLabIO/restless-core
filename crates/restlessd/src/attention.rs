@@ -11,6 +11,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
+use futures_util::{stream, StreamExt, TryStreamExt};
 use restless_orgintel::OrgIntel;
 use serde::Serialize;
 
@@ -81,8 +82,11 @@ pub struct AttentionItem {
     pub runtime_attach: Option<RuntimeAttachRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub review_target: Option<ReviewTargetRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub native_document: Option<restless_orgintel::DocumentAttentionReference>,
     pub actions: Vec<AttentionAction>,
     pub can_continue: bool,
+    pub preparing: bool,
     pub created_at: DateTime<Utc>,
 }
 
@@ -183,6 +187,80 @@ pub struct AttentionAction {
     pub href: Option<String>,
 }
 
+// A request belongs to the current direct conversation, not to a separate workflow.
+// Only the latest message can ask for input: replying or a superseding agent reply
+// clears the old request. Merely reading/opening a conversation does not clear it.
+async fn conversation_requests(
+    org: &OrgIntel,
+    company: &str,
+    actors: Vec<AttentionActorRef>,
+) -> Result<Vec<AttentionItem>> {
+    let human = org
+        .current_membership_owner_actor_id()
+        .await?
+        .unwrap_or_else(|| "owner".into());
+    let results: Vec<Option<AttentionItem>> = stream::iter(actors.into_iter().map(|actor| {
+        let human = &human;
+        async move {
+            let Some(message) = org.human_conversation(human, &actor.id, 1).await?.pop() else {
+                return Ok::<_, anyhow::Error>(None);
+            };
+            if message.from_actor != actor.id {
+                return Ok(None);
+            }
+            let message_id = message.id;
+            let created_at = message.created_at;
+            let Some((body, need)) = crate::owner::conversation_owner_need(message) else {
+                return Ok(None);
+            };
+            let href = format!("/{company}/people?person={}&message={message_id}", actor.id);
+            Ok(Some(AttentionItem {
+                id: format!("conversation:{}:{message_id}", actor.id),
+                work_id: None,
+                source: AttentionSource {
+                    plane: "orgintel",
+                    kind: "conversation_owner_need".into(),
+                    reference: message_id.to_string(),
+                    party: None,
+                },
+                category: "conversation".into(),
+                title: format!("{} needs you", actor.display),
+                what_happened: body,
+                why_it_matters: need.clone(),
+                recommendation: need.clone(),
+                requested_action: need,
+                if_no_action: "The conversation is waiting for your reply.".into(),
+                uncertainty: None,
+                deadline: None,
+                brief_status: "source-authored",
+                brief_author: Some(actor.clone()),
+                briefed_at: Some(created_at),
+                evidence: Vec::new(),
+                review_sources: Vec::new(),
+                responsible_actor: Some(actor),
+                runtime_attach: None,
+                review_target: None,
+                native_document: None,
+                actions: vec![AttentionAction {
+                    id: "continue-conversation".into(),
+                    label: "Continue conversation".into(),
+                    role: "conversation",
+                    consequence: "Return to the message asking for your input.".into(),
+                    next_state: "Your reply clears this request.".into(),
+                    href: Some(href),
+                }],
+                preparing: false,
+                can_continue: false,
+                created_at,
+            }))
+        }
+    }))
+    .buffer_unordered(8)
+    .try_collect()
+    .await?;
+    Ok(results.into_iter().flatten().collect())
+}
+
 /// Compose the live queue from its owners. Authority remains independently
 /// readable when OrgIntel is degraded; the latter contributes explicit owner handoffs only
 /// when its recoverable store answers.
@@ -244,7 +322,7 @@ pub async fn project(
         latest.insert((capability.to_string(), party), event);
     }
 
-    let (actors, accountable_actors) = match org {
+    let (actors, accountable_actors, conversation_actors) = match org {
         Some(org) => {
             let rows = org.list_actors().await.unwrap_or_default();
             let team_leads = org
@@ -264,6 +342,15 @@ pub async fn project(
                     (actor.id.clone(), responsible)
                 })
                 .collect::<HashMap<_, _>>();
+            let conversation_actors = rows
+                .iter()
+                .filter(|actor| {
+                    actor.actor_class == "agent"
+                        && actor.retired_at.is_none()
+                        && (actor.id == "exec" || team_leads.values().any(|lead| lead == &actor.id))
+                })
+                .map(|actor| actor.id.clone())
+                .collect::<std::collections::HashSet<_>>();
             let refs = rows
                 .into_iter()
                 .map(|actor| {
@@ -277,9 +364,13 @@ pub async fn project(
                     )
                 })
                 .collect::<HashMap<_, _>>();
-            (refs, accountable)
+            (refs, accountable, conversation_actors)
         }
-        None => (HashMap::new(), HashMap::new()),
+        None => (
+            HashMap::new(),
+            HashMap::new(),
+            std::collections::HashSet::new(),
+        ),
     };
     let generation = runtime::generation(&config.name).await.ok().flatten();
     let attach_for = |actor: Option<&str>| {
@@ -338,6 +429,7 @@ pub async fn project(
             responsible_actor: None,
             runtime_attach: None,
             review_target: None,
+            native_document: None,
             actions: vec![
                 AttentionAction {
                     id: "grant".into(),
@@ -356,12 +448,13 @@ pub async fn project(
                     href: None,
                 },
             ],
+            preparing: false,
             can_continue: true,
             created_at: event.created_at,
         });
     }
 
-    let (work_graph, orgintel_health) = match org {
+    let (work_graph, mut orgintel_health) = match org {
         Some(org) => match org.work_graph_snapshot().await {
             Ok(graph) => (Some(graph), "available".to_string()),
             Err(error) => {
@@ -388,7 +481,13 @@ pub async fn project(
         .map(|graph| graph.handoffs.clone())
         .unwrap_or_default()
         .into_iter()
-        .filter(|handoff| handoff.state == restless_orgintel::OwnerHandoffState::Pending)
+        .filter(|handoff| {
+            matches!(
+                handoff.state,
+                restless_orgintel::OwnerHandoffState::Pending
+                    | restless_orgintel::OwnerHandoffState::Preparing
+            )
+        })
         // The owner queue is judgement nobody below them owes (S06-T5). A
         // handoff assigned to a team lead is that lead's queue and does not
         // consume owner attention; it arrives here only if the lead escalates
@@ -402,6 +501,7 @@ pub async fn project(
         let Some(item) = work.get(&handoff.work_id) else {
             continue;
         };
+        let preparing = handoff.state == restless_orgintel::OwnerHandoffState::Preparing;
         let judgement = handoff.category == restless_orgintel::OwnerHandoffCategory::OwnerJudgement;
         let payment = payments.get(&handoff.id);
         // A payment handoff asks the owner for exactly one irreducible action:
@@ -433,8 +533,9 @@ pub async fn project(
         // normal-browser step. This preserves the owner-only boundary for
         // provider-root enrolment, verification and credential issuance; do
         // not also offer the agent-accessible Company Runtime browser.
-        let external_human_step_url =
-            external_human_step_url(handoff.category, &handoff.prepared_state);
+        let external_human_step_url = (!preparing)
+            .then(|| external_human_step_url(handoff.category, &handoff.prepared_state))
+            .flatten();
         for artifact in work_graph
             .as_ref()
             .into_iter()
@@ -544,8 +645,11 @@ pub async fn project(
             .as_ref()
             .map(|actor| actor.id.as_str())
             .unwrap_or(&item.owner_id);
-        let runtime_attach = external_human_step_url
-            .is_none()
+        // A running computer is not evidence of a prepared sign-in session.
+        // Human steps use their published provider URL; while preparation is
+        // pending they must not fall back to an unrelated desktop tab. This
+        // also prevents stale computer links from obtaining an attach ticket.
+        let runtime_attach = judgement
             .then(|| attach_for(Some(responsible_id)))
             .flatten();
         let outcome_review = brief
@@ -733,30 +837,17 @@ pub async fn project(
                 actions.insert(0, normal_browser_action(href));
             }
         }
-        if payment.is_none()
-            && (review_target.is_some() || (!judgement && runtime_attach.is_some()))
-        {
+        if payment.is_none() && review_target.is_some() {
             actions.insert(
                 0,
                 AttentionAction {
                     id: "open-outcome".into(),
-                    label: if judgement {
-                        "Review live outcome".into()
-                    } else {
-                        "Open prepared browser".into()
-                    },
+                    label: "Review live outcome".into(),
                     role: "inspect",
-                    consequence: if judgement {
-                        "Opens the real outcome without deciding or approving anything.".into()
-                    } else {
-                        "Opens the prepared company browser without deciding or approving anything."
-                            .into()
-                    },
-                    next_state: if judgement {
-                        "The outcome opens for inspection; the decision stays pending.".into()
-                    } else {
-                        "The prepared computer opens; Restless observes the source condition separately.".into()
-                    },
+                    consequence: "Opens the real outcome without deciding or approving anything."
+                        .into(),
+                    next_state: "The outcome opens for inspection; the decision stays pending."
+                        .into(),
                     href: None,
                 },
             );
@@ -903,10 +994,95 @@ pub async fn project(
             responsible_actor,
             runtime_attach,
             review_target,
+            native_document: None,
             actions,
+            preparing,
             can_continue: false,
             created_at: handoff.created_at,
         });
+    }
+
+    if let Some(org) = org {
+        let requests = match org.pending_document_attention().await {
+            Ok(requests) => requests,
+            Err(error) => {
+                tracing::warn!(%error, "native document attention unavailable");
+                orgintel_health = "unavailable".into();
+                Vec::new()
+            }
+        };
+        for request in requests {
+            let review = request.kind == "review";
+            let actions = if conversation_actors.contains(&request.requested_by_actor_id) {
+                vec![AttentionAction {
+                    id: "chat-document".into(),
+                    label: "Discuss document".into(),
+                    role: "conversation",
+                    consequence: "Discuss this document with its requester while keeping it open."
+                        .into(),
+                    next_state: "The request stays open until explicitly resolved.".into(),
+                    href: None,
+                }]
+            } else {
+                Vec::new()
+            };
+            items.push(AttentionItem {
+                id: format!("document:{}:{}", request.kind, request.id),
+                work_id: None,
+                source: AttentionSource {
+                    plane: "orgintel",
+                    kind: format!("document_{}", request.kind),
+                    reference: request.id.to_string(),
+                    party: None,
+                },
+                category: if review { "review" } else { "collaboration" }.into(),
+                title: request.title.clone(),
+                what_happened: request.summary.clone(),
+                why_it_matters: if review {
+                    "Review the requested named version."
+                } else {
+                    "Work together in the shared document."
+                }
+                .into(),
+                recommendation: request.summary.clone(),
+                requested_action: if review {
+                    "Review this version"
+                } else {
+                    "Open and edit together"
+                }
+                .into(),
+                if_no_action: "The document remains available and this request stays open.".into(),
+                uncertainty: None,
+                deadline: None,
+                brief_status: "source-authored",
+                brief_author: actors.get(&request.requested_by_actor_id).cloned(),
+                briefed_at: Some(request.created_at),
+                evidence: Vec::new(),
+                review_sources: Vec::new(),
+                responsible_actor: actors.get(&request.requested_by_actor_id).cloned(),
+                runtime_attach: None,
+                review_target: None,
+                created_at: request.created_at,
+                native_document: Some(request),
+                actions,
+                preparing: false,
+                can_continue: false,
+            });
+        }
+    }
+
+    if let Some(org) = org {
+        let contacts = conversation_actors
+            .iter()
+            .filter_map(|id| actors.get(id).cloned())
+            .collect();
+        match conversation_requests(org, &config.name, contacts).await {
+            Ok(requests) => items.extend(requests),
+            Err(error) => {
+                tracing::warn!(%error, "conversation attention unavailable");
+                orgintel_health = "unavailable".into();
+            }
+        }
     }
 
     items.sort_by_key(|item| {
@@ -1246,6 +1422,81 @@ fn external_source_verification(metadata: &serde_json::Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn conversation_needs_you_follows_the_latest_direct_message() {
+        let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            return;
+        };
+        let company = format!("needs_you_{}_test", uuid::Uuid::new_v4().simple());
+        let org = OrgIntel::ensure(&url, &company).await.unwrap();
+        org.ensure_actor("owner", "owner", "owner", "Owner")
+            .await
+            .unwrap();
+        org.ensure_actor("exec", "exec", "exec", "Exec")
+            .await
+            .unwrap();
+        org.create_actor(
+            "hosting-engineering",
+            "lead",
+            "Daria",
+            None,
+            "exec",
+            "Hosting expertise",
+        )
+        .await
+        .unwrap();
+        org.create_team("Hosting", "Prepare hosting", "hosting-engineering", "exec")
+            .await
+            .unwrap();
+        let contact = AttentionActorRef {
+            id: "hosting-engineering".into(),
+            display: "Daria".into(),
+            role: "lead".into(),
+        };
+        let request = "Which repository?\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Need repository\",\"ownerNeed\":\"The Cloud repository URL\"}-->";
+        let id = org.send_message(&contact.id, None, request).await.unwrap();
+        let read = || conversation_requests(&org, &company, vec![contact.clone()]);
+        let pending = read().await.unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].requested_action, "The Cloud repository URL");
+        assert_eq!(pending[0].what_happened, "Which repository?");
+        assert!(pending[0].actions[0]
+            .href
+            .as_ref()
+            .unwrap()
+            .ends_with(&format!("person=hosting-engineering&message={id}")));
+        org.mark_read(id).await.unwrap();
+        assert_eq!(read().await.unwrap().len(), 1, "reading is not answering");
+        org.send_owner_conversation_message("exec", "Unrelated question", false)
+            .await
+            .unwrap();
+        org.send_message(&contact.id, Some("exec"), "Internal coordination")
+            .await
+            .unwrap();
+        assert_eq!(
+            read().await.unwrap().len(),
+            1,
+            "other conversations do not dismiss this request"
+        );
+        org.send_owner_conversation_message(&contact.id, "Here is the URL", false)
+            .await
+            .unwrap();
+        assert!(
+            read().await.unwrap().is_empty(),
+            "the owner's reply clears the request immediately"
+        );
+        org.send_message(&contact.id, None, request).await.unwrap();
+        assert_eq!(read().await.unwrap().len(), 1);
+        org.send_message(&contact.id, None, "Found it; proceeding.")
+            .await
+            .unwrap();
+        assert!(
+            read().await.unwrap().is_empty(),
+            "a superseding reply clears obsolete requests"
+        );
+        org.drop_schema().await.unwrap();
+    }
 
     #[test]
     fn decision_history_uses_owner_language_for_work_state() {

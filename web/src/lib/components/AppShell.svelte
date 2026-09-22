@@ -30,6 +30,7 @@
 		homeHref = '/',
 		canSwitchCompanies = true,
 		execName = 'Exec',
+		execHref = null,
 		execLive = false,
 		expandExec = false,
 		railOpen = true,
@@ -47,6 +48,7 @@
 		/** Company discovery and lifecycle status are owner-only account-plane projections. */
 		canSwitchCompanies?: boolean;
 		execName?: string;
+		execHref?: string | null;
 		execLive?: boolean;
 		expandExec?: boolean;
 		railOpen?: boolean;
@@ -140,7 +142,11 @@
 		</nav>
 
 		<div class="tb-right">
-			{#if rail}
+			{#if execHref}
+				<a class="tb-exec" class:live={execLive} href={execHref}>
+					<MessageSquare size={13} strokeWidth={2} aria-hidden="true" />{execName}
+				</a>
+			{:else if rail}
 				<button
 					class="tb-exec"
 					class:live={execLive}

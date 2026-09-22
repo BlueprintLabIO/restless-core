@@ -20,6 +20,15 @@ fn validate_handoff_context(
 }
 
 impl OrgIntel {
+    /// The exact human step this Work is repairing, if any.
+    pub async fn handoff_preparation(&self, work_id: Uuid) -> Result<Option<(Uuid, String)>> {
+        Ok(sqlx::query_as(
+            "SELECT id,prepared_state FROM owner_handoffs WHERE work_id=$1 AND state='preparing'",
+        )
+        .bind(work_id)
+        .fetch_optional(&self.pool)
+        .await?)
+    }
     pub async fn request_owner_handoff(&self, handoff: NewOwnerHandoff<'_>) -> Result<Uuid> {
         if handoff.requested_action.trim().is_empty()
             || handoff.prepared_state.trim().is_empty()
@@ -138,6 +147,29 @@ impl OrgIntel {
         prepared_state: &str,
         resume_condition: &str,
     ) -> Result<()> {
+        self.refresh_owner_handoff_preparation(
+            id,
+            changed_by,
+            requested_action,
+            prepared_state,
+            resume_condition,
+            false,
+        )
+        .await
+    }
+
+    /// Withdraw an unusable prompt without resolving its human boundary. A
+    /// preparing handoff keeps its ID while the existing Work repairs it;
+    /// refreshing it as ready blocks that Work until the human step completes.
+    pub async fn refresh_owner_handoff_preparation(
+        &self,
+        id: Uuid,
+        changed_by: &str,
+        requested_action: &str,
+        prepared_state: &str,
+        resume_condition: &str,
+        preparing: bool,
+    ) -> Result<()> {
         if requested_action.trim().is_empty()
             || prepared_state.trim().is_empty()
             || resume_condition.trim().is_empty()
@@ -151,18 +183,18 @@ impl OrgIntel {
 
         let mut tx = self.pool.begin().await?;
         let candidate_work_id: Uuid = sqlx::query_scalar(
-            "SELECT work_id FROM owner_handoffs WHERE id=$1 AND state='pending'",
+            "SELECT work_id FROM owner_handoffs WHERE id=$1 AND state IN ('pending','preparing')",
         )
         .bind(id)
         .fetch_optional(&mut *tx)
         .await?
         .ok_or_else(|| OrgIntelError::InvalidWork("no outstanding handoff with that id".into()))?;
         let accountability =
-            crate::actors::lock_work_accountability_in_tx(&mut tx, candidate_work_id).await?;
+            crate::actors::lock_work_accountability_for_update_in_tx(&mut tx, candidate_work_id).await?;
         let row = sqlx::query(
-            "SELECT work_id,requested_action,prepared_state,resume_condition \
+            "SELECT work_id,requested_action,prepared_state,resume_condition,category,state \
              FROM owner_handoffs \
-             WHERE id=$1 AND work_id=$2 AND state='pending' FOR UPDATE",
+             WHERE id=$1 AND work_id=$2 AND state IN ('pending','preparing') FOR UPDATE",
         )
         .bind(id)
         .bind(candidate_work_id)
@@ -170,10 +202,36 @@ impl OrgIntel {
         .await?
         .ok_or_else(|| OrgIntelError::InvalidWork("no outstanding handoff with that id".into()))?;
         let work_id: Uuid = row.get("work_id");
-        let work_owner = accountability.owner_id;
-        if !matches!(changed_by, "owner" | "exec") && changed_by != work_owner {
+        let category: OwnerHandoffCategory = row.get("category");
+        let previous_state: OwnerHandoffState = row.get("state");
+        if preparing
+            && !matches!(
+                category,
+                OwnerHandoffCategory::Identity
+                    | OwnerHandoffCategory::Mfa
+                    | OwnerHandoffCategory::Captcha
+                    | OwnerHandoffCategory::LegalAttestation
+            )
+        {
+            return Err(OrgIntelError::InvalidWork("only a human-step prompt can return to preparation; judgements and payments retain their decision boundary".into()));
+        }
+        if (preparing || previous_state == OwnerHandoffState::Preparing)
+            && !matches!(
+                accountability.status,
+                WorkStatus::Active | WorkStatus::Blocked
+            )
+        {
             return Err(OrgIntelError::InvalidWork(
-                "only the Work owner, Exec or owner may refresh its prepared handoff".into(),
+                "only active or blocked Work can refresh its human step".into(),
+            ));
+        }
+        let work_owner = accountability.owner_id;
+        if !matches!(changed_by, "owner" | "exec")
+            && changed_by != work_owner
+            && !(preparing && accountability.lead_actor_id.as_deref() == Some(changed_by))
+        {
+            return Err(OrgIntelError::InvalidWork(
+                "only the Work owner, Exec or owner may publish its handoff; its lead may return it to preparation".into(),
             ));
         }
         let previous_action: String = row.get("requested_action");
@@ -182,6 +240,7 @@ impl OrgIntel {
         if previous_action == requested_action.trim()
             && previous_prepared == prepared_state.trim()
             && previous_resume == resume_condition.trim()
+            && (previous_state == OwnerHandoffState::Preparing) == preparing
         {
             return Err(OrgIntelError::InvalidWork(
                 "the prepared handoff is unchanged".into(),
@@ -190,7 +249,7 @@ impl OrgIntel {
 
         sqlx::query(
             "UPDATE owner_handoffs SET requested_action=$2, prepared_state=$3, \
-                    resume_condition=$4, delivered_at=NULL, \
+                    resume_condition=$4, delivered_at=NULL, state=$5, \
                     assigned_to=CASE WHEN category='owner_judgement' AND assigned_to IS NULL \
                                      THEN 'exec' ELSE assigned_to END \
              WHERE id=$1",
@@ -199,8 +258,27 @@ impl OrgIntel {
         .bind(requested_action.trim())
         .bind(prepared_state.trim())
         .bind(resume_condition.trim())
+        .bind(if preparing {
+            OwnerHandoffState::Preparing
+        } else {
+            OwnerHandoffState::Pending
+        })
         .execute(&mut *tx)
         .await?;
+        if preparing && previous_state != OwnerHandoffState::Preparing {
+            // One explicit repair allows one successor, even when the old
+            // attempt exhausted its allowance. Repeated refreshes don't add attempts.
+            sqlx::query("UPDATE work SET status='active', resolution=$2, attempt_limit=CASE WHEN attempt_limit IS NOT NULL THEN GREATEST(attempt_limit, (SELECT count(*)::integer + 1 FROM work_attempts WHERE work_id=$1 AND revision=work.revision AND state <> 'superseded')) ELSE NULL END WHERE id=$1")
+                .bind(work_id).bind(format!("preparing replacement human step {id}: {}", prepared_state.trim())).execute(&mut *tx).await?;
+        } else if !preparing && previous_state == OwnerHandoffState::Preparing {
+            sqlx::query("UPDATE work SET status='blocked', resolution=$2 WHERE id=$1")
+                .bind(work_id)
+                .bind(format!("awaiting owner handoff {id}"))
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query("UPDATE owner_handoffs SET attempt_id=COALESCE((SELECT id FROM work_attempts WHERE work_id=$2 AND state='running' LIMIT 1),attempt_id) WHERE id=$1")
+                .bind(id).bind(work_id).execute(&mut *tx).await?;
+        }
         sqlx::query(
             "INSERT INTO events (kind, actor_id, body) VALUES ('owner_handoff_refreshed',$1,$2)",
         )
@@ -214,6 +292,7 @@ impl OrgIntel {
             "prepared_state": prepared_state.trim(),
             "previous_resume_condition": previous_resume,
             "resume_condition": resume_condition.trim(),
+            "preparing": preparing,
         }))
         .execute(&mut *tx)
         .await?;
@@ -233,7 +312,7 @@ impl OrgIntel {
         validate_owner_brief(&brief)?;
         let mut tx = self.pool.begin().await?;
         let candidate_work_id: Uuid = sqlx::query_scalar(
-            "SELECT work_id FROM owner_handoffs WHERE id=$1 AND state='pending'",
+            "SELECT work_id FROM owner_handoffs WHERE id=$1 AND state IN ('pending','preparing')",
         )
         .bind(id)
         .fetch_optional(&mut *tx)
@@ -249,7 +328,7 @@ impl OrgIntel {
                     h.prepared_state, h.resume_condition, h.owner_brief, h.briefed_by, \
                     h.brief_source_fingerprint, h.assigned_to \
              FROM owner_handoffs h \
-             WHERE h.id=$1 AND h.work_id=$2 AND h.state='pending' FOR UPDATE OF h",
+             WHERE h.id=$1 AND h.work_id=$2 AND h.state IN ('pending','preparing') FOR UPDATE OF h",
         )
         .bind(id)
         .bind(candidate_work_id)
@@ -405,7 +484,10 @@ impl OrgIntel {
         resolution: &str,
         external_observation: bool,
     ) -> Result<bool> {
-        if state == OwnerHandoffState::Pending {
+        if matches!(
+            state,
+            OwnerHandoffState::Pending | OwnerHandoffState::Preparing
+        ) {
             return Err(OrgIntelError::InvalidWork(
                 "a handoff cannot be resolved back to pending".into(),
             ));
@@ -436,7 +518,7 @@ impl OrgIntel {
             "SELECT work_id,attempt_id,category,requested_action,prepared_state, \
                     resume_condition,assigned_to,owner_brief,brief_source_fingerprint \
              FROM owner_handoffs \
-             WHERE id=$1 AND work_id=$2 AND state='pending' FOR UPDATE",
+             WHERE id=$1 AND work_id=$2 AND state IN ('pending','preparing') FOR UPDATE",
         )
         .bind(id)
         .bind(candidate_work_id)

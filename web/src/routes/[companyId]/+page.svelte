@@ -3,26 +3,21 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
+	import AttentionDocument from '$lib/components/AttentionDocument.svelte';
 	import DesktopViewport from '$lib/components/DesktopViewport.svelte';
 	import InfoTip from '$lib/components/InfoTip.svelte';
 	import Composer from '$lib/primitives/Composer.svelte';
 	import ConversationMessage from '$lib/primitives/ConversationMessage.svelte';
-	import HoldApprove from '$lib/primitives/HoldApprove.svelte';
+	import AttentionCard from '$lib/components/AttentionCard.svelte';
 	import Markdown from '$lib/primitives/Markdown.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
 	import ConversationTurnDock from '$lib/primitives/ConversationTurnDock.svelte';
 	import CompanyOffice from '$lib/office/CompanyOffice.svelte';
-	import { mergeAdjacentAgentMessages, type AttentionItem } from '$lib/model/view';
+	import type { AttentionItem } from '$lib/model/view';
 	import { attentionQuery, conversationQuery } from '$lib/model/queries.svelte';
 	import { browserTabClientId } from '$lib/model/browserTab';
 	import { getBrowserStatus } from '$lib/model/company';
-	import {
-		approvalAction,
-		browserControl,
-		issueDesktopTicket,
-		issueReviewTicket,
-		resolveHandoffDecision
-	} from '$lib/model/attention';
+	import { browserControl, issueDesktopTicket, issueReviewTicket } from '$lib/model/attention';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 
@@ -35,7 +30,6 @@
 	const loaded = $derived(source.status !== 'unknown');
 
 	let error = $state('');
-	let acting = $state(false);
 	let focusItem = $state<AttentionItem | null>(null);
 	let desktopUrl = $state('');
 	let controller = $state<'observer' | 'owner'>('observer');
@@ -51,7 +45,6 @@
 	let reviewUrl = $state('');
 	let reviewError = $state('');
 	let reviewRequestKey = $state('');
-	let decisionDraft = $state('');
 	let focusAttachKey = $state('');
 
 	const items = $derived(view?.items ?? []);
@@ -84,9 +77,7 @@
 			focusItem?.runtimeAttach?.requestingActorDisplay ||
 			(requestingActor === 'exec' ? 'Exec' : requestingActor || 'Company context')
 	);
-	const visibleConversationMessages = $derived(
-		mergeAdjacentAgentMessages(leadConversation?.messages ?? [])
-	);
+	const visibleConversationMessages = $derived(leadConversation?.messages ?? []);
 	const conversationTurn = $derived(leadConversation?.activeTurn ?? null);
 	const attachmentHref = (attachment: { uploadId: string }) =>
 		`/api/companies/${encodeURIComponent(companyId)}/attachments/${encodeURIComponent(attachment.uploadId)}`;
@@ -111,6 +102,12 @@
 			return;
 		}
 		const discussionOnly = !focusedComputerId;
+		if (!discussionOnly && !item.runtimeAttach) {
+			// The source can withdraw a prepared step while this URL is open.
+			// Return to its current card rather than showing an unrelated desktop.
+			void closePreparedComputer(item);
+			return;
+		}
 		if (!discussionOnly && !clientId) return;
 		const key = discussionOnly
 			? `conversation:${item.id}`
@@ -216,60 +213,11 @@
 				blocker: 'Blocked',
 				opportunity: 'Opportunity',
 				contradiction: 'Conflicting evidence',
-				human_step: 'Your participation'
+				human_step: 'Your participation',
+				collaboration: 'Work together',
+				conversation: 'Needs you'
 			}[category] ?? category.replaceAll('_', ' ')
 		);
-	}
-
-	function partyOf(item: AttentionItem): string {
-		return item.source.party ?? '';
-	}
-
-	function actionFor(item: AttentionItem, id: string) {
-		return item.actions.find((action) => action.id === id);
-	}
-
-	function actionHeading(item: AttentionItem): string {
-		if (item.category === 'review') return 'Review, then choose';
-		if (item.category === 'human_step') return 'Complete this step';
-		if (item.category === 'approval') return 'Choose what happens';
-		return 'Your decision';
-	}
-
-	function holdLabel(label: string | undefined): string {
-		if (!label) return 'Hold to approve';
-		return `Hold to ${label.charAt(0).toLocaleLowerCase()}${label.slice(1)}`;
-	}
-
-	async function decide(item: AttentionItem, action: 'grant' | 'decline') {
-		const party = partyOf(item);
-		if (!party || acting) return;
-		acting = true;
-		error = '';
-		try {
-			await approvalAction(companyId, action, party);
-			await refresh();
-		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'The authority action failed.';
-		} finally {
-			acting = false;
-		}
-	}
-
-	async function recordDecision(item: AttentionItem) {
-		const resolution = decisionDraft.trim();
-		if (!resolution || acting) return;
-		acting = true;
-		error = '';
-		try {
-			await resolveHandoffDecision(companyId, item.source.reference, resolution);
-			decisionDraft = '';
-			await refresh();
-		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'The decision was not recorded.';
-		} finally {
-			acting = false;
-		}
 	}
 
 	function observedDesktopUrl(): string {
@@ -321,23 +269,6 @@
 		}
 	}
 
-	async function openReview(item: AttentionItem) {
-		if (item.category === 'review') {
-			await goto(`${baseHref}?review=${encodeURIComponent(item.id)}`);
-			return;
-		}
-		if (!clientId) return;
-		await goto(
-			`${baseHref}?item=${encodeURIComponent(item.id)}&computer=${encodeURIComponent(item.id)}`
-		);
-	}
-
-	async function talkToLead(item: AttentionItem) {
-		await goto(
-			`${baseHref}?item=${encodeURIComponent(item.id)}&conversation=${encodeURIComponent(item.id)}`
-		);
-	}
-
 	async function takeControl(silent = false) {
 		if (!focusItem || !clientId) return;
 		error = '';
@@ -385,13 +316,12 @@
 			.finally(() => (activityRenewing = false));
 	}
 
-	async function closePreparedComputer() {
-		const item = focusItem;
+	async function closePreparedComputer(item: AttentionItem | null = focusItem) {
 		if (controller === 'owner') await returnControl();
 		focusItem = null;
 		desktopUrl = '';
 		focusAttachKey = '';
-		await goto(item ? itemHref(item.id) : baseHref);
+		await goto(item ? itemHref(item.id) : baseHref, { replaceState: true });
 	}
 
 	async function sendMessage(event: SubmitEvent) {
@@ -556,7 +486,7 @@
 					class="btn small"
 					type="button"
 					title="Leaves this work-through view without resolving the handoff."
-					onclick={closePreparedComputer}
+					onclick={() => closePreparedComputer()}
 					>Leave {focusedComputerId ? 'computer' : 'discussion'}</button
 				>
 			</div>
@@ -656,13 +586,21 @@
 						{/each}
 					</div>
 				{/snippet}
-				<DesktopViewport
-					src={desktopUrl}
-					title="Live company browser"
-					offline={offlineDesktop}
-					onload={syncFocusedControl}
-					onactivity={desktopActivity}
-				/>
+				{#if focusItem.nativeDocument}
+					<AttentionDocument
+						{companyId}
+						request={focusItem.nativeDocument}
+						onresolved={() => void source.refresh()}
+					/>
+				{:else}
+					<DesktopViewport
+						src={desktopUrl}
+						title="Live company browser"
+						offline={offlineDesktop}
+						onload={syncFocusedControl}
+						onactivity={desktopActivity}
+					/>
+				{/if}
 			</div>
 		</div>
 	</div>
@@ -701,7 +639,7 @@
 							</span>
 							<strong class="attention-item-title">{item.title}</strong>
 							<span class="attention-item-action">
-								<span>Needs you:</span>
+								<span>{item.preparing ? 'Preparing:' : 'Needs you:'}</span>
 								{item.requestedAction} <span aria-hidden="true">→</span>
 							</span>
 						</a>
@@ -736,7 +674,17 @@
 				<span>All clear</span>
 			</button>
 			{#if selectedItem}
-				{@render attentionDetail(selectedItem)}
+				{#if selectedItem.nativeDocument}
+					{#key `${companyId}:${selectedItem.id}`}
+						<AttentionDocument
+							{companyId}
+							request={selectedItem.nativeDocument}
+							onresolved={() => void source.refresh()}
+						/>
+					{/key}
+				{:else}
+					{@render attentionDetail(selectedItem)}
+				{/if}
 			{:else if !loaded}
 				<!-- Deliberately nothing until the source answers. An empty pane for
 				     one round trip reads as loading; the zero-state hero reads as a
@@ -749,221 +697,140 @@
 {/if}
 
 {#snippet attentionDetail(item: AttentionItem)}
-	<div class="inbox-pane">
-		<article class="owner-folio category-{item.category}">
-			<div class="folio-edge" aria-hidden="true"></div>
-			<header class="folio-opening">
-				<div class="folio-heading">
-					<h1>{item.title}</h1>
-					<div class="folio-context">
-						<InfoTip
-							text={`${attentionKind(item.category)} from ${item.source.plane.replaceAll('_', ' ')}. Supporting source detail is available below.`}
-						/>
-						{#if item.deadline}<time>Decision needed by {item.deadline}</time>{/if}
-					</div>
-				</div>
-				<div class="folio-facts" aria-label="Decision context">
-					<section class="folio-fact">
-						<h2>What changed</h2>
-						<p>{item.whatHappened}</p>
-					</section>
-					<section class="folio-fact important">
-						<h2>Why it matters</h2>
-						<p>{item.whyItMatters}</p>
-					</section>
-				</div>
-				{#if item.uncertainty}
-					<div class="folio-uncertainty">
-						<strong>What is still uncertain</strong>
-						<p>{item.uncertainty}</p>
-						<InfoTip text="This unknown could change the recommendation." />
-					</div>
-				{/if}
-			</header>
-
-			<section class="folio-recommendation" aria-label="Recommendation">
-				<h2>The company recommends</h2>
-				<Markdown text={item.recommendation} />
-			</section>
-
-			<section class="folio-move" aria-label="Your next move">
-				<div class="folio-move-copy">
-					<h2>{actionHeading(item)}</h2>
-					<Markdown text={item.requestedAction} />
-				</div>
-				<div class="nc-actions" aria-label="Available actions">
-					{#each item.actions.filter((action) => action.href) as action (action.id)}
-						<div class="action-choice primary-choice">
-							<a class="btn small primary" href={action.href} target="_blank" rel="noreferrer"
-								>{action.label} ↗</a
-							>
-							{@render actionMeaning(action)}
-						</div>
-					{/each}
-					{#if item.category === 'approval'}
-						{@const grantAction = actionFor(item, 'grant')}
-						{@const declineAction = actionFor(item, 'decline')}
-						{#if grantAction}
-							<div class="action-choice primary-choice">
-								<form
-									onsubmit={(event) => {
-										event.preventDefault();
-										void decide(item, 'grant');
-									}}
-								>
-									<HoldApprove small label={acting ? 'Working…' : holdLabel(grantAction.label)} />
-								</form>
-								{@render actionMeaning(grantAction)}
-							</div>
-						{/if}
-						{#if declineAction}
-							<div class="action-choice">
-								<button
-									class="btn small danger"
-									type="button"
-									onclick={() => decide(item, 'decline')}
-									disabled={acting}
-								>
-									{declineAction.label}
-								</button>
-								{@render actionMeaning(declineAction)}
-							</div>
-						{/if}
-					{/if}
-					{#if item.actions.some((action) => action.id === 'record-decision')}
-						{@const recordAction = actionFor(item, 'record-decision')}
-						<div class="action-choice primary-choice">
-							<form
-								class="decision-response"
-								onsubmit={(event) => {
-									event.preventDefault();
-									void recordDecision(item);
-								}}
-							>
-								<label for="owner-decision">Write the decision in plain language</label>
-								<input
-									id="owner-decision"
-									bind:value={decisionDraft}
-									placeholder="For example: proceed with option A"
-									aria-label="Your decision"
-								/>
-								<button
-									class="btn small primary"
-									type="submit"
-									disabled={acting || !decisionDraft.trim()}
-								>
-									{acting ? 'Recording…' : 'Record this decision'}
-								</button>
-							</form>
-							{#if recordAction}{@render actionMeaning(recordAction)}{/if}
-						</div>
-					{/if}
-					{#if item.category === 'review'}
-						{@const openAction = actionFor(item, 'open-outcome')}
-						<div class="action-choice primary-choice">
-							<button class="btn small primary" type="button" onclick={() => openReview(item)}>
-								{openAction?.label ?? 'Review outcome'}
-							</button>
-							{#if openAction}{@render actionMeaning(openAction)}{/if}
-						</div>
-						<div class="review-choices" aria-label="Choices available after review">
-							<strong>After reviewing, choose one:</strong>
-							{#each item.actions.filter((action) => action.id === 'accept-review' || action.id === 'request-revision') as action (action.id)}
-								<div><span>{action.label}</span><small>{action.nextState}</small></div>
-							{/each}
-						</div>
-						{#if item.responsibleActor}
-							{@const chatAction = actionFor(item, 'chat-lead')}
-							<div class="action-choice quiet-choice">
-								<button class="btn small" type="button" onclick={() => talkToLead(item)}>
-									{chatAction?.label ?? `Work through this with ${item.responsibleActor.display}`}
-								</button>
-								{#if chatAction}{@render actionMeaning(chatAction)}{/if}
-							</div>
-						{/if}
-					{:else}
-						{#if item.actions.some((action) => action.id === 'open-outcome')}
-							{@const openAction = actionFor(item, 'open-outcome')}
-							<div class="action-choice">
-								<button class="btn small" type="button" onclick={() => openReview(item)}>
-									{openAction?.label ?? 'Open outcome'}
-								</button>
-								{#if openAction}{@render actionMeaning(openAction)}{/if}
-							</div>
-						{/if}
-						{#if item.responsibleActor && item.actions.some((action) => action.id === 'chat-lead')}
-							{@const chatAction = actionFor(item, 'chat-lead')}
-							<div class="action-choice quiet-choice">
-								<button class="btn small" type="button" onclick={() => talkToLead(item)}>
-									{chatAction?.label ?? `Work through this with ${item.responsibleActor.display}`}
-								</button>
-								{#if chatAction}{@render actionMeaning(chatAction)}{/if}
-							</div>
-						{/if}
-					{/if}
-				</div>
-				<div class="folio-wait">
-					<strong>If you do nothing</strong>
-					<p>{item.ifNoAction}</p>
-				</div>
-			</section>
-
-			<footer class="folio-provenance">
-				<div class="folio-credit">
-					<span>Prepared by</span>
-					<strong
-						>{item.briefAuthor?.display ??
-							item.responsibleActor?.display ??
-							'Source record'}</strong
-					>
-					{#if item.briefedAt}
-						<span class="folio-credit-separator" aria-hidden="true">·</span>
-						<time>{when(item.briefedAt)}</time>
-					{/if}
-				</div>
-				<InfoTip
-					text={`Brief status: ${item.briefStatus.replaceAll('-', ' ')}. The wording was prepared by the named accountable actor.`}
-				/>
-			</footer>
-
-			<details class="folio-evidence">
-				<summary title="Supporting evidence and source references">
-					<span class="evidence-chevron" aria-hidden="true">›</span>
-					<span>Evidence</span>
-					<small>· {item.evidence.length} item{item.evidence.length === 1 ? '' : 's'}</small>
-				</summary>
-				<div class="folio-evidence-body">
-					{#each item.evidence as evidence, evidenceIndex (`${evidence.kind}:${evidence.label}:${evidenceIndex}`)}
-						{#if evidence.content}
-							<div class="evidence-entry">
-								<div class="evidence-label mono">{evidence.label}</div>
-								<blockquote class="ib-quote">{evidence.content}</blockquote>
-							</div>
-						{:else if evidence.uri}
-							<a class="evidence-link" href={evidence.uri} target="_blank" rel="noreferrer">
-								{evidence.label} <span aria-hidden="true">↗</span>
-							</a>
-						{/if}
-					{/each}
-					<div class="source-ref mono">
-						SOURCE {item.source.kind} / {item.source.reference} · {item.canContinue
-							? 'work may continue'
-							: 'blocking'}
-					</div>
-				</div>
-			</details>
+	{#if item.source.kind === 'conversation_owner_need'}
+		<article class="conversation-request cockpit-pane">
+			<h1>{item.title}</h1>
+			<div class="request-message"><Markdown text={item.whatHappened} /></div>
+			<p class="request-need"><strong>{item.preparing ? 'Preparing' : 'Needs you'}</strong> {item.requestedAction}</p>
+			<a
+				class="btn small primary"
+				href={item.actions.find((action) => action.id === 'continue-conversation')?.href}
+				>Continue conversation →</a
+			>
 		</article>
-	</div>
-{/snippet}
+	{:else}
+		<div class="inbox-pane">
+			<article class="owner-folio category-{item.category}">
+				<div class="folio-edge" aria-hidden="true"></div>
+				<header class="folio-opening">
+					<div class="folio-heading">
+						<h1>{item.title}</h1>
+						<div class="folio-context">
+							<InfoTip
+								text={`${attentionKind(item.category)} from ${item.source.plane.replaceAll('_', ' ')}. Supporting source detail is available below.`}
+							/>
+							{#if item.deadline}<time>Decision needed by {item.deadline}</time>{/if}
+						</div>
+					</div>
+					<div class="folio-facts" aria-label="Decision context">
+						<section class="folio-fact">
+							<h2>What changed</h2>
+							<p>{item.whatHappened}</p>
+						</section>
+						<section class="folio-fact important">
+							<h2>Why it matters</h2>
+							<p>{item.whyItMatters}</p>
+						</section>
+					</div>
+					{#if item.uncertainty}
+						<div class="folio-uncertainty">
+							<strong>What is still uncertain</strong>
+							<p>{item.uncertainty}</p>
+							<InfoTip text="This unknown could change the recommendation." />
+						</div>
+					{/if}
+				</header>
 
-{#snippet actionMeaning(action: AttentionItem['actions'][number])}
-	<div class="action-meaning">
-		<p>{action.consequence}</p>
-		<small><span aria-hidden="true">Then:</span> {action.nextState}</small>
-	</div>
+				<section class="folio-recommendation" aria-label="Recommendation">
+					<h2>The company recommends</h2>
+					<Markdown text={item.recommendation} />
+				</section>
+
+				<div class="folio-card">
+					{#key `${companyId}:${item.id}`}<AttentionCard
+							{companyId}
+							{item}
+							showTitle={false}
+						/>{/key}
+				</div>
+
+				<footer class="folio-provenance">
+					<div class="folio-credit">
+						<span>Prepared by</span>
+						<strong
+							>{item.briefAuthor?.display ??
+								item.responsibleActor?.display ??
+								'Source record'}</strong
+						>
+						{#if item.briefedAt}
+							<span class="folio-credit-separator" aria-hidden="true">·</span>
+							<time>{when(item.briefedAt)}</time>
+						{/if}
+					</div>
+					<InfoTip
+						text={`Brief status: ${item.briefStatus.replaceAll('-', ' ')}. The wording was prepared by the named accountable actor.`}
+					/>
+				</footer>
+
+				<details class="folio-evidence">
+					<summary title="Supporting evidence and source references">
+						<span class="evidence-chevron" aria-hidden="true">›</span>
+						<span>Evidence</span>
+						<small>· {item.evidence.length} item{item.evidence.length === 1 ? '' : 's'}</small>
+					</summary>
+					<div class="folio-evidence-body">
+						{#each item.evidence as evidence, evidenceIndex (`${evidence.kind}:${evidence.label}:${evidenceIndex}`)}
+							{#if evidence.content}
+								<div class="evidence-entry">
+									<div class="evidence-label mono">{evidence.label}</div>
+									<blockquote class="ib-quote">{evidence.content}</blockquote>
+								</div>
+							{:else if evidence.uri}
+								<a class="evidence-link" href={evidence.uri} target="_blank" rel="noreferrer">
+									{evidence.label} <span aria-hidden="true">↗</span>
+								</a>
+							{/if}
+						{/each}
+						<div class="source-ref mono">
+							SOURCE {item.source.kind} / {item.source.reference} · {item.canContinue
+								? 'work may continue'
+								: 'blocking'}
+						</div>
+					</div>
+				</details>
+			</article>
+		</div>
+	{/if}
 {/snippet}
 
 <style>
+	.folio-card {
+		padding: 0 var(--space-5) var(--space-5);
+	}
+	.conversation-request {
+		margin: 16px;
+		padding: 24px;
+		min-width: 0;
+	}
+	.conversation-request h1 {
+		margin: 0 0 20px;
+		font-size: var(--t-title);
+	}
+	.request-message {
+		max-width: 72ch;
+		overflow-wrap: anywhere;
+	}
+	.request-need {
+		margin: 20px 0;
+		padding-top: 16px;
+		border-top: 1px solid var(--border);
+		overflow-wrap: anywhere;
+	}
+	.request-need strong {
+		color: var(--intent-authority);
+		margin-right: 10px;
+	}
+
 	.review-canvas {
 		width: 100%;
 		height: 100%;
@@ -1173,13 +1040,6 @@
 	.folio-opening {
 		padding: clamp(26px, 4vw, 42px) clamp(26px, 4vw, 46px) clamp(22px, 3vw, 32px);
 	}
-	.folio-provenance,
-	.folio-move {
-		display: flex;
-		align-items: flex-start;
-		justify-content: space-between;
-		gap: 18px;
-	}
 	.folio-heading {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) auto;
@@ -1268,188 +1128,8 @@
 			color-mix(in srgb, var(--intent-feedback-soft) 34%, white)
 		);
 	}
-	.folio-recommendation h2,
-	.folio-move-copy h2 {
-		margin: 0;
-		font-size: var(--t-head);
-		font-weight: 600;
-		line-height: 1.4;
-	}
 	.folio-recommendation h2 {
 		color: var(--intent-feedback);
-	}
-	.folio-recommendation :global(.md),
-	.folio-move-copy :global(.md) {
-		max-width: 700px;
-		font-size: var(--t-head);
-		font-weight: 400;
-		line-height: 1.55;
-		color: var(--ink);
-	}
-	.folio-recommendation :global(.md strong),
-	.folio-move-copy :global(.md strong) {
-		font-weight: inherit;
-	}
-	.folio-recommendation :global(.md h1),
-	.folio-recommendation :global(.md h2),
-	.folio-recommendation :global(.md h3),
-	.folio-recommendation :global(.md h4),
-	.folio-recommendation :global(.md h5),
-	.folio-recommendation :global(.md h6),
-	.folio-move-copy :global(.md h1),
-	.folio-move-copy :global(.md h2),
-	.folio-move-copy :global(.md h3),
-	.folio-move-copy :global(.md h4),
-	.folio-move-copy :global(.md h5),
-	.folio-move-copy :global(.md h6) {
-		font-size: inherit;
-		font-weight: 600;
-	}
-	.folio-recommendation :global(.md p),
-	.folio-move-copy :global(.md p) {
-		margin: 0;
-	}
-	.folio-recommendation :global(.md p + p),
-	.folio-recommendation :global(.md :is(ul, ol)),
-	.folio-move-copy :global(.md p + p),
-	.folio-move-copy :global(.md :is(ul, ol)) {
-		margin-top: var(--space-2);
-	}
-	.folio-move {
-		display: grid;
-		grid-template-areas:
-			'intro actions'
-			'wait actions';
-		grid-template-columns: minmax(220px, 0.72fr) minmax(320px, 1.28fr);
-		align-items: start;
-		gap: var(--space-4) clamp(24px, 4vw, 44px);
-		padding: 24px clamp(26px, 4vw, 46px) 28px;
-		background: rgba(255, 255, 255, 0.48);
-	}
-	.folio-move-copy {
-		grid-area: intro;
-		min-width: 0;
-		max-width: 620px;
-	}
-	.folio-move-copy :global(.md) {
-		margin-top: var(--space-2);
-	}
-	.folio-wait {
-		grid-area: wait;
-		margin: 0;
-		padding-top: var(--space-3);
-		border-top: 1px solid var(--border);
-		font-size: var(--t-body);
-		font-weight: 400;
-		line-height: 1.5;
-		color: var(--text-secondary);
-	}
-	.folio-wait strong {
-		display: block;
-		margin-bottom: 3px;
-		color: var(--ink);
-		font-weight: 600;
-	}
-	.folio-wait p {
-		margin: 0;
-	}
-	.owner-folio .nc-actions {
-		grid-area: actions;
-		width: 100%;
-		display: grid;
-		grid-template-columns: minmax(0, 1fr);
-		gap: 10px;
-		margin: 0;
-	}
-	.action-choice {
-		min-width: 0;
-		display: grid;
-		gap: 8px;
-		padding: 12px;
-		border: 1px solid var(--border-strong);
-		border-radius: var(--radius-control);
-		background: color-mix(in srgb, var(--surface) 88%, transparent);
-		box-shadow: var(--bevel);
-	}
-	.action-choice.primary-choice {
-		border-color: color-mix(in srgb, var(--folio-tone) 34%, var(--border-strong));
-		background: color-mix(in srgb, var(--folio-tone) 5%, var(--surface));
-	}
-	.action-choice.quiet-choice {
-		background: color-mix(in srgb, var(--surface-alt) 72%, transparent);
-	}
-	.action-choice > :is(button, a, form),
-	.action-choice > form > button,
-	.action-choice > form > :global(.hold-approve) {
-		width: 100%;
-	}
-	.action-meaning {
-		display: grid;
-		gap: 4px;
-	}
-	.action-meaning p,
-	.action-meaning small {
-		margin: 0;
-		font-size: var(--t-body);
-		font-weight: 400;
-		line-height: 1.42;
-		color: var(--text-secondary);
-	}
-	.action-meaning small {
-		color: var(--text-tertiary);
-	}
-	.action-meaning small span {
-		color: var(--ink);
-		font-weight: 600;
-	}
-	.review-choices {
-		display: grid;
-		gap: 7px;
-		padding: 10px 12px;
-		border-left: 2px solid var(--folio-tone);
-		background: var(--surface-alt);
-	}
-	.review-choices > strong {
-		font-size: var(--t-body);
-	}
-	.review-choices > div {
-		display: grid;
-		grid-template-columns: 116px minmax(0, 1fr);
-		gap: var(--space-2);
-	}
-	.review-choices span {
-		font-size: var(--t-body);
-		font-weight: 600;
-		color: var(--ink);
-	}
-	.review-choices small {
-		font-size: var(--t-body);
-		line-height: 1.4;
-		color: var(--text-secondary);
-	}
-	.decision-response {
-		display: grid;
-		gap: 7px;
-	}
-	.decision-response label {
-		font-size: var(--t-body);
-		font-weight: 600;
-		color: var(--ink);
-	}
-	.decision-response input {
-		width: 100%;
-		min-width: 0;
-		padding: 7px 9px;
-		border: 1px solid var(--control-edge);
-		border-radius: var(--radius-control);
-		background: var(--surface);
-		color: var(--ink);
-		font: var(--t-body) var(--font-ui);
-		box-shadow: var(--control-depth-pressed);
-	}
-	.decision-response input:focus-visible {
-		outline: 3px solid color-mix(in srgb, var(--surface-attention) 28%, transparent);
-		outline-offset: 2px;
 	}
 	.folio-provenance {
 		display: flex;
@@ -1728,13 +1408,6 @@
 		line-height: 1.55;
 	}
 	@container (max-width: 700px) {
-		.folio-move {
-			grid-template-areas:
-				'intro'
-				'actions'
-				'wait';
-			grid-template-columns: minmax(0, 1fr);
-		}
 		.folio-fact,
 		.folio-uncertainty {
 			grid-template-columns: minmax(0, 1fr);

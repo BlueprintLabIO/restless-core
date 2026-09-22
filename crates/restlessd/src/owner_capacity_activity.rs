@@ -287,6 +287,11 @@ async fn observe_daemon(
         .await
         .map_err(|error| CapacityActivityFailure::Unavailable(error.into()))?
         .is_empty()
+        || !org
+            .actors_owing_document_mentions()
+            .await
+            .map_err(|error| CapacityActivityFailure::Unavailable(error.into()))?
+            .is_empty()
     {
         protected_kinds.push("mention");
     }

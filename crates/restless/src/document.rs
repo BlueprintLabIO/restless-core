@@ -25,26 +25,9 @@ pub(crate) enum DocumentCommand {
     Create {
         #[arg(long)]
         title: String,
-        #[arg(
-            long,
-            default_value = "freeform",
-            value_parser = [
-                "brief",
-                "plan",
-                "decision_note",
-                "report",
-                "review",
-                "handbook",
-                "operating_note",
-                "freeform"
-            ]
-        )]
+        #[arg(long, default_value="freeform", value_parser=["brief","plan","decision_note","report","review","handbook","operating_note","freeform"])]
         kind: String,
-        #[arg(
-            long,
-            default_value = "participants",
-            value_parser = ["company", "participants"]
-        )]
+        #[arg(long, default_value="participants", value_parser=["company","participants"])]
         visibility: String,
         #[arg(
             long,
@@ -57,6 +40,13 @@ pub(crate) enum DocumentCommand {
         #[arg(long, default_value = "Initial document")]
         reason: String,
         /// Stable UUID; reuse the same key and content on retry.
+        #[arg(long)]
+        key: String,
+    },
+    /// Ask the owner to co-edit this document in Attention; share edit access first.
+    RequestCollaboration {
+        document: String,
+        summary: String,
         #[arg(long)]
         key: String,
     },
@@ -163,6 +153,8 @@ CONTENT AND CONFLICTS
         body: String,
         #[arg(long)]
         block: Option<String>,
+        #[arg(long = "mention")]
+        mentions: Vec<String>,
         #[arg(long)]
         key: String,
     },
@@ -172,6 +164,8 @@ CONTENT AND CONFLICTS
         body: String,
         #[arg(long)]
         parent: Option<String>,
+        #[arg(long = "mention")]
+        mentions: Vec<String>,
         #[arg(long)]
         key: String,
     },
@@ -210,6 +204,13 @@ CONTENT AND CONFLICTS
 impl DocumentCommand {
     pub(crate) fn request(self, company: String) -> Result<Value> {
         let operation = match self {
+            Self::RequestCollaboration {
+                document,
+                summary,
+                key,
+            } => {
+                json!({"operation":"request_collaboration","document":document,"summary":summary,"key":key})
+            }
             Self::List { cursor, archived } => {
                 json!({"operation":"list","cursor":decode_cursor(cursor)?,"archived":archived})
             }
@@ -230,21 +231,11 @@ impl DocumentCommand {
                 let content = match (markdown_file, content_json_file) {
                     (Some(path), None) => json!({"format":"markdown","body":content_file(path)?}),
                     (None, Some(path)) => {
-                        let body = serde_json::from_str::<Value>(&content_file(path)?)
-                            .context("parse document JSON")?;
-                        json!({"format":"json","body":body})
+                        json!({"format":"json","body":serde_json::from_str::<Value>(&content_file(path)?).context("parse document JSON")?})
                     }
                     _ => bail!("choose exactly one document content file"),
                 };
-                json!({
-                    "operation": "create",
-                    "title": title,
-                    "kind": kind,
-                    "visibility": visibility,
-                    "content": content,
-                    "reason": reason,
-                    "key": key,
-                })
+                json!({"operation":"create","title":title,"kind":kind,"visibility":visibility,"content":content,"reason":reason,"key":key})
             }
             Self::Read { document } => json!({"operation":"read","document":document}),
             Self::Edit {
@@ -295,14 +286,7 @@ impl DocumentCommand {
                 revision,
                 key,
             } => {
-                json!({
-                    "operation": "share",
-                    "document": document,
-                    "member": member,
-                    "access": access,
-                    "revision": revision,
-                    "key": key,
-                })
+                json!({"operation":"share","document":document,"member":member,"access":access,"revision":revision,"key":key})
             }
             Self::Unshare {
                 document,
@@ -326,18 +310,20 @@ impl DocumentCommand {
                 document,
                 body,
                 block,
+                mentions,
                 key,
             } => {
-                json!({"operation":"comment","document":document,"body":body,"block":block,"key":key})
+                json!({"operation":"comment","document":document,"body":body,"block":block,"mentions":mentions,"key":key})
             }
             Self::Reply {
                 document,
                 thread,
                 body,
                 parent,
+                mentions,
                 key,
             } => {
-                json!({"operation":"reply","document":document,"thread":thread,"body":body,"parent":parent,"key":key})
+                json!({"operation":"reply","document":document,"thread":thread,"body":body,"parent":parent,"mentions":mentions,"key":key})
             }
             Self::Resolve {
                 document,
@@ -363,7 +349,7 @@ impl DocumentCommand {
                     "expected_document_version":document_revision,"named_version_id":named_version,
                     "document_work_id":work,"document_attempt_id":attempt,"expected_work_revision":work_revision,
                     "reviewer_actor_id":reviewer,"review_summary":summary,"document_command_id":key,
-                }));
+                }))
             }
         };
         Ok(json!({"cmd":"document-operation","company":company,"document_operation":operation}))
@@ -385,4 +371,158 @@ fn content_file(path: PathBuf) -> Result<String> {
         bail!("document content file must contain 1 to {LIMIT} UTF-8 bytes");
     }
     Ok(raw)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+    #[derive(Parser)]
+    struct Cli {
+        #[command(subcommand)]
+        command: DocumentCommand,
+    }
+
+    #[test]
+    fn creation_requires_one_content_file_and_retry_identity() {
+        for args in [
+            vec!["doc", "create", "--title", "Brief", "--key", "stable"],
+            vec![
+                "doc",
+                "create",
+                "--title",
+                "Brief",
+                "--markdown-file",
+                "draft.md",
+            ],
+            vec![
+                "doc",
+                "create",
+                "--title",
+                "Brief",
+                "--key",
+                "stable",
+                "--markdown-file",
+                "draft.md",
+                "--content-json-file",
+                "draft.json",
+            ],
+        ] {
+            assert!(Cli::try_parse_from(args).is_err());
+        }
+        assert!(Cli::try_parse_from([
+            "doc",
+            "create",
+            "--title",
+            "Brief",
+            "--key",
+            "stable",
+            "--markdown-file",
+            "draft.md"
+        ])
+        .is_ok());
+    }
+
+    #[test]
+    fn checkpoint_requires_observed_body_and_retry_identity() {
+        let path =
+            std::env::temp_dir().join(format!("restless-checkpoint-{}.json", std::process::id()));
+        let content = json!({"type":"doc","content":[]});
+        std::fs::write(
+            &path,
+            json!({"checkpoint_id":"observed-version","content_json":content,"blocks":[]})
+                .to_string(),
+        )
+        .unwrap();
+        let request = DocumentCommand::Checkpoint {
+            document: "doc-id".into(),
+            snapshot_file: path.clone(),
+            reason: "A checkpoint".into(),
+            key: "stable-key".into(),
+        }
+        .request("acme_test".into())
+        .unwrap();
+        assert_eq!(
+            request["document_operation"]["checkpoint"],
+            "observed-version"
+        );
+        assert_eq!(request["document_operation"]["content"], content);
+        assert_eq!(request["document_operation"]["key"], "stable-key");
+        assert!(request.get("actor").is_none());
+        std::fs::write(&path, json!({"named_version":{}}).to_string()).unwrap();
+        assert!(DocumentCommand::Checkpoint {
+            document: "doc-id".into(),
+            snapshot_file: path.clone(),
+            reason: "Invalid input".into(),
+            key: "stable-key".into(),
+        }
+        .request("acme_test".into())
+        .is_err());
+        std::fs::remove_file(path).unwrap();
+        assert!(Cli::try_parse_from([
+            "doc",
+            "checkpoint",
+            "document",
+            "--snapshot-file",
+            "live.json",
+            "--reason",
+            "Observed draft"
+        ])
+        .is_err());
+    }
+
+    #[test]
+    fn review_scope_and_reply_return_path_survive_cli_serialization() {
+        let reply = Cli::try_parse_from([
+            "doc",
+            "reply",
+            "document",
+            "thread",
+            "A reply",
+            "--parent",
+            "comment",
+            "--mention",
+            "alice",
+            "--key",
+            "stable",
+        ])
+        .unwrap()
+        .command
+        .request("acme_test".into())
+        .unwrap();
+        assert_eq!(reply["document_operation"]["parent"], "comment");
+        assert_eq!(reply["document_operation"]["thread"], "thread");
+        assert_eq!(reply["document_operation"]["mentions"], json!(["alice"]));
+        assert!(reply.get("actor").is_none());
+        let review = Cli::try_parse_from([
+            "doc",
+            "request-review",
+            "--document",
+            "document",
+            "--document-revision",
+            "3",
+            "--named-version",
+            "version",
+            "--work",
+            "work",
+            "--attempt",
+            "attempt",
+            "--work-revision",
+            "7",
+            "--reviewer",
+            "owner",
+            "--summary",
+            "Review this",
+            "--key",
+            "stable",
+        ])
+        .unwrap()
+        .command
+        .request("acme_test".into())
+        .unwrap();
+        assert_eq!(review["cmd"], "document-review-request");
+        assert_eq!(review["document_attempt_id"], "attempt");
+        assert_eq!(review["expected_work_revision"], 7);
+        assert_eq!(review["document_command_id"], "stable");
+    }
 }

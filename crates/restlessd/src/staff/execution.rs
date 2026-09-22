@@ -19,7 +19,7 @@ use super::context::{actor_posture, workspace_instruction};
 pub(super) enum StaffTurnKind {
     Work,
     OwnerConversation,
-    RoomMention,
+    FocusedMention,
 }
 
 impl StaffTurnKind {
@@ -191,7 +191,7 @@ pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcom
                     .current_cognitive_model_invocation_source(&run.actor, false)
                     .await?
             }
-            StaffTurnKind::RoomMention => {
+            StaffTurnKind::FocusedMention => {
                 run.org
                     .current_cognitive_model_invocation_source(&run.actor, true)
                     .await?
@@ -520,6 +520,10 @@ fn model_invocation_command_id(
         restless_orgintel::ModelInvocationSource::OwnerConversation {
             cognitive_lease_token,
         } => format!("owner_conversation:{cognitive_lease_token}"),
+        restless_orgintel::ModelInvocationSource::DocumentMention {
+            cognitive_lease_token,
+            mention_id,
+        } => format!("document_mention:{cognitive_lease_token}:{mention_id}"),
         restless_orgintel::ModelInvocationSource::RoomMention {
             cognitive_lease_token,
             mention_id,
@@ -1045,7 +1049,7 @@ async fn run_staff(
     let assignment = match turn_kind {
         StaffTurnKind::Work => "assigned one claimed Work Attempt",
         StaffTurnKind::OwnerConversation => "woken for a bounded owner conversation",
-        StaffTurnKind::RoomMention => "woken to answer one focused Room mention",
+        StaffTurnKind::FocusedMention => "woken to answer one focused collaboration mention",
     };
     let posture = actor_posture(accountable_lead);
     let workspace = workspace_instruction(&workdir, turn_kind.is_conversation());
@@ -1063,7 +1067,7 @@ async fn run_staff(
         ending = match turn_kind {
             StaffTurnKind::Work => "The session ends when you stop writing; you will then be asked for a decision envelope.",
             StaffTurnKind::OwnerConversation => "After using any tools you need, end with the complete owner-facing reply and its required intent marker. Do not narrate private reasoning in that reply.",
-            StaffTurnKind::RoomMention => "After using any tools you need, end with one plain answer for the same Room Thread. Do not address the owner and do not include a `restless-intent` marker; the Runtime persists the exact final answer.",
+            StaffTurnKind::FocusedMention => "After using any tools you need, end with one plain answer for the same collaboration thread. Do not address the owner and do not include a `restless-intent` marker; the Runtime persists the exact final answer.",
         },
     );
     let drive = StaffDrive {

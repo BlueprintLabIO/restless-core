@@ -394,8 +394,8 @@ pub async fn dispatch_claimed_work(
     claimed: ClaimedWork,
 ) -> Result<()> {
     let actor = claimed.work.owner_id.clone();
-    let effective_config=config.for_agent(&actor);
-    let config=&effective_config;
+    let effective_config = config.for_agent(&actor);
+    let config = &effective_config;
     anyhow::ensure!(
         config.has_effective_model_route(config.worker_harness),
         "Choose an intelligence provider and model in Company → Intelligence provider before starting an agent."
@@ -931,6 +931,7 @@ mod tests {
     fn immediate_team_conversation_prompt_preserves_the_execution_boundary() {
         let internal = conversation_turn_prompt(
             "message from world-builder",
+            true,
             &[],
             &[],
             false,
@@ -950,6 +951,7 @@ mod tests {
 
         let owner = conversation_turn_prompt(
             "message from owner",
+            true,
             &["- owner message 4: prepare review".into()],
             &[],
             true,

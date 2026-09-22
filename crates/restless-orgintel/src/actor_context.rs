@@ -209,6 +209,8 @@ pub struct ActorCheckpointRow {
     pub work_id: Option<Uuid>,
     pub attempt_id: Option<Uuid>,
     pub focused_mention_id: Option<Uuid>,
+    #[serde(default)]
+    pub focused_document_mention_id: Option<Uuid>,
     pub body: ActorCheckpointBody,
     pub recorded_at: DateTime<Utc>,
 }
@@ -265,6 +267,7 @@ pub enum ActorContextFocus {
     General,
     WorkAttempt { work_id: Uuid, attempt_id: Uuid },
     RoomMention { mention_id: Uuid },
+    DocumentMention { mention_id: Uuid },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -283,6 +286,15 @@ pub enum ActorContextFocusProjection {
         attempt_no: i32,
         attempt_state: WorkAttemptState,
         input_fingerprint: String,
+    },
+    DocumentMention {
+        mention_id: Uuid,
+        document_id: Uuid,
+        thread_id: Uuid,
+        comment_id: Uuid,
+        from_actor_id: String,
+        source_trust: ActorContextSourceTrust,
+        content_grants_authority: bool,
     },
     RoomMention {
         mention_id: Uuid,
@@ -312,6 +324,12 @@ pub enum ActorContextReturnPath {
     WorkAttempt {
         work_id: Uuid,
         attempt_id: Uuid,
+    },
+    DocumentThread {
+        document_id: Uuid,
+        thread_id: Uuid,
+        reply_to_comment_id: Uuid,
+        resolves_mention_id: Uuid,
     },
     RoomThread {
         room_id: Uuid,
@@ -349,6 +367,7 @@ struct CheckpointDbRow {
     work_id: Option<Uuid>,
     attempt_id: Option<Uuid>,
     focused_mention_id: Option<Uuid>,
+    focused_document_mention_id: Option<Uuid>,
     body: serde_json::Value,
     recorded_at: DateTime<Utc>,
 }
@@ -681,13 +700,14 @@ fn checkpoint_row(row: CheckpointDbRow) -> Result<ActorCheckpointRow> {
         work_id: row.work_id,
         attempt_id: row.attempt_id,
         focused_mention_id: row.focused_mention_id,
+        focused_document_mention_id: row.focused_document_mention_id,
         body,
         recorded_at: row.recorded_at,
     })
 }
 
 const CHECKPOINT_SELECT: &str = "id,actor_id,checkpoint_version,schema_version,client_command_id,\
- client_payload_sha256,session_kind,work_id,attempt_id,focused_mention_id,body,recorded_at";
+ client_payload_sha256,session_kind,work_id,attempt_id,focused_mention_id,focused_document_mention_id,body,recorded_at";
 
 const SOURCE_SELECT: &str =
     "ordinal,epistemic_kind,source_kind,source_trust,source_author_actor_id,\
@@ -1184,6 +1204,7 @@ async fn checkpoint_view_in_tx(
 async fn lock_document_sources_before_actor(
     tx: &mut Transaction<'_, Postgres>,
     sources: &[NewActorCheckpointSource],
+    focused_document: Option<Uuid>,
 ) -> Result<()> {
     let mut document_ids = sources
         .iter()
@@ -1192,6 +1213,7 @@ async fn lock_document_sources_before_actor(
             _ => None,
         })
         .collect::<Vec<_>>();
+    document_ids.extend(focused_document);
     document_ids.sort_unstable();
     document_ids.dedup();
     for document_id in document_ids {
@@ -1229,7 +1251,16 @@ impl OrgIntel {
         );
 
         let mut tx = self.pool.begin().await?;
-        lock_document_sources_before_actor(&mut tx, &sources).await?;
+        let focused_document: Option<Uuid> = if let ActorCheckpointSession::CognitiveSession {
+            lease_token,
+        } = request.session
+        {
+            sqlx::query_scalar("SELECT m.document_id FROM actor_cognitive_leases l JOIN native_document_mentions m ON m.id=l.focused_document_mention_id WHERE l.actor_id=$1 AND l.lease_token=$2")
+                .bind(&actor_id).bind(lease_token).fetch_optional(&mut *tx).await?
+        } else {
+            None
+        };
+        lock_document_sources_before_actor(&mut tx, &sources, focused_document).await?;
         let actor_class = sqlx::query_scalar::<_, String>(
             "SELECT actor_class FROM actors WHERE id=$1 AND retired_at IS NULL FOR UPDATE",
         )
@@ -1263,52 +1294,54 @@ impl OrgIntel {
             return Ok(ActorCheckpointWriteResult { checkpoint, created: false });
         }
 
-        let (session_kind, work_id, attempt_id, focused_mention_id) = match request.session {
-            ActorCheckpointSession::WorkAttempt {
-                work_id,
-                attempt_id,
-            } => {
-                let row = sqlx::query(
-                    "SELECT attempt.actor_id,attempt.state,attempt.work_id,\
+        let (session_kind, work_id, attempt_id, focused_mention_id, focused_document_mention_id) =
+            match request.session {
+                ActorCheckpointSession::WorkAttempt {
+                    work_id,
+                    attempt_id,
+                } => {
+                    let row = sqlx::query(
+                        "SELECT attempt.actor_id,attempt.state,attempt.work_id,\
                             attempt.revision AS attempt_revision,work.revision AS work_revision,\
                             work.status AS work_status \
                      FROM work_attempts attempt JOIN work ON work.id=attempt.work_id \
                      WHERE attempt.id=$1 AND work.id=$2 FOR SHARE OF attempt,work",
-                )
-                .bind(attempt_id)
-                .bind(work_id)
-                .fetch_optional(&mut *tx)
-                .await?
-                .ok_or_else(|| {
-                    OrgIntelError::InvalidContext(
-                        "checkpoint Work/Attempt source does not exist".into(),
                     )
-                })?;
-                let attempt_actor: String = row.get("actor_id");
-                let state: WorkAttemptState = row.get("state");
-                let attempt_revision: i64 = row.get("attempt_revision");
-                let work_revision: i64 = row.get("work_revision");
-                let work_status: WorkStatus = row.get("work_status");
-                if attempt_actor != actor_id
-                    || state != WorkAttemptState::Running
-                    || attempt_revision != work_revision
-                    || work_status != WorkStatus::Active
-                {
-                    return Err(OrgIntelError::ContextConflict(
+                    .bind(attempt_id)
+                    .bind(work_id)
+                    .fetch_optional(&mut *tx)
+                    .await?
+                    .ok_or_else(|| {
+                        OrgIntelError::InvalidContext(
+                            "checkpoint Work/Attempt source does not exist".into(),
+                        )
+                    })?;
+                    let attempt_actor: String = row.get("actor_id");
+                    let state: WorkAttemptState = row.get("state");
+                    let attempt_revision: i64 = row.get("attempt_revision");
+                    let work_revision: i64 = row.get("work_revision");
+                    let work_status: WorkStatus = row.get("work_status");
+                    if attempt_actor != actor_id
+                        || state != WorkAttemptState::Running
+                        || attempt_revision != work_revision
+                        || work_status != WorkStatus::Active
+                    {
+                        return Err(OrgIntelError::ContextConflict(
                         "a Work checkpoint needs this Actor's exact current running Work revision"
                             .into(),
                     ));
+                    }
+                    (
+                        ActorCheckpointSessionKind::WorkAttempt,
+                        Some(work_id),
+                        Some(attempt_id),
+                        None,
+                        None,
+                    )
                 }
-                (
-                    ActorCheckpointSessionKind::WorkAttempt,
-                    Some(work_id),
-                    Some(attempt_id),
-                    None,
-                )
-            }
-            ActorCheckpointSession::CognitiveSession { lease_token } => {
-                let focus = sqlx::query_scalar::<_, Option<Uuid>>(
-                    "SELECT focused_mention_id FROM actor_cognitive_leases \
+                ActorCheckpointSession::CognitiveSession { lease_token } => {
+                    let focus = sqlx::query_as::<_, (Option<Uuid>, Option<Uuid>)>(
+                    "SELECT focused_mention_id,focused_document_mention_id FROM actor_cognitive_leases \
                      WHERE actor_id=$1 AND lease_token=$2 AND claimed_until>now() \
                        AND revoked_at IS NULL FOR SHARE",
                 )
@@ -1322,14 +1355,27 @@ impl OrgIntel {
                             .into(),
                     )
                 })?;
-                (
-                    ActorCheckpointSessionKind::CognitiveSession,
-                    None,
-                    None,
-                    focus,
-                )
-            }
-        };
+                    if let Some(mention_id) = focus.1 {
+                        let mention = crate::documents::current_document_mention_context(
+                            &mut tx, mention_id, &actor_id,
+                        )
+                        .await
+                        .map_err(|error| OrgIntelError::InvalidContext(error.to_string()))?;
+                        if focused_document != Some(mention.mention.document_id) {
+                            return Err(OrgIntelError::ContextConflict(
+                                "document mention focus changed".into(),
+                            ));
+                        }
+                    }
+                    (
+                        ActorCheckpointSessionKind::CognitiveSession,
+                        None,
+                        None,
+                        focus.0,
+                        focus.1,
+                    )
+                }
+            };
 
         let current_version: i64 = sqlx::query_scalar(
             "SELECT COALESCE(MAX(checkpoint_version),0) FROM actor_context_checkpoints WHERE actor_id=$1",
@@ -1355,8 +1401,8 @@ impl OrgIntel {
         let inserted: CheckpointDbRow = sqlx::query_as(&format!(
             "INSERT INTO actor_context_checkpoints \
              (id,actor_id,checkpoint_version,schema_version,client_command_id,client_payload_sha256,\
-              session_kind,work_id,attempt_id,focused_mention_id,body) \
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING {CHECKPOINT_SELECT}"
+              session_kind,work_id,attempt_id,focused_mention_id,body,focused_document_mention_id) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING {CHECKPOINT_SELECT}"
         ))
         .bind(checkpoint_id)
         .bind(&actor_id)
@@ -1369,6 +1415,7 @@ impl OrgIntel {
         .bind(attempt_id)
         .bind(focused_mention_id)
         .bind(body_json)
+        .bind(focused_document_mention_id)
         .fetch_one(&mut *tx)
         .await?;
 
@@ -1403,6 +1450,7 @@ impl OrgIntel {
             "work_id": work_id,
             "attempt_id": attempt_id,
             "focused_mention_id": focused_mention_id,
+            "focused_document_mention_id": focused_document_mention_id,
             "source_count": sources.len(),
         }))
         .execute(&mut *tx)
@@ -1532,6 +1580,17 @@ impl OrgIntel {
             )));
         }
         let mut tx = self.pool.begin().await?;
+        let document_context = if let ActorContextFocus::DocumentMention { mention_id } =
+            requested_focus
+        {
+            Some(
+                crate::documents::current_document_mention_context(&mut tx, mention_id, actor_id)
+                    .await
+                    .map_err(|error| OrgIntelError::InvalidContext(error.to_string()))?,
+            )
+        } else {
+            None
+        };
         let actor_row = sqlx::query(
             "SELECT id,actor_class,display,role,team_id FROM actors \
              WHERE id=$1 AND retired_at IS NULL FOR SHARE",
@@ -1554,7 +1613,7 @@ impl OrgIntel {
             _,
             _,
             _,
-            Option<(Option<Uuid>, Option<Uuid>)>,
+            Option<(Option<Uuid>, Option<Uuid>, Option<Uuid>)>,
         ) = match requested_focus {
             ActorContextFocus::General => (
                 ActorContextFocusProjection::General,
@@ -1625,7 +1684,36 @@ impl OrgIntel {
                         },
                         ActorContextSourceRef::Attempt { attempt_id },
                     ],
-                    Some((Some(work_id), None)),
+                    Some((Some(work_id), None, None)),
+                )
+            }
+            ActorContextFocus::DocumentMention { mention_id } => {
+                let context =
+                    document_context.expect("document focus was authenticated before Actor lock");
+                let document_id = context.mention.document_id;
+                let thread_id = context.mention.thread_id;
+                let comment_id = context.mention.comment_id;
+                (
+                    ActorContextFocusProjection::DocumentMention {
+                        mention_id,
+                        document_id,
+                        thread_id,
+                        comment_id,
+                        from_actor_id: context.comment.author_actor_id,
+                        source_trust: ActorContextSourceTrust::AuthenticatedActorInput,
+                        content_grants_authority: false,
+                    },
+                    ActorContextReturnPath::DocumentThread {
+                        document_id,
+                        thread_id,
+                        reply_to_comment_id: comment_id,
+                        resolves_mention_id: mention_id,
+                    },
+                    vec![ActorContextSourceRef::Document {
+                        document_id,
+                        named_version_id: context.thread.anchored_version_id,
+                    }],
+                    Some((None, None, Some(mention_id))),
                 )
             }
             ActorContextFocus::RoomMention { mention_id } => {
@@ -1700,16 +1788,17 @@ impl OrgIntel {
                         resolves_mention_id: mention_id,
                     },
                     anchors,
-                    Some((None, Some(mention_id))),
+                    Some((None, Some(mention_id), None)),
                 )
             }
         };
 
         let checkpoint_query = match checkpoint_filter {
-            None => format!("SELECT {CHECKPOINT_SELECT} FROM actor_context_checkpoints WHERE actor_id=$1 AND session_kind='cognitive_session' AND focused_mention_id IS NULL ORDER BY checkpoint_version DESC LIMIT 1"),
-            Some((Some(_), None)) => format!("SELECT {CHECKPOINT_SELECT} FROM actor_context_checkpoints WHERE actor_id=$1 AND work_id=$2 ORDER BY checkpoint_version DESC LIMIT 1"),
-            Some((None, Some(_))) => format!("SELECT {CHECKPOINT_SELECT} FROM actor_context_checkpoints WHERE actor_id=$1 AND focused_mention_id=$2 ORDER BY checkpoint_version DESC LIMIT 1"),
-            Some((None, None)) | Some((Some(_), Some(_))) => unreachable!("focus filter shape"),
+            None => format!("SELECT {CHECKPOINT_SELECT} FROM actor_context_checkpoints WHERE actor_id=$1 AND session_kind='cognitive_session' AND focused_mention_id IS NULL AND focused_document_mention_id IS NULL ORDER BY checkpoint_version DESC LIMIT 1"),
+            Some((Some(_), None, None)) => format!("SELECT {CHECKPOINT_SELECT} FROM actor_context_checkpoints WHERE actor_id=$1 AND work_id=$2 ORDER BY checkpoint_version DESC LIMIT 1"),
+            Some((None, Some(_), None)) => format!("SELECT {CHECKPOINT_SELECT} FROM actor_context_checkpoints WHERE actor_id=$1 AND focused_mention_id=$2 ORDER BY checkpoint_version DESC LIMIT 1"),
+            Some((None,None,Some(_))) => format!("SELECT {CHECKPOINT_SELECT} FROM actor_context_checkpoints WHERE actor_id=$1 AND focused_document_mention_id=$2 ORDER BY checkpoint_version DESC LIMIT 1"),
+            _ => unreachable!("focus filter shape"),
         };
         let checkpoint = match checkpoint_filter {
             None => {
@@ -1718,14 +1807,14 @@ impl OrgIntel {
                     .fetch_optional(&mut *tx)
                     .await?
             }
-            Some((Some(work_id), None)) => {
+            Some((Some(work_id), None, None)) => {
                 sqlx::query_as::<_, CheckpointDbRow>(&checkpoint_query)
                     .bind(actor_id)
                     .bind(work_id)
                     .fetch_optional(&mut *tx)
                     .await?
             }
-            Some((None, Some(mention_id))) => {
+            Some((None, Some(mention_id), None)) | Some((None, None, Some(mention_id))) => {
                 sqlx::query_as::<_, CheckpointDbRow>(&checkpoint_query)
                     .bind(actor_id)
                     .bind(mention_id)

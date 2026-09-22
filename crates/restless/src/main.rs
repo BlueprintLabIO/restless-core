@@ -80,7 +80,14 @@ enum Command {
         #[command(subcommand)]
         command: PublishCommand,
     },
-    /// Native Document operations available to a bound hosted Work Attempt.
+    /// Shared Rooms: discover, manage membership and participate in conversations.
+    Room {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
+        company: Option<String>,
+        #[command(subcommand)]
+        command: RoomCommand,
+    },
+    /// Native Documents: discover, create, share and discuss as your authenticated actor.
     Document {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
         company: Option<String>,
@@ -120,6 +127,9 @@ enum Command {
     Doctor {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
+        /// Exercise installed document/Room workflows in a temporary company, then destroy it.
+        #[arg(long)]
+        collaboration: bool,
     },
     /// Ensure and inspect the company's OrgIntel schema.
     OrgintelInit {
@@ -524,6 +534,58 @@ enum PublishCommand {
     },
     /// List all publication records for the company.
     List,
+}
+
+#[derive(Subcommand)]
+enum RoomCommand {
+    List {
+        #[arg(long)]
+        before_created_at: Option<String>,
+        #[arg(long)]
+        before_room_id: Option<String>,
+    },
+    Create {
+        #[arg(long)]
+        title: String,
+        #[arg(long, default_value="group", value_parser=["group", "direct", "company"])]
+        kind: String,
+        #[arg(long = "member")]
+        participants: Vec<String>,
+        #[arg(long)]
+        key: String,
+    },
+    Members {
+        room: String,
+    },
+    Add {
+        room: String,
+        member: String,
+    },
+    Remove {
+        room: String,
+        member: String,
+    },
+    Read {
+        room: String,
+        #[arg(long)]
+        before: Option<i64>,
+    },
+    Thread {
+        room: String,
+        message: i64,
+        #[arg(long)]
+        before: Option<i64>,
+    },
+    Send {
+        room: String,
+        body: String,
+        #[arg(long)]
+        parent: Option<i64>,
+        #[arg(long)]
+        key: String,
+        #[arg(long)]
+        mentions_json: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -964,7 +1026,8 @@ enum PeopleCommand {
         id: String,
         #[arg(long)]
         role: String,
-        #[arg(long)]
+        /// Compatibility hint; the company assigns an alphabetical fictional name.
+        #[arg(long, default_value = "auto")]
         display: String,
         #[arg(long)]
         model: Option<String>,
@@ -1161,8 +1224,8 @@ enum ScheduleCommand {
         #[arg(long)]
         catch_up_within_minutes: Option<i64>,
         /// local-mac, or always-on. Always-on work waits for a capable runner.
-        #[arg(long, default_value = "local-mac")]
-        execution: String,
+        #[arg(long)]
+        execution: Option<String>,
         #[arg(long)]
         reason: String,
         /// Optional Work waiting on this exact time condition.
@@ -1408,6 +1471,9 @@ enum WorkCommand {
         prepared: String,
         #[arg(long)]
         resume_when: String,
+        /// Withdraw an unusable human prompt and let the same Work prepare its replacement.
+        #[arg(long)]
+        preparing: bool,
         #[arg(long = "as", env = "RESTLESS_ACTOR")]
         as_actor: Option<String>,
     },
@@ -2026,7 +2092,24 @@ fn main() -> Result<()> {
             let name = name.context("no company: pass -c or set RESTLESS_COMPANY")?;
             chat::run(name, actor)
         }
-        Command::Doctor { company } => doctor(company),
+        Command::Doctor {
+            company,
+            collaboration,
+        } => {
+            if collaboration {
+                let report = daemon_request(
+                    serde_json::json!({"cmd":"doctor-collaboration","company":company}),
+                )?;
+                println!("{}", serde_json::to_string_pretty(&report)?);
+                anyhow::ensure!(
+                    report["status"] == "verified",
+                    "collaboration workflow probe failed; see report"
+                );
+                Ok(())
+            } else {
+                doctor(company)
+            }
+        }
         Command::Attention { company, summary } => {
             let request = stamp(serde_json::json!({ "cmd": "attention", "company": company }));
             let response = request_once(&request.to_string())?;
@@ -2062,9 +2145,60 @@ fn stamp(mut request: serde_json::Value) -> serde_json::Value {
 /// One request/response pair; `watch` and `attach` handle their own I/O.
 fn request_json(command: Command) -> Result<serde_json::Value> {
     Ok(match command {
-        Command::Document { company, command } => command.request(
-            company.context("no company: pass -c or set RESTLESS_COMPANY")?,
-        )?,
+        Command::Room { company, command } => {
+            let operation = match command {
+                RoomCommand::List {
+                    before_created_at,
+                    before_room_id,
+                } => {
+                    serde_json::json!({"operation":"list","before_created_at":before_created_at,"before_room_id":before_room_id})
+                }
+                RoomCommand::Create {
+                    title,
+                    kind,
+                    participants,
+                    key,
+                } => {
+                    serde_json::json!({"operation":"create","title":title,"kind":kind,"participants":participants,"key":key})
+                }
+                RoomCommand::Members { room } => {
+                    serde_json::json!({"operation":"members","room":room})
+                }
+                RoomCommand::Add { room, member } => {
+                    serde_json::json!({"operation":"add","room":room,"member":member})
+                }
+                RoomCommand::Remove { room, member } => {
+                    serde_json::json!({"operation":"remove","room":room,"member":member})
+                }
+                RoomCommand::Read { room, before } => {
+                    serde_json::json!({"operation":"read","room":room,"before":before})
+                }
+                RoomCommand::Thread {
+                    room,
+                    message,
+                    before,
+                } => {
+                    serde_json::json!({"operation":"thread","room":room,"message":message,"before":before})
+                }
+                RoomCommand::Send {
+                    room,
+                    body,
+                    parent,
+                    key,
+                    mentions_json,
+                } => {
+                    let mentions: serde_json::Value = match mentions_json {
+                        Some(raw) => serde_json::from_str(&raw).context("parse --mentions-json")?,
+                        None => serde_json::json!([]),
+                    };
+                    serde_json::json!({"operation":"send","room":room,"body":body,"parent":parent,"key":key,"mentions":mentions})
+                }
+            };
+            serde_json::json!({"cmd":"room-operation", "company":company.context("no company: pass -c or set RESTLESS_COMPANY")?, "room_operation":operation})
+        }
+        Command::Document { company, command } => {
+            command.request(company.context("no company: pass -c or set RESTLESS_COMPANY")?)?
+        }
         Command::Publish { company, command } => {
             let company = company.context("no company: pass -c or set RESTLESS_COMPANY")?;
             match command {
@@ -3034,9 +3168,10 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 prepared,
                 resume_when,
                 as_actor,
+                preparing,
             } => serde_json::json!({
                 "cmd": "work-handoff-refresh", "company": company, "id": handoff,
-                "action": action, "prepared": prepared, "resume_when": resume_when,
+                "action": action, "prepared": prepared, "resume_when": resume_when, "preparing": preparing,
                 "as_actor": as_actor.or_else(|| std::env::var("RESTLESS_ACTOR").ok())
                     .unwrap_or_else(|| "owner".to_string()),
             }),
@@ -3186,7 +3321,7 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 "local_time": at_local, "timezone": timezone,
                 "missed_policy": on_missed,
                 "catch_up_grace_seconds": catch_up_within_minutes.map(|minutes| minutes.saturating_mul(60)),
-                "execution_requirement": execution,
+                "execution_requirement": execution.or_else(|| weekdays.then(|| "local-mac".to_string())),
                 "reason": reason, "id": work,
             }),
             ScheduleCommand::Policy {
@@ -3644,6 +3779,9 @@ fn doctor(company: Option<String>) -> Result<()> {
                 "restart restlessd with the current build (stop the old stack, then run restless-dev {company})"
             ));
         }
+        if report["documents"]["status"].as_str() != Some("available") {
+            actions.push("inspect Documents collaboration readiness and startup Doctor; restore that service before editing documents".to_string());
+        }
         if let Some(action) = report["action"].as_str() {
             actions.push(action.to_string());
         }
@@ -3715,6 +3853,7 @@ fn runtime_report_is_live(report: &serde_json::Value) -> bool {
         && report["volume_exists"].as_bool() == Some(true)
         && report["volume_mounted"].as_bool() == Some(true)
         && report["coordination"]["status"].as_str() == Some("available")
+        && report["documents"]["status"].as_str() == Some("available")
 }
 
 fn http_check(
@@ -4091,6 +4230,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn one_time_schedule_does_not_send_recurring_defaults() {
+        // Exercise the full clap command tree with a main-thread-sized stack.
+        // Rust's 2 MiB test worker stack is smaller than the ordinary CLI's.
+        std::thread::Builder::new().stack_size(8 * 1024 * 1024).spawn(|| {
+        let cli = Cli::try_parse_from([
+            "restless", "schedule", "add", "-c", "schedule_test", "--as", "exec",
+            "--at", "2026-09-22T04:08:30Z", "--reason", "Observe sign-in expiry",
+        ]).unwrap();
+        let request = request_json(cli.command).unwrap();
+        assert_eq!(request["fire_at"], "2026-09-22T04:08:30Z");
+        for field in ["recurrence", "local_time", "timezone", "missed_policy", "catch_up_grace_seconds", "execution_requirement"] {
+            assert!(request[field].is_null(), "one-time schedule unexpectedly includes {field}");
+        }
+        let cli = Cli::try_parse_from([
+            "restless", "schedule", "add", "-c", "schedule_test", "--as", "exec",
+            "--weekdays", "--at-local", "09:00", "--timezone", "Australia/Sydney",
+            "--on-missed", "skip", "--reason", "Morning review",
+        ]).unwrap();
+        let request = request_json(cli.command).unwrap();
+        assert_eq!(request["recurrence"], "weekdays");
+        assert_eq!(request["execution_requirement"], "local-mac");
+        }).unwrap().join().unwrap();
+    }
+
+    #[test]
     fn attention_summary_keeps_each_control_on_its_typed_write_path() {
         let projection = serde_json::json!({
             "company": { "id": "demo_test", "name": "Demo test" },
@@ -4201,7 +4365,12 @@ mod tests {
             "volume_mounted": true,
             "coordination": { "status": "available" },
         });
-        assert!(runtime_report_is_live(&live_report));
+        assert!(!runtime_report_is_live(&live_report));
+        let mut with_documents = live_report;
+        with_documents["documents"] = serde_json::json!({"status":"available"});
+        assert!(runtime_report_is_live(&with_documents));
+        with_documents["documents"]["status"] = serde_json::json!("unavailable");
+        assert!(!runtime_report_is_live(&with_documents));
     }
 
     #[test]

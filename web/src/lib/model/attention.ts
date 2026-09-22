@@ -51,6 +51,7 @@ export interface MessageInterruptResult {
 }
 
 type WireItem = {
+	native_document?: AttentionItem['nativeDocument'];
 	id: string;
 	work_id?: string;
 	source: AttentionItem['source'];
@@ -111,6 +112,7 @@ type WireItem = {
 		href?: string;
 	}>;
 	can_continue: boolean;
+	preparing?: boolean;
 	created_at: string;
 };
 
@@ -152,6 +154,7 @@ export async function getAttention(company: string): Promise<AttentionView> {
 			whyItMatters: item.why_it_matters,
 			recommendation: item.recommendation,
 			requestedAction: item.requested_action,
+			preparing: item.preparing,
 			ifNoAction: item.if_no_action,
 			uncertainty: item.uncertainty,
 			deadline: item.deadline,
@@ -184,6 +187,7 @@ export async function getAttention(company: string): Promise<AttentionView> {
 						kind: item.runtime_attach.kind
 					}
 				: undefined,
+			nativeDocument: item.native_document,
 			reviewTarget: item.review_target
 				? {
 						company: item.review_target.company,

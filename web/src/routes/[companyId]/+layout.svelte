@@ -258,6 +258,11 @@
 	{tabs}
 	homeHref={ownerAccess ? '/' : collaboratorHome(companyId)}
 	canSwitchCompanies={ownerAccess}
+	execHref={ownerAccess &&
+	(page.url.pathname === `/${companyId}/people` ||
+		page.url.pathname.startsWith(`/${companyId}/people/`))
+		? `/${companyId}/people?person=exec`
+		: null}
 	execName={railActorName}
 	execLive={railConnected}
 	railOpen={execRailOpen}

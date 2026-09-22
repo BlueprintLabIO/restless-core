@@ -103,12 +103,12 @@ pub async fn wake(
     human_is_membership_owner: bool,
     conversation_inbox: &[restless_orgintel::MessageRow],
     owed_judgements: &[restless_orgintel::OwnerHandoffRow],
-    pending_mention: Option<&restless_orgintel::MessageMentionContext>,
+    pending_mention: Option<&crate::mentions::MentionContext>,
     observer: Option<acp::SessionObserver>,
     cancellation: &CancellationToken,
 ) -> Result<WakeReport> {
-    let effective_config=config.for_agent("exec");
-    let config=&effective_config;
+    let effective_config = config.for_agent("exec");
+    let config = &effective_config;
     anyhow::ensure!(
         config.has_effective_model_route(config.coordination_harness),
         "Choose an intelligence provider and model in Company → Intelligence provider before starting the Exec."
@@ -122,8 +122,14 @@ pub async fn wake(
     let focused_mention = pending_mention.is_some();
     // Exec conversation is free-form. Machine work is created and claimed
     // through OrgIntel's Work graph, never inferred from this wake.
-    org.ensure_actor_with_model("exec", "exec", "exec", "The Exec", config.configured_model())
-        .await?;
+    org.ensure_actor_with_model(
+        "exec",
+        "exec",
+        "exec",
+        "The Exec",
+        config.configured_model(),
+    )
+    .await?;
     org.ensure_actor("owner", "owner", "owner", "The Owner")
         .await?;
     let exec_model = org
@@ -140,7 +146,11 @@ pub async fn wake(
             )
         },
         |mention| {
-            crate::context::focused_mention_responsibility("portfolio", mention.mention.id)
+            let mention_id = match mention {
+                crate::mentions::MentionContext::Room(context) => context.mention.id,
+                crate::mentions::MentionContext::Document(context) => context.mention.id,
+            };
+            crate::context::focused_mention_responsibility("portfolio", mention_id)
         },
     );
 
@@ -179,9 +189,12 @@ pub async fn wake(
     )
     .await?;
     let package = context::assemble(&snapshot);
-    let candidates =
-        crate::model_gateway::available_candidates(config, config.agent_preference("exec", exec_model.as_deref()), authority)
-            .await?;
+    let candidates = crate::model_gateway::available_candidates(
+        config,
+        config.agent_preference("exec", exec_model.as_deref()),
+        authority,
+    )
+    .await?;
     org.emit_event(
         "wake",
         Some("exec"),
@@ -993,7 +1006,7 @@ async fn run_turn(
                     if answer.is_empty() {
                         report(
                             Termination::Continue,
-                            "the focused Room mention turn completed without a final answer"
+                            "the focused collaboration mention turn completed without a final answer"
                                 .to_string(),
                             Some(CONTINUE_WAKE_DELAY_SECONDS),
                             false,
@@ -1001,7 +1014,8 @@ async fn run_turn(
                     } else {
                         report(
                             Termination::OutcomeMet,
-                            "the focused Room mention received a complete answer".to_string(),
+                            "the focused collaboration mention received a complete answer"
+                                .to_string(),
                             None,
                             true,
                         )
@@ -1172,7 +1186,7 @@ async fn gather_snapshot(
     human_is_membership_owner: bool,
     conversation_inbox: &[restless_orgintel::MessageRow],
     owed_judgements: &[restless_orgintel::OwnerHandoffRow],
-    pending_mention: Option<&restless_orgintel::MessageMentionContext>,
+    pending_mention: Option<&crate::mentions::MentionContext>,
     spent_usd: f64,
     remaining_usd: Option<f64>,
     hosted_files: Option<(String, Option<String>)>,
@@ -1197,7 +1211,7 @@ async fn gather_snapshot(
         })
         .filter(|item| match pending_mention {
             None => true,
-            Some(mention) => mention.mention.work_id == Some(item.id),
+            Some(mention) => mention.work_id() == Some(item.id),
         })
         .collect();
     let inbox = if pending_mention.is_some() {

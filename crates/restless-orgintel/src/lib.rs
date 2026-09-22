@@ -18,6 +18,7 @@ mod actor_context;
 mod actors;
 mod artifacts;
 mod attempts;
+mod colleague_names;
 mod constitution;
 mod culture;
 mod documents;
@@ -329,7 +330,9 @@ impl OrgIntel {
             })
             .connect(database_url)
             .await?;
-        Ok(Self { pool, schema })
+        let org = Self { pool, schema };
+        org.align_team_member_names().await?;
+        Ok(org)
     }
 
     pub fn schema(&self) -> &str {

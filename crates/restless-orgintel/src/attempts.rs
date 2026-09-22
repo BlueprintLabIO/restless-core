@@ -808,6 +808,17 @@ impl OrgIntel {
             WorkAttemptState::Superseded
         };
         let mut effective_summary = summary.to_string();
+        if effective == WorkAttemptState::Produced {
+            let outstanding: Option<Uuid> = sqlx::query_scalar("SELECT id FROM owner_handoffs WHERE work_id=$1 AND state IN ('pending','preparing') LIMIT 1")
+                .bind(work_id).fetch_optional(&mut *tx).await?;
+            if let Some(handoff) = outstanding {
+                effective = WorkAttemptState::Blocked;
+                effective_summary = format!(
+                    "human boundary remains outstanding in handoff {handoff}; {}",
+                    summary.trim()
+                );
+            }
+        }
         let pending_named_document_review: Option<Uuid> =
             if effective != WorkAttemptState::Superseded {
                 sqlx::query_scalar(
@@ -1291,6 +1302,15 @@ impl OrgIntel {
                 "{by:?} is not the Work owner, its lead, the Exec, or the owner"
             )));
         }
+        let ready_handoff: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM owner_handoffs WHERE work_id=$1 AND state='pending')",
+        )
+        .bind(work_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if ready_handoff {
+            return Err(OrgIntelError::InvalidWork("Work still awaits its owner handoff. If a human-step prompt expired or failed, use work refresh-handoff --preparing to repair that same request; do not resolve an uncompleted human step.".into()));
+        }
         let exhausted: bool = sqlx::query_scalar(
             "SELECT attempt_limit IS NOT NULL AND (SELECT count(*) FROM work_attempts \
              WHERE work_id=$1 AND revision=work.revision AND state <> 'superseded') \
@@ -1394,7 +1414,7 @@ impl OrgIntel {
         sqlx::query(
             "UPDATE owner_handoffs SET state='withdrawn', \
                     resolution=$2, resolved_at=now() \
-             WHERE work_id=$1 AND state='pending'",
+             WHERE work_id=$1 AND state IN ('pending','preparing')",
         )
         .bind(work_id)
         .bind(format!(

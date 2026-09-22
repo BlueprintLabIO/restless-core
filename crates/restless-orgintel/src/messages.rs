@@ -341,6 +341,7 @@ impl OrgIntel {
                     .all(|(handoff, captured)| {
                         handoff.conversation_input() == *captured
                             && match handoff.state {
+                                OwnerHandoffState::Preparing => false,
                                 OwnerHandoffState::Pending => {
                                     (handoff.assigned_to.as_deref()
                                         == Some(lease.actor_id.as_str())
@@ -2378,6 +2379,8 @@ impl OrgIntel {
     /// exact Attempt received. The initial input snapshot remains fixed at
     /// claim time; this is the later live-observation path permitted by the
     /// one-process rule, not a second kickoff or message lifecycle.
+    /// Ordinary conversation reads are inspection: only atomic conversation
+    /// finalization acknowledges them together with the resulting reply.
     pub async fn consume_inbox_for_actor(&self, actor: &str) -> Result<Vec<MessageRow>> {
         let mut tx = self.pool.begin().await?;
         let live_attempt = sqlx::query(
@@ -2411,6 +2414,13 @@ impl OrgIntel {
         .bind(actor)
         .fetch_all(&mut *tx)
         .await?;
+        if live_attempt.is_none() {
+            // A lead may inspect `restless inbox` during its cognitive turn.
+            // Consuming those inputs here would make finalization reject its
+            // own captured input set, losing an otherwise successful reply.
+            tx.commit().await?;
+            return Ok(messages);
+        }
         if let Some(attempt) = live_attempt {
             let attempt_id: Uuid = attempt.get("id");
             let work_id: Uuid = attempt.get("work_id");

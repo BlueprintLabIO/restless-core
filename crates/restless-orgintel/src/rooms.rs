@@ -3210,6 +3210,10 @@ impl OrgIntel {
     ) -> Result<ActorCognitiveLease> {
         let lease_seconds = mention_lease_seconds(lease_for)?;
         let mut tx = self.pool.begin().await?;
+        // Native document operations lock Document before Actor. Take the same
+        // order before extending an Actor lease focused on a document comment.
+        sqlx::query("SELECT d.id FROM native_documents d JOIN native_document_mentions m ON m.document_id=d.id JOIN actor_cognitive_leases l ON l.focused_document_mention_id=m.id WHERE l.actor_id=$1 AND l.lease_token=$2 FOR SHARE OF d")
+            .bind(&lease.actor_id).bind(lease.token).fetch_optional(&mut *tx).await?;
         let actor_available: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM actors \
              WHERE id=$1 AND retired_at IS NULL AND actor_class='agent' FOR UPDATE)",
@@ -3269,7 +3273,16 @@ impl OrgIntel {
             }
             None => true,
         };
-        if !actor_available || !owns_live_lease || attempt_running || !focus_is_current {
+        let document_focus_current =
+            crate::documents::document_mention_lease_current(&mut tx, lease)
+                .await
+                .map_err(|error| OrgIntelError::RoomCommandConflict(error.to_string()))?;
+        if !actor_available
+            || !owns_live_lease
+            || attempt_running
+            || !focus_is_current
+            || !document_focus_current
+        {
             tx.commit().await?;
             return Err(OrgIntelError::RoomCommandConflict(
                 "the Actor cognitive-session lease is no longer current".into(),
@@ -3367,6 +3380,12 @@ impl OrgIntel {
                 "the Actor cognitive-session lease is no longer current".into(),
             ));
         };
+        let document_focus: Option<Uuid> = sqlx::query_scalar("SELECT focused_document_mention_id FROM actor_cognitive_leases WHERE actor_id=$1 AND lease_token=$2")
+            .bind(&lease.actor_id).bind(lease.token).fetch_one(&mut *tx).await?;
+        if document_focus.is_some() {
+            tx.commit().await?;
+            return Ok(None);
+        }
         if let Some(mention_id) = prior_focus {
             let still_current: bool = sqlx::query_scalar(
                 "SELECT EXISTS(SELECT 1 FROM message_mentions \

@@ -476,10 +476,11 @@ impl OrgIntel {
             if !should_fire {
                 continue;
             }
-            if let Some(work_id) = row.work_id {
+            let released_work = if let Some(work_id) = row.work_id {
                 sqlx::query(
                     "UPDATE work SET status='active', resolution='time condition reached' \
                      WHERE id=$1 AND resolution LIKE $2 \
+                       AND NOT EXISTS (SELECT 1 FROM owner_handoffs h WHERE h.work_id=$1 AND h.state='pending') \
                        AND NOT EXISTS (SELECT 1 FROM schedules s WHERE s.work_id=$1 \
                          AND s.id<>$3 AND s.fired_at IS NULL AND s.cancelled_at IS NULL)",
                 )
@@ -487,13 +488,18 @@ impl OrgIntel {
                 .bind(format!("waiting for schedule {}:%", row.id))
                 .bind(row.id)
                 .execute(&mut *tx)
-                .await?;
-            } else if row.actor_id != "exec" {
+                .await?.rows_affected() > 0
+            } else {
+                false
+            };
+            if !released_work && row.actor_id != "exec" {
                 // Consume the time fact and create its recoverable actor wake
                 // in one transaction. A crash can therefore leave both
                 // pending or neither, never a fired schedule with no delivery.
-                // Work-linked schedules already release Work above and must
-                // not race that deterministic kickoff with conversation.
+                // Only a successfully released Work uses the deterministic
+                // kickoff. A pending human step still needs its scheduled
+                // observer to inspect consent/expiry; otherwise the time fact
+                // would be consumed without waking anyone.
                 let room_id =
                     ensure_direct_message_room_in_tx(&mut tx, "daemon", Some(&row.actor_id))
                         .await?;
@@ -504,8 +510,9 @@ impl OrgIntel {
                 .bind(room_id)
                 .bind(&row.actor_id)
                 .bind(format!(
-                    "[SCHEDULE DUE {} AT {}] {}\n\nThis is a time-based opportunity to inspect current facts. It is not evidence that production is necessary or complete.",
-                    row.id, row.fire_at, row.reason
+                    "[SCHEDULE DUE {} AT {}] {}{}\n\nThis is a time-based opportunity to inspect current facts. It is not evidence that production is necessary or complete.",
+                    row.id, row.fire_at, row.reason,
+                    row.work_id.map(|id| format!("\nLinked Work: {id}")).unwrap_or_default()
                 ))
                 .execute(&mut *tx)
                 .await?;

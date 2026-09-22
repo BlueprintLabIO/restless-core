@@ -341,6 +341,7 @@
 				ondirtychange={(value) => (documentDirty = value)}
 			>
 				{#snippet actions()}
+                    <a class="btn small" href={`/${encodeURIComponent(companyId)}/people?${documentView.document.linked_room_id ? `room=${encodeURIComponent(documentView.document.linked_room_id)}` : 'person=exec'}&document=${encodeURIComponent(documentView.document.id)}`}>Discuss alongside</a>
 					<button
 						type="button"
 						class="btn small"

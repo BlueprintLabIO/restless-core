@@ -1,8 +1,10 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import Check from '@lucide/svelte/icons/check';
+	import CircleAlert from '@lucide/svelte/icons/circle-alert';
 	import type { ActiveAgentTurn } from '$lib/model/queries.svelte';
 	import type { AgentActivityItem } from '$lib/model/attention';
 	import Markdown from './Markdown.svelte';
+	import { followChat } from '$lib/actions/follow-chat';
 
 	type TimelineItem =
 		| { kind: 'text'; id: string; text: string }
@@ -21,7 +23,6 @@
 	let expanded = $state(false);
 	let ownerControlled = $state(false);
 	let observedTurn = $state<number | null>(null);
-	let replyScroll = $state<HTMLDivElement | undefined>();
 
 	const phase = $derived(turn.live?.phase ?? 'queued');
 	const terminal = $derived(phase === 'complete' || phase === 'failed');
@@ -57,8 +58,17 @@
 		return items;
 	});
 	const startedAt = $derived(new Date(turn.live?.startedAt ?? turn.since).getTime());
+	// A completed turn is historical activity, not an ongoing stopwatch.
+	const endedAt = $derived(new Date(turn.live?.updatedAt ?? turn.since).getTime());
 	const elapsedSeconds = $derived(
-		Number.isNaN(startedAt) ? 0 : Math.max(0, Math.floor((now - startedAt) / 1_000))
+		Number.isNaN(startedAt)
+			? 0
+			: Math.max(
+					0,
+					Math.floor(
+						((terminal ? (Number.isNaN(endedAt) ? startedAt : endedAt) : now) - startedAt) / 1_000
+					)
+				)
 	);
 	const elapsedLabel = $derived.by(() => {
 		if (elapsedSeconds < 60) return `${elapsedSeconds}s`;
@@ -67,14 +77,14 @@
 		return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 	});
 	const statusLabel = $derived.by(() => {
-		if (turn.transport === 'reconnecting') return `Reconnecting to ${participantName}`;
+		if (!terminal && turn.transport === 'reconnecting') return `Reconnecting to ${participantName}`;
 		switch (phase) {
 			case 'acting':
 				return `${participantName} is working`;
 			case 'responding':
 				return `${participantName} is replying`;
 			case 'complete':
-				return `${participantName} worked`;
+				return `${participantName} finished replying`;
 			case 'failed':
 				return 'Reply interrupted';
 			case 'queued':
@@ -129,14 +139,9 @@
 		if (terminal && !ownerControlled) expanded = false;
 	});
 
-	/* The reply is a growing projection. Keep its newest text in view without
-	 * moving the durable transcript behind it. */
 	$effect(() => {
-		void reply;
-		replyScroll?.scrollTo({ top: replyScroll.scrollHeight });
-	});
-
-	onMount(() => {
+		if (terminal) return;
+		now = Date.now();
 		const timer = window.setInterval(() => (now = Date.now()), 1_000);
 		return () => window.clearInterval(timer);
 	});
@@ -147,21 +152,29 @@
 	class:expanded
 	data-phase={phase}
 	data-transport={turn.transport}
-	aria-label={`${participantName} live work`}
+	aria-label={terminal ? `${participantName} reply activity` : `${participantName} live work`}
 >
 	<button
 		type="button"
 		class="turn-summary"
-		title="Show or hide live tools and activity. Reply text streams below."
+		title={terminal
+			? 'View activity from this reply. This status does not indicate whether delegated work is complete.'
+			: 'Show or hide live tools and activity. Reply text streams below.'}
 		aria-expanded={expanded}
 		aria-controls={`turn-${turn.triggerMessageId}`}
 		onclick={toggleExpanded}
 	>
-		<span class="pixel-glimmer" class:working aria-hidden="true">
-			{#each glimmerDelays as delay, index (index)}
-				<i style={`animation-delay: ${delay}ms`}></i>
-			{/each}
-		</span>
+		{#if terminal}
+			<span class="terminal-mark" aria-hidden="true">
+				{#if phase === 'complete'}<Check size={16} />{:else}<CircleAlert size={16} />{/if}
+			</span>
+		{:else}
+			<span class="pixel-glimmer" class:working aria-hidden="true">
+				{#each glimmerDelays as delay, index (index)}
+					<i style={`animation-delay: ${delay}ms`}></i>
+				{/each}
+			</span>
+		{/if}
 		<span class="turn-status" class:shimmer={working} role="status" aria-live="polite"
 			>{statusLabel}</span
 		>
@@ -193,7 +206,7 @@
 
 	<div id={`turn-${turn.triggerMessageId}`} class="turn-disclosure" aria-hidden={!expanded}>
 		<div class="turn-clip">
-			<div class="turn-body" bind:this={replyScroll}>
+			<div class="turn-body" use:followChat={String(turn.triggerMessageId)}>
 				{#if expanded && timeline.length}
 					<article class="streamed-reply" data-live={working}>
 						<header><strong>{participantName}</strong><span>live notes</span></header>
@@ -264,6 +277,12 @@
 	.turn-summary:focus-visible {
 		outline: 2px solid color-mix(in srgb, var(--intent-conversation) 38%, transparent);
 		outline-offset: -2px;
+	}
+
+	.terminal-mark {
+		display: inline-flex;
+		flex: none;
+		color: var(--text-secondary);
 	}
 
 	.pixel-glimmer {

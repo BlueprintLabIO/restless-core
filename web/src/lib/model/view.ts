@@ -1,6 +1,19 @@
 /** The small owner-surface contract. Source-owned reads map into these shapes. */
 
+export interface NativeDocumentAttention {
+	id: string;
+	document_id: string;
+	title: string;
+	summary: string;
+	requested_by_actor_id: string;
+	created_at: string;
+	kind: 'collaboration' | 'review';
+	named_version_id: string | null;
+}
+
 export interface AttentionItem {
+	preparing?: boolean;
+	nativeDocument?: NativeDocumentAttention;
 	id: string;
 	workId?: string;
 	source: {
@@ -135,49 +148,4 @@ export interface ThreadMessage {
 	details?: string | null;
 	intent?: MessageIntentReceipt | null;
 	contextPath?: string | null;
-}
-
-/** Collapse an uninterrupted run from the same company actor into one reading
- * block. This is a presentation projection only: the source messages remain
- * separate in the company record. Day boundaries stay visible. */
-export function mergeAdjacentAgentMessages(
-	messages: ThreadMessage[],
-	breakAfterMessageId?: number
-): ThreadMessage[] {
-	const merged: ThreadMessage[] = [];
-
-	for (const message of messages) {
-		const previous = merged.at(-1);
-		const sameDay = previous && dayKey(previous.createdAt) === dayKey(message.createdAt);
-		const previousLastId = Number(previous?.id.split(':').at(-1));
-		const messageFirstId = Number(message.id.split(':')[0]);
-		const crossesBreak =
-			breakAfterMessageId !== undefined &&
-			Number.isFinite(previousLastId) &&
-			Number.isFinite(messageFirstId) &&
-			previousLastId <= breakAfterMessageId &&
-			messageFirstId > breakAfterMessageId;
-		if (
-			previous?.from === 'agent' &&
-			message.from === 'agent' &&
-			previous.author === message.author &&
-			sameDay &&
-			!crossesBreak
-		) {
-			previous.id = `${previous.id}:${message.id}`;
-			previous.text = [previous.text, message.text].filter(Boolean).join('\n\n');
-			previous.attachments.push(...message.attachments);
-			previous.details = [previous.details, message.details].filter(Boolean).join('\n\n') || null;
-			continue;
-		}
-
-		merged.push({ ...message, attachments: [...message.attachments] });
-	}
-
-	return merged;
-}
-
-function dayKey(value: Date | string): string {
-	const date = value instanceof Date ? value : new Date(value);
-	return Number.isNaN(date.getTime()) ? String(value) : date.toDateString();
 }

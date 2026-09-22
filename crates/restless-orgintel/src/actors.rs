@@ -168,32 +168,21 @@ impl OrgIntel {
         &self,
         id: &str,
         role: &str,
-        display: &str,
+        _display: &str,
         model: Option<&str>,
         created_by: &str,
         reason: &str,
     ) -> Result<()> {
         let id = id.trim();
         let role = role.trim();
-        let display = display.trim();
-        if id.is_empty() || role.is_empty() || display.is_empty() {
+        if id.is_empty() || role.is_empty() {
             return Err(OrgIntelError::InvalidWork(
-                "an actor needs a stable id, role and display name".into(),
+                "an actor needs a stable id and role".into(),
             ));
         }
         if !valid_staff_actor_id(id) {
             return Err(OrgIntelError::InvalidWork(
                 "a Staff actor id must be exactly {domain}-{craft}: two lowercase kebab segments with no assignment, stage or retry suffix"
-                    .into(),
-            ));
-        }
-        let display_key = display.to_ascii_lowercase();
-        if display_key == role.to_ascii_lowercase()
-            || display_key == id.replace('-', " ")
-            || display == id
-        {
-            return Err(OrgIntelError::InvalidWork(
-                "display must be a stable human-readable colleague identity, not the actor id or role repeated"
                     .into(),
             ));
         }
@@ -227,13 +216,22 @@ impl OrgIntel {
             ));
         }
 
+        let lead_name: Option<String> = sqlx::query_scalar(
+            "SELECT a.display FROM actors a JOIN teams t ON t.lead_actor_id=a.id \
+             WHERE a.id=$1 AND t.disbanded_at IS NULL",
+        )
+        .bind(created_by)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let display = crate::colleague_names::allocate_name(&mut tx, lead_name.as_deref()).await?;
+
         let changed = sqlx::query(
             "INSERT INTO actors (id, kind, actor_class, role, display, model) VALUES ($1,'staff','agent',$2,$3,$4) \
              ON CONFLICT (id) DO NOTHING",
         )
         .bind(id)
         .bind(role)
-        .bind(display)
+        .bind(&display)
         .bind(model)
         .execute(&mut *tx)
         .await?;
@@ -624,6 +622,49 @@ impl OrgIntel {
         .await?)
     }
 
+    /// An explicit owner setting for future team coordination and commissioning.
+    /// Existing Work keeps its accepted standard and is never silently rewritten.
+    pub async fn set_team_outcome_standard(
+        &self,
+        team_id: Uuid,
+        actor: &str,
+        expected: OutcomeStandard,
+        standard: OutcomeStandard,
+    ) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        let owner: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM actors a WHERE a.id=$1 AND a.retired_at IS NULL AND (a.kind='owner' OR (a.kind='human' AND EXISTS(SELECT 1 FROM human_principal_actor_bindings b WHERE b.actor_id=a.id AND b.membership_role='owner' AND b.membership_status='active'))))")
+            .bind(actor).fetch_one(&mut *tx).await?;
+        if !owner {
+            return Err(OrgIntelError::InvalidWork(
+                "only the owner may set the team quality target".into(),
+            ));
+        }
+        let before: Option<OutcomeStandard> = sqlx::query_scalar(
+            "SELECT outcome_standard FROM teams WHERE id=$1 AND disbanded_at IS NULL FOR UPDATE",
+        )
+        .bind(team_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let before =
+            before.ok_or_else(|| OrgIntelError::InvalidWork("team is unavailable".into()))?;
+        if before == standard {
+            tx.commit().await?;
+            return Ok(());
+        }
+        if before != expected {
+            return Err(OrgIntelError::InvalidWork(
+                "the team quality target changed elsewhere; refresh and try again".into(),
+            ));
+        }
+        sqlx::query("UPDATE teams SET outcome_standard=$2,outcome_standard_source='owner_override',standard_source_message_id=NULL WHERE id=$1")
+            .bind(team_id).bind(standard).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO events (kind,actor_id,body) VALUES ('team_standard_changed',$1,$2)")
+            .bind(actor).bind(serde_json::json!({"team_id":team_id,"previous":before,"standard":standard,"source":"owner_setting","effect":"future team coordination and newly commissioned Work"}))
+            .execute(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
     /// Change a live team's display name or charter. This remains ordinary,
     /// recoverable coordination state; only the owner or Exec may widen the
     /// outcome a lead was commissioned to pursue.
@@ -722,6 +763,7 @@ impl OrgIntel {
         }
 
         let mut tx = self.pool.begin().await?;
+        crate::colleague_names::lock_names(&mut tx).await?;
         let member = sqlx::query(
             "SELECT team_id, EXISTS(SELECT 1 FROM teams WHERE lead_actor_id=$1 \
              AND disbanded_at IS NULL) AS leads_team FROM actors \
@@ -823,6 +865,9 @@ impl OrgIntel {
         }))
         .execute(&mut *tx)
         .await?;
+        if let Some(team) = team_id {
+            crate::colleague_names::align_in_tx(&mut tx, Some(team)).await?;
+        }
         tx.commit().await?;
         Ok(())
     }
@@ -846,6 +891,7 @@ impl OrgIntel {
             ));
         }
         let mut tx = self.pool.begin().await?;
+        crate::colleague_names::lock_names(&mut tx).await?;
         let may_override: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM actors WHERE id=$1 AND retired_at IS NULL \
              AND id IN ('owner','exec'))",
@@ -974,6 +1020,7 @@ impl OrgIntel {
             }))
             .execute(&mut *tx)
             .await?;
+        crate::colleague_names::align_in_tx(&mut tx, Some(team_id)).await?;
         tx.commit().await?;
         Ok(())
     }

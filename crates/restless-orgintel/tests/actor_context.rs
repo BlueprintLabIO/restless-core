@@ -17,7 +17,7 @@ use uuid::Uuid;
 
 async fn company(prefix: &str) -> Option<(String, OrgIntel)> {
     let url = std::env::var("RESTLESS_TEST_DATABASE_URL").ok()?;
-    let name = format!("{prefix}{}", Uuid::new_v4().simple());
+    let name = format!("{prefix}{}_test", Uuid::new_v4().simple());
     let org = OrgIntel::ensure(&url, &name)
         .await
         .expect("ensure scratch Actor-context company");

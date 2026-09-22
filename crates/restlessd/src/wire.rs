@@ -437,6 +437,8 @@ pub(crate) struct OrgIntelInput {
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct OwnerInput {
     #[serde(default)]
+    pub(crate) preparing: bool,
+    #[serde(default)]
     pub(crate) category: Option<String>,
     #[serde(default)]
     pub(crate) action: Option<String>,
@@ -506,7 +508,7 @@ pub(crate) struct PublicationInput {
     pub(crate) stop_reason: Option<String>,
 }
 
-/// Inputs for the one agent-authored native Document operation. Work and
+/// Inputs for the Work-bound native Document review operation. Work and
 /// Attempt names deliberately do not reuse generic OrgIntel fields: the
 /// authenticated Runtime boundary compares this exact tuple with the signed
 /// actor-session scope before the dispatcher may touch company state.
@@ -565,6 +567,8 @@ pub(crate) struct Request {
     pub(crate) publication: PublicationInput,
     #[serde(flatten)]
     pub(crate) document: DocumentInput,
+    #[serde(default)]
+    pub(crate) room_operation: Option<crate::room_commands::RoomOperation>,
     #[serde(default)]
     pub(crate) document_operation: Option<crate::document_commands::DocumentOperation>,
 }
@@ -640,11 +644,33 @@ impl Request {
 /// the already-existing fields that cross its concrete domain boundary.
 fn command_fields(command: &str) -> Option<&'static [&'static str]> {
     Some(match command {
-        "appliance-drain" | "appliance-resume" | "company-list" | "status" | "doctor"
-        | "company-show" | "credential-check" | "legal-show" | "legal-probe" | "finance-show"
-        | "finance-balances" | "finance-probe" | "orgintel-init" | "teams" | "spend"
-        | "telemetry" | "goals" | "work" | "work-graph" | "clear-poison" | "attention"
-        | "browser-status" | "browser-release" | "watch" | "connected-tools" | "identity-show"
+        "appliance-drain"
+        | "appliance-resume"
+        | "company-list"
+        | "status"
+        | "doctor"
+        | "doctor-collaboration"
+        | "company-show"
+        | "credential-check"
+        | "legal-show"
+        | "legal-probe"
+        | "finance-show"
+        | "finance-balances"
+        | "finance-probe"
+        | "orgintel-init"
+        | "teams"
+        | "spend"
+        | "telemetry"
+        | "goals"
+        | "work"
+        | "work-graph"
+        | "clear-poison"
+        | "attention"
+        | "browser-status"
+        | "browser-release"
+        | "watch"
+        | "connected-tools"
+        | "identity-show"
         | "publish-list" => &[],
         "schedule-wake" => &["adapter"],
         "publish-build" => &[
@@ -678,6 +704,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         "publish-revoke" => &["invitation_id"],
         "publish-stop" => &["publication_id", "stop_reason"],
         "publish-show" => &["publication_id"],
+        "room-operation" => &["actor", "room_operation"],
         "document-operation" => &["actor", "document_operation"],
         "document-review-request" => &[
             "document_id",
@@ -792,7 +819,14 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
             "actor",
         ],
         "work-artifact-retire" => &["id", "reason", "actor"],
-        "work-handoff-refresh" => &["id", "as_actor", "action", "prepared", "resume_when"],
+        "work-handoff-refresh" => &[
+            "id",
+            "as_actor",
+            "action",
+            "prepared",
+            "resume_when",
+            "preparing",
+        ],
         "work-handoff-prepare-brief" => &[
             "id",
             "as_actor",
@@ -1114,6 +1148,7 @@ impl Principal {
 /// Commands that widen authority, change company lifecycle, or resolve the
 /// owner's review boundary. This is a finite V0 list, not a policy DSL.
 pub(crate) const OWNER_ONLY: &[&str] = &[
+    "doctor-collaboration",
     "approve",
     "decline",
     "revoke",
@@ -1215,7 +1250,18 @@ impl Response {
 
 #[cfg(test)]
 mod tests {
-    use super::{command_fields, Request};
+    use super::{authorize, command_fields, Principal, Request};
+
+    #[test]
+    fn collaboration_doctor_requires_owner_and_no_arbitrary_probe_target() {
+        assert!(authorize(Principal::CompanyExec, "doctor-collaboration").is_err());
+        assert!(authorize(Principal::Owner, "doctor-collaboration").is_ok());
+        assert!(Request::decode(r#"{"cmd":"doctor-collaboration","company":"acme"}"#).is_ok());
+        assert!(Request::decode(
+            r#"{"cmd":"doctor-collaboration","company":"acme","body":"untrusted probe"}"#
+        )
+        .is_err());
+    }
 
     #[test]
     fn command_decoder_selects_the_owner_domain_and_refuses_foreign_fields() {
@@ -1426,6 +1472,7 @@ mod tests {
             "down",
             "status",
             "doctor",
+            "doctor-collaboration",
             "company-list",
             "company-create",
             "company-show",
