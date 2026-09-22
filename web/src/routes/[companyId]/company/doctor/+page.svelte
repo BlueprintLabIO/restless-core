@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import HarnessDiagnostics from '$lib/components/HarnessDiagnostics.svelte';
 	import { page } from '$app/state';
 	import Activity from '@lucide/svelte/icons/activity';
@@ -14,16 +13,28 @@
 	$effect(() => source.attach());
 	const view = $derived(source.view);
 
+	let startupError = $state('');
+	let startupRetry = $state(0);
 	let startup = $state<{ ran_at?: string; error?: string; setup_failed?: boolean }>({});
-	onMount(() => {
+	$effect(() => {
+		startupRetry;
 		let stopped = false;
 		let timer: ReturnType<typeof setTimeout>;
 		const read = async () => {
 			try {
 				const r = await fetch(`/api/companies/${companyId}/startup-doctor`);
-				if (r.ok) startup = await r.json();
+				if (!r.ok) throw new Error(`Startup check could not be read (${r.status}).`);
+				const result = await r.json();
+				if (!stopped) {
+					startup = result;
+					startupError = '';
+				}
+			} catch (cause) {
+				if (!stopped)
+					startupError = cause instanceof Error ? cause.message : 'Startup check is unavailable.';
 			} finally {
-				if (!stopped && !startup.ran_at) timer = setTimeout(read, 5000);
+				if (!stopped && !startup.ran_at && !startup.error && !startupError)
+					timer = setTimeout(read, 5000);
 			}
 		};
 		void read();
@@ -73,6 +84,15 @@
 			}[status] ?? 'The company state is still being observed.'
 		);
 	}
+	async function recheck() {
+		if (working) return;
+		working = 'recheck';
+		try {
+			await source.refresh();
+		} finally {
+			working = '';
+		}
+	}
 </script>
 
 <svelte:head><title>Doctor — {view?.company.name ?? companyId}</title></svelte:head>
@@ -90,12 +110,22 @@
 	>
 		{startup.ran_at
 			? `Automatic startup check: ${when(startup.ran_at)}${startup.error || startup.setup_failed ? ' · Setup needs attention; see diagnostics below.' : ''}`
-			: 'Automatic startup check is pending.'}
+			: startupError || startup.error || 'Automatic startup check is pending.'}
 	</p>
 
+	{#if startupError}<button
+			class="btn small"
+			onclick={() => {
+				startupError = '';
+				startupRetry += 1;
+			}}>Retry startup check</button
+		>{/if}
 	{#if error}<div class="computer-error" role="alert">{error}</div>{/if}
 	{#if notice}<div class="computer-notice" role="status">{notice}</div>{/if}
 
+	{#if view && source.failure}<p class="company-source-error" role="alert">
+			Could not refresh diagnostics. Showing the last observation. {source.failure.message}
+		</p>{/if}
 	{#if view}
 		<section class="doctor-overview doctor-{view.computer.doctor.status}">
 			<div class="doctor-overview-mark"><Activity size={22} strokeWidth={1.7} /></div>
@@ -112,9 +142,9 @@
 		<section class="doctor-diagnostics">
 			<div class="section-heading">
 				<h2>Diagnostic checks</h2>
-				<InfoTip
-					text="Doctor composes independent Authority, OrgIntel and Runtime observations. It neither schedules Work nor infers that an unavailable source is healthy."
-				/>
+				<button class="btn small" disabled={!!working} onclick={recheck}
+					>{working === 'recheck' ? 'Checking…' : 'Recheck'}</button
+				>
 			</div>
 			<div class="doctor-checks">
 				{#each view.computer.doctor.checks as check (check.id)}
@@ -166,7 +196,15 @@
 			{/if}
 		</section>
 	{:else if source.failure}
-		<div class="company-source-error" role="alert">{source.failure.message}</div>
+		<section class="doctor-diagnostics">
+			<div class="section-heading">
+				<h2>Diagnostic checks</h2>
+				<button class="btn small" disabled={!!working} onclick={recheck}
+					>{working === 'recheck' ? 'Checking…' : 'Recheck'}</button
+				>
+			</div>
+			<p class="company-source-error" role="alert">{source.failure.message}</p>
+		</section>
 	{:else}
 		<div class="company-page-wait" aria-label="Running company doctor"></div>
 	{/if}

@@ -37,11 +37,11 @@
 	}
 </script>
 
-<svelte:head><title>External actions — {view?.company.name ?? companyId}</title></svelte:head>
+<svelte:head><title>External activity — {view?.company.name ?? companyId}</title></svelte:head>
 
 <div class="company-page actions-page">
 	<header class="company-page-head">
-		<h1>External actions</h1>
+		<h1>External activity</h1>
 		<InfoTip
 			text="Only consequential effects and provider outcomes belong here. Shell commands, builds and Git activity remain with the Work that produced them."
 		/>
@@ -71,7 +71,11 @@
 						</div>
 					</article>
 				{:else}
-					<p class="quiet-empty">No governed external action has been recorded.</p>
+					<p class="quiet-empty">
+						No external activity recorded yet. Sent messages, submitted forms and payments appear
+						here when they are made through Restless’s governed action path. Internal chats and
+						document edits stay with their work.
+					</p>
 				{/each}
 			</div>
 		{/if}

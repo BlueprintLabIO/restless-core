@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import { resizePane } from '$lib/actions/resize-pane';
 	import { page } from '$app/state';
 	import Activity from '@lucide/svelte/icons/activity';
@@ -10,29 +11,24 @@
 	import RadioTower from '@lucide/svelte/icons/radio-tower';
 	import ShieldCheck from '@lucide/svelte/icons/shield-check';
 	import Fingerprint from '@lucide/svelte/icons/fingerprint';
-	import InfoTip from '$lib/components/InfoTip.svelte';
-	import { companyQuery } from '$lib/model/queries.svelte';
 
 	let { children } = $props();
 	const companyId = $derived(page.params.companyId ?? 'aris');
-	const source = $derived(companyQuery(companyId));
-	$effect(() => source.attach());
 	const computerSurface = $derived(page.url.pathname === `/${companyId}/company/computer`);
 	const routes = $derived([
 		{ label: 'Intelligence provider', href: `/${companyId}/company/provider`, icon: Settings },
 		{ label: 'Vault', href: `/${companyId}/company/vault`, icon: KeyRound },
 		{ label: 'Charter', href: `/${companyId}/company`, exact: true, icon: BookOpen },
 		{ label: 'Identity', href: `/${companyId}/company/identity`, icon: Fingerprint },
-		{ label: 'Decisions', href: `/${companyId}/company/decisions`, icon: ListChecks },
 		{
-			label: 'Authority & limits',
-			href: `/${companyId}/company/authority`,
+			label: 'Access & limits',
+			href: `/${companyId}/company/resources`,
 			icon: ShieldCheck
 		},
-		{ label: 'Resources & access', href: `/${companyId}/company/resources`, icon: KeyRound },
-		{ label: 'External actions', href: `/${companyId}/company/actions`, icon: RadioTower },
 		{ label: 'Computer', href: `/${companyId}/company/computer`, icon: Monitor },
-		{ label: 'Doctor', href: `/${companyId}/company/doctor`, icon: Activity }
+		{ label: 'Doctor', href: `/${companyId}/company/doctor`, icon: Activity },
+		{ label: 'Decision history', href: `/${companyId}/company/decisions`, icon: ListChecks },
+		{ label: 'External activity', href: `/${companyId}/company/actions`, icon: RadioTower }
 	]);
 
 	function active(route: { href: string; exact?: boolean }): boolean {
@@ -61,15 +57,23 @@
 		<aside class="company-spine">
 			<div class="company-spine-head">
 				<h2>Company</h2>
-				<InfoTip
-					text="Durable owner concepts stay in the same order even when a company's tools and providers differ."
-				/>
 			</div>
+			<label class="company-mobile-nav"
+				>Company page
+				<select
+					aria-label="Company page"
+					value={page.url.pathname}
+					onchange={(event) => void goto(event.currentTarget.value)}
+				>
+					{#each routes as route}<option value={route.href}>{route.label}</option>{/each}
+				</select>
+			</label>
 			<nav aria-label="Company">
 				{#each routes as route (route.href)}
 					{@const RouteIcon = route.icon}
 					<a
 						class:active={active(route)}
+						class:history-start={route.label === 'Decision history'}
 						href={route.href}
 						title={route.label}
 						aria-current={active(route) ? 'page' : undefined}
@@ -79,20 +83,40 @@
 					</a>
 				{/each}
 			</nav>
-			<div class="company-source-summary" class:stale={source.status === 'stale'}>
-				<span class="source-lamp status-{source.status}" aria-hidden="true"></span>
-				<span
-					>{source.status === 'live'
-						? 'Live sources'
-						: source.status === 'stale'
-							? 'Last observation'
-							: 'Reading sources'}</span
-				>
-				<InfoTip
-					text="Company pages preserve the last observation when a source drops and label it stale rather than replacing it with an empty list."
-				/>
-			</div>
 		</aside>
 		<section class="company-canvas">{@render children()}</section>
 	</div>
 {/if}
+
+<style>
+	.company-mobile-nav {
+		display: none;
+	}
+	:global(.company-spine nav a.history-start) {
+		margin-top: var(--space-4);
+		border-top-color: var(--border-strong);
+	}
+	@media (max-width: 640px) {
+		.company-mobile-nav {
+			display: flex;
+			align-items: center;
+			gap: var(--space-3);
+			width: 100%;
+			font-size: var(--t-label);
+			color: var(--text-secondary);
+		}
+		.company-mobile-nav select {
+			flex: 1;
+			min-width: 0;
+			padding: var(--space-2);
+			font: inherit;
+			color: var(--ink);
+			background: var(--surface);
+			border: 1px solid var(--border-strong);
+			border-radius: var(--radius-control);
+		}
+		:global(.bridge-root .company-area .company-spine nav) {
+			display: none;
+		}
+	}
+</style>

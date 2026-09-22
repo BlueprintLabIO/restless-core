@@ -1,4 +1,5 @@
 <script lang="ts">
+	import IdentityEditor from '$lib/components/IdentityEditor.svelte';
 	import { page } from '$app/state';
 	import InfoTip from '$lib/components/InfoTip.svelte';
 	import { identityQuery } from '$lib/model/queries.svelte';
@@ -219,52 +220,56 @@
 	{#if notice}<p class="identity-message" role="status">{notice}</p>{/if}
 
 	{#if view}
+		<IdentityEditor {companyId} {view} onSaved={() => source.refresh()} />
 		{#if view.current_release}
-			<section class="release-ledger" aria-labelledby="effective-release">
-				<div class="release-mark" aria-hidden="true">
-					<span>Effective</span>
-					<strong>{short(view.current_release.id)}</strong>
-				</div>
-				<div class="release-account">
-					<div class="section-heading">
-						<h2 id="effective-release">Current release</h2>
-						<InfoTip
-							text="This immutable release is the exact identity new Work binds to. A later release never rewrites old outcomes."
-						/>
+			<details class="release-details">
+				<summary>Current version · {when(view.current_release.effective_from)}</summary>
+				<section class="release-ledger" aria-labelledby="effective-release">
+					<div class="release-mark" aria-hidden="true">
+						<span>Effective</span>
+						<strong>{short(view.current_release.id)}</strong>
 					</div>
-					<p>{view.current_release.change_account}</p>
-					<dl>
-						<div>
-							<dt>Effective</dt>
-							<dd>{when(view.current_release.effective_from)}</dd>
+					<div class="release-account">
+						<div class="section-heading">
+							<h2 id="effective-release">Current release</h2>
+							<InfoTip
+								text="This immutable release is the exact identity new Work binds to. A later release never rewrites old outcomes."
+							/>
 						</div>
-						<div>
-							<dt>Promoted by</dt>
-							<dd>{view.current_release.promoted_by}</dd>
-						</div>
-						<div>
-							<dt>Authority</dt>
-							<dd>{view.current_release.authority_record_id}</dd>
-						</div>
-						<div>
-							<dt>Evidence</dt>
-							<dd>{currentEvidence.length} source-owned statements</dd>
-						</div>
-					</dl>
-				</div>
-				<div class="binding-facts">
-					<strong>{constitutionBindings.length}</strong>
-					<span>exact bound artifacts</span>
-					{#if staleBindings.length}<em>{staleBindings.length} need review after a correction</em
-						>{/if}
-				</div>
-			</section>
+						<p>{view.current_release.change_account}</p>
+						<dl>
+							<div>
+								<dt>Effective</dt>
+								<dd>{when(view.current_release.effective_from)}</dd>
+							</div>
+							<div>
+								<dt>Promoted by</dt>
+								<dd>{view.current_release.promoted_by}</dd>
+							</div>
+							<div>
+								<dt>Authority</dt>
+								<dd>{view.current_release.authority_record_id}</dd>
+							</div>
+							<div>
+								<dt>Evidence</dt>
+								<dd>{currentEvidence.length} source-owned statements</dd>
+							</div>
+						</dl>
+					</div>
+					<div class="binding-facts">
+						<strong>{constitutionBindings.length}</strong>
+						<span>exact bound artifacts</span>
+						{#if staleBindings.length}<em>{staleBindings.length} need review after a correction</em
+							>{/if}
+					</div>
+				</section>
+			</details>
 		{:else}
 			<section class="identity-empty">
-				<h2>No owner-authored identity yet</h2>
+				<h2>Define how your company shows up</h2>
 				<p>
-					Restless will not pretend generic defaults are this company’s voice, visual language or
-					culture. Staff can gather attributed evidence and prepare a proposal for your decision.
+					Add your direction above: what is true about the company, how it sounds, how it looks, and
+					how it works. You can revise it at any time.
 				</p>
 			</section>
 		{/if}
@@ -574,7 +579,7 @@
 
 			<section class="evidence-section">
 				<div class="section-heading">
-					<h2>Released evidence</h2>
+					<h2>Company identity</h2>
 					<InfoTip
 						text="Facts, beliefs, guidance, observations, examples and exceptions keep their distinct meaning. Open the locator to inspect the exact source when it is available in the company computer."
 					/>
@@ -655,8 +660,13 @@
 										</div>
 									{/if}
 									<footer>
-										<span>{item.author_id} · {item.source}</span>
-										<code title={item.evidence_locator}>{item.evidence_locator}</code>
+										{#if item.source === 'owner_identity_editor'}<span
+												>Owner-authored direction</span
+											>{:else}<details>
+												<summary>Source · {item.author_id}</summary><span>{item.source}</span><code
+													>{item.evidence_locator}</code
+												>
+											</details>{/if}
 									</footer>
 								</article>
 							{/each}
@@ -671,27 +681,58 @@
 
 		{#if view.releases.length > 1}
 			<section class="release-history">
-				<h2>Release history</h2>
+				<h2>Version history</h2>
 				{#each view.releases as release (release.id)}
-					<article class:current={release.id === view.current_release?.id}>
-						<code>{short(release.id)}</code>
-						<div>
-							<strong>{release.change_account}</strong><span
-								>{when(release.effective_from)} · {release.promoted_by}</span
-							>
-						</div>
-					</article>
+					<details class="identity-version">
+						<summary
+							>{when(release.effective_from)}{release.id === view.current_release?.id
+								? ' · Current'
+								: ''}</summary
+						>
+						<p>{release.change_account} · {release.promoted_by}</p>
+						{#each view.release_evidence.filter((link) => link.release_id === release.id) as link}
+							{@const evidence = view.evidence.find((item) => item.id === link.evidence_id)}
+							{#if evidence}<div class="version-statement">
+									<strong>{words(evidence.pillar)}</strong>
+									<p>{evidence.statement}</p>
+								</div>{/if}
+						{/each}
+					</details>
 				{/each}
 			</section>
 		{/if}
 	{:else if source.failure}
-		<div class="company-source-error" role="alert">{source.failure.message}</div>
+		<div class="company-source-error" role="alert">
+			{source.failure.message}
+			<button class="btn small" onclick={() => source.refresh()}>Retry</button>
+		</div>
 	{:else}
 		<div class="company-page-wait" aria-label="Reading company identity"></div>
 	{/if}
 </div>
 
 <style>
+	.release-details {
+		margin-block: var(--space-4);
+		color: var(--text-secondary);
+	}
+	.release-details summary,
+	.identity-version summary {
+		cursor: pointer;
+		padding-block: var(--space-3);
+	}
+	.identity-version {
+		border-top: 1px solid var(--border);
+		padding-block: var(--space-2);
+	}
+	.version-statement p {
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
+	.identity-page > section {
+		margin-block: var(--space-5);
+	}
+
 	.identity-page {
 		gap: 24px;
 		container-type: inline-size;
@@ -709,8 +750,8 @@
 		color: var(--text-secondary);
 	}
 	.identity-message.failure {
-		border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
-		color: var(--danger);
+		border-color: color-mix(in srgb, var(--state-danger) 35%, var(--border));
+		color: var(--state-danger);
 	}
 	.release-ledger {
 		display: grid;
@@ -731,11 +772,11 @@
 		border: 1px solid var(--border-strong);
 		border-radius: 50%;
 		text-align: center;
-		box-shadow: inset 0 0 0 5px var(--surface-muted);
+		box-shadow: inset 0 0 0 5px var(--surface-alt);
 	}
 	.release-mark span {
 		color: var(--text-secondary);
-		font-size: var(--t-caption);
+		font-size: var(--t-label);
 	}
 	.release-mark strong {
 		font: 600 var(--t-body) var(--font-mono);
@@ -758,12 +799,12 @@
 	}
 	.release-account dt {
 		color: var(--text-tertiary);
-		font-size: var(--t-caption);
+		font-size: var(--t-label);
 	}
 	.release-account dd {
 		margin: 0;
-		color: var(--text-primary);
-		font-size: var(--t-body-small);
+		color: var(--ink);
+		font-size: var(--t-body);
 	}
 	.binding-facts {
 		display: grid;
@@ -784,14 +825,14 @@
 		max-width: 20ch;
 		margin-top: 12px;
 		color: var(--warning, #9a6500);
-		font-size: var(--t-caption);
+		font-size: var(--t-label);
 		font-style: normal;
 	}
 	.identity-empty {
 		padding: 36px;
 		border: 1px dashed var(--border-strong);
 		border-radius: var(--radius-pane);
-		background: var(--surface-muted);
+		background: var(--surface-alt);
 	}
 	.identity-empty p {
 		max-width: 65ch;
@@ -826,7 +867,7 @@
 	}
 	.proposal-card > div:first-child span {
 		color: var(--text-secondary);
-		font-size: var(--t-caption);
+		font-size: var(--t-label);
 	}
 	.proposal-evidence {
 		display: flex;
@@ -837,9 +878,9 @@
 	.proposal-evidence span {
 		padding: 3px 7px;
 		border-radius: 999px;
-		background: var(--surface-muted);
+		background: var(--surface-alt);
 		color: var(--text-secondary);
-		font-size: var(--t-caption);
+		font-size: var(--t-label);
 	}
 	.proposal-card label {
 		grid-column: 1 / -1;
@@ -848,7 +889,7 @@
 	}
 	.proposal-card label span {
 		color: var(--text-secondary);
-		font-size: var(--t-body-small);
+		font-size: var(--t-body);
 	}
 	.proposal-card textarea {
 		min-height: 84px;
@@ -857,7 +898,7 @@
 		border: 1px solid var(--border-strong);
 		border-radius: var(--radius-control);
 		background: var(--surface);
-		color: var(--text-primary);
+		color: var(--ink);
 		font: inherit;
 	}
 	.proposal-actions {
@@ -888,7 +929,7 @@
 		margin: 0;
 		padding: 12px 14px;
 		border-bottom: 1px solid var(--border);
-		background: var(--surface-muted);
+		background: var(--surface-alt);
 		font-size: var(--t-body);
 	}
 	.visual-ledger article {
@@ -913,37 +954,37 @@
 	.visual-ledger span,
 	.visual-ledger small {
 		color: var(--text-tertiary);
-		font-size: var(--t-caption);
+		font-size: var(--t-label);
 	}
 	.visual-ledger em {
 		color: var(--text-secondary);
-		font-size: var(--t-caption);
+		font-size: var(--t-label);
 		font-style: normal;
 	}
 	.visual-review-list article:not(.accepted) {
 		box-shadow: inset 3px 0 var(--warning, #9a6500);
 	}
 	.visual-review-list article.accepted strong {
-		color: var(--success);
+		color: var(--state-success);
 	}
 	.visual-use-account {
 		margin: 0;
 		color: var(--text-tertiary);
-		font-size: var(--t-caption);
+		font-size: var(--t-label);
 	}
 	.culture-counterexample,
 	.culture-boundary {
 		margin: 0;
 		padding: 7px 8px;
 		border-left: 2px solid var(--border-strong);
-		background: var(--surface-muted);
+		background: var(--surface-alt);
 		color: var(--text-secondary);
-		font-size: var(--t-caption);
+		font-size: var(--t-label);
 	}
 	.culture-counterexample strong,
 	.culture-boundary strong {
 		margin-right: 4px;
-		color: var(--text-primary);
+		color: var(--ink);
 	}
 	.voice-contract-list,
 	.voice-review-list {
@@ -958,7 +999,7 @@
 		margin: 0;
 		padding: 12px 14px;
 		border-bottom: 1px solid var(--border);
-		background: var(--surface-muted);
+		background: var(--surface-alt);
 		font-size: var(--t-body);
 	}
 	.voice-ledger article {
@@ -984,17 +1025,17 @@
 	.voice-ledger article span,
 	.voice-ledger article small {
 		color: var(--text-tertiary);
-		font-size: var(--t-caption);
+		font-size: var(--t-label);
 	}
 	.voice-review-list article:not(.accepted) {
 		box-shadow: inset 3px 0 var(--warning, #9a6500);
 	}
 	.voice-review-list article.accepted strong {
-		color: var(--success);
+		color: var(--state-success);
 	}
 	.voice-judgement {
 		color: var(--text-secondary) !important;
-		font-size: var(--t-body-small);
+		font-size: var(--t-body);
 	}
 	.voice-scopes {
 		display: flex;
@@ -1006,7 +1047,7 @@
 		border: 1px solid var(--border);
 		border-radius: 999px;
 		color: var(--text-tertiary);
-		font-size: var(--t-caption);
+		font-size: var(--t-label);
 	}
 	.pillar-grid {
 		display: grid;
@@ -1026,7 +1067,7 @@
 		justify-content: space-between;
 		padding: 12px 14px;
 		border-bottom: 1px solid var(--border);
-		background: var(--surface-muted);
+		background: var(--surface-alt);
 	}
 	.pillar h3 {
 		margin: 0;
@@ -1035,7 +1076,7 @@
 	}
 	.pillar > header span {
 		color: var(--text-tertiary);
-		font: var(--t-caption) var(--font-mono);
+		font: var(--t-label) var(--font-mono);
 	}
 	.pillar article {
 		display: grid;
@@ -1047,30 +1088,30 @@
 		border-bottom: 0;
 	}
 	.pillar article.negative {
-		box-shadow: inset 3px 0 var(--danger);
+		box-shadow: inset 3px 0 var(--state-danger);
 	}
 	.pillar article.disputed {
-		background: color-mix(in srgb, var(--danger) 5%, var(--surface));
+		background: color-mix(in srgb, var(--state-danger) 5%, var(--surface));
 	}
 	.evidence-kind {
 		color: var(--text-tertiary);
-		font-size: var(--t-caption);
+		font-size: var(--t-label);
 		text-transform: capitalize;
 	}
 	.pillar article p {
 		margin: 0;
-		color: var(--text-primary);
+		color: var(--ink);
 	}
 	.pillar article footer {
 		display: grid;
 		gap: 3px;
 		color: var(--text-secondary);
-		font-size: var(--t-caption);
+		font-size: var(--t-label);
 	}
 	.pillar article code {
 		overflow: hidden;
 		color: var(--text-tertiary);
-		font: var(--t-caption) var(--font-mono);
+		font: var(--t-label) var(--font-mono);
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
@@ -1078,7 +1119,7 @@
 		margin: 0;
 		padding: 18px 14px;
 		color: var(--text-tertiary);
-		font-size: var(--t-body-small);
+		font-size: var(--t-body);
 	}
 	.identity-impact,
 	.impact-list {
@@ -1108,7 +1149,7 @@
 	.impact-card small,
 	.learning-account {
 		color: var(--text-secondary);
-		font-size: var(--t-body-small);
+		font-size: var(--t-body);
 	}
 	.impact-card p,
 	.learning-account {
@@ -1116,7 +1157,7 @@
 	}
 	.impact-card code {
 		color: var(--text-tertiary);
-		font: var(--t-caption) var(--font-mono);
+		font: var(--t-label) var(--font-mono);
 	}
 	.migration-decision {
 		display: grid;
@@ -1136,7 +1177,7 @@
 	.migration-decision > label {
 		width: 100%;
 		color: var(--text-secondary);
-		font-size: var(--t-body-small);
+		font-size: var(--t-body);
 	}
 	.migration-decision > label {
 		display: grid;
@@ -1147,25 +1188,6 @@
 		align-items: center;
 		gap: 5px;
 		text-transform: capitalize;
-	}
-	.release-history article {
-		display: grid;
-		grid-template-columns: 90px 1fr;
-		gap: 14px;
-		align-items: start;
-		padding: 10px 0;
-		border-top: 1px solid var(--border);
-	}
-	.release-history article.current code {
-		color: var(--accent);
-	}
-	.release-history article div {
-		display: grid;
-		gap: 3px;
-	}
-	.release-history article span {
-		color: var(--text-secondary);
-		font-size: var(--t-caption);
 	}
 	@media (max-width: 820px) {
 		.voice-ledger,

@@ -55,10 +55,14 @@
 	});
 
 	onMount(() => {
-		void browserTabClientId(companyId).then((id) => {
-			clientId = id;
-			if (focus) void attachDesktop(false);
-		});
+		void browserTabClientId(companyId)
+			.then((id) => {
+				clientId = id;
+				if (focus) void attachDesktop(false);
+			})
+			.catch((cause) => {
+				error = cause instanceof Error ? cause.message : 'The desktop session could not be opened.';
+			});
 		const idleRelease = window.setInterval(() => {
 			if (
 				controller === 'owner' &&

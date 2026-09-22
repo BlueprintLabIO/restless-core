@@ -9,6 +9,8 @@
 
 #[path = "owner_capacity_activity.rs"]
 mod capacity_activity;
+#[path = "owner_company_settings.rs"]
+mod company_settings_api;
 #[path = "owner_documents.rs"]
 mod documents_api;
 #[path = "owner_member_collaboration.rs"]
@@ -1298,6 +1300,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(revise_company_charter),
         )
         .route(
+            "/companies/{company}/company/spend-limit",
+            post(company_settings_api::save_spend_limit),
+        )
+        .route(
             "/companies/{company}/company/outcome-standard",
             post(set_company_outcome_standard),
         )
@@ -1307,7 +1313,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         )
         .route(
             "/companies/{company}/company/identity",
-            get(company_identity_view),
+            get(company_identity_view).put(company_settings_api::save_identity),
         )
         .route(
             "/companies/{company}/company/identity/proposals/{proposal}/promote",

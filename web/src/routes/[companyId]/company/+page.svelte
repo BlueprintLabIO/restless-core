@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { beforeNavigate } from '$app/navigation';
 	import { page } from '$app/state';
 	import { tick } from 'svelte';
 	import CompanySettings from '$lib/components/CompanySettings.svelte';
@@ -24,6 +25,15 @@
 	let notice = $state('');
 	let failure = $state('');
 	const changed = $derived(editing && draft !== openedMarkdown);
+
+	beforeNavigate((navigation) => {
+		if (
+			changed &&
+			!navigation.willUnload &&
+			!window.confirm('Discard your unsaved charter changes?')
+		)
+			navigation.cancel();
+	});
 
 	function beginEditing() {
 		if (!view) return;

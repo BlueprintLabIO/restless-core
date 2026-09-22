@@ -61,7 +61,6 @@
 .bridge-root .company-spine-head,
 .bridge-root .section-heading,
 .bridge-root .company-page-head,
-.bridge-root .company-source-summary,
 .bridge-root .action-outcome,
 .bridge-root .action-provenance,
 .bridge-root .doctor-overview-title,
@@ -158,20 +157,6 @@
 	background: var(--intent-conversation-soft);
 	box-shadow: none;
 	color: var(--intent-conversation);
-}
-
-.bridge-root .company-source-summary {
-	margin-top: auto;
-	gap: 8px;
-	padding: 14px 10px 5px;
-	border-top: 1px solid var(--company-edge-soft);
-	color: var(--text-tertiary);
-	font-family: var(--font-mono);
-	font-size: var(--t-label);
-}
-
-.bridge-root .company-source-summary .info-tip {
-	margin-left: auto;
 }
 
 .bridge-root .company-canvas {
@@ -311,14 +296,15 @@
 	color: var(--ink);
 }
 
-.bridge-root .info-tip::after {
-	content: attr(data-tip);
-	position: absolute;
-	right: 0;
-	top: calc(100% + 7px);
-	z-index: var(--z-overlay);
+.bridge-root .info-tip-content {
+	position: fixed;
+	inset: auto;
+	margin: 0;
 	width: max-content;
-	max-width: min(310px, 78vw);
+	max-width: min(310px, calc(100vw - 24px));
+	max-height: calc(100vh - 24px);
+	overflow: auto;
+	box-sizing: border-box;
 	padding: 10px 12px;
 	border: 1px solid rgba(255, 255, 255, 0.12);
 	border-radius: var(--radius-control);
@@ -328,19 +314,7 @@
 	font: var(--t-body) var(--font-ui);
 	line-height: 1.5;
 	text-align: left;
-	pointer-events: none;
-	opacity: 0;
-	transform: translateY(-4px) scale(0.985);
-	transform-origin: top right;
-	transition:
-		opacity var(--motion-state) var(--ease-standard),
-		transform var(--motion-state) var(--ease-out);
-}
-
-.bridge-root .info-tip:hover::after,
-.bridge-root .info-tip:focus-visible::after {
-	opacity: 1;
-	transform: translateY(0) scale(1);
+	overflow-wrap: anywhere;
 }
 
 .bridge-root .section-heading {
@@ -1979,8 +1953,7 @@
 	}
 
 	.bridge-root .company-spine::before,
-	.bridge-root .company-spine-head,
-	.bridge-root .company-source-summary {
+	.bridge-root .company-spine-head {
 		display: none;
 	}
 
@@ -2152,7 +2125,7 @@
 	.bridge-root .resource-row,
 	.bridge-root .computer-portal-machine,
 	.bridge-root .computer-enter,
-	.bridge-root .info-tip::after {
+	.bridge-root .info-tip-content {
 		transition-duration: 0.01ms;
 	}
 

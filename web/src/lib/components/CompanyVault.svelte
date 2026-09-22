@@ -51,19 +51,25 @@
 <div class="vault-page">
 	<header>
 		<h1>Vault</h1>
-		<button onclick={refresh} disabled={busy}>{busy ? 'Checking…' : 'Refresh'}</button>
+		<button class="btn small" onclick={refresh} disabled={busy}
+			>{busy ? 'Checking…' : 'Refresh'}</button
+		>
 	</header>
 	<p
 		class="status"
-		class:connected={view?.status === 'connected'}
-		class:unavailable={view?.status === 'unavailable'}
+		class:connected={!error && view?.status === 'connected'}
+		class:unavailable={!!error || view?.status === 'unavailable'}
 		role="status"
 	>
-		● {view?.status === 'connected'
-			? 'Infisical connected'
-			: view?.status === 'unavailable'
-				? 'Infisical unavailable'
-				: 'Checking Infisical…'}
+		● {error
+			? 'Vault status unavailable'
+			: view?.status === 'connected'
+				? 'Infisical connected'
+				: view?.status === 'unavailable'
+					? 'Infisical unavailable'
+					: busy
+						? 'Checking Infisical…'
+						: 'Infisical is not configured'}
 	</p>
 	<p class="scope">Secrets stored for this company. Values remain hidden.</p>
 	{#if error}<p role="alert">{error}</p>{/if}

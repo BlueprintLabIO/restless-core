@@ -29,6 +29,81 @@ fn release_select() -> &'static str {
 }
 
 impl OrgIntel {
+    /// Stage the owner's four authored pillars without discarding independently
+    /// attributed evidence. Promotion still uses the normal owner/Authority path.
+    pub async fn propose_owner_identity(
+        &self,
+        actor: &str,
+        expected: Option<Uuid>,
+        sections: &[(IdentityPillar, &str)],
+    ) -> Result<Uuid> {
+        nonempty("author", actor)?;
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(814221)")
+            .execute(&mut *tx)
+            .await?;
+        let current: Option<Uuid> = sqlx::query_scalar(
+            "SELECT release_id FROM company_identity_current_release WHERE singleton=TRUE",
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        if current != expected {
+            return Err(OrgIntelError::InvalidWork("Identity changed while you were editing. Reload the saved identity before trying again.".into()));
+        }
+        let existing = sqlx::query_as::<_, IdentityEvidenceRow>(&format!(
+            "{} WHERE id IN (SELECT evidence_id FROM company_identity_release_evidence WHERE release_id=$1)", evidence_select()
+        )).bind(current).fetch_all(&mut *tx).await?;
+        let mut ids: Vec<Uuid> = existing
+            .iter()
+            .filter(|e| e.source != "owner_identity_editor")
+            .map(|e| e.id)
+            .collect();
+        for (pillar, text) in sections {
+            let text = text.trim();
+            if text.len() > 16000 {
+                return Err(OrgIntelError::InvalidWork(
+                    "Each identity section must be at most 16,000 bytes.".into(),
+                ));
+            }
+            if text.is_empty() {
+                continue;
+            }
+            let previous = existing
+                .iter()
+                .find(|e| e.source == "owner_identity_editor" && e.pillar == *pillar);
+            if let Some(previous) = previous.filter(|e| e.statement == text) {
+                ids.push(previous.id);
+                continue;
+            }
+            let id = Uuid::new_v4();
+            let key = format!(
+                "owner.{}",
+                serde_json::to_value(pillar)
+                    .expect("pillar serializes")
+                    .as_str()
+                    .unwrap()
+            );
+            sqlx::query("INSERT INTO company_identity_evidence (id,pillar,statement_kind,claim_key,statement,author_id,source,authority,scope,observed_at,evidence_locator,polarity,status,supersedes_evidence_id) VALUES ($1,$2,'guidance',$3,$4,$5,'owner_identity_editor','owner','company',now(),$6,'neutral','active',$7)")
+                .bind(id).bind(pillar).bind(key).bind(text).bind(actor)
+                .bind(format!("owner-identity:{id}"))
+                .bind(previous.map(|e|e.id)).execute(&mut *tx).await?;
+            ids.push(id);
+        }
+        if ids.is_empty() {
+            return Err(OrgIntelError::InvalidWork(
+                "Add at least one identity section before saving.".into(),
+            ));
+        }
+        let proposal = Uuid::new_v4();
+        sqlx::query("INSERT INTO company_identity_proposals (id,created_by,rationale,expected_predecessor) VALUES ($1,$2,'Owner edited company identity',$3)")
+            .bind(proposal).bind(actor).bind(expected).execute(&mut *tx).await?;
+        for id in ids {
+            sqlx::query("INSERT INTO company_identity_proposal_evidence (proposal_id,evidence_id) VALUES ($1,$2)").bind(proposal).bind(id).execute(&mut *tx).await?;
+        }
+        tx.commit().await?;
+        Ok(proposal)
+    }
+
     pub async fn add_identity_evidence(&self, input: NewIdentityEvidence<'_>) -> Result<Uuid> {
         for (label, value) in [
             ("claim key", input.claim_key),
@@ -166,6 +241,10 @@ impl OrgIntel {
         nonempty("Authority record", authority_record_id)?;
         nonempty("change account", change_account)?;
         let mut tx = self.pool.begin().await?;
+        // Also serializes the very first release, where there is no row to lock yet.
+        sqlx::query("SELECT pg_advisory_xact_lock(814221)")
+            .execute(&mut *tx)
+            .await?;
         let proposal = sqlx::query(
             "SELECT state,expected_predecessor FROM company_identity_proposals \
              WHERE id=$1 FOR UPDATE",

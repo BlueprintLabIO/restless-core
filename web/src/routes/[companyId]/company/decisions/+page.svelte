@@ -26,14 +26,14 @@
 	}
 </script>
 
-<svelte:head><title>Decisions — {view?.company.name ?? companyId}</title></svelte:head>
+<svelte:head><title>Decision history — {view?.company.name ?? companyId}</title></svelte:head>
 
 <div class="company-page decisions-page">
 	<header class="company-page-head">
 		<div class="decision-history-heading">
-			<h1>Decisions</h1>
+			<h1>Decision history</h1>
 			<InfoTip
-				text="Recorded owner decisions and the work they actually released. This is a read-only projection of source-owned company state."
+				text="Past approvals and decisions stay in history. Open the related work to give new direction; pending decisions are in Attention."
 			/>
 		</div>
 		<div class="company-page-freshness">
@@ -46,6 +46,7 @@
 		</div>
 	</header>
 
+	<a class="btn small" href={`/${companyId}`}>Review pending decisions</a>
 	{#if view}
 		{#if decisions.length}
 			<section class="company-decision-ledger" aria-label="Recorded owner decisions">
@@ -83,7 +84,9 @@
 									<span>Responsible now</span>
 									<strong>{decision.responsibleActor?.display ?? 'No further owner'}</strong>
 								</div>
-								<a class="btn small" href={`/${companyId}/work/${decision.workId}`}>Inspect Work</a>
+								<a class="btn small" href={`/${companyId}/work/${decision.workId}`}
+									>Open related work</a
+								>
 							</footer>
 						</div>
 					</details>
@@ -93,7 +96,10 @@
 			<p class="quiet-empty">No owner decisions have been recorded yet.</p>
 		{/if}
 	{:else if source.failure}
-		<div class="company-source-error" role="alert">{source.failure.message}</div>
+		<div class="company-source-error" role="alert">
+			{source.failure.message}
+			<button class="btn small" onclick={() => source.refresh()}>Retry</button>
+		</div>
 	{:else}
 		<div class="company-page-wait" aria-label="Reading decision history"></div>
 	{/if}

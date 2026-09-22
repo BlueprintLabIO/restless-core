@@ -1,4 +1,5 @@
 <script lang="ts">
+	import CompanyLimits from '$lib/components/CompanyLimits.svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import InfoTip from '$lib/components/InfoTip.svelte';
@@ -51,7 +52,7 @@
 			} else {
 				nativeNotice = outcome.reused
 					? `${item.label} is already running.`
-					: `${item.label} launched on this Mac.`;
+					: `${item.label} launched on this computer.`;
 			}
 		} catch (error) {
 			launchError = error instanceof Error ? error.message : 'The resource could not be opened.';
@@ -61,20 +62,28 @@
 	}
 </script>
 
-<svelte:head><title>Resources & access — {view?.company.name ?? companyId}</title></svelte:head>
+<svelte:head><title>Access & limits — {view?.company.name ?? companyId}</title></svelte:head>
 
 <div class="company-page resources-page">
 	<header class="company-page-head">
-		<h1>Resources & access</h1>
+		<h1>Access & limits</h1>
 		<div class="company-page-freshness">
 			<span class="source-lamp status-{source.status}" aria-hidden="true"></span>{source.status ===
 			'live'
-				? 'Live and timestamped observations'
-				: 'Last observation'}
+				? 'Live sources'
+				: source.status === 'stale'
+					? 'Last observation'
+					: 'Reading sources'}
 		</div>
 	</header>
 	{#if view}
-		<p><a href={`/${companyId}/company/provider`}>Provider and agent harness settings →</a></p>
+		<CompanyLimits />
+		<div class="section-heading">
+			<h2>Resources &amp; access</h2>
+			<InfoTip
+				text="Connected tools and available company resources. Manage model credentials in Intelligence provider and Vault."
+			/>
+		</div>
 		{#if view.resources.status === 'unavailable'}
 			<p class="source-unavailable">
 				Authority and Runtime are unavailable. Resources are unknown, not empty.

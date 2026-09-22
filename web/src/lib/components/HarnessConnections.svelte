@@ -21,11 +21,16 @@
 	let keys = $state<Record<string, string>>({});
 	let busy = $state('');
 	let error = $state('');
+	let readError = $state('');
+	let refreshSequence = 0;
 
 	async function refresh() {
+		const sequence = ++refreshSequence;
 		const response = await fetch(`/api/companies/${companyId}/harness-auth`);
 		if (!response.ok) throw new Error('Could not read harness authentication.');
 		const data = await response.json();
+		if (sequence !== refreshSequence) return;
+		readError = '';
 		const before = connections.map((c) => c.auth.state).join();
 		connections = data.connections;
 		if (before !== connections.map((c) => c.auth.state).join()) await intelligence.refresh();
@@ -35,9 +40,9 @@
 		let timer: ReturnType<typeof setTimeout>;
 		const poll = async () => {
 			try {
-				await refresh();
+				if (!busy) await refresh();
 			} catch (cause) {
-				if (!stopped) error = String(cause);
+				if (!stopped) readError = cause instanceof Error ? cause.message : String(cause);
 			} finally {
 				if (!stopped) timer = setTimeout(poll, 5000);
 			}
@@ -51,6 +56,7 @@
 	async function act(c: Connection, action: string) {
 		if (busy) return;
 		busy = c.harness;
+		++refreshSequence;
 		error = '';
 		try {
 			const response = await fetch(`/api/companies/${companyId}/harness-auth/${c.harness}`, {
@@ -94,7 +100,11 @@
 
 <section class="native-connections" aria-label="Harness connections">
 	{#if error}<p role="alert">{error}</p>{/if}
-	{#if !connections.length}<p role="status">Checking native harness authentication…</p>{/if}
+	{#if readError}<p role="alert">{readError} Retrying…</p>{:else if !connections.length}<p
+			role="status"
+		>
+			Checking native harness authentication…
+		</p>{/if}
 	{#each connections as c (c.harness)}
 		<article>
 			<header>
@@ -108,11 +118,12 @@
 			</header>
 			{#if c.auth.account?.email}<p>{c.auth.account.email}</p>{/if}
 			<div class="row actions">
-				<button class="primary" disabled={!!busy} onclick={() => act(c, 'login')}
+				<button class="btn primary small" disabled={!!busy} onclick={() => act(c, 'login')}
 					>{busy === c.harness
 						? 'Working…'
 						: `Sign in with ${c.harness === 'codex' ? 'ChatGPT' : 'Claude'}`}</button
 				>{#if c.mode !== 'disconnected'}<button
+						class="btn small"
 						disabled={!!busy}
 						onclick={() => act(c, 'disconnect')}>Disconnect</button
 					>{/if}
@@ -133,7 +144,9 @@
 							href={`/${companyId}/company/computer?focus=desktop`}
 							>Continue Claude sign-in in company desktop →</a
 						>{/if}
-					<button disabled={!!busy} onclick={() => act(c, 'cancel')}>Cancel sign-in</button>
+					<button class="btn small" disabled={!!busy} onclick={() => act(c, 'cancel')}
+						>Cancel sign-in</button
+					>
 				</div>
 			{/if}
 			{#if c.auth.message}<p>{c.auth.message}</p>{/if}
@@ -155,7 +168,9 @@
 							bind:value={keys[c.harness]}
 							autocomplete="new-password"
 							placeholder="Paste API key"
-						/><button disabled={!!busy || !keys[c.harness]?.trim()}>Save key</button>
+						/><button class="btn small" disabled={!!busy || !keys[c.harness]?.trim()}
+							>Save key</button
+						>
 					</div>
 				</form>
 			</details>
@@ -235,10 +250,6 @@
 	button:disabled {
 		opacity: 0.5;
 		cursor: default;
-	}
-	.primary {
-		background: var(--ink);
-		color: var(--text-inverse);
 	}
 	.actions {
 		margin-block: var(--space-4);

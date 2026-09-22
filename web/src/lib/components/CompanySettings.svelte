@@ -196,9 +196,9 @@
 		>
 	</header>
 	{#if error}<div class="error" role="alert">
-			{error}<button type="button" onclick={() => void save()}>Retry save</button><button
-				type="button"
-				onclick={() => void reloadSaved()}>Reload saved settings</button
+			{error}<button class="btn small" type="button" onclick={() => void save()}>Retry save</button
+			><button class="btn small" type="button" onclick={() => void reloadSaved()}
+				>Reload saved settings</button
 			>
 		</div>{/if}
 	{#if ready}

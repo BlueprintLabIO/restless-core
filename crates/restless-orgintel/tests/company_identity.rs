@@ -315,3 +315,170 @@ async fn released_identity_is_owner_governed_bounded_and_restart_stable() {
     );
     restarted.drop_schema().await.unwrap();
 }
+
+#[tokio::test]
+async fn owner_editor_preserves_history_evidence_and_rejects_stale_drafts() {
+    let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+        return;
+    };
+    let company = format!("identityeditor{}", uuid::Uuid::new_v4().simple());
+    let org = OrgIntel::ensure(&url, &company).await.unwrap();
+    org.ensure_actor("owner", "owner", "owner", "Owner")
+        .await
+        .unwrap();
+    let first = org
+        .propose_owner_identity(
+            "owner",
+            None,
+            &[
+                (IdentityPillar::Truth, "We build tools"),
+                (IdentityPillar::Voice, "Direct and clear"),
+            ],
+        )
+        .await
+        .unwrap();
+    assert!(org
+        .promote_identity_proposal(first, "owner", "staff", "authority:1", "First", Utc::now())
+        .await
+        .is_err());
+    let release = org
+        .promote_identity_proposal(first, "owner", "owner", "authority:1", "First", Utc::now())
+        .await
+        .unwrap();
+    let before = org.company_identity_snapshot().await.unwrap();
+    assert!(org
+        .propose_owner_identity(
+            "owner",
+            None,
+            &[(IdentityPillar::Truth, "Stale replacement")]
+        )
+        .await
+        .is_err());
+    assert_eq!(
+        org.company_identity_snapshot()
+            .await
+            .unwrap()
+            .evidence
+            .len(),
+        before.evidence.len(),
+        "stale draft leaves no evidence behind"
+    );
+    let independent = org
+        .add_identity_evidence(NewIdentityEvidence {
+            pillar: IdentityPillar::Truth,
+            statement_kind: IdentityStatementKind::Fact,
+            claim_key: "founded",
+            statement: "Founded in 2026",
+            author_id: "owner",
+            source: "company-record",
+            authority: "owner",
+            scope: "company",
+            observed_at: Utc::now(),
+            evidence_locator: "record:1",
+            polarity: IdentityPolarity::Neutral,
+            status: IdentityEvidenceStatus::Active,
+            channel: None,
+            audience: None,
+            supersedes_evidence_id: None,
+            exception_expires_at: None,
+            exception_indefinite: false,
+        })
+        .await
+        .unwrap();
+    let mut ids: Vec<_> = before.evidence.iter().map(|e| e.id).collect();
+    ids.push(independent);
+    let proposal = org
+        .propose_identity_release("owner", "Add independent fact", &ids)
+        .await
+        .unwrap();
+    let with_fact = org
+        .promote_identity_proposal(
+            proposal,
+            "owner",
+            "owner",
+            "authority:2",
+            "Fact",
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    let next = org
+        .propose_owner_identity(
+            "owner",
+            Some(with_fact),
+            &[
+                (IdentityPillar::Truth, "We build useful tools"),
+                (IdentityPillar::Voice, ""),
+            ],
+        )
+        .await
+        .unwrap();
+    let latest = org
+        .promote_identity_proposal(next, "owner", "owner", "authority:3", "Edit", Utc::now())
+        .await
+        .unwrap();
+    let snapshot = org.company_identity_snapshot().await.unwrap();
+    let current: Vec<_> = snapshot
+        .release_evidence
+        .iter()
+        .filter(|e| e.release_id == latest)
+        .map(|e| e.evidence_id)
+        .collect();
+    assert!(
+        current.contains(&independent),
+        "editing preserves separately attributed facts"
+    );
+    assert_eq!(
+        current.len(),
+        2,
+        "cleared owner voice is removed only from the new release"
+    );
+    assert_eq!(
+        snapshot
+            .release_evidence
+            .iter()
+            .filter(|e| e.release_id == release)
+            .count(),
+        2,
+        "prior version unchanged"
+    );
+    assert!(snapshot
+        .evidence
+        .iter()
+        .any(|e| e.statement == "We build useful tools" && e.supersedes_evidence_id.is_some()));
+    org.drop_schema().await.unwrap();
+}
+
+#[tokio::test]
+async fn concurrent_first_identity_saves_cannot_both_become_current() {
+    let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+        return;
+    };
+    let company = format!("identityrace{}", uuid::Uuid::new_v4().simple());
+    let org = OrgIntel::ensure(&url, &company).await.unwrap();
+    org.ensure_actor("owner", "owner", "owner", "Owner")
+        .await
+        .unwrap();
+    let a = org
+        .propose_owner_identity("owner", None, &[(IdentityPillar::Voice, "First tab")])
+        .await
+        .unwrap();
+    let b = org
+        .propose_owner_identity("owner", None, &[(IdentityPillar::Voice, "Second tab")])
+        .await
+        .unwrap();
+    let (a, b) = tokio::join!(
+        org.promote_identity_proposal(a, "owner", "owner", "authority:1", "First tab", Utc::now()),
+        org.promote_identity_proposal(b, "owner", "owner", "authority:2", "Second tab", Utc::now()),
+    );
+    assert_ne!(a.is_ok(), b.is_ok());
+    assert_eq!(
+        org.company_identity_snapshot()
+            .await
+            .unwrap()
+            .releases
+            .len(),
+        1
+    );
+    org.drop_schema().await.unwrap();
+}
