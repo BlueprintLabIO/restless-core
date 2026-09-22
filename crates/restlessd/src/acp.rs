@@ -2153,22 +2153,32 @@ pub(crate) async fn purge_exact_secret_residue(
 }
 
 pub(crate) async fn verify_session_reaped(container: &str, session_id: &str) -> Result<()> {
-    let output = tokio::process::Command::new("docker")
-        .args(["exec", container, "ps", "-eo", "pid=,sid="])
-        .output()
-        .await
-        .context("verify exact agent process session cleanup")?;
-    if !output.status.success() {
-        anyhow::bail!("could not observe agent process sessions after cleanup");
-    }
-    let residue = pids_in_session(&String::from_utf8_lossy(&output.stdout), session_id);
-    if !residue.is_empty() {
-        anyhow::bail!(
-            "agent session {session_id} retained {} processes after cleanup",
-            residue.len()
-        );
-    }
-    Ok(())
+    // SIGKILL delivery and the container init's waitpid are asynchronous. An
+    // immediate ps can still see a dying child and wrongly discard a completed
+    // model turn. Wait for observed absence, while retaining a finite failure
+    // boundary for live residue or an unresponsive Docker daemon.
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let output = crate::runtime::docker_bounded(
+                &["exec", container, "ps", "-eo", "pid=,sid="],
+                std::time::Duration::from_secs(5),
+            )
+            .await
+            .context("verify exact agent process session cleanup")?;
+            anyhow::ensure!(
+                output.status.success(),
+                "could not observe agent process sessions after cleanup"
+            );
+            if pids_in_session(&String::from_utf8_lossy(&output.stdout), session_id).is_empty() {
+                return Ok(());
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .with_context(|| {
+        format!("agent session {session_id} did not disappear within the cleanup deadline")
+    })?
 }
 
 /// Kill whatever this turn's Linux session started and left behind.
@@ -2272,6 +2282,55 @@ fn pids_in_session(table: &str, session_id: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    #[ignore = "requires an isolated RESTLESS_TEST_SESSION_CONTAINER with Docker init"]
+    async fn session_cleanup_waits_for_exit_and_rejects_live_residue() {
+        let container = std::env::var("RESTLESS_TEST_SESSION_CONTAINER").unwrap();
+        assert!(container.ends_with("_test"));
+        for (duration, should_exit) in [("1", true), ("30", false)] {
+            let marker = format!("/tmp/reap-{}.sid", uuid::Uuid::new_v4());
+            let started = crate::runtime::docker_bounded(
+                &[
+                    "exec",
+                    "-d",
+                    &container,
+                    "setsid",
+                    "sh",
+                    "-c",
+                    "echo $$ > \"$1\"; exec sleep \"$2\"",
+                    "reap-test",
+                    &marker,
+                    duration,
+                ],
+                std::time::Duration::from_secs(5),
+            )
+            .await
+            .unwrap();
+            assert!(started.status.success());
+            let mut session = None;
+            for _ in 0..50 {
+                session = super::read_session_id(&container, &marker).await;
+                if session.is_some() {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+            let session = session.expect("session marker");
+            let result = super::verify_session_reaped(&container, &session).await;
+            super::reap_session(&container, &session).await;
+            super::verify_session_reaped(&container, &session)
+                .await
+                .unwrap();
+            crate::runtime::docker_bounded(
+                &["exec", &container, "rm", &marker],
+                std::time::Duration::from_secs(5),
+            )
+            .await
+            .unwrap();
+            assert_eq!(result.is_ok(), should_exit, "{result:?}");
+        }
+    }
+
     use agent_client_protocol::schema::v1::{
         ClientCapabilities, SessionConfigOption, SessionConfigOptionCategory,
         SessionConfigSelectOption,
