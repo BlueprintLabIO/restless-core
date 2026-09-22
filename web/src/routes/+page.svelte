@@ -90,7 +90,14 @@
 		{/if}
 	</header>
 
-	{#if loaded}
+	{#if error && !loaded}
+		<main class="portfolio-main">
+			<div class="portfolio-error" role="alert">{error}</div>
+			<button class="btn small" type="button" onclick={() => void companyCatalog.refresh()}
+				>Try again</button
+			>
+		</main>
+	{:else if loaded}
 		<main class="portfolio-main">
 			{#if appliance?.state === 'recovering'}
 				<div class="appliance-notice" role="status">

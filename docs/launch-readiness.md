@@ -114,6 +114,29 @@ fixtures. Each run must verify its own cleanup.
 - Authenticated human invitations still need a complete supported identity-adapter
   journey. Signed fixture assertions and two local-owner browser sessions do not
   close the multiplayer check.
+- The working-tree self-hosted account service now passes the same real
+  PostgreSQL/Core/Documents integration using its own authentication and
+  invitation implementation. Removal during a stopped Core reports an incomplete
+  removal, blocks fresh entry across an account-service restart, and completes
+  when retried after Core returns. Cancelled invitations, cross-origin rejection
+  and the single-use password-reset email path also pass. Mail was captured
+  locally; external SMTP delivery has not been qualified.
+- Browser checks of that account service passed owner sign-in, invitation send
+  and resend, invited-member acceptance, and desktop/390px layouts. Core recorded
+  the invited human's handoff, but the browser did not reach a usable workspace;
+  a direct Core API navigation reported `net::ERR_BLOCKED_BY_CLIENT`. This leaves
+  browser coediting and the complete supported setup journey open. All isolated
+  accounts, databases, roles, computers and Documents containers were removed.
+- That browser investigation found a separate cockpit defect: a failed initial
+  company-list request kept the page in its loading state and hid the error.
+  The fix displays the failure and a retry action. Frontend checks reported zero
+  errors/warnings, production builds passed, and the built UI showed the error
+  on desktop/mobile and recovered after its test endpoint became available.
+- Release provenance now refreshes after commits on the same branch, tracked
+  edits, packed refs and linked-worktree changes (`e2d6948`). An isolated real
+  Git/Cargo workspace verified those transitions and the explicit exported-source
+  override. This fixes the stale embedded revision found during qualification;
+  it does not qualify the currently dirty working tree as a release.
 
 The feedback route is shipped. Component results do not close the other five
 checks: their final evidence must name the published revision and include the
