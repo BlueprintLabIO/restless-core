@@ -59,11 +59,37 @@
 		items.find((item) => item.id === focusedReviewId && item.category === 'review') ?? null
 	);
 	const reviewEvidence = $derived(focusedReview?.evidence ?? []);
+	const DOCUMENT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+	function sameCompanyDocumentHref(content: string, company: string): string {
+		const canonicalPath = `/${encodeURIComponent(company)}/work/documents`;
+		for (const line of content.split(/\r?\n/)) {
+			const value = line.trim();
+			const legacy = /^\/documents\/([^/?#\s]+)\/([^/?#\s]+)$/.exec(value);
+			if (legacy?.[1] === company && DOCUMENT_ID.test(legacy[2]))
+				return `${canonicalPath}?document=${encodeURIComponent(legacy[2])}`;
+			if (!value.startsWith('/')) continue;
+			let url: URL;
+			try {
+				url = new URL(value, 'https://restless.local');
+			} catch {
+				continue;
+			}
+			const documentId = url.searchParams.get('document');
+			if (
+				url.pathname === canonicalPath &&
+				url.searchParams.size === 1 &&
+				!url.hash &&
+				!!documentId &&
+				DOCUMENT_ID.test(documentId)
+			)
+				return `${canonicalPath}?document=${encodeURIComponent(documentId)}`;
+		}
+		return '';
+	}
 	const nativeDocumentHref = $derived.by(() => {
 		for (const evidence of reviewEvidence) {
-			const match = evidence.content.match(/^\/documents\/([^/?#\s]+)\/([^/?#\s]+)$/m);
-			if (match?.[1] === companyId)
-				return `/${encodeURIComponent(companyId)}/work/documents?document=${encodeURIComponent(match[2])}`;
+			const href = sameCompanyDocumentHref(evidence.content, companyId);
+			if (href) return href;
 		}
 		return '';
 	});
