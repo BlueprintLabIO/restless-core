@@ -254,6 +254,9 @@ Open the workspace address printed by the launcher. In another terminal, verify 
 Ctrl-C stops the foreground host processes; company containers and volumes persist.
 See [web development](web/README.md) and [build storage](docs/BUILD_STORAGE.md) for details.
 
+To start a new company with teammates, follow the [self-hosted accounts setup](services/self-hosted-identity/README.md).
+It provides separate sign-ins, email invitations and removal of member access.
+
 ## Example: a game studio, humans and AI together
 
 **Lantern Studio** is the example business in the walkthrough. Its brief: make a small

@@ -183,6 +183,24 @@ fixtures. Each run must verify its own cleanup.
   independent-human protocol checks remain separate evidence. Account setup is
   still unpublished, and the complete fresh multiplayer installation remains open.
 
+- The self-hosted account package now has a reproducible integration command.
+  Its documented configuration CLI passed against a fresh company, followed by
+  verified invitations, independent Core identities, private sharing, concurrent
+  document edits, reconnection and access removal, including an account-service
+  restart while Core was unavailable. The generator also rejects an accounts
+  connection that points to the company database under an equivalent URL.
+  A separate test ran the production entrypoint and delivered verification mail
+  through Nodemailer to a local SMTP receiver before verified sign-in. All test
+  containers, databases, roles and temporary private configuration were removed.
+  These are candidate-package checks; the published-revision rerun remains open.
+  The setup guide supports new, unused companies: existing local-owner document
+  permissions do not automatically transfer to new authenticated identities.
+
+- The clean source-install run at published revision `72d00ad` reached its
+  60-minute deadline during the Godot export-template download, before exposing
+  the cockpit. Its processes, containers, volumes and temporary checkout were
+  removed. This is a failed installation check, not a successful cold start.
+
 The feedback route is shipped. Component results do not close the other five
 checks: their final evidence must name the published revision and include the
 complete user journeys.

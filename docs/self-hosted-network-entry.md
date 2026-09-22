@@ -27,9 +27,11 @@ listener, so it does not need public DNS or a route through a TLS proxy to reach
 its own host. Document traffic still passes through Core's authenticated proxy.
 Local company processes use the existing capability-protected local model relay.
 
-This setting selects deployment infrastructure; it does not supply an invitation
-or account-registration service. The identity adapter must authenticate users,
-issue only current memberships and deliver signed removal controls to Core.
+For a new self-hosted company, the [account service](../services/self-hosted-identity/README.md)
+provides verified sign-in, invitations and membership removal using Better Auth.
+Its setup guide connects that service to this deployment mode. Other identity
+adapters must authenticate users, issue only current memberships and deliver
+signed removal controls to Core.
 The full self-hosted invitation and cockpit journey is still being qualified in
 [launch readiness](launch-readiness.md).
 
