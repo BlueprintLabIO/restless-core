@@ -10,7 +10,7 @@ revision and exercise the installation a new user receives.
 | First installation and intelligence | Fresh state and checkout; README commands; successful native Codex, native Claude and API-backed requests; actionable connection failures | Clean setup verified at `c88e29d`; normal Docker bridge reaches Core with the approved narrow firewall rule; native Codex works; Claude/API requests deferred by owner |
 | First useful outcome | Published starter exercise produces an actual business document, then accepts a human-requested revision | Real Codex delegation produced and reviewed a proposal; explicit Request changes updated the same document; human edits and comments survived reload |
 | Human multiplayer | Two independent authenticated humans; invitation, shared editing, reconnect, comments, permission boundaries and removal through the supported product path | Independent-account protocol journey passes; simultaneous independent browsers remain open |
-| Completion and recovery | Real model delegation, produced output, review and revision; interrupted execution recovers preserved work and delivers a final owner notification without a prompting message | Real delegation, preserved output and unsolicited initial completion observed; interrupted owner request resumed after the lease fix; human-requested revision completed |
+| Completion and recovery | Real model delegation, produced output, review and revision; interrupted execution recovers preserved work and delivers a final owner notification without a prompting message | Real delegation and revision verified; interrupted owner request recovered; initial and revised reviews reached Attention automatically; accepted output attached at closeout (see final smoke below) |
 | Founder feedback | Visible, working route from the README to onboarding help and founder feedback | Shipped; links verified |
 
 ## Docker bridge reachability
@@ -414,10 +414,43 @@ complete user journeys.
   SMTP delivery remain unverified.
 - A known local prerelease migration-59 checksum needs the documented repair
   before upgrading that existing owner database. The owner runtime was untouched.
-- The revised output reached a new pending human review, but no fresh Exec
-  completion message arrived after that revision during this run. The initial
-  output notification and resumed-request reply were verified separately.
+- Owner notification is delivered through Attention. A separate Exec chat message
+  is not required. The final smoke verified automatic delivery of both the
+  original and revised native document reviews.
 - The disposable daemon, containers, volumes, network, copied credentials,
   private state and source worktree were removed. The owner and peer runtimes
-  were untouched. Removing the approved temporary UFW rule requires the owner's
-  local sudo password and remains pending.
+  were untouched. The owner reported the temporary UFW cleanup done; independent inspection
+  remains unavailable because noninteractive sudo requires authentication.
+
+## Final live review smoke — 23 September 2026
+
+- Native Codex running `gpt-5.6-terra` delegated a fictional $600 flyer proposal
+  for Northstar Books. The original review reached Attention automatically.
+  The human used Request changes to add 50% payment on approval and 50% on
+  delivery. The revised document retained the price, one-week delivery, one
+  included revision and printing exclusion. The human inspected the actual
+  document and accepted its revised version in the browser.
+- `ac60c31` fixes two faults found during this run: local document checks now
+  carry the correct agent identity, and requesting changes retires reviews tied
+  to the previous Work revision. A real, uncached `restless document read` check
+  passed, and the new native review referenced the current Work revision and
+  document version. The daemon build passed; no new tests were added or run.
+- The revised review appeared automatically in Attention. The lead eventually
+  attached the accepted proposal, acceptance evidence and one review target,
+  then closed the Work with an outcome-achieved explanation. The stored terminal
+  status was `abandoned`, despite that successful explanation, and extra attempts
+  occurred after acceptance. The useful outcome is verified; this closeout still
+  has confusing status and unnecessary coordination to improve.
+- `4bcceba` lets outcome reviews open documents using the canonical document URL
+  as well as older links. Its isolated production UI build passed. The final
+  canonical fallback was inspected in source; no new pending outcome handoff
+  remained for a separate browser click check.
+- During qualification, the shared generated web build was accidentally replaced.
+  Its original compiled client assets were restored byte-for-byte, and the SPA
+  entry page was regenerated from the original compiler manifest. The isolated
+  fixture subsequently used its own build; no owner runtime was restarted.
+- Final cleanup removed the disposable daemon, company and Documents containers,
+  volumes, network, private copied credentials, user service and candidate
+  worktree. All six changed source files matched published `4bcceba` before
+  removal. Nonsecret evidence is archived as `final-closeout-evidence.tsv`;
+  shared caches and protected runtimes were preserved.
