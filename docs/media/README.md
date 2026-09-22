@@ -1,23 +1,35 @@
 # Product media
 
-The README media uses a consistent 1920 × 1080 (16:9) frame.
+The README media uses a consistent **1920 × 1080 (16:9)** frame.
 
-- `restless-product-tour.mp4`: approximately 38 seconds, opening directly on the studio example and ending on authority controls. No opening title card or closing promotional cards. H.264 at 60 fps with stereo narration and music; chapter markers are included; English captions are available in the adjacent VTT file. The web encode is 7.1 MB.
-- `restless-product-tour.vtt`: English captions with timing adjusted to this cut.
-- `restless-product-poster.png`: a frame from the document review sequence, retained as a standalone poster.
-- `../screenshots/*.jpg`: original Full HD Lantern Studio captures: synced documents, saved review comments, a shared room and the playable prototype inside the company computer.
-- `../screenshots/*.png`: Full HD captures of the existing Site Renovation company. Provider account emails are explicitly masked. PNG publication avoids another lossy export, although the browser supplies JPEG source captures.
+- `restless-product-tour.mp4`: approximately 80 seconds of live product use, H.264 at 25 fps with stereo narration and music. Opens in the creative brief and ends on the saved work and feedback. Approximately 10 MB, with fast-start playback.
+- `restless-product-tour.vtt`: English captions, also embedded in the MP4.
+- `restless-product-poster.png`: a frame showing the creative brief and saved review comment.
+- `../screenshots/*.jpg`: Full HD Lantern Studio captures of documents, review, a shared room and the embedded company computer.
+- `../screenshots/*.png`: Full HD Site Renovation captures. Provider account emails are masked.
 
-The README embeds a GitHub-hosted video attachment so visitors can play it inline. The repository MP4 remains a download fallback; GitHub's blob viewer is not used as the playback destination.
+The README uses a GitHub-hosted attachment for inline playback. The repository MP4 is also available to download.
 
-## Video capture
+## People at the heart of the business
 
-Captured on 21 September 2026 in a disposable Lantern Studio company in the real Restless development build. The brief, audience plan, review and room messages were prepared for the demonstration. The review comment was saved through the real document UI. This is an illustrative business workflow, not evidence of an autonomous company run or two authenticated humans editing concurrently.
+The film follows one studio preparing a playtest. Its people own the creative direction, craft and judgement. AI handles supporting work around that core activity.
 
-Last Light is an original playable HTML canvas prototype made for the demonstration. It was loaded in Restless's embedded company computer; the gameplay close-up uses the same prototype in a standalone browser, with both keeper controls exercised.
+1. **Shape the game.** The human writes: “Make cooperation feel rewarding. No score. No countdown.”
+2. **Delegate the supporting work.** Ask AI to prepare the playtest invitation in the same document.
+3. **Keep creating.** While AI drafts, the human adds: “Do they smile when the second beam clicks into place?”
+4. **Judge the experience.** Enter the shared computer, take control and try both lanterns in the prototype.
+5. **Leave creative feedback.** Keep the quiet pace and ask players when they first felt they needed each other.
 
-Product surfaces are real captures, with editorial camera movement, close-ups and transitions. The export and camera motion are 60 fps; source capture cadence varies. No synthetic reconstruction of the Restless UI was used.
+Lantern Studio is the worked example of a general business workspace. The opening and closing narration connect the example to people bringing their ideas, craft and judgement to any business.
 
-## Audio
+## Capture
 
-Narration was synthesized locally with Kokoro (`af_heart`) through [kokoro-onnx](https://github.com/thewh1teagle/kokoro-onnx). Music and transition sounds were synthesized for this film. No footage or audio from the reference advertisement was copied. The trimmed audio has brief edge fades; captions and chapter markers match the revised timeline.
+Recorded on 22 September 2026 in a separate demo company using the running Restless development build. The initial brief and playable HTML canvas prototype were prepared for the demonstration. An operator typed through the actual UI; a native Codex turn rewrote only the invitation. The creative direction, second human addition and saved review comment were verified after reloading.
+
+The gameplay was recorded inside Restless's embedded company computer. Continuous browser recordings provide all footage, including typing, the live document update, taking control, both lantern interactions and saving feedback. Editing removes loading and model waits; close-ups follow the active work. Source footage and export run at 25 fps. The film opens and ends in the product without title or end cards.
+
+## Audio and verification
+
+Narration was synthesized locally with Kokoro (`af_heart`) through [kokoro-onnx](https://github.com/thewh1teagle/kokoro-onnx). The stereo score was composed and synthesized for this film. Captions follow the narration.
+
+The final MP4 was decoded end to end, inspected at each scene and played in a browser. It contains 1,995 frames at 1920 × 1080, lasting 79.8 seconds. The encoded mix measures approximately −16.6 LUFS.
