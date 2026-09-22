@@ -2,7 +2,7 @@
 
 The README media uses a consistent **1920 × 1080 (16:9)** frame.
 
-- `restless-product-tour.mp4`: approximately 99 seconds of live product use, H.264 at 25 fps with stereo narration and music. Opens in a creative brief and ends with saved feedback, with fast-start playback.
+- `restless-product-tour.mp4`: approximately 82 seconds of live product use, H.264 at 25 fps with stereo narration and music. Opens in a creative brief and ends with saved feedback, with fast-start playback.
 - `restless-product-tour.vtt`: English captions, also embedded in the MP4.
 - `restless-product-poster.png`: the actual game running inside the shared company computer, with its built-in desktop callout.
 - `../screenshots/*.jpg`: Full HD Lantern Studio captures of documents, review, a shared room and the embedded company computer.
@@ -32,10 +32,10 @@ The game repository began with only `BRIEF.md`, at commit `eb82371f68a2d845697c2
 
 The embedded playthrough uses the developer’s exact produced checkout, served temporarily inside the demo computer. Both player inputs and the resulting completion were recorded. No game source was substituted for the native agent’s output.
 
-Continuous recordings supply the footage. Editing removes loading and model waits, with smooth camera moves and short dissolves between scenes. Every frame remains 16:9. There are no title or end cards.
+Continuous recordings supply the footage. Editing removes loading and model waits and tightens the recorded actions. Twelve short on-screen explanations follow the real requests and results. The film uses Restless’s IBM Plex Sans, slate ink and semantic direction, conversation and work colours from `web/src/lib/design/tokens.css`. Headlines ease into place over 480 ms; supporting text follows 120 ms later. Soft local gradients preserve readability while keeping the action visible. Scene transitions overlap for 440 ms, and the narration, music and captions follow the shorter edit. Every frame remains 16:9. There are no title or end cards.
 
 ## Audio and verification
 
 Narration was synthesized locally with Kokoro (`af_heart`) through [kokoro-onnx](https://github.com/thewh1teagle/kokoro-onnx). The stereo score was composed and synthesized for this film. Captions follow the narration.
 
-The final MP4 contains 2,481 frames at 1920 × 1080, lasting 99.24 seconds. It was decoded end to end and inspected across all scenes. The encoded mix measures approximately −16.5 LUFS. Browser playback is checked before publication.
+The final MP4 contains 2,051 frames at 1920 × 1080, lasting 82.04 seconds. It was decoded end to end and inspected across all scenes. The encoded mix measures approximately −16.4 LUFS. Browser playback is verified on the published README.
