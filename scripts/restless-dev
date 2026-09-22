@@ -236,6 +236,13 @@ dev() {
     "$RESTLESS_HOME" "$RESTLESS_RESOURCE_NAMESPACE" "$RESTLESS_PORT_OFFSET" \
     "$RESTLESS_COMPANY_IMAGE"
 
+  # The owner gateway also serves entry and workspace pages. It needs its SPA
+  # even when the development UI will subsequently run through Vite.
+  if [ "$STACK_RECONCILE" = "--reconcile" ] || [ ! -f "${STACK_REPO_ROOT}/web/build/index.html" ]; then
+    printf '\nBuilding the workspace pages…\n'
+    npm --prefix "${STACK_REPO_ROOT}/web" run build
+  fi
+
   printf '\nBuilding Restless. The first build can take several minutes.\n'
   cargo build --manifest-path "${STACK_REPO_ROOT}/Cargo.toml" \
     --target-dir "$STACK_TARGET_DIR" -p restlessd -p restless

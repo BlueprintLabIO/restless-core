@@ -201,6 +201,27 @@ fixtures. Each run must verify its own cleanup.
   the cockpit. Its processes, containers, volumes and temporary checkout were
   removed. This is a failed installation check, not a successful cold start.
 
+- The account package is now published. A clean checkout and daemon built at
+  `1a4a4bd` passed its three configuration checks, production SMTP/sign-in test
+  and full independent-account protocol journey, including reconnect and removal
+  recovery. The runner verified cleanup. This qualifies the published account
+  components; it does not substitute for simultaneous independent browsers or a
+  complete source installation.
+- Investigation of the source-install timeout found a slow Godot download mirror.
+  A bounded 1 MiB transfer from the mirror averaged 0.17 MB/s; the official GitHub
+  release asset averaged 3.25 MB/s and reported the same pinned SHA-256. `1bbaca0`
+  switches the template download to that official asset with visible progress and
+  stalled-transfer detection. The complete download passed the existing checksum
+  and the company image built successfully; Windows export templates remain
+  included. `c11a917` applies the same verified source to both engine architectures.
+- The fresh `1bbaca0` install then provisioned PostgreSQL and Infisical but failed
+  to start the owner gateway: `web/build` was absent. The launcher installed web
+  dependencies but did not build the assets the gateway now serves. It now builds
+  workspace assets on reconcile or when missing, before the expensive image build.
+  The production web build and all nine launcher configuration checks pass.
+  The failed installation's processes, containers, volumes and checkout were
+  removed; the next complete published-source installation remains open.
+
 The feedback route is shipped. Component results do not close the other five
 checks: their final evidence must name the published revision and include the
 complete user journeys.
