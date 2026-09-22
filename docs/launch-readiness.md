@@ -121,12 +121,25 @@ fixtures. Each run must verify its own cleanup.
   when retried after Core returns. Cancelled invitations, cross-origin rejection
   and the single-use password-reset email path also pass. Mail was captured
   locally; external SMTP delivery has not been qualified.
-- Browser checks of that account service passed owner sign-in, invitation send
-  and resend, invited-member acceptance, and desktop/390px layouts. Core recorded
-  the invited human's handoff, but the browser did not reach a usable workspace;
-  a direct Core API navigation reported `net::ERR_BLOCKED_BY_CLIENT`. This leaves
-  browser coediting and the complete supported setup journey open. All isolated
-  accounts, databases, roles, computers and Documents containers were removed.
+- Browser checks of the working-tree account service now reach a usable workspace
+  for the owner and an invited member, including a repeat sign-in with an active
+  service worker. The Core handoff now lands on the verified company and allows
+  navigation to its public page while retaining API and desktop origin checks.
+  Public page responses disallow external framing. The daemon build and three
+  cross-site boundary tests pass.
+- The invited member edited a document, commented on the new paragraph, reloaded
+  it and retained both changes. The owner then read and replied to that feedback.
+  This exposed and fixed a comment-anchor bug: Core now persists the current live
+  body before attaching a paragraph comment. Six real PostgreSQL document tests
+  pass, including concurrent comments, replay and removed paragraphs. These
+  document changes still depend on unpublished collaboration work.
+- Those browser checks used distinct accounts sequentially in one browser
+  context. Concurrent edits, reconnection and removal of an open connection
+  passed with independent authenticated protocol clients. Simultaneous browser
+  sessions, the member-removal confirmation UI and the clean published setup
+  journey remain open. Human names also still appear as “Company member”. All
+  isolated accounts, databases, roles, computers and Documents containers were
+  removed after the run. External SMTP delivery remains unqualified.
 - That browser investigation found a separate cockpit defect: a failed initial
   company-list request kept the page in its loading state and hid the error.
   The fix displays the failure and a retry action. Frontend checks reported zero

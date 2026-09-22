@@ -1480,7 +1480,18 @@ async fn enforce_owner_boundary(
             if let Some(session_lease) = session_lease {
                 request.extensions_mut().insert(session_lease);
             }
-            next.run(request).await
+            let public_read = matches!(*request.method(), Method::GET | Method::HEAD)
+                && !is_owner_data_surface(&path);
+            let mut response = next.run(request).await;
+            // Include this on 304 responses too, so an existing cached shell
+            // acquires the same framing policy after an upgrade.
+            if public_read {
+                response.headers_mut().append(
+                    "content-security-policy",
+                    HeaderValue::from_static("frame-ancestors 'self'"),
+                );
+            }
+            response
         }
     }
 }
@@ -1683,6 +1694,23 @@ fn network_boundary_violation(
                 message: "owner request host is not this plane's configured hostname",
             });
         }
+        return None;
+    }
+    // A browser arriving from the identity service keeps cross-site fetch
+    // metadata through the redirect. Only the public HTML shell may be opened
+    // this way; APIs, desktops, subresource fetches and writes keep their usual
+    // same-origin and session checks. A service worker forwards a navigation
+    // with destination "empty". Public HTML also refuses external framing.
+    if matches!(*method, Method::GET | Method::HEAD)
+        && !is_owner_data_surface(path)
+        && headers
+            .get("sec-fetch-mode")
+            .is_some_and(|value| value == "navigate")
+        && headers
+            .get("sec-fetch-dest")
+            .is_some_and(|value| value == "document" || value == "empty")
+        && network_host_matches(headers, expected_host)
+    {
         return None;
     }
     if let Some(message) = network_origin_violation(method, headers, expected_host) {
@@ -2153,7 +2181,9 @@ async fn consume_entry_assertion(
         network.session_ttl().as_secs()
     );
     let mut response = if form_post {
-        Redirect::to("/").into_response()
+        // The verified company is also the member's landing page. The global
+        // portfolio requires owner access and is not an invitation destination.
+        Redirect::to(&format!("/{company}")).into_response()
     } else {
         Json(serde_json::json!({
             "entered": true,
@@ -9673,6 +9703,66 @@ mod tests {
         assert!(
             network_boundary_violation(&Method::POST, &headers, "/entry", PLANE_HOST, None,)
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn cross_site_navigation_opens_only_the_public_shell() {
+        let mut headers = network_headers(PLANE_HOST);
+        headers.insert("sec-fetch-site", HeaderValue::from_static("cross-site"));
+        headers.insert("sec-fetch-mode", HeaderValue::from_static("navigate"));
+        headers.insert("sec-fetch-dest", HeaderValue::from_static("document"));
+        headers.insert(
+            ORIGIN,
+            HeaderValue::from_static("https://accounts.example.test"),
+        );
+        for path in ["/", "/aris", "/aris/work/documents"] {
+            assert!(
+                network_boundary_violation(&Method::GET, &headers, path, PLANE_HOST, None)
+                    .is_none()
+            );
+            assert!(
+                network_boundary_violation(&Method::POST, &headers, path, PLANE_HOST, None)
+                    .is_some()
+            );
+        }
+        for path in [
+            "/api",
+            "/api/companies",
+            "/api/companies/aris/principal",
+            "/desktop",
+            "/desktop/aris",
+        ] {
+            assert!(
+                network_boundary_violation(&Method::GET, &headers, path, PLANE_HOST, None)
+                    .is_some()
+            );
+        }
+        headers.insert("sec-fetch-dest", HeaderValue::from_static("empty"));
+        assert!(
+            network_boundary_violation(&Method::GET, &headers, "/aris", PLANE_HOST, None).is_none()
+        );
+        assert!(network_boundary_violation(
+            &Method::GET,
+            &headers,
+            "/api/companies",
+            PLANE_HOST,
+            None
+        )
+        .is_some());
+        headers.insert("sec-fetch-mode", HeaderValue::from_static("cors"));
+        assert!(
+            network_boundary_violation(&Method::GET, &headers, "/aris", PLANE_HOST, None).is_some()
+        );
+        headers.insert("sec-fetch-mode", HeaderValue::from_static("navigate"));
+        headers.insert("sec-fetch-dest", HeaderValue::from_static("iframe"));
+        assert!(
+            network_boundary_violation(&Method::GET, &headers, "/aris", PLANE_HOST, None).is_some()
+        );
+        headers.insert("sec-fetch-dest", HeaderValue::from_static("document"));
+        headers.insert(HOST, HeaderValue::from_static("another.example.test"));
+        assert!(
+            network_boundary_violation(&Method::GET, &headers, "/aris", PLANE_HOST, None).is_some()
         );
     }
 
