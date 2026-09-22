@@ -53,17 +53,6 @@ RUN apt-get update \
 		x11-xserver-utils \
     && rm -rf /var/lib/apt/lists/*
 
-ARG RESTLESS_CORE_VERSION=0.0.0
-ARG RESTLESS_SOURCE_REVISION=unknown
-ARG RESTLESS_API_CONTRACT_VERSION=1
-ARG RESTLESS_ASSERTION_CONTRACT_VERSION=1
-ARG RESTLESS_SCHEMA_VERSION=35
-ENV RESTLESS_CORE_VERSION=${RESTLESS_CORE_VERSION} \
-    RESTLESS_SOURCE_REVISION=${RESTLESS_SOURCE_REVISION} \
-    RESTLESS_API_CONTRACT_VERSION=${RESTLESS_API_CONTRACT_VERSION} \
-    RESTLESS_ASSERTION_CONTRACT_VERSION=${RESTLESS_ASSERTION_CONTRACT_VERSION} \
-    RESTLESS_SCHEMA_VERSION=${RESTLESS_SCHEMA_VERSION}
-
 # The ACP agent binary: omp (Oh My Pi), which speaks ACP natively and reports
 # per-turn token and dollar usage on the session stream — the fact that moved
 # the spend fuse out of the HTTP proxy and up into the daemon.
@@ -155,7 +144,7 @@ RUN PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install -g playwright@1.62.1 \
 ARG TARGETARCH
 ARG GODOT_VERSION=4.7.2
 RUN set -eux; \
-    case "$TARGETARCH" in \
+    case "${TARGETARCH:-$(dpkg --print-architecture)}" in \
         amd64) godot_platform=linux.x86_64; godot_binary="Godot_v${GODOT_VERSION}-stable_linux.x86_64"; godot_sha256=cadd3204e728a35d3f13adb7fd0d7902636b79f6b95c40c265eb73b6c35329e4 ;; \
         arm64) godot_platform=linux.arm64; godot_binary="Godot_v${GODOT_VERSION}-stable_linux.arm64"; godot_sha256=5dd0d86405cf7e8adf79fb6377b38ba682a2846cb378ffe5364f38c01ad29b9d ;; \
         *) echo "unsupported Godot image architecture: $TARGETARCH" >&2; exit 1 ;; \
@@ -241,6 +230,19 @@ RUN ln -s /usr/local/lib/restless/restless-codex-runner.mjs /usr/local/bin/restl
 COPY --from=cli /src/target/release/restless /usr/local/bin/restless
 COPY --from=cli /src/target/release/restless-runtime-bridge /usr/local/bin/restless-runtime-bridge
 ENV RESTLESS_COORDINATOR=host.docker.internal:7791
+
+# Release metadata changes with source, not with the pinned toolchain. Keep it
+# last so a new revision can reuse the large browser and agent installation layers.
+ARG RESTLESS_CORE_VERSION=0.0.0
+ARG RESTLESS_SOURCE_REVISION=unknown
+ARG RESTLESS_API_CONTRACT_VERSION=1
+ARG RESTLESS_ASSERTION_CONTRACT_VERSION=1
+ARG RESTLESS_SCHEMA_VERSION=35
+ENV RESTLESS_CORE_VERSION=${RESTLESS_CORE_VERSION} \
+    RESTLESS_SOURCE_REVISION=${RESTLESS_SOURCE_REVISION} \
+    RESTLESS_API_CONTRACT_VERSION=${RESTLESS_API_CONTRACT_VERSION} \
+    RESTLESS_ASSERTION_CONTRACT_VERSION=${RESTLESS_ASSERTION_CONTRACT_VERSION} \
+    RESTLESS_SCHEMA_VERSION=${RESTLESS_SCHEMA_VERSION}
 
 # PID 1 is the seed + long-lived init. Agents never enter this path.
 ENTRYPOINT ["/usr/local/bin/company-init"]
