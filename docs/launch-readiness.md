@@ -222,6 +222,36 @@ fixtures. Each run must verify its own cleanup.
   The failed installation's processes, containers, volumes and checkout were
   removed; the next complete published-source installation remains open.
 
+- A fresh checkout at `c88e29d`, with empty company state, now completes the
+  README source build and opens setup. Real browser checks passed through both
+  Vite and Core's production web server. Setup offers Codex and Claude sign-in,
+  has no default model or API provider, and reports secure key storage ready.
+  Doctor confirms the running computer, desktop/browser, Documents, OrgIntel and
+  web endpoints. It still reports degraded coordination: this host's Docker
+  bridge cannot reach the test coordinator. No model was connected in this
+  disposable company. Its processes, containers, volumes, database resources
+  and checkout were removed and their absence verified.
+- Conversation checks exposed a multiplayer defect: a verified human's message
+  could receive its reply in the legacy local-owner conversation. `932f5e4`
+  routes replies and working history to the exact human, keeps owner completion
+  updates separate from member conversations, and refuses late replies after
+  removal or an ownership change. Successful work now leaves a durable delivery
+  obligation for Exec. A clean checkout of that published revision passed all
+  11 real PostgreSQL execution tests, the per-human focus test and daemon
+  prompt/final-response tests. These cover
+  restart, exact retry, superseded results, separate recipients and access changes;
+  a real model delegation and unsolicited final reply remain open.
+
+- Native-document CLI commands now cover creating and reading shared documents,
+  guarded live edits, history, sharing and comments. Core retains each prepared
+  edit so retrying the same request does not duplicate text. A real host CLI run
+  against disposable Core, PostgreSQL and the Documents service passed creation,
+  readback, live editing, exact retry and a comment anchored to the new paragraph.
+  Separate tests passed edit revocation, regrant and result replay, plus Runtime
+  actor attribution. Test resources were removed. This verifies the host CLI
+  path; installed-agent invocation and the full proposal/revision exercise still
+  depend on resolving the Docker-to-Core connection.
+
 The feedback route is shipped. Component results do not close the other five
 checks: their final evidence must name the published revision and include the
 complete user journeys.

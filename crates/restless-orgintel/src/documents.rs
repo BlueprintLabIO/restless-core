@@ -1627,7 +1627,7 @@ fn parse_document_markdown(markdown: &str) -> DocumentResult<ParsedDocumentMarkd
     })
 }
 
-fn markdown_body_to_document(body: &str) -> DocumentResult<Value> {
+pub fn markdown_body_to_document(body: &str) -> DocumentResult<Value> {
     let lines = body.lines().collect::<Vec<_>>();
     let mut blocks = Vec::new();
     let mut pending_block_id: Option<String> = None;
@@ -7927,6 +7927,111 @@ impl OrgIntel {
     }
 }
 
+/// Core-owned retry state for a prepared native-document CRDT edit.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct PreparedDocumentEdit {
+    pub prepared_json: Value,
+    pub result_json: Option<Value>,
+}
+
+impl OrgIntel {
+    pub async fn document_edit_command(
+        &self,
+        document: Uuid,
+        actor: &str,
+        command: Uuid,
+        request: &Value,
+        prepared: Option<&Value>,
+    ) -> DocumentResult<Option<PreparedDocumentEdit>> {
+        if !request.is_object() || serde_json::to_vec(request).unwrap_or_default().len() > 1_100_000
+        {
+            return Err(DocumentError::Invalid(
+                "invalid or oversized live edit request".into(),
+            ));
+        }
+        if prepared.is_some_and(|value| {
+            !value.is_object()
+                || serde_json::to_vec(value).unwrap_or_default().len() > 12 * 1024 * 1024
+        }) {
+            return Err(DocumentError::Invalid(
+                "invalid or oversized prepared edit".into(),
+            ));
+        }
+        let mut tx = self.pool.begin().await?;
+        require_access(&mut tx, document, actor, DocumentAccess::Edit).await?;
+        if let Some(value) = prepared {
+            sqlx::query(
+                "INSERT INTO native_document_prepared_edits \
+                 (command_id,document_id,actor_id,request_json,prepared_json) \
+                 VALUES ($1,$2,$3,$4,$5) ON CONFLICT (command_id) DO NOTHING",
+            )
+            .bind(command)
+            .bind(document)
+            .bind(actor)
+            .bind(request)
+            .bind(value)
+            .execute(&mut *tx)
+            .await?;
+        }
+        let row = sqlx::query(
+            "SELECT document_id,actor_id,request_json,prepared_json,result_json \
+             FROM native_document_prepared_edits WHERE command_id=$1",
+        )
+        .bind(command)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let result = if let Some(row) = row {
+            if row.try_get::<Uuid, _>("document_id")? != document
+                || row.try_get::<String, _>("actor_id")? != actor
+                || row.try_get::<Value, _>("request_json")? != *request
+            {
+                return Err(DocumentError::Conflict(
+                    "edit key was already used with a different request".into(),
+                ));
+            }
+            Some(PreparedDocumentEdit {
+                prepared_json: row.try_get("prepared_json")?,
+                result_json: row.try_get("result_json")?,
+            })
+        } else {
+            None
+        };
+        tx.commit().await?;
+        Ok(result)
+    }
+
+    pub async fn complete_document_edit_command(
+        &self,
+        document: Uuid,
+        actor: &str,
+        command: Uuid,
+        result: &Value,
+    ) -> DocumentResult<Value> {
+        if !result.is_object() || serde_json::to_vec(result).unwrap_or_default().len() > 16_384 {
+            return Err(DocumentError::Invalid("invalid live edit result".into()));
+        }
+        let mut tx = self.pool.begin().await?;
+        require_access(&mut tx, document, actor, DocumentAccess::Edit).await?;
+        let row = sqlx::query(
+            "UPDATE native_document_prepared_edits \
+             SET result_json=COALESCE(result_json,$4), \
+                 completed_at=COALESCE(completed_at,now()) \
+             WHERE command_id=$1 AND document_id=$2 AND actor_id=$3 \
+             RETURNING result_json",
+        )
+        .bind(command)
+        .bind(document)
+        .bind(actor)
+        .bind(result)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| DocumentError::Conflict("edit command was not prepared".into()))?;
+        let saved = row.try_get("result_json")?;
+        tx.commit().await?;
+        Ok(saved)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -8249,5 +8354,131 @@ mod tests {
         assert!(snippet.starts_with('…'));
         assert!(snippet.ends_with('…'));
         assert!(snippet.chars().count() <= MAX_DOCUMENT_SEARCH_SNIPPET_CHARS);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires isolated PostgreSQL"]
+    async fn prepared_edit_retains_one_delta_and_never_leaks_across_access(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let url = std::env::var("RESTLESS_TEST_DATABASE_URL")
+            .expect("RESTLESS_TEST_DATABASE_URL is required for this ignored PostgreSQL test");
+        let schema = format!("prepared_edit_{}_test", Uuid::new_v4().simple());
+        let org = OrgIntel::ensure(&url, &schema).await?;
+        org.ensure_actor("draft-writer", "staff", "writer", "Writer")
+            .await?;
+        org.ensure_actor("draft-reader", "staff", "reader", "Reader")
+            .await?;
+        let content = json!({
+            "type": "doc",
+            "content": [{
+                "type": "paragraph",
+                "attrs": {"block_id": "start"},
+                "content": [{"type": "text", "text": "Draft"}],
+            }],
+        });
+        let document = org
+            .create_document(NewDocument {
+                command_id: Uuid::new_v4(),
+                title: "Private draft",
+                kind: DocumentKind::Brief,
+                visibility: DocumentVisibility::Participants,
+                linked_room_id: None,
+                inherit_room_visibility: false,
+                owner_actor_id: "draft-writer",
+                created_by_actor_id: "draft-writer",
+                content_json: &content,
+                reason: "test private edit",
+            })
+            .await?
+            .document_id;
+        org.set_document_participant(SetDocumentParticipant {
+            command_id: Uuid::new_v4(),
+            document_id: document,
+            actor_id: "draft-writer",
+            expected_document_version: 1,
+            participant_actor_id: "draft-reader",
+            access: DocumentAccess::Edit,
+        })
+        .await?;
+        let command = Uuid::new_v4();
+        let request = json!({"operations":[{"op":"insert","after":null}]});
+        let first_delta = json!({"checkpoint_id":document,"update_base64":"first"});
+        let second_delta = json!({"checkpoint_id":document,"update_base64":"second"});
+        let first = org
+            .document_edit_command(
+                document,
+                "draft-reader",
+                command,
+                &request,
+                Some(&first_delta),
+            )
+            .await?
+            .expect("prepared edit retained");
+        let replay = org
+            .document_edit_command(
+                document,
+                "draft-reader",
+                command,
+                &request,
+                Some(&second_delta),
+            )
+            .await?
+            .expect("prepared edit replayed");
+        assert_eq!(replay.prepared_json, first_delta);
+        assert_eq!(first.result_json, None);
+        org.remove_document_participant(RemoveDocumentParticipant {
+            command_id: Uuid::new_v4(),
+            document_id: document,
+            actor_id: "draft-writer",
+            expected_document_version: 2,
+            participant_actor_id: "draft-reader",
+        })
+        .await?;
+        assert!(org
+            .document_edit_command(document, "draft-reader", command, &request, None)
+            .await
+            .is_err());
+        let result = json!({"status":"applied","checkpoint_id":document});
+        assert!(org
+            .complete_document_edit_command(document, "draft-reader", command, &result)
+            .await
+            .is_err());
+        org.set_document_participant(SetDocumentParticipant {
+            command_id: Uuid::new_v4(),
+            document_id: document,
+            actor_id: "draft-writer",
+            expected_document_version: 3,
+            participant_actor_id: "draft-reader",
+            access: DocumentAccess::Edit,
+        })
+        .await?;
+        let retained = org
+            .document_edit_command(document, "draft-reader", command, &request, None)
+            .await?
+            .expect("prepared edit retained after access returns");
+        assert_eq!(retained.prepared_json, first_delta);
+        assert_eq!(retained.result_json, None);
+        assert_eq!(
+            org.complete_document_edit_command(document, "draft-reader", command, &result)
+                .await?,
+            result
+        );
+        assert_eq!(
+            org.complete_document_edit_command(
+                document,
+                "draft-reader",
+                command,
+                &json!({"status":"different"})
+            )
+            .await?,
+            result
+        );
+        let completed = org
+            .document_edit_command(document, "draft-reader", command, &request, None)
+            .await?
+            .expect("completed edit replayed");
+        assert_eq!(completed.result_json, Some(result));
+        org.drop_schema().await?;
+        Ok(())
     }
 }

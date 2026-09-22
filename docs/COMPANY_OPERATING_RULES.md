@@ -74,6 +74,10 @@ separate ACP tools. Before claiming a command or Restless capability is unavaila
 `command -v <command>` and its `--help` or equivalent probe. A failed uncredentialed direct command
 does not prove its governed `restless effect` path is absent.
 
+Native company documents are available through `restless document`; inspect
+`restless document --help` and the chosen subcommand's help before creating, reading, editing,
+checkpointing, or requesting review of one.
+
 ## 5. Three kinds of action
 
 - **Ordinary work** — read, measure, browse, research, fetch public data, build, test, and change the

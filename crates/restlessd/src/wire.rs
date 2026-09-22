@@ -565,6 +565,8 @@ pub(crate) struct Request {
     pub(crate) publication: PublicationInput,
     #[serde(flatten)]
     pub(crate) document: DocumentInput,
+    #[serde(default)]
+    pub(crate) document_operation: Option<crate::document_commands::DocumentOperation>,
 }
 
 const ENVELOPE_FIELDS: &[&str] = &["cmd", "company", "principal", "session_capability"];
@@ -676,6 +678,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         "publish-revoke" => &["invitation_id"],
         "publish-stop" => &["publication_id", "stop_reason"],
         "publish-show" => &["publication_id"],
+        "document-operation" => &["actor", "document_operation"],
         "document-review-request" => &[
             "document_id",
             "expected_document_version",

@@ -14,6 +14,7 @@
 
 mod appliance;
 mod chat;
+mod document;
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
@@ -23,6 +24,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context, Result};
 use clap::{Parser, Subcommand};
+use document::DocumentCommand;
 
 #[derive(Parser)]
 #[command(name = "restless", about = "Restless owner surface")]
@@ -522,32 +524,6 @@ enum PublishCommand {
     },
     /// List all publication records for the company.
     List,
-}
-
-#[derive(Subcommand)]
-enum DocumentCommand {
-    /// Pause this exact Attempt's Work for a named-version human review.
-    RequestReview {
-        #[arg(long)]
-        document: String,
-        #[arg(long = "document-revision")]
-        document_revision: i64,
-        #[arg(long = "named-version")]
-        named_version: String,
-        #[arg(long)]
-        work: String,
-        #[arg(long)]
-        attempt: String,
-        #[arg(long = "work-revision")]
-        work_revision: i64,
-        #[arg(long)]
-        reviewer: String,
-        #[arg(long)]
-        summary: String,
-        /// Stable UUID chosen before the first request; retry it unchanged.
-        #[arg(long)]
-        key: String,
-    },
 }
 
 #[derive(Subcommand)]
@@ -2086,34 +2062,9 @@ fn stamp(mut request: serde_json::Value) -> serde_json::Value {
 /// One request/response pair; `watch` and `attach` handle their own I/O.
 fn request_json(command: Command) -> Result<serde_json::Value> {
     Ok(match command {
-        Command::Document { company, command } => {
-            let company = company.context("no company: pass -c or set RESTLESS_COMPANY")?;
-            match command {
-                DocumentCommand::RequestReview {
-                    document,
-                    document_revision,
-                    named_version,
-                    work,
-                    attempt,
-                    work_revision,
-                    reviewer,
-                    summary,
-                    key,
-                } => serde_json::json!({
-                    "cmd": "document-review-request",
-                    "company": company,
-                    "document_id": document,
-                    "expected_document_version": document_revision,
-                    "named_version_id": named_version,
-                    "document_work_id": work,
-                    "document_attempt_id": attempt,
-                    "expected_work_revision": work_revision,
-                    "reviewer_actor_id": reviewer,
-                    "review_summary": summary,
-                    "document_command_id": key,
-                }),
-            }
-        }
+        Command::Document { company, command } => command.request(
+            company.context("no company: pass -c or set RESTLESS_COMPANY")?,
+        )?,
         Command::Publish { company, command } => {
             let company = company.context("no company: pass -c or set RESTLESS_COMPANY")?;
             match command {

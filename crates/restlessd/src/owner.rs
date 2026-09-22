@@ -88,6 +88,24 @@ const ATTACHMENT_STAGE_STALE_AFTER: ChronoDuration = ChronoDuration::hours(1);
 const ATTACHMENT_GC_CLAIM_FOR: ChronoDuration = ChronoDuration::minutes(5);
 pub(crate) const OWNER_ATTACHMENT_RECONCILE_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const ATTACHMENT_BLOCK: &str = "\n\n[Restless attachments]\n";
+
+pub(crate) async fn agent_document_body(
+    root: &std::path::Path,
+    org: &restless_orgintel::OrgIntel,
+    actor: &str,
+    document: Uuid,
+    payload: &serde_json::Value,
+) -> Result<serde_json::Value> {
+    let config = OwnerConfig::from_env()?;
+    let issuer = config.document_issuer();
+    let mut proxy = documents_api::NativeDocumentsProxy::from_environment()?;
+    if !config.hosted_runtime() {
+        proxy.use_local_services(root.to_owned());
+    }
+    proxy
+        .agent_body(root, org, actor, document, &issuer, payload)
+        .await
+}
 const ATTACHMENT_MARKER: &str = "<!--restless-attachments:";
 const INTENT_MARKER: &str = "<!--restless-intent:";
 const DETAILS_MARKER: &str = "<!--restless-details:";

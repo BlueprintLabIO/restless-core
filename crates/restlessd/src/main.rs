@@ -22,6 +22,7 @@ mod connected_tool;
 mod context;
 mod credential;
 mod document_collaboration_token;
+mod document_commands;
 mod effect;
 mod entry;
 mod exec;
@@ -1367,7 +1368,8 @@ fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Result
         | "voice-render"
         | "voice-review"
         | "voice-learn"
-        | "document-review-request" => pin_actor(&mut request.orgintel.actor, actor, "actor")?,
+        | "document-review-request"
+        | "document-operation" => pin_actor(&mut request.orgintel.actor, actor, "actor")?,
         "publish-build" | "publish-candidate" | "publish-request" => {
             pin_actor(&mut request.publication.actor, actor, "publication actor")?
         }
@@ -1633,6 +1635,33 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
         None => return Response::err("missing company"),
     };
     match request.cmd.as_str() {
+        "document-operation" => {
+            let actor = if principal == Principal::Owner { "owner" } else {
+                match request.orgintel.actor.as_deref() {
+                    Some(actor) => actor,
+                    None => return Response::err("Missing authenticated actor"),
+                }
+            };
+            let Some(operation) = request.document_operation else {
+                return Response::err("Missing Document operation");
+            };
+            match daemon.orgintel.get(company).await {
+                Ok(org) => {
+                    match document_commands::execute_with_body(
+                        &daemon.root,
+                        &org,
+                        actor,
+                        operation,
+                    )
+                    .await
+                    {
+                        Ok(value) => Response::ok(value),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    }
+                }
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
         "document-review-request" => {
             if principal != Principal::CompanyExec {
                 return Response::err_kind(
@@ -5507,7 +5536,7 @@ mod tests {
     }
 
     #[test]
-    fn connected_tool_requester_is_the_authenticated_runtime_actor() {
+    fn runtime_attribution_fields_are_pinned_to_the_authenticated_actor() {
         let mut request = decoded_request(serde_json::json!({
             "cmd": "connected-tool-attach", "company": "acme_test",
             "tool_name": "crm", "work_id": uuid::Uuid::new_v4().to_string()
@@ -5515,5 +5544,14 @@ mod tests {
         bind_runtime_actor(&mut request, "lead").unwrap();
         assert_eq!(request.orgintel.actor.as_deref(), Some("lead"));
         assert!(bind_runtime_actor(&mut request, "impostor").is_err());
+
+        let mut document = decoded_request(serde_json::json!({
+            "cmd": "document-operation",
+            "company": "acme_test",
+            "document_operation": {"operation":"list", "cursor":null, "archived":false}
+        }));
+        bind_runtime_actor(&mut document, "writer").unwrap();
+        assert_eq!(document.orgintel.actor.as_deref(), Some("writer"));
+        assert!(bind_runtime_actor(&mut document, "impostor").is_err());
     }
 }
