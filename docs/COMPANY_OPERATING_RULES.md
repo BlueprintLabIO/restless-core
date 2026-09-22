@@ -77,6 +77,8 @@ does not prove its governed `restless effect` path is absent.
 Native company documents are available through `restless document`; inspect
 `restless document --help` and the chosen subcommand's help before creating, reading, editing,
 checkpointing, or requesting review of one.
+The canonical human UI link for a document is `/{company}/work/documents?document={document_id}`;
+never fabricate a `/documents/...` URL.
 When producing a shared document for a human, give that recipient `edit` access unless the request
 calls for read-only delivery. Its creating actor owns it and must share with the exact authenticated
 human recipient before requesting collaboration, review, or handoff. Use the current metadata
