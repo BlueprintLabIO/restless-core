@@ -33,7 +33,7 @@ measure of success is useful output and the human attention it takes to get ther
 ### Human multiplayer, from the start
 
 Bring your cofounder, designer, operator or reviewer into the same company. People
-participate alongside agents with their own identities and access. Discuss the work
+work alongside agents with their own accounts and permissions. Discuss the work
 in rooms, edit shared documents, and keep feedback beside the thing you are improving.
 
 Human collaboration is central to Restless. A business can be run by several people,
@@ -53,25 +53,25 @@ alongside the work, so you can steer without rebuilding context in another tool.
 
 ### Start with the smallest useful team
 
-One capable worker can often own a coherent outcome. Add a specialist when it brings
-expertise, independent evidence or useful parallel work. Roles establish accountability;
-orchestration must justify its cost in the quality of the result.
+One capable worker can often handle a whole piece of work. Add a specialist when their
+expertise, independent checks or help working in parallel improves the result. Everyone
+should know what they own, and the extra coordination should be worth it.
 
 This principle is grounded in our [coordination experiments](experiment/coordination/experiments/EXP-17/RESULTS.md).
 We measure the cost of coordination and use that evidence to shape the system.
 
 ### Finish with something you can use
 
-Completion means a reviewable result: a current document, a working page, a file or a
-live application. Review targets, revisions and handoffs keep feedback attached to
-that result and make the next action clear.
+Work should finish with something you can use: a document, a working page, a file or
+a live application. Feedback stays attached to the version you reviewed, so the team
+knows what to improve next.
 
 ## OrgIntel: a company that carries the work forward
 
-A business has continuity: its commitments, people, knowledge and unfinished work survive
-an individual conversation. **OrgIntel — Organisational Intelligence — gives Restless
-that continuity.** An agent can change model, restart a session or hand over an assignment
-while the company retains the goal, responsibility, evidence and next step.
+Your company should remember its commitments, people, knowledge and unfinished work
+after a conversation ends. **OrgIntel — Organisational Intelligence — gives Restless
+that memory and continuity.** An agent can switch models, restart or hand work over
+without losing the goal, who owns it, what has been learned or what happens next.
 
 Its design spans four kinds of work:
 
@@ -82,31 +82,32 @@ Its design spans four kinds of work:
 | **Repair** | Respond to failed checks, broken tools, lost sessions or changed requirements while preserving useful work. |
 | **Evolve** | Turn experience into better company knowledge, examples and reusable practices. |
 
-These modes describe how we want a company to operate. The implementation gives them
-concrete foundations: durable goals and actors, scheduled and event-driven wakes,
-versioned attempts, review targets, recovery records and governed company identity.
+These modes describe how we want a company to operate. Restless supports them by
+remembering goals and responsibilities, following up on a schedule or when something
+changes, tracking revisions, recovering interrupted work and using company guidelines
+you have approved.
 
 ### Responsibility that outlives a model call
 
-Exec holds the portfolio and stays available to you. Each executable outcome has one
-accountable lead; a worker owns production. Add researchers, critics or specialists when
-their contribution improves the result. Leads can coordinate directly around shared work.
+Exec oversees the company’s work and stays available to you. Each assignment has a lead
+responsible for the result and a worker who produces it. Add researchers, reviewers or
+specialists when they help. Leads can talk directly when their work overlaps.
 
-**Accountability does not require a stream of supervisory model calls.** The bounded
-single-worker path can route an exact brief and settle passing mechanical checks without
-a paid lead paraphrase. Failed evidence, ambiguity, a blocked worker or your changed
-direction brings the lead back in. This keeps supervision available where judgement matters.
+**A lead can stay responsible without narrating every step.** For a clearly defined
+assignment, Restless can pass the brief to a worker and check the result automatically.
+The lead steps in when checks fail, requirements are unclear, a worker gets stuck or
+you change direction. Model calls go to the decisions that need them.
 
 ### Quality is part of the brief
 
 Choose **Fast, Thorough, Exceptional or Frontier** as the company default or for a
 particular outcome. The standard guides how deeply agents investigate, develop and
-review the result. Your authority and spending limits remain separately controlled.
+review the result. You set permissions and spending limits separately.
 
-A review belongs to an exact candidate. Attempts record the inputs they used, checks
-run against that version, and changes requested by the reviewer. A revised dependency
-can invalidate downstream work that relied on the old result. Play the game, read the
-proposal, inspect the page: judge the thing your business will actually use.
+Each review records the version you saw, the material it used, the checks it passed
+and the changes you requested. If that material changes, Restless can flag work that
+relied on the old version for another pass. Play the game, read the proposal, inspect
+the page: judge the thing your business will actually use.
 
 ### A company that knows what it stands for
 
@@ -115,23 +116,23 @@ Company Identity gives agents four distinct sources of direction:
 | Pillar | What it carries |
 | --- | --- |
 | **Truth** | Approved product facts, claims, evidence and the boundaries of what the company can say. |
-| **Voice** | Real writing examples, audience and channel conventions, and room for named human authors to sound like themselves. |
-| **Visual language** | References, reusable primitives, accepted and rejected examples, and evidence from rendered work. |
+| **Voice** | Writing examples and guidance for different audiences and formats, with room for each human author to sound like themselves. |
+| **Visual language** | Design references, reusable elements, examples you like or dislike, and screenshots of the actual result. |
 | **Culture** | How the company handles disagreement, uncertainty, correction and customers, grounded in decisions and conduct. |
 
-Work that uses the company identity binds to an approved release and receives a focused brief. Artifacts can
-record the specific evidence they depend on. When a fact changes, Restless can identify
-the affected artifacts and record your decision to retain, revise or retire them.
-Learning proposals carry evidence and go through owner approval.
+Work that uses your company identity gets a saved version of its facts and guidelines.
+The outputs can record which facts and examples they used. When those change, Restless
+can flag the affected outputs so you can keep, update or remove them. Agents can
+suggest improvements to the guidelines, with supporting examples, for you to approve.
 
-For example, changing an approved product claim can identify the sales page that still
-uses the previous claim. You can commission a focused revision with evidence of what
-changed. New work uses the approved correction; existing work keeps its release history.
+For example, when you correct a product fact, Restless can flag the sales page that
+still uses the old claim. You can ask for that page to be updated. New work uses the
+correction, and you can still see which guidelines earlier work followed.
 
 The [Company Identity run](docs/dogfood/company-identity/s35-run-report.md) exercises this
 across two different businesses. Read the [OrgIntel specification](docs/specs/orgintel.md)
 for the wider design, and the [capability evidence guide](docs/product-capabilities.md)
-for the implementation behind these features.
+to see how these features work.
 
 ## Features
 
@@ -139,26 +140,26 @@ for the implementation behind these features.
 
 | Capability | What you can do |
 | --- | --- |
-| **Human multiplayer** | Work with cofounders and colleagues alongside AI agents, with durable identities, explicit membership and scoped access. |
+| **Human multiplayer** | Bring cofounders and colleagues into the same workspace as your AI agents, with their own accounts and permissions. |
 | **Collaborative documents** | Co-edit rich-text documents with live sync, named versions and exports. Built on **Tiptap, Yjs and Hocuspocus**. |
-| **Comments and document review** | Attach feedback to a passage or the whole document, resolve discussions and review revisions against their base version. |
-| **Rooms and conversations** | Keep direct and group discussions with an explicit audience of people and agents. |
+| **Comments and document review** | Comment on a passage or the whole document, resolve discussions and compare proposed edits with the original. |
+| **Rooms and conversations** | Talk one-to-one or in groups, and choose which people and agents take part. |
 | **Attention** | Open the decisions, outcome reviews and requests that need your judgement, with the relevant work and evidence attached. |
 | **Executive conversation** | Steer the company through a persistent conversation beside the active workspace. |
-| **Prepared human handoffs** | Receive a specific action, the prepared state and an observable condition for continuing the work. |
-| **Decision continuity** | Follow what your decision unlocked, who now owns the work and whether the result completed or hit another blocker. |
+| **Ready for your input** | Get the work prepared for the specific step only you can take, with a clear way for agents to continue afterwards. |
+| **See what happened next** | Follow what your decision made possible, who picked up the work and whether it finished or got stuck. |
 
 ### Run ongoing company work
 
 | Capability | What you can do |
 | --- | --- |
-| **Durable goals and outcomes** | Keep the business objective, accountable owner and work history across sessions and restarts. |
-| **Roles, leads and teams** | Give each outcome one accountable lead and assign independently useful contributions to workers. |
-| **Work board and dependency map** | Inspect responsibilities, dependencies, attempts and requested changes in the same company. |
-| **Event-driven supervision** | Bring a lead in for material changes, failed evidence or blockers; routine progress can settle without a model turn. |
-| **Schedules and follow-ups** | Set one-shot or recurring weekday wakeups, inspect occurrence history and recover skipped work with an explicit missed-run policy. |
-| **Focused actor context** | Give each actor relevant goals, messages, decisions, sources and a return path, with durable checkpoints for later sessions. |
-| **Evidence-aware memory** | Preserve distinctions between observations, hypotheses, decisions and unknowns, along with source trust and freshness. |
+| **Goals that survive restarts** | Keep the goal, who is responsible and the work history when an agent session ends or restarts. |
+| **Roles, leads and teams** | Give each assignment a lead responsible for the result and workers with clear jobs. |
+| **Work board and dependency map** | See who is doing what, which work is waiting on something else and what needs another pass. |
+| **Supervision when it matters** | Bring a lead in when requirements change, checks fail or work gets stuck. Routine progress can pass without another model call. |
+| **Schedules and follow-ups** | Set one-off or recurring weekday jobs, see when they ran and choose how to handle missed runs. |
+| **The right context for each agent** | Give agents the goals, messages, decisions and sources they need, and save enough context to pick up later. |
+| **Memory with sources** | Keep track of what was observed, what is an assumption and what was decided, including where information came from and how current it is. |
 | **Reusable company know-how** | Keep instructions, skills, scripts and internal tools in the company workspace and version them with the work. |
 
 ### Set the standard and improve the result
@@ -166,13 +167,13 @@ for the implementation behind these features.
 | Capability | What you can do |
 | --- | --- |
 | **Outcome standards** | Choose Fast, Thorough, Exceptional or Frontier for the company or an individual outcome. |
-| **Native outcome review** | Review a working application, document, page or media artifact in its useful form. |
-| **Exact attempts and review targets** | Tie execution, input versions, checks and immutable review artifacts to a specific candidate. |
-| **Revision and dependency tracking** | Carry requested changes into another attempt and identify downstream work affected by a revised input. |
-| **Independent critique** | Give a reviewer the relevant outcome and evidence through a dedicated review context. |
-| **Company Identity** | Maintain approved Truth, Voice, Visual Language and Culture as versioned organisational assets. |
-| **Identity drift and learning** | Find artifacts bound to superseded evidence; approve proposed learning and decide which outputs need revision. |
-| **Recovery with context** | Preserve files and attempt history, classify runtime or provider failures, and supply the next session with the goal, failure evidence and repair context. |
+| **Review the actual result** | Try the application, read the document, open the page or play the media you are reviewing. |
+| **Know which version was checked** | Keep the reviewed version unchanged, with a record of the material it used and the checks run on it. |
+| **Revisions and related work** | Carry feedback into the next version and flag other work that relied on material you changed. |
+| **Independent review** | Give a separate reviewer the result and the information needed to check it. |
+| **Company Identity** | Save approved company facts, writing style, design guidance and ways of working, with a history of changes. |
+| **Keep company content up to date** | Flag outputs that use outdated company facts or guidelines, decide what to update and approve lessons from the work. |
+| **Pick up interrupted work** | Keep files and work history, identify what went wrong and give the next session the information it needs to recover. |
 
 ### Give the company a real computer
 
@@ -191,16 +192,16 @@ for the implementation behind these features.
 
 | Capability | What you can do |
 | --- | --- |
-| **Authority and standing grants** | Define what may proceed independently and what needs a separate decision. Deterministic code enforces the boundary. |
-| **Membership, roles and permissions** | Keep workspace access, organisational responsibility and authority to cause external consequences distinct. |
-| **Budgets and attributable spend** | Set model spend ceilings and inspect usage, request accounting and admission decisions. |
+| **Permissions and ongoing approvals** | Choose what agents may do on their own and what needs your approval. Code enforces these rules. |
+| **Membership, roles and permissions** | Control who can enter the workspace, who is responsible for each job and who may act on connected services. |
+| **Budgets and spending** | Set model spending limits and see which requests used the budget or were stopped by the limit. |
 | **Vault — powered by Infisical** | Store credentials through an established secrets backend and keep secret references in company configuration. |
-| **Consequential-action receipts** | Record governed external actions with authority, idempotency and execution evidence. Unknown outcomes require reconciliation before repetition. |
-| **Resources and Doctor** | Inspect timestamped capability observations and diagnose the runtime, browser, desktop and service connections. |
-| **Runtime continuity** | Preserve company work outside individual model processes; external-action history remains separate from the runtime filesystem. |
+| **Records of external actions** | See what was authorised and what happened. If an action’s result is unclear, Restless requires it to be checked before retrying. |
+| **Resources and Doctor** | See which tools and services are available, when they were last checked and what needs fixing. |
+| **Work that survives agent sessions** | Keep company files when an agent stops. Restoring the computer does not erase records of actions already taken. |
 | **Company floor** | Explore colleagues and teams through an interactive spatial view of the same company. |
 
-[Implementation, interfaces and recorded evidence →](docs/product-capabilities.md)
+[How these features work, with code and examples →](docs/product-capabilities.md)
 
 ## Getting started
 
@@ -381,12 +382,12 @@ and where does human judgement improve it?**
   comment on the proposal, and you can enter the company computer to try the build.
 - **Make attention purposeful.** Bring the relevant output and a prepared decision to
   the owner. Keep routine coordination with the accountable lead.
-- **Keep orchestration proportionate.** Start with a capable worker. Add collaborators
-  for a specific contribution to quality, evidence or speed.
-- **Carry company identity into the work.** Approved facts, voice, visual language and
-  culture become versioned context with traceable dependencies in the outputs.
+- **Keep the team as simple as the work allows.** Start with a capable worker. Add
+  collaborators when they improve quality, provide an independent check or save time.
+- **Help agents understand your company.** Give them approved facts, writing style,
+  design guidance and ways of working. Track which guidance each output used.
 - **Make quality an operating choice.** Set an outcome standard, review the exact result
-  and carry feedback into the next attempt.
+  and carry feedback into the next version.
 - **Keep business context together.** Documents, rooms, work, roles and the computer
   belong to the same ongoing company.
 
@@ -398,39 +399,37 @@ and the owner's attention at the centre of its design.
 
 ### Features at a glance
 
-**✓** Built-in capability · **◐** Related capability or a route through configuration,
-workflows or integrations · **—** Not a native feature ·
-**?** Equivalent capability not established in the sources.
-Checks describe documented mechanisms, not comparative output quality. Availability can
-vary by plan, adapter or rollout. Sources checked **22 September 2026**.
+**✓** Built in · **◐** Related feature, or possible with setup or integrations ·
+**—** Not built in · **?** Not confirmed in the sources.
+Features can vary by plan, connected tools or rollout. Sources checked **22 September 2026**.
 
-#### Human collaboration and the working surface
+#### Working together
 
 | Feature | Restless | Paperclip | OpenClaw | Lindy | n8n | Dify |
 | --- | :---: | :---: | :---: | :---: | :---: | :---: |
-| General business work beyond coding | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Shared human workspace / membership | ✓ | ✓ | ◐ | ✓ | ✓ | ✓ |
-| Multiple agents or delegated work | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Human–agent group conversation | ✓ | ◐ | ✓ | ✓ | ◐ | ◐ |
-| Native editable documents or files | ✓ | ✓ | ✓ | ✓ | ◐ | ◐ |
-| Live collaborative rich-text documents | ✓ | ◐ | ? | ◐ | ◐ | ◐ |
-| Built-in attention / decision feed | ✓ | ✓ | ◐ | ✓ | ◐ | ◐ |
-| Artifact viewing or interactive output | ✓ | ✓ | ✓ | ✓ | ◐ | ✓ |
-| Embedded desktop with human interaction | ✓ | ◐ | ✓ | ? | ◐ | ◐ |
-| CLI or programmatic API access | ✓ | ✓ | ✓ | ◐ | ✓ | ✓ |
+| Business work beyond coding | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Shared workspace for human teammates | ✓ | ✓ | ◐ | ✓ | ✓ | ✓ |
+| Multiple agents and delegation | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Group chats with people and agents | ✓ | ◐ | ✓ | ✓ | ◐ | ◐ |
+| Built-in document or file editing | ✓ | ✓ | ✓ | ✓ | ◐ | ◐ |
+| Edit formatted documents together, live | ✓ | ◐ | ? | ◐ | ◐ | ◐ |
+| Inbox for decisions and requests | ✓ | ✓ | ◐ | ✓ | ◐ | ◐ |
+| View files or try interactive results | ✓ | ✓ | ✓ | ✓ | ◐ | ✓ |
+| Built-in desktop you can control | ✓ | ◐ | ✓ | ? | ◐ | ◐ |
+| CLI or API access | ✓ | ✓ | ✓ | ◐ | ✓ | ✓ |
 
-#### Continuing work and agent execution
+#### Keeping work moving
 
 | Feature | Restless | Paperclip | OpenClaw | Lindy | n8n | Dify |
 | --- | :---: | :---: | :---: | :---: | :---: | :---: |
-| Company goals and accountable organisational roles | ✓ | ✓ | ◐ | ◐ | ◐ | ◐ |
-| Persistent agent identity or session memory | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Company goals and clear responsibilities | ✓ | ✓ | ◐ | ◐ | ◐ | ◐ |
+| Agent profiles or conversation memory | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Scheduled work and recurring routines | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Reusable instructions, skills or playbooks | ✓ | ✓ | ✓ | ✓ | ◐ | ◐ |
-| Failure recovery or retry mechanisms | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Recover or retry failed work | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Bring Codex / Claude agent runtimes | ✓ | ✓ | ✓ | ? | ◐ | ◐ |
 | Multiple model providers | ✓ | ✓ | ✓ | ◐ | ✓ | ✓ |
-| Configure intelligence per agent / workflow node | ✓ | ✓ | ✓ | ◐ | ✓ | ✓ |
+| Choose models for agents or workflow steps | ✓ | ✓ | ✓ | ◐ | ✓ | ✓ |
 | General visual workflow editor | — | ? | ? | ✓ | ✓ | ✓ |
 | Self-hostable core | ✓ | ✓ | ✓ | ? | ✓ | ✓ |
 
@@ -438,16 +437,16 @@ vary by plan, adapter or rollout. Sources checked **22 September 2026**.
 
 | Feature | Restless | Paperclip | OpenClaw | Lindy | n8n | Dify |
 | --- | :---: | :---: | :---: | :---: | :---: | :---: |
-| Human approval / permission controls | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Review feedback carried into further work | ✓ | ✓ | ◐ | ◐ | ✓ | ✓ |
-| Model usage / cost visibility | ✓ | ✓ | ✓ | ✓ | ◐ | ✓ |
-| Enforced company / agent model-spend budgets | ✓ | ✓ | ? | ◐ | ◐ | ◐ |
-| Exact artifact, input and revision lineage for outcome review | ✓ | ◐ | ? | ? | ◐ | ◐ |
-| Company / outcome quality standards beyond model selection | ✓ | ◐ | ◐ | ◐ | ◐ | ◐ |
-| Approved truth, voice, visual and culture releases bound to work | ✓ | ◐ | ◐ | ◐ | ◐ | ◐ |
-| Artifact drift traced to superseded company-identity evidence | ✓ | ? | ? | ? | ? | ? |
-| Secret storage / credential management | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Permissioned external tools / integrations | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Human approvals and permissions | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Use review feedback in the next revision | ✓ | ✓ | ◐ | ◐ | ✓ | ✓ |
+| See model usage or costs | ✓ | ✓ | ✓ | ✓ | ◐ | ✓ |
+| Enforce model spending limits for companies or agents | ✓ | ✓ | ? | ◐ | ◐ | ◐ |
+| Track the reviewed version, its sources and revisions | ✓ | ◐ | ? | ? | ◐ | ◐ |
+| Set quality standards for the company or a piece of work | ✓ | ◐ | ◐ | ◐ | ◐ | ◐ |
+| Track which approved company facts and guidelines each job uses | ✓ | ◐ | ◐ | ◐ | ◐ | ◐ |
+| Flag outdated content when company facts or guidelines change | ✓ | ? | ? | ? | ? | ? |
+| Store and manage API keys and credentials | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Control access to connected tools | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 **The distinctions behind the ticks:**
 
@@ -456,11 +455,11 @@ vary by plan, adapter or rollout. Sources checked **22 September 2026**.
   files and hosted artifacts. Restless combines a native shared editor, rooms and the
   company computer around the same ongoing work.
 - **Continuity:** schedules, memory and recovery are common strengths across this
-  category. Restless gives them company-level responsibility, attempt history and
-  prepared human handoffs. Its lead can remain accountable without a routine model turn.
+  category. Restless keeps track of who owns the work, what has been tried and what
+  needs your input. A lead stays responsible without a model call for every update.
 - **Quality and identity:** an alternative's ◐ credits related prompts, skills, knowledge
-  or workflow mechanisms. Restless supplies named outcome standards and a specific
-  identity-release, evidence-binding and drift mechanism in Core.
+  or workflows. Restless lets you set a quality standard, record which approved company
+  guidance each job used and flag content affected by changes to that guidance.
 - **Automation:** n8n, Dify and Lindy provide visual workflow building. Restless's work
   graph describes outcomes and revisions; reusable automation lives in company tools
   and scripts. It is not a general drag-and-drop workflow editor.
