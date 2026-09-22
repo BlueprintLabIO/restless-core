@@ -136,6 +136,7 @@
 	let askError = $state('');
 	let askNotice = $state('');
 	let reviewError = $state('');
+	let reviewFeedback = $state('');
 	let deciding = $state(false);
 	let scrollEl = $state<HTMLDivElement | undefined>();
 	let scrollReset = $state(0);
@@ -231,6 +232,19 @@
 		}
 	}
 
+	async function requestChanges() {
+		const feedback = reviewFeedback.trim();
+		if (!review || !feedback || deciding) return;
+		deciding = true;
+		reviewError = '';
+		try {
+			const failure = await review.ondecide('request_changes', feedback);
+			if (failure) reviewError = failure;
+		} finally {
+			deciding = false;
+		}
+	}
+
 	async function acceptReview() {
 		if (!review || deciding) return;
 		deciding = true;
@@ -320,6 +334,26 @@
 			{/if}
 		</header>
 		{#if reviewError}<p class="review-error" role="alert">{reviewError}</p>{/if}
+		{#if review}
+			<form
+				class="review-feedback"
+				onsubmit={(event) => {
+					event.preventDefault();
+					void requestChanges();
+				}}
+			>
+				<label
+					>Request changes<textarea
+						bind:value={reviewFeedback}
+						rows="3"
+						placeholder="Describe the changes needed…"
+						disabled={!canOperate || deciding}></textarea></label
+				>
+				<button class="btn small" disabled={!canOperate || deciding || !reviewFeedback.trim()}
+					>{deciding ? 'Recording…' : 'Request changes'}</button
+				>
+			</form>
+		{/if}
 
 		<div class="exr-panel">
 			{#if !connected && !needsProvider}
@@ -595,6 +629,35 @@
 		display: flex;
 		align-items: center;
 		gap: 8px;
+	}
+	.review-feedback {
+		display: grid;
+		gap: 8px;
+		margin: 0 16px 12px;
+		padding: 12px;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-control);
+		background: var(--surface);
+	}
+	.review-feedback label {
+		display: grid;
+		gap: 6px;
+		font-size: var(--t-label);
+		font-weight: 500;
+	}
+	.review-feedback textarea {
+		box-sizing: border-box;
+		width: 100%;
+		resize: vertical;
+		padding: 8px 10px;
+		border: 1px solid var(--control-edge);
+		border-radius: var(--radius-control);
+		background: var(--surface);
+		color: var(--ink);
+		font: inherit;
+	}
+	.review-feedback button {
+		justify-self: start;
 	}
 	.review-controls :global(.hold-approve) {
 		min-width: 122px;

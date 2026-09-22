@@ -27,6 +27,7 @@
 	const decline = $derived(item.actions.find((a) => a.id === 'decline'));
 	const record = $derived(item.actions.find((a) => a.id === 'record-decision'));
 	const open = $derived(item.actions.find((a) => a.id === 'open-outcome'));
+	const review = $derived(item.actions.some((a) => a.id === 'accept-review'));
 	async function act(kind: 'grant' | 'decline' | 'decision') {
 		if (acting) return;
 		acting = true;
@@ -106,6 +107,11 @@
 				class="btn small primary"
 				href={`${base}&${item.category === 'review' ? 'review' : 'computer'}=${encodeURIComponent(item.id)}`}
 				title={`${open.consequence} ${open.nextState}`}>{open.label}</a
+			>
+		{/if}
+		{#if review && !inChat}
+			<a class="btn small primary" href={`${base}&review=${encodeURIComponent(item.id)}`}
+				>Review outcome</a
 			>
 		{/if}
 		{#if item.nativeDocument && !item.actions.some((action) => action.href)}<a

@@ -59,6 +59,14 @@
 		items.find((item) => item.id === focusedReviewId && item.category === 'review') ?? null
 	);
 	const reviewEvidence = $derived(focusedReview?.evidence ?? []);
+	const nativeDocumentHref = $derived.by(() => {
+		for (const evidence of reviewEvidence) {
+			const match = evidence.content.match(/^\/documents\/([^/?#\s]+)\/([^/?#\s]+)$/m);
+			if (match?.[1] === companyId)
+				return `/${encodeURIComponent(companyId)}/work/documents?document=${encodeURIComponent(match[2])}`;
+		}
+		return '';
+	});
 	const focusedComputerId = $derived(page.url.searchParams.get('computer'));
 	const focusedConversationId = $derived(page.url.searchParams.get('conversation'));
 	const baseHref = $derived(`/${companyId}`);
@@ -436,6 +444,9 @@
 										</li>
 									{/each}
 								</ul>
+							{/if}
+							{#if nativeDocumentHref}
+								<a class="btn small primary" href={nativeDocumentHref}>Open document</a>
 							{/if}
 						{/if}
 					</div>
