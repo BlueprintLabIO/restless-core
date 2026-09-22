@@ -3962,9 +3962,28 @@ impl std::io::Read for Stream {
 /// is set in the image); on the host it is the unix socket.
 fn connect() -> Result<Stream> {
     if let Ok(coordinator) = std::env::var("RESTLESS_COORDINATOR") {
-        return std::net::TcpStream::connect(&coordinator)
-            .map(Stream::Tcp)
-            .with_context(|| format!("connect {coordinator} — is restlessd running?"));
+        // An unreachable Docker-to-host route otherwise waits for the OS TCP
+        // timeout, leaving agent tools and Doctor children hung for minutes.
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        let mut failure = None;
+        for address in coordinator.to_socket_addrs().with_context(|| {
+            format!("resolve {coordinator}; check Docker host.docker.internal DNS")
+        })? {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            match TcpStream::connect_timeout(&address, remaining) {
+                Ok(stream) => return Ok(Stream::Tcp(stream)),
+                Err(error) => failure = Some(error),
+            }
+        }
+        return Err(failure
+            .map(anyhow::Error::from)
+            .unwrap_or_else(|| anyhow!("the coordinator resolved to no reachable address")))
+            .with_context(|| format!(
+                "connect {coordinator}; check that restlessd is running and the host firewall allows Docker bridge traffic to this port"
+            ));
     }
     let sock = restlessd::appliance::MachineProfile::from_env()?.socket_path();
     if let Ok(stream) = UnixStream::connect(&sock) {

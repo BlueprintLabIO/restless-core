@@ -2,11 +2,13 @@
 //! CLI (mature infrastructure over bespoke machinery, §2.6). One persistent
 //! container + one named volume per company; the volume is the company home.
 
+use std::collections::HashMap;
 use std::fmt;
 use std::path::{Component, Path, PathBuf};
 use std::pin::Pin;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, LazyLock};
 use std::task::{Context as TaskContext, Poll};
 use std::time::Duration;
 
@@ -28,6 +30,22 @@ pub const COMPANY_IMAGE: &str = "restless-company-image:latest";
 const COMPANY_IMAGE_ENV: &str = "RESTLESS_COMPANY_IMAGE";
 const SOURCE_DIGEST_LABEL: &str = "io.restless.source-digest";
 const COMPANY_SUPERVISOR_CONFIG: &str = "/etc/supervisor/conf.d/company.conf";
+
+// Startup Doctor and an explicit `up` can arrive together. Serialize the
+// observe/create/seed sequence for one computer while other companies proceed.
+static COMPANY_START_LOCKS: LazyLock<
+    tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+> = LazyLock::new(Default::default);
+
+async fn company_start_guard(company: &str) -> tokio::sync::OwnedMutexGuard<()> {
+    let lock = COMPANY_START_LOCKS
+        .lock()
+        .await
+        .entry(container_name(company))
+        .or_default()
+        .clone();
+    lock.lock_owned().await
+}
 
 /// Owner browsers reconnect eagerly across appliance replacement. While the
 /// one startup inventory owns Docker observation, fail incidental health reads
@@ -960,6 +978,7 @@ fn running_company_names(configs: &[CompanyConfig], docker_names: &str) -> Vec<S
 /// release/Fleet path, not to the credential-holding account plane.
 pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
     let company = &config.name;
+    let _start = company_start_guard(company).await;
     // The computer must boot before native sign-in can happen. Model admission
     // belongs to the session boundary, not to creation of the company computer.
     let image = company_image();
@@ -1292,14 +1311,14 @@ async fn coordination_doctor(company: &str) -> CoordinationDoctor {
         Ok(Ok(_)) => CoordinationDoctor {
             status: "degraded".into(),
             detail: Some(
-                "The Runtime could not complete an authenticated coordination status request."
+                "The company computer could not complete a request to Restless. Check its connection and coordination grant; on Linux, also check Docker DNS and the host firewall."
                     .into(),
             ),
         },
         Ok(Err(_)) | Err(_) => CoordinationDoctor {
             status: "degraded".into(),
             detail: Some(
-                "The Runtime coordination path could not be observed within five seconds.".into(),
+                "The company computer did not answer within five seconds. Check Docker and whether the host firewall permits its connection to Restless.".into(),
             ),
         },
     }
