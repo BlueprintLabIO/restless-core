@@ -6,11 +6,11 @@ revision and exercise the installation a new user receives.
 
 | Check | Required evidence | Current state |
 | --- | --- | --- |
-| Ship the demonstrated product | Reviewed collaboration/settings changes, migrations and assets committed; clean published checkout builds and runs the demonstrated flows | In progress |
-| First installation and intelligence | Fresh state and checkout; README commands; successful native Codex, native Claude and API-backed requests; actionable connection failures | In progress |
-| First useful outcome | Published starter exercise produces an actual business document, then accepts a human-requested revision | In progress |
-| Human multiplayer | Two independent authenticated humans; invitation, shared editing, reconnect, comments, permission boundaries and removal through the supported product path | In progress |
-| Completion and recovery | Real model delegation, produced output, review and revision; interrupted execution recovers preserved work and delivers a final owner notification without a prompting message | In progress |
+| Ship the demonstrated product | Reviewed collaboration/settings changes, migrations and assets committed; clean published checkout builds and runs the demonstrated flows | Accounts, documents and conversation routing shipped; remaining local settings/runtime work needs qualification |
+| First installation and intelligence | Fresh state and checkout; README commands; successful native Codex, native Claude and API-backed requests; actionable connection failures | Clean setup verified at `c88e29d`; Docker-to-Core connection blocked on this host; Claude/API requests deferred by owner |
+| First useful outcome | Published starter exercise produces an actual business document, then accepts a human-requested revision | Native document CLI journey passes; model-produced proposal and revision remain open |
+| Human multiplayer | Two independent authenticated humans; invitation, shared editing, reconnect, comments, permission boundaries and removal through the supported product path | Independent-account protocol journey passes; simultaneous independent browsers remain open |
+| Completion and recovery | Real model delegation, produced output, review and revision; interrupted execution recovers preserved work and delivers a final owner notification without a prompting message | Durable delivery, recipient isolation and restart/replay tests pass at `932f5e4`; real model journey remains open |
 | Founder feedback | Visible, working route from the README to onboarding help and founder feedback | Shipped; links verified |
 
 ## Initial findings — 22 September 2026
@@ -244,11 +244,13 @@ fixtures. Each run must verify its own cleanup.
 
 - Native-document CLI commands now cover creating and reading shared documents,
   guarded live edits, history, sharing and comments. Core retains each prepared
-  edit so retrying the same request does not duplicate text. A real host CLI run
-  against disposable Core, PostgreSQL and the Documents service passed creation,
+  edit so retrying the same request does not duplicate text. A clean checkout of
+  published revision `2ed32cb` built both binaries and its Documents image. Its
+  real host CLI run against disposable Core, PostgreSQL and Documents passed creation,
   readback, live editing, exact retry and a comment anchored to the new paragraph.
   Separate tests passed edit revocation, regrant and result replay, plus Runtime
-  actor attribution. Test resources were removed. This verifies the host CLI
+  actor attribution. The checkout, test image tag, containers, volumes, database
+  and role resources were removed and their absence verified. This verifies the host CLI
   path; installed-agent invocation and the full proposal/revision exercise still
   depend on resolving the Docker-to-Core connection.
 
