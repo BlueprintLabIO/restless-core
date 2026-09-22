@@ -16,13 +16,26 @@ done
 STACK_SCRIPT_DIR="$(cd "$(dirname "$STACK_SCRIPT_PATH")" && pwd)"
 STACK_REPO_ROOT="$(cd "${STACK_SCRIPT_DIR}/.." && pwd)"
 source "${STACK_SCRIPT_DIR}/lib/dev-company.sh"
+source "${STACK_SCRIPT_DIR}/lib/dev-database.sh"
+source "${STACK_SCRIPT_DIR}/lib/dev-tools.sh"
+source "${STACK_SCRIPT_DIR}/lib/dev-vault.sh"
 # A development checkout is a named appliance profile, never an accidental
 # client of the founder's stable singleton. The namespace and offset are
 # deterministic for this checkout so restarts reconnect to their own state,
 # while two checkouts cannot share ports, databases, containers or volumes.
 STACK_REPO_CHECKSUM="$(printf '%s' "$STACK_REPO_ROOT" | cksum | awk '{print $1}')"
 STACK_NAMESPACE="${RESTLESS_RESOURCE_NAMESPACE:-dev${STACK_REPO_CHECKSUM}}"
+if ! [[ "$STACK_NAMESPACE" =~ ^[a-z][a-z0-9_-]{0,23}$ ]]; then
+  printf 'RESTLESS_RESOURCE_NAMESPACE must use 1..24 lowercase letters, digits, underscores or hyphens, starting with a letter.\n' >&2
+  exit 2
+fi
 STACK_OFFSET="${RESTLESS_PORT_OFFSET:-$((1000 + STACK_REPO_CHECKSUM % 18000))}"
+if ! [[ "$STACK_OFFSET" =~ ^[0-9]{4,5}$ ]] ||
+   ((10#$STACK_OFFSET < 1000 || 10#$STACK_OFFSET >= 20000)); then
+  printf 'RESTLESS_PORT_OFFSET must be in 1000..19999 for a development profile.\n' >&2
+  exit 2
+fi
+STACK_OFFSET="$((10#$STACK_OFFSET))"
 STACK_STATE_ROOT="${RESTLESS_HOME:-${HOME}/.restless-dev/${STACK_NAMESPACE}}"
 export RESTLESS_PROFILE="dev"
 export RESTLESS_RESOURCE_NAMESPACE="$STACK_NAMESPACE"
@@ -30,6 +43,8 @@ export RESTLESS_PORT_OFFSET="$STACK_OFFSET"
 export RESTLESS_HOME="$STACK_STATE_ROOT"
 STACK_COMPANY_IMAGE="${RESTLESS_COMPANY_IMAGE:-restless-company-image:${STACK_NAMESPACE}}"
 export RESTLESS_COMPANY_IMAGE="$STACK_COMPANY_IMAGE"
+STACK_DOCUMENTS_IMAGE="${RESTLESS_NATIVE_DOCUMENTS_IMAGE:-restless-native-documents:${STACK_NAMESPACE}}"
+export RESTLESS_NATIVE_DOCUMENTS_IMAGE="$STACK_DOCUMENTS_IMAGE"
 if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ] || [ "${1:-}" = "help" ]; then
   STACK_ACTION="help"
   STACK_COMPANY="aris"
@@ -69,10 +84,10 @@ doctor is read-only and exits non-zero when any boundary is unavailable.
 Every checkout uses an explicit dev profile. The chosen state root, resource
 namespace and port offset are printed before any mutation.
 
-For a new company, set RESTLESS_DEV_MODEL=provider/model. Optionally set
-RESTLESS_DEV_CREDENTIAL_REFERENCE=env:YOUR_API_KEY for an API connection.
-Without a credential reference, connect Codex, Claude or an API provider
-in Company > Intelligence after startup. Existing companies keep their settings.
+For a new company, connect Codex, Claude or an API provider in Company > Intelligence
+after startup. To initialise an API connection from your shell, set both
+RESTLESS_DEV_MODEL=provider/model and RESTLESS_DEV_CREDENTIAL_REFERENCE=env:YOUR_API_KEY.
+Existing companies keep their settings.
 EOF
 }
 
@@ -118,6 +133,19 @@ wait_for_web_proxy() {
     web_proxy_is_live && return 0
     sleep 0.25
   done
+  return 1
+}
+
+wait_for_admission() {
+  local probe_attempt
+  for ((probe_attempt = 0; probe_attempt < 120; probe_attempt += 1)); do
+    if curl --fail --silent --max-time 2 "${STACK_OWNER_URL}/api/appliance" \
+      | jq --exit-status '.recovering == false and .draining == false' >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.5
+  done
+  printf 'Startup recovery has not finished. Inspect the daemon output before retrying.\n' >&2
   return 1
 }
 
@@ -186,15 +214,39 @@ dev() {
   require_command curl
   require_command docker
   require_command npm
+  require_command node
+  require_command jq
+  require_command openssl
   check_disk_headroom
   [ "$STACK_FAILURES" -eq 0 ] || return 1
+  docker info >/dev/null 2>&1 || {
+    printf 'Docker is not reachable. Start Docker and check that your user can run docker info.\n' >&2
+    return 1
+  }
+  docker compose version >/dev/null 2>&1 || {
+    printf 'Docker Compose v2 is required for the built-in vault. Install the Docker Compose plugin, then retry.\n' >&2
+    return 1
+  }
+  if [ ! -d "${STACK_REPO_ROOT}/web/node_modules" ]; then
+    printf 'Cockpit dependencies are absent. Run npm --prefix web ci, then retry.\n' >&2
+    return 1
+  fi
 
   printf 'PROFILE  dev\nROOT     %s\nNAMESPACE %s\nOFFSET   %s\nIMAGE    %s\n' \
     "$RESTLESS_HOME" "$RESTLESS_RESOURCE_NAMESPACE" "$RESTLESS_PORT_OFFSET" \
     "$RESTLESS_COMPANY_IMAGE"
 
-  cargo build --quiet --manifest-path "${STACK_REPO_ROOT}/Cargo.toml" \
+  printf '\nBuilding Restless. The first build can take several minutes.\n'
+  cargo build --manifest-path "${STACK_REPO_ROOT}/Cargo.toml" \
     --target-dir "$STACK_TARGET_DIR" -p restlessd -p restless
+
+  # Documents are part of the same checkout release as the daemon and Runtime.
+  # Never reuse another checkout's mutable :local sidecar after a source update.
+  if [ "$STACK_RECONCILE" = "--reconcile" ] || ! docker image inspect "$STACK_DOCUMENTS_IMAGE" >/dev/null 2>&1; then
+    printf '\nBuilding the shared document service…\n'
+    docker build --tag "$STACK_DOCUMENTS_IMAGE" \
+      "${STACK_REPO_ROOT}/services/native-documents-collaboration"
+  fi
 
   # Local development owns its source build. The account plane only consumes
   # an image reference, matching the hosted path where Fleet publishes and
@@ -217,7 +269,8 @@ dev() {
     api_contract="$(sed -n 's/.*API_CONTRACT_VERSION: u32 = \([0-9]*\);.*/\1/p' "${STACK_REPO_ROOT}/crates/restlessd/src/release.rs")"
     assertion_contract="$(sed -n 's/.*ASSERTION_CONTRACT_VERSION: u32 = \([0-9]*\);.*/\1/p' "${STACK_REPO_ROOT}/crates/restlessd/src/entry.rs")"
     schema_version="$(sed -n 's/.*SCHEMA_VERSION: u32 = \([0-9]*\);.*/\1/p' "${STACK_REPO_ROOT}/crates/restlessd/src/release.rs")"
-    docker build --quiet \
+    printf '\nBuilding the company computer and its tools…\n'
+    docker build \
       --file "${STACK_REPO_ROOT}/infra/company-image/Dockerfile" \
       --tag "$RESTLESS_COMPANY_IMAGE" \
       --label "io.restless.source-digest=${source_digest}" \
@@ -226,7 +279,7 @@ dev() {
       --build-arg "RESTLESS_API_CONTRACT_VERSION=${api_contract}" \
       --build-arg "RESTLESS_ASSERTION_CONTRACT_VERSION=${assertion_contract}" \
       --build-arg "RESTLESS_SCHEMA_VERSION=${schema_version}" \
-      "$STACK_REPO_ROOT" >/dev/null
+      "$STACK_REPO_ROOT"
   elif ! docker image inspect "$RESTLESS_COMPANY_IMAGE" >/dev/null 2>&1; then
     # Snapshot the current stable development image into this checkout's
     # namespace. Future dev rebuilds can no longer mutate the image selected by
@@ -253,6 +306,9 @@ dev() {
 
   trap cleanup_children EXIT INT TERM
   if ! gateway_is_live; then
+    dev_database_ensure || return 1
+    dev_tools_ensure || return 1
+    dev_vault_ensure || return 1
     (cd "$STACK_REPO_ROOT" && exec "${STACK_TARGET_DIR}/debug/restlessd") &
     STACK_DAEMON_PID=$!
     wait_for_gateway || {
@@ -260,6 +316,10 @@ dev() {
       return 1
     }
   fi
+
+  # A readable cockpit can precede safe write admission during crash recovery.
+  # Wait before creating a company or starting its computer.
+  wait_for_admission || return 1
 
   if [ ! -f "${RESTLESS_HOME}/companies/${STACK_COMPANY}.toml" ]; then
     local company_file
@@ -286,6 +346,7 @@ dev() {
       printf 'Owner gateway did not return after first-company admission.\n' >&2
       return 1
     }
+    wait_for_admission || return 1
   fi
 
   local up_args=(up -c "$STACK_COMPANY")

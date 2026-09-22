@@ -208,13 +208,15 @@ to see how these features work.
 
 ## Getting started
 
-You need **Rust/Cargo, Node.js/npm, Docker with a running daemon, and curl**.
-The first run builds the local daemon and company image.
+Use a **Linux host with Rust/Cargo, Node.js 24/npm, Docker with Compose v2,
+curl, jq and OpenSSL**. Start Docker and keep at least 30 GiB free for the source build and company image.
+The launcher builds the daemon and company image, installs its pinned model
+broker, and provisions PostgreSQL and an Infisical vault for a new development profile.
 
 ```sh
 git clone --branch dev https://github.com/BlueprintLabIO/restless-core.git
 cd restless-core
-npm --prefix web install
+npm --prefix web ci
 ```
 
 ### Choose your intelligence
@@ -226,7 +228,14 @@ npm --prefix web install
 | **API providers** | Use OpenAI, Anthropic, Google Gemini, OpenRouter, Groq, Mistral, DeepSeek, xAI, Moonshot, Z.ai and other supported connections. |
 | **Custom endpoints** | Configure an OpenAI-compatible gateway with your endpoint, model IDs and credentials. |
 
-For an API-backed company, choose a model and reference a key already in your shell:
+Start the workspace, then open the setup URL printed in your terminal and connect
+**Codex, Claude or an API provider** in **Company → Intelligence**:
+
+```sh
+./scripts/restless-dev demo_test --reconcile
+```
+
+You can also initialise an API-backed company with a model and a key already in your shell:
 
 ```sh
 export RESTLESS_DEV_MODEL=anthropic/claude-sonnet-4-6
@@ -234,10 +243,6 @@ export RESTLESS_DEV_CREDENTIAL_REFERENCE=env:ANTHROPIC_API_KEY
 ./scripts/restless-dev demo_test --reconcile
 ```
 
-For native sign-in, set `RESTLESS_DEV_MODEL` to your chosen `provider/model`, leave
-`RESTLESS_DEV_CREDENTIAL_REFERENCE` unset, and run the same launcher. Open the setup
-URL it prints and connect **Codex or Claude** in **Company → Intelligence**.
-The new-company button also asks you to choose a starting model before creation.
 Existing companies retain their saved configuration.
 
 Open the workspace address printed by the launcher. In another terminal, verify setup:

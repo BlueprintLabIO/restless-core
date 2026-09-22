@@ -83,9 +83,8 @@
 			if (sequence !== requestSequence) return;
 			if (!response.ok) throw new Error(body.message ?? 'Could not read connections.');
 			status = body;
-			if (!selected) {
-				choose(body.primary_provider);
-				editorOpen = !body.connections.some((c: Connection) => c.reference);
+			if (!selected && !editorOpen) {
+				choose(body.primary_provider === 'unconfigured' ? '' : body.primary_provider);
 			} else if (!edited && !busy) {
 				const previousNotice = notice;
 				choose(selected);
@@ -179,9 +178,9 @@
 			class="primary"
 			disabled={!status || busy}
 			onclick={() => {
-				choose('openai');
+				choose('');
 				editorOpen = true;
-			}}>+ Add connection</button
+			}}>+ Add API connection</button
 		>
 	</header>
 	<div class="storage">
@@ -216,8 +215,8 @@
 				{/each}
 			</section>
 		{:else}<div class="empty">
-				<h2>Add your first connection</h2>
-				<p>Choose a provider and paste its API key to get started.</p>
+				<h2>API connections</h2>
+				<p>Add a provider API key, or sign in with Codex or Claude below.</p>
 			</div>{/if}
 	{/if}
 	{#if editorOpen && status}
@@ -225,19 +224,21 @@
 			<form class="credentials" onsubmit={(e) => connect(e)}>
 				<label for="provider-choice">Provider</label><select
 					id="provider-choice"
+					required
 					disabled={busy}
-					value={labels[selected] ? selected : 'custom'}
+					value={selected ? (labels[selected] ? selected : 'custom') : ''}
 					onchange={(e) => choose(e.currentTarget.value)}
 				>
+					<option value="" disabled>Choose a provider…</option>
 					{#each Object.entries(labels).filter(([id]) => id !== 'openai-codex' || status?.connections.some((c) => c.provider === id && c.reference)) as [id, label]}<option
 							value={id}>{label}</option
 						>{/each}<option value="custom">Custom provider…</option>
 				</select>
-				{#if !labels[selected]}<label for="custom-provider">Provider ID</label><input
+				{#if selected && !labels[selected]}<label for="custom-provider">Provider ID</label><input
 						id="custom-provider"
 						placeholder="Provider ID"
 						value={selected === 'custom' ? '' : selected}
-						oninput={(e) => choose(e.currentTarget.value)}
+						oninput={(e) => choose(e.currentTarget.value || 'custom')}
 						pattern="[a-zA-Z0-9_.\-]+"
 						required
 						disabled={busy}

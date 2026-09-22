@@ -48,22 +48,52 @@ class DevelopmentCompanyTest(unittest.TestCase):
         self.assertNotIn('credentials', tomllib.loads(result.stdout))
         self.assertNotIn('ZAI', result.stdout)
 
+    def test_first_run_can_wait_for_a_connection_without_selecting_a_vendor(self):
+        result = self.config()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        config = tomllib.loads(result.stdout)
+        self.assertEqual(config['model'], 'unconfigured/pending')
+        self.assertNotIn('credentials', config)
+
     def test_credential_reference_cannot_inject_toml(self):
         value = 'infisical:/company/a\\b"c'
         result = self.config('anthropic/claude-sonnet-4-6', value)
         self.assertEqual(tomllib.loads(result.stdout)['credentials']['model.inference'], value)
         self.assertNotEqual(self.config('anthropic/claude-sonnet-4-6', 'env:KEY\nmodel="other"').returncode, 0)
 
-    def test_launcher_rejects_missing_model_before_creating_state(self):
+    def test_launcher_rejects_invalid_model_before_creating_state(self):
         with tempfile.TemporaryDirectory(prefix='restless-init-test-') as directory:
             state = Path(directory) / 'state'
             env = dict(os.environ, RESTLESS_HOME=str(state))
-            env.pop('RESTLESS_DEV_MODEL', None)
+            env['RESTLESS_DEV_MODEL'] = 'missing-provider-prefix'
             result = subprocess.run(['bash', str(ROOT / 'scripts/restless-dev'), 'bootstrap_test'],
                                     env=env, text=True, capture_output=True, check=False)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn('Choose a model', result.stderr)
             self.assertNotIn('PASS', result.stdout)
+            self.assertFalse(state.exists())
+
+    def test_invalid_namespace_fails_before_building_or_provisioning(self):
+        with tempfile.TemporaryDirectory(prefix='restless-namespace-test-') as directory:
+            state = Path(directory) / 'state'
+            env = dict(os.environ, RESTLESS_HOME=str(state),
+                       RESTLESS_RESOURCE_NAMESPACE='namespace_that_is_too_long_test')
+            result = subprocess.run(['bash', str(ROOT / 'scripts/restless-dev'), 'bootstrap_test'],
+                                    env=env, text=True, capture_output=True, check=False)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn('1..24', result.stderr)
+            self.assertNotIn('Building', result.stdout)
+            self.assertFalse(state.exists())
+
+    def test_invalid_port_profile_fails_before_building_or_provisioning(self):
+        with tempfile.TemporaryDirectory(prefix='restless-offset-test-') as directory:
+            state = Path(directory) / 'state'
+            env = dict(os.environ, RESTLESS_HOME=str(state), RESTLESS_PORT_OFFSET='29000')
+            result = subprocess.run(['bash', str(ROOT / 'scripts/restless-dev'), 'bootstrap_test'],
+                                    env=env, text=True, capture_output=True, check=False)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn('1000..19999', result.stderr)
+            self.assertNotIn('Building', result.stdout)
             self.assertFalse(state.exists())
 
     def test_existing_company_keeps_configuration_without_model_environment(self):
@@ -77,7 +107,7 @@ class DevelopmentCompanyTest(unittest.TestCase):
             commands.mkdir()
             for name, body in {
                 'cargo': 'exit 37',  # Stop at the first build; never start infrastructure.
-                'docker': 'exit 99',
+                'docker': '[ "$1" = info ] && exit 0; [ "$1 $2" = "compose version" ] && exit 0; exit 99',
                 'npm': 'exit 99',
                 'df': 'echo "Filesystem 1024-blocks Used Available Capacity Mounted"; echo "test 100000000 0 100000000 0% /"',
             }.items():

@@ -66,6 +66,16 @@ fixtures. Each run must verify its own cleanup.
   and no API-provider key is configured. The owner asked to use existing
   connections first and will reconnect later; successful Claude/API requests
   remain open requirements.
+- A new empty profile provisioned its own PostgreSQL and Infisical, then opened
+  provider setup with `unconfigured/pending` and no inherited connections. The
+  live desktop and 390px mobile checks verified native Codex/Claude sign-in
+  choices, an explicitly opened API form with no selected provider, and editable
+  custom-provider input after clearing it. No credentials were submitted in that
+  UI check. The test used existing computer and Documents images, so it is not
+  the required clean published-source qualification.
+- Nine launcher tests pass, including rejection of invalid profile values before
+  provisioning. Frontend checks reported zero errors and warnings; the production
+  build passed after the provider-selection fix.
 - Runtime startup serialization and the CLI connection deadline shipped in
   `493b913`. A reachable local protocol fixture succeeded; a dropped TCP route
   failed in 3.01 seconds with a connection/firewall diagnostic.
