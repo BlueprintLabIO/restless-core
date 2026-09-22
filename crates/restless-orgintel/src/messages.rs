@@ -80,6 +80,60 @@ impl OrgIntel {
         message_ids: &[i64],
         handoff_inputs: &[OwnerHandoffInput],
     ) -> Result<Option<i64>> {
+        self.finalize_cognitive_conversation_to(
+            lease,
+            "owner",
+            owner_reply,
+            reply_work_id,
+            message_ids,
+            handoff_inputs,
+        )
+        .await
+    }
+
+    /// Finalize a cognitive turn into one exact human direct Room. The reply
+    /// audience is part of the idempotency payload, so replay cannot move an
+    /// answer between people or conversation scopes.
+    pub async fn finalize_cognitive_conversation_to(
+        &self,
+        lease: &ActorCognitiveLease,
+        reply_to_actor: &str,
+        owner_reply: Option<&str>,
+        reply_work_id: Option<Uuid>,
+        message_ids: &[i64],
+        handoff_inputs: &[OwnerHandoffInput],
+    ) -> Result<Option<i64>> {
+        self.finalize_cognitive_conversation_to_with_owner_scope(
+            lease,
+            reply_to_actor,
+            reply_to_actor == "owner",
+            owner_reply,
+            reply_work_id,
+            message_ids,
+            handoff_inputs,
+        )
+        .await
+    }
+
+    /// Finalize against the human's captured membership-owner classification.
+    /// Binding rows are share-locked through commit, so transfer or demotion
+    /// races force a fresh turn instead of consuming owner-only inputs.
+    pub async fn finalize_cognitive_conversation_to_with_owner_scope(
+        &self,
+        lease: &ActorCognitiveLease,
+        reply_to_actor: &str,
+        expected_membership_owner: bool,
+        owner_reply: Option<&str>,
+        reply_work_id: Option<Uuid>,
+        message_ids: &[i64],
+        handoff_inputs: &[OwnerHandoffInput],
+    ) -> Result<Option<i64>> {
+        let reply_to_actor = reply_to_actor.trim();
+        if reply_to_actor.is_empty() {
+            return Err(OrgIntelError::InvalidRoom(
+                "a cognitive conversation needs an exact human reply audience".into(),
+            ));
+        }
         if owner_reply.is_none() && reply_work_id.is_some() {
             return Err(OrgIntelError::InvalidWork(
                 "a Work-linked conversation finalization needs an owner reply".into(),
@@ -109,6 +163,8 @@ impl OrgIntel {
         let payload = serde_json::to_vec(&serde_json::json!({
             "domain": "restless.cognitive-conversation-final.v1",
             "actor_id": &lease.actor_id,
+            "reply_to_actor": reply_to_actor,
+            "expected_membership_owner": expected_membership_owner,
             "reply": owner_reply,
             "reply_work_id": reply_work_id,
             "message_ids": &sorted_messages,
@@ -119,20 +175,31 @@ impl OrgIntel {
         let command_id = format!("runtime-cognitive-final:{}", lease.token);
 
         let mut tx = self.pool.begin().await?;
+        // The durable message uniqueness boundary is per Room. Serialize the
+        // lease-derived finalization key independently of Room so concurrent
+        // drift cannot commit the same turn into two human conversations.
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))")
+            .bind(&command_id)
+            .execute(&mut *tx)
+            .await?;
         // A lost commit receipt is safe even after the process was fenced: the
         // exact durable reply proves the whole transaction (including input
         // consumption) already committed. Semantic drift still conflicts.
         if owner_reply.is_some() {
-            if let Some((message_id, prior_digest)) = sqlx::query_as::<_, (i64, String)>(
-                "SELECT id,client_payload_sha256 FROM messages \
-                 WHERE to_actor IS NULL AND from_actor=$1 AND client_command_id=$2",
-            )
-            .bind(&lease.actor_id)
-            .bind(&command_id)
-            .fetch_optional(&mut *tx)
-            .await?
+            if let Some((message_id, prior_digest, prior_recipient)) =
+                sqlx::query_as::<_, (i64, String, Option<String>)>(
+                    "SELECT id,client_payload_sha256,to_actor FROM messages \
+                 WHERE from_actor=$1 AND client_command_id=$2",
+                )
+                .bind(&lease.actor_id)
+                .bind(&command_id)
+                .fetch_optional(&mut *tx)
+                .await?
             {
-                if prior_digest != payload_sha256 {
+                let expected_recipient = (reply_to_actor != "owner").then_some(reply_to_actor);
+                if prior_digest != payload_sha256
+                    || prior_recipient.as_deref() != expected_recipient
+                {
                     return Err(OrgIntelError::RoomCommandConflict(
                         "the cognitive-session finalization key was reused with different semantics"
                             .into(),
@@ -141,6 +208,40 @@ impl OrgIntel {
                 tx.commit().await?;
                 return Ok(Some(message_id));
             }
+        }
+        let reply_recipient_exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM actors human \
+             WHERE human.id=$1 AND human.actor_class='human' AND human.retired_at IS NULL)",
+        )
+        .bind(reply_to_actor)
+        .fetch_one(&mut *tx)
+        .await?;
+        let recipient_bindings: Vec<(String, String)> = sqlx::query_as(
+            "SELECT membership_role,membership_status \
+             FROM human_principal_actor_bindings WHERE actor_id=$1 FOR SHARE",
+        )
+        .bind(reply_to_actor)
+        .fetch_all(&mut *tx)
+        .await?;
+        let local_owner = reply_to_actor == "owner" && recipient_bindings.is_empty();
+        let recipient_is_active = reply_recipient_exists
+            && (recipient_bindings.is_empty()
+                || recipient_bindings
+                    .iter()
+                    .any(|(_, status)| status == "active"));
+        let recipient_is_membership_owner = local_owner
+            || recipient_bindings
+                .iter()
+                .any(|(role, status)| role == "owner" && status == "active");
+        if !recipient_is_active {
+            return Err(OrgIntelError::RoomAccessDenied(
+                "the human reply audience no longer has active company access".into(),
+            ));
+        }
+        if recipient_is_membership_owner != expected_membership_owner {
+            return Err(OrgIntelError::RoomAccessDenied(
+                "the human reply audience's membership-owner role changed during the turn".into(),
+            ));
         }
         let reply_work = if let Some(work_id) = reply_work_id {
             Some((
@@ -198,6 +299,24 @@ impl OrgIntel {
                     "the cognitive-session inputs are no longer all owed to this Actor".into(),
                 ));
             }
+            let human_senders: Vec<String> = sqlx::query_scalar(
+                "SELECT DISTINCT message.from_actor FROM messages message \
+                 JOIN actors sender ON sender.id=message.from_actor \
+                 WHERE message.id=ANY($1) AND sender.actor_class='human'",
+            )
+            .bind(&sorted_messages)
+            .fetch_all(&mut *tx)
+            .await?;
+            if owner_reply.is_none() && !human_senders.is_empty() {
+                return Err(OrgIntelError::RoomCommandConflict(
+                    "a human message cannot be consumed by a quiet background decision".into(),
+                ));
+            }
+            if human_senders.iter().any(|sender| sender != reply_to_actor) {
+                return Err(OrgIntelError::RoomCommandConflict(
+                    "a cognitive reply cannot consume another human's direct-Room input".into(),
+                ));
+            }
         }
         if !sorted_handoffs.is_empty() {
             let handoff_ids = sorted_handoffs
@@ -250,16 +369,19 @@ impl OrgIntel {
             }
         }
         let reply_message_id = if let Some(body) = owner_reply {
-            let room_id = ensure_direct_message_room_in_tx(&mut tx, &lease.actor_id, None).await?;
+            let recipient = (reply_to_actor != "owner").then_some(reply_to_actor);
+            let room_id =
+                ensure_direct_message_room_in_tx(&mut tx, &lease.actor_id, recipient).await?;
             let inserted: Option<i64> = sqlx::query_scalar(
                 "INSERT INTO messages \
                  (room_id,from_actor,to_actor,body,client_command_id,client_payload_sha256) \
-                 VALUES ($1,$2,NULL,$3,$4,$5) \
+                 VALUES ($1,$2,$3,$4,$5,$6) \
                  ON CONFLICT DO NOTHING \
                  RETURNING id",
             )
             .bind(room_id)
             .bind(&lease.actor_id)
+            .bind(recipient)
             .bind(body)
             .bind(&command_id)
             .bind(&payload_sha256)
@@ -270,8 +392,9 @@ impl OrgIntel {
             } else {
                 let (message_id, prior_digest): (i64, String) = sqlx::query_as(
                     "SELECT id,client_payload_sha256 FROM messages \
-                     WHERE to_actor IS NULL AND from_actor=$1 AND client_command_id=$2",
+                     WHERE room_id=$1 AND from_actor=$2 AND client_command_id=$3",
                 )
+                .bind(room_id)
                 .bind(&lease.actor_id)
                 .bind(&command_id)
                 .fetch_one(&mut *tx)
@@ -2104,6 +2227,16 @@ impl OrgIntel {
                LEFT JOIN room_message_revisions revision ON revision.id=message.latest_revision_id \
                WHERE message.read_at IS NULL AND message.deleted_at IS NULL \
                  AND message.from_actor<>$1 \
+                 AND NOT EXISTS (\
+                   SELECT 1 FROM actors human_sender \
+                   WHERE human_sender.id=message.from_actor \
+                     AND human_sender.actor_class='human' \
+                     AND EXISTS (SELECT 1 FROM human_principal_actor_bindings binding \
+                                 WHERE binding.actor_id=human_sender.id) \
+                     AND NOT EXISTS (SELECT 1 FROM human_principal_actor_bindings active_binding \
+                                     WHERE active_binding.actor_id=human_sender.id \
+                                       AND active_binding.membership_status='active')\
+                 ) \
                  AND NOT EXISTS (SELECT 1 FROM message_mentions mention \
                                  WHERE mention.message_id=message.id) \
                  AND (\
@@ -2146,6 +2279,48 @@ impl OrgIntel {
         self.conversation_inbox_batch(actor, 32, 128 * 1024).await
     }
 
+    /// Admit at most one human direct conversation to a cognitive turn. Other
+    /// humans remain unread for later turns; non-human coordination may travel
+    /// with the selected human or as its own background batch.
+    pub async fn conversation_inbox_for_turn(
+        &self,
+        actor: &str,
+    ) -> Result<(Vec<MessageRow>, Option<String>)> {
+        let messages = self.conversation_inbox(actor).await?;
+        let senders = messages
+            .iter()
+            .map(|message| message.from_actor.clone())
+            .collect::<Vec<_>>();
+        let humans: Vec<String> = if senders.is_empty() {
+            Vec::new()
+        } else {
+            sqlx::query_scalar("SELECT id FROM actors WHERE id=ANY($1) AND actor_class='human'")
+                .bind(&senders)
+                .fetch_all(&self.pool)
+                .await?
+        };
+        let selected = messages
+            .iter()
+            .find(|message| humans.contains(&message.from_actor))
+            .map(|message| message.from_actor.clone());
+        let membership_owner = self.current_membership_owner_actor_id().await?;
+        let selected_is_membership_owner = selected.as_deref().is_some_and(|selected| {
+            selected == "owner" || membership_owner.as_deref() == Some(selected)
+        });
+        let messages = messages
+            .into_iter()
+            .filter(|message| {
+                if selected.is_some() && !selected_is_membership_owner {
+                    selected.as_deref() == Some(message.from_actor.as_str())
+                } else {
+                    !humans.contains(&message.from_actor)
+                        || selected.as_deref() == Some(message.from_actor.as_str())
+                }
+            })
+            .collect();
+        Ok((messages, selected))
+    }
+
     /// How much unread conversation this actor genuinely owes a turn: mail
     /// addressed to it, excluding its own notes to itself and any message that
     /// is already deterministic input to an active Work revision.
@@ -2161,6 +2336,16 @@ impl OrgIntel {
             "SELECT count(*) FROM messages message \
              WHERE message.read_at IS NULL AND message.deleted_at IS NULL \
                AND message.from_actor<>$1 \
+               AND NOT EXISTS (\
+                 SELECT 1 FROM actors human_sender \
+                 WHERE human_sender.id=message.from_actor \
+                   AND human_sender.actor_class='human' \
+                   AND EXISTS (SELECT 1 FROM human_principal_actor_bindings binding \
+                               WHERE binding.actor_id=human_sender.id) \
+                   AND NOT EXISTS (SELECT 1 FROM human_principal_actor_bindings active_binding \
+                                   WHERE active_binding.actor_id=human_sender.id \
+                                     AND active_binding.membership_status='active')\
+               ) \
                AND NOT EXISTS (SELECT 1 FROM message_mentions WHERE message_id=message.id) \
                AND (\
                  EXISTS (SELECT 1 FROM work_feedback feedback \
@@ -2401,13 +2586,14 @@ impl OrgIntel {
         })
     }
 
-    /// Consume one unread owner conversation message because the owner
+    /// Consume one unread human conversation message because its exact sender
     /// explicitly interrupted it before an answer was recorded. This is a
     /// durable delivery decision, not a second conversation message: the
     /// original directive remains visible in the transcript and the event
     /// records why it will not be retried after a daemon restart.
-    pub async fn interrupt_owner_conversation_message(
+    pub async fn interrupt_human_conversation_message(
         &self,
+        human_actor: &str,
         actor: &str,
         message_id: i64,
     ) -> Result<bool> {
@@ -2423,20 +2609,29 @@ impl OrgIntel {
             })?;
         sqlx::query(
             "UPDATE actor_cognitive_leases \
-             SET revoked_at=COALESCE(revoked_at,now()),revoked_by='owner', \
-                 revocation_reason='the owner interrupted the active conversation input' \
+             SET revoked_at=COALESCE(revoked_at,now()),revoked_by=$2, \
+                 revocation_reason='the human sender interrupted the active conversation input' \
              WHERE actor_id=$1 AND claimed_until>now()",
         )
         .bind(actor)
+        .bind(human_actor)
         .execute(&mut *tx)
         .await?;
         let consumed: Option<i64> = sqlx::query_scalar(
             "UPDATE messages SET read_at=now() \
-             WHERE id=$1 AND from_actor='owner' AND to_actor=$2 AND read_at IS NULL \
+             WHERE id=$1 AND from_actor=$2 AND to_actor=$3 AND read_at IS NULL \
                AND NOT EXISTS (SELECT 1 FROM work_feedback WHERE message_id=messages.id) \
+               AND EXISTS (SELECT 1 FROM rooms room \
+                 JOIN room_participants human ON human.room_id=room.id \
+                   AND human.actor_id=$2 AND human.left_at IS NULL \
+                 JOIN room_participants target ON target.room_id=room.id \
+                   AND target.actor_id=$3 AND target.left_at IS NULL \
+                 WHERE room.id=messages.room_id AND room.kind='direct' \
+                   AND room.archived_at IS NULL) \
              RETURNING id",
         )
         .bind(message_id)
+        .bind(human_actor)
         .bind(actor)
         .fetch_optional(&mut *tx)
         .await?;
@@ -2445,15 +2640,25 @@ impl OrgIntel {
         };
         sqlx::query("INSERT INTO events (kind, actor_id, body) VALUES ($1,$2,$3)")
             .bind("owner_conversation_interrupted")
-            .bind("owner")
+            .bind(human_actor)
             .bind(serde_json::json!({
                 "message_id": consumed,
                 "actor": actor,
+                "human_actor": human_actor,
             }))
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
         Ok(true)
+    }
+
+    pub async fn interrupt_owner_conversation_message(
+        &self,
+        actor: &str,
+        message_id: i64,
+    ) -> Result<bool> {
+        self.interrupt_human_conversation_message("owner", actor, message_id)
+            .await
     }
 
     /// The bounded owner/actor transcript newer than a known focus cursor.

@@ -168,11 +168,18 @@ A weekday recurring schedule is the same kind of time fact for a genuine standin
 It wakes judgement, runs no command, coalesces missed days and must not manufacture work merely to
 satisfy the cadence.
 
-The Runtime records artifacts, gates and final Work state before sending the accountable lead one
-durable terminal Work fact. Staff does not send progress or completion mail merely to trigger
-supervision; direct mail is reserved for a genuinely new fact or contradiction that needs judgement
-before the terminal result. This ordering keeps a lead's frozen context from consuming a completion
-that had not happened yet, without adding polling or status theatre.
+The Runtime records artifacts, gates and final Work state before delivering a durable terminal fact.
+Exceptions go to the accountable lead; successful results go directly to Exec for owner communication
+without a ceremonial lead turn. Pending explicit reviews retain their own judgement path. Staff does
+not send progress or completion mail merely to trigger supervision; direct mail is reserved for a
+genuinely new fact or contradiction that needs judgement before the terminal result.
+
+Exec proactively returns requested results and material changes to the owner in the existing chat,
+without waiting for a new owner message. Inspect current evidence, link the usable result, distinguish
+producer completion from lead acceptance, and avoid repeating an already delivered update. Ordinary
+internal progress and unchanged state stay quiet. A background final response is persisted atomically
+with acknowledgement of its exact inputs; an explicit quiet decision consumes only those inputs and
+creates no owner message. Interrupted or failed turns leave the inputs owed for recovery.
 
 ## 7. Bring the prepared last mile
 

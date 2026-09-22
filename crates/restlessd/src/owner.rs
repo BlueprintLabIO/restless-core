@@ -6138,6 +6138,7 @@ async fn send_actor_message(
 async fn interrupt_actor_conversation(
     State(state): State<OwnerState>,
     AxumPath((company, actor, message_id)): AxumPath<(String, String, i64)>,
+    Extension(principal): Extension<RequestPrincipal>,
 ) -> impl IntoResponse {
     let org = match state.daemon.orgintel.get(&company).await {
         Ok(org) => org,
@@ -6168,7 +6169,7 @@ async fn interrupt_actor_conversation(
     }
 
     let cancelled = match org
-        .interrupt_owner_conversation_message(&actor, message_id)
+        .interrupt_human_conversation_message(principal.actor_id(), &actor, message_id)
         .await
     {
         Ok(cancelled) => cancelled,

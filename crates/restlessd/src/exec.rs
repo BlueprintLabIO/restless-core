@@ -53,9 +53,8 @@ pub struct WakeReport {
     pub tool_calls: Vec<String>,
     /// The Exec's closing text this turn, truncated.
     pub said: String,
-    /// The final assistant block from the work turn. Conversation scheduling
-    /// uses this only as a durable-reply fallback when the Exec spoke to the
-    /// owner but omitted the `restless message` tool call.
+    /// Final assistant block: an owner reply (including proactive updates),
+    /// or the explicit quiet marker for an uneventful background turn.
     #[serde(skip)]
     pub(crate) owner_reply: Option<String>,
     /// True only when the productive turn itself ended normally with a final
@@ -100,6 +99,8 @@ pub async fn wake(
     runtime_bridges: &crate::runtime_bridge::RuntimeBridgeRegistry,
     org: &OrgIntel,
     reason: &str,
+    owner_actor_id: &str,
+    human_is_membership_owner: bool,
     conversation_inbox: &[restless_orgintel::MessageRow],
     owed_judgements: &[restless_orgintel::OwnerHandoffRow],
     pending_mention: Option<&restless_orgintel::MessageMentionContext>,
@@ -125,6 +126,19 @@ pub async fn wake(
         .active_actor("exec")
         .await?
         .and_then(|actor| actor.model);
+    let conversation_focus = org.human_conversation_focus(owner_actor_id, "exec").await?;
+    let responsibility = pending_mention.map_or_else(
+        || {
+            crate::context::human_conversation_responsibility(
+                "portfolio",
+                owner_actor_id,
+                conversation_focus.after_message_id,
+            )
+        },
+        |mention| {
+            crate::context::focused_mention_responsibility("portfolio", mention.mention.id)
+        },
+    );
 
     // Preflight: a company whose computer is stopped or whose disk is full
     // must not be woken. Nothing below this line is free — context assembly
@@ -148,6 +162,8 @@ pub async fn wake(
         authority,
         config,
         reason,
+        owner_actor_id,
+        human_is_membership_owner,
         conversation_inbox,
         owed_judgements,
         pending_mention,
@@ -301,7 +317,7 @@ pub async fn wake(
                         &auth,
                         "/company",
                         "exec",
-                        "portfolio",
+                        &responsibility,
                         harness,
                         &package.system_prompt,
                     )
@@ -312,7 +328,7 @@ pub async fn wake(
                         &auth,
                         "/company",
                         "exec",
-                        "portfolio",
+                        &responsibility,
                         controls,
                         observer.clone(),
                         {
@@ -321,6 +337,7 @@ pub async fn wake(
                             let cancellation = cancellation.clone();
                             let session_org = org.clone();
                             let turn_context = turn_context.clone();
+                            let session_responsibility = responsibility.clone();
                             move |session| {
                                 Box::pin(async move {
                                     run_ready_exec_session(
@@ -329,6 +346,7 @@ pub async fn wake(
                                         &turn_context,
                                         &company,
                                         &model,
+                                        &session_responsibility,
                                         remaining,
                                         metered,
                                         focused_mention,
@@ -347,7 +365,7 @@ pub async fn wake(
                         &auth,
                         "/company",
                         "exec",
-                        "portfolio",
+                        &responsibility,
                         controls,
                         observer.clone(),
                         {
@@ -356,6 +374,7 @@ pub async fn wake(
                             let cancellation = cancellation.clone();
                             let session_org = org.clone();
                             let turn_context = turn_context.clone();
+                            let session_responsibility = responsibility.clone();
                             move |session| {
                                 Box::pin(async move {
                                     run_ready_exec_session(
@@ -364,6 +383,7 @@ pub async fn wake(
                                         &turn_context,
                                         &company,
                                         &model,
+                                        &session_responsibility,
                                         remaining,
                                         metered,
                                         focused_mention,
@@ -386,7 +406,7 @@ pub async fn wake(
                     &auth,
                     "/company",
                     "exec",
-                    "portfolio",
+                    &responsibility,
                     &package.system_prompt,
                     mcp_servers,
                     observer.clone(),
@@ -396,6 +416,7 @@ pub async fn wake(
                         let cancellation = cancellation.clone();
                         let session_org = org.clone();
                         let turn_context = turn_context.clone();
+                        let session_responsibility = responsibility.clone();
                         move |session| {
                             Box::pin(async move {
                                 run_ready_exec_session(
@@ -404,6 +425,7 @@ pub async fn wake(
                                     &turn_context,
                                     &company,
                                     &model,
+                                    &session_responsibility,
                                     remaining,
                                     metered,
                                     focused_mention,
@@ -458,7 +480,7 @@ pub async fn wake(
                             harness,
                             &config.name,
                             "exec",
-                            "portfolio",
+                            &responsibility,
                         )
                         .await?;
                     }
@@ -467,7 +489,7 @@ pub async fn wake(
                             &container,
                             &config.name,
                             "exec",
-                            "portfolio",
+                            &responsibility,
                         )
                         .await?;
                     }
@@ -478,7 +500,7 @@ pub async fn wake(
                 Some("exec"),
                 serde_json::json!({
                     "model": model,
-                    "responsibility": "portfolio",
+                    "responsibility": &responsibility,
                     "reason": report.reason.chars().take(300).collect::<String>(),
                 }),
             )
@@ -830,6 +852,7 @@ async fn run_ready_exec_session(
     turn_context: &str,
     company: &str,
     model: &str,
+    responsibility: &str,
     remaining_budget_usd: f64,
     enforce_spend_budget: bool,
     focused_mention: bool,
@@ -848,7 +871,7 @@ async fn run_ready_exec_session(
     org.record_agent_session(restless_orgintel::NewAgentSession {
         launch_id,
         actor_id: "exec",
-        responsibility: "portfolio",
+        responsibility,
         work_id: None,
         attempt_id: None,
         harness,
@@ -1141,6 +1164,8 @@ async fn gather_snapshot(
     authority: &crate::authority::AuthorityStore,
     config: &CompanyConfig,
     reason: &str,
+    owner_actor_id: &str,
+    human_is_membership_owner: bool,
     conversation_inbox: &[restless_orgintel::MessageRow],
     owed_judgements: &[restless_orgintel::OwnerHandoffRow],
     pending_mention: Option<&restless_orgintel::MessageMentionContext>,
@@ -1178,14 +1203,14 @@ async fn gather_snapshot(
     };
     let unread_owner_message_ids = inbox
         .iter()
-        .filter(|message| message.from_actor == "owner")
+        .filter(|message| message.from_actor == owner_actor_id)
         .map(|message| message.id)
         .collect::<HashSet<_>>();
     let recent_owner_conversation = if pending_mention.is_some() {
         Vec::new()
     } else {
-        let focus = org.owner_conversation_focus("exec").await?;
-        org.owner_conversation_since("exec", focus.after_message_id, 12)
+        let focus = org.human_conversation_focus(owner_actor_id, "exec").await?;
+        org.human_conversation_since(owner_actor_id, "exec", focus.after_message_id, 12)
             .await?
             .into_iter()
             .filter(|message| !unread_owner_message_ids.contains(&message.id))
@@ -1198,6 +1223,8 @@ async fn gather_snapshot(
     };
     Ok(ContextSnapshot {
         company: config.name.clone(),
+        owner_actor_id: owner_actor_id.to_string(),
+        human_is_membership_owner,
         operating_rules: crate::context::COMPANY_OPERATING_RULES.to_string(),
         mission: config.mission.clone(),
         outcome_standard: config.outcome_standard,

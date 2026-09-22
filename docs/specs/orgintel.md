@@ -923,9 +923,12 @@ Lead supervision is an owner-decided product invariant, not a product hypothesis
 from material Work, Attempt, artifact and message changes rather than polling. Content-changing repair
 returns to a worker; exact artifact promotion remains supervisory judgement. A worker progress note
 never proves completion. After artifacts, deterministic gates and final Work state have committed, a
-recoverable Attempt outbox delivers one durable terminal fact to the accountable lead. Live delivery
-is immediate and restart reconciliation is idempotent; elapsed time and heartbeat activity have no
-completion semantics.
+recoverable Attempt outbox delivers terminal exceptions to the accountable lead and successful
+results directly to Exec. Exec judges whether the owner needs a result update; the existing
+conversation finalization atomically saves that reply and consumes its exact input messages, even
+without owner input. Explicit quiet background decisions acknowledge observations without chat
+noise. Formal review handoffs keep their separate judgement path. Live delivery is immediate and
+restart reconciliation is idempotent; elapsed time and heartbeat activity have no completion semantics.
 
 ## 6.4 Business processes
 

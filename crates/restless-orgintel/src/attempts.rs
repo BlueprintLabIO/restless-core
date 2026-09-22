@@ -973,14 +973,17 @@ impl OrgIntel {
         let followup_revision = effective == WorkAttemptState::Produced
             && !late_direct_feedback.is_empty()
             && qualified_outcome_review.is_none();
-        // A clean passing terminal result is observable state, not a reason to
-        // spend a lead turn. Qualified owner review already creates its own
-        // exact judgement obligation. Only an unresolved terminal exception
-        // enters the supervisor outbox here.
+        // Completed results owe Exec a delivery decision, not a ceremonial
+        // lead turn. Qualified owner review already creates its own exact
+        // judgement obligation. Commit the notice with terminal settlement so
+        // a restart cannot lose either a useful result or an exception.
         let material_supervisor_notice = matches!(
             effective,
             WorkAttemptState::Blocked | WorkAttemptState::Failed | WorkAttemptState::Abandoned
-        ) && pending_named_document_review.is_none();
+        ) && pending_named_document_review.is_none()
+            || (effective == WorkAttemptState::Produced
+                && qualified_outcome_review.is_none()
+                && pending_named_document_review.is_none());
         sqlx::query(
             "UPDATE work_attempts SET state=$2, summary=$3, finished_at=now(), \
                     supervisor_notice_owed=$4, supervisor_notice_message_id=NULL \
@@ -1087,9 +1090,9 @@ impl OrgIntel {
         Ok(effective)
     }
 
-    /// Flush material terminal exceptions to their accountable leads. Clean
-    /// completion never enters this outbox. Exceptions from the same Work are
-    /// causally coalesced; unrelated Work remains separately reviewable.
+    /// Flush successful results to Exec and exceptions to accountable leads.
+    /// Exec judges whether a result merits an owner update. Exceptions from the
+    /// same Work coalesce; unrelated Work remains separately reviewable.
     /// Attempt completion and the outbox bit commit together, while message
     /// creation and clearing the bit also commit together, so crash replay is
     /// safe and exactly once.
@@ -1102,7 +1105,8 @@ impl OrgIntel {
         let mut tx = self.pool.begin().await?;
         let rows = sqlx::query(
             "SELECT attempt.id AS attempt_id, attempt.actor_id, attempt.state AS attempt_state, \
-                    work.id AS work_id, work.status, work.revision, work.resolution \
+                    work.id AS work_id, work.title, work.status, work.revision, work.resolution, \
+                    attempt.revision AS attempt_revision \
              FROM work_attempts attempt \
              JOIN work ON work.id=attempt.work_id \
              WHERE attempt.supervisor_notice_owed AND attempt.finished_at IS NOT NULL \
@@ -1116,19 +1120,57 @@ impl OrgIntel {
             std::collections::BTreeMap::new();
         for row in rows {
             let work_id = row.get("work_id");
+            let attempt_id: Uuid = row.get("attempt_id");
+            let produced =
+                row.get::<WorkAttemptState, _>("attempt_state") == WorkAttemptState::Produced;
+            // A result superseded before dispatch is not a new success.
+            if produced
+                && (row.get::<WorkStatus, _>("status") != WorkStatus::Completed
+                    || row.get::<i64, _>("attempt_revision") != row.get::<i64, _>("revision"))
+            {
+                sqlx::query("UPDATE work_attempts SET supervisor_notice_owed=false WHERE id=$1")
+                    .bind(attempt_id)
+                    .execute(&mut *tx)
+                    .await?;
+                continue;
+            }
             let accountability =
                 crate::actors::lock_work_accountability_in_tx(&mut tx, work_id).await?;
-            let coordinator = accountability
-                .lead_actor_id
-                .unwrap_or_else(|| "exec".to_string());
+            let coordinator = if produced {
+                "exec".to_string()
+            } else {
+                accountability
+                    .lead_actor_id
+                    .unwrap_or_else(|| "exec".to_string())
+            };
+            let mut resolution: String = row.get("resolution");
+            if produced {
+                let artifacts: Vec<String> = sqlx::query_scalar(
+                    "SELECT uri FROM artifact_refs WHERE attempt_id=$1 AND state='available' \
+                     AND kind <> 'progress_evidence' ORDER BY created_at,id LIMIT 20",
+                )
+                .bind(attempt_id)
+                .fetch_all(&mut *tx)
+                .await?;
+                resolution = format!(
+                    "{}\nTitle: {}\nAvailable output references: {}",
+                    resolution,
+                    row.get::<String, _>("title"),
+                    if artifacts.is_empty() {
+                        "none linked".to_string()
+                    } else {
+                        artifacts.join("\n")
+                    },
+                );
+            }
             by_cause.entry((coordinator, work_id)).or_default().push((
-                row.get("attempt_id"),
+                attempt_id,
                 work_id,
                 row.get("actor_id"),
                 row.get("attempt_state"),
                 row.get("status"),
                 row.get("revision"),
-                row.get("resolution"),
+                resolution,
             ));
         }
         let mut message_ids = Vec::with_capacity(by_cause.len());
@@ -1160,11 +1202,26 @@ impl OrgIntel {
                 )
                 .collect::<Vec<_>>()
                 .join("\n");
-            let body = format!(
-                "Material Runtime supervisor events for Work {cause_work_id} ({} exception{}):\n{body}",
-                notices.len(),
-                if notices.len() == 1 { "" } else { "s" },
-            );
+            let completed_result = notices
+                .iter()
+                .all(|fact| fact.3 == WorkAttemptState::Produced);
+            let body = if completed_result {
+                format!(
+                    "Completed Work result for Exec delivery consideration: {cause_work_id}\n{body}\n\
+                     Inspect the linked result and current Work state before reporting it. Decide whether \
+                     this fulfills an owner request or materially changes what the owner should know. \
+                     If useful, give the owner the result and a usable link in your final reply without \
+                     waiting for another owner message. Do not claim lead acceptance or completed \
+                     downstream Work from this producer result. If already reported, superseded, or \
+                     only an internal intermediate step, use the quiet-background-turn contract."
+                )
+            } else {
+                format!(
+                    "Material Runtime supervisor events for Work {cause_work_id} ({} exception{}):\n{body}",
+                    notices.len(),
+                    if notices.len() == 1 { "" } else { "s" },
+                )
+            };
             let room_id =
                 ensure_direct_message_room_in_tx(&mut tx, "daemon", Some(&lead_actor_id)).await?;
             let message_id: i64 = sqlx::query_scalar(
@@ -1176,9 +1233,9 @@ impl OrgIntel {
             .bind(&body)
             .fetch_one(&mut *tx)
             .await?;
-            // Supervisor delivery is a coordination obligation, not producer
-            // input. Keeping it out of `work_feedback` prevents a later
-            // owner/lead role collision from duplicating it in an Attempt.
+            // Terminal delivery is a coordination obligation, not producer
+            // input. Keeping it out of `work_feedback` prevents a later role
+            // collision from duplicating it in an Attempt.
             for (attempt_id, ..) in &notices {
                 sqlx::query(
                     "UPDATE work_attempts SET supervisor_notice_owed=false, \

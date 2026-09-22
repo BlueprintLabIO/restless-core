@@ -271,6 +271,13 @@ OrgIntel should make the company:
 - Plan at daily, project and strategic horizons.
 - Schedule follow-ups and recurring operations.
 - Notice new results and trigger dependent work.
+- Return meaningful results to the owner without requiring a new chat message. Successful Attempt
+  settlement atomically owes a completion notice to Exec through the existing durable outbox/inbox;
+  terminal exceptions still go to the accountable lead. Exec judges relevance and reports verified
+  results, links and material limitations, or explicitly stays quiet for already reported/internal
+  observations. Its owner reply and consumption of the exact inputs commit together under the
+  cognitive-session lease. Lost notifications, interrupted turns and replay must not lose a result
+  obligation or duplicate a committed reply. Pending formal reviews retain their own handoff path.
 
 ### Self-healing
 

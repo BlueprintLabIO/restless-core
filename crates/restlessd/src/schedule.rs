@@ -390,9 +390,9 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
     }
 
     // Live Attempt completion flushes this outbox immediately. A daemon crash
-    // between terminal state and supervisor delivery leaves the owed bit set;
-    // reconciliation recreates the same durable lead wake without guessing
-    // completion from elapsed time or replaying production.
+    // between terminal state and delivery leaves the owed bit set;
+    // reconciliation recreates the same durable Exec result or lead exception
+    // wake without guessing completion from elapsed time or replaying production.
     if let Err(error) = org.flush_terminal_supervisor_notices(100).await {
         tracing::warn!(
             company,
@@ -659,6 +659,29 @@ fn actor_exclusions(mut running: Vec<String>, exec_waking: bool) -> Vec<String> 
     running
 }
 
+/// Background turns must explicitly choose an owner update or silence. Empty
+/// or partial responses never acknowledge durable result-delivery inputs.
+fn exec_owner_update(reply: Option<&str>, owner_wrote: bool) -> Result<Option<&str>> {
+    let reply = reply
+        .map(str::trim)
+        .filter(|reply| !reply.is_empty())
+        .ok_or_else(|| {
+            anyhow::anyhow!("Exec finished without an owner update or explicit quiet decision")
+        })?;
+    if reply == crate::context::EXEC_NO_UPDATE {
+        anyhow::ensure!(
+            !owner_wrote,
+            "Exec cannot silently consume an owner message"
+        );
+        return Ok(None);
+    }
+    anyhow::ensure!(
+        !reply.contains(crate::context::EXEC_NO_UPDATE),
+        "Exec mixed its quiet decision with an owner reply"
+    );
+    Ok(Some(reply))
+}
+
 /// Run one Exec turn through the same conversation boundary regardless of
 /// whether a message notification, restart reconciliation, schedule, or the
 /// operator CLI initiated it. OrgIntel remains the durable transcript; the
@@ -696,12 +719,23 @@ async fn run_exec_turn_with_lease(
     cancellation: &CancellationToken,
     lease_guard: &crate::staff::CognitiveLeaseGuard,
 ) -> Result<exec::WakeReport> {
-    let conversation_inbox = org.conversation_inbox("exec").await?;
+    let (conversation_inbox, human_sender) = org.conversation_inbox_for_turn("exec").await?;
+    let membership_owner = org.current_membership_owner_actor_id().await?;
+    let (owner_actor_id, human_is_membership_owner) =
+        crate::context::human_conversation_audience(
+            membership_owner.as_deref(),
+            human_sender.as_deref(),
+        );
+    let conversation_inbox = crate::context::scope_human_turn_messages(
+        conversation_inbox,
+        &owner_actor_id,
+        human_is_membership_owner,
+    );
     let mut message_ids = Vec::new();
     let mut owner_message_ids = Vec::new();
     for message in &conversation_inbox {
         message_ids.push(message.id);
-        if message.from_actor == "owner" {
+        if message.from_actor == owner_actor_id {
             owner_message_ids.push(message.id);
         }
     }
@@ -710,7 +744,11 @@ async fn run_exec_turn_with_lease(
     // this turn's atomic consumption set. A delivered-yet-pending judgement is
     // context, not a fresh delivery obligation; treating it as one would
     // starve the mention while recovery kept waking for that mention forever.
-    let judgements = org.conversation_handoffs("exec").await?;
+    let judgements = if human_is_membership_owner {
+        org.conversation_handoffs("exec").await?
+    } else {
+        Vec::new()
+    };
     let owed_judgements = judgements
         .iter()
         .filter(|handoff| handoff.delivered_at.is_none())
@@ -737,6 +775,8 @@ async fn run_exec_turn_with_lease(
         &daemon.runtime_bridges,
         org,
         reason,
+        &owner_actor_id,
+        human_is_membership_owner,
         &conversation_inbox,
         &judgements,
         pending_mention.as_ref().map(|claim| &claim.context),
@@ -760,7 +800,9 @@ async fn run_exec_turn_with_lease(
                     .await
                     .ok()
                     .is_some_and(|messages| {
-                        messages.iter().any(|message| message.from_actor == "owner")
+                        messages
+                            .iter()
+                            .any(|message| message.from_actor == owner_actor_id)
                     });
             live_turn.fail(if replacement_is_owed {
                 "Interrupted by owner; new direction is queued for a fresh turn."
@@ -781,9 +823,8 @@ async fn run_exec_turn_with_lease(
                 .as_ref()
                 .expect("the mention match guard proves a focused mention");
             let recorded: anyhow::Result<i64> = async {
-                let reply = report.owner_reply.as_deref().ok_or_else(|| {
-                    anyhow::anyhow!("the Exec finished a mention turn without a reply")
-                })?;
+                let reply = exec_owner_update(report.owner_reply.as_deref(), true)?
+                    .expect("a required reply cannot be quiet");
                 lease_guard.confirm().await?;
                 Ok(org
                     .reply_to_claimed_message_mention(mention, reply)
@@ -814,51 +855,47 @@ async fn run_exec_turn_with_lease(
                 report.reason
             ));
         }
-        Ok(report) if !owner_message_ids.is_empty() && report.reply_complete => {
+        Ok(report) if report.reply_complete => {
             // Owner-directed CLI sends are rejected while this Actor lease is
             // present. Persist the one complete final assistant block through
             // the exact token fence; partial/refusal transcripts never consume
             // owner input even when they contain text.
-            if let Some(reply) = report.owner_reply.as_deref() {
-                let reply_message_id = org
-                    .finalize_cognitive_conversation(
-                        lease_guard.lease(),
-                        Some(reply),
-                        None,
-                        &message_ids,
-                        &owed_judgements,
-                    )
-                    .await?
-                    .expect("an owner reply was supplied to finalization");
-                live_turn.complete(Some(reply_message_id), None);
-            } else {
-                live_turn.fail("Exec finished without recording a reply.");
-                return Err(anyhow::anyhow!(
-                    "Exec completed an owner conversation without a final reply"
-                ));
+            let recorded = async {
+                let reply = exec_owner_update(
+                    report.owner_reply.as_deref(),
+                    !owner_message_ids.is_empty(),
+                )?;
+                org.finalize_cognitive_conversation_to_with_owner_scope(
+                    lease_guard.lease(),
+                    &owner_actor_id,
+                    human_is_membership_owner,
+                    reply,
+                    None,
+                    &message_ids,
+                    &owed_judgements,
+                )
+                .await
+                .map_err(anyhow::Error::from)
+            }
+            .await;
+            match recorded {
+                Ok(reply_message_id) => live_turn.complete(reply_message_id, None),
+                Err(error) => {
+                    live_turn
+                        .fail("Exec finished but its reply or quiet decision was not recorded.");
+                    return Err(error);
+                }
             }
         }
-        Ok(report) if !owner_message_ids.is_empty() => {
+        Ok(report) => {
             live_turn.fail(&report.reason);
             return Err(anyhow::anyhow!(
-                "Exec owner conversation did not produce a complete usable answer: {}",
+                "Exec turn did not produce a complete usable answer: {}",
                 report.reason
             ));
         }
-        Ok(report) if report.reply_complete => {
-            org.finalize_cognitive_conversation(
-                lease_guard.lease(),
-                None,
-                None,
-                &message_ids,
-                &owed_judgements,
-            )
-            .await?;
-        }
         Err(error) => {
-            if !owner_message_ids.is_empty() || pending_mention.is_some() {
-                live_turn.fail(&format!("Exec reply failed: {error:#}"));
-            }
+            live_turn.fail(&format!("Exec reply failed: {error:#}"));
             let latest_wake = org.latest_event("wake").await.ok().flatten();
             let latest_wake_end = org.latest_event("wake_end").await.ok().flatten();
             if exec_wake_is_interrupted(
@@ -868,7 +905,6 @@ async fn run_exec_turn_with_lease(
                 let _ = exec::record_interrupted_outcome(org, config, &format!("{error:#}")).await;
             }
         }
-        _ => {}
     }
     outcome
 }
@@ -943,6 +979,24 @@ async fn fire_pending(daemon: &Arc<Daemon>, in_flight: &InFlight) {
 #[cfg(test)]
 mod tests {
     use super::{actor_exclusions, exec_wake_is_interrupted, is_exec_self_message, WakeClaims};
+
+    #[test]
+    fn proactive_reply_or_explicit_quiet_is_required() {
+        use super::exec_owner_update;
+        use crate::context::EXEC_NO_UPDATE;
+        assert_eq!(
+            exec_owner_update(Some("Your report is ready"), false).unwrap(),
+            Some("Your report is ready")
+        );
+        assert_eq!(
+            exec_owner_update(Some(EXEC_NO_UPDATE), false).unwrap(),
+            None
+        );
+        assert!(exec_owner_update(Some(EXEC_NO_UPDATE), true).is_err());
+        assert!(exec_owner_update(None, false).is_err());
+        assert!(exec_owner_update(Some("  "), false).is_err());
+        assert!(exec_owner_update(Some(&format!("No news {EXEC_NO_UPDATE}")), false).is_err());
+    }
 
     #[test]
     fn trigger_during_active_wake_becomes_one_follow_up() {
