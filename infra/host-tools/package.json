@@ -1,0 +1,10 @@
+{
+  "name": "@restless/host-tools",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Pinned model broker used by the source development launcher",
+  "dependencies": {
+    "@oh-my-pi/pi-coding-agent": "18.0.10",
+    "bun": "1.3.14"
+  }
+}

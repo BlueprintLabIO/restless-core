@@ -15,6 +15,7 @@ authority_env="$state_dir/authority.env"
 admin_env="$state_dir/admin.env"
 checkout_env="$repo_root/.env"
 api_url=${RESTLESS_INFISICAL_API_URL:-http://127.0.0.1:7793}
+compose_project=${RESTLESS_INFISICAL_PROJECT:-restless-infisical}
 install_checkout=false
 
 usage() {
@@ -88,24 +89,23 @@ fi
 
 export RESTLESS_INFISICAL_RUNTIME_ENV="$runtime_env"
 export RESTLESS_INFISICAL_PORT=${RESTLESS_INFISICAL_PORT:-7793}
-docker compose --project-name restless-infisical \
+docker compose --project-name "$compose_project" \
   --file "$script_dir/compose.yml" \
   --env-file "$runtime_env" \
   up --detach --wait
 
-ready=false
-for _ in $(seq 1 120); do
-  if curl --fail --silent --show-error --max-time 2 \
-    "$api_url/api/status" >/dev/null 2>&1; then
-    ready=true
-    break
-  fi
-  sleep 1
-done
-if [[ "$ready" != true ]]; then
+wait_for_api() {
+  for _ in $(seq 1 120); do
+    if curl --fail --silent --show-error --max-time 2 \
+      "$api_url/api/status" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
   printf 'Infisical did not become ready at %s\n' "$api_url" >&2
-  exit 1
-fi
+  return 1
+}
+wait_for_api
 
 tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/restless-infisical.XXXXXX")
 cleanup() {
@@ -267,10 +267,13 @@ if grep -q '^LEGACY_IDENTITY_ACCESS_TOKEN_EXPIRATION_ENFORCED_AT=' "$runtime_env
   awk '!/^LEGACY_IDENTITY_ACCESS_TOKEN_EXPIRATION_ENFORCED_AT=/' \
     "$runtime_env" >"$runtime_temporary"
   mv "$runtime_temporary" "$runtime_env"
-  docker compose --project-name restless-infisical \
+  docker compose --project-name "$compose_project" \
     --file "$script_dir/compose.yml" \
     --env-file "$runtime_env" \
-    up --detach --wait --force-recreate backend
+    up --detach --wait --no-deps --force-recreate backend
+  # Compose can report a running backend before its HTTP listener is ready.
+  # The caller immediately uses this service to save or resolve credentials.
+  wait_for_api
 fi
 
 if [[ "$install_checkout" == true ]]; then
