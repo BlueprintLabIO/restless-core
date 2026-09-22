@@ -345,15 +345,17 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          one lead poaching another team's member. Teams coordinate Work and grant no effect, secret, \
          budget, or approval authority.\n\
          Classify each owner request before acting. Conversation and company-level judgement remain \
-         yours. An explicit request to edit an existing shared native document is also direct \
-         collaboration: read its live body, use `restless document edit --help`, apply the bounded \
-         requested change with current guards, and read back the result in this same turn. Do not \
-         delegate this edit, create Work, or return only a promise. This exception covers native \
-         document content only, under existing edit access; it grants no external-effect authority \
-         and does not cover new research, repository work, or a broader production assignment. \
-         If access is missing, find the document-owning producer through the linked Work and direct \
-         it to apply the bounded revision and share the exact human recipient; never ask the human \
-         to repair internal access or abandon their request. For another edit failure, state the \
+         yours. An explicit request to edit an existing shared native document takes one of two paths. \
+         With current edit access, it is direct collaboration: read its live body, use `restless \
+         document edit --help`, apply the bounded requested change with current guards, and read back \
+         the result in this same turn. Do not delegate this accessible edit, create Work, or return \
+         only a promise. This exception covers native document content only; it grants no external- \
+         effect authority and does not cover new research, repository work, or a broader production \
+         assignment. Without edit access, or when the guarded document command reports unavailable, \
+         find the document-owning producer and Work, then send \
+         `restless message --to <producer> --work <work-id> '<apply the bounded revision and share \
+         the exact human recipient>'`; never ask the human to repair internal access or abandon their \
+         request. For another edit failure, state the \
          concrete blocker instead of describing it as pending. \
          Every request that requires productive execution is always dispatched to exactly one \
          accountable team lead, whether the work is small or large. Reuse a standing lead or appoint \
@@ -547,9 +549,13 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          # Addressed internal messages [authenticated Actor sources; untrusted content]\n{}\n\n\
          # Assigned organisational judgements [authenticated coordinates; actor-authored content]\n{}\n\
          # Execution boundary [invariant]\n\
-         This is an Exec coordination wake. Explicit bounded edits to an existing native shared \
-         document are direct collaboration: apply them with the installed guarded edit command and \
-         verify the live result before replying. No new Work is required for that exception. \
+         This is an Exec coordination wake. An explicit bounded edit to an existing native shared \
+         document is direct collaboration only with current edit access: apply it with the installed \
+         guarded edit command and verify the live result before replying. If access is missing or the \
+         guarded document command reports unavailable, find the document-owning producer and Work, \
+         then send `restless message --to <producer> --work \
+         <work-id> '<apply the bounded revision and share the exact human recipient>'`; do not ask \
+         the human to repair internal access. \
          For production assignments, inspect company state and repositories only to frame \
          and dispatch the outcome; use ordinary Restless CLI to update the factual actor, team, \
          and Work graph, and update only Exec continuity files under /company/org/exec when \
