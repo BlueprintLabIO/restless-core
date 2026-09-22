@@ -324,8 +324,10 @@ complete user journeys.
   not change behavior.
 - A manual authenticated-owner smoke on the final candidate verified entry,
   saved document editing after reload, Done clearing Attention to All clear, and
-  a room message displaying Live. The disposable smoke fixture remains separate
-  from the owner's running company.
+  a room message displaying Live and surviving reload. `manual-smoke.json`
+  archives that run. The disposable fixture's containers, volume, database,
+  roles and private state were removed; it remains separate from the owner's
+  running company.
 - This evidence does not close the real-model journey, Docker bridge/network
   issue, expired Claude sign-in, absent API-provider key, or the requirement for
   simultaneous independent browser contexts.
