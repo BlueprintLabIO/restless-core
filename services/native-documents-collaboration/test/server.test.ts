@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { stateFromProjection, projectionFromState } from '../src/document-codec.js';
 import test from 'node:test';
 
 import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/provider';
@@ -59,6 +61,8 @@ class MemoryDocumentStore implements DocumentStore {
     this.storeCount += 1;
     this.state = input.state.slice();
   }
+
+  loadedCheckpoint(_target: CollaborationTarget): string { return DOCUMENT_ID; }
 
   async close(): Promise<void> {
     this.closed = true;
@@ -485,4 +489,71 @@ test('an active connection refreshes before expiry and an authoritative downgrad
   providers.push(observer);
   await eventually(() => observer.isAuthenticated && observer.isSynced, 'observer sync');
   assert.equal(observerDocument.getText('content').toString(), 'seed');
+});
+
+
+test('body HTTP commands share the browser Y.Doc, enforce capabilities and acknowledge durable edits only', async (context) => {
+  const paragraph = (text: string) => ({ type: 'paragraph', attrs: { block_id: 'opening' }, content: [{ type: 'text', text }] });
+  class BodyStore extends MemoryDocumentStore {
+    fail = false;
+    override async store(input: StoredDocumentInput): Promise<void> {
+      if (this.fail) throw new Error('simulated persistence failure');
+      await super.store(input);
+    }
+  }
+  const store = new BodyStore(stateFromProjection({ type: 'doc', content: [paragraph('Opening')] }));
+  const signer = await signingFixture(Math.floor(Date.now() / 1000));
+  const verifier = new CoreTokenVerifier({ issuer: ISSUER, jwksUrl: new URL(JWKS_URL), fetch: (async () => jwksResponse(signer.jwks)) as typeof fetch });
+  const server = new NativeDocumentsCollaborationServer({ address: '127.0.0.1', port: 0, companyId: COMPANY_ID, expectedIssuer: ISSUER, jwksUrl: new URL(JWKS_URL), databaseUrl: 'postgresql://unused', debounceMs: 25, maxDebounceMs: 100 }, { store, tokenVerifier: verifier });
+  await server.listen();
+  const browserDoc = new Y.Doc();
+  const provider = new HocuspocusProvider({ url: `${server.webSocketUrl}/api/companies/${COMPANY_ID}/documents/${DOCUMENT_ID}/collaboration`, name: collaborationDocumentName({ companyId: COMPANY_ID, documentId: DOCUMENT_ID }), document: browserDoc, token: await signer.sign({ jti: randomUUID() }) });
+  context.after(async () => { store.fail = false; provider.destroy(); browserDoc.destroy(); await server.destroy(); });
+  await eventually(() => provider.isSynced, 'browser document');
+  const url = `${server.httpUrl}/api/companies/${COMPANY_ID}/documents/${DOCUMENT_ID}/collaboration/body`;
+  const command = async (body: unknown, overrides: Record<string, unknown> = {}) => fetch(url, { method: 'POST', headers: { authorization: `Bearer ${await signer.sign({ jti: randomUUID(), ...overrides })}` }, body: JSON.stringify(body) });
+  assert.equal((await fetch(url, { method: 'POST', body: '{}' })).status, 403);
+  assert.equal((await command({ action: 'read' }, { document_id: OTHER_DOCUMENT_ID })).status, 403);
+  const read = await command({ action: 'read' }, { access: 'read' });
+  assert.equal(read.status, 200);
+  const view = await read.json() as { blocks: { hash: string }[]; checkpoint_id: string };
+  const edit = { action: 'prepare', operations: [{ op: 'replace', block_id: 'opening', expected_hash: view.blocks[0]!.hash, block: paragraph('Improved opening') }] };
+  assert.equal((await command(edit, { access: 'read' })).status, 403);
+  assert.equal((await command({ action: 'apply', checkpoint_id: DOCUMENT_ID, update_base64: '!!!' })).status, 400);
+  assert.equal((await command({ action: 'prepare', operations: [{ op: 'insert', after: null, block: { type: 'script', attrs: { block_id: 'bad' } } }] })).status, 400);
+  const preparedResponse = await command(edit);
+  assert.equal(preparedResponse.status, 200);
+  const prepared = await preparedResponse.json() as { update_base64: string; checkpoint_id: string };
+  const browserText = () => (browserDoc.getXmlFragment('default').get(0) as Y.XmlElement).get(0) as Y.XmlText;
+  browserText().insert(browserText().length, ' plus human text');
+  await eventually(() => JSON.stringify(projectionFromState(store.state)).includes('plus human text'), 'human persistence');
+  const apply = { action: 'apply', checkpoint_id: prepared.checkpoint_id, update_base64: prepared.update_base64 };
+  assert.equal((await command({ ...apply, checkpoint_id: OTHER_DOCUMENT_ID })).status, 409);
+  assert.equal((await command(apply)).status, 200);
+  await eventually(() => browserText().toString().includes('Improved opening'), 'agent fan-out');
+  assert.match(browserText().toString(), /plus human text/);
+  assert.match(JSON.stringify(projectionFromState(store.state)), /Improved opening/);
+  const before = Y.encodeStateAsUpdate(browserDoc);
+  assert.equal((await command(apply)).status, 200);
+  assert.deepEqual(Y.encodeStateAsUpdate(browserDoc), before, 'replay must not duplicate the edit');
+  assert.equal((await command(edit)).status, 409, 'stale observed block must be rejected');
+  const jti = randomUUID();
+  assert.equal((await command({ action: 'read' }, { jti })).status, 200);
+  assert.equal((await command({ action: 'read' }, { jti })).status, 403);
+  store.fail = true;
+  assert.equal((await command(apply)).status, 503, 'a failed store must never receive a successful acknowledgement');
+  store.fail = false;
+  assert.equal((await command(apply)).status, 200, 'the exact edit can recover after persistence failure');
+  provider.destroy();
+  await new Promise(resolve => setTimeout(resolve, 150));
+  const reload = await command({ action: 'read' });
+  assert.equal(reload.status, 200);
+  const reloaded = await reload.json() as { blocks: { hash: string }[] };
+  const headless = await command({ action: 'prepare', operations: [{ op: 'replace', block_id: 'opening', expected_hash: reloaded.blocks[0]!.hash, block: paragraph('Edited with no browser connected') }] });
+  assert.equal(headless.status, 200);
+  const delta = await headless.json() as { checkpoint_id: string; update_base64: string };
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal((await command({ action: 'apply', checkpoint_id: delta.checkpoint_id, update_base64: delta.update_base64 })).status, 200);
+  assert.match(JSON.stringify(projectionFromState(store.state)), /Edited with no browser connected/);
+
 });

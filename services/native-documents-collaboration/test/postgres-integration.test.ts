@@ -4,10 +4,12 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { Client } from 'pg';
+import * as Y from 'yjs';
+import { blockHash, prepareBodyEdit, checkedBodyUpdate } from '../src/body-edits.js';
 
 import { TOKEN_AUDIENCE } from '../src/constants.js';
 import { projectionFromState } from '../src/document-codec.js';
-import { PostgresDocumentStore } from '../src/postgres-store.js';
+import { DocumentCheckpointChangedError, PostgresDocumentStore } from '../src/postgres-store.js';
 import type { CollaborationClaims } from '../src/token-verifier.js';
 
 const migrationUrl = new URL(
@@ -36,8 +38,8 @@ test('the real Postgres adapter crosses only the migration 0053 capability bound
   }
 
   const suffix = randomUUID().replaceAll('-', '').slice(0, 16);
-  const database = identifier(`sidecar_${suffix}`);
-  const company = identifier(`docs_${suffix}`);
+  const database = identifier(`sidecar_${suffix}_test`);
+  const company = identifier(`docs_${suffix}_test`);
   const role = identifier(`sidecar_${suffix}_role`);
   const password = `Sidecar${suffix}Password`;
   const companyId = randomUUID();
@@ -133,8 +135,17 @@ test('the real Postgres adapter crosses only the migration 0053 capability bound
     assert.equal(await store.ready(), true);
     assert.equal(await store.consumeSession(claims), true);
     assert.equal(await store.consumeSession(claims), false);
-    const seed = await store.load({ companyId, documentId });
+    const concurrent = new PostgresDocumentStore({ companyId, databaseUrl: sidecarUrl });
+    await concurrent.initialize();
+    const [seed, competingSeed] = await Promise.all([
+      store.load({ companyId, documentId }), concurrent.load({ companyId, documentId }),
+    ]);
+    assert.deepEqual(seed, competingSeed, 'first opens must share the same durable CRDT identities');
+    await concurrent.close();
     assert.deepEqual(projectionFromState(seed).type, 'doc');
+    assert.equal(store.loadedCheckpoint({ companyId, documentId }), versionId);
+    const observed = projectionFromState(seed).content as Record<string, unknown>[];
+    const prepared = prepareBodyEdit(seed, { operations: [{ op: 'replace', block_id: 'opening', expected_hash: blockHash(observed[0]), block: { ...projection.content[0], content: [{ type: 'text', text: 'Agent edit survives service restart' }] } }] });
     await store.store({ companyId, documentId, state: seed });
     await store.close();
 
@@ -142,7 +153,53 @@ test('the real Postgres adapter crosses only the migration 0053 capability bound
     await restarted.initialize();
     const persisted = await restarted.load({ companyId, documentId });
     assert.deepEqual(projectionFromState(persisted), projectionFromState(seed));
-    await restarted.close();
+    assert.equal(restarted.loadedCheckpoint({ companyId, documentId }), versionId);
+    const live = new Y.Doc();
+    try {
+      Y.applyUpdate(live, persisted);
+      Y.applyUpdate(live, checkedBodyUpdate(live, prepared.update_base64));
+      const transition = new Client({ connectionString: databaseUrl(adminUrl, database) });
+      await transition.connect();
+      const advancedId = randomUUID();
+      try {
+        await transition.query(`SET search_path TO ${company}, pg_catalog`);
+        await transition.query('BEGIN');
+        await transition.query('INSERT INTO native_document_versions (document_id,id,content_json,content_hash) VALUES ($1,$2,$3,$4)', [documentId, advancedId, projection, 'b'.repeat(64)]);
+        await transition.query('UPDATE native_documents SET current_named_version_id=$2 WHERE id=$1', [documentId, advancedId]);
+        await transition.query('UPDATE native_document_yjs_state SET checkpoint_named_version_id=$2,checkpoint_state_revision=state_revision WHERE document_id=$1', [documentId, advancedId]);
+        await transition.query('COMMIT');
+      } finally { await transition.end(); }
+      await restarted.store({ companyId, documentId, state: Y.encodeStateAsUpdate(live) });
+      restarted.release({ companyId, documentId });
+      const saved = await restarted.load({ companyId, documentId });
+      assert.match(JSON.stringify(projectionFromState(saved)), /Agent edit survives service restart/);
+      Y.applyUpdate(live, checkedBodyUpdate(live, prepared.update_base64));
+      assert.deepEqual(projectionFromState(Y.encodeStateAsUpdate(live)), projectionFromState(saved));
+      assert.deepEqual(Y.encodeStateVectorFromUpdate(Y.encodeStateAsUpdate(live)), Y.encodeStateVectorFromUpdate(saved));
+      assert.equal(restarted.loadedCheckpoint({ companyId, documentId }), advancedId);
+      // A restore creates a new seed. Even after another client persists that
+      // replacement, an old writer must not merge its previous document back.
+      const replacementId = randomUUID();
+      const restore = new Client({ connectionString: databaseUrl(adminUrl, database) });
+      await restore.connect();
+      try {
+        await restore.query(`SET search_path TO ${company}, pg_catalog`);
+        await restore.query('BEGIN');
+        await restore.query('INSERT INTO native_document_versions (document_id,id,content_json,content_hash) VALUES ($1,$2,$3,$4)', [documentId, replacementId, projection, 'c'.repeat(64)]);
+        await restore.query('UPDATE native_documents SET current_named_version_id=$2 WHERE id=$1', [documentId, replacementId]);
+        await restore.query('DELETE FROM native_document_yjs_state WHERE document_id=$1', [documentId]);
+        await restore.query('COMMIT');
+      } finally { await restore.end(); }
+      const replacement = new PostgresDocumentStore({ companyId, databaseUrl: sidecarUrl });
+      await replacement.initialize();
+      try {
+        const replacementBody = await replacement.load({ companyId, documentId });
+        await replacement.store({ companyId, documentId, state: replacementBody });
+        await assert.rejects(restarted.store({ companyId, documentId, state: saved }), DocumentCheckpointChangedError);
+        assert.deepEqual(projectionFromState(await replacement.load({ companyId, documentId })), projection);
+      } finally { await replacement.close(); }
+
+    } finally { live.destroy(); await restarted.close(); }
 
     const denied = new Client({ connectionString: sidecarUrl });
     await denied.connect();

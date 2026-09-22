@@ -41,11 +41,13 @@ export interface PostgresDocumentStoreOptions {
 
 interface DocumentRevision {
   readonly checkpointId: string;
+  readonly seedId: string;
   readonly revision: bigint;
 }
 
 interface LoadRow extends Record<string, unknown> {
   checkpoint_named_version_id: unknown;
+  seeded_from_named_version_id: unknown;
   projection_json: unknown;
   source_kind: unknown;
   state_revision: unknown;
@@ -54,6 +56,7 @@ interface LoadRow extends Record<string, unknown> {
 
 interface StoreRow extends Record<string, unknown> {
   checkpoint_named_version_id: unknown;
+  seeded_from_named_version_id: unknown;
   current_projection_json: unknown;
   current_yjs_state: unknown;
   outcome: unknown;
@@ -260,34 +263,50 @@ export class PostgresDocumentStore implements DocumentStore {
     this.assertCompany(target.companyId);
     const key = collaborationDocumentName(target);
     try {
-      const row = await this.withRetries(async () => oneRow(
-        await this.pool.query(
-          'SELECT source_kind,state_revision,yjs_state,projection_json,checkpoint_named_version_id FROM orgintel_native_document_yjs_load($1,$2)',
-          [target.companyId, target.documentId],
-        ),
-        ['source_kind', 'state_revision', 'yjs_state', 'projection_json', 'checkpoint_named_version_id'],
-      ));
-      const typed = row as LoadRow;
-      const checkpointId = uuid(typed.checkpoint_named_version_id);
-      let state: Uint8Array;
-      let stateRevision: bigint;
-      if (typed.source_kind === 'seed') {
-        stateRevision = revision(typed.state_revision, 0n);
-        if (stateRevision !== 0n || typed.yjs_state !== null) throw new DocumentPersistenceError();
-        state = stateFromProjection(typed.projection_json);
-      } else if (typed.source_kind === 'state') {
-        stateRevision = revision(typed.state_revision, 1n);
-        state = binaryState(typed.yjs_state);
-        if (!isDeepStrictEqual(projectionFromState(state), typed.projection_json)) {
-          throw new DocumentPersistenceError('native Documents persisted projections disagree');
+      for (let attempt = 0; attempt < MAX_STORE_ATTEMPTS; attempt += 1) {
+        const row = await this.withRetries(async () => oneRow(
+          await this.pool.query(
+            'SELECT source_kind,state_revision,yjs_state,projection_json,checkpoint_named_version_id,seeded_from_named_version_id FROM orgintel_native_document_yjs_load($1,$2)',
+            [target.companyId, target.documentId],
+          ),
+          ['source_kind', 'state_revision', 'yjs_state', 'projection_json', 'checkpoint_named_version_id', 'seeded_from_named_version_id'],
+        ));
+        const typed = row as LoadRow;
+        const checkpointId = uuid(typed.checkpoint_named_version_id);
+        const seedId = uuid(typed.seeded_from_named_version_id);
+        let state: Uint8Array;
+        let stateRevision: bigint;
+        if (typed.source_kind === 'seed') {
+          stateRevision = revision(typed.state_revision, 0n);
+          if (stateRevision !== 0n || typed.yjs_state !== null) throw new DocumentPersistenceError();
+          state = stateFromProjection(typed.projection_json);
+          // Establish one durable CRDT seed before any client can observe it.
+          // Independently regenerated seeds use different Yjs identities and merge
+          // into duplicate blocks on reconnect or concurrent first opens.
+          const storeId = this.checkedStoreId();
+          const result = await this.withRetries(async () => oneRow(await this.pool.query(
+            'SELECT outcome FROM orgintel_native_document_yjs_store($1,$2,$3,$4,$5,$6,$7)',
+            [target.companyId, target.documentId, 0n, checkpointId, storeId, Buffer.from(state), projectionFromState(state)],
+          ), ['outcome']));
+          if (!['stored', 'replayed', 'conflict'].includes(String(result.outcome))) throw new DocumentPersistenceError();
+          // Read the winner after CAS, including a concurrent seeder or restore.
+          // Never merge a losing seed with the winning CRDT.
+          continue;
+        } else if (typed.source_kind === 'state') {
+          stateRevision = revision(typed.state_revision, 1n);
+          state = binaryState(typed.yjs_state);
+          if (!isDeepStrictEqual(projectionFromState(state), typed.projection_json)) {
+            throw new DocumentPersistenceError('native Documents persisted projections disagree');
+          }
+        } else {
+          throw new DocumentPersistenceError();
         }
-      } else {
-        throw new DocumentPersistenceError();
+        this.documents.set(key, { checkpointId, seedId, revision: stateRevision });
+        this.failures.delete(key);
+        this.failures.delete(POOL_FAILURE);
+        return state;
       }
-      this.documents.set(key, { checkpointId, revision: stateRevision });
-      this.failures.delete(key);
-      this.failures.delete(POOL_FAILURE);
-      return state;
+      throw new DocumentPersistenceError();
     } catch {
       this.failures.add(key);
       throw new DocumentPersistenceError();
@@ -312,7 +331,7 @@ export class PostgresDocumentStore implements DocumentStore {
         try {
           row = oneRow(
             await this.pool.query(
-              'SELECT outcome,state_revision,checkpoint_named_version_id,current_yjs_state,current_projection_json FROM orgintel_native_document_yjs_store($1,$2,$3,$4,$5,$6,$7)',
+              'SELECT stored.outcome,stored.state_revision,stored.checkpoint_named_version_id,stored.current_yjs_state,stored.current_projection_json,(SELECT seeded_from_named_version_id FROM orgintel_native_document_yjs_load($1,$2)) AS seeded_from_named_version_id FROM orgintel_native_document_yjs_store($1,$2,$3,$4,$5,$6,$7) stored',
               [
                 input.companyId,
                 input.documentId,
@@ -323,7 +342,7 @@ export class PostgresDocumentStore implements DocumentStore {
                 projection,
               ],
             ),
-            ['outcome', 'state_revision', 'checkpoint_named_version_id', 'current_yjs_state', 'current_projection_json'],
+            ['outcome', 'state_revision', 'checkpoint_named_version_id', 'current_yjs_state', 'current_projection_json', 'seeded_from_named_version_id'],
           ) as StoreRow;
         } catch (error) {
           if (!retryable(error) || attempt === MAX_STORE_ATTEMPTS - 1) throw error;
@@ -333,6 +352,11 @@ export class PostgresDocumentStore implements DocumentStore {
 
         const returnedRevision = revision(row.state_revision, 0n);
         const returnedCheckpoint = uuid(row.checkpoint_named_version_id);
+        // Both functions hold the document lock until this SQL statement ends.
+        // A new immutable checkpoint may retain the same Yjs lineage; a restore
+        // creates a new seed and must never receive these pending old edits.
+        const returnedSeed = uuid(row.seeded_from_named_version_id);
+        if (returnedSeed !== metadata.seedId) throw new DocumentCheckpointChangedError();
         if (row.outcome === 'stored' || row.outcome === 'replayed') {
           if (
             returnedRevision !== metadata.revision + 1n ||
@@ -342,12 +366,12 @@ export class PostgresDocumentStore implements DocumentStore {
           ) {
             throw new DocumentPersistenceError();
           }
-          this.documents.set(key, { checkpointId: returnedCheckpoint, revision: returnedRevision });
+          this.documents.set(key, { checkpointId: returnedCheckpoint, seedId: returnedSeed, revision: returnedRevision });
           this.failures.delete(key);
           this.failures.delete(POOL_FAILURE);
           return;
         }
-        if (row.outcome !== 'conflict' || returnedCheckpoint !== metadata.checkpointId) {
+        if (row.outcome !== 'conflict' || row.current_yjs_state === null) {
           throw new DocumentCheckpointChangedError();
         }
         if (attempt === MAX_STORE_ATTEMPTS - 1) throw new DocumentPersistenceError();
@@ -356,7 +380,7 @@ export class PostgresDocumentStore implements DocumentStore {
           throw new DocumentPersistenceError('native Documents conflict projections disagree');
         }
         candidate = checkedState(Y.mergeUpdates([current, candidate]));
-        metadata = { checkpointId: returnedCheckpoint, revision: returnedRevision };
+        metadata = { checkpointId: returnedCheckpoint, seedId: returnedSeed, revision: returnedRevision };
         this.documents.set(key, metadata);
         storeId = this.checkedStoreId();
         await this.sleep(RETRY_BASE_MILLISECONDS * (2 ** attempt));
@@ -367,6 +391,13 @@ export class PostgresDocumentStore implements DocumentStore {
       if (error instanceof DocumentCheckpointChangedError) throw error;
       throw new DocumentPersistenceError();
     }
+  }
+
+  loadedCheckpoint(target: CollaborationTarget): string {
+    this.assertCompany(target.companyId);
+    const revision = this.documents.get(collaborationDocumentName(target));
+    if (!revision) throw new DocumentPersistenceError();
+    return revision.checkpointId;
   }
 
   release(target: CollaborationTarget): void {

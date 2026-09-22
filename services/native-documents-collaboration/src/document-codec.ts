@@ -1,5 +1,5 @@
 import { Schema, type MarkSpec, type NodeSpec } from 'prosemirror-model';
-import { prosemirrorJSONToYDoc, yDocToProsemirrorJSON } from 'y-prosemirror';
+import { initProseMirrorDoc, prosemirrorJSONToYDoc, updateYFragment, yDocToProsemirrorJSON } from 'y-prosemirror';
 import * as Y from 'yjs';
 
 import { MAX_YJS_STATE_BYTES } from './constants.js';
@@ -278,6 +278,24 @@ export function projectionFromState(state: Uint8Array): JsonObject {
   } catch (error) {
     if (error instanceof DocumentCodecError) throw error;
     invalid();
+  } finally {
+    document.destroy();
+  }
+}
+
+/** Compute an incremental update against the existing CRDT identities. Never reseed a live body. */
+export function updateForProjection(state: Uint8Array, value: unknown): Uint8Array {
+  projectionFromState(state);
+  const projection = validateProjection(value);
+  const document = new Y.Doc();
+  try {
+    Y.applyUpdate(document, state);
+    const before = Y.encodeStateVector(document);
+    const fragment = document.getXmlFragment(PROSEMIRROR_FRAGMENT_NAME);
+    const { meta } = initProseMirrorDoc(fragment, documentSchema);
+    updateYFragment(document, fragment, documentSchema.nodeFromJSON(projection), meta);
+    projectionFromState(Y.encodeStateAsUpdate(document));
+    return Y.encodeStateAsUpdate(document, before);
   } finally {
     document.destroy();
   }

@@ -5,6 +5,7 @@ import {
   type Connection,
 } from '@hocuspocus/server';
 import * as Y from 'yjs';
+import { bodyView, prepareBodyEdit, checkedBodyUpdate, BodyEditConflict, InvalidBodyEdit } from './body-edits.js';
 
 import type { CollaborationConfig } from './config.js';
 import { DocumentCheckpointChangedError } from './store-errors.js';
@@ -40,6 +41,7 @@ export interface DocumentStore {
   ready(): Promise<boolean>;
   consumeSession(claims: CollaborationClaims): Promise<boolean>;
   load(target: CollaborationTarget): Promise<Uint8Array>;
+  loadedCheckpoint(target: CollaborationTarget): string;
   store(input: StoredDocumentInput): Promise<void>;
   release?(target: CollaborationTarget): void | Promise<void>;
   close(): Promise<void>;
@@ -232,6 +234,10 @@ export class NativeDocumentsCollaborationServer {
           writeJson(response, method, 405, { status: 'method_not_allowed' });
           return stopHooks();
         }
+        if (method === 'POST' && /\/collaboration\/body$/.test(path)) {
+          await this.handleBodyRequest(request, response);
+          return stopHooks();
+        }
         writeJson(response, method, 404, { status: 'not_found' });
         return stopHooks();
       },
@@ -361,6 +367,81 @@ export class NativeDocumentsCollaborationServer {
         if (context.session) clearLease(context.session.lease);
       },
     });
+  }
+
+  private async handleBodyRequest(
+    request: import('node:http').IncomingMessage,
+    response: import('node:http').ServerResponse,
+  ): Promise<void> {
+    try {
+      const target = parseCollaborationPath(requestPath(request.url).slice(0, -5));
+      if (target.companyId !== this.config.companyId) throw new SocketAuthorizationError();
+      const authorization = request.headers.authorization;
+      if (!authorization?.startsWith('Bearer ')) throw new SocketAuthorizationError();
+      const claims = await this.tokenVerifier.verify(authorization.slice(7), target);
+      // Read the bounded payload before consuming the capability, so a slow upload
+      // cannot extend the authorization period or hold a live document connection.
+      let size = 0;
+      const chunks: Buffer[] = [];
+      for await (const chunk of request) {
+        size += chunk.length;
+        if (size > 12 * 1024 * 1024) throw new InvalidBodyEdit('request is too large');
+        chunks.push(Buffer.from(chunk));
+      }
+      let value: Record<string, unknown>;
+      try {
+        value = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error();
+      } catch { throw new InvalidBodyEdit('expected a JSON object'); }
+      const fields = value.action === 'read' ? ['action'] : value.action === 'prepare'
+        ? ['action', 'operations'] : value.action === 'apply'
+          ? ['action', 'checkpoint_id', 'update_base64'] : [];
+      if (!fields.length || Object.keys(value).length !== fields.length || fields.some(key => !(key in value))) {
+        throw new InvalidBodyEdit('unknown action or unexpected fields');
+      }
+      if (value.action !== 'read' && claims.access !== 'write') throw new SocketAuthorizationError(FORBIDDEN_CLOSE_CODE, 'Forbidden');
+      if (claims.exp * 1000 <= this.now() || !(await this.store.consumeSession(claims))) throw new SocketAuthorizationError();
+      const lease: CollaborationLease = { claims, refreshTimer: undefined, expiryTimer: undefined, closed: false };
+      const connection = await this.server.hocuspocus.openDirectConnection(collaborationDocumentName(target), { session: { target, lease } });
+      try {
+        const document = connection.document!;
+        let result: Record<string, unknown> = {};
+        await document.saveMutex.runExclusive(async () => {
+          if (claims.exp * 1000 <= this.now()) throw new SocketAuthorizationError();
+          const checkpoint = this.store.loadedCheckpoint(target);
+          if (value.action === 'apply') {
+            if (value.checkpoint_id !== checkpoint) throw new BodyEditConflict('document checkpoint changed; read it again');
+            const update = checkedBodyUpdate(document, value.update_base64);
+            // Validation and mutation share one synchronous turn; no browser update
+            // can land between the prospective-body check and application.
+            Y.applyUpdate(document, update);
+            result = { status: 'applied', checkpoint_id: checkpoint };
+          } else {
+            const state = Y.encodeStateAsUpdate(document);
+            result = { checkpoint_id: checkpoint, ...(value.action === 'read'
+              ? bodyView(state) : prepareBodyEdit(state, { operations: value.operations })) };
+          }
+          // Hocuspocus's disconnect store hook logs/swallow failures. Explicitly
+          // await persistence under its mutex before acknowledging a command.
+          // This also stabilizes a freshly seeded Yjs body before returning a delta.
+          await this.store.store({ ...target, state: Y.encodeStateAsUpdate(document) });
+        });
+        writeJson(response, request.method, 200, result);
+      } finally {
+        await connection.disconnect();
+      }
+    } catch (error) {
+      if (response.headersSent) return;
+      if (error instanceof SocketAuthorizationError || error instanceof CollaborationTokenError) {
+        writeJson(response, request.method, 403, { error: 'forbidden' });
+      } else if (error instanceof BodyEditConflict || error instanceof DocumentCheckpointChangedError) {
+        writeJson(response, request.method, 409, { error: 'body_conflict' });
+      } else if (error instanceof InvalidBodyEdit) {
+        writeJson(response, request.method, 400, { error: 'invalid_body_edit' });
+      } else {
+        writeJson(response, request.method, 503, { error: 'body_unavailable' });
+      }
+    }
   }
 
   get httpUrl(): string {

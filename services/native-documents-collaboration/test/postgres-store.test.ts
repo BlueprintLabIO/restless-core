@@ -76,6 +76,7 @@ function seedRow(): unknown[] {
     yjs_state: null,
     projection_json: projection,
     checkpoint_named_version_id: CHECKPOINT_ID,
+      seeded_from_named_version_id: CHECKPOINT_ID,
   }];
 }
 
@@ -86,6 +87,7 @@ function stateRow(state: Uint8Array): unknown[] {
     yjs_state: Buffer.from(state),
     projection_json: projectionFromState(state),
     checkpoint_named_version_id: CHECKPOINT_ID,
+      seeded_from_named_version_id: CHECKPOINT_ID,
   }];
 }
 
@@ -114,13 +116,8 @@ test('the Postgres store requires the narrow role boundary and calls only the th
     [{ ready: 1 }],
     [{ consumed: true }],
     seedRow(),
-    [{
-      outcome: 'stored',
-      state_revision: '1',
-      checkpoint_named_version_id: CHECKPOINT_ID,
-      current_yjs_state: null,
-      current_projection_json: null,
-    }],
+    [{ outcome: 'stored' }],
+    [{ ...stateRow(stateFromProjection(projection))[0] as object, state_revision: '1' }],
   ]);
   const store = new PostgresDocumentStore({
     companyId: COMPANY_ID,
@@ -135,7 +132,6 @@ test('the Postgres store requires the narrow role boundary and calls only the th
   assert.equal(await store.consumeSession(claims()), true);
   const state = await store.load({ companyId: COMPANY_ID, documentId: DOCUMENT_ID });
   assert.deepEqual(projectionFromState(state), projectionFromState(stateFromProjection(projection)));
-  await store.store({ companyId: COMPANY_ID, documentId: DOCUMENT_ID, state });
   await store.close();
   assert.equal(pool.closed, true);
 
@@ -164,6 +160,7 @@ test('an uncertain store response retries the exact operation and accepts its re
       outcome: 'replayed',
       state_revision: '4',
       checkpoint_named_version_id: CHECKPOINT_ID,
+      seeded_from_named_version_id: CHECKPOINT_ID,
       current_yjs_state: null,
       current_projection_json: null,
     }],
@@ -179,7 +176,7 @@ test('an uncertain store response retries the exact operation and accepts its re
   await store.load({ companyId: COMPANY_ID, documentId: DOCUMENT_ID });
   await store.store({ companyId: COMPANY_ID, documentId: DOCUMENT_ID, state });
 
-  const stores = pool.calls.filter((call) => call.text.startsWith('SELECT outcome'));
+  const stores = pool.calls.filter((call) => call.text.includes('FROM orgintel_native_document_yjs_store('));
   assert.equal(stores.length, 2);
   assert.deepEqual(stores[0]?.values, stores[1]?.values, 'transport retries must preserve the idempotency payload exactly');
 });
@@ -196,6 +193,7 @@ test('a live CAS conflict merges the authoritative state and retries from its re
       outcome: 'conflict',
       state_revision: '4',
       checkpoint_named_version_id: CHECKPOINT_ID,
+      seeded_from_named_version_id: CHECKPOINT_ID,
       current_yjs_state: Buffer.from(current),
       current_projection_json: projectionFromState(current),
     }],
@@ -203,6 +201,7 @@ test('a live CAS conflict merges the authoritative state and retries from its re
       outcome: 'stored',
       state_revision: '5',
       checkpoint_named_version_id: CHECKPOINT_ID,
+      seeded_from_named_version_id: CHECKPOINT_ID,
       current_yjs_state: null,
       current_projection_json: null,
     }],
@@ -218,7 +217,7 @@ test('a live CAS conflict merges the authoritative state and retries from its re
   await store.load({ companyId: COMPANY_ID, documentId: DOCUMENT_ID });
   await store.store({ companyId: COMPANY_ID, documentId: DOCUMENT_ID, state: client });
 
-  const stores = pool.calls.filter((call) => call.text.startsWith('SELECT outcome'));
+  const stores = pool.calls.filter((call) => call.text.includes('FROM orgintel_native_document_yjs_store('));
   assert.equal(stores.length, 2);
   assert.equal(stores[1]?.values[2], 4n);
   assert.equal(stores[1]?.values[4], 'f6666666-6666-4666-8666-666666666666');
@@ -228,7 +227,54 @@ test('a live CAS conflict merges the authoritative state and retries from its re
   assert.match(text, /from server/u);
 });
 
-test('a named-version transition is surfaced distinctly so the server can evict its stale Y.Doc', async () => {
+test('a same-lineage checkpoint advance preserves pending edits and adopts the new checkpoint', async () => {
+  const base = stateFromProjection(projection);
+  const client = appendText(base, ' from client');
+  const current = appendText(base, ' from server');
+  const storeIds = [STORE_ID, 'f6666666-6666-4666-8666-666666666666'];
+  const pool = new FakePool([
+    capability(),
+    stateRow(base),
+    [{
+      outcome: 'conflict',
+      state_revision: '4',
+      checkpoint_named_version_id: 'a7777777-7777-4777-8777-777777777777',
+      seeded_from_named_version_id: CHECKPOINT_ID,
+      current_yjs_state: Buffer.from(current),
+      current_projection_json: projectionFromState(current),
+    }],
+    [{
+      outcome: 'stored',
+      state_revision: '5',
+      checkpoint_named_version_id: 'a7777777-7777-4777-8777-777777777777',
+      seeded_from_named_version_id: CHECKPOINT_ID,
+      current_yjs_state: null,
+      current_projection_json: null,
+    }],
+  ]);
+  const store = new PostgresDocumentStore({
+    companyId: COMPANY_ID,
+    databaseUrl: 'postgresql://unused:unused@127.0.0.1/unused',
+    pool,
+    makeStoreId: () => storeIds.shift() ?? assert.fail('unexpected store id request'),
+    sleep: async () => undefined,
+  });
+  await store.initialize();
+  await store.load({ companyId: COMPANY_ID, documentId: DOCUMENT_ID });
+  await store.store({ companyId: COMPANY_ID, documentId: DOCUMENT_ID, state: client });
+
+  const stores = pool.calls.filter((call) => call.text.includes('FROM orgintel_native_document_yjs_store('));
+  assert.equal(stores.length, 2);
+  assert.equal(stores[1]?.values[3], 'a7777777-7777-4777-8777-777777777777');
+  assert.equal(stores[1]?.values[2], 4n);
+  assert.equal(stores[1]?.values[4], 'f6666666-6666-4666-8666-666666666666');
+  const merged = projectionFromState(new Uint8Array(stores[1]?.values[5] as Buffer));
+  const text = JSON.stringify(merged);
+  assert.match(text, /from client/u);
+  assert.match(text, /from server/u);
+});
+
+test('a replacement seed is surfaced distinctly so the server can evict its stale Y.Doc', async () => {
   const state = stateFromProjection(projection);
   const nextCheckpoint = 'a7777777-7777-4777-8777-777777777777';
   const pool = new FakePool([
@@ -238,6 +284,7 @@ test('a named-version transition is surfaced distinctly so the server can evict 
       outcome: 'conflict',
       state_revision: '0',
       checkpoint_named_version_id: nextCheckpoint,
+      seeded_from_named_version_id: nextCheckpoint,
       current_yjs_state: null,
       current_projection_json: { type: 'doc', content: [] },
     }],
