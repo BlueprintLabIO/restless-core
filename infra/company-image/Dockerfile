@@ -153,7 +153,7 @@ RUN set -eux; \
     echo "${godot_sha256}  /tmp/godot.zip" | sha256sum --check --status; \
     unzip -q /tmp/godot.zip -d /tmp/godot; \
     install -m 0755 "/tmp/godot/${godot_binary}" /usr/local/bin/godot; \
-    curl --fail --location --silent --show-error --http1.1 --retry 5 --retry-all-errors --retry-delay 2 "https://downloads.godotengine.org/?flavor=stable&platform=templates&slug=export_templates.tpz&version=${GODOT_VERSION}" --output /tmp/godot-templates.tpz; \
+    curl --fail --location --show-error --progress-bar --http1.1 --connect-timeout 30 --speed-limit 1024 --speed-time 60 --retry 5 --retry-all-errors --retry-delay 2 "https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_export_templates.tpz" --output /tmp/godot-templates.tpz; \
     echo "f298490b8d44d934be425a5a65a51bf15f422428b229a06a6e11d9ffea248011  /tmp/godot-templates.tpz" | sha256sum --check --status; \
     mkdir -p "/opt/restless/godot/export_templates/${GODOT_VERSION}.stable"; \
     unzip -j -q /tmp/godot-templates.tpz \
