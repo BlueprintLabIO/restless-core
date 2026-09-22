@@ -77,6 +77,12 @@ does not prove its governed `restless effect` path is absent.
 Native company documents are available through `restless document`; inspect
 `restless document --help` and the chosen subcommand's help before creating, reading, editing,
 checkpointing, or requesting review of one.
+When producing a shared document for a human, give that recipient `edit` access unless the request
+calls for read-only delivery. Its creating actor owns it and must share with the exact authenticated
+human recipient before requesting collaboration, review, or handoff. Use the current metadata
+revision and a stable key; do not assume the recipient is literally `owner` in a company with network
+members. Give every Staff reviewer the explicit access their check needs before asking them to read
+or checkpoint it: a creator's ownership does not transfer to colleagues.
 
 ## 5. Three kinds of action
 
