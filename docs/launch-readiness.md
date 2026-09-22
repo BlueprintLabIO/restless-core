@@ -6,7 +6,7 @@ revision and exercise the installation a new user receives.
 
 | Check | Required evidence | Current state |
 | --- | --- | --- |
-| Ship the demonstrated product | Reviewed collaboration/settings changes, migrations and assets committed; clean published checkout builds and runs the demonstrated flows | Accounts, documents and conversation routing shipped; remaining local settings/runtime work needs qualification |
+| Ship the demonstrated product | Reviewed collaboration/settings changes, migrations and assets committed; clean published checkout builds and runs the demonstrated flows | Accounts, documents, conversation routing, Company settings and provider-first setup shipped; remaining demonstrated collaboration needs qualification |
 | First installation and intelligence | Fresh state and checkout; README commands; successful native Codex, native Claude and API-backed requests; actionable connection failures | Clean setup verified at `c88e29d`; Docker-to-Core connection blocked on this host; Claude/API requests deferred by owner |
 | First useful outcome | Published starter exercise produces an actual business document, then accepts a human-requested revision | Native document CLI journey passes; model-produced proposal and revision remain open |
 | Human multiplayer | Two independent authenticated humans; invitation, shared editing, reconnect, comments, permission boundaries and removal through the supported product path | Independent-account protocol journey passes; simultaneous independent browsers remain open |
@@ -257,3 +257,61 @@ fixtures. Each run must verify its own cleanup.
 The feedback route is shipped. Component results do not close the other five
 checks: their final evidence must name the published revision and include the
 complete user journeys.
+
+
+## Settings and process cleanup — 22 September 2026
+
+- `49221e2` waits up to five seconds for an agent's Linux session to disappear
+  before declaring cleanup a failure. Thirteen focused ACP tests passed. A real
+  isolated Docker test verified both a departing process and a process that stayed
+  alive beyond the deadline; the test container was removed. The published source
+  matches the tested candidate exactly. This does not close the live-model
+  completion and recovery journey.
+- `3490aff` publishes editable company direction, version history, model spend
+  limits, and Company settings recovery. The candidate daemon and production UI
+  built successfully, frontend checks reported zero errors or warnings, and three
+  real PostgreSQL identity tests passed. They cover preserved independent evidence,
+  earlier versions, stale drafts and competing first promotions.
+- CUA browser checks against a disposable real daemon/database verified identity
+  edits, stale-edit rejection, budget save/reload and negative-value validation,
+  company rename, charter save, and the unsaved-charter navigation guard. Stopping
+  the daemon produced explicit Vault and Doctor failures. Restarting it preserved
+  the edits, and Refresh/Retry cleared the connection errors. The identity form's
+  internal “invalid Work graph” error prefix was replaced with a direct explanation
+  and checked against the rebuilt daemon. All 21 published file blobs match the
+  final candidate; final formatting changes do not alter behavior.
+- Desktop help placement and Escape dismissal were checked. The browser ignored
+  the requested mobile viewport and remained at 1280 × 720, including in a new tab,
+  so this run does not add mobile evidence. Both editing tabs shared one local-owner
+  identity; they do not close the independent-human browser requirement. The test
+  daemon, private state and PostgreSQL resources were removed and verified absent.
+- The normal Docker bridge still times out on the isolated model/coordination
+  ports. Existing Codex admission remains verified; Claude/API reconnection is
+  deferred as requested. No live model journey is inferred from the settings tests.
+- Read-only migration inspection found a local prerelease database that applied
+  migration 59 with three draft comments. Its schema matches the published SQL,
+  but SQLx hashes the comments too. Published migration bytes remain unchanged.
+  That known prerelease database needs a verified, exact-checksum metadata repair
+  before a future upgrade; it was not changed or restarted during qualification.
+
+## Explicit intelligence setup — 22 September 2026
+
+- `2aa442b` lets a company be created before choosing an intelligence connection.
+  New launcher configurations contain no placeholder model, and existing
+  `unconfigured/pending` configurations remain readable. Native Codex/Claude
+  routes no longer require a direct API model to pass the execution guard.
+  Configuring only a worker does not hide Exec's setup requirement.
+- The final candidate passed a real PostgreSQL company-creation test, eight
+  focused routing/configuration regressions, nine launcher tests, a daemon build,
+  and the frontend check and production build. Frontend checks reported zero
+  errors or warnings. The merged development tree also passed daemon/CLI checks.
+  All 12 published file blobs match the tested candidate exactly.
+- A real API request created a disposable company with the model field omitted.
+  Browser checks verified Codex and Claude sign-in choices, no selected default,
+  Exec's connection prompt, an API form with no preselected provider, custom
+  provider input, and unchanged setup after Cancel and reload. The create-company
+  button itself was not exercised: its generated names do not carry the `_test`
+  suffix required for these disposable runs. The API and browser results are
+  recorded separately. No credentials or model requests were submitted.
+- The fixture's daemon, state, database and role were removed; the browser tab
+  was closed. Claude/API live requests remain deferred at the owner's request.
