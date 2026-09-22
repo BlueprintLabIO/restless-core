@@ -82,7 +82,8 @@ calls for read-only delivery. Its creating actor owns it and must share with the
 human recipient before requesting collaboration, review, or handoff. Use the current metadata
 revision and a stable key; do not assume the recipient is literally `owner` in a company with network
 members. Give every Staff reviewer the explicit access their check needs before asking them to read
-or checkpoint it: a creator's ownership does not transfer to colleagues.
+or checkpoint it. A human native-review recipient must already have `edit` access. A creator's
+ownership does not transfer to colleagues.
 
 ## 5. Three kinds of action
 

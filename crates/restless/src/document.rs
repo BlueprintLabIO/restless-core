@@ -177,7 +177,7 @@ CONTENT AND CONFLICTS
         #[arg(long)]
         key: String,
     },
-    /// Pause this exact Attempt's Work for a named-version human review.
+    /// Pause this exact Attempt's Work for a named-version human review; the reviewer needs edit access.
     RequestReview {
         #[arg(long)]
         document: String,
