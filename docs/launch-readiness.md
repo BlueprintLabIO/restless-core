@@ -6,7 +6,7 @@ revision and exercise the installation a new user receives.
 
 | Check | Required evidence | Current state |
 | --- | --- | --- |
-| Ship the demonstrated product | Reviewed collaboration/settings changes, migrations and assets committed; clean published checkout builds and runs the demonstrated flows | Accounts, documents, conversation routing, Company settings and provider-first setup shipped; remaining demonstrated collaboration needs qualification |
+| Ship the demonstrated product | Reviewed collaboration/settings changes, migrations and assets committed; clean published checkout builds and runs the demonstrated flows | Accounts, documents, conversation routing, Company settings, provider-first setup, and collaboration owner workflow shipped in `cc933fc`; remaining model and independent-browser requirements stay open |
 | First installation and intelligence | Fresh state and checkout; README commands; successful native Codex, native Claude and API-backed requests; actionable connection failures | Clean setup verified at `c88e29d`; Docker-to-Core connection blocked on this host; Claude/API requests deferred by owner |
 | First useful outcome | Published starter exercise produces an actual business document, then accepts a human-requested revision | Native document CLI journey passes; model-produced proposal and revision remain open |
 | Human multiplayer | Two independent authenticated humans; invitation, shared editing, reconnect, comments, permission boundaries and removal through the supported product path | Independent-account protocol journey passes; simultaneous independent browsers remain open |
@@ -315,3 +315,17 @@ complete user journeys.
   recorded separately. No credentials or model requests were submitted.
 - The fixture's daemon, state, database and role were removed; the browser tab
   was closed. Claude/API live requests remain deferred at the owner's request.
+
+## Collaboration owner workflow — 22 September 2026
+
+- `cc933fc` publishes the document collaboration owner workflow with migrations
+  58 and 60–66. The 69 released blobs match the publication canonical manifest;
+  migration bytes were retained exactly and recorded EOF-only normalization did
+  not change behavior.
+- A manual authenticated-owner smoke on the final candidate verified entry,
+  saved document editing after reload, Done clearing Attention to All clear, and
+  a room message displaying Live. The disposable smoke fixture remains separate
+  from the owner's running company.
+- This evidence does not close the real-model journey, Docker bridge/network
+  issue, expired Claude sign-in, absent API-provider key, or the requirement for
+  simultaneous independent browser contexts.
