@@ -19,6 +19,8 @@
     "pg": "8.23.0"
   },
   "devDependencies": {
-    "ws": "8.21.3"
+    "@hocuspocus/provider": "4.6.0",
+    "ws": "8.21.3",
+    "yjs": "13.6.32"
   }
 }
