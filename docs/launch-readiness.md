@@ -90,8 +90,24 @@ fixtures. Each run must verify its own cleanup.
   counted as evidence that a normal installation works.
 - A real Better Auth foundation test passed sign-up, required email verification,
   independent sessions, invitation email matching, membership and removal against
-  isolated PostgreSQL. It does not yet connect those sessions to Core or verify
-  cockpit collaboration and Core-session revocation.
+  isolated PostgreSQL. A subsequent HTTP/WebSocket integration connected those
+  accounts to Core: distinct human Actors, rejected handoff replay, private
+  documents, explicit sharing, comments, live edits from both people, preserved
+  edits after reconnecting, and removal ending both the existing Core session and
+  its open document connection. The identity adapter in this check is a test
+  driver; a shipped invitation/sign-in interface and the complete browser
+  journey remain open.
+- That integration exposed a deployment coupling: network authentication also
+  selected hosted computers and required Fleet monitoring credentials. The
+  working-tree fix adds an explicit local Runtime choice, retains signed network
+  authentication and immutable company images, and lets local Documents fetch
+  Core's public verification key over loopback while retaining the public token
+  issuer. Existing local and hosted defaults pass three focused configuration
+  tests. Live startup also rejected a mutable network image, a hosted Runtime
+  without network authentication, and an invalid Runtime setting before serving.
+  The integration's isolated databases, roles, containers and volumes were removed.
+  These changes depend on the pending collaboration implementation and
+  have not yet been qualified from a published checkout.
 - Setup-help and founder-feedback issue forms, with README links, shipped in
   `7e535f0`. Anonymous navigation reaches GitHub sign-in with the intended form
   URL preserved; no public test issue was submitted.
