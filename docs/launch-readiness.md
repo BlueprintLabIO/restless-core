@@ -414,3 +414,10 @@ complete user journeys.
   SMTP delivery remain unverified.
 - A known local prerelease migration-59 checksum needs the documented repair
   before upgrading that existing owner database. The owner runtime was untouched.
+- The revised output reached a new pending human review, but no fresh Exec
+  completion message arrived after that revision during this run. The initial
+  output notification and resumed-request reply were verified separately.
+- The disposable daemon, containers, volumes, network, copied credentials,
+  private state and source worktree were removed. The owner and peer runtimes
+  were untouched. Removing the approved temporary UFW rule requires the owner's
+  local sudo password and remains pending.
