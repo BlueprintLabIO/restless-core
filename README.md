@@ -22,6 +22,9 @@ Restless brings the work, the people and the tools into one place.
 > **Development preview:** a runnable local company workspace under active development.
 > Start from a development checkout; interfaces are evolving.
 
+[Get setup help](https://github.com/BlueprintLabIO/restless-core/issues/new?template=setup-help.yml)
+or [tell us what you want to run with Restless](https://github.com/BlueprintLabIO/restless-core/issues/new?template=founder-feedback.yml).
+
 ## Why Restless
 
 AI makes it easier to produce work. It can also give you another organisation to manage:

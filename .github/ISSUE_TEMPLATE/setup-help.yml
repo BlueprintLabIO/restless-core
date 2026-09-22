@@ -1,0 +1,28 @@
+name: Setup help
+description: Get help installing Restless or connecting your intelligence provider.
+title: "Setup: "
+body:
+  - type: markdown
+    attributes:
+      value: "Tell us where setup stopped. This report is public: remove API keys, passwords, sign-in codes and private company content. For a security issue, use our private vulnerability reporting link in SECURITY.md."
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, Docker version, and Restless commit if known.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: What did you try?
+      description: Include the command or screen and the provider you selected.
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: What happened?
+      description: Paste the relevant error or Doctor result after removing private values.
+    validations:
+      required: true

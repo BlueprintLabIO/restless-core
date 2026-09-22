@@ -1,0 +1,25 @@
+name: Founder feedback
+description: Share the business task you want Restless to help with and how it went.
+title: "Founder feedback: "
+body:
+  - type: markdown
+    attributes:
+      value: "We'd like to hear from founders and small teams trying Restless on real work. This is a public conversation; please use examples without customer details or credentials."
+  - type: textarea
+    id: task
+    attributes:
+      label: What are you trying to get done?
+      description: Describe the business task, who is involved, and what a useful result would be.
+    validations:
+      required: true
+  - type: textarea
+    id: experience
+    attributes:
+      label: How did it go?
+      description: What did Restless produce, where did you need to step in, and what would make you use it again? It's fine if you haven't installed it yet.
+  - type: checkboxes
+    id: followup
+    attributes:
+      label: Follow-up
+      options:
+        - label: I'd welcome help trying Restless on this task through this issue.
