@@ -1173,7 +1173,7 @@ pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
                 // when the disposable company volume is retained for evidence.
                 args.extend([
                     "--tmpfs",
-                    "/company/home/.restless/harness-auth/codex:rw,uid=2000,gid=2000,mode=0700",
+                    "/company/home:rw,uid=2000,gid=2000,mode=0700,size=256m",
                 ]);
             }
             args.extend([
