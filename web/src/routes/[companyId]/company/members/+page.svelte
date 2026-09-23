@@ -175,17 +175,16 @@
 		</div>
 	{:else if issuer && viewer}
 		<form class="member-invite" onsubmit={invite}>
-			<label class="sr-only" for="invite-email">Email</label>
 			<input
 				id="invite-email"
+				aria-label="Email to invite"
 				type="email"
 				autocomplete="off"
 				placeholder="colleague@example.com"
 				required
 				bind:value={inviteEmail}
 			/>
-			<label class="sr-only" for="invite-role">Access</label>
-			<select id="invite-role" bind:value={inviteRole}>
+			<select id="invite-role" aria-label="Access" bind:value={inviteRole}>
 				<option value="member">Member</option>
 				{#if viewer.role === 'owner'}<option value="admin">Administrator</option>{/if}
 			</select>
@@ -251,9 +250,9 @@
 									>Paused</span
 								>{/if}
 							{#if manageable && viewer.role === 'owner' && row.status === 'active'}
-								<label class="sr-only" for={`role-${row.membership_id}`}>Access</label>
 								<select
 									id={`role-${row.membership_id}`}
+									aria-label={`Access for ${row.name}`}
 									value={row.role}
 									disabled={!!busy}
 									onchange={(event) =>
@@ -329,6 +328,9 @@
 
 <style>
 	.members-page {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-5);
 		max-width: 760px;
 	}
 	.members-message {
@@ -360,7 +362,7 @@
 		flex: 1;
 	}
 	.member-section h2 {
-		margin: 0 0 var(--space-2);
+		margin: 0 0 var(--space-1);
 		font-size: var(--t-label);
 		font-weight: 600;
 		color: var(--text-secondary);

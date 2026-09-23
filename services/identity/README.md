@@ -185,7 +185,9 @@ RESTLESS_NATIVE_DOCUMENTS_IMAGE='restless-native-documents:local' \
   npm run test:core
 ```
 
-Set `RESTLESS_IDENTITY_TEST_OUTPUT` to an absolute, new directory to retain the
+Set `RESTLESS_BROWSER_EXECUTABLE` to a Chromium binary to add a real-browser pass over the
+company's **Members** page (local and network mode, desktop and mobile), using Playwright from
+`web/`. Set `RESTLESS_IDENTITY_TEST_OUTPUT` to an absolute, new directory to retain the
 Core journey evidence there; otherwise the runner creates an evidence directory
 and prints its path. `RESTLESS_COCKPIT_DIR` may name an existing production web
 build when the daemon does not use its default location.

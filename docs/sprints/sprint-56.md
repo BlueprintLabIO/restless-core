@@ -1,6 +1,6 @@
 # Sprint 56 — Company members, one issuer for Core and Cloud
 
-**Status:** Draft for founder alignment
+**Status:** Core tickets done; Cloud half (C56-T7) open in `restless-cloud`
 **Programme:** bounded company collaboration (ADR 0008)
 **Decision:** [ADR 0012 — One identity issuer, two hosts](../adr/0012-one-identity-issuer-two-hosts.md)
 **Depends on:** ADR 0009 entry and membership-control verifier (built), `services/self-hosted-identity`
@@ -54,8 +54,8 @@ Each item was read on 23 September 2026 from `dev` at `70093e1` and `restless-cl
   a self-hosted host (`main.mjs`).
 - Placement port and Mail port (ADR 0012 §2). The self-hosted host implements both from its
   generated config.
-- Versioned membership source: a `restless_membership_versions` table advanced by Better Auth
-  `organizationHooks` on every role, suspend and remove change. Handoffs sign the current version.
+- Versioned membership source: `restless_membership_state`, advanced in the same transaction as
+  every role, suspend, reinstate and remove change. Handoffs sign the current version.
 - Durable membership-control outbox with Cloud's delivery semantics (stable `jti`, backoff, lease,
   entry barrier until a verified receipt). This replaces `revoke()` and `restless_membership_removals`,
   with a one-time migration of existing rows.
@@ -83,8 +83,8 @@ Each item was read on 23 September 2026 from `dev` at `70093e1` and `restless-cl
 
 ### restlessd
 
-- Fetch, bound and cache the issuer metadata document next to JWKS. Expose it, or its absence in
-  local mode, in the company view.
+- Fetch, bound and cache the issuer metadata document with the JWKS client. Return it, or local
+  mode, from `GET /api/companies/{company}/members`.
 - Accept `suspended` controls from the canonical issuer. The verifier already supports them; this
   proves the path end to end.
 
@@ -143,23 +143,52 @@ Each item was read on 23 September 2026 from `dev` at `70093e1` and `restless-cl
 
 ## Ticket outline
 
-- [ ] C56-T0 — canon: accept ADR 0012; amend ADR 0009 consequences, the cross-layer contract §2.4 and
-      `docs/self-hosted-network-entry.md`; record Cloud's same-site hostname plan and the
-      separate domain for published services (docs)
-- [ ] C56-T1 — issuer library/host split, Placement and Mail ports, rename to `services/identity`
-      (issuer)
-- [ ] C56-T2 — versioned membership source, suspend and reinstate, durable control outbox with
-      migration from `restless_membership_removals` (issuer)
-- [ ] C56-T3 — membership admin API, `/.well-known/restless-issuer`, same-site setup check (issuer)
-- [ ] C56-T4 — owner claim with Authority bootstrap fact, first-entry fact to Exec, members projection
-      read (OrgIntel/Authority)
-- [ ] C56-T5 — issuer metadata probe in `restlessd` and company view; end-to-end `suspended` control
-      (restlessd)
-- [ ] C56-T6 — Company → Members, including local-mode state; delete the issuer People screen
-      (cockpit/issuer)
-- [ ] C56-T7 — Cloud: mount the library in `fleet-web` and purge the duplicate issuer (paired
-      `restless-cloud` sprint)
-- [ ] C56-T8 — two-browser self-hosted and Cloud journeys, adversarial checks and cleanup (evaluation)
+- [x] C56-T0 — canon: ADR 0012 accepted; ADR 0009, cross-layer contract §2.4 and
+      `docs/self-hosted-network-entry.md` amended ([ticket](sprint-56/c56-t0-canon.md))
+- [x] C56-T1 — issuer library/host split, Placement and Mail ports, `services/identity`
+      ([ticket](sprint-56/c56-t1-issuer-library.md))
+- [x] C56-T2 — versioned membership, suspend/reinstate, durable control outbox, legacy removal
+      migration ([ticket](sprint-56/c56-t2-versioned-membership.md))
+- [x] C56-T3 — membership admin API, `/.well-known/restless-issuer`, same-site setup check
+      ([ticket](sprint-56/c56-t3-admin-api.md))
+- [x] C56-T4 — owner claim with Authority fact, Exec announcement, members projection
+      ([ticket](sprint-56/c56-t4-owner-claim.md))
+- [x] C56-T5 — issuer metadata probe and `GET /api/companies/{company}/members`
+      ([ticket](sprint-56/c56-t5-issuer-probe.md))
+- [x] C56-T6 — Company → Members; issuer People screen deleted
+      ([ticket](sprint-56/c56-t6-members-page.md))
+- [ ] C56-T7 — Cloud mounts the library and purges its duplicate issuer (paired `restless-cloud`
+      sprint; [ticket](sprint-56/c56-t7-cloud.md))
+- [x] C56-T8 — journeys, adversarial checks and cleanup, self-hosted half
+      ([ticket](sprint-56/c56-t8-journeys.md))
+
+### Evidence (23 September 2026)
+
+- `npm test` in `services/identity`: 4/4 configuration checks, including the same-site rule.
+- `npm run test:issuer` against a scratch PostgreSQL: metadata; the admin API answers only the
+  cockpit origin; invitation link and email; members cannot manage; owner-only role changes advance
+  the version; suspension reaches a signature-checking Core stand-in and blocks entry, and
+  reinstatement is newer; removal during an outage completes from the outbox across an issuer
+  restart with one stable `jti`. Negative control: a stand-in that echoes the wrong
+  `requested_version` leaves the control pending and the run fails.
+- `cargo test -p restless-orgintel --test access`: 11/11, including the owner claim, the
+  refusal of a second claim, the pre-existing-owner case, and one Exec announcement per new human.
+  The full OrgIntel suite passed except two `actors_and_teams` tests, which fail only inside another
+  session's uncommitted edits to that file.
+- `npm run test:core` with the built `restlessd`, the pinned company and Documents images, and
+  Chromium (`RESTLESS_BROWSER_EXECUTABLE`): 16 PASS steps on a `_test` company. They cover a
+  local-owner private document still opening after network entry; the owner mapped to `owner`; one
+  Exec announcement; the Core members view naming the issuer; role change, suspension and
+  reinstatement against real Core; removal during a Core outage delivered by the outbox with no
+  retry; cross-origin and issuer-origin admin refusals; and, in the browser, the local-only
+  Members state, the owner inviting and cancelling on desktop (1440) and mobile (390) with no
+  horizontal scroll, and a member being refused. The runner removed its containers, volume,
+  databases and roles.
+- Not proven: Exec acting on the announcement in a live wake (the `_test` company had no model);
+  real public SMTP delivery (mail was captured locally); two simultaneous independent
+  browsers (the owner and member contexts ran one after the other); the Authority
+  `owner_actor_claimed` row, which the journey could not read from the cell database; the Cloud
+  host.
 
 ## Deletion
 
