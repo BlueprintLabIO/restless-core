@@ -201,6 +201,27 @@ impl OrgIntel {
         .await?)
     }
 
+    /// A linked Work result is new evidence, so revisit its waiting
+    /// Opportunity without waiting for the ordinary retry backoff. Advance
+    /// last_progress_at in the same update to avoid redelivering the same
+    /// result on every reconciliation pass.
+    pub async fn expedite_waiting_opportunities_with_work_result(
+        &self,
+        now: DateTime<Utc>,
+    ) -> Result<u64> {
+        Ok(sqlx::query(
+            "UPDATE opportunities o SET next_wake_at=$1, last_progress_at=$1, revision=revision+1 \
+             WHERE o.state='waiting_retry' AND o.next_wake_at > $1 \
+               AND EXISTS (SELECT 1 FROM opportunity_work ow JOIN work w ON w.id=ow.work_id \
+                           WHERE ow.opportunity_id=o.id AND w.status IN ('completed','blocked') \
+                             AND w.updated_at > o.last_progress_at)",
+        )
+        .bind(now)
+        .execute(&self.pool)
+        .await?
+        .rows_affected())
+    }
+
     pub async fn list_opportunities(
         &self,
         responsibility_id: Option<Uuid>,

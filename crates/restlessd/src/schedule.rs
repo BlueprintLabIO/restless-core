@@ -442,6 +442,12 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
     if let Err(error) = org.claim_due_schedules().await {
         tracing::warn!(company, "could not claim due schedules: {error:#}");
     }
+    if let Err(error) = org
+        .expedite_waiting_opportunities_with_work_result(Utc::now())
+        .await
+    {
+        tracing::warn!(company, "could not revisit opportunities after linked Work settled: {error:#}");
+    }
     if let Err(error) = org.wake_due_opportunities_at(Utc::now()).await {
         tracing::warn!(company, "could not redeliver due opportunities: {error:#}");
     }
