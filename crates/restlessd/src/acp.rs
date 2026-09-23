@@ -267,10 +267,16 @@ impl AcpProfile {
         }
     }
 
-    fn command_args(self, model: &str, effort: &str, system_prompt: &str) -> Vec<String> {
+    fn command_args(
+        self,
+        model: &str,
+        effort: &str,
+        system_prompt: &str,
+        tools: &[&str],
+    ) -> Vec<String> {
         match self.harness {
             crate::runtime::AgentHarness::RestlessManaged => {
-                omp_agent_command_args(model, effort, system_prompt)
+                omp_agent_command_args(model, effort, system_prompt, tools)
             }
             crate::runtime::AgentHarness::ClaudeAgent => vec!["claude-agent-acp".to_string()],
             crate::runtime::AgentHarness::CustomAcp => vec![
@@ -320,8 +326,13 @@ impl AcpProfile {
 /// subcommand exposes no flags, so placing these arguments after `acp` starts
 /// the server without selecting a model and fails only when the first prompt
 /// arrives. Keep the subcommand last and the ordering independently testable.
-fn omp_agent_command_args(model: &str, effort: &str, system_prompt_path: &str) -> Vec<String> {
-    [
+fn omp_agent_command_args(
+    model: &str,
+    effort: &str,
+    system_prompt_path: &str,
+    tools: &[&str],
+) -> Vec<String> {
+    let mut args = vec![
         "omp",
         "--model",
         model,
@@ -333,13 +344,18 @@ fn omp_agent_command_args(model: &str, effort: &str, system_prompt_path: &str) -
         OMP_RUNTIME_CONFIG,
         "--no-extensions",
         "--no-rules",
-        "--tools",
-        OMP_AGENT_TOOLS,
-        "acp",
     ]
-    .iter()
-    .map(|arg| (*arg).to_string())
-    .collect()
+    .into_iter()
+    .map(str::to_string)
+    .collect::<Vec<_>>();
+    if tools.is_empty() {
+        args.push("--no-tools".into());
+    } else {
+        args.push("--tools".into());
+        args.push(tools.join(","));
+    }
+    args.push("acp".into());
+    args
 }
 
 /// Resolve the exact provider-qualified model value OMP advertised for this
@@ -492,6 +508,8 @@ pub struct AgentControls {
     /// Attempt. This is passed to the local CLI as a narrow guard against
     /// accidentally sending an unaddressed message to the owner.
     team_coordination_wake: bool,
+    /// Envelope repair must not retain the productive session's tool access.
+    completion_only: bool,
 }
 
 impl AgentControls {
@@ -503,6 +521,7 @@ impl AgentControls {
             system_prompt,
             mcp_servers: Vec::new(),
             team_coordination_wake: false,
+            completion_only: false,
         })
     }
 
@@ -515,11 +534,30 @@ impl AgentControls {
         self
     }
 
+    /// Remove every native and connected tool from a formatting-only session.
+    /// Launch APIs reject this mode for harnesses without a verified tool-free
+    /// launch contract.
+    pub fn completion_only(mut self) -> Self {
+        self.mcp_servers.clear();
+        self.completion_only = true;
+        self
+    }
+
+    fn native_tools(&self, profile: AcpProfile) -> Vec<&'static str> {
+        if self.completion_only {
+            Vec::new()
+        } else {
+            profile.native_tools()
+        }
+    }
+
     /// Attach only connections selected for this actor and session. Provider
     /// discovery and credentials remain Authority concerns; this method merely
     /// carries an already-authorised ACP description to the agent.
     pub fn with_mcp_servers(mut self, mcp_servers: Vec<McpServer>) -> Self {
-        self.mcp_servers = mcp_servers;
+        if !self.completion_only {
+            self.mcp_servers = mcp_servers;
+        }
         self
     }
 }
@@ -1253,6 +1291,11 @@ where
     if harness != crate::runtime::AgentHarness::RestlessManaged {
         anyhow::bail!("hosted ACP transport supports only the restless-managed harness");
     }
+    if controls.completion_only {
+        anyhow::bail!(
+            "hosted Runtime bridge does not yet carry a verified completion-only tool policy"
+        );
+    }
     if responsibility.trim().is_empty() {
         anyhow::bail!("ACP session responsibility scope must not be empty");
     }
@@ -1272,6 +1315,7 @@ where
     let launch_actor = actor.to_string();
     let launch_responsibility = responsibility.to_string();
     let launch_workdir = workdir.to_string();
+    let reported_native_tools = controls.native_tools(profile);
     let mcp_servers = controls.mcp_servers;
     let mcp_server_count = mcp_servers.len();
 
@@ -1375,7 +1419,7 @@ where
                     ))
                 );
                 let capabilities = serde_json::json!({
-                    "native_tools": profile.native_tools(),
+                    "native_tools": reported_native_tools,
                     "native_agent_build": profile.native_agent_build(),
                     "mcp_server_count": mcp_server_count,
                     "session_load": initialized.agent_capabilities.load_session,
@@ -1457,10 +1501,14 @@ where
     if responsibility.trim().is_empty() {
         anyhow::bail!("ACP session responsibility scope must not be empty");
     }
+    if controls.completion_only && harness != crate::runtime::AgentHarness::RestlessManaged {
+        anyhow::bail!("completion-only ACP mode requires the Restless-managed harness");
+    }
     let profile = AcpProfile::new(harness)?;
     prepare_agent_runtime(container, harness, auth).await?;
     let session_model = profile.session_model(&auth.model)?;
     let session_meta = profile.session_meta(&controls.system_prompt, &session_model);
+    let reported_native_tools = controls.native_tools(profile);
     let locator_path = session_locator_path(harness, &auth.company, actor, responsibility)?;
     let prior_locator = read_session_locator(container, &locator_path).await?;
     if let Some(locator) = &prior_locator {
@@ -1580,7 +1628,12 @@ where
         .iter()
         .map(|arg| (*arg).to_string()),
     );
-    args.extend(profile.command_args(&auth.model, &auth.effort, &system_prompt_path));
+    args.extend(profile.command_args(
+        &auth.model,
+        &auth.effort,
+        &system_prompt_path,
+        &reported_native_tools,
+    ));
     let mut command = tokio::process::Command::new("docker");
     command
         .env(&auth.coordination_token_env, &auth.coordination_token)
@@ -1638,6 +1691,7 @@ where
     let responsibility = responsibility.to_string();
     let launch_auth = auth.clone();
     let launch_profile = profile;
+    let launch_native_tools = reported_native_tools.clone();
     let launch_session_model = session_model;
     let launch_session_meta = session_meta;
     let launch_container = container.to_string();
@@ -1994,7 +2048,7 @@ where
                 )
                 .await?;
                 let capabilities = serde_json::json!({
-                    "native_tools": launch_profile.native_tools(),
+                    "native_tools": launch_native_tools,
                     "native_agent_build": launch_profile.native_agent_build(),
                     "mcp_server_count": mcp_server_count,
                     "session_load": initialized.agent_capabilities.load_session,
@@ -2775,9 +2829,19 @@ mod tests {
         assert_eq!(controls.system_prompt, "You are a Restless actor.");
         assert!(controls.mcp_servers.is_empty());
         assert!(!controls.team_coordination_wake);
+        assert!(!controls.completion_only);
 
         let coordination = controls.for_team_coordination();
         assert!(coordination.team_coordination_wake);
+
+        let completion = AgentControls::company_actor("JSON only".into())
+            .unwrap()
+            .with_mcp_servers(vec![])
+            .completion_only();
+        assert!(completion.completion_only);
+        assert!(completion
+            .native_tools(AcpProfile::new(crate::runtime::AgentHarness::RestlessManaged).unwrap())
+            .is_empty());
     }
 
     #[test]
@@ -2797,6 +2861,7 @@ mod tests {
             "zai/glm-5.3-flash",
             "medium",
             "/tmp/restless-agent.system.md",
+            &OMP_AGENT_TOOLS.split(',').collect::<Vec<_>>(),
         );
         assert_eq!(args.first().map(String::as_str), Some("omp"));
         assert_eq!(args.last().map(String::as_str), Some("acp"));
@@ -2832,7 +2897,7 @@ mod tests {
         );
         assert!(profile.session_model("litellm/gpt-5.6-sol").is_err());
         assert_eq!(
-            profile.command_args("ignored", "high", "ignored"),
+            profile.command_args("ignored", "high", "ignored", &profile.native_tools()),
             ["claude-agent-acp"]
         );
         assert_eq!(

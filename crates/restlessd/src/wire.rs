@@ -26,6 +26,20 @@ pub(crate) struct CommonInput {
     pub(crate) resolution: Option<String>,
     #[serde(default)]
     pub(crate) limit: Option<i64>,
+    #[serde(default)]
+    pub(crate) responsibility_id: Option<String>,
+    #[serde(default)]
+    pub(crate) owner_epoch: Option<i64>,
+    #[serde(default)]
+    pub(crate) relation: Option<String>,
+    #[serde(default)]
+    pub(crate) evidence_refs: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub(crate) version: Option<i32>,
+    #[serde(default)]
+    pub(crate) objective: Option<String>,
+    #[serde(default)]
+    pub(crate) policy: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -44,6 +58,9 @@ pub(crate) struct LifecycleInput {
     /// company or task payload and is accepted only on the local-owner socket.
     #[serde(default)]
     pub(crate) adapter: Option<String>,
+    /// Bounded wait for a disposable schedule lifecycle probe.
+    #[serde(default)]
+    pub(crate) schedule_test_timeout_seconds: Option<u64>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -899,6 +916,19 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         "message" => &["from", "to", "id", "body"],
         "events" => &["limit"],
         "schedule-list" => &["as_actor", "include_fired"],
+        "schedule-test" => &["id", "schedule_test_timeout_seconds"],
+        "schedule-opportunities" => &["responsibility_id", "limit"],
+        "schedule-link-work" => &["id", "work_id", "owner_epoch", "relation", "as_actor"],
+        "schedule-outcome" => &[
+            "id",
+            "owner_epoch",
+            "state",
+            "reason",
+            "evidence_refs",
+            "as_actor",
+        ],
+        "schedule-responsibility-put" => &["id", "version", "objective", "policy"],
+        "schedule-responsibility-bind" => &["id", "responsibility_id", "version"],
         "schedule-history" => &["id", "limit"],
         "schedule-recover" => &["id", "fire_at", "as_actor", "from", "reason"],
         "schedule-retry-recovery" => &[
@@ -1203,6 +1233,9 @@ impl Principal {
 /// owner's review boundary. This is a finite V0 list, not a policy DSL.
 pub(crate) const OWNER_ONLY: &[&str] = &[
     "doctor-collaboration",
+    "schedule-test",
+    "schedule-responsibility-put",
+    "schedule-responsibility-bind",
     "approve",
     "decline",
     "revoke",
@@ -1235,10 +1268,20 @@ pub(crate) const OWNER_ONLY: &[&str] = &[
     "skill-assign",
 ];
 
+/// Actor-owned Opportunity mutations. The owner has a separate, future
+/// administrative path and cannot impersonate Exec through these commands.
+const COMPANY_EXEC_ONLY: &[&str] = &["schedule-link-work", "schedule-outcome"];
+
 pub(crate) fn authorize(principal: Principal, cmd: &str) -> std::result::Result<Principal, String> {
     if principal != Principal::Owner && OWNER_ONLY.contains(&cmd) {
         return Err(format!(
             "{cmd} is an act of owner authority; principal {} may not perform it",
+            principal.as_str()
+        ));
+    }
+    if principal != Principal::CompanyExec && COMPANY_EXEC_ONLY.contains(&cmd) {
+        return Err(format!(
+            "{cmd} is an actor-owned Opportunity mutation; principal {} may not perform it",
             principal.as_str()
         ));
     }

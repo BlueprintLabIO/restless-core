@@ -4,8 +4,25 @@ use super::*;
 use chrono::{Datelike as _, Days, LocalResult, NaiveDateTime, NaiveTime, TimeZone as _, Weekday};
 use chrono_tz::Tz;
 
-const SCHEDULE_COLUMNS: &str = "id, actor_id, work_id, reason, fire_at, fired_at, cancelled_at, recurrence, timezone, local_time, last_fired_at, missed_policy, catch_up_grace_seconds, last_missed_at, last_considered_at, machine_requirement, created_at, interval_seconds";
+const SCHEDULE_COLUMNS: &str = "id, actor_id, work_id, reason, fire_at, fired_at, cancelled_at, recurrence, timezone, local_time, last_fired_at, missed_policy, catch_up_grace_seconds, last_missed_at, last_considered_at, machine_requirement, created_at, interval_seconds, responsibility_id, responsibility_version";
 const MISSED_TOLERANCE_SECONDS: i64 = 30;
+const DEFAULT_OPPORTUNITY_WINDOW_SECONDS: i64 = 2 * 60 * 60;
+
+fn opportunity_window_seconds(policy: &serde_json::Value) -> Result<i64> {
+    let seconds = match policy.get("window_seconds") {
+        None => DEFAULT_OPPORTUNITY_WINDOW_SECONDS,
+        Some(value) => value.as_i64().ok_or_else(|| {
+            OrgIntelError::InvalidWork("responsibility window_seconds must be an integer".into())
+        })?,
+    };
+    if !(300..=604_800).contains(&seconds) {
+        return Err(OrgIntelError::InvalidWork(
+            "responsibility window_seconds must be between five minutes and seven days".into(),
+        ));
+    }
+    Ok(seconds)
+}
+const OPPORTUNITY_WAKE_ACK_SECONDS: i64 = 300;
 
 fn recurring_occurrence_should_fire(
     missed_policy: &str,
@@ -160,6 +177,605 @@ pub const MIN_INTERVAL_SECONDS: i32 = 300;
 pub const MAX_INTERVAL_SECONDS: i32 = 2_592_000;
 
 impl OrgIntel {
+    pub async fn get_opportunity(&self, opportunity_id: Uuid) -> Result<Option<OpportunityRow>> {
+        Ok(sqlx::query_as::<_, OpportunityRow>(
+            "SELECT id, actor_id, responsibility_id, responsibility_version, state, outcome, outcome_reason, \
+               evidence_refs, revision, owner_epoch, lease_owner, lease_expires_at, next_wake_at, \
+               deadline_at, last_progress_at, wake_message_id, wake_count, created_at, settled_at \
+             FROM opportunities WHERE id=$1",
+        )
+        .bind(opportunity_id)
+        .fetch_optional(&self.pool)
+        .await?)
+    }
+
+    pub async fn list_open_opportunities(&self) -> Result<Vec<OpportunityRow>> {
+        Ok(sqlx::query_as::<_, OpportunityRow>(
+            "SELECT id, actor_id, responsibility_id, responsibility_version, state, outcome, outcome_reason, \
+               evidence_refs, revision, owner_epoch, lease_owner, lease_expires_at, next_wake_at, \
+               deadline_at, last_progress_at, wake_message_id, wake_count, created_at, settled_at \
+             FROM opportunities WHERE state NOT IN ('completed','needs_human','blocked','cancelled') \
+             ORDER BY created_at, id",
+        )
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    pub async fn list_opportunities(
+        &self,
+        responsibility_id: Option<Uuid>,
+        limit: i64,
+    ) -> Result<Vec<OpportunityRow>> {
+        if !(1..=500).contains(&limit) {
+            return Err(OrgIntelError::InvalidWork(
+                "opportunity history limit must be between 1 and 500".into(),
+            ));
+        }
+        Ok(sqlx::query_as::<_, OpportunityRow>(
+            "SELECT id, actor_id, responsibility_id, responsibility_version, state, outcome, outcome_reason, \
+               evidence_refs, revision, owner_epoch, lease_owner, lease_expires_at, next_wake_at, \
+               deadline_at, last_progress_at, wake_message_id, wake_count, created_at, settled_at \
+             FROM opportunities WHERE ($1::uuid IS NULL OR responsibility_id=$1) \
+             ORDER BY created_at DESC, id LIMIT $2",
+        )
+        .bind(responsibility_id)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    pub async fn opportunity_for_wake_message(
+        &self,
+        message_id: i64,
+    ) -> Result<Option<OpportunityRow>> {
+        Ok(sqlx::query_as::<_, OpportunityRow>(
+            "SELECT id, actor_id, responsibility_id, responsibility_version, state, outcome, outcome_reason, \
+               evidence_refs, revision, owner_epoch, lease_owner, lease_expires_at, next_wake_at, \
+               deadline_at, last_progress_at, wake_message_id, wake_count, created_at, settled_at \
+             FROM opportunities WHERE wake_message_id=$1 OR id=(SELECT opportunity_id \
+               FROM schedule_occurrences WHERE wake_message_id=$1 LIMIT 1)",
+        )
+        .bind(message_id)
+        .fetch_optional(&self.pool)
+        .await?)
+    }
+
+    pub async fn list_opportunity_occurrences(
+        &self,
+        opportunity_id: Uuid,
+    ) -> Result<Vec<OpportunityOccurrenceLink>> {
+        Ok(sqlx::query_as::<_, OpportunityOccurrenceLink>(
+            "SELECT schedule_id, scheduled_for, opportunity_id, responsibility_id, \
+               responsibility_version, admission, wake_message_id FROM schedule_occurrences \
+             WHERE opportunity_id=$1 ORDER BY scheduled_for",
+        )
+        .bind(opportunity_id)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    pub async fn list_opportunity_work(
+        &self,
+        opportunity_id: Uuid,
+    ) -> Result<Vec<OpportunityWorkLink>> {
+        Ok(sqlx::query_as::<_, OpportunityWorkLink>(
+            "SELECT opportunity_id, work_id, linked_at, relation FROM opportunity_work \
+             WHERE opportunity_id=$1 ORDER BY linked_at, work_id",
+        )
+        .bind(opportunity_id)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    pub async fn link_opportunity_work(
+        &self,
+        opportunity_id: Uuid,
+        owner_epoch: i64,
+        work_id: Uuid,
+        relation: &str,
+        now: DateTime<Utc>,
+    ) -> Result<bool> {
+        if !matches!(relation, "primary" | "supporting") {
+            return Err(OrgIntelError::InvalidWork(
+                "opportunity Work relation must be primary or supporting".into(),
+            ));
+        }
+        let linked = sqlx::query(
+            "INSERT INTO opportunity_work (opportunity_id, work_id, relation) \
+             SELECT $1,$3,$4 WHERE EXISTS (SELECT 1 FROM opportunities WHERE id=$1 \
+               AND owner_epoch=$2 AND lease_expires_at > $5 \
+               AND state NOT IN ('completed','needs_human','blocked','cancelled')) \
+             ON CONFLICT (opportunity_id, work_id) DO NOTHING",
+        )
+        .bind(opportunity_id)
+        .bind(owner_epoch)
+        .bind(work_id)
+        .bind(relation)
+        .bind(now)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        if linked == 1 {
+            return Ok(true);
+        }
+        let exists = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (SELECT 1 FROM opportunity_work WHERE opportunity_id=$1 AND work_id=$2)",
+        )
+        .bind(opportunity_id)
+        .bind(work_id)
+        .fetch_one(&self.pool)
+        .await?;
+        if exists {
+            Ok(false)
+        } else {
+            Err(OrgIntelError::InvalidWork(
+                "current opportunity claim is required to link Work".into(),
+            ))
+        }
+    }
+
+    /// Re-deliver due opportunities after a lost or consumed wake. Each
+    /// delivery is committed with its inbox message and sequence number, so a
+    /// crash or repeated scan cannot emit the same retry twice. Expired
+    /// deadlines and wake budgets settle as blocked instead of looping forever.
+    pub async fn wake_due_opportunities_at(
+        &self,
+        now: DateTime<Utc>,
+    ) -> Result<Vec<OpportunityWake>> {
+        self.wake_due_opportunities_with_policy_at(now, 4, OPPORTUNITY_WAKE_ACK_SECONDS)
+            .await
+    }
+
+    pub async fn wake_due_opportunities_with_policy_at(
+        &self,
+        now: DateTime<Utc>,
+        max_wakes: i32,
+        retry_after_seconds: i64,
+    ) -> Result<Vec<OpportunityWake>> {
+        if !(1..=20).contains(&max_wakes) || !(1..=86_400).contains(&retry_after_seconds) {
+            return Err(OrgIntelError::InvalidWork(
+                "opportunity wake limits must be 1-20 deliveries and 1-86400 seconds backoff"
+                    .into(),
+            ));
+        }
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query_as::<_, OpportunityRow>(
+            "SELECT id, actor_id, responsibility_id, responsibility_version, state, outcome, outcome_reason, \
+               evidence_refs, revision, owner_epoch, lease_owner, lease_expires_at, next_wake_at, \
+               deadline_at, last_progress_at, wake_message_id, wake_count, created_at, settled_at \
+             FROM opportunities WHERE state NOT IN ('completed','needs_human','blocked','cancelled') \
+               AND ((lease_expires_at IS NULL AND next_wake_at <= $1) OR lease_expires_at <= $1 OR deadline_at <= $1) \
+             ORDER BY COALESCE(next_wake_at, lease_expires_at, deadline_at), created_at \
+             FOR UPDATE SKIP LOCKED",
+        )
+        .bind(now)
+        .fetch_all(&mut *tx)
+        .await?;
+        let mut results = Vec::with_capacity(rows.len());
+        for row in rows {
+            if row.deadline_at.is_some_and(|deadline| deadline <= now)
+                || row.wake_count >= max_wakes
+            {
+                let reason = if row.deadline_at.is_some_and(|deadline| deadline <= now) {
+                    "absolute outcome deadline expired"
+                } else {
+                    "bounded wake delivery budget exhausted"
+                };
+                let outcome = serde_json::json!({
+                    "reason": reason,
+                    "evidence_refs": [format!("orgintel://opportunities/{}", row.id)]
+                });
+                sqlx::query(
+                    "UPDATE opportunities SET state='blocked', outcome=$2, outcome_reason=$3, \
+                       evidence_refs=$2->'evidence_refs', settled_at=$4, last_progress_at=$4, \
+                       lease_owner=NULL, lease_expires_at=NULL, next_wake_at=NULL, revision=revision+1 \
+                     WHERE id=$1",
+                )
+                .bind(row.id)
+                .bind(&outcome)
+                .bind(reason)
+                .bind(now)
+                .execute(&mut *tx)
+                .await?;
+                // The watcher must not silently close a business obligation.
+                // Commit one addressed exception notice with the terminal
+                // state so a crash cannot lose the only actionable alert.
+                let room_id =
+                    ensure_direct_message_room_in_tx(&mut tx, "daemon", Some(&row.actor_id))
+                        .await?;
+                let message_id = sqlx::query_scalar::<_, i64>(
+                    "INSERT INTO messages (room_id,from_actor,to_actor,body) \
+                     VALUES ($1,'daemon',$2,$3) RETURNING id",
+                )
+                .bind(room_id)
+                .bind(&row.actor_id)
+                .bind(format!(
+                    "[OPPORTUNITY BLOCKED {}] {}. Inspect preserved Work and effects, then escalate one precise blocker. Do not replay external effects.",
+                    row.id, reason
+                ))
+                .fetch_one(&mut *tx)
+                .await?;
+                results.push(OpportunityWake {
+                    opportunity_id: row.id,
+                    sequence: row.wake_count,
+                    message_id: Some(message_id),
+                    state: "blocked".into(),
+                    settled: true,
+                });
+                continue;
+            }
+            let sequence = row.wake_count + 1;
+            let room_id =
+                ensure_direct_message_room_in_tx(&mut tx, "daemon", Some(&row.actor_id)).await?;
+            let message_id = sqlx::query_scalar::<_, i64>(
+                "INSERT INTO messages (room_id,from_actor,to_actor,body) VALUES ($1,'daemon',$2,$3) RETURNING id",
+            )
+            .bind(room_id)
+            .bind(&row.actor_id)
+            .bind(format!(
+                "[OPPORTUNITY RECOVERY {} SEQUENCE {}] The prior wake was not acknowledged before its lease or delivery window expired. Resume this responsibility from its durable checkpoint; inspect current facts before acting.",
+                row.id, sequence
+            ))
+            .fetch_one(&mut *tx)
+            .await?;
+            sqlx::query(
+                "INSERT INTO opportunity_wakes (opportunity_id, sequence, message_id, reason) \
+                 VALUES ($1,$2,$3,'expired lease or unacknowledged wake')",
+            )
+            .bind(row.id)
+            .bind(sequence)
+            .bind(message_id)
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query(
+                "UPDATE opportunities SET state='queued', wake_count=$2, wake_message_id=$3, \
+                   next_wake_at=$4, lease_owner=NULL, lease_expires_at=NULL, revision=revision+1 \
+                 WHERE id=$1",
+            )
+            .bind(row.id)
+            .bind(sequence)
+            .bind(message_id)
+            .bind(now + chrono::Duration::seconds(retry_after_seconds))
+            .execute(&mut *tx)
+            .await?;
+            results.push(OpportunityWake {
+                opportunity_id: row.id,
+                sequence,
+                message_id: Some(message_id),
+                state: row.state,
+                settled: false,
+            });
+        }
+        tx.commit().await?;
+        Ok(results)
+    }
+
+    /// Create an immutable responsibility version. Repeating the same exact
+    /// write is idempotent; attempting to reuse a version with changed intent
+    /// or policy is rejected.
+    pub async fn put_responsibility_version(
+        &self,
+        responsibility_id: Uuid,
+        version: i32,
+        objective: &str,
+        policy: serde_json::Value,
+    ) -> Result<()> {
+        if version <= 0 || objective.trim().is_empty() || !policy.is_object() {
+            return Err(OrgIntelError::InvalidWork(
+                "a responsibility version needs a positive version, objective, and policy object"
+                    .into(),
+            ));
+        }
+        opportunity_window_seconds(&policy)?;
+        let mut tx = self.pool.begin().await?;
+        sqlx::query(
+            "INSERT INTO responsibilities (id, current_version) VALUES ($1,$2) \
+             ON CONFLICT (id) DO NOTHING",
+        )
+        .bind(responsibility_id)
+        .bind(version)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO responsibility_versions (responsibility_id, version, objective, policy) \
+             VALUES ($1,$2,$3,$4) ON CONFLICT (responsibility_id, version) DO NOTHING",
+        )
+        .bind(responsibility_id)
+        .bind(version)
+        .bind(objective.trim())
+        .bind(&policy)
+        .execute(&mut *tx)
+        .await?;
+        let stored: (String, serde_json::Value) = sqlx::query_as(
+            "SELECT objective, policy FROM responsibility_versions WHERE responsibility_id=$1 AND version=$2",
+        )
+        .bind(responsibility_id)
+        .bind(version)
+        .fetch_one(&mut *tx)
+        .await?;
+        if stored.0 != objective.trim() || stored.1 != policy {
+            return Err(OrgIntelError::InvalidWork(
+                "responsibility versions are immutable; use a new version".into(),
+            ));
+        }
+        sqlx::query(
+            "UPDATE responsibilities SET current_version=$2 WHERE id=$1 AND current_version < $2",
+        )
+        .bind(responsibility_id)
+        .bind(version)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn get_responsibility_version(
+        &self,
+        responsibility_id: Uuid,
+        version: i32,
+    ) -> Result<Option<ResponsibilityVersionRow>> {
+        Ok(sqlx::query_as::<_, ResponsibilityVersionRow>(
+            "SELECT responsibility_id, version, objective, policy, created_at \
+             FROM responsibility_versions WHERE responsibility_id=$1 AND version=$2",
+        )
+        .bind(responsibility_id)
+        .bind(version)
+        .fetch_optional(&self.pool)
+        .await?)
+    }
+
+    /// Bind a not-yet-fired schedule to an immutable responsibility version.
+    pub async fn bind_schedule_responsibility(
+        &self,
+        schedule_id: Uuid,
+        responsibility_id: Uuid,
+        version: i32,
+    ) -> Result<()> {
+        let updated = sqlx::query(
+            "UPDATE schedules SET responsibility_id=$2, responsibility_version=$3 \
+             WHERE id=$1 AND actor_id='exec' AND fired_at IS NULL AND cancelled_at IS NULL \
+               AND EXISTS (SELECT 1 FROM responsibility_versions v \
+                 WHERE v.responsibility_id=$2 AND v.version=$3)",
+        )
+        .bind(schedule_id)
+        .bind(responsibility_id)
+        .bind(version)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        if updated != 1 {
+            return Err(OrgIntelError::InvalidWork(
+                "schedule must be live and responsibility version must exist".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Claim an unresolved opportunity with a fenced lease. Expired leases can
+    /// be reclaimed, incrementing the epoch so stale workers cannot settle it.
+    pub async fn claim_opportunity(
+        &self,
+        opportunity_id: Uuid,
+        worker_id: &str,
+        lease_seconds: i64,
+        now: DateTime<Utc>,
+    ) -> Result<Option<OpportunityClaim>> {
+        if worker_id.trim().is_empty() || lease_seconds <= 0 {
+            return Err(OrgIntelError::InvalidWork(
+                "opportunity claims need a worker id and positive lease".into(),
+            ));
+        }
+        Ok(sqlx::query_as::<_, OpportunityClaim>(
+            "UPDATE opportunities SET lease_owner=$2, lease_expires_at=$3, state='inspecting', \
+               next_wake_at=NULL, owner_epoch=owner_epoch+1, revision=revision+1 \
+             WHERE id=$1 AND state NOT IN ('completed','needs_human','blocked','cancelled') \
+               AND (lease_expires_at IS NULL OR lease_expires_at <= $4) \
+               AND (state <> 'waiting_retry' OR next_wake_at <= $4) \
+               AND (deadline_at IS NULL OR deadline_at > $4) \
+             RETURNING id AS opportunity_id, owner_epoch, lease_owner, lease_expires_at, state, revision",
+        )
+        .bind(opportunity_id)
+        .bind(worker_id.trim())
+        .bind(now + chrono::Duration::seconds(lease_seconds))
+        .bind(now)
+        .fetch_optional(&self.pool)
+        .await?)
+    }
+
+    /// Settle or advance an opportunity only for the current fenced owner.
+    /// Terminal outcomes are immutable and require an evidence-bearing object.
+    pub async fn settle_opportunity(
+        &self,
+        opportunity_id: Uuid,
+        owner_epoch: i64,
+        state: &str,
+        outcome: serde_json::Value,
+        now: DateTime<Utc>,
+    ) -> Result<OpportunityRow> {
+        let terminal = matches!(state, "completed" | "needs_human" | "blocked" | "cancelled");
+        let outcome_reason = outcome
+            .get("reason")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned);
+        let evidence_refs = outcome.get("evidence_refs").cloned();
+        if !matches!(
+            state,
+            "queued"
+                | "inspecting"
+                | "executing"
+                | "verifying"
+                | "recovering"
+                | "waiting_retry"
+                | "completed"
+                | "needs_human"
+                | "blocked"
+                | "cancelled"
+        ) || !outcome.is_object()
+            || (terminal
+                && (outcome
+                    .get("evidence_refs")
+                    .and_then(serde_json::Value::as_array)
+                    .is_none_or(|refs| refs.is_empty())
+                    || outcome
+                        .get("reason")
+                        .and_then(serde_json::Value::as_str)
+                        .is_none_or(str::is_empty)))
+        {
+            return Err(OrgIntelError::InvalidWork(
+                "opportunity state or evidence-bearing outcome is invalid".into(),
+            ));
+        }
+        if state == "waiting_retry"
+            && outcome
+                .get("next_wake_at")
+                .and_then(serde_json::Value::as_str)
+                .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+                .is_none_or(|value| value.with_timezone(&Utc) <= now)
+        {
+            return Err(OrgIntelError::InvalidWork(
+                "waiting_retry requires a future RFC3339 next_wake_at".into(),
+            ));
+        }
+        let mut tx = self.pool.begin().await?;
+        let opportunity = sqlx::query(
+            "SELECT id FROM opportunities WHERE id=$1 AND owner_epoch=$2 \
+               AND lease_expires_at > $3 AND state NOT IN ('completed','needs_human','blocked','cancelled') \
+             FOR UPDATE",
+        )
+        .bind(opportunity_id)
+        .bind(owner_epoch)
+        .bind(now)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if opportunity.is_none() {
+            return Err(OrgIntelError::InvalidWork(
+                "opportunity claim expired, was superseded, or already settled".into(),
+            ));
+        }
+        if terminal {
+            let refs = evidence_refs
+                .as_ref()
+                .and_then(serde_json::Value::as_array)
+                .expect("validated terminal evidence array");
+            let mut grounded_completion_evidence = false;
+            for evidence in refs {
+                let kind = evidence.get("kind").and_then(serde_json::Value::as_str);
+                let id = evidence
+                    .get("id")
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(|value| Uuid::parse_str(value).ok());
+                let exists = match (kind, id) {
+                    (Some("artifact_ref"), Some(id)) => {
+                        let exists: bool = sqlx::query_scalar(
+                            "SELECT EXISTS (SELECT 1 FROM artifact_refs ar WHERE ar.id=$1 \
+                               AND ar.state='available' AND ar.work_id IS NOT NULL AND EXISTS ( \
+                                 SELECT 1 FROM opportunity_work ow JOIN work w ON w.id=ow.work_id \
+                                 WHERE ow.opportunity_id=$2 AND ow.work_id=ar.work_id AND w.status='completed'))",
+                        )
+                        .bind(id)
+                        .bind(opportunity_id)
+                        .fetch_one(&mut *tx)
+                        .await?;
+                        grounded_completion_evidence |= exists;
+                        exists
+                    }
+                    (Some("work"), Some(id)) => {
+                        let is_completed: bool = sqlx::query_scalar(
+                            "SELECT EXISTS (SELECT 1 FROM opportunity_work ow JOIN work w ON w.id=ow.work_id \
+                               WHERE ow.opportunity_id=$1 AND ow.work_id=$2 AND w.status='completed')",
+                        )
+                        .bind(opportunity_id)
+                        .bind(id)
+                        .fetch_one(&mut *tx)
+                        .await?;
+                        grounded_completion_evidence |= is_completed;
+                        is_completed || sqlx::query_scalar::<_, bool>(
+                            "SELECT EXISTS (SELECT 1 FROM opportunity_work WHERE opportunity_id=$1 AND work_id=$2)",
+                        )
+                        .bind(opportunity_id)
+                        .bind(id)
+                        .fetch_one(&mut *tx)
+                        .await?
+                    }
+                    (Some("handoff"), Some(id)) => sqlx::query_scalar::<_, bool>(
+                        "SELECT EXISTS (SELECT 1 FROM owner_handoffs h JOIN opportunity_work ow ON ow.work_id=h.work_id \
+                           WHERE ow.opportunity_id=$1 AND h.id=$2)",
+                    )
+                    .bind(opportunity_id)
+                    .bind(id)
+                    .fetch_one(&mut *tx)
+                    .await?,
+                    (Some("schedule_occurrence"), _) => {
+                        let schedule_id = evidence
+                            .get("schedule_id")
+                            .and_then(serde_json::Value::as_str)
+                            .and_then(|value| Uuid::parse_str(value).ok());
+                        let scheduled_for = evidence
+                            .get("scheduled_for")
+                            .and_then(serde_json::Value::as_str)
+                            .and_then(|value| DateTime::parse_from_rfc3339(value).ok());
+                        if let (Some(schedule_id), Some(scheduled_for)) = (schedule_id, scheduled_for) {
+                            sqlx::query_scalar::<_, bool>(
+                                "SELECT EXISTS (SELECT 1 FROM schedule_occurrences WHERE opportunity_id=$1 \
+                                   AND schedule_id=$2 AND scheduled_for=$3)",
+                            )
+                            .bind(opportunity_id)
+                            .bind(schedule_id)
+                            .bind(scheduled_for.with_timezone(&Utc))
+                            .fetch_one(&mut *tx)
+                            .await?
+                        } else {
+                            false
+                        }
+                    }
+                    (Some("admin_action"), _) if state == "cancelled" => evidence
+                        .get("actor")
+                        .and_then(serde_json::Value::as_str)
+                        .is_some_and(|actor| !actor.trim().is_empty()),
+                    _ => false,
+                };
+                if !exists {
+                    return Err(OrgIntelError::InvalidWork(
+                        "terminal outcome references missing or unrelated evidence".into(),
+                    ));
+                }
+            }
+            if state == "completed" && !grounded_completion_evidence {
+                return Err(OrgIntelError::InvalidWork(
+                    "completed requires an available linked ArtifactRef or a completed linked Work"
+                        .into(),
+                ));
+            }
+        }
+        let row = sqlx::query_as::<_, OpportunityRow>(
+            "UPDATE opportunities SET state=$3, outcome=$4, outcome_reason=$7, evidence_refs=COALESCE($8,'[]'::jsonb), revision=revision+1, \
+               last_progress_at=$5, settled_at=CASE WHEN $6 THEN $5 ELSE NULL END, \
+               next_wake_at=CASE WHEN $3='waiting_retry' THEN ($4->>'next_wake_at')::timestamptz ELSE next_wake_at END, \
+               lease_owner=CASE WHEN $6 OR $3 IN ('queued','waiting_retry') THEN NULL ELSE lease_owner END, \
+               lease_expires_at=CASE WHEN $6 OR $3 IN ('queued','waiting_retry') THEN NULL ELSE lease_expires_at END \
+             WHERE id=$1 AND owner_epoch=$2 AND lease_expires_at > $5 \
+               AND state NOT IN ('completed','needs_human','blocked','cancelled') \
+             RETURNING id, actor_id, responsibility_id, responsibility_version, state, outcome, outcome_reason, evidence_refs, revision, \
+               owner_epoch, lease_owner, lease_expires_at, next_wake_at, deadline_at, \
+               last_progress_at, wake_message_id, wake_count, created_at, settled_at",
+        )
+        .bind(opportunity_id)
+        .bind(owner_epoch)
+        .bind(state)
+        .bind(outcome)
+        .bind(now)
+        .bind(terminal)
+        .bind(outcome_reason)
+        .bind(evidence_refs)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| OrgIntelError::InvalidWork(
+            "opportunity claim expired, was superseded, or already settled".into(),
+        ))?;
+        tx.commit().await?;
+        Ok(row)
+    }
+
     /// A durable interval time fact addressed to one actor (`/loop`). Repeating
     /// the same actor, interval and reason returns the existing live schedule.
     pub async fn add_interval_schedule(
@@ -434,6 +1050,19 @@ impl OrgIntel {
         .await?)
     }
 
+    pub async fn next_opportunity_due_at(&self) -> Result<Option<DateTime<Utc>>> {
+        Ok(sqlx::query_scalar::<_, Option<DateTime<Utc>>>(
+            "SELECT min(CASE \
+               WHEN deadline_at IS NOT NULL \
+                 AND (CASE WHEN lease_expires_at IS NOT NULL THEN lease_expires_at ELSE next_wake_at END IS NULL \
+                   OR deadline_at < CASE WHEN lease_expires_at IS NOT NULL THEN lease_expires_at ELSE next_wake_at END) THEN deadline_at \
+               ELSE CASE WHEN lease_expires_at IS NOT NULL THEN lease_expires_at ELSE next_wake_at END END) \
+             FROM opportunities WHERE state NOT IN ('completed','needs_human','blocked','cancelled')",
+        )
+        .fetch_one(&self.pool)
+        .await?)
+    }
+
     /// Frozen-clock entry for restart, sleep and DST corpus tests. Production
     /// calls [`Self::claim_due_schedules`] and supplies the real current time.
     pub async fn claim_due_schedules_at(&self, now: DateTime<Utc>) -> Result<Vec<ScheduleRow>> {
@@ -484,6 +1113,20 @@ impl OrgIntel {
                     .bind(superseded_count)
                     .execute(&mut *tx)
                     .await?;
+                    if let (Some(responsibility_id), Some(version)) =
+                        (row.responsibility_id, row.responsibility_version)
+                    {
+                        sqlx::query(
+                            "UPDATE schedule_occurrences SET responsibility_id=$3, responsibility_version=$4, admission='skipped' \
+                             WHERE schedule_id=$1 AND scheduled_for=$2",
+                        )
+                        .bind(row.id)
+                        .bind(original_fire_at)
+                        .bind(responsibility_id)
+                        .bind(version)
+                        .execute(&mut *tx)
+                        .await?;
+                    }
                     row.fire_at = latest;
                 }
             }
@@ -559,8 +1202,103 @@ impl OrgIntel {
                 continue;
             }
             if !should_fire {
+                if row.responsibility_id.is_some() {
+                    sqlx::query(
+                        "UPDATE schedule_occurrences SET admission='skipped', responsibility_id=$3, responsibility_version=$4 \
+                         WHERE schedule_id=$1 AND scheduled_for=$2",
+                    )
+                    .bind(row.id)
+                    .bind(row.fire_at)
+                    .bind(row.responsibility_id)
+                    .bind(row.responsibility_version)
+                    .execute(&mut *tx)
+                    .await?;
+                }
                 continue;
             }
+            let admitted_opportunity = if let (Some(responsibility_id), Some(version)) =
+                (row.responsibility_id, row.responsibility_version)
+            {
+                let policy = sqlx::query_scalar::<_, serde_json::Value>(
+                    "SELECT policy FROM responsibility_versions WHERE responsibility_id=$1 AND version=$2",
+                )
+                .bind(responsibility_id)
+                .bind(version)
+                .fetch_one(&mut *tx)
+                .await?;
+                let deadline_at =
+                    now + chrono::Duration::seconds(opportunity_window_seconds(&policy)?);
+                let candidate_id = Uuid::new_v4();
+                let created = sqlx::query_scalar::<_, Uuid>(
+                    "INSERT INTO opportunities (id, actor_id, responsibility_id, responsibility_version, next_wake_at, deadline_at) \
+                     VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING RETURNING id",
+                )
+                .bind(candidate_id)
+                .bind(&row.actor_id)
+                .bind(responsibility_id)
+                .bind(version)
+                .bind(now)
+                .bind(deadline_at)
+                .fetch_optional(&mut *tx)
+                .await?;
+                let (opportunity_id, is_new) = match created {
+                    Some(id) => (id, true),
+                    None => {
+                        let id = sqlx::query_scalar::<_, Uuid>(
+                            "SELECT id FROM opportunities WHERE responsibility_id=$1 \
+                             AND state NOT IN ('completed','needs_human','blocked','cancelled') \
+                             ORDER BY created_at LIMIT 1",
+                        )
+                        .bind(responsibility_id)
+                        .fetch_one(&mut *tx)
+                        .await?;
+                        (id, false)
+                    }
+                };
+                sqlx::query(
+                    "UPDATE opportunities SET next_wake_at=LEAST(COALESCE(next_wake_at,$2),$2), \
+                       revision=revision+CASE WHEN $3 THEN 0 ELSE 1 END \
+                     WHERE id=$1",
+                )
+                .bind(opportunity_id)
+                .bind(now)
+                .bind(is_new)
+                .execute(&mut *tx)
+                .await?;
+                sqlx::query(
+                    "UPDATE schedule_occurrences SET opportunity_id=$3, responsibility_id=$4, \
+                       responsibility_version=$5, admission=$6 \
+                     WHERE schedule_id=$1 AND scheduled_for=$2",
+                )
+                .bind(row.id)
+                .bind(row.fire_at)
+                .bind(opportunity_id)
+                .bind(responsibility_id)
+                .bind(version)
+                .bind(if is_new { "admitted" } else { "coalesced" })
+                .execute(&mut *tx)
+                .await?;
+                if let Some(work_id) = row.work_id {
+                    let has_primary: bool = sqlx::query_scalar(
+                        "SELECT EXISTS (SELECT 1 FROM opportunity_work WHERE opportunity_id=$1 AND relation='primary')",
+                    )
+                    .bind(opportunity_id)
+                    .fetch_one(&mut *tx)
+                    .await?;
+                    sqlx::query(
+                        "INSERT INTO opportunity_work (opportunity_id, work_id, relation) \
+                         VALUES ($1,$2,$3) ON CONFLICT (opportunity_id, work_id) DO NOTHING",
+                    )
+                    .bind(opportunity_id)
+                    .bind(work_id)
+                    .bind(if has_primary { "supporting" } else { "primary" })
+                    .execute(&mut *tx)
+                    .await?;
+                }
+                Some((opportunity_id, is_new))
+            } else {
+                None
+            };
             let released_work = if let Some(work_id) = row.work_id {
                 sqlx::query(
                     "UPDATE work SET status='active', resolution='time condition reached' \
@@ -577,7 +1315,7 @@ impl OrgIntel {
             } else {
                 false
             };
-            if !released_work {
+            if !released_work || admitted_opportunity.is_some() {
                 // Consume the time fact and create its recoverable actor wake
                 // in one transaction. A crash can therefore leave both
                 // pending or neither, never a fired schedule with no delivery.
@@ -590,19 +1328,52 @@ impl OrgIntel {
                 let room_id =
                     ensure_direct_message_room_in_tx(&mut tx, "daemon", Some(&row.actor_id))
                         .await?;
-                sqlx::query(
+                let wake_message_id = sqlx::query_scalar::<_, i64>(
                     "INSERT INTO messages (room_id,from_actor,to_actor,body) \
-                     VALUES ($1,'daemon',$2,$3)",
+                     VALUES ($1,'daemon',$2,$3) RETURNING id",
                 )
                 .bind(room_id)
                 .bind(&row.actor_id)
                 .bind(format!(
-                    "[SCHEDULE DUE {} AT {}] {}{}\n\nThis is a time-based opportunity to inspect current facts. It is not evidence that production is necessary or complete.",
+                    "[SCHEDULE DUE {} AT {}] {}{}{}\n\nThis is a time-based opportunity to inspect current facts. It is not evidence that production is necessary or complete.",
                     row.id, row.fire_at, row.reason,
-                    row.work_id.map(|id| format!("\nLinked Work: {id}")).unwrap_or_default()
+                    row.work_id.map(|id| format!("\nLinked Work: {id}")).unwrap_or_default(),
+                    admitted_opportunity.map(|(id, _)| format!("\nOpportunity: {id}")).unwrap_or_default()
                 ))
-                .execute(&mut *tx)
+                .fetch_one(&mut *tx)
                 .await?;
+                if let Some((opportunity_id, _)) = admitted_opportunity {
+                    sqlx::query(
+                        "UPDATE opportunities SET wake_message_id=COALESCE(wake_message_id,$2), \
+                           wake_count=CASE WHEN wake_count=0 THEN 1 ELSE wake_count END, \
+                           next_wake_at=CASE WHEN wake_count=0 THEN $3 ELSE next_wake_at END \
+                         WHERE id=$1",
+                    )
+                    .bind(opportunity_id)
+                    .bind(wake_message_id)
+                    .bind(now + chrono::Duration::seconds(OPPORTUNITY_WAKE_ACK_SECONDS))
+                    .execute(&mut *tx)
+                    .await?;
+                    sqlx::query(
+                        "INSERT INTO opportunity_wakes (opportunity_id, sequence, message_id, reason) \
+                         SELECT $1,1,$2,'scheduled occurrence admitted' WHERE \
+                           (SELECT wake_count FROM opportunities WHERE id=$1)=1 \
+                         ON CONFLICT DO NOTHING",
+                    )
+                    .bind(opportunity_id)
+                    .bind(wake_message_id)
+                    .execute(&mut *tx)
+                    .await?;
+                    sqlx::query(
+                        "UPDATE schedule_occurrences SET wake_message_id=$3 \
+                         WHERE schedule_id=$1 AND scheduled_for=$2",
+                    )
+                    .bind(row.id)
+                    .bind(row.fire_at)
+                    .bind(wake_message_id)
+                    .execute(&mut *tx)
+                    .await?;
+                }
             }
             row.last_considered_at = Some(now);
             claimed.push(row);

@@ -1,6 +1,6 @@
 # Sprint 55 — Portable company skills and native command translation
 
-**Status:** Draft for founder alignment
+**Status:** Implemented and smoked on 2026-09-23; live per-harness model runs of the corpus remain open (see ticket outline)
 **Programme:** none — standalone Runtime/OrgIntel capability sprint
 **Depends on:** current Runtime Bridge launch contract (§4.3), Goals, schedules and the Work graph;
 independent of the Sprint 54 release candidate
@@ -158,15 +158,46 @@ in-thread auto-continuation.
 
 ## Ticket outline
 
-- [ ] C55-T0 — canon: add "company skills" to `ARCHITECTURE.md` §4.3 and `docs/specs/company-runtime.md`,
-      and rename the doctrine sections now labelled `[shared skill]`
-- [ ] C55-T1 — skill-root resolver, `restless skill` CLI, and harness adapters with live probes (Runtime)
-- [ ] C55-T2 — translation preamble plus the built-in `gauntlet` and `code-review` skills (Runtime)
-- [ ] C55-T3 — skill library, assignments and candidate intake, including `.agents/skills` discovery (OrgIntel)
-- [ ] C55-T4 — message skill selections carried onto Work and Attempt context (OrgIntel/Runtime)
-- [ ] C55-T5 — `/goal` and `/loop` as native commands, with interval recurrence (OrgIntel)
-- [ ] C55-T6 — composer `/` and `$` menus, skill chip, activity label, Company → Skills (cockpit)
-- [ ] C55-T7 — compatibility corpus, per-harness status and purge (evaluation)
+- [x] C55-T0 — canon: `ARCHITECTURE.md` §4.3 and `docs/specs/company-runtime.md` §9.5 describe company
+      skills. Doctrine sections formerly labelled `[shared skill]` are now `[company doctrine]`.
+- [x] C55-T1 — one skill-root resolver (`restlessd::skill_package`), the `restless skill list | find |
+      show | use | add` CLI, and a daemon container scan that runs as a live probe. Every harness loads
+      skills through the CLI plus context. Native loading beyond OMP is still off until each harness
+      has a live probe (Claude Agent `Skill`, Hermes, OpenClaw and Codex are unchanged).
+- [x] C55-T2 — the shared translation contract (`crates/restlessd/skill-contract.md`) in the Exec,
+      lead and Staff prompts, plus the built-in `gauntlet` and `code-review` skills.
+- [x] C55-T3 — migration 0067: `skills`, `skill_assignments` and candidate intake. The library
+      observes project `.agents/skills` as candidates.
+- [x] C55-T4 — `message_skill_selections` pins digests on owner Messages, and `work add --skill` pins
+      them atomically on Work. Attempt context names the selected skills whatever harness runs them.
+- [x] C55-T5 — `/goal` (a Goal, closed with `/goal clear`, listed in the Exec context) and `/loop`
+      (an interval recurrence of 5 minutes to 30 days that coalesces missed slots).
+- [x] C55-T6 — composer `/` and `$` menus with removable skill chips, "Using <skill>" activity
+      labels, and Company → Skills.
+- [~] C55-T7 — `scripts/skill-compatibility-smoke` imports the pinned corpus
+      (`docs/skills/compatibility-corpus.json`) through the real `restless skill add` path and records
+      `docs/skills/compatibility-results.json`. The per-harness live model scenario (acceptance 9)
+      has not run yet. The Skills page therefore shows no per-harness status.
+
+## Evidence (2026-09-23)
+
+- `scripts/skill-compatibility-smoke`, run against an isolated daemon and PostgreSQL with the
+  installed runtime CLI in the company image. It passed: live library scan; list, find and use with
+  a recorded activation; `$skill` digests pinned on an owner Message, with unknown skills refused;
+  `work add --skill` atomic, with no Work created for an unusable skill; `/goal` created and
+  closed; `/loop` idempotent and cancellable (leads may loop, Staff may not); 9 public skills imported
+  as candidates usable only by their importer; upstream `code-review` refused because the built-in
+  supersedes it; owner acceptance of `grill-me` made it usable by others. Cleanup verified.
+- `crates/restless-orgintel/tests/company_skills.rs` passes on real PostgreSQL. It covers governed
+  selection, pinning across library change, atomic rollback, the interval coalescing loop and goal
+  closing.
+- Unit tests pass for the frontmatter/scan digest agreement, wire authorisation (skill trust
+  decisions are owner-only), Exec context (selected skills and open Goals), activity labels and the
+  web command parser.
+
+Known unrelated failures in the tree at the time of this run, all from concurrent uncommitted
+work: `actors_and_teams` (2 tests), `attention::ready_external_provider_handoff_uses_requested_action_url`,
+and the in-progress `StaffBrief` fields in `staff/execution.rs` test code.
 
 ## Deletion
 

@@ -120,8 +120,8 @@ export function execCanReceive(view: CockpitView | null): boolean {
 	return actorCanReceive(view, 'exec');
 }
 
-/** Conversation availability follows durable OrgIntel identity, not whether
- * that actor happens to have a model process running in this instant. */
+/** Conversation route availability follows durable OrgIntel identity. This is
+ * not a probe of ACP session health or whether a turn is running. */
 export function actorCanReceive(view: CockpitView | null, actorId: string): boolean {
 	if (!view || view.source_health.orgintel !== 'available') return false;
 	return (

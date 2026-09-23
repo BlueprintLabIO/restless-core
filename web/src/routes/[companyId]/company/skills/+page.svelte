@@ -22,7 +22,9 @@
 	const accepted = $derived(
 		library?.skills.filter((skill) => skill.disposition === 'accepted') ?? []
 	);
-	const retired = $derived(library?.skills.filter((skill) => skill.disposition === 'retired') ?? []);
+	const retired = $derived(
+		library?.skills.filter((skill) => skill.disposition === 'retired') ?? []
+	);
 
 	async function load() {
 		failure = '';
@@ -73,8 +75,16 @@
 		}
 	}
 
-	const decide = (skill: SkillRow, disposition: 'accepted' | 'retired' | 'candidate', done: string) =>
-		act(`${disposition}:${skill.name}`, () => setSkillDisposition(companyId, skill.name, disposition), done);
+	const decide = (
+		skill: SkillRow,
+		disposition: 'accepted' | 'retired' | 'candidate',
+		done: string
+	) =>
+		act(
+			`${disposition}:${skill.name}`,
+			() => setSkillDisposition(companyId, skill.name, disposition),
+			done
+		);
 
 	const toggleEveryone = (skill: SkillRow) =>
 		act(
@@ -106,7 +116,8 @@
 					class="btn small primary"
 					type="button"
 					disabled={!!busy}
-					onclick={() => void decide(skill, 'accepted', `${skillLabel(skill.name)} is now a company skill.`)}
+					onclick={() =>
+						void decide(skill, 'accepted', `${skillLabel(skill.name)} is now a company skill.`)}
 					>Accept</button
 				>
 				<button
@@ -188,7 +199,9 @@
 					{#each accepted as skill (skill.name)}{@render skillRow(skill)}{/each}
 				</ul>
 			{:else}
-				<p class="quiet-empty">No skills yet. Agents add them as they find methods worth keeping.</p>
+				<p class="quiet-empty">
+					No skills yet. Agents add them as they find methods worth keeping.
+				</p>
 			{/if}
 		</section>
 

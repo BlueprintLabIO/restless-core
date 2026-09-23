@@ -44,6 +44,7 @@
 		companyId,
 		membershipRole,
 		connected = false,
+		connectionStatus = 'unknown',
 		needsProvider = false,
 		contextLabel = 'Current screen',
 		focusAfterMessageId = 0,
@@ -61,13 +62,10 @@
 		turn?: ActiveAgentTurn | null;
 		companyId: string;
 		membershipRole: string;
-		/**
-		 * Whether the executive has a bound ACP runtime. This must come from a LIVE
-		 * probe of the runtime, never from configuration — "probe, never guess". Until
-		 * it is true the rail is glass-locked instead of implying that conversation is
-		 * available. Runtime/provider administration stays outside the owner cockpit.
-		 */
+		/** Whether this actor has a usable conversation route in the latest cockpit view. */
 		connected?: boolean;
+		/** Separates confirmed unavailability from an unknown or failed status read. */
+		connectionStatus?: 'unknown' | 'error' | 'unavailable' | 'available';
 		needsProvider?: boolean;
 		contextLabel?: string;
 		focusAfterMessageId?: number;
@@ -125,8 +123,11 @@
 	});
 
 	/* Returns a notice for commands handled without a message, or null to send. */
-	async function runCommand(text: string): Promise<{ notice?: string; error?: string; send: boolean }> {
-		const command = execConversation && membershipRole === 'owner' ? parseComposerCommand(text) : null;
+	async function runCommand(
+		text: string
+	): Promise<{ notice?: string; error?: string; send: boolean }> {
+		const command =
+			execConversation && membershipRole === 'owner' ? parseComposerCommand(text) : null;
 		if (!command) return { send: true };
 		switch (command.kind) {
 			case 'invalid':
@@ -164,7 +165,9 @@
 				return {
 					notice: loops.length
 						? loops
-								.map((loop) => `Every ${describeInterval(loop.interval_seconds ?? 0)}: ${loop.reason}`)
+								.map(
+									(loop) => `Every ${describeInterval(loop.interval_seconds ?? 0)}: ${loop.reason}`
+								)
 								.join(' · ')
 						: 'No loops are running. Start one with /loop 30m <what to check>.',
 					send: false
@@ -174,7 +177,9 @@
 				const loops = await listLoops(companyId);
 				await Promise.all(loops.map((loop) => cancelLoop(companyId, loop.id)));
 				return {
-					notice: loops.length ? `Stopped ${loops.length} loop${loops.length === 1 ? '' : 's'}.` : 'No loops were running.',
+					notice: loops.length
+						? `Stopped ${loops.length} loop${loops.length === 1 ? '' : 's'}.`
+						: 'No loops were running.',
 					send: false
 				};
 			}
@@ -304,7 +309,8 @@
 	async function submitAsk(event: SubmitEvent) {
 		event.preventDefault();
 		const text = composer.trim();
-		if (!text || sending || deciding || !onask || needsProvider) return;
+		if (!text || sending || deciding || !onask || needsProvider || connectionStatus !== 'available')
+			return;
 		scrollReset += 1;
 		sending = true;
 		askError = '';
@@ -474,22 +480,20 @@
 		{/if}
 
 		<div class="exr-panel">
-			{#if !connected && !needsProvider}
-				<div class="exr-lock">
-					<div class="exr-lock-card">
-						<span class="exr-lock-badge" aria-hidden="true"
-							><MatrixGlyph rows={GLYPHS.e} size={18} glow /></span
-						>
-						<h2 class="exr-lock-h">{participantRole} unavailable</h2>
-						<p class="exr-lock-p">
-							The company computer has not confirmed that {participantName} is reachable. Conversation
-							will open automatically when the live connection returns.
-						</p>
-						<p class="exr-lock-note">Connection is managed by the company computer.</p>
-					</div>
-				</div>
+			{#if !needsProvider && connectionStatus === 'unknown'}
+				<p class="exr-connection-notice" role="status">
+					Checking {participantName}'s conversation status…
+				</p>
+			{:else if !needsProvider && connectionStatus === 'error'}
+				<p class="exr-connection-notice" role="status">
+					Connection status could not be refreshed. Try again shortly.
+				</p>
+			{:else if !needsProvider && connectionStatus === 'unavailable'}
+				<p class="exr-connection-notice" role="status">
+					A conversation route for {participantName} is not available in the latest company status.
+				</p>
 			{/if}
-			<div class="exr-chat" inert={!connected && !needsProvider}>
+			<div class="exr-chat">
 				<div
 					class="exr-msgs"
 					bind:this={scrollEl}
@@ -570,7 +574,11 @@
 							bind:selectedSkills={composerSkills}
 							options={composerOptions}
 							actionLabel={turn ? 'Queue direction' : 'Send'}
-							disabled={!canOperate || sending || deciding || !onask}
+							disabled={!canOperate ||
+								sending ||
+								deciding ||
+								!onask ||
+								connectionStatus !== 'available'}
 							minlength={1}
 							placeholder={review || workContext
 								? 'Message the lead…'
@@ -724,8 +732,14 @@
 			animation: none;
 		}
 	}
-	.exr-panel > .exr-lock {
-		width: 100%;
+	.exr-connection-notice {
+		flex: none;
+		margin: 0;
+		padding: 9px 14px;
+		border-bottom: 1px solid var(--border-soft);
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+		line-height: 1.45;
 	}
 	.rail-back {
 		width: 34px;

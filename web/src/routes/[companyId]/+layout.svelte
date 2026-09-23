@@ -86,7 +86,14 @@
 					railActorId)
 	);
 	const railActorRole = $derived(focusedAttention ? 'Responsible lead' : 'Executive');
-	const railConnected = $derived(actorCanReceive(cockpit, railActorId));
+	const railConnectionStatus = $derived.by(() => {
+		if (!cockpit) return cockpitProjection.failure ? 'error' : 'unknown';
+		if (cockpit.source_health.orgintel !== 'available') return 'error';
+		const actorAvailable = actorCanReceive(cockpit, railActorId);
+		if (cockpitProjection.status === 'stale' && !actorAvailable) return 'error';
+		return actorAvailable ? 'available' : 'unavailable';
+	});
+	const railConnected = $derived(railConnectionStatus === 'available');
 	const companyComputerSurface = $derived(page.url.pathname === `/${companyId}/company/computer`);
 	const immersiveComputer = $derived(
 		(companyComputerSurface && page.url.searchParams.get('focus') === 'desktop') ||
@@ -243,6 +250,7 @@
 		{companyId}
 		membershipRole={principal?.membership_role ?? 'member'}
 		connected={railConnected}
+		connectionStatus={railConnectionStatus}
 		needsProvider={intelligence.view?.has_connections === false}
 		contextLabel={currentContext}
 		focusAfterMessageId={railConversation.focusAfterMessageId}

@@ -1049,8 +1049,7 @@ async fn run_turn(
 /// absent because graph facts own it. `waiting` is deliberately distinct from
 /// `continue`: a durable Staff completion/message will wake Exec, so polling
 /// would only spend money to rediscover that the job is still running.
-pub(crate) const TERMINATION_PROMPT: &str =
-    "The turn is ending now. Based on everything above, decide how the \
+pub(crate) const TERMINATION_PROMPT: &str = "The turn is ending now. Based on everything above, decide how the \
     work stands and answer with JSON only, no prose:\n\
     {\"decision\": \"continue\" | \"waiting\" | \"blocked\" | \"outcome_met\" | \"abandon\", \
      \"reason\": \"<one line>\"}\n\
@@ -1116,7 +1115,7 @@ async fn termination_decision(
         "termination decision unparseable; preserving completed work turn"
     );
     protocol_blocked(
-        "Exec completion protocol was malformed or ambiguous; the productive turn is preserved for accountable review",
+        "Exec completion protocol was malformed or ambiguous; no separately admitted effect-free correction session is available on this path, so the productive turn is preserved for accountable review",
     )
 }
 

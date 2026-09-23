@@ -5,12 +5,7 @@
  * files live in the company computer. `/goal` and `/loop` are Restless
  * primitives (a Goal and an Exec interval schedule), not harness features. */
 
-import type {
-	GoalRow,
-	ScheduleRow,
-	SkillAssignmentRow,
-	SkillRow
-} from './generated/orgintel';
+import type { GoalRow, ScheduleRow, SkillAssignmentRow, SkillRow } from './generated/orgintel';
 
 export type { SkillRow, SkillAssignmentRow };
 
@@ -182,7 +177,12 @@ export function addLoop(
 	company: string,
 	every: string,
 	prompt: string
-): Promise<{ schedule_id: string; interval_seconds: number; next_fire_at: string; created: boolean }> {
+): Promise<{
+	schedule_id: string;
+	interval_seconds: number;
+	next_fire_at: string;
+	created: boolean;
+}> {
 	return call(company, '/loops', { method: 'POST', body: JSON.stringify({ every, prompt }) });
 }
 

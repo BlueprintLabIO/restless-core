@@ -1145,6 +1145,87 @@ enum TeamCommand {
 
 #[derive(Subcommand)]
 enum ScheduleCommand {
+    /// Trigger one selected schedule in a disposable company and verify scheduler admission only.
+    Test {
+        /// Live source company whose schedule is copied into the disposable test company.
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        /// Exact source schedule UUID to exercise.
+        #[arg(long)]
+        schedule: String,
+        /// Maximum time to wait for the durable Opportunity admission.
+        #[arg(long, default_value_t = 30)]
+        timeout_seconds: u64,
+    },
+    /// Read the durable responsibility opportunity lifecycle.
+    Opportunities {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        /// Limit results to one responsibility UUID.
+        #[arg(long)]
+        responsibility: Option<String>,
+        #[arg(long, default_value_t = 50)]
+        limit: i64,
+    },
+    /// Link existing Work to an Opportunity held under the supplied lease epoch.
+    LinkWork {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[arg(long)]
+        opportunity: String,
+        #[arg(long)]
+        work: String,
+        #[arg(long)]
+        owner_epoch: i64,
+        #[arg(long = "as")]
+        as_actor: Option<String>,
+        /// primary or supporting.
+        #[arg(long, default_value = "primary")]
+        relation: String,
+    },
+    /// Settle the currently claimed Opportunity with an explicit evidence-backed outcome.
+    Outcome {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[arg(long)]
+        opportunity: String,
+        #[arg(long)]
+        owner_epoch: i64,
+        /// completed, needs_human, blocked, cancelled, or an active lifecycle state.
+        #[arg(long)]
+        state: String,
+        #[arg(long)]
+        reason: String,
+        /// Evidence reference as KIND:UUID; repeat for multiple references. Use admin_action:UUID only for explicit cancellation.
+        #[arg(long = "evidence", required = true)]
+        evidence_refs: Vec<String>,
+        #[arg(long = "as")]
+        as_actor: Option<String>,
+    },
+    /// Create an immutable versioned responsibility from a JSON policy file.
+    ResponsibilityPut {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[arg(long)]
+        responsibility: String,
+        #[arg(long)]
+        version: i32,
+        #[arg(long)]
+        objective: String,
+        #[arg(long)]
+        policy_file: PathBuf,
+    },
+    /// Bind a live Exec schedule to an existing responsibility version.
+    ResponsibilityBind {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[arg(long)]
+        schedule: String,
+        #[arg(long)]
+        responsibility: String,
+        #[arg(long)]
+        version: i32,
+    },
     /// Inspect pending schedules, or include already fired/cancelled history.
     List {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
@@ -3276,6 +3357,82 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             }),
         },
         Command::Schedule { command } => match command {
+            ScheduleCommand::Test {
+                company,
+                schedule,
+                timeout_seconds,
+            } => serde_json::json!({
+                "cmd": "schedule-test", "company": company,
+                "id": schedule, "schedule_test_timeout_seconds": timeout_seconds,
+            }),
+            ScheduleCommand::Opportunities {
+                company,
+                responsibility,
+                limit,
+            } => serde_json::json!({
+                "cmd": "schedule-opportunities", "company": company,
+                "responsibility_id": responsibility, "limit": limit,
+            }),
+            ScheduleCommand::LinkWork {
+                company,
+                opportunity,
+                work,
+                owner_epoch,
+                as_actor,
+                relation,
+            } => serde_json::json!({
+                "cmd": "schedule-link-work", "company": company,
+                "id": opportunity, "work_id": work, "owner_epoch": owner_epoch,
+                "relation": relation, "as_actor": as_actor.unwrap_or_else(acting_actor),
+            }),
+            ScheduleCommand::Outcome {
+                company,
+                opportunity,
+                owner_epoch,
+                state,
+                reason,
+                evidence_refs,
+                as_actor,
+            } => {
+                let as_actor = as_actor.unwrap_or_else(acting_actor);
+                serde_json::json!({
+                    "cmd": "schedule-outcome", "company": company,
+                    "id": opportunity, "owner_epoch": owner_epoch,
+                    "state": state, "reason": reason,
+                    "evidence_refs": parse_schedule_evidence_refs(&evidence_refs, &as_actor)?,
+                    "as_actor": as_actor,
+                })
+            }
+            ScheduleCommand::ResponsibilityPut {
+                company,
+                responsibility,
+                version,
+                objective,
+                policy_file,
+            } => {
+                let policy_text = std::fs::read_to_string(&policy_file)
+                    .with_context(|| format!("read {}", policy_file.display()))?;
+                let policy: serde_json::Value = serde_json::from_str(&policy_text)
+                    .with_context(|| format!("parse JSON policy {}", policy_file.display()))?;
+                anyhow::ensure!(
+                    policy.is_object(),
+                    "responsibility policy must be a JSON object"
+                );
+                serde_json::json!({
+                    "cmd": "schedule-responsibility-put", "company": company,
+                    "id": responsibility, "version": version, "objective": objective,
+                    "policy": policy,
+                })
+            }
+            ScheduleCommand::ResponsibilityBind {
+                company,
+                schedule,
+                responsibility,
+                version,
+            } => serde_json::json!({
+                "cmd": "schedule-responsibility-bind", "company": company,
+                "id": schedule, "responsibility_id": responsibility, "version": version,
+            }),
             ScheduleCommand::List {
                 company,
                 as_actor,
@@ -4237,6 +4394,38 @@ fn live_planes() -> Vec<PlaneRecord> {
     }
     planes.sort_by(|a, b| a.root.cmp(&b.root));
     planes
+}
+
+fn parse_schedule_evidence_refs(values: &[String], actor: &str) -> Result<Vec<serde_json::Value>> {
+    values
+        .iter()
+        .map(|value| {
+            let mut parts = value.splitn(3, ':');
+            let kind = parts.next().unwrap_or_default();
+            let first = parts.next().context("evidence must use KIND:UUID")?;
+            match kind {
+                "artifact_ref" | "work" | "handoff" => {
+                    anyhow::ensure!(!first.trim().is_empty(), "{kind} evidence UUID is empty");
+                    Ok(serde_json::json!({ "kind": kind, "id": first }))
+                }
+                "schedule_occurrence" => {
+                    let scheduled_for = parts
+                        .next()
+                        .context("schedule_occurrence evidence must use schedule_occurrence:SCHEDULE_UUID:RFC3339")?;
+                    anyhow::ensure!(!first.trim().is_empty(), "schedule UUID is empty");
+                    anyhow::ensure!(scheduled_for.contains('T'), "scheduled_for must be RFC3339");
+                    Ok(serde_json::json!({
+                        "kind": kind, "schedule_id": first, "scheduled_for": scheduled_for,
+                    }))
+                }
+                "admin_action" => {
+                    anyhow::ensure!(!first.trim().is_empty(), "admin_action evidence ID is empty");
+                    Ok(serde_json::json!({ "kind": kind, "actor": actor, "id": first }))
+                }
+                _ => anyhow::bail!("unsupported evidence kind {kind:?}; use artifact_ref, work, handoff, or schedule_occurrence"),
+            }
+        })
+        .collect()
 }
 
 /// Signal 0 asks the kernel whether the pid exists without delivering

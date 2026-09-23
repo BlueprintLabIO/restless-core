@@ -5,11 +5,12 @@
 //! then supervise its actor. Time conditions live in `schedules`, not event
 //! prose, and every notification is merely a hint to reread canonical rows.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::Result;
+use chrono::Utc;
 use restless_orgintel::{OrgIntel, WorkAttemptState};
 use tokio_util::sync::CancellationToken;
 
@@ -328,6 +329,13 @@ async fn next_due_delay(daemon: &Arc<Daemon>) -> Duration {
                 }),
             );
         }
+        if let Ok(Some(next)) = org.next_opportunity_due_at().await {
+            earliest = Some(
+                earliest.map_or(next, |current: chrono::DateTime<chrono::Utc>| {
+                    current.min(next)
+                }),
+            );
+        }
     }
     match earliest {
         Some(due) if due <= now => Duration::from_millis(50),
@@ -420,6 +428,9 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
     // dispatch between occurrence settlement and wake delivery is needed.
     if let Err(error) = org.claim_due_schedules().await {
         tracing::warn!(company, "could not claim due schedules: {error:#}");
+    }
+    if let Err(error) = org.wake_due_opportunities_at(Utc::now()).await {
+        tracing::warn!(company, "could not redeliver due opportunities: {error:#}");
     }
 
     // What the Exec is owed is a durable fact about the exact owed thing, not a
@@ -791,6 +802,76 @@ async fn run_exec_turn_with_lease(
         &owner_actor_id,
         human_is_membership_owner,
     );
+    // A schedule wake is an invitation to take custody of one durable
+    // Opportunity. Claim it before the model sees the message. An old worker
+    // cannot settle a newer claim, and an already-settled wake is consumed
+    // without asking the actor to repeat business work.
+    let mut claimed_opportunities = Vec::new();
+    let mut seen_opportunities = HashSet::new();
+    let mut available_inbox = Vec::with_capacity(conversation_inbox.len());
+    for message in conversation_inbox {
+        if message.from_actor == "daemon" {
+            if let Some(opportunity) = org.opportunity_for_wake_message(message.id).await? {
+                if opportunity.settled_at.is_some() {
+                    org.mark_read(message.id).await?;
+                    continue;
+                }
+                if seen_opportunities.insert(opportunity.id) {
+                    match org
+                        .claim_opportunity(opportunity.id, "exec", 4 * 60 * 60, Utc::now())
+                        .await?
+                    {
+                        Some(claim) => claimed_opportunities.push(claim),
+                        None => {
+                            // The prior claim is still owned or a retry is
+                            // delayed. Keep this inbox row owed for recovery.
+                            continue;
+                        }
+                    }
+                } else if !claimed_opportunities.iter().any(
+                    |claim: &restless_orgintel::OpportunityClaim| {
+                        claim.opportunity_id == opportunity.id
+                    },
+                ) {
+                    continue;
+                }
+            }
+        }
+        available_inbox.push(message);
+    }
+    let conversation_inbox = available_inbox;
+    let mut opportunity_context = Vec::new();
+    for claim in &claimed_opportunities {
+        let Some(opportunity) = org.get_opportunity(claim.opportunity_id).await? else {
+            anyhow::bail!("claimed opportunity disappeared before Exec execution");
+        };
+        let version = org
+            .get_responsibility_version(
+                opportunity.responsibility_id,
+                opportunity.responsibility_version,
+            )
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("claimed responsibility version disappeared"))?;
+        opportunity_context.push(format!(
+            "Opportunity {} is claimed at epoch {}. Objective: {}. Authority and limits: {}. Inspect current state. Link any Work with `restless schedule link-work -c {} --opportunity {} --work <WORK_UUID> --owner-epoch {}`. Once the business outcome is supported, record it with `restless schedule outcome -c {} --opportunity {} --owner-epoch {} --state <completed|needs_human|blocked> --reason <REASON> --evidence work:<LINKED_WORK_UUID>` (or a real handoff/artifact reference). A completed agent turn alone does not complete the Opportunity.",
+            claim.opportunity_id,
+            claim.owner_epoch,
+            version.objective,
+            version.policy,
+            config.name,
+            claim.opportunity_id,
+            claim.owner_epoch,
+            config.name,
+            claim.opportunity_id,
+            claim.owner_epoch,
+        ));
+    }
+    let opportunity_context = opportunity_context.join("\n");
+    let reason = if opportunity_context.is_empty() {
+        reason.to_string()
+    } else {
+        format!("{reason}\n\n{opportunity_context}")
+    };
     let mut message_ids = Vec::new();
     let mut owner_message_ids = Vec::new();
     for message in &conversation_inbox {
@@ -836,7 +917,7 @@ async fn run_exec_turn_with_lease(
         &daemon.capabilities,
         &daemon.runtime_bridges,
         org,
-        reason,
+        &reason,
         &owner_actor_id,
         human_is_membership_owner,
         &conversation_inbox,
@@ -846,6 +927,42 @@ async fn run_exec_turn_with_lease(
         cancellation,
     )
     .await;
+
+    // Execution and settlement are distinct. If the actor did useful work but
+    // failed to declare a verifiable Opportunity outcome, retain every effect
+    // and Work record, then redeliver a bounded judgement wake later. Never
+    // infer business completion from a parseable turn termination alone.
+    for claim in &claimed_opportunities {
+        match org.get_opportunity(claim.opportunity_id).await {
+            Ok(Some(current)) if current.settled_at.is_some() => {}
+            Ok(Some(current))
+                if current.owner_epoch == claim.owner_epoch && current.lease_owner.is_some() =>
+            {
+                let next_wake_at = Utc::now() + chrono::Duration::minutes(30);
+                let settlement = serde_json::json!({
+                    "reason": "Actor execution ended without a durable opportunity outcome; inspect preserved Work and effects before continuing.",
+                    "evidence_refs": [format!("opportunity://{}", claim.opportunity_id)],
+                    "next_wake_at": next_wake_at,
+                });
+                if let Err(error) = org
+                    .settle_opportunity(
+                        claim.opportunity_id,
+                        claim.owner_epoch,
+                        "waiting_retry",
+                        settlement,
+                        Utc::now(),
+                    )
+                    .await
+                {
+                    tracing::warn!(opportunity_id = %claim.opportunity_id, %error, "could not defer unsettled opportunity");
+                }
+            }
+            Ok(_) => {}
+            Err(error) => {
+                tracing::warn!(opportunity_id = %claim.opportunity_id, %error, "could not inspect opportunity after Exec turn")
+            }
+        }
+    }
 
     if cancellation.is_cancelled() {
         if pending_mention.is_some() {

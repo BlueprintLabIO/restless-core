@@ -50,6 +50,7 @@ mod runtime;
 mod runtime_bridge;
 mod runtime_mode;
 mod schedule;
+mod schedule_test;
 mod skills;
 mod spend;
 mod staff;
@@ -1401,6 +1402,8 @@ fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Result
         | "work-abandon"
         | "judgement"
         | "schedule-list"
+        | "schedule-link-work"
+        | "schedule-outcome"
         | "schedule-add"
         | "schedule-policy"
         | "schedule-cancel"
@@ -4147,6 +4150,206 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             },
             _ => Response::err("message needs from and body"),
         },
+        "schedule-test" => {
+            let schedule_id = match parse_required_uuid(request.common.id.as_deref(), "schedule id") {
+                Ok(id) => id,
+                Err(error) => return Response::err(error),
+            };
+            match schedule_test::run(
+                daemon,
+                company,
+                schedule_id,
+                request.lifecycle.schedule_test_timeout_seconds.unwrap_or(30),
+            )
+            .await
+            {
+                Ok(report) => Response::ok(report),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "schedule-opportunities" => {
+            let responsibility_id = match parse_optional_uuid(
+                request.common.responsibility_id.as_deref(),
+                "responsibility id",
+            ) {
+                Ok(value) => value,
+                Err(error) => return Response::err(error),
+            };
+            let limit = request.common.limit.unwrap_or(50).clamp(1, 200);
+            match daemon.orgintel.get(company).await {
+                Ok(org) => match org.list_opportunities(responsibility_id, limit).await {
+                    Ok(opportunities) => {
+                        let mut projection = Vec::with_capacity(opportunities.len());
+                        for opportunity in opportunities {
+                            let work = match org.list_opportunity_work(opportunity.id).await {
+                                Ok(links) => links,
+                                Err(error) => return Response::err(format!("{error:#}")),
+                            };
+                            let occurrences = match org
+                                .list_opportunity_occurrences(opportunity.id)
+                                .await
+                            {
+                                Ok(links) => links,
+                                Err(error) => return Response::err(format!("{error:#}")),
+                            };
+                            projection.push(serde_json::json!({
+                                "opportunity": opportunity,
+                                "work": work,
+                                "occurrences": occurrences,
+                            }));
+                        }
+                        Response::ok(serde_json::json!({ "opportunities": projection }))
+                    }
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "schedule-link-work" => {
+            let opportunity_id = match parse_required_uuid(request.common.id.as_deref(), "opportunity id") {
+                Ok(id) => id,
+                Err(error) => return Response::err(error),
+            };
+            let work_id = match parse_required_uuid(request.connected_tool.work_id.as_deref(), "Work id") {
+                Ok(id) => id,
+                Err(error) => return Response::err(error),
+            };
+            let Some(owner_epoch) = request.common.owner_epoch else {
+                return Response::err("schedule-link-work needs owner_epoch");
+            };
+            let actor = request.common.as_actor.as_deref().unwrap_or("exec");
+            let relation = request.common.relation.as_deref().unwrap_or("primary");
+            match daemon.orgintel.get(company).await {
+                Ok(org) => {
+                    match org.get_opportunity(opportunity_id).await {
+                        Ok(Some(current)) if current.lease_owner.as_deref() == Some(actor) => {}
+                        Ok(Some(_)) => return Response::err("schedule-link-work actor does not own the current Opportunity lease"),
+                        Ok(None) => return Response::err("opportunity does not exist"),
+                        Err(error) => return Response::err(format!("{error:#}")),
+                    }
+                    match org
+                        .link_opportunity_work(opportunity_id, owner_epoch, work_id, relation, chrono::Utc::now())
+                        .await
+                    {
+                        Ok(linked) => Response::ok(serde_json::json!({
+                            "opportunity_id": opportunity_id,
+                            "work_id": work_id,
+                            "relation": relation,
+                            "linked": linked,
+                            "owner_epoch": owner_epoch,
+                            "actor": actor,
+                        })),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    }
+                }
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "schedule-outcome" => {
+            let opportunity_id = match parse_required_uuid(request.common.id.as_deref(), "opportunity id") {
+                Ok(id) => id,
+                Err(error) => return Response::err(error),
+            };
+            let Some(owner_epoch) = request.common.owner_epoch else {
+                return Response::err("schedule-outcome needs owner_epoch");
+            };
+            let Some(state) = request.common.state.as_deref() else {
+                return Response::err("schedule-outcome needs state");
+            };
+            if !matches!(state, "completed" | "needs_human" | "blocked" | "cancelled") {
+                return Response::err("schedule-outcome state must be completed|needs_human|blocked|cancelled");
+            }
+            let Some(reason) = request.common.reason.as_deref() else {
+                return Response::err("schedule-outcome needs reason");
+            };
+            let refs = request.common.evidence_refs;
+            let actor = request.common.as_actor.as_deref().unwrap_or("owner");
+            let outcome = serde_json::json!({
+                "reason": reason,
+                "evidence_refs": refs,
+                "settled_by": actor,
+            });
+            match daemon.orgintel.get(company).await {
+                Ok(org) => {
+                    match org.get_opportunity(opportunity_id).await {
+                        Ok(Some(current)) if current.lease_owner.as_deref() == Some(actor) => {}
+                        Ok(Some(_)) => return Response::err("schedule-outcome actor does not own the current Opportunity lease"),
+                        Ok(None) => return Response::err("opportunity does not exist"),
+                        Err(error) => return Response::err(format!("{error:#}")),
+                    }
+                    match org
+                        .settle_opportunity(opportunity_id, owner_epoch, state, outcome, chrono::Utc::now())
+                        .await
+                    {
+                        Ok(opportunity) => Response::ok_serialized(opportunity),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    }
+                }
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "schedule-responsibility-put" => {
+            let responsibility_id = match parse_required_uuid(request.common.id.as_deref(), "responsibility id") {
+                Ok(id) => id,
+                Err(error) => return Response::err(error),
+            };
+            let Some(version) = request.common.version else {
+                return Response::err("schedule-responsibility-put needs version");
+            };
+            let Some(objective) = request.common.objective.as_deref() else {
+                return Response::err("schedule-responsibility-put needs objective");
+            };
+            let Some(policy) = request.common.policy else {
+                return Response::err("schedule-responsibility-put needs policy");
+            };
+            match daemon.orgintel.get(company).await {
+                Ok(org) => match org
+                    .put_responsibility_version(responsibility_id, version, objective, policy.clone())
+                    .await
+                {
+                    Ok(()) => Response::ok(serde_json::json!({
+                        "responsibility_id": responsibility_id,
+                        "version": version,
+                        "objective": objective,
+                        "policy": policy,
+                        "immutable": true,
+                    })),
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "schedule-responsibility-bind" => {
+            let schedule_id = match parse_required_uuid(request.common.id.as_deref(), "schedule id") {
+                Ok(id) => id,
+                Err(error) => return Response::err(error),
+            };
+            let responsibility_id = match parse_required_uuid(
+                request.common.responsibility_id.as_deref(),
+                "responsibility id",
+            ) {
+                Ok(id) => id,
+                Err(error) => return Response::err(error),
+            };
+            let Some(version) = request.common.version else {
+                return Response::err("schedule-responsibility-bind needs version");
+            };
+            match daemon.orgintel.get(company).await {
+                Ok(org) => match org
+                    .bind_schedule_responsibility(schedule_id, responsibility_id, version)
+                    .await
+                {
+                    Ok(()) => Response::ok(serde_json::json!({
+                        "schedule_id": schedule_id,
+                        "responsibility_id": responsibility_id,
+                        "version": version,
+                        "bound": true,
+                    })),
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
         "schedule-list" => match daemon.orgintel.get(company).await {
             Ok(org) => match org
                 .list_schedules(

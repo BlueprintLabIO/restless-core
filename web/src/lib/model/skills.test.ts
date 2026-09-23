@@ -48,7 +48,9 @@ test('$ offers only skills and hides ones already selected', () => {
 	);
 	assert.equal(filterComposerOptions(options, '/', 'g')[0].name, 'goal');
 	assert.deepEqual(
-		filterComposerOptions(options, '$', '', ['gauntlet']).map((option: ComposerOption) => option.name),
+		filterComposerOptions(options, '$', '', ['gauntlet']).map(
+			(option: ComposerOption) => option.name
+		),
 		['grill-me']
 	);
 });

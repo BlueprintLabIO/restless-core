@@ -19,6 +19,7 @@ mod actors;
 mod artifacts;
 mod attempts;
 mod colleague_names;
+mod completion_repairs;
 mod constitution;
 mod culture;
 mod documents;
@@ -40,6 +41,7 @@ mod work_collaboration;
 
 pub use access::*;
 pub use actor_context::*;
+pub use completion_repairs::*;
 pub use documents::*;
 pub use events::EventReplayPage;
 pub use invocations::*;

@@ -1,0 +1,121 @@
+{
+  "image": "restless-company-runtime:skills-sprint55-smoke",
+  "observed_at": "2026-09-23T04:50:15.742888+00:00",
+  "skills": [
+    {
+      "name": "frontend-design",
+      "source": "https://github.com/anthropics/skills#skills/frontend-design",
+      "ref": "34040c9c568585f6929bedeaad110ad08f079624",
+      "expect": "candidate",
+      "digest": "d91970639e9f5c37682ac7ab60094d35f1c7c1f38d731bd56396563aee10c1d3",
+      "has_scripts": false,
+      "translations": [],
+      "result": "candidate; usable by importer only"
+    },
+    {
+      "name": "webapp-testing",
+      "source": "https://github.com/anthropics/skills#skills/webapp-testing",
+      "ref": "34040c9c568585f6929bedeaad110ad08f079624",
+      "expect": "candidate",
+      "digest": "51b7349e77ec63b7744a6f63647e7566a0b4d2e301121cc10e8c2113af6556a2",
+      "has_scripts": true,
+      "translations": [],
+      "result": "candidate; usable by importer only"
+    },
+    {
+      "name": "grill-me",
+      "source": "https://github.com/mattpocock/skills#skills/productivity/grill-me",
+      "ref": "c55ee46073ed923f86ce59a5eb3b6d895095d1b7",
+      "expect": "candidate",
+      "digest": "caaf8b8de1684f96e26b28f3c29189db5c89cce4b73e1c93d86164f66ef88637",
+      "has_scripts": false,
+      "translations": [
+        "ask the user -> owner conversation"
+      ],
+      "result": "candidate; usable by importer only"
+    },
+    {
+      "name": "implement",
+      "source": "https://github.com/mattpocock/skills#skills/engineering/implement",
+      "ref": "c55ee46073ed923f86ce59a5eb3b6d895095d1b7",
+      "expect": "candidate",
+      "digest": "6d3fd9e83b8f36e5213854779db49b256a457a7ebb4a503e53fa7dcff696adc3",
+      "has_scripts": false,
+      "translations": [
+        "other skill -> restless skill use"
+      ],
+      "result": "candidate; usable by importer only"
+    },
+    {
+      "name": "code-review",
+      "source": "https://github.com/mattpocock/skills#skills/engineering/code-review",
+      "ref": "c55ee46073ed923f86ce59a5eb3b6d895095d1b7",
+      "expect": "superseded",
+      "result": "refused: company already has code-review"
+    },
+    {
+      "name": "gauntlet-loop",
+      "source": "https://github.com/duolahypercho/gauntlet-loop#skills/gauntlet-loop",
+      "ref": "b63fbb6e86c03cf348c7fc30f32b500d2005061f",
+      "expect": "candidate",
+      "digest": "18e89d3c422b995f647fbe846204ed4c14ae733d37681a43c0fb6d20703dfea2",
+      "has_scripts": false,
+      "translations": [
+        "sub-agents -> commissioned Work",
+        "blind critic -> independent review",
+        "/goal -> Goal + Work",
+        "/loop -> interval schedule",
+        "other skill -> restless skill use"
+      ],
+      "result": "candidate; usable by importer only"
+    },
+    {
+      "name": "find-skills",
+      "source": "https://github.com/vercel-labs/skills#skills/find-skills",
+      "ref": "7407f3893ad4dceab546ac002c3ef806e4000c73",
+      "expect": "candidate",
+      "digest": "c00eeea0e13e74fe4a9d84ba0a8542205a1b736d65f13134fe1a6647eb14976f",
+      "has_scripts": false,
+      "translations": [
+        "external installer -> restless skill add"
+      ],
+      "result": "candidate; usable by importer only"
+    },
+    {
+      "name": "vercel-react-best-practices",
+      "source": "https://github.com/vercel-labs/agent-skills#skills/react-best-practices",
+      "ref": "063bee94c3f4df8453406c830b0a7df0f2860278",
+      "expect": "candidate",
+      "digest": "71ed7794962fa6e803ee83030517b5b93a9f70fbfeb431ec4535c5480a8d8355",
+      "has_scripts": false,
+      "translations": [
+        "other skill -> restless skill use"
+      ],
+      "result": "candidate; usable by importer only"
+    },
+    {
+      "name": "remotion-best-practices",
+      "source": "https://github.com/remotion-dev/skills#skills/remotion-best-practices",
+      "ref": "9682e994989f951c75912fbc49aa10332a512685",
+      "expect": "candidate",
+      "digest": "f39eab0d39e1c5f068b37e61096dba38ed534df80233ac865116704c31a5221f",
+      "has_scripts": true,
+      "translations": [
+        "other skill -> restless skill use"
+      ],
+      "result": "candidate; usable by importer only"
+    },
+    {
+      "name": "caveman",
+      "source": "https://github.com/juliusbrussee/caveman#skills/caveman",
+      "ref": "2fd153c67988e980fb0b2455c90832159a6a5a25",
+      "expect": "candidate",
+      "digest": "0bf09a0a9a017d004a81d4b693e5a2d830e1a28230a5885df773e1ed9c0571cc",
+      "has_scripts": false,
+      "translations": [
+        "other skill -> restless skill use"
+      ],
+      "result": "candidate; usable by importer only"
+    }
+  ]
+}

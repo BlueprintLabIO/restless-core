@@ -95,7 +95,8 @@
 		menu = null;
 		queueMicrotask(() => {
 			inputEl?.focus();
-			const caret = option.kind === 'skill' ? before.length : before.length + (option.insert ?? '').length;
+			const caret =
+				option.kind === 'skill' ? before.length : before.length + (option.insert ?? '').length;
 			inputEl?.setSelectionRange(caret, caret);
 		});
 	}
@@ -318,7 +319,11 @@
 
 <div class="hc">
 	{#if menu && menuItems.length > 0}
-		<div class="hc-menu" role="listbox" aria-label={menu.trigger === '$' ? 'Skills' : 'Commands and skills'}>
+		<div
+			class="hc-menu"
+			role="listbox"
+			aria-label={menu.trigger === '$' ? 'Skills' : 'Commands and skills'}
+		>
 			{#each menuItems as option, index (option.kind + option.name)}
 				<button
 					type="button"
@@ -362,7 +367,10 @@
 		{#if selectedSkills.length > 0}
 			<div class="hc-skills" aria-label="Selected skills">
 				{#each selectedSkills as skill (skill)}
-					<span class="hc-skill" title={optionDescription(skill) || `Apply the ${skillLabel(skill)} skill`}>
+					<span
+						class="hc-skill"
+						title={optionDescription(skill) || `Apply the ${skillLabel(skill)} skill`}
+					>
 						<span>{skillLabel(skill)}</span>
 						<button
 							type="button"

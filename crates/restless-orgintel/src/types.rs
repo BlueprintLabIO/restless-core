@@ -1009,6 +1009,88 @@ pub struct ScheduleRow {
     pub created_at: DateTime<Utc>,
     /// Present only for an interval recurrence (`/loop`).
     pub interval_seconds: Option<i32>,
+    pub responsibility_id: Option<Uuid>,
+    pub responsibility_version: Option<i32>,
+}
+
+/// Durable objective admitted by a schedule occurrence. `owner_epoch` fences
+/// workers after a lease expires or another worker takes ownership.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct OpportunityRow {
+    pub id: Uuid,
+    pub actor_id: String,
+    pub responsibility_id: Uuid,
+    pub responsibility_version: i32,
+    pub state: String,
+    pub outcome: Option<serde_json::Value>,
+    pub outcome_reason: Option<String>,
+    pub evidence_refs: serde_json::Value,
+    pub revision: i64,
+    pub owner_epoch: i64,
+    pub lease_owner: Option<String>,
+    pub lease_expires_at: Option<DateTime<Utc>>,
+    pub next_wake_at: Option<DateTime<Utc>>,
+    pub deadline_at: Option<DateTime<Utc>>,
+    pub last_progress_at: Option<DateTime<Utc>>,
+    pub wake_message_id: Option<i64>,
+    pub wake_count: i32,
+    pub created_at: DateTime<Utc>,
+    pub settled_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct ResponsibilityVersionRow {
+    pub responsibility_id: Uuid,
+    pub version: i32,
+    pub objective: String,
+    pub policy: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct OpportunityWake {
+    pub opportunity_id: Uuid,
+    pub sequence: i32,
+    pub message_id: Option<i64>,
+    pub state: String,
+    pub settled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct OpportunityClaim {
+    pub opportunity_id: Uuid,
+    pub owner_epoch: i64,
+    pub lease_owner: String,
+    pub lease_expires_at: DateTime<Utc>,
+    pub state: String,
+    pub revision: i64,
+}
+
+#[derive(Debug, Clone, Serialize, ts_rs::TS)]
+pub struct OpportunityAdmission {
+    pub opportunity_id: Uuid,
+    pub created: bool,
+    pub occurrence_created: bool,
+    pub disposition: String,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct OpportunityOccurrenceLink {
+    pub schedule_id: Uuid,
+    pub scheduled_for: DateTime<Utc>,
+    pub opportunity_id: Option<Uuid>,
+    pub responsibility_id: Option<Uuid>,
+    pub responsibility_version: Option<i32>,
+    pub admission: Option<String>,
+    pub wake_message_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct OpportunityWorkLink {
+    pub opportunity_id: Uuid,
+    pub work_id: Uuid,
+    pub linked_at: DateTime<Utc>,
+    pub relation: String,
 }
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
