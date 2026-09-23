@@ -127,7 +127,7 @@ and can change the direction together.
 **Change the approach; keep the learning goal.** For example:
 
 ```mermaid
-flowchart LR
+flowchart TB
     goal["Goal<br/>Help students understand fractions"]
     first["Worker prepares<br/>a practice worksheet"]
     feedback["Tutor observes<br/>students need worked examples"]
