@@ -1207,6 +1207,22 @@ impl OrgIntel {
         }
         let id = Uuid::new_v4();
         let mut tx = self.pool.begin().await?;
+        // A time dependency may pause unfinished Work, but must never reopen
+        // historical Work or leave a schedule pointing at a missing Work row.
+        let paused = sqlx::query(
+            "UPDATE work SET status='blocked', resolution=$2 WHERE id=$1 \
+             AND status IN ('proposed','active','blocked')",
+        )
+        .bind(work_id)
+        .bind(format!("waiting for schedule {id}: {reason}"))
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if paused != 1 {
+            return Err(OrgIntelError::InvalidWork(
+                "a Work time dependency requires existing, unsettled Work".into(),
+            ));
+        }
         // Misfire policies apply only to recurring schedules. Keep one-shot
         // rows inside the durable schedule constraint without implying a
         // catch-up window that is never consulted for them.
@@ -1222,11 +1238,6 @@ impl OrgIntel {
         .bind(fire_at)
         .execute(&mut *tx)
         .await?;
-        sqlx::query("UPDATE work SET status='blocked', resolution=$2 WHERE id=$1")
-            .bind(work_id)
-            .bind(format!("waiting for schedule {id}: {reason}"))
-            .execute(&mut *tx)
-            .await?;
         tx.commit().await?;
         Ok(id)
     }

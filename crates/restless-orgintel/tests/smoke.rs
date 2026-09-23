@@ -703,6 +703,19 @@ async fn company_schema_round_trip() {
         org.get_work(judgement_work).await.unwrap().unwrap().status,
         WorkStatus::Completed
     );
+    assert!(org
+        .add_work_release_schedule(
+            "delivery-build",
+            judgement_work,
+            "completed Work must remain historical",
+            Utc::now(),
+        )
+        .await
+        .is_err());
+    assert_eq!(
+        org.get_work(judgement_work).await.unwrap().unwrap().status,
+        WorkStatus::Completed
+    );
     org.add_work_release_schedule("delivery-build", owner_work, "wait for opening", Utc::now())
         .await
         .unwrap();
