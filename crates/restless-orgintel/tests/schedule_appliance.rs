@@ -13,6 +13,33 @@ fn at(value: &str) -> DateTime<Utc> {
         .with_timezone(&Utc)
 }
 
+async fn weekday_responsibility(
+    org: &OrgIntel,
+    reason: &str,
+    local_time: NaiveTime,
+    after: DateTime<Utc>,
+    missed_policy: &str,
+    grace: Option<i64>,
+    requirement: &str,
+) -> (uuid::Uuid, DateTime<Utc>, bool) {
+    org.create_weekday_schedule_with_responsibility(
+        "ops-research",
+        reason,
+        local_time,
+        "Australia/Sydney",
+        after,
+        missed_policy,
+        grace,
+        requirement,
+        uuid::Uuid::new_v4(),
+        1,
+        reason,
+        serde_json::json!({ "window_seconds": 7_200 }),
+    )
+    .await
+    .unwrap()
+}
+
 #[tokio::test]
 async fn appliance_misfires_are_bounded_exact_and_honest_about_local_execution() {
     let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
@@ -31,18 +58,16 @@ async fn appliance_misfires_are_bounded_exact_and_honest_about_local_execution()
 
     // S2/S5/S8/S11: one bounded catch-up. A second or backwards-clock wake
     // observes the advanced durable identity and cannot deliver it again.
-    let (catch_up, original, _) = org
-        .add_weekday_schedule_with_policy(
-            "ops-research",
-            "bounded catch-up",
-            local_time,
-            "Australia/Sydney",
-            first_window,
-            "catch_up_once",
-            Some(400_000),
-        )
-        .await
-        .unwrap();
+    let (catch_up, original, _) = weekday_responsibility(
+        &org,
+        "bounded catch-up",
+        local_time,
+        first_window,
+        "catch_up_once",
+        Some(400_000),
+        "local_mac",
+    )
+    .await;
     assert_eq!(org.claim_due_schedules_at(resume).await.unwrap().len(), 1);
     assert!(org.claim_due_schedules_at(resume).await.unwrap().is_empty());
     assert!(org
@@ -56,18 +81,16 @@ async fn appliance_misfires_are_bounded_exact_and_honest_about_local_execution()
     assert_eq!(catch_up_occurrences[0].disposition, "fired");
 
     // S6: a late occurrence is terminally visible but creates no actor wake.
-    let (skipped, _, _) = org
-        .add_weekday_schedule_with_policy(
-            "ops-research",
-            "skip stale work",
-            local_time,
-            "Australia/Sydney",
-            first_window,
-            "skip_if_late",
-            Some(60),
-        )
-        .await
-        .unwrap();
+    let (skipped, _, _) = weekday_responsibility(
+        &org,
+        "skip stale work",
+        local_time,
+        first_window,
+        "skip_if_late",
+        Some(60),
+        "local_mac",
+    )
+    .await;
     assert!(org.claim_due_schedules_at(resume).await.unwrap().is_empty());
     let skipped_occurrences = org.list_schedule_occurrences(skipped, 20).await.unwrap();
     assert_eq!(skipped_occurrences.len(), 1);
@@ -80,18 +103,16 @@ async fn appliance_misfires_are_bounded_exact_and_honest_about_local_execution()
 
     // S7/S8: however long the downtime, coalescing writes one compressed
     // skipped range and executes only the latest useful occurrence.
-    let (coalesced, _, _) = org
-        .add_weekday_schedule_with_policy(
-            "ops-research",
-            "latest useful view",
-            local_time,
-            "Australia/Sydney",
-            first_window,
-            "coalesce_latest",
-            Some(86_400),
-        )
-        .await
-        .unwrap();
+    let (coalesced, _, _) = weekday_responsibility(
+        &org,
+        "latest useful view",
+        local_time,
+        first_window,
+        "coalesce_latest",
+        Some(86_400),
+        "local_mac",
+    )
+    .await;
     assert_eq!(org.claim_due_schedules_at(resume).await.unwrap().len(), 1);
     let coalesced_occurrences = org.list_schedule_occurrences(coalesced, 20).await.unwrap();
     assert_eq!(coalesced_occurrences.len(), 2);
@@ -110,18 +131,16 @@ async fn appliance_misfires_are_bounded_exact_and_honest_about_local_execution()
     assert_eq!(range.superseded_count, 3);
 
     // S9: cancellation wins over a late wake.
-    let (cancelled, _, _) = org
-        .add_weekday_schedule_with_policy(
-            "ops-research",
-            "cancel before wake",
-            local_time,
-            "Australia/Sydney",
-            first_window,
-            "catch_up_once",
-            Some(400_000),
-        )
-        .await
-        .unwrap();
+    let (cancelled, _, _) = weekday_responsibility(
+        &org,
+        "cancel before wake",
+        local_time,
+        first_window,
+        "catch_up_once",
+        Some(400_000),
+        "local_mac",
+    )
+    .await;
     assert!(org
         .cancel_schedule(cancelled, "ops-research", "the opportunity ended")
         .await
@@ -135,19 +154,16 @@ async fn appliance_misfires_are_bounded_exact_and_honest_about_local_execution()
 
     // S12: the laptop must never claim an always-on workload. It remains due
     // and visible for the Cloud runner under the same schedule identity.
-    let (always_on, _, _) = org
-        .add_weekday_schedule_with_policy_and_requirement(
-            "ops-research",
-            "requires continuous availability",
-            local_time,
-            "Australia/Sydney",
-            first_window,
-            "coalesce_latest",
-            Some(86_400),
-            "always_on",
-        )
-        .await
-        .unwrap();
+    let (always_on, _, _) = weekday_responsibility(
+        &org,
+        "requires continuous availability",
+        local_time,
+        first_window,
+        "coalesce_latest",
+        Some(86_400),
+        "always_on",
+    )
+    .await;
     assert!(org.claim_due_schedules_at(resume).await.unwrap().is_empty());
     let due = org
         .list_schedules(Some("ops-research"), false)

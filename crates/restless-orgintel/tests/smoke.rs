@@ -748,25 +748,40 @@ async fn company_schema_round_trip() {
 
     let recurring_after = Utc::now() - chrono::Duration::days(10);
     let recurring_time = chrono::NaiveTime::from_hms_opt(9, 0, 0).unwrap();
+    let recurring_responsibility = uuid::Uuid::new_v4();
     let (recurring_schedule, first_fire, created) = org
-        .add_weekday_schedule(
+        .create_weekday_schedule_with_responsibility(
             "delivery-build",
             "inspect the daily operating opportunity",
             recurring_time,
             "Australia/Sydney",
             recurring_after,
+            "catch_up_once",
+            Some(86_400),
+            "local_mac",
+            recurring_responsibility,
+            1,
+            "inspect the daily operating opportunity",
+            serde_json::json!({ "window_seconds": 7_200 }),
         )
         .await
         .unwrap();
     assert!(created);
     assert!(first_fire < Utc::now());
     let (same_schedule, same_fire, created_again) = org
-        .add_weekday_schedule(
+        .create_weekday_schedule_with_responsibility(
             "delivery-build",
             "inspect the daily operating opportunity",
             recurring_time,
             "Australia/Sydney",
             recurring_after,
+            "catch_up_once",
+            Some(86_400),
+            "local_mac",
+            recurring_responsibility,
+            1,
+            "inspect the daily operating opportunity",
+            serde_json::json!({ "window_seconds": 7_200 }),
         )
         .await
         .unwrap();
