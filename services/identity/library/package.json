@@ -3,8 +3,12 @@
   "version": "1.0.0",
   "description": "Restless identity issuer rules, membership admin API and metadata (ADR 0012). Dependency-free; hosts supply Better Auth, Placement and a membership Store.",
   "type": "module",
+  "types": "./issuer.d.ts",
   "exports": {
-    ".": "./issuer.mjs"
+    ".": {
+      "types": "./issuer.d.ts",
+      "default": "./issuer.mjs"
+    }
   },
   "engines": {
     "node": ">=24"

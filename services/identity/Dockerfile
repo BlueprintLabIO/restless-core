@@ -18,7 +18,7 @@ RUN groupadd --system --gid 10001 restless-identity \
 
 # The dependency-free issuer library another host mounts (ADR 0012). Restless
 # Cloud copies this directory from the image by digest.
-COPY library/package.json /opt/restless/issuer/package.json
+COPY library/package.json library/issuer.d.ts /opt/restless/issuer/
 COPY src/issuer.mjs /opt/restless/issuer/issuer.mjs
 
 # The self-hosted host.

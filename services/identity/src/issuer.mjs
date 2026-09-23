@@ -95,7 +95,7 @@ export function authorizeChange(viewer, change, target) {
  * @param options.store          {
  *   membership(companyId, userId) -> { membership_id, organization_id, role, status, ending } | null,
  *   members(companyId, organizationId) -> [{ membership_id, name, email, role, status, version, ending }],
- *   change(companyId, membershipId, change, { actorUserId, authorize }) -> { ending },
+ *   change(companyId, membershipId, change, { actorUserId, headers, authorize }) -> { ending },
  * }
  * @param options.invitationLink (invitationId) -> absolute URL the invitee opens to accept
  */
@@ -230,6 +230,7 @@ export function createIssuer({ auth, origin, placement, store, invitationLink })
     const change = verb === "role" ? { verb, role: input.role } : { verb };
     return store.change(companyId, membershipId, change, {
       actorUserId: user.id,
+      headers: sessionHeaders(request),
       authorize: (target) => authorizeChange(viewer, change, target),
     });
   }
