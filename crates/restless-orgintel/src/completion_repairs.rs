@@ -1,8 +1,8 @@
 //! Durable bounded admission for completion-envelope-only corrections.
 //!
-//! This ledger counts reservations before a correction provider call. It is
-//! deliberately keyed to the Work Attempt so a resumed model session cannot
-//! reset its repair allowance.
+//! This ledger counts reservations before a correction provider call. Rows
+//! retain Attempt-level provenance, while admission counts across the parent
+//! Work so a new Attempt cannot reset the repair allowance.
 
 use serde::Serialize;
 use sha2::{Digest as _, Sha256};
@@ -20,6 +20,7 @@ pub enum CompletionRepairDecision {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CompletionRepairBudget {
+    pub work_id: Uuid,
     pub attempt_id: Uuid,
     pub repairs_total: i32,
     pub repairs_for_fingerprint: i32,
@@ -54,6 +55,21 @@ impl OrgIntel {
         }
         let fingerprint = fingerprint.to_ascii_lowercase();
         let mut tx = self.pool.begin().await?;
+        let work_id =
+            sqlx::query_scalar::<_, Uuid>("SELECT work_id FROM work_attempts WHERE id=$1")
+                .bind(attempt_id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or_else(|| {
+                    OrgIntelError::InvalidWork("completion repair Attempt does not exist".into())
+                })?;
+        // All Attempts of one Work share a budget. Lock the Work row before
+        // reading counts so concurrent corrections on different Attempts
+        // cannot each consume the final slot.
+        sqlx::query("SELECT id FROM work WHERE id=$1 FOR UPDATE")
+            .bind(work_id)
+            .fetch_one(&mut *tx)
+            .await?;
         sqlx::query(
             "INSERT INTO completion_protocol_repair_budgets (attempt_id) VALUES ($1) \
              ON CONFLICT (attempt_id) DO NOTHING",
@@ -63,10 +79,11 @@ impl OrgIntel {
         .await?;
 
         let total: i32 = sqlx::query_scalar(
-            "SELECT repairs_total FROM completion_protocol_repair_budgets \
-             WHERE attempt_id=$1 FOR UPDATE",
+            "SELECT COALESCE(SUM(b.repairs_total),0)::integer \
+             FROM completion_protocol_repair_budgets b \
+             JOIN work_attempts a ON a.id=b.attempt_id WHERE a.work_id=$1",
         )
-        .bind(attempt_id)
+        .bind(work_id)
         .fetch_one(&mut *tx)
         .await?;
         let prior_command: Option<(Uuid, String)> = sqlx::query_as(
@@ -82,24 +99,25 @@ impl OrgIntel {
                     "completion repair command id was reused for a different reservation".into(),
                 ));
             }
-            let per_fingerprint =
-                current_fingerprint_count(&mut tx, attempt_id, &fingerprint).await?;
+            let per_fingerprint = current_fingerprint_count(&mut tx, work_id, &fingerprint).await?;
             tx.commit().await?;
             return Ok((
                 CompletionRepairDecision::AlreadyReserved,
                 CompletionRepairBudget {
+                    work_id,
                     attempt_id,
                     repairs_total: total,
                     repairs_for_fingerprint: per_fingerprint,
                 },
             ));
         }
-        let per_fingerprint = current_fingerprint_count(&mut tx, attempt_id, &fingerprint).await?;
+        let per_fingerprint = current_fingerprint_count(&mut tx, work_id, &fingerprint).await?;
         if total >= max_total || per_fingerprint >= max_per_fingerprint {
             tx.commit().await?;
             return Ok((
                 CompletionRepairDecision::LimitReached,
                 CompletionRepairBudget {
+                    work_id,
                     attempt_id,
                     repairs_total: total,
                     repairs_for_fingerprint: per_fingerprint,
@@ -136,6 +154,7 @@ impl OrgIntel {
         Ok((
             CompletionRepairDecision::Admitted,
             CompletionRepairBudget {
+                work_id,
                 attempt_id,
                 repairs_total: total + 1,
                 repairs_for_fingerprint: per_fingerprint + 1,
@@ -146,14 +165,16 @@ impl OrgIntel {
 
 async fn current_fingerprint_count(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    attempt_id: Uuid,
+    work_id: Uuid,
     fingerprint: &str,
 ) -> Result<i32> {
     Ok(sqlx::query_scalar(
-        "SELECT repairs FROM completion_protocol_repair_fingerprints \
-         WHERE attempt_id=$1 AND failure_fingerprint_sha256=$2",
+        "SELECT COALESCE(SUM(f.repairs),0)::integer \
+         FROM completion_protocol_repair_fingerprints f \
+         JOIN work_attempts a ON a.id=f.attempt_id \
+         WHERE a.work_id=$1 AND f.failure_fingerprint_sha256=$2",
     )
-    .bind(attempt_id)
+    .bind(work_id)
     .bind(fingerprint)
     .fetch_optional(&mut **tx)
     .await?

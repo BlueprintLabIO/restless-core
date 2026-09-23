@@ -929,7 +929,8 @@ impl StaffDrive {
         if budget_decision != CompletionRepairDecision::Admitted {
             return CompletionRepairOutcome::Blocked(
                 format!(
-                    "completion protocol repair was not dispatched ({budget_decision:?}); Work Attempt has {} of 4 total repairs and {} of 2 for this failure fingerprint",
+                    "completion protocol repair was not dispatched ({budget_decision:?}); Work {} has {} of 4 total repairs and {} of 2 for this failure fingerprint",
+                    budget.work_id,
                     budget.repairs_total, budget.repairs_for_fingerprint
                 ),
                 None,

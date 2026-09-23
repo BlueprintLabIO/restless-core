@@ -154,6 +154,22 @@ async fn company_schema_round_trip() {
     .await
     .unwrap();
     let attempt = org.claim_ready_work("smoke").await.unwrap().unwrap();
+    let malformed_fingerprint =
+        restless_orgintel::completion_failure_fingerprint("malformed envelope");
+    let (repair_decision, _) = org
+        .reserve_completion_protocol_repair(
+            attempt.attempt_id,
+            uuid::Uuid::new_v4(),
+            &malformed_fingerprint,
+            1,
+            2,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        repair_decision,
+        restless_orgintel::CompletionRepairDecision::Admitted
+    );
     assert!(org
         .add_work_edge(review, work, WorkEdgeKind::Requires)
         .await
@@ -283,6 +299,24 @@ async fn company_schema_round_trip() {
         .unwrap();
     assert_eq!(second.work.id, work);
     assert_eq!(second.work.revision, 2);
+    let (repair_decision, repair_budget) = org
+        .reserve_completion_protocol_repair(
+            second.attempt_id,
+            uuid::Uuid::new_v4(),
+            &malformed_fingerprint,
+            1,
+            2,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        repair_decision,
+        restless_orgintel::CompletionRepairDecision::LimitReached,
+        "a new Attempt of the same Work must not reset the failure allowance"
+    );
+    assert_eq!(repair_budget.work_id, work);
+    assert_eq!(repair_budget.repairs_total, 1);
+    assert_eq!(repair_budget.repairs_for_fingerprint, 1);
     assert!(second.feedback.iter().any(|message| message.id == feedback));
     assert!(
         second
