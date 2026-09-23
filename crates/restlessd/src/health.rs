@@ -490,16 +490,14 @@ pub struct OrgSignal {
     pub detail: String,
 }
 
-/// Read the company's own coordination state and report what looks wrong.
-pub async fn organisational(
-    org: &restless_orgintel::OrgIntel,
-    authority: &crate::authority::AuthorityStore,
-    company: &str,
+/// Inspect the company's coordination state from the Exec's shared snapshot.
+pub(crate) fn organisational(
     spent_usd: f64,
-) -> Result<Vec<OrgSignal>> {
+    work: &[restless_orgintel::WorkRow],
+    effect_records: &[crate::authority::AuthorityRecord],
+) -> Vec<OrgSignal> {
     use restless_orgintel::WorkStatus;
     let mut signals = Vec::new();
-    let work = org.list_work().await?;
 
     // 1. Effort without output. Observed: two cosmon wakes burned a 20-minute
     //    boundary each and produced nothing at all.
@@ -520,7 +518,7 @@ pub async fn organisational(
     // 2. Repeating a failed approach. Observed: Aris asked for ~95 capability
     //    names that did not exist, in one wake, and blocked on the owner.
     let mut failures: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
-    for event in authority.records_of_kind(company, "effect").await? {
+    for event in effect_records {
         let Some(capability) = event
             .body
             .get("effect_class")
@@ -563,7 +561,7 @@ pub async fn organisational(
             ),
         });
     }
-    Ok(signals)
+    signals
 }
 
 async fn free_bytes_host(path: &std::path::Path) -> Result<Option<u64>> {

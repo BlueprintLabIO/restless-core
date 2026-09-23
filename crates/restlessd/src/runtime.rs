@@ -1644,7 +1644,7 @@ pub async fn cockpit_browser_health(
         .clone();
     let mut cached = slot.lock().await;
     if let Some((at, result)) = cached.as_ref() {
-        if at.elapsed() < Duration::from_secs(3) {
+        if at.elapsed() < Duration::from_secs(10) {
             return Ok(result.clone());
         }
     }

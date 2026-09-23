@@ -122,13 +122,13 @@ impl EffectLedger {
     }
 }
 
-/// Read every effect receipt this company has and total it up.
-pub async fn effect_ledger(
+/// Total the company's effect receipts from the Exec's shared snapshot.
+pub(crate) async fn effect_ledger(
     authority: &crate::authority::AuthorityStore,
     company: &str,
+    effect_records: &[crate::authority::AuthorityRecord],
 ) -> Result<EffectLedger> {
     let mut ledger = EffectLedger::default();
-    let effect_records = authority.records_of_kind(company, "effect").await?;
     let completed = effect_records
         .iter()
         .filter(|event| is_governed_receipt(&event.body))
@@ -187,7 +187,12 @@ pub async fn effect_ledger(
             }
         }
     }
-    for intent in authority.records_of_kind(company, "effect_intent").await? {
+    let (intents, replays, party_repeats) = tokio::try_join!(
+        authority.records_of_kind(company, "effect_intent"),
+        authority.records_of_kind(company, "effect_replayed"),
+        authority.records_of_kind(company, "effect_repeat_party"),
+    )?;
+    for intent in intents {
         let Some(key) = intent
             .body
             .get("idempotency_key")
@@ -204,14 +209,8 @@ pub async fn effect_ledger(
             ledger.unknown_outcomes += 1;
         }
     }
-    ledger.replays_suppressed = authority
-        .records_of_kind(company, "effect_replayed")
-        .await?
-        .len();
-    ledger.party_repeats = authority
-        .records_of_kind(company, "effect_repeat_party")
-        .await?
-        .len();
+    ledger.replays_suppressed = replays.len();
+    ledger.party_repeats = party_repeats.len();
     Ok(ledger)
 }
 

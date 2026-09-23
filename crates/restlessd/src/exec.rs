@@ -1293,7 +1293,25 @@ async fn gather_snapshot(
             latest_journal_entry(container).await?,
         ),
     };
-    let work = org.list_work().await?;
+    // These reads use independent records and never mutate company state. Run
+    // two queries concurrently within each existing database pool, keeping
+    // the fan-out bounded so a slow database is not flooded with snapshot
+    // work. Reuse Work and effect rows below instead of rereading them for
+    // organisational signals. Focus -> conversation remains ordered below.
+    let (work, goals, legal_identity, effect_records) = tokio::try_join!(
+        async { org.list_work().await.map_err(anyhow::Error::from) },
+        async { org.list_goals().await.map_err(anyhow::Error::from) },
+        crate::legal::safe_projection(authority, &config.name),
+        authority.records_of_kind(&config.name, "effect"),
+    )?;
+    let effect_ledger =
+        crate::reconcile::effect_ledger(authority, &config.name, &effect_records)
+            .await?
+            .summary();
+    let org_signals = health::organisational(spent_usd, &work, &effect_records)
+        .into_iter()
+        .map(|signal| format!("[{}] {}", signal.kind, signal.detail))
+        .collect();
     let open: Vec<_> = work
         .into_iter()
         .filter(|item| {
@@ -1344,13 +1362,11 @@ async fn gather_snapshot(
         operating_rules: crate::context::COMPANY_OPERATING_RULES.to_string(),
         mission: config.mission.clone(),
         outcome_standard: config.outcome_standard,
-        legal_identity: crate::legal::safe_projection(authority, &config.name).await?,
+        legal_identity,
         current_plan,
         latest_journal,
         open_work: open,
-        open_goals: org
-            .list_goals()
-            .await?
+        open_goals: goals
             .into_iter()
             .filter(|goal| goal.closed_at.is_none())
             .collect(),
@@ -1362,14 +1378,8 @@ async fn gather_snapshot(
         wake_reason: reason.to_string(),
         budget_remaining_usd: remaining_usd,
         budget_ceiling_usd: config.spend_ceiling_usd.as_usd(),
-        effect_ledger: crate::reconcile::effect_ledger(authority, &config.name)
-            .await?
-            .summary(),
-        org_signals: health::organisational(org, authority, &config.name, spent_usd)
-            .await?
-            .into_iter()
-            .map(|signal| format!("[{}] {}", signal.kind, signal.detail))
-            .collect(),
+        effect_ledger,
+        org_signals,
     })
 }
 
