@@ -1466,7 +1466,7 @@ pub async fn project(
         .collect::<Vec<_>>();
     continuations.sort_by_key(|continuation| Reverse(continuation.observed_at));
     continuations.truncate(5);
-    let health = runtime::browser_health(&config.name).await.ok();
+    let health = runtime::cockpit_browser_health(&config.name).await.ok();
     let (runtime_health, browser_health) = match health.as_ref() {
         Some((ContainerStatus::Running, browser)) => (
             "available".to_string(),

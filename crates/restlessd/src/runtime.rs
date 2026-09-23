@@ -10,7 +10,7 @@ use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::task::{Context as TaskContext, Poll};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
@@ -46,6 +46,19 @@ static BROWSER_CONTROL_LOCKS: LazyLock<
 static BROWSER_CONTROL_STATES: LazyLock<
     tokio::sync::Mutex<HashMap<String, tokio::sync::watch::Sender<Option<serde_json::Value>>>>,
 > = LazyLock::new(Default::default);
+
+type HealthCacheSlot<T> = Arc<tokio::sync::Mutex<Option<(Instant, T)>>>;
+static COCKPIT_DOCTOR_CACHE: LazyLock<
+    tokio::sync::Mutex<HashMap<String, HealthCacheSlot<(RuntimeDoctor, DateTime<Utc>)>>>,
+> = LazyLock::new(Default::default);
+static BROWSER_HEALTH_CACHE: LazyLock<
+    tokio::sync::Mutex<HashMap<String, HealthCacheSlot<(ContainerStatus, Option<BrowserDoctor>)>>>,
+> = LazyLock::new(Default::default);
+
+async fn invalidate_cockpit_health(company: &str) {
+    COCKPIT_DOCTOR_CACHE.lock().await.remove(company);
+    BROWSER_HEALTH_CACHE.lock().await.remove(company);
+}
 
 async fn company_start_guard(company: &str) -> tokio::sync::OwnedMutexGuard<()> {
     let lock = COMPANY_START_LOCKS
@@ -83,6 +96,8 @@ pub async fn publish_browser_control(company: &str, state: Option<serde_json::Va
         .entry(container_name(company))
         .or_insert_with(|| tokio::sync::watch::channel(None).0);
     sender.send_replace(state);
+    drop(states);
+    BROWSER_HEALTH_CACHE.lock().await.remove(company);
 }
 
 /// Owner browsers reconnect eagerly across appliance replacement. While the
@@ -859,7 +874,7 @@ pub enum ReconciliationStatus {
     Unknown,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct RuntimeDoctor {
     pub company: String,
     pub container: ContainerStatus,
@@ -915,26 +930,26 @@ struct RuntimeReleaseHealth {
 /// This deliberately performs an ordinary read through the Runtime Bridge
 /// rather than inferring availability from a running container or its process
 /// supervisor. It is a health observation, not another Runtime lifecycle.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct CoordinationDoctor {
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SupervisorDoctor {
     pub status: String,
     pub services: Vec<SupervisedService>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SupervisedService {
     pub name: String,
     pub state: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct BrowserDoctor {
     pub status: String,
     pub desktop: String,
@@ -1234,6 +1249,7 @@ pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
         (false, false) if reconcile => " (runtime already current)",
         (false, false) => "",
     };
+    invalidate_cockpit_health(company).await;
     Ok(format!("{}: running{suffix}", config.name))
 }
 
@@ -1381,6 +1397,26 @@ pub async fn install_runtime_bridge_capability(company: &str, capability: &str) 
         );
     }
     Ok(())
+}
+
+/// Coalesce the expensive Runtime Doctor across owner tabs. Lifecycle actions
+/// and the CLI call `doctor` directly, so recovery decisions remain fresh.
+pub async fn cockpit_doctor(company: &str) -> Result<(RuntimeDoctor, DateTime<Utc>)> {
+    let slot = COCKPIT_DOCTOR_CACHE
+        .lock()
+        .await
+        .entry(company.to_string())
+        .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(None)))
+        .clone();
+    let mut cached = slot.lock().await;
+    if let Some((at, result)) = cached.as_ref() {
+        if at.elapsed() < Duration::from_secs(15) {
+            return Ok(result.clone());
+        }
+    }
+    let result = (doctor(company).await?, Utc::now());
+    *cached = Some((Instant::now(), result.clone()));
+    Ok(result)
 }
 
 /// Check the replaceable runtime image independently of an agent report.
@@ -1563,6 +1599,28 @@ async fn coordination_doctor(company: &str) -> CoordinationDoctor {
             ),
         },
     }
+}
+
+/// Reuse a recent browser probe when several open cockpit tabs ask together.
+/// Browser controls themselves are still read live by the status endpoint.
+pub async fn cockpit_browser_health(
+    company: &str,
+) -> Result<(ContainerStatus, Option<BrowserDoctor>)> {
+    let slot = BROWSER_HEALTH_CACHE
+        .lock()
+        .await
+        .entry(company.to_string())
+        .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(None)))
+        .clone();
+    let mut cached = slot.lock().await;
+    if let Some((at, result)) = cached.as_ref() {
+        if at.elapsed() < Duration::from_secs(3) {
+            return Ok(result.clone());
+        }
+    }
+    let result = browser_health(company).await?;
+    *cached = Some((Instant::now(), result.clone()));
+    Ok(result)
 }
 
 /// The cockpit needs live browser health, but not image reconciliation, source
@@ -2498,18 +2556,20 @@ fn collect_files(path: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
 /// Stop the container. The volume — files, Git history, browser profile —
 /// survives (§5, §17 step 2: the persistent company computer).
 pub async fn down(company: &str) -> Result<String> {
-    match status(company).await? {
+    let result = match status(company).await? {
         ContainerStatus::Running => {
             let name = container_name(company);
             // Chromium's supervisor stop window is 20 seconds. Use a longer
             // container deadline so cookies and profile state reach disk
             // before Docker escalates to SIGKILL.
             run_ok(&["stop", "--time", "30", &name]).await?;
-            Ok(format!("{company}: stopped (volume kept)"))
+            format!("{company}: stopped (volume kept)")
         }
-        ContainerStatus::Stopped => Ok(format!("{company}: already stopped")),
-        ContainerStatus::Absent => Ok(format!("{company}: no container")),
-    }
+        ContainerStatus::Stopped => format!("{company}: already stopped"),
+        ContainerStatus::Absent => format!("{company}: no container"),
+    };
+    invalidate_cockpit_health(company).await;
+    Ok(result)
 }
 
 /// S04-T1. Remove a throwaway company entirely: container, volume, OrgIntel

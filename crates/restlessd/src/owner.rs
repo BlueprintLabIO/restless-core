@@ -8490,7 +8490,7 @@ async fn optional_session_ended(session_lease: Option<&SessionLease>) {
 }
 
 async fn browser_status(AxumPath(company): AxumPath<String>) -> impl IntoResponse {
-    match runtime::browser_health(&company).await {
+    match runtime::cockpit_browser_health(&company).await {
         Ok((_, browser)) => Json(serde_json::json!({
             "generation": runtime::generation(&company).await.ok().flatten(),
             "browser": browser,

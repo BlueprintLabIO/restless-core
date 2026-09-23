@@ -320,9 +320,12 @@ pub(crate) async fn project(
         ),
     };
 
-    let runtime_result = runtime::doctor(&config.name).await;
+    let runtime_result = runtime::cockpit_doctor(&config.name).await;
     let (runtime_doctor, runtime_source) = match runtime_result {
-        Ok(doctor) => (Some(doctor), SourceObservation::available(observed_at)),
+        Ok((doctor, runtime_observed_at)) => (
+            Some(doctor),
+            SourceObservation::available(runtime_observed_at),
+        ),
         Err(error) => (
             None,
             SourceObservation::unavailable(observed_at, format!("{error:#}")),
