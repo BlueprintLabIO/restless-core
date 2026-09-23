@@ -107,13 +107,6 @@
 					<span>Schedule wake needs repair.</span>
 					<p>{appliance.repair}</p>
 				</div>
-			{:else if appliance?.model_gateway === 'starting'}
-				<div class="appliance-notice" role="status">
-					<span>Model access is starting.</span>
-					<p>
-						Companies will wake after provider access is ready. The owner surface remains available.
-					</p>
-				</div>
 			{/if}
 			<header class="portfolio-head">
 				<h1>Companies</h1>
