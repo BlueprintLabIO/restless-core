@@ -1152,6 +1152,19 @@ pub async fn project(
                     let objective = responsibility
                         .map(|version| version.objective)
                         .unwrap_or_else(|| "Business opportunity".into());
+                    let objective_heading = objective.split(". ").next().unwrap_or(&objective);
+                    let title = if objective_heading.chars().count() > 80 {
+                        format!(
+                            "Blocked: {}…",
+                            objective_heading
+                                .chars()
+                                .take(80)
+                                .collect::<String>()
+                                .trim_end()
+                        )
+                    } else {
+                        format!("Blocked: {objective_heading}")
+                    };
                     let linked_work = org
                         .list_opportunity_work(opportunity.id)
                         .await?
@@ -1177,7 +1190,7 @@ pub async fn project(
                             party: None,
                         },
                         category: "blocker".into(),
-                        title: format!("Blocked: {objective}"),
+                        title,
                         what_happened: reason.clone(),
                         why_it_matters:
                             "The latest outcome for this responsibility is blocked.".into(),
