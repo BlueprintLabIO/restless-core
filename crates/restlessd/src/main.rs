@@ -845,7 +845,11 @@ async fn main() -> Result<()> {
             .await
             {
                 Ok(processes) => {
-                    tracing::info!("model gateway ready");
+                    if processes.is_some() {
+                        tracing::info!("model gateway ready");
+                    } else {
+                        tracing::info!("no direct model gateway needed; native harness routes remain available");
+                    }
                     let _processes = processes;
                     std::future::pending::<()>().await;
                 }

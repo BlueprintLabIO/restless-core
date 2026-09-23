@@ -3,7 +3,7 @@ export interface ApplianceStatus {
 	state: 'ready' | 'recovering' | 'degraded' | 'draining' | 'development' | 'test';
 	draining: boolean;
 	recovering: boolean;
-	model_gateway: 'ready' | 'starting';
+	model_gateway: 'ready' | 'starting' | 'no_direct_provider';
 	schedule_transport: 'launchd' | 'systemd' | 'in_process' | 'unavailable';
 	last_schedule_wake: { adapter?: string; observed_at?: string } | null;
 	repair: string | null;

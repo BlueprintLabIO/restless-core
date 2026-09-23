@@ -3585,6 +3585,8 @@ async fn appliance_status(State(state): State<OwnerState>) -> impl IntoResponse 
         recovering,
         model_gateway: if model_gateway::is_ready() {
             "ready"
+        } else if model_gateway::has_no_direct_provider() {
+            "no_direct_provider"
         } else {
             "starting"
         },

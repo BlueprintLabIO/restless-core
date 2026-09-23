@@ -128,6 +128,7 @@ fn preflight_runtime_relay_port(loopback_bind: &str) -> Result<()> {
 
 static CLIENT: OnceLock<ClientConfig> = OnceLock::new();
 static HOSTED_RELAY_STATE: OnceLock<RelayState> = OnceLock::new();
+static NO_DIRECT_PROVIDER: OnceLock<()> = OnceLock::new();
 
 /// Companies the account plane could not admit a model route for at boot.
 /// Consulted before a company wakes so the refusal names the exact reason
@@ -141,6 +142,12 @@ pub fn unstartable_reason(company: &str) -> Option<String> {
 
 pub fn is_ready() -> bool {
     CLIENT.get().is_some()
+}
+
+/// Native harness routes do not need the imported host gateway. Keep this
+/// distinct from a gateway that is still starting or retrying after failure.
+pub fn has_no_direct_provider() -> bool {
+    NO_DIRECT_PROVIDER.get().is_some()
 }
 
 #[derive(Clone)]
@@ -570,6 +577,7 @@ pub async fn start(
             tracing::warn!(company, reason, "company cannot start: {reason}");
         }
         let _ = UNSTARTABLE.set(admission.unstartable);
+        let _ = NO_DIRECT_PROVIDER.set(());
         tracing::warn!(
             companies = configs.len(),
             "no company model provider is available; the plane will serve the cockpit \

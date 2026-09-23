@@ -57,6 +57,7 @@ const DISABLED_CODEX_FEATURES = [
 ];
 const DENIED_TASK_PROXY = 'http://127.0.0.1:9';
 const MODEL_RELAY_NO_PROXY = 'host.docker.internal,127.0.0.1,localhost';
+const ISOLATED_MODEL_PROXY = 'http://host.docker.internal:8080';
 
 let appServer = null;
 let appInput = null;
@@ -405,16 +406,24 @@ async function launch(operation) {
     '-c', `model_reasoning_effort=${JSON.stringify(effort)}`,
     ...mcp.args,
   ];
+  // An isolated schedule probe has no direct egress. Its Runtime supplies a
+  // narrow CONNECT proxy that accepts only model-provider hosts. Preserve
+  // that exact route for the app-server; ordinary native turns keep the
+  // denied task proxy and their direct provider exception.
+  const isolatedModelProxy = native && process.env.HTTPS_PROXY === ISOLATED_MODEL_PROXY;
+  const nativeNoProxy = isolatedModelProxy
+    ? MODEL_RELAY_NO_PROXY
+    : MODEL_RELAY_NO_PROXY + ',api.openai.com,chatgpt.com,auth.openai.com';
   const appServerEnv = {
     ...process.env,
     HTTP_PROXY: DENIED_TASK_PROXY,
-    HTTPS_PROXY: DENIED_TASK_PROXY,
+    HTTPS_PROXY: isolatedModelProxy ? ISOLATED_MODEL_PROXY : DENIED_TASK_PROXY,
     ALL_PROXY: DENIED_TASK_PROXY,
     http_proxy: DENIED_TASK_PROXY,
-    https_proxy: DENIED_TASK_PROXY,
+    https_proxy: isolatedModelProxy ? ISOLATED_MODEL_PROXY : DENIED_TASK_PROXY,
     all_proxy: DENIED_TASK_PROXY,
-    NO_PROXY: native ? MODEL_RELAY_NO_PROXY + ',api.openai.com,chatgpt.com,auth.openai.com' : MODEL_RELAY_NO_PROXY,
-    no_proxy: native ? MODEL_RELAY_NO_PROXY + ',api.openai.com,chatgpt.com,auth.openai.com' : MODEL_RELAY_NO_PROXY,
+    NO_PROXY: native ? nativeNoProxy : MODEL_RELAY_NO_PROXY,
+    no_proxy: native ? nativeNoProxy : MODEL_RELAY_NO_PROXY,
   };
   attachAppServer(spawn(operation.codex_bin || 'codex', args, {
     cwd,
