@@ -54,6 +54,9 @@ pub(crate) async fn run(
     let mut config = runtime::CompanyConfig::load(&daemon.root, source_company)?;
     config.name = test_name;
     config.display_name = None;
+    // A retained test company must stay isolated if someone starts its Runtime
+    // after this scheduler-only probe.
+    config.internal_network = true;
     config.model.clear();
     config.agent_intelligence.clear();
     config.native_harnesses.clear();

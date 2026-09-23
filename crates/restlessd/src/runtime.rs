@@ -420,6 +420,11 @@ pub struct CompanyConfig {
     pub display_name: Option<String>,
     /// Company name; also the container/volume suffix and schema name.
     pub name: String,
+    /// Place this company's Runtime on an isolated Docker network with no
+    /// external routing. Existing company files retain the production bridge
+    /// default unless the owner opts in explicitly.
+    #[serde(default)]
+    pub internal_network: bool,
     /// Owner-set mission, seeded to /company/mission.md on `up`.
     #[serde(default)]
     pub mission: String,
@@ -1072,6 +1077,11 @@ fn running_company_names(configs: &[CompanyConfig], docker_names: &str) -> Vec<S
 pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
     let company = &config.name;
     let _start = company_start_guard(company).await;
+    let internal_network = if config.internal_network {
+        Some(ensure_company_internal_network(company).await?)
+    } else {
+        None
+    };
     // The computer must boot before native sign-in can happen. Model admission
     // belongs to the session boundary, not to creation of the company computer.
     let image = company_image();
@@ -1098,9 +1108,16 @@ pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
         }
     }
     match status(company).await? {
-        ContainerStatus::Running => {}
+        ContainerStatus::Running => {
+            if let Some(network) = internal_network.as_deref() {
+                ensure_container_on_network(company, network).await?;
+            }
+        }
         ContainerStatus::Stopped => {
             let name = container_name(company);
+            if let Some(network) = internal_network.as_deref() {
+                ensure_container_on_network(company, network).await?;
+            }
             run_ok(&["start", &name]).await?;
         }
         ContainerStatus::Absent => {
@@ -1124,7 +1141,7 @@ pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
             let memory = resource_bound("RESTLESS_COMPANY_MEMORY", DEFAULT_MEMORY);
             let pids = resource_bound("RESTLESS_COMPANY_PIDS_LIMIT", DEFAULT_PIDS_LIMIT);
             let mut args: Vec<&str> = vec!["run", "-d", "--name", &name, "--hostname", company];
-            if cfg!(target_os = "linux") {
+            if cfg!(target_os = "linux") && internal_network.is_none() {
                 args.extend(["--add-host", "host.docker.internal:host-gateway"]);
             }
             if let Some(cpus) = cpus.as_deref() {
@@ -1147,6 +1164,9 @@ pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
             // silently talk to another plane (or fail while agent turns work).
             let coordinator_env = format!("RESTLESS_COORDINATOR={}", crate::runtime_coordinator()?);
             let volume_mount = format!("{volume}:/company");
+            if let Some(network) = internal_network.as_deref() {
+                args.extend(["--network", network]);
+            }
             args.extend([
                 "--label",
                 &profile_label,
@@ -1165,7 +1185,7 @@ pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
     }
     // Docker Desktop supplies this DNS name; native Linux Docker needs an
     // explicit mapping. Also repair computers created before the flag existed.
-    if cfg!(target_os = "linux") {
+    if cfg!(target_os = "linux") && internal_network.is_none() {
         let name = container_name(company);
         if !docker_observe(&["exec", &name, "getent", "hosts", "host.docker.internal"])
             .await?
@@ -1206,6 +1226,100 @@ pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
         (false, false) => "",
     };
     Ok(format!("{}: running{suffix}", config.name))
+}
+
+const INTERNAL_NETWORK_LABEL: &str = "io.restless.company";
+const STARTUP_DOCKER_TIMEOUT: Duration = Duration::from_secs(30);
+
+fn company_network_name(company: &str) -> String {
+    match std::env::var("RESTLESS_RESOURCE_NAMESPACE") {
+        Ok(namespace) if !namespace.is_empty() => {
+            format!("restless-{namespace}-net-{company}")
+        }
+        _ => format!("restless-net-{company}"),
+    }
+}
+
+/// Ensure the opt-in network exists and is exactly the internal network
+/// owned by this company. Never reuse a same-named Docker network with
+/// different routing or ownership metadata.
+async fn ensure_company_internal_network(company: &str) -> Result<String> {
+    let network = company_network_name(company);
+    let inspect = [
+        "network",
+        "inspect",
+        "-f",
+        "{{.Internal}}\t{{index .Labels \"io.restless.company\"}}\t{{index .Labels \"io.restless.namespace\"}}\t{{index .Labels \"io.restless.profile\"}}",
+        network.as_str(),
+    ];
+    let observed = docker_bounded(&inspect, STARTUP_DOCKER_TIMEOUT).await?;
+    if !observed.status.success() {
+        let profile = std::env::var("RESTLESS_PROFILE").unwrap_or_else(|_| "stable".into());
+        let namespace = std::env::var("RESTLESS_RESOURCE_NAMESPACE").unwrap_or_default();
+        let internal_label = format!("{INTERNAL_NETWORK_LABEL}={company}");
+        let profile_label = format!("io.restless.profile={profile}");
+        let namespace_label = format!("io.restless.namespace={namespace}");
+        // A concurrent creator may win this race. Regardless of create's
+        // result, re-inspect below and accept only the exact expected shape.
+        let _ = docker_bounded(
+            &[
+                "network",
+                "create",
+                "--driver",
+                "bridge",
+                "--internal",
+                "--label",
+                &internal_label,
+                "--label",
+                &profile_label,
+                "--label",
+                &namespace_label,
+                &network,
+            ],
+            STARTUP_DOCKER_TIMEOUT,
+        )
+        .await?;
+    }
+    let observed = docker_bounded(&inspect, STARTUP_DOCKER_TIMEOUT).await?;
+    if !observed.status.success() {
+        bail!("configured internal Docker network {network} is absent or cannot be inspected");
+    }
+    let actual = String::from_utf8_lossy(&observed.stdout);
+    let mut fields = actual.trim().split('\t');
+    let is_internal = fields.next() == Some("true");
+    let owner = fields.next();
+    let namespace = fields.next();
+    let expected_namespace = std::env::var("RESTLESS_RESOURCE_NAMESPACE").unwrap_or_default();
+    let profile = std::env::var("RESTLESS_PROFILE").unwrap_or_else(|_| "stable".into());
+    let actual_profile = fields.next();
+    if !is_internal
+        || owner != Some(company)
+        || namespace != Some(expected_namespace.as_str())
+        || actual_profile != Some(profile.as_str())
+    {
+        bail!("configured Docker network {network} is not the labeled internal network for company {company}");
+    }
+    Ok(network)
+}
+
+async fn ensure_container_on_network(company: &str, network: &str) -> Result<()> {
+    let name = container_name(company);
+    let template = "{{range $name, $config := .NetworkSettings.Networks}}{{$name}}\n{{end}}";
+    let observed =
+        docker_bounded(&["inspect", "-f", template, &name], STARTUP_DOCKER_TIMEOUT).await?;
+    if !observed.status.success() {
+        bail!("cannot inspect company Runtime {name} network attachments; refusing to start it");
+    }
+    let attachments = String::from_utf8_lossy(&observed.stdout);
+    let attached = attachments
+        .lines()
+        .map(str::trim)
+        .filter(|attached| !attached.is_empty())
+        .collect::<Vec<_>>();
+    if attached.len() != 1 || attached[0] != network {
+        bail!("company Runtime {name} must be attached only to its configured internal network {network}; observed {attached:?}");
+    }
+    Ok(())
 }
 
 /// Materialise the company-scoped bridge grant after the Runtime is known to
@@ -2481,6 +2595,7 @@ pub fn clone_config(root: &Path, from: &str, to: &str) -> Result<CompanyConfig> 
         native_harnesses: Default::default(),
         display_name: None,
         name: to.to_string(),
+        internal_network: false,
         // A scenario gets no live secret bindings.
         credentials: std::collections::BTreeMap::new(),
         model_failover: Vec::new(),
@@ -3335,6 +3450,7 @@ worker_harness = "claude_agent"
             native_harnesses: Default::default(),
             display_name: None,
             name: "archive_contract_test".into(),
+            internal_network: false,
             mission: "Preserve me".into(),
             spend_ceiling_usd: SpendCeiling::from_micro_usd(5_000_000),
             outcome_standard: Default::default(),

@@ -418,6 +418,7 @@ mod tests {
             native_harnesses: Default::default(),
             display_name: None,
             name: "aris".to_string(),
+            internal_network: false,
             mission: String::new(),
             spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(30_000_000),
             outcome_standard: Default::default(),

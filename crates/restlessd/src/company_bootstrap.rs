@@ -795,6 +795,7 @@ fn desired_company_config(
         native_harnesses: Default::default(),
         display_name: None,
         name: company_handle.to_string(),
+        internal_network: false,
         mission: String::new(),
         spend_ceiling_usd: runtime::SpendCeiling::from_micro_usd(10_000_000),
         outcome_standard: Default::default(),

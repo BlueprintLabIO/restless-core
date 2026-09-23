@@ -604,6 +604,7 @@ mod tests {
                 native_harnesses: Default::default(),
                 display_name: None,
                 name: name.to_string(),
+                internal_network: false,
                 mission: "isolated inbound test".into(),
                 spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(0),
                 outcome_standard: Default::default(),
