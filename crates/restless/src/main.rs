@@ -1185,9 +1185,6 @@ enum ScheduleCommand {
         /// Maximum time to wait for the durable Opportunity admission.
         #[arg(long)]
         timeout_seconds: Option<u64>,
-        /// Reserved for a future isolated actor test; currently refused.
-        #[arg(long)]
-        run_actor: bool,
     },
     /// Read the durable responsibility opportunity lifecycle.
     Opportunities {
@@ -3439,11 +3436,9 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 company,
                 schedule,
                 timeout_seconds,
-                run_actor,
             } => serde_json::json!({
                 "cmd": "schedule-test", "company": company,
                 "id": schedule, "schedule_test_timeout_seconds": timeout_seconds,
-                "schedule_test_run_actor": run_actor,
             }),
             ScheduleCommand::Opportunities {
                 company,

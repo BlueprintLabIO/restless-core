@@ -468,12 +468,10 @@ pub(super) async fn schedule_monitor(
 pub(super) struct ScheduleTestInput {
     #[serde(default)]
     timeout_seconds: Option<u64>,
-    #[serde(default)]
-    run_actor: bool,
 }
 
-/// Exercise one bound recurring Exec schedule in a disposable company. Actor
-/// execution is opt-in; the source schedule is never fired or changed here.
+/// Exercise scheduler admission for one bound recurring Exec schedule in a disposable company.
+/// Runtime and actor execution never start; the source schedule is never fired or changed here.
 pub(super) async fn test_schedule_trigger(
     State(state): State<OwnerState>,
     Extension(principal): Extension<RequestPrincipal>,
@@ -512,8 +510,7 @@ pub(super) async fn test_schedule_trigger(
         &state.daemon,
         &company,
         schedule,
-        input.timeout_seconds.unwrap_or(if input.run_actor { 180 } else { 30 }),
-        input.run_actor,
+        input.timeout_seconds.unwrap_or(30),
     )
     .await
     {

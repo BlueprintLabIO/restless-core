@@ -200,9 +200,9 @@ export type MonitoredSchedule = {
 };
 
 export type ScheduleTestReport = {
-	status: string;
-	scope: string;
-	actor_run?: string;
+	status: 'admitted' | 'timed_out_before_admission';
+	scope: 'scheduler_only';
+	actor_run: 'not_started';
 	effect_boundary?: string;
 	source_company: string;
 	source_schedule_id: string;
@@ -224,12 +224,11 @@ export async function monitorSchedules(company: string): Promise<MonitoredSchedu
 
 export function testScheduleTrigger(
 	company: string,
-	schedule: string,
-	runActor = false
+	schedule: string
 ): Promise<ScheduleTestReport> {
 	return call(company, `/schedules/${encodeURIComponent(schedule)}/test`, {
 		method: 'POST',
-		body: JSON.stringify({ run_actor: runActor })
+		body: '{}'
 	});
 }
 

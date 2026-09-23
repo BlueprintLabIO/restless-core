@@ -4160,8 +4160,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 daemon,
                 company,
                 schedule_id,
-                request.lifecycle.schedule_test_timeout_seconds.unwrap_or(if request.lifecycle.schedule_test_run_actor { 180 } else { 30 }),
-                request.lifecycle.schedule_test_run_actor,
+                request.lifecycle.schedule_test_timeout_seconds.unwrap_or(30),
             )
             .await
             {
