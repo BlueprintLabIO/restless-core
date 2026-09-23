@@ -1019,7 +1019,7 @@ async fn expired_human_step_can_be_prepared_again_without_resolving_or_duplicati
     assert!(!org.has_ready_work().await.unwrap());
     let due = chrono::Utc::now();
     let timer = org
-        .add_schedule("auth-builder", Some(work), "Inspect consent or expiry", due)
+        .add_work_release_schedule("auth-builder", work, "Inspect consent or expiry", due)
         .await
         .unwrap();
     assert_eq!(

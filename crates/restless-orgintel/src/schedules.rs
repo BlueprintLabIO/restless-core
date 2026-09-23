@@ -1050,10 +1050,153 @@ impl OrgIntel {
         Ok((existing.id, existing.fire_at, false))
     }
 
-    pub async fn add_schedule(
+    /// Create a free-standing one-shot actor wake and its immutable
+    /// responsibility version atomically. The exact `(actor, reason,
+    /// fire_at)` request is the idempotency key. Repeating it with the same
+    /// responsibility and policy returns the existing schedule, including
+    /// after it has fired; changing its intent is rejected.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_exact_schedule_with_responsibility(
         &self,
         actor_id: &str,
-        work_id: Option<Uuid>,
+        reason: &str,
+        fire_at: DateTime<Utc>,
+        machine_requirement: &str,
+        responsibility_id: Uuid,
+        version: i32,
+        objective: &str,
+        policy: serde_json::Value,
+    ) -> Result<(Uuid, bool)> {
+        if reason.trim().is_empty() {
+            return Err(OrgIntelError::InvalidWork(
+                "a time opportunity needs a reason".into(),
+            ));
+        }
+        if !matches!(machine_requirement, "local_mac" | "always_on") {
+            return Err(OrgIntelError::InvalidWork(
+                "machine requirement must be local_mac|always_on".into(),
+            ));
+        }
+        if version <= 0 || objective.trim().is_empty() || !policy.is_object() {
+            return Err(OrgIntelError::InvalidWork(
+                "a responsibility version needs a positive version, objective, and policy object"
+                    .into(),
+            ));
+        }
+        opportunity_window_seconds(&policy)?;
+
+        let mut tx = self.pool.begin().await?;
+        // This serializes concurrent retries with the same natural key. The
+        // hash is only a lock bucket; schedule identity is checked below.
+        let lock_key =
+            serde_json::json!([actor_id, reason.trim(), fire_at.to_rfc3339()]).to_string();
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+            .bind(lock_key)
+            .execute(&mut *tx)
+            .await?;
+
+        if let Some(existing) = sqlx::query_as::<_, ScheduleRow>(&format!(
+            "SELECT {SCHEDULE_COLUMNS} FROM schedules \
+             WHERE actor_id=$1 AND reason=$2 AND fire_at=$3 AND recurrence IS NULL \
+               AND work_id IS NULL ORDER BY created_at LIMIT 1"
+        ))
+        .bind(actor_id)
+        .bind(reason.trim())
+        .bind(fire_at)
+        .fetch_optional(&mut *tx)
+        .await?
+        {
+            if existing.machine_requirement != machine_requirement
+                || existing.responsibility_id != Some(responsibility_id)
+                || existing.responsibility_version != Some(version)
+            {
+                return Err(OrgIntelError::InvalidWork(
+                    "the exact schedule already exists with different responsibility intent; cancel it before creating a replacement".into(),
+                ));
+            }
+            let stored = sqlx::query_as::<_, (String, serde_json::Value)>(
+                "SELECT objective, policy FROM responsibility_versions \
+                 WHERE responsibility_id=$1 AND version=$2",
+            )
+            .bind(responsibility_id)
+            .bind(version)
+            .fetch_one(&mut *tx)
+            .await?;
+            if stored.0 != objective.trim() || stored.1 != policy {
+                return Err(OrgIntelError::InvalidWork(
+                    "responsibility versions are immutable; use a new version".into(),
+                ));
+            }
+            tx.commit().await?;
+            return Ok((existing.id, false));
+        }
+
+        sqlx::query(
+            "INSERT INTO responsibilities (id, current_version) VALUES ($1,$2) \
+             ON CONFLICT (id) DO NOTHING",
+        )
+        .bind(responsibility_id)
+        .bind(version)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO responsibility_versions (responsibility_id, version, objective, policy) \
+             VALUES ($1,$2,$3,$4) ON CONFLICT (responsibility_id, version) DO NOTHING",
+        )
+        .bind(responsibility_id)
+        .bind(version)
+        .bind(objective.trim())
+        .bind(&policy)
+        .execute(&mut *tx)
+        .await?;
+        let stored = sqlx::query_as::<_, (String, serde_json::Value)>(
+            "SELECT objective, policy FROM responsibility_versions \
+             WHERE responsibility_id=$1 AND version=$2",
+        )
+        .bind(responsibility_id)
+        .bind(version)
+        .fetch_one(&mut *tx)
+        .await?;
+        if stored.0 != objective.trim() || stored.1 != policy {
+            return Err(OrgIntelError::InvalidWork(
+                "responsibility versions are immutable; use a new version".into(),
+            ));
+        }
+        sqlx::query(
+            "UPDATE responsibilities SET current_version=$2 \
+             WHERE id=$1 AND current_version < $2",
+        )
+        .bind(responsibility_id)
+        .bind(version)
+        .execute(&mut *tx)
+        .await?;
+
+        let id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO schedules \
+             (id, actor_id, reason, fire_at, missed_policy, catch_up_grace_seconds, \
+              machine_requirement, responsibility_id, responsibility_version) \
+             VALUES ($1,$2,$3,$4,'skip',NULL,$5,$6,$7)",
+        )
+        .bind(id)
+        .bind(actor_id)
+        .bind(reason.trim())
+        .bind(fire_at)
+        .bind(machine_requirement)
+        .bind(responsibility_id)
+        .bind(version)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok((id, true))
+    }
+
+    /// Release one existing Work item at an exact time. Free-standing actor
+    /// wakes use `create_exact_schedule_with_responsibility` instead.
+    pub async fn add_work_release_schedule(
+        &self,
+        actor_id: &str,
+        work_id: Uuid,
         reason: &str,
         fire_at: DateTime<Utc>,
     ) -> Result<Uuid> {
@@ -1079,13 +1222,11 @@ impl OrgIntel {
         .bind(fire_at)
         .execute(&mut *tx)
         .await?;
-        if let Some(work_id) = work_id {
-            sqlx::query("UPDATE work SET status='blocked', resolution=$2 WHERE id=$1")
-                .bind(work_id)
-                .bind(format!("waiting for schedule {id}: {reason}"))
-                .execute(&mut *tx)
-                .await?;
-        }
+        sqlx::query("UPDATE work SET status='blocked', resolution=$2 WHERE id=$1")
+            .bind(work_id)
+            .bind(format!("waiting for schedule {id}: {reason}"))
+            .execute(&mut *tx)
+            .await?;
         tx.commit().await?;
         Ok(id)
     }

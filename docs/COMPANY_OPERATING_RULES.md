@@ -270,7 +270,8 @@ approval. Publish the replacement with `refresh-handoff` without `--preparing` o
 its exact link/code/session is usable; this pauses Work at the human boundary again.
 Put that actual URL, code, or prepared session in both `--action` and `--prepared`; do not hand
 the owner an obsolete request to open a browser or reconstruct the handoff.
-Schedule an observed expiry/completion check with `restless schedule add --at` rather than
+Schedule an observed expiry/completion check on the existing Work with
+`restless schedule add --work <work_id> --at <RFC3339>` rather than
 claiming a background process will notify the owner without arranging that observation.
 
 "Is this good?" is one of these boundaries. Verify every mechanism you can, then leave the artifact

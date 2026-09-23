@@ -703,25 +703,25 @@ async fn company_schema_round_trip() {
         org.get_work(judgement_work).await.unwrap().unwrap().status,
         WorkStatus::Completed
     );
-    org.add_schedule(
-        "delivery-build",
-        Some(owner_work),
-        "wait for opening",
-        Utc::now(),
-    )
-    .await
-    .unwrap();
+    org.add_work_release_schedule("delivery-build", owner_work, "wait for opening", Utc::now())
+        .await
+        .unwrap();
     assert_eq!(org.claim_due_schedules().await.unwrap().len(), 1);
 
-    let direct_schedule = org
-        .add_schedule(
+    let (direct_schedule, created) = org
+        .create_exact_schedule_with_responsibility(
             "delivery-build",
-            None,
             "inspect the accepted build; no new evidence may mean no work",
             Utc::now() - chrono::Duration::seconds(1),
+            "local_mac",
+            uuid::Uuid::new_v4(),
+            1,
+            "Inspect the accepted build from current state",
+            serde_json::json!({ "window_seconds": 7_200 }),
         )
         .await
         .unwrap();
+    assert!(created);
     assert_eq!(org.claim_due_schedules().await.unwrap().len(), 1);
     assert!(org.claim_due_schedules().await.unwrap().is_empty());
     let scheduled_mail = org.inbox(Some("delivery-build")).await.unwrap();

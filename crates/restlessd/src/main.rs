@@ -4468,9 +4468,10 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                         request.orgintel.recurrence.as_deref(),
                         Some("interval" | "weekdays")
                     )
+                    && request.orgintel.fire_at.is_none()
                 {
                     return Response::err(
-                        "responsibility creation requires --every or --weekdays",
+                        "responsibility creation requires --at, --every or --at-local with --timezone",
                     );
                 }
                 if request.orgintel.recurrence.as_deref() == Some("interval") {
@@ -4671,6 +4672,65 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                         "weekday schedules must be created with their responsibility using `schedule create-responsibility`",
                     );
                 }
+                if request.cmd == "schedule-responsibility-create" {
+                    if has_recurring_schedule_fields(&request.orgintel) {
+                        return Response::err("exact responsibility --at cannot include recurrence or missed-clock fields");
+                    }
+                    let Some(fire_at) = request.orgintel.fire_at.as_deref() else {
+                        return Response::err("exact responsibility needs --at RFC3339");
+                    };
+                    let fire_at = match chrono::DateTime::parse_from_rfc3339(fire_at) {
+                        Ok(value) => value.with_timezone(&chrono::Utc),
+                        Err(error) => return Response::err(format!("schedule --at must be RFC3339: {error}")),
+                    };
+                    let responsibility_id = match parse_required_uuid(request.common.id.as_deref(), "responsibility id") {
+                        Ok(id) => id,
+                        Err(error) => return Response::err(error),
+                    };
+                    let Some(version) = request.common.version else {
+                        return Response::err("exact responsibility needs version");
+                    };
+                    let Some(objective) = request.common.objective.as_deref() else {
+                        return Response::err("exact responsibility needs objective");
+                    };
+                    let Some(policy) = request.common.policy.as_ref() else {
+                        return Response::err("exact responsibility needs policy");
+                    };
+                    let org = match daemon.orgintel.get(company).await {
+                        Ok(org) => org,
+                        Err(error) => return Response::err(format!("{error:#}")),
+                    };
+                    if actor != "exec" {
+                        let is_lead = match org.list_teams().await {
+                            Ok(teams) => teams.iter().any(|team| team.lead_actor_id == actor),
+                            Err(error) => return Response::err(format!("{error:#}")),
+                        };
+                        if !is_lead {
+                            return Response::err("a free-standing schedule must target Exec or an accountable team lead; Staff time dependencies belong to Work");
+                        }
+                    }
+                    return match org.create_exact_schedule_with_responsibility(
+                        actor,
+                        reason,
+                        fire_at,
+                        "local_mac",
+                        responsibility_id,
+                        version,
+                        objective,
+                        policy.clone(),
+                    ).await {
+                        Ok((schedule_id, created)) => Response::ok(serde_json::json!({
+                            "schedule_id": schedule_id,
+                            "actor_id": actor,
+                            "fire_at": fire_at,
+                            "responsibility_id": responsibility_id,
+                            "responsibility_version": version,
+                            "created": created,
+                            "atomic": true,
+                        })),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    };
+                }
                 if has_recurring_schedule_fields(&request.orgintel) {
                     return Response::err("recurring schedule fields require --weekdays");
                 }
@@ -4694,22 +4754,12 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                     },
                     None => None,
                 };
+                let Some(work_id) = work_id else {
+                    return Response::err("free-standing exact wakes need an immutable responsibility; use `schedule create-responsibility --at`. `schedule add --work` remains available for Work time dependencies");
+                };
                 match daemon.orgintel.get(company).await {
                     Ok(org) => {
-                        if work_id.is_none() && actor != "exec" {
-                            let is_lead = match org.list_teams().await {
-                                Ok(teams) => {
-                                    teams.iter().any(|team| team.lead_actor_id == actor)
-                                }
-                                Err(error) => return Response::err(format!("{error:#}")),
-                            };
-                            if !is_lead {
-                                return Response::err(
-                                    "a free-standing schedule must target Exec or an accountable team lead; Staff time dependencies belong to Work",
-                                );
-                            }
-                        }
-                        match org.add_schedule(actor, work_id, reason, fire_at).await {
+                        match org.add_work_release_schedule(actor, work_id, reason, fire_at).await {
                             Ok(schedule_id) => Response::ok(serde_json::json!({
                                 "schedule_id": schedule_id,
                                 "actor_id": actor,

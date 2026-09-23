@@ -1145,10 +1145,13 @@ enum TeamCommand {
 
 #[derive(Subcommand)]
 enum ScheduleCommand {
-    /// Atomically create a recurring Exec schedule with its immutable responsibility binding.
+    /// Atomically create an exact or recurring wake with its immutable responsibility binding.
     CreateResponsibility {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
+        /// Exec or an accountable team lead. Interval cadence currently targets Exec.
+        #[arg(long = "as", default_value = "exec")]
+        as_actor: String,
         #[arg(long)]
         responsibility: String,
         #[arg(long)]
@@ -1157,6 +1160,9 @@ enum ScheduleCommand {
         objective: String,
         #[arg(long)]
         policy_file: PathBuf,
+        /// One exact RFC3339 instant; conflicts with recurring cadences.
+        #[arg(long, conflicts_with_all = ["at_local", "timezone", "every"])]
+        at: Option<String>,
         /// Weekday cadence; conflicts with --every.
         #[arg(long, requires = "timezone")]
         at_local: Option<String>,
@@ -1320,42 +1326,21 @@ enum ScheduleCommand {
         #[arg(long)]
         reason: String,
     },
-    /// Add a genuinely time-driven wake: one exact instant, or one weekday local-time cadence.
+    /// Release an existing Work item at one exact time. Free-standing wakes need a responsibility.
     Add {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
         /// The accountable actor to wake. Defaults to the current Runtime actor.
         #[arg(long = "as", env = "RESTLESS_ACTOR")]
         as_actor: Option<String>,
-        /// RFC3339 instant, for example 2026-08-28T09:30:00Z. Conflicts with --weekdays.
+        /// RFC3339 instant, for example 2026-08-28T09:30:00Z.
         #[arg(long)]
-        at: Option<String>,
-        /// Repeat at a bounded interval (`/loop`): 30m, 2h, 1d. Between 5 minutes and 30 days.
-        #[arg(long, conflicts_with_all = ["at", "weekdays", "work"])]
-        every: Option<String>,
-        /// Wake on weekdays at --at-local in --timezone. This wakes judgement; it runs no command.
-        #[arg(long)]
-        weekdays: bool,
-        /// Local wall-clock time in HH:MM form, for example 09:00.
-        #[arg(long)]
-        at_local: Option<String>,
-        /// IANA timezone, for example Australia/Sydney.
-        #[arg(long)]
-        timezone: Option<String>,
-        /// What to do if the daemon was down: skip, skip-if-late, catch-up, or coalesce-latest.
-        #[arg(long)]
-        on_missed: Option<String>,
-        /// Catch-up window for --on-missed catch-up. After this many minutes, skip.
-        #[arg(long)]
-        catch_up_within_minutes: Option<i64>,
-        /// local-mac, or always-on. Always-on work waits for a capable runner.
-        #[arg(long)]
-        execution: Option<String>,
+        at: String,
         #[arg(long)]
         reason: String,
-        /// Optional Work waiting on this exact time condition.
+        /// Work waiting on this exact time condition.
         #[arg(long)]
-        work: Option<String>,
+        work: String,
     },
     /// Change how one live recurring schedule handles a missed clock time.
     Policy {
@@ -3392,10 +3377,12 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
         Command::Schedule { command } => match command {
             ScheduleCommand::CreateResponsibility {
                 company,
+                as_actor,
                 responsibility,
                 version,
                 objective,
                 policy_file,
+                at,
                 at_local,
                 timezone,
                 every,
@@ -3412,7 +3399,15 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                     policy.is_object(),
                     "responsibility policy must be a JSON object"
                 );
-                let cadence = if let Some(every) = every {
+                let cadence = if let Some(at) = at {
+                    anyhow::ensure!(
+                        on_missed == "skip"
+                            && catch_up_within_minutes.is_none()
+                            && execution == "local-mac",
+                        "--at cannot be combined with recurring missed-policy or execution options"
+                    );
+                    serde_json::json!({"fire_at": at})
+                } else if let Some(every) = every {
                     anyhow::ensure!(
                         on_missed == "skip"
                             && catch_up_within_minutes.is_none()
@@ -3425,10 +3420,10 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                             .with_context(|| format!("--every {every:?}: use a duration such as 30m, 2h or 1d"))?,
                     })
                 } else {
-                    let at_local =
-                        at_local.context("provide --every or both --at-local and --timezone")?;
-                    let timezone =
-                        timezone.context("provide --every or both --at-local and --timezone")?;
+                    let at_local = at_local
+                        .context("provide --at, --every, or both --at-local and --timezone")?;
+                    let timezone = timezone
+                        .context("provide --at, --every, or both --at-local and --timezone")?;
                     serde_json::json!({
                         "recurrence": "weekdays", "local_time": at_local, "timezone": timezone,
                         "missed_policy": on_missed,
@@ -3437,7 +3432,7 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                     })
                 };
                 let mut request = serde_json::json!({
-                    "cmd": "schedule-responsibility-create", "company": company, "as_actor": "exec",
+                    "cmd": "schedule-responsibility-create", "company": company, "as_actor": as_actor,
                     "reason": reason, "id": responsibility, "version": version,
                     "objective": objective, "policy": policy,
                 });
@@ -3573,40 +3568,13 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 company,
                 as_actor,
                 at,
-                every: Some(every),
-                reason,
-                ..
-            } => serde_json::json!({
-                "cmd": "schedule-add", "company": company,
-                "as_actor": as_actor.or_else(|| std::env::var("RESTLESS_ACTOR").ok())
-                    .unwrap_or_else(|| "exec".to_string()),
-                "fire_at": at, "recurrence": "interval",
-                "interval_seconds": restlessd::skill_package::parse_interval(&every)
-                    .with_context(|| format!("--every {every:?}: use a duration such as 30m, 2h or 1d"))?,
-                "reason": reason,
-            }),
-            ScheduleCommand::Add {
-                company,
-                as_actor,
-                at,
-                weekdays,
-                at_local,
-                timezone,
-                on_missed,
-                catch_up_within_minutes,
-                execution,
                 reason,
                 work,
-                every: None,
             } => serde_json::json!({
                 "cmd": "schedule-add", "company": company,
                 "as_actor": as_actor.or_else(|| std::env::var("RESTLESS_ACTOR").ok())
                     .unwrap_or_else(|| "exec".to_string()),
-                "fire_at": at, "recurrence": weekdays.then_some("weekdays"),
-                "local_time": at_local, "timezone": timezone,
-                "missed_policy": on_missed,
-                "catch_up_grace_seconds": catch_up_within_minutes.map(|minutes| minutes.saturating_mul(60)),
-                "execution_requirement": execution.or_else(|| weekdays.then(|| "local-mac".to_string())),
+                "fire_at": at,
                 "reason": reason, "id": work,
             }),
             ScheduleCommand::Policy {

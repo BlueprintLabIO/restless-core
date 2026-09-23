@@ -11,6 +11,6 @@ Many public skills were written for a single-agent harness. Translate their orch
 - "A separate critic", "blind review", "fresh context": review Work owned by a different actor that did not see the draft, created with `--requires`/`--revises`. A retry gets a fresh reviewer.
 - "Ask the user", "interview", "grill": Exec asks the owner in conversation. Staff batch the questions into one owner-judgement handoff only when the answer is irreducibly the owner's; otherwise ask the accountable lead.
 - `/goal <objective>`: the objective is a Restless Goal (`restless goal add`) served by Work under one accountable lead. It is complete only when the Work's evidence and review say so, never because you believe it is done.
-- `/loop [interval] <prompt>`: a schedule (`restless schedule add --every <interval> --reason <prompt>`). A schedule wakes an actor; it is not evidence that production is needed.
+- `/loop [interval] <prompt>`: an owner-created, versioned responsibility with a bounded interval (`restless schedule create-responsibility --every <interval> ...`). The trigger wakes judgement; it is not evidence that production is needed. An exact time dependency on existing Work uses `restless schedule add --work <work-id> --at <RFC3339>`.
 - `/other-skill`: `restless skill use other-skill`.
 - An issue tracker, board or ticket map: Work items, or the tracker through an already authorised connection.

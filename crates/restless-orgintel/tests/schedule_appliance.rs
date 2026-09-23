@@ -52,6 +52,58 @@ async fn appliance_misfires_are_bounded_exact_and_honest_about_local_execution()
         .await
         .unwrap();
 
+    // A free-standing one-shot wake and responsibility are one durable
+    // write. Retrying the exact owner request returns the same bound row.
+    let exact_responsibility = uuid::Uuid::new_v4();
+    let exact_fire_at = at("2026-09-30T01:00:00Z");
+    let exact_policy = serde_json::json!({ "window_seconds": 7_200 });
+    let (exact_id, created) = org
+        .create_exact_schedule_with_responsibility(
+            "ops-research",
+            "one-shot responsibility wake",
+            exact_fire_at,
+            "local_mac",
+            exact_responsibility,
+            1,
+            "Review the durable checkpoint",
+            exact_policy.clone(),
+        )
+        .await
+        .unwrap();
+    assert!(created);
+    let (retry_id, created) = org
+        .create_exact_schedule_with_responsibility(
+            "ops-research",
+            "one-shot responsibility wake",
+            exact_fire_at,
+            "local_mac",
+            exact_responsibility,
+            1,
+            "Review the durable checkpoint",
+            exact_policy,
+        )
+        .await
+        .unwrap();
+    assert!(!created);
+    assert_eq!(retry_id, exact_id);
+    let stored_schedule = org
+        .list_schedules(Some("ops-research"), false)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|schedule| schedule.id == exact_id)
+        .unwrap();
+    assert_eq!(
+        stored_schedule.responsibility_id,
+        Some(exact_responsibility)
+    );
+    assert_eq!(stored_schedule.responsibility_version, Some(1));
+    assert!(org
+        .get_responsibility_version(exact_responsibility, 1)
+        .await
+        .unwrap()
+        .is_some());
+
     let local_time = NaiveTime::from_hms_opt(9, 0, 0).unwrap();
     let first_window = at("2026-08-30T00:00:00Z");
     let resume = at("2026-09-03T12:00:00Z");
@@ -181,15 +233,20 @@ async fn appliance_misfires_are_bounded_exact_and_honest_about_local_execution()
     org.ensure_actor("exec", "exec", "exec", "The Exec")
         .await
         .unwrap();
-    let exec_schedule = org
-        .add_schedule(
+    let (exec_schedule, created) = org
+        .create_exact_schedule_with_responsibility(
             "exec",
-            None,
             "inspect the current sales responsibility",
             resume,
+            "local_mac",
+            uuid::Uuid::new_v4(),
+            1,
+            "Inspect the current sales responsibility",
+            serde_json::json!({ "window_seconds": 7_200 }),
         )
         .await
         .unwrap();
+    assert!(created);
     assert_eq!(org.claim_due_schedules_at(resume).await.unwrap().len(), 1);
     let reopened = OrgIntel::ensure(&url, &company).await.unwrap();
     assert!(reopened

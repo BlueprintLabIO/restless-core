@@ -265,7 +265,7 @@ mod tests {
         for primitive in [
             "restless work add",
             "restless goal add",
-            "restless schedule add --every",
+            "restless schedule create-responsibility --every",
             "restless skill use",
             "restless skill add",
             "never carry authority",

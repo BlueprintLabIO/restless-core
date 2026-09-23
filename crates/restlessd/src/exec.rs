@@ -12,6 +12,7 @@ use restless_orgintel::OrgIntel;
 use serde::Serialize;
 use std::collections::HashSet;
 use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
 
 use crate::acp;
 use crate::context::{self, ContextSnapshot};
@@ -1360,8 +1361,21 @@ async fn record_outcome(org: &OrgIntel, report: &WakeReport) -> Result<()> {
                 report.reason.chars().take(240).collect::<String>()
             )
         };
-        org.add_schedule("exec", None, &schedule_reason, fire_at)
-            .await?;
+        let objective = format!(
+            "Resume the active Exec milestone after a bounded retry delay. Preserve the existing company policy and authority boundaries. Context: {}",
+            schedule_reason.chars().take(500).collect::<String>()
+        );
+        org.create_exact_schedule_with_responsibility(
+            "exec",
+            &schedule_reason,
+            fire_at,
+            "local_mac",
+            Uuid::new_v4(),
+            1,
+            &objective,
+            serde_json::json!({ "window_seconds": 3600 }),
+        )
+        .await?;
     }
     Ok(())
 }

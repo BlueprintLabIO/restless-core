@@ -918,7 +918,11 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         "message" => &["from", "to", "id", "body"],
         "events" => &["limit"],
         "schedule-list" => &["as_actor", "include_fired"],
-        "schedule-test" => &["id", "schedule_test_timeout_seconds", "schedule_test_run_actor"],
+        "schedule-test" => &[
+            "id",
+            "schedule_test_timeout_seconds",
+            "schedule_test_run_actor",
+        ],
         "schedule-opportunities" => &["responsibility_id", "limit"],
         "schedule-link-work" => &["id", "work_id", "owner_epoch", "relation", "as_actor"],
         "schedule-outcome" => &[
@@ -933,6 +937,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         "schedule-responsibility-bind" => &["id", "responsibility_id", "version"],
         "schedule-responsibility-create" => &[
             "as_actor",
+            "fire_at",
             "recurrence",
             "interval_seconds",
             "local_time",

@@ -162,22 +162,16 @@ pub(crate) async fn run(
     test_org
         .ensure_actor("daemon", "system", "system-sender", "The daemon")
         .await?;
-    test_org
-        .put_responsibility_version(
-            responsibility_id,
-            responsibility_version,
-            if run_actor {
-                "Synthetic actor-pipeline check: acknowledge the scheduled wake and record a concise outcome. Do not perform business work or external actions."
-            } else {
-                &version.objective
-            },
-            if run_actor {
-                json!({"test_mode": true, "external_actions": "forbidden", "source_schedule_id": source_schedule_id})
-            } else {
-                version.policy
-            },
-        )
-        .await?;
+    let test_objective = if run_actor {
+        "Synthetic actor-pipeline check: acknowledge the scheduled wake and record a concise outcome. Do not perform business work or external actions."
+    } else {
+        &version.objective
+    };
+    let test_policy = if run_actor {
+        json!({"window_seconds": 7200, "test_mode": true, "external_actions": "forbidden", "source_schedule_id": source_schedule_id})
+    } else {
+        version.policy
+    };
 
     let scheduled_for = Utc::now();
     let test_reason = if run_actor {
@@ -185,11 +179,17 @@ pub(crate) async fn run(
     } else {
         source_schedule.reason.clone()
     };
-    let test_schedule_id = test_org
-        .add_schedule("exec", None, &test_reason, scheduled_for)
-        .await?;
-    test_org
-        .bind_schedule_responsibility(test_schedule_id, responsibility_id, responsibility_version)
+    let (test_schedule_id, _) = test_org
+        .create_exact_schedule_with_responsibility(
+            "exec",
+            &test_reason,
+            scheduled_for,
+            "local_mac",
+            responsibility_id,
+            responsibility_version,
+            test_objective,
+            test_policy,
+        )
         .await?;
 
     let mut runtime_guard = None;
