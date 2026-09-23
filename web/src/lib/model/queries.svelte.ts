@@ -314,10 +314,11 @@ export function portfolioQuery() {
 	};
 }
 
-export function cockpitQuery(companyId: string, enabled: QueryEnabled = true) {
+export function cockpitQuery(companyId: string | (() => string), enabled: QueryEnabled = true) {
+	const currentCompany = () => typeof companyId === 'function' ? companyId() : companyId;
 	const query = createQuery(() => ({
-		queryKey: queryKeys.cockpit(companyId),
-		queryFn: () => getCockpit(companyId),
+		queryKey: queryKeys.cockpit(currentCompany()),
+		queryFn: ({ queryKey }) => getCockpit(queryKey[1]),
 		enabled: queryEnabled(enabled),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,

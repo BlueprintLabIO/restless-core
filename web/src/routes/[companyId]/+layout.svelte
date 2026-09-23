@@ -45,7 +45,7 @@
 	 * same endpoint on two clocks. The badge can no longer disagree with the
 	 * queue it is counting. */
 	const attention = $derived(attentionQuery(companyId, () => ownerAccess));
-	const cockpitProjection = $derived(cockpitQuery(companyId, () => ownerAccess));
+	const cockpitProjection = cockpitQuery(() => companyId, () => ownerAccess);
 	const cockpit = $derived(cockpitProjection.view);
 	const companyProjection = $derived(companyQuery(companyId, () => ownerAccess));
 
