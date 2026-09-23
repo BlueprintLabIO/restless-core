@@ -568,7 +568,7 @@ impl OrgIntel {
         Ok(sqlx::query_as::<_, OpportunityClaim>(
             "UPDATE opportunities SET lease_owner=$2, lease_expires_at=$3, state='inspecting', \
                next_wake_at=NULL, owner_epoch=owner_epoch+1, revision=revision+1 \
-             WHERE id=$1 AND state NOT IN ('completed','needs_human','blocked','cancelled') \
+             WHERE id=$1 AND actor_id=$2 AND state NOT IN ('completed','needs_human','blocked','cancelled') \
                AND (lease_expires_at IS NULL OR lease_expires_at <= $4) \
                AND (state <> 'waiting_retry' OR next_wake_at <= $4) \
                AND (deadline_at IS NULL OR deadline_at > $4) \
