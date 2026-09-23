@@ -108,6 +108,10 @@
 	let unsyncedChanges = $state(0);
 
 	const editor = $derived(editorState.editor);
+	// Metadata refreshes replace view without changing the live editing session.
+	// Track primitive identity/access so polling cannot tear down the editor.
+	const liveDocumentId = $derived(view.document.id);
+	const liveReadAccess = $derived(view.access);
 	const canWriteLive = $derived(
 		collaborationState === 'synced' && collaborationAccess === 'write' && view.access === 'edit'
 	);
@@ -205,9 +209,9 @@
 
 	$effect(() => {
 		const identity = companyUuid ?? '';
-		const documentId = view.document.id;
+		const documentId = liveDocumentId;
 		const routeCompany = companyId;
-		const readAccess = view.access;
+		const readAccess = liveReadAccess;
 		const actorId = principalActorId;
 		void retryGeneration;
 
