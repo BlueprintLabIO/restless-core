@@ -14,6 +14,7 @@ import {
 	getAttention,
 	openAgentActivityStream,
 	sendActorMessage,
+	type AttentionView,
 	type ActorConversation,
 	type AgentActivityState,
 	type MessageSendResult
@@ -211,6 +212,22 @@ export async function refreshAttention(client: QueryClient, companyId: string) {
 		channel.close();
 	}
 	await client.invalidateQueries({ queryKey: queryKeys.attention(companyId) });
+}
+
+/** A confirmed decision leaves the queue without waiting for a full company read. */
+export async function removeConfirmedAttention(
+	client: QueryClient,
+	companyId: string,
+	itemId: string
+) {
+	const queryKey = queryKeys.attention(companyId);
+	// An older in-flight read must not put the decided card back into the queue.
+	await client.cancelQueries({ queryKey });
+	client.setQueryData<AttentionView>(queryKey, (view) => view && ({
+		...view,
+		items: view.items.filter((item) => item.id !== itemId)
+	}));
+	void refreshAttention(client, companyId);
 }
 
 export function companiesQuery(enabled: QueryEnabled = true) {

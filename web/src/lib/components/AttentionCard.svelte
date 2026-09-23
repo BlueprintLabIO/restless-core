@@ -6,7 +6,7 @@
 		completeHandoffHumanStep,
 		resolveHandoffDecision
 	} from '$lib/model/attention';
-	import { refreshAttention } from '$lib/model/queries.svelte';
+	import { refreshAttention, removeConfirmedAttention } from '$lib/model/queries.svelte';
 	import HoldApprove from '$lib/primitives/HoldApprove.svelte';
 	import Markdown from '$lib/primitives/Markdown.svelte';
 
@@ -27,6 +27,7 @@
 	} = $props();
 	const client = useQueryClient();
 	let acting = $state(false);
+	let actionStatus = $state('');
 	let error = $state('');
 	let decision = $state('');
 	let attempt = $state(0);
@@ -74,6 +75,7 @@
 	async function act(kind: 'grant' | 'decline' | 'decision') {
 		if (acting) return;
 		acting = true;
+		actionStatus = kind === 'grant' ? 'Saving approval…' : 'Saving decision…';
 		error = '';
 		try {
 			if (kind === 'decision')
@@ -84,11 +86,13 @@
 				await approvalAction(companyId, kind, item.source.party);
 			}
 			decision = '';
-			await refreshAttention(client, companyId);
+			if (kind === 'decision') await refreshAttention(client, companyId);
+			else await removeConfirmedAttention(client, companyId, item.id);
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'The action was not recorded. Try again.';
 		} finally {
 			acting = false;
+			actionStatus = '';
 			attempt += 1;
 		}
 	}
@@ -114,7 +118,7 @@
 	aria-label={item.preparing ? 'Preparing your next step' : item.title}
 	aria-busy={acting}
 >
-	{#if showTitle}<header><strong>{item.preparing ? 'Preparing your next step' : item.title}</strong><span>{item.preparing ? 'Preparing' : 'Needs you'}</span></header>{/if}
+	{#if showTitle}<header><strong>{item.preparing ? 'Preparing your next step' : item.title}</strong><span>{actionStatus || (item.preparing ? 'Preparing' : 'Needs you')}</span></header>{/if}
 	{#if !hasDocumentAction}<div class="request"><Markdown text={item.requestedAction} /></div>{/if}
 	{#if item.preparing}
 		<p class="waiting" role="status">Nothing to do yet. The team is preparing this step. Your instructions and any sign-in link will appear here when ready.</p>
@@ -160,8 +164,8 @@
 			{#key `${item.id}:${attempt}`}
 				<HoldApprove
 					small
-					completeLabel="Working…"
-					label={acting ? 'Working…' : `Hold to ${grant.label.toLowerCase()}`}
+					completeLabel="Saving approval…"
+					label={actionStatus || `Hold to ${grant.label.toLowerCase()}`}
 					disabled={acting}
 					title={`${grant.consequence} ${grant.nextState}`}
 					onapprove={() => void act('grant')}
