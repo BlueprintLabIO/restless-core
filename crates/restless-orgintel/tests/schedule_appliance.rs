@@ -103,6 +103,23 @@ async fn appliance_misfires_are_bounded_exact_and_honest_about_local_execution()
         .await
         .unwrap()
         .is_some());
+    assert!(org
+        .cancel_schedule(exact_id, "ops-research", "the one-shot opportunity ended")
+        .await
+        .unwrap());
+    assert!(org
+        .create_exact_schedule_with_responsibility(
+            "ops-research",
+            "one-shot responsibility wake",
+            exact_fire_at,
+            "local_mac",
+            exact_responsibility,
+            1,
+            "Review the durable checkpoint",
+            serde_json::json!({ "window_seconds": 7_200 }),
+        )
+        .await
+        .is_err());
 
     let local_time = NaiveTime::from_hms_opt(9, 0, 0).unwrap();
     let first_window = at("2026-08-30T00:00:00Z");

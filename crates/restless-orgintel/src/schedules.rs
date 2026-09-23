@@ -1127,6 +1127,11 @@ impl OrgIntel {
                     "responsibility versions are immutable; use a new version".into(),
                 ));
             }
+            if existing.cancelled_at.is_some() {
+                return Err(OrgIntelError::InvalidWork(
+                    "the exact schedule was cancelled; create a new time opportunity with a new reason or instant".into(),
+                ));
+            }
             tx.commit().await?;
             return Ok((existing.id, false));
         }
