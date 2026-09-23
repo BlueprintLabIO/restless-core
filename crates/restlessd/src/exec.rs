@@ -1336,6 +1336,19 @@ async fn record_outcome(org: &OrgIntel, report: &WakeReport) -> Result<()> {
     )
     .await?;
     if let Some(seconds) = report.retry_after_seconds {
+        // A scheduled responsibility already owns its continuation clock.
+        // Its fenced Opportunity is deferred by the caller after this turn;
+        // a second free-standing Exec schedule would replay the same work.
+        let claimed_opportunity = org.list_open_opportunities().await?.into_iter().any(|row| {
+            row.actor_id == "exec"
+                && row.lease_owner.as_deref() == Some("exec")
+                && row
+                    .lease_expires_at
+                    .is_some_and(|until| until > chrono::Utc::now())
+        });
+        if claimed_opportunity {
+            return Ok(());
+        }
         let fire_at = chrono::Utc::now() + chrono::Duration::seconds(i64::from(seconds));
         let schedule_reason = if report.reason.starts_with("termination decision")
             || report.reason.starts_with("[transport]")
