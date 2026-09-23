@@ -69,8 +69,6 @@ let turnStarting = false;
 let pendingTurnOperation = null;
 let observed = null;
 let stderrTail = '';
-let completionOnly = false;
-let completionTurnStarted = false;
 const pending = new Map();
 const completedOperations = new Map();
 
@@ -102,18 +100,6 @@ function providerModel(model) {
   const exact = requireString(model, 'model');
   const slash = exact.indexOf('/');
   return slash === -1 ? exact : exact.slice(slash + 1);
-}
-
-function matchesCompletionSandbox(policy, cwd) {
-  return policy
-    && typeof policy === 'object'
-    && policy.type === 'readOnly'
-    && policy.networkAccess === false
-    && policy.access?.type === 'restricted'
-    && policy.access.includePlatformDefaults === false
-    && Array.isArray(policy.access.readableRoots)
-    && policy.access.readableRoots.length === 1
-    && policy.access.readableRoots[0] === cwd;
 }
 
 function providerBaseUrl(raw) {
@@ -219,30 +205,6 @@ function compactItem(item) {
 
 function projectNotification(message) {
   const { method, params = {} } = message;
-  if (completionOnly && method === 'item/started') {
-    const item = params.item ?? {};
-    if (!['agentMessage', 'reasoning', 'userMessage'].includes(item.type)) {
-      fail('completion-only Codex session attempted a tool/effect', {
-        method,
-        item_type: item.type ?? 'unknown',
-      });
-      return;
-    }
-  }
-  if (completionOnly && method === 'item/completed') {
-    const item = params.item ?? {};
-    if (!['agentMessage', 'reasoning', 'userMessage'].includes(item.type)) {
-      fail('completion-only Codex session reported a tool/effect', {
-        method,
-        item_type: item.type ?? 'unknown',
-      });
-      return;
-    }
-  }
-  if (completionOnly && method === 'item/commandExecution/outputDelta') {
-    fail('completion-only Codex session attempted a tool/effect', { method });
-    return;
-  }
   switch (method) {
     case 'thread/started':
       emit({ type: 'thread_started', thread_id: params.thread?.id ?? null });
@@ -416,18 +378,6 @@ async function launch(operation) {
   if (launched) throw new Error('launch may be sent only once');
   launched = true;
   const cwd = requireString(operation.cwd, 'cwd');
-  completionOnly = operation.completion_only === true;
-  if (completionOnly) {
-    if (!/^\/company\/run\/agent-sessions\/(?:[a-f0-9]{32}|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\/completion-cwd$/.test(cwd)) {
-      throw new Error('completion-only cwd must be the isolated per-launch completion directory');
-    }
-    if (operation.thread_id != null) {
-      throw new Error('completion-only launch cannot resume a Codex thread');
-    }
-    if (!Array.isArray(operation.mcp_servers) || operation.mcp_servers.length !== 0) {
-      throw new Error('completion-only launch cannot include MCP servers');
-    }
-  }
   const exactModel = requireString(operation.model, 'model');
   const model = providerModel(exactModel);
   const effort = requireString(operation.effort, 'effort');
@@ -480,9 +430,9 @@ async function launch(operation) {
     modelProvider: native ? 'openai' : 'restless',
     allowProviderModelFallback: false,
     approvalPolicy: 'never',
-    sandbox: completionOnly ? 'read-only' : 'danger-full-access',
+    sandbox: 'danger-full-access',
     developerInstructions: requireString(operation.developer_instructions, 'developer_instructions'),
-    ephemeral: completionOnly,
+    ephemeral: false,
   };
   const prior = typeof operation.thread_id === 'string' && operation.thread_id ? operation.thread_id : null;
   const result = prior
@@ -490,12 +440,6 @@ async function launch(operation) {
     : await request('thread/start', common);
   threadId = result.thread?.id;
   if (!threadId) throw new Error('Codex did not return a thread id');
-  if (completionOnly && result.approvalPolicy !== 'never') {
-    throw new Error('completion-only Codex thread did not confirm approvalPolicy=never');
-  }
-  if (completionOnly && (result.sandboxPolicy ?? result.sandbox)?.type !== 'readOnly') {
-    throw new Error('completion-only Codex thread did not confirm a read-only sandbox');
-  }
   observed = {
     codex_version: initialized.userAgent ?? null,
     codex_home: initialized.codexHome ?? codexHome,
@@ -508,18 +452,6 @@ async function launch(operation) {
     cwd_observed: result.cwd ?? null,
     approval_policy_observed: result.approvalPolicy ?? null,
     sandbox_observed: result.sandboxPolicy ?? result.sandbox ?? null,
-    completion_only: completionOnly,
-    completion_sandbox_policy: completionOnly
-      ? {
-        type: 'readOnly',
-        access: {
-          type: 'restricted',
-          includePlatformDefaults: false,
-          readableRoots: [cwd],
-        },
-        networkAccess: false,
-      }
-      : null,
     network_policy_observed: native ? 'native-provider-auth-v1' : 'host-model-relay-only-v1',
     disabled_features_observed: DISABLED_CODEX_FEATURES,
     mcp_contract_digest: createHash('sha256').update(JSON.stringify(mcp.contract)).digest('hex'),
@@ -550,36 +482,15 @@ async function dispatch(operation) {
       if (activeTurnId || turnStarting) {
         throw new Error(activeTurnId ? `turn ${activeTurnId} is already active` : 'a turn is starting');
       }
-      if (completionOnly && completionTurnStarted) {
-        throw new Error('completion-only Codex session permits one correction turn');
-      }
-      if (completionOnly) completionTurnStarted = true;
       turnStarting = true;
       pendingTurnOperation = { requestId: operation.request_id ?? null };
-      const turnParams = {
+      request('turn/start', {
         threadId,
         input: textInput(operation.text),
         model: providerModel(observed.model_requested),
         effort: observed.effort_requested,
         approvalPolicy: 'never',
-      };
-      if (completionOnly) {
-        turnParams.sandboxPolicy = {
-          type: 'readOnly',
-          access: {
-            type: 'restricted',
-            includePlatformDefaults: false,
-            readableRoots: [observed.cwd_observed],
-          },
-          networkAccess: false,
-        };
-      }
-      request('turn/start', turnParams).then((result) => {
-        if (completionOnly) {
-          if (!matchesCompletionSandbox(turnParams.sandboxPolicy, observed.cwd_observed)) {
-            throw new Error('completion-only Codex turn policy was not constructed as restricted read-only');
-          }
-        }
+      }).then((result) => {
         const returnedTurnId = result.turn?.id ?? null;
         if (pendingTurnOperation) {
           if (!returnedTurnId) throw new Error('Codex did not return a turn id');
@@ -604,7 +515,6 @@ async function dispatch(operation) {
       return;
     }
     case 'steer': {
-      if (completionOnly) throw new Error('completion-only Codex session cannot be steered');
       if (!activeTurnId) throw new Error('no active turn to steer');
       const result = await request('turn/steer', { threadId, input: textInput(operation.text) });
       emit({ type: 'operation_complete', op: 'steer', request_id: operation.request_id ?? null, thread_id: threadId, turn_id: result.turnId ?? activeTurnId });
