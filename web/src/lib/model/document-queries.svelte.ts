@@ -129,7 +129,6 @@ export function documentsQuery(companyId: QueryId) {
 		staleTime: DOCUMENT_STALE_MS,
 		gcTime: DOCUMENT_RETAIN_MS,
 		refetchInterval: DOCUMENT_REFRESH_MS,
-		refetchIntervalInBackground: true,
 		retry: retryDocumentRead
 	}));
 	return {
@@ -181,7 +180,6 @@ export function documentPrincipalQuery(companyId: QueryId) {
 		staleTime: DOCUMENT_STALE_MS,
 		gcTime: DOCUMENT_RETAIN_MS,
 		refetchInterval: DOCUMENT_REFRESH_MS,
-		refetchIntervalInBackground: true,
 		retry: retryDocumentRead
 	}));
 	return {
@@ -213,7 +211,6 @@ export function documentQuery(companyId: QueryId, documentId: QueryId) {
 		staleTime: DOCUMENT_STALE_MS,
 		gcTime: DOCUMENT_RETAIN_MS,
 		refetchInterval: DOCUMENT_REFRESH_MS,
-		refetchIntervalInBackground: true,
 		retry: retryDocumentRead
 	}));
 	return {
@@ -326,7 +323,6 @@ export function documentCommentThreadsQuery(companyId: QueryId, documentId: Quer
 		staleTime: DOCUMENT_STALE_MS,
 		gcTime: DOCUMENT_RETAIN_MS,
 		refetchInterval: DOCUMENT_REFRESH_MS,
-		refetchIntervalInBackground: true,
 		retry: retryDocumentRead
 	}));
 	return {
@@ -414,7 +410,6 @@ export function documentCommentsQuery(companyId: QueryId, documentId: QueryId, t
 		staleTime: DOCUMENT_STALE_MS,
 		gcTime: DOCUMENT_RETAIN_MS,
 		refetchInterval: DOCUMENT_REFRESH_MS,
-		refetchIntervalInBackground: true,
 		retry: retryDocumentRead
 	}));
 	return {
@@ -463,7 +458,6 @@ export function documentReviewsQuery(companyId: QueryId, documentId: QueryId) {
 		staleTime: DOCUMENT_STALE_MS,
 		gcTime: DOCUMENT_RETAIN_MS,
 		refetchInterval: DOCUMENT_REFRESH_MS,
-		refetchIntervalInBackground: true,
 		retry: retryDocumentRead
 	}));
 	return {
@@ -522,7 +516,6 @@ export function documentProposalsQuery(companyId: QueryId, documentId: QueryId) 
 		staleTime: DOCUMENT_STALE_MS,
 		gcTime: DOCUMENT_RETAIN_MS,
 		refetchInterval: DOCUMENT_REFRESH_MS,
-		refetchIntervalInBackground: true,
 		retry: retryDocumentRead
 	}));
 	return {

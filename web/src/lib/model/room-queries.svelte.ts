@@ -59,7 +59,6 @@ export function recentDirectConversationsQuery(companyId: string, enabled: () =>
 		staleTime: ROOM_STALE_MS,
 		gcTime: ROOM_RETAIN_MS,
 		refetchInterval: ROOM_REFRESH_MS,
-		refetchIntervalInBackground: true,
 		retry: 1
 	}));
 	return {
@@ -231,7 +230,6 @@ export function roomMessagesQuery(companyId: string, roomId: string) {
 		staleTime: ROOM_STALE_MS,
 		gcTime: ROOM_RETAIN_MS,
 		refetchInterval: ROOM_REFRESH_MS,
-		refetchIntervalInBackground: true,
 		retry: 1
 	}));
 	return {
@@ -381,7 +379,6 @@ export function roomThreadQuery(companyId: string, roomId: string, rootMessageId
 		staleTime: ROOM_STALE_MS,
 		gcTime: ROOM_RETAIN_MS,
 		refetchInterval: ROOM_REFRESH_MS,
-		refetchIntervalInBackground: true,
 		retry: 1
 	}));
 	return {
