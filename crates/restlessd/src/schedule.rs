@@ -1222,6 +1222,17 @@ async fn fire_exec(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str, re
         if let Err(error) = outcome {
             tracing::warn!(company, "Exec conversation wake failed: {error:#}");
         }
+        // A durable message may have arrived while this singleton turn was
+        // running. Release its claim, then promptly dispatch the queued
+        // follow-up instead of waiting for the next periodic repair sweep.
+        drop(_guard);
+        let follow_up_queued = in_flight
+            .lock()
+            .map(|claims| claims.pending.contains_key(&company))
+            .unwrap_or(false);
+        if follow_up_queued {
+            daemon.schedule_wake.notify_one();
+        }
     });
 }
 
