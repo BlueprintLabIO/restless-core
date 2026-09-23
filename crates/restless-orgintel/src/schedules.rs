@@ -776,14 +776,168 @@ impl OrgIntel {
         Ok(row)
     }
 
-    /// A durable interval time fact addressed to one actor (`/loop`). Repeating
-    /// the same actor, interval and reason returns the existing live schedule.
+    /// Legacy/test API placeholder. Production intervals must use
+    /// `create_interval_schedule_with_responsibility`; this method rejects
+    /// unbound recurrence creation.
     pub async fn add_interval_schedule(
+        &self,
+        _actor_id: &str,
+        _reason: &str,
+        _interval_seconds: i32,
+        _after: DateTime<Utc>,
+    ) -> Result<(Uuid, DateTime<Utc>, bool)> {
+        Err(OrgIntelError::InvalidWork(
+            "interval schedules must be created with a responsibility version".into(),
+        ))
+    }
+}
+
+impl OrgIntel {
+    /// Create a weekday schedule and its immutable responsibility version in
+    /// one transaction. Repeating the exact request is idempotent; an
+    /// existing live schedule with a different binding is left untouched and
+    /// rejected.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_weekday_schedule_with_responsibility(
+        &self,
+        actor_id: &str,
+        reason: &str,
+        local_time: NaiveTime,
+        timezone: &str,
+        after: DateTime<Utc>,
+        missed_policy: &str,
+        catch_up_grace_seconds: Option<i64>,
+        machine_requirement: &str,
+        responsibility_id: Uuid,
+        version: i32,
+        objective: &str,
+        policy: serde_json::Value,
+    ) -> Result<(Uuid, DateTime<Utc>, bool)> {
+        if reason.trim().is_empty() {
+            return Err(OrgIntelError::InvalidWork(
+                "a recurring time opportunity needs a reason".into(),
+            ));
+        }
+        validate_missed_policy(missed_policy, catch_up_grace_seconds)?;
+        if !matches!(machine_requirement, "local_mac" | "always_on") {
+            return Err(OrgIntelError::InvalidWork(
+                "machine requirement must be local_mac|always_on".into(),
+            ));
+        }
+        if version <= 0 || objective.trim().is_empty() || !policy.is_object() {
+            return Err(OrgIntelError::InvalidWork(
+                "a responsibility version needs a positive version, objective, and policy object"
+                    .into(),
+            ));
+        }
+        opportunity_window_seconds(&policy)?;
+        let fire_at = next_weekday_fire(after, local_time, timezone)?;
+        let mut tx = self.pool.begin().await?;
+
+        sqlx::query(
+            "INSERT INTO responsibilities (id, current_version) VALUES ($1,$2) \
+             ON CONFLICT (id) DO NOTHING",
+        )
+        .bind(responsibility_id)
+        .bind(version)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO responsibility_versions (responsibility_id, version, objective, policy) \
+             VALUES ($1,$2,$3,$4) ON CONFLICT (responsibility_id, version) DO NOTHING",
+        )
+        .bind(responsibility_id)
+        .bind(version)
+        .bind(objective.trim())
+        .bind(&policy)
+        .execute(&mut *tx)
+        .await?;
+        let stored: (String, serde_json::Value) = sqlx::query_as(
+            "SELECT objective, policy FROM responsibility_versions WHERE responsibility_id=$1 AND version=$2",
+        )
+        .bind(responsibility_id)
+        .bind(version)
+        .fetch_one(&mut *tx)
+        .await?;
+        if stored.0 != objective.trim() || stored.1 != policy {
+            return Err(OrgIntelError::InvalidWork(
+                "responsibility versions are immutable; use a new version".into(),
+            ));
+        }
+        sqlx::query(
+            "UPDATE responsibilities SET current_version=$2 WHERE id=$1 AND current_version < $2",
+        )
+        .bind(responsibility_id)
+        .bind(version)
+        .execute(&mut *tx)
+        .await?;
+
+        let inserted = sqlx::query_scalar::<_, Uuid>(
+            "INSERT INTO schedules (id, actor_id, reason, fire_at, recurrence, timezone, local_time, missed_policy, catch_up_grace_seconds, machine_requirement, responsibility_id, responsibility_version) \
+             VALUES ($1,$2,$3,$4,'weekdays',$5,$6,$7,$8,$9,$10,$11) \
+             ON CONFLICT DO NOTHING RETURNING id",
+        )
+        .bind(Uuid::new_v4())
+        .bind(actor_id)
+        .bind(reason)
+        .bind(fire_at)
+        .bind(timezone)
+        .bind(local_time)
+        .bind(missed_policy)
+        .bind(catch_up_grace_seconds)
+        .bind(machine_requirement)
+        .bind(responsibility_id)
+        .bind(version)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some(id) = inserted {
+            tx.commit().await?;
+            return Ok((id, fire_at, true));
+        }
+
+        let existing = sqlx::query_as::<_, ScheduleRow>(&format!(
+            "SELECT {SCHEDULE_COLUMNS} FROM schedules \
+             WHERE actor_id=$1 AND recurrence='weekdays' AND timezone=$2 \
+               AND local_time=$3 AND reason=$4 AND cancelled_at IS NULL"
+        ))
+        .bind(actor_id)
+        .bind(timezone)
+        .bind(local_time)
+        .bind(reason)
+        .fetch_one(&mut *tx)
+        .await?;
+        if existing.missed_policy != missed_policy
+            || existing.catch_up_grace_seconds != catch_up_grace_seconds
+            || existing.machine_requirement != machine_requirement
+        {
+            return Err(OrgIntelError::InvalidWork(format!(
+                "the recurring schedule already exists with missed policy `{}`; update that schedule explicitly",
+                existing.missed_policy
+            )));
+        }
+        if existing.responsibility_id != Some(responsibility_id)
+            || existing.responsibility_version != Some(version)
+        {
+            return Err(OrgIntelError::InvalidWork(
+                "the recurring schedule already exists with a different responsibility binding; cancel it before creating a replacement".into(),
+            ));
+        }
+        tx.commit().await?;
+        Ok((existing.id, existing.fire_at, false))
+    }
+
+    /// Create an interval schedule and responsibility binding atomically.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_interval_schedule_with_responsibility(
         &self,
         actor_id: &str,
         reason: &str,
         interval_seconds: i32,
         after: DateTime<Utc>,
+        responsibility_id: Uuid,
+        version: i32,
+        objective: &str,
+        policy: serde_json::Value,
     ) -> Result<(Uuid, DateTime<Utc>, bool)> {
         if reason.trim().is_empty() {
             return Err(OrgIntelError::InvalidWork(
@@ -797,10 +951,55 @@ impl OrgIntel {
                 MAX_INTERVAL_SECONDS / 86_400
             )));
         }
+        if version <= 0 || objective.trim().is_empty() || !policy.is_object() {
+            return Err(OrgIntelError::InvalidWork(
+                "a responsibility version needs a positive version, objective, and policy object"
+                    .into(),
+            ));
+        }
+        opportunity_window_seconds(&policy)?;
         let fire_at = after + chrono::Duration::seconds(i64::from(interval_seconds));
+        let mut tx = self.pool.begin().await?;
+        sqlx::query(
+            "INSERT INTO responsibilities (id, current_version) VALUES ($1,$2) \
+             ON CONFLICT (id) DO NOTHING",
+        )
+        .bind(responsibility_id)
+        .bind(version)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO responsibility_versions (responsibility_id, version, objective, policy) \
+             VALUES ($1,$2,$3,$4) ON CONFLICT (responsibility_id, version) DO NOTHING",
+        )
+        .bind(responsibility_id)
+        .bind(version)
+        .bind(objective.trim())
+        .bind(&policy)
+        .execute(&mut *tx)
+        .await?;
+        let stored: (String, serde_json::Value) = sqlx::query_as(
+            "SELECT objective, policy FROM responsibility_versions WHERE responsibility_id=$1 AND version=$2",
+        )
+        .bind(responsibility_id)
+        .bind(version)
+        .fetch_one(&mut *tx)
+        .await?;
+        if stored.0 != objective.trim() || stored.1 != policy {
+            return Err(OrgIntelError::InvalidWork(
+                "responsibility versions are immutable; use a new version".into(),
+            ));
+        }
+        sqlx::query(
+            "UPDATE responsibilities SET current_version=$2 WHERE id=$1 AND current_version < $2",
+        )
+        .bind(responsibility_id)
+        .bind(version)
+        .execute(&mut *tx)
+        .await?;
         let inserted = sqlx::query_scalar::<_, Uuid>(
-            "INSERT INTO schedules (id, actor_id, reason, fire_at, recurrence, interval_seconds, missed_policy, catch_up_grace_seconds, machine_requirement) \
-             VALUES ($1,$2,$3,$4,'interval',$5,'catch_up_once',$6,'local_mac') \
+            "INSERT INTO schedules (id, actor_id, reason, fire_at, recurrence, interval_seconds, missed_policy, catch_up_grace_seconds, machine_requirement, responsibility_id, responsibility_version) \
+             VALUES ($1,$2,$3,$4,'interval',$5,'catch_up_once',$6,'local_mac',$7,$8) \
              ON CONFLICT DO NOTHING RETURNING id",
         )
         .bind(Uuid::new_v4())
@@ -809,9 +1008,12 @@ impl OrgIntel {
         .bind(fire_at)
         .bind(interval_seconds)
         .bind(i64::from(interval_seconds))
-        .fetch_optional(&self.pool)
+        .bind(responsibility_id)
+        .bind(version)
+        .fetch_optional(&mut *tx)
         .await?;
         if let Some(id) = inserted {
+            tx.commit().await?;
             return Ok((id, fire_at, true));
         }
         let existing = sqlx::query_as::<_, ScheduleRow>(&format!(
@@ -822,13 +1024,27 @@ impl OrgIntel {
         .bind(actor_id)
         .bind(interval_seconds)
         .bind(reason)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await?;
+        if existing.missed_policy != "catch_up_once"
+            || existing.catch_up_grace_seconds != Some(i64::from(interval_seconds))
+            || existing.machine_requirement != "local_mac"
+        {
+            return Err(OrgIntelError::InvalidWork(
+                "the recurring interval already exists with a different schedule policy".into(),
+            ));
+        }
+        if existing.responsibility_id != Some(responsibility_id)
+            || existing.responsibility_version != Some(version)
+        {
+            return Err(OrgIntelError::InvalidWork(
+                "the recurring interval already exists with a different responsibility binding; cancel it before creating a replacement".into(),
+            ));
+        }
+        tx.commit().await?;
         Ok((existing.id, existing.fire_at, false))
     }
-}
 
-impl OrgIntel {
     pub async fn add_schedule(
         &self,
         actor_id: &str,
@@ -869,6 +1085,9 @@ impl OrgIntel {
         Ok(id)
     }
 
+    /// Legacy unbound constructor retained for frozen-clock integration tests.
+    /// Production recurring schedules must use
+    /// `create_weekday_schedule_with_responsibility`.
     pub async fn add_weekday_schedule(
         &self,
         actor_id: &str,
@@ -889,6 +1108,9 @@ impl OrgIntel {
         .await
     }
 
+    /// Legacy unbound constructor retained for frozen-clock integration tests.
+    /// Production recurring schedules must use
+    /// `create_weekday_schedule_with_responsibility`.
     #[allow(clippy::too_many_arguments)]
     pub async fn add_weekday_schedule_with_policy(
         &self,
@@ -918,6 +1140,9 @@ impl OrgIntel {
         .await
     }
 
+    /// Legacy unbound constructor retained for frozen-clock integration tests.
+    /// Production recurring schedules must use
+    /// `create_weekday_schedule_with_responsibility`.
     #[allow(clippy::too_many_arguments)]
     pub async fn add_weekday_schedule_with_policy_and_requirement(
         &self,

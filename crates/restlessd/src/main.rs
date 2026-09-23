@@ -1405,6 +1405,7 @@ fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Result
         | "schedule-link-work"
         | "schedule-outcome"
         | "schedule-add"
+        | "schedule-responsibility-create"
         | "schedule-policy"
         | "schedule-cancel"
         | "skill-list"
@@ -4456,19 +4457,99 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             }
             _ => Response::err("schedule-retry-recovery needs schedule, scheduled-for, actor, prior message, key, requester and reason"),
         },
-        "schedule-add" => match (
+        "schedule-add" | "schedule-responsibility-create" => match (
             request.common.as_actor.as_deref(),
             request.common.reason.as_deref(),
         ) {
             (Some(actor), Some(reason)) => {
+                if request.cmd == "schedule-responsibility-create"
+                    && !matches!(
+                        request.orgintel.recurrence.as_deref(),
+                        Some("interval" | "weekdays")
+                    )
+                {
+                    return Response::err(
+                        "responsibility creation requires --every or --weekdays",
+                    );
+                }
                 if request.orgintel.recurrence.as_deref() == Some("interval") {
-                    return add_interval_schedule(daemon, company, actor, reason, &request.orgintel).await;
+                    if request.cmd != "schedule-responsibility-create" {
+                        return Response::err(
+                            "interval schedules must be created with their responsibility using `schedule create-responsibility`",
+                        );
+                    }
+                    if request.orgintel.fire_at.is_some()
+                        || request.orgintel.local_time.is_some()
+                        || request.orgintel.timezone.is_some()
+                        || request.orgintel.missed_policy.is_some()
+                        || request.orgintel.catch_up_grace_seconds.is_some()
+                    {
+                        return Response::err(
+                            "--every cannot be combined with --at, --weekdays or missed policies",
+                        );
+                    }
+                    let Some(responsibility_text) = request.common.id.as_deref() else {
+                        return Response::err(
+                            "interval schedules must be created with their responsibility using `schedule create-responsibility`",
+                        );
+                    };
+                    let responsibility_id = match parse_required_uuid(Some(responsibility_text), "responsibility id") {
+                        Ok(id) => id,
+                        Err(error) => return Response::err(error),
+                    };
+                    let Some(version) = request.common.version else {
+                        return Response::err("atomic recurring responsibility creation needs version");
+                    };
+                    let Some(objective) = request.common.objective.as_deref() else {
+                        return Response::err("atomic recurring responsibility creation needs objective");
+                    };
+                    let Some(policy) = request.common.policy.as_ref() else {
+                        return Response::err("atomic recurring responsibility creation needs policy");
+                    };
+                    let Some(interval_seconds) = request.orgintel.interval_seconds else {
+                        return Response::err("interval schedule needs interval_seconds");
+                    };
+                    let org = match daemon.orgintel.get(company).await {
+                        Ok(org) => org,
+                        Err(error) => return Response::err(format!("{error:#}")),
+                    };
+                    if actor != "exec" {
+                        return Response::err("responsibility recurring schedules must target Exec");
+                    }
+                    return match org
+                        .create_interval_schedule_with_responsibility(
+                            actor,
+                            reason,
+                            interval_seconds,
+                            chrono::Utc::now(),
+                            responsibility_id,
+                            version,
+                            objective,
+                            policy.clone(),
+                        )
+                        .await
+                    {
+                        Ok((schedule_id, next_fire_at, created)) => Response::ok(serde_json::json!({
+                            "schedule_id": schedule_id,
+                            "actor_id": actor,
+                            "recurrence": "interval",
+                            "interval_seconds": interval_seconds,
+                            "next_fire_at": next_fire_at,
+                            "responsibility_id": responsibility_id,
+                            "responsibility_version": version,
+                            "created": created,
+                            "atomic": true,
+                        })),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    };
                 }
                 let recurring = request.orgintel.recurrence.as_deref() == Some("weekdays");
-                if request.common.id.is_some() && recurring {
-                    return Response::err("recurring schedules wake actors directly and cannot block Work");
-                }
                 if recurring {
+                    if request.cmd != "schedule-responsibility-create" {
+                        return Response::err(
+                            "weekday schedules must be created with their responsibility using `schedule create-responsibility`",
+                        );
+                    }
                     if request.orgintel.fire_at.is_some() {
                         return Response::err("use either schedule --at or --weekdays, not both");
                     }
@@ -4536,33 +4617,58 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                             return Response::err("a free-standing schedule must target Exec or an accountable team lead; Staff time dependencies belong to Work");
                         }
                     }
-                    return match org
-                        .add_weekday_schedule_with_policy_and_requirement(
-                            actor,
-                            reason,
-                            local_time,
-                            timezone,
-                            chrono::Utc::now(),
-                            missed_policy,
-                            catch_up_grace_seconds,
-                            machine_requirement,
-                        )
-                        .await
-                    {
-                        Ok((schedule_id, next_fire_at, created)) => Response::ok(serde_json::json!({
-                            "schedule_id": schedule_id,
-                            "actor_id": actor,
-                            "recurrence": "weekdays",
-                            "local_time": local_time.format("%H:%M").to_string(),
-                            "timezone": timezone,
-                            "missed_policy": missed_policy,
-                            "catch_up_grace_seconds": catch_up_grace_seconds,
-                            "machine_requirement": machine_requirement,
-                            "next_fire_at": next_fire_at,
-                            "created": created,
-                        })),
-                        Err(error) => Response::err(format!("{error:#}")),
-                    };
+                    if let Some(responsibility_text) = request.common.id.as_deref() {
+                        let responsibility_id = match parse_required_uuid(Some(responsibility_text), "responsibility id") {
+                            Ok(id) => id,
+                            Err(error) => return Response::err(error),
+                        };
+                        let Some(version) = request.common.version else {
+                            return Response::err("atomic recurring responsibility creation needs version");
+                        };
+                        let Some(objective) = request.common.objective.as_deref() else {
+                            return Response::err("atomic recurring responsibility creation needs objective");
+                        };
+                        let Some(policy) = request.common.policy.as_ref() else {
+                            return Response::err("atomic recurring responsibility creation needs policy");
+                        };
+                        return match org
+                            .create_weekday_schedule_with_responsibility(
+                                actor,
+                                reason,
+                                local_time,
+                                timezone,
+                                chrono::Utc::now(),
+                                missed_policy,
+                                catch_up_grace_seconds,
+                                machine_requirement,
+                                responsibility_id,
+                                version,
+                                objective,
+                                policy.clone(),
+                            )
+                            .await
+                        {
+                            Ok((schedule_id, next_fire_at, created)) => Response::ok(serde_json::json!({
+                                "schedule_id": schedule_id,
+                                "actor_id": actor,
+                                "recurrence": "weekdays",
+                                "local_time": local_time.format("%H:%M").to_string(),
+                                "timezone": timezone,
+                                "missed_policy": missed_policy,
+                                "catch_up_grace_seconds": catch_up_grace_seconds,
+                                "machine_requirement": machine_requirement,
+                                "next_fire_at": next_fire_at,
+                                "responsibility_id": responsibility_id,
+                                "responsibility_version": version,
+                                "created": created,
+                                "atomic": true,
+                            })),
+                            Err(error) => Response::err(format!("{error:#}")),
+                        };
+                    }
+                    return Response::err(
+                        "weekday schedules must be created with their responsibility using `schedule create-responsibility`",
+                    );
                 }
                 if has_recurring_schedule_fields(&request.orgintel) {
                     return Response::err("recurring schedule fields require --weekdays");
@@ -5382,55 +5488,6 @@ async fn resolve_team(
 
 /// `/loop`: an interval recurrence addressed to Exec or an accountable lead.
 /// Staff time dependencies belong to Work, exactly as for weekday cadences.
-async fn add_interval_schedule(
-    daemon: &Daemon,
-    company: &str,
-    actor: &str,
-    reason: &str,
-    input: &wire::OrgIntelInput,
-) -> Response {
-    let Some(interval_seconds) = input.interval_seconds else {
-        return Response::err("an interval schedule needs --every <duration>");
-    };
-    if input.fire_at.is_some()
-        || input.local_time.is_some()
-        || input.timezone.is_some()
-        || input.missed_policy.is_some()
-        || input.catch_up_grace_seconds.is_some()
-    {
-        return Response::err(
-            "--every cannot be combined with --at, --weekdays or missed policies",
-        );
-    }
-    let org = match daemon.orgintel.get(company).await {
-        Ok(org) => org,
-        Err(error) => return Response::err(format!("{error:#}")),
-    };
-    if actor != "exec" {
-        let is_lead = match org.list_teams().await {
-            Ok(teams) => teams.iter().any(|team| team.lead_actor_id == actor),
-            Err(error) => return Response::err(format!("{error:#}")),
-        };
-        if !is_lead {
-            return Response::err("a free-standing schedule must target Exec or an accountable team lead; Staff time dependencies belong to Work");
-        }
-    }
-    match org
-        .add_interval_schedule(actor, reason, interval_seconds, chrono::Utc::now())
-        .await
-    {
-        Ok((schedule_id, next_fire_at, created)) => Response::ok(serde_json::json!({
-            "schedule_id": schedule_id,
-            "actor_id": actor,
-            "recurrence": "interval",
-            "interval_seconds": interval_seconds,
-            "next_fire_at": next_fire_at,
-            "created": created,
-        })),
-        Err(error) => Response::err(format!("{error:#}")),
-    }
-}
-
 fn has_recurring_schedule_fields(input: &wire::OrgIntelInput) -> bool {
     input.recurrence.is_some()
         || input.interval_seconds.is_some()

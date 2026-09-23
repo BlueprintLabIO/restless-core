@@ -938,7 +938,18 @@ async fn run_exec_turn_with_lease(
             Ok(Some(current))
                 if current.owner_epoch == claim.owner_epoch && current.lease_owner.is_some() =>
             {
-                let next_wake_at = Utc::now() + chrono::Duration::minutes(30);
+                // A delegated Work item may finish shortly after Exec yields.
+                // Revisit the first unfinished turn promptly, then back off
+                // rather than waiting half an hour for every recovery pass.
+                // The Opportunity's wake budget and deadline still bound the
+                // total number and duration of retries.
+                let retry_minutes = match current.wake_count {
+                    0 | 1 => 5,
+                    2 => 15,
+                    3 => 30,
+                    _ => 60,
+                };
+                let next_wake_at = Utc::now() + chrono::Duration::minutes(retry_minutes);
                 let settlement = serde_json::json!({
                     "reason": "Actor execution ended without a durable opportunity outcome; inspect preserved Work and effects before continuing.",
                     "evidence_refs": [format!("opportunity://{}", claim.opportunity_id)],

@@ -173,6 +173,53 @@ export async function listLoops(company: string): Promise<ScheduleRow[]> {
 	return (await call<{ loops: ScheduleRow[] }>(company, '/loops')).loops;
 }
 
+export type MonitoredSchedule = {
+	schedule: ScheduleRow & {
+		responsibility_id: string | null;
+		responsibility_version: number | null;
+	};
+	testable: boolean;
+	recent_outcomes: Array<{
+		scheduled_for: string;
+		admission: string | null;
+		opportunity_id: string;
+		state: string;
+		outcome: unknown;
+		outcome_reason: string | null;
+		created_at: string;
+		settled_at: string | null;
+	}>;
+};
+
+export type ScheduleTestReport = {
+	status: string;
+	scope: string;
+	actor_run?: string;
+	external_effects?: string;
+	source_company: string;
+	source_schedule_id: string;
+	test_company?: string;
+	test_schedule_id?: string;
+	occurrence?: unknown;
+	opportunity?: { state: string; outcome?: unknown; outcome_reason?: string | null };
+	clone_retained: boolean;
+	scheduled_for?: string;
+};
+
+export async function monitorSchedules(company: string): Promise<MonitoredSchedule[]> {
+	return (await call<{ schedules: MonitoredSchedule[] }>(company, '/schedules')).schedules;
+}
+
+export function testScheduleTrigger(
+	company: string,
+	schedule: string
+): Promise<ScheduleTestReport> {
+	return call(company, `/schedules/${encodeURIComponent(schedule)}/test`, {
+		method: 'POST',
+		body: JSON.stringify({})
+	});
+}
+
 export function addLoop(
 	company: string,
 	every: string,

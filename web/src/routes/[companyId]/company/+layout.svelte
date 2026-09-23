@@ -26,6 +26,7 @@
 		{ label: 'Identity', href: `/${companyId}/company/identity`, icon: Fingerprint },
 		{ label: 'Members', href: `/${companyId}/company/members`, icon: Users },
 		{ label: 'Skills', href: `/${companyId}/company/skills`, icon: Sparkles },
+		{ label: 'Schedules', href: `/${companyId}/company/schedules`, icon: Activity },
 		{
 			label: 'Access & limits',
 			href: `/${companyId}/company/resources`,

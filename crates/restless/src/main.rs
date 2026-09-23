@@ -1145,6 +1145,36 @@ enum TeamCommand {
 
 #[derive(Subcommand)]
 enum ScheduleCommand {
+    /// Atomically create a recurring Exec schedule with its immutable responsibility binding.
+    CreateResponsibility {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[arg(long)]
+        responsibility: String,
+        #[arg(long)]
+        version: i32,
+        #[arg(long)]
+        objective: String,
+        #[arg(long)]
+        policy_file: PathBuf,
+        /// Weekday cadence; conflicts with --every.
+        #[arg(long, requires = "timezone")]
+        at_local: Option<String>,
+        /// Required with --at-local; conflicts with --every.
+        #[arg(long, requires = "at_local")]
+        timezone: Option<String>,
+        /// Bounded interval cadence such as 30m, 2h, or 1d.
+        #[arg(long, conflicts_with_all = ["at_local", "timezone"])]
+        every: Option<String>,
+        #[arg(long, default_value = "skip")]
+        on_missed: String,
+        #[arg(long)]
+        catch_up_within_minutes: Option<i64>,
+        #[arg(long, default_value = "local-mac")]
+        execution: String,
+        #[arg(long)]
+        reason: String,
+    },
     /// Trigger one selected schedule in a disposable company and verify scheduler admission only.
     Test {
         /// Live source company whose schedule is copied into the disposable test company.
@@ -3357,6 +3387,63 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             }),
         },
         Command::Schedule { command } => match command {
+            ScheduleCommand::CreateResponsibility {
+                company,
+                responsibility,
+                version,
+                objective,
+                policy_file,
+                at_local,
+                timezone,
+                every,
+                on_missed,
+                catch_up_within_minutes,
+                execution,
+                reason,
+            } => {
+                let policy_text = std::fs::read_to_string(&policy_file)
+                    .with_context(|| format!("read {}", policy_file.display()))?;
+                let policy: serde_json::Value = serde_json::from_str(&policy_text)
+                    .with_context(|| format!("parse JSON policy {}", policy_file.display()))?;
+                anyhow::ensure!(
+                    policy.is_object(),
+                    "responsibility policy must be a JSON object"
+                );
+                let cadence = if let Some(every) = every {
+                    anyhow::ensure!(
+                        on_missed == "skip"
+                            && catch_up_within_minutes.is_none()
+                            && execution == "local-mac",
+                        "--every cannot be combined with weekday missed-policy or execution options"
+                    );
+                    serde_json::json!({
+                        "recurrence": "interval",
+                        "interval_seconds": restlessd::skill_package::parse_interval(&every)
+                            .with_context(|| format!("--every {every:?}: use a duration such as 30m, 2h or 1d"))?,
+                    })
+                } else {
+                    let at_local =
+                        at_local.context("provide --every or both --at-local and --timezone")?;
+                    let timezone =
+                        timezone.context("provide --every or both --at-local and --timezone")?;
+                    serde_json::json!({
+                        "recurrence": "weekdays", "local_time": at_local, "timezone": timezone,
+                        "missed_policy": on_missed,
+                        "catch_up_grace_seconds": catch_up_within_minutes.map(|minutes| minutes.saturating_mul(60)),
+                        "execution_requirement": execution,
+                    })
+                };
+                let mut request = serde_json::json!({
+                    "cmd": "schedule-responsibility-create", "company": company, "as_actor": "exec",
+                    "reason": reason, "id": responsibility, "version": version,
+                    "objective": objective, "policy": policy,
+                });
+                request
+                    .as_object_mut()
+                    .expect("request is an object")
+                    .extend(cadence.as_object().expect("cadence is an object").clone());
+                request
+            }
             ScheduleCommand::Test {
                 company,
                 schedule,

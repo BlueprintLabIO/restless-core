@@ -214,19 +214,48 @@ async fn loop_is_an_idempotent_coalescing_interval_and_goal_closes_once() {
         .unwrap();
 
     let start = at("2026-09-23T00:00:00Z");
+    let responsibility_id = uuid::Uuid::new_v4();
+    let policy = serde_json::json!({ "window_seconds": 86_400 });
     let (loop_id, first_fire, created) = org
-        .add_interval_schedule("exec", "check inbound leads", 1_800, start)
+        .create_interval_schedule_with_responsibility(
+            "exec",
+            "check inbound leads",
+            1_800,
+            start,
+            responsibility_id,
+            1,
+            "check inbound leads",
+            policy.clone(),
+        )
         .await
         .unwrap();
     assert!(created);
     assert_eq!(first_fire, at("2026-09-23T00:30:00Z"));
     let (same, _, created_again) = org
-        .add_interval_schedule("exec", "check inbound leads", 1_800, start)
+        .create_interval_schedule_with_responsibility(
+            "exec",
+            "check inbound leads",
+            1_800,
+            start,
+            responsibility_id,
+            1,
+            "check inbound leads",
+            policy,
+        )
         .await
         .unwrap();
     assert_eq!((same, created_again), (loop_id, false));
     assert!(org
-        .add_interval_schedule("exec", "too eager", 60, start)
+        .create_interval_schedule_with_responsibility(
+            "exec",
+            "too eager",
+            60,
+            start,
+            uuid::Uuid::new_v4(),
+            1,
+            "too eager",
+            serde_json::json!({ "window_seconds": 86_400 }),
+        )
         .await
         .is_err());
 

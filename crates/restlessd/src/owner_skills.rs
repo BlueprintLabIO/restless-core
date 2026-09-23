@@ -4,6 +4,8 @@
 //! schedule for Exec). Nothing here grants authority.
 use super::*;
 use serde_json::json;
+use std::collections::HashMap;
+use uuid::Uuid;
 
 fn owner_only(principal: &RequestPrincipal) -> Option<Response<Body>> {
     (principal.membership_role() != "owner").then(|| {
@@ -257,8 +259,64 @@ pub(super) async fn add_loop(
         Ok(org) => org,
         Err(response) => return response,
     };
+    let matching = match org.list_schedules(Some("exec"), false).await {
+        Ok(rows) => rows.into_iter().find(|row| {
+            row.recurrence.as_deref() == Some("interval")
+                && row.interval_seconds == Some(interval_seconds)
+                && row.reason == prompt
+        }),
+        Err(error) => return orgintel_error(error),
+    };
+    let (responsibility_id, version, objective, policy) = match matching {
+        Some(row) => {
+            let (Some(responsibility_id), Some(version)) =
+                (row.responsibility_id, row.responsibility_version)
+            else {
+                return api_error(
+                    StatusCode::CONFLICT,
+                    "loop",
+                    "this existing interval has no responsibility binding; cancel it before recreating it",
+                );
+            };
+            let version_row = match org
+                .get_responsibility_version(responsibility_id, version)
+                .await
+            {
+                Ok(Some(row)) => row,
+                Ok(None) => {
+                    return api_error(
+                        StatusCode::CONFLICT,
+                        "loop",
+                        "this interval's responsibility version is missing",
+                    )
+                }
+                Err(error) => return orgintel_error(error),
+            };
+            (
+                responsibility_id,
+                version,
+                version_row.objective,
+                version_row.policy,
+            )
+        }
+        None => (
+            Uuid::new_v4(),
+            1,
+            prompt.to_string(),
+            json!({ "window_seconds": 86_400 }),
+        ),
+    };
     match org
-        .add_interval_schedule("exec", prompt, interval_seconds, chrono::Utc::now())
+        .create_interval_schedule_with_responsibility(
+            "exec",
+            prompt,
+            interval_seconds,
+            chrono::Utc::now(),
+            responsibility_id,
+            version,
+            &objective,
+            policy,
+        )
         .await
     {
         Ok((schedule_id, next_fire_at, created)) => (
@@ -319,5 +377,130 @@ pub(super) async fn cancel_loop(
             Json(json!({ "schedule_id": schedule, "cancelled": cancelled })).into_response()
         }
         Err(error) => orgintel_error(error),
+    }
+}
+
+/// A compact view of live recurring Exec schedules and the latest admitted
+/// opportunities associated with each schedule.
+pub(super) async fn schedule_monitor(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+) -> Response<Body> {
+    let org = match org_for(&state, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    let schedules = match org.list_schedules(Some("exec"), false).await {
+        Ok(rows) => rows
+            .into_iter()
+            .filter(|row| row.recurrence.is_some())
+            .collect::<Vec<_>>(),
+        Err(error) => return orgintel_error(error),
+    };
+    let opportunities = match org.list_opportunities(None, 25).await {
+        Ok(rows) => rows,
+        Err(error) => return orgintel_error(error),
+    };
+    let schedule_ids = schedules
+        .iter()
+        .map(|row| row.id)
+        .collect::<std::collections::HashSet<_>>();
+    let mut recent: HashMap<Uuid, Vec<serde_json::Value>> = HashMap::new();
+    for opportunity in opportunities {
+        let links = match org.list_opportunity_occurrences(opportunity.id).await {
+            Ok(links) => links,
+            Err(error) => return orgintel_error(error),
+        };
+        for link in links {
+            if schedule_ids.contains(&link.schedule_id) {
+                let rows = recent.entry(link.schedule_id).or_default();
+                if rows.len() < 3 {
+                    rows.push(json!({
+                        "scheduled_for": link.scheduled_for,
+                        "admission": link.admission,
+                        "opportunity_id": opportunity.id,
+                        "state": opportunity.state,
+                        "outcome": opportunity.outcome,
+                        "outcome_reason": opportunity.outcome_reason,
+                        "created_at": opportunity.created_at,
+                        "settled_at": opportunity.settled_at,
+                    }));
+                }
+            }
+        }
+    }
+    let schedules = schedules
+        .into_iter()
+        .map(|schedule| {
+            let recent_outcomes = recent.remove(&schedule.id).unwrap_or_default();
+            let testable =
+                schedule.responsibility_id.is_some() && schedule.responsibility_version.is_some();
+            json!({
+                "schedule": schedule,
+                "recent_outcomes": recent_outcomes,
+                "testable": testable,
+            })
+        })
+        .collect::<Vec<_>>();
+    Json(json!({ "schedules": schedules })).into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ScheduleTestInput {
+    #[serde(default)]
+    timeout_seconds: Option<u64>,
+}
+
+/// Exercise one bound recurring Exec schedule through the scheduler-only disposable
+/// company path. The source schedule is never fired or changed by this call.
+pub(super) async fn test_schedule_trigger(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, schedule)): AxumPath<(String, Uuid)>,
+    Json(input): Json<ScheduleTestInput>,
+) -> Response<Body> {
+    if let Some(refusal) = owner_only(&principal) {
+        return refusal;
+    }
+    let org = match org_for(&state, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    let source = match org.list_schedules(Some("exec"), true).await {
+        Ok(rows) => rows.into_iter().find(|row| row.id == schedule),
+        Err(error) => return orgintel_error(error),
+    };
+    let Some(source) = source else {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "schedule",
+            "schedule was not found for this company",
+        );
+    };
+    if source.recurrence.is_none()
+        || source.responsibility_id.is_none()
+        || source.responsibility_version.is_none()
+    {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "schedule",
+            "test trigger requires a bound recurring Exec schedule",
+        );
+    }
+    match crate::schedule_test::run(
+        &state.daemon,
+        &company,
+        schedule,
+        input.timeout_seconds.unwrap_or(30),
+    )
+    .await
+    {
+        Ok(report) => Json(report).into_response(),
+        Err(error) => api_error(
+            StatusCode::BAD_REQUEST,
+            "schedule_test",
+            format!("{error:#}"),
+        ),
     }
 }
