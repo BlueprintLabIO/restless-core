@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { tick } from 'svelte';
 	import MessageCircle from '@lucide/svelte/icons/message-circle';
+	import ConversationMessage from '$lib/primitives/ConversationMessage.svelte';
 	import SemanticMark from '$lib/primitives/SemanticMark.svelte';
+	import type { MessageAttachment, ThreadMessage } from '$lib/model/view';
 	import type {
 		RoomMention,
 		RoomMessage as RoomMessageRecord,
@@ -10,6 +12,8 @@
 
 	let {
 		message,
+		presentation = null,
+		hrefFor,
 		author,
 		isYou = false,
 		isAgent = false,
@@ -32,6 +36,8 @@
 		ondelete = null
 	}: {
 		message: RoomMessageRecord;
+		presentation?: ThreadMessage | null;
+		hrefFor?: (attachment: MessageAttachment) => string;
 		author: string;
 		isYou?: boolean;
 		isAgent?: boolean;
@@ -199,67 +205,93 @@
 	tabindex="-1"
 >
 	{#if targeted}<span class="sr-only">Linked mention message.</span>{/if}
-	<header>
-		<SemanticMark
-			meaning={isYou ? 'direction' : isAgent ? 'executive' : 'people'}
-			size="small"
-			label={`${author} message`}
-		/>
-		<strong>{author}</strong>
-		{#if time}<time datetime={message.created_at}>{time}</time>{/if}
-		{#if message.edited_at && !message.deleted_at}<span class="lifecycle">edited</span>{/if}
-		{#if mentions.length}
-			<span class="mention-receipt">
-				{mentions.map((mention) => `@${mention.mentioned_actor_id}`).join(', ')}
-			</span>
-		{/if}
-	</header>
-	{#if message.deleted_at}
-		<p class="deleted">Message deleted</p>
-	{:else if editing}
-		<div class="edit-panel">
-			<label>
-				<span class="sr-only">Edit message</span>
-				<textarea bind:value={editBody} maxlength={65536} rows={3}></textarea>
-			</label>
-			<div class="edit-controls">
-				<button type="button" class="primary-action" disabled={saving} onclick={saveEdit}>
-					{saving ? 'Saving…' : editCommandId ? 'Retry save' : 'Save'}
-				</button>
-				<button type="button" disabled={saving} onclick={cancelEdit}>Cancel</button>
+	{#if message.deleted_at || editing}
+		<header>
+			<SemanticMark
+				meaning={isYou ? 'direction' : isAgent ? 'executive' : 'people'}
+				size="small"
+				label={`${author} message`}
+			/>
+			<strong>{author}</strong>
+			{#if time}<time datetime={message.created_at}>{time}</time>{/if}
+			{#if message.edited_at && !message.deleted_at}<span class="lifecycle">edited</span>{/if}
+			{#if mentions.length}
+				<span class="mention-receipt">
+					{mentions.map((mention) => `@${mention.mentioned_actor_id}`).join(', ')}
+				</span>
+			{/if}
+		</header>
+		{#if message.deleted_at}
+			<p class="deleted">Message deleted</p>
+		{:else}
+			<div class="edit-panel">
+				<label>
+					<span class="sr-only">Edit message</span>
+					<textarea bind:value={editBody} maxlength={65536} rows={3}></textarea>
+				</label>
+				<div class="edit-controls">
+					<button type="button" class="primary-action" disabled={saving} onclick={saveEdit}>
+						{saving ? 'Saving…' : editCommandId ? 'Retry save' : 'Save'}
+					</button>
+					<button type="button" disabled={saving} onclick={cancelEdit}>Cancel</button>
+				</div>
+				{#if editError}<p class="action-error" role="alert">{editError}</p>{/if}
 			</div>
-			{#if editError}<p class="action-error" role="alert">{editError}</p>{/if}
-		</div>
+		{/if}
 	{:else}
-		<p>{message.body}</p>
+		<ConversationMessage
+			sender={isYou ? 'owner' : isAgent ? 'agent' : 'human'}
+			{author}
+			text={message.edited_at ? message.body : (presentation?.text ?? message.body)}
+			createdAt={message.created_at}
+			details={message.edited_at ? null : presentation?.details}
+			attachments={message.edited_at ? [] : (presentation?.attachments ?? [])}
+			intent={message.edited_at ? null : (presentation?.intent ?? null)}
+			{hrefFor}
+			embedded
+		>
+			{#snippet headerExtra()}
+				{#if message.edited_at}<span class="lifecycle">edited</span>{/if}
+				{#if mentions.length}
+					<span class="mention-receipt">
+						{mentions.map((mention) => `@${mention.mentioned_actor_id}`).join(', ')}
+					</span>
+				{/if}
+			{/snippet}
+			{#snippet actions()}
+				<span class="inline-actions">
+					{#if onthread}
+						<button type="button" onclick={() => onthread?.()}>
+							<MessageCircle size={13} strokeWidth={2} aria-hidden="true" /> Reply
+						</button>
+					{/if}
+					{#if canEdit}<button type="button" onclick={beginEdit}>Edit</button>{/if}
+					{#if onhistory}
+						<button type="button" aria-expanded={historyOpen} onclick={() => onhistory?.()}>
+							{historyOpen ? 'Hide edits' : 'Edits'}
+						</button>
+					{/if}
+					{#if canDelete}
+						<button
+							type="button"
+							class="delete-action"
+							aria-expanded={confirmingDelete}
+							onclick={() => {
+								confirmingDelete = !confirmingDelete;
+								deleteError = '';
+							}}>Delete</button
+						>
+					{/if}
+				</span>
+			{/snippet}
+		</ConversationMessage>
 	{/if}
-	{#if onthread || (!message.deleted_at && !editing && (canEdit || canDelete || onhistory))}
+	{#if (message.deleted_at || editing) && onthread}
 		<div class="message-actions">
-			{#if onthread}
-				<button type="button" onclick={() => onthread?.()}>
-					<MessageCircle size={13} strokeWidth={2} aria-hidden="true" />
-					{message.deleted_at ? 'View thread' : 'Reply'}
-				</button>
-			{/if}
-			{#if !message.deleted_at && !editing && canEdit}
-				<button type="button" onclick={beginEdit}>Edit</button>
-			{/if}
-			{#if !message.deleted_at && !editing && onhistory}
-				<button type="button" aria-expanded={historyOpen} onclick={() => onhistory?.()}>
-					{historyOpen ? 'Hide edits' : 'Edits'}
-				</button>
-			{/if}
-			{#if !message.deleted_at && !editing && canDelete}
-				<button
-					type="button"
-					class="delete-action"
-					aria-expanded={confirmingDelete}
-					onclick={() => {
-						confirmingDelete = !confirmingDelete;
-						deleteError = '';
-					}}>Delete</button
-				>
-			{/if}
+			<button type="button" onclick={() => onthread?.()}>
+				<MessageCircle size={13} strokeWidth={2} aria-hidden="true" />
+				{message.deleted_at ? 'View thread' : 'Reply'}
+			</button>
 		</div>
 	{/if}
 	{#if confirmingDelete && !message.deleted_at}
@@ -398,6 +430,13 @@
 		color: var(--text-tertiary);
 	}
 
+	.inline-actions {
+		display: inline-flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 2px;
+	}
+
 	.message-actions {
 		display: inline-flex;
 		align-items: center;
@@ -405,7 +444,7 @@
 		margin: 8px 0 0 31px;
 	}
 
-	.message-actions button,
+	:is(.message-actions, .inline-actions) button,
 	.edit-controls button,
 	.delete-confirm button,
 	.load-history {
@@ -426,8 +465,8 @@
 			transform var(--motion-press) var(--ease-out);
 	}
 
-	.message-actions button:hover,
-	.message-actions button:focus-visible,
+	:is(.message-actions, .inline-actions) button:hover,
+	:is(.message-actions, .inline-actions) button:focus-visible,
 	.edit-controls button:hover,
 	.edit-controls button:focus-visible,
 	.delete-confirm button:hover,
@@ -438,14 +477,14 @@
 		background: var(--intent-conversation-soft);
 	}
 
-	.message-actions button:active,
+	:is(.message-actions, .inline-actions) button:active,
 	.edit-controls button:active,
 	.delete-confirm button:active,
 	.load-history:active {
 		transform: translateY(1px);
 	}
 
-	.message-actions button:focus-visible,
+	:is(.message-actions, .inline-actions) button:focus-visible,
 	.edit-controls button:focus-visible,
 	.delete-confirm button:focus-visible,
 	.load-history:focus-visible {
@@ -453,7 +492,7 @@
 		outline-offset: 2px;
 	}
 
-	.message-actions .delete-action,
+	.inline-actions .delete-action,
 	.delete-confirm .danger-action {
 		color: var(--state-danger);
 	}
@@ -563,7 +602,7 @@
 	}
 
 	@media (max-width: 760px) {
-		.message-actions button,
+		:is(.message-actions, .inline-actions) button,
 		.edit-controls button,
 		.delete-confirm button,
 		.load-history {

@@ -9,6 +9,10 @@
 	import Wifi from '@lucide/svelte/icons/wifi';
 	import WifiOff from '@lucide/svelte/icons/wifi-off';
 	import X from '@lucide/svelte/icons/x';
+	import AttentionCard from '$lib/components/AttentionCard.svelte';
+	import AgentExchanges from '$lib/components/AgentExchanges.svelte';
+	import IntelligencePopover from '$lib/components/IntelligencePopover.svelte';
+	import ConversationTurnDock from '$lib/primitives/ConversationTurnDock.svelte';
 	import RoomMessage from '$lib/components/RoomMessage.svelte';
 	import RoomManager from '$lib/components/RoomManager.svelte';
 	import {
@@ -22,6 +26,8 @@
 		companyPrincipalQuery,
 		cockpitQuery
 	} from '$lib/model/queries.svelte';
+	import { conversationQuery } from '$lib/model/queries.svelte';
+	import { cockpitContextPath } from '$lib/model/attention';
 	import {
 		roomActivityStream,
 		roomMessageRevisionsQuery,
@@ -40,10 +46,16 @@
 		roomDraftKey,
 		sendRoomMessage,
 		writeRoomDraft,
+		createRoom,
 		type NewRoomMention,
+		type Room,
 		type RoomMessage as RoomMessageRecord,
 		type RoomMessageSearchResult
 	} from '$lib/model/rooms';
+	import type { OutcomeStandard } from '$lib/model/company';
+	import type { CockpitTeam } from '$lib/model/cockpit';
+	import type { CollaborationTeam } from '$lib/model/collaboration';
+	import type { AttentionItem, ThreadMessage } from '$lib/model/view';
 	import Composer from '$lib/primitives/Composer.svelte';
 
 	const SEARCH_DEBOUNCE_MS = 250;
@@ -54,13 +66,27 @@
 		cockpitQuery(companyId, () => principalProjection.view?.membership_role === 'owner')
 	);
 	const ownerAccess = $derived(principalProjection.view?.membership_role === 'owner');
+	const principalActorId = $derived(principalProjection.view?.actor_id ?? '');
 	const attention = $derived(attentionQuery(companyId, () => ownerAccess));
 	const collaboration = $derived(
 		collaborationBootstrapQuery(companyId, () => principalProjection.view)
 	);
 	const roomList = $derived(roomsQuery(companyId));
 	const requestedRoomId = $derived(page.url.searchParams.get('room') ?? '');
-	const selectedRoomId = $derived(requestedRoomId);
+	const requestedPersonId = $derived(page.url.searchParams.get('person') ?? '');
+	let resolvedPersonRoom = $state<{ key: string; room: Room } | null>(null);
+	let resolvingPersonKey = $state('');
+	let attemptedPersonKey = $state('');
+	let personResolutionFailure = $state('');
+	let personResolutionRetry = $state(0);
+	const pendingDirectCommands = new Map<string, string>();
+	const volatileFileDrafts = new Map<string, File[]>();
+	const selectedRoomId = $derived(
+		requestedRoomId ||
+			(resolvedPersonRoom?.key === `${companyId}:${principalActorId}:${requestedPersonId}`
+				? resolvedPersonRoom.room.id
+				: '')
+	);
 	const threadRootId = $derived(parsePositiveRoomMessageId(page.url.searchParams.get('thread')));
 	const focusedMessageId = $derived(parsePositiveRoomMessageId(page.url.searchParams.get('focus')));
 	let focusStatus = $state('');
@@ -122,11 +148,15 @@
 
 	let online = $state(true);
 	let composer = $state('');
+	let composerFiles = $state<File[]>([]);
 	let activeDraftKey = $state('');
 	let retryCommandId = $state<string | null>(null);
 	let retryBody = $state('');
 	let sending = $state(false);
 	let sendError = $state('');
+	let sendNotice = $state('');
+	let standardSaving = $state(false);
+	let standardError = $state('');
 	let pendingMessage = $state<RoomMessageRecord | null>(null);
 	let lastMarkedRoom = $state('');
 	let lastMarkedMessage = $state(0);
@@ -163,7 +193,12 @@
 	const hasMessageSearch = $derived(messageSearch.trim().length > 0);
 	const messageSearchPending = $derived(messageSearch.trim() !== debouncedMessageSearch);
 	const knownRooms = $derived(new Map(roomList.rooms.map((room) => [room.id, room])));
-	const selectedRoom = $derived(knownRooms.get(selectedRoomId) ?? null);
+	const selectedRoom = $derived(
+		knownRooms.get(selectedRoomId) ??
+			(resolvedPersonRoom?.key === `${companyId}:${principalActorId}:${requestedPersonId}`
+				? resolvedPersonRoom.room
+				: null)
+	);
 	$effect(() => {
 		const id = selectedRoomId,
 			status = roomList.status;
@@ -198,6 +233,75 @@
 	const currentActorId = $derived(
 		principalProjection.view?.actor_id ?? readProjection?.actorId ?? ''
 	);
+	const people = $derived(
+		(ownerAccess
+			? (cockpitProjection.view?.people ?? [])
+			: (collaboration.view?.people ?? [])
+		).filter((person) => person.kind !== 'owner' && person.kind !== 'system')
+	);
+	const teams = $derived(
+		ownerAccess ? (cockpitProjection.view?.teams ?? []) : (collaboration.view?.teams ?? [])
+	);
+	function directCanonicalKey(a: string, b: string): string {
+		const [first, second] = [a, b].sort();
+		return `direct:${new TextEncoder().encode(first).length}:${first}:${new TextEncoder().encode(second).length}:${second}`;
+	}
+	$effect(() => {
+		void personResolutionRetry;
+		const personId = requestedPersonId;
+		const actorId = principalActorId;
+		const status = roomList.status;
+		if (requestedRoomId) return;
+		const person = people.find((candidate) => candidate.actor_id === personId);
+		if (!personId || !actorId || !person || status === 'unknown') return;
+		const key = `${companyId}:${actorId}:${personId}`;
+		const currentRooms = roomList.rooms;
+		const targetRoomList = roomList;
+		const guarded = untrack(() => ({
+			resolved: resolvedPersonRoom?.key === key,
+			resolving: resolvingPersonKey === key,
+			attempted: attemptedPersonKey === key,
+			existing: currentRooms.find(
+				(room) =>
+					room.kind === 'direct' && room.canonical_key === directCanonicalKey(actorId, personId)
+			)
+		}));
+		if (guarded.resolved || guarded.resolving) return;
+		if (guarded.existing) {
+			resolvedPersonRoom = { key, room: guarded.existing };
+			personResolutionFailure = '';
+			return;
+		}
+		if (guarded.attempted) return;
+		resolvingPersonKey = key;
+		attemptedPersonKey = key;
+		personResolutionFailure = '';
+		const commandId = pendingDirectCommands.get(key) ?? crypto.randomUUID();
+		pendingDirectCommands.set(key, commandId);
+		untrack(() => {
+			void createRoom(companyId, {
+				kind: 'direct',
+				title: person.display,
+				participant_actor_ids: [personId],
+				command_id: commandId
+			})
+				.then((room) => {
+					pendingDirectCommands.delete(key);
+					void targetRoomList.refresh();
+					if (key !== `${companyId}:${principalActorId}:${requestedPersonId}`) return;
+					resolvedPersonRoom = { key, room };
+					personResolutionFailure = '';
+				})
+				.catch((cause) => {
+					if (key === `${companyId}:${principalActorId}:${requestedPersonId}`)
+						personResolutionFailure =
+							cause instanceof Error ? cause.message : 'Could not open this conversation.';
+				})
+				.finally(() => {
+					if (resolvingPersonKey === key) resolvingPersonKey = '';
+				});
+		});
+	});
 	const draftScopeKey = $derived(
 		selectedRoomId && currentActorId
 			? roomDraftKey(companyId, currentActorId, selectedRoomId, threadRootId)
@@ -211,25 +315,41 @@
 			/* A Room or authenticated principal changed before the new identity
 			 * projection arrived. Retire the old scope immediately so fresh input
 			 * can never be written into another principal's draft. */
+			if (activeDraftKey) volatileFileDrafts.set(activeDraftKey, [...composerFiles]);
 			activeDraftKey = '';
 			composer = '';
+			composerFiles = [];
 			retryCommandId = null;
 			retryBody = '';
 			sendError = '';
 			pendingMessage = null;
 			return;
 		}
-		const hadUnscopedInput = !activeDraftKey && composer.length > 0;
+		if (activeDraftKey) volatileFileDrafts.set(activeDraftKey, [...composerFiles]);
+		const hadUnscopedInput = !activeDraftKey && (composer.length > 0 || composerFiles.length > 0);
 		activeDraftKey = nextKey;
 		const stored = readRoomDraft(nextKey);
+		const oldPersonKey = requestedPersonId
+			? roomDraftKey(companyId, currentActorId, `person:${requestedPersonId}`, null)
+			: '';
+		const legacyDraft =
+			oldPersonKey && oldPersonKey !== nextKey ? readRoomDraft(oldPersonKey) : null;
 		/* Identity can arrive after the owner starts typing. Keep that ephemeral
 		 * input rather than replacing it with a persisted principal-scoped draft. */
 		if (!hadUnscopedInput) {
-			composer = stored.body;
-			retryCommandId = stored.commandId;
-			retryBody = stored.commandId ? stored.body.trim() : '';
+			const draft =
+				stored.body || stored.commandId ? stored : legacyDraft?.body ? legacyDraft : stored;
+			composer = draft.body;
+			composerFiles = volatileFileDrafts.get(nextKey) ?? [];
+			retryCommandId = draft.commandId;
+			retryBody = draft.commandId ? draft.body.trim() : '';
+			if (draft === legacyDraft && oldPersonKey) {
+				writeRoomDraft(nextKey, draft);
+				writeRoomDraft(oldPersonKey, { body: '', commandId: null, updatedAt: '' });
+			}
 		}
 		sendError = '';
+		sendNotice = '';
 		pendingMessage = null;
 	});
 
@@ -352,17 +472,124 @@
 		const local = locallyReadRoom === selectedRoomId ? locallyReadThrough : 0;
 		return Math.max(server ?? 0, local) || server;
 	});
-	const people = $derived(
-		ownerAccess ? (cockpitProjection.view?.people ?? []) : (collaboration.view?.people ?? [])
-	);
 	const participants = $derived(
 		(participantProjection?.participants ?? []).filter((p) => !p.left_at)
 	);
 	const directPartner = $derived(
-		selectedRoom?.kind === 'direct'
+		selectedRoom?.kind === 'direct' &&
+			(!requestedPersonId ||
+				requestedPersonId === participants.find((p) => p.actor_id !== currentActorId)?.actor_id)
 			? participants.find((p) => p.actor_id !== currentActorId)?.actor_id
 			: undefined
 	);
+	const directPerson = $derived(people.find((person) => person.actor_id === directPartner) ?? null);
+	const directTeam = $derived(
+		directPerson
+			? (teams.find((team) => team.lead_actor_id === directPerson.actor_id) ??
+					(directPerson.team_id
+						? (teams.find((team) => team.id === directPerson.team_id) ?? null)
+						: null))
+			: null
+	);
+	const accountableDirect = $derived(
+		ownerAccess &&
+			!!directPerson &&
+			(directPerson.kind === 'exec' ||
+				teams.some((team) => team.lead_actor_id === directPerson.actor_id))
+	);
+	const actorConversation = $derived(
+		directPartner && actorIsAgent(directPartner)
+			? conversationQuery(
+					companyId,
+					directPartner,
+					undefined,
+					undefined,
+					true,
+					currentActorId,
+					accountableDirect
+				)
+			: null
+	);
+	$effect(() => actorConversation?.attach());
+	const actorMessages = $derived(actorConversation?.messages ?? []);
+	const actorMessagesById = $derived(
+		new Map(
+			actorMessages
+				.filter((message) => !message.id.startsWith('optimistic:'))
+				.map((message) => [message.id, message])
+		)
+	);
+	const leadTurn = $derived(accountableDirect ? (actorConversation?.activeTurn ?? null) : null);
+	function attentionFor(actorId: string): AttentionItem[] {
+		if (!ownerAccess) return [];
+		const items = attention.view?.items ?? [];
+		if (actorId === 'exec') return items;
+		const team = teams.find((candidate) => candidate.lead_actor_id === actorId);
+		const members = new Set([
+			actorId,
+			...people
+				.filter((person) => team && person.team_id === team.id)
+				.map((person) => person.actor_id)
+		]);
+		return items.filter((item) => {
+			const sourceActor =
+				item.responsibleActor?.id ?? item.runtimeAttach?.requestingActor ?? item.briefAuthor?.id;
+			const workOwner = attention.view?.workGraph?.work.find(
+				(work) => work.id === item.workId
+			)?.owner_id;
+			return (sourceActor && members.has(sourceActor)) || (workOwner && members.has(workOwner));
+		});
+	}
+	const leadAttention = $derived(
+		ownerAccess && !!directPartner && actorIsAgent(directPartner)
+			? attentionFor(directPartner ?? '').filter(
+					(item) => item.source.kind !== 'conversation_owner_need'
+				)
+			: []
+	);
+	const actorNameForHeader = $derived(directPerson?.display ?? directPartner ?? '');
+	function initials(name: string): string {
+		return name
+			.split(/\s+/)
+			.filter(Boolean)
+			.slice(0, 2)
+			.map((part) => part[0]?.toUpperCase() ?? '')
+			.join('');
+	}
+	const actorDisplay = $derived(directPerson?.display ?? directPartner ?? '');
+	function isOwnerTeam(team: CockpitTeam | CollaborationTeam | null): team is CockpitTeam {
+		return !!team && 'outcome_standard_source' in team;
+	}
+	async function changeStandard(control: HTMLSelectElement) {
+		if (!ownerAccess || !isOwnerTeam(directTeam) || standardSaving) return;
+		const team = directTeam;
+		const standard = control.value as OutcomeStandard;
+		standardSaving = true;
+		standardError = '';
+		try {
+			const response = await fetch(
+				`/api/companies/${encodeURIComponent(companyId)}/teams/${team.id}/outcome-standard`,
+				{
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ standard, expected_standard: team.outcome_standard })
+				}
+			);
+			if (!response.ok) {
+				const failure = await response.json();
+				throw new Error(failure.message ?? 'Could not save the quality target.');
+			}
+		} catch (cause) {
+			control.value = team.outcome_standard;
+			standardError = cause instanceof Error ? cause.message : 'Could not save the quality target.';
+		} finally {
+			try {
+				await cockpitProjection.refresh();
+			} finally {
+				standardSaving = false;
+			}
+		}
+	}
 	const partnerWork = $derived(
 		(ownerAccess ? attention.view?.workGraph?.work : collaboration.view?.work_graph?.work)?.filter(
 			(work) => work.owner_id === directPartner
@@ -621,6 +848,10 @@
 			targetRoom = selectedRoomId,
 			targetActor = currentActorId,
 			targetDraft = activeDraftKey;
+		const recipientActor = directPartner;
+		const sendAsAccountableLead = accountableDirect && parent === null;
+		const targetConversation = actorConversation;
+		const files = [...composerFiles];
 		const targetProjection = parent === null ? roomProjection : threadProjection;
 		const stillCurrent = () =>
 			companyId === targetCompany &&
@@ -628,7 +859,8 @@
 			currentActorId === targetActor &&
 			threadRootId === parent;
 		const mentions = knownMentions(body);
-		const followDirectReply = parent === null && !!directPartner && actorIsAgent(directPartner);
+		const followDirectReply =
+			!sendAsAccountableLead && parent === null && !!directPartner && actorIsAgent(directPartner);
 		writeRoomDraft(targetDraft, { body, commandId, updatedAt: new Date().toISOString() });
 		retryCommandId = commandId;
 		retryBody = body;
@@ -650,31 +882,43 @@
 			deleted_at: null,
 			legacy_read_at: null
 		};
+		let sentMessageId: number | null = null;
 		try {
-			const result = await sendRoomMessage(
-				targetCompany,
-				targetRoom,
-				body,
-				commandId,
-				parent,
-				mentions
-			);
-			targetProjection?.accept(result);
+			if (sendAsAccountableLead && targetConversation && recipientActor) {
+				const contextPath = cockpitContextPath(targetCompany, page.url);
+				const result = await targetConversation.send(body, files, contextPath, false, !!leadTurn);
+				if (result.interrupted && stillCurrent())
+					sendNotice = `${actorName(recipientActor)} was interrupted and your new direction is queued.`;
+				void targetProjection?.refresh().catch(() => {});
+			} else {
+				const result = await sendRoomMessage(
+					targetCompany,
+					targetRoom,
+					body,
+					commandId,
+					parent,
+					mentions
+				);
+				sentMessageId = result.message.id;
+				targetProjection?.accept(result);
+			}
 			writeRoomDraft(targetDraft, {
 				body: '',
 				commandId: null,
 				updatedAt: new Date().toISOString()
 			});
+			volatileFileDrafts.delete(targetDraft);
 			if (!stillCurrent()) return;
 			composer = '';
+			composerFiles = [];
 			retryCommandId = null;
 			retryBody = '';
 			pendingMessage = null;
 			if (activeDraftKey) {
 				writeRoomDraft(activeDraftKey, { body: '', commandId: null, updatedAt: '' });
 			}
-			if (followDirectReply) {
-				await goto(threadHref(result.message.id), { keepFocus: true, noScroll: true });
+			if (followDirectReply && sentMessageId !== null) {
+				await goto(threadHref(sentMessageId), { keepFocus: true, noScroll: true });
 			}
 			await tick();
 			const scroller = parent === null ? roomScrollEl : threadScrollEl;
@@ -696,12 +940,14 @@
 					commandId: retryable ? commandId : null,
 					updatedAt: new Date().toISOString()
 				});
+				if (files.length) volatileFileDrafts.set(targetDraft, files);
 				return;
 			}
 			retryCommandId = retryable ? commandId : null;
 			retryBody = retryable ? body : '';
 			pendingMessage = null;
 			sendError = cause instanceof Error ? cause.message : 'This message was not delivered.';
+			if (files.length) volatileFileDrafts.set(targetDraft, files);
 		} finally {
 			sending = false;
 		}
@@ -738,7 +984,7 @@
 <svelte:window bind:online onpagehide={flushDraft} />
 <div
 	class="cockpit-screen rooms-screen"
-	class:room-selected={requestedRoomId !== ''}
+	class:room-selected={selectedRoomId !== '' || requestedPersonId !== ''}
 	class:thread-selected={threadRootId !== null}
 >
 	<section class="room-conversation cockpit-pane">
@@ -746,9 +992,41 @@
 		{#if selectedRoomId}
 			<header class="room-head">
 				<div class="room-head-copy">
-					<strong>{roomLabel(selectedRoomId)}</strong>
+					{#if directPerson && actorIsAgent(directPerson.actor_id)}
+						<IntelligencePopover
+							{companyId}
+							actorId={directPerson.actor_id}
+							label={directPerson.display}
+						>
+							{#snippet children(tooltipId)}<button
+									class="room-contact"
+									aria-label={`${directPerson.display} intelligence settings`}
+									aria-describedby={tooltipId}
+									title={directPerson.actor_id}
+								>
+									<span class="person-avatar">{initials(directPerson.display)}</span><strong
+										>{directPerson.display}</strong
+									>
+								</button>{/snippet}
+						</IntelligencePopover>
+					{:else}<strong>{roomLabel(selectedRoomId)}</strong>{/if}
 					{#if participantSummary}<small>{participantSummary}</small>{/if}
 				</div>
+				{#if ownerAccess && isOwnerTeam(directTeam)}
+					<select
+						class="team-standard"
+						aria-label="Team quality target"
+						title="Quality target for future team coordination and new work. This is separate from model thinking effort."
+						value={directTeam.outcome_standard}
+						disabled={standardSaving}
+						onchange={(event) => void changeStandard(event.currentTarget)}
+					>
+						<option value="fast">Fast</option><option value="thorough">Thorough</option><option
+							value="exceptional">Exceptional</option
+						><option value="frontier">Frontier</option>
+					</select>
+				{/if}
+				{#if standardError}<span role="alert">{standardError}</span>{/if}
 				<button
 					type="button"
 					class="message-search-toggle"
@@ -811,6 +1089,9 @@
 				</div>
 				{@render actions?.()}
 			</header>
+			{#if ownerAccess && directPartner && actorIsAgent(directPartner)}
+				<div class="lead-exchanges"><AgentExchanges {companyId} actorId={directPartner} /></div>
+			{/if}
 			{#if exactTargetState === 'invalid' && threadRootId === null}
 				<div class="exact-target-state unavailable" role="status">
 					This linked message address is invalid.
@@ -892,6 +1173,9 @@
 						{/if}
 						<RoomMessage
 							{message}
+							presentation={actorMessagesById.get(String(message.id))}
+							hrefFor={(attachment) =>
+								`/api/companies/${encodeURIComponent(companyId)}/attachments/${encodeURIComponent(attachment.uploadId)}`}
 							author={message.id < 0 ? 'You' : actorName(message.from_actor)}
 							isYou={message.id < 0 || message.from_actor === currentActorId}
 							isAgent={actorIsAgent(message.from_actor)}
@@ -946,6 +1230,12 @@
 							</div>
 						{/if}
 					{/each}
+					{#if leadTurn}
+						<ConversationTurnDock participantName={actorDisplay} turn={leadTurn} />
+					{/if}
+					{#each leadAttention as item (item.id)}
+						<div class="chat-attention"><AttentionCard {companyId} {item} inChat /></div>
+					{/each}
 				{/if}
 			</div>
 
@@ -954,6 +1244,22 @@
 			<div class="conversation-empty choose-room">
 				{#if exactTargetState === 'invalid'}
 					<strong>This linked message address is invalid.</strong>
+				{:else if requestedPersonId && personResolutionFailure}
+					<strong>Could not open this conversation.</strong>
+					<p>{personResolutionFailure}</p>
+					<button
+						type="button"
+						onclick={() => {
+							attemptedPersonKey = '';
+							resolvingPersonKey = '';
+							personResolutionFailure = '';
+							personResolutionRetry += 1;
+						}}>Try again</button
+					>
+				{:else if requestedPersonId}
+					<strong
+						>{resolvingPersonKey ? 'Opening conversation…' : 'Loading your conversations…'}</strong
+					>
 				{:else}
 					<Users size={24} strokeWidth={1.6} aria-hidden="true" />
 					<strong>Choose a conversation.</strong>
@@ -1000,6 +1306,9 @@
 				{#each visibleThread as message (message.id)}
 					<RoomMessage
 						{message}
+						presentation={actorMessagesById.get(String(message.id))}
+						hrefFor={(attachment) =>
+							`/api/companies/${encodeURIComponent(companyId)}/attachments/${encodeURIComponent(attachment.uploadId)}`}
 						author={message.id < 0 ? 'You' : actorName(message.from_actor)}
 						isYou={message.id < 0 || message.from_actor === currentActorId}
 						isAgent={actorIsAgent(message.from_actor)}
@@ -1049,10 +1358,15 @@
 	<form class="room-composer" onsubmit={submitMessage}>
 		<Composer
 			bind:value={composer}
-			actionLabel={retryCommandId && retryBody === composer.trim() ? 'Retry send' : 'Send'}
+			bind:files={composerFiles}
+			actionLabel={leadTurn
+				? 'Interrupt and send'
+				: retryCommandId && retryBody === composer.trim()
+					? 'Retry send'
+					: 'Send'}
 			disabled={sending || !online || (selectedRoom?.kind === 'direct' && !canExtendDirect)}
 			minlength={1}
-			allowAttachments={false}
+			allowAttachments={accountableDirect && threadRootId === null}
 			placeholder={threadRootId ? 'Reply in this Thread…' : `Message ${roomLabel(selectedRoomId)}…`}
 			ariaLabel={threadRootId ? 'Thread reply' : 'Conversation message'}
 		>
@@ -1083,9 +1397,7 @@
 						{/each}
 					</select>
 				{/if}
-				{#if directPartner && actorIsAgent(directPartner)}
-					<span class="room-draft-state">{actorName(directPartner)} will be asked to reply.</span>
-				{:else}
+				{#if !directPartner || !actorIsAgent(directPartner)}
 					<select
 						class="reply-picker"
 						aria-label="Ask someone to reply"
@@ -1105,11 +1417,64 @@
 			{/snippet}
 		</Composer>
 		{#if sendError}<p class="room-send-error" role="alert">{sendError}</p>{/if}
+		{#if sendNotice}<p class="room-send-notice" role="status">{sendNotice}</p>{/if}
+		{#if accountableDirect && composerFiles.length}<p class="room-draft-state">
+				{composerFiles.length} attachment{composerFiles.length === 1 ? '' : 's'} ready to send.
+			</p>{/if}
 		{#if !online}<p class="room-draft-state">Draft kept locally until you reconnect.</p>{/if}
 	</form>
 {/snippet}
 
 <style>
+	.room-contact {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		min-width: 0;
+		padding: 0;
+		border: 0;
+		background: transparent;
+		color: var(--ink);
+		font: inherit;
+		cursor: pointer;
+	}
+	.room-contact:hover {
+		color: var(--intent-conversation);
+	}
+	.person-avatar {
+		display: grid;
+		place-items: center;
+		width: 26px;
+		height: 26px;
+		flex: none;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-control);
+		background: var(--surface-alt);
+		font-size: var(--t-label);
+	}
+	.team-standard {
+		max-width: 112px;
+		min-height: 30px;
+		padding: 4px 6px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-control);
+		background: var(--surface);
+		color: var(--text-secondary);
+		font: 500 var(--t-label) var(--font-ui);
+	}
+	.lead-exchanges {
+		padding: 0 14px;
+		border-bottom: 1px solid var(--border);
+	}
+	.chat-attention {
+		padding: 10px 14px;
+	}
+	.room-send-notice {
+		margin: 6px 0 0;
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+	}
+
 	.thread-actions {
 		display: none;
 		margin-left: auto;
@@ -1529,6 +1894,22 @@
 	}
 
 	@container conversation (max-width: 650px) {
+		.room-head {
+			flex-wrap: wrap;
+		}
+		.room-head-copy {
+			flex: 1 0 100%;
+		}
+		.room-contact {
+			max-width: 100%;
+		}
+		.room-transport {
+			margin-left: auto;
+		}
+		.reply-picker {
+			max-width: 150px;
+		}
+
 		.rooms-screen.thread-selected {
 			grid-template-columns: minmax(0, 1fr);
 		}

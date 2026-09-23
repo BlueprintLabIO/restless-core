@@ -9,7 +9,6 @@
 	import LoaderCircle from '@lucide/svelte/icons/loader-circle';
 	import MessageCircleQuestion from '@lucide/svelte/icons/message-circle-question';
 	import Bell from '@lucide/svelte/icons/bell';
-	import PersonConversation from '$lib/components/PersonConversation.svelte';
 	import RoomConversation from '$lib/components/RoomConversation.svelte';
 	import RoomManager from '$lib/components/RoomManager.svelte';
 	import {
@@ -23,7 +22,7 @@
 		recentDirectConversationsQuery,
 		roomMessageSearchQuery
 	} from '$lib/model/room-queries.svelte';
-	import { createRoom, type Room } from '$lib/model/rooms';
+	import { type Room } from '$lib/model/rooms';
 
 	const companyId = $derived(page.params.companyId ?? '');
 	const principal = $derived(companyPrincipalQuery(companyId));
@@ -48,10 +47,6 @@
 	const roomId = $derived(page.url.searchParams.get('room') ?? '');
 	const personId = $derived(page.url.searchParams.get('person') ?? '');
 	const selectedPerson = $derived(people.find((p) => p.actor_id === personId));
-	const selectedStaff = $derived(
-		selectedPerson?.kind === 'staff' &&
-			!contacts.some((person) => person.actor_id === selectedPerson.actor_id)
-	);
 	const documentOpen = $derived(page.url.searchParams.has('document'));
 	const linkedRoomId = $derived(
 		roomId || rooms.rooms.find((r) => directPerson(r)?.actor_id === personId)?.id || ''
@@ -68,13 +63,42 @@
 	}
 	const explicitSelection = $derived(!!roomId || page.url.searchParams.has('person'));
 	const requestedView = $derived(page.url.searchParams.get('view'));
+	type PeopleView = 'people' | 'conversations';
+	const viewPreferenceKey = $derived(`restless:${companyId}:people-view`);
+	let preferredView = $state<PeopleView>('people');
+	let preferenceCompany = $state('');
+	$effect(() => {
+		const company = companyId;
+		if (!company) return;
+		preferenceCompany = company;
+		try {
+			preferredView =
+				localStorage.getItem(`restless:${company}:people-view`) === 'conversations'
+					? 'conversations'
+					: 'people';
+		} catch {
+			preferredView = 'people';
+		}
+	});
+	$effect(() => {
+		const view = requestedView;
+		if (!companyId || (view !== 'people' && view !== 'conversations')) return;
+		preferredView = view;
+		preferenceCompany = companyId;
+		try {
+			localStorage.setItem(viewPreferenceKey, view);
+		} catch {
+			// The URL remains authoritative if storage is unavailable.
+		}
+	});
 	const directory = $derived(
-		requestedView === 'people' ||
-			(requestedView === null &&
-				page.url.searchParams.has('person') &&
-				owner &&
-				selectedPerson?.kind === 'staff' &&
-				!teams.some((team) => team.lead_actor_id === selectedPerson.actor_id))
+		requestedView === 'people'
+			? true
+			: requestedView === 'conversations'
+				? false
+				: preferenceCompany === companyId
+					? preferredView === 'people'
+					: true
 	);
 	let search = $state('');
 	let debouncedSearch = $state('');
@@ -124,66 +148,16 @@
 			need: need?.source.kind === 'conversation_owner_need' ? 'reply' : need ? 'attention' : null
 		} as const;
 	}
-	let openingPerson = $state('');
-	let openingError = $state('');
-	const pendingDirect = new Map<string, string>();
-	async function openPerson(event: MouseEvent | null, id: string) {
-		const person = people.find((p) => p.actor_id === id);
+	function openPerson(event: MouseEvent | null, id: string) {
 		event?.preventDefault();
-		if (openingPerson || !principal.view) return;
-		if (contacts.some((contact) => contact.actor_id === id)) {
-			await goto(href(id));
-			return;
-		}
-		const company = companyId,
-			actor = principal.view.actor_id;
-		const existing = rooms.rooms.find((r) => directPerson(r)?.actor_id === id);
-		if (existing) {
-			await goto(href('', existing.id));
-			return;
-		}
-		openingPerson = id;
-		openingError = '';
-		const key = `${company}:${actor}:${id}`;
-		const command = pendingDirect.get(key) ?? crypto.randomUUID();
-		pendingDirect.set(key, command);
-		try {
-			const room = await createRoom(company, {
-				kind: 'direct',
-				title: person?.display ?? id,
-				participant_actor_ids: [id],
-				command_id: command
-			});
-			if (company !== companyId || actor !== principal.view?.actor_id) return;
-			await rooms.refresh();
-			pendingDirect.delete(key);
-			await goto(href('', room.id));
-		} catch (cause) {
-			if (company === companyId)
-				openingError = cause instanceof Error ? cause.message : 'Could not open conversation.';
-		} finally {
-			openingPerson = '';
-		}
+		return goto(href(id));
 	}
-	$effect(() => {
-		if (
-			!owner ||
-			!roomId ||
-			page.url.searchParams.has('thread') ||
-			page.url.searchParams.has('message') ||
-			page.url.searchParams.has('mention') ||
-			page.url.searchParams.has('focus')
-		)
-			return;
-		const room = rooms.rooms.find((r) => r.id === roomId);
-		const person = room ? directPerson(room) : null;
-		if (person && contacts.some((p) => p.actor_id === person.actor_id))
-			void goto(href(person.actor_id), { replaceState: true, noScroll: true });
-	});
 	const rows = $derived.by(() => {
 		const query = search.trim().toLocaleLowerCase();
 		return recent.conversations.flatMap((conversation) => {
-			const person = people.find((candidate) => candidate.actor_id === conversation.person_actor_id);
+			const person = people.find(
+				(candidate) => candidate.actor_id === conversation.person_actor_id
+			);
 			if (
 				!person ||
 				(query && !`${person.display} ${person.role}`.toLocaleLowerCase().includes(query))
@@ -241,17 +215,31 @@
 		return people.filter((person) => person.kind === 'human' && matchesDirectory(person, query));
 	});
 	function setDirectory(next: boolean) {
+		const view: PeopleView = next ? 'people' : 'conversations';
+		preferredView = view;
+		preferenceCompany = companyId;
+		try {
+			localStorage.setItem(viewPreferenceKey, view);
+		} catch {
+			// Keep the current selection usable when browser storage is unavailable.
+		}
 		const url = new URL(page.url);
-		if (next) url.searchParams.set('view', 'people');
-		else url.searchParams.set('view', 'conversations');
+		url.searchParams.set('view', view);
 		void goto(url, { noScroll: true, keepFocus: true });
 	}
 	function href(person: string, room = '') {
-		const params = new URLSearchParams(room ? { room } : { person });
-		if (directory) params.set('view', 'people');
+		const params = new URLSearchParams(room ? { room } : person ? { person } : {});
+		params.set('view', directory ? 'people' : 'conversations');
 		const document = page.url.searchParams.get('document');
 		if (document !== null) params.set('document', document);
 		return `/${encodeURIComponent(companyId)}/people?${params}`;
+	}
+	function indexHref() {
+		const url = new URL(page.url);
+		for (const key of ['room', 'person', 'thread', 'message', 'mention', 'focus'])
+			url.searchParams.delete(key);
+		url.searchParams.set('view', directory ? 'people' : 'conversations');
+		return `${url.pathname}${url.search}${url.hash}`;
 	}
 	function created(room: Room) {
 		void goto(href('', room.id));
@@ -291,33 +279,36 @@
 			/></label
 		>
 		<nav class="tabs" aria-label="Conversation list">
-			<button class:active={!directory} onclick={() => setDirectory(false)}>Conversations</button
-			><button class:active={directory} onclick={() => setDirectory(true)}>People</button>
+			<button class:active={directory} aria-pressed={directory} onclick={() => setDirectory(true)}
+				>People</button
+			>
+			<button
+				class:active={!directory}
+				aria-pressed={!directory}
+				onclick={() => setDirectory(false)}>Conversations</button
+			>
 		</nav>
-		<div class="entries" aria-busy={!!openingPerson}>
-			{#if openingError}<p class="empty" role="alert">{openingError}</p>{/if}
+		<div class="entries">
 			{#snippet personStatuses(actorId: string, name: string)}
 				{@const status = personStatus(actorId)}
-				{#if status.working || status.need}<span
-					class="row-statuses"
-					class:multiple={status.working && status.need !== null}
-					>{#if status.working}<span
-							class="row-status working"
-							title={`${name} is working`}
-							aria-label={`${name} is working`}
-							><LoaderCircle size={14} aria-hidden="true" /><span>Working</span></span
-						>{/if}{#if status.need === 'reply'}<span
-							class="row-status reply"
-							title={`${name} is waiting for your reply`}
-							aria-label={`${name} is waiting for your reply`}
-							><MessageCircleQuestion size={14} aria-hidden="true" /><span>Reply</span></span
-						>{:else if status.need === 'attention'}<span
-							class="row-status attention"
-							title={`${name} needs your attention`}
-							aria-label={`${name} needs your attention`}
-							><Bell size={14} aria-hidden="true" /><span>Needs you</span></span
-						>{/if}</span
-				>{/if}
+				{#if status.working || status.need}<span class="row-statuses"
+						>{#if status.working}<span
+								class="row-status working"
+								title={`${name} is working`}
+								aria-label={`${name} is working`}
+								><LoaderCircle size={14} aria-hidden="true" /></span
+							>{/if}{#if status.need === 'reply'}<span
+								class="row-status reply"
+								title={`${name} is waiting for your reply`}
+								aria-label={`${name} is waiting for your reply`}
+								><MessageCircleQuestion size={14} aria-hidden="true" /></span
+							>{:else if status.need === 'attention'}<span
+								class="row-status attention"
+								title={`${name} needs your attention`}
+								aria-label={`${name} needs your attention`}
+								><Bell size={14} aria-hidden="true" /></span
+							>{/if}</span
+					>{/if}
 			{/snippet}
 			{#snippet directoryPerson(
 				person: DirectoryPerson,
@@ -345,9 +336,7 @@
 						><span class="name">{person.display}</span>{@render personStatuses(
 							person.actor_id,
 							person.display
-						)}<span class="directory-cue" title={cueTitle}
-							>{cue}</span
-						></span
+						)}<span class="directory-cue" title={cueTitle}>{cue}</span></span
 					>
 				</a>
 			{/snippet}
@@ -356,7 +345,7 @@
 					<section class="directory-section executive-section" aria-label="Executive">
 						{@render directoryPerson(
 							directoryExec,
-							'Executive chat',
+							'Exec',
 							'Open the executive conversation',
 							'executive'
 						)}
@@ -375,7 +364,7 @@
 						</header>
 						{#if entry.lead}{@render directoryPerson(
 								entry.lead,
-								'Lead chat',
+								'Lead',
 								'Accountable team lead. Open their conversation.',
 								'lead'
 							)}{/if}
@@ -447,10 +436,10 @@
 						>
 							<span class="avatar"
 								>{row.name
-										.split(/\s+/)
-										.slice(0, 2)
-										.map((s) => s[0])
-										.join('')}</span
+									.split(/\s+/)
+									.slice(0, 2)
+									.map((s) => s[0])
+									.join('')}</span
 							><span class="name">{row.name}</span>{#if row.person}{@render personStatuses(
 									row.person,
 									row.name
@@ -458,11 +447,15 @@
 						</a>
 					</div>
 				{:else}<p class="empty">
-						{recent.status === 'unknown' ? 'Loading conversations…' : search.trim() ? 'No matches.' : 'No conversations yet. Find someone in People to start one.'}
+						{recent.status === 'unknown'
+							? 'Loading conversations…'
+							: search.trim()
+								? 'No matches.'
+								: 'No conversations yet. Find someone in People to start one.'}
 					</p>{/each}
 			{/if}
 			{#if search.trim() && !directory}
-				{#each messageSearch.messages.filter((message) => recent.conversations.some((conversation) => conversation.room_id === message.room_id)) as message (message.id)}
+				{#each messageSearch.messages.filter( (message) => recent.conversations.some((conversation) => conversation.room_id === message.room_id) ) as message (message.id)}
 					<a
 						class="search-result"
 						href={`${href('', message.room_id)}${message.thread_root_message_id ? `&thread=${message.thread_root_message_id}` : ''}&focus=${message.id}`}
@@ -475,57 +468,28 @@
 				{#if messageSearch.hasMore}<button class="more" onclick={() => messageSearch.loadMore()}
 						>More messages</button
 					>{/if}
-				{/if}
-			{#if recent.failure || messageSearch.failure}<p
-					class="empty"
-					role="status"
-				>
+			{/if}
+			{#if recent.failure || messageSearch.failure}<p class="empty" role="status">
 					{recent.failure?.message ?? messageSearch.failure?.message}
 				</p>{/if}
 		</div>
 	</aside>
 	<section class="conversation-main" aria-label="Selected conversation">
-		<a class="back" href={`/${companyId}/people${directory ? "?view=people" : ""}`}><ArrowLeft size={16} /> {directory ? "People" : "Conversations"}</a>
-		{#if roomId}<RoomConversation
-				>{#snippet actions()}<button
+		<a class="back" href={indexHref()}
+			><ArrowLeft size={16} /> {directory ? 'People' : 'Conversations'}</a
+		>
+		{#if roomId || personId}
+			<RoomConversation>
+				{#snippet actions()}
+					<button
 						class="document-toggle"
 						title="Open a document alongside this conversation"
 						aria-label="Open document"
 						onclick={toggleDocument}><FileText size={17} /></button
-					>{/snippet}</RoomConversation
-			>{:else if selectedStaff}<div class="staff-direct-route">
-				<p>{selectedPerson?.display}</p>
-				<p>Open a direct conversation to co-work on a specific task.</p>
-				<button
-					class="more"
-					disabled={!!openingPerson}
-					onclick={() => selectedPerson && void openPerson(null, selectedPerson.actor_id)}
-					>{openingPerson ? 'Opening…' : 'Open conversation'}</button
-				>{#if openingError}<p role="alert">{openingError}</p>{/if}
-			</div>{:else if owner && selectedPerson && selectedPerson.kind !== 'human'}<PersonConversation
-				>{#snippet actions(context)}<button
-						class="document-toggle"
-						title="Open a document alongside this conversation"
-						aria-label="Open document"
-						onclick={toggleDocument}><FileText size={17} /></button
-					>{#if selectedPerson}<RoomManager
-							{companyId}
-							actorId={principal.view?.actor_id ?? ''}
-							{people}
-							initialParticipants={[personId]}
-							initialContext={context}
-							label="Add people"
-							oncreated={created}
-						/>{/if}{/snippet}</PersonConversation
-			>{:else if selectedPerson}<div class="empty">
-				<p>{selectedPerson.display}</p>
-				<button
-					class="more"
-					disabled={!!openingPerson}
-					onclick={() => openPerson(null, selectedPerson.actor_id)}
-					>{openingPerson ? 'Opening…' : 'Open conversation'}</button
-				>{#if openingError}<p role="alert">{openingError}</p>{/if}
-			</div>{:else}<div class="empty">Choose a conversation or start a new one.</div>{/if}
+					>
+				{/snippet}
+			</RoomConversation>
+		{:else}<div class="empty">Choose a conversation or start a new one.</div>{/if}
 	</section>
 	{#if documentOpen}<ConversationDocument
 			{companyId}
@@ -653,8 +617,11 @@
 	.directory-person {
 		display: flex;
 		align-items: center;
+		box-sizing: border-box;
+		height: 42px;
 		gap: 8px;
 		padding: 8px;
+		overflow: hidden;
 		color: var(--ink);
 		text-decoration: none;
 	}
@@ -673,14 +640,19 @@
 	}
 	.directory-person-copy {
 		display: flex;
-		align-items: baseline;
+		align-items: center;
 		justify-content: space-between;
-		gap: 8px;
+		gap: 4px;
 		min-width: 0;
 		flex: 1;
+		overflow: hidden;
 	}
 	.directory-cue {
 		flex: none;
+		max-width: 46px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 	}
@@ -702,10 +674,13 @@
 	.entry a {
 		display: flex;
 		align-items: center;
+		box-sizing: border-box;
+		height: 48px;
 		gap: 10px;
 		min-width: 0;
 		flex: 1;
 		padding: 10px 7px;
+		overflow: hidden;
 		color: var(--ink);
 		text-decoration: none;
 	}
@@ -722,7 +697,7 @@
 	}
 	.name {
 		flex: 1;
-		min-width: 0;
+		min-width: 4ch;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -734,24 +709,18 @@
 	.row-statuses {
 		display: inline-flex;
 		align-items: center;
-		gap: 4px;
-		flex: none;
-	}
-	.row-statuses.multiple {
-		flex-direction: column;
-		align-items: flex-end;
 		gap: 2px;
+		flex: none;
 	}
 	.row-status {
 		display: inline-flex;
 		align-items: center;
-		gap: 3px;
-		padding: 3px 5px;
+		justify-content: center;
+		width: 18px;
+		height: 18px;
+		padding: 0;
 		border-radius: 999px;
-		font-size: var(--t-label);
-		font-weight: 650;
 		line-height: 1;
-		white-space: nowrap;
 	}
 	.row-status.working {
 		color: var(--intent-conversation);
@@ -779,24 +748,6 @@
 		padding: 12px;
 		font-size: var(--t-label);
 		color: var(--text-secondary);
-	}
-	.staff-direct-route {
-		padding: 18px;
-		color: var(--text-secondary);
-	}
-	.staff-direct-route p:first-child {
-		margin: 0;
-		color: var(--ink);
-		font-size: var(--t-body);
-		font-weight: 600;
-	}
-	.staff-direct-route p + p {
-		margin: 5px 0 12px;
-		font-size: var(--t-label);
-	}
-	.staff-direct-route .more {
-		width: auto;
-		padding: 8px 0;
 	}
 	.more {
 		width: 100%;

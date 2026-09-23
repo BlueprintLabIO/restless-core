@@ -79,6 +79,18 @@ membership. `send --parent MESSAGE` keeps a reply in its thread, and `--mentions
 existing structured Room mention contract. These commands create actual Core Rooms and Messages,
 not a parallel conversation store.
 
+The People screen uses one Room conversation interface for Exec, leads, staff and human
+participants. Direct `?person=` links resolve to the same canonical Room used by `?room=` links.
+The shared message renderer owns Markdown, message actions and structured reply details; agent
+settings, live activity and owner Attention are added according to the selected actor and the
+viewer's permissions. People is the default directory view; a per-company browser preference
+remembers the selected tab, with an explicit `view` URL taking precedence.
+
+An owner’s top-level message to Exec or a lead retains the existing conversation send path,
+including uploads and interruption. Staff, group and threaded messages retain bounded Room
+messaging. These are different authority contracts beneath the same UI; Room uploads still need
+backend support.
+
 ## Direct agent communication
 
 Direct mail is a first-class coordination path for active agents. An ordinary message addressed to

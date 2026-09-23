@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
+	import type { Snippet } from 'svelte';
 	import Check from '@lucide/svelte/icons/check';
 	import Copy from '@lucide/svelte/icons/copy';
 	import AttachmentList from './AttachmentList.svelte';
@@ -18,9 +19,12 @@
 		hrefFor,
 		copyable = true,
 		pending = false,
-		domId
+		domId,
+		headerExtra,
+		actions,
+		embedded = false
 	}: {
-		sender: 'owner' | 'agent' | 'system';
+		sender: 'owner' | 'agent' | 'human' | 'system';
 		author: string;
 		text: string;
 		createdAt: Date | string;
@@ -31,6 +35,9 @@
 		copyable?: boolean;
 		pending?: boolean;
 		domId?: string;
+		headerExtra?: Snippet;
+		actions?: Snippet;
+		embedded?: boolean;
 	} = $props();
 
 	let copyState = $state<'idle' | 'copied' | 'failed'>('idle');
@@ -71,12 +78,19 @@
 	id={domId}
 	class="conversation-message {sender}"
 	class:pending
+	class:embedded
 	data-message-sender={sender}
 >
 	<header class="message-meta">
 		<span class="message-avatar">
 			<SemanticMark
-				meaning={sender === 'agent' ? 'executive' : sender === 'owner' ? 'direction' : 'work'}
+				meaning={sender === 'agent'
+					? 'executive'
+					: sender === 'owner'
+						? 'direction'
+						: sender === 'human'
+							? 'people'
+							: 'work'}
 				size="small"
 				label={sender === 'owner' ? 'Your message' : `${displayAuthor} message`}
 			/>
@@ -84,7 +98,9 @@
 		<strong>{displayAuthor}</strong>
 		{#if timestamp}<time
 				datetime={validDate ? messageDate.toISOString() : undefined}
-				title={validDate ? messageDate.toLocaleString() : undefined}>{timestamp}</time>{/if}
+				title={validDate ? messageDate.toLocaleString() : undefined}>{timestamp}</time
+			>{/if}
+		{@render headerExtra?.()}
 	</header>
 
 	<div class="message-body">
@@ -123,6 +139,7 @@
 	{#if copyable && sender !== 'system'}
 		<footer class="message-footer">
 			<div class="message-actions" aria-label="Message actions">
+				{@render actions?.()}
 				<button
 					type="button"
 					class="copy-message"
@@ -182,6 +199,14 @@
 
 	.conversation-message.pending {
 		border-top: 1px solid var(--border);
+	}
+
+	.conversation-message.embedded {
+		width: auto;
+		padding: 0;
+		border: 0;
+		background: transparent;
+		box-shadow: none;
 	}
 
 	.message-avatar {
