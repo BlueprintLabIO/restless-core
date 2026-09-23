@@ -2093,6 +2093,10 @@ mod live_product_tests {
             mcp_servers: Vec::new(),
             observer: None,
             cancellation: CancellationToken::new(),
+            spend: crate::spend::SpendLedger::open(&root).unwrap(),
+            spend_ceiling: crate::runtime::SpendCeiling::from_micro_usd(5_000_000),
+            capabilities: crate::capability::CapabilityIssuer::open(&root).unwrap(),
+            productive_invocation_id: uuid::Uuid::new_v4(),
         })
         .await
         .unwrap();
@@ -2174,6 +2178,10 @@ mod live_product_tests {
             mcp_servers: Vec::new(),
             observer: None,
             cancellation: CancellationToken::new(),
+            spend: crate::spend::SpendLedger::open(&root).unwrap(),
+            spend_ceiling: crate::runtime::SpendCeiling::from_micro_usd(5_000_000),
+            capabilities: crate::capability::CapabilityIssuer::open(&root).unwrap(),
+            productive_invocation_id: uuid::Uuid::new_v4(),
         })
         .await
         .unwrap();
@@ -2537,6 +2545,10 @@ mod live_product_tests {
             mcp_servers: Vec::new(),
             observer: None,
             cancellation: CancellationToken::new(),
+            spend: crate::spend::SpendLedger::open(&root).unwrap(),
+            spend_ceiling: crate::runtime::SpendCeiling::from_micro_usd(5_000_000),
+            capabilities: crate::capability::CapabilityIssuer::open(&root).unwrap(),
+            productive_invocation_id: uuid::Uuid::new_v4(),
         })
         .await
         .unwrap();
@@ -2583,6 +2595,10 @@ mod live_product_tests {
             mcp_servers: Vec::new(),
             observer: None,
             cancellation: CancellationToken::new(),
+            spend: crate::spend::SpendLedger::open(&root).unwrap(),
+            spend_ceiling: crate::runtime::SpendCeiling::from_micro_usd(5_000_000),
+            capabilities: crate::capability::CapabilityIssuer::open(&root).unwrap(),
+            productive_invocation_id: uuid::Uuid::new_v4(),
         })
         .await
         .unwrap();
@@ -2667,6 +2683,10 @@ mod live_product_tests {
             mcp_servers: Vec::new(),
             observer: None,
             cancellation: CancellationToken::new(),
+            spend: crate::spend::SpendLedger::open(&root).unwrap(),
+            spend_ceiling: crate::runtime::SpendCeiling::from_micro_usd(5_000_000),
+            capabilities: crate::capability::CapabilityIssuer::open(&root).unwrap(),
+            productive_invocation_id: uuid::Uuid::new_v4(),
         })
         .await
         .unwrap();
@@ -2712,6 +2732,10 @@ mod live_product_tests {
                 mcp_servers: Vec::new(),
                 observer: None,
                 cancellation: CancellationToken::new(),
+                spend: crate::spend::SpendLedger::open(&root).unwrap(),
+                spend_ceiling: crate::runtime::SpendCeiling::from_micro_usd(5_000_000),
+                capabilities: crate::capability::CapabilityIssuer::open(&root).unwrap(),
+                productive_invocation_id: uuid::Uuid::new_v4(),
             })
             .await
             .unwrap();
@@ -2746,6 +2770,10 @@ mod live_product_tests {
                 mcp_servers: Vec::new(),
                 observer: None,
                 cancellation: CancellationToken::new(),
+                spend: crate::spend::SpendLedger::open(&root).unwrap(),
+                spend_ceiling: crate::runtime::SpendCeiling::from_micro_usd(5_000_000),
+                capabilities: crate::capability::CapabilityIssuer::open(&root).unwrap(),
+                productive_invocation_id: uuid::Uuid::new_v4(),
             })
             .await
             .unwrap();
@@ -2780,6 +2808,10 @@ mod live_product_tests {
                 mcp_servers: Vec::new(),
                 observer: None,
                 cancellation: CancellationToken::new(),
+                spend: crate::spend::SpendLedger::open(&root).unwrap(),
+                spend_ceiling: crate::runtime::SpendCeiling::from_micro_usd(5_000_000),
+                capabilities: crate::capability::CapabilityIssuer::open(&root).unwrap(),
+                productive_invocation_id: uuid::Uuid::new_v4(),
             })
             .await
             .unwrap();
@@ -2822,6 +2854,10 @@ mod live_product_tests {
                 mcp_servers: Vec::new(),
                 observer: None,
                 cancellation: cancellation.clone(),
+                spend: crate::spend::SpendLedger::open(&root).unwrap(),
+                spend_ceiling: crate::runtime::SpendCeiling::from_micro_usd(5_000_000),
+                capabilities: crate::capability::CapabilityIssuer::open(&root).unwrap(),
+                productive_invocation_id: uuid::Uuid::new_v4(),
             });
             tokio::pin!(interrupted_future);
             let monitor = async {
@@ -2905,6 +2941,10 @@ mod live_product_tests {
                 mcp_servers: Vec::new(),
                 observer: None,
                 cancellation: CancellationToken::new(),
+                spend: crate::spend::SpendLedger::open(&root).unwrap(),
+                spend_ceiling: crate::runtime::SpendCeiling::from_micro_usd(5_000_000),
+                capabilities: crate::capability::CapabilityIssuer::open(&root).unwrap(),
+                productive_invocation_id: uuid::Uuid::new_v4(),
             })
             .await
             .unwrap();
@@ -2972,6 +3012,10 @@ mod live_product_tests {
             mcp_servers: Vec::new(),
             observer: None,
             cancellation: CancellationToken::new(),
+            spend: crate::spend::SpendLedger::open(&root).unwrap(),
+            spend_ceiling: crate::runtime::SpendCeiling::from_micro_usd(5_000_000),
+            capabilities: crate::capability::CapabilityIssuer::open(&root).unwrap(),
+            productive_invocation_id: uuid::Uuid::new_v4(),
         })
         .await
         .unwrap();

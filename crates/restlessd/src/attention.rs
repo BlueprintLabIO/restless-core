@@ -1985,7 +1985,7 @@ mod tests {
             Some("https://massive.com/business-stocks")
         );
         assert_eq!(action.role, "human_step");
-        assert!(action.consequence.contains("does not share cookies"));
+        assert!(action.consequence.contains("does not approve anything"));
         assert!(action.next_state.contains("provider observation"));
         let wire = serde_json::to_value(action).expect("serialize presentation-safe action");
         assert_eq!(wire["role"], "human_step");

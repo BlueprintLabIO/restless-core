@@ -475,3 +475,44 @@ complete user journeys.
 - Browser inventory still exposes only one in-app browser. Simultaneous
   independent-human verification remains unavailable; Claude/API requests
   remain deferred and external SMTP delivery remains unverified.
+
+## Audit sweep — 23 September 2026
+
+- Published `dev` could not compile its daemon tests: eleven `StaffBrief`
+  initializers in two ignored live tests lacked the spend ledger, ceiling,
+  capability issuer and productive invocation id. They now compile.
+- Four stale checks were corrected: two OrgIntel scenarios now create the owner
+  Actor that real companies create at bootstrap; the review-context and external
+  provider-step assertions now match the intended text; and the generated
+  TypeScript schedule type now carries `responsibility_id` and
+  `responsibility_version`.
+- The Git credential helper now reads Git's request before answering. The race
+  previously failed its test in two of three runs. It passed five consecutive
+  runs, and a real `git credential fill` returned the injected password.
+- The full Rust workspace then ran against a disposable `_test` PostgreSQL with
+  no skipped database scenarios: 661 passed, 14 ignored, and one failed. That
+  failure was the stale generated type, which was regenerated and its check
+  rerun. The provider-tombstone test is deadline-sensitive under host load above
+  30; it passed alone.
+- At `93cf73d`, a clean `npm ci` checkout passed `npm run check`, 60 web unit
+  tests and the production build. `web/` carries both `package-lock.json` and
+  `pnpm-lock.yaml`, with 38 differing versions. The documented install uses npm.
+  The shared development checkout now contains both installs and fails
+  `svelte-check` with two `@tanstack/query-core` copies. One lockfile must
+  become canonical.
+- `93cf73d` added three comment lines to published migration 59. Every local
+  database now holds that checksum; installations made from `2ed32cb` through
+  `93cf73d` hold the earlier checksum and will need the checksum repair.
+  Committed migrations 67–69 match the owner databases exactly.
+- With temporary listeners, Docker bridge traffic reached ports 23790 and 23791;
+  unlisted control port 23792 remained blocked. No live model request ran through
+  those ports in this sweep.
+- `.env` is excluded by the `.dockerignore` allowlist, and the provider key
+  appears in no other file in the checkout.
+- GitHub's seven open dependency alerts refer to versions already patched in
+  the lockfiles.
+- Metered model spend now fails open. Provider-reported cost is charged first,
+  then the pinned tariff. A response without either is recorded as metering
+  unknown, and work continues; the owner sees spend as a lower bound. Known spend
+  at the ceiling still stops charged work. Direct OpenRouter requests passed; no
+  Restless gateway turn has used OpenRouter.

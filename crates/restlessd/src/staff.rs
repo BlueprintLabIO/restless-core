@@ -1184,10 +1184,13 @@ mod tests {
             "cosmon_test",
             false,
         );
+        // Owner review asks for this Attempt's own prepared target; the prior
+        // version stays visible as a bound artifact, not as the target.
         assert!(review_context.contains(&format!(
-            "--kind {} --uri /company/outputs/playable-room.html",
+            "--kind {} --uri <exact-native-review-target>",
             restless_orgintel::REVIEW_TARGET_ARTIFACT_KIND
         )));
+        assert!(review_context.contains("/company/outputs/playable-room.html"));
         assert!(review_context.contains(restless_orgintel::REVIEW_TARGET_LIVE_PROBE_GATE));
         assert!(!review_context.contains("--kind output --uri /company/outputs/playable-room.html"));
 
