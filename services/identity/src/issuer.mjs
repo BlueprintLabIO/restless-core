@@ -84,7 +84,10 @@ export function authorizeChange(viewer, change, target) {
     if (target.status !== "suspended") refuse(409, "This person is not suspended.");
     return true;
   }
-  if (change.verb === "remove") return target.status !== "removed";
+  // Removal always proceeds: a Store may hold a removal whose final step was
+  // interrupted (the tombstone recorded, the account row not yet deleted), and
+  // repeating the request must complete it rather than report nothing to do.
+  if (change.verb === "remove") return true;
   refuse(404, "Membership action not found.");
 }
 
