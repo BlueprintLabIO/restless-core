@@ -184,7 +184,7 @@ export function attentionQuery(companyId: string | (() => string), enabled: Quer
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
 		refetchInterval: REFRESH_MS,
-		refetchIntervalInBackground: true,
+		refetchIntervalInBackground: false,
 		retry: 1
 	}));
 	return {
@@ -300,7 +300,7 @@ export function portfolioQuery() {
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
 		refetchInterval: REFRESH_MS,
-		refetchIntervalInBackground: true,
+		refetchIntervalInBackground: false,
 		retry: 1
 	}));
 	return {
@@ -352,8 +352,8 @@ export function companyQuery(companyId: string, enabled: QueryEnabled = true) {
 		enabled: queryEnabled(enabled),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
-		refetchInterval: REFRESH_MS,
-		refetchIntervalInBackground: true,
+		refetchInterval: 60_000,
+		refetchIntervalInBackground: false,
 		retry: 1
 	}));
 	return {
@@ -409,7 +409,7 @@ export function browserStatusQuery(companyId: string) {
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
 		refetchInterval: REFRESH_MS,
-		refetchIntervalInBackground: true,
+		refetchIntervalInBackground: false,
 		retry: 1
 	}));
 	return {
@@ -627,6 +627,20 @@ export function conversationQuery(
 				outcomeStandard,
 				skills: [...skills]
 			};
+			const sentAt = new Date();
+			const optimisticId = `optimistic:${clientCommandId}`;
+			pending = {
+				id: optimisticId,
+				from: 'you',
+				author: 'You',
+				text: body,
+				createdAt: sentAt,
+				replyToMessageId: null,
+				assetId: null,
+				runId: null,
+				attachments: [],
+				contextPath: contextPath ?? null
+			};
 			let result: MessageSendResult;
 			try {
 				result = await sendActorMessage(
@@ -645,6 +659,7 @@ export function conversationQuery(
 				);
 				uncertainCommand = null;
 			} catch (error) {
+				if (pending?.id === optimisticId) pending = null;
 				// A server response is definitive (including semantic conflict). A
 				// transport error is not: retain this exact intent's key so the
 				// owner's next retry asks for the committed receipt instead of
@@ -660,19 +675,7 @@ export function conversationQuery(
 				}
 				throw error;
 			}
-			const sentAt = new Date();
-			pending = {
-				id: String(result.messageId),
-				from: 'you',
-				author: 'You',
-				text: body,
-				createdAt: sentAt,
-				replyToMessageId: null,
-				assetId: null,
-				runId: null,
-				attachments: [],
-				contextPath: contextPath ?? null
-			};
+			if (pending?.id === optimisticId) pending.id = String(result.messageId);
 			if (queryEnabled(followLiveActivity)) follow(result.messageId, sentAt);
 			void client.invalidateQueries({ queryKey: key });
 			void client.invalidateQueries({ queryKey: ['recent-direct-conversations', companyId] });

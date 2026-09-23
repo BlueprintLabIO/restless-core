@@ -5412,10 +5412,10 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             }
             Err(error) => Response::err(format!("{error:#}")),
         },
-        "browser-status" => match runtime::doctor(company).await {
-            Ok(report) => Response::ok(serde_json::json!({
+        "browser-status" => match runtime::browser_health(company).await {
+            Ok((_, browser)) => Response::ok(serde_json::json!({
                 "generation": runtime::generation(company).await.ok().flatten(),
-                "browser": report.browser,
+                "browser": browser,
                 "control": runtime::read_browser_control(company).await.ok().flatten(),
             })),
             Err(error) => Response::err(format!("{error:#}")),

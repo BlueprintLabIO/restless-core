@@ -1466,12 +1466,11 @@ pub async fn project(
         .collect::<Vec<_>>();
     continuations.sort_by_key(|continuation| Reverse(continuation.observed_at));
     continuations.truncate(5);
-    let doctor = runtime::doctor(&config.name).await.ok();
-    let (runtime_health, browser_health) = match doctor.as_ref() {
-        Some(report) if report.container == ContainerStatus::Running => (
+    let health = runtime::browser_health(&config.name).await.ok();
+    let (runtime_health, browser_health) = match health.as_ref() {
+        Some((ContainerStatus::Running, browser)) => (
             "available".to_string(),
-            report
-                .browser
+            browser
                 .as_ref()
                 .map(|health| health.status.clone())
                 .unwrap_or_else(|| "unavailable".to_string()),
@@ -1489,9 +1488,9 @@ pub async fn project(
     );
     let dispatch_blocked = !config.has_configured_model_route()
         || (local_runtime
-            && doctor.as_ref().is_some_and(|report| {
+            && health.as_ref().is_some_and(|(container, _)| {
                 matches!(
-                    report.container,
+                    container,
                     ContainerStatus::Stopped | ContainerStatus::Absent
                 )
             }));

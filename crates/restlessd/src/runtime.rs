@@ -1443,11 +1443,13 @@ pub async fn doctor(company: &str) -> Result<RuntimeDoctor> {
     };
 
     let (release, coordination, supervisor, browser) = if container == ContainerStatus::Running {
+        let supervisor = supervisor_doctor(company).await;
+        let browser = browser_doctor(company, &supervisor).await;
         (
             release_identity_doctor(company).await,
             Some(coordination_doctor(company).await),
-            Some(supervisor_doctor(company).await),
-            Some(browser_doctor(company).await),
+            Some(supervisor),
+            Some(browser),
         )
     } else {
         (None, None, None, None)
@@ -1563,34 +1565,39 @@ async fn coordination_doctor(company: &str) -> CoordinationDoctor {
     }
 }
 
-async fn browser_doctor(company: &str) -> BrowserDoctor {
-    let name = container_name(company);
-    let process = async |program: &str| -> String {
-        let output = docker_observe(&[
-            "exec",
-            &name,
-            "supervisorctl",
-            "-c",
-            COMPANY_SUPERVISOR_CONFIG,
-            "status",
-            program,
-        ])
-        .await;
-        match output {
-            Ok(output) if output.status.success() => {
-                let line = String::from_utf8_lossy(&output.stdout);
-                if line.contains("RUNNING") {
-                    "available".into()
-                } else {
-                    "degraded".into()
-                }
-            }
-            _ => "unavailable".into(),
-        }
+/// The cockpit needs live browser health, but not image reconciliation, source
+/// hashing, or the collaboration probes performed by the full doctor.
+pub async fn browser_health(company: &str) -> Result<(ContainerStatus, Option<BrowserDoctor>)> {
+    let container = status(company).await?;
+    let browser = if container == ContainerStatus::Running {
+        let supervisor = supervisor_doctor(company).await;
+        Some(browser_doctor(company, &supervisor).await)
+    } else {
+        None
     };
-    let desktop = process("desktop").await;
-    let chromium = process("chromium").await;
-    let web_transport = process("desktop-web").await;
+    Ok((container, browser))
+}
+
+async fn browser_doctor(company: &str, supervisor: &SupervisorDoctor) -> BrowserDoctor {
+    let name = container_name(company);
+    let process = |program: &str| -> String {
+        supervisor
+            .services
+            .iter()
+            .find(|service| service.name == program)
+            .map(|service| {
+                if service.state == "running" {
+                    "available"
+                } else {
+                    "degraded"
+                }
+            })
+            .unwrap_or("unavailable")
+            .into()
+    };
+    let desktop = process("desktop");
+    let chromium = process("chromium");
+    let web_transport = process("desktop-web");
     let automation: String = match docker_observe(&[
         "exec",
         &name,
@@ -1649,7 +1656,9 @@ async fn supervisor_doctor(company: &str) -> SupervisorDoctor {
     ])
     .await;
     let services = match output {
-        Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout)
+        // supervisorctl exits nonzero when any optional program is stopped,
+        // but its stdout still contains the status of every other program.
+        Ok(output) => String::from_utf8_lossy(&output.stdout)
             .lines()
             .filter_map(|line| {
                 let mut parts = line.split_whitespace();
