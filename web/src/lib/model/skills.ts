@@ -203,7 +203,7 @@ export type ScheduleTestReport = {
 	status: string;
 	scope: string;
 	actor_run?: string;
-	external_effects?: string;
+	effect_boundary?: string;
 	source_company: string;
 	source_schedule_id: string;
 	test_company?: string;
@@ -211,6 +211,10 @@ export type ScheduleTestReport = {
 	occurrence?: unknown;
 	opportunity?: { state: string; outcome?: unknown; outcome_reason?: string | null };
 	clone_retained: boolean;
+	work_outcomes?: Array<{
+		work: { id: string; title: string; status: string; outcome: string } | null;
+		attempts: Array<{ state: string; summary?: string | null }>;
+	}>;
 	scheduled_for?: string;
 };
 
@@ -220,11 +224,12 @@ export async function monitorSchedules(company: string): Promise<MonitoredSchedu
 
 export function testScheduleTrigger(
 	company: string,
-	schedule: string
+	schedule: string,
+	runActor = false
 ): Promise<ScheduleTestReport> {
 	return call(company, `/schedules/${encodeURIComponent(schedule)}/test`, {
 		method: 'POST',
-		body: JSON.stringify({})
+		body: JSON.stringify({ run_actor: runActor })
 	});
 }
 

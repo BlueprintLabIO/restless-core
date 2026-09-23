@@ -1175,7 +1175,7 @@ enum ScheduleCommand {
         #[arg(long)]
         reason: String,
     },
-    /// Trigger one selected schedule in a disposable company and verify scheduler admission only.
+    /// Trigger one selected schedule in a disposable company; --run-actor opts into Exec.
     Test {
         /// Live source company whose schedule is copied into the disposable test company.
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
@@ -1184,8 +1184,11 @@ enum ScheduleCommand {
         #[arg(long)]
         schedule: String,
         /// Maximum time to wait for the durable Opportunity admission.
-        #[arg(long, default_value_t = 30)]
-        timeout_seconds: u64,
+        #[arg(long)]
+        timeout_seconds: Option<u64>,
+        /// Start the disposable Runtime and let the daemon's ordinary scheduler run Exec.
+        #[arg(long)]
+        run_actor: bool,
     },
     /// Read the durable responsibility opportunity lifecycle.
     Opportunities {
@@ -3448,9 +3451,11 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 company,
                 schedule,
                 timeout_seconds,
+                run_actor,
             } => serde_json::json!({
                 "cmd": "schedule-test", "company": company,
                 "id": schedule, "schedule_test_timeout_seconds": timeout_seconds,
+                "schedule_test_run_actor": run_actor,
             }),
             ScheduleCommand::Opportunities {
                 company,

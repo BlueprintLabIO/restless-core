@@ -28,13 +28,13 @@
 		void load();
 	});
 
-	async function test(schedule: string) {
+	async function test(schedule: string, runActor = false) {
 		if (busy) return;
 		busy = schedule;
 		failure = '';
 		report = null;
 		try {
-			report = await testScheduleTrigger(companyId, schedule);
+			report = await testScheduleTrigger(companyId, schedule, runActor);
 			await load();
 		} catch (cause) {
 			failure =
@@ -115,6 +115,13 @@
 						>
 							{busy === item.schedule.id ? 'Testing…' : 'Test trigger'}
 						</button>
+						<button
+							type="button"
+							onclick={() => void test(item.schedule.id, true)}
+							disabled={!item.testable || busy !== ''}
+						>
+							{busy === item.schedule.id ? 'Testing…' : 'Run synthetic actor test'}
+						</button>
 						{#if !item.testable}<span>Needs a bound responsibility</span>{/if}
 					</div>
 					{#if item.recent_outcomes.length}
@@ -155,7 +162,11 @@
 	{#if report}
 		<section class="test-result" aria-labelledby="test-result-title" role="status">
 			<h2 id="test-result-title">Test trigger: {report.status.replaceAll('_', ' ')}</h2>
-			<p>Scope: scheduler only. No actor run or external effects.</p>
+			<p>
+				Scope: {report.scope === 'actor_pipeline'
+					? 'synthetic actor pipeline run in a disposable company; source business instructions, credentials, and approvals are not copied. Spend ceiling is $1. Ordinary network access remains possible.'
+					: 'scheduler only; no actor run.'}
+			</p>
 			{#if report.test_company}
 				<p>
 					Disposable test company retained for inspection: <a href={`/${report.test_company}`}
@@ -170,6 +181,19 @@
 						report.opportunity.outcome_reason ?? null
 					)}
 				</p>
+			{/if}
+			{#if report.work_outcomes?.length}
+				<ul>
+					{#each report.work_outcomes as item (item.work?.id ?? item.attempts.length)}
+						<li>
+							{item.work?.title ?? 'Work'} — {item.work?.status ?? 'unavailable'}
+							{#if item.work?.outcome}: {item.work.outcome}{/if}
+							{#if item.attempts.length}
+								(Attempts: {item.attempts.map((attempt) => attempt.state).join(', ')})
+							{/if}
+						</li>
+					{/each}
+				</ul>
 			{/if}
 			{#if report.scheduled_for}<p>
 					Triggered at <time datetime={report.scheduled_for}>{when(report.scheduled_for)}</time>.
