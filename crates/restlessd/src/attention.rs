@@ -1123,6 +1123,104 @@ pub async fn project(
             }
         }
 
+        // Opportunity outcomes are durable business facts. Keep only the
+        // newest outcome for each responsibility so a later successful run
+        // clears an older block, then cap owner attention to the three most
+        // recent blocked responsibilities.
+        match org.list_opportunities(None, 500).await {
+            Ok(opportunities) => {
+                let mut latest_by_responsibility = HashMap::new();
+                for opportunity in opportunities {
+                    latest_by_responsibility
+                        .entry(opportunity.responsibility_id)
+                        .or_insert(opportunity);
+                }
+                let mut blocked = latest_by_responsibility
+                    .into_values()
+                    .filter(|opportunity| opportunity.state == "blocked")
+                    .collect::<Vec<_>>();
+                blocked.sort_by_key(|opportunity| {
+                    Reverse(opportunity.settled_at.unwrap_or(opportunity.created_at))
+                });
+                for opportunity in blocked.into_iter().take(3) {
+                    let responsibility = org
+                        .get_responsibility_version(
+                            opportunity.responsibility_id,
+                            opportunity.responsibility_version,
+                        )
+                        .await?;
+                    let objective = responsibility
+                        .map(|version| version.objective)
+                        .unwrap_or_else(|| "Business opportunity".into());
+                    let linked_work = org
+                        .list_opportunity_work(opportunity.id)
+                        .await?
+                        .into_iter()
+                        .max_by_key(|link| link.linked_at);
+                    let reason = opportunity
+                        .outcome_reason
+                        .clone()
+                        .or_else(|| opportunity.outcome.as_ref().map(ToString::to_string))
+                        .unwrap_or_else(|| "The opportunity was marked blocked.".into());
+                    let opened_at = opportunity.settled_at.unwrap_or(opportunity.created_at);
+                    let source_href = linked_work.as_ref().map_or_else(
+                        || Some(format!("/{}/company/schedules", config.name)),
+                        |link| Some(format!("/{}/work/{}?lens=map", config.name, link.work_id)),
+                    );
+                    items.push(AttentionItem {
+                        id: format!("orgintel:opportunity-blocked:{}", opportunity.id),
+                        work_id: linked_work.map(|link| link.work_id),
+                        source: AttentionSource {
+                            plane: "orgintel",
+                            kind: "blocked_opportunity".into(),
+                            reference: opportunity.id.to_string(),
+                            party: None,
+                        },
+                        category: "blocker".into(),
+                        title: format!("Blocked: {objective}"),
+                        what_happened: reason.clone(),
+                        why_it_matters:
+                            "The latest outcome for this responsibility is blocked.".into(),
+                        recommendation: "Review the blocker and decide whether the company should retry, change direction, or stop this responsibility.".into(),
+                        requested_action: "Review the blocked opportunity.".into(),
+                        if_no_action:
+                            "This responsibility remains blocked until the company records a new outcome.".into(),
+                        uncertainty: None,
+                        deadline: None,
+                        brief_status: "source-authored",
+                        brief_author: actors.get(&opportunity.actor_id).cloned(),
+                        briefed_at: Some(opened_at),
+                        evidence: vec![AttentionEvidence {
+                            label: "Opportunity outcome".into(),
+                            uri: Some(format!("orgintel://opportunities/{}", opportunity.id)),
+                            content: Some(reason),
+                            kind: "orgintel-opportunity",
+                        }],
+                        review_sources: Vec::new(),
+                        responsible_actor: actors.get(&opportunity.actor_id).cloned(),
+                        runtime_attach: None,
+                        review_target: None,
+                        native_document: None,
+                        actions: vec![AttentionAction {
+                            id: "inspect-blocked-opportunity".into(),
+                            label: "Review opportunity".into(),
+                            role: "inspect",
+                            consequence: "Opens the linked Work when one exists.".into(),
+                            next_state: "A later opportunity outcome replaces this projection.".into(),
+                            href: source_href,
+                        }],
+                        can_continue: false,
+                        preparing: false,
+                        created_at: opened_at,
+                    });
+                }
+            }
+            Err(error) => {
+                tracing::warn!(%error, "blocked opportunity attention unavailable");
+                orgintel_health = "unavailable".into();
+            }
+        }
+
         // A configured model is not proof that the Exec can start. Project the
         // latest closed substrate failure directly from its durable terminal
         // event so one real failed opportunity cannot disappear behind green
