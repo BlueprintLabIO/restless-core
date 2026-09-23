@@ -11,15 +11,21 @@
 	import RadioTower from '@lucide/svelte/icons/radio-tower';
 	import ShieldCheck from '@lucide/svelte/icons/shield-check';
 	import Fingerprint from '@lucide/svelte/icons/fingerprint';
+	import Users from '@lucide/svelte/icons/users';
+	import Sparkles from '@lucide/svelte/icons/sparkles';
+	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
 
 	let { children } = $props();
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	const computerSurface = $derived(page.url.pathname === `/${companyId}/company/computer`);
-	const routes = $derived([
+	const principal = $derived(companyPrincipalQuery(companyId).view);
+	const allRoutes = $derived([
 		{ label: 'Intelligence provider', href: `/${companyId}/company/provider`, icon: Settings },
 		{ label: 'Vault', href: `/${companyId}/company/vault`, icon: KeyRound },
 		{ label: 'Charter', href: `/${companyId}/company`, exact: true, icon: BookOpen },
 		{ label: 'Identity', href: `/${companyId}/company/identity`, icon: Fingerprint },
+		{ label: 'Members', href: `/${companyId}/company/members`, icon: Users },
+		{ label: 'Skills', href: `/${companyId}/company/skills`, icon: Sparkles },
 		{
 			label: 'Access & limits',
 			href: `/${companyId}/company/resources`,
@@ -30,6 +36,12 @@
 		{ label: 'Decision history', href: `/${companyId}/company/decisions`, icon: ListChecks },
 		{ label: 'External activity', href: `/${companyId}/company/actions`, icon: RadioTower }
 	]);
+	// Administrators see only the access they manage; the rest is the owner's.
+	const routes = $derived(
+		principal?.membership_role === 'owner'
+			? allRoutes
+			: allRoutes.filter((route) => route.label === 'Members')
+	);
 
 	function active(route: { href: string; exact?: boolean }): boolean {
 		return route.exact

@@ -8,6 +8,7 @@
 	import { tick, untrack } from 'svelte';
 	import { readRoomDraft, writeRoomDraft, roomDraftKey } from '$lib/model/rooms';
 	import AttentionCard from '$lib/components/AttentionCard.svelte';
+	import AgentExchanges from '$lib/components/AgentExchanges.svelte';
 	import type { AttentionItem } from '$lib/model/view';
 	import IntelligencePopover from '$lib/components/IntelligencePopover.svelte';
 	import type { OutcomeStandard } from '$lib/model/company';
@@ -446,7 +447,7 @@
 </script>
 
 <svelte:window onpagehide={flushDraft} />
-<section class="people-talk cockpit-pane">
+<section class="people-talk cockpit-pane" class:has-exchanges={ownerAccess && !!selected}>
 	{#if selected}
 		<header class="talk-head">
 			<div class="talk-profile">
@@ -510,6 +511,10 @@
 			{@render actions?.(visibleMessages.at(-1)?.text ?? '')}
 		</header>
 
+		{#if ownerAccess}{#key `${companyId}:${selected.actor_id}`}<AgentExchanges
+					{companyId}
+					actorId={selected.actor_id}
+				/>{/key}{/if}
 		{#if canSend}
 			<div class="talk-msgs exr-msgs" bind:this={scrollEl}>
 				{#each visibleMessages as message, i (message.id)}

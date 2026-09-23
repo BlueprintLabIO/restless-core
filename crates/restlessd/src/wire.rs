@@ -118,6 +118,36 @@ fn default_gate_timeout() -> i32 {
     900
 }
 
+/// Company skills (Sprint 55). Skill packages stay Runtime files; these fields
+/// carry only observations, decisions and activations about them.
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct SkillInput {
+    #[serde(default)]
+    pub(crate) skill: Option<String>,
+    #[serde(default)]
+    pub(crate) skill_digest: Option<String>,
+    #[serde(default)]
+    pub(crate) observed_skills: Vec<restless_orgintel::ObservedSkill>,
+    #[serde(default)]
+    pub(crate) observed_skill: Option<restless_orgintel::ObservedSkill>,
+    #[serde(default)]
+    pub(crate) origin_url: Option<String>,
+    #[serde(default)]
+    pub(crate) origin_ref: Option<String>,
+    #[serde(default)]
+    pub(crate) disposition: Option<String>,
+    #[serde(default)]
+    pub(crate) scope: Option<String>,
+    #[serde(default)]
+    pub(crate) scope_id: Option<String>,
+    #[serde(default)]
+    pub(crate) enabled: Option<bool>,
+    #[serde(default)]
+    pub(crate) skill_work_id: Option<String>,
+    #[serde(default)]
+    pub(crate) skill_attempt_id: Option<String>,
+}
+
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct OrgIntelInput {
     #[serde(default)]
@@ -170,6 +200,9 @@ pub(crate) struct OrgIntelInput {
     pub(crate) gates: Vec<InitialWorkGateRequest>,
     #[serde(default)]
     pub(crate) constitution_contracts: Option<restless_orgintel::InitialConstitutionContracts>,
+    /// Company skills selected for new Work; pinned atomically with it.
+    #[serde(default)]
+    pub(crate) skills: Vec<String>,
     #[serde(default)]
     pub(crate) kind: Option<String>,
     #[serde(default)]
@@ -196,6 +229,9 @@ pub(crate) struct OrgIntelInput {
     pub(crate) fire_at: Option<String>,
     #[serde(default)]
     pub(crate) recurrence: Option<String>,
+    /// `/loop`: the bounded interval for an `interval` recurrence.
+    #[serde(default)]
+    pub(crate) interval_seconds: Option<i32>,
     #[serde(default)]
     pub(crate) local_time: Option<String>,
     #[serde(default)]
@@ -567,6 +603,8 @@ pub(crate) struct Request {
     pub(crate) publication: PublicationInput,
     #[serde(flatten)]
     pub(crate) document: DocumentInput,
+    #[serde(flatten)]
+    pub(crate) skills: SkillInput,
     #[serde(default)]
     pub(crate) room_operation: Option<crate::room_commands::RoomOperation>,
     #[serde(default)]
@@ -760,6 +798,20 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
             "apply",
         ],
         "goal-add" => &["title", "body", "actor"],
+        "goal-close" => &["goal", "actor"],
+        "skill-list" => &["as_actor", "include_retired"],
+        "skill-observe" => &["as_actor", "observed_skills"],
+        "skill-activate" => &[
+            "as_actor",
+            "skill",
+            "skill_digest",
+            "skill_work_id",
+            "skill_attempt_id",
+        ],
+        "skill-candidate-add" => &["as_actor", "observed_skill", "origin_url", "origin_ref"],
+        "skill-disposition" => &["as_actor", "skill", "disposition"],
+        "skill-assign" => &["as_actor", "skill", "scope", "scope_id", "enabled"],
+        "work-skill" => &["id", "as_actor", "skills"],
         "work-goal" => &["id", "goal", "actor"],
         "work-attempts" => &["id"],
         "work-assign" => &["id", "to", "actor", "reason"],
@@ -784,6 +836,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
             "revises",
             "gates",
             "constitution_contracts",
+            "skills",
             "as_actor",
         ],
         "work-edge" => &["from", "to", "kind", "action", "as_actor", "reason"],
@@ -861,6 +914,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
             "as_actor",
             "fire_at",
             "recurrence",
+            "interval_seconds",
             "local_time",
             "timezone",
             "missed_policy",
@@ -1175,6 +1229,10 @@ pub(crate) const OWNER_ONLY: &[&str] = &[
     "schedule-wake",
     "appliance-drain",
     "appliance-resume",
+    // Accepting an imported skill (possibly with scripts) and deciding who
+    // may use it are owner trust decisions for this sprint.
+    "skill-disposition",
+    "skill-assign",
 ];
 
 pub(crate) fn authorize(principal: Principal, cmd: &str) -> std::result::Result<Principal, String> {
@@ -1251,6 +1309,29 @@ impl Response {
 #[cfg(test)]
 mod tests {
     use super::{authorize, command_fields, Principal, Request};
+
+    #[test]
+    fn skill_trust_decisions_are_owner_acts_and_skill_fields_stay_in_their_commands() {
+        assert!(authorize(Principal::CompanyExec, "skill-disposition").is_err());
+        assert!(authorize(Principal::CompanyExec, "skill-assign").is_err());
+        assert!(authorize(Principal::CompanyExec, "skill-activate").is_ok());
+        let request = Request::decode(
+            r#"{"cmd":"skill-activate","company":"acme","as_actor":"writer","skill":"frontend-design","skill_digest":"sha256:ab"}"#,
+        )
+        .unwrap();
+        assert_eq!(request.skills.skill.as_deref(), Some("frontend-design"));
+        let work = Request::decode(
+            r#"{"cmd":"work-add","company":"acme","skills":["gauntlet"],"as_actor":"lead"}"#,
+        )
+        .unwrap();
+        assert_eq!(work.orgintel.skills, vec!["gauntlet".to_string()]);
+        assert!(Request::decode(r#"{"cmd":"work-list","company":"acme","skills":["x"]}"#).is_err());
+        let interval = Request::decode(
+            r#"{"cmd":"schedule-add","company":"acme","as_actor":"exec","recurrence":"interval","interval_seconds":1800,"reason":"check leads"}"#,
+        )
+        .unwrap();
+        assert_eq!(interval.orgintel.interval_seconds, Some(1800));
+    }
 
     #[test]
     fn collaboration_doctor_requires_owner_and_no_arbitrary_probe_target() {

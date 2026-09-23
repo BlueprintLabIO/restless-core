@@ -35,3 +35,14 @@ tools/*
 !tools/codex-runner/restless-codex-parity-preflight.mjs
 !tools/codex-runner/restless-codex-task-run.mjs
 !tools/codex-runner/restless-codex-longitudinal-run.mjs
+
+!tools/custom-harness/
+!tools/custom-harness/manage.mjs
+!tools/custom-harness/presets.json
+!tools/custom-harness/run.mjs
+!tools/custom-harness/legacy-models.mjs
+!tools/custom-harness/setup.mjs
+
+!tools/custom-harness/openclaw.mjs
+
+!tools/custom-harness/hermes.py

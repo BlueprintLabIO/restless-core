@@ -236,8 +236,15 @@ impl AgentActivityState {
                 self.activity.push(AgentActivityItem {
                     id: format!("tool-{id}"),
                     kind: "tool".into(),
-                    label: owner_visible_activity_text(title, MAX_ACTIVITY_LABEL_CHARS),
-                    detail: owner_visible_activity_text(kind, MAX_ACTIVITY_DETAIL_CHARS),
+                    label: tool_activity_label(title),
+                    detail: owner_visible_activity_text(
+                        if skill_in_use(title).is_some() {
+                            title
+                        } else {
+                            kind
+                        },
+                        MAX_ACTIVITY_DETAIL_CHARS,
+                    ),
                     status: "active".into(),
                     reply_offset: self.reply.chars().count(),
                 });
@@ -253,7 +260,7 @@ impl AgentActivityState {
                     .find(|activity| activity.id == activity_id)
                 {
                     if let Some(title) = title {
-                        let label = owner_visible_activity_text(title, MAX_ACTIVITY_LABEL_CHARS);
+                        let label = tool_activity_label(title);
                         changed |= existing.label != label;
                         existing.label = label;
                     }
@@ -609,6 +616,30 @@ fn bounded(value: &str, max_chars: usize) -> String {
 /// Give them the same metadata boundary as streamed replies before they enter
 /// the activity projection. A marker ends the visible portion rather than
 /// asking the browser to understand internal coordination syntax.
+/// `restless skill use frontend-design` becomes "Using Frontend design": the
+/// owner sees which method the actor applied, with the command as detail.
+fn skill_in_use(title: &str) -> Option<&str> {
+    let (_, rest) = title.split_once("restless skill use ")?;
+    let name = rest.split_whitespace().next()?;
+    let name = name.trim_matches(|character| matches!(character, '\'' | '"' | '`'));
+    restless_orgintel::valid_skill_name(name).then_some(name)
+}
+
+fn tool_activity_label(title: &str) -> String {
+    match skill_in_use(title) {
+        Some(name) => {
+            let words = name.replace('-', " ");
+            let mut characters = words.chars();
+            let label = characters
+                .next()
+                .map(|first| first.to_uppercase().chain(characters).collect::<String>())
+                .unwrap_or_default();
+            bounded(&format!("Using {label}"), MAX_ACTIVITY_LABEL_CHARS)
+        }
+        None => owner_visible_activity_text(title, MAX_ACTIVITY_LABEL_CHARS),
+    }
+}
+
 fn owner_visible_activity_text(value: &str, max_chars: usize) -> String {
     let visible = HIDDEN_MARKERS
         .iter()
@@ -621,6 +652,18 @@ fn owner_visible_activity_text(value: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn applying_a_skill_reads_as_using_that_skill() {
+        assert_eq!(
+            tool_activity_label("bash: restless skill use frontend-design --work 7"),
+            "Using Frontend design"
+        );
+        assert_eq!(
+            tool_activity_label("restless skill list"),
+            "restless skill list"
+        );
+    }
 
     #[test]
     fn activity_is_reconnectable_and_never_leaks_message_metadata() {

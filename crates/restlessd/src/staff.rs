@@ -607,6 +607,32 @@ pub async fn dispatch_claimed_work(
                 serde_json::json!({ "error": error.to_string() });
         }
     }
+    // Selected skills travel with the Work, not the harness: every Attempt,
+    // retry and replacement harness receives the same pinned versions.
+    let selected_skills = match org.work_skill_selections(claimed.work.id).await {
+        Ok(selected) => selected,
+        Err(error) => {
+            registry.release(&config.name, &actor);
+            return Err(error.into());
+        }
+    };
+    task.push_str("\n\n");
+    task.push_str(&crate::skills::contract_section());
+    if !selected_skills.is_empty() {
+        task.push_str("\n\n# Selected skills for this Work [Work-bound]\n");
+        for skill in &selected_skills {
+            task.push_str(&format!(
+                "- {} (digest {}): run `restless skill use {} --work {} --attempt {}` once before substantial work and follow it.\n",
+                skill.skill_name,
+                skill.digest,
+                skill.skill_name,
+                claimed.work.id,
+                claimed.attempt_id,
+            ));
+        }
+    }
+    context_accounting["automatically_attached"]["selected_skills"] =
+        serde_json::to_value(&selected_skills).unwrap_or_default();
     let spine = match shared_spine(
         config,
         org,
@@ -968,6 +994,7 @@ mod tests {
 
         let member = conversation_turn_prompt(
             "message from member",
+            true,
             &["- member message 5: make this policy".into()],
             &[],
             false,

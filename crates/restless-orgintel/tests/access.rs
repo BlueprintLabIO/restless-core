@@ -898,3 +898,161 @@ async fn verified_human_names_follow_the_bound_actor_without_changing_roles() {
         "Chloé Chen"
     );
 }
+
+#[tokio::test]
+async fn first_network_owner_claims_the_local_owner_and_new_humans_reach_exec() {
+    let Some(org) = company().await else {
+        return;
+    };
+    let company_id = Uuid::new_v4();
+    let cell_id = Uuid::new_v4();
+    bind_company(&org, company_id, cell_id).await;
+    org.ensure_actor("owner", "owner", "owner", "The Owner")
+        .await
+        .unwrap();
+    org.ensure_actor("exec", "exec", "exec", "The Exec")
+        .await
+        .unwrap();
+    let issuer = "https://accounts.example.test";
+    let joined = |org: &OrgIntel| {
+        let org = org.clone();
+        async move {
+            org.inbox(Some("exec"))
+                .await
+                .unwrap()
+                .into_iter()
+                .filter(|message| message.from_actor == "daemon")
+                .collect::<Vec<_>>()
+        }
+    };
+
+    // The company's first network owner keeps the local owner's history.
+    let mut owner = context(
+        issuer,
+        "founder",
+        company_id,
+        cell_id,
+        "membership-owner",
+        "owner",
+        1,
+        Uuid::new_v4(),
+        Utc::now(),
+    );
+    owner.display_name = Some("Founder Name");
+    let claimed = org.consume_human_access_context(owner).await.unwrap();
+    assert_eq!(claimed.actor_id, "owner");
+    assert!(claimed.owner_claimed);
+    let actor = org.active_actor("owner").await.unwrap().unwrap();
+    assert_eq!(actor.display, "Founder Name");
+    assert_eq!(actor.kind, "owner");
+    assert!(
+        joined(&org).await.is_empty(),
+        "the owner is not a new colleague"
+    );
+
+    // Re-entry resolves to the same Actor and is not a second claim.
+    owner.assertion_id = Uuid::new_v4();
+    owner.issued_at += Duration::seconds(1);
+    let again = org.consume_human_access_context(owner).await.unwrap();
+    assert_eq!(again.actor_id, "owner");
+    assert!(!again.owner_claimed);
+
+    // A second owner-role principal can never claim the owner Actor.
+    let second_owner = context(
+        issuer,
+        "cofounder",
+        company_id,
+        cell_id,
+        "membership-cofounder",
+        "owner",
+        1,
+        Uuid::new_v4(),
+        Utc::now(),
+    );
+    let cofounder = org
+        .consume_human_access_context(second_owner)
+        .await
+        .unwrap();
+    assert!(cofounder.actor_id.starts_with("human-"));
+    assert!(!cofounder.owner_claimed);
+
+    // A new colleague is announced to Exec exactly once, in the entry transaction.
+    let mut colleague = context(
+        issuer,
+        "colleague",
+        company_id,
+        cell_id,
+        "membership-colleague",
+        "member",
+        1,
+        Uuid::new_v4(),
+        Utc::now(),
+    );
+    colleague.display_name = Some("Colleague Name");
+    let member = org.consume_human_access_context(colleague).await.unwrap();
+    colleague.assertion_id = Uuid::new_v4();
+    colleague.issued_at += Duration::seconds(1);
+    org.consume_human_access_context(colleague).await.unwrap();
+    let announcements = joined(&org).await;
+    assert_eq!(announcements.len(), 2, "cofounder and colleague, once each");
+    assert!(announcements
+        .iter()
+        .any(|message| message.body.contains("Colleague Name")
+            && message.body.contains(&member.actor_id)
+            && message.body.contains("member")));
+
+    let members = org.human_members().await.unwrap();
+    assert_eq!(members.len(), 3);
+    assert!(members
+        .iter()
+        .any(|row| row.actor_id == "owner" && row.membership_role == "owner"));
+    assert!(members
+        .iter()
+        .any(|row| row.display == "Colleague Name" && row.membership_status == "active"));
+}
+
+#[tokio::test]
+async fn an_owner_with_prior_network_history_never_claims_the_local_owner() {
+    let Some(org) = company().await else {
+        return;
+    };
+    let company_id = Uuid::new_v4();
+    let cell_id = Uuid::new_v4();
+    bind_company(&org, company_id, cell_id).await;
+    // A hosted company whose owner entered before the owner Actor existed
+    // (every company created before this change) keeps its human Actor.
+    let first = org
+        .consume_human_access_context(context(
+            "https://accounts.example.test",
+            "founder",
+            company_id,
+            cell_id,
+            "membership-owner",
+            "owner",
+            1,
+            Uuid::new_v4(),
+            Utc::now(),
+        ))
+        .await
+        .unwrap();
+    assert!(first.actor_id.starts_with("human-"));
+    org.ensure_actor("owner", "owner", "owner", "The Owner")
+        .await
+        .unwrap();
+    let later = org
+        .consume_human_access_context(context(
+            "https://accounts.example.test",
+            "later-owner",
+            company_id,
+            cell_id,
+            "membership-later",
+            "owner",
+            1,
+            Uuid::new_v4(),
+            Utc::now(),
+        ))
+        .await
+        .unwrap();
+    assert!(later.actor_id.starts_with("human-"));
+    assert!(!later.owner_claimed);
+}

@@ -500,6 +500,7 @@ export function conversationQuery(
 		newFocus: boolean;
 		interrupt: boolean;
 		outcomeStandard?: import('./company').OutcomeStandard;
+		skills: string[];
 	} | null = null;
 
 	const follow = (messageId: number, since: Date | string): void => {
@@ -608,10 +609,12 @@ export function conversationQuery(
 			contextPath?: string,
 			newFocus = false,
 			interrupt = false,
-			outcomeStandard?: import('./company').OutcomeStandard
+			outcomeStandard?: import('./company').OutcomeStandard,
+			skills: string[] = []
 		): Promise<MessageSendResult> {
 			const sameUncertainIntent =
 				uncertainCommand?.body === body &&
+				uncertainCommand.skills.join(' ') === skills.join(' ') &&
 				uncertainCommand.contextPath === contextPath &&
 				uncertainCommand.newFocus === newFocus &&
 				uncertainCommand.interrupt === interrupt &&
@@ -626,7 +629,8 @@ export function conversationQuery(
 				contextPath,
 				newFocus,
 				interrupt,
-				outcomeStandard
+				outcomeStandard,
+				skills: [...skills]
 			};
 			let result: MessageSendResult;
 			try {
@@ -641,7 +645,8 @@ export function conversationQuery(
 					interrupt,
 					outcomeStandard,
 					attentionId,
-					clientCommandId
+					clientCommandId,
+					skills
 				);
 				uncertainCommand = null;
 			} catch (error) {
@@ -675,6 +680,7 @@ export function conversationQuery(
 			};
 			if (queryEnabled(followLiveActivity)) follow(result.messageId, sentAt);
 			void client.invalidateQueries({ queryKey: key });
+			void client.invalidateQueries({ queryKey: ['recent-direct-conversations', companyId] });
 			return result;
 		}
 	};

@@ -792,7 +792,7 @@ fn desired_company_config(
 ) -> runtime::CompanyConfig {
     runtime::CompanyConfig {
         agent_intelligence: Default::default(),
-            native_harnesses: Default::default(),
+        native_harnesses: Default::default(),
         display_name: None,
         name: company_handle.to_string(),
         mission: String::new(),

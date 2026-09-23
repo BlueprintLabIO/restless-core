@@ -77,7 +77,9 @@ These are product soul, not legacy mechanics. They survive the rebuild.
 ### Coordination and abstraction
 
 **Place organisational boundaries where accountability closes, not where a task looks large.** Exec
-owns the portfolio and always dispatches executable owner work to one accountable lead. A lead owns
+owns the portfolio and dispatches production assignments to one accountable lead. Explicit bounded
+edits to an existing shared native document are direct collaboration: Exec applies and verifies them
+in the current conversation under existing document edit access (ARCHITECTURE.md §4.3). A lead owns
 one coherent native outcome and remains a non-producing supervisor. At least one Staff worker owns
 production for an executable outcome. Staff owns an independently useful semantic
 contribution or locally closing unit in a repeated queue. A hand or ordinary tool owns only a bounded
@@ -102,8 +104,10 @@ commissions, observes, guides, redirects, repairs through workers and judges the
 no planned production, silent artifact repair or private parallel implementation. Supervision is
 driven by material events and artifacts, never polling or status theatre. Staff does not send progress
 or completion mail merely to trigger supervision. After the Runtime observes artifacts, gates and the
-final Work state, one recoverable Work-linked terminal fact wakes the accountable lead; direct Staff
-mail is for a genuinely new fact or contradiction that needs judgement before completion.
+final Work state, a recoverable terminal exception wakes the accountable lead; a successful result
+reaches Exec directly for a useful owner update or an explicit quiet decision. This does not imply
+lead acceptance or downstream completion. Direct Staff mail is for a genuinely new fact or
+contradiction that needs judgement before completion.
 
 EXP-17 makes the implementation constraint explicit: across four exact GPT-5.6 Sol pairs, a serial
 Exec/lead/worker/lead call chain matched solo outcome quality but cost 1.73x-3.30x and took

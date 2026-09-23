@@ -159,5 +159,35 @@ async fn appliance_misfires_are_bounded_exact_and_honest_about_local_execution()
     assert_eq!(due.machine_requirement, "always_on");
     assert!(due.fire_at <= resume);
 
+    // Exec delivery must survive a restart after the occurrence commits but
+    // before any model turn starts. Reopening the real store retains exactly
+    // one owed input, even when the timer is delivered again.
+    org.ensure_actor("exec", "exec", "exec", "The Exec")
+        .await
+        .unwrap();
+    let exec_schedule = org
+        .add_schedule(
+            "exec",
+            None,
+            "inspect the current sales responsibility",
+            resume,
+        )
+        .await
+        .unwrap();
+    assert_eq!(org.claim_due_schedules_at(resume).await.unwrap().len(), 1);
+    let reopened = OrgIntel::ensure(&url, &company).await.unwrap();
+    assert!(reopened
+        .claim_due_schedules_at(resume)
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(reopened.owed_conversation_count("exec").await.unwrap(), 1);
+    let inbox = reopened.conversation_inbox("exec").await.unwrap();
+    assert_eq!(inbox.len(), 1);
+    assert!(inbox[0].body.contains(&exec_schedule.to_string()));
+    assert!(inbox[0]
+        .body
+        .contains("inspect the current sales responsibility"));
+
     org.drop_schema().await.unwrap();
 }

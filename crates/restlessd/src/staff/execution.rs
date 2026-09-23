@@ -19,6 +19,7 @@ use super::context::{actor_posture, workspace_instruction};
 pub(super) enum StaffTurnKind {
     Work,
     OwnerConversation,
+    InternalConversation,
     FocusedMention,
 }
 
@@ -186,7 +187,7 @@ pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcom
                     .attempt_id
                     .context("Work model invocation is missing its Attempt id")?,
             },
-            StaffTurnKind::OwnerConversation => {
+            StaffTurnKind::OwnerConversation | StaffTurnKind::InternalConversation => {
                 run.org
                     .current_cognitive_model_invocation_source(&run.actor, false)
                     .await?
@@ -432,7 +433,8 @@ pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcom
                     )
                     .await?;
                 }
-                crate::runtime::AgentHarness::ClaudeAgent => {
+                crate::runtime::AgentHarness::ClaudeAgent
+                | crate::runtime::AgentHarness::CustomAcp => {
                     acp::discard_session_locator(
                         &run.container,
                         run.worker_harness,
@@ -744,11 +746,13 @@ const SPECIALIST_TERMINATION_PROMPT: &str =
     {\"decision\": \"continue\" | \"blocked\" | \"changes_requested\" | \"outcome_met\" | \"abandon\", \
      \"reason\": \"<one line>\"}\n\
     - continue: more machine-doable work remains in your assigned task\n\
-    - blocked: you cannot complete your assigned task until a human or external event acts; say exactly what is needed\n\
+    - blocked: an explicit human, external, lead, or internal coordination condition prevents this assigned task from advancing; say exactly what condition and who or what must act. Do not call ordinary machine-doable work, a later review, or unrelated company work blocked\n\
     - changes_requested: you are a reviewer and found concrete changes; this follows the Work graph's revises edge\n\
     - outcome_met: your assigned task and its requested outputs are complete\n\
     - abandon: your assigned task is not worth continuing; say why\n\
     Judge only your assignment. Other company work, later review, or another actor's task does not make your completed task blocked.";
+
+const STAFF_TERMINATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2 * 60);
 
 pub(super) fn termination_prompt(accountable_lead: bool) -> &'static str {
     if accountable_lead {
@@ -761,6 +765,9 @@ pub(super) fn termination_prompt(accountable_lead: bool) -> &'static str {
 trait CognitiveSession: Sync {
     fn readiness_observation(&self) -> serde_json::Value;
     fn set_live_observer_enabled(&self, enabled: bool);
+    fn cancel<'a>(
+        &'a self,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>>;
     fn prompt_staff<'a>(
         &'a self,
         text: &'a str,
@@ -777,6 +784,12 @@ impl CognitiveSession for acp::AgentSession {
 
     fn set_live_observer_enabled(&self, enabled: bool) {
         acp::AgentSession::set_live_observer_enabled(self, enabled);
+    }
+
+    fn cancel<'a>(
+        &'a self,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
+        Box::pin(acp::AgentSession::cancel(self))
     }
 
     fn prompt_staff<'a>(
@@ -804,6 +817,12 @@ impl CognitiveSession for crate::codex::CodexSession {
 
     fn set_live_observer_enabled(&self, enabled: bool) {
         crate::codex::CodexSession::set_live_observer_enabled(self, enabled);
+    }
+
+    fn cancel<'a>(
+        &'a self,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
+        Box::pin(crate::codex::CodexSession::cancel(self))
     }
 
     fn prompt_staff<'a>(
@@ -916,7 +935,7 @@ impl StaffDrive {
                 if reply.is_empty() {
                     return Ok((
                         Termination::Blocked,
-                        "team lead produced no owner-facing reply".to_string(),
+                        "actor produced no conversation result".to_string(),
                         spent,
                         transcript.output_tokens,
                     ));
@@ -941,7 +960,7 @@ impl StaffDrive {
                 let feedback = self.org.checkpoint_attempt_feedback(attempt_id).await?;
                 if !feedback.is_empty() {
                     next = format!(
-                        "# Work feedback delivered at a safe checkpoint\n{}\n\nApply this feedback to the same Attempt. Preserve useful work already completed, then continue until the outcome is done or genuinely blocked.",
+                        "# Work feedback and peer messages delivered at a safe checkpoint\n{}\n\nUse these facts in the same Attempt. If a colleague asked a concrete question and you know the answer, reply directly with `restless message --to <actor>`. Do not send a courtesy acknowledgement. Preserve useful work already completed, then continue until the assigned outcome is done or genuinely blocked.",
                         feedback
                             .iter()
                             .map(|message| format!(
@@ -956,14 +975,28 @@ impl StaffDrive {
             }
 
             session.set_live_observer_enabled(false);
-            let end = session
-                .prompt_staff(
+            let end = tokio::time::timeout(
+                STAFF_TERMINATION_TIMEOUT,
+                session.prompt_staff(
                     self.termination_prompt,
-                    false,
+                    self.enforce_spend_budget,
                     self.remaining_budget_usd,
                     &self.cancellation,
-                )
-                .await;
+                ),
+            )
+            .await;
+            let Ok(end) = end else {
+                let _ = session.cancel().await;
+                return Ok((
+                    Termination::Blocked,
+                    format!(
+                        "Staff completion protocol timed out after {}s; the productive turn and its artifacts are preserved for accountable recovery",
+                        STAFF_TERMINATION_TIMEOUT.as_secs()
+                    ),
+                    spent,
+                    None,
+                ));
+            };
             if let Some(usage) = end.usage() {
                 spent.push(usage);
             }
@@ -1003,11 +1036,12 @@ impl StaffDrive {
                     }
                     tracing::warn!(
                         said = %said.chars().take(600).collect::<String>(),
-                        "staff termination unparseable"
+                        "staff termination unparseable; preserving productive turn"
                     );
                     return Ok((
                         Termination::Blocked,
-                        "staff produced no parseable termination decision".to_string(),
+                        "Staff completion protocol was malformed or ambiguous; the productive turn and its artifacts are preserved for accountable recovery"
+                            .to_string(),
                         spent,
                         None,
                     ));
@@ -1049,6 +1083,7 @@ async fn run_staff(
     let assignment = match turn_kind {
         StaffTurnKind::Work => "assigned one claimed Work Attempt",
         StaffTurnKind::OwnerConversation => "woken for a bounded owner conversation",
+        StaffTurnKind::InternalConversation => "woken for addressed internal coordination",
         StaffTurnKind::FocusedMention => "woken to answer one focused collaboration mention",
     };
     let posture = actor_posture(accountable_lead);
@@ -1067,6 +1102,7 @@ async fn run_staff(
         ending = match turn_kind {
             StaffTurnKind::Work => "The session ends when you stop writing; you will then be asked for a decision envelope.",
             StaffTurnKind::OwnerConversation => "After using any tools you need, end with the complete owner-facing reply and its required intent marker. Do not narrate private reasoning in that reply.",
+            StaffTurnKind::InternalConversation => "Handle the addressed messages. If a colleague answered your earlier question, absorb the answer and stop; do not repeat it back or send a courtesy acknowledgement. Send a direct reply only when it answers the sender's real question or changes a colleague's decision. End with a brief factual account for the Runtime. Do not address the owner or include a `restless-intent` marker.",
             StaffTurnKind::FocusedMention => "After using any tools you need, end with one plain answer for the same collaboration thread. Do not address the owner and do not include a `restless-intent` marker; the Runtime persists the exact final answer.",
         },
     );
@@ -1085,7 +1121,8 @@ async fn run_staff(
     };
     match worker_harness {
         crate::runtime::AgentHarness::RestlessManaged
-        | crate::runtime::AgentHarness::ClaudeAgent => {
+        | crate::runtime::AgentHarness::ClaudeAgent
+        | crate::runtime::AgentHarness::CustomAcp => {
             let launch_system_prompt = system_prompt.clone();
             let controls =
                 acp::AgentControls::company_actor(system_prompt)?.with_mcp_servers(mcp_servers);
@@ -1614,6 +1651,8 @@ mod live_product_tests {
             &org,
             StaffAttemptContext {
                 container: &container,
+                company: &company,
+                capabilities: &crate::capability::CapabilityIssuer::open(&root).unwrap(),
                 actor: "customer-writer",
                 name: "Mira Chen",
                 work_id,
@@ -2420,6 +2459,8 @@ mod live_product_tests {
             &org,
             StaffAttemptContext {
                 container: &container,
+                company: &company,
+                capabilities: &crate::capability::CapabilityIssuer::open(&root).unwrap(),
                 actor: "experiment-maker",
                 name: "Sam Rivera",
                 work_id,

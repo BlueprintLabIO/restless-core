@@ -565,10 +565,12 @@ Actor identity keeps four facts separate:
 
 ```text
 actor_id = stable organisational machine identity
-display  = stable human-readable colleague identity
+display  = fictional character name; team members share their lead’s initial
 kind     = owner | exec | staff | system
 role     = current craft and responsibility
 ```
+
+Staff names are allocated transactionally. New unassigned colleagues follow company-wide A–Z order (Alice, Bart, Coraline, …, Zelda); members created by a lead use fictional names with that lead’s initial (Bart → Batman, Bilbo, Buffy). Joining or moving teams, replacing a lead, and opening a legacy roster reconcile member names to the current lead’s initial. Lead names are preserved. Exhausted name pools repeat with a numeric suffix. Retired and previous names remain reserved; failed commissions do not consume a name. Display changes are audited, while actor IDs, messages, and Work attribution remain intact. Exec and human names are unchanged. The legacy display input is a compatibility hint only; creation returns the allocated name.
 
 For newly created Staff, `actor_id` is a two-segment `{domain}-{craft}` kebab-case identity. It does
 not encode `staff`, team position, environment, Work revision, retry, model or implementation stage.

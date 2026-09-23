@@ -1109,23 +1109,50 @@ pub(crate) async fn company_vault_inventory(company: &str) -> Result<Vec<serde_j
     let client = infisical_client()?;
     let token = infisical_login(&client, &settings).await?;
     let path = format!("/companies/{company}");
-    let response = client.get(infisical_endpoint(&settings.base_url, &["api", "v4", "secrets"])? )
+    let response = client
+        .get(infisical_endpoint(
+            &settings.base_url,
+            &["api", "v4", "secrets"],
+        )?)
         .bearer_auth(token)
-        .query(&[("projectId", settings.project_id.as_str()), ("environment", settings.environment.as_str()),
-            ("secretPath", path.as_str()), ("recursive", "true"), ("viewSecretValue", "false"), ("expandSecretReferences", "false")])
-        .send().await?;
-    if response.status() == reqwest::StatusCode::NOT_FOUND { return Ok(Vec::new()); }
-    if !response.status().is_success() { bail!("Vault inventory returned HTTP {}", response.status().as_u16()); }
+        .query(&[
+            ("projectId", settings.project_id.as_str()),
+            ("environment", settings.environment.as_str()),
+            ("secretPath", path.as_str()),
+            ("recursive", "true"),
+            ("viewSecretValue", "false"),
+            ("expandSecretReferences", "false"),
+        ])
+        .send()
+        .await?;
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(Vec::new());
+    }
+    if !response.status().is_success() {
+        bail!(
+            "Vault inventory returned HTTP {}",
+            response.status().as_u16()
+        );
+    }
     let body: serde_json::Value = response.json().await?;
     vault_metadata(&path, &body)
 }
 
 fn vault_metadata(base: &str, body: &serde_json::Value) -> Result<Vec<serde_json::Value>> {
     let mut rows = Vec::new();
-    for secret in body["secrets"].as_array().context("Vault returned an invalid inventory")? {
-        let path = secret["secretPath"].as_str().context("Vault secret has no directory")?;
-        if path != base && !path.starts_with(&format!("{base}/")) { bail!("Vault returned a secret outside this company"); }
-        let name = secret["secretKey"].as_str().context("Vault secret has no name")?;
+    for secret in body["secrets"]
+        .as_array()
+        .context("Vault returned an invalid inventory")?
+    {
+        let path = secret["secretPath"]
+            .as_str()
+            .context("Vault secret has no directory")?;
+        if path != base && !path.starts_with(&format!("{base}/")) {
+            bail!("Vault returned a secret outside this company");
+        }
+        let name = secret["secretKey"]
+            .as_str()
+            .context("Vault secret has no name")?;
         rows.push(serde_json::json!({"name":name,"path":path,"reference":format!("infisical:{path}/{name}"),"updated_at":secret["updatedAt"]}));
     }
     rows.sort_by_key(|row| row["reference"].as_str().unwrap_or_default().to_owned());
@@ -1136,12 +1163,15 @@ fn vault_metadata(base: &str, body: &serde_json::Value) -> Result<Vec<serde_json
 mod vault_inventory_tests {
     #[test]
     fn inventory_omits_values_and_rejects_other_company_paths() {
-        let body=serde_json::json!({"secrets":[{"secretKey":"KEY","secretPath":"/companies/one_test/nested","secretValue":"never-expose-this","secretComment":"also-sensitive"}]});
-        let rows=super::vault_metadata("/companies/one_test", &body).unwrap();
-        let text=serde_json::to_string(&rows).unwrap();
+        let body = serde_json::json!({"secrets":[{"secretKey":"KEY","secretPath":"/companies/one_test/nested","secretValue":"never-expose-this","secretComment":"also-sensitive"}]});
+        let rows = super::vault_metadata("/companies/one_test", &body).unwrap();
+        let text = serde_json::to_string(&rows).unwrap();
         assert!(!text.contains("never-expose-this"));
         assert!(!text.contains("also-sensitive"));
-        assert_eq!(rows[0]["reference"], "infisical:/companies/one_test/nested/KEY");
+        assert_eq!(
+            rows[0]["reference"],
+            "infisical:/companies/one_test/nested/KEY"
+        );
         assert!(super::vault_metadata("/companies/one", &body).is_err());
     }
 }

@@ -9,6 +9,14 @@
 	import DesktopViewport from '$lib/components/DesktopViewport.svelte';
 	import { browserControl, issueDesktopTicket } from '$lib/model/attention';
 	import { browserTabClientId } from '$lib/model/browserTab';
+	import {
+		COMPANY_BROWSER_OPEN_EVENT,
+		companyBrowserLabel,
+		consumeCompanyBrowserIntent,
+		lastCompanyBrowserDestination,
+		openCompanyBrowser,
+		rememberCompanyBrowserDestination
+	} from '$lib/model/company-browser';
 	import { attentionQuery, browserStatusQuery, companyQuery } from '$lib/model/queries.svelte';
 
 	type TransitionDocument = Document & {
@@ -23,9 +31,12 @@
 	const preparedHandoffs = $derived(
 		(attention.view?.items ?? []).filter((item) => item.runtimeAttach).slice(0, 4)
 	);
-	const focus = $derived(page.url.searchParams.get('focus') === 'desktop');
+	const focusMode = $derived(page.url.searchParams.get('focus'));
+	const focus = $derived(focusMode === 'desktop' || focusMode === 'browser');
+	const browserFocus = $derived(focusMode === 'browser');
 
 	let clientId = $state('');
+	let controlLeaseId = $state('');
 	let desktopUrl = $state('');
 	const browserStatus = $derived(browserProjection.view);
 	let controller = $state<'observer' | 'owner'>('observer');
@@ -35,6 +46,7 @@
 	let lastDesktopActivity = $state(0);
 	let lastLeaseRenewal = $state(0);
 	let activityRenewing = $state(false);
+	let browserDestination = $state('');
 
 	const runtimeBrowser = $derived(view?.computer.runtime?.browser ?? null);
 	const canAttach = $derived(runtimeBrowser?.status === 'available');
@@ -55,10 +67,16 @@
 	});
 
 	onMount(() => {
+		const browserRequest = (event: Event) => {
+			const intent = (event as CustomEvent<{ url?: unknown }>).detail;
+			if (typeof intent?.url === 'string') void openRequestedBrowser();
+		};
+		window.addEventListener(COMPANY_BROWSER_OPEN_EVENT, browserRequest);
 		void browserTabClientId(companyId)
 			.then((id) => {
 				clientId = id;
-				if (focus) void attachDesktop(false);
+				if (focusMode === 'desktop') void attachDesktop(false);
+				if (focusMode === 'browser') void openRequestedBrowser();
 			})
 			.catch((cause) => {
 				error = cause instanceof Error ? cause.message : 'The desktop session could not be opened.';
@@ -74,6 +92,7 @@
 		}, 5_000);
 		return () => {
 			window.clearInterval(idleRelease);
+			window.removeEventListener(COMPANY_BROWSER_OPEN_EVENT, browserRequest);
 		};
 	});
 
@@ -129,12 +148,36 @@
 		}
 	}
 
+	async function openRequestedBrowser(requestedUrl?: string) {
+		if (working) return;
+		const intent = requestedUrl ? { url: requestedUrl } : consumeCompanyBrowserIntent(companyId);
+		if (!intent?.url) {
+			browserDestination = lastCompanyBrowserDestination(companyId);
+			await attachDesktop(false);
+			return;
+		}
+		browserDestination = intent.url;
+		working = 'browser';
+		error = '';
+		try {
+			desktopUrl = await openCompanyBrowser(companyId, intent.url);
+			rememberCompanyBrowserDestination(companyId, intent.url);
+			controller = 'observer';
+			await browserProjection.refresh();
+		} catch (cause) {
+			error = cause instanceof Error ? cause.message : 'The Company browser could not open this page.';
+		} finally {
+			working = '';
+		}
+	}
+
 	async function takeControl() {
 		if (!clientId || working) return;
 		working = 'control';
 		error = '';
 		try {
-			await browserControl(companyId, 'take', clientId);
+			const control = await browserControl(companyId, 'take', clientId);
+			controlLeaseId = control.lease_id ?? '';
 			controlRequested = true;
 			controller = 'owner';
 			desktopUrl = controlledUrl();
@@ -153,7 +196,8 @@
 		working = 'return';
 		error = '';
 		try {
-			await browserControl(companyId, 'return', clientId);
+			await browserControl(companyId, 'return', clientId, controlLeaseId);
+			controlLeaseId = '';
 			controlRequested = false;
 			controller = 'observer';
 			desktopUrl = observedUrl();
@@ -183,7 +227,7 @@
 		if (activityRenewing || now - lastLeaseRenewal < 8_000) return;
 		activityRenewing = true;
 		lastLeaseRenewal = now;
-		void browserControl(companyId, 'heartbeat', clientId)
+		void browserControl(companyId, 'heartbeat', clientId, controlLeaseId)
 			.then(() => browserProjection.refresh())
 			.catch((cause) => {
 				controller = 'observer';
@@ -212,16 +256,27 @@
 			<div class="computer-focus-identity">
 				<span class="computer-focus-icon"><Monitor size={15} strokeWidth={1.8} /></span>
 				<div>
-					<h1>Computer</h1>
+					<h1>{browserFocus ? 'Company browser' : 'Computer'}</h1>
 					<span
 						><i
 							class="source-lamp status-{runtimeBrowser?.status === 'available' ? 'live' : 'stale'}"
 							aria-hidden="true"
-						></i>{runtimeBrowser?.status ?? 'unknown'} · {controllerLabel}</span
+						></i>{browserFocus && browserDestination
+							? companyBrowserLabel(browserDestination)
+							: runtimeBrowser?.status ?? 'unknown'} · {controllerLabel}</span
 					>
 				</div>
 			</div>
 			<div class="desktop-focus-actions">
+				{#if browserFocus && browserDestination}
+					<a
+						class="btn small"
+						href={browserDestination}
+						target="_blank"
+						rel="noreferrer"
+						data-open-externally
+					>Open externally</a>
+				{/if}
 				{#if controller === 'owner'}
 					<button
 						class="btn small"
@@ -250,7 +305,10 @@
 		<div class="desktop-notices">
 			{#if controller !== 'owner'}
 				<p class="desktop-control-hint">
-					Viewing only. Click <strong>Take control</strong> to use the mouse and keyboard.
+					{browserFocus
+						? 'Opened in a new Company browser tab. Viewing only.'
+						: 'Viewing only. Click '}
+					{#if !browserFocus}<strong>Take control</strong> to use the mouse and keyboard.{/if}
 				</p>
 			{/if}
 			{#if error}<div class="computer-error" role="alert">{error}</div>{/if}

@@ -529,13 +529,16 @@ pub async fn project(
         let review_artifact = work_graph.as_ref().and_then(|graph| {
             select_review_artifact(&graph.artifacts, handoff.work_id, handoff.attempt_id).cloned()
         });
-        // Treat an externally hosted URL in a prepared human handoff as a
-        // normal-browser step. This preserves the owner-only boundary for
-        // provider-root enrolment, verification and credential issuance; do
-        // not also offer the agent-accessible Company Runtime browser.
-        let external_human_step_url = (!preparing)
-            .then(|| external_human_step_url(handoff.category, &handoff.prepared_state))
-            .flatten();
+        // Treat an externally hosted URL in a ready human handoff as an
+        // explicit owner step. The shared company shell routes ordinary web
+        // links through the company browser without treating navigation as
+        // approval or completion.
+        let external_human_step_url = external_human_step_url(
+            handoff.category,
+            preparing,
+            &handoff.requested_action,
+            &handoff.prepared_state,
+        );
         for artifact in work_graph
             .as_ref()
             .into_iter()
@@ -815,6 +818,25 @@ pub async fn project(
                 href: None,
             });
         }
+        if !preparing
+            && payment.is_none()
+            && matches!(
+                handoff.category,
+                restless_orgintel::OwnerHandoffCategory::Identity
+                    | restless_orgintel::OwnerHandoffCategory::Captcha
+                    | restless_orgintel::OwnerHandoffCategory::Mfa
+                    | restless_orgintel::OwnerHandoffCategory::LegalAttestation
+            )
+        {
+            actions.push(AttentionAction {
+                id: "complete-human-step".into(),
+                label: "Done".into(),
+                role: "human_step",
+                consequence: "Records your confirmation that this human step is complete and removes it from Attention.".into(),
+                next_state: "The linked Work resumes with an auditable owner completion.".into(),
+                href: None,
+            });
+        }
         if !outcome_review && responsible_actor.is_some() {
             actions.push(AttentionAction {
                 id: "chat-lead".into(),
@@ -966,20 +988,37 @@ pub async fn project(
                 party: None,
             },
             category: category.into(),
-            title: payment_title.unwrap_or_else(|| brief.map_or_else(|| fallback_title.to_string(), |brief| brief.headline.clone())),
-            what_happened: payment_situation.unwrap_or_else(|| brief.map_or_else(
-                || format!("The company prepared the final {:?} step and cannot perform it on your behalf.", handoff.category),
-                |brief| brief.situation.clone(),
-            )),
+            title: projected_handoff_title(
+                preparing,
+                payment_title.as_deref(),
+                brief.map(|brief| brief.headline.as_str()),
+                fallback_title,
+            ),
+            what_happened: if preparing {
+                "The company is preparing the current instructions for your next step. There is nothing for you to do until they are ready.".into()
+            } else {
+                payment_situation.unwrap_or_else(|| brief.map_or_else(
+                    || format!("The company prepared the final {:?} step and cannot perform it on your behalf.", handoff.category),
+                    |brief| brief.situation.clone(),
+                ))
+            },
             why_it_matters: payment_impact.unwrap_or_else(|| brief.map_or_else(
                 || format!("This Work is paused until the required human step is complete: {}", handoff.resume_condition),
                 |brief| brief.impact.clone(),
             )),
-            recommendation: payment_recommendation.unwrap_or_else(|| brief.map_or_else(
-                || "Complete the prepared step, then return control. Restless will observe the result and resume.".into(),
-                |brief| brief.recommendation.clone(),
-            )),
-            requested_action: payment_action.unwrap_or_else(|| handoff.requested_action.clone()),
+            recommendation: if preparing {
+                "Wait for the current instructions to appear here before taking action.".into()
+            } else {
+                payment_recommendation.unwrap_or_else(|| brief.map_or_else(
+                    || "Complete the prepared step, then return control. Restless will observe the result and resume.".into(),
+                    |brief| brief.recommendation.clone(),
+                ))
+            },
+            requested_action: if preparing {
+                "Nothing to do yet. The instructions will appear here when ready.".into()
+            } else {
+                payment_action.unwrap_or_else(|| handoff.requested_action.clone())
+            },
             if_no_action: payment_no_action.unwrap_or_else(|| brief.map_or_else(
                 || format!("Work remains paused until: {}", handoff.resume_condition),
                 |brief| brief.no_action.clone(),
@@ -1081,6 +1120,100 @@ pub async fn project(
             Err(error) => {
                 tracing::warn!(%error, "conversation attention unavailable");
                 orgintel_health = "unavailable".into();
+            }
+        }
+
+        // A configured model is not proof that the Exec can start. Project the
+        // latest closed substrate failure directly from its durable terminal
+        // event so one real failed opportunity cannot disappear behind green
+        // settings. The stable item id coalesces repeated failures, and the
+        // next non-blocked wake_end removes the projection without another
+        // acknowledgement lifecycle.
+        if let Ok(Some(event)) = org.latest_event("wake_end").await {
+            let reason = event
+                .body
+                .get("reason")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default();
+            let blocked = event
+                .body
+                .get("termination")
+                .and_then(serde_json::Value::as_str)
+                == Some("blocked");
+            let no_tools = event
+                .body
+                .get("tool_calls")
+                .and_then(serde_json::Value::as_u64)
+                == Some(0);
+            if event.actor_id.as_deref() == Some("exec") && blocked && no_tools {
+                if let Some(provider_route) = exec_startup_failure(reason) {
+                    let action = provider_route.then(|| AttentionAction {
+                        id: "open-intelligence-provider".into(),
+                        label: "Open Intelligence provider".into(),
+                        role: "inspect",
+                        consequence:
+                            "Opens the configured model and provider connections for this company."
+                                .into(),
+                        next_state:
+                            "After the route is repaired, a successful Exec wake clears this issue."
+                                .into(),
+                        href: Some(format!("/{}/company/provider", config.name)),
+                    });
+                    items.push(AttentionItem {
+                        id: "orgintel:exec-startup-blocked".into(),
+                        work_id: None,
+                        source: AttentionSource {
+                            plane: "orgintel",
+                            kind: "exec_startup_blocked".into(),
+                            reference: event.id.to_string(),
+                            party: None,
+                        },
+                        category: "blocker".into(),
+                        title: "Exec needs a runtime repair".into(),
+                        what_happened: reason.to_string(),
+                        why_it_matters:
+                            "The latest Exec turn ended blocked without recorded tool use. Its outcome has not been verified."
+                                .into(),
+                        recommendation: if provider_route {
+                            "Repair the configured intelligence route, then resume the existing owed work."
+                                .into()
+                        } else {
+                            "Inspect the Runtime or transport failure, repair it, then resume the existing owed work."
+                                .into()
+                        },
+                        requested_action: if provider_route {
+                            "Check the model and provider connection for this company.".into()
+                        } else {
+                            "Check the company Runtime and agent transport.".into()
+                        },
+                        if_no_action:
+                            "Future Exec opportunities may continue to stop before productive work begins."
+                                .into(),
+                        uncertainty: Some(
+                            "The wake event does not identify which business opportunity triggered it."
+                                .into(),
+                        ),
+                        deadline: None,
+                        brief_status: "source-authored",
+                        brief_author: None,
+                        briefed_at: Some(event.created_at),
+                        evidence: vec![AttentionEvidence {
+                            label: "Exec terminal reason".into(),
+                            uri: None,
+                            content: Some(reason.to_string()),
+                            kind: "runtime-observation",
+                        }],
+                        review_sources: Vec::new(),
+                        responsible_actor: actors.get("exec").cloned(),
+                        runtime_attach: None,
+                        review_target: None,
+                        native_document: None,
+                        actions: action.into_iter().collect(),
+                        can_continue: false,
+                        preparing: false,
+                        created_at: event.created_at,
+                    });
+                }
             }
         }
     }
@@ -1301,6 +1434,29 @@ fn attempt_status(status: restless_orgintel::WorkAttemptState) -> &'static str {
     }
 }
 
+/// Deterministic substrate signatures only. Free-form model reasons are not
+/// startup health evidence, even when the model chose `blocked` without tools.
+/// The boolean says whether Intelligence provider is the relevant owner page.
+fn exec_startup_failure(reason: &str) -> Option<bool> {
+    match crate::health::block_kind_from_message(reason) {
+        Some(
+            crate::health::BlockKind::Credential
+            | crate::health::BlockKind::Quota
+            | crate::health::BlockKind::Model,
+        ) => Some(true),
+        Some(crate::health::BlockKind::Transport) => Some(
+            reason.contains("provider")
+                || reason.contains("model")
+                || reason.contains("intelligence")
+                || reason.contains("credential")
+                || reason.contains("gateway"),
+        ),
+        Some(crate::health::BlockKind::Container | crate::health::BlockKind::Disk) => Some(false),
+        _ if reason.starts_with("[runtime] ") => Some(false),
+        _ => None,
+    }
+}
+
 fn human_step_title(category: restless_orgintel::OwnerHandoffCategory) -> &'static str {
     match category {
         restless_orgintel::OwnerHandoffCategory::Identity => "Confirm your identity",
@@ -1360,33 +1516,52 @@ fn is_runtime_local_url(value: &str) -> bool {
         || value.starts_with("https://localhost:")
 }
 
-/// An external URL in a non-judgement prepared handoff is a normal-browser
-/// human step. This keeps provider-root cookies out of the persistent Company
-/// Runtime, where they could otherwise become available to company agents.
+fn projected_handoff_title(
+    preparing: bool,
+    payment_title: Option<&str>,
+    brief_title: Option<&str>,
+    fallback_title: &str,
+) -> String {
+    if preparing {
+        return "Preparing your next step".into();
+    }
+    payment_title
+        .or(brief_title)
+        .unwrap_or(fallback_title)
+        .into()
+}
+
+/// An explicit external URL in the current instructions for a ready,
+/// non-judgement handoff is a company-browser human step. Current owner
+/// instructions take precedence over prepared source notes so a refreshed
+/// link cannot be shadowed by stale preparation text. Opening the page remains
+/// separate from approving or completing the source handoff.
 fn external_human_step_url(
     category: restless_orgintel::OwnerHandoffCategory,
+    preparing: bool,
+    requested_action: &str,
     prepared_state: &str,
 ) -> Option<String> {
-    (category != restless_orgintel::OwnerHandoffCategory::OwnerJudgement)
-        .then(|| {
-            extract_urls(prepared_state)
-                .into_iter()
-                .find(|uri| !is_runtime_local_url(uri))
-        })
-        .flatten()
+    if preparing || category == restless_orgintel::OwnerHandoffCategory::OwnerJudgement {
+        return None;
+    }
+    extract_urls(requested_action)
+        .into_iter()
+        .chain(extract_urls(prepared_state))
+        .find(|uri| !is_runtime_local_url(uri))
 }
 
 fn normal_browser_action(href: String) -> AttentionAction {
     let label = url::Url::parse(&href)
         .ok()
         .and_then(|url| url.host_str().map(str::to_owned))
-        .map(|host| format!("Open {host} in normal browser"))
-        .unwrap_or_else(|| "Open external page in normal browser".into());
+        .map(|host| format!("Open {host}"))
+        .unwrap_or_else(|| "Open external page".into());
     AttentionAction {
         id: "open-external-human-step".into(),
         label,
         role: "human_step",
-        consequence: "Opens the exact external provider page in your normal browser. It does not share cookies with the company browser, decide anything, or complete this handoff.".into(),
+        consequence: "Opens the exact external provider page in the company browser. It does not approve anything or complete this handoff.".into(),
         next_state: "Restless waits for an authenticated provider observation before resuming the Work.".into(),
         href: Some(href),
     }
@@ -1794,15 +1969,17 @@ mod tests {
     }
 
     #[test]
-    fn external_provider_handoff_opens_in_normal_browser_not_company_runtime() {
+    fn ready_external_provider_handoff_uses_requested_action_url() {
         let href = external_human_step_url(
             restless_orgintel::OwnerHandoffCategory::LegalAttestation,
-            "Read the terms at https://massive.com/business-stocks, then decide.",
+            false,
+            "Continue at https://massive.com/business-stocks to confirm.",
+            "The provider challenge is ready.",
         );
         assert_eq!(href.as_deref(), Some("https://massive.com/business-stocks"));
         let action = normal_browser_action(href.expect("external provider URL"));
         assert_eq!(action.id, "open-external-human-step");
-        assert_eq!(action.label, "Open massive.com in normal browser");
+        assert_eq!(action.label, "Open massive.com");
         assert_eq!(
             action.href.as_deref(),
             Some("https://massive.com/business-stocks")
@@ -1818,10 +1995,62 @@ mod tests {
     }
 
     #[test]
+    fn ready_external_provider_handoff_falls_back_to_prepared_state_url() {
+        assert_eq!(
+            external_human_step_url(
+                restless_orgintel::OwnerHandoffCategory::Identity,
+                false,
+                "Complete the prepared sign-in step.",
+                "The provider is ready at https://github.com/login/device.",
+            )
+            .as_deref(),
+            Some("https://github.com/login/device")
+        );
+    }
+
+    #[test]
+    fn requested_action_url_replaces_stale_prepared_url() {
+        assert_eq!(
+            external_human_step_url(
+                restless_orgintel::OwnerHandoffCategory::Identity,
+                false,
+                "Use the replacement prompt at https://github.com/login/device.",
+                "Prior preparation pointed to https://example.com/expired.",
+            )
+            .as_deref(),
+            Some("https://github.com/login/device")
+        );
+    }
+
+    #[test]
+    fn preparing_handoff_has_no_external_human_step_and_stable_title() {
+        assert_eq!(
+            external_human_step_url(
+                restless_orgintel::OwnerHandoffCategory::Identity,
+                true,
+                "Use https://github.com/login/device.",
+                "Prior preparation pointed to https://example.com/expired.",
+            ),
+            None
+        );
+        assert_eq!(
+            projected_handoff_title(
+                true,
+                None,
+                Some("Expired device-code instructions"),
+                "Confirm your identity",
+            ),
+            "Preparing your next step"
+        );
+    }
+
+    #[test]
     fn outcome_judgement_never_uses_an_external_human_step() {
         assert_eq!(
             external_human_step_url(
                 restless_orgintel::OwnerHandoffCategory::OwnerJudgement,
+                false,
+                "Review https://example.com/current-outcome",
                 "Review https://example.com/outcome",
             ),
             None

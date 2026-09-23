@@ -601,7 +601,7 @@ mod tests {
             root,
             &crate::runtime::CompanyConfig {
                 agent_intelligence: Default::default(),
-            native_harnesses: Default::default(),
+                native_harnesses: Default::default(),
                 display_name: None,
                 name: name.to_string(),
                 mission: "isolated inbound test".into(),

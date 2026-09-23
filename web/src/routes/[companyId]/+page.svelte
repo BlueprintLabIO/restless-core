@@ -42,6 +42,7 @@
 	let messageFiles = $state<File[]>([]);
 	let sendingMessage = $state(false);
 	let clientId = $state('');
+	let controlLeaseId = $state('');
 	let reviewUrl = $state('');
 	let reviewError = $state('');
 	let reviewRequestKey = $state('');
@@ -88,6 +89,7 @@
 	}
 	const nativeDocumentHref = $derived.by(() => {
 		for (const evidence of reviewEvidence) {
+			if (!evidence.content) continue;
 			const href = sameCompanyDocumentHref(evidence.content, companyId);
 			if (href) return href;
 		}
@@ -307,7 +309,8 @@
 		if (!focusItem || !clientId) return;
 		error = '';
 		try {
-			await browserControl(companyId, 'take', clientId);
+			const control = await browserControl(companyId, 'take', clientId);
+			controlLeaseId = control.lease_id ?? '';
 			controller = 'owner';
 			desktopUrl = controlledDesktopUrl();
 			lastDesktopActivity = Date.now();
@@ -321,7 +324,8 @@
 		if (!focusItem || !clientId) return;
 		error = '';
 		try {
-			await browserControl(companyId, 'return', clientId);
+			await browserControl(companyId, 'return', clientId, controlLeaseId);
+			controlLeaseId = '';
 			controller = 'observer';
 			desktopUrl = observedDesktopUrl();
 			lastDesktopActivity = 0;
@@ -341,7 +345,7 @@
 		if (activityRenewing || now - lastLeaseRenewal < 8_000) return;
 		activityRenewing = true;
 		lastLeaseRenewal = now;
-		void browserControl(companyId, 'heartbeat', clientId)
+		void browserControl(companyId, 'heartbeat', clientId, controlLeaseId)
 			.catch((cause) => {
 				controller = 'observer';
 				desktopUrl = observedDesktopUrl();

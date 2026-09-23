@@ -608,8 +608,14 @@ where
     args.push(auth.coordination_token_env.clone());
     args.push("-e".to_string());
     args.push(auth.gateway_token_env.clone());
-    if auth.model.starts_with("native-codex-") {args.push("-e".into());args.push("OPENAI_BASE_URL=https://api.openai.com/v1".into());}
-    if auth.model.starts_with("native-codex-oauth/") {args.push("-e".into());args.push("OPENAI_API_KEY=".into());}
+    if auth.model.starts_with("native-codex-") {
+        args.push("-e".into());
+        args.push("OPENAI_BASE_URL=https://api.openai.com/v1".into());
+    }
+    if auth.model.starts_with("native-codex-oauth/") {
+        args.push("-e".into());
+        args.push("OPENAI_API_KEY=".into());
+    }
     for name in mcp_runtime_env.keys() {
         args.push("-e".to_string());
         args.push(name.clone());

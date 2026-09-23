@@ -323,6 +323,8 @@ pub enum OrgIntelError {
     CompanyAccessMismatch(String),
     #[error("human principal binding conflicts with existing identity: {0}")]
     PrincipalBindingConflict(String),
+    #[error("invalid company skill: {0}")]
+    InvalidSkill(String),
 }
 
 pub type Result<T> = std::result::Result<T, OrgIntelError>;
@@ -1005,6 +1007,8 @@ pub struct ScheduleRow {
     pub last_considered_at: Option<DateTime<Utc>>,
     pub machine_requirement: String,
     pub created_at: DateTime<Utc>,
+    /// Present only for an interval recurrence (`/loop`).
+    pub interval_seconds: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
@@ -1160,6 +1164,16 @@ pub struct RoomListPage {
     pub next_before_created_at: Option<DateTime<Utc>>,
     pub next_before_room_id: Option<Uuid>,
     pub has_more: bool,
+}
+
+/// A direct conversation the viewing Actor has actually written in. The
+/// latest visible Message, from either participant, determines list order.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct RecentDirectConversationRow {
+    pub room_id: Uuid,
+    pub person_actor_id: String,
+    pub last_message_id: i64,
+    pub last_message_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]

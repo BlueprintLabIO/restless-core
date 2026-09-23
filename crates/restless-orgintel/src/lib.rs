@@ -31,6 +31,7 @@ mod notifications;
 mod review;
 mod rooms;
 mod schedules;
+mod skills;
 mod substrate;
 mod types;
 mod visual;
@@ -43,6 +44,8 @@ pub use documents::*;
 pub use events::EventReplayPage;
 pub use invocations::*;
 pub use notifications::*;
+pub use schedules::{MAX_INTERVAL_SECONDS, MIN_INTERVAL_SECONDS};
+pub use skills::*;
 pub use types::*;
 
 /// Resolve the canonical direct Room for one durable Message write, creating

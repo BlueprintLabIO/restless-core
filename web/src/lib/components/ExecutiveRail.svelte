@@ -20,6 +20,20 @@
 	import type { ActiveAgentTurn } from '$lib/model/queries.svelte';
 	import type { OutcomeStandard } from '$lib/model/company';
 	import type { ThreadMessage } from '$lib/model/view';
+	import {
+		EXEC_COMMANDS,
+		addGoal,
+		addLoop,
+		cancelLoop,
+		closeGoal,
+		describeInterval,
+		fetchSkillLibrary,
+		listGoals,
+		listLoops,
+		parseComposerCommand,
+		skillOptions,
+		type ComposerOption
+	} from '$lib/model/skills';
 
 	let {
 		messages = [],
@@ -68,7 +82,8 @@
 					includeContext: boolean,
 					newFocus: boolean,
 					interrupt: boolean,
-					outcomeStandard?: OutcomeStandard
+					outcomeStandard?: OutcomeStandard,
+					skills?: string[]
 			  ) => Promise<{ error?: string; notice?: string }>)
 			| null;
 		review?: {
@@ -82,6 +97,89 @@
 	} = $props();
 
 	const canOperate = $derived(['owner', 'operator'].includes(membershipRole ?? ''));
+
+	/* `$skill` selection and the `/goal` and `/loop` commands. Skills are the
+	 * company library; the commands are Restless primitives offered only in the
+	 * Exec conversation, where they have one accountable meaning. */
+	let composerSkills = $state<string[]>([]);
+	let skillChoices = $state<ComposerOption[]>([]);
+	const execConversation = $derived(participantId === 'exec' && !review && !workContext);
+	const composerOptions = $derived(
+		execConversation && membershipRole === 'owner'
+			? [...EXEC_COMMANDS, ...skillChoices]
+			: skillChoices
+	);
+	$effect(() => {
+		if (!open || !canOperate || !companyId) return;
+		let cancelled = false;
+		fetchSkillLibrary(companyId)
+			.then((library) => {
+				if (!cancelled) skillChoices = skillOptions(library);
+			})
+			.catch(() => {
+				/* The composer still works without skills; the library page reports why. */
+			});
+		return () => {
+			cancelled = true;
+		};
+	});
+
+	/* Returns a notice for commands handled without a message, or null to send. */
+	async function runCommand(text: string): Promise<{ notice?: string; error?: string; send: boolean }> {
+		const command = execConversation && membershipRole === 'owner' ? parseComposerCommand(text) : null;
+		if (!command) return { send: true };
+		switch (command.kind) {
+			case 'invalid':
+				return { error: command.message, send: false };
+			case 'goal-set':
+				await addGoal(companyId, command.objective);
+				return { send: true };
+			case 'goal-show': {
+				const open = (await listGoals(companyId)).filter((goal) => !goal.closed_at);
+				return {
+					notice: open.length
+						? `Open goals: ${open.map((goal) => goal.title).join('; ')}`
+						: 'No open goals. Set one with /goal <objective>.',
+					send: false
+				};
+			}
+			case 'goal-clear': {
+				const open = (await listGoals(companyId)).filter((goal) => !goal.closed_at);
+				const latest = open.at(-1);
+				if (!latest) return { notice: 'There is no open goal to clear.', send: false };
+				await closeGoal(companyId, latest.id);
+				return { notice: `Closed the goal “${latest.title}”. Its work is unchanged.`, send: false };
+			}
+			case 'loop-set': {
+				const loop = await addLoop(companyId, command.every, command.prompt);
+				return {
+					notice: loop.created
+						? `Exec will check in every ${describeInterval(loop.interval_seconds)}: ${command.prompt}`
+						: `That loop is already running every ${describeInterval(loop.interval_seconds)}.`,
+					send: false
+				};
+			}
+			case 'loop-show': {
+				const loops = await listLoops(companyId);
+				return {
+					notice: loops.length
+						? loops
+								.map((loop) => `Every ${describeInterval(loop.interval_seconds ?? 0)}: ${loop.reason}`)
+								.join(' · ')
+						: 'No loops are running. Start one with /loop 30m <what to check>.',
+					send: false
+				};
+			}
+			case 'loop-clear': {
+				const loops = await listLoops(companyId);
+				await Promise.all(loops.map((loop) => cancelLoop(companyId, loop.id)));
+				return {
+					notice: loops.length ? `Stopped ${loops.length} loop${loops.length === 1 ? '' : 's'}.` : 'No loops were running.',
+					send: false
+				};
+			}
+		}
+	}
 
 	/* Day separators, same as the thread — computed from the record, so the
 	 * rail and the page group the same way. */
@@ -213,14 +311,34 @@
 		askNotice = '';
 		const sent = composer;
 		const files = composerFiles;
+		const skills = composerSkills;
 		composer = '';
 		try {
-			const outcome = await onask(text, files, includeContext, newFocusPending, !!turn);
+			const command = await runCommand(text);
+			if (!command.send) {
+				if (command.error) {
+					composer = sent;
+					askError = command.error;
+				} else {
+					askNotice = command.notice ?? '';
+				}
+				return;
+			}
+			const outcome = await onask(
+				text,
+				files,
+				includeContext,
+				newFocusPending,
+				!!turn,
+				undefined,
+				skills
+			);
 			if (outcome.error) {
 				composer = sent;
 				askError = outcome.error;
 			} else {
 				composerFiles = [];
+				composerSkills = [];
 				newFocusPending = false;
 				askNotice = outcome.notice ?? '';
 			}
@@ -449,6 +567,8 @@
 						<Composer
 							bind:value={composer}
 							bind:files={composerFiles}
+							bind:selectedSkills={composerSkills}
+							options={composerOptions}
 							actionLabel={turn ? 'Queue direction' : 'Send'}
 							disabled={!canOperate || sending || deciding || !onask}
 							minlength={1}

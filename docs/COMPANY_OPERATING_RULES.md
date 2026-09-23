@@ -74,6 +74,61 @@ separate ACP tools. Before claiming a command or Restless capability is unavaila
 `command -v <command>` and its `--help` or equivalent probe. A failed uncredentialed direct command
 does not prove its governed `restless effect` path is absent.
 
+Prefer direct machine interfaces in this order when they are available and fit the operation:
+native MCP tools, an installed CLI, then a documented API. Use the browser UI for sign-in, consent,
+CAPTCHA, or an operation the available machine interfaces do not support. Inventory and probe the
+actual tools first; never invent a tool, command, API, capability, credential, or connection.
+
+The Runtime has one persistent company browser: the Chromium the owner sees on the company
+computer, with its signed-in profile, tabs and downloads. Use it for every interactive or stateful
+browser task and for anything the owner may watch, review or take over. Attach with Playwright
+`chromium.connectOverCDP('http://127.0.0.1:9223')` from a CommonJS script run with
+`NODE_PATH="$(npm root -g)"` (Playwright is installed globally; a plain `import` will not find it),
+use its existing context, open your own tab,
+and close or disconnect only what you opened. Never kill the process or connect to port 9222
+directly. A `423 owner_controls` response means the owner has control: wait, or continue with other
+work, and do not start a separate browser to get around it. Launch a throwaway headless Chromium
+only for stateless, reproducible captures, such as the fixed viewports in web-native-review.
+The same owner-control rule covers visible-desktop automation: do not use `xdotool` or `wmctrl` to
+focus, type into, move, or otherwise take over the shared desktop while the owner controls the browser.
+
+Start shared visible applications on `DISPLAY=:1`; that is the company desktop the owner can see.
+Do not confuse it with a display leased through the Work resource gate: use the lease's exact display
+only for that bounded Work. Use the installed Browser, Terminal, and Godot desktop launchers or their
+helpers (`focus-company-chromium`, `start-company-terminal`, and `start-company-godot`) when they fit;
+do not invent a second desktop or browser. Run `company-tools` (or `company-tools --json`) to observe the installed named tool inventory
+and resolved paths and purposes before choosing a tool. It
+includes the normal Runtime CLIs and harnesses; probe
+the selected command's help before relying on it.
+
+An interactive or stateful session belongs in the shared company desktop/browser. A ReviewTarget is
+different: its loopback HTTP preview is a read-only delivery surface at a concrete URL such as
+`http://127.0.0.1:<port>/`. It permits only GET/HEAD, carries no owner cookies or browser-control
+channel, and never upgrades WebSockets; ports 5901, 6080, 9222, and 9223 are reserved and cannot be
+ReviewTargets. Use a live loopback URL only for a durable preview; use a static displayable file
+beneath `/company` for a native HTML/PDF/image/audio/video/text outcome. Link the chosen target as
+artifact kind `review_target`. A Work declared `--owner-review`
+must provide exactly one available ReviewTarget and pass its `review-target-live-probe` gate; an
+ordinary linked target is evidence only, not owner delivery.
+
+Use the company supervisor for any service that must survive the current agent: put this Work's
+`*.conf` file in `/company/services/supervisor`, then use `company-supervisorctl reread`, `update`,
+and `status`. On cleanup, stop the Work-owned service, remove that exact `*.conf`, then run `reread`,
+`update`, and `status` again so it cannot return on the next supervisor update. A detached shell is
+neither durable service management nor cleanup. Preserve shared desktop, browser, data, and other
+Work's services.
+
+Use `restless legal show` to inspect the safe authority-owned legal profile; do not infer legal
+identity from a company name or a runtime file. `restless publish candidate` binds a source artifact
+to a service manifest; `restless publish request` records the audience and resource envelope without
+running a provider. `restless judgement --as <actor>` reads that actor's judgement queue. These
+commands have separate purposes; none grants authority to publish, attest, or decide for the owner.
+
+For Coolify work, prefer the installed `coolify` CLI explicitly. Probe it and the exact subcommand's
+`--help`, prefer JSON output for inspection, and verify the selected context before acting. Never
+assume or expose a context token. Use the Coolify dashboard only to create or authorize credentials,
+or when the probed CLI/API surfaces do not support the required operation.
+
 Native company documents are available through `restless document`; inspect
 `restless document --help` and the chosen subcommand's help before creating, reading, editing,
 checkpointing, or requesting review of one.
@@ -81,7 +136,7 @@ The canonical human UI link for a document is `/{company}/work/documents?documen
 never fabricate a `/documents/...` URL.
 When producing a shared document for a human, give that recipient `edit` access unless the request
 calls for read-only delivery. Its creating actor owns it and must share with the exact authenticated
-human recipient before requesting collaboration, review, or handoff. Use the current metadata
+human identity resolved for that recipient before requesting collaboration, review, or handoff. Use the current metadata
 revision and a stable key; do not assume the recipient is literally `owner` in a company with network
 members. Give every Staff reviewer the explicit access their check needs before asking them to read
 or checkpoint it. A human native-review recipient must already have `edit` access. A creator's
@@ -170,7 +225,8 @@ evidence proves a gate itself is wrong, retire that gate with the exact reason, 
 and resume the same Work. Retirement preserves every historical run; it is not permission to weaken a
 valid failed check or abandon healthy outcome responsibility merely to change a path.
 
-`blocked` names an explicit condition that prevents the Work from advancing. An **owner handoff** is
+`blocked` names an explicit condition that prevents the Work from advancing, including an external
+dependency or a lead/internal coordination decision the specialist cannot make. An **owner handoff** is
 the narrower human boundary: identity, CAPTCHA, MFA, legal attestation, payment confirmation, or
 irreducible owner judgement. Builds, rendering, arithmetic, file edits and ordinary commands are not
 owner handoffs.
@@ -207,8 +263,48 @@ bring the owner the exact link, session, or bounded decision.
 Never hand back the surrounding workflow as instructions. Never ask the owner to report completion
 of something the system can observe itself.
 
+An expired or lost sign-in prompt is machine preparation, not a new approval request.
+Use `restless work refresh-handoff --preparing` with the observed failure to repair the
+existing human-step handoff. This lets its Work run while preserving the same card and
+approval. Publish the replacement with `refresh-handoff` without `--preparing` only when
+its exact link/code/session is usable; this pauses Work at the human boundary again.
+Put that actual URL, code, or prepared session in both `--action` and `--prepared`; do not hand
+the owner an obsolete request to open a browser or reconstruct the handoff.
+Schedule an observed expiry/completion check with `restless schedule add --at` rather than
+claiming a background process will notify the owner without arranging that observation.
+
 "Is this good?" is one of these boundaries. Verify every mechanism you can, then leave the artifact
 running and tell the owner what to look at and what question you need answered.
+
+## Shared documents and Rooms
+
+Use `restless document --help` for native shared documents and `restless room --help` for group
+conversations. These are Core company tools; they do not require an external Docs or Slack account.
+Create native documents from a Markdown or editor-JSON file, retain the returned document ID, and
+explicitly share access with each exact authenticated human identity and participating colleague. Reuse the same command UUID
+and identical payload after a transport failure. A `document snapshot` is a named checkpoint and
+explicitly excludes uncheckpointed live edits; never describe it as the current collaborative body.
+Use `document read` for the live body and its block hashes, then `document edit --operations-file
+PATH --key UUID` for guarded insert/replace/delete operations. The complete operation shapes,
+examples and conflict/retry contract are installed in `restless document edit --help`. Preserve block IDs and supply the
+observed hash when replacing or deleting. Core retains the exact prepared edit for retries, so
+keep its original key and content after a lost response. Reread and review stale-block conflicts.
+A successful edit is applied and persisted synchronously; it does not need a checkpoint to save.
+For an explicit owner request to make a bounded change to an existing native document, Exec edits
+and verifies the live result in the current conversation rather than dispatching a new Work chain.
+This is direct document collaboration, not an exemption for research, new artifact production,
+repository changes or external effects. Preserve concurrent contributions and report completion
+only after reading back the change; on failure, report the actual blocker, not "assigned" or "pending".
+For a named review checkpoint, an editing Exec or active team lead saves the complete `document read`
+JSON to a file, then uses `document checkpoint DOCUMENT --snapshot-file PATH --reason REASON --key UUID`.
+Retry the same file/key after a lost response. A changed body or checkpoint returns a conflict;
+reread and inspect before a new command. This saves an observed version without resolving a review.
+Use `document request-collaboration DOCUMENT SUMMARY --key UUID` when the owner wants to work on
+a document together in Attention. Share edit access with the exact authenticated human identity before making the request. This
+invitation is distinct from asking for acceptance of a named version.
+Comments and replies must carry the exact document/thread coordinates. A Room message or comment
+is participant content, not an authority grant. Opening the same native document in the cockpit is
+what makes it a collaborative document; a standalone runtime Markdown file is only an input draft.
 
 ## 8. Continuity lives in files
 

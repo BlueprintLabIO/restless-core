@@ -17,6 +17,7 @@
 		type RoomMessageTargetUnavailableReason
 	} from '$lib/model/room-deep-link';
 	import {
+		attentionQuery,
 		collaborationBootstrapQuery,
 		companyPrincipalQuery,
 		cockpitQuery
@@ -53,6 +54,7 @@
 		cockpitQuery(companyId, () => principalProjection.view?.membership_role === 'owner')
 	);
 	const ownerAccess = $derived(principalProjection.view?.membership_role === 'owner');
+	const attention = $derived(attentionQuery(companyId, () => ownerAccess));
 	const collaboration = $derived(
 		collaborationBootstrapQuery(companyId, () => principalProjection.view)
 	);
@@ -356,6 +358,26 @@
 	const participants = $derived(
 		(participantProjection?.participants ?? []).filter((p) => !p.left_at)
 	);
+	const directPartner = $derived(
+		selectedRoom?.kind === 'direct'
+			? participants.find((p) => p.actor_id !== currentActorId)?.actor_id
+			: undefined
+	);
+	const partnerWork = $derived(
+		(ownerAccess ? attention.view?.workGraph?.work : collaboration.view?.work_graph?.work)?.filter(
+			(work) => work.owner_id === directPartner
+		) ?? []
+	);
+	function includeWork(id: string) {
+		const work = partnerWork.find((item) => item.id === id);
+		if (!work) return;
+		const url = new URL(
+			`/${encodeURIComponent(companyId)}/work/${encodeURIComponent(id)}`,
+			page.url.origin
+		);
+		if (composer.includes(url.href)) return;
+		composer = `${composer.trimEnd()}${composer.trim() ? '\n\n' : ''}Let’s work on: ${work.title}\n${url.href}\n`;
+	}
 	const canExtendDirect = $derived(
 		participantProjection?.status === 'live' &&
 			participants.some((p) => p.actor_id === currentActorId) &&
@@ -446,6 +468,8 @@
 
 	function roomHref(roomId: string): string {
 		const params = new URLSearchParams({ room: roomId });
+		const view = page.url.searchParams.get('view');
+		if (view) params.set('view', view);
 		const documentId = page.url.searchParams.get('document');
 		if (documentId !== null) params.set('document', documentId);
 		return `/${encodeURIComponent(companyId)}/people?${params}`;
@@ -559,6 +583,8 @@
 		);
 		const known = new Set(participants.map((participant) => participant.actor_id));
 		if (tokens.has('exec')) known.add('exec');
+		// A direct chat addresses its agent counterpart without requiring an @ token.
+		if (directPartner && actorIsAgent(directPartner)) tokens.add(directPartner);
 		return [...tokens].filter((actorId) => known.has(actorId)).map((actor_id) => ({ actor_id }));
 	}
 
@@ -579,7 +605,15 @@
 	async function submitMessage(event: SubmitEvent) {
 		event.preventDefault();
 		const body = composer.trim();
-		if (!body || !selectedRoomId || !currentActorId || sending || !online) return;
+		if (
+			!body ||
+			!selectedRoomId ||
+			!currentActorId ||
+			sending ||
+			!online ||
+			(selectedRoom?.kind === 'direct' && !canExtendDirect)
+		)
+			return;
 
 		const commandId = retryCommandId && retryBody === body ? retryCommandId : crypto.randomUUID();
 		const parent = threadRootId;
@@ -594,6 +628,7 @@
 			currentActorId === targetActor &&
 			threadRootId === parent;
 		const mentions = knownMentions(body);
+		const followDirectReply = parent === null && !!directPartner && actorIsAgent(directPartner);
 		writeRoomDraft(targetDraft, { body, commandId, updatedAt: new Date().toISOString() });
 		retryCommandId = commandId;
 		retryBody = body;
@@ -637,6 +672,9 @@
 			pendingMessage = null;
 			if (activeDraftKey) {
 				writeRoomDraft(activeDraftKey, { body: '', commandId: null, updatedAt: '' });
+			}
+			if (followDirectReply) {
+				await goto(threadHref(result.message.id), { keepFocus: true, noScroll: true });
 			}
 			await tick();
 			const scroller = parent === null ? roomScrollEl : threadScrollEl;
@@ -1012,7 +1050,7 @@
 		<Composer
 			bind:value={composer}
 			actionLabel={retryCommandId && retryBody === composer.trim() ? 'Retry send' : 'Send'}
-			disabled={sending || !online}
+			disabled={sending || !online || (selectedRoom?.kind === 'direct' && !canExtendDirect)}
 			minlength={1}
 			allowAttachments={false}
 			placeholder={threadRootId ? 'Reply in this Thread…' : `Message ${roomLabel(selectedRoomId)}…`}
@@ -1028,21 +1066,42 @@
 						>Include document link</button
 					>
 				{/if}
-				<select
-					class="reply-picker"
-					aria-label="Ask someone to reply"
-					title="Choose whose reply you need. Only explicitly mentioned agents are asked to respond."
-					value=""
-					onchange={(event) => {
-						requestReply(event.currentTarget.value);
-						event.currentTarget.value = '';
-					}}
-				>
-					<option value="">Ask someone to reply…</option>
-					{#each people.filter((p) => actorIsAgent(p.actor_id) && (p.actor_id === 'exec' || participants.some((m) => m.actor_id === p.actor_id))) as person}
-						<option value={person.actor_id}>{person.display}</option>
-					{/each}
-				</select>
+				{#if partnerWork.length}
+					<select
+						class="reply-picker"
+						aria-label="Discuss a task"
+						title="Add a task to your draft"
+						value=""
+						onchange={(event) => {
+							includeWork(event.currentTarget.value);
+							event.currentTarget.value = '';
+						}}
+					>
+						<option value="">Discuss a task…</option>
+						{#each partnerWork as work (work.id)}
+							<option value={work.id}>{work.title} · {work.status}</option>
+						{/each}
+					</select>
+				{/if}
+				{#if directPartner && actorIsAgent(directPartner)}
+					<span class="room-draft-state">{actorName(directPartner)} will be asked to reply.</span>
+				{:else}
+					<select
+						class="reply-picker"
+						aria-label="Ask someone to reply"
+						title="Choose whose reply you need. Only explicitly mentioned agents are asked to respond."
+						value=""
+						onchange={(event) => {
+							requestReply(event.currentTarget.value);
+							event.currentTarget.value = '';
+						}}
+					>
+						<option value="">Ask someone to reply…</option>
+						{#each people.filter((p) => actorIsAgent(p.actor_id) && (p.actor_id === 'exec' || participants.some((m) => m.actor_id === p.actor_id))) as person}
+							<option value={person.actor_id}>{person.display}</option>
+						{/each}
+					</select>
+				{/if}
 			{/snippet}
 		</Composer>
 		{#if sendError}<p class="room-send-error" role="alert">{sendError}</p>{/if}

@@ -1,0 +1,69 @@
+{
+  "about": "Sprint 55 zero-day compatibility corpus: popular public SKILL.md packages pinned by commit. scripts/skill-compatibility-smoke imports each through the real `restless skill add` path in a _test company and records which Restless translations it needs. Re-pin when upstream changes; refresh the list from the public leaderboards each sprint.",
+  "pinned_at": "2026-09-23",
+  "skills": [
+    {
+      "name": "frontend-design",
+      "source": "https://github.com/anthropics/skills#skills/frontend-design",
+      "ref": "34040c9c568585f6929bedeaad110ad08f079624",
+      "expect": "candidate"
+    },
+    {
+      "name": "webapp-testing",
+      "source": "https://github.com/anthropics/skills#skills/webapp-testing",
+      "ref": "34040c9c568585f6929bedeaad110ad08f079624",
+      "expect": "candidate",
+      "note": "ships scripts/"
+    },
+    {
+      "name": "grill-me",
+      "source": "https://github.com/mattpocock/skills#skills/productivity/grill-me",
+      "ref": "c55ee46073ed923f86ce59a5eb3b6d895095d1b7",
+      "expect": "candidate"
+    },
+    {
+      "name": "implement",
+      "source": "https://github.com/mattpocock/skills#skills/engineering/implement",
+      "ref": "c55ee46073ed923f86ce59a5eb3b6d895095d1b7",
+      "expect": "candidate"
+    },
+    {
+      "name": "code-review",
+      "source": "https://github.com/mattpocock/skills#skills/engineering/code-review",
+      "ref": "c55ee46073ed923f86ce59a5eb3b6d895095d1b7",
+      "expect": "superseded",
+      "superseded_by": "code-review"
+    },
+    {
+      "name": "gauntlet-loop",
+      "source": "https://github.com/duolahypercho/gauntlet-loop#skills/gauntlet-loop",
+      "ref": "b63fbb6e86c03cf348c7fc30f32b500d2005061f",
+      "expect": "candidate",
+      "note": "the built-in `gauntlet` skill is its Restless form"
+    },
+    {
+      "name": "find-skills",
+      "source": "https://github.com/vercel-labs/skills#skills/find-skills",
+      "ref": "7407f3893ad4dceab546ac002c3ef806e4000c73",
+      "expect": "candidate"
+    },
+    {
+      "name": "vercel-react-best-practices",
+      "source": "https://github.com/vercel-labs/agent-skills#skills/react-best-practices",
+      "ref": "063bee94c3f4df8453406c830b0a7df0f2860278",
+      "expect": "candidate"
+    },
+    {
+      "name": "remotion-best-practices",
+      "source": "https://github.com/remotion-dev/skills#skills/remotion-best-practices",
+      "ref": "9682e994989f951c75912fbc49aa10332a512685",
+      "expect": "candidate"
+    },
+    {
+      "name": "caveman",
+      "source": "https://github.com/juliusbrussee/caveman#skills/caveman",
+      "ref": "2fd153c67988e980fb0b2455c90832159a6a5a25",
+      "expect": "candidate"
+    }
+  ]
+}

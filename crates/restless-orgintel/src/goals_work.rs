@@ -10,6 +10,9 @@ struct WorkCreationPolicy<'a> {
     producing_topology: ProducingTopology,
     commissioned_by: Option<&'a str>,
     constitution_contracts: Option<&'a InitialConstitutionContracts>,
+    /// Explicitly selected company skills, pinned to their current digest in
+    /// the same transaction so the first Attempt already carries them.
+    skills: &'a [String],
 }
 
 impl Default for WorkCreationPolicy<'_> {
@@ -20,6 +23,7 @@ impl Default for WorkCreationPolicy<'_> {
             producing_topology: ProducingTopology::CoherentSingleWorker,
             commissioned_by: None,
             constitution_contracts: None,
+            skills: &[],
         }
     }
 }
@@ -61,6 +65,28 @@ impl OrgIntel {
             .await?;
         tx.commit().await?;
         Ok(id)
+    }
+
+    /// Close an open Goal (`/goal clear`). Its Work is untouched: closing the
+    /// desired outcome is a judgement about the Goal, not about running Work.
+    pub async fn close_goal(&self, goal_id: Uuid, closed_by: &str) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
+        let closed =
+            sqlx::query("UPDATE goals SET closed_at=now() WHERE id=$1 AND closed_at IS NULL")
+                .bind(goal_id)
+                .execute(&mut *tx)
+                .await?
+                .rows_affected()
+                == 1;
+        if closed {
+            sqlx::query("INSERT INTO events (kind, actor_id, body) VALUES ('goal_closed',$1,$2)")
+                .bind(closed_by)
+                .bind(serde_json::json!({ "goal_id": goal_id }))
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
+        Ok(closed)
     }
 
     pub async fn list_goals(&self) -> Result<Vec<GoalRow>> {
@@ -201,6 +227,40 @@ impl OrgIntel {
                 producing_topology,
                 commissioned_by: Some(commissioned_by),
                 constitution_contracts: None,
+                skills: &[],
+            },
+        )
+        .await
+    }
+
+    /// The one daemon commissioning entry: route, optional Constitution
+    /// contracts and explicitly selected skills commit atomically with the Work.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn add_commissioned_work(
+        &self,
+        work: NewWork<'_>,
+        requires: &[Uuid],
+        revises: &[Uuid],
+        gates: &[InitialWorkGate<'_>],
+        owner_review_required: bool,
+        source_message_id: Option<i64>,
+        commissioned_by: &str,
+        producing_topology: ProducingTopology,
+        constitution_contracts: Option<&InitialConstitutionContracts>,
+        skills: &[String],
+    ) -> Result<Uuid> {
+        self.add_work_inner(
+            work,
+            requires,
+            revises,
+            gates,
+            WorkCreationPolicy {
+                owner_review_required,
+                external_source: source_message_id.map(|id| (id, commissioned_by)),
+                producing_topology,
+                commissioned_by: Some(commissioned_by),
+                constitution_contracts,
+                skills,
             },
         )
         .await
@@ -233,6 +293,7 @@ impl OrgIntel {
                 producing_topology,
                 commissioned_by: Some(commissioned_by),
                 constitution_contracts: Some(constitution_contracts),
+                skills: &[],
             },
         )
         .await
@@ -264,6 +325,7 @@ impl OrgIntel {
                 producing_topology: ProducingTopology::CoherentSingleWorker,
                 commissioned_by: Some(commissioned_by),
                 constitution_contracts: None,
+                skills: &[],
             },
         )
         .await
@@ -307,6 +369,7 @@ impl OrgIntel {
             producing_topology,
             commissioned_by,
             constitution_contracts,
+            skills,
         } = policy;
         if work.title.trim().is_empty() || work.outcome.trim().is_empty() {
             return Err(OrgIntelError::InvalidWork(
@@ -747,6 +810,8 @@ impl OrgIntel {
             .execute(&mut *tx)
             .await?;
         }
+        super::skills::select_work_skills_in_tx(&mut tx, id, skills, &commissioned_by, None)
+            .await?;
         sqlx::query("INSERT INTO events (kind,actor_id,body) VALUES ('work_commissioned',$1,$2)")
             .bind(&commissioned_by)
             .bind(serde_json::json!({

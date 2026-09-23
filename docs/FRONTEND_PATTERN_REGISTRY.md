@@ -140,3 +140,12 @@ The check proxies GETs only and supplies conversation/SSE fixtures to a browser-
 identity across updates, partial tables and code, highlighting/copy, unsafe HTML/URL
 handling, final-message handoff, and narrow/mobile overflow. The temporary SSE server
 and browser are closed on success or failure.
+
+## Shared document header simplification — 22 September 2026
+
+Native `physical-control` and document editor surfaces, using the browser's top-layer popover for
+secondary document actions. Beautiful UI's compact task/action hierarchy, Cult UI's explicit reveal,
+and Origin UI Svelte's ordinary compact controls were consulted; no upstream code or dependency was
+copied. One title and sync state replace stacked request/editor headers; type selectors and the
+recovery subtitle are removed. Required actions remain keyboard/touch accessible, Escape and
+outside click dismiss the popover, and it stays within the desktop/mobile viewport without animation.

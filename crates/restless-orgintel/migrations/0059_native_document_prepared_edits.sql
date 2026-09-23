@@ -1,3 +1,6 @@
+-- Core owns command identity. The collaboration service owns only the Yjs body.
+-- Retain the exact delta before transmission: retries must not regenerate edits
+-- against a body that may already contain the first application.
 CREATE TABLE native_document_prepared_edits (
     command_id UUID PRIMARY KEY,
     document_id UUID NOT NULL REFERENCES native_documents(id),

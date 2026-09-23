@@ -317,7 +317,9 @@ pub fn classify_provider_error(text: &str) -> Option<Blocked> {
     // A runner framing error may include arbitrary transcript text or numeric
     // offsets. It is not evidence of an HTTP status from the provider.
     if text.contains("unparseable Codex app-server output") {
-        return Some(Blocked::transport("Codex session transport received an invalid JSON message"));
+        return Some(Blocked::transport(
+            "Codex session transport received an invalid JSON message",
+        ));
     }
     let lower = text.to_lowercase();
     let has = |needle: &str| lower.contains(needle);

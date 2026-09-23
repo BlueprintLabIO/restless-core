@@ -19,7 +19,7 @@ export type ArtifactRefState = "available" | "stale" | "missing" | "superseded" 
 
 export type OwnerHandoffCategory = "identity" | "captcha" | "mfa" | "legal_attestation" | "payment_confirmation" | "owner_judgement";
 
-export type OwnerHandoffState = "pending" | "resolved" | "declined" | "withdrawn";
+export type OwnerHandoffState = "pending" | "preparing" | "resolved" | "declined" | "withdrawn";
 
 export type OutcomeStandard = "fast" | "thorough" | "exceptional" | "frontier";
 
@@ -179,7 +179,35 @@ delivered_at: string | null, created_at: string, resolved_at: string | null, };
 
 export type WorkGraphSnapshot = { work: Array<WorkRow>, edges: Array<WorkEdgeRow>, attempts: Array<WorkAttemptRow>, attempt_inputs: Array<WorkAttemptInputRow>, attempt_feedback: Array<WorkAttemptFeedbackRow>, artifacts: Array<ArtifactRefRow>, gates: Array<WorkGateRow>, gate_runs: Array<WorkGateRunRow>, handoffs: Array<OwnerHandoffRow>, };
 
-export type ScheduleRow = { id: string, actor_id: string, work_id: string | null, reason: string, fire_at: string, fired_at: string | null, cancelled_at: string | null, recurrence: string | null, timezone: string | null, local_time: string | null, last_fired_at: string | null, missed_policy: string, catch_up_grace_seconds: number | null, last_missed_at: string | null, last_considered_at: string | null, machine_requirement: string, created_at: string, };
+export type ScheduleRow = { id: string, actor_id: string, work_id: string | null, reason: string, fire_at: string, fired_at: string | null, cancelled_at: string | null, recurrence: string | null, timezone: string | null, local_time: string | null, last_fired_at: string | null, missed_policy: string, catch_up_grace_seconds: number | null, last_missed_at: string | null, last_considered_at: string | null, machine_requirement: string, created_at: string,
+/**
+ * Present only for an interval recurrence (`/loop`).
+ */
+interval_seconds: number | null, };
+
+export type SkillRow = { name: string, description: string, source: string, path: string, digest: string, has_scripts: boolean,
+/**
+ * `candidate`, `accepted` or `retired`.
+ */
+disposition: string, added_by: string | null, origin_url: string | null, origin_ref: string | null, observed_at: string, created_at: string, updated_at: string, };
+
+export type SkillAssignmentRow = { skill_name: string,
+/**
+ * `company`, `team` or `actor`.
+ */
+scope: string, scope_id: string, enabled: boolean, assigned_by: string, assigned_at: string, };
+
+export type SelectedSkill = { skill_name: string, digest: string, };
+
+export type ObservedSkill = { name: string, description: string,
+/**
+ * `builtin`, `company`, `project` or `candidate`.
+ */
+source: string, path: string,
+/**
+ * `sha256:<hex>` of the skill's `SKILL.md`.
+ */
+digest: string, has_scripts: boolean, };
 
 export type MessageRow = { id: number, from_actor: string, to_actor: string | null, body: string,
 /**

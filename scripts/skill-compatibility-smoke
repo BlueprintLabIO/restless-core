@@ -1,0 +1,308 @@
+#!/usr/bin/env python3
+"""Sprint 55 end-to-end smoke and zero-day compatibility corpus.
+
+Real isolated daemon and PostgreSQL, the installed runtime `restless` CLI inside
+the real company image, and the owner HTTP API. No model or provider is called.
+Everything created is a `_test` resource and is removed before exit.
+
+Environment:
+  RESTLESSD_BIN            built daemon (default: $CARGO_TARGET_DIR or target, debug)
+  RESTLESS_SMOKE_IMAGE     runtime image carrying the new CLI and built-in skills
+  RESTLESS_STATE_DIR       directory holding orgintel.toml (default: ../state)
+  RESTLESS_CORPUS_RESULTS  where to write the corpus observation JSON (optional)
+"""
+import base64, datetime, hashlib, hmac, json, os, pathlib, re, shlex, signal, socket, subprocess
+import tempfile, time, tomllib, urllib.error, urllib.parse, urllib.request, uuid
+
+repo = pathlib.Path(__file__).resolve().parents[1]
+state = pathlib.Path(os.environ.get('RESTLESS_STATE_DIR', repo.parent / 'state'))
+target = pathlib.Path(os.environ.get('CARGO_TARGET_DIR', repo / 'target'))
+daemon_bin = os.environ.get('RESTLESSD_BIN', str(target / 'debug/restlessd'))
+image = os.environ.get('RESTLESS_SMOKE_IMAGE', 'restless-company-runtime:skills-sprint55-smoke')
+admin = urllib.parse.urlparse(tomllib.loads((state / 'orgintel.toml').read_text())['database_url'])
+nonce = uuid.uuid4().hex[:10]
+company = f'skills_{nonce}_test'
+namespace = f'skills{nonce}_test'
+plane_db = f'restless_plane_{namespace}'
+corpus = json.loads((repo / 'docs/skills/compatibility-corpus.json').read_text())
+
+# Heuristic keyword scan: it records which translations a package probably
+# needs, as evidence for review, not as a verdict.
+TRANSLATIONS = {
+    'sub-agents -> commissioned Work': r'sub-?agents?|subagent|fan[- ]out|Task tool|parallel (?:agents|workers)',
+    'blind critic -> independent review': r'blind[- ](?:critic|review)|separate critic|fresh context|clean context',
+    'ask the user -> owner conversation': r'ask(?:s|ing)? the user|interview|AskUserQuestion|question(?:s)? (?:to|for) the user',
+    'external installer -> restless skill add': r'npx skills (?:add|find)|skills\.sh',
+    '/goal -> Goal + Work': r'/goal\b',
+    '/loop -> interval schedule': r'/loop\b',
+    'other skill -> restless skill use': r'(?<![\w/])/[a-z][a-z0-9-]{2,}(?![\w/.])',
+}
+
+
+def docker(args, **kwargs):
+    return subprocess.run(['docker', *args], **kwargs)
+
+
+def sql(command, database=None):
+    result = docker(['exec', 'restless-local-postgres', 'psql', '-v', 'ON_ERROR_STOP=1', '-U',
+                     admin.username, '-d', database or admin.path[1:], '-Atc', command],
+                    capture_output=True, text=True, check=True)
+    return result.stdout.strip()
+
+
+def raw(root, payload):
+    with socket.socket(socket.AF_UNIX) as connection:
+        connection.settimeout(30)
+        connection.connect(str(root / 'restlessd.sock'))
+        connection.sendall((json.dumps({'company': company, 'principal': 'owner', **payload}) + '\n').encode())
+        response = json.loads(connection.makefile('rb').readline())
+        if not response['ok']:
+            raise RuntimeError(response['error']['message'])
+        return response.get('data')
+
+
+def b64(value):
+    return base64.urlsafe_b64encode(value).rstrip(b'=').decode()
+
+
+def token(root, actor):
+    claims = {'version': 1, 'kind': 'actor_session', 'company': company, 'actor': actor,
+              'session': 'skills_smoke',
+              'expires_at': (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=30)).isoformat()}
+    signed = 'r1.' + b64(json.dumps(claims, separators=(',', ':')).encode())
+    return signed + '.' + b64(hmac.new((root / 'runtime-capability.key').read_bytes(), signed.encode(), hashlib.sha256).digest())
+
+
+def reserve_offset():
+    for offset in range(25000, 40000, 100):
+        held = []
+        try:
+            for base in range(7788, 7797):
+                probe = socket.socket()
+                probe.bind(('127.0.0.1', offset + base))
+                held.append(probe)
+            return offset
+        except OSError:
+            pass
+        finally:
+            for probe in held:
+                probe.close()
+    raise RuntimeError('no isolated test port range')
+
+
+def main():
+    docker(['image', 'inspect', image], stdout=subprocess.DEVNULL, check=True)
+    results = {'image': image, 'observed_at': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'skills': []}
+    with tempfile.TemporaryDirectory(prefix='restless-skills-smoke-') as directory:
+        root = pathlib.Path(directory)
+        offset = reserve_offset()
+        owner_base = f'http://127.0.0.1:{offset + 7788}/api/companies/{company}'
+        (root / 'orgintel.toml').write_text('database_url = ' + json.dumps(admin._replace(path='/' + plane_db).geturl()) + '\n')
+        (root / 'orgintel.toml').chmod(0o600)
+        company_dir = root / 'company'
+        (company_dir / 'skills/pricing-voice').mkdir(parents=True)
+        (company_dir / 'skills/pricing-voice/SKILL.md').write_text(
+            '---\nname: pricing-voice\ndescription: Write pricing copy in the company voice.\n---\n'
+            'State the offer plainly. Lead with the customer outcome.\n')
+        for path in [company_dir, *company_dir.rglob('*')]:
+            path.chmod(0o777 if path.is_dir() else 0o666)
+        env = {key: os.environ[key] for key in ['PATH', 'HOME', 'USER', 'LANG'] if key in os.environ}
+        env.update(RESTLESS_HOME=str(root), RESTLESS_PROFILE='test', RESTLESS_RESOURCE_NAMESPACE=namespace,
+                   RESTLESS_PORT_OFFSET=str(offset), RESTLESS_OMP_BIN='/bin/false', RESTLESS_COMPANY_IMAGE=image,
+                   RESTLESS_SOURCE_ROOT=str(repo), RESTLESS_TEST_DISABLE_SCHEDULER='1',
+                   RESTLESS_OWNER_ADDR=f'127.0.0.1:{offset + 7788}')
+        log_path = root / 'daemon.log'
+        container = f'restless-{namespace}-co-{company}'
+        process = None
+        created = False
+        started_container = False
+        sql(f'CREATE DATABASE "{plane_db}"')
+        try:
+            with log_path.open('w') as log:
+                process = subprocess.Popen([daemon_bin], cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT,
+                                           start_new_session=True)
+                for _ in range(160):
+                    if process.poll() is not None:
+                        raise RuntimeError('test daemon exited:\n' + log_path.read_text()[-3000:])
+                    try:
+                        raw(root, {'cmd': 'company-list'})
+                        break
+                    except (OSError, RuntimeError):
+                        time.sleep(0.25)
+                else:
+                    raise RuntimeError('test plane did not start')
+                # Set first: a partially initialised company still needs `down --destroy`.
+                created = True
+                raw(root, {'cmd': 'company-create', 'body': f'name = "{company}"\nmodel = "fake/test"\nspend_ceiling_usd = 0\n'})
+                for actor, role in [('pricing-direction', 'lead'), ('pricing-copywriting', 'writer'), ('pricing-design', 'designer')]:
+                    raw(root, {'cmd': 'actor-create', 'as_actor': actor, 'role': role, 'name': 'auto',
+                               'model': 'fake/test', 'reason': 'Isolated skills smoke', 'actor': 'owner'})
+                raw(root, {'cmd': 'team-create', 'name': 'Web team', 'to': 'pricing-direction',
+                           'body': 'Verify company skills end to end', 'actor': 'owner'})
+                for member in ['pricing-copywriting', 'pricing-design']:
+                    raw(root, {'cmd': 'team-assign', 'as_actor': member, 'name': 'Web team', 'actor': 'owner',
+                               'reason': 'Isolated skills smoke'})
+
+                # A stand-in company computer from the real image: the daemon's
+                # scan and the actors' CLI both run inside it.
+                docker(['run', '-d', '--name', container, '--network', 'host', '-u', 'company',
+                        '--entrypoint', 'sleep', '-v', f'{company_dir}:/company', image, 'infinity'],
+                       check=True, capture_output=True)
+                started_container = True
+
+                def cli(actor, *args, success=True):
+                    result = docker(['exec', '-u', 'company', '-w', '/company',
+                                     '-e', f'RESTLESS_COMPANY={company}',
+                                     '-e', f'RESTLESS_COORDINATOR=127.0.0.1:{offset + 7791}',
+                                     '-e', f'RESTLESS_ACTOR={actor}',
+                                     '-e', f'RESTLESS_SESSION_CAPABILITY={token(root, actor)}',
+                                     container, 'restless', *args], capture_output=True, text=True, timeout=180)
+                    if success and result.returncode:
+                        raise RuntimeError(f'restless {" ".join(args)} as {actor}: {result.stderr.strip()}')
+                    if not success and result.returncode == 0:
+                        raise AssertionError(f'expected refusal: restless {" ".join(args)} as {actor}')
+                    return result
+
+                def owner(path, data=None, method=None, form=None):
+                    headers = {'Origin': f'http://127.0.0.1:{offset + 7788}'}
+                    body = None
+                    if form is not None:
+                        boundary = uuid.uuid4().hex
+                        parts = []
+                        for key, value in form:
+                            parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n{value}\r\n')
+                        body = (''.join(parts) + f'--{boundary}--\r\n').encode()
+                        headers['Content-Type'] = f'multipart/form-data; boundary={boundary}'
+                    elif data is not None:
+                        body = json.dumps(data).encode()
+                        headers['Content-Type'] = 'application/json'
+                    request = urllib.request.Request(owner_base + path, data=body, headers=headers, method=method)
+                    try:
+                        with urllib.request.urlopen(request, timeout=60) as response:
+                            return response.status, json.load(response)
+                    except urllib.error.HTTPError as error:
+                        return error.code, json.loads(error.read() or b'{}')
+
+                # 1. Live library: built-in, company and project skills observed.
+                status, library = owner('/skills')
+                assert status == 200 and library['scan']['state'] == 'observed', library
+                by_name = {row['name']: row for row in library['skills']}
+                assert by_name['gauntlet']['source'] == 'builtin' and by_name['gauntlet']['disposition'] == 'accepted'
+                assert by_name['code-review']['disposition'] == 'accepted'
+                assert by_name['pricing-voice']['source'] == 'company'
+                print('PASS library: live scan observed built-in gauntlet/code-review and company pricing-voice')
+
+                # 2. Portable loading through the installed CLI, with activation recorded.
+                listed = cli('pricing-copywriting', 'skill', 'list', '--json').stdout
+                assert {'gauntlet', 'code-review', 'pricing-voice'} <= {row['name'] for row in json.loads(listed)}
+                used = cli('pricing-copywriting', 'skill', 'use', 'gauntlet').stdout
+                assert '# Skill gauntlet (sha256:' in used and 'Blind critic' in used and 'grants no credential' in used
+                found = cli('pricing-copywriting', 'skill', 'find', 'blind', 'review').stdout
+                assert 'gauntlet' in found
+                cell = urllib.parse.urlparse((root / 'cells' / company / 'database.url').read_text().strip()).path[1:]
+                activations = sql(f"SELECT count(*) FROM \"{company}\".events WHERE kind='skill.activated.v1' AND actor_id='pricing-copywriting' AND body->>'skill'='gauntlet'", cell)
+                assert activations == '1', activations
+                print('PASS portable loading: installed CLI lists, finds and applies gauntlet; activation recorded once')
+
+                # 3. Owner selection pins a digest on the Message.
+                status, sent = owner('/actors/exec/conversation', form=[
+                    ('client_command_id', str(uuid.uuid4())), ('body', 'Redesign the pricing page'),
+                    ('skills', 'pricing-voice'), ('skills', 'gauntlet')])
+                assert status in (200, 201), sent
+                pinned = sql(f"SELECT string_agg(skill_name||'='||digest, ',' ORDER BY skill_name) FROM \"{company}\".message_skill_selections WHERE message_id={sent['message_id']}", cell)
+                assert pinned.startswith('gauntlet=sha256:') and ',pricing-voice=sha256:' in pinned, pinned
+                status, refused = owner('/actors/exec/conversation', form=[
+                    ('client_command_id', str(uuid.uuid4())), ('body', 'Use a missing skill'), ('skills', 'no-such-skill')])
+                assert status == 400, refused
+                print('PASS selection: $skill chips pin exact digests on the owner Message; unknown skills refuse the send')
+
+                # 4. Work carries the selection atomically; Staff sees it whatever its harness.
+                work = json.loads(cli('pricing-direction', 'work', 'add', '--owner', 'pricing-copywriting', '--role', 'writer',
+                                      '--title', 'Pricing page copy', '--outcome', 'Write the pricing page copy',
+                                      '--expected-artifact', '/company/out/pricing.md',
+                                      '--skill', 'pricing-voice', '--skill', 'gauntlet').stdout)
+                carried = sql(f"SELECT string_agg(skill_name, ',' ORDER BY skill_name) FROM \"{company}\".work_skill_selections WHERE work_id='{work['work_id']}'", cell)
+                assert carried == 'gauntlet,pricing-voice', carried
+                before = sql(f'SELECT count(*) FROM "{company}".work', cell)
+                cli('pricing-direction', 'work', 'add', '--owner', 'pricing-copywriting', '--role', 'writer', '--title', 'Bad skill',
+                    '--outcome', 'Should not exist', '--skill', 'no-such-skill', success=False)
+                assert sql(f'SELECT count(*) FROM "{company}".work', cell) == before
+                print('PASS delegation: work add --skill pins skills atomically; an unusable skill creates no Work')
+
+                # 5. /goal and /loop are Restless primitives.
+                status, goal = owner('/goals', {'objective': 'Ship the pricing page this week'}, 'POST')
+                assert status == 201, goal
+                status, loop = owner('/loops', {'every': '30m', 'prompt': 'Review inbound leads'}, 'POST')
+                assert status == 201 and loop['interval_seconds'] == 1800, loop
+                status, again = owner('/loops', {'every': '30m', 'prompt': 'Review inbound leads'}, 'POST')
+                assert status == 200 and again['schedule_id'] == loop['schedule_id'] and not again['created']
+                assert sql(f"SELECT recurrence||':'||interval_seconds FROM \"{company}\".schedules WHERE id='{loop['schedule_id']}'", cell) == 'interval:1800'
+                status, cancelled = owner(f"/loops/{loop['schedule_id']}/cancel", method='POST')
+                assert status == 200 and cancelled['cancelled']
+                status, closed = owner(f"/goals/{goal['goal_id']}/close", method='POST')
+                assert status == 200 and closed['closed']
+                interval = json.loads(cli('pricing-direction', 'schedule', 'add', '--every', '2h', '--reason', 'Check the pricing experiment').stdout)
+                assert interval['recurrence'] == 'interval' and interval['interval_seconds'] == 7200, interval
+                cli('pricing-copywriting', 'schedule', 'add', '--every', '2h', '--reason', 'Staff may not loop', success=False)
+                print('PASS /goal and /loop: Goal created and closed; Exec interval schedule idempotent and cancellable; leads may loop, Staff may not')
+
+                # 6. Zero-day corpus through the real import path.
+                for entry in corpus['skills']:
+                    outcome = {'name': entry['name'], 'source': entry['source'], 'ref': entry['ref'], 'expect': entry['expect']}
+                    added = cli('pricing-copywriting', 'skill', 'add', entry['source'], '--ref', entry['ref'], success=entry['expect'] != 'superseded')
+                    if entry['expect'] == 'superseded':
+                        assert 'already exists' in added.stderr, added.stderr
+                        outcome['result'] = f"refused: company already has {entry['superseded_by']}"
+                        results['skills'].append(outcome)
+                        continue
+                    assert 'Added candidate skill ' + entry['name'] in added.stdout, added.stdout
+                    use = cli('pricing-copywriting', 'skill', 'use', entry['name']).stdout
+                    assert f"# Skill {entry['name']} (sha256:" in use
+                    cli('pricing-design', 'skill', 'use', entry['name'], success=False)
+                    text = docker(['exec', container, 'sh', '-c',
+                                   f"cat /company/skills-candidates/{entry['name']}/*.md"], capture_output=True, text=True).stdout
+                    outcome['digest'] = re.search(r'\(sha256:([0-9a-f]+)\)', use).group(1)
+                    outcome['has_scripts'] = 'scripts/' in use
+                    outcome['translations'] = [label for label, pattern in TRANSLATIONS.items()
+                                               if re.search(pattern, text, re.IGNORECASE)]
+                    outcome['result'] = 'candidate; usable by importer only'
+                    results['skills'].append(outcome)
+                    print(f"  corpus {entry['name']}: candidate · translations: {', '.join(outcome['translations']) or 'none'}")
+                status, decided = owner('/skills/grill-me/disposition', {'disposition': 'accepted'}, 'POST')
+                assert status == 200 and decided['disposition'] == 'accepted', decided
+                assert '# Skill grill-me' in cli('pricing-design', 'skill', 'use', 'grill-me').stdout
+                cli('pricing-copywriting', 'skill', 'list')
+                print(f"PASS corpus: {len(results['skills'])} pinned public skills imported as candidates or refused as superseded; owner acceptance made grill-me usable by others")
+        finally:
+            cleanup_error = None
+            if started_container:
+                # Files the actor wrote belong to the container user; hand them
+                # back before the temporary directory is removed.
+                docker(['exec', '-u', 'root', container, 'chmod', '-R', 'a+rwX', '/company'], capture_output=True)
+                docker(['rm', '-f', container], capture_output=True)
+            if created:
+                try:
+                    raw(root, {'cmd': 'down', 'destroy': True})
+                except Exception as error:
+                    cleanup_error = error
+            if process is not None and process.poll() is None:
+                os.killpg(process.pid, signal.SIGTERM)
+                try:
+                    process.wait(timeout=15)
+                except subprocess.TimeoutExpired:
+                    os.killpg(process.pid, signal.SIGKILL)
+                    process.wait()
+            if process is not None and process.returncode not in (0, None, -15) and log_path.exists():
+                print(log_path.read_text()[-2000:])
+            sql(f'DROP DATABASE IF EXISTS "{plane_db}" WITH (FORCE)')
+            remaining = sql(f"SELECT datname FROM pg_database WHERE datname LIKE '%{nonce}%'; SELECT rolname FROM pg_roles WHERE rolname LIKE '%{nonce}%';")
+            leftover = docker(['ps', '-a', '--filter', f'name={namespace}', '--format', '{{.Names}}'], capture_output=True, text=True).stdout.strip()
+            if cleanup_error or remaining or leftover:
+                raise RuntimeError(f'test cleanup incomplete: {cleanup_error}; databases/roles {remaining!r}; containers {leftover!r}')
+            print('PASS cleanup: test plane stopped; disposable databases, roles and containers absent')
+    if os.environ.get('RESTLESS_CORPUS_RESULTS'):
+        pathlib.Path(os.environ['RESTLESS_CORPUS_RESULTS']).write_text(json.dumps(results, indent=2) + '\n')
+
+
+if __name__ == '__main__':
+    main()

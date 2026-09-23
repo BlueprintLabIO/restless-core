@@ -325,6 +325,47 @@ pub(crate) async fn lock_runtime_addressable_actors_in_tx(
     additional_active_actor_ids: &[String],
     actors_for_update: bool,
 ) -> Result<()> {
+    lock_conversation_targets_in_tx(
+        tx,
+        actor_ids,
+        allow_humans,
+        additional_active_actor_ids,
+        actors_for_update,
+        false,
+    )
+    .await
+}
+
+/// A focused Room mention is a bounded collaboration turn, not a persistent
+/// office or a Work ownership transfer. Active Staff may therefore answer one
+/// exact Room Thread even when they are not an accountable lead or are between
+/// team assignments.
+async fn lock_focused_room_mention_actors_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    actor_ids: &[String],
+    allow_humans: bool,
+    additional_active_actor_ids: &[String],
+    actors_for_update: bool,
+) -> Result<()> {
+    lock_conversation_targets_in_tx(
+        tx,
+        actor_ids,
+        allow_humans,
+        additional_active_actor_ids,
+        actors_for_update,
+        true,
+    )
+    .await
+}
+
+async fn lock_conversation_targets_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    actor_ids: &[String],
+    allow_humans: bool,
+    additional_active_actor_ids: &[String],
+    actors_for_update: bool,
+    allow_staff_for_focused_room_mention: bool,
+) -> Result<()> {
     let mut actor_ids = actor_ids
         .iter()
         .map(|actor_id| actor_id.trim().to_string())
@@ -410,7 +451,11 @@ pub(crate) async fn lock_runtime_addressable_actors_in_tx(
                 "human Actor {actor_id:?} is not an agent conversation target"
             )));
         }
-        if actor_class == "agent" && (actor_id == "exec" || team_leads.contains(&actor_id)) {
+        if actor_class == "agent"
+            && (actor_id == "exec"
+                || team_leads.contains(&actor_id)
+                || allow_staff_for_focused_room_mention)
+        {
             continue;
         }
         if actor_class == "agent" {
@@ -1362,6 +1407,40 @@ impl OrgIntel {
         })
     }
 
+    /// The conversation index is based on Message history, not room creation.
+    /// An incoming-only or empty Room does not imply that this Actor has
+    /// started a conversation. Direct Rooms have exactly one other participant.
+    pub async fn recent_direct_conversations_for_actor(
+        &self,
+        actor_id: &str,
+    ) -> Result<Vec<RecentDirectConversationRow>> {
+        Ok(sqlx::query_as(
+            "SELECT room.id AS room_id, peer.actor_id AS person_actor_id, \
+                    latest.id AS last_message_id, latest.created_at AS last_message_at \
+             FROM rooms room \
+             JOIN room_participants viewer ON viewer.room_id=room.id \
+                  AND viewer.actor_id=$1 AND viewer.left_at IS NULL \
+             JOIN room_participants peer ON peer.room_id=room.id \
+                  AND peer.actor_id<>$1 AND peer.left_at IS NULL \
+             JOIN actors actor ON actor.id=peer.actor_id AND actor.retired_at IS NULL \
+             JOIN LATERAL ( \
+                 SELECT message.id,message.created_at FROM messages message \
+                 WHERE message.room_id=room.id AND message.deleted_at IS NULL \
+                 ORDER BY message.id DESC LIMIT 1 \
+             ) latest ON true \
+             WHERE room.kind='direct' AND room.archived_at IS NULL \
+               AND EXISTS ( \
+                   SELECT 1 FROM messages sent \
+                   WHERE sent.room_id=room.id AND sent.from_actor=$1 \
+                     AND sent.deleted_at IS NULL \
+               ) \
+             ORDER BY latest.created_at DESC,latest.id DESC,room.id DESC",
+        )
+        .bind(actor_id)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
     /// Fuzzy, bounded Room-title search over only the active Rooms visible to
     /// one Actor. Title matches remain a Room query; they never broaden a
     /// Message-content search into every Message in a similarly named Room.
@@ -1825,7 +1904,7 @@ impl OrgIntel {
         // the Room, matching retirement/removal and preventing Actor↔Room
         // cycles. The author is only required to be active; mention targets
         // additionally pass the runtime-addressability policy.
-        lock_runtime_addressable_actors_in_tx(
+        lock_focused_room_mention_actors_in_tx(
             &mut tx,
             &target_ids,
             true,

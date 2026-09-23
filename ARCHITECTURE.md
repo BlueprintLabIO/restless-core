@@ -302,7 +302,9 @@ Self-building applies inside the company environment. OrgIntel may **request** n
 
 The Exec logically belongs to OrgIntel but physically runs as an ordinary ACP process inside the Linux company environment. Its identity, mandate, inbox and organisational memory persist even when the model session or process restarts.
 
-ACP is the session transport, not the source of actor policy. The Runtime Bridge owns the complete launch contract for Exec and every Staff process: Restless-authored system instructions, durable actor identity, focused trusted context, explicit native tools, applicable skill roots and any already-authorised MCP servers. Owner text and immediate task feedback cross ACP as user turns; they must not carry the standing identity and operating policy. A concrete ACP harness may implement the process, but its default persona, ambient user configuration, private subagents, project MCP discovery and undeclared tools must not silently augment that contract.
+ACP is the session transport, not the source of actor policy. The Runtime Bridge owns the complete launch contract for Exec and every Staff process: Restless-authored system instructions, durable actor identity, focused trusted context, explicit native tools, the company skill contract and any already-authorised MCP servers. Owner text and immediate task feedback cross ACP as user turns; they must not carry the standing identity and operating policy. A concrete ACP harness may implement the process, but its default persona, ambient user configuration, private subagents, project MCP discovery and undeclared tools must not silently augment that contract.
+
+Company skills (`SKILL.md` packages) belong to the company and its actors, not to a model or harness. Every harness reaches them through the same `restless skill` interface and Work-bound selections, so changing an actor's harness never changes its skills; native harness loading is an optional, probed optimisation. Skills carry method, never authority. Harness orchestration conventions that skills assume (sub-agents, user interviews, `/goal`, `/loop`) are translated into Work, review, owner conversation, Goals and schedules rather than simulated inside one session. See `docs/specs/company-runtime.md` §9.5.
 
 A sensible initial topology is:
 
@@ -320,6 +322,12 @@ standing department lead or a temporary outcome lead; if none exists, the Exec a
 productive work begins. The lead remains a non-producing supervisor and commissions at least one
 Staff worker for every executable outcome. The lead remains responsible for framing, guidance,
 repair, native review and completion judgement; content-changing production always returns to Staff.
+
+An explicit owner request for a bounded edit to an existing shared native document is direct
+collaboration, not a new production assignment. Exec may apply the requested content change in
+the current conversation using existing document edit access, guarded live operations and readback.
+It must preserve other contributors' work and report a concrete blocker if the edit cannot finish.
+This narrow exception does not cover new research, repository changes or external effects.
 
 The lead first forms a causal understanding of the outcome, then chooses the smallest effective
 production roster: one end-to-end Staff worker by default. When another actor can own a stable,

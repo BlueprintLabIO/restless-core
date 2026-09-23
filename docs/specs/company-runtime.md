@@ -686,7 +686,29 @@ Suggested locations:
 /projects/<project>/.agents/skills/  # project-specific skills
 ```
 
-The Bridge exposes a catalogue of applicable skills and loads full skill content only when relevant.
+`/company/skills-candidates/` holds actor-imported packages that are not yet accepted. It is
+deliberately not a native harness root.
+
+_Core contract (Sprint 55)._ Skills belong to the company and its actors, never to an Intelligence
+Provider or harness, so an actor keeps its skills when its model or harness changes. Loading is
+portable: `restless skill list | find | show | use | add` reads packages from the Runtime
+filesystem on every harness, and asks the daemon only for decisions (which skills this actor may
+use) and to record an activation. Native harness loading (OMP today) is an optimisation that must
+be live-probed before a harness relies on it; an explicit selection is loaded once.
+
+OrgIntel records the company's decisions about skills, never package bodies: the observed
+`SKILL.md` digest, disposition (`candidate`, `accepted`, `retired`), company/team/actor
+assignments, and exact selections. A `$skill` chip on an owner Message pins the digest beside the
+Message; `restless work add --skill` pins it on the Work in the commissioning transaction, so
+every Attempt, retry and replacement harness receives the same version. Accepting an imported
+skill, especially one with scripts, is an owner trust decision.
+
+Popular harness conventions are translated, not simulated. A shared contract in every actor
+prompt maps "spawn a sub-agent" to commissioned Work, "blind critic" to independent review by
+another actor, "ask the user" to the owner conversation or a batched handoff, `/goal` to a Goal
+served by Work, `/loop` to an interval schedule, and `/other-skill` to `restless skill use`. The
+Restless-authored `gauntlet` and `code-review` built-ins express two popular multi-agent skills in
+those primitives.
 
 Skills may be:
 
@@ -909,6 +931,16 @@ Agents may create services that outlive their current model process.
 Use an imported service supervisor and simple runbooks rather than a custom durable workflow system.
 
 OrgIntel may track service ownership and health references, but the Runtime owns the service process and data.
+
+A prepared browser-native ReviewTarget may use a durable `http://127.0.0.1:<port>/` service (never
+reserved ports 5901, 6080, 9222, or 9223), while a static native HTML/PDF/image/audio/video/text
+outcome may be an exact displayable file beneath `/company`. The actor links either chosen candidate
+as artifact kind `review_target`; `--owner-review` requires exactly one available target and the
+`review-target-live-probe` gate. The ReviewTarget transport is a read-only preview: GET/HEAD only,
+without owner cookies or WebSocket upgrades. Stateful or interactive work remains in the shared
+company desktop/browser. The Work-owned service has one `/company/services/supervisor/*.conf` file;
+cleanup stops it, removes that exact file, then runs supervisor reread/update/status so it cannot
+restart, while preserving the shared desktop and unrelated services.
 
 ## 12.4 Publication
 

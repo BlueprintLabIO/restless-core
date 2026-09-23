@@ -1,6 +1,6 @@
 # Independent native harness authentication
 
-Company → Intelligence provider contains direct connections, independent ChatGPT/Codex and Claude Code logins, one company default connection/model, and optional per-agent overrides. The old Harnesses URL redirects there. The selected connection determines the execution harness automatically; there is no separate harness policy. Installed software and transport diagnostics are read-only in Doctor. Native logins never inherit a direct provider key or subscription.
+Company → Intelligence provider contains direct connections, independent ChatGPT/Codex and Claude Code logins, installed agent software, additional harness installation, one company default connection/model, and optional per-agent overrides. The old Harnesses URL redirects there. The selected connection determines the execution harness automatically; there is no separate harness policy. Doctor retains operational checks. Native logins never inherit a direct provider key or subscription.
 
 Native OAuth uses the installed vendor CLI. Codex starts App Server `account/login/start` with `chatgptDeviceCode`; the owner follows its verification URL/code. Claude runs `claude auth login --claudeai` in the company computer and opens the OAuth browser there, preserving the local callback. Completion is confirmed through native account status. Login attempts expire after 15 minutes and can be cancelled. Refresh and logout remain owned by the native CLI.
 

@@ -14,6 +14,37 @@ fn validate_conversation_body(body: &str) -> Result<()> {
 }
 
 impl OrgIntel {
+    /// Owner observability of actual agent-to-agent direct messages. Never
+    /// includes a human's private conversation or changes delivery/read state.
+    /// Authorization belongs to the owner transport; agents cannot call this
+    /// through their participant-scoped Room APIs.
+    pub async fn agent_exchanges_before(
+        &self,
+        actor: &str,
+        before_id: Option<i64>,
+        limit: i64,
+    ) -> Result<Vec<MessageRow>> {
+        Ok(sqlx::query_as(
+            "SELECT m.id,m.from_actor,m.to_actor,COALESCE(revision.body,m.body) AS body,\
+                    m.outcome_standard,m.created_at,m.read_at \
+             FROM messages m \
+             JOIN actors sender ON sender.id=m.from_actor AND sender.actor_class='agent' \
+             JOIN actors recipient ON recipient.id=m.to_actor AND recipient.actor_class='agent' \
+             JOIN rooms room ON room.id=m.room_id AND room.kind='direct' \
+             LEFT JOIN room_message_revisions revision ON revision.id=m.latest_revision_id \
+             WHERE (m.from_actor=$1 OR m.to_actor=$1) AND m.deleted_at IS NULL \
+               AND ($2::bigint IS NULL OR m.id<$2) \
+               AND NOT EXISTS (SELECT 1 FROM room_participants p JOIN actors a ON a.id=p.actor_id \
+                               WHERE p.room_id=room.id AND a.actor_class='human') \
+             ORDER BY m.id DESC LIMIT $3",
+        )
+        .bind(actor)
+        .bind(before_id)
+        .bind(limit.clamp(1, 101))
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
     // ---- messages ----
 
     /// Send a directed message; `to_actor: None` addresses the owner inbox.
@@ -2371,6 +2402,92 @@ impl OrgIntel {
         )
         .bind(actor)
         .fetch_one(&self.pool)
+        .await?)
+    }
+
+    /// Active agents with ordinary unread conversation mail that genuinely
+    /// owes them a cognitive turn. This is the recipient-level counterpart to
+    /// [`Self::owed_conversation_count`], used by the Runtime repair scan to
+    /// recover a lost direct-message wake without knowing the recipient in
+    /// advance.
+    pub async fn actors_owing_conversation_mail(&self, limit: i64) -> Result<Vec<String>> {
+        Ok(sqlx::query_scalar(
+            "SELECT recipient.id FROM actors recipient \
+             WHERE recipient.kind='staff' AND recipient.actor_class='agent' AND recipient.retired_at IS NULL \
+               AND EXISTS (\
+                 SELECT 1 FROM messages message \
+                 WHERE message.read_at IS NULL AND message.deleted_at IS NULL \
+                   AND message.from_actor<>recipient.id \
+                   AND NOT EXISTS (\
+                     SELECT 1 FROM actors human_sender \
+                     WHERE human_sender.id=message.from_actor \
+                       AND human_sender.actor_class='human' \
+                       AND EXISTS (SELECT 1 FROM human_principal_actor_bindings binding \
+                                   WHERE binding.actor_id=human_sender.id) \
+                       AND NOT EXISTS (SELECT 1 FROM human_principal_actor_bindings active_binding \
+                                       WHERE active_binding.actor_id=human_sender.id \
+                                         AND active_binding.membership_status='active')\
+                   ) \
+                   AND NOT EXISTS (SELECT 1 FROM message_mentions \
+                                   WHERE message_id=message.id) \
+                   AND (\
+                     EXISTS (SELECT 1 FROM work_feedback feedback \
+                             WHERE feedback.message_id=message.id \
+                               AND feedback.routed_to_actor=recipient.id) \
+                     OR (message.to_actor=recipient.id AND NOT EXISTS (\
+                       SELECT 1 FROM work_feedback feedback \
+                       WHERE feedback.message_id=message.id \
+                         AND feedback.routed_to_actor IS NOT NULL\
+                     ))\
+                   ) \
+                   AND NOT EXISTS (\
+                     SELECT 1 FROM work_feedback feedback JOIN work ON work.id=feedback.work_id \
+                     WHERE feedback.message_id=message.id \
+                       AND COALESCE(feedback.routed_to_actor,message.to_actor)=work.owner_id \
+                       AND work.status IN ('proposed','active') \
+                       AND NOT EXISTS (\
+                         SELECT 1 FROM owner_handoffs handoff \
+                         WHERE handoff.work_id=work.id AND handoff.state='pending'\
+                       )\
+                   )\
+               ) \
+             ORDER BY recipient.id LIMIT $1",
+        )
+        .bind(limit.clamp(1, 1024))
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    /// The few preceding turns in the exact direct Room that delivered a
+    /// message to this Actor. A follow-up can use its own history without
+    /// replaying unrelated Rooms or depending on a live model session.
+    pub async fn direct_conversation_before(
+        &self,
+        actor: &str,
+        message_id: i64,
+        limit: i64,
+    ) -> Result<Vec<MessageRow>> {
+        Ok(sqlx::query_as(
+            "SELECT id,from_actor,to_actor,body,outcome_standard,created_at,read_at FROM (\
+               SELECT prior.id,prior.from_actor,prior.to_actor,\
+                      COALESCE(revision.body,prior.body) AS body,prior.outcome_standard,\
+                      prior.created_at,prior.read_at \
+               FROM messages trigger_message \
+               JOIN rooms room ON room.id=trigger_message.room_id AND room.kind='direct' \
+               JOIN room_participants participant ON participant.room_id=room.id \
+                    AND participant.actor_id=$1 AND participant.left_at IS NULL \
+               JOIN messages prior ON prior.room_id=trigger_message.room_id \
+               LEFT JOIN room_message_revisions revision ON revision.id=prior.latest_revision_id \
+               WHERE trigger_message.id=$2 AND trigger_message.to_actor=$1 \
+                 AND trigger_message.deleted_at IS NULL \
+                 AND prior.id<trigger_message.id AND prior.deleted_at IS NULL \
+               ORDER BY prior.id DESC LIMIT $3\
+             ) recent ORDER BY id",
+        )
+        .bind(actor)
+        .bind(message_id)
+        .bind(limit.clamp(1, 12))
+        .fetch_all(&self.pool)
         .await?)
     }
 

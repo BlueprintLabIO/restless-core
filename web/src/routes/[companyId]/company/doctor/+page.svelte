@@ -1,5 +1,4 @@
 <script lang="ts">
-	import HarnessDiagnostics from '$lib/components/HarnessDiagnostics.svelte';
 	import { page } from '$app/state';
 	import Activity from '@lucide/svelte/icons/activity';
 	import ArrowUpRight from '@lucide/svelte/icons/arrow-up-right';
@@ -208,5 +207,4 @@
 	{:else}
 		<div class="company-page-wait" aria-label="Running company doctor"></div>
 	{/if}
-	<HarnessDiagnostics {companyId} />
 </div>

@@ -23,6 +23,11 @@
 	);
 	const provider = $derived.by(() => {
 		if (!exec) return 'Unavailable';
+		if (connection?.startsWith('harness:custom:'))
+			return (
+				intelligence.view?.connections.find((c) => c.id === connection)?.provider ??
+				connection.slice('harness:custom:'.length)
+			);
 		if (connection === 'harness:codex' || exec.effective_model.startsWith('native-codex-'))
 			return 'ChatGPT / Codex';
 		if (connection === 'harness:claude-agent' || exec.effective_model.startsWith('native-claude-'))
@@ -56,9 +61,13 @@
 				<dt>Provider</dt>
 				<dd>{provider}</dd>
 				<dt>Model</dt>
-				<dd>{exec.effective_model.split('/').at(-1)}</dd>
+				<dd>{exec.effective_model.slice(exec.effective_model.indexOf('/') + 1)}</dd>
 				<dt>Thinking effort</dt>
-				<dd>{exec.thinking_effort ?? 'Unavailable'}</dd>
+				<dd>
+					{exec.thinking_effort === 'default'
+						? 'Harness default'
+						: (exec.thinking_effort ?? 'Unavailable')}
+				</dd>
 			</dl>{/if}
 	</div>
 </div>

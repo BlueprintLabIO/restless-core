@@ -22,6 +22,8 @@ Restless brings the work, the people and the tools into one place.
 > **Development preview:** a runnable local company workspace under active development.
 > Start from a development checkout; interfaces are evolving.
 
+**Try it with a real piece of work:** [install Restless](#getting-started), then
+[prepare your first client proposal](docs/first-outcome.md).
 [Get setup help](https://github.com/BlueprintLabIO/restless-core/issues/new?template=setup-help.yml)
 or [tell us what you want to run with Restless](https://github.com/BlueprintLabIO/restless-core/issues/new?template=founder-feedback.yml).
 
@@ -254,7 +256,7 @@ Open the workspace address printed by the launcher. In another terminal, verify 
 Ctrl-C stops the foreground host processes; company containers and volumes persist.
 See [web development](web/README.md) and [build storage](docs/BUILD_STORAGE.md) for details.
 
-To start a new company with teammates, follow the [self-hosted accounts setup](services/self-hosted-identity/README.md).
+To start a new company with teammates, follow the [self-hosted accounts setup](services/identity/README.md).
 It provides separate sign-ins, email invitations and removal of member access.
 
 Try [your first useful outcome](docs/first-outcome.md): delegate a client proposal,

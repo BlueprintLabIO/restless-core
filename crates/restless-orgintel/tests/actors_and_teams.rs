@@ -959,9 +959,6 @@ async fn unknown_attempt_recovery_is_one_capsule_addressed_to_the_accountable_le
     let org = OrgIntel::ensure(&url, &company)
         .await
         .expect("ensure scratch company schema");
-    org.ensure_actor("owner", "owner", "owner", "The Owner")
-        .await
-        .unwrap();
     org.ensure_actor("exec", "exec", "exec", "The Exec")
         .await
         .unwrap();
@@ -1213,9 +1210,6 @@ async fn material_member_message_wakes_the_lead_and_late_direct_feedback_gets_a_
     };
     let company = format!("message{}", uuid::Uuid::new_v4().simple());
     let org = OrgIntel::ensure(&url, &company).await.unwrap();
-    org.ensure_actor("owner", "owner", "owner", "The Owner")
-        .await
-        .unwrap();
     org.ensure_actor("exec", "exec", "exec", "The Exec")
         .await
         .unwrap();

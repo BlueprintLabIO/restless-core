@@ -210,9 +210,9 @@ impl OrgIntel {
         Ok(attempt_id)
     }
 
-    /// Consume direct Work feedback at a safe model-turn boundary. Messages
-    /// are attached once and remain durable even if the process dies after
-    /// delivery.
+    /// Consume Work feedback and ordinary agent peer mail at a safe model-turn
+    /// boundary. Both become attributable Attempt inputs; an idle peer reply
+    /// can therefore reach a running worker without a second actor session.
     pub async fn checkpoint_attempt_feedback(&self, attempt_id: Uuid) -> Result<Vec<MessageRow>> {
         let mut tx = self.pool.begin().await?;
         let attempt = sqlx::query(
@@ -233,12 +233,21 @@ impl OrgIntel {
             "SELECT message.id,message.from_actor,message.to_actor,\
                     COALESCE(revision.body,message.body) AS body,message.outcome_standard, \
                     message.created_at, message.read_at \
-             FROM work_feedback feedback JOIN messages message ON message.id=feedback.message_id \
+             FROM messages message \
+             LEFT JOIN work_feedback feedback ON feedback.message_id=message.id \
+             LEFT JOIN actors sender ON sender.id=message.from_actor \
              LEFT JOIN room_message_revisions revision ON revision.id=message.latest_revision_id \
-             WHERE feedback.work_id=$1 \
-               AND COALESCE(feedback.routed_to_actor,message.to_actor)=$2 \
-               AND message.id>$3 \
-               AND message.deleted_at IS NULL \
+             WHERE message.deleted_at IS NULL \
+               AND (\
+                 (feedback.work_id=$1 \
+                  AND COALESCE(feedback.routed_to_actor,message.to_actor)=$2 \
+                  AND message.id>$3) \
+                 OR (feedback.message_id IS NULL AND message.to_actor=$2 \
+                     AND sender.actor_class='agent' AND message.from_actor<>$2 \
+                     AND message.read_at IS NULL \
+                     AND NOT EXISTS (SELECT 1 FROM message_mentions mention \
+                                     WHERE mention.message_id=message.id))\
+               ) \
                AND NOT EXISTS (SELECT 1 FROM work_attempt_feedback delivered \
                                WHERE delivered.attempt_id=$4 AND delivered.message_id=message.id) \
              ORDER BY message.id",
@@ -263,12 +272,23 @@ impl OrgIntel {
                 .execute(&mut *tx)
                 .await?;
         }
-        if let Some(last) = messages.last() {
+        let delivered_ids = messages
+            .iter()
+            .map(|message| message.id)
+            .collect::<Vec<_>>();
+        let last_work_feedback: Option<i64> = sqlx::query_scalar(
+            "SELECT MAX(message_id) FROM work_feedback WHERE work_id=$1 AND message_id=ANY($2)",
+        )
+        .bind(work_id)
+        .bind(&delivered_ids)
+        .fetch_one(&mut *tx)
+        .await?;
+        if let Some(last_work_feedback) = last_work_feedback {
             sqlx::query(
                 "UPDATE work_attempts SET feedback_checkpoint_cursor=GREATEST(feedback_checkpoint_cursor,$2) WHERE id=$1",
             )
             .bind(attempt_id)
-            .bind(last.id)
+            .bind(last_work_feedback)
             .execute(&mut *tx)
             .await?;
         }

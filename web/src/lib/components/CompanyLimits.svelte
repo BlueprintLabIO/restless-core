@@ -109,7 +109,17 @@
 					</p>{/if}
 				{#if limitNotice}<p role="status">{limitNotice}</p>{/if}
 				<div class="spend-line">
-					<div><strong>{money(view.limits.spend.accounted_usd)}</strong><span>Spent</span></div>
+					<div>
+						<strong
+							>{view.limits.spend.status === 'metering_unknown' ? '≥ ' : ''}{money(
+								view.limits.spend.accounted_usd
+							)}</strong
+						><span
+							>Spent{#if view.limits.spend.status === 'metering_unknown'}<InfoTip
+									text="Some model responses reported no price, so actual spend may be higher. Work continues."
+								/>{/if}</span
+						>
+					</div>
 					<div><strong>{money(view.limits.spend.ceiling_usd)}</strong><span>Limit</span></div>
 					<div>
 						<strong

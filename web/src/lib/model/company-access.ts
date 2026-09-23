@@ -33,6 +33,8 @@ export function mayOpenCompanyRoute(
 	if (!principal) return false;
 	if (hasOwnerSurfaceAccess(principal)) return true;
 	const root = `/${encodeURIComponent(companyId)}`;
+	// Administrators manage members; the issuer and Core both enforce it.
+	if (principal.membership_role === 'admin' && pathname === `${root}/company/members`) return true;
 	return (
 		pathname === `${root}/people` ||
 		pathname.startsWith(`${root}/people/`) ||
@@ -50,6 +52,17 @@ export function companyShellTabs(
 	const root = `/${encodeURIComponent(companyId)}`;
 	if (!principal) return [];
 	if (!hasOwnerSurfaceAccess(principal)) {
+		const members =
+			principal.membership_role === 'admin'
+				? [
+						{
+							key: 'members',
+							label: 'Members',
+							href: `${root}/company/members`,
+							on: pathname === `${root}/company/members`
+						}
+					]
+				: [];
 		return [
 			{
 				key: 'work',
@@ -62,7 +75,8 @@ export function companyShellTabs(
 				label: 'People',
 				href: `${root}/people`,
 				on: pathname === `${root}/people` || pathname.startsWith(`${root}/people/`)
-			}
+			},
+			...members
 		];
 	}
 	return [

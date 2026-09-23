@@ -1,0 +1,39 @@
+[
+  {
+    "id": "hermes",
+    "name": "Hermes",
+    "adapter": "hermes-acp",
+    "documentation": "https://hermes-agent.nousresearch.com/docs/user-guide/features/acp",
+    "install": "set -eu\ncurl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh -o \"$RESTLESS_HARNESS_DIR/install.sh\"\nbash \"$RESTLESS_HARNESS_DIR/install.sh\" --non-interactive --skip-setup\ncd \"$HERMES_HOME/hermes-agent\"\n\"$HERMES_HOME/bin/uv\" pip install --python venv/bin/python -e \".[acp]\"",
+    "command": ["${HARNESS_DIR}/home/.local/bin/hermes", "acp"],
+    "setup_command": [
+      "${HARNESS_DIR}/home/.local/bin/hermes",
+      "acp",
+      "--setup"
+    ],
+    "environment": {
+      "HERMES_ACP_SKIP_CONFIGURED_MCP": "1",
+      "AWS_EC2_METADATA_DISABLED": "true"
+    }
+  },
+  {
+    "id": "openclaw",
+    "name": "OpenClaw",
+    "adapter": "openclaw-gateway",
+    "documentation": "https://docs.openclaw.ai/cli/acp",
+    "install": "set -eu\nnpm install --prefix \"$RESTLESS_HARNESS_DIR/package\" --no-audit --no-fund openclaw@latest",
+    "command": ["${HARNESS_DIR}/package/node_modules/.bin/openclaw", "acp"],
+    "setup_command": [
+      "${HARNESS_DIR}/package/node_modules/.bin/openclaw",
+      "onboard",
+      "--skip-daemon",
+      "--skip-health",
+      "--skip-bootstrap",
+      "--skip-channels",
+      "--skip-skills",
+      "--skip-hooks",
+      "--skip-ui"
+    ],
+    "environment": {}
+  }
+]

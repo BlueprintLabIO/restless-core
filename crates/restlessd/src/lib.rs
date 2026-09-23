@@ -6,3 +6,4 @@
 pub mod appliance;
 pub mod published_service_contract;
 pub mod published_service_fixture;
+pub mod skill_package;

@@ -181,6 +181,7 @@ COPY infra/company-image/start-godot.sh /usr/local/bin/start-company-godot
 COPY infra/company-image/start-runtime-bridge.sh /usr/local/bin/start-runtime-bridge
 COPY infra/company-image/start-company-supervisor.sh /usr/local/bin/start-company-supervisor
 COPY infra/company-image/company-supervisorctl.sh /usr/local/bin/company-supervisorctl
+COPY infra/company-image/company-tools.sh /usr/local/bin/company-tools
 COPY infra/company-image/validate-company-supervisor-config.py /usr/local/bin/validate-company-supervisor-config
 COPY infra/company-image/refresh-desktop-launchers.sh /usr/local/bin/refresh-company-desktop-launchers
 COPY infra/company-image/git-credential-restless /usr/local/bin/git-credential-restless
@@ -206,6 +207,7 @@ RUN chmod 0555 /usr/local/bin/company-init /usr/local/bin/company-volume-init \
         /usr/local/bin/start-company-godot /usr/local/bin/refresh-company-desktop-launchers \
         /usr/local/bin/start-runtime-bridge \
         /usr/local/bin/start-company-supervisor /usr/local/bin/company-supervisorctl \
+        /usr/local/bin/company-tools \
         /usr/local/bin/validate-company-supervisor-config \
         /usr/local/bin/git-credential-restless \
         /usr/local/lib/restless/restless-scenario.mjs \

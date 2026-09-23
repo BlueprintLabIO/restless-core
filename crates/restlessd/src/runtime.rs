@@ -17,7 +17,7 @@ use chrono::{DateTime, Utc};
 use http_body_util::Empty;
 use hyper::body::{Bytes, Incoming};
 use hyper::client::conn::http1;
-use hyper::{HeaderMap, Method, Request, Response, Uri};
+use hyper::{HeaderMap, Method, Request, Response, StatusCode, Uri};
 use hyper_util::rt::TokioIo;
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -37,6 +37,16 @@ static COMPANY_START_LOCKS: LazyLock<
     tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 > = LazyLock::new(Default::default);
 
+// Browser control is one small, reconstructable Runtime file. Keep its
+// read-modify-write transitions serial per company so two owner tabs cannot
+// both observe an available lease and then each publish a successor.
+static BROWSER_CONTROL_LOCKS: LazyLock<
+    tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+> = LazyLock::new(Default::default);
+static BROWSER_CONTROL_STATES: LazyLock<
+    tokio::sync::Mutex<HashMap<String, tokio::sync::watch::Sender<Option<serde_json::Value>>>>,
+> = LazyLock::new(Default::default);
+
 async fn company_start_guard(company: &str) -> tokio::sync::OwnedMutexGuard<()> {
     let lock = COMPANY_START_LOCKS
         .lock()
@@ -45,6 +55,34 @@ async fn company_start_guard(company: &str) -> tokio::sync::OwnedMutexGuard<()> 
         .or_default()
         .clone();
     lock.lock_owned().await
+}
+
+pub async fn browser_control_guard(company: &str) -> tokio::sync::OwnedMutexGuard<()> {
+    let lock = BROWSER_CONTROL_LOCKS
+        .lock()
+        .await
+        .entry(container_name(company))
+        .or_default()
+        .clone();
+    lock.lock_owned().await
+}
+
+pub async fn watch_browser_control(
+    company: &str,
+) -> tokio::sync::watch::Receiver<Option<serde_json::Value>> {
+    let mut states = BROWSER_CONTROL_STATES.lock().await;
+    states
+        .entry(container_name(company))
+        .or_insert_with(|| tokio::sync::watch::channel(None).0)
+        .subscribe()
+}
+
+pub async fn publish_browser_control(company: &str, state: Option<serde_json::Value>) {
+    let mut states = BROWSER_CONTROL_STATES.lock().await;
+    let sender = states
+        .entry(container_name(company))
+        .or_insert_with(|| tokio::sync::watch::channel(None).0);
+    sender.send_replace(state);
 }
 
 /// Owner browsers reconnect eagerly across appliance replacement. While the
@@ -317,6 +355,8 @@ pub enum AgentHarness {
     /// Certified Claude Code ACP adapter shipped in the company image.
     #[serde(alias = "claude_agent")]
     ClaudeAgent,
+    /// Owner-installed ACP agent, resolved through its explicit intelligence assignment.
+    CustomAcp,
 }
 
 impl AgentHarness {
@@ -325,6 +365,7 @@ impl AgentHarness {
             Self::RestlessManaged => "restless-managed",
             Self::Codex => "codex",
             Self::ClaudeAgent => "claude-agent",
+            Self::CustomAcp => "custom-acp",
         }
     }
 
@@ -342,13 +383,14 @@ impl AgentHarness {
             Self::RestlessManaged => "omp-18.0.10",
             Self::Codex => "codex-cli-0.155.1",
             Self::ClaudeAgent => "claude-agent-acp-0.73.0",
+            Self::CustomAcp => "custom-acp-v1",
         }
     }
 
     pub(crate) const fn native_agent_build(self) -> Option<&'static str> {
         match self {
             Self::ClaudeAgent => Some("claude-code-2.1.257"),
-            Self::RestlessManaged | Self::Codex => None,
+            Self::RestlessManaged | Self::Codex | Self::CustomAcp => None,
         }
     }
 }
@@ -458,12 +500,21 @@ impl CompanyConfig {
     /// Resolve an agent override or the company default into an execution route.
     pub fn for_agent(&self, actor: &str) -> Self {
         let mut config = self.clone();
-        if let Some(route) = self.agent_intelligence.get(actor).or_else(|| self.agent_intelligence.get("default")) {
+        if let Some(route) = self
+            .agent_intelligence
+            .get(actor)
+            .or_else(|| self.agent_intelligence.get("default"))
+        {
             config.model_failover.clear();
             if let Some(provider) = route.connection.strip_prefix("direct:") {
                 config.model = format!("{provider}/{}", route.model);
                 config.coordination_harness = AgentHarness::RestlessManaged;
                 config.worker_harness = AgentHarness::RestlessManaged;
+            } else if let Some(id) = route.connection.strip_prefix("harness:custom:") {
+                config.model = format!("native-custom-{id}/{}", route.model);
+                config.coordination_harness = AgentHarness::CustomAcp;
+                config.worker_harness = AgentHarness::CustomAcp;
+                config.reasoning_effort = "default".into();
             } else if let Some(id) = route.connection.strip_prefix("harness:") {
                 if let Some(harness) = AgentHarness::parse_canonical(id) {
                     config.coordination_harness = harness;
@@ -481,7 +532,9 @@ impl CompanyConfig {
         actor: &str,
         previous: Option<&'a str>,
     ) -> Option<&'a str> {
-        if self.agent_intelligence.contains_key(actor) || self.agent_intelligence.contains_key("default") {
+        if self.agent_intelligence.contains_key(actor)
+            || self.agent_intelligence.contains_key("default")
+        {
             Some(&self.model)
         } else {
             previous
@@ -489,6 +542,9 @@ impl CompanyConfig {
     }
 
     pub fn native_model(&self, harness: AgentHarness) -> Option<String> {
+        if harness == AgentHarness::CustomAcp {
+            return Some(self.model.clone());
+        }
         let connection = self.native_harnesses.get(harness.as_str())?;
         let provider = match harness {
             AgentHarness::Codex => "codex",
@@ -580,8 +636,7 @@ impl CompanyConfig {
         };
         let mut seen = std::collections::BTreeSet::new();
         let mut candidates = Vec::with_capacity(1 + self.model_failover.len());
-        for model in std::iter::once(primary)
-            .chain(self.model_failover.iter().map(String::as_str))
+        for model in std::iter::once(primary).chain(self.model_failover.iter().map(String::as_str))
         {
             let Some((provider, id)) = model.split_once('/') else {
                 bail!("model {model:?} must be provider-qualified, e.g. moonshot/kimi-k3");
@@ -616,8 +671,12 @@ impl CompanyConfig {
                 }
                 continue;
             }
+            if harness == AgentHarness::CustomAcp {
+                crate::custom_harness::split_model(&self.model)?;
+                continue;
+            }
             let required_provider = match harness {
-                AgentHarness::RestlessManaged => continue,
+                AgentHarness::RestlessManaged | AgentHarness::CustomAcp => continue,
                 AgentHarness::Codex => "litellm",
                 AgentHarness::ClaudeAgent => "anthropic",
             };
@@ -637,7 +696,7 @@ impl CompanyConfig {
                 AgentHarness::ClaudeAgent => {
                     !crate::model_gateway::anthropic_model_has_pinned_tariff(model)
                 }
-                AgentHarness::RestlessManaged => false,
+                AgentHarness::RestlessManaged | AgentHarness::CustomAcp => false,
             }) {
                 bail!(
                     "{} harness has no pinned metering tariff for configured model {model}",
@@ -755,7 +814,9 @@ pub(crate) fn validate_company_name(name: &str) -> Result<()> {
             }
         })
     {
-        bail!("invalid company name {name:?}: use lowercase letters, digits or underscores, starting with a letter");
+        bail!(
+            "invalid company name {name:?}: use lowercase letters, digits or underscores, starting with a letter"
+        );
     }
     Ok(())
 }
@@ -815,6 +876,13 @@ pub struct RuntimeDoctor {
     pub supervisor: Option<SupervisorDoctor>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub browser: Option<BrowserDoctor>,
+    pub collaboration_tools: Vec<CollaborationToolDoctor>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CollaborationToolDoctor {
+    pub tool: String,
+    pub installed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1266,7 +1334,30 @@ pub async fn doctor(company: &str) -> Result<RuntimeDoctor> {
             .as_ref()
             .is_none_or(|value| value.status != "available");
 
+    let mut collaboration_tools = Vec::new();
+    if container == ContainerStatus::Running {
+        for tool in ["document", "room"] {
+            let probe = tokio::time::timeout(
+                Duration::from_secs(5),
+                docker_observe(&[
+                    "exec",
+                    "-u",
+                    "company",
+                    &container_name(company),
+                    "restless",
+                    tool,
+                    "--help",
+                ]),
+            )
+            .await;
+            collaboration_tools.push(CollaborationToolDoctor {
+                tool: tool.into(),
+                installed: matches!(probe, Ok(Ok(output)) if output.status.success()),
+            });
+        }
+    }
     Ok(RuntimeDoctor {
+        collaboration_tools,
         company: company.to_string(),
         container,
         volume,
@@ -1488,6 +1579,84 @@ pub async fn desktop_asset(company: &str, asset: &str) -> Result<Vec<u8>> {
     Ok(output.stdout)
 }
 
+/// Open one exact web destination in a new tab of the persistent company
+/// browser, then bring that tab to the front. The private browser broker is
+/// the authority for the control lease: it returns `owner_controls` while an
+/// owner has live input control, so this path cannot navigate underneath a
+/// person using the shared browser.
+pub async fn open_browser_url(company: &str, value: &str) -> Result<()> {
+    validate_company_name(company)?;
+    if value.len() > 16 * 1024 {
+        bail!("browser URL exceeds 16 KiB");
+    }
+    let parsed = url::Url::parse(value).context("parse browser URL")?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        bail!("company browser links must use HTTP or HTTPS");
+    }
+
+    let container = container_name(company);
+    // A leading `=` tells curl to encode the entire value as an unnamed query
+    // field. Without it, the first `=` inside an OAuth-style destination
+    // query is misread as curl's own name/value separator.
+    let destination = format!("={}", parsed.as_str());
+    let opened = docker_observe(&[
+        "exec",
+        &container,
+        "curl",
+        "--fail-with-body",
+        "--silent",
+        "--show-error",
+        "--max-time",
+        "5",
+        "--request",
+        "PUT",
+        "--get",
+        "--data-urlencode",
+        &destination,
+        "http://127.0.0.1:9223/json/new",
+    ])
+    .await?;
+    if !opened.status.success() {
+        let body = String::from_utf8_lossy(&opened.stdout);
+        if body.contains("owner_controls") {
+            bail!("company browser is owner-controlled");
+        }
+        bail!("company browser could not open the link");
+    }
+    let target: serde_json::Value =
+        serde_json::from_slice(&opened.stdout).context("decode opened browser tab")?;
+    let target_id = target["id"]
+        .as_str()
+        .filter(|id| {
+            !id.is_empty()
+                && id
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        })
+        .context("opened browser tab has no valid target id")?;
+    let activate_url = format!("http://127.0.0.1:9223/json/activate/{target_id}");
+    let activated = docker_observe(&[
+        "exec",
+        &container,
+        "curl",
+        "--fail-with-body",
+        "--silent",
+        "--show-error",
+        "--max-time",
+        "5",
+        &activate_url,
+    ])
+    .await?;
+    if !activated.status.success() {
+        let body = String::from_utf8_lossy(&activated.stdout);
+        if body.contains("owner_controls") {
+            bail!("company browser is owner-controlled");
+        }
+        bail!("company browser opened the link but could not focus its tab");
+    }
+    Ok(())
+}
+
 /// A full-duplex byte stream backed by `docker exec socat`. This is the V0
 /// Runtime Bridge for the private desktop transport: mature process tooling,
 /// not a published port or a browser-action protocol.
@@ -1600,10 +1769,44 @@ pub async fn probe_runtime_http(company: &str, value: &str) -> Result<()> {
     )
     .await?;
     if response.status().is_success() || response.status().is_redirection() {
-        Ok(())
-    } else {
-        bail!("runtime review target returned {}", response.status())
+        return Ok(());
     }
+
+    // Some ordinary preview servers deliberately omit HEAD. A one-byte range
+    // GET distinguishes that limitation from an unavailable preview without
+    // turning this read-only availability probe into a content fetch.
+    if matches!(
+        response.status(),
+        StatusCode::METHOD_NOT_ALLOWED | StatusCode::NOT_IMPLEMENTED
+    ) {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            hyper::header::RANGE,
+            hyper::header::HeaderValue::from_static("bytes=0-0"),
+        );
+        let fallback = tokio::time::timeout(
+            Duration::from_secs(5),
+            runtime_http_request(
+                company,
+                target.port,
+                Method::GET,
+                &target.path_and_query,
+                &headers,
+            ),
+        )
+        .await
+        .context("runtime review GET fallback timed out")??;
+        if fallback.status().is_success() || fallback.status().is_redirection() {
+            return Ok(());
+        }
+        bail!(
+            "runtime review target rejected HEAD ({}) and GET fallback returned {}",
+            response.status(),
+            fallback.status()
+        )
+    }
+
+    bail!("runtime review target returned {}", response.status())
 }
 
 const MAX_REVIEW_TEXT_BYTES: usize = 256 * 1024;
@@ -1952,8 +2155,8 @@ pub async fn read_browser_control(company: &str) -> Result<Option<serde_json::Va
 
 /// An owner lease is bounded even if the SPA vanishes without hand-back.
 /// The Runtime file is reconstructable coordination, not durable truth, so a
-/// reader projects an expired owner back to the requesting agent (or
-/// unclaimed rescue state). The browser broker independently uses the same
+/// reader projects an expired owner back to the unclaimed state. The browser
+/// broker independently uses the same
 /// expiry to reopen CDP; keeping the health projection stale at `owner` while
 /// automation had resumed was precisely the split-brain this lease prevents.
 fn normalize_expired_browser_control(mut state: serde_json::Value) -> serde_json::Value {
@@ -1970,24 +2173,11 @@ fn normalize_expired_browser_control(mut state: serde_json::Value) -> serde_json
         return state;
     }
 
-    let requester = state["requester"]
-        .as_str()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string);
-    state = match requester {
-        Some(session_id) => serde_json::json!({
-            "controller": "agent",
-            "session_id": session_id,
-            "reason": "owner_lease_expired",
-            "expired_at": expires_at,
-        }),
-        None => serde_json::json!({
-            "controller": "unclaimed",
-            "reason": "owner_lease_expired",
-            "expired_at": expires_at,
-        }),
-    };
+    state = serde_json::json!({
+        "controller": "unclaimed",
+        "reason": "owner_lease_expired",
+        "expired_at": expires_at,
+    });
     state
 }
 
@@ -2021,6 +2211,7 @@ pub async fn write_browser_control(company: &str, state: &serde_json::Value) -> 
             String::from_utf8_lossy(&output.stderr).trim()
         );
     }
+    publish_browser_control(company, Some(state.clone())).await;
     Ok(())
 }
 
@@ -2505,36 +2696,6 @@ mod tests {
     };
 
     #[test]
-    fn unconfigured_company_round_trips_without_inventing_a_model_route() {
-        let root = std::env::temp_dir().join(format!(
-            "restless-unconfigured-company-{}",
-            uuid::Uuid::new_v4()
-        ));
-        std::fs::create_dir_all(root.join("companies")).unwrap();
-        let config: CompanyConfig = toml::from_str(
-            r#"name = "unconfigured_test"
-mission = "Choose intelligence later"
-"#,
-        )
-        .unwrap();
-        assert_eq!(config.configured_model(), None);
-        assert!(!config.has_configured_model_route());
-        assert!(config.model_candidates().unwrap().is_empty());
-        assert_eq!(config.for_agent("exec").configured_model(), None);
-        CompanyConfig::save(&root, &config).unwrap();
-        let persisted =
-            std::fs::read_to_string(root.join("companies/unconfigured_test.toml")).unwrap();
-        assert!(!persisted.lines().any(|line| line.starts_with("model =")));
-        let restored = CompanyConfig::load(&root, "unconfigured_test").unwrap();
-        assert_eq!(restored.configured_model(), None);
-        assert!(restored.model_candidates().unwrap().is_empty());
-        let mut invalid = restored;
-        invalid.model_failover.push("openai/gpt-5".into());
-        assert!(invalid.model_candidates().is_err());
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
     fn legacy_unconfigured_sentinel_round_trips_without_becoming_a_model_route() {
         let root = std::env::temp_dir().join(format!(
             "restless-legacy-unconfigured-company-{}",
@@ -2881,7 +3042,7 @@ outcome_standard = "frontier"
     }
 
     #[test]
-    fn an_expired_owner_lease_returns_to_its_requester() {
+    fn an_expired_owner_lease_becomes_unclaimed() {
         let state = serde_json::json!({
             "controller": "owner",
             "client_id": "owner-tab",
@@ -2889,8 +3050,7 @@ outcome_standard = "frontier"
             "expires_at": "2000-01-01T00:00:00Z",
         });
         let normalized = normalize_expired_browser_control(state);
-        assert_eq!(normalized["controller"], "agent");
-        assert_eq!(normalized["session_id"], "exec/session-7");
+        assert_eq!(normalized["controller"], "unclaimed");
         assert_eq!(normalized["reason"], "owner_lease_expired");
     }
 
@@ -2903,6 +3063,34 @@ outcome_standard = "frontier"
             "expires_at": "2999-01-01T00:00:00Z",
         });
         assert_eq!(normalize_expired_browser_control(state.clone()), state);
+    }
+
+    #[test]
+    fn custom_harness_assignment_preserves_native_model_ids_and_actor_independence() {
+        let config: CompanyConfig = toml::from_str(
+            r#"
+name = "custom_route_test"
+mission = "test"
+model = "openai/existing"
+[agent_intelligence.alice]
+connection = "harness:custom:hermes"
+model = "custom:local:vendor/model"
+"#,
+        )
+        .unwrap();
+        let alice = config.for_agent("alice");
+        assert_eq!(alice.worker_harness, AgentHarness::CustomAcp);
+        assert_eq!(
+            alice.native_model(AgentHarness::CustomAcp).as_deref(),
+            Some("native-custom-hermes/custom:local:vendor/model")
+        );
+        assert_eq!(alice.reasoning_effort, "default");
+        alice.validate_harness_models().unwrap();
+        assert_eq!(config.for_agent("exec").model, "openai/existing");
+        assert_eq!(
+            crate::custom_harness::split_model(&alice.model).unwrap(),
+            ("hermes", "custom:local:vendor/model")
+        );
     }
 
     #[test]
@@ -2942,16 +3130,22 @@ model = "claude-sonnet-4-6"
         let restored: CompanyConfig = toml::from_str(&toml::to_string(&config).unwrap()).unwrap();
         assert_eq!(restored.for_agent("alice").model, alice.model);
         let mut config = config;
-        config.agent_intelligence.insert("default".into(), super::AgentIntelligence {
-            connection: "direct:anthropic".into(), model: "claude-sonnet-4-6".into(),
-        });
+        config.agent_intelligence.insert(
+            "default".into(),
+            super::AgentIntelligence {
+                connection: "direct:anthropic".into(),
+                model: "claude-sonnet-4-6".into(),
+            },
+        );
         assert_eq!(config.for_agent("bob").model, "anthropic/claude-sonnet-4-6");
         assert_eq!(config.for_agent("exec").model, "openai/gpt-5.4");
         config.agent_intelligence.remove("exec");
         let inherited = config.for_agent("exec");
-        assert_eq!(inherited.agent_preference("exec", Some("openai/gpt-5.6-terra")), Some("anthropic/claude-sonnet-4-6"));
+        assert_eq!(
+            inherited.agent_preference("exec", Some("openai/gpt-5.6-terra")),
+            Some("anthropic/claude-sonnet-4-6")
+        );
         assert!(inherited.model_failover.is_empty());
-
     }
 
     #[test]
@@ -2974,6 +3168,39 @@ model_failover = ["anthropic/claude-haiku-4-5", "zai/glm-5"]
         );
         config.model_failover.push("moonshot/kimi-k3".into());
         assert!(config.model_candidates().is_err());
+    }
+
+    #[test]
+    fn unconfigured_company_round_trips_without_inventing_a_model_route() {
+        let root = std::env::temp_dir().join(format!(
+            "restless-unconfigured-company-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(root.join("companies")).unwrap();
+        let config: CompanyConfig = toml::from_str(
+            r#"name = "unconfigured_test"
+mission = "Choose intelligence later"
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(config.configured_model(), None);
+        assert!(!config.has_configured_model_route());
+        assert!(config.model_candidates().unwrap().is_empty());
+        assert_eq!(config.for_agent("exec").configured_model(), None);
+        CompanyConfig::save(&root, &config).unwrap();
+
+        let persisted =
+            std::fs::read_to_string(root.join("companies").join("unconfigured_test.toml")).unwrap();
+        assert!(!persisted.lines().any(|line| line.starts_with("model =")));
+        let restored = CompanyConfig::load(&root, "unconfigured_test").unwrap();
+        assert_eq!(restored.configured_model(), None);
+        assert!(restored.model_candidates().unwrap().is_empty());
+
+        let mut invalid = restored;
+        invalid.model_failover.push("openai/gpt-5".into());
+        assert!(invalid.model_candidates().is_err());
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

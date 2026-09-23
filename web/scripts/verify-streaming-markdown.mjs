@@ -26,7 +26,7 @@ const srv = http.createServer((req, res) => {
 await new Promise((r) => srv.listen(0, '127.0.0.1', r));
 let b;
 try {
-	b = await chromium.launch({ headless: true });
+	b = await chromium.launch({ headless: true, executablePath: process.env.RESTLESS_TEST_CHROMIUM });
 	const p = await b.newPage({ viewport: { width: 1440, height: 1000 } });
 	let errors = [];
 	p.on('pageerror', (e) => errors.push(e.message));
@@ -70,7 +70,7 @@ try {
 	while (!streams.length && Date.now() < deadline) await p.waitForTimeout(100);
 	assert(streams.length, 'EventSource did not connect');
 	let seq = 0;
-	const send = (reply, phase = 'responding') => {
+	const send = (reply, phase = 'responding', updatedAt = now) => {
 		const state = {
 			streamId: 'fixture',
 			sequence: ++seq,
@@ -83,7 +83,7 @@ try {
 			reply,
 			activity: [],
 			startedAt: now,
-			updatedAt: now,
+			updatedAt,
 			contextUsage: { used: 120000, size: 200000 },
 			generatedOutputTokens: 12000
 		};
@@ -186,6 +186,47 @@ try {
 	console.log(
 		'PASS: partial table and open code fence; stable DOM across incremental updates and long replies; code highlighting/copy; raw HTML and unsafe URLs blocked; normal links preserved.'
 	);
+	// Exercise real layout/events while chunks arrive in both scrolling surfaces.
+	async function checkFollow(selector, label) {
+		await p.waitForFunction((selector) => {
+			const e = document.querySelector(selector);
+			return (
+				e &&
+				e.scrollHeight > e.clientHeight + 200 &&
+				e.scrollHeight - e.clientHeight - e.scrollTop < 3
+			);
+		}, selector);
+		const paused = await p.locator(selector).evaluate((e) => {
+			e.dispatchEvent(new WheelEvent('wheel', { deltaY: -250 }));
+			e.scrollTop -= 250;
+			return e.scrollTop;
+		});
+		await p.waitForTimeout(100);
+		send(long + `Paused ${label}`);
+		await p.getByText(`Paused ${label}`, { exact: true }).waitFor();
+		await p.waitForTimeout(150);
+		assert(
+			Math.abs((await p.locator(selector).evaluate((e) => e.scrollTop)) - paused) < 3,
+			`${label} pulled the reader back down during streaming`
+		);
+		await p.locator(selector).evaluate((e) => {
+			e.scrollTop = e.scrollHeight;
+		});
+		await p.waitForTimeout(100);
+		send(long + `Resumed ${label}\n\nNew paragraph after returning to the end.`);
+		await p.getByText(`Resumed ${label}`, { exact: true }).waitFor();
+		await p.waitForFunction((selector) => {
+			const e = document.querySelector(selector);
+			return e.scrollHeight - e.clientHeight - e.scrollTop < 3;
+		}, selector);
+	}
+	await checkFollow('.exr-msgs', 'transcript');
+	await p.locator('.turn-summary').click();
+	await checkFollow('.turn-body', 'activity');
+	await p.locator('.turn-summary').click();
+	console.log(
+		'PASS: streaming follows the end, pauses for reading history, and resumes in transcript and expanded activity.'
+	);
 	const seam = p.locator('.bridge-body > .pane-resizer');
 	await seam.focus();
 	await p.keyboard.press('Home');
@@ -218,8 +259,29 @@ try {
 	assert.equal(await p.locator('.turn-summary').getAttribute('aria-expanded'), 'true');
 	assert.equal(await p.locator('.visible-reply').count(), 0);
 	await p.locator('.turn-summary').click();
+	// A terminal frame remains correct even before the durable reply catches up.
+	const finishedAt = new Date(new Date(now).getTime() + 7000).toISOString();
+	send(finalReply, 'failed', finishedAt);
+	await p.waitForTimeout(250);
+	assert.equal(await p.locator('.turn-status').innerText(), 'Reply interrupted');
+	assert.equal(await p.locator('.turn-summary time').innerText(), '7s');
+	await p.waitForTimeout(2200);
+	assert.equal(await p.locator('.turn-summary time').innerText(), '7s');
+	send(finalReply, 'complete', finishedAt);
+	await p.waitForTimeout(250);
+	assert.equal(await p.locator('.turn-status').innerText(), 'Exec finished replying');
+	assert.equal(await p.locator('.pixel-glimmer, .turn-status.shimmer').count(), 0);
+	// Connection closure must not replace a completed state with "Reconnecting".
+	for (const stream of [...streams]) stream.end();
+	await p.waitForTimeout(2200);
+	assert.equal(await p.locator('.turn-status').innerText(), 'Exec finished replying');
+	assert.equal(await p.locator('.turn-summary time').innerText(), '7s');
 	done = true;
-	send(finalReply, 'complete');
+	const reconnected = Date.now() + 10000;
+	while (!streams.length && Date.now() < reconnected) await p.waitForTimeout(100);
+	assert(streams.length, 'EventSource did not reconnect after terminal frame');
+	send(finalReply, 'complete', finishedAt);
+
 	await p.waitForTimeout(1000);
 	assert.equal(await p.locator('.visible-reply').count(), 0);
 	assert.equal(
@@ -229,13 +291,15 @@ try {
 			.count(),
 		1
 	);
+	await p.screenshot({ path: '../../work/browser/exec-completed-desktop.png' });
 	await p.setViewportSize({ width: 390, height: 844 });
 	await p.waitForTimeout(200);
 	assert(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
 	assert.equal(await p.getByRole('separator').count(), 0);
+	await p.screenshot({ path: '../../work/browser/exec-completed-mobile.png' });
 	assert.deepEqual(errors, []);
 	console.log(
-		'PASS: real EventSource partial chunks visible before completion; collapsed tools; one durable final reply; long code/table fits narrow rail; pointer resize; mobile fits.'
+		'PASS: terminal durations frozen for success/failure, completion survives disconnect; real EventSource partial chunks visible before completion; collapsed tools; one durable final reply; long code/table fits narrow rail; pointer resize; mobile fits.'
 	);
 } finally {
 	for (const c of b?.contexts() ?? [])

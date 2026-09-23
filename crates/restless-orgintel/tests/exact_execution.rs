@@ -1055,6 +1055,10 @@ async fn removed_human_input_is_not_admitted_and_other_humans_remain_owed() {
         .consume_human_access_context(bind("bob", "membership-bob"))
         .await
         .unwrap();
+    // Exec has already read the two join announcements; only human input remains.
+    for announcement in org.inbox(Some("exec")).await.unwrap() {
+        org.mark_read(announcement.id).await.unwrap();
+    }
     let (alice_message, _) = org
         .send_human_conversation_message(&alice.actor_id, "exec", "Alice queued", false)
         .await
@@ -1146,6 +1150,10 @@ async fn owner_role_change_fences_the_captured_turn_before_finalization() {
         .consume_human_access_context(access("owner", 1))
         .await
         .unwrap();
+    // Exec has already read the join announcement; only human input remains.
+    for announcement in org.inbox(Some("exec")).await.unwrap() {
+        org.mark_read(announcement.id).await.unwrap();
+    }
     let (message_id, _) = org
         .send_human_conversation_message(&alice.actor_id, "exec", "owner direction", false)
         .await

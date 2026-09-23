@@ -33,6 +33,8 @@ use agent_client_protocol::{
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
+#[cfg(test)]
+use tokio::io::AsyncReadExt as _;
 use tokio::io::AsyncWriteExt as _;
 use tokio_util::compat::{TokioAsyncReadCompatExt as _, TokioAsyncWriteCompatExt as _};
 use tokio_util::sync::CancellationToken;
@@ -176,6 +178,7 @@ fn session_locator_is_reusable(
         && locator.model == model
         && locator.effort == effort
         && load_session_available
+        && profile.harness != crate::runtime::AgentHarness::CustomAcp
 }
 
 pub(crate) const AGENT_CONFIG_DIR: &str = "/company/home/.restless/omp-agent";
@@ -192,7 +195,8 @@ impl AcpProfile {
     fn new(harness: crate::runtime::AgentHarness) -> Result<Self> {
         match harness {
             crate::runtime::AgentHarness::RestlessManaged
-            | crate::runtime::AgentHarness::ClaudeAgent => Ok(Self { harness }),
+            | crate::runtime::AgentHarness::ClaudeAgent
+            | crate::runtime::AgentHarness::CustomAcp => Ok(Self { harness }),
             crate::runtime::AgentHarness::Codex => {
                 anyhow::bail!("Codex uses its native App Server transport, not ACP")
             }
@@ -203,6 +207,7 @@ impl AcpProfile {
         match self.harness {
             crate::runtime::AgentHarness::RestlessManaged => AGENT_CONFIG_DIR,
             crate::runtime::AgentHarness::ClaudeAgent => CLAUDE_AGENT_CONFIG_DIR,
+            crate::runtime::AgentHarness::CustomAcp => "/company/home/.restless/custom-harnesses",
             crate::runtime::AgentHarness::Codex => unreachable!(),
         }
     }
@@ -220,7 +225,8 @@ impl AcpProfile {
             crate::runtime::AgentHarness::ClaudeAgent => {
                 Some(crate::model_gateway::ANTHROPIC_TARIFF_VERSION)
             }
-            crate::runtime::AgentHarness::RestlessManaged => None,
+            crate::runtime::AgentHarness::RestlessManaged
+            | crate::runtime::AgentHarness::CustomAcp => None,
             crate::runtime::AgentHarness::Codex => unreachable!(),
         }
     }
@@ -233,6 +239,7 @@ impl AcpProfile {
         match self.harness {
             crate::runtime::AgentHarness::RestlessManaged => OMP_AGENT_TOOLS.split(',').collect(),
             crate::runtime::AgentHarness::ClaudeAgent => CLAUDE_AGENT_TOOLS.to_vec(),
+            crate::runtime::AgentHarness::CustomAcp => Vec::new(),
             crate::runtime::AgentHarness::Codex => unreachable!(),
         }
     }
@@ -240,6 +247,11 @@ impl AcpProfile {
     fn session_model(self, provider_model: &str) -> Result<String> {
         match self.harness {
             crate::runtime::AgentHarness::RestlessManaged => Ok(provider_model.to_string()),
+            crate::runtime::AgentHarness::CustomAcp => {
+                Ok(crate::custom_harness::split_model(provider_model)?
+                    .1
+                    .to_string())
+            }
             crate::runtime::AgentHarness::ClaudeAgent => provider_model
                 .strip_prefix("anthropic/")
                 .or_else(|| provider_model.strip_prefix("native-claude-oauth/"))
@@ -261,6 +273,15 @@ impl AcpProfile {
                 omp_agent_command_args(model, effort, system_prompt)
             }
             crate::runtime::AgentHarness::ClaudeAgent => vec!["claude-agent-acp".to_string()],
+            crate::runtime::AgentHarness::CustomAcp => vec![
+                "node".into(),
+                "/company/run/custom-harness-control/run.mjs".into(),
+                crate::custom_harness::split_model(model)
+                    .expect("validated custom model")
+                    .0
+                    .into(),
+                system_prompt.into(),
+            ],
             crate::runtime::AgentHarness::Codex => unreachable!(),
         }
     }
@@ -717,6 +738,9 @@ pub(crate) async fn prepare_agent_runtime(
 ) -> Result<()> {
     let profile = AcpProfile::new(harness)?;
     profile.session_model(&auth.model)?;
+    if harness == crate::runtime::AgentHarness::CustomAcp {
+        return Ok(());
+    }
     if harness == crate::runtime::AgentHarness::RestlessManaged {
         let config = crate::model_gateway::models_config(
             &auth.model,
@@ -1492,6 +1516,7 @@ where
                 }
             )
         }
+        crate::runtime::AgentHarness::CustomAcp => "RESTLESS_CUSTOM_HARNESS=1".into(),
         crate::runtime::AgentHarness::Codex => unreachable!(),
     });
     args.push("-e".to_string());
@@ -1514,11 +1539,18 @@ where
     // host process listings during session bootstrap.
     if auth.model.starts_with("native-claude-") {
         args.push(auth.gateway_token_env.clone());
-        for value in ["ANTHROPIC_AUTH_TOKEN=", "CLAUDE_CODE_OAUTH_TOKEN=", "ANTHROPIC_BASE_URL=https://api.anthropic.com"] {
+        for value in [
+            "ANTHROPIC_AUTH_TOKEN=",
+            "CLAUDE_CODE_OAUTH_TOKEN=",
+            "ANTHROPIC_BASE_URL=https://api.anthropic.com",
+        ] {
             args.push("-e".into());
             args.push(value.into());
         }
-        if auth.model.starts_with("native-claude-oauth/") {args.push("-e".into());args.push("ANTHROPIC_API_KEY=".into());}
+        if auth.model.starts_with("native-claude-oauth/") {
+            args.push("-e".into());
+            args.push("ANTHROPIC_API_KEY=".into());
+        }
     } else if harness == crate::runtime::AgentHarness::ClaudeAgent {
         args.push("ANTHROPIC_AUTH_TOKEN".to_string());
         for value in [
@@ -1549,16 +1581,19 @@ where
         .map(|arg| (*arg).to_string()),
     );
     args.extend(profile.command_args(&auth.model, &auth.effort, &system_prompt_path));
-    let spawned = tokio::process::Command::new("docker")
+    let mut command = tokio::process::Command::new("docker");
+    command
         .env(&auth.coordination_token_env, &auth.coordination_token)
         .env(&auth.gateway_token_env, &auth.gateway_token)
         .env("ANTHROPIC_AUTH_TOKEN", &auth.gateway_token)
         .args(&args)
         .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .kill_on_drop(true)
-        .spawn();
+        .stdout(Stdio::piped());
+    #[cfg(test)]
+    command.stderr(Stdio::piped());
+    #[cfg(not(test))]
+    command.stderr(Stdio::null());
+    let spawned = command.kill_on_drop(true).spawn();
     let mut child = match spawned {
         Ok(child) => child,
         Err(error) => {
@@ -1568,6 +1603,19 @@ where
                 .await;
             return Err(error).context("spawn ACP agent in container");
         }
+    };
+    #[cfg(test)]
+    let stderr_task = {
+        let stderr = child.stderr.take().expect("piped stderr");
+        let coordination_token = auth.coordination_token.clone();
+        let gateway_token = auth.gateway_token.clone();
+        tokio::spawn(async move {
+            let mut bytes = Vec::new();
+            let _ = stderr.take(64 * 1024).read_to_end(&mut bytes).await;
+            String::from_utf8_lossy(&bytes)
+                .replace(&coordination_token, "[REDACTED]")
+                .replace(&gateway_token, "[REDACTED]")
+        })
     };
     let stdin = child.stdin.take().expect("piped stdin");
     let stdout = child.stdout.take().expect("piped stdout");
@@ -1802,6 +1850,8 @@ where
                                     "reasoning effort changed from {} to {}; prior provider session is not reusable",
                                     prior.effort, launch_auth.effort
                                 )
+                            } else if launch_profile.harness == crate::runtime::AgentHarness::CustomAcp {
+                                "Custom harness session is reconstructed with current launch settings".to_string()
                             } else {
                                 "ACP agent does not advertise session/load".to_string()
                             };
@@ -1949,7 +1999,7 @@ where
                     "mcp_server_count": mcp_server_count,
                     "session_load": initialized.agent_capabilities.load_session,
                     "model_selection": "exact",
-                    "effort_selection": if launch_profile.harness == crate::runtime::AgentHarness::ClaudeAgent { "exact_acp" } else { "exact_process_flag" },
+                    "effort_selection": if launch_profile.harness == crate::runtime::AgentHarness::CustomAcp { "harness_default" } else if launch_profile.harness == crate::runtime::AgentHarness::ClaudeAgent { "exact_acp" } else { "exact_process_flag" },
                     "permission_mode": if launch_profile.harness == crate::runtime::AgentHarness::ClaudeAgent { "default_reasserted" } else { "runtime_sandbox" },
                     "tariff_version": if launch_auth.model.starts_with("native-") {None} else {launch_profile.tariff_version()},
                 });
@@ -2000,6 +2050,8 @@ where
 
     let owned_session = read_session_id(container, &session_marker).await;
     let _ = child.kill().await;
+    #[cfg(test)]
+    let test_stderr = stderr_task.await.unwrap_or_default();
     let process_cleanup = if let Some(session_id) = owned_session {
         let _ = reap_session(container, &session_id).await;
         verify_session_reaped(container, &session_id).await
@@ -2008,12 +2060,20 @@ where
             "agent session ownership marker {session_marker} is missing; broad process cleanup was refused"
         ))
     };
+    let profile_root = if harness == crate::runtime::AgentHarness::CustomAcp {
+        format!(
+            "{}/{}",
+            profile.config_dir(),
+            crate::custom_harness::split_model(&auth.model)?.0
+        )
+    } else {
+        profile.config_dir().to_string()
+    };
     let secret_cleanup = async {
         if !auth.model.starts_with("native-") {
-            purge_exact_secret_residue(container, profile.config_dir(), &auth.gateway_token)
-                .await?;
+            purge_exact_secret_residue(container, &profile_root, &auth.gateway_token).await?;
         }
-        purge_exact_secret_residue(container, profile.config_dir(), &auth.coordination_token).await
+        purge_exact_secret_residue(container, &profile_root, &auth.coordination_token).await
     }
     .await;
     let artifact_cleanup = remove_and_verify_session_artifacts(
@@ -2029,6 +2089,12 @@ where
                     "agent failed and terminal cleanup also failed: {cleanup:#}"
                 );
             }
+            #[cfg(test)]
+            let error = if test_stderr.trim().is_empty() {
+                error
+            } else {
+                error.context(format!("ACP test stderr: {}", test_stderr.trim()))
+            };
             return Err(error);
         }
     }
@@ -2052,6 +2118,13 @@ pub(crate) fn agent_exec_prefix(workdir: &str) -> Vec<String> {
         workdir.to_string(),
         "-e".to_string(),
         "NO_BROWSER=1".to_string(),
+        // Agents share the company desktop for ordinary GUI-capable tools.
+        // NO_BROWSER fences the supported browser route, but DISPLAY is a
+        // desktop capability rather than a browser-control guarantee.
+        "-e".to_string(),
+        "DISPLAY=:1".to_string(),
+        "-e".to_string(),
+        "PATH=/company/home/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin".to_string(),
     ]
     .to_vec();
     if workdir.starts_with("/company/reviews/") {
@@ -2137,10 +2210,9 @@ pub(crate) async fn purge_exact_secret_residue(
             "-e",
             "RESTLESS_PURGE_SECRET",
             container,
-            "sh",
+            "python3",
             "-c",
-            "set -eu; root=$1; test -d \"$root\" || exit 0; find \"$root\" -type f -size -4194304c -exec sh -c 'for file do if grep -qF -- \"$RESTLESS_PURGE_SECRET\" \"$file\"; then : > \"$file\"; fi; done' sh {} +; ! grep -RIlF -- \"$RESTLESS_PURGE_SECRET\" \"$root\" >/dev/null 2>&1",
-            "restless-purge-capability",
+            include_str!("purge_capability.py"),
             profile_root,
         ])
         .output()

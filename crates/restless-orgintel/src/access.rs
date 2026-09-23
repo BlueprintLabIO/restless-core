@@ -34,6 +34,23 @@ pub struct HumanPrincipalActorBinding {
     pub membership_id: String,
     pub membership_role: String,
     pub membership_version: i64,
+    /// This entry bound the company's first network owner to the existing
+    /// local `owner` Actor (ADR 0012 §5). Authority records it once.
+    pub owner_claimed: bool,
+}
+
+/// One human with company access, as Core has verified it. Membership itself
+/// is issuer-owned; this is the projection Core holds for attribution.
+#[derive(Debug, Clone, Serialize)]
+pub struct HumanMemberRow {
+    pub actor_id: String,
+    pub display: String,
+    pub membership_id: String,
+    pub membership_role: String,
+    pub membership_status: String,
+    pub membership_version: i64,
+    pub first_verified_at: DateTime<Utc>,
+    pub last_verified_at: DateTime<Utc>,
 }
 
 pub const MEMBERSHIP_CONTROL_CONTRACT_VERSION: u32 = 1;
@@ -522,6 +539,7 @@ impl OrgIntel {
         .fetch_optional(&mut *tx)
         .await?;
 
+        let mut owner_claimed = false;
         let actor_id = if let Some((
             actor_id,
             prior_membership_id,
@@ -574,14 +592,58 @@ impl OrgIntel {
                 Err(error) => return Err(error.into()),
             }
         } else {
-            let actor_id = format!("human-{}", Uuid::new_v4().simple());
-            sqlx::query(
-                "INSERT INTO actors (id,kind,actor_class,role,display) \
-                 VALUES ($1,'human','human','company-member','Company member')",
-            )
-            .bind(&actor_id)
-            .execute(&mut *tx)
-            .await?;
+            // The company's first network owner is the owner it already has:
+            // bind them to the local `owner` Actor so its history, documents and
+            // conversations stay theirs. Only one principal can ever claim it,
+            // and a later owner is an ordinary new colleague.
+            let claimable_owner = context.membership_role == "owner"
+                && sqlx::query_scalar::<_, bool>(
+                    "SELECT EXISTS (SELECT 1 FROM actors WHERE id='owner' AND retired_at IS NULL) \
+                     AND NOT EXISTS (SELECT 1 FROM human_principal_actor_bindings \
+                                     WHERE actor_id='owner' OR membership_role='owner')",
+                )
+                .fetch_one(&mut *tx)
+                .await?;
+            let actor_id = if claimable_owner {
+                owner_claimed = true;
+                "owner".to_string()
+            } else {
+                let actor_id = format!("human-{}", Uuid::new_v4().simple());
+                sqlx::query(
+                    "INSERT INTO actors (id,kind,actor_class,role,display) \
+                     VALUES ($1,'human','human','company-member','Company member')",
+                )
+                .bind(&actor_id)
+                .execute(&mut *tx)
+                .await?;
+                // Tell Exec once, in the same transaction, so a new colleague
+                // is never admitted without the organisation hearing of it.
+                let exec_exists: bool =
+                    sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM actors WHERE id='exec')")
+                        .fetch_one(&mut *tx)
+                        .await?;
+                if exec_exists {
+                    let name = display_name.unwrap_or("A new colleague");
+                    let body = format!(
+                        "{name} just joined the company as a {role} (Actor {actor_id}). \
+                         Membership grants company access only, not Authority or a responsibility. \
+                         Give them a place in the organisation, or ask the owner what they are here for \
+                         if that is not already clear.",
+                        role = context.membership_role,
+                    );
+                    let room_id =
+                        ensure_direct_message_room_in_tx(&mut tx, "daemon", Some("exec")).await?;
+                    sqlx::query(
+                        "INSERT INTO messages (room_id,from_actor,to_actor,body) \
+                         VALUES ($1,'daemon','exec',$2)",
+                    )
+                    .bind(room_id)
+                    .bind(&body)
+                    .execute(&mut *tx)
+                    .await?;
+                }
+                actor_id
+            };
             let inserted = sqlx::query(
                 "INSERT INTO human_principal_actor_bindings \
                  (issuer,subject,company_id,actor_id,membership_id,membership_role, \
@@ -648,7 +710,45 @@ impl OrgIntel {
             membership_id: context.membership_id.to_string(),
             membership_role: context.membership_role.to_string(),
             membership_version: context.membership_version,
+            owner_claimed,
         })
+    }
+
+    /// Humans who have entered this company, newest access state first.
+    pub async fn human_members(&self) -> Result<Vec<HumanMemberRow>> {
+        Ok(sqlx::query_as::<_, (String, String, String, String, String, i64, DateTime<Utc>, DateTime<Utc>)>(
+            "SELECT binding.actor_id, actor.display, binding.membership_id, \
+                    binding.membership_role, binding.membership_status, binding.membership_version, \
+                    binding.first_verified_at, binding.last_verified_at \
+             FROM human_principal_actor_bindings binding \
+             JOIN actors actor ON actor.id=binding.actor_id \
+             ORDER BY (binding.membership_status='active') DESC, actor.display ASC",
+        )
+        .fetch_all(&self.pool)
+        .await?
+        .into_iter()
+        .map(
+            |(
+                actor_id,
+                display,
+                membership_id,
+                membership_role,
+                membership_status,
+                membership_version,
+                first_verified_at,
+                last_verified_at,
+            )| HumanMemberRow {
+                actor_id,
+                display,
+                membership_id,
+                membership_role,
+                membership_status,
+                membership_version,
+                first_verified_at,
+                last_verified_at,
+            },
+        )
+        .collect())
     }
 
     /// Apply one signed terminal membership state and persist its exact retry

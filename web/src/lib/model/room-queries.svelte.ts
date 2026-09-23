@@ -7,6 +7,7 @@ import {
 } from './room-deep-link';
 import {
 	editRoomMessagePages,
+	getRecentDirectConversations,
 	getRoomEventSnapshot,
 	getRoomMessageRevisions,
 	getRoomMessages,
@@ -37,6 +38,7 @@ const ROOM_REFRESH_MS = 15_000;
 
 export const roomQueryKeys = {
 	list: (company: string) => ['rooms', company] as const,
+	recentDirect: (company: string) => ['recent-direct-conversations', company] as const,
 	roomSearch: (company: string, search: string) => ['room-search', company, search] as const,
 	messageSearch: (company: string, search: string) =>
 		['room-message-search', company, search] as const,
@@ -48,6 +50,30 @@ export const roomQueryKeys = {
 	participants: (company: string, room: string) => ['room-participants', company, room] as const,
 	readCursor: (company: string, room: string) => ['room-read-cursor', company, room] as const
 };
+
+export function recentDirectConversationsQuery(companyId: string, enabled: () => boolean) {
+	const query = createQuery(() => ({
+		queryKey: roomQueryKeys.recentDirect(companyId),
+		queryFn: () => getRecentDirectConversations(companyId),
+		enabled: enabled(),
+		staleTime: ROOM_STALE_MS,
+		gcTime: ROOM_RETAIN_MS,
+		refetchInterval: ROOM_REFRESH_MS,
+		refetchIntervalInBackground: true,
+		retry: 1
+	}));
+	return {
+		get conversations() {
+			return query.data ?? [];
+		},
+		get status() {
+			return sourceStatus(query);
+		},
+		get failure() {
+			return (query.error as (Error & { status?: number }) | null) ?? null;
+		}
+	};
+}
 
 function sourceStatus(query: {
 	data?: unknown;
@@ -545,6 +571,7 @@ export function roomActivityStream(companyId: string, roomId: string) {
 
 	const invalidate = async (event?: RoomEvent): Promise<void> => {
 		await client.invalidateQueries({ queryKey: roomQueryKeys.messages(companyId, roomId) });
+		await client.invalidateQueries({ queryKey: roomQueryKeys.recentDirect(companyId) });
 		if (event?.message_id) {
 			await client.invalidateQueries({
 				/* A reply event carries the reply id, not its root. Revalidate every

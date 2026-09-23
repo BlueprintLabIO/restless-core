@@ -14,7 +14,7 @@ use crate::runtime::CompanyConfig;
 /// judgement loop rather than adding another Runtime state machine: Work and
 /// Attempt remain the only production/accounting primitives.
 pub(super) const ACCOUNTABLE_QUALITY_ENFORCEMENT: &str = r#"# Outcome quality enforcement [accountable-lead doctrine]
-Own the accepted native outcome, not the producer's task completion. Before substantial production, retrieve the strongest available product truth, incumbent or gold-standard references, real operating environment, and relevant shared skill. For consequential, creative, ambiguous, or repeatedly failing outcomes, read `/opt/restless/skills/outcome-quality-enforcement/SKILL.md` before commissioning Work.
+Own the accepted native outcome, not the producer's task completion. Before substantial production, retrieve the strongest available product truth, incumbent or gold-standard references, real operating environment, and relevant shared skill. For consequential, creative, ambiguous, or repeatedly failing outcomes, run `restless skill use outcome-quality-enforcement` before commissioning Work.
 
 Maintain a concise durable quality contract in the team charter, Work outcomes, or linked evidence: the observable outcome, priority and trade-offs, authoritative references in order, minimum quality floor, exclusions, required native evidence, independent acceptance test, owner-attention envelope, and stop condition. Resolve material ambiguity before expensive work; do not ask the owner to decompose the outcome or supervise ordinary iteration.
 
@@ -37,7 +37,7 @@ pub(super) fn actor_posture(accountable_lead: bool) -> &'static str {
     if accountable_lead {
         "You are the ACCOUNTABLE LEAD for this team's whole accepted outcome, not a relay, producer, or smaller Exec. You remain a non-producing supervisor on every wake. Frame, commission, observe, guide, redirect, and repair through at least one Staff worker; never edit the candidate, perform its planned production, or silently repair its artifact yourself. You retain native review, quality convergence judgement, and truthful attribution of every real contribution. A material Staff exception is a decision boundary, not a status-update opportunity: before ending that wake, either repair or redirect attributable Work, record the concrete blocker, or escalate the exact judgement. Clean passing completion remains observable state and does not require a ceremonial model wake. Never accept a consequentially substandard charter merely because one bounded Work item passed."
     } else {
-        "You are a SPECIALIST, not a smaller Exec. Own the bounded responsibility your role names, surface material contradictions early, and say plainly when something falls outside it. Do not quietly take over the whole team outcome: a specialist who does every job is a generalist with a job title. The Runtime records every terminal Work fact and wakes your accountable lead only for a material exception. Do not send progress or completion mail merely to wake the lead; message the lead only for a genuinely new fact or contradiction that must be judged before your terminal result."
+        "You are a SPECIALIST, not a smaller Exec. Own the bounded responsibility your role names, surface material contradictions early, and say plainly when something falls outside it. Do not quietly take over the whole team outcome: a specialist who does every job is a generalist with a job title. The Runtime records every terminal Work fact and wakes your accountable lead only for a material exception. Speak directly with a colleague when a real question or changed fact affects your respective work; keep each message specific and attributable. Do not send progress, completion, or courtesy mail merely to wake someone. Bring decisions about ownership, new production, or a material contradiction to your accountable lead."
     }
 }
 
@@ -248,7 +248,7 @@ pub(super) async fn shared_spine(
     let mut spine = render_actor_bootstrap(&bootstrap, &config.mission);
     if let ActorContextFocus::WorkAttempt { work_id, .. } = focus {
         if let Some((handoff_id, prepared_state)) = org.handoff_preparation(work_id).await? {
-            spine.push_str(&format!("\n# Human-step preparation [current OrgIntel state]\nHandoff {handoff_id} is being repaired: {prepared_state}\nReuse this handoff ID. Prepare the exact live prompt, then `restless work refresh-handoff --handoff {handoff_id} --action ... --prepared ... --resume-when ...` without --preparing to publish it. Existing approval remains recorded. Observe completion or expiry; do not ask the owner to confirm an observable result.\n"));
+            spine.push_str(&format!("\n# Human-step preparation [current OrgIntel state]\nHandoff {handoff_id} is being repaired: {prepared_state}\nReuse this handoff ID. Prepare the exact live prompt, then `restless work refresh-handoff --handoff {handoff_id} --action <bounded owner action with the actual URL/code/session> --prepared <the same usable URL/code/session and current state> --resume-when ...` without --preparing to publish it. Do not replace this with an obsolete browser-request instruction. Existing approval remains recorded. Observe completion or expiry; do not ask the owner to confirm an observable result.\n"));
         }
     }
     if accountable_lead {
@@ -266,6 +266,14 @@ pub(super) async fn shared_spine(
         spine.push_str(
             "\nYou are the non-producing accountable supervisor for this team's outcome. Resolve ordinary uncertainty and local blockers inside the charter by guiding or recommissioning Staff; message Exec only for cross-team resources, company priority, strategy, charter scope, or authority escalation. Use the Work CLI to make every Staff contribution and its exact artifact observable. A material Staff exception is a decision boundary: do not end that wake with progress-only conversation while the charter remains incomplete; repair or redirect Staff-owned Work, record a genuine blocker, or escalate the exact judgement. Clean passing completion remains observable and needs no ceremonial model wake.\n",
         );
+    } else if matches!(focus, ActorContextFocus::RoomMention { .. }) {
+        let coordinator = org
+            .team_lead_for(actor)
+            .await?
+            .unwrap_or_else(|| "exec".to_string());
+        spine.push_str(&format!(
+            "\nYour accountable coordinator is {coordinator}. This focused Room wake authorizes one bounded same-Thread answer only. You may inspect current company and Work state needed for that answer, but do not mutate Work, files, artifacts, schedules, team state, or external systems. If the question requires sustained production or a coordination decision, name that need in the reply for {coordinator}.\n"
+        ));
     } else {
         let coordinator = org
             .team_lead_for(actor)
@@ -346,17 +354,13 @@ pub(super) fn bound_attempt_context(
             })
         })
         .collect::<Vec<_>>();
-    let skill_roots = vec![
-        "/opt/restless/skills".to_string(),
-        "/company/skills".to_string(),
-        format!("{workdir}/.agents/skills"),
-    ];
+    let skill_roots = restlessd::skill_package::native_roots(Some(workdir));
     let capability_probes = vec![
         "command -v restless git omp node pnpm".to_string(),
         format!("restless doctor -c {company}"),
         "restless credential check (configured references only; not provider acceptance or authority)"
             .to_string(),
-        format!("test -d {workdir}/.agents/skills /company/skills /opt/restless/skills"),
+        "restless skill list".to_string(),
     ];
     let mut system_context = serde_json::json!({
         "company_doctrine": "Restless shared operating rules in the actor system prompt",
@@ -476,8 +480,16 @@ pub(super) fn bound_attempt_context(
         .filter(|artifact| artifact.work_id == Some(claimed.work.id) && artifact.kind == "output")
         .map(|artifact| artifact.id.to_string())
         .collect::<Vec<_>>();
-    let completion_evidence = if claimed.work.repo.is_some() && !claimed.work.owner_review_required
-    {
+    let completion_evidence = if claimed.work.owner_review_required {
+        format!(
+            "- Owner review is a completion contract, even when the declared expected-artifact text is empty. Before declaring `outcome_met`, link exactly one prepared native ReviewTarget for this Attempt with kind `{artifact_kind}` and its exact path or URL:\n  `restless work artifact --work {work_id} --attempt {attempt_id} --kind {artifact_kind} --uri <exact-native-review-target>`\n- The Runtime must then pass the declared `{probe_gate}` gate for that exact target. Do not substitute source, a note, a browser-control URL, or an unprobed placeholder; if no current target can be prepared, report the specific gap instead.{review_note}",
+            artifact_kind = artifact_kind,
+            work_id = claimed.work.id,
+            attempt_id = claimed.attempt_id,
+            probe_gate = restless_orgintel::REVIEW_TARGET_LIVE_PROBE_GATE,
+            review_note = review_note,
+        )
+    } else if claimed.work.repo.is_some() {
         format!(
             "- The Runtime binds this Attempt's clean terminal commit and tree as the exact candidate; do not spend a model turn creating or linking a bookkeeping artifact.\n- `{expected}` describes the expected outcome or gate evidence. Declared Runtime gates run only after your process returns and may materialize that evidence themselves. When the clean candidate is ready for those gates, declare `outcome_met` even if gate-generated evidence does not exist yet; the Runtime, not you, decides pass/fail.\n- If the candidate itself is incomplete, report the specific gap instead of claiming completion.",
             expected = if expected_artifact.is_empty() {
@@ -554,7 +566,7 @@ pub(super) fn bound_attempt_context(
         ""
     };
     let context = format!(
-        "# Work {} revision {} attempt {}\nAttempt UUID: {}\n{}\n\n{}\nExpected artifact / proof: {}\nInput fingerprint: {}\n\n# Completion evidence [deterministic]\n{}{}\n\n# Bound workspace facts [automatic]\n{}\n\n# Bound artifact versions [automatic]\n{}\n\n# Work-linked feedback [automatic]\n{}\n\n# Skill roots and truthful capability probes [automatic]\n- Skill roots available to OMP: {}\n- Probe Runtime tools at: `{}`\n- Probe company/runtime reachability at: `{}`\n- Probe configured credential references at: `{}`\n- Probe skill directories at: `{}`\nDo not treat a configured credential or an installed executable as provider acceptance, authority, or a successful effect.\n\n# Context accounting\n- Automatically attached: company doctrine and mission, actor role, Work/Attempt identity, exact workspace coordinates, bound artifact versions, Work-linked feedback, skill roots, probe locations, and {}.\n- Retrieved depth at launch: none. Inspect bound files, project instructions, skills, Git history, and attached artifact content only when useful.\n- Not replayed: lead conversation, full team transcript, and unrelated actor messages.\n",
+        "# Work {} revision {} attempt {}\nAttempt UUID: {}\n{}\n\n{}\nExpected artifact / proof: {}\nInput fingerprint: {}\n\n# Completion evidence [deterministic]\n{}{}\n\n# Bound workspace facts [automatic]\n{}\n\n# Bound artifact versions [automatic]\n{}\n\n# Work-linked feedback [automatic]\n{}\n\n# Skill roots and truthful capability probes [automatic]\n- Company skill roots: {}\n- Probe Runtime tools at: `{}`\n- Probe company/runtime reachability at: `{}`\n- Probe configured credential references at: `{}`\n- List the skills you may use with: `{}`\nDo not treat a configured credential or an installed executable as provider acceptance, authority, or a successful effect.\n\n# Context accounting\n- Automatically attached: company doctrine and mission, actor role, Work/Attempt identity, exact workspace coordinates, bound artifact versions, Work-linked feedback, skill roots, probe locations, and {}.\n- Retrieved depth at launch: none. Inspect bound files, project instructions, skills, Git history, and attached artifact content only when useful.\n- Not replayed: lead conversation, full team transcript, and unrelated actor messages.\n",
         claimed.work.id,
         claimed.work.revision,
         claimed.attempt_no,

@@ -324,7 +324,8 @@ pub async fn wake(
         let harness = config.coordination_harness;
         let outcome = match harness {
             crate::runtime::AgentHarness::RestlessManaged
-            | crate::runtime::AgentHarness::ClaudeAgent => {
+            | crate::runtime::AgentHarness::ClaudeAgent
+            | crate::runtime::AgentHarness::CustomAcp => {
                 let controls = acp::AgentControls::company_actor(package.system_prompt.clone())?
                     .with_mcp_servers(mcp_servers);
                 if let Some(identity) = &hosted_identity {
@@ -491,7 +492,8 @@ pub async fn wake(
             if hosted_identity.is_none() {
                 match harness {
                     crate::runtime::AgentHarness::RestlessManaged
-                    | crate::runtime::AgentHarness::ClaudeAgent => {
+                    | crate::runtime::AgentHarness::ClaudeAgent
+                    | crate::runtime::AgentHarness::CustomAcp => {
                         acp::discard_session_locator(
                             &container,
                             harness,
@@ -612,7 +614,9 @@ pub(crate) async fn agent_auth_for_model(
     attempt_id: Option<uuid::Uuid>,
 ) -> Result<acp::AgentAuth> {
     let session_id = uuid::Uuid::new_v4().simple().to_string();
-    let access = if model.starts_with("native-") {
+    let access = if model.starts_with("native-custom-") {
+        crate::custom_harness::session_access(company, actor, model).await?
+    } else if model.starts_with("native-") {
         crate::native_harness::session_access(company, actor, model).await?
     } else {
         crate::model_gateway::client()?.auth_for(
@@ -1060,105 +1064,134 @@ pub(crate) const TERMINATION_PROMPT: &str =
     - abandon: the work is not worth continuing — say why";
 
 /// Ask the Exec to end the turn explicitly. This small postflight must never
-/// erase a completed, metered work turn: transport loss, timeout, or malformed
-/// JSON records Continue plus a bounded substrate retry. Only a parsed model
-/// decision or a classified provider refusal may produce another state.
+/// erase a completed, metered work turn. Transport loss or timeout records a
+/// protocol blockage rather than rerunning productive work. Deterministic
+/// extraction recovers a valid wrapped envelope without another model call.
 async fn termination_decision(
     session: &dyn ExecutiveSession,
     cancellation: &CancellationToken,
 ) -> TerminationDecision {
-    for attempt in 0..2 {
-        let prompted = tokio::select! {
-            () = cancellation.cancelled() => {
-                let _ = session.cancel().await;
-                return retry_termination("the owner interrupted the turn to send new direction");
-            }
-            prompted = tokio::time::timeout(TERMINATION_TIMEOUT, session.prompt_once(TERMINATION_PROMPT)) => prompted,
-        };
-        let Ok(prompted) = prompted else {
+    let prompted = tokio::select! {
+        () = cancellation.cancelled() => {
             let _ = session.cancel().await;
-            tracing::warn!(
-                timeout_s = TERMINATION_TIMEOUT.as_secs(),
-                "termination decision timed out; continuing on the tick"
-            );
-            return retry_termination(format!(
-                "termination decision timed out after {}s",
-                TERMINATION_TIMEOUT.as_secs()
-            ));
-        };
-        let transcript = match prompted {
-            Ok(transcript) => transcript,
-            Err(error) => {
-                tracing::warn!(%error, "termination decision transport failed; preserving work turn");
-                return retry_termination(format!(
-                    "termination decision transport failed after the work turn: {error:#}"
-                ));
-            }
-        };
-        match parse_termination(&transcript.text) {
-            Some(parsed) => return parsed,
-            None => {
-                // Before calling this the model's failure, check whether the
-                // model spoke at all. A provider error can arrive as message
-                // *content* rather than as a transport error — omp streams the
-                // upstream body through — so the turn "succeeds", tokens are
-                // consumed, and the health gate sees nothing wrong. Observed
-                // live: three companies blocked with "no parseable termination
-                // decision" when the actual cause was
-                // `429 [1113] Insufficient balance ... Please recharge`.
-                //
-                // This is F1 wearing a new costume. `classify` reads how a turn
-                // ended; this reads what the agent said. Same deterministic
-                // status-class parser, and it is named for the text it reads so
-                // that the difference cannot be mistaken for the same check.
-                if let Some(blocked) = health::classify_provider_error_content(&transcript.text) {
-                    return TerminationDecision {
-                        termination: Termination::Blocked,
-                        reason: blocked.message(),
-                        retry_after_seconds: None,
-                    };
-                }
-                if attempt == 0 {
-                    // The transcript carries the model's actual words — without
-                    // them an unparseable decision is undebuggable (Sprint 01
-                    // friction: the first silent failure cost a full probe cycle).
-                    tracing::warn!(
-                        said = %transcript.text.chars().take(600).collect::<String>(),
-                        "termination decision unparseable; retrying once"
-                    );
-                    continue;
-                }
-                return retry_termination(
-                    "exec produced no parseable termination decision twice; preserving the completed work turn",
-                );
-            }
+            return retry_termination("the owner interrupted the turn to send new direction");
         }
+        prompted = tokio::time::timeout(
+            TERMINATION_TIMEOUT,
+            session.prompt_once(TERMINATION_PROMPT),
+        ) => prompted,
+    };
+    let Ok(prompted) = prompted else {
+        let _ = session.cancel().await;
+        tracing::warn!(
+            timeout_s = TERMINATION_TIMEOUT.as_secs(),
+            "termination decision timed out; preserving completed work turn"
+        );
+        return protocol_blocked(format!(
+            "Exec completion protocol timed out after {}s; the productive turn is preserved for accountable review",
+            TERMINATION_TIMEOUT.as_secs()
+        ));
+    };
+    let transcript = match prompted {
+        Ok(transcript) => transcript,
+        Err(error) => {
+            tracing::warn!(%error, "termination decision transport failed; preserving work turn");
+            return protocol_blocked(format!(
+                "Exec completion protocol transport failed; the productive turn is preserved for accountable review: {error:#}"
+            ));
+        }
+    };
+    if let Some(parsed) = parse_termination(&transcript.text) {
+        return parsed;
     }
-    unreachable!()
+    if let Some(blocked) = health::classify_provider_error_content(&transcript.text) {
+        return TerminationDecision {
+            termination: Termination::Blocked,
+            reason: blocked.message(),
+            retry_after_seconds: None,
+        };
+    }
+    tracing::warn!(
+        said = %transcript.text.chars().take(600).collect::<String>(),
+        "termination decision unparseable; preserving completed work turn"
+    );
+    protocol_blocked(
+        "Exec completion protocol was malformed or ambiguous; the productive turn is preserved for accountable review",
+    )
 }
 
 /// Parse the termination envelope. Delegation is absent on purpose: the
 /// actor writes Work graph rows with the CLI while it has full context.
 pub(crate) fn parse_termination(text: &str) -> Option<TerminationDecision> {
-    let start = text.find('{')?;
-    let end = text.rfind('}')?;
-    let output: TerminationOutput = serde_json::from_str(&text[start..=end]).ok()?;
-    let waiting = output.decision == "waiting";
-    let termination = match output.decision.as_str() {
-        "continue" => Termination::Continue,
-        "waiting" => Termination::Continue,
-        "blocked" | "blocked_on_owner" => Termination::Blocked,
-        "changes_requested" => Termination::ChangesRequested,
-        "outcome_met" => Termination::OutcomeMet,
-        "abandon" => Termination::Abandon,
-        _ => return None,
-    };
-    Some(TerminationDecision {
-        termination,
-        reason: output.reason,
-        retry_after_seconds: (termination == Termination::Continue && !waiting)
-            .then_some(CONTINUE_WAKE_DELAY_SECONDS),
-    })
+    // Providers and harnesses may wrap the requested object in a code fence or
+    // append diagnostics containing braces. Parsing from the first `{` through
+    // the last `}` makes that harmless transport decoration destroy an otherwise
+    // valid decision. Inspect complete top-level objects only, so a nested
+    // example inside unrelated JSON is not mistaken for the answer. Exactly one
+    // recognized envelope is required; multiple answers are ambiguous even if
+    // they happen to agree.
+    let mut recognized = None;
+    let mut object_start = None;
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    for (index, character) in text.char_indices() {
+        if object_start.is_none() {
+            if character == '{' {
+                object_start = Some(index);
+                depth = 1;
+                in_string = false;
+                escaped = false;
+            }
+            continue;
+        }
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match character {
+            '"' => in_string = true,
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth != 0 {
+                    continue;
+                }
+                let start = object_start.take().expect("an object is being scanned");
+                let object = &text[start..index + character.len_utf8()];
+                let Ok(output) = serde_json::from_str::<TerminationOutput>(object) else {
+                    continue;
+                };
+                let waiting = output.decision == "waiting";
+                let termination = match output.decision.as_str() {
+                    "continue" => Termination::Continue,
+                    "waiting" => Termination::Continue,
+                    "blocked" | "blocked_on_owner" => Termination::Blocked,
+                    "changes_requested" => Termination::ChangesRequested,
+                    "outcome_met" => Termination::OutcomeMet,
+                    "abandon" => Termination::Abandon,
+                    _ => continue,
+                };
+                if recognized.is_some() {
+                    return None;
+                }
+                recognized = Some(TerminationDecision {
+                    termination,
+                    reason: output.reason,
+                    retry_after_seconds: (termination == Termination::Continue && !waiting)
+                        .then_some(CONTINUE_WAKE_DELAY_SECONDS),
+                });
+            }
+            _ => {}
+        }
+    }
+    recognized
 }
 
 fn retry_termination(reason: impl Into<String>) -> TerminationDecision {
@@ -1166,6 +1199,16 @@ fn retry_termination(reason: impl Into<String>) -> TerminationDecision {
         termination: Termination::Continue,
         reason: reason.into(),
         retry_after_seconds: Some(CONTINUE_WAKE_DELAY_SECONDS),
+    }
+}
+
+pub(crate) const COMPLETION_PROTOCOL_PREFIX: &str = "[completion_protocol] ";
+
+fn protocol_blocked(reason: impl Into<String>) -> TerminationDecision {
+    TerminationDecision {
+        termination: Termination::Blocked,
+        reason: format!("{COMPLETION_PROTOCOL_PREFIX}{}", reason.into()),
+        retry_after_seconds: None,
     }
 }
 
@@ -1224,6 +1267,9 @@ async fn gather_snapshot(
         .filter(|message| message.from_actor == owner_actor_id)
         .map(|message| message.id)
         .collect::<HashSet<_>>();
+    let inbox_skills = org
+        .message_skill_selections(&inbox.iter().map(|message| message.id).collect::<Vec<_>>())
+        .await?;
     let recent_owner_conversation = if pending_mention.is_some() {
         Vec::new()
     } else {
@@ -1250,8 +1296,15 @@ async fn gather_snapshot(
         current_plan,
         latest_journal,
         open_work: open,
+        open_goals: org
+            .list_goals()
+            .await?
+            .into_iter()
+            .filter(|goal| goal.closed_at.is_none())
+            .collect(),
         recent_owner_conversation,
         inbox,
+        inbox_skills,
         owed_judgements,
         pending_mention: pending_mention.cloned(),
         wake_reason: reason.to_string(),
@@ -1403,10 +1456,27 @@ mod tests {
     }
 
     #[test]
-    fn termination_postflight_failure_preserves_work_and_retries() {
-        let decision = retry_termination("ACP connection closed");
+    fn termination_parser_ignores_surrounding_json_like_diagnostics() {
+        let decision = parse_termination(
+            "diagnostic {\"request_id\":\"abc\"}\n```json\n{\"decision\":\"blocked\",\"reason\":\"approval required\"}\n```\nmetadata {\"latency_ms\":42}",
+        )
+        .unwrap();
+        assert_eq!(decision.termination, Termination::Blocked);
+        assert_eq!(decision.reason, "approval required");
+        assert!(parse_termination(
+            "{\"decision\":\"blocked\",\"reason\":\"example\"}\n{\"decision\":\"outcome_met\",\"reason\":\"actual\"}"
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn owner_interruption_preserves_work_and_retries() {
+        let decision = retry_termination("the owner interrupted the turn to send new direction");
         assert_eq!(decision.termination, Termination::Continue);
         assert_eq!(decision.retry_after_seconds, Some(60));
-        assert_eq!(decision.reason, "ACP connection closed");
+        assert_eq!(
+            decision.reason,
+            "the owner interrupted the turn to send new direction"
+        );
     }
 }

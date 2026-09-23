@@ -559,6 +559,10 @@ fn harness_settings(
             )
         };
         let (label, transport, authentication, limitations) = match harness {
+            runtime::AgentHarness::CustomAcp => (
+                "Custom harness", "ACP", "Independent credentials configured in Intelligence provider.",
+                vec!["Models and capabilities are discovered from the installed harness."],
+            ),
             runtime::AgentHarness::RestlessManaged => (
                 "Restless Managed",
                 "ACP",
@@ -684,22 +688,33 @@ async fn resources(
     });
     items.push(ResourceRow {
         id: "model:primary".into(),
-        label: config.model.clone(),
+        label: config
+            .configured_model()
+            .unwrap_or("No intelligence model selected")
+            .to_string(),
         kind: "model_access",
         source: "authority_config",
-        status: if model_cooldown.is_some() {
+        status: if config.configured_model().is_none() {
+            "unconfigured"
+        } else if model_cooldown.is_some() {
             "degraded"
         } else {
             "configured_unprobed"
         }
         .into(),
         observed_at,
-        detail: model_cooldown.map(|cooldown| {
-            format!(
-                "{}; retry after {}",
-                cooldown.reason, cooldown.retry_at
-            )
-        }).or_else(|| Some("Configured model route; this read does not spend tokens to claim that generation works.".into())),
+        detail: if config.configured_model().is_none() {
+            Some("Choose an intelligence provider and model before starting agents.".into())
+        } else {
+            model_cooldown
+                .map(|cooldown| {
+                    format!(
+                        "{}; retry after {}",
+                        cooldown.reason, cooldown.retry_at
+                    )
+                })
+                .or_else(|| Some("Configured model route; this read does not spend tokens to claim that generation works.".into()))
+        },
         metadata: Some(serde_json::json!({
             "fallbacks": config.model_failover,
             "coordination_harness": config.coordination_harness,
@@ -1371,6 +1386,20 @@ fn company_doctor(
         checks.push(service_check(doctor));
         checks.push(browser_check(doctor));
         checks.push(coordination_check(doctor));
+        for (id, label, tool) in [
+            ("document_tools", "Document commands", "document"),
+            ("room_tools", "Room commands", "room"),
+        ] {
+            let installed = doctor
+                .collaboration_tools
+                .iter()
+                .any(|probe| probe.tool == tool && probe.installed);
+            checks.push(DoctorCheck {
+                id, label, source: "runtime", status: if installed { "available" } else { "unavailable" },
+                summary: if installed { "Installed command help responds." } else { "The installed command surface could not be verified." }.into(),
+                detail: Some("This installation check does not verify actor permissions, document editing, message delivery or model replies. End-to-end probes must run in a disposable test company.".into()),
+            });
+        }
     } else {
         checks.push(DoctorCheck {
             id: "runtime",
@@ -1739,6 +1768,13 @@ mod tests {
         coordination: Option<&str>,
     ) -> runtime::RuntimeDoctor {
         runtime::RuntimeDoctor {
+            collaboration_tools: ["document", "room"]
+                .into_iter()
+                .map(|tool| runtime::CollaborationToolDoctor {
+                    tool: tool.into(),
+                    installed: true,
+                })
+                .collect(),
             company: "company_test".into(),
             container,
             volume: "restless-vol-company_test".into(),
@@ -1905,6 +1941,37 @@ model = "moonshot/kimi-k3"
         assert_eq!(coordination.status, "degraded");
         assert_eq!(coordination.detail.as_deref(), Some("coordination detail"));
         assert_eq!(report.status, "degraded");
+    }
+
+    #[test]
+    fn missing_collaboration_commands_are_not_hidden_by_service_health() {
+        let now = Utc::now();
+        let source = SourceObservation::available(now);
+        let mut runtime = doctor(
+            runtime::ContainerStatus::Running,
+            runtime::ReconciliationStatus::Current,
+            Some("available"),
+            Some("available"),
+            Some("available"),
+        );
+        runtime
+            .collaboration_tools
+            .retain(|probe| probe.tool != "document");
+        let report = company_doctor(source.clone(), source.clone(), source, Some(&runtime), now);
+        let documents = report
+            .checks
+            .iter()
+            .find(|check| check.id == "document_tools")
+            .unwrap();
+        let rooms = report
+            .checks
+            .iter()
+            .find(|check| check.id == "room_tools")
+            .unwrap();
+        assert_eq!(documents.status, "unavailable");
+        assert_eq!(rooms.status, "available");
+        assert!(rooms.detail.as_deref().unwrap().contains("does not verify"));
+        assert_ne!(report.status, "healthy");
     }
 
     #[test]

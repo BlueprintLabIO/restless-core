@@ -568,7 +568,7 @@ async fn structured_mentions_are_retry_safe_recipient_relative_and_explicitly_re
     exec_mention.affected_scope = Some("public release".into());
     let builder_mention = NewRoomMessageMention::actor("delivery-build");
 
-    let unaddressable = org
+    let staff_question = org
         .send_room_message_with_mentions(
             room.id,
             "owner",
@@ -580,10 +580,12 @@ async fn structured_mentions_are_retry_safe_recipient_relative_and_explicitly_re
             None,
         )
         .await
-        .unwrap_err()
-        .to_string();
-    assert!(unaddressable.contains("delivery-build"));
-    assert!(unaddressable.contains("accountable lead"));
+        .unwrap();
+    assert_eq!(staff_question.mentions.len(), 1);
+    assert_eq!(
+        staff_question.mentions[0].mentioned_actor_id,
+        "delivery-review"
+    );
     assert!(org
         .send_room_message_with_mentions(
             room.id,
@@ -605,12 +607,7 @@ async fn structured_mentions_are_retry_safe_recipient_relative_and_explicitly_re
         .unwrap()
         .messages
         .iter()
-        .all(|message| {
-            !matches!(
-                message.client_command_id.as_deref(),
-                Some("ordinary-staff-mention" | "service-mention")
-            )
-        }));
+        .all(|message| message.client_command_id.as_deref() != Some("service-mention")));
 
     let sent = org
         .send_room_message_with_mentions(
@@ -3748,8 +3745,8 @@ async fn conversation_batches_are_bounded_exact_and_drain_without_duplication() 
         &second_ids,
         &[],
     )
-        .await
-        .unwrap();
+    .await
+    .unwrap();
     assert!(org.conversation_inbox("exec").await.unwrap().is_empty());
     assert_eq!(org.owed_conversation_count("exec").await.unwrap(), 0);
     let owner_thread = org.owner_conversation("exec", 20).await.unwrap();

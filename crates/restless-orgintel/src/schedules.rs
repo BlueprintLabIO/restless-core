@@ -4,7 +4,7 @@ use super::*;
 use chrono::{Datelike as _, Days, LocalResult, NaiveDateTime, NaiveTime, TimeZone as _, Weekday};
 use chrono_tz::Tz;
 
-const SCHEDULE_COLUMNS: &str = "id, actor_id, work_id, reason, fire_at, fired_at, cancelled_at, recurrence, timezone, local_time, last_fired_at, missed_policy, catch_up_grace_seconds, last_missed_at, last_considered_at, machine_requirement, created_at";
+const SCHEDULE_COLUMNS: &str = "id, actor_id, work_id, reason, fire_at, fired_at, cancelled_at, recurrence, timezone, local_time, last_fired_at, missed_policy, catch_up_grace_seconds, last_missed_at, last_considered_at, machine_requirement, created_at, interval_seconds";
 const MISSED_TOLERANCE_SECONDS: i64 = 30;
 
 fn recurring_occurrence_should_fire(
@@ -134,6 +134,82 @@ fn next_weekday_fire(
     Err(OrgIntelError::InvalidWork(
         "could not resolve the next weekday occurrence".into(),
     ))
+}
+
+/// The first interval slot strictly after `now`. Missed slots are coalesced:
+/// a laptop that slept through six `/loop 30m` slots wakes the actor once.
+fn next_interval_fire(
+    fire_at: DateTime<Utc>,
+    now: DateTime<Utc>,
+    interval_seconds: Option<i32>,
+) -> Result<DateTime<Utc>> {
+    let interval = i64::from(
+        interval_seconds
+            .filter(|seconds| *seconds > 0)
+            .ok_or_else(|| {
+                OrgIntelError::InvalidWork("interval schedule is missing its interval".into())
+            })?,
+    );
+    let behind = now.signed_duration_since(fire_at).num_seconds().max(0);
+    let steps = behind / interval + 1;
+    Ok(fire_at + chrono::Duration::seconds(steps * interval))
+}
+
+/// Bounds for `/loop`: at least five minutes, at most thirty days.
+pub const MIN_INTERVAL_SECONDS: i32 = 300;
+pub const MAX_INTERVAL_SECONDS: i32 = 2_592_000;
+
+impl OrgIntel {
+    /// A durable interval time fact addressed to one actor (`/loop`). Repeating
+    /// the same actor, interval and reason returns the existing live schedule.
+    pub async fn add_interval_schedule(
+        &self,
+        actor_id: &str,
+        reason: &str,
+        interval_seconds: i32,
+        after: DateTime<Utc>,
+    ) -> Result<(Uuid, DateTime<Utc>, bool)> {
+        if reason.trim().is_empty() {
+            return Err(OrgIntelError::InvalidWork(
+                "a recurring time opportunity needs a reason".into(),
+            ));
+        }
+        if !(MIN_INTERVAL_SECONDS..=MAX_INTERVAL_SECONDS).contains(&interval_seconds) {
+            return Err(OrgIntelError::InvalidWork(format!(
+                "an interval must be between {} minutes and {} days",
+                MIN_INTERVAL_SECONDS / 60,
+                MAX_INTERVAL_SECONDS / 86_400
+            )));
+        }
+        let fire_at = after + chrono::Duration::seconds(i64::from(interval_seconds));
+        let inserted = sqlx::query_scalar::<_, Uuid>(
+            "INSERT INTO schedules (id, actor_id, reason, fire_at, recurrence, interval_seconds, missed_policy, catch_up_grace_seconds, machine_requirement) \
+             VALUES ($1,$2,$3,$4,'interval',$5,'catch_up_once',$6,'local_mac') \
+             ON CONFLICT DO NOTHING RETURNING id",
+        )
+        .bind(Uuid::new_v4())
+        .bind(actor_id)
+        .bind(reason)
+        .bind(fire_at)
+        .bind(interval_seconds)
+        .bind(i64::from(interval_seconds))
+        .fetch_optional(&self.pool)
+        .await?;
+        if let Some(id) = inserted {
+            return Ok((id, fire_at, true));
+        }
+        let existing = sqlx::query_as::<_, ScheduleRow>(&format!(
+            "SELECT {SCHEDULE_COLUMNS} FROM schedules \
+             WHERE actor_id=$1 AND recurrence='interval' AND interval_seconds=$2 \
+               AND reason=$3 AND cancelled_at IS NULL"
+        ))
+        .bind(actor_id)
+        .bind(interval_seconds)
+        .bind(reason)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok((existing.id, existing.fire_at, false))
+    }
 }
 
 impl OrgIntel {
@@ -442,14 +518,23 @@ impl OrgIntel {
             .await?
             .rows_affected()
                 == 1;
-            if row.recurrence.as_deref() == Some("weekdays") {
-                let timezone = row.timezone.as_deref().ok_or_else(|| {
-                    OrgIntelError::InvalidWork("weekday schedule is missing timezone".into())
-                })?;
-                let local_time = row.local_time.ok_or_else(|| {
-                    OrgIntelError::InvalidWork("weekday schedule is missing local time".into())
-                })?;
-                let next = next_weekday_fire(now, local_time, timezone)?;
+            if matches!(row.recurrence.as_deref(), Some("weekdays" | "interval")) {
+                let next = match row.recurrence.as_deref() {
+                    Some("interval") => next_interval_fire(row.fire_at, now, row.interval_seconds)?,
+                    _ => {
+                        let timezone = row.timezone.as_deref().ok_or_else(|| {
+                            OrgIntelError::InvalidWork(
+                                "weekday schedule is missing timezone".into(),
+                            )
+                        })?;
+                        let local_time = row.local_time.ok_or_else(|| {
+                            OrgIntelError::InvalidWork(
+                                "weekday schedule is missing local time".into(),
+                            )
+                        })?;
+                        next_weekday_fire(now, local_time, timezone)?
+                    }
+                };
                 sqlx::query(
                     "UPDATE schedules SET fire_at=$2, last_considered_at=$4, \
                        last_fired_at=CASE WHEN $3 THEN $4 ELSE last_fired_at END, \
@@ -492,10 +577,12 @@ impl OrgIntel {
             } else {
                 false
             };
-            if !released_work && row.actor_id != "exec" {
+            if !released_work {
                 // Consume the time fact and create its recoverable actor wake
                 // in one transaction. A crash can therefore leave both
                 // pending or neither, never a fired schedule with no delivery.
+                // Exec uses this same durable inbox: an in-memory wake after
+                // commit can be lost on restart or while Exec is in backoff.
                 // Only a successfully released Work uses the deterministic
                 // kickoff. A pending human step still needs its scheduled
                 // observer to inspect consent/expiry; otherwise the time fact

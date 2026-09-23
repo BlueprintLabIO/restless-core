@@ -341,6 +341,17 @@ impl NetworkEntry {
         &self.host
     }
 
+    /// The trusted issuer origin, without a trailing slash.
+    pub(crate) fn issuer(&self) -> &str {
+        self.issuer.trim_end_matches('/')
+    }
+
+    /// The client already trusted for the issuer's JWKS, including any
+    /// configured private CA; issuer metadata is fetched the same way.
+    pub(crate) fn issuer_client(&self) -> &reqwest::Client {
+        &self.client
+    }
+
     pub(crate) fn session_ttl(&self) -> Duration {
         self.session_ttl
     }
@@ -937,8 +948,10 @@ impl EntryMode {
 
 fn canonical_service_url(variable: &str, raw: &str, allow_insecure: bool) -> anyhow::Result<Url> {
     let url = Url::parse(raw).with_context(|| format!("parse {variable}"))?;
+    // RFC 6761 reserves every `.localhost` name for loopback, which lets a
+    // development issuer share a parent domain with a `plane.localhost` Core.
     let loopback_host = match url.host() {
-        Some(url::Host::Domain("localhost")) => true,
+        Some(url::Host::Domain(domain)) => domain == "localhost" || domain.ends_with(".localhost"),
         Some(url::Host::Ipv4(address)) => address.is_loopback(),
         Some(url::Host::Ipv6(address)) => address.is_loopback(),
         _ => false,
@@ -1805,10 +1818,14 @@ mod tests {
             .expect("explicit IPv4 loopback HTTP");
         canonical_service_url("TEST_URL", "http://[::1]:7788", true)
             .expect("explicit IPv6 loopback HTTP");
+        canonical_service_url("TEST_URL", "http://accounts.plane.localhost:6689", true)
+            .expect("explicit RFC 6761 loopback name HTTP");
 
         for refused in [
             "http://localhost:7788",
             "http://fleet-jwks_test.local",
+            "http://localhost.example.com",
+            "http://notlocalhost",
             "ftp://localhost",
             "https://user@fleet-jwks_test.local",
             "https://fleet-jwks_test.local?redirect=attacker",
@@ -2183,24 +2200,26 @@ mod tests {
         // membership. This never erases the durable Actor, but a live
         // session pinned to the old membership tuple is no longer current —
         // exactly the check the request middleware performs on every call.
-        org.apply_external_membership_control(restless_orgintel::ExternalMembershipControlContext {
-            issuer: &verified_first.issuer,
-            subject: &verified_first.subject,
-            assertion_id: Uuid::new_v4(),
-            issued_at: now,
-            expires_at: now + chrono::Duration::seconds(45),
-            key_id: KEY_ID,
-            assertion_version: restless_orgintel::MEMBERSHIP_CONTROL_CONTRACT_VERSION,
-            owner_id,
-            plane_id,
-            plane_hostname: "plane.restless.test",
-            company_id,
-            cell_id,
-            membership_id: &bound.membership_id,
-            membership_role: &bound.membership_role,
-            membership_status: restless_orgintel::ExternalMembershipStatus::Removed,
-            membership_version: bound.membership_version + 1,
-        })
+        org.apply_external_membership_control(
+            restless_orgintel::ExternalMembershipControlContext {
+                issuer: &verified_first.issuer,
+                subject: &verified_first.subject,
+                assertion_id: Uuid::new_v4(),
+                issued_at: now,
+                expires_at: now + chrono::Duration::seconds(45),
+                key_id: KEY_ID,
+                assertion_version: restless_orgintel::MEMBERSHIP_CONTROL_CONTRACT_VERSION,
+                owner_id,
+                plane_id,
+                plane_hostname: "plane.restless.test",
+                company_id,
+                cell_id,
+                membership_id: &bound.membership_id,
+                membership_role: &bound.membership_role,
+                membership_status: restless_orgintel::ExternalMembershipStatus::Removed,
+                membership_version: bound.membership_version + 1,
+            },
+        )
         .await
         .expect("membership removal is recorded");
 

@@ -15,6 +15,7 @@
 mod appliance;
 mod chat;
 mod document;
+mod skill;
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
@@ -152,7 +153,7 @@ enum Command {
         #[arg(long)]
         summary: bool,
     },
-    /// Persistent browser controller coordination and health.
+    /// Probe persistent browser and desktop health.
     Browser {
         #[command(subcommand)]
         command: BrowserCommand,
@@ -275,6 +276,13 @@ enum Command {
         company: Option<String>,
         #[command(subcommand)]
         command: Option<GoalCommand>,
+    },
+    /// Company skills: list, read, apply and import `SKILL.md` packages.
+    Skill {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
+        company: Option<String>,
+        #[command(subcommand)]
+        command: skill::SkillCommand,
     },
     /// Inspect and change the one canonical Work graph.
     Work {
@@ -1208,6 +1216,9 @@ enum ScheduleCommand {
         /// RFC3339 instant, for example 2026-08-28T09:30:00Z. Conflicts with --weekdays.
         #[arg(long)]
         at: Option<String>,
+        /// Repeat at a bounded interval (`/loop`): 30m, 2h, 1d. Between 5 minutes and 30 days.
+        #[arg(long, conflicts_with_all = ["at", "weekdays", "work"])]
+        every: Option<String>,
         /// Wake on weekdays at --at-local in --timezone. This wakes judgement; it runs no command.
         #[arg(long)]
         weekdays: bool,
@@ -1346,6 +1357,19 @@ enum WorkCommand {
         /// The object may contain voice, visual and/or culture contracts.
         #[arg(long)]
         constitution_contracts: Option<String>,
+        /// Company skill every Attempt of this Work applies; repeatable. The
+        /// current version is pinned atomically with the Work.
+        #[arg(long = "skill")]
+        skill: Vec<String>,
+    },
+    /// Add company skills to existing Work; its next Attempt applies them.
+    Skill {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[arg(long)]
+        work: String,
+        #[arg(long = "skill", required = true)]
+        skill: Vec<String>,
     },
     /// Move unsettled Work to another durable actor.
     Assign {
@@ -1589,6 +1613,11 @@ enum GoalCommand {
         title: String,
         #[arg(long, default_value = "")]
         body: String,
+    },
+    /// Close an open Goal (`/goal clear`). Its Work is not changed.
+    Close {
+        #[arg(long)]
+        goal: String,
     },
     /// Attach or reassign existing Work to an existing Goal.
     Attach {
@@ -1844,18 +1873,6 @@ enum BrowserCommand {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
     },
-    /// Yield the shared visible browser to the owner.
-    Request {
-        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
-        company: Option<String>,
-        #[arg(long, env = "RESTLESS_ACTOR")]
-        session: Option<String>,
-    },
-    /// Release an agent-held browser controller claim.
-    Release {
-        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
-        company: Option<String>,
-    },
 }
 
 /// Transport spelling only. The daemon derives real authority from its
@@ -2085,6 +2102,7 @@ fn main() -> Result<()> {
             let request = stamp(serde_json::json!({ "cmd": "watch", "company": name }));
             watch(&request.to_string())
         }
+        Command::Skill { company, command } => skill::run(company, command),
         Command::Chat {
             company: name,
             actor,
@@ -2861,19 +2879,6 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             BrowserCommand::Status { company } => {
                 serde_json::json!({ "cmd": "browser-status", "company": company })
             }
-            BrowserCommand::Request { company, session } => serde_json::json!({
-                "cmd": "browser-request", "company": company,
-                "id": session.unwrap_or_else(|| {
-                    if is_runtime() {
-                        acting_actor()
-                    } else {
-                        "exec".to_string()
-                    }
-                }),
-            }),
-            BrowserCommand::Release { company } => {
-                serde_json::json!({ "cmd": "browser-release", "company": company })
-            }
         },
         Command::Wake { company: c, reason } => {
             serde_json::json!({ "cmd": "wake", "company": c, "reason": reason })
@@ -3008,6 +3013,10 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 "cmd": "goal-add", "company": company, "title": title, "body": body,
                 "actor": acting_actor(),
             }),
+            Some(GoalCommand::Close { goal }) => serde_json::json!({
+                "cmd": "goal-close", "company": company, "goal": goal,
+                "actor": acting_actor(),
+            }),
             Some(GoalCommand::Attach { work, goal }) => serde_json::json!({
                 "cmd": "work-goal", "company": company, "id": work, "goal": goal,
                 "actor": acting_actor(),
@@ -3045,6 +3054,7 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 revises,
                 gate,
                 constitution_contracts,
+                skill,
             } => {
                 let gates = gate
                     .iter()
@@ -3070,9 +3080,18 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                     "source_message_id": source_message,
                     "requires": requires, "revises": revises, "gates": gates,
                     "constitution_contracts": constitution_contracts,
+                    "skills": skill,
                     "as_actor": acting_actor(),
                 })
             }
+            WorkCommand::Skill {
+                company,
+                work,
+                skill,
+            } => serde_json::json!({
+                "cmd": "work-skill", "company": company, "id": work,
+                "skills": skill, "as_actor": acting_actor(),
+            }),
             WorkCommand::Assign {
                 company,
                 work,
@@ -3305,6 +3324,22 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 company,
                 as_actor,
                 at,
+                every: Some(every),
+                reason,
+                ..
+            } => serde_json::json!({
+                "cmd": "schedule-add", "company": company,
+                "as_actor": as_actor.or_else(|| std::env::var("RESTLESS_ACTOR").ok())
+                    .unwrap_or_else(|| "exec".to_string()),
+                "fire_at": at, "recurrence": "interval",
+                "interval_seconds": restlessd::skill_package::parse_interval(&every)
+                    .with_context(|| format!("--every {every:?}: use a duration such as 30m, 2h or 1d"))?,
+                "reason": reason,
+            }),
+            ScheduleCommand::Add {
+                company,
+                as_actor,
+                at,
                 weekdays,
                 at_local,
                 timezone,
@@ -3313,6 +3348,7 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 execution,
                 reason,
                 work,
+                every: None,
             } => serde_json::json!({
                 "cmd": "schedule-add", "company": company,
                 "as_actor": as_actor.or_else(|| std::env::var("RESTLESS_ACTOR").ok())
@@ -3457,6 +3493,7 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
         | Command::Watch { .. }
         | Command::Attach { .. }
         | Command::Chat { .. }
+        | Command::Skill { .. }
         | Command::EffectChild => {
             unreachable!("handled above")
         }
@@ -4233,25 +4270,64 @@ mod tests {
     fn one_time_schedule_does_not_send_recurring_defaults() {
         // Exercise the full clap command tree with a main-thread-sized stack.
         // Rust's 2 MiB test worker stack is smaller than the ordinary CLI's.
-        std::thread::Builder::new().stack_size(8 * 1024 * 1024).spawn(|| {
-        let cli = Cli::try_parse_from([
-            "restless", "schedule", "add", "-c", "schedule_test", "--as", "exec",
-            "--at", "2026-09-22T04:08:30Z", "--reason", "Observe sign-in expiry",
-        ]).unwrap();
-        let request = request_json(cli.command).unwrap();
-        assert_eq!(request["fire_at"], "2026-09-22T04:08:30Z");
-        for field in ["recurrence", "local_time", "timezone", "missed_policy", "catch_up_grace_seconds", "execution_requirement"] {
-            assert!(request[field].is_null(), "one-time schedule unexpectedly includes {field}");
-        }
-        let cli = Cli::try_parse_from([
-            "restless", "schedule", "add", "-c", "schedule_test", "--as", "exec",
-            "--weekdays", "--at-local", "09:00", "--timezone", "Australia/Sydney",
-            "--on-missed", "skip", "--reason", "Morning review",
-        ]).unwrap();
-        let request = request_json(cli.command).unwrap();
-        assert_eq!(request["recurrence"], "weekdays");
-        assert_eq!(request["execution_requirement"], "local-mac");
-        }).unwrap().join().unwrap();
+        std::thread::Builder::new()
+            .stack_size(8 * 1024 * 1024)
+            .spawn(|| {
+                let cli = Cli::try_parse_from([
+                    "restless",
+                    "schedule",
+                    "add",
+                    "-c",
+                    "schedule_test",
+                    "--as",
+                    "exec",
+                    "--at",
+                    "2026-09-22T04:08:30Z",
+                    "--reason",
+                    "Observe sign-in expiry",
+                ])
+                .unwrap();
+                let request = request_json(cli.command).unwrap();
+                assert_eq!(request["fire_at"], "2026-09-22T04:08:30Z");
+                for field in [
+                    "recurrence",
+                    "local_time",
+                    "timezone",
+                    "missed_policy",
+                    "catch_up_grace_seconds",
+                    "execution_requirement",
+                ] {
+                    assert!(
+                        request[field].is_null(),
+                        "one-time schedule unexpectedly includes {field}"
+                    );
+                }
+                let cli = Cli::try_parse_from([
+                    "restless",
+                    "schedule",
+                    "add",
+                    "-c",
+                    "schedule_test",
+                    "--as",
+                    "exec",
+                    "--weekdays",
+                    "--at-local",
+                    "09:00",
+                    "--timezone",
+                    "Australia/Sydney",
+                    "--on-missed",
+                    "skip",
+                    "--reason",
+                    "Morning review",
+                ])
+                .unwrap();
+                let request = request_json(cli.command).unwrap();
+                assert_eq!(request["recurrence"], "weekdays");
+                assert_eq!(request["execution_requirement"], "local-mac");
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 
     #[test]

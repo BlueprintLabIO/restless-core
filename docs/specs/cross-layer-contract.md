@@ -201,6 +201,13 @@ revokes entry and sessions without erasing historical attribution. One bootstrap
 allocates each company identity: hosted Fleet for managed creation, Core for self-host creation; the
 Authority record preserves and protects the resulting immutable identity.
 
+One issuer implementation serves every deployment (ADR 0012): `services/identity` is hosted
+self-contained for self-host and mounted by Cloud. It versions membership, delivers suspension and
+removal through a durable outbox, and publishes `/.well-known/restless-issuer`. Core reads that
+metadata and shows members from its own bindings; the cockpit writes membership only at the issuer.
+The first `owner`-role entry of a company binds to its existing `owner` Actor, recorded once in
+Authority; every later human receives a new Actor, and Exec is told on their first entry.
+
 ---
 
 # 3. Shared vocabulary and ownership

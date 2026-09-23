@@ -22,6 +22,7 @@ mod company_bootstrap;
 mod connected_tool;
 mod context;
 mod credential;
+mod custom_harness;
 mod document_collaboration_token;
 mod document_commands;
 mod effect;
@@ -49,6 +50,7 @@ mod runtime;
 mod runtime_bridge;
 mod runtime_mode;
 mod schedule;
+mod skills;
 mod spend;
 mod staff;
 mod telemetry;
@@ -83,8 +85,7 @@ fn round_usd(usd: f64) -> f64 {
 /// The CLI and local owner API share one company creation path. Serialise
 /// first creation so simultaneous requests cannot overwrite the same identity.
 async fn create_local_company(daemon: &Daemon, config: runtime::CompanyConfig) -> Result<()> {
-    let run_startup_doctor =
-        std::env::var("RESTLESS_TEST_DISABLE_SCHEDULER").as_deref() != Ok("1");
+    let run_startup_doctor = std::env::var("RESTLESS_TEST_DISABLE_SCHEDULER").as_deref() != Ok("1");
     create_local_company_inner(daemon, config, run_startup_doctor).await
 }
 
@@ -1360,6 +1361,7 @@ fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Result
         | "team-lead"
         | "team-disband"
         | "goal-add"
+        | "goal-close"
         | "work-goal"
         | "work-assign"
         | "work-artifact"
@@ -1401,13 +1403,17 @@ fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Result
         | "schedule-list"
         | "schedule-add"
         | "schedule-policy"
-        | "schedule-cancel" => pin_actor(&mut request.common.as_actor, actor, "acting actor")?,
+        | "schedule-cancel"
+        | "skill-list"
+        | "skill-observe"
+        | "skill-activate"
+        | "skill-candidate-add"
+        | "work-skill" => pin_actor(&mut request.common.as_actor, actor, "acting actor")?,
         "message" => pin_actor(&mut request.common.from, actor, "message sender")?,
         "inbox" => {
             pin_actor(&mut request.orgintel.actor, actor, "inbox actor")?;
             pin_actor(&mut request.common.as_actor, actor, "inbox actor")?;
         }
-        "browser-request" => pin_actor(&mut request.common.id, actor, "browser requester")?,
         _ => {}
     }
     Ok(())
@@ -3338,6 +3344,31 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             },
             _ => Response::err("goal-add needs title, body and actor attribution"),
         },
+        "goal-close" => match (
+            request.orgintel.goal.as_deref(),
+            request.orgintel.actor.as_deref(),
+        ) {
+            (Some(goal), Some(actor)) => {
+                let goal_id = match uuid::Uuid::parse_str(goal) {
+                    Ok(goal_id) => goal_id,
+                    Err(error) => return Response::err(format!("bad Goal id: {error}")),
+                };
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => match org.close_goal(goal_id, actor).await {
+                        Ok(closed) => Response::ok(serde_json::json!({
+                            "goal_id": goal_id, "closed": closed,
+                        })),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err("goal-close needs a Goal id and actor attribution"),
+        },
+        "skill-list" | "skill-observe" | "skill-activate" | "skill-candidate-add"
+        | "skill-disposition" | "skill-assign" | "work-skill" => {
+            skills::handle_command(daemon, company, &request).await
+        }
         "work-goal" => match (
             request.common.id.as_deref(),
             request.orgintel.goal.as_deref(),
@@ -3568,10 +3599,8 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                                 resources: &gate.resources,
                             })
                             .collect::<Vec<_>>();
-                        let added = if let Some(contracts) =
-                            request.orgintel.constitution_contracts.as_ref()
-                        {
-                            org.add_commissioned_work_with_constitution(
+                        let added = org
+                            .add_commissioned_work(
                                 work,
                                 &requires,
                                 &revises,
@@ -3580,22 +3609,10 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                                 request.orgintel.source_message_id,
                                 commissioned_by,
                                 producing_topology,
-                                contracts,
+                                request.orgintel.constitution_contracts.as_ref(),
+                                &request.orgintel.skills,
                             )
-                            .await
-                        } else {
-                            org.add_commissioned_work_with_edges_and_gates(
-                                work,
-                                &requires,
-                                &revises,
-                                &gates,
-                                request.orgintel.owner_review,
-                                request.orgintel.source_message_id,
-                                commissioned_by,
-                                producing_topology,
-                            )
-                            .await
-                        };
+                            .await;
                         match added {
                             Ok(id) => Response::ok(serde_json::json!({
                                 "work_id": id,
@@ -3603,6 +3620,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                                 "producer_actor_id": owner,
                                 "commissioned_by": commissioned_by,
                                 "producing_topology": producing_topology,
+                                "skills": &request.orgintel.skills,
                             })),
                             Err(error) => Response::err(format!("{error:#}")),
                         }
@@ -4240,6 +4258,9 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             request.common.reason.as_deref(),
         ) {
             (Some(actor), Some(reason)) => {
+                if request.orgintel.recurrence.as_deref() == Some("interval") {
+                    return add_interval_schedule(daemon, company, actor, reason, &request.orgintel).await;
+                }
                 let recurring = request.orgintel.recurrence.as_deref() == Some("weekdays");
                 if request.common.id.is_some() && recurring {
                     return Response::err("recurring schedules wake actors directly and cannot block Work");
@@ -5034,36 +5055,10 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             })),
             Err(error) => Response::err(format!("{error:#}")),
         },
-        "browser-request" => {
-            let requester = request.common.id.as_deref().unwrap_or("exec");
-            let current = runtime::read_browser_control(company).await.ok().flatten();
-            if current.as_ref().is_some_and(|value| {
-                value["controller"] == "owner"
-                    && value["expires_at"]
-                        .as_str()
-                        .and_then(|value| value.parse::<chrono::DateTime<chrono::Utc>>().ok())
-                        .is_some_and(|expires| expires > chrono::Utc::now())
-            }) {
-                return Response::err_kind("conflict", "owner already controls the browser");
-            }
-            let state = serde_json::json!({
-                "controller": "owner_requested",
-                "requester": requester,
-                "requested_at": chrono::Utc::now(),
-            });
-            match runtime::write_browser_control(company, &state).await {
-                Ok(()) => Response::ok(state),
-                Err(error) => Response::err(format!("{error:#}")),
-            }
-        }
-        "browser-release" => {
-            let state =
-                serde_json::json!({ "controller": "unclaimed", "released_at": chrono::Utc::now() });
-            match runtime::write_browser_control(company, &state).await {
-                Ok(()) => Response::ok(state),
-                Err(error) => Response::err(format!("{error:#}")),
-            }
-        }
+        "browser-request" | "browser-release" => Response::err_kind(
+            "unsupported",
+            "browser control belongs to the owner cockpit; use the prepared owner handoff or send the accountable actor a Work message instead",
+        ),
         "effect" => match (
             request.authority.effect_class,
             request.authority.purpose,
@@ -5182,8 +5177,60 @@ async fn resolve_team(
     }
 }
 
+/// `/loop`: an interval recurrence addressed to Exec or an accountable lead.
+/// Staff time dependencies belong to Work, exactly as for weekday cadences.
+async fn add_interval_schedule(
+    daemon: &Daemon,
+    company: &str,
+    actor: &str,
+    reason: &str,
+    input: &wire::OrgIntelInput,
+) -> Response {
+    let Some(interval_seconds) = input.interval_seconds else {
+        return Response::err("an interval schedule needs --every <duration>");
+    };
+    if input.fire_at.is_some()
+        || input.local_time.is_some()
+        || input.timezone.is_some()
+        || input.missed_policy.is_some()
+        || input.catch_up_grace_seconds.is_some()
+    {
+        return Response::err(
+            "--every cannot be combined with --at, --weekdays or missed policies",
+        );
+    }
+    let org = match daemon.orgintel.get(company).await {
+        Ok(org) => org,
+        Err(error) => return Response::err(format!("{error:#}")),
+    };
+    if actor != "exec" {
+        let is_lead = match org.list_teams().await {
+            Ok(teams) => teams.iter().any(|team| team.lead_actor_id == actor),
+            Err(error) => return Response::err(format!("{error:#}")),
+        };
+        if !is_lead {
+            return Response::err("a free-standing schedule must target Exec or an accountable team lead; Staff time dependencies belong to Work");
+        }
+    }
+    match org
+        .add_interval_schedule(actor, reason, interval_seconds, chrono::Utc::now())
+        .await
+    {
+        Ok((schedule_id, next_fire_at, created)) => Response::ok(serde_json::json!({
+            "schedule_id": schedule_id,
+            "actor_id": actor,
+            "recurrence": "interval",
+            "interval_seconds": interval_seconds,
+            "next_fire_at": next_fire_at,
+            "created": created,
+        })),
+        Err(error) => Response::err(format!("{error:#}")),
+    }
+}
+
 fn has_recurring_schedule_fields(input: &wire::OrgIntelInput) -> bool {
     input.recurrence.is_some()
+        || input.interval_seconds.is_some()
         || input.local_time.is_some()
         || input.timezone.is_some()
         || input.missed_policy.is_some()
@@ -5204,9 +5251,13 @@ mod tests {
             "reason":"Observe consent expiry", "fire_at":"2026-09-22T04:08:30Z",
             "execution_requirement":"local-mac",
         });
-        assert!(!has_recurring_schedule_fields(&decoded_request(payload.clone()).orgintel));
+        assert!(!has_recurring_schedule_fields(
+            &decoded_request(payload.clone()).orgintel
+        ));
         payload["execution_requirement"] = serde_json::Value::Null;
-        assert!(!has_recurring_schedule_fields(&decoded_request(payload.clone()).orgintel));
+        assert!(!has_recurring_schedule_fields(
+            &decoded_request(payload.clone()).orgintel
+        ));
         for (field, value) in [
             ("execution_requirement", serde_json::json!("always-on")),
             ("recurrence", serde_json::json!("weekdays")),
@@ -5217,7 +5268,10 @@ mod tests {
         ] {
             let mut recurring = payload.clone();
             recurring[field] = value;
-            assert!(has_recurring_schedule_fields(&decoded_request(recurring).orgintel), "must not silently ignore {field}");
+            assert!(
+                has_recurring_schedule_fields(&decoded_request(recurring).orgintel),
+                "must not silently ignore {field}"
+            );
         }
     }
 
@@ -5320,7 +5374,9 @@ mod tests {
         );
         let root = std::env::temp_dir().join(&company);
         std::fs::create_dir_all(root.join("companies")).unwrap();
-        let authority = authority::AuthorityStore::connect(&database_url).await.unwrap();
+        let authority = authority::AuthorityStore::connect(&database_url)
+            .await
+            .unwrap();
         let daemon = Daemon {
             root: root.clone(),
             capabilities: capability::CapabilityIssuer::open(&root).unwrap(),
@@ -5338,9 +5394,7 @@ mod tests {
             cell_wakes: cell_wake::CellWakeHub::default(),
             runtime_bridges: runtime_bridge::RuntimeBridgeRegistry::default(),
             lifecycle: restlessd::appliance::LifecycleGate::default(),
-            in_flight: std::sync::Arc::new(std::sync::Mutex::new(
-                schedule::WakeClaims::default(),
-            )),
+            in_flight: std::sync::Arc::new(std::sync::Mutex::new(schedule::WakeClaims::default())),
             schedule_wake: std::sync::Arc::new(tokio::sync::Notify::new()),
         };
         let config: runtime::CompanyConfig = toml::from_str(&format!(
@@ -5371,7 +5425,11 @@ mod tests {
 
         org.close().await;
         daemon.orgintel.forget(&company);
-        daemon.authority.delete_test_company(&company).await.unwrap();
+        daemon
+            .authority
+            .delete_test_company(&company)
+            .await
+            .unwrap();
         crate::cell::destroy_database(&root, &database_url, &company)
             .await
             .unwrap();

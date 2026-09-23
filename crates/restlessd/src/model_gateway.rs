@@ -198,6 +198,9 @@ impl ClientConfig {
 /// Return the boot-time billing contract for one exact model route without
 /// issuing a session capability or contacting the provider.
 pub fn billing_for_model(model: &str) -> Result<ModelBilling> {
+    if model.starts_with("native-custom-") {
+        return Ok(ModelBilling::NativeApi);
+    }
     if model.starts_with("native-") {
         return Ok(if model.split('/').next().unwrap_or("").ends_with("-api") {
             ModelBilling::NativeApi
@@ -1406,12 +1409,6 @@ async fn relay_responses(
     // The host gateway catalogue names custom routes by provider-qualified id;
     // Codex correctly uses the provider-local id on the OpenAI wire.
     request["model"] = serde_json::Value::String(grant.model.clone());
-    if response_tariff_micro_usd(model_id, 0, 0, 0).is_none() {
-        return relay_error(
-            StatusCode::BAD_REQUEST,
-            "exact Responses tariff is not pinned for this model",
-        );
-    }
     let config = match CompanyConfig::load(&state.root, &grant.company) {
         Ok(config) => config,
         Err(_) => {
@@ -2198,15 +2195,41 @@ impl MeteredStream {
             .get("total_tokens")
             .and_then(serde_json::Value::as_u64)
             .unwrap_or_else(|| input.saturating_add(output));
+        // The provider's own reported charge is what the owner is billed, so
+        // it wins over the pinned tariff, which only covers routes (official
+        // OpenAI) that do not report cost.
         let micro_usd = match self.request.billing {
-            ModelBilling::MeteredApi => split_model(&self.request.model)
-                .ok()
-                .and_then(|(_, model)| response_tariff_micro_usd(model, input, output, cached)),
+            ModelBilling::MeteredApi => usage
+                .get("cost")
+                .filter(|cost| cost.is_number())
+                .or_else(|| usage.pointer("/cost/total"))
+                .and_then(ceiling_micro_usd)
+                .or_else(|| {
+                    split_model(&self.request.model)
+                        .ok()
+                        .and_then(|(_, model)| {
+                            response_tariff_micro_usd(model, input, output, cached)
+                        })
+                }),
             ModelBilling::Subscription => Some(0),
             ModelBilling::NativeApi => None,
         };
         let Some(micro_usd) = micro_usd else {
-            self.failed = true;
+            if self.request.billing == ModelBilling::MeteredApi {
+                // Fail open: keep the tokens, mark only the charge unknown and
+                // let the owner see that spend is a lower bound.
+                self.meter.record_unknown(self.request.spend_record(
+                    input,
+                    output,
+                    tokens,
+                    Some(cached),
+                    0,
+                    restless_model_gateway::SpendSettlement::MeteringUnknown,
+                ));
+                self.settled = true;
+            } else {
+                self.failed = true;
+            }
             return;
         };
         self.meter.record_exact(self.request.spend_record(
@@ -2220,7 +2243,7 @@ impl MeteredStream {
         self.settled = true;
     }
 
-    fn fail_closed(&mut self, detail: &str) {
+    fn record_unmetered(&mut self, detail: &str) {
         if self.request.billing == ModelBilling::MeteredApi && !self.settled {
             self.meter.record_unknown(self.request.spend_record(
                 0,
@@ -2230,12 +2253,12 @@ impl MeteredStream {
                 0,
                 restless_model_gateway::SpendSettlement::MeteringUnknown,
             ));
-            tracing::error!(
+            tracing::warn!(
                 company = %self.request.company,
                 actor = %self.request.actor,
                 session = %self.request.session,
                 request_id = %self.request.request_id,
-                "metered model response had no terminal charged usage; only this request is uncertain: {detail}"
+                "metered model response had no terminal charged usage; spend is now a lower bound: {detail}"
             );
             self.settled = true;
         }
@@ -2253,13 +2276,13 @@ impl Stream for MeteredStream {
                 Poll::Ready(Some(Ok(bytes)))
             }
             Poll::Ready(Some(Err(error))) => {
-                this.fail_closed("upstream stream failed");
+                this.record_unmetered("upstream stream failed");
                 Poll::Ready(Some(Err(error)))
             }
             Poll::Ready(None) => {
                 this.finish();
                 if !this.settled || this.failed {
-                    this.fail_closed("stream ended before a valid done event");
+                    this.record_unmetered("stream ended before a valid done event");
                 }
                 Poll::Ready(None)
             }
@@ -2271,7 +2294,7 @@ impl Stream for MeteredStream {
 impl Drop for MeteredStream {
     fn drop(&mut self) {
         if !self.settled || self.failed {
-            self.fail_closed("relay body dropped before a valid done event");
+            self.record_unmetered("relay body dropped before a valid done event");
         }
     }
 }
@@ -2529,6 +2552,12 @@ fn configured_provider_ids(config: &CompanyConfig) -> Result<BTreeSet<String>> {
         .collect::<Result<std::collections::BTreeSet<_>>>()?;
     providers.extend(
         config
+            .agent_intelligence
+            .values()
+            .filter_map(|route| route.connection.strip_prefix("direct:").map(str::to_owned)),
+    );
+    providers.extend(
+        config
             .credentials
             .keys()
             .filter_map(|key| key.strip_prefix("model.inference.").map(str::to_owned)),
@@ -2626,6 +2655,8 @@ fn admit(
             .native_model(effective.coordination_harness)
             .is_some()
         {
+            // Native harness authentication and readiness are independent of
+            // the direct host model gateway and are checked by that adapter.
             continue;
         }
         let Some(model) = effective.configured_model() else {
@@ -2859,7 +2890,10 @@ mission = "Choose intelligence later"
         )]);
         let admission = admit(&[config], &credentials).unwrap();
         assert_eq!(
-            admission.unstartable.get("unconfigured_test").map(String::as_str),
+            admission
+                .unstartable
+                .get("unconfigured_test")
+                .map(String::as_str),
             Some("Choose an intelligence provider and model in Company → Intelligence provider.")
         );
     }
@@ -2909,7 +2943,10 @@ mission = "Choose intelligence later"
         assert!(config.model_candidates().unwrap().is_empty());
         assert!(config.has_configured_model_route());
         assert_eq!(config.for_agent("exec").model, "openai/gpt-5");
-        assert!(admit(&[config], &credentials).unwrap().unstartable.is_empty());
+        assert!(admit(&[config], &credentials)
+            .unwrap()
+            .unstartable
+            .is_empty());
     }
 
     #[test]
@@ -2943,7 +2980,10 @@ mission = "Choose native intelligence"
                 .as_deref(),
             Some("native-codex-oauth/gpt-5")
         );
-        assert!(admit(&[config], &BTreeMap::new()).unwrap().unstartable.is_empty());
+        assert!(admit(&[config], &BTreeMap::new())
+            .unwrap()
+            .unstartable
+            .is_empty());
     }
 
     fn test_root() -> std::path::PathBuf {
@@ -2956,7 +2996,7 @@ mission = "Choose native intelligence"
             &root,
             &CompanyConfig {
                 agent_intelligence: Default::default(),
-            native_harnesses: Default::default(),
+                native_harnesses: Default::default(),
                 display_name: None,
                 name: "acme_test".into(),
                 mission: "relay test".into(),
@@ -3415,6 +3455,63 @@ mission = "Choose native intelligence"
     }
 
     #[test]
+    fn responses_relay_charges_reported_cost_and_fails_open_without_a_price() {
+        let root = test_root();
+        let (_issuer, ledger, _state) = test_relay_state(&root);
+        let settle = |session: &str, usage: serde_json::Value| {
+            let inner = futures_util::stream::empty::<std::result::Result<Bytes, reqwest::Error>>();
+            let mut stream = MeteredStream::new_responses(
+                inner,
+                ledger.meter(),
+                metered_request(
+                    "acme_test",
+                    "delivery-lead",
+                    session,
+                    "litellm/vendor/unpriced",
+                ),
+            );
+            let event =
+                serde_json::json!({"type": "response.completed", "response": {"usage": usage}});
+            stream.observe(&Bytes::from(format!("data: {event}\n\n")));
+        };
+        // An unpriced model charges exactly what the provider reported.
+        settle(
+            "reported",
+            serde_json::json!({"input_tokens": 3, "output_tokens": 5, "total_tokens": 8, "cost": 0.000001}),
+        );
+        let budget =
+            ledger.budget_state_for("acme_test", crate::runtime::SpendCeiling::from_micro_usd(3));
+        assert_eq!(budget.remaining_micro_usd(), Some(2));
+        assert!(matches!(
+            budget,
+            crate::spend::ModelBudgetState::Available { .. }
+        ));
+
+        // No reported cost and no pinned tariff: unknown, never a fake $0,
+        // and the company keeps working.
+        settle(
+            "unpriced",
+            serde_json::json!({"input_tokens": 3, "output_tokens": 5, "total_tokens": 8}),
+        );
+        let budget =
+            ledger.budget_state_for("acme_test", crate::runtime::SpendCeiling::from_micro_usd(3));
+        assert!(matches!(
+            budget,
+            crate::spend::ModelBudgetState::MeteringUnknown { .. }
+        ));
+        assert!(budget.is_available());
+        assert_eq!(budget.remaining_micro_usd(), Some(2));
+
+        // Known spend at the ceiling still stops charged work.
+        let budget =
+            ledger.budget_state_for("acme_test", crate::runtime::SpendCeiling::from_micro_usd(1));
+        assert!(!budget.is_available());
+
+        drop(ledger);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn relay_records_one_exact_terminal_charge_and_poison_missing_terminal_usage() {
         let root = test_root();
         let (_issuer, ledger, _state) = test_relay_state(&root);
@@ -3478,13 +3575,12 @@ mission = "Choose native intelligence"
                 ),
             );
         }
-        assert_eq!(
-            ledger.budget_state_for(
-                "acme_test",
-                crate::runtime::SpendCeiling::from_micro_usd(2)
-            ).remaining_micro_usd(),
-            None,
-            "a metered stream without terminal charged usage leaves metering unknown and blocks further charged requests"
+        let budget =
+            ledger.budget_state_for("acme_test", crate::runtime::SpendCeiling::from_micro_usd(2));
+        assert!(
+            matches!(budget, crate::spend::ModelBudgetState::MeteringUnknown { .. })
+                && budget.is_available(),
+            "a metered stream without terminal charged usage leaves metering unknown but fails open"
         );
 
         drop(ledger);
@@ -3601,12 +3697,14 @@ mission = "Choose native intelligence"
                 b"data: {\"type\":\"error\",\"reason\":\"error\"}\n\n",
             ));
         }
-        assert_eq!(
-            ledger
-                .budget_state_for("acme_test", crate::runtime::SpendCeiling::from_micro_usd(2))
-                .remaining_micro_usd(),
-            None,
-            "an error with no exact usage remains fail-closed without a fake zero balance"
+        let budget =
+            ledger.budget_state_for("acme_test", crate::runtime::SpendCeiling::from_micro_usd(2));
+        assert!(
+            matches!(
+                budget,
+                crate::spend::ModelBudgetState::MeteringUnknown { .. }
+            ) && budget.is_available(),
+            "an error with no exact usage is unknown, never a fake zero, and fails open"
         );
 
         drop(ledger);
@@ -3650,11 +3748,13 @@ mission = "Choose native intelligence"
             );
             stream.observe(&Bytes::from_static(b"data: [DONE]\n\n"));
         }
-        assert_eq!(
-            ledger
-                .budget_state_for("acme_test", crate::runtime::SpendCeiling::from_micro_usd(2))
-                .remaining_micro_usd(),
-            None,
+        let budget =
+            ledger.budget_state_for("acme_test", crate::runtime::SpendCeiling::from_micro_usd(2));
+        assert!(
+            matches!(
+                budget,
+                crate::spend::ModelBudgetState::MeteringUnknown { .. }
+            ) && budget.is_available(),
             "a bare wire sentinel cannot turn a partial into accounted provider spend"
         );
 

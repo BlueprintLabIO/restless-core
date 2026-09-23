@@ -149,15 +149,17 @@ export async function getAttention(company: string): Promise<AttentionView> {
 			workId: item.work_id,
 			source: item.source,
 			category: item.category,
-			title: item.title,
-			whatHappened: item.what_happened,
+			title: item.preparing ? 'Preparing your next step' : item.title,
+			whatHappened: item.preparing ? item.requested_action : item.what_happened,
 			whyItMatters: item.why_it_matters,
-			recommendation: item.recommendation,
+			recommendation: item.preparing
+				? 'Nothing to do yet. Your instructions will appear here when the team has prepared this step.'
+				: item.recommendation,
 			requestedAction: item.requested_action,
 			preparing: item.preparing,
 			ifNoAction: item.if_no_action,
 			uncertainty: item.uncertainty,
-			deadline: item.deadline,
+			deadline: item.preparing ? undefined : item.deadline,
 			briefStatus: item.brief_status,
 			briefAuthor: item.brief_author,
 			briefedAt: item.briefed_at,
@@ -308,6 +310,20 @@ export async function resolveHandoffDecision(
 	if (!response.ok) throw await ownerError(response);
 }
 
+export async function completeHandoffHumanStep(
+	company: string,
+	handoff: string
+): Promise<void> {
+	const response = await fetch(
+		`/api/companies/${encodeURIComponent(company)}/handoffs/${encodeURIComponent(handoff)}/complete`,
+		{
+			method: 'POST',
+			credentials: 'same-origin'
+		}
+	);
+	if (!response.ok) throw await ownerError(response);
+}
+
 export async function sendActorMessage(
 	company: string,
 	actor: string,
@@ -319,7 +335,8 @@ export async function sendActorMessage(
 	interrupt = false,
 	outcomeStandard?: OutcomeStandard,
 	attentionId?: string,
-	clientCommandId: string = crypto.randomUUID()
+	clientCommandId: string = crypto.randomUUID(),
+	skills: string[] = []
 ): Promise<MessageSendResult> {
 	const form = new FormData();
 	form.set('client_command_id', clientCommandId);
@@ -330,6 +347,7 @@ export async function sendActorMessage(
 	if (newFocus) form.set('new_focus', 'true');
 	if (interrupt) form.set('interrupt', 'true');
 	if (outcomeStandard) form.set('outcome_standard', outcomeStandard);
+	for (const skill of skills) form.append('skills', skill);
 	for (const file of files) form.append('attachments', file, file.name);
 	const response = await fetch(
 		`/api/companies/${encodeURIComponent(company)}/actors/${encodeURIComponent(actor)}/conversation`,
@@ -447,12 +465,13 @@ export async function issueReviewTicket(company: string, itemId: string): Promis
 export async function browserControl(
 	company: string,
 	action: 'take' | 'heartbeat' | 'return',
-	clientId: string
-): Promise<unknown> {
+	clientId: string,
+	leaseId?: string
+): Promise<{ lease_id?: string }> {
 	const response = await fetch(`/api/companies/${encodeURIComponent(company)}/browser/${action}`, {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify({ client_id: clientId }),
+		body: JSON.stringify({ client_id: clientId, ...(leaseId ? { lease_id: leaseId } : {}) }),
 		credentials: 'same-origin'
 	});
 	if (!response.ok) throw await ownerError(response);

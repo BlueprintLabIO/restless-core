@@ -91,26 +91,6 @@ export async function promoteIdentityProposal(
 	);
 }
 
-export async function saveCompanyIdentity(
-	company: string,
-	input: {
-		expected_release: string | null;
-		truth: string;
-		voice: string;
-		visual: string;
-		culture: string;
-	}
-): Promise<{ release_id: string }> {
-	return ownerResponse(
-		await fetch(`/api/companies/${encodeURIComponent(company)}/company/identity`, {
-			method: 'PUT',
-			credentials: 'same-origin',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify(input)
-		})
-	);
-}
-
 export async function rejectIdentityProposal(
 	company: string,
 	proposal: string,
@@ -145,5 +125,25 @@ export async function decideIdentityMigration(
 				credentials: 'same-origin'
 			}
 		)
+	);
+}
+
+export async function saveCompanyIdentity(
+	company: string,
+	input: {
+		expected_release: string | null;
+		truth: string;
+		voice: string;
+		visual: string;
+		culture: string;
+	}
+): Promise<{ release_id: string }> {
+	return ownerResponse(
+		await fetch(`/api/companies/${encodeURIComponent(company)}/company/identity`, {
+			method: 'PUT',
+			credentials: 'same-origin',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify(input)
+		})
 	);
 }

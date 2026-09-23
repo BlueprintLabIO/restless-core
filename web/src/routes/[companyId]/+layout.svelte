@@ -5,9 +5,11 @@
 	setContext('company-setup-draft', setupDraft);
 	import { goto } from '$app/navigation';
 	import AppShell, { type ShellTab } from '$lib/components/AppShell.svelte';
+	import { companyBrowserLinks } from '$lib/actions/company-browser-links';
 	import CompanyQueryPersistence from '$lib/components/CompanyQueryPersistence.svelte';
 	import ExecutiveRail from '$lib/components/ExecutiveRail.svelte';
 	import { cockpitContextPath, reviewAction } from '$lib/model/attention';
+	import { prepareCompanyBrowser } from '$lib/model/company-browser';
 	import {
 		collaboratorHome,
 		companyShellTabs,
@@ -128,7 +130,8 @@
 		includeContext: boolean,
 		newFocus: boolean,
 		interrupt: boolean,
-		outcomeStandard?: import('$lib/model/company').OutcomeStandard
+		outcomeStandard?: import('$lib/model/company').OutcomeStandard,
+		skills: string[] = []
 	): Promise<{ error?: string; notice?: string }> {
 		if (!ownerAccess) return { error: 'This company membership cannot send owner directions.' };
 		try {
@@ -139,7 +142,8 @@
 				contextPath,
 				newFocus,
 				interrupt,
-				outcomeStandard
+				outcomeStandard,
+				skills
 			);
 			if (interrupt) {
 				return {
@@ -220,6 +224,11 @@
 	});
 
 	const childAllowed = $derived(mayOpenCompanyRoute(companyId, page.url.pathname, principal));
+
+	function openInCompanyBrowser(url: string) {
+		prepareCompanyBrowser(companyId, url);
+		void goto(`/${companyId}/company/computer?focus=browser`, { noScroll: true });
+	}
 </script>
 
 <CompanyQueryPersistence {companyId} />
@@ -251,6 +260,7 @@
 	/>
 {/snippet}
 
+<div class="company-browser-link-capture" use:companyBrowserLinks={{ open: openInCompanyBrowser }}>
 <AppShell
 	{companyId}
 	companyName={companyName || companyId.charAt(0).toUpperCase() + companyId.slice(1)}
@@ -288,6 +298,7 @@
 		</section>
 	{/if}
 </AppShell>
+</div>
 
 <style>
 	.company-access-state {
@@ -297,6 +308,9 @@
 		gap: var(--space-2);
 		padding: var(--space-6);
 		text-align: center;
+	}
+	.company-browser-link-capture {
+		display: contents;
 	}
 
 	.company-access-state h1,

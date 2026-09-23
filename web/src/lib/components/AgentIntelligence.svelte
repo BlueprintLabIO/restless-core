@@ -42,6 +42,7 @@
 	function label(id: string) {
 		const c = source.view?.connections.find((c) => c.id === id);
 		if (!c) return id.replace('direct:', '').replace('harness:', '');
+		if (c.id.startsWith('harness:custom:')) return c.provider;
 		return c.kind === 'harness'
 			? c.provider === 'codex'
 				? 'ChatGPT / Codex'
@@ -116,7 +117,9 @@
 		>
 	</header>
 	{#if source.error}<p role="alert">
-			Could not load agents. <button onclick={() => source.refresh()}>Retry</button>
+			Could not load agents. <button class="btn small" onclick={() => source.refresh()}
+				>Retry</button
+			>
 		</p>
 	{:else if !source.view}<p role="status">Loading agents…</p>
 	{:else}
@@ -135,9 +138,13 @@
 							: agent.id === 'default'
 								? 'No default selected'
 								: 'Use company default'}</span
-					><small>{agent.assignment?.model ?? agent.effective_model.split('/').at(-1)}</small>
+					><small
+						>{agent.assignment?.model ??
+							agent.effective_model.slice(agent.effective_model.indexOf('/') + 1)}</small
+					>
 				</div>
 				<button
+					class="btn small"
 					disabled={busy || !source.view.connections.length}
 					onclick={() => edit(agent)}
 					aria-label={`Change intelligence for ${agent.id === 'exec' ? 'Exec' : agent.name}`}
@@ -191,15 +198,17 @@
 						>{/if}
 					{#if selected?.kind === 'harness'}<small
 							>{selected.models?.length
-								? 'Models available from this signed-in connection.'
+								? 'Models offered by this connection.'
 								: 'Catalog suggestions; availability is confirmed by the connection.'}</small
 						>{/if}
 
 					<div class="buttons">
-						<button class="primary" disabled={busy || !connection || !model.trim()}
+						<button class="btn primary small" disabled={busy || !connection || !model.trim()}
 							>{busy ? 'Saving…' : 'Save assignment'}</button
-						><button type="button" disabled={busy} onclick={() => (editing = '')}>Cancel</button
+						><button class="btn small" type="button" disabled={busy} onclick={() => (editing = '')}
+							>Cancel</button
 						>{#if agent.assignment && agent.id !== 'default'}<button
+								class="btn small"
 								type="button"
 								disabled={busy}
 								onclick={() => save(true)}>Use company default</button
@@ -287,10 +296,6 @@
 		display: flex;
 		flex-wrap: wrap;
 		gap: var(--space-2);
-	}
-	.primary {
-		background: var(--ink);
-		color: var(--text-inverse);
 	}
 	[role='alert'] {
 		color: var(--state-danger);

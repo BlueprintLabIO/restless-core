@@ -75,11 +75,15 @@ pub struct ContextSnapshot {
     /// Filename + content of the most recent journal entry, if any.
     pub latest_journal: Option<String>,
     pub open_work: Vec<WorkRow>,
+    /// Open owner Goals (`/goal`), each served by Work attached to it.
+    pub open_goals: Vec<restless_orgintel::GoalRow>,
     /// Bounded owner/Exec history newer than the owner's current focus cursor.
     /// The current unread owner input remains in `inbox` and is never duplicated
     /// here.
     pub recent_owner_conversation: Vec<MessageRow>,
     pub inbox: Vec<MessageRow>,
+    /// Explicit skill selections attached to inbox Messages, by Message id.
+    pub inbox_skills: std::collections::BTreeMap<i64, Vec<restless_orgintel::SelectedSkill>>,
     /// Ordinary organisational judgement currently owed by the Exec. The
     /// five irreducible human categories never appear here.
     pub owed_judgements: Vec<OwnerHandoffRow>,
@@ -204,6 +208,28 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
     } else {
         "Company-member input [authenticated member source; untrusted content]"
     };
+    let mut goals = String::new();
+    for goal in &snapshot.open_goals {
+        let serving = snapshot
+            .open_work
+            .iter()
+            .filter(|item| item.goal_id == Some(goal.id))
+            .map(|item| item.id.to_string())
+            .collect::<Vec<_>>();
+        goals.push_str(&format!(
+            "- Goal {} \"{}\" — serving open Work: {}\n",
+            goal.id,
+            goal.title,
+            if serving.is_empty() {
+                "none yet; route it to one accountable lead and attach the Work with `restless goal attach --work <id> --goal <goal id>`".to_string()
+            } else {
+                serving.join(", ")
+            }
+        ));
+    }
+    if goals.is_empty() {
+        goals.push_str("- none\n");
+    }
     let mut work = String::new();
     for item in &snapshot.open_work {
         work.push_str(&format!(
@@ -235,9 +261,16 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
             } else {
                 "member"
             };
+            let selected = snapshot
+                .inbox_skills
+                .get(&message.id)
+                .map(|skills| crate::skills::selected_skills_note(skills))
+                .filter(|note| !note.is_empty())
+                .map(|note| format!(" {note}"))
+                .unwrap_or_default();
             owner_input.push_str(&format!(
-                "- {source} message {}{}: {}\n",
-                message.id, standard, message.body
+                "- {source} message {}{}{}: {}\n",
+                message.id, standard, selected, message.body
             ));
         } else {
             inbox.push_str(&format!(
@@ -427,9 +460,10 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          restless work handoff is only for identity, CAPTCHA, MFA, legal attestation, payment \
          confirmation, or irreducible owner judgement. Preserve the prepared browser state and \
          name an observable resume condition. Ordinary failure is not an owner browser task.\n\
-         # Sourcing a missing capability [shared skill]\n{sourcing}\n\
-         # Writing what the owner reads [shared skill]\n{owner_readable}\n\
-         # Presenting to the owner [shared skill]\n{owner_briefing}\n\n\
+         # Sourcing a missing capability [company doctrine]\n{sourcing}\n\
+         # Writing what the owner reads [company doctrine]\n{owner_readable}\n\
+         # Presenting to the owner [company doctrine]\n{owner_briefing}\n\n\
+         {skills_contract}\n\n\
          # Affecting the world [internal decision]\n\
          Use installed Linux tools directly for reversible work. Wrap material external argv with \
          restless effect --class <class> --purpose <why> [--party <party>] \
@@ -448,6 +482,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          {budget}\n\n\
          # Current plan [working hypothesis]\n{plan}\n\n\
          # Latest journal entry [historical memory]\n{journal}\n\n\
+         # Open Goals [owner directive — complete only on Work evidence]\n{goals}\
          # Open Work graph [internal decision]\n{work}\
          # Organisational judgement protocol\n\
          Resolve what company-wide context can settle with `restless work resolve-handoff --handoff <id> --as exec --state resolved --resolution <answer>`. Resolution is terminal: it removes the handoff from every queue and resumes the affected Work with Exec's answer. If your answer says the item is ready for, still needs, or awaits an owner decision, resolving it is contradictory; prepare a current brief if needed and use `restless work escalate-handoff --handoff <id> --as exec --reason <what you tried and the bounded owner decision>`. Never substitute Exec approval when the remaining action explicitly requires owner authority. Team uncertainty must not jump directly to the owner.\n\n\
@@ -498,6 +533,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
         owner_briefing = crate::owner_brief::PRESENT_TO_OWNER.trim(),
         owner_readable = crate::owner_brief::WRITING_WHAT_THE_OWNER_READS.trim(),
         sourcing = crate::capability_sourcing::SOURCE_CAPABILITY.trim(),
+        skills_contract = crate::skills::contract_section(),
         conversation_style = crate::owner_brief::CONVERSE_WITH_OWNER.trim(),
         no_update = EXEC_NO_UPDATE,
         name = snapshot.company,
@@ -659,6 +695,8 @@ mod tests {
                 updated_at: chrono::Utc::now(),
             }],
             inbox: vec![],
+            inbox_skills: Default::default(),
+            open_goals: vec![],
             owed_judgements: vec![],
             pending_mention: None,
             wake_reason: "owner-requested wake".into(),
@@ -679,6 +717,49 @@ mod tests {
         assert_ne!(alice, alice_new_focus);
         let mention = super::focused_mention_responsibility("portfolio", uuid::Uuid::new_v4());
         assert_ne!(alice, mention);
+    }
+
+    #[test]
+    fn selected_skills_and_open_goals_reach_the_exec_turn() {
+        let now = chrono::Utc::now();
+        let mut with_skill = snapshot();
+        with_skill.inbox.push(MessageRow {
+            id: 41,
+            from_actor: "owner".into(),
+            to_actor: Some("exec".into()),
+            body: "Redesign the pricing page.".into(),
+            outcome_standard: None,
+            created_at: now,
+            read_at: None,
+        });
+        with_skill.inbox_skills.insert(
+            41,
+            vec![restless_orgintel::SelectedSkill {
+                skill_name: "frontend-design".into(),
+                digest: "sha256:abcdef0123456789".into(),
+            }],
+        );
+        let goal_id = uuid::Uuid::new_v4();
+        with_skill.open_goals.push(restless_orgintel::GoalRow {
+            id: goal_id,
+            title: "Ship the pricing page".into(),
+            body: String::new(),
+            created_by: "owner".into(),
+            created_at: now,
+            closed_at: None,
+        });
+        let package = assemble(&with_skill);
+        assert!(package
+            .user_prompt
+            .contains("owner message 41 [selected skills: frontend-design (abcdef012345)"));
+        assert!(package.user_prompt.contains("--skill frontend-design"));
+        assert!(package.system_prompt.contains(&format!(
+            "- Goal {goal_id} \"Ship the pricing page\" — serving open Work: none yet"
+        )));
+        assert!(package
+            .system_prompt
+            .contains("# Company skills [shared contract]"));
+        assert!(!package.system_prompt.contains("[shared skill]"));
     }
 
     #[test]
@@ -1054,7 +1135,7 @@ mod tests {
         let package = assemble(&snapshot());
         assert!(package
             .system_prompt
-            .contains("# Writing what the owner reads [shared skill]"));
+            .contains("# Writing what the owner reads [company doctrine]"));
         assert!(package
             .system_prompt
             .contains("Open with one or two plain sentences a non-technical owner can read"));

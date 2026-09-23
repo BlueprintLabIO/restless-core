@@ -177,7 +177,8 @@ pub(crate) async fn ensure(root: &Path, company: &str, org: &OrgIntel, issuer: &
         owned(&container, &root)?;
         let matches = container["Image"].as_str() == Some(image_id.as_str())
             && env_value(&container, "RESTLESS_NATIVE_DOCUMENTS_TOKEN_ISSUER") == Some(issuer)
-            && env_value(&container, "RESTLESS_NATIVE_DOCUMENTS_JWKS_URL") == Some(jwks_url.as_str())
+            && env_value(&container, "RESTLESS_NATIVE_DOCUMENTS_JWKS_URL")
+                == Some(jwks_url.as_str())
             && env_value(&container, "RESTLESS_NATIVE_DOCUMENTS_COMPANY_ID")
                 == Some(identity.company_id.to_string().as_str());
         if matches {
@@ -198,20 +199,54 @@ pub(crate) async fn ensure(root: &Path, company: &str, org: &OrgIntel, issuer: &
             // than publishing a guessed service. The container owns the port after startup.
             let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
             let port = listener.local_addr()?.port();
-            let args = vec!["run".into(), "-d".into(), "--name".into(), name.clone(),
-                "--restart".into(), "unless-stopped".into(), "--network".into(), "host".into(),
-                "--cpus".into(), "1".into(), "--memory".into(), "512m".into(), "--pids-limit".into(), "128".into(),
-                "--read-only".into(), "--cap-drop".into(), "ALL".into(), "--security-opt".into(), "no-new-privileges".into(),
-                "--user".into(), format!("{}:{}", metadata.uid(), metadata.gid()),
-                "--label".into(), format!("{LABEL}={}", root.display()),
-                "--label".into(), format!("com.restless.company={company}"),
-                "--mount".into(), format!("type=bind,src={},dst=/run/secrets/documents.url,readonly", credential.display()),
-                "-e".into(), "RESTLESS_NATIVE_DOCUMENTS_STORE_CREDENTIAL_FILE=/run/secrets/documents.url".into(),
-                "-e".into(), format!("RESTLESS_NATIVE_DOCUMENTS_COMPANY_ID={}", identity.company_id),
-                "-e".into(), format!("RESTLESS_NATIVE_DOCUMENTS_TOKEN_ISSUER={issuer}"),
-                "-e".into(), format!("RESTLESS_NATIVE_DOCUMENTS_JWKS_URL={jwks_url}"),
-                "-e".into(), "RESTLESS_NATIVE_DOCUMENTS_LISTEN_ADDRESS=127.0.0.1".into(),
-                "-e".into(), format!("RESTLESS_NATIVE_DOCUMENTS_LISTEN_PORT={port}"), image];
+            let args = vec![
+                "run".into(),
+                "-d".into(),
+                "--name".into(),
+                name.clone(),
+                "--restart".into(),
+                "unless-stopped".into(),
+                "--network".into(),
+                "host".into(),
+                "--cpus".into(),
+                "1".into(),
+                "--memory".into(),
+                "512m".into(),
+                "--pids-limit".into(),
+                "128".into(),
+                "--read-only".into(),
+                "--cap-drop".into(),
+                "ALL".into(),
+                "--security-opt".into(),
+                "no-new-privileges".into(),
+                "--user".into(),
+                format!("{}:{}", metadata.uid(), metadata.gid()),
+                "--label".into(),
+                format!("{LABEL}={}", root.display()),
+                "--label".into(),
+                format!("com.restless.company={company}"),
+                "--mount".into(),
+                format!(
+                    "type=bind,src={},dst=/run/secrets/documents.url,readonly",
+                    credential.display()
+                ),
+                "-e".into(),
+                "RESTLESS_NATIVE_DOCUMENTS_STORE_CREDENTIAL_FILE=/run/secrets/documents.url".into(),
+                "-e".into(),
+                format!(
+                    "RESTLESS_NATIVE_DOCUMENTS_COMPANY_ID={}",
+                    identity.company_id
+                ),
+                "-e".into(),
+                format!("RESTLESS_NATIVE_DOCUMENTS_TOKEN_ISSUER={issuer}"),
+                "-e".into(),
+                format!("RESTLESS_NATIVE_DOCUMENTS_JWKS_URL={jwks_url}"),
+                "-e".into(),
+                "RESTLESS_NATIVE_DOCUMENTS_LISTEN_ADDRESS=127.0.0.1".into(),
+                "-e".into(),
+                format!("RESTLESS_NATIVE_DOCUMENTS_LISTEN_PORT={port}"),
+                image,
+            ];
             drop(listener);
             run(&args.iter().map(String::as_str).collect::<Vec<_>>()).await?;
             port

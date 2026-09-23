@@ -92,7 +92,10 @@ async fn collaboration_request_keeps_the_verified_owner_as_its_immutable_target(
         .await
         .unwrap();
     assert_eq!(request.requested_owner_actor_id, "human-alice");
-    assert_eq!(org.pending_document_attention().await.unwrap()[0].id, request_id);
+    assert_eq!(
+        org.pending_document_attention().await.unwrap()[0].id,
+        request_id
+    );
     assert!(matches!(
         org.resolve_document_collaboration(created.document_id, "blair", request_id)
             .await,
@@ -128,7 +131,10 @@ async fn collaboration_request_keeps_the_verified_owner_as_its_immutable_target(
     })
     .await
     .unwrap();
-    assert_eq!(org.pending_document_attention().await.unwrap()[0].id, request_id);
+    assert_eq!(
+        org.pending_document_attention().await.unwrap()[0].id,
+        request_id
+    );
     assert_eq!(
         org.resolve_document_collaboration(created.document_id, "human-alice", request_id)
             .await

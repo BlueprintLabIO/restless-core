@@ -488,3 +488,108 @@
 		animation: none;
 	}
 }
+
+/* Sprint 55: `/` and `$` menu above the field, and selected-skill chips inside it.
+ * The menu sits outside `.hc-field`, which clips its own overflow. */
+.bridge-root .hc {
+	position: relative;
+}
+
+.bridge-root .hc-menu {
+	position: absolute;
+	right: 0;
+	bottom: calc(100% + 6px);
+	left: 0;
+	z-index: 20;
+	max-height: 280px;
+	display: flex;
+	flex-direction: column;
+	padding: 4px;
+	overflow-y: auto;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius-pane);
+	background: var(--surface);
+	box-shadow: 0 10px 28px color-mix(in srgb, var(--ink) 12%, transparent);
+}
+
+.bridge-root .hc-menu-item {
+	min-width: 0;
+	display: grid;
+	grid-template-columns: minmax(96px, max-content) minmax(0, 1fr);
+	align-items: baseline;
+	gap: 10px;
+	padding: 7px 9px;
+	border: 0;
+	border-radius: var(--radius-control);
+	background: transparent;
+	color: var(--ink);
+	font: inherit;
+	font-size: var(--t-body);
+	text-align: left;
+	cursor: pointer;
+}
+
+.bridge-root .hc-menu-item.active {
+	background: var(--intent-conversation-soft);
+}
+
+.bridge-root .hc-menu-label {
+	font-weight: 600;
+	white-space: nowrap;
+}
+
+.bridge-root .hc-menu-description {
+	min-width: 0;
+	overflow: hidden;
+	color: var(--text-secondary);
+	font-size: var(--t-label);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.bridge-root .hc-skills {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 5px;
+	padding: 2px 4px 0;
+}
+
+.bridge-root .hc-skill {
+	max-width: 100%;
+	display: inline-flex;
+	align-items: center;
+	gap: 3px;
+	padding: 2px 3px 2px 8px;
+	border: 1px solid color-mix(in srgb, var(--intent-conversation) 32%, var(--border));
+	border-radius: 999px;
+	background: var(--intent-conversation-soft);
+	color: var(--ink);
+	font-size: var(--t-label);
+	font-weight: 600;
+}
+
+.bridge-root .hc-skill > span {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.bridge-root .hc-skill button {
+	width: 18px;
+	height: 18px;
+	display: grid;
+	flex: none;
+	place-items: center;
+	padding: 0;
+	border: 0;
+	border-radius: 50%;
+	background: transparent;
+	color: var(--text-secondary);
+	cursor: pointer;
+}
+
+.bridge-root .hc-skill button:hover:not(:disabled) {
+	background: color-mix(in srgb, var(--intent-conversation) 14%, transparent);
+	color: var(--ink);
+}

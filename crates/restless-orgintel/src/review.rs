@@ -190,7 +190,8 @@ impl OrgIntel {
         .await?
         .ok_or_else(|| OrgIntelError::InvalidWork("no outstanding handoff with that id".into()))?;
         let accountability =
-            crate::actors::lock_work_accountability_for_update_in_tx(&mut tx, candidate_work_id).await?;
+            crate::actors::lock_work_accountability_for_update_in_tx(&mut tx, candidate_work_id)
+                .await?;
         let row = sqlx::query(
             "SELECT work_id,requested_action,prepared_state,resume_condition,category,state \
              FROM owner_handoffs \
@@ -434,9 +435,25 @@ impl OrgIntel {
         state: OwnerHandoffState,
         resolution: &str,
     ) -> Result<()> {
-        self.resolve_handoff(id, "owner", state, resolution, false)
+        self.resolve_handoff(id, "owner", state, resolution, false, false)
             .await
             .map(|_| ())
+    }
+
+    /// Record the owner's explicit confirmation that a ready irreducible
+    /// human step is complete. Payments remain provider-observed and owner
+    /// judgements keep their dedicated decision/review semantics.
+    pub async fn complete_owner_human_step(&self, id: Uuid, resolution: &str) -> Result<()> {
+        self.resolve_handoff(
+            id,
+            "owner",
+            OwnerHandoffState::Resolved,
+            resolution,
+            false,
+            true,
+        )
+        .await
+        .map(|_| ())
     }
 
     /// Resolve an irreducible-human handoff from a live external observation.
@@ -456,6 +473,7 @@ impl OrgIntel {
             OwnerHandoffState::Resolved,
             resolution,
             true,
+            false,
         )
         .await
     }
@@ -471,7 +489,7 @@ impl OrgIntel {
         state: OwnerHandoffState,
         resolution: &str,
     ) -> Result<()> {
-        self.resolve_handoff(id, resolved_by, state, resolution, false)
+        self.resolve_handoff(id, resolved_by, state, resolution, false, false)
             .await
             .map(|_| ())
     }
@@ -483,6 +501,7 @@ impl OrgIntel {
         state: OwnerHandoffState,
         resolution: &str,
         external_observation: bool,
+        owner_human_step_completion: bool,
     ) -> Result<bool> {
         if matches!(
             state,
@@ -515,7 +534,7 @@ impl OrgIntel {
             crate::actors::lock_work_accountability_for_update_in_tx(&mut tx, candidate_work_id)
                 .await?;
         let row = sqlx::query(
-            "SELECT work_id,attempt_id,category,requested_action,prepared_state, \
+            "SELECT work_id,attempt_id,category,state,requested_action,prepared_state, \
                     resume_condition,assigned_to,owner_brief,brief_source_fingerprint \
              FROM owner_handoffs \
              WHERE id=$1 AND work_id=$2 AND state IN ('pending','preparing') FOR UPDATE",
@@ -536,6 +555,7 @@ impl OrgIntel {
         let assigned_to: Option<String> = row.get("assigned_to");
         let work_owner = accountability.owner_id;
         let category: OwnerHandoffCategory = row.get("category");
+        let handoff_state: OwnerHandoffState = row.get("state");
         let observable_human_step = external_observation
             && assigned_to.is_none()
             && category != OwnerHandoffCategory::OwnerJudgement;
@@ -546,6 +566,22 @@ impl OrgIntel {
             return Err(OrgIntelError::InvalidWork(format!(
                 "handoff is not currently owed by {resolved_by:?}"
             )));
+        }
+        if owner_human_step_completion {
+            if handoff_state != OwnerHandoffState::Pending {
+                return Err(OrgIntelError::InvalidWork(
+                    "a human step cannot be marked done while it is still being prepared".into(),
+                ));
+            }
+            if matches!(
+                category,
+                OwnerHandoffCategory::OwnerJudgement | OwnerHandoffCategory::PaymentConfirmation
+            ) {
+                return Err(OrgIntelError::InvalidWork(
+                    "owner judgements, reviews and payments must use their dedicated source action"
+                        .into(),
+                ));
+            }
         }
         if external_observation && resolved_by != "daemon" {
             return Err(OrgIntelError::InvalidWork(

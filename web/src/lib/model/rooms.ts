@@ -22,6 +22,13 @@ export interface RoomListPage {
 	has_more: boolean;
 }
 
+export interface RecentDirectConversation {
+	room_id: string;
+	person_actor_id: string;
+	last_message_id: number;
+	last_message_at: string;
+}
+
 export interface RoomParticipant {
 	room_id: string;
 	actor_id: string;
@@ -262,6 +269,12 @@ export function getRooms(
 		query.set('before_room_id', cursor.beforeRoomId);
 	}
 	return roomJson(`${roomPath(company)}?${query}`);
+}
+
+export function getRecentDirectConversations(
+	company: string
+): Promise<RecentDirectConversation[]> {
+	return roomJson(`/api/companies/${encodeURIComponent(company)}/direct-conversations`);
 }
 
 export function searchRooms(

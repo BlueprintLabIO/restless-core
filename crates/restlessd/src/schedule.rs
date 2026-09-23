@@ -299,7 +299,7 @@ async fn handle_notification(daemon: &Arc<Daemon>, in_flight: &InFlight, payload
             .await;
         }
         Some("message") if value["body"]["to"].as_str().is_some() => {
-            // Member/owner mail to a lead is an owed coordination condition.
+            // Addressed mail to any active Actor is an owed coordination condition.
             // Work-linked feedback is filtered by the actor dispatcher and
             // remains graph input rather than racing a conversation session.
             // Ordinary Work feedback is queued and delivered by the active
@@ -415,18 +415,11 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
     // addressed conversations for unrelated team leads in the same company.
     recover_interrupted_exec_wake(daemon, in_flight, &org, company).await;
 
-    if let Ok(schedules) = org.claim_due_schedules().await {
-        for schedule in schedules {
-            if schedule.actor_id == "exec" {
-                fire_exec(
-                    daemon,
-                    in_flight,
-                    company,
-                    &format!("scheduled: {}", schedule.reason),
-                )
-                .await;
-            }
-        }
+    // Claiming a time fact also commits its addressed inbox message. Exec and
+    // Staff both recover that obligation from durable state below; no volatile
+    // dispatch between occurrence settlement and wake delivery is needed.
+    if let Err(error) = org.claim_due_schedules().await {
+        tracing::warn!(company, "could not claim due schedules: {error:#}");
     }
 
     // What the Exec is owed is a durable fact about the exact owed thing, not a
@@ -482,6 +475,39 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
                 ),
             }
         }
+    }
+
+    // Direct mail is a durable peer wake, including for Staff who are not
+    // accountable leads. Re-derive recipients from unread mail on every scan
+    // so a lost NOTIFY or daemon restart cannot strand a colleague's question.
+    match org.actors_owing_conversation_mail(128).await {
+        Ok(actors) => {
+            for actor in actors {
+                if !daemon.staff.has_capacity(company) {
+                    break;
+                }
+                if let Err(error) = crate::staff::dispatch_actor_conversation(
+                    &config,
+                    &org,
+                    crate::staff::ConversationRuntime {
+                        spend: &daemon.spend,
+                        authority: &daemon.authority,
+                        capabilities: &daemon.capabilities,
+                        registry: &daemon.staff,
+                        activities: &daemon.activities,
+                        runtime_bridges: &daemon.runtime_bridges,
+                        schedule_wake: &daemon.schedule_wake,
+                    },
+                    &actor,
+                    "addressed direct message remains owed",
+                )
+                .await
+                {
+                    tracing::warn!(company, actor = %actor, "could not wake addressed Actor: {error:#}");
+                }
+            }
+        }
+        Err(error) => tracing::warn!(company, "could not scan addressed Actor mail: {error:#}"),
     }
 
     // A structured direct mention addresses the durable Actor, not the team
@@ -756,11 +782,10 @@ async fn run_exec_turn_with_lease(
 ) -> Result<exec::WakeReport> {
     let (conversation_inbox, human_sender) = org.conversation_inbox_for_turn("exec").await?;
     let membership_owner = org.current_membership_owner_actor_id().await?;
-    let (owner_actor_id, human_is_membership_owner) =
-        crate::context::human_conversation_audience(
-            membership_owner.as_deref(),
-            human_sender.as_deref(),
-        );
+    let (owner_actor_id, human_is_membership_owner) = crate::context::human_conversation_audience(
+        membership_owner.as_deref(),
+        human_sender.as_deref(),
+    );
     let conversation_inbox = crate::context::scope_human_turn_messages(
         conversation_inbox,
         &owner_actor_id,
@@ -900,6 +925,23 @@ async fn run_exec_turn_with_lease(
                     report.owner_reply.as_deref(),
                     !owner_message_ids.is_empty(),
                 )?;
+                // A productive reply can survive a broken completion ask.
+                // Preserve it, but do not consume the wake while hiding the
+                // runtime failure in an event the owner never sees.
+                let protocol_notice = report
+                    .reason
+                    .strip_prefix(exec::COMPLETION_PROTOCOL_PREFIX)
+                    .filter(|_| report.termination == exec::Termination::Blocked)
+                    .map(|reason| {
+                        let notice = format!(
+                            "Restless could not verify this turn's completion status: {reason}. Review the preserved work and artifacts before retrying; no automatic replay was scheduled."
+                        );
+                        match reply {
+                            Some(reply) => format!("{reply}\n\n{notice}"),
+                            None => notice,
+                        }
+                    });
+                let reply = protocol_notice.as_deref().or(reply);
                 org.finalize_cognitive_conversation_to_with_owner_scope(
                     lease_guard.lease(),
                     &owner_actor_id,
@@ -958,9 +1000,8 @@ async fn fire_exec(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str, re
     }
     let cancellation = {
         let mut guard = in_flight.lock().expect("in-flight guard");
-        // Keep the reason queued rather than dropping it: `take_ready` releases
-        // it once the backoff expires, and a claimed schedule is not owed work
-        // any durable row would re-derive.
+        // Keep this wake hint queued until backoff expires. Scheduled and
+        // addressed work also remain recoverable from their durable inbox rows.
         if guard.is_backing_off(company) {
             guard.queue(company, reason);
             return;

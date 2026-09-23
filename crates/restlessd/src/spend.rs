@@ -111,9 +111,9 @@ pub struct TurnMeter {
 /// The one authoritative answer to whether a charged model turn may begin.
 ///
 /// `MeteringUnknown` is deliberately neither an exhausted budget nor a zero
-/// balance. The ledger has preserved every exact charge it knows, but a prior
-/// provider stream lacked an exact terminal charge. Charged admission pauses
-/// until that discrepancy is reconciled.
+/// balance. The ledger has preserved every exact charge it knows, but at least
+/// one provider response carried no price. Admission fails open against the
+/// known charges; the owner sees that spend is a lower bound.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelBudgetState {
     Available {
@@ -172,13 +172,17 @@ impl ModelBudgetState {
                 remaining_micro_usd,
                 ..
             } => Some(remaining_micro_usd),
-            Self::Exhausted { .. } | Self::MeteringUnknown { .. } => None,
+            Self::MeteringUnknown {
+                accounted_micro_usd,
+                ceiling_micro_usd,
+            } => Some(ceiling_micro_usd.saturating_sub(accounted_micro_usd)),
+            Self::Exhausted { .. } => None,
         }
     }
 
     #[must_use]
     pub fn is_available(self) -> bool {
-        matches!(self, Self::Available { .. })
+        !matches!(self, Self::Exhausted { .. })
     }
 
     #[must_use]
@@ -193,7 +197,7 @@ impl ModelBudgetState {
                 "{company} has spent ${accounted:.2} of its ${ceiling:.2} ceiling; the owner must raise it before charged work continues"
             ),
             Self::MeteringUnknown { .. } => format!(
-                "{company} has ${accounted:.2} exactly accounted, but a provider stream ended without an exact charge; charged work is paused until model metering is reconciled"
+                "{company} has spent at least ${accounted:.2} of its ${ceiling:.2} ceiling; some model responses reported no price, so actual spend may be higher"
             ),
         }
     }
@@ -431,9 +435,8 @@ impl SpendLedger {
     #[must_use]
     pub fn budget_state_for(&self, company: &str, ceiling: SpendCeiling) -> ModelBudgetState {
         let ceiling_micro_usd = ceiling.micro_usd();
-        // A cell whose ledger cannot be opened must not be treated as having
-        // spent nothing: that would silently grant it a full budget. Refuse
-        // charged admission until accounting is available again.
+        // A cell whose ledger cannot be opened is shown as unknown, not as
+        // having spent nothing. Admission fails open; the owner sees it.
         let Ok(store) = self.store(company) else {
             return ModelBudgetState::MeteringUnknown {
                 accounted_micro_usd: 0,
@@ -443,13 +446,16 @@ impl SpendLedger {
         match store.company_state(company) {
             CompanySpendState::MeteringUnknown {
                 accounted_micro_usd,
-            } => ModelBudgetState::MeteringUnknown {
+            }
+            | CompanySpendState::Accounted {
+                accounted_micro_usd,
+            } if accounted_micro_usd >= ceiling_micro_usd => ModelBudgetState::Exhausted {
                 accounted_micro_usd,
                 ceiling_micro_usd,
             },
-            CompanySpendState::Accounted {
+            CompanySpendState::MeteringUnknown {
                 accounted_micro_usd,
-            } if accounted_micro_usd >= ceiling_micro_usd => ModelBudgetState::Exhausted {
+            } => ModelBudgetState::MeteringUnknown {
                 accounted_micro_usd,
                 ceiling_micro_usd,
             },

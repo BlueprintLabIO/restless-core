@@ -183,8 +183,9 @@ A company can be highly active while producing no economic value.
 
 The UI should make it easy to set direction and limits, then let the Exec operate.
 
-The owner can contact the Exec and accountable team leads directly. Other Staff remain inspectable
-through their Work and evidence, with the accountable lead or Exec as the owner-facing route.
+The owner can contact every employee directly. The Exec and accountable team lead remain the
+owner-facing route for their Work, decisions and outcomes; direct conversation does not transfer
+that accountability.
 
 The cockpit should distinguish casual communication from durable operating change so that a conversational message does not silently rewrite the company plan.
 
@@ -738,6 +739,14 @@ The People area presents the company as a durable organisation of employees rath
 
 The UI term may be **People** or **Employees**. The shared system concept is `Actor`.
 
+People opens one conversation workspace: accountable direct chats and shared groups use the same
+list and main panel. New conversation accepts one or several people; Add people from a direct chat
+starts a new group without exposing the earlier private transcript. The full organisation remains
+available through the People tab in that list. Documents open alongside the selected conversation,
+with a full-width document view and return path on mobile. Existing Room links resolve into this
+workspace; Rooms are not a separate primary destination. See
+[`conversation-workspace.md`](../conversation-workspace.md) for the interaction and verification scope.
+
 ## 7.2 Directory
 
 The directory shows the Exec first, then teams with their accountable lead and Staff members. System
@@ -754,10 +763,10 @@ It should show every persistent employee with:
 - cost/usage summary where relevant;
 - an accountable contact route.
 
-The Exec and team leads have direct conversation entry points. Staff member rows are denser,
-inspection-first views of current Work and accepted outputs; they route owner conversation through
-their current lead. Unassigned Staff route through the Exec. Lead status comes from the team
-relationship, never an id suffix or role string.
+Every employee has a direct conversation entry point. Staff member rows also show current Work and
+accepted outputs, with the accountable lead identified for that Work. Direct conversation does not
+reassign Work: unassigned Staff remain under the Exec, and assigned Staff remain under their current
+lead. Lead status comes from the team relationship, never an id suffix or role string.
 
 The directory should distinguish:
 
@@ -788,11 +797,10 @@ Competence should be evidence-backed and revisable, not a permanent score based 
 
 **Core contract**
 
-The owner can chat freely with the Exec and accountable team leads. Conversation has no scripted
-three-state lifecycle. Other Staff remain inspectable and reachable through their accountable route;
-the cockpit does not present a chat affordance it will later refuse. When a message is explicitly
-linked to Work, OrgIntel records it as exact feedback input for the next Attempt; otherwise it remains
-ordinary conversation.
+The owner can chat freely with the Exec, accountable team leads and Staff. Conversation has no
+scripted three-state lifecycle. Direct chat supports coworking, but does not change the accountable
+lead's ownership of Work or outcome judgement. When a message is explicitly linked to Work, OrgIntel
+records it as exact feedback input for the next Attempt; otherwise it remains ordinary conversation.
 
 The interface should distinguish:
 
@@ -1317,8 +1325,8 @@ Required V0 elements:
 - session/availability state;
 - recent outputs;
 - actor profile;
-- direct chat for Exec and accountable leads;
-- member Work/evidence inspection with the exact accountable contact route;
+- direct chat for every employee;
+- member Work/evidence inspection with the accountable lead for that Work;
 - system-principal filtering by actor kind;
 - explicit message versus directive action.
 
@@ -1725,8 +1733,8 @@ Delete views, fields, and alerts that do not improve decisions, trust, outcomes,
 5. A persistent global bar shows company phase, health, runtime, spend, and authority status.
 6. Work combines hierarchical goals with a compact deterministic Work graph; denser boards are optional projections.
 7. `Task` is a UI term; `Work` remains the OrgIntel primitive.
-8. The owner can chat with the Exec and accountable leads and inspect every Staff member's Work and
-   evidence through the exact accountable route.
+8. The owner can chat with every employee directly and inspect each Staff member's Work and evidence
+   through its accountable lead; direct conversation does not change Work ownership.
 9. Messages, feedback, directives, and authority decisions have distinct semantics.
 10. Durable directives are visible to the Exec and affect OrgIntel state.
 11. The Company area composes owner-relevant Authority, OrgIntel and Runtime projections without
@@ -1768,7 +1776,7 @@ These should be answered through dogfood rather than speculative design:
 
 > **The Owner Cockpit is the calm operating surface for one owner to understand and steer a
 > self-running company. It centres four areas: a high-signal Attention Inbox, causal and scanning
-> Work views, a persistent People directory with accountable contacts and Staff inspection, and a
+> Work views, a persistent People directory with direct contacts and accountable Staff Work, and a
 > stable Company view over the charter, limits, resources, actions and Company computer. It preserves stable cross-layer semantics, grounds company claims in
 > external evidence, distinguishes operating phase from lifecycle and Work status, and lets the owner
 > govern outcomes and exceptions without babysitting daily execution.**

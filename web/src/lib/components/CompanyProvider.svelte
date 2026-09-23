@@ -3,6 +3,8 @@
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
 	const catalog = modelCatalog();
 	import HarnessConnections from './HarnessConnections.svelte';
+	import HarnessDiagnostics from './HarnessDiagnostics.svelte';
+	import CustomHarnesses from './CustomHarnesses.svelte';
 	import AgentIntelligence from './AgentIntelligence.svelte';
 	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
 	let { companyId }: { companyId: string } = $props();
@@ -83,6 +85,7 @@
 			if (sequence !== requestSequence) return;
 			if (!response.ok) throw new Error(body.message ?? 'Could not read connections.');
 			status = body;
+			error = '';
 			if (!selected && !editorOpen) {
 				choose(body.primary_provider === 'unconfigured' ? '' : body.primary_provider);
 			} else if (!edited && !busy) {
@@ -175,7 +178,7 @@
 	<header>
 		<h1>Intelligence provider</h1>
 		<button
-			class="primary"
+			class="btn primary small"
 			disabled={!status || busy}
 			onclick={() => {
 				choose('');
@@ -207,6 +210,7 @@
 						<strong>{labels[row.provider] ?? row.provider}</strong><span class="badge {tone(row)}"
 							>● {stateLabel(row)}</span
 						><button
+							class="btn small"
 							disabled={busy}
 							onclick={() => choose(row.provider, true)}
 							aria-label={`Edit ${labels[row.provider] ?? row.provider}`}>Edit</button
@@ -279,7 +283,7 @@
 				</details>
 				<div class="actions">
 					<button
-						class="primary"
+						class="btn primary small"
 						disabled={busy ||
 							refreshing ||
 							!selected ||
@@ -287,6 +291,7 @@
 							(mode === 'infisical' && status.infisical_status !== 'present')}
 						>{busy ? 'Saving…' : connection?.reference ? 'Save connection' : 'Connect'}</button
 					><button
+						class="btn small"
 						type="button"
 						disabled={busy}
 						onclick={() => {
@@ -331,6 +336,8 @@
 		</h2>
 		<HarnessConnections {companyId} />
 	</section>
+	<HarnessDiagnostics {companyId} />
+	<CustomHarnesses {companyId} />
 	<AgentIntelligence {companyId} />
 </div>
 
@@ -402,10 +409,6 @@
 	button:disabled {
 		opacity: 0.5;
 		cursor: default;
-	}
-	.primary {
-		background: var(--ink);
-		color: var(--text-inverse);
 	}
 	.text-button {
 		border: 0;

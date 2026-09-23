@@ -1,13 +1,14 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
-	import { browser } from '$app/environment';
 	import FileText from '@lucide/svelte/icons/file-text';
 	import ConversationDocument from '$lib/components/ConversationDocument.svelte';
 	import Search from '@lucide/svelte/icons/search';
 	import Users from '@lucide/svelte/icons/users';
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
-	import Pin from '@lucide/svelte/icons/pin';
+	import LoaderCircle from '@lucide/svelte/icons/loader-circle';
+	import MessageCircleQuestion from '@lucide/svelte/icons/message-circle-question';
+	import Bell from '@lucide/svelte/icons/bell';
 	import PersonConversation from '$lib/components/PersonConversation.svelte';
 	import RoomConversation from '$lib/components/RoomConversation.svelte';
 	import RoomManager from '$lib/components/RoomManager.svelte';
@@ -19,7 +20,7 @@
 	} from '$lib/model/queries.svelte';
 	import {
 		roomsQuery,
-		roomTitleSearchQuery,
+		recentDirectConversationsQuery,
 		roomMessageSearchQuery
 	} from '$lib/model/room-queries.svelte';
 	import { createRoom, type Room } from '$lib/model/rooms';
@@ -35,20 +36,29 @@
 			(p) => p.kind !== 'system' && p.actor_id !== principal.view?.actor_id
 		) ?? []
 	);
+	type DirectoryPerson = (typeof people)[number];
 	const teams = $derived((owner ? cockpit.view?.teams : collaboration.view?.teams) ?? []);
 	const contacts = $derived(
 		people.filter((p) => p.kind === 'exec' || teams.some((t) => t.lead_actor_id === p.actor_id))
 	);
 	const rooms = $derived(roomsQuery(companyId));
-	const roomId = $derived(page.url.searchParams.get('room') ?? '');
-	const personId = $derived(
-		page.url.searchParams.get('person') ??
-			(roomId ? '' : (contacts.find((p) => p.kind === 'exec')?.actor_id ?? ''))
+	const recent = $derived(
+		recentDirectConversationsQuery(companyId, () => !!principal.view?.actor_id)
 	);
+	const roomId = $derived(page.url.searchParams.get('room') ?? '');
+	const personId = $derived(page.url.searchParams.get('person') ?? '');
 	const selectedPerson = $derived(people.find((p) => p.actor_id === personId));
+	const selectedStaff = $derived(
+		selectedPerson?.kind === 'staff' &&
+			!contacts.some((person) => person.actor_id === selectedPerson.actor_id)
+	);
 	const documentOpen = $derived(page.url.searchParams.has('document'));
 	const linkedRoomId = $derived(
 		roomId || rooms.rooms.find((r) => directPerson(r)?.actor_id === personId)?.id || ''
+	);
+	const selectedRoom = $derived(rooms.rooms.find((room) => room.id === roomId) ?? null);
+	const selectedDirectActorId = $derived(
+		selectedRoom ? (directPerson(selectedRoom)?.actor_id ?? '') : ''
 	);
 	function toggleDocument() {
 		const url = new URL(page.url);
@@ -57,7 +67,15 @@
 		void goto(url, { noScroll: true, keepFocus: true });
 	}
 	const explicitSelection = $derived(!!roomId || page.url.searchParams.has('person'));
-	let directory = $state(false);
+	const requestedView = $derived(page.url.searchParams.get('view'));
+	const directory = $derived(
+		requestedView === 'people' ||
+			(requestedView === null &&
+				page.url.searchParams.has('person') &&
+				owner &&
+				selectedPerson?.kind === 'staff' &&
+				!teams.some((team) => team.lead_actor_id === selectedPerson.actor_id))
+	);
 	let search = $state('');
 	let debouncedSearch = $state('');
 	$effect(() => {
@@ -65,30 +83,7 @@
 		const timer = setTimeout(() => (debouncedSearch = value), 200);
 		return () => clearTimeout(timer);
 	});
-	const titleSearch = $derived(roomTitleSearchQuery(companyId, debouncedSearch));
 	const messageSearch = $derived(roomMessageSearchQuery(companyId, debouncedSearch));
-	let pinned = $state<string[]>([]);
-	const pinKey = $derived(
-		`restless:conversation-pins:${companyId}:${principal.view?.actor_id ?? ''}`
-	);
-	$effect(() => {
-		const key = pinKey;
-		if (!browser) return;
-		try {
-			const value = JSON.parse(localStorage.getItem(key) ?? '[]');
-			pinned = Array.isArray(value) ? value.filter((v) => typeof v === 'string') : [];
-		} catch {
-			pinned = [];
-		}
-	});
-	function togglePin(key: string) {
-		pinned = pinned.includes(key) ? pinned.filter((p) => p !== key) : [...pinned, key];
-		try {
-			localStorage.setItem(pinKey, JSON.stringify(pinned));
-		} catch {
-			/* In-memory pins still work. */
-		}
-	}
 	function directPerson(room: Room) {
 		if (room.kind !== 'direct' || !principal.view) return undefined;
 		return people.find((p) => {
@@ -99,14 +94,47 @@
 			);
 		});
 	}
+	function attentionFor(actorId: string) {
+		if (!owner || attention.status !== 'live') return [];
+		if (actorId === 'exec') return attention.view?.items ?? [];
+		const team = teams.find((team) => team.lead_actor_id === actorId);
+		const members = new Set([
+			actorId,
+			...people
+				.filter((person) => team && person.team_id === team.id)
+				.map((person) => person.actor_id)
+		]);
+		return (attention.view?.items ?? []).filter((item) => {
+			const sourceActor =
+				item.responsibleActor?.id ?? item.runtimeAttach?.requestingActor ?? item.briefAuthor?.id;
+			const workOwner = attention.view?.workGraph?.work.find(
+				(work) => work.id === item.workId
+			)?.owner_id;
+			return (sourceActor && members.has(sourceActor)) || (workOwner && members.has(workOwner));
+		});
+	}
+	function personStatus(actorId: string) {
+		const person = people.find((candidate) => candidate.actor_id === actorId);
+		const peopleAreLive = owner ? cockpit.status === 'live' : collaboration.status === 'live';
+		const needs = attentionFor(actorId).filter((item) => !item.preparing);
+		const need =
+			needs.find((item) => item.source.kind === 'conversation_owner_need') ?? needs.at(0);
+		return {
+			working: peopleAreLive && person?.session_running === true,
+			need: need?.source.kind === 'conversation_owner_need' ? 'reply' : need ? 'attention' : null
+		} as const;
+	}
 	let openingPerson = $state('');
 	let openingError = $state('');
 	const pendingDirect = new Map<string, string>();
 	async function openPerson(event: MouseEvent | null, id: string) {
 		const person = people.find((p) => p.actor_id === id);
-		if (owner && person?.kind !== 'human') return;
 		event?.preventDefault();
 		if (openingPerson || !principal.view) return;
+		if (contacts.some((contact) => contact.actor_id === id)) {
+			await goto(href(id));
+			return;
+		}
 		const company = companyId,
 			actor = principal.view.actor_id;
 		const existing = rooms.rooms.find((r) => directPerson(r)?.actor_id === id);
@@ -154,46 +182,79 @@
 	});
 	const rows = $derived.by(() => {
 		const query = search.trim().toLocaleLowerCase();
-		const entries = (directory ? people : owner ? contacts : [])
-			.filter((p) => !query || `${p.display} ${p.role}`.toLocaleLowerCase().includes(query))
-			.map((p) => ({
-				key: `person:${p.actor_id}`,
-				name: p.display,
-				person: p.actor_id,
-				room: '',
-				group: false,
-				hint: teams.find((t) => t.id === p.team_id)?.name ?? p.role
-			}));
-		if (!directory)
-			for (const room of query ? titleSearch.rooms : rooms.rooms) {
-				if (owner && contacts.some((p) => p.actor_id === directPerson(room)?.actor_id)) continue;
-				entries.push({
-					key: `room:${room.id}`,
-					name: directPerson(room)?.display ?? room.title,
-					person: '',
-					room: room.id,
-					group: room.kind !== 'direct',
-					hint: room.kind === 'direct' ? 'Direct conversation' : 'Group conversation'
-				});
-			}
-		return entries.sort((a, b) => Number(pinned.includes(b.key)) - Number(pinned.includes(a.key)));
+		return recent.conversations.flatMap((conversation) => {
+			const person = people.find((candidate) => candidate.actor_id === conversation.person_actor_id);
+			if (
+				!person ||
+				(query && !`${person.display} ${person.role}`.toLocaleLowerCase().includes(query))
+			)
+				return [];
+			const contact = owner && contacts.some((candidate) => candidate.actor_id === person.actor_id);
+			return [
+				{
+					key: `room:${conversation.room_id}`,
+					name: person.display,
+					person: person.actor_id,
+					room: contact ? '' : conversation.room_id,
+					hint: teams.find((team) => team.id === person.team_id)?.name ?? person.role
+				}
+			];
+		});
 	});
+	function matchesDirectory(value: { display: string; role: string }, query: string) {
+		return !query || `${value.display} ${value.role}`.toLocaleLowerCase().includes(query);
+	}
+	const directoryTeams = $derived.by(() => {
+		const query = search.trim().toLocaleLowerCase();
+		return teams
+			.map((team) => {
+				const lead = people.find((person) => person.actor_id === team.lead_actor_id) ?? null;
+				const members = people.filter(
+					(person) => person.team_id === team.id && person.actor_id !== team.lead_actor_id
+				);
+				const teamMatches = `${team.name} ${team.brief}`.toLocaleLowerCase().includes(query);
+				return {
+					team,
+					lead,
+					members,
+					teamMatches,
+					matches:
+						teamMatches ||
+						(lead && matchesDirectory(lead, query)) ||
+						members.some((member) => matchesDirectory(member, query))
+				};
+			})
+			.filter((entry) => entry.matches);
+	});
+	const directoryExec = $derived(people.find((person) => person.kind === 'exec') ?? null);
+	const directoryUnassigned = $derived.by(() => {
+		const query = search.trim().toLocaleLowerCase();
+		return people.filter(
+			(person) =>
+				person.kind === 'staff' &&
+				!teams.some((team) => team.id === person.team_id) &&
+				matchesDirectory(person, query)
+		);
+	});
+	const directoryHumans = $derived.by(() => {
+		const query = search.trim().toLocaleLowerCase();
+		return people.filter((person) => person.kind === 'human' && matchesDirectory(person, query));
+	});
+	function setDirectory(next: boolean) {
+		const url = new URL(page.url);
+		if (next) url.searchParams.set('view', 'people');
+		else url.searchParams.set('view', 'conversations');
+		void goto(url, { noScroll: true, keepFocus: true });
+	}
 	function href(person: string, room = '') {
 		const params = new URLSearchParams(room ? { room } : { person });
+		if (directory) params.set('view', 'people');
 		const document = page.url.searchParams.get('document');
 		if (document !== null) params.set('document', document);
 		return `/${encodeURIComponent(companyId)}/people?${params}`;
 	}
 	function created(room: Room) {
 		void goto(href('', room.id));
-	}
-	function needsYou(person: string) {
-		return (
-			owner &&
-			attention.view?.items.some(
-				(item) => item.responsibleActor?.id === person || item.briefAuthor?.id === person
-			)
-		);
 	}
 </script>
 
@@ -230,51 +291,178 @@
 			/></label
 		>
 		<nav class="tabs" aria-label="Conversation list">
-			<button class:active={!directory} onclick={() => (directory = false)}>Conversations</button
-			><button class:active={directory} onclick={() => (directory = true)}>People</button>
+			<button class:active={!directory} onclick={() => setDirectory(false)}>Conversations</button
+			><button class:active={directory} onclick={() => setDirectory(true)}>People</button>
 		</nav>
 		<div class="entries" aria-busy={!!openingPerson}>
 			{#if openingError}<p class="empty" role="alert">{openingError}</p>{/if}
-			{#each rows as row (row.key)}
-				<div
-					class="entry"
-					class:current={row.room ? roomId === row.room : !roomId && personId === row.person}
+			{#snippet personStatuses(actorId: string, name: string)}
+				{@const status = personStatus(actorId)}
+				{#if status.working || status.need}<span
+					class="row-statuses"
+					class:multiple={status.working && status.need !== null}
+					>{#if status.working}<span
+							class="row-status working"
+							title={`${name} is working`}
+							aria-label={`${name} is working`}
+							><LoaderCircle size={14} aria-hidden="true" /><span>Working</span></span
+						>{/if}{#if status.need === 'reply'}<span
+							class="row-status reply"
+							title={`${name} is waiting for your reply`}
+							aria-label={`${name} is waiting for your reply`}
+							><MessageCircleQuestion size={14} aria-hidden="true" /><span>Reply</span></span
+						>{:else if status.need === 'attention'}<span
+							class="row-status attention"
+							title={`${name} needs your attention`}
+							aria-label={`${name} needs your attention`}
+							><Bell size={14} aria-hidden="true" /><span>Needs you</span></span
+						>{/if}</span
+				>{/if}
+			{/snippet}
+			{#snippet directoryPerson(
+				person: DirectoryPerson,
+				cue: string,
+				cueTitle: string,
+				kind: string
+			)}
+				<a
+					class="directory-person {kind}"
+					href={href(person.actor_id)}
+					onclick={(event) => void openPerson(event, person.actor_id)}
+					aria-current={(!roomId && personId === person.actor_id) ||
+					selectedDirectActorId === person.actor_id
+						? 'page'
+						: undefined}
 				>
-					<a
-						onclick={(event) => {
-							if (row.person) void openPerson(event, row.person);
-						}}
-						href={href(row.person, row.room)}
-						aria-current={(row.room ? roomId === row.room : !roomId && personId === row.person)
-							? 'page'
-							: undefined}
-						title={row.hint}
+					<span class="avatar"
+						>{person.display
+							.split(/\s+/)
+							.slice(0, 2)
+							.map((part) => part[0])
+							.join('')}</span
 					>
-						<span class="avatar"
-							>{#if row.group}<Users size={17} />{:else}{row.name
-									.split(/\s+/)
-									.slice(0, 2)
-									.map((s) => s[0])
-									.join('')}{/if}</span
-						><span class="name">{row.name}</span>{#if needsYou(row.person)}<span
-								class="needs"
-								title="Needs you"
-								aria-label="Needs you"
-							></span>{/if}
-					</a>
-					<button
-						class="pin"
-						class:pinned={pinned.includes(row.key)}
-						aria-label={`${pinned.includes(row.key) ? 'Unpin' : 'Pin'} ${row.name}`}
-						title={pinned.includes(row.key) ? 'Unpin' : 'Pin'}
-						onclick={() => togglePin(row.key)}><Pin size={13} /></button
+					<span class="directory-person-copy"
+						><span class="name">{person.display}</span>{@render personStatuses(
+							person.actor_id,
+							person.display
+						)}<span class="directory-cue" title={cueTitle}
+							>{cue}</span
+						></span
 					>
-				</div>
-			{:else}<p class="empty">
-					{rooms.status === 'unknown' ? 'Loading conversations…' : 'No matches.'}
-				</p>{/each}
+				</a>
+			{/snippet}
+			{#if directory}
+				{#if directoryExec && matchesDirectory(directoryExec, search.trim().toLocaleLowerCase())}
+					<section class="directory-section executive-section" aria-label="Executive">
+						{@render directoryPerson(
+							directoryExec,
+							'Executive chat',
+							'Open the executive conversation',
+							'executive'
+						)}
+					</section>
+				{/if}
+				{#each directoryTeams as entry (entry.team.id)}
+					<section class="directory-section team-section" aria-label={entry.team.name}>
+						<header class="team-directory-head" title={entry.team.brief}>
+							<span><Users size={14} aria-hidden="true" /> {entry.team.name}</span>
+							{#if entry.lead}<a
+									class="team-talk"
+									href={href(entry.lead.actor_id)}
+									onclick={(event) => void openPerson(event, entry.lead!.actor_id)}
+									title={`Talk to ${entry.lead.display}`}>Talk to lead</a
+								>{/if}
+						</header>
+						{#if entry.lead}{@render directoryPerson(
+								entry.lead,
+								'Lead chat',
+								'Accountable team lead. Open their conversation.',
+								'lead'
+							)}{/if}
+						{#each entry.members.filter((member) => entry.teamMatches || matchesDirectory(member, search
+										.trim()
+										.toLocaleLowerCase())) as member (member.actor_id)}
+							{@render directoryPerson(
+								member,
+								'Chat',
+								`Open a direct conversation to co-work with ${member.display}`,
+								'member'
+							)}
+						{/each}
+					</section>
+				{/each}
+				{#if directoryUnassigned.length}
+					<section class="directory-section" aria-label="Unassigned staff">
+						<header class="team-directory-head">
+							<span>Unassigned</span>{#if directoryExec}<a
+									class="team-talk"
+									href={href(directoryExec.actor_id)}
+									onclick={(event) => void openPerson(event, directoryExec!.actor_id)}
+									title="Talk to the Exec, who is accountable for unassigned staff">Talk to Exec</a
+								>{/if}
+						</header>
+						{#each directoryUnassigned as member (member.actor_id)}
+							{@render directoryPerson(
+								member,
+								'Chat',
+								`Open a direct conversation to co-work with ${member.display}`,
+								'member'
+							)}
+						{/each}
+					</section>
+				{/if}
+				{#if directoryHumans.length}
+					<section class="directory-section" aria-label="Human colleagues">
+						<header class="team-directory-head"><span>Colleagues</span></header>
+						{#each directoryHumans as colleague (colleague.actor_id)}
+							{@render directoryPerson(
+								colleague,
+								'Colleague',
+								`Open a direct conversation with ${colleague.display}`,
+								'colleague'
+							)}
+						{/each}
+					</section>
+				{/if}
+				{#if !directoryExec && !directoryTeams.length && !directoryUnassigned.length && !directoryHumans.length}<p
+						class="empty"
+					>
+						No people match.
+					</p>{/if}
+			{:else}
+				{#each rows as row (row.key)}
+					<div
+						class="entry"
+						class:current={row.room ? roomId === row.room : !roomId && personId === row.person}
+					>
+						<a
+							onclick={(event) => {
+								if (row.person && !row.room) void openPerson(event, row.person);
+							}}
+							href={href(row.person, row.room)}
+							aria-current={(row.room ? roomId === row.room : !roomId && personId === row.person)
+								? 'page'
+								: undefined}
+							title={row.hint}
+						>
+							<span class="avatar"
+								>{row.name
+										.split(/\s+/)
+										.slice(0, 2)
+										.map((s) => s[0])
+										.join('')}</span
+							><span class="name">{row.name}</span>{#if row.person}{@render personStatuses(
+									row.person,
+									row.name
+								)}{/if}
+						</a>
+					</div>
+				{:else}<p class="empty">
+						{recent.status === 'unknown' ? 'Loading conversations…' : search.trim() ? 'No matches.' : 'No conversations yet. Find someone in People to start one.'}
+					</p>{/each}
+			{/if}
 			{#if search.trim() && !directory}
-				{#each messageSearch.messages as message (message.id)}
+				{#each messageSearch.messages.filter((message) => recent.conversations.some((conversation) => conversation.room_id === message.room_id)) as message (message.id)}
 					<a
 						class="search-result"
 						href={`${href('', message.room_id)}${message.thread_root_message_id ? `&thread=${message.thread_root_message_id}` : ''}&focus=${message.id}`}
@@ -287,22 +475,17 @@
 				{#if messageSearch.hasMore}<button class="more" onclick={() => messageSearch.loadMore()}
 						>More messages</button
 					>{/if}
-				{#if titleSearch.hasMore}<button class="more" onclick={() => titleSearch.loadMore()}
-						>More conversations</button
-					>{/if}
-			{:else if rooms.hasMore && !directory}<button class="more" onclick={() => rooms.loadMore()}
-					>More conversations</button
-				>{/if}
-			{#if rooms.failure || messageSearch.failure || titleSearch.failure}<p
+				{/if}
+			{#if recent.failure || messageSearch.failure}<p
 					class="empty"
 					role="status"
 				>
-					{rooms.failure?.message ?? messageSearch.failure?.message ?? titleSearch.failure?.message}
+					{recent.failure?.message ?? messageSearch.failure?.message}
 				</p>{/if}
 		</div>
 	</aside>
 	<section class="conversation-main" aria-label="Selected conversation">
-		<a class="back" href={`/${companyId}/people`}><ArrowLeft size={16} /> Conversations</a>
+		<a class="back" href={`/${companyId}/people${directory ? "?view=people" : ""}`}><ArrowLeft size={16} /> {directory ? "People" : "Conversations"}</a>
 		{#if roomId}<RoomConversation
 				>{#snippet actions()}<button
 						class="document-toggle"
@@ -310,7 +493,16 @@
 						aria-label="Open document"
 						onclick={toggleDocument}><FileText size={17} /></button
 					>{/snippet}</RoomConversation
-			>{:else if owner && selectedPerson?.kind !== 'human'}<PersonConversation
+			>{:else if selectedStaff}<div class="staff-direct-route">
+				<p>{selectedPerson?.display}</p>
+				<p>Open a direct conversation to co-work on a specific task.</p>
+				<button
+					class="more"
+					disabled={!!openingPerson}
+					onclick={() => selectedPerson && void openPerson(null, selectedPerson.actor_id)}
+					>{openingPerson ? 'Opening…' : 'Open conversation'}</button
+				>{#if openingError}<p role="alert">{openingError}</p>{/if}
+			</div>{:else if owner && selectedPerson && selectedPerson.kind !== 'human'}<PersonConversation
 				>{#snippet actions(context)}<button
 						class="document-toggle"
 						title="Open a document alongside this conversation"
@@ -424,6 +616,79 @@
 		min-height: 0;
 		padding: 6px;
 	}
+	.directory-section {
+		margin-bottom: 8px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-control);
+		overflow: hidden;
+	}
+	.executive-section {
+		border-color: color-mix(in srgb, var(--intent-conversation) 28%, var(--border));
+	}
+	.team-directory-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+		padding: 7px 8px;
+		background: var(--surface-alt);
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+	}
+	.team-directory-head > span {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.team-talk {
+		flex: none;
+		color: var(--intent-conversation);
+		font-weight: 600;
+		text-decoration: none;
+	}
+	.directory-person {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 8px;
+		color: var(--ink);
+		text-decoration: none;
+	}
+	.directory-person:hover,
+	.directory-person:focus-visible,
+	.directory-person[aria-current='page'] {
+		background: var(--intent-conversation-soft);
+	}
+	.directory-person.member {
+		padding-left: 28px;
+	}
+	.directory-person .avatar {
+		width: 25px;
+		height: 25px;
+		border-radius: 7px;
+	}
+	.directory-person-copy {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 8px;
+		min-width: 0;
+		flex: 1;
+	}
+	.directory-cue {
+		flex: none;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+	.directory-person.lead .directory-cue,
+	.directory-person.executive .directory-cue {
+		color: var(--intent-conversation);
+		font-weight: 600;
+	}
 	.entry {
 		display: flex;
 		align-items: center;
@@ -456,6 +721,8 @@
 		font-size: var(--t-label);
 	}
 	.name {
+		flex: 1;
+		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -464,33 +731,72 @@
 	.current .name {
 		font-weight: 600;
 	}
-	.pin {
-		padding: 8px;
-		display: grid;
-		place-items: center;
-		border: 0;
-		background: transparent;
-		color: var(--text-tertiary);
-		cursor: pointer;
-		opacity: 0.35;
-	}
-	.pin.pinned,
-	.entry:hover .pin,
-	.pin:focus-visible {
-		opacity: 1;
-		color: var(--intent-conversation);
-	}
-	.needs {
-		width: 6px;
-		height: 6px;
-		border-radius: 50%;
-		background: var(--intent-authority);
+	.row-statuses {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
 		flex: none;
+	}
+	.row-statuses.multiple {
+		flex-direction: column;
+		align-items: flex-end;
+		gap: 2px;
+	}
+	.row-status {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		padding: 3px 5px;
+		border-radius: 999px;
+		font-size: var(--t-label);
+		font-weight: 650;
+		line-height: 1;
+		white-space: nowrap;
+	}
+	.row-status.working {
+		color: var(--intent-conversation);
+		background: var(--intent-conversation-soft);
+	}
+	.row-status.working :global(svg) {
+		animation: status-spin 1.1s linear infinite;
+	}
+	.row-status.reply,
+	.row-status.attention {
+		color: var(--intent-authority);
+		background: color-mix(in srgb, var(--intent-authority) 12%, transparent);
+	}
+	@keyframes status-spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.row-status.working :global(svg) {
+			animation: none;
+		}
 	}
 	.empty {
 		padding: 12px;
 		font-size: var(--t-label);
 		color: var(--text-secondary);
+	}
+	.staff-direct-route {
+		padding: 18px;
+		color: var(--text-secondary);
+	}
+	.staff-direct-route p:first-child {
+		margin: 0;
+		color: var(--ink);
+		font-size: var(--t-body);
+		font-weight: 600;
+	}
+	.staff-direct-route p + p {
+		margin: 5px 0 12px;
+		font-size: var(--t-label);
+	}
+	.staff-direct-route .more {
+		width: auto;
+		padding: 8px 0;
 	}
 	.more {
 		width: 100%;

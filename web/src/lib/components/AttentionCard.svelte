@@ -1,7 +1,11 @@
 <script lang="ts">
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import type { AttentionItem } from '$lib/model/view';
-	import { approvalAction, resolveHandoffDecision } from '$lib/model/attention';
+	import {
+		approvalAction,
+		completeHandoffHumanStep,
+		resolveHandoffDecision
+	} from '$lib/model/attention';
 	import { refreshAttention } from '$lib/model/queries.svelte';
 	import HoldApprove from '$lib/primitives/HoldApprove.svelte';
 	import Markdown from '$lib/primitives/Markdown.svelte';
@@ -28,6 +32,22 @@
 	const record = $derived(item.actions.find((a) => a.id === 'record-decision'));
 	const open = $derived(item.actions.find((a) => a.id === 'open-outcome'));
 	const review = $derived(item.actions.some((a) => a.id === 'accept-review'));
+	const completeHumanStep = $derived(item.actions.find((a) => a.id === 'complete-human-step'));
+	// Older daemons may publish the verification URL in the instructions without
+	// a dedicated action. Only link the current instructions, never old evidence.
+	const instructionLink = $derived.by(() => {
+		if (item.preparing || item.category !== 'human_step' || item.actions.some((a) => a.href))
+			return undefined;
+		const match = item.requestedAction.match(/https?:\/\/[^\s<>"']+/);
+		if (!match) return undefined;
+		try {
+			const url = new URL(match[0].replace(/[).,;!?]+$/, ''));
+			if (['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) return undefined;
+			return { href: url.href, label: `Open ${url.hostname}` };
+		} catch {
+			return undefined;
+		}
+	});
 	async function act(kind: 'grant' | 'decline' | 'decision') {
 		if (acting) return;
 		acting = true;
@@ -49,22 +69,40 @@
 			attempt += 1;
 		}
 	}
+	async function complete() {
+		if (acting) return;
+		acting = true;
+		error = '';
+		try {
+			await completeHandoffHumanStep(companyId, item.source.reference);
+			await refreshAttention(client, companyId);
+		} catch (cause) {
+			error = cause instanceof Error ? cause.message : 'The completion was not recorded. Try again.';
+		} finally {
+			acting = false;
+		}
+	}
 </script>
 
 <section
 	class="attention-card"
 	data-attention-id={item.id}
-	aria-label={item.title}
+	aria-label={item.preparing ? 'Preparing your next step' : item.title}
 	aria-busy={acting}
 >
-	{#if showTitle}<header><strong>{item.title}</strong><span>{item.preparing ? 'Preparing' : 'Needs you'}</span></header>{/if}
+	{#if showTitle}<header><strong>{item.preparing ? 'Preparing your next step' : item.title}</strong><span>{item.preparing ? 'Preparing' : 'Needs you'}</span></header>{/if}
 	<div class="request"><Markdown text={item.requestedAction} /></div>
+	{#if item.preparing}
+		<p class="waiting" role="status">Nothing to do yet. The team is preparing this step. Your instructions and any sign-in link will appear here when ready.</p>
+	{:else if item.deadline && inChat}
+		<p class="quiet">{item.deadline}</p>
+	{/if}
 	{#if inChat}
 		<details>
 			<summary>Details</summary>
-			<p>{item.whatHappened}</p>
+			{#if !item.preparing}<p>{item.whatHappened}</p>
 			<p>{item.whyItMatters}</p>
-			<Markdown text={item.recommendation} />
+			<Markdown text={item.recommendation} />{/if}
 			{#each item.evidence as evidence}
 				{#if evidence.content}<details>
 						<summary>{evidence.label}</summary>
@@ -75,13 +113,16 @@
 		</details>
 	{/if}
 	<div class="actions">
+		{#if instructionLink}
+			<a class="btn small primary" href={instructionLink.href} target="_blank" rel="noreferrer">{instructionLink.label}</a>
+		{/if}
 		{#each item.actions.filter((a) => a.href && !(inChat && a.id === 'continue-conversation')) as action (action.id)}
 			<a
 				class="btn small primary"
 				href={action.href}
 				target={action.href?.startsWith('/') ? undefined : '_blank'}
 				rel="noreferrer"
-				title={`${action.consequence} ${action.nextState}`}>{action.label}</a
+				title={action.role === 'human_step' ? action.nextState : `${action.consequence} ${action.nextState}`}>{action.label}</a
 			>
 		{/each}
 		{#if grant}
@@ -101,6 +142,12 @@
 				disabled={acting}
 				title={`${decline.consequence} ${decline.nextState}`}
 				onclick={() => void act('decline')}>{decline.label}</button
+			>{/if}
+		{#if completeHumanStep}<button
+				class="btn small primary"
+				disabled={acting}
+				title={`${completeHumanStep.consequence} ${completeHumanStep.nextState}`}
+				onclick={() => void complete()}>{acting ? 'Recording…' : completeHumanStep.label}</button
 			>{/if}
 		{#if open && !open.href}
 			<a
@@ -231,6 +278,11 @@
 		white-space: pre-wrap;
 		overflow-wrap: anywhere;
 		font: var(--t-label) var(--font-mono);
+	}
+	.waiting {
+		font-size: var(--t-body);
+		color: var(--text-secondary);
+		margin: 10px 0 0;
 	}
 	.quiet {
 		font-size: var(--t-label);

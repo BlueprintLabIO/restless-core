@@ -14,10 +14,12 @@ replace operating the live site.
    ground-truth reference before choosing page structure. When a real product already exists, it is
    the primary source of visual language; an external reference calibrates maturity only and a
    component library supplies mechanics only.
-2. Serve the candidate as a durable project service under `/company/services/supervisor`, with
-   `autorestart=true`. A detached shell process is not a prepared ReviewTarget. Run
-   `company-supervisorctl reread`, `update`, and `status`, then probe the exact loopback
-   URL.
+2. Serve the candidate as a durable project service with one Work-owned `*.conf` file under
+   `/company/services/supervisor`, with `autorestart=true`. A detached shell process is not a prepared
+   ReviewTarget. Run `company-supervisorctl reread`, `update`, and `status`, then probe the exact
+   `http://127.0.0.1:<port>/` URL. Do not use reserved ports 5901, 6080, 9222, or 9223. Record the
+   service name and its bounded cleanup: stop this Work's preview, remove its exact `*.conf`, then
+   run `reread`, `update`, and `status` so it cannot restart; remove only its generated transient output.
 3. Capture every primary route with:
 
    ```sh
@@ -35,8 +37,10 @@ replace operating the live site.
    geometry, motion, reading-surface width and visual-element counts; it never approves design
    quality or calculates a similarity score.
 4. Inspect the images and manifest yourself. Repair observable breakage before requesting review.
-   Link the exact live URL as the ReviewTarget and the capture directory/manifest as supporting
-   evidence. Do not attach an annotated URL or implementation note as the target.
+   Link the exact live URL as the ReviewTarget with artifact kind `review_target` and the capture
+   directory/manifest as supporting evidence. The preview is GET/HEAD-only, has no owner cookies,
+   and cannot carry WebSockets; use the shared company desktop/browser for interactive or stateful
+   review. Do not attach an annotated URL or implementation note as the target.
 
 ## Independent critic: buy an informative judgement
 
@@ -46,7 +50,8 @@ sources. Compare the candidate to the product before comparing it to an external
 Do not request or read the producer's rationale, private reasoning or persuasive completion summary
 before forming the critique.
 
-Operate the live site at desktop and mobile widths. Inspect at least:
+Operate the live site at desktop and mobile widths, read-only: do not edit the candidate, mutate its
+state, use owner cookies, or use the review URL as browser control. Inspect at least:
 
 - first-view thesis and product comprehension;
 - the complete scroll narrative and whether each section earns its place;

@@ -31,6 +31,10 @@
 		if (done || disabled || raf !== null) return;
 		const t0 = performance.now();
 		const tick = (now: number) => {
+			if (disabled) {
+				stop();
+				return;
+			}
 			pct = Math.min(100, ((now - t0) / duration) * 100);
 			if (pct >= 100) {
 				raf = null;
@@ -58,8 +62,8 @@
 	onDestroy(stop);
 
 	function guardClick(event: MouseEvent) {
-		/* With JS on, a plain click must not bypass the hold. */
-		if (!done) event.preventDefault();
+		/* Completion already invokes the callback or submits the form once. */
+		event.preventDefault();
 	}
 </script>
 
@@ -70,6 +74,7 @@
 	class:small
 	class:done
 	{disabled}
+	aria-label={done ? completeLabel : label}
 	style="--pct: {pct}%"
 	onkeydown={(event) => {
 		if (event.key === ' ' || event.key === 'Enter') {
@@ -84,17 +89,33 @@
 		}
 	}}
 	onblur={stop}
-	onpointerdown={start}
+	onpointerdown={(event) => {
+		if (event.isPrimary && event.button === 0) start();
+	}}
 	onpointerup={stop}
 	onpointerleave={stop}
+	onpointercancel={stop}
 	onclick={guardClick}
 	{title}
 >
-	{#if done}
-		{completeLabel}
-	{:else if pct > 2}
-		hold… {Math.round(pct)}%
-	{:else}
-		{label}
-	{/if}
+	<!-- Keep every label in the layout so progress cannot shrink the hit area
+	     beneath the pointer and trigger pointerleave, cancelling the hold. -->
+	<span aria-hidden="true" class:concealed={done || pct > 2}>{label}</span>
+	<span aria-hidden="true" class:concealed={done || pct <= 2}>hold… {Math.round(pct)}%</span>
+	<span aria-hidden="true" class:concealed={!done}>{completeLabel}</span>
 </button>
+
+<style>
+	.hold-approve {
+		display: inline-grid;
+		place-items: center;
+		touch-action: none;
+		user-select: none;
+	}
+	span {
+		grid-area: 1 / 1;
+	}
+	.concealed {
+		visibility: hidden;
+	}
+</style>

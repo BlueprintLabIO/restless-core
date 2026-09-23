@@ -20,6 +20,9 @@
 	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
 	import { composerKeyAction, nextComposerHeight } from '$lib/primitives/composer-keys';
 	import { sendButtonLabel, sendState } from '$lib/primitives/composer-layout';
+	import X from '@lucide/svelte/icons/x';
+	import { composerTrigger, filterComposerOptions } from '$lib/primitives/composer-menu';
+	import { skillLabel, type ComposerOption } from '$lib/model/skills';
 
 	let {
 		value = $bindable(''),
@@ -33,6 +36,8 @@
 		actionLabel = '',
 		flareKey = 0,
 		focusKey = 0,
+		options = [],
+		selectedSkills = $bindable<string[]>([]),
 		controls
 	}: {
 		value?: string;
@@ -52,7 +57,53 @@
 		focusKey?: number;
 		/** Optional compact, per-surface control rendered in the bottom action row. */
 		controls?: Snippet;
+		/** Commands and skills offered by typing `/` (at the start) or `$` (anywhere). */
+		options?: ComposerOption[];
+		/** Skills explicitly selected for the next message, shown as removable chips. */
+		selectedSkills?: string[];
 	} = $props();
+
+	type Menu = { trigger: '/' | '$'; query: string; start: number; end: number };
+	let menu = $state<Menu | null>(null);
+	let highlighted = $state(0);
+	const menuItems = $derived(
+		menu ? filterComposerOptions(options, menu.trigger, menu.query, selectedSkills) : []
+	);
+	const optionDescription = (name: string) =>
+		options.find((option) => option.kind === 'skill' && option.name === name)?.description ?? '';
+
+	function refreshMenu() {
+		if (!inputEl || options.length === 0) {
+			menu = null;
+			return;
+		}
+		const next = composerTrigger(value, inputEl.selectionStart ?? value.length);
+		if (!next || menu?.trigger !== next.trigger || menu?.query !== next.query) highlighted = 0;
+		menu = next;
+	}
+
+	function choose(option: ComposerOption) {
+		if (!menu) return;
+		const before = value.slice(0, menu.start);
+		const after = value.slice(menu.end);
+		if (option.kind === 'skill') {
+			if (!selectedSkills.includes(option.name)) selectedSkills = [...selectedSkills, option.name];
+			value = `${before}${after.replace(/^\s+/, before && !before.endsWith(' ') ? ' ' : '')}`;
+		} else {
+			value = `${before}${option.insert ?? ''}${after.trimStart()}`;
+		}
+		menu = null;
+		queueMicrotask(() => {
+			inputEl?.focus();
+			const caret = option.kind === 'skill' ? before.length : before.length + (option.insert ?? '').length;
+			inputEl?.setSelectionRange(caret, caret);
+		});
+	}
+
+	function removeSkill(name: string) {
+		selectedSkills = selectedSkills.filter((skill) => skill !== name);
+		queueMicrotask(() => inputEl?.focus());
+	}
 
 	/* Roughly eight rows before the field stops growing and starts scrolling. */
 	const MAX_HEIGHT = 160;
@@ -150,6 +201,24 @@
 	});
 
 	function onKeydown(event: KeyboardEvent) {
+		if (menu && menuItems.length > 0 && !composing) {
+			if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+				event.preventDefault();
+				const step = event.key === 'ArrowDown' ? 1 : -1;
+				highlighted = (highlighted + step + menuItems.length) % menuItems.length;
+				return;
+			}
+			if (event.key === 'Enter' || event.key === 'Tab') {
+				event.preventDefault();
+				choose(menuItems[Math.min(highlighted, menuItems.length - 1)]);
+				return;
+			}
+			if (event.key === 'Escape') {
+				event.preventDefault();
+				menu = null;
+				return;
+			}
+		}
 		if (composerKeyAction(event, composing) !== 'send') return;
 		event.preventDefault();
 		if (!sendable) return;
@@ -248,6 +317,26 @@
 </script>
 
 <div class="hc">
+	{#if menu && menuItems.length > 0}
+		<div class="hc-menu" role="listbox" aria-label={menu.trigger === '$' ? 'Skills' : 'Commands and skills'}>
+			{#each menuItems as option, index (option.kind + option.name)}
+				<button
+					type="button"
+					role="option"
+					class="hc-menu-item"
+					class:active={index === highlighted}
+					aria-selected={index === highlighted}
+					title={option.description}
+					onpointerdown={(event) => event.preventDefault()}
+					onmouseenter={() => (highlighted = index)}
+					onclick={() => choose(option)}
+				>
+					<span class="hc-menu-label">{option.label}</span>
+					<span class="hc-menu-description">{option.description}</span>
+				</button>
+			{/each}
+		</div>
+	{/if}
 	<!-- The field: one border on the wrapper, the textarea transparent above a compact toolbar.
 	     The rows are explicit so narrow rails never wrap one action into an accidental third row.
 	     ONE AttachmentPicker, not two: the file <input> lives inside its button, and a
@@ -270,6 +359,23 @@
 				<button type="button" onclick={() => (voiceState = 'idle')}>Dismiss</button>
 			</div>
 		{/if}
+		{#if selectedSkills.length > 0}
+			<div class="hc-skills" aria-label="Selected skills">
+				{#each selectedSkills as skill (skill)}
+					<span class="hc-skill" title={optionDescription(skill) || `Apply the ${skillLabel(skill)} skill`}>
+						<span>{skillLabel(skill)}</span>
+						<button
+							type="button"
+							aria-label={`Remove ${skillLabel(skill)}`}
+							{disabled}
+							onclick={() => removeSkill(skill)}
+						>
+							<X size={11} strokeWidth={2.2} aria-hidden="true" />
+						</button>
+					</span>
+				{/each}
+			</div>
+		{/if}
 		<textarea
 			bind:this={inputEl}
 			class="hc-input"
@@ -279,7 +385,12 @@
 			aria-label={ariaLabel}
 			rows="1"
 			bind:value
-			oninput={autosize}
+			oninput={() => {
+				autosize();
+				refreshMenu();
+			}}
+			onclick={refreshMenu}
+			onblur={() => (menu = null)}
 			onkeydown={onKeydown}
 			oncompositionstart={() => (composing = true)}
 			oncompositionend={() => (composing = false)}></textarea>

@@ -4,6 +4,11 @@
 
 ## Decision
 
+Owner-directed refinement (22 September 2026): bounded edits to an existing shared native document
+are direct collaboration. Exec may apply and verify them in the current conversation under existing
+document access, without a new Work/delegation chain. The dispatch rule below continues to govern
+production assignments, research, repository changes and external effects.
+
 The singleton Exec is the continuously available company-level dispatcher. Every owner request that
 requires execution is delegated to exactly one accountable team lead. The lead may be a standing
 department lead or a temporary outcome lead. If no suitable lead exists, Exec appoints one before

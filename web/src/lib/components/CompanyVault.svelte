@@ -7,12 +7,16 @@
 		status: string;
 		secrets: Secret[] | null;
 		references: Reference[];
+		revision: string;
 		message?: string;
 	};
 	let view = $state<Vault | null>(null),
 		busy = $state(false),
 		error = $state(''),
-		search = $state('');
+		search = $state(''),
+		binding = $state(''),
+		secret = $state(''),
+		notice = $state('');
 	const rows = $derived(
 		view?.secrets?.filter((s) =>
 			`${s.name} ${s.path}`.toLowerCase().includes(search.toLowerCase())
@@ -20,6 +24,13 @@
 	);
 	const external = $derived(
 		view?.references.filter((r) => !view?.secrets?.some((s) => s.reference === r.reference)) ?? []
+	);
+	const writable = $derived(
+		(view?.references ?? []).filter(
+			(r) =>
+				!r.name.startsWith('model.inference') &&
+				r.reference.startsWith(`infisical:/companies/${companyId}/`)
+		)
 	);
 	function uses(reference: string) {
 		return (
@@ -33,12 +44,38 @@
 		busy = true;
 		error = '';
 		try {
-			const r = await fetch(`/api/companies/${companyId}/vault`);
+			const r = await fetch(`/api/companies/${companyId}/vault`, { cache: 'no-store', credentials: 'same-origin' });
 			if (!r.ok) throw new Error('Could not read the company vault.');
 			view = await r.json();
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Could not read the vault.';
 		} finally {
+			busy = false;
+		}
+	}
+	async function saveSecret(event: SubmitEvent) {
+		event.preventDefault();
+		if (!view || !binding || !secret) return;
+		busy = true;
+		error = '';
+		notice = '';
+		try {
+			const r = await fetch(`/api/companies/${companyId}/vault/secret`, {
+				method: 'POST',
+				cache: 'no-store',
+				credentials: 'same-origin',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ binding, secret, revision: view.revision })
+			});
+			const result = await r.json().catch(() => null);
+			if (!r.ok) throw new Error(result?.message ?? 'Could not save the secret.');
+			notice = `${binding} is stored in Infisical.`;
+			binding = '';
+			await refresh();
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Could not save the secret.';
+		} finally {
+			secret = '';
 			busy = false;
 		}
 	}
@@ -73,7 +110,34 @@
 	</p>
 	<p class="scope">Secrets stored for this company. Values remain hidden.</p>
 	{#if error}<p role="alert">{error}</p>{/if}
+	{#if notice}<p class="notice" role="status">{notice}</p>{/if}
 	{#if view?.status === 'unavailable'}<p role="alert">{view.message}</p>{:else if view?.secrets}
+		{#if writable.length}<section aria-label="Add or replace a secret">
+			<h2>Add or replace a secret</h2>
+			<form onsubmit={saveSecret}>
+				<label for="vault-binding">Connection</label><select
+					id="vault-binding"
+					bind:value={binding}
+					required
+					disabled={busy}
+				>
+					<option value="" disabled>Choose a connection…</option>
+					{#each writable as ref}<option value={ref.name}>{ref.name}</option>{/each}
+				</select>
+				<label for="vault-secret">API key</label><input
+					id="vault-secret"
+					type="password"
+					bind:value={secret}
+					autocomplete="new-password"
+					placeholder="Paste API key"
+					required
+					disabled={busy}
+				/>
+				<button class="btn primary small" type="submit" disabled={busy}
+					>{busy ? 'Saving…' : 'Save in Infisical'}</button
+				>
+			</form>
+		</section>{/if}
 		<label for="vault-search">Find a secret</label><input
 			id="vault-search"
 			type="search"
@@ -148,6 +212,7 @@
 		margin-bottom: var(--space-2);
 	}
 	input,
+	select,
 	button {
 		box-sizing: border-box;
 		font: inherit;
@@ -162,6 +227,15 @@
 	input {
 		width: 100%;
 		min-width: 0;
+	}
+	select {
+		width: 100%;
+	}
+	form button {
+		margin-top: var(--space-4);
+	}
+	.notice {
+		color: var(--state-success);
 	}
 	button,
 	summary {

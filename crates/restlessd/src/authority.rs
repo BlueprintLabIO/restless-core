@@ -529,9 +529,7 @@ impl AuthorityStore {
         .context("read current Authority owner before transfer")?;
         let effective_current = current.as_deref().unwrap_or(expected_current_owner);
         if effective_current != expected_current_owner {
-            bail!(
-                "Authority ownership already changed to a different Actor; refresh and retry"
-            );
+            bail!("Authority ownership already changed to a different Actor; refresh and retry");
         }
         if effective_current == to_actor_id {
             bail!("that Actor already holds Authority ownership");

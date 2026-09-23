@@ -102,11 +102,13 @@ async fn mention_notification_presentation_is_immutable_after_actor_and_room_ren
         .consume_human_access_context(HumanAccessContext {
             display_name: None,
             issuer: "https://fleet.example.test",
-            subject: "owner-user",
+            subject: "member-user",
             company_id: identity.company_id,
             cell_id: identity.cell_id,
-            membership_id: "owner-membership",
-            membership_role: "owner",
+            membership_id: "member-membership",
+            // An owner-role first entry would claim the local owner Actor
+            // (ADR 0012 §5); this scenario needs a distinct network human.
+            membership_role: "member",
             membership_version: 1,
             assertion_id: Uuid::new_v4(),
             issued_at: now,

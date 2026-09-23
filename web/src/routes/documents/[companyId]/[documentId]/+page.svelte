@@ -4,8 +4,8 @@
 	import { onMount } from 'svelte';
 
 	const destination = $derived(
-		`/${encodeURIComponent(page.params.companyId)}/work/documents?document=${encodeURIComponent(
-			page.params.documentId
+		`/${encodeURIComponent(page.params.companyId ?? '')}/work/documents?document=${encodeURIComponent(
+			page.params.documentId ?? ''
 		)}`
 	);
 

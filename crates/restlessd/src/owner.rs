@@ -7,20 +7,30 @@
 //! approval actions, and browser attach/lease transport. It is not a generic
 //! REST facade over the company computer.
 
+#[path = "owner_agent_exchanges.rs"]
+mod agent_exchanges_api;
 #[path = "owner_capacity_activity.rs"]
 mod capacity_activity;
 #[path = "owner_company_settings.rs"]
 mod company_settings_api;
+#[path = "owner_custom_harnesses.rs"]
+mod custom_harnesses;
 #[path = "owner_documents.rs"]
 mod documents_api;
 #[path = "owner_member_collaboration.rs"]
 mod member_collaboration_api;
+#[path = "owner_members.rs"]
+mod members_api;
 #[path = "owner_notifications.rs"]
 mod notification_delivery_api;
+#[path = "owner_vault.rs"]
+mod owner_vault;
 #[path = "owner_plane_readiness.rs"]
 mod plane_readiness;
 #[path = "owner_rooms_lifecycle.rs"]
 mod rooms_lifecycle_api;
+#[path = "owner_skills.rs"]
+mod skills_api;
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::convert::Infallible;
@@ -285,6 +295,8 @@ struct OwnerMessageInput {
     context_requested: bool,
     context_path: Option<String>,
     attachments: Vec<PendingAttachment>,
+    /// Explicitly selected company skills (`$skill` chips), by name.
+    skills: Vec<String>,
 }
 
 struct PendingAttachment {
@@ -603,6 +615,12 @@ struct TicketRequest {
     client_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct BrowserOpenRequest {
+    url: String,
+    client_id: String,
+}
+
 #[derive(Debug, Serialize)]
 struct TicketResponse {
     desktop_url: String,
@@ -628,11 +646,19 @@ struct TicketQuery {
 #[derive(Debug, Deserialize)]
 struct ControlRequest {
     client_id: String,
+    #[serde(default)]
+    lease_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
 struct DesktopMode {
     client_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct DesktopWebsocketMode {
+    mode: Option<String>,
+    lease_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1110,6 +1136,10 @@ where
             get(list_rooms).post(create_room),
         )
         .route(
+            "/companies/{company}/direct-conversations",
+            get(list_direct_conversations),
+        )
+        .route(
             "/companies/{company}/rooms/{room}/participants",
             get(list_room_participants).post(add_room_participant),
         )
@@ -1253,7 +1283,11 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             if let Ok(config) = runtime::CompanyConfig::load(&state.daemon.root, &company) {
                 if !config.agent_intelligence.contains_key("default") {
                     for harness in config.native_harnesses.keys() {
-                        tokio::spawn(adopt_first_native_connection(state.clone(), company.clone(), harness.clone()));
+                        tokio::spawn(adopt_first_native_connection(
+                            state.clone(),
+                            company.clone(),
+                            harness.clone(),
+                        ));
                     }
                 }
             }
@@ -1284,8 +1318,45 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             "/companies/{company}/harness-auth/{harness}",
             post(native_harness_update),
         )
+        .route(
+            "/companies/{company}/custom-harnesses",
+            get(custom_harnesses::list),
+        )
+        .route(
+            "/companies/{company}/custom-harnesses/{harness}",
+            axum::routing::put(custom_harnesses::save).post(custom_harnesses::action),
+        )
         .route("/companies/{company}/intelligence", get(intelligence_view))
+        .route("/companies/{company}/skills", get(skills_api::list))
+        .route(
+            "/companies/{company}/skills/{skill}/disposition",
+            post(skills_api::set_disposition),
+        )
+        .route(
+            "/companies/{company}/skills/{skill}/assignment",
+            post(skills_api::assign),
+        )
+        .route(
+            "/companies/{company}/goals",
+            get(skills_api::list_goals).post(skills_api::add_goal),
+        )
+        .route(
+            "/companies/{company}/goals/{goal}/close",
+            post(skills_api::close_goal),
+        )
+        .route(
+            "/companies/{company}/loops",
+            get(skills_api::list_loops).post(skills_api::add_loop),
+        )
+        .route(
+            "/companies/{company}/loops/{schedule}/cancel",
+            post(skills_api::cancel_loop),
+        )
         .route("/companies/{company}/vault", get(company_vault))
+        .route(
+            "/companies/{company}/vault/secret",
+            post(owner_vault::store_secret),
+        )
         .route(
             "/companies/{company}/intelligence/{actor}",
             axum::routing::put(update_agent_intelligence),
@@ -1299,6 +1370,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(set_team_outcome_standard),
         )
         .route("/companies/{company}/company", get(company_view))
+        .route(
+            "/companies/{company}/members",
+            get(members_api::members_view),
+        )
         .route(
             "/companies/{company}/company/charter",
             post(revise_company_charter),
@@ -1351,6 +1426,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route("/launches/{handle}/{*asset}", get(open_launch_asset))
         .route("/launches/{handle}/exchange", post(exchange_native_launch))
         .route(
+            "/companies/{company}/actors/{actor}/exchanges",
+            get(agent_exchanges_api::list),
+        )
+        .route(
             "/companies/{company}/actors/{actor}/conversation",
             get(actor_conversation).post(send_actor_message),
         )
@@ -1370,10 +1449,15 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             "/companies/{company}/handoffs/{handoff}/decision",
             post(resolve_handoff_decision),
         )
+        .route(
+            "/companies/{company}/handoffs/{handoff}/complete",
+            post(complete_human_step),
+        )
         .route("/companies/{company}/approvals/grant", post(grant))
         .route("/companies/{company}/approvals/decline", post(decline))
         .route("/companies/{company}/approvals/revoke", post(revoke))
         .route("/companies/{company}/browser/ticket", post(issue_ticket))
+        .route("/companies/{company}/browser/open", post(open_browser_link))
         .route(
             "/companies/{company}/reviews/ticket",
             post(issue_review_ticket),
@@ -1657,6 +1741,8 @@ fn membership_boundary_violation(
         || is_actor_conversation_route(path)
         || is_company_route_family(path, "rooms")
         || is_company_route_family(path, "documents")
+        // The members handler admits owners and administrators itself.
+        || is_company_route_family(path, "members")
         || is_company_collaboration_bootstrap_route(method, path)
         || is_attachment_download_route(method, path)
     {
@@ -2220,6 +2306,26 @@ async fn consume_entry_assertion(
             );
         }
     };
+    if binding.owner_claimed {
+        // The bootstrap binding of membership owner to the existing owner
+        // Actor is an Authority fact; it transfers no capability or mandate.
+        if let Err(error) = state
+            .daemon
+            .authority
+            .emit(
+                &company,
+                "owner_actor_claimed",
+                Some("owner"),
+                serde_json::json!({
+                    "issuer": access.issuer,
+                    "membership_id": binding.membership_id,
+                }),
+            )
+            .await
+        {
+            tracing::error!(%error, "owner Actor claim was not recorded in Authority");
+        }
+    }
     let identity = VerifiedIdentity {
         user: access.subject,
         issuer: Some(access.issuer),
@@ -2704,7 +2810,7 @@ async fn update_company_provider(
         if config.model.split('/').next() == Some(provider) {
             config.credentials.remove("model.inference");
         }
-    if runtime::CompanyConfig::save(&state.daemon.root, &config).is_err() {
+        if runtime::CompanyConfig::save(&state.daemon.root, &config).is_err() {
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "provider",
@@ -2770,9 +2876,19 @@ async fn update_company_provider(
     config
         .credentials
         .insert(format!("model.inference.{provider}"), reference.to_string());
-        if !config.agent_intelligence.contains_key("default") {
-        if let Some(model) = input.model.as_deref().filter(|m| !m.is_empty() && m.len() <= 200 && !m.chars().any(|c| c.is_whitespace() || c.is_control())) {
-            config.agent_intelligence.insert("default".into(), runtime::AgentIntelligence { connection:format!("direct:{provider}"), model:model.into() });
+    if !config.agent_intelligence.contains_key("default") {
+        if let Some(model) = input.model.as_deref().filter(|m| {
+            !m.is_empty()
+                && m.len() <= 200
+                && !m.chars().any(|c| c.is_whitespace() || c.is_control())
+        }) {
+            config.agent_intelligence.insert(
+                "default".into(),
+                runtime::AgentIntelligence {
+                    connection: format!("direct:{provider}"),
+                    model: model.into(),
+                },
+            );
         }
     }
     if runtime::CompanyConfig::save(&state.daemon.root, &config).is_err() {
@@ -2906,7 +3022,11 @@ async fn native_harness_update(
         config.native_harnesses.insert(harness.clone(), entry);
         runtime::CompanyConfig::save(&state.daemon.root, &config)?;
         if matches!(input.action.as_str(), "login" | "api_key") {
-            tokio::spawn(adopt_first_native_connection(state.clone(), company.clone(), harness.clone()));
+            tokio::spawn(adopt_first_native_connection(
+                state.clone(),
+                company.clone(),
+                harness.clone(),
+            ));
         }
         Ok(crate::native_harness::view(&config, &harness).await)
     }
@@ -4163,11 +4283,23 @@ async fn cockpit_view(
             // but either is observed activity on People.
             let session_running =
                 conversation_running || state.daemon.staff.is_actor_running(&company, &actor.id);
-            let model = if config.agent_intelligence.contains_key(&actor.id) || config.agent_intelligence.contains_key("default") {
+            let model = if !config.has_configured_model_route() {
+                None
+            } else if config.agent_intelligence.contains_key(&actor.id)
+                || config.agent_intelligence.contains_key("default")
+            {
                 let effective = config.for_agent(&actor.id);
-                let harness = if actor.id == "exec" { effective.coordination_harness } else { effective.worker_harness };
-                Some(effective.native_model(harness).unwrap_or(effective.model))
-            } else { actor.model.clone() };
+                let harness = if actor.id == "exec" {
+                    effective.coordination_harness
+                } else {
+                    effective.worker_harness
+                };
+                effective
+                    .native_model(harness)
+                    .or_else(|| effective.configured_model().map(str::to_owned))
+            } else {
+                actor.model.clone()
+            };
             CockpitPerson {
                 actor_id: actor.id.clone(),
                 kind: actor.kind.clone(),
@@ -4778,6 +4910,24 @@ async fn list_rooms(
         .await
     {
         Ok(page) => Json(page).into_response(),
+        Err(error) => room_error(error),
+    }
+}
+
+async fn list_direct_conversations(
+    State(state): State<RoomApiState>,
+    RoomPrincipal(principal): RoomPrincipal,
+    AxumPath(company): AxumPath<String>,
+) -> Response<Body> {
+    let org = match room_orgintel(&state, &principal, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .recent_direct_conversations_for_actor(principal.actor_id())
+        .await
+    {
+        Ok(conversations) => Json(conversations).into_response(),
         Err(error) => room_error(error),
     }
 }
@@ -5769,6 +5919,36 @@ async fn resolve_handoff_decision(
     }
 }
 
+async fn complete_human_step(
+    State(state): State<OwnerState>,
+    AxumPath((company, handoff)): AxumPath<(String, Uuid)>,
+) -> impl IntoResponse {
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
+        }
+    };
+    match org
+        .complete_owner_human_step(
+            handoff,
+            "Owner confirmed the requested human step is complete.",
+        )
+        .await
+    {
+        Ok(()) => Json(serde_json::json!({
+            "handoff_id": handoff,
+            "recorded": true,
+        }))
+        .into_response(),
+        Err(error) => api_error(StatusCode::BAD_REQUEST, "human_step", format!("{error:#}")),
+    }
+}
+
 async fn send_actor_message(
     State(state): State<OwnerState>,
     Extension(principal): Extension<RequestPrincipal>,
@@ -5852,6 +6032,11 @@ async fn send_actor_message(
                 "orgintel",
                 format!("{error:#}"),
             );
+        }
+    }
+    if !input.skills.is_empty() {
+        if let Err(error) = org.check_skill_selection(&sender, &input.skills).await {
+            return api_error(StatusCode::BAD_REQUEST, "skills", format!("{error}"));
         }
     }
     let client_payload_sha256 = owner_message_command_digest(
@@ -6202,6 +6387,20 @@ async fn send_actor_message(
     };
     match sent {
         Ok((message_id, focus, created, committed_this_staging)) => {
+            if !input.skills.is_empty() {
+                // Idempotent: a retried command keeps the first pinned digest.
+                if let Err(error) = org
+                    .record_message_skill_selections(message_id, &sender, &input.skills)
+                    .await
+                {
+                    tracing::error!(%error, message_id, "selected skills were not recorded for the message");
+                    return api_error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "skills",
+                        "the message was delivered but its selected skills were not recorded; retry the same client command id",
+                    );
+                }
+            }
             if committed_this_staging {
                 finish_attachments(&org, &stored).await;
             } else {
@@ -6434,6 +6633,24 @@ async fn parse_owner_message(
                     })?,
                 );
             }
+            Some("skills") => {
+                let value = field
+                    .text()
+                    .await
+                    .map_err(|error| format!("read selected skill: {error}"))?;
+                let value = value.trim();
+                if !restless_orgintel::valid_skill_name(value) {
+                    return Err(
+                        "selected skill names must be lowercase letters, digits and hyphens".into(),
+                    );
+                }
+                if input.skills.len() >= 8 {
+                    return Err("select at most eight skills for one message".into());
+                }
+                if !input.skills.iter().any(|skill| skill == value) {
+                    input.skills.push(value.to_string());
+                }
+            }
             Some("new_focus") => {
                 let value = field
                     .text()
@@ -6518,7 +6735,7 @@ fn owner_message_command_digest(
             })
         })
         .collect::<Vec<_>>();
-    let payload = serde_json::to_vec(&serde_json::json!({
+    let mut command = serde_json::json!({
         "domain": "restless.owner-conversation-command.v1",
         "company": company,
         "sender_actor": sender,
@@ -6533,8 +6750,14 @@ fn owner_message_command_digest(
         "context_path": context_path,
         "context_omitted": context_omitted,
         "attachments": attachments,
-    }))
-    .expect("owner message command semantics contain only serializable primitives");
+    });
+    // Present only when chosen, so commands without skills keep the digest
+    // they had before skill selection existed.
+    if !input.skills.is_empty() {
+        command["skills"] = serde_json::json!(input.skills);
+    }
+    let payload = serde_json::to_vec(&command)
+        .expect("owner message command semantics contain only serializable primitives");
     format!("{:x}", Sha256::digest(payload))
 }
 
@@ -7609,6 +7832,80 @@ async fn issue_ticket(
     .into_response()
 }
 
+async fn open_browser_link(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<BrowserOpenRequest>,
+) -> impl IntoResponse {
+    if Uuid::parse_str(&input.client_id).is_err() {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "client",
+            "client_id must be a UUID",
+        );
+    }
+    let current = match runtime::generation(&company).await {
+        Ok(Some(generation)) => generation,
+        _ => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "runtime",
+                "company runtime is unavailable",
+            )
+        }
+    };
+    let _control_guard = runtime::browser_control_guard(&company).await;
+    if runtime::read_browser_control(&company)
+        .await
+        .ok()
+        .flatten()
+        .as_ref()
+        .is_some_and(|control| control["controller"] == "owner" && lease_is_live(control))
+    {
+        return api_error(
+            StatusCode::CONFLICT,
+            "controller",
+            "the company browser is currently under owner control; release control before opening this link",
+        );
+    }
+    if let Err(error) = runtime::open_browser_url(&company, &input.url).await {
+        let detail = format!("{error:#}");
+        if detail.contains("owner-controlled") {
+            return api_error(
+                StatusCode::CONFLICT,
+                "controller",
+                "the company browser came under owner control before the link could be opened",
+            );
+        }
+        let status = if detail.contains("browser URL")
+            || detail.contains("company browser links must use HTTP or HTTPS")
+        {
+            StatusCode::BAD_REQUEST
+        } else {
+            StatusCode::SERVICE_UNAVAILABLE
+        };
+        return api_error(status, "browser", detail);
+    }
+
+    let ticket = Uuid::new_v4().simple().to_string();
+    state.tickets.lock().expect("ticket registry").insert(
+        ticket.clone(),
+        AttachTicket {
+            company: company.clone(),
+            generation: current,
+            item_id: "web-link".into(),
+            client_id: input.client_id,
+            requesting_actor: None,
+            expires_at: SystemTime::now() + TICKET_TTL,
+        },
+    );
+    Json(TicketResponse {
+        desktop_url: format!("/desktop/{company}?ticket={ticket}"),
+        expires_in_seconds: TICKET_TTL.as_secs(),
+    })
+    .into_response()
+}
+
 async fn open_desktop(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
@@ -7652,7 +7949,7 @@ async fn open_desktop(
         },
     );
     tracing::info!(company, item = %ticket.item_id, "owner desktop attached");
-    let target = desktop_client_url(&company, DesktopClientMode::Observe);
+    let target = desktop_client_url(&company, DesktopClientMode::Observe, None);
     let mut response = Redirect::to(&target).into_response();
     response.headers_mut().insert(
         SET_COOKIE,
@@ -7674,13 +7971,23 @@ enum DesktopClientMode {
 /// Keep the imported display client behind one server-owned seam. Observers
 /// scale locally so two browser tabs cannot fight over the dimensions of the
 /// shared company computer; only the sole controller may resize its framebuffer.
-fn desktop_client_url(company: &str, mode: DesktopClientMode) -> String {
+fn desktop_client_url(company: &str, mode: DesktopClientMode, lease_id: Option<&str>) -> String {
     let (resize, view_only) = match mode {
         DesktopClientMode::Observe => ("scale", "1"),
         DesktopClientMode::Control => ("remote", "0"),
     };
+    // noVNC reads `path` as one URL query value and uses it to construct its
+    // WebSocket URL. Encode the inner query so an observer cannot turn its
+    // connection into a control channel by sending input frames.
+    let websocket_path = match mode {
+        DesktopClientMode::Observe => format!("desktop/{company}/websockify"),
+        DesktopClientMode::Control => format!(
+            "desktop/{company}/websockify%3Fmode%3Dcontrol%26lease_id%3D{}",
+            lease_id.expect("control desktop URL requires a lease id"),
+        ),
+    };
     format!(
-        "/desktop/{company}/vnc.html?autoconnect=1&reconnect=1&reconnect_delay=1000&shared=1&show_dot=1&resize={resize}&view_only={view_only}&path=desktop/{company}/websockify"
+        "/desktop/{company}/vnc.html?autoconnect=1&reconnect=1&reconnect_delay=1000&shared=1&show_dot=1&resize={resize}&view_only={view_only}&path={websocket_path}"
     )
 }
 
@@ -7696,7 +8003,12 @@ async fn open_observed_desktop(
             "desktop attachment is absent or expired",
         );
     }
-    Redirect::to(&desktop_client_url(&company, DesktopClientMode::Observe)).into_response()
+    Redirect::to(&desktop_client_url(
+        &company,
+        DesktopClientMode::Observe,
+        None,
+    ))
+    .into_response()
 }
 
 async fn open_controlled_desktop(
@@ -7713,10 +8025,20 @@ async fn open_controlled_desktop(
         );
     };
     let requested = query.client_id.as_deref().unwrap_or(&attach.client_id);
+    if requested != attach.client_id {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "controller",
+            "attachment belongs to another browser tab",
+        );
+    }
     let control = runtime::read_browser_control(&company).await.ok().flatten();
     let allowed = control.as_ref().is_some_and(|value| {
         value["controller"] == "owner"
             && value["client_id"].as_str() == Some(requested)
+            && value["lease_id"]
+                .as_str()
+                .is_some_and(|lease_id| !lease_id.is_empty())
             && value["expires_at"]
                 .as_str()
                 .and_then(|value| value.parse::<chrono::DateTime<Utc>>().ok())
@@ -7729,7 +8051,14 @@ async fn open_controlled_desktop(
             "this browser tab does not hold control",
         );
     }
-    Redirect::to(&desktop_client_url(&company, DesktopClientMode::Control)).into_response()
+    Redirect::to(&desktop_client_url(
+        &company,
+        DesktopClientMode::Control,
+        control
+            .as_ref()
+            .and_then(|value| value["lease_id"].as_str()),
+    ))
+    .into_response()
 }
 
 async fn desktop_asset(
@@ -7788,6 +8117,7 @@ async fn desktop_websocket(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
     headers: HeaderMap,
+    Query(query): Query<DesktopWebsocketMode>,
     session_lease: Option<Extension<SessionLease>>,
     upgrade: WebSocketUpgrade,
 ) -> impl IntoResponse {
@@ -7805,26 +8135,170 @@ async fn desktop_websocket(
             "this plane requires a live verified entry session",
         );
     }
-    if valid_attach(&state, &company, &headers).is_none() {
+    let Some(attach) = valid_attach(&state, &company, &headers) else {
         return api_error(
             StatusCode::UNAUTHORIZED,
             "attach",
             "desktop attachment is absent or expired",
         );
-    }
+    };
+    let (access, control_watch) = match query.mode.as_deref() {
+        None | Some("observe") => (DesktopWebsocketAccess::Observe, None),
+        Some("control") => {
+            match desktop_control_lease(&company, &attach.client_id, query.lease_id.as_deref())
+                .await
+            {
+                Some(lease) => (
+                    DesktopWebsocketAccess::Control {
+                        client_id: attach.client_id,
+                        lease_id: lease.lease_id,
+                    },
+                    Some(lease.watch),
+                ),
+                None => {
+                    return api_error(
+                        StatusCode::CONFLICT,
+                        "controller",
+                        "this browser tab no longer holds control",
+                    );
+                }
+            }
+        }
+        Some(_) => return api_error(StatusCode::BAD_REQUEST, "desktop", "unknown desktop mode"),
+    };
     let session_lease = session_lease.map(|Extension(lease)| lease);
     upgrade
         .on_upgrade(move |socket| async move {
-            if let Err(error) = proxy_websocket(socket, &company, session_lease).await {
+            if let Err(error) =
+                proxy_websocket(socket, &company, access, control_watch, session_lease).await
+            {
                 tracing::warn!(company, "desktop websocket ended: {error:#}");
             }
         })
         .into_response()
 }
 
+enum DesktopWebsocketAccess {
+    Observe,
+    Control { client_id: String, lease_id: String },
+}
+
+struct DesktopControlLease {
+    lease_id: String,
+    watch: tokio::sync::watch::Receiver<Option<serde_json::Value>>,
+}
+
+/// Server-enforced view-only filtering for the RFB client-to-server stream.
+/// noVNC still needs display-negotiation and framebuffer-request messages to
+/// render an observation, while key, pointer and clipboard messages must
+/// never reach the company desktop.
+struct RfbObserverFilter {
+    pending: Vec<u8>,
+    handshake_remaining: usize,
+    handshake_step: u8,
+}
+
+impl Default for RfbObserverFilter {
+    fn default() -> Self {
+        Self {
+            pending: Vec::new(),
+            handshake_remaining: 12,
+            handshake_step: 0,
+        }
+    }
+}
+
+impl RfbObserverFilter {
+    fn filter(&mut self, bytes: &[u8]) -> Result<Vec<tungstenite::Message>> {
+        const MAX_PENDING: usize = 1024 * 1024;
+        self.pending.extend_from_slice(bytes);
+        if self.pending.len() > MAX_PENDING {
+            bail!("view-only desktop protocol message is too large");
+        }
+        let mut forwarded = Vec::new();
+        // RFB requires three turn-taking client handshake messages. Forward
+        // each only after validating it; buffering all three would deadlock
+        // while the client waits for the server's security response.
+        if self.handshake_remaining > 0 {
+            if self.pending.len() < self.handshake_remaining {
+                return Ok(forwarded);
+            }
+            let handshake: Vec<u8> = self.pending.drain(..self.handshake_remaining).collect();
+            match self.handshake_step {
+                0 if handshake.as_slice() == b"RFB 003.008\n" => {
+                    self.handshake_step = 1;
+                    self.handshake_remaining = 1;
+                }
+                1 if handshake.as_slice() == [1] => {
+                    self.handshake_step = 2;
+                    self.handshake_remaining = 1;
+                }
+                // Shared ClientInit prevents an observation session from
+                // displacing an active controller at the VNC server.
+                2 if handshake.as_slice() == [1] => {
+                    self.handshake_step = 3;
+                    self.handshake_remaining = 0;
+                }
+                _ => bail!("view-only desktop requires the shared RFB 3.8 handshake"),
+            }
+            forwarded.push(tungstenite::Message::Binary(handshake.into()));
+            return Ok(forwarded);
+        }
+        loop {
+            let Some((&kind, rest)) = self.pending.split_first() else {
+                break;
+            };
+            let length = match kind {
+                // SetPixelFormat, SetEncodings and FramebufferUpdateRequest
+                // are required for a viewer to negotiate and request pixels.
+                0 => 20,
+                2 => {
+                    if rest.len() < 3 {
+                        break;
+                    }
+                    4 + 4 * u16::from_be_bytes([rest[1], rest[2]]) as usize
+                }
+                3 => 10,
+                // KeyEvent, PointerEvent and ClientCutText are consumed but
+                // deliberately not forwarded.
+                4 => 8,
+                5 => 6,
+                6 => {
+                    if rest.len() < 7 {
+                        break;
+                    }
+                    8 + u32::from_be_bytes([rest[3], rest[4], rest[5], rest[6]]) as usize
+                }
+                // Fence is coordination for the viewer, not desktop input:
+                // type + padding + flags + one-byte payload length.
+                248 => {
+                    if rest.len() < 8 {
+                        break;
+                    }
+                    9 + rest[7] as usize
+                }
+                // EnableContinuousUpdates asks for pixels; it does not alter
+                // the remote desktop.
+                150 => 10,
+                _ => bail!("unsupported view-only desktop protocol message {kind}"),
+            };
+            if self.pending.len() < length {
+                break;
+            }
+            let message: Vec<u8> = self.pending.drain(..length).collect();
+            if matches!(kind, 0 | 2 | 3 | 150 | 248) {
+                forwarded.push(tungstenite::Message::Binary(message.into()));
+            }
+        }
+        Ok(forwarded)
+    }
+}
+
 async fn proxy_websocket(
     browser: WebSocket,
     company: &str,
+    access: DesktopWebsocketAccess,
+    control_watch: Option<tokio::sync::watch::Receiver<Option<serde_json::Value>>>,
     session_lease: Option<SessionLease>,
 ) -> Result<()> {
     let stream = match session_lease.as_ref() {
@@ -7844,19 +8318,67 @@ async fn proxy_websocket(
     };
     let (mut browser_tx, mut browser_rx) = browser.split();
     let (mut runtime_tx, mut runtime_rx) = runtime.split();
+    let mut observer_filter = RfbObserverFilter::default();
+    let mut control_ended = control_watch.as_ref().and_then(|watch| {
+        let DesktopWebsocketAccess::Control {
+            client_id,
+            lease_id,
+        } = &access
+        else {
+            return None;
+        };
+        control_expiry(watch.borrow().as_ref(), client_id, lease_id).map(|expires_at| {
+            spawn_desktop_control_guard(
+                company.to_string(),
+                client_id.clone(),
+                lease_id.clone(),
+                expires_at,
+                watch.clone(),
+            )
+        })
+    });
     loop {
         tokio::select! {
             _ = optional_session_ended(session_lease.as_ref()) => break,
+            _ = optional_control_ended(&mut control_ended) => break,
             incoming = browser_rx.next() => match incoming {
                 Some(Ok(message)) => {
-                    let translated = match message {
-                        AxumMessage::Text(value) => tungstenite::Message::Text(value.to_string().into()),
-                        AxumMessage::Binary(value) => tungstenite::Message::Binary(value),
-                        AxumMessage::Ping(value) => tungstenite::Message::Ping(value),
-                        AxumMessage::Pong(value) => tungstenite::Message::Pong(value),
-                        AxumMessage::Close(_) => break,
+                    // The visual client flag is a convenience, not an access
+                    // boundary. Observers receive the same framebuffer but
+                    // their input is never bridged. Controllers recheck while
+                    // holding the transition lock, so return, expiry, and a
+                    // replacement cannot race one last input into the VNC.
+                    let translated = match &access {
+                        DesktopWebsocketAccess::Control { client_id, lease_id } => {
+                            let Some(watch) = control_watch.as_ref() else { break; };
+                            let control_guard = runtime::browser_control_guard(company).await;
+                            if control_expiry(watch.borrow().as_ref(), client_id, lease_id).is_none() {
+                                break;
+                            }
+                            let translated = match message {
+                                AxumMessage::Text(value) => tungstenite::Message::Text(value.to_string().into()),
+                                AxumMessage::Binary(value) => tungstenite::Message::Binary(value),
+                                AxumMessage::Ping(value) => tungstenite::Message::Ping(value),
+                                AxumMessage::Pong(value) => tungstenite::Message::Pong(value),
+                                AxumMessage::Close(_) => break,
+                            };
+                            // Keep the transition lock through the VNC write:
+                            // return/replacement either precedes this input or
+                            // waits until it has reached the desktop.
+                            runtime_tx.send(translated).await?;
+                            drop(control_guard);
+                            continue;
+                        }
+                        DesktopWebsocketAccess::Observe => match message {
+                            AxumMessage::Binary(value) => observer_filter.filter(value.as_ref())?,
+                            AxumMessage::Ping(value) => vec![tungstenite::Message::Ping(value)],
+                            AxumMessage::Pong(value) => vec![tungstenite::Message::Pong(value)],
+                            AxumMessage::Text(_) | AxumMessage::Close(_) => break,
+                        },
                     };
-                    runtime_tx.send(translated).await?;
+                    for message in translated {
+                        runtime_tx.send(message).await?;
+                    }
                 }
                 _ => break,
             },
@@ -7877,6 +8399,77 @@ async fn proxy_websocket(
         }
     }
     Ok(())
+}
+
+async fn desktop_control_lease(
+    company: &str,
+    client_id: &str,
+    requested_lease_id: Option<&str>,
+) -> Option<DesktopControlLease> {
+    let watch = runtime::watch_browser_control(company).await;
+    let _guard = runtime::browser_control_guard(company).await;
+    let control = runtime::read_browser_control(company)
+        .await
+        .ok()
+        .flatten()?;
+    let lease_id = control["lease_id"].as_str()?.to_string();
+    let live = requested_lease_id == Some(lease_id.as_str())
+        && control_expiry(Some(&control), client_id, &lease_id).is_some();
+    runtime::publish_browser_control(company, Some(control)).await;
+    live.then_some(DesktopControlLease { lease_id, watch })
+}
+
+fn control_expiry(
+    value: Option<&serde_json::Value>,
+    client_id: &str,
+    lease_id: &str,
+) -> Option<DateTime<Utc>> {
+    let value = value?;
+    (value["controller"] == "owner"
+        && value["client_id"].as_str() == Some(client_id)
+        && value["lease_id"].as_str() == Some(lease_id))
+    .then(|| value["expires_at"].as_str()?.parse::<DateTime<Utc>>().ok())?
+    .filter(|expires| *expires > Utc::now())
+}
+
+fn spawn_desktop_control_guard(
+    company: String,
+    client_id: String,
+    lease_id: String,
+    mut expires_at: DateTime<Utc>,
+    mut watch: tokio::sync::watch::Receiver<Option<serde_json::Value>>,
+) -> tokio::sync::oneshot::Receiver<()> {
+    let (ended, receiver) = tokio::sync::oneshot::channel();
+    tokio::spawn(async move {
+        let _ended = ended;
+        loop {
+            let until_expiry = expires_at
+                .signed_duration_since(Utc::now())
+                .to_std()
+                .unwrap_or_default();
+            tokio::select! {
+                _ = tokio::time::sleep(until_expiry) => return,
+                changed = watch.changed() => {
+                    if changed.is_err() {
+                        return;
+                    }
+                    let Some(next_expiry) = control_expiry(watch.borrow().as_ref(), &client_id, &lease_id) else {
+                        return;
+                    };
+                    expires_at = next_expiry;
+                }
+            }
+        }
+    });
+    receiver
+}
+
+async fn optional_control_ended(control_ended: &mut Option<tokio::sync::oneshot::Receiver<()>>) {
+    let Some(control_ended) = control_ended else {
+        std::future::pending::<()>().await;
+        return;
+    };
+    let _ = control_ended.await;
 }
 
 async fn optional_session_ended(session_lease: Option<&SessionLease>) {
@@ -7922,6 +8515,7 @@ async fn take_control(
             "attachment belongs to another browser tab",
         );
     }
+    let _control_guard = runtime::browser_control_guard(&company).await;
     let prior = runtime::read_browser_control(&company).await.ok().flatten();
     if let Some(prior) = prior.as_ref() {
         if prior["controller"] == "owner"
@@ -7935,16 +8529,10 @@ async fn take_control(
             );
         }
     }
-    let requester = prior.as_ref().and_then(|value| {
-        value["requester"]
-            .as_str()
-            .or_else(|| value["session_id"].as_str())
-            .map(str::to_string)
-    });
     let state_value = serde_json::json!({
         "controller": "owner",
         "client_id": input.client_id,
-        "requester": requester,
+        "lease_id": Uuid::new_v4().to_string(),
         "requesting_actor": attach.requesting_actor,
         "acquired_at": Utc::now(),
         "last_activity_at": Utc::now(),
@@ -7964,6 +8552,7 @@ async fn record_activity(
     AxumPath(company): AxumPath<String>,
     Json(input): Json<ControlRequest>,
 ) -> impl IntoResponse {
+    let _control_guard = runtime::browser_control_guard(&company).await;
     let Some(mut current) = runtime::read_browser_control(&company).await.ok().flatten() else {
         return api_error(
             StatusCode::CONFLICT,
@@ -7971,7 +8560,11 @@ async fn record_activity(
             "browser is not owner-controlled; desktop input cannot renew a lease",
         );
     };
-    if current["controller"] != "owner" || current["client_id"].as_str() != Some(&input.client_id) {
+    if current["controller"] != "owner"
+        || current["client_id"].as_str() != Some(&input.client_id)
+        || current["lease_id"].as_str() != input.lease_id.as_deref()
+        || !lease_is_live(&current)
+    {
         return api_error(
             StatusCode::CONFLICT,
             "controller",
@@ -7996,6 +8589,7 @@ async fn return_control(
     AxumPath(company): AxumPath<String>,
     Json(input): Json<ControlRequest>,
 ) -> impl IntoResponse {
+    let control_guard = runtime::browser_control_guard(&company).await;
     let Some(current) = runtime::read_browser_control(&company).await.ok().flatten() else {
         return api_error(
             StatusCode::CONFLICT,
@@ -8003,23 +8597,19 @@ async fn return_control(
             "browser has no controller lease",
         );
     };
-    if current["controller"] != "owner" || current["client_id"].as_str() != Some(&input.client_id) {
+    if current["controller"] != "owner"
+        || current["client_id"].as_str() != Some(&input.client_id)
+        || current["lease_id"].as_str() != input.lease_id.as_deref()
+        || !lease_is_live(&current)
+    {
         return api_error(
             StatusCode::CONFLICT,
             "controller",
             "this browser tab does not hold control",
         );
     }
-    let requester = current["requester"].as_str().map(str::to_string);
     let requesting_actor = current["requesting_actor"].as_str().map(str::to_string);
-    let next = match requester.as_deref() {
-        Some(requester) => serde_json::json!({
-            "controller": "agent",
-            "session_id": requester,
-            "returned_at": Utc::now(),
-        }),
-        None => serde_json::json!({ "controller": "unclaimed", "returned_at": Utc::now() }),
-    };
+    let next = serde_json::json!({ "controller": "unclaimed", "returned_at": Utc::now() });
     if let Err(error) = runtime::write_browser_control(&company, &next).await {
         return api_error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -8027,6 +8617,7 @@ async fn return_control(
             format!("{error:#}"),
         );
     }
+    drop(control_guard);
     if let Some(requesting_actor) = requesting_actor {
         if let Ok(org) = state.daemon.orgintel.get(&company).await {
             let _ = org
@@ -8114,6 +8705,17 @@ mod tests {
     use axum::body::to_bytes;
     use sqlx::Connection as _;
     use tower::ServiceExt as _;
+
+    #[test]
+    fn create_company_request_accepts_an_omitted_model() {
+        let input: CreateCompanyInput = serde_json::from_value(serde_json::json!({
+            "name": "company_0123456789abcdef",
+            "display_name": "Untitled company",
+            "mission": ""
+        }))
+        .unwrap();
+        assert_eq!(input.model, None);
+    }
 
     #[tokio::test]
     async fn company_principal_exposes_only_a_verified_cache_partition() {
@@ -10603,6 +11205,15 @@ mod tests {
             membership_version: Some(1),
         };
         let principal = RequestPrincipal::from_verified(&identity).unwrap();
+        assert!(
+            membership_boundary_violation(
+                &Method::GET,
+                "/api/companies/aris/actors/exec/exchanges",
+                &principal,
+            )
+            .is_some(),
+            "internal agent exchanges are an owner-only surface"
+        );
         assert!(membership_boundary_violation(
             &Method::POST,
             "/api/companies/aris/actors/exec/conversation",
@@ -10641,6 +11252,7 @@ mod tests {
         )
         .is_some());
         for protected_read in [
+            "/api/companies/aris/custom-harnesses",
             "/api",
             "/api/companies/aris/cockpit",
             "/desktop",
@@ -10675,6 +11287,7 @@ mod tests {
         );
         for unrelated in [
             "/api/companies/aris/not-rooms/admin",
+            "/api/companies/aris/custom-harnesses/example",
             "/api/companies/aris/rooms-admin",
             "/api/companies/aris/principal/admin",
             "/api/companies/aris/reports/conversation",
@@ -11264,16 +11877,40 @@ mod tests {
 
     #[test]
     fn only_the_controller_can_resize_the_shared_desktop() {
-        let observer = desktop_client_url("company_test", DesktopClientMode::Observe);
+        let observer = desktop_client_url("company_test", DesktopClientMode::Observe, None);
         assert!(observer.contains("resize=scale"));
         assert!(observer.contains("view_only=1"));
         assert!(observer.contains("show_dot=1"));
 
-        let controller = desktop_client_url("company_test", DesktopClientMode::Control);
+        let controller = desktop_client_url(
+            "company_test",
+            DesktopClientMode::Control,
+            Some("lease-test"),
+        );
         assert!(controller.contains("resize=remote"));
         assert!(controller.contains("view_only=0"));
         assert!(controller.contains("show_dot=1"));
         assert!(controller.contains("reconnect=1"));
+        assert!(controller.contains("lease_id%3Dlease-test"));
+    }
+
+    #[test]
+    fn observed_desktop_forwards_rfb_setup_and_pixels_but_not_input() {
+        let mut filter = RfbObserverFilter::default();
+        assert!(filter.filter(b"RFB 003.008\n").unwrap().len() == 1);
+        assert!(filter.filter(&[1]).unwrap().len() == 1);
+        assert!(filter.filter(&[1]).unwrap().len() == 1);
+
+        let framebuffer_request = [3, 0, 0, 0, 0, 0, 0, 4, 0, 4];
+        let key_event = [4, 0, 0, 0, 0, 0, 0, 65];
+        let mut frames = framebuffer_request.to_vec();
+        frames.extend(key_event);
+        let forwarded = filter.filter(&frames).unwrap();
+        assert_eq!(forwarded.len(), 1);
+        match &forwarded[0] {
+            tungstenite::Message::Binary(bytes) => assert_eq!(bytes.as_ref(), framebuffer_request),
+            _ => panic!("framebuffer request should remain binary"),
+        }
     }
 
     #[test]
@@ -11324,6 +11961,7 @@ mod tests {
             }),
             runtime_attach: None,
             review_target: None,
+            native_document: None,
             actions: vec![attention::AttentionAction {
                 id: "chat-lead".into(),
                 label: "Work through this with Ari".into(),
@@ -11332,6 +11970,7 @@ mod tests {
                 next_state: "The decision stays open.".into(),
                 href: None,
             }],
+            preparing: false,
             can_continue: true,
             created_at: Utc::now(),
         };
@@ -12091,6 +12730,15 @@ async fn intelligence_view(
         for row in &natives {
             if matches!(row["auth"]["state"].as_str(),Some("connected"|"key_saved")) {connections.push(serde_json::json!({"id":format!("harness:{}",row["harness"].as_str().unwrap_or_default()),"provider":row["harness"],"kind":"harness","model":row["model"],"models":row["auth"]["models"],"loaded":true}));}
         }
+        for (id,harness) in crate::custom_harness::load(&state.daemon.root,&company)? {
+            let installed=crate::custom_harness::status(&company,&id).await.ok().is_some_and(|status|status["state"]=="installed");
+            crate::custom_harness::refresh_if_due(&state.daemon.root,&company,&id,&harness,installed);
+            if let Some(probe)=crate::custom_harness::cached_probe(&state.daemon.root,&company,&id,&harness) {
+                if probe["state"]=="compatible" && installed {
+                    connections.push(serde_json::json!({"id":format!("harness:custom:{id}"),"provider":harness.name,"kind":"harness","models":probe["models"],"loaded":true}));
+                }
+            }
+        }
         let org=state.daemon.orgintel.get(&company).await?;
         let agents=org.list_actors().await?.into_iter().filter(|a|a.actor_class=="agent").map(|a| {
             let effective=config.for_agent(&a.id);
@@ -12146,8 +12794,13 @@ async fn update_agent_intelligence(
     let result: Result<()> = async {
         if actor != "default" {
             let org = state.daemon.orgintel.get(&company).await?;
-            let person = org.active_actor(&actor).await?.context("Agent does not exist")?;
-            if person.actor_class != "agent" { bail!("Only agents can have an intelligence assignment"); }
+            let person = org
+                .active_actor(&actor)
+                .await?
+                .context("Agent does not exist")?;
+            if person.actor_class != "agent" {
+                bail!("Only agents can have an intelligence assignment");
+            }
         }
         if input.reset {
             config.agent_intelligence.remove(&actor);
@@ -12176,6 +12829,26 @@ async fn update_agent_intelligence(
                 {
                     bail!("This provider credential is unavailable");
                 }
+            } else if let Some(id) = input.connection.strip_prefix("harness:custom:") {
+                let registry = crate::custom_harness::load(&state.daemon.root, &company)?;
+                let harness = registry.get(id).context("Configure this harness first")?;
+                if crate::custom_harness::status(&company, id).await?["state"] != "installed" {
+                    bail!("Install this harness first");
+                }
+                let probe =
+                    crate::custom_harness::probe(&company, id, harness, Some(model)).await?;
+                crate::custom_harness::cache_probe(
+                    &state.daemon.root,
+                    &company,
+                    id,
+                    harness,
+                    &probe,
+                )?;
+                if probe["state"] != "compatible" || probe["selected_model"] != model {
+                    bail!(
+                        "Harness could not select this model. Check its provider setup and retry."
+                    );
+                }
             } else if let Some(harness) = input.connection.strip_prefix("harness:") {
                 crate::native_harness::validate(harness)?;
                 let status = crate::native_harness::view(&config, harness).await;
@@ -12201,7 +12874,9 @@ async fn update_agent_intelligence(
             config.for_agent(&actor).validate_harness_models()?;
         }
         runtime::CompanyConfig::save(&state.daemon.root, &config)?;
-        if let Ok(mut claims) = state.daemon.in_flight.lock() { claims.record_usable_wake(&company); }
+        if let Ok(mut claims) = state.daemon.in_flight.lock() {
+            claims.record_usable_wake(&company);
+        }
         state.daemon.schedule_wake.notify_one();
         Ok(())
     }
@@ -12215,47 +12890,111 @@ async fn update_agent_intelligence(
     }
 }
 
-async fn company_vault(State(state): State<OwnerState>, AxumPath(company): AxumPath<String>) -> Response<Body> {
-    if state.entry.network().is_some() { return api_error(StatusCode::FORBIDDEN, "vault", "Manage the vault on the account host."); }
+async fn company_vault(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+) -> Response<Body> {
+    if state.entry.network().is_some() {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "vault",
+            "Manage the vault on the account host.",
+        );
+    }
     let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(config) => config,
         Err(_) => return api_error(StatusCode::NOT_FOUND, "company", "Company does not exist."),
     };
     let health = credential::infisical_health().await;
-    let inventory = if health.status == credential::ProbeStatus::Present { credential::company_vault_inventory(&company).await } else { Err(anyhow::anyhow!("Vault is unavailable")) };
-    let mut references = config.credentials.iter().map(|(name,reference)| serde_json::json!({"name":name,"reference":reference})).collect::<Vec<_>>();
+    let inventory = if health.status == credential::ProbeStatus::Present {
+        credential::company_vault_inventory(&company).await
+    } else {
+        Err(anyhow::anyhow!("Vault is unavailable"))
+    };
+    let mut references = config
+        .credentials
+        .iter()
+        .map(|(name, reference)| serde_json::json!({"name":name,"reference":reference}))
+        .collect::<Vec<_>>();
     for (id, native) in &config.native_harnesses {
-        if let Some(reference) = &native.credential_reference { references.push(serde_json::json!({"name":format!("{id} harness"),"reference":reference})); }
-        if native.mode == "oauth" { references.push(serde_json::json!({"name":format!("{id} OAuth"),"reference":"Private native CLI profile in company computer"})); }
+        if let Some(reference) = &native.credential_reference {
+            references
+                .push(serde_json::json!({"name":format!("{id} harness"),"reference":reference}));
+        }
+        if native.mode == "oauth" {
+            references.push(serde_json::json!({"name":format!("{id} OAuth"),"reference":"Private native CLI profile in company computer"}));
+        }
     }
-    match inventory {
-        Ok(secrets) => Json(serde_json::json!({"status":"connected","secrets":secrets,"references":references})).into_response(),
-        Err(_) => Json(serde_json::json!({"status":"unavailable","secrets":null,"references":references,"message":"Cannot read Infisical right now. Check the local vault service and try again."})).into_response(),
-    }
+    let mut response = match inventory {
+        Ok(secrets) => Json(serde_json::json!({"status":"connected","secrets":secrets,"references":references,"revision":company_setup_view(&config)["revision"]})).into_response(),
+        Err(_) => Json(serde_json::json!({"status":"unavailable","secrets":null,"references":references,"revision":company_setup_view(&config)["revision"],"message":"Cannot read Infisical right now. Check the local vault service and try again."})).into_response(),
+    };
+    response.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-store"),
+    );
+    response
 }
 
 /// Complete first-connection setup after the vendor has confirmed authentication.
 async fn adopt_first_native_connection(state: OwnerState, company: String, harness: String) {
     for attempt in 0..300 {
-        let Ok(config) = runtime::CompanyConfig::load(&state.daemon.root, &company) else { return; };
-        if config.agent_intelligence.contains_key("default") { return; }
+        let Ok(config) = runtime::CompanyConfig::load(&state.daemon.root, &company) else {
+            return;
+        };
+        if config.agent_intelligence.contains_key("default") {
+            return;
+        }
         let status = crate::native_harness::view(&config, &harness).await;
-        if matches!(status["auth"]["state"].as_str(), Some("connected" | "key_saved")) {
+        if matches!(
+            status["auth"]["state"].as_str(),
+            Some("connected" | "key_saved")
+        ) {
             let _write = state.charter_writes.lock().await;
-            let Ok(mut current) = runtime::CompanyConfig::load(&state.daemon.root, &company) else { return; };
-            if current.agent_intelligence.contains_key("default") { return; }
-            let Some(connection) = current.native_harnesses.get(&harness) else { return; };
-            if !matches!(connection.mode.as_str(), "oauth" | "api_key") { return; }
+            let Ok(mut current) = runtime::CompanyConfig::load(&state.daemon.root, &company) else {
+                return;
+            };
+            if current.agent_intelligence.contains_key("default") {
+                return;
+            }
+            let Some(connection) = current.native_harnesses.get(&harness) else {
+                return;
+            };
+            if !matches!(connection.mode.as_str(), "oauth" | "api_key") {
+                return;
+            }
             let models = status["auth"]["models"].as_array();
-            let model = models.and_then(|ms| ms.iter().find(|m| m["default"] == true).or_else(||ms.first())).and_then(|m|m["id"].as_str()).unwrap_or(&connection.model).to_string();
-            current.agent_intelligence.insert("default".into(), runtime::AgentIntelligence { connection:format!("harness:{harness}"),model });
+            let model = models
+                .and_then(|ms| {
+                    ms.iter()
+                        .find(|m| m["default"] == true)
+                        .or_else(|| ms.first())
+                })
+                .and_then(|m| m["id"].as_str())
+                .unwrap_or(&connection.model)
+                .to_string();
+            current.agent_intelligence.insert(
+                "default".into(),
+                runtime::AgentIntelligence {
+                    connection: format!("harness:{harness}"),
+                    model,
+                },
+            );
             if runtime::CompanyConfig::save(&state.daemon.root, &current).is_ok() {
-                if let Ok(mut claims)=state.daemon.in_flight.lock() { claims.record_usable_wake(&company); }
+                if let Ok(mut claims) = state.daemon.in_flight.lock() {
+                    claims.record_usable_wake(&company);
+                }
                 state.daemon.schedule_wake.notify_one();
             }
             return;
         }
-        if matches!(status["auth"]["state"].as_str(), Some("cancelled" | "expired" | "failed")) || (attempt > 3 && status["auth"]["state"] == "disconnected") { return; }
+        if matches!(
+            status["auth"]["state"].as_str(),
+            Some("cancelled" | "expired" | "failed")
+        ) || (attempt > 3 && status["auth"]["state"] == "disconnected")
+        {
+            return;
+        }
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
     }
 }

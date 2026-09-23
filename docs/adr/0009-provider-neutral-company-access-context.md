@@ -50,6 +50,9 @@ semantic identifier. Authority records and protects it but does not create a com
   not change company APIs.
 - Membership-owner transfer never silently transfers root Authority ownership.
 
+- [ADR 0012](0012-one-identity-issuer-two-hosts.md) makes the self-hosted adapter and Cloud one
+  issuer implementation with two hosts, and adds the owner claim of the local `owner` Actor.
+
 ## Invariants
 
 1. A client cannot select another Actor or company by changing a request body or path.
