@@ -590,21 +590,6 @@
 			}
 		}
 	}
-	const partnerWork = $derived(
-		(ownerAccess ? attention.view?.workGraph?.work : collaboration.view?.work_graph?.work)?.filter(
-			(work) => work.owner_id === directPartner
-		) ?? []
-	);
-	function includeWork(id: string) {
-		const work = partnerWork.find((item) => item.id === id);
-		if (!work) return;
-		const url = new URL(
-			`/${encodeURIComponent(companyId)}/work/${encodeURIComponent(id)}`,
-			page.url.origin
-		);
-		if (composer.includes(url.href)) return;
-		composer = `${composer.trimEnd()}${composer.trim() ? '\n\n' : ''}Let’s work on: ${work.title}\n${url.href}\n`;
-	}
 	const canExtendDirect = $derived(
 		participantProjection?.status === 'live' &&
 			participants.some((p) => p.actor_id === currentActorId) &&
@@ -1379,23 +1364,6 @@
 						title="Add this document’s link to your draft. Document access stays unchanged."
 						>Include document link</button
 					>
-				{/if}
-				{#if partnerWork.length}
-					<select
-						class="reply-picker"
-						aria-label="Discuss a task"
-						title="Add a task to your draft"
-						value=""
-						onchange={(event) => {
-							includeWork(event.currentTarget.value);
-							event.currentTarget.value = '';
-						}}
-					>
-						<option value="">Discuss a task…</option>
-						{#each partnerWork as work (work.id)}
-							<option value={work.id}>{work.title} · {work.status}</option>
-						{/each}
-					</select>
 				{/if}
 				{#if !directPartner || !actorIsAgent(directPartner)}
 					<select

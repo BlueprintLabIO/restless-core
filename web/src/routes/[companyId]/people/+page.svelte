@@ -310,12 +310,7 @@
 							>{/if}</span
 					>{/if}
 			{/snippet}
-			{#snippet directoryPerson(
-				person: DirectoryPerson,
-				cue: string,
-				cueTitle: string,
-				kind: string
-			)}
+			{#snippet directoryPerson(person: DirectoryPerson, kind: string)}
 				<a
 					class="directory-person {kind}"
 					href={href(person.actor_id)}
@@ -336,67 +331,36 @@
 						><span class="name">{person.display}</span>{@render personStatuses(
 							person.actor_id,
 							person.display
-						)}<span class="directory-cue" title={cueTitle}>{cue}</span></span
+						)}</span
 					>
 				</a>
 			{/snippet}
 			{#if directory}
 				{#if directoryExec && matchesDirectory(directoryExec, search.trim().toLocaleLowerCase())}
 					<section class="directory-section executive-section" aria-label="Executive">
-						{@render directoryPerson(
-							directoryExec,
-							'Exec',
-							'Open the executive conversation',
-							'executive'
-						)}
+						{@render directoryPerson(directoryExec, 'executive')}
 					</section>
 				{/if}
 				{#each directoryTeams as entry (entry.team.id)}
 					<section class="directory-section team-section" aria-label={entry.team.name}>
 						<header class="team-directory-head" title={entry.team.brief}>
 							<span><Users size={14} aria-hidden="true" /> {entry.team.name}</span>
-							{#if entry.lead}<a
-									class="team-talk"
-									href={href(entry.lead.actor_id)}
-									onclick={(event) => void openPerson(event, entry.lead!.actor_id)}
-									title={`Talk to ${entry.lead.display}`}>Talk to lead</a
-								>{/if}
 						</header>
-						{#if entry.lead}{@render directoryPerson(
-								entry.lead,
-								'Lead',
-								'Accountable team lead. Open their conversation.',
-								'lead'
-							)}{/if}
+						{#if entry.lead}{@render directoryPerson(entry.lead, 'lead')}{/if}
 						{#each entry.members.filter((member) => entry.teamMatches || matchesDirectory(member, search
 										.trim()
 										.toLocaleLowerCase())) as member (member.actor_id)}
-							{@render directoryPerson(
-								member,
-								'Chat',
-								`Open a direct conversation to co-work with ${member.display}`,
-								'member'
-							)}
+							{@render directoryPerson(member, 'member')}
 						{/each}
 					</section>
 				{/each}
 				{#if directoryUnassigned.length}
 					<section class="directory-section" aria-label="Unassigned staff">
 						<header class="team-directory-head">
-							<span>Unassigned</span>{#if directoryExec}<a
-									class="team-talk"
-									href={href(directoryExec.actor_id)}
-									onclick={(event) => void openPerson(event, directoryExec!.actor_id)}
-									title="Talk to the Exec, who is accountable for unassigned staff">Talk to Exec</a
-								>{/if}
+							<span>Unassigned</span>
 						</header>
 						{#each directoryUnassigned as member (member.actor_id)}
-							{@render directoryPerson(
-								member,
-								'Chat',
-								`Open a direct conversation to co-work with ${member.display}`,
-								'member'
-							)}
+							{@render directoryPerson(member, 'member')}
 						{/each}
 					</section>
 				{/if}
@@ -404,12 +368,7 @@
 					<section class="directory-section" aria-label="Human colleagues">
 						<header class="team-directory-head"><span>Colleagues</span></header>
 						{#each directoryHumans as colleague (colleague.actor_id)}
-							{@render directoryPerson(
-								colleague,
-								'Colleague',
-								`Open a direct conversation with ${colleague.display}`,
-								'colleague'
-							)}
+							{@render directoryPerson(colleague, 'colleague')}
 						{/each}
 					</section>
 				{/if}
@@ -608,12 +567,6 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-	.team-talk {
-		flex: none;
-		color: var(--intent-conversation);
-		font-weight: 600;
-		text-decoration: none;
-	}
 	.directory-person {
 		display: flex;
 		align-items: center;
@@ -646,20 +599,6 @@
 		min-width: 0;
 		flex: 1;
 		overflow: hidden;
-	}
-	.directory-cue {
-		flex: none;
-		max-width: 46px;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	.directory-person.lead .directory-cue,
-	.directory-person.executive .directory-cue {
-		color: var(--intent-conversation);
-		font-weight: 600;
 	}
 	.entry {
 		display: flex;
