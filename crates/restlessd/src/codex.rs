@@ -6,17 +6,17 @@
 //! it does not add planning or semantic rescue.
 
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use agent_client_protocol::schema::v1::McpServer;
-use anyhow::{bail, Context as _, Result};
+use anyhow::{Context as _, Result, bail};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _, BufReader};
 use tokio::process::{ChildStdin, Command};
-use tokio::sync::{mpsc, Mutex as AsyncMutex};
+use tokio::sync::{Mutex as AsyncMutex, mpsc};
 use tokio_util::sync::CancellationToken;
 
 use crate::acp::{
@@ -308,6 +308,7 @@ pub(crate) struct CodexSession {
     pub(crate) tool_contract_digest: String,
     pub(crate) mcp_contract_digest: String,
     pub(crate) observed: serde_json::Value,
+    completion_only: bool,
 }
 
 impl CodexSession {
@@ -439,6 +440,17 @@ impl CodexSession {
                             let item = event.get("item").cloned().unwrap_or_default();
                             let item_kind = event_string(&item, "type").unwrap_or("tool");
                             if !matches!(item_kind, "agentMessage" | "reasoning" | "userMessage") {
+                                if self.completion_only {
+                                    let _ = send_operation(
+                                        &self.stdin,
+                                        serde_json::json!({"op":"interrupt"}),
+                                    )
+                                    .await;
+                                    return TurnEnd::Failed {
+                                        error: format!("completion-only Codex session attempted a tool/effect: {item_kind}"),
+                                        transcript,
+                                    };
+                                }
                                 tools_in_flight = tools_in_flight.saturating_add(1);
                                 let id = event_string(&item, "id").unwrap_or("codex-tool").to_string();
                                 let title = event_string(&item, "command")
@@ -454,6 +466,12 @@ impl CodexSession {
                             let item = event.get("item").cloned().unwrap_or_default();
                             let item_kind = event_string(&item, "type").unwrap_or("tool");
                             if !matches!(item_kind, "agentMessage" | "reasoning" | "userMessage") {
+                                if self.completion_only {
+                                    return TurnEnd::Failed {
+                                        error: format!("completion-only Codex session reported a tool/effect: {item_kind}"),
+                                        transcript,
+                                    };
+                                }
                                 tools_in_flight = tools_in_flight.saturating_sub(1);
                                 self.observe(LiveSessionEvent::ToolUpdated {
                                     id: event_string(&item, "id").unwrap_or("codex-tool").to_string(),
@@ -522,8 +540,102 @@ where
         Box<dyn std::future::Future<Output = Result<T>> + Send + 'a>,
     >,
 {
+    with_agent_policy(
+        container,
+        auth,
+        workdir,
+        actor,
+        responsibility,
+        system_prompt,
+        mcp_servers,
+        observer,
+        false,
+        drive,
+    )
+    .await
+}
+
+/// Launch a fresh Codex session whose only job is to format an existing
+/// completion envelope. Its cwd and readable root are an empty per-launch
+/// directory, it receives no MCP servers, and the runner enforces read-only
+/// turns. This is a separate launch contract, never a mode on a productive
+/// session.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the completion launch keeps identity, responsibility, authority and observation explicit"
+)]
+pub(crate) async fn with_completion_agent<F, T>(
+    container: &str,
+    auth: &AgentAuth,
+    actor: &str,
+    responsibility: &str,
+    system_prompt: &str,
+    observer: Option<SessionObserver>,
+    drive: F,
+) -> Result<T>
+where
+    F: for<'a> FnOnce(
+        &'a CodexSession,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<T>> + Send + 'a>,
+    >,
+{
+    let workdir = format!(
+        "/company/run/agent-sessions/{}/completion-cwd",
+        auth.session_id
+    );
+    with_agent_policy(
+        container,
+        auth,
+        &workdir,
+        actor,
+        responsibility,
+        system_prompt,
+        Vec::new(),
+        observer,
+        true,
+        drive,
+    )
+    .await
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the Codex launch boundary keeps identity, responsibility, authority and observation explicit"
+)]
+async fn with_agent_policy<F, T>(
+    container: &str,
+    auth: &AgentAuth,
+    workdir: &str,
+    actor: &str,
+    responsibility: &str,
+    system_prompt: &str,
+    mcp_servers: Vec<McpServer>,
+    observer: Option<SessionObserver>,
+    completion_only: bool,
+    drive: F,
+) -> Result<T>
+where
+    F: for<'a> FnOnce(
+        &'a CodexSession,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<T>> + Send + 'a>,
+    >,
+{
     if responsibility.trim().is_empty() || system_prompt.trim().is_empty() {
         bail!("Codex session needs responsibility and developer instructions");
+    }
+    if completion_only
+        && workdir
+            != format!(
+                "/company/run/agent-sessions/{}/completion-cwd",
+                auth.session_id
+            )
+    {
+        bail!("completion-only Codex cwd must be the fresh per-launch directory");
+    }
+    if completion_only && !mcp_servers.is_empty() {
+        bail!("completion-only Codex launch cannot include MCP servers");
     }
     if !auth.model.starts_with("native-codex-") && auth.gateway_token_env != MODEL_CAPABILITY_ENV {
         bail!("Codex runner requires the scoped Restless model capability");
@@ -535,7 +647,11 @@ where
     } else {
         home_path(&auth.company, actor, responsibility)
     };
-    let prior = read_locator(container, &locator_path).await?;
+    let prior = if completion_only {
+        None
+    } else {
+        read_locator(container, &locator_path).await?
+    };
     if let Some(locator) = &prior {
         if locator.version != 2
             || locator.company != auth.company
@@ -562,24 +678,48 @@ where
     let launch_id = auth.session_id.clone();
     let session_marker = format!("/tmp/restless-agent-{launch_id}.sid");
     let session_runtime = format!("/company/run/agent-sessions/{launch_id}");
+    let mut directory_args = vec![
+        "exec".to_string(),
+        "-u".to_string(),
+        "company".to_string(),
+        container.to_string(),
+        "mkdir".to_string(),
+        "-p".to_string(),
+        codex_home.clone(),
+        format!("{CODEX_ROOT}/sessions"),
+        format!("{session_runtime}/cache"),
+        format!("{session_runtime}/tmp"),
+    ];
+    if completion_only {
+        directory_args.push(workdir.to_string());
+    }
     let dirs = Command::new("docker")
-        .args([
-            "exec",
-            "-u",
-            "company",
-            container,
-            "mkdir",
-            "-p",
-            &codex_home,
-            &format!("{CODEX_ROOT}/sessions"),
-            &format!("{session_runtime}/cache"),
-            &format!("{session_runtime}/tmp"),
-        ])
+        .args(directory_args)
         .output()
         .await
         .context("prepare Codex session directories")?;
     if !dirs.status.success() {
         bail!("prepare Codex session directories failed");
+    }
+    if completion_only {
+        let isolated_dir = Command::new("docker")
+            .args([
+                "exec",
+                "-u",
+                "company",
+                container,
+                "sh",
+                "-c",
+                "test ! -L \"$1\" && test -d \"$1\" && test -z \"$(find \"$1\" -mindepth 1 -maxdepth 1 -print -quit)\"",
+                "restless-completion-cwd-check",
+                workdir,
+            ])
+            .output()
+            .await
+            .context("verify empty completion-only Codex cwd")?;
+        if !isolated_dir.status.success() {
+            bail!("completion-only Codex cwd was not empty and isolated");
+        }
     }
 
     if auth.model.starts_with("native-codex-") {
@@ -592,11 +732,6 @@ where
     }
     let mut args = crate::acp::agent_exec_prefix(workdir);
     for value in [
-        format!("RESTLESS_ACTOR={actor}"),
-        format!(
-            "RESTLESS_COORDINATOR={}",
-            crate::acp::runtime_coordinator()?
-        ),
         format!("CODEX_HOME={codex_home}"),
         format!("XDG_CACHE_HOME={session_runtime}/cache"),
         format!("TMPDIR={session_runtime}/tmp"),
@@ -604,8 +739,17 @@ where
         args.push("-e".to_string());
         args.push(value);
     }
-    args.push("-e".to_string());
-    args.push(auth.coordination_token_env.clone());
+    if !completion_only {
+        args.push("-e".into());
+        args.push(format!("RESTLESS_ACTOR={actor}"));
+        args.push("-e".into());
+        args.push(format!(
+            "RESTLESS_COORDINATOR={}",
+            crate::acp::runtime_coordinator()?
+        ));
+        args.push("-e".to_string());
+        args.push(auth.coordination_token_env.clone());
+    }
     args.push("-e".to_string());
     args.push(auth.gateway_token_env.clone());
     if auth.model.starts_with("native-codex-") {
@@ -681,6 +825,7 @@ where
             "developer_instructions": system_prompt,
             "thread_id": prior_thread,
             "mcp_servers": mcp_contract,
+            "completion_only": completion_only,
         }),
     )
     .await?;
@@ -719,8 +864,15 @@ where
         runner_digest: runner_digest.clone(),
         mcp_contract_digest: mcp_contract_digest.clone(),
     };
-    persist_locator(container, &locator_path, &locator).await?;
-    let tool_contract_digest = prove_tool_contract(container, auth, actor).await?;
+    let tool_contract_digest = if completion_only {
+        format!(
+            "{:x}",
+            sha2::Sha256::digest(b"codex-completion-only-readonly-v1")
+        )
+    } else {
+        persist_locator(container, &locator_path, &locator).await?;
+        prove_tool_contract(container, auth, actor).await?
+    };
     let session = CodexSession {
         stdin: Arc::clone(&stdin),
         events,
@@ -740,6 +892,7 @@ where
         tool_contract_digest,
         mcp_contract_digest,
         observed,
+        completion_only,
     };
     let result = drive(&session).await;
     let _ = send_operation(&stdin, serde_json::json!({"op":"shutdown"})).await;
