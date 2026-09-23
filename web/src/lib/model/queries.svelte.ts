@@ -220,7 +220,7 @@ export function companiesQuery(enabled: QueryEnabled = true) {
 		enabled: queryEnabled(enabled),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
-		refetchInterval: REFRESH_MS,
+		refetchInterval: 60_000,
 		refetchIntervalInBackground: false,
 		retry: 1
 	}));
@@ -299,7 +299,7 @@ export function portfolioQuery() {
 		queryFn: () => getPortfolio(client),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
-		refetchInterval: REFRESH_MS,
+		refetchInterval: 30_000,
 		refetchIntervalInBackground: false,
 		retry: 1
 	}));
