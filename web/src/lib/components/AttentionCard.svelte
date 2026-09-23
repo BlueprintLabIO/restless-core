@@ -14,18 +14,41 @@
 		companyId,
 		item,
 		showTitle = true,
-		inChat = false
+		inChat = false,
+		embedded = false,
+		onopenDocument
 	}: {
 		companyId: string;
 		item: AttentionItem;
 		showTitle?: boolean;
 		inChat?: boolean;
+		embedded?: boolean;
+		onopenDocument?: () => Promise<unknown>;
 	} = $props();
 	const client = useQueryClient();
 	let acting = $state(false);
 	let error = $state('');
 	let decision = $state('');
 	let attempt = $state(0);
+	const documentRequest = $derived(
+		item.source.kind === 'document_collaboration' || item.source.kind === 'document_review'
+	);
+	const hasDocumentAction = $derived(documentRequest && Boolean(item.nativeDocument || onopenDocument));
+	const documentLabel = $derived(
+		item.source.kind === 'document_review' ? 'Review this version' : 'Open and edit together'
+	);
+	async function openDocument() {
+		if (acting || !onopenDocument) return;
+		acting = true;
+		error = '';
+		try {
+			await onopenDocument();
+		} catch {
+			error = 'Could not open the document. Try again.';
+		} finally {
+			acting = false;
+		}
+	}
 	const base = $derived(`/${encodeURIComponent(companyId)}?item=${encodeURIComponent(item.id)}`);
 	const grant = $derived(item.actions.find((a) => a.id === 'grant'));
 	const decline = $derived(item.actions.find((a) => a.id === 'decline'));
@@ -86,12 +109,13 @@
 
 <section
 	class="attention-card"
+	class:embedded
 	data-attention-id={item.id}
 	aria-label={item.preparing ? 'Preparing your next step' : item.title}
 	aria-busy={acting}
 >
 	{#if showTitle}<header><strong>{item.preparing ? 'Preparing your next step' : item.title}</strong><span>{item.preparing ? 'Preparing' : 'Needs you'}</span></header>{/if}
-	<div class="request"><Markdown text={item.requestedAction} /></div>
+	{#if !hasDocumentAction}<div class="request"><Markdown text={item.requestedAction} /></div>{/if}
 	{#if item.preparing}
 		<p class="waiting" role="status">Nothing to do yet. The team is preparing this step. Your instructions and any sign-in link will appear here when ready.</p>
 	{:else if item.deadline && inChat}
@@ -113,6 +137,13 @@
 		</details>
 	{/if}
 	<div class="actions">
+		{#if documentRequest}
+			{#if item.nativeDocument}
+				<a class="btn primary" href={base} title={item.ifNoAction}>{documentLabel}</a>
+			{:else if onopenDocument}
+				<button class="btn primary" disabled={acting} onclick={openDocument} title="Load the current document and access permissions">{acting ? 'Opening document…' : documentLabel}</button>
+			{/if}
+		{/if}
 		{#if instructionLink}
 			<a class="btn small primary" href={instructionLink.href} target="_blank" rel="noreferrer">{instructionLink.label}</a>
 		{/if}
@@ -161,7 +192,7 @@
 				>Review outcome</a
 			>
 		{/if}
-		{#if item.nativeDocument && !item.actions.some((action) => action.href)}<a
+		{#if item.nativeDocument && !documentRequest && !item.actions.some((action) => action.href)}<a
 				class="btn small primary"
 				href={base}>Open document</a
 			>{/if}
@@ -195,7 +226,7 @@
 			Review the outcome to accept it or request changes.
 		</p>{/if}
 	{#if error}<p class="error" role="alert">{error}</p>{/if}
-	{#if !inChat}<p class="quiet">{item.ifNoAction}</p>{/if}
+	{#if !inChat && !hasDocumentAction}<p class="quiet">{item.ifNoAction}</p>{/if}
 </section>
 
 <style>
@@ -206,6 +237,12 @@
 		border-radius: var(--radius-control);
 		background: var(--surface);
 		overflow-wrap: anywhere;
+	}
+	.attention-card.embedded {
+		padding: 0;
+		border: 0;
+		border-radius: 0;
+		background: transparent;
 	}
 	header {
 		display: flex;
@@ -238,6 +275,17 @@
 	.actions :global(.hold-approve) {
 		max-width: 100%;
 		white-space: normal;
+	}
+	.actions :global(.btn.primary) {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 42px;
+		padding: 10px 18px;
+		border-color: var(--intent-conversation);
+		background: var(--intent-conversation);
+		color: var(--text-inverse);
+		text-decoration: none;
 	}
 	form {
 		display: grid;
@@ -294,7 +342,7 @@
 		font-size: var(--t-body);
 	}
 	@media (max-width: 520px) {
-		.attention-card {
+		.attention-card:not(.embedded) {
 			padding: 12px;
 		}
 		header {

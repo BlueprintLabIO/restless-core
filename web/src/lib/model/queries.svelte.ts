@@ -164,21 +164,22 @@ function refresh<T>(query: { refetch: () => Promise<T> }): Promise<T> {
 	return query.refetch();
 }
 
-export function attentionQuery(companyId: string, enabled: QueryEnabled = true) {
+export function attentionQuery(companyId: string | (() => string), enabled: QueryEnabled = true) {
+	const currentCompany = () => typeof companyId === 'function' ? companyId() : companyId;
 	const client = useQueryClient();
 	onMount(() => {
 		if (typeof BroadcastChannel === 'undefined') return;
 		const channel = new BroadcastChannel('restless-attention');
 		channel.onmessage = (event) => {
-			if (event.data === companyId && queryEnabled(enabled)) {
-				void client.invalidateQueries({ queryKey: queryKeys.attention(companyId) });
+			if (event.data === currentCompany() && queryEnabled(enabled)) {
+				void client.invalidateQueries({ queryKey: queryKeys.attention(currentCompany()) });
 			}
 		};
 		return () => channel.close();
 	});
 	const query = createQuery(() => ({
-		queryKey: queryKeys.attention(companyId),
-		queryFn: () => getAttention(companyId),
+		queryKey: queryKeys.attention(currentCompany()),
+		queryFn: ({ queryKey }) => getAttention(queryKey[1]),
 		enabled: queryEnabled(enabled),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
@@ -196,7 +197,9 @@ export function attentionQuery(companyId: string, enabled: QueryEnabled = true) 
 		get failure() {
 			return (query.error as (Error & { status?: number }) | null) ?? null;
 		},
-		refresh: () => refreshAttention(client, companyId)
+		refresh: () => refreshAttention(client, currentCompany()),
+		// An explicit open must perform a read even while cached observers settle.
+		reload: () => refresh(query)
 	};
 }
 

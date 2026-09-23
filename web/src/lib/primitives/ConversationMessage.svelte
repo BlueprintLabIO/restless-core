@@ -39,9 +39,16 @@
 	function timeLabel(value: Date | string): string {
 		const date = value instanceof Date ? value : new Date(value);
 		if (Number.isNaN(date.getTime())) return '';
-		return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }).toLowerCase();
+		return date.toLocaleString(undefined, {
+			month: 'short',
+			day: 'numeric',
+			hour: 'numeric',
+			minute: '2-digit'
+		});
 	}
 	const timestamp = $derived(timeLabel(createdAt));
+	const messageDate = $derived(new Date(createdAt));
+	const validDate = $derived(!Number.isNaN(messageDate.getTime()));
 	const displayAuthor = $derived(author === 'The Exec' ? 'Exec' : author);
 
 	async function copyMessage() {
@@ -75,7 +82,9 @@
 			/>
 		</span>
 		<strong>{displayAuthor}</strong>
-		{#if timestamp}<time>{timestamp}</time>{/if}
+		{#if timestamp}<time
+				datetime={validDate ? messageDate.toISOString() : undefined}
+				title={validDate ? messageDate.toLocaleString() : undefined}>{timestamp}</time>{/if}
 	</header>
 
 	<div class="message-body">
