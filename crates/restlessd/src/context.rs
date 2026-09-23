@@ -358,8 +358,10 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
            It exists: {plan_exists}. \
            Read it first; update it in place as work progresses; never start a second plan for \
            the same milestone.\n\
-         - /company/org/exec/journal/NNNN.md — one entry per wake, next sequential number \
-           [historical memory]. Record what you did, learned, and what is next.\n\
+         - /company/org/exec/journal/NNNN.md — optional historical memory. \
+           Write a new entry only for a decision or lesson that cannot be recovered from \
+           Work, Opportunities, effects, evidence, or the current plan. Routine wakes and \
+           status changes belong in those canonical records, not another Markdown report.\n\
          - /company/repos — project repositories; commit meaningful checkpoints with git.\n\
          - /company/outputs — finished artifacts for the owner.\n\n\
          # Work and teams [internal decision]\n\
