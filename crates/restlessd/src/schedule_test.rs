@@ -314,7 +314,7 @@ pub(crate) async fn run_actor(
         let mut writer = tokio::process::Command::new("docker")
             .args([
                 "exec", "-i", "-u", "company", &target_container, "sh", "-c",
-                "umask 077; cat > /company/home/.restless/harness-auth/codex/auth.json",
+                "umask 077; mkdir -p /company/home/.restless/harness-auth/codex && cat > /company/home/.restless/harness-auth/codex/auth.json",
             ])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::null())
