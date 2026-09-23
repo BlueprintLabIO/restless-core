@@ -221,7 +221,7 @@ export function companiesQuery(enabled: QueryEnabled = true) {
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
 		refetchInterval: REFRESH_MS,
-		refetchIntervalInBackground: true,
+		refetchIntervalInBackground: false,
 		retry: 1
 	}));
 	return {
@@ -326,7 +326,7 @@ export function cockpitQuery(companyId: string | (() => string), enabled: QueryE
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
 		refetchInterval: REFRESH_MS,
-		refetchIntervalInBackground: true,
+		refetchIntervalInBackground: false,
 		retry: 1
 	}));
 	return {
@@ -385,7 +385,7 @@ export function identityQuery(companyId: string) {
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
 		refetchInterval: REFRESH_MS,
-		refetchIntervalInBackground: true,
+		refetchIntervalInBackground: false,
 		retry: 1
 	}));
 	return {
@@ -478,7 +478,7 @@ export function conversationQuery(
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
 		refetchInterval: REFRESH_MS,
-		refetchIntervalInBackground: true,
+		refetchIntervalInBackground: false,
 		retry: 1
 	}));
 
