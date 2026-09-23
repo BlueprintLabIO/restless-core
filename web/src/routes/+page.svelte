@@ -115,7 +115,7 @@
 					<div class="portfolio-table-scroll">
 						<div class="portfolio-grid">
 							<div class="portfolio-grid-head" aria-hidden="true">
-								<span>Project</span>
+								<span></span>
 								<span>Current focus</span>
 								<span>Next item of value</span>
 								<span>Needs you</span>
