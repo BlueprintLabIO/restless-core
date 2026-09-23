@@ -38,19 +38,30 @@
 	onMount(() => {
 		let stopped = false;
 		let timer: ReturnType<typeof setTimeout>;
+		let polling = false;
 		const poll = async () => {
+			if (polling) return;
+			polling = true;
+			clearTimeout(timer);
 			try {
-				if (!busy) await refresh();
+				if (!busy && document.visibilityState === 'visible') await refresh();
 			} catch (cause) {
 				if (!stopped) readError = cause instanceof Error ? cause.message : String(cause);
 			} finally {
+				polling = false;
 				if (!stopped) timer = setTimeout(poll, 5000);
 			}
 		};
+		const onVisibilityChange = () => {
+			if (document.visibilityState !== 'visible' || busy) return;
+			void poll();
+		};
+		document.addEventListener('visibilitychange', onVisibilityChange);
 		void poll();
 		return () => {
 			stopped = true;
 			clearTimeout(timer);
+			document.removeEventListener('visibilitychange', onVisibilityChange);
 		};
 	});
 	async function act(c: Connection, action: string) {

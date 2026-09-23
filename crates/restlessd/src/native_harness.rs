@@ -3,10 +3,16 @@
 use crate::{credential, runtime};
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
+use std::collections::HashMap;
+use std::sync::{Arc, LazyLock};
+use std::time::{Duration, Instant};
 const HELPER: &str = "/usr/local/bin/restless-harness-auth";
 pub const CODEX_HOME: &str = "/company/home/.restless/harness-auth/codex";
 pub const CLAUDE_HOME: &str = "/company/home/.restless/harness-auth/claude-agent";
 const SOURCE: &str = include_str!("../../../tools/harness-auth/auth.mjs");
+type StatusSlot = Arc<tokio::sync::Mutex<Option<(Instant, Duration, Value)>>>;
+static STATUS_VIEW_CACHE: LazyLock<tokio::sync::Mutex<HashMap<(String, String), StatusSlot>>> =
+    LazyLock::new(Default::default);
 pub fn validate(harness: &str) -> Result<()> {
     if !["codex", "claude-agent"].contains(&harness) {
         bail!("Unknown native harness");
@@ -35,6 +41,12 @@ pub async fn command(company: &str, harness: &str, action: &str) -> Result<Value
     if !["login", "status", "logout", "cancel"].contains(&action) {
         bail!("Unknown authentication action");
     }
+    if action != "status" {
+        STATUS_VIEW_CACHE
+            .lock()
+            .await
+            .remove(&(company.to_string(), harness.to_string()));
+    }
     install(company).await?;
     let container = runtime::container_name(company);
     let mut cmd = tokio::process::Command::new("docker");
@@ -44,7 +56,16 @@ pub async fn command(company: &str, harness: &str, action: &str) -> Result<Value
     }
     cmd.args(["-u", "company", &container, "node", HELPER, harness, action])
         .kill_on_drop(true);
-    let output = tokio::time::timeout(std::time::Duration::from_secs(25), cmd.output()).await??;
+    let output = tokio::time::timeout(std::time::Duration::from_secs(25), cmd.output()).await;
+    // A read racing a sign-in action may have cached the old state. Drop it
+    // again after the action so the next view sees the completed transition.
+    if action != "status" {
+        STATUS_VIEW_CACHE
+            .lock()
+            .await
+            .remove(&(company.to_string(), harness.to_string()));
+    }
+    let output = output??;
     if !output.status.success() {
         bail!("Native authentication is unavailable. Check the Company computer and retry.");
     }
@@ -52,6 +73,36 @@ pub async fn command(company: &str, harness: &str, action: &str) -> Result<Value
         return Ok(json!({"state":"starting"}));
     }
     serde_json::from_slice(&output.stdout).context("Invalid native authentication status")
+}
+
+/// Owner tabs may ask for the same native sign-in state several times per
+/// second. A stable state needs no fresh CLI process on every read; an active
+/// sign-in is checked promptly so its completion still appears in the UI.
+async fn status_for_view(company: &str, harness: &str) -> Value {
+    let slot = STATUS_VIEW_CACHE
+        .lock()
+        .await
+        .entry((company.to_string(), harness.to_string()))
+        .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(None)))
+        .clone();
+    let mut cached = slot.lock().await;
+    if let Some((at, ttl, value)) = cached.as_ref() {
+        if at.elapsed() < *ttl {
+            return value.clone();
+        }
+    }
+    let value = command(company, harness, "status")
+        .await
+        .unwrap_or_else(|_| {
+            json!({"state":"unavailable","message":"Start the Company computer to check native sign-in."})
+        });
+    let ttl = match value["state"].as_str() {
+        Some("starting" | "waiting") => Duration::from_secs(3),
+        Some("unavailable") => Duration::from_secs(5),
+        _ => Duration::from_secs(30),
+    };
+    *cached = Some((Instant::now(), ttl, value.clone()));
+    value
 }
 pub async fn view(config: &runtime::CompanyConfig, harness: &str) -> Value {
     let connection = config.native_harnesses.get(harness);
@@ -66,7 +117,7 @@ pub async fn view(config: &runtime::CompanyConfig, harness: &str) -> Value {
             _ => json!({"state":"disconnected"}),
         }
     } else if mode == "oauth" {
-        command(&config.name, harness, "status").await.unwrap_or_else(|_| json!({"state":"unavailable","message":"Start the Company computer to check native sign-in."}))
+        status_for_view(&config.name, harness).await
     } else {
         json!({"state":"disconnected"})
     };
