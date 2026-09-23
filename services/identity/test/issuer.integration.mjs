@@ -8,7 +8,7 @@ import { readFile } from "node:fs/promises";
 import { createLocalJWKSet, jwtVerify } from "jose";
 import pg from "pg";
 import { validateConfig } from "../src/config.mjs";
-import { createIssuer } from "../src/issuer.mjs";
+import { createSelfHostedIssuer as createIssuer } from "../src/self-hosted.mjs";
 import { staticPlacement } from "../src/placement-static.mjs";
 
 const adminUrl = new URL(

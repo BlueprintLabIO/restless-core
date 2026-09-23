@@ -1,12 +1,12 @@
 // The self-hosted host: static Placement, SMTP Mail, one Node listener.
 import { createServer } from "node:http";
 import { readConfig } from "./config.mjs";
-import { createIssuer } from "./issuer.mjs";
+import { createSelfHostedIssuer } from "./self-hosted.mjs";
 import { smtpMail } from "./mail-smtp.mjs";
 import { staticPlacement } from "./placement-static.mjs";
 const config = await readConfig(process.env.RESTLESS_IDENTITY_CONFIG);
 const mail = smtpMail(config.smtp);
-const issuer = await createIssuer(config, {
+const issuer = await createSelfHostedIssuer(config, {
   placement: staticPlacement(config),
   mail,
 });

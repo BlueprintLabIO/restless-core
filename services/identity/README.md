@@ -7,12 +7,19 @@ continues to own company data, document permissions and Authority. Signing in
 proves membership; it does not grant permission to spend money, change company
 policy or control the company computer.
 
-`src/issuer.mjs` is the library every deployment shares. A host supplies
-configuration and two ports: **Placement** (a company's owner, plane, company and
-cell identities and its Core origin) and **Mail**. `src/main.mjs` is the
-self-hosted host, with static Placement (`src/placement-static.mjs`) and SMTP
-Mail (`src/mail-smtp.mjs`). Restless Cloud mounts the same library with its Fleet
-Placement.
+`src/issuer.mjs` is the library every deployment shares. It has no dependencies and ships as
+`@restless/issuer` at `/opt/restless/issuer` in the `restless-identity` image. It owns who may change
+whom, the membership admin API the company cockpit calls, CORS to that cockpit, and
+`/.well-known/restless-issuer`. A host supplies:
+- its own Better Auth instance with the organization plugin;
+- **Placement**: where each company lives;
+- a membership **Store**.
+
+`src/self-hosted.mjs` is this service's host. It uses static Placement
+(`src/placement-static.mjs`), SMTP mail (`src/mail-smtp.mjs`) and Core's SQL Store
+(`src/membership-sql.mjs`): versioned membership, the entry and control signer, and the durable
+control outbox. `src/main.mjs` starts it. Restless Cloud mounts the same library in `fleet-web` with
+its Fleet Placement and Store.
 
 People are invited and managed in the company itself, on **Company → Members**.
 The account site keeps only sign-up, sign-in, verification, password reset,

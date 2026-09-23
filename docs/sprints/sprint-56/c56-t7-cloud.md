@@ -16,3 +16,11 @@
 - the `account/company/[organizationId]/people` route.
 
 Pushing to `restless-cloud` is owner-only, so this ticket is not implemented from Core.
+
+**Update, 23 September 2026:**
+- The founders chose a Store port over a live data migration (ADR 0012 §2 amendment).
+- `fleet-web` mounts `@restless/issuer` from the `restless-identity` image, with Fleet Placement and a
+  Store that wraps Cloud's existing versioned controls and Fleet projection.
+- Cloud's People page is deleted in favour of the cockpit Members page.
+- Migrating Cloud onto `membership-sql.mjs` and deleting the Rust delivery remains a separate
+  decision.

@@ -6,7 +6,7 @@ import {readFile,writeFile,mkdir,access} from 'node:fs/promises';
 import {openSync,closeSync} from 'node:fs';
 import {configure} from '../scripts/configure.mjs';
 import {readConfig} from '../src/config.mjs';
-import {createIssuer} from '../src/issuer.mjs';
+import {createSelfHostedIssuer as createIssuer} from '../src/self-hosted.mjs';
 import {staticPlacement} from '../src/placement-static.mjs';
 import {HocuspocusProvider,HocuspocusProviderWebsocket} from '@hocuspocus/provider';
 import pg from 'pg';
