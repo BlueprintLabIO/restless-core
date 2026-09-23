@@ -522,6 +522,43 @@ where
         Box<dyn std::future::Future<Output = Result<T>> + Send + 'a>,
     >,
 {
+    with_agent_outcome(
+        container,
+        auth,
+        workdir,
+        actor,
+        responsibility,
+        system_prompt,
+        mcp_servers,
+        observer,
+        drive,
+    )
+    .await?
+    .into_result()
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the Codex launch boundary keeps identity, responsibility, authority and observation explicit"
+)]
+pub(crate) async fn with_agent_outcome<F, T>(
+    container: &str,
+    auth: &AgentAuth,
+    workdir: &str,
+    actor: &str,
+    responsibility: &str,
+    system_prompt: &str,
+    mcp_servers: Vec<McpServer>,
+    observer: Option<SessionObserver>,
+    drive: F,
+) -> Result<crate::acp::SessionOutcome<T>>
+where
+    F: for<'a> FnOnce(
+        &'a CodexSession,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<T>> + Send + 'a>,
+    >,
+{
     if responsibility.trim().is_empty() || system_prompt.trim().is_empty() {
         bail!("Codex session needs responsibility and developer instructions");
     }
@@ -768,12 +805,13 @@ where
     )
     .await;
     match result {
-        Ok(value) => {
-            process_cleanup?;
-            secret_cleanup?;
-            artifact_cleanup?;
-            Ok(value)
-        }
+        Ok(value) => match process_cleanup.and(secret_cleanup).and(artifact_cleanup) {
+            Ok(()) => Ok(crate::acp::SessionOutcome::Completed(value)),
+            Err(error) => Ok(crate::acp::SessionOutcome::CleanupFailed {
+                outcome: value,
+                error,
+            }),
+        },
         Err(error) => {
             if let Err(cleanup) = process_cleanup.and(secret_cleanup).and(artifact_cleanup) {
                 tracing::error!(

@@ -1498,6 +1498,57 @@ where
         Box<dyn std::future::Future<Output = Result<T>> + Send + 'a>,
     >,
 {
+    with_agent_outcome(
+        container,
+        harness,
+        auth,
+        workdir,
+        actor,
+        responsibility,
+        controls,
+        observer,
+        drive,
+    )
+    .await?
+    .into_result()
+}
+
+pub(crate) enum SessionOutcome<T> {
+    Completed(T),
+    CleanupFailed { outcome: T, error: anyhow::Error },
+}
+
+impl<T> SessionOutcome<T> {
+    pub(crate) fn into_result(self) -> Result<T> {
+        match self {
+            Self::Completed(outcome) => Ok(outcome),
+            Self::CleanupFailed { error, .. } => Err(error),
+        }
+    }
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the ACP launch boundary keeps identity, responsibility, authority and observation explicit"
+)]
+pub(crate) async fn with_agent_outcome<F, T>(
+    container: &str,
+    harness: crate::runtime::AgentHarness,
+    auth: &AgentAuth,
+    workdir: &str,
+    actor: &str,
+    responsibility: &str,
+    controls: AgentControls,
+    observer: Option<SessionObserver>,
+    drive: F,
+) -> Result<SessionOutcome<T>>
+where
+    F: for<'a> FnOnce(
+        &'a AgentSession,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<T>> + Send + 'a>,
+    >,
+{
     if responsibility.trim().is_empty() {
         anyhow::bail!("ACP session responsibility scope must not be empty");
     }
@@ -2152,10 +2203,13 @@ where
             return Err(error);
         }
     }
-    process_cleanup?;
-    secret_cleanup?;
-    artifact_cleanup?;
-    Ok(result?)
+    let cleanup = process_cleanup.and(secret_cleanup).and(artifact_cleanup);
+    match (result, cleanup) {
+        (Ok(outcome), Ok(())) => Ok(SessionOutcome::Completed(outcome)),
+        (Ok(outcome), Err(error)) => Ok(SessionOutcome::CleanupFailed { outcome, error }),
+        (Err(error), Ok(())) => Err(error.into()),
+        (Err(_), Err(error)) => Err(error),
+    }
 }
 
 /// Docker's process cwd and ACP's `session/new` cwd must agree. Otherwise an

@@ -377,8 +377,9 @@ pub async fn wake(
                         },
                     )
                     .await
+                    .map(acp::SessionOutcome::Completed)
                 } else {
-                    acp::with_agent(
+                    acp::with_agent_outcome(
                         &container,
                         harness,
                         &auth,
@@ -420,7 +421,7 @@ pub async fn wake(
                 if hosted_identity.is_some() {
                     anyhow::bail!("hosted Runtime Exec requires the restless-managed ACP harness");
                 }
-                crate::codex::with_agent(
+                crate::codex::with_agent_outcome(
                     &container,
                     &auth,
                     "/company",
@@ -462,6 +463,24 @@ pub async fn wake(
         // The turn itself was already classified inside `run_turn`, once, by
         // the one function entitled to do it. Failures around session opening
         // have no `TurnEnd` and no usage, but may still be provider-specific.
+        let outcome = match outcome {
+            Ok(acp::SessionOutcome::Completed(result)) => Ok(result),
+            Ok(acp::SessionOutcome::CleanupFailed {
+                outcome: (mut report, usage),
+                error,
+            }) if report.reply_complete => {
+                report.termination = Termination::Blocked;
+                report.reason = format!(
+                    "{COMPLETION_PROTOCOL_PREFIX}The completed owner reply was preserved, but agent session cleanup failed: {error:#}"
+                );
+                report.retry_after_seconds = None;
+                Ok((report, usage))
+            }
+            Ok(acp::SessionOutcome::CleanupFailed { error, .. }) => {
+                Err(error.context("agent session cleanup failed after an incomplete Exec turn"))
+            }
+            Err(error) => Err(error),
+        };
         let (mut report, usage) = match outcome {
             Ok(result) => result,
             Err(error) => {

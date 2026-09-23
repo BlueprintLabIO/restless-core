@@ -1030,7 +1030,14 @@ async fn run_exec_turn_with_lease(
     )
     .await;
 
-    if cancellation.is_cancelled() {
+    // The productive answer is captured before Exec's separate termination
+    // decision. A new owner message can cancel that postflight after the
+    // answer is complete; keep the original wake's captured message IDs and
+    // commit that answer, leaving later messages for their own wake. An
+    // interrupted productive turn still returns without persisting partial
+    // text.
+    let completed_reply = matches!(&outcome, Ok(report) if report.reply_complete);
+    if cancellation.is_cancelled() && !completed_reply {
         if pending_mention.is_some() {
             live_turn.fail("Interrupted before the focused collaboration mention was answered.");
             anyhow::bail!(
