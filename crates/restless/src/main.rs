@@ -366,20 +366,13 @@ enum Command {
         #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
         command: Vec<String>,
     },
-    /// Resolve an interrupted effect only after a separate status-check
-    /// receipt establishes what the external tool observed.
+    /// Refuse generic-receipt reconciliation; unresolved effects remain blocked
+    /// until a provider-authenticated reconciliation mechanism is available.
     EffectReconcile {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
         #[arg(long)]
         key: String,
-        #[arg(long)]
-        execution: i32,
-        /// succeeded or failed.
-        #[arg(long)]
-        result: String,
-        #[arg(long)]
-        evidence_receipt: String,
     },
     /// Internal stdin bridge used by the trusted host daemon. It receives
     /// one process envelope and never resolves credentials itself.
@@ -3692,17 +3685,10 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
         Command::EffectReconcile {
             company,
             key,
-            execution,
-            result,
-            evidence_receipt,
         } => serde_json::json!({
             "cmd": "effect-reconcile",
             "company": company,
             "key": key,
-            "execution_no": execution,
-            "state": result,
-            "id": evidence_receipt,
-            "actor": std::env::var("RESTLESS_ACTOR").unwrap_or_else(|_| "owner".to_string()),
         }),
         Command::Appliance { .. }
         | Command::Open

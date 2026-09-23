@@ -415,149 +415,19 @@ fn is_finance_identifier(value: &str) -> bool {
         || value.contains("/finance/")
 }
 
-/// Close the one ambiguity the generic runner cannot decide: the daemon died
-/// after recording intent but before recording the child result. Reconciliation
-/// is accepted only when another successful generic effect receipt points at
-/// the external system's own status observation.
-pub async fn reconcile_unknown(
-    authority: &crate::authority::AuthorityStore,
-    company: &str,
-    key: &str,
-    expected_execution: i32,
-    result: &str,
-    evidence_receipt: &str,
-    actor: &str,
-) -> Result<Receipt> {
-    if expected_execution <= 0 {
-        bail!("effect execution number must be positive");
-    }
-    let success = match result {
-        "succeeded" => true,
-        "failed" => false,
-        other => bail!("reconciled result must be succeeded|failed, got {other:?}"),
+/// Generic effect receipts are actor-selected command output, so they cannot
+/// authenticate what an external provider did after a lost response. Keep the
+/// intent unknown until a provider-specific reconciliation mechanism exists.
+pub fn reconcile_unknown(key: &str) -> Result<()> {
+    let key = key.trim();
+    let target = if key.is_empty() {
+        "unknown external effect".to_string()
+    } else {
+        format!("external effect {key:?}")
     };
-    let intent = authority
-        .find_body(company, "effect_intent", "idempotency_key", key)
-        .await?
-        .with_context(|| format!("effect {key:?} has no recorded execution intent"))?;
-    if execution_no(&intent) != expected_execution {
-        bail!(
-            "latest execution for {key:?} is {}, not {expected_execution}",
-            execution_no(&intent)
-        );
-    }
-    let completed = authority
-        .records_of_kind(company, "effect")
-        .await?
-        .into_iter()
-        .any(|record| {
-            record
-                .body
-                .get("idempotency_key")
-                .and_then(serde_json::Value::as_str)
-                == Some(key)
-                && execution_no(&record.body) == expected_execution
-        });
-    if completed {
-        bail!("effect {key:?} execution {expected_execution} already has a receipt");
-    }
-    let evidence: Receipt = serde_json::from_value(
-        authority
-            .find_body(company, "effect", "id", evidence_receipt)
-            .await?
-            .with_context(|| format!("evidence receipt {evidence_receipt:?} does not exist"))?,
+    bail!(
+        "{target} remains unresolved: generic effect receipts cannot authenticate provider state; do not retry until provider-specific reconciliation is available"
     )
-    .context("evidence is not a generic effect receipt")?;
-    if !evidence.success {
-        bail!("evidence receipt must be a successful external status check");
-    }
-    if evidence.idempotency_key == key {
-        bail!("an effect cannot serve as its own reconciliation evidence");
-    }
-
-    let command = intent
-        .get("command")
-        .context("effect intent is missing its command")?;
-    let argv: Vec<String> = serde_json::from_value(
-        command
-            .get("argv")
-            .cloned()
-            .context("effect intent is missing argv")?,
-    )?;
-    let tool = argv
-        .first()
-        .cloned()
-        .context("effect intent has empty argv")?;
-    let artifacts = intent
-        .get("artifacts")
-        .cloned()
-        .map(serde_json::from_value)
-        .transpose()?
-        .unwrap_or_default();
-    let receipt = Receipt {
-        id: Uuid::new_v4(),
-        effect_class: intent
-            .get("effect_class")
-            .and_then(serde_json::Value::as_str)
-            .context("effect intent is missing class")?
-            .to_string(),
-        command_digest: intent
-            .get("command_digest")
-            .and_then(serde_json::Value::as_str)
-            .context("effect intent is missing command digest")?
-            .to_string(),
-        tool,
-        purpose: intent
-            .get("purpose")
-            .and_then(serde_json::Value::as_str)
-            .context("effect intent is missing purpose")?
-            .to_string(),
-        cwd: command
-            .get("cwd")
-            .and_then(serde_json::Value::as_str)
-            .context("effect intent is missing cwd")?
-            .to_string(),
-        argv,
-        artifacts,
-        party: intent
-            .get("party")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_string),
-        outcome: serde_json::json!({
-            "status": result,
-            "reconciled": true,
-            "evidence_receipt": evidence.id,
-        }),
-        success,
-        actor: actor.to_string(),
-        idempotency_key: key.to_string(),
-        execution_no: expected_execution,
-        created_at: Utc::now(),
-        replayed: false,
-        repeat_of: None,
-    };
-    authority
-        .emit(
-            company,
-            "effect",
-            Some(actor),
-            serde_json::to_value(&receipt)?,
-        )
-        .await?;
-    authority
-        .emit(
-            company,
-            "effect_reconciled",
-            Some(actor),
-            serde_json::json!({
-                "idempotency_key": key,
-                "execution_no": expected_execution,
-                "receipt_id": receipt.id,
-                "evidence_receipt": evidence.id,
-            }),
-        )
-        .await?;
-    Ok(receipt)
 }
 
 async fn run_child(
@@ -998,6 +868,19 @@ mod tests {
             redact("before secret-value after", secrets.values()),
             "before [REDACTED] after"
         );
+    }
+
+    #[test]
+    fn generic_receipts_cannot_settle_unknown_external_effects() {
+        let error = reconcile_unknown("outbound-first-contact:maya")
+            .expect_err("generic evidence must fail closed");
+        assert!(error.to_string().contains("remains unresolved"));
+        assert!(
+            error
+                .to_string()
+                .contains("cannot authenticate provider state")
+        );
+        assert!(error.to_string().contains("outbound-first-contact:maya"));
     }
 
     #[test]

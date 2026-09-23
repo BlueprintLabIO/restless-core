@@ -1257,7 +1257,9 @@ Thymelake is the strongest whole-company dogfood of the three because product, s
 Restless does not maintain simulated provider adapters. Kernel correctness is tested in a `_test`
 company by installing a deterministic fake CLI and invoking it through the same generic governed
 process used for real runtime tools. The fixture can return success, confirmed failure, delay, or an
-interrupted unknown outcome. A separate fake status command supplies evidence for reconciliation.
+interrupted unknown outcome. Generic command receipts cannot authenticate provider state, so the
+unknown outcome remains unresolved and blocks retry until a provider-specific reconciliation path
+exists.
 
 Behavioural market scenarios may provide controlled input files or messages to a `_test` company,
 but their output is not demand evidence and must never enter a live company's memory or receipts.

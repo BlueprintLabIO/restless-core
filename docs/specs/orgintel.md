@@ -1253,7 +1253,7 @@ Do not build in V0:
 5. Assemble shared-spine and actor-specific context from OrgIntel state plus runtime artifacts.
 6. Add durable wakeups and missed-wakeup recovery outside the sandbox.
 7. Run one bounded hypothesis branch and let the Exec choose, repair, or stop.
-8. Invoke a deterministic fake CLI through the generic effect runner in a `_test` company; interrupt it and reconcile from a separate status-check receipt.
+8. Invoke a deterministic fake CLI through the generic effect runner in a `_test` company; interrupt it and verify that a generic status-check receipt cannot settle the unknown external effect or unblock retry.
 9. Kill a worker, the runtime, and OrgIntel independently; recover without losing the wrong layer's truth.
 10. Restore an older runtime snapshot and reconcile against current OrgIntel and kernel state.
 11. Complete one dogfood outcome and compare it with a baseline.

@@ -5461,34 +5461,13 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             }
             _ => Response::err("effect needs class, purpose, key, cwd and command"),
         },
-        "effect-reconcile" => match (
-            request.authority.key.as_deref(),
-            request.authority.execution_no,
-            request.common.state.as_deref(),
-            request.common.id.as_deref(),
+        "effect-reconcile" => match effect::reconcile_unknown(
+            request.authority.key.as_deref().unwrap_or_default(),
         ) {
-            (Some(key), Some(execution_no), Some(result), Some(evidence_receipt)) => {
-                match effect::reconcile_unknown(
-                    &daemon.authority,
-                    company,
-                    key,
-                    execution_no,
-                    result,
-                    evidence_receipt,
-                    request.orgintel.actor.as_deref().unwrap_or("owner"),
-                )
-                .await
-                {
-                    Ok(receipt) => match serde_json::to_value(receipt) {
-                        Ok(value) => Response::ok(value),
-                        Err(error) => Response::err(format!("encode receipt: {error}")),
-                    },
-                    Err(error) => Response::err(format!("{error:#}")),
-                }
-            }
-            _ => Response::err(
-                "effect-reconcile needs key, execution, succeeded|failed and evidence receipt",
+            Ok(()) => Response::err(
+                "unknown external effect remains unresolved: generic reconciliation is unavailable",
             ),
+            Err(error) => Response::err(format!("{error:#}")),
         },
         other => Response::err(format!("unknown command {other:?}")),
     }

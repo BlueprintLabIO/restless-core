@@ -683,7 +683,8 @@ They should not read hidden scenario rules, future events, conversion probabilit
 ## 9.5 Initial tool probes
 
 - generic fake CLI success/failure/retry/replay;
-- interrupted unknown outcome plus separate status receipt and reconciliation;
+- interrupted unknown outcome plus a generic status receipt that must be rejected as insufficient
+  reconciliation evidence; the target effect remains unknown and retry stays blocked;
 - installed email CLI help and dry-run with a clearly marked local attachment;
 - installed deployment and Git tool help/status/dry-run where supported;
 - deterministic owner approval and budget denials.
@@ -1324,12 +1325,14 @@ The report makes differences explicit.
 
 ## 22.2 External unknown outcome
 
-An Aris campaign send succeeds but returns no response.
+An Aris campaign send may have succeeded but returns no response. A generic successful status-check
+receipt does not prove that this target send occurred.
 
 - Authority Plane records unknown outcome.
 - Company does not blindly repeat it.
-- Reconciliation resolves the effect.
-- Run report captures the recovery.
+- Generic `effect-reconcile` refuses to settle the effect and reports that it remains unresolved.
+- The same idempotency key remains blocked from retry; a provider-authenticated reconciliation
+  mechanism is required before this effect can be resolved.
 
 ## 22.3 Runtime restore
 

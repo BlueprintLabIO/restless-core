@@ -92,8 +92,6 @@ pub(crate) struct AuthorityInput {
     #[serde(default)]
     pub(crate) key: Option<String>,
     #[serde(default)]
-    pub(crate) execution_no: Option<i32>,
-    #[serde(default)]
     pub(crate) party: Option<String>,
 }
 
@@ -993,7 +991,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
             "artifacts",
             "secret_bindings",
         ],
-        "effect-reconcile" => &["key", "execution_no", "state", "id", "actor"],
+        "effect-reconcile" => &["key"],
         "connected-tool-install" | "connected-tool-reconnect" => &[
             "tool_name",
             "endpoint",
