@@ -319,6 +319,15 @@ async fn next_due_delay(daemon: &Arc<Daemon>) -> Duration {
     let now = chrono::Utc::now();
     let mut earliest = None;
     for company in configured_companies(daemon).unwrap_or_default() {
+        // Admission below intentionally skips companies without a model route.
+        // Their retained test Opportunities must not make this timer spin on
+        // an already-due wake that cannot be dispatched.
+        let Ok(config) = CompanyConfig::load(&daemon.root, &company) else {
+            continue;
+        };
+        if !config.has_configured_model_route() {
+            continue;
+        }
         let Ok(org) = daemon.orgintel.get(&company).await else {
             continue;
         };

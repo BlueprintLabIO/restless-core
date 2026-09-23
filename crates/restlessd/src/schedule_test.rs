@@ -4,7 +4,7 @@
 //! model route and starts the throwaway Runtime; source business credentials
 //! and approval state are never copied.
 
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
@@ -15,19 +15,22 @@ use crate::{runtime, Daemon};
 
 struct RuntimeStopGuard {
     company: String,
+    root: PathBuf,
     stopped: bool,
 }
 
 impl RuntimeStopGuard {
-    fn new(company: &str) -> Self {
+    fn new(company: &str, root: PathBuf) -> Self {
         Self {
             company: company.to_string(),
+            root,
             stopped: false,
         }
     }
 
     async fn stop(&mut self) -> Result<()> {
         runtime::down(&self.company).await?;
+        disable_test_model(&self.root, &self.company)?;
         self.stopped = true;
         Ok(())
     }
@@ -37,6 +40,7 @@ impl Drop for RuntimeStopGuard {
     fn drop(&mut self) {
         if !self.stopped {
             let company = self.company.clone();
+            let root = self.root.clone();
             tokio::spawn(async move {
                 if let Err(error) = runtime::down(&company).await {
                     tracing::warn!(
@@ -44,9 +48,23 @@ impl Drop for RuntimeStopGuard {
                         "could not stop schedule-test Runtime after early exit: {error:#}"
                     );
                 }
+                if let Err(error) = disable_test_model(&root, &company) {
+                    tracing::warn!(
+                        company,
+                        "could not disable schedule-test model after early exit: {error:#}"
+                    );
+                }
             });
         }
     }
+}
+
+fn disable_test_model(root: &std::path::Path, company: &str) -> Result<()> {
+    let mut config = runtime::CompanyConfig::load(root, company)?;
+    config.model.clear();
+    config.agent_intelligence.clear();
+    config.native_harnesses.clear();
+    runtime::CompanyConfig::save(root, &config)
 }
 
 pub(crate) async fn run(
@@ -113,6 +131,9 @@ pub(crate) async fn run(
         config.coordination_harness = exec_config.coordination_harness;
         config.worker_harness = exec_config.worker_harness;
         config.native_harnesses.retain(|id, _| id == "codex");
+        if config.model.starts_with("native-codex-oauth/") {
+            bail!("actor-pipeline test cannot reuse a company-scoped Codex sign-in; run the safe trigger test or configure a separate test model connection");
+        }
         config.mission = format!(
             "Disposable schedule actor-pipeline check for source schedule {source_schedule_id}. This is a synthetic exercise. Do not perform business work or external actions."
         );
@@ -174,7 +195,7 @@ pub(crate) async fn run(
     let mut runtime_guard = None;
     if run_actor {
         runtime::up(&config, false).await?;
-        runtime_guard = Some(RuntimeStopGuard::new(&test_company));
+        runtime_guard = Some(RuntimeStopGuard::new(&test_company, daemon.root.clone()));
         // Wake the resident scanner. It claims the occurrence and dispatches
         // the Exec through the ordinary durable inbox path.
         daemon.schedule_wake.notify_one();
