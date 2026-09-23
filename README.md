@@ -98,11 +98,21 @@ you have approved.
 absorbed in fixing one problem and lose sight of why the work matters. Restless gives
 agents responsibility at different levels to help reduce this tunneling:
 
-| Role | What it keeps in view |
-| --- | --- |
-| **Exec** | Company priorities: which outcomes matter, who owns them and where resources should go. |
-| **Accountable lead** | The whole outcome: what success means, whether the approach still makes sense and when to redirect the work. |
-| **Workers** | The assigned contribution: research, write, build or operate, with a clear brief and an inspectable result. |
+```mermaid
+flowchart TB
+    humans["Humans<br/>Direction, judgement and collaboration"]
+    exec["Exec<br/>Company priorities"]
+    lead["Accountable lead<br/>The whole outcome"]
+    worker["Worker<br/>Focused production"]
+    output["Shared output<br/>Documents, designs and working builds"]
+
+    humans -->|Set direction| exec
+    exec -->|Agree the outcome| lead
+    lead -->|Brief and redirect| worker
+    worker -->|Produce| output
+    humans <-->|Edit and review| output
+    output -.->|Evidence and material changes| lead
+```
 
 The lead stays outside day-to-day production so it can question the approach while a
 worker concentrates on execution. Goals, briefs and decisions live beyond any one
@@ -113,6 +123,24 @@ For a tutoring business, a worker might prepare lesson materials. The lead asks
 whether those materials address the students’ learning needs; Exec balances that
 work with enrolment and operations. The human tutors bring their teaching judgement
 and can change the direction together.
+
+**Change the approach; keep the learning goal.** For example:
+
+```mermaid
+flowchart LR
+    goal["Goal<br/>Help students understand fractions"]
+    first["Worker prepares<br/>a practice worksheet"]
+    feedback["Tutor observes<br/>students need worked examples"]
+    revised["Lead redirects the worker<br/>Add worked examples before practice"]
+
+    goal --> first
+    first --> feedback
+    feedback --> revised
+    goal -.->|Same learning goal| revised
+```
+
+The feedback changes the brief. The learning goal remains available to the lead and
+worker, so producing more worksheets does not become the goal in itself.
 
 Start with one capable worker beneath each lead. Add researchers, reviewers or
 specialists when they help. Leads can talk directly when their work overlaps.
