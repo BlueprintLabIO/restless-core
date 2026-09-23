@@ -94,8 +94,27 @@ you have approved.
 
 ### Responsibility that outlives a model call
 
-Exec oversees the company’s work and stays available to you. Each assignment has a lead
-responsible for the result and a worker who produces it. Add researchers, reviewers or
+**Keep the goal in view while agents work through the details.** An agent can get
+absorbed in fixing one problem and lose sight of why the work matters. Restless gives
+agents responsibility at different levels to help reduce this tunneling:
+
+| Role | What it keeps in view |
+| --- | --- |
+| **Exec** | Company priorities: which outcomes matter, who owns them and where resources should go. |
+| **Accountable lead** | The whole outcome: what success means, whether the approach still makes sense and when to redirect the work. |
+| **Workers** | The assigned contribution: research, write, build or operate, with a clear brief and an inspectable result. |
+
+The lead stays outside day-to-day production so it can question the approach while a
+worker concentrates on execution. Goals, briefs and decisions live beyond any one
+agent session. The team can change tactics or replace a stuck worker while keeping
+the agreed outcome and constraints visible.
+
+For a tutoring business, a worker might prepare lesson materials. The lead asks
+whether those materials address the students’ learning needs; Exec balances that
+work with enrolment and operations. The human tutors bring their teaching judgement
+and can change the direction together.
+
+Start with one capable worker beneath each lead. Add researchers, reviewers or
 specialists when they help. Leads can talk directly when their work overlaps.
 
 **A lead can stay responsible without narrating every step.** For a clearly defined
@@ -159,7 +178,7 @@ to see how these features work.
 | Capability | What you can do |
 | --- | --- |
 | **Goals that survive restarts** | Keep the goal, who is responsible and the work history when an agent session ends or restarts. |
-| **Roles, leads and teams** | Give each assignment a lead responsible for the result and workers with clear jobs. |
+| **Different levels of responsibility** | Keep company priorities with Exec, the whole outcome with its lead, and focused production with workers. |
 | **Work board and dependency map** | See who is doing what, which work is waiting on something else and what needs another pass. |
 | **Supervision when it matters** | Bring a lead in when requirements change, checks fail or work gets stuck. Routine progress can pass without another model call. |
 | **Schedules and follow-ups** | Set one-off or recurring weekday jobs, see when they ran and choose how to handle missed runs. |
