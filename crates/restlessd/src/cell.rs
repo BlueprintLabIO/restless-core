@@ -239,10 +239,28 @@ pub async fn ensure_database(
     }
 
     let object = cell_object_name(company);
-    let password = generate_password();
     let mut admin = PgConnection::connect(admin_url)
         .await
         .context("connect to the OrgIntel admin database to provision a cell")?;
+
+    // The scheduler and an owner command can discover a new company at the
+    // same time. Serialize role creation, password installation, and the
+    // credential file as one operation. Otherwise each caller can rotate the
+    // role to its own password while the other writes a now-invalid URL.
+    let lock_name = format!("restless-cell:{object}");
+    sqlx::query("SELECT pg_advisory_lock(hashtextextended($1, 0))")
+        .bind(&lock_name)
+        .execute(&mut admin)
+        .await
+        .context("lock cell database provisioning")?;
+    if let Ok(existing) = std::fs::read_to_string(&path) {
+        let existing = existing.trim().to_string();
+        if !existing.is_empty() {
+            admin.close().await.ok();
+            return Ok(existing);
+        }
+    }
+    let password = generate_password();
 
     // CREATE ROLE / DATABASE are not idempotent and cannot run inside a
     // transaction, so existence is checked first and a lost race is tolerated.
@@ -282,13 +300,16 @@ pub async fn ensure_database(
         .execute(format!("REVOKE CONNECT ON DATABASE {object} FROM PUBLIC").as_str())
         .await
         .with_context(|| format!("revoke public CONNECT on cell database {object}"))?;
-    admin.close().await.ok();
-
     let url = cell_url(admin_url, &object, &object, &password)?;
     let dir = path.parent().expect("cell url path has a parent");
     std::fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
-    std::fs::write(&path, &url).with_context(|| format!("write {}", path.display()))?;
-    restrict_to_owner(&path)?;
+    let temporary = path.with_extension("url.tmp");
+    std::fs::write(&temporary, &url)
+        .with_context(|| format!("write {}", temporary.display()))?;
+    restrict_to_owner(&temporary)?;
+    std::fs::rename(&temporary, &path)
+        .with_context(|| format!("install {}", path.display()))?;
+    admin.close().await.ok();
     Ok(url)
 }
 
