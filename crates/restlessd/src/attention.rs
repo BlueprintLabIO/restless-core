@@ -1480,6 +1480,102 @@ pub async fn project(
         None => ("unknown".into(), "unknown".into()),
     };
 
+    // The schedule test generator uses this isolated-company name pattern.
+    let test_company = config.name.starts_with("schedule_test_") && config.name.ends_with("_test");
+    let network_entry = std::env::var("RESTLESS_ENTRY_MODE").as_deref() == Ok("network");
+    let local_runtime = matches!(
+        crate::runtime_mode::RuntimeMode::from_env(network_entry),
+        Ok(crate::runtime_mode::RuntimeMode::Local)
+    );
+    let dispatch_blocked = !config.has_configured_model_route()
+        || (local_runtime
+            && doctor.as_ref().is_some_and(|report| {
+                matches!(
+                    report.container,
+                    ContainerStatus::Stopped | ContainerStatus::Absent
+                )
+            }));
+    if !test_company && dispatch_blocked {
+        if let Some(org) = org {
+            let now = Utc::now();
+            let due = match (
+                org.next_schedule_due_at().await,
+                org.next_opportunity_due_at().await,
+            ) {
+                (Ok(schedule), Ok(opportunity)) => schedule.into_iter().chain(opportunity).min(),
+                (Err(error), _) | (_, Err(error)) => {
+                    tracing::warn!(%error, "overdue dispatch attention unavailable");
+                    orgintel_health = "unavailable".into();
+                    None
+                }
+            };
+            if let Some(due) = due.filter(|due| *due <= now) {
+                let route_missing = !config.has_configured_model_route();
+                let reason = if route_missing {
+                    "the company has no configured model route"
+                } else {
+                    "the local Runtime is stopped"
+                };
+                items.push(AttentionItem {
+                    id: "orgintel:overdue-dispatch-blocked".into(),
+                    work_id: None,
+                    source: AttentionSource {
+                        plane: "orgintel",
+                        kind: "overdue_dispatch_blocked".into(),
+                        reference: due.to_rfc3339(),
+                        party: None,
+                    },
+                    category: "blocker".into(),
+                    title: "Overdue scheduled work cannot run".into(),
+                    what_happened: format!(
+                        "The next active schedule or opportunity wake was due at {}; {reason}.",
+                        due.to_rfc3339()
+                    ),
+                    why_it_matters: "Scheduled company work is waiting for dispatch.".into(),
+                    recommendation: if route_missing {
+                        "Configure a model route in company settings, then review the schedule.".into()
+                    } else {
+                        "Start the local Runtime, then review the schedule.".into()
+                    },
+                    requested_action: if route_missing {
+                        "Configure a company model route."
+                    } else {
+                        "Start the local Runtime."
+                    }
+                    .into(),
+                    if_no_action: "The overdue work remains undispatched.".into(),
+                    uncertainty: None,
+                    deadline: Some(due.to_rfc3339()),
+                    brief_status: "source-observed",
+                    brief_author: None,
+                    briefed_at: None,
+                    evidence: vec![AttentionEvidence {
+                        label: "OrgIntel due work".into(),
+                        uri: None,
+                        content: Some("Due time comes from active schedule and open opportunity rows.".into()),
+                        kind: "orgintel-schedule-opportunity",
+                    }],
+                    review_sources: Vec::new(),
+                    responsible_actor: None,
+                    runtime_attach: None,
+                    review_target: None,
+                    native_document: None,
+                    actions: vec![AttentionAction {
+                        id: "inspect-schedules".into(),
+                        label: "Review schedules".into(),
+                        role: "inspect",
+                        consequence: "Opens the company schedule list.".into(),
+                        next_state: "The projection clears after dispatch or when no active due work remains."
+                            .into(),
+                        href: Some(format!("/{}/company/schedules", config.name)),
+                    }],
+                    can_continue: false,
+                    preparing: false,
+                    created_at: due,
+                });
+            }
+        }
+    }
     Ok(AttentionView {
         company: CompanySummary {
             id: config.name.clone(),
