@@ -6,10 +6,11 @@
 //! prose, and every notification is merely a hint to reread canonical rows.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::Utc;
 use restless_orgintel::{OrgIntel, WorkAttemptState};
 use tokio_util::sync::CancellationToken;
@@ -1001,6 +1002,53 @@ async fn run_exec_turn_with_lease(
         .activities
         .start_messages(&config.name, "exec", &owner_message_ids);
     let observer = (!owner_message_ids.is_empty()).then(|| live_turn.observer());
+    let early_reply_message_id = Arc::new(Mutex::new(None::<i64>));
+    let early_reply_commit_attempted = Arc::new(AtomicBool::new(false));
+    let complete_reply_hook = (!owner_message_ids.is_empty()).then(|| {
+        let org = org.clone();
+        let lease = lease_guard.lease().clone();
+        let owner_actor_id = owner_actor_id.clone();
+        let human_is_membership_owner = human_is_membership_owner;
+        let message_ids = message_ids.clone();
+        let owed_judgements = owed_judgements.clone();
+        let live_turn = live_turn.clone();
+        let message_id_slot = Arc::clone(&early_reply_message_id);
+        let attempted = Arc::clone(&early_reply_commit_attempted);
+        let hook: exec::CompleteReplyHook = Arc::new(move |raw_reply: String| {
+            let org = org.clone();
+            let lease = lease.clone();
+            let owner_actor_id = owner_actor_id.clone();
+            let message_ids = message_ids.clone();
+            let owed_judgements = owed_judgements.clone();
+            let live_turn = live_turn.clone();
+            let message_id_slot = Arc::clone(&message_id_slot);
+            let attempted = Arc::clone(&attempted);
+            Box::pin(async move {
+                attempted.store(true, Ordering::Release);
+                let reply = exec_owner_update(Some(&raw_reply), true)?
+                    .context("complete Exec reply did not contain an owner-facing message")?;
+                let message_id = org
+                    .finalize_cognitive_conversation_to_with_owner_scope(
+                        &lease,
+                        &owner_actor_id,
+                        human_is_membership_owner,
+                        Some(reply),
+                        None,
+                        &message_ids,
+                        &owed_judgements,
+                    )
+                    .await?
+                    .context("complete Exec reply finalization returned no Message")?;
+                *message_id_slot
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("early reply receipt lock was poisoned"))? =
+                    Some(message_id);
+                live_turn.reply_committed(message_id);
+                Ok(message_id)
+            })
+        });
+        hook
+    });
     let outcome = exec::wake(
         config,
         &daemon.spend,
@@ -1015,6 +1063,7 @@ async fn run_exec_turn_with_lease(
         &judgements,
         mention_context.as_ref(),
         observer,
+        complete_reply_hook,
         cancellation,
     )
     .await;
@@ -1131,22 +1180,60 @@ async fn run_exec_turn_with_lease(
                             None => notice,
                         }
                     });
-                let reply = protocol_notice.as_deref().or(reply);
-                org.finalize_cognitive_conversation_to_with_owner_scope(
-                    lease_guard.lease(),
-                    &owner_actor_id,
-                    human_is_membership_owner,
-                    reply,
-                    None,
-                    &message_ids,
-                    &owed_judgements,
-                )
-                .await
-                .map_err(anyhow::Error::from)
+                let early_reply_message_id = early_reply_message_id
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("early reply receipt lock was poisoned"))?
+                    .to_owned();
+                if let Some(message_id) = early_reply_message_id {
+                    Ok(Some(message_id))
+                } else {
+                    // If an early commit returned an ambiguous database error,
+                    // retry the exact original payload under the same lease
+                    // token. A changed body would conflict with a commit whose
+                    // acknowledgement alone was lost.
+                    let protocol_notice = if early_reply_commit_attempted.load(Ordering::Acquire) {
+                        None
+                    } else {
+                        protocol_notice.as_deref()
+                    };
+                    let reply = protocol_notice.or(reply);
+                    org.finalize_cognitive_conversation_to_with_owner_scope(
+                        lease_guard.lease(),
+                        &owner_actor_id,
+                        human_is_membership_owner,
+                        reply,
+                        None,
+                        &message_ids,
+                        &owed_judgements,
+                    )
+                    .await
+                    .map_err(anyhow::Error::from)
+                }
             }
             .await;
             match recorded {
-                Ok(reply_message_id) => live_turn.complete(reply_message_id, None),
+                Ok(reply_message_id) => {
+                    let protocol_failure_notice = early_reply_commit_attempted
+                        .load(Ordering::Acquire)
+                        .then(|| {
+                            report
+                                .reason
+                                .strip_prefix(exec::COMPLETION_PROTOCOL_PREFIX)
+                                .map(|reason| {
+                                    format!(
+                                        "Restless could not verify this turn's completion status: {reason}. Review the preserved work and artifacts before retrying; no automatic replay was scheduled."
+                                    )
+                                })
+                        })
+                        .flatten();
+                    if let Some(notice) = protocol_failure_notice {
+                        // The durable reply is already committed. Keep the
+                        // later protocol failure visible without rewriting it.
+                        live_turn.fail(&notice);
+                    } else {
+                        live_turn.complete(reply_message_id, None);
+                    }
+                }
                 Err(error) => {
                     live_turn
                         .fail("Exec finished but its reply or quiet decision was not recorded.");

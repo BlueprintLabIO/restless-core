@@ -322,6 +322,15 @@ impl AgentActivityState {
         self.publish_now();
     }
 
+    fn reply_committed(&mut self, message_id: i64) {
+        if !self.suppress_reply_tail && !self.reply_pending.is_empty() {
+            let pending = std::mem::take(&mut self.reply_pending);
+            self.append_visible_reply(&pending);
+        }
+        self.completed_message_id = Some(message_id);
+        self.publish_now();
+    }
+
     fn fail(&mut self, message: &str) {
         self.phase = AgentActivityPhase::Failed;
         self.error = Some(bounded(message, 500));
@@ -598,6 +607,12 @@ impl AgentActivityTurn {
     pub fn complete(&self, message_id: Option<i64>, output_tokens: Option<u64>) {
         for sender in &self.senders {
             sender.send_modify(|state| state.complete(message_id, output_tokens));
+        }
+    }
+
+    pub fn reply_committed(&self, message_id: i64) {
+        for sender in &self.senders {
+            sender.send_modify(|state| state.reply_committed(message_id));
         }
     }
 

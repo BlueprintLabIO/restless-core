@@ -11,6 +11,9 @@ use anyhow::{Context, Result};
 use restless_orgintel::OrgIntel;
 use serde::Serialize;
 use std::collections::HashSet;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -28,6 +31,12 @@ use crate::spend::SpendLedger;
 /// above exists to bound.
 const TERMINATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2 * 60);
 const CONTINUE_WAKE_DELAY_SECONDS: u32 = 60;
+
+/// Commit a complete direct-conversation reply while the actor lease is held,
+/// before the separate termination judgement starts.
+pub(crate) type CompleteReplyHook = Arc<
+    dyn Fn(String) -> Pin<Box<dyn Future<Output = Result<i64>> + Send + 'static>> + Send + Sync,
+>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -106,6 +115,7 @@ pub async fn wake(
     owed_judgements: &[restless_orgintel::OwnerHandoffRow],
     pending_mention: Option<&crate::mentions::MentionContext>,
     observer: Option<acp::SessionObserver>,
+    complete_reply_hook: Option<CompleteReplyHook>,
     cancellation: &CancellationToken,
 ) -> Result<WakeReport> {
     let effective_config = config.for_agent("exec");
@@ -341,6 +351,7 @@ pub async fn wake(
                         &package.system_prompt,
                     )
                     .await?;
+                    let complete_reply_hook = complete_reply_hook.clone();
                     acp::with_remote_agent(
                         transport,
                         harness,
@@ -369,6 +380,7 @@ pub async fn wake(
                                         remaining,
                                         metered,
                                         focused_mention,
+                                        complete_reply_hook,
                                         &cancellation,
                                     )
                                     .await
@@ -379,6 +391,7 @@ pub async fn wake(
                     .await
                     .map(acp::SessionOutcome::Completed)
                 } else {
+                    let complete_reply_hook = complete_reply_hook.clone();
                     acp::with_agent_outcome(
                         &container,
                         harness,
@@ -407,6 +420,7 @@ pub async fn wake(
                                         remaining,
                                         metered,
                                         focused_mention,
+                                        complete_reply_hook,
                                         &cancellation,
                                     )
                                     .await
@@ -421,6 +435,7 @@ pub async fn wake(
                 if hosted_identity.is_some() {
                     anyhow::bail!("hosted Runtime Exec requires the restless-managed ACP harness");
                 }
+                let complete_reply_hook = complete_reply_hook.clone();
                 crate::codex::with_agent_outcome(
                     &container,
                     &auth,
@@ -449,6 +464,7 @@ pub async fn wake(
                                     remaining,
                                     metered,
                                     focused_mention,
+                                    complete_reply_hook,
                                     &cancellation,
                                 )
                                 .await
@@ -562,22 +578,24 @@ pub async fn wake(
         } else if report.termination != Termination::Blocked {
             authority.clear_model_cooldown(&config.name, model).await?;
         }
-        if let (Some(kind), Some(next)) = (failover_kind, candidates.get(index + 1)) {
-            prior_tool_calls.append(&mut report.tool_calls);
-            let transition = failover_report(model, next, kind, &report.reason);
-            record_failover(org, &transition).await?;
-            continuity_note = Some(transition.reason.clone());
-            failovers.push(transition);
+        if !report.reply_complete {
+            if let (Some(kind), Some(next)) = (failover_kind, candidates.get(index + 1)) {
+                prior_tool_calls.append(&mut report.tool_calls);
+                let transition = failover_report(model, next, kind, &report.reason);
+                record_failover(org, &transition).await?;
+                continuity_note = Some(transition.reason.clone());
+                failovers.push(transition);
 
-            let budget = spend.budget_state(config);
-            if !budget.is_available() {
-                let reason = format!("[budget] {}", budget.owner_message(&config.name));
-                let mut budget_report = blocked_report(config, model, &reason, failovers);
-                budget_report.tool_calls = prior_tool_calls;
-                record_outcome(org, &budget_report).await?;
-                return Ok(budget_report);
+                let budget = spend.budget_state(config);
+                if !budget.is_available() {
+                    let reason = format!("[budget] {}", budget.owner_message(&config.name));
+                    let mut budget_report = blocked_report(config, model, &reason, failovers);
+                    budget_report.tool_calls = prior_tool_calls;
+                    record_outcome(org, &budget_report).await?;
+                    return Ok(budget_report);
+                }
+                continue;
             }
-            continue;
         }
 
         prior_tool_calls.append(&mut report.tool_calls);
@@ -897,6 +915,7 @@ async fn run_ready_exec_session(
     remaining_budget_usd: f64,
     enforce_spend_budget: bool,
     focused_mention: bool,
+    complete_reply_hook: Option<CompleteReplyHook>,
     cancellation: &CancellationToken,
 ) -> Result<(WakeReport, Option<acp::TurnUsage>)> {
     let readiness = session.readiness_observation();
@@ -937,6 +956,7 @@ async fn run_ready_exec_session(
         remaining_budget_usd,
         enforce_spend_budget,
         focused_mention,
+        complete_reply_hook,
         cancellation,
     )
     .await
@@ -951,6 +971,7 @@ async fn run_turn(
     remaining_budget_usd: f64,
     enforce_spend_budget: bool,
     focused_mention: bool,
+    complete_reply_hook: Option<CompleteReplyHook>,
     cancellation: &CancellationToken,
 ) -> Result<(WakeReport, Option<acp::TurnUsage>)> {
     // Run for as long as the agent is alive, not for a fixed wall-clock
@@ -1046,6 +1067,18 @@ async fn run_turn(
                     },
                     usage,
                 ));
+            }
+            if let (Some(hook), Some(reply)) = (
+                complete_reply_hook.as_ref(),
+                (!transcript.last_message_text.trim().is_empty())
+                    .then(|| transcript.last_message_text.clone()),
+            ) {
+                if let Err(error) = hook(reply).await {
+                    // The scheduler retries the exact same idempotent
+                    // finalization after postflight if this commit was not
+                    // confirmed. Keep the model and termination path intact.
+                    tracing::warn!(company, %error, "could not persist complete Exec reply before termination judgement");
+                }
             }
             // The decision envelope is internal coordination, not the
             // owner-facing reply that the live activity dock previews.

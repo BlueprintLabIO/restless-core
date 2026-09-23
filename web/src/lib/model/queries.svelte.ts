@@ -505,6 +505,8 @@ export function conversationQuery(
 		followingMessageId = messageId;
 		transport = 'connecting';
 		live = null;
+		let invalidatedCommittedMessageId: number | null = null;
+		let invalidatedTerminalWithoutReply = false;
 		stop = openAgentActivityStream(
 			companyId,
 			actorId,
@@ -516,7 +518,18 @@ export function conversationQuery(
 				if (followingMessageId !== messageId) return;
 				live = state;
 				transport = 'live';
-				if (state.phase === 'complete' || state.phase === 'failed') {
+				if (
+					state.completedMessageId !== null &&
+					state.completedMessageId !== invalidatedCommittedMessageId
+				) {
+					invalidatedCommittedMessageId = state.completedMessageId;
+					void client.invalidateQueries({ queryKey: key });
+				} else if (
+					state.completedMessageId === null &&
+					(state.phase === 'complete' || state.phase === 'failed') &&
+					!invalidatedTerminalWithoutReply
+				) {
+					invalidatedTerminalWithoutReply = true;
 					void client.invalidateQueries({ queryKey: key });
 				}
 			},
