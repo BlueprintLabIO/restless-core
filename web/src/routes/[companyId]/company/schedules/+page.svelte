@@ -28,13 +28,13 @@
 		void load();
 	});
 
-	async function test(schedule: string, runActor = false) {
+	async function test(schedule: string) {
 		if (busy) return;
 		busy = schedule;
 		failure = '';
 		report = null;
 		try {
-			report = await testScheduleTrigger(companyId, schedule, runActor);
+			report = await testScheduleTrigger(companyId, schedule);
 			await load();
 		} catch (cause) {
 			failure =
@@ -74,7 +74,7 @@
 	<header class="company-page-head">
 		<h1>Schedules</h1>
 		<InfoTip
-			text="Recurring Exec checks, their next fire time and the latest opportunities admitted by each schedule."
+			text="Recurring Exec checks, their next fire time and latest outcomes. Test trigger checks durable admission in a disposable company; it does not run the actor."
 		/>
 		<button class="refresh" type="button" onclick={() => void load()} disabled={busy !== ''}
 			>Refresh</button
@@ -114,13 +114,6 @@
 							disabled={!item.testable || busy !== ''}
 						>
 							{busy === item.schedule.id ? 'Testing…' : 'Test trigger'}
-						</button>
-						<button
-							type="button"
-							onclick={() => void test(item.schedule.id, true)}
-							disabled={!item.testable || busy !== ''}
-						>
-							{busy === item.schedule.id ? 'Testing…' : 'Run synthetic actor test'}
 						</button>
 						{#if !item.testable}<span>Needs a bound responsibility</span>{/if}
 					</div>
@@ -162,11 +155,7 @@
 	{#if report}
 		<section class="test-result" aria-labelledby="test-result-title" role="status">
 			<h2 id="test-result-title">Test trigger: {report.status.replaceAll('_', ' ')}</h2>
-			<p>
-				Scope: {report.scope === 'actor_pipeline'
-					? 'synthetic actor pipeline run in a disposable company; source business instructions, credentials, and approvals are not copied. Spend ceiling is $1. Ordinary network access remains possible.'
-					: 'scheduler only; no actor run.'}
-			</p>
+			<p>Scope: scheduler admission only; no actor run or external effect.</p>
 			{#if report.test_company}
 				<p>
 					Disposable test company retained for inspection: <a href={`/${report.test_company}`}

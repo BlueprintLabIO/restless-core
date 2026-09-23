@@ -1174,7 +1174,7 @@ enum ScheduleCommand {
         #[arg(long)]
         reason: String,
     },
-    /// Trigger one selected schedule in a disposable company; --run-actor opts into Exec.
+    /// Test one selected schedule's durable admission in a disposable company.
     Test {
         /// Live source company whose schedule is copied into the disposable test company.
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
@@ -1185,7 +1185,7 @@ enum ScheduleCommand {
         /// Maximum time to wait for the durable Opportunity admission.
         #[arg(long)]
         timeout_seconds: Option<u64>,
-        /// Start the disposable Runtime and let the daemon's ordinary scheduler run Exec.
+        /// Reserved for a future isolated actor test; currently refused.
         #[arg(long)]
         run_actor: bool,
     },

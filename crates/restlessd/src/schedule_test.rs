@@ -74,6 +74,9 @@ pub(crate) async fn run(
     timeout_seconds: u64,
     run_actor: bool,
 ) -> Result<serde_json::Value> {
+    if run_actor {
+        bail!("actor-pipeline schedule tests are unavailable until test Runtime has enforced external-effect and network isolation with separate model credentials");
+    }
     if !(1..=3_600).contains(&timeout_seconds) {
         bail!("schedule test timeout must be between 1 and 3,600 seconds");
     }
