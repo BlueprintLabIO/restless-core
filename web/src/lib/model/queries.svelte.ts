@@ -237,9 +237,8 @@ export function companiesQuery(enabled: QueryEnabled = true) {
 
 export type PortfolioProjection = {
 	attentionCount: number | null;
-	nextProof: string | null;
+	nextProof: string;
 	nextProofDetail: string;
-	spendAccounted: number | null;
 };
 
 export type PortfolioView = {
@@ -256,20 +255,13 @@ async function getPortfolio(client: QueryClient): Promise<PortfolioView> {
 	const active = companies.filter((company) => company.lifecycle_status === 'active');
 	const entries = await Promise.all(
 		active.map(async (company): Promise<[string, PortfolioProjection]> => {
-			const [cockpitResult, attentionResult] = await Promise.allSettled([
-				client.fetchQuery({
-					queryKey: queryKeys.cockpit(company.id),
-					queryFn: () => getCockpit(company.id),
-					staleTime: STALE_MS
-				}),
-				client.fetchQuery({
+			const attention = await client
+				.fetchQuery({
 					queryKey: queryKeys.attention(company.id),
 					queryFn: () => getAttention(company.id),
 					staleTime: STALE_MS
 				})
-			]);
-			const cockpit = cockpitResult.status === 'fulfilled' ? cockpitResult.value : null;
-			const attention = attentionResult.status === 'fulfilled' ? attentionResult.value : null;
+				.catch(() => null);
 			const work = attention?.workGraph?.work ?? [];
 			const next =
 				work.find((item) => item.status === 'active') ??
@@ -280,13 +272,12 @@ async function getPortfolio(client: QueryClient): Promise<PortfolioView> {
 				company.id,
 				{
 					attentionCount: attention ? attention.items.length : null,
-					nextProof: next?.title ?? null,
+					nextProof: next?.title ?? (attention ? 'No next item recorded' : 'Work unavailable'),
 					nextProofDetail: next
 						? next.expected_artifact || next.outcome || workState(next.status)
 						: attention
 							? 'No open Work is recorded.'
-							: 'Work projection unavailable.',
-					spendAccounted: cockpit?.spend.accounted_usd ?? null
+							: 'Work projection unavailable.'
 				}
 			];
 		})

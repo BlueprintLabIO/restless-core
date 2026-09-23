@@ -51,24 +51,17 @@
 		return value?.startsWith('/') && !value.startsWith('//') ? value : '';
 	}
 
-	function money(value: number): string {
-		return new Intl.NumberFormat(undefined, {
-			style: 'currency',
-			currency: 'USD',
-			maximumFractionDigits: value < 100 ? 2 : 0
-		}).format(value);
-	}
-
-	function attentionLabel(company: CompanyCatalogEntry): string {
+	function attentionLabel(company: CompanyCatalogEntry, projection?: PortfolioProjection): string {
 		// A company that cannot start is the one fact worth stating before
 		// attention counts: nothing will happen in it until it is resolved.
 		if (company.unstartable_reason) {
 			return `Open ${company.name}. It cannot start: ${company.unstartable_reason}`;
 		}
-		const count = projections[company.id]?.attentionCount;
-		if (count === null || count === undefined) return `Open ${company.name}`;
-		if (count === 0) return `Open ${company.name}. No owner attention is waiting.`;
-		return `Open ${company.name}. ${count} item${count === 1 ? '' : 's'} need owner attention.`;
+		const next = projection?.nextProof ? ` Next item of value: ${projection.nextProof}.` : '';
+		const count = projection?.attentionCount;
+		if (count === null || count === undefined) return `Open ${company.name}.${next}`;
+		if (count === 0) return `Open ${company.name}.${next} No owner attention is waiting.`;
+		return `Open ${company.name}.${next} ${count} item${count === 1 ? '' : 's'} need owner attention.`;
 	}
 </script>
 
@@ -129,29 +122,23 @@
 			{#if error}<div class="portfolio-error">{error}</div>{/if}
 			<section class="portfolio-table" aria-label="Company portfolio">
 				<header class="portfolio-table-head">
-					<h2>Portfolio</h2>
-					<div class="portfolio-totals" aria-label="Portfolio financial totals">
-						<span><small>30-day revenue</small><strong>—</strong></span>
-						<span><small>30-day profit</small><strong>—</strong></span>
-					</div>
+					<h2>Projects</h2>
 				</header>
 				{#if activeCompanies.length}
 					<div class="portfolio-table-scroll">
 						<div class="portfolio-grid">
 							<div class="portfolio-grid-head" aria-hidden="true">
 								<span>Company</span>
-								<span>Revenue · 30 days</span>
-								<span>Profit · 30 days</span>
-								<span>Next proof of value</span>
-								<span>Spend / envelope</span>
+								<span>Current focus</span>
+								<span>Next item of value</span>
+								<span>Needs you</span>
 							</div>
 							{#each activeCompanies as company (company.id)}
 								{@const projection = projections[company.id]}
-								{@const spent = projection?.spendAccounted}
 								<a
 									class="portfolio-company-row runtime-{company.runtime_status}"
 									href={`/${company.id}`}
-									aria-label={attentionLabel(company)}
+									aria-label={attentionLabel(company, projection)}
 								>
 									<span class="portfolio-company-cell">
 										<SemanticMark
@@ -186,41 +173,42 @@
 											{/if}
 										</span>
 									</span>
-									<span class="portfolio-metric financial-unavailable">
-										<strong>—</strong><small>No verified figure</small>
-									</span>
-									<span class="portfolio-metric financial-unavailable">
-										<strong>—</strong><small>No verified figure</small>
+									<span
+										class="portfolio-metric portfolio-focus"
+										title={company.mission || undefined}
+									>
+										<small class="portfolio-mobile-label">Current focus</small>
+										<strong>{company.mission || 'Focus not set'}</strong>
 									</span>
 									<span class="portfolio-metric portfolio-proof">
-										<strong>{projection?.nextProof ?? 'Checking Work…'}</strong>
+										<small class="portfolio-mobile-label">Next item of value</small>
+										<strong>{projection?.nextProof ?? 'Checking work…'}</strong>
 										<small>{projection?.nextProofDetail ?? 'Loading live projection.'}</small>
 									</span>
-									<span class="portfolio-metric portfolio-spend">
-										<strong>
-											{spent === null || spent === undefined
-												? `— of ${money(company.spend_ceiling_usd)}`
-												: `${money(spent)} of ${money(company.spend_ceiling_usd)}`}
-										</strong>
-										<small>
-											{spent === null || spent === undefined
-												? 'Spend unavailable'
-												: `${Math.round((spent / Math.max(company.spend_ceiling_usd, 0.01)) * 100)}% committed`}
-										</small>
-										{#if spent !== null && spent !== undefined}
-											<i class="portfolio-spend-track" aria-hidden="true"
-												><b
-													style={`width: ${Math.min(100, (spent / Math.max(company.spend_ceiling_usd, 0.01)) * 100)}%`}
-												></b></i
-											>
-										{/if}
+									<span class="portfolio-metric portfolio-attention">
+										<small class="portfolio-mobile-label">Needs you</small>
+										<strong
+											>{projection?.attentionCount == null
+												? 'Checking…'
+												: projection.attentionCount === 0
+													? 'Nothing now'
+													: `${projection.attentionCount} item${projection.attentionCount === 1 ? '' : 's'}`}</strong
+										>
+										<small
+											>{!projection
+												? 'Loading live projection'
+												: projection.attentionCount == null
+													? 'Attention unavailable'
+													: projection.attentionCount === 0
+														? 'No decision needed'
+														: 'Waiting for your input'}</small
+										>
 									</span>
 								</a>
 							{/each}
 						</div>
 					</div>
 					<footer class="portfolio-table-foot">
-						<span>Revenue and profit remain blank until a verified source reports them.</span>
 						<span
 							>{activeCompanies.length} operating compan{activeCompanies.length === 1
 								? 'y'

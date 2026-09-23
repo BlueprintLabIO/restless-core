@@ -390,46 +390,18 @@
 	letter-spacing: -0.025em;
 }
 
-.bridge-root .portfolio-totals {
-	display: flex;
-	align-items: center;
-	gap: 24px;
-	margin-left: auto;
-}
-
-.bridge-root .portfolio-totals > span {
-	display: flex;
-	align-items: baseline;
-	gap: 7px;
-}
-
-.bridge-root .portfolio-totals small,
-.bridge-root .portfolio-totals strong {
-	display: block;
-}
-
-.bridge-root .portfolio-totals small {
-	font-size: var(--t-label);
-	color: var(--text-tertiary);
-}
-
-.bridge-root .portfolio-totals strong {
-	font-size: var(--t-head);
-	color: var(--text-tertiary);
-}
-
 .bridge-root .portfolio-table-scroll {
 	overflow-x: auto;
 }
 
 .bridge-root .portfolio-grid {
-	min-width: 900px;
+	min-width: 760px;
 }
 
 .bridge-root .portfolio-grid-head,
 .bridge-root .portfolio-company-row {
 	display: grid;
-	grid-template-columns: 28% 13% 13% 27% 19%;
+	grid-template-columns: 24% 27% 34% 15%;
 }
 
 .bridge-root .portfolio-grid-head > span {
@@ -590,10 +562,16 @@
 	color: var(--text-tertiary);
 }
 
-.bridge-root .portfolio-metric.financial-unavailable strong {
-	font-size: var(--t-head);
+.bridge-root .portfolio-mobile-label {
+	display: none;
+}
+
+.bridge-root .portfolio-focus strong {
+	display: -webkit-box;
+	overflow: hidden;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 3;
 	font-weight: 500;
-	color: var(--text-tertiary);
 }
 
 .bridge-root .portfolio-proof small {
@@ -601,23 +579,6 @@
 	overflow: hidden;
 	-webkit-box-orient: vertical;
 	-webkit-line-clamp: 2;
-}
-
-.bridge-root .portfolio-spend-track {
-	width: 100%;
-	height: 4px;
-	display: block;
-	margin-top: 7px;
-	overflow: hidden;
-	border-radius: 2px;
-	background: rgba(73, 84, 100, 0.1);
-}
-
-.bridge-root .portfolio-spend-track b {
-	height: 100%;
-	display: block;
-	border-radius: inherit;
-	background: var(--intent-conversation);
 }
 
 .bridge-root .portfolio-table-foot {
@@ -2837,10 +2798,37 @@
 		gap: 8px;
 		padding-block: 12px;
 	}
-	.bridge-root .portfolio-totals {
-		width: 100%;
-		justify-content: space-between;
-		margin-left: 0;
+	.bridge-root .portfolio-table-scroll {
+		overflow-x: visible;
+	}
+	.bridge-root .portfolio-grid {
+		min-width: 0;
+	}
+	.bridge-root .portfolio-grid-head {
+		display: none;
+	}
+	.bridge-root .portfolio-company-row {
+		grid-template-columns: minmax(0, 1fr);
+		padding-bottom: 6px;
+	}
+	.bridge-root .portfolio-company-cell,
+	.bridge-root .portfolio-metric {
+		min-height: 0;
+		border-right: 0;
+	}
+	.bridge-root .portfolio-company-cell {
+		padding-block: 14px;
+	}
+	.bridge-root .portfolio-metric {
+		padding-block: 8px;
+		border-bottom: 0;
+	}
+	.bridge-root .portfolio-mobile-label {
+		display: block;
+		margin: 0 0 3px;
+		font: 600 var(--t-label) var(--font-mono);
+		letter-spacing: 0.07em;
+		text-transform: uppercase;
 	}
 	.bridge-root .portfolio-table-foot {
 		align-items: flex-start;
