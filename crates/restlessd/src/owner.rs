@@ -3216,7 +3216,7 @@ async fn company_catalog(
         };
         configs.push((config, "archived"));
     }
-    let runtime_statuses = runtime::configured_company_statuses(
+    let runtime_statuses = runtime::cockpit_company_statuses(
         &configs
             .iter()
             .map(|(config, _)| config.clone())

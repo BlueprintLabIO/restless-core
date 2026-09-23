@@ -54,10 +54,16 @@ static COCKPIT_DOCTOR_CACHE: LazyLock<
 static BROWSER_HEALTH_CACHE: LazyLock<
     tokio::sync::Mutex<HashMap<String, HealthCacheSlot<(ContainerStatus, Option<BrowserDoctor>)>>>,
 > = LazyLock::new(Default::default);
+static COMPANY_STATUSES_CACHE: LazyLock<
+    tokio::sync::Mutex<
+        HashMap<Vec<String>, HealthCacheSlot<std::collections::BTreeMap<String, ContainerStatus>>>,
+    >,
+> = LazyLock::new(Default::default);
 
 async fn invalidate_cockpit_health(company: &str) {
     COCKPIT_DOCTOR_CACHE.lock().await.remove(company);
     BROWSER_HEALTH_CACHE.lock().await.remove(company);
+    COMPANY_STATUSES_CACHE.lock().await.clear();
 }
 
 async fn company_start_guard(company: &str) -> tokio::sync::OwnedMutexGuard<()> {
@@ -1051,6 +1057,30 @@ pub async fn configured_company_statuses(
         configs,
         &String::from_utf8_lossy(&output.stdout),
     ))
+}
+
+/// Share one Docker inventory across open company catalogs. An explicit
+/// lifecycle change clears it, while unrelated tabs reuse the recent result.
+pub async fn cockpit_company_statuses(
+    configs: &[CompanyConfig],
+) -> Result<std::collections::BTreeMap<String, ContainerStatus>> {
+    let mut companies = configs.iter().map(|config| config.name.clone()).collect::<Vec<_>>();
+    companies.sort();
+    let slot = COMPANY_STATUSES_CACHE
+        .lock()
+        .await
+        .entry(companies)
+        .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(None)))
+        .clone();
+    let mut cached = slot.lock().await;
+    if let Some((at, result)) = cached.as_ref() {
+        if at.elapsed() < Duration::from_secs(10) {
+            return Ok(result.clone());
+        }
+    }
+    let result = configured_company_statuses(configs).await?;
+    *cached = Some((Instant::now(), result.clone()));
+    Ok(result)
 }
 
 fn company_statuses(
