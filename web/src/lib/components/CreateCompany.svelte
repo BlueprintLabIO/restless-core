@@ -14,14 +14,14 @@
 			if (!createdCompanyId) {
 				const company = await createCompany({
 					name: `company_${crypto.randomUUID().replaceAll('-', '').slice(0, 16)}`,
-					display_name: 'Untitled company',
+					display_name: 'Untitled project',
 					mission: ''
 				});
 				createdCompanyId = company.id;
 			}
 			await goto(`/${createdCompanyId}/company/provider`);
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Could not create a company.';
+			error = cause instanceof Error ? cause.message : 'Could not create a project.';
 		} finally {
 			busy = false;
 		}
@@ -31,8 +31,8 @@
 <button
 	class="add-company"
 	type="button"
-	title="Create company"
-	aria-label="Create company"
+	title="Create project"
+	aria-label="Create project"
 	disabled={busy}
 	aria-busy={busy}
 	onclick={() => void create()}

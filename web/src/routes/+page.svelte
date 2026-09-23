@@ -65,17 +65,14 @@
 	}
 </script>
 
-<svelte:head><title>Companies — {PRODUCT_NAME}</title></svelte:head>
+<svelte:head><title>Projects — {PRODUCT_NAME}</title></svelte:head>
 
 <div class="bridge-root portfolio-root">
 	<header class="bridge-topbar" aria-label="Portfolio navigation">
-		<a class="tb-brand portfolio-brand" href="/" aria-label={`${PRODUCT_NAME} companies`}>
+		<a class="tb-brand portfolio-brand" href="/" aria-label={`${PRODUCT_NAME} projects`}>
 			<span class="tb-mark"><MatrixGlyph rows={GLYPHS.r} size={13} glow /></span>
 			<span class="tb-name">{PRODUCT_NAME}</span>
 		</a>
-		{#if loaded}
-			<span class="portfolio-location">Companies</span>
-		{/if}
 		{#if loaded}
 			<div class="tb-right">
 				<CreateCompany />
@@ -109,19 +106,16 @@
 				</div>
 			{/if}
 			<header class="portfolio-head">
-				<h1>Companies</h1>
+				<h1>Projects</h1>
 			</header>
 
 			{#if error}<div class="portfolio-error">{error}</div>{/if}
-			<section class="portfolio-table" aria-label="Company portfolio">
-				<header class="portfolio-table-head">
-					<h2>Projects</h2>
-				</header>
+			<section class="portfolio-table" aria-label="Projects">
 				{#if activeCompanies.length}
 					<div class="portfolio-table-scroll">
 						<div class="portfolio-grid">
 							<div class="portfolio-grid-head" aria-hidden="true">
-								<span>Company</span>
+								<span>Project</span>
 								<span>Current focus</span>
 								<span>Next item of value</span>
 								<span>Needs you</span>
@@ -159,12 +153,6 @@
 												<small>{company.runtime_status}</small>
 											{/if}
 										</span>
-										<span class="portfolio-company-open" aria-hidden="true">
-											→
-											{#if (projection?.attentionCount ?? 0) > 0}
-												<i>{projection.attentionCount}</i>
-											{/if}
-										</span>
 									</span>
 									<span
 										class="portfolio-metric portfolio-focus"
@@ -176,7 +164,6 @@
 									<span class="portfolio-metric portfolio-proof">
 										<small class="portfolio-mobile-label">Next item of value</small>
 										<strong>{projection?.nextProof ?? 'Checking work…'}</strong>
-										<small>{projection?.nextProofDetail ?? 'Loading live projection.'}</small>
 									</span>
 									<span class="portfolio-metric portfolio-attention">
 										<small class="portfolio-mobile-label">Needs you</small>
@@ -187,42 +174,26 @@
 													? 'Nothing now'
 													: `${projection.attentionCount} item${projection.attentionCount === 1 ? '' : 's'}`}</strong
 										>
-										<small
-											>{!projection
-												? 'Loading live projection'
-												: projection.attentionCount == null
-													? 'Attention unavailable'
-													: projection.attentionCount === 0
-														? 'No decision needed'
-														: 'Waiting for your input'}</small
-										>
 									</span>
 								</a>
 							{/each}
 						</div>
 					</div>
-					<footer class="portfolio-table-foot">
-						<span
-							>{activeCompanies.length} operating compan{activeCompanies.length === 1
-								? 'y'
-								: 'ies'}</span
-						>
-					</footer>
 				{:else}
 					<div class="portfolio-empty">
 						<MatrixGlyph rows={GLYPHS.ring} size={14} />
-						<h2>No active companies</h2>
+						<h2>No projects yet</h2>
 						<p>
 							{archivedCompanies.length
-								? 'Use + to create a company.'
-								: 'Use + to create your first company.'}
+								? 'Use + to create a project.'
+								: 'Use + to create your first project.'}
 						</p>
 					</div>
 				{/if}
 			</section>
 		</main>
 	{:else}
-		<main class="portfolio-loading">Loading companies…</main>
+		<main class="portfolio-loading">Loading projects…</main>
 	{/if}
 </div>
 
