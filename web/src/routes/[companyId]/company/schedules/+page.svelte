@@ -133,6 +133,20 @@
 					{:else}
 						<p class="recent-empty">No run from this schedule yet.</p>
 					{/if}
+					{#if item.prior_responsibility_outcomes.length}
+						<div class="recent">
+							<h3>Earlier checks for this responsibility</h3>
+							<ul>
+								{#each item.prior_responsibility_outcomes as outcome (outcome.opportunity_id)}
+									<li>
+										<span class="state">{outcome.state}</span>
+										<span>{outcomeText(outcome.outcome, outcome.outcome_reason)}</span>
+										<time datetime={outcome.created_at}>{when(outcome.created_at)}</time>
+									</li>
+								{/each}
+							</ul>
+						</div>
+					{/if}
 				</li>
 			{/each}
 		</ul>

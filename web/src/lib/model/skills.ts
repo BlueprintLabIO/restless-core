@@ -189,6 +189,14 @@ export type MonitoredSchedule = {
 		created_at: string;
 		settled_at: string | null;
 	}>;
+	prior_responsibility_outcomes: Array<{
+		opportunity_id: string;
+		state: string;
+		outcome: unknown;
+		outcome_reason: string | null;
+		created_at: string;
+		settled_at: string | null;
+	}>;
 };
 
 export type ScheduleTestReport = {

@@ -4,7 +4,6 @@
 //! schedule for Exec). Nothing here grants authority.
 use super::*;
 use serde_json::json;
-use std::collections::HashMap;
 use uuid::Uuid;
 
 fn owner_only(principal: &RequestPrincipal) -> Option<Response<Body>> {
@@ -397,52 +396,71 @@ pub(super) async fn schedule_monitor(
             .collect::<Vec<_>>(),
         Err(error) => return orgintel_error(error),
     };
-    let opportunities = match org.list_opportunities(None, 25).await {
-        Ok(rows) => rows,
-        Err(error) => return orgintel_error(error),
-    };
-    let schedule_ids = schedules
-        .iter()
-        .map(|row| row.id)
-        .collect::<std::collections::HashSet<_>>();
-    let mut recent: HashMap<Uuid, Vec<serde_json::Value>> = HashMap::new();
-    for opportunity in opportunities {
-        let links = match org.list_opportunity_occurrences(opportunity.id).await {
-            Ok(links) => links,
+    let mut monitored = Vec::with_capacity(schedules.len());
+    for schedule in schedules {
+        let links = match org
+            .list_schedule_opportunity_occurrences(schedule.id, 3)
+            .await
+        {
+            Ok(rows) => rows,
             Err(error) => return orgintel_error(error),
         };
+        let mut recent_outcomes = Vec::with_capacity(links.len());
         for link in links {
-            if schedule_ids.contains(&link.schedule_id) {
-                let rows = recent.entry(link.schedule_id).or_default();
-                if rows.len() < 3 {
-                    rows.push(json!({
-                        "scheduled_for": link.scheduled_for,
-                        "admission": link.admission,
-                        "opportunity_id": opportunity.id,
-                        "state": opportunity.state,
-                        "outcome": opportunity.outcome,
-                        "outcome_reason": opportunity.outcome_reason,
-                        "created_at": opportunity.created_at,
-                        "settled_at": opportunity.settled_at,
-                    }));
-                }
+            let Some(opportunity_id) = link.opportunity_id else {
+                continue;
+            };
+            let opportunity = match org.get_opportunity(opportunity_id).await {
+                Ok(Some(row)) => row,
+                Ok(None) => continue,
+                Err(error) => return orgintel_error(error),
+            };
+            recent_outcomes.push(json!({
+                "scheduled_for": link.scheduled_for,
+                "admission": link.admission,
+                "opportunity_id": opportunity.id,
+                "state": opportunity.state,
+                "outcome": opportunity.outcome,
+                "outcome_reason": opportunity.outcome_reason,
+                "created_at": opportunity.created_at,
+                "settled_at": opportunity.settled_at,
+            }));
+        }
+        // Before a newly migrated recurring schedule fires, show live
+        // canaries for its responsibility without mislabeling them as
+        // occurrences of this particular schedule.
+        let mut prior_responsibility_outcomes = Vec::new();
+        if recent_outcomes.is_empty() {
+            if let Some(responsibility_id) = schedule.responsibility_id {
+                let prior = match org.list_opportunities(Some(responsibility_id), 3).await {
+                    Ok(rows) => rows,
+                    Err(error) => return orgintel_error(error),
+                };
+                prior_responsibility_outcomes = prior
+                    .into_iter()
+                    .map(|opportunity| {
+                        json!({
+                            "opportunity_id": opportunity.id,
+                            "state": opportunity.state,
+                            "outcome": opportunity.outcome,
+                            "outcome_reason": opportunity.outcome_reason,
+                            "created_at": opportunity.created_at,
+                            "settled_at": opportunity.settled_at,
+                        })
+                    })
+                    .collect();
             }
         }
+        let testable =
+            schedule.responsibility_id.is_some() && schedule.responsibility_version.is_some();
+        monitored.push(json!({
+            "schedule": schedule,
+            "recent_outcomes": recent_outcomes,
+            "prior_responsibility_outcomes": prior_responsibility_outcomes,
+            "testable": testable,
+        }));
     }
-    let schedules = schedules
-        .into_iter()
-        .map(|schedule| {
-            let recent_outcomes = recent.remove(&schedule.id).unwrap_or_default();
-            let testable =
-                schedule.responsibility_id.is_some() && schedule.responsibility_version.is_some();
-            json!({
-                "schedule": schedule,
-                "recent_outcomes": recent_outcomes,
-                "testable": testable,
-            })
-        })
-        .collect::<Vec<_>>();
-    Json(json!({ "schedules": schedules })).into_response()
+    Json(json!({ "schedules": monitored })).into_response()
 }
 
 #[derive(Deserialize)]

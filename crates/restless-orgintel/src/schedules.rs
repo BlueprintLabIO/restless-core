@@ -254,6 +254,26 @@ impl OrgIntel {
         .await?)
     }
 
+    /// The most recent durable opportunities admitted by one exact schedule.
+    /// Query by schedule before limiting so other wakeups cannot hide its runs.
+    pub async fn list_schedule_opportunity_occurrences(
+        &self,
+        schedule_id: Uuid,
+        limit: i64,
+    ) -> Result<Vec<OpportunityOccurrenceLink>> {
+        let limit = limit.clamp(1, 200);
+        Ok(sqlx::query_as::<_, OpportunityOccurrenceLink>(
+            "SELECT schedule_id, scheduled_for, opportunity_id, responsibility_id, \
+               responsibility_version, admission, wake_message_id FROM schedule_occurrences \
+             WHERE schedule_id=$1 AND opportunity_id IS NOT NULL \
+             ORDER BY scheduled_for DESC LIMIT $2",
+        )
+        .bind(schedule_id)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
     pub async fn list_opportunity_work(
         &self,
         opportunity_id: Uuid,
