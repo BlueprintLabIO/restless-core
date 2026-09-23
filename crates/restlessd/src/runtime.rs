@@ -1166,6 +1166,15 @@ pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
             let volume_mount = format!("{volume}:/company");
             if let Some(network) = internal_network.as_deref() {
                 args.extend(["--network", network]);
+                // Native model calls from an isolated test Runtime may leave
+                // only through its narrow, separately managed model sidecar.
+                args.extend(["-e", "HTTPS_PROXY=http://host.docker.internal:8080"]);
+                // Test authentication must disappear with this Runtime even
+                // when the disposable company volume is retained for evidence.
+                args.extend([
+                    "--tmpfs",
+                    "/company/home/.restless/harness-auth/codex:rw,uid=2000,gid=2000,mode=0700",
+                ]);
             }
             args.extend([
                 "--label",

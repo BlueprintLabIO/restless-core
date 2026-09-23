@@ -51,6 +51,7 @@ mod runtime_bridge;
 mod runtime_mode;
 mod schedule;
 mod schedule_test;
+mod schedule_test_proxy;
 mod skills;
 mod spend;
 mod staff;
@@ -4156,14 +4157,15 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 Ok(id) => id,
                 Err(error) => return Response::err(error),
             };
-            match schedule_test::run(
-                daemon,
-                company,
-                schedule_id,
-                request.lifecycle.schedule_test_timeout_seconds.unwrap_or(30),
-            )
-            .await
-            {
+            let timeout = request.lifecycle.schedule_test_timeout_seconds.unwrap_or(
+                if request.lifecycle.schedule_test_actor { 600 } else { 30 },
+            );
+            let result = if request.lifecycle.schedule_test_actor {
+                schedule_test::run_actor(daemon, company, schedule_id, timeout).await
+            } else {
+                schedule_test::run(daemon, company, schedule_id, timeout).await
+            };
+            match result {
                 Ok(report) => Response::ok(report),
                 Err(error) => Response::err(format!("{error:#}")),
             }

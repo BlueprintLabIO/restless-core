@@ -1174,7 +1174,7 @@ enum ScheduleCommand {
         #[arg(long)]
         reason: String,
     },
-    /// Test one selected schedule's durable admission in a disposable company.
+    /// Test one schedule in a disposable company. --actor uses synthetic data in an isolated Runtime.
     Test {
         /// Live source company whose schedule is copied into the disposable test company.
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
@@ -1182,7 +1182,10 @@ enum ScheduleCommand {
         /// Exact source schedule UUID to exercise.
         #[arg(long)]
         schedule: String,
-        /// Maximum time to wait for the durable Opportunity admission.
+        /// Run the real actor loop against synthetic data in an isolated Runtime.
+        #[arg(long)]
+        actor: bool,
+        /// Maximum time to wait for admission or the isolated actor outcome.
         #[arg(long)]
         timeout_seconds: Option<u64>,
     },
@@ -3435,10 +3438,12 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             ScheduleCommand::Test {
                 company,
                 schedule,
+                actor,
                 timeout_seconds,
             } => serde_json::json!({
                 "cmd": "schedule-test", "company": company,
                 "id": schedule, "schedule_test_timeout_seconds": timeout_seconds,
+                "schedule_test_actor": actor,
             }),
             ScheduleCommand::Opportunities {
                 company,
@@ -3677,10 +3682,7 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 "actor": std::env::var("RESTLESS_ACTOR").unwrap_or_else(|_| "owner".to_string()),
             })
         }
-        Command::EffectReconcile {
-            company,
-            key,
-        } => serde_json::json!({
+        Command::EffectReconcile { company, key } => serde_json::json!({
             "cmd": "effect-reconcile",
             "company": company,
             "key": key,

@@ -468,10 +468,12 @@ pub(super) async fn schedule_monitor(
 pub(super) struct ScheduleTestInput {
     #[serde(default)]
     timeout_seconds: Option<u64>,
+    #[serde(default)]
+    actor: bool,
 }
 
-/// Exercise scheduler admission for one bound recurring Exec schedule in a disposable company.
-/// Runtime and actor execution never start; the source schedule is never fired or changed here.
+/// Exercise one bound recurring Exec schedule in a disposable company.
+/// The live source schedule is never fired or changed here.
 pub(super) async fn test_schedule_trigger(
     State(state): State<OwnerState>,
     Extension(principal): Extension<RequestPrincipal>,
@@ -506,14 +508,15 @@ pub(super) async fn test_schedule_trigger(
             "test trigger requires a bound recurring Exec schedule",
         );
     }
-    match crate::schedule_test::run(
-        &state.daemon,
-        &company,
-        schedule,
-        input.timeout_seconds.unwrap_or(30),
-    )
-    .await
-    {
+    let timeout = input
+        .timeout_seconds
+        .unwrap_or(if input.actor { 600 } else { 30 });
+    let result = if input.actor {
+        crate::schedule_test::run_actor(&state.daemon, &company, schedule, timeout).await
+    } else {
+        crate::schedule_test::run(&state.daemon, &company, schedule, timeout).await
+    };
+    match result {
         Ok(report) => Json(report).into_response(),
         Err(error) => api_error(
             StatusCode::BAD_REQUEST,

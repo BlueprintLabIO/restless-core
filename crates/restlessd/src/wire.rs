@@ -61,6 +61,9 @@ pub(crate) struct LifecycleInput {
     /// Bounded wait for a disposable schedule lifecycle probe.
     #[serde(default)]
     pub(crate) schedule_test_timeout_seconds: Option<u64>,
+    /// Opt in to a synthetic, isolated actor run instead of admission only.
+    #[serde(default)]
+    pub(crate) schedule_test_actor: bool,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -914,10 +917,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         "message" => &["from", "to", "id", "body"],
         "events" => &["limit"],
         "schedule-list" => &["as_actor", "include_fired"],
-        "schedule-test" => &[
-            "id",
-            "schedule_test_timeout_seconds",
-        ],
+        "schedule-test" => &["id", "schedule_test_timeout_seconds", "schedule_test_actor"],
         "schedule-opportunities" => &["responsibility_id", "limit"],
         "schedule-link-work" => &["id", "work_id", "owner_epoch", "relation", "as_actor"],
         "schedule-outcome" => &[
