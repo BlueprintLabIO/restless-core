@@ -21,6 +21,10 @@ use crate::{exec, Daemon};
 /// sources. This slow sweep repairs a lost listener or newly added cell; it is
 /// deliberately not the schedule engine.
 const REPAIR_SWEEP_INTERVAL: Duration = Duration::from_secs(300);
+/// An overdue fact can remain owed while Runtime is down or an actor is
+/// backing off. Retry it at the ordinary scan cadence instead of querying
+/// every cell twenty times a second until that external condition changes.
+const OVERDUE_RETRY_INTERVAL: Duration = Duration::from_secs(5);
 
 /// Free-form Exec conversation liveness. Work custody is the running Attempt.
 pub(crate) type InFlight = Arc<Mutex<WakeClaims>>;
@@ -347,7 +351,7 @@ async fn next_due_delay(daemon: &Arc<Daemon>) -> Duration {
         }
     }
     match earliest {
-        Some(due) if due <= now => Duration::from_millis(50),
+        Some(due) if due <= now => OVERDUE_RETRY_INTERVAL,
         Some(due) => (due - now)
             .to_std()
             .unwrap_or(Duration::from_millis(50))
@@ -792,6 +796,56 @@ pub(crate) async fn run_exec_turn(
     outcome
 }
 
+/// Release every still-current Opportunity claim after a turn cannot produce
+/// a durable outcome. The waiting retry retains all Work/effects and leaves
+/// delivery count and absolute deadline enforcement to the scheduler.
+async fn defer_claimed_opportunities(
+    org: &OrgIntel,
+    claims: &[restless_orgintel::OpportunityClaim],
+    reason: &str,
+) {
+    for claim in claims {
+        match org.get_opportunity(claim.opportunity_id).await {
+            Ok(Some(current)) if current.settled_at.is_some() => {}
+            Ok(Some(current))
+                if current.owner_epoch == claim.owner_epoch
+                    && current.lease_owner.as_deref() == Some("exec") =>
+            {
+                // Revisit unfinished work promptly, then back off. The
+                // Opportunity wake budget and deadline still bound retries.
+                let retry_minutes = match current.wake_count {
+                    0 | 1 => 5,
+                    2 => 15,
+                    3 => 30,
+                    _ => 60,
+                };
+                let next_wake_at = Utc::now() + chrono::Duration::minutes(retry_minutes);
+                let settlement = serde_json::json!({
+                    "reason": reason,
+                    "evidence_refs": [format!("opportunity://{}", claim.opportunity_id)],
+                    "next_wake_at": next_wake_at,
+                });
+                if let Err(error) = org
+                    .settle_opportunity(
+                        claim.opportunity_id,
+                        claim.owner_epoch,
+                        "waiting_retry",
+                        settlement,
+                        Utc::now(),
+                    )
+                    .await
+                {
+                    tracing::warn!(opportunity_id = %claim.opportunity_id, %error, "could not defer unsettled opportunity");
+                }
+            }
+            Ok(_) => {}
+            Err(error) => {
+                tracing::warn!(opportunity_id = %claim.opportunity_id, %error, "could not inspect opportunity while deferring claim")
+            }
+        }
+    }
+}
+
 async fn run_exec_turn_with_lease(
     daemon: &Daemon,
     config: &CompanyConfig,
@@ -816,20 +870,38 @@ async fn run_exec_turn_with_lease(
     // cannot settle a newer claim, and an already-settled wake is consumed
     // without asking the actor to repeat business work.
     let mut claimed_opportunities = Vec::new();
+    macro_rules! try_or_defer_claims {
+        ($operation:expr) => {
+            match $operation {
+                Ok(value) => value,
+                Err(error) => {
+                    defer_claimed_opportunities(
+                        org,
+                        &claimed_opportunities,
+                        "Exec could not assemble the turn after claiming this Opportunity; inspect preserved Work and effects before continuing.",
+                    )
+                    .await;
+                    return Err(error.into());
+                }
+            }
+        };
+    }
     let mut seen_opportunities = HashSet::new();
     let mut available_inbox = Vec::with_capacity(conversation_inbox.len());
     for message in conversation_inbox {
         if message.from_actor == "daemon" {
-            if let Some(opportunity) = org.opportunity_for_wake_message(message.id).await? {
+            if let Some(opportunity) =
+                try_or_defer_claims!(org.opportunity_for_wake_message(message.id).await)
+            {
                 if opportunity.settled_at.is_some() {
-                    org.mark_read(message.id).await?;
+                    try_or_defer_claims!(org.mark_read(message.id).await);
                     continue;
                 }
                 if seen_opportunities.insert(opportunity.id) {
-                    match org
-                        .claim_opportunity(opportunity.id, "exec", 4 * 60 * 60, Utc::now())
-                        .await?
-                    {
+                    match try_or_defer_claims!(
+                        org.claim_opportunity(opportunity.id, "exec", 4 * 60 * 60, Utc::now())
+                            .await
+                    ) {
                         Some(claim) => claimed_opportunities.push(claim),
                         None => {
                             // The prior claim is still owned or a retry is
@@ -851,16 +923,20 @@ async fn run_exec_turn_with_lease(
     let conversation_inbox = available_inbox;
     let mut opportunity_context = Vec::new();
     for claim in &claimed_opportunities {
-        let Some(opportunity) = org.get_opportunity(claim.opportunity_id).await? else {
-            anyhow::bail!("claimed opportunity disappeared before Exec execution");
-        };
-        let version = org
-            .get_responsibility_version(
+        let opportunity = try_or_defer_claims!(org.get_opportunity(claim.opportunity_id).await)
+            .ok_or_else(|| {
+                anyhow::anyhow!("claimed opportunity disappeared before Exec execution")
+            });
+        let opportunity = try_or_defer_claims!(opportunity);
+        let version = try_or_defer_claims!(
+            org.get_responsibility_version(
                 opportunity.responsibility_id,
                 opportunity.responsibility_version,
             )
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("claimed responsibility version disappeared"))?;
+            .await
+        )
+        .ok_or_else(|| anyhow::anyhow!("claimed responsibility version disappeared"));
+        let version = try_or_defer_claims!(version);
         opportunity_context.push(format!(
             "Opportunity {} is claimed at epoch {}. Objective: {}. Authority and limits: {}. Inspect current state. Link any Work with `restless schedule link-work -c {} --opportunity {} --work <WORK_UUID> --owner-epoch {}`. Once the business outcome is supported, record it with `restless schedule outcome -c {} --opportunity {} --owner-epoch {} --state <completed|needs_human|blocked> --reason <REASON> --evidence work:<LINKED_WORK_UUID>` (or a real handoff/artifact reference). A completed agent turn alone does not complete the Opportunity.",
             claim.opportunity_id,
@@ -895,7 +971,7 @@ async fn run_exec_turn_with_lease(
     // context, not a fresh delivery obligation; treating it as one would
     // starve the mention while recovery kept waking for that mention forever.
     let judgements = if human_is_membership_owner {
-        org.conversation_handoffs("exec").await?
+        try_or_defer_claims!(org.conversation_handoffs("exec").await)
     } else {
         Vec::new()
     };
@@ -908,7 +984,7 @@ async fn run_exec_turn_with_lease(
     // Otherwise process exactly one unresolved Room mention so a single model
     // context never has to answer several unrelated Threads at once.
     let pending_mention = if message_ids.is_empty() && owed_judgements.is_empty() {
-        crate::mentions::claim(org, lease_guard.lease()).await?
+        try_or_defer_claims!(crate::mentions::claim(org, lease_guard.lease()).await)
     } else {
         None
     };
@@ -941,48 +1017,12 @@ async fn run_exec_turn_with_lease(
     // failed to declare a verifiable Opportunity outcome, retain every effect
     // and Work record, then redeliver a bounded judgement wake later. Never
     // infer business completion from a parseable turn termination alone.
-    for claim in &claimed_opportunities {
-        match org.get_opportunity(claim.opportunity_id).await {
-            Ok(Some(current)) if current.settled_at.is_some() => {}
-            Ok(Some(current))
-                if current.owner_epoch == claim.owner_epoch && current.lease_owner.is_some() =>
-            {
-                // A delegated Work item may finish shortly after Exec yields.
-                // Revisit the first unfinished turn promptly, then back off
-                // rather than waiting half an hour for every recovery pass.
-                // The Opportunity's wake budget and deadline still bound the
-                // total number and duration of retries.
-                let retry_minutes = match current.wake_count {
-                    0 | 1 => 5,
-                    2 => 15,
-                    3 => 30,
-                    _ => 60,
-                };
-                let next_wake_at = Utc::now() + chrono::Duration::minutes(retry_minutes);
-                let settlement = serde_json::json!({
-                    "reason": "Actor execution ended without a durable opportunity outcome; inspect preserved Work and effects before continuing.",
-                    "evidence_refs": [format!("opportunity://{}", claim.opportunity_id)],
-                    "next_wake_at": next_wake_at,
-                });
-                if let Err(error) = org
-                    .settle_opportunity(
-                        claim.opportunity_id,
-                        claim.owner_epoch,
-                        "waiting_retry",
-                        settlement,
-                        Utc::now(),
-                    )
-                    .await
-                {
-                    tracing::warn!(opportunity_id = %claim.opportunity_id, %error, "could not defer unsettled opportunity");
-                }
-            }
-            Ok(_) => {}
-            Err(error) => {
-                tracing::warn!(opportunity_id = %claim.opportunity_id, %error, "could not inspect opportunity after Exec turn")
-            }
-        }
-    }
+    defer_claimed_opportunities(
+        org,
+        &claimed_opportunities,
+        "Actor execution ended without a durable opportunity outcome; inspect preserved Work and effects before continuing.",
+    )
+    .await;
 
     if cancellation.is_cancelled() {
         if pending_mention.is_some() {
