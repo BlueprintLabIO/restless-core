@@ -516,3 +516,34 @@ complete user journeys.
   unknown, and work continues; the owner sees spend as a lower bound. Known spend
   at the ceiling still stops charged work. Direct OpenRouter requests passed; no
   Restless gateway turn has used OpenRouter.
+
+## Simultaneous people and a free API route — 24 September 2026
+
+- The self-hosted identity Core journey now includes a browser step with two
+  independent Playwright contexts, one per verified account. Owner and member
+  opened the same document at the same time. Each typed a line, saw the other's
+  line without reloading, and still saw both after reload. The member's view had
+  no Company navigation and could not see the owner's private document. The
+  complete journey passed against a disposable PostgreSQL database and removed its
+  containers, volume, databases and roles.
+- An isolated company, `openrouter/free` model, port offset 16000 and the normal
+  Docker bridge produced a real Exec reply: “I am online and ready to assist.”
+  The route crossed the company computer, the Runtime relay, the host broker and
+  OpenRouter. The ledger recorded two metered requests at $0, with zero
+  token counts. Cleanup removed the company, database and state; the broker
+  profiles it created were removed separately.
+- That run found four defects:
+  - A debug daemon, as built by `restless-dev`, aborted with a Tokio worker stack
+    overflow on this route. The runtime now uses 16 MiB worker stacks, and the
+    same turn passed with the rebuilt daemon.
+  - The daemon discarded ACP agent stderr, so a failed start reached the owner
+    only as “transport closed.” It now drains stderr throughout the session and
+    logs its redacted 16 KiB tail on failure.
+  - OMP 18.0.10 lists models whose ids contain `:`, but cannot select them.
+    Every OpenRouter `:free` id therefore fails with “model not found.” Paid ids
+    and `openrouter/free` work. Supporting them needs a gateway alias; this is
+    open.
+  - The model gateway loads providers only when the daemon starts. A company
+    that connects an API provider afterwards needs a daemon restart. A wake
+    during gateway startup reports “connect a provider” instead of “starting.”
+    This is open.

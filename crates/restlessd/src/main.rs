@@ -634,8 +634,20 @@ pub(crate) async fn continue_after_payment_observation(
     Ok(())
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+// Unoptimised builds (the README launcher's `cargo build`) keep large async
+// frames on the stack; a live model turn overflowed Tokio's 2 MiB default.
+const RUNTIME_THREAD_STACK_BYTES: usize = 16 * 1024 * 1024;
+
+fn main() -> Result<()> {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .thread_stack_size(RUNTIME_THREAD_STACK_BYTES)
+        .build()
+        .context("start the async runtime")?
+        .block_on(run())
+}
+
+async fn run() -> Result<()> {
     let machine_profile = restlessd::appliance::MachineProfile::from_env()?;
     // Local source checkouts conventionally keep bootstrap credentials in an
     // ignored `.env`. Load it before any subsystem reads configuration, while

@@ -243,6 +243,31 @@ try{
  await pause(1500);
  const reconnected=await connect(colleague);assert(hasBoth(reconnected),'Reconnection must retain both contributions');
  console.log('PASS real authenticated document coediting, comment-only token scope and reconnect preserve both contributions');
+ if(await openBrowser()){
+  // Two independent browser profiles (separate cookie jars, separate
+  // verified accounts) edit the same document at the same time.
+  const cockpitUrl=`http://${coreHost}:${Number(offset)+7788}`;
+  const documentUrl=`${cockpitUrl}/documents/${company}/${doc.id}`;
+  const people=[];
+  for(const account of [owner,colleague]){
+   const person=await contextWith([[origin,account.cookie],[cockpitUrl,account.coreCookie]]);
+   await person.page.goto(documentUrl);
+   person.body=person.page.getByLabel('Collaborative document body');
+   await person.body.waitFor({timeout:30000});
+   people.push(person);
+  }
+  const [ownerView,colleagueView]=people;
+  const type=async(view,text)=>{await view.body.click();await view.page.keyboard.press('Control+End');await view.page.keyboard.press('Enter');await view.page.keyboard.type(text);};
+  await Promise.all([type(ownerView,'Owner typed this live in the browser.'),type(colleagueView,'Colleague typed this live in the browser.')]);
+  for(const view of people)for(const text of ['Owner typed this live','Colleague typed this live'])
+   await view.page.getByText(text).waitFor({timeout:20000});
+  await ownerView.page.screenshot({path:evidence+'/coediting-owner.png'});
+  await colleagueView.page.screenshot({path:evidence+'/coediting-colleague.png'});
+  const stored=(await coreCall(base+`/documents/${doc.id}`,undefined,owner.coreCookie)).data.document;
+  const ownerReload=ownerView.page;await ownerReload.reload();await ownerReload.getByText('Colleague typed this live').waitFor({timeout:20000});
+  for(const view of people){assert.deepEqual(view.errors,[]);await view.context.close();}
+  console.log(`PASS browser: two independent signed-in people type into one document at once, see each other live, and both edits survive reload (v${stored.version})`);
+ }
  const removalTarget=await memberNamed(colleague.user.email);
  await adminCall(`members/${removalTarget.membership_id}/remove`,{},colleague.cookie,403);
  assert.equal((await adminCall(`members/${removalTarget.membership_id}/remove`,{},owner.cookie)).ending,false,'Core confirms removal while it is up');

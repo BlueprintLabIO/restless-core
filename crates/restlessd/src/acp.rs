@@ -33,7 +33,6 @@ use agent_client_protocol::{
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
-#[cfg(test)]
 use tokio::io::AsyncReadExt as _;
 use tokio::io::AsyncWriteExt as _;
 use tokio_util::compat::{TokioAsyncReadCompatExt as _, TokioAsyncWriteCompatExt as _};
@@ -1693,10 +1692,7 @@ where
         .args(&args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped());
-    #[cfg(test)]
     command.stderr(Stdio::piped());
-    #[cfg(not(test))]
-    command.stderr(Stdio::null());
     let spawned = command.kill_on_drop(true).spawn();
     let mut child = match spawned {
         Ok(child) => child,
@@ -1708,15 +1704,26 @@ where
             return Err(error).context("spawn ACP agent in container");
         }
     };
-    #[cfg(test)]
+    // Drain the agent's stderr for the whole session so a chatty agent never
+    // blocks on a full pipe; keep only the tail for diagnosing a failed start.
     let stderr_task = {
-        let stderr = child.stderr.take().expect("piped stderr");
+        let mut stderr = child.stderr.take().expect("piped stderr");
         let coordination_token = auth.coordination_token.clone();
         let gateway_token = auth.gateway_token.clone();
         tokio::spawn(async move {
-            let mut bytes = Vec::new();
-            let _ = stderr.take(64 * 1024).read_to_end(&mut bytes).await;
-            String::from_utf8_lossy(&bytes)
+            const TAIL: usize = 16 * 1024;
+            let mut tail = Vec::new();
+            let mut chunk = [0_u8; 4096];
+            while let Ok(read) = stderr.read(&mut chunk).await {
+                if read == 0 {
+                    break;
+                }
+                tail.extend_from_slice(&chunk[..read]);
+                if tail.len() > TAIL {
+                    tail.drain(..tail.len() - TAIL);
+                }
+            }
+            String::from_utf8_lossy(&tail)
                 .replace(&coordination_token, "[REDACTED]")
                 .replace(&gateway_token, "[REDACTED]")
         })
@@ -2155,8 +2162,7 @@ where
 
     let owned_session = read_session_id(container, &session_marker).await;
     let _ = child.kill().await;
-    #[cfg(test)]
-    let test_stderr = stderr_task.await.unwrap_or_default();
+    let agent_stderr = stderr_task.await.unwrap_or_default();
     let process_cleanup = if let Some(session_id) = owned_session {
         let _ = reap_session(container, &session_id).await;
         verify_session_reaped(container, &session_id).await
@@ -2195,11 +2201,20 @@ where
                 );
             }
             #[cfg(test)]
-            let error = if test_stderr.trim().is_empty() {
+            let error = if agent_stderr.trim().is_empty() {
                 error
             } else {
-                error.context(format!("ACP test stderr: {}", test_stderr.trim()))
+                error.context(format!("ACP test stderr: {}", agent_stderr.trim()))
             };
+            #[cfg(not(test))]
+            if !agent_stderr.trim().is_empty() {
+                tracing::warn!(
+                    container,
+                    actor,
+                    stderr = agent_stderr.trim(),
+                    "agent session failed; agent stderr tail"
+                );
+            }
             return Err(error);
         }
     }
