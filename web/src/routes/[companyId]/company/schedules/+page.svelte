@@ -61,6 +61,11 @@
 		}
 		return 'No final outcome recorded';
 	}
+
+	function scheduleTitle(reason: string): string {
+		const separator = reason.indexOf(':');
+		return separator > 0 && separator < 60 ? reason.slice(0, separator) : reason;
+	}
 </script>
 
 <svelte:head><title>Schedules — {companyId}</title></svelte:head>
@@ -87,7 +92,10 @@
 			{#each schedules as item (item.schedule.id)}
 				<li class="schedule-row">
 					<div class="schedule-main">
-						<h2>{item.schedule.reason}</h2>
+						<div class="schedule-heading">
+							<h2>{scheduleTitle(item.schedule.reason)}</h2>
+							<InfoTip text={item.schedule.reason} />
+						</div>
 						<p>
 							Next fire <time datetime={item.schedule.fire_at}>{when(item.schedule.fire_at)}</time>
 						</p>
@@ -123,7 +131,7 @@
 							</ul>
 						</div>
 					{:else}
-						<p class="recent-empty">No opportunity outcome recorded yet.</p>
+						<p class="recent-empty">No run from this schedule yet.</p>
 					{/if}
 				</li>
 			{/each}
@@ -180,6 +188,11 @@
 		margin: 0;
 		font-size: var(--t-head);
 		font-weight: 550;
+	}
+	.schedule-heading {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
 	}
 	.schedule-main p,
 	.recent-empty,
