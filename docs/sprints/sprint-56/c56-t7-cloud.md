@@ -24,3 +24,17 @@ Pushing to `restless-cloud` is owner-only, so this ticket is not implemented fro
 - Cloud's People page is deleted in favour of the cockpit Members page.
 - Migrating Cloud onto `membership-sql.mjs` and deleting the Rust delivery remains a separate
   decision.
+
+**Evidence, 24 September 2026** (`restless-cloud` `feat/c56-shared-issuer` at `4efa0da`, not yet merged):
+- `fleet-web` vendors the issuer from `restless-identity@sha256:54e7f7cc…`, pinned once in
+  `deploy/restless-identity.image`.
+- Against the local Cloud stack, the Playwright journeys passed 12/12 on two consecutive runs. They
+  cover invite, accept, scope, role change and removal through the shared admin API, plus account
+  deletion.
+- Fleet faults found on the way and fixed:
+  - readiness reconcilers probed one plane per tick, so provisioning latency grew with plane count;
+  - two timestamp-precision defects: a native Documents receipt check that failed about half the time,
+    and an exhausted wake that could re-arm from the same demand.
+- `cargo test --workspace` was green 4/4 on a fresh Postgres.
+- Still unproven: a real Core account plane behind Cloud, the private-gate deploy, real SMTP, and
+  branch CI.
