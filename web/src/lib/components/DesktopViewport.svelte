@@ -238,7 +238,14 @@
 			if (pendingInput.length > 40) pendingInput.splice(0, pendingInput.length - 40);
 			if (!claiming) void claimAndReplay(display);
 		};
-		const inputEvents = ['pointerdown', 'pointerup', 'pointermove', 'wheel', 'keydown', 'keyup'] as const;
+		const inputEvents = [
+			'pointerdown',
+			'pointerup',
+			'pointermove',
+			'wheel',
+			'keydown',
+			'keyup'
+		] as const;
 		for (const name of inputEvents) display.addEventListener(name, captureActivity, true);
 		untrack(() => {
 			clearTimeout(retryTimer);
@@ -545,23 +552,25 @@
 							? 'Connection needs attention'
 							: 'Connecting'}
 			</span>
-			<button
-				type="button"
-				title="Open clipboard panel"
-				aria-label="Open clipboard panel"
-				aria-expanded={clipboardPanelOpen}
-				onclick={openClipboardPanel}
-			>
-				<Clipboard size={14} />
-			</button>
-			<button
-				type="button"
-				title="Toggle fullscreen"
-				aria-label="Toggle fullscreen"
-				onclick={toggleFullscreen}
-			>
-				{#if fullscreen}<Minimize2 size={14} />{:else}<Maximize2 size={14} />{/if}
-			</button>
+			<div class="desktop-tool-actions">
+				<button
+					type="button"
+					title="Open clipboard panel"
+					aria-label="Open clipboard panel"
+					aria-expanded={clipboardPanelOpen}
+					onclick={openClipboardPanel}
+				>
+					<Clipboard size={14} />
+				</button>
+				<button
+					type="button"
+					title="Toggle fullscreen"
+					aria-label="Toggle fullscreen"
+					onclick={toggleFullscreen}
+				>
+					{#if fullscreen}<Minimize2 size={14} />{:else}<Maximize2 size={14} />{/if}
+				</button>
+			</div>
 		</div>
 		{#if clipboardPanelOpen}
 			<div
@@ -663,19 +672,39 @@
 		display: flex;
 		align-items: center;
 		gap: 4px;
+		box-sizing: border-box;
+		width: 100%;
 		min-height: 40px;
-		padding: 4px 88px 4px 8px;
-		border-top: 1px solid rgba(255, 255, 255, 0.12);
-		background: rgba(16, 18, 23, 0.96);
+		padding: 4px 88px 4px max(12px, env(safe-area-inset-left));
+		border-top: 1px solid var(--border-strong);
+		background: var(--surface-pane);
 	}
 	.desktop-viewport:fullscreen > .desktop-tools {
 		padding-right: 8px;
 	}
 	.desktop-live {
-		margin-right: auto;
+		min-width: 0;
+		flex: 1 1 auto;
 		padding-inline: 8px;
-		color: rgba(255, 255, 255, 0.72);
+		color: var(--text-secondary);
 		font: var(--t-label) var(--font-ui);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.desktop-tool-actions {
+		display: flex;
+		flex: 0 0 auto;
+		align-items: center;
+		gap: 4px;
+		margin-left: auto;
+	}
+	.desktop-tools button {
+		flex: 0 0 30px;
+	}
+	.clipboard-panel,
+	.clipboard-panel :is(button, textarea) {
+		color-scheme: light;
 	}
 	.clipboard-panel {
 		position: absolute;
@@ -686,11 +715,12 @@
 		max-height: min(70%, 520px);
 		overflow: auto;
 		padding: 16px;
-		border: 1px solid rgba(255, 255, 255, 0.16);
+		box-sizing: border-box;
+		border: 1px solid var(--border-strong);
 		border-radius: 10px;
-		color: var(--ink, rgba(255, 255, 255, 0.92));
-		background: var(--surface-raised, #191c23);
-		box-shadow: 0 12px 40px rgba(0, 0, 0, 0.42);
+		color: var(--ink);
+		background: var(--surface-pane);
+		box-shadow: var(--shadow-lift);
 		font: var(--t-body) var(--font-ui);
 	}
 	.desktop-viewport:fullscreen > .clipboard-panel {
@@ -717,10 +747,11 @@
 		min-height: 104px;
 		resize: vertical;
 		padding: 9px 10px;
-		border: 1px solid rgba(255, 255, 255, 0.2);
+		box-sizing: border-box;
+		border: 1px solid var(--control-edge);
 		border-radius: 7px;
-		color: inherit;
-		background: rgba(0, 0, 0, 0.22);
+		color: var(--ink);
+		background: var(--surface);
 		font: var(--t-body) var(--font-ui);
 	}
 	.clipboard-panel-actions {
@@ -732,21 +763,38 @@
 	.clipboard-panel button {
 		min-height: 32px;
 		padding: 5px 9px;
-		border: 1px solid rgba(255, 255, 255, 0.18);
+		border: 1px solid var(--control-edge);
 		border-radius: 6px;
-		color: inherit;
-		background: rgba(255, 255, 255, 0.06);
+		color: var(--ink);
+		background: var(--surface-alt);
 		font: var(--t-label) var(--font-ui);
 		cursor: pointer;
 	}
+	.clipboard-panel button:hover:not(:disabled) {
+		background: var(--surface-alt);
+		border-color: var(--border-strong);
+	}
+	.clipboard-panel :is(button, textarea, summary):focus-visible {
+		outline: 2px solid var(--intent-conversation);
+		outline-offset: 2px;
+	}
 	.clipboard-panel button:disabled {
-		opacity: 0.48;
+		color: var(--text-tertiary);
 		cursor: not-allowed;
+	}
+	.clipboard-panel .clipboard-send:disabled {
+		color: var(--text-tertiary);
+		background: var(--surface-alt);
+		border-color: var(--control-edge);
 	}
 	.clipboard-panel .clipboard-send {
 		margin-left: auto;
-		color: var(--button-primary-ink, white);
-		background: var(--button-primary, #345e92);
+		color: var(--text-inverse);
+		background: var(--intent-conversation);
+		border-color: transparent;
+	}
+	.clipboard-panel .clipboard-send:hover:not(:disabled) {
+		background: color-mix(in srgb, var(--intent-conversation) 88%, var(--ink));
 	}
 	.clipboard-remote-text {
 		margin-top: 10px;
@@ -764,7 +812,7 @@
 	}
 	.clipboard-feedback {
 		margin: 10px 0 0;
-		color: var(--ink-muted, rgba(255, 255, 255, 0.72));
+		color: var(--text-secondary);
 		font: var(--t-label) var(--font-ui);
 	}
 	.desktop-tools button {
@@ -774,15 +822,17 @@
 		height: 30px;
 		border: 0;
 		border-radius: 6px;
-		color: rgba(255, 255, 255, 0.86);
+		color: var(--ink);
 		background: transparent;
 		cursor: pointer;
 	}
-	.desktop-tools button:hover,
+	.desktop-tools button:hover {
+		background: var(--surface-alt);
+	}
 	.desktop-tools button:focus-visible {
-		color: white;
-		background: rgba(255, 255, 255, 0.12);
-		outline: none;
+		background: var(--surface-alt);
+		outline: 2px solid var(--intent-conversation);
+		outline-offset: -2px;
 	}
 	.desktop-status {
 		position: absolute;
@@ -795,10 +845,10 @@
 		max-width: calc(100% - 24px);
 		margin: 0 auto;
 		padding: 8px 12px;
-		border: 1px solid rgba(255, 255, 255, 0.14);
+		border: 1px solid var(--border-strong);
 		border-radius: 8px;
-		color: rgba(255, 255, 255, 0.88);
-		background: rgba(16, 18, 23, 0.9);
+		color: var(--ink);
+		background: var(--surface-pane);
 		font: var(--t-label) var(--font-ui);
 	}
 	.desktop-status button {
@@ -816,19 +866,33 @@
 		bottom: 48px;
 		transform: translateX(-50%);
 		padding: 7px 10px;
-		border: 1px solid rgba(255, 255, 255, 0.14);
+		border: 1px solid var(--border-strong);
 		border-radius: 8px;
-		color: rgba(255, 255, 255, 0.88);
-		background: rgba(16, 18, 23, 0.9);
+		color: var(--ink);
+		background: var(--surface-pane);
 		font: var(--t-label) var(--font-ui);
 	}
 	@media (max-width: 600px) {
 		.clipboard-panel {
-			right: 12px;
+			right: 8px;
+			bottom: calc(48px + env(safe-area-inset-bottom));
+			width: calc(100% - 16px);
+			max-height: min(70%, 520px);
+			padding: var(--space-3);
+		}
+		.desktop-tools {
+			padding-right: max(88px, calc(8px + env(safe-area-inset-right)));
+		}
+		.desktop-live {
+			padding-inline: 0 4px;
+		}
+		.clipboard-panel-actions .clipboard-send {
+			margin-left: 0;
+			flex: 1 0 100%;
 		}
 	}
 	.desktop-viewport-empty {
 		margin: auto;
-		color: rgba(255, 255, 255, 0.72);
+		color: var(--text-secondary);
 	}
 </style>
