@@ -540,10 +540,18 @@ complete user journeys.
     only as “transport closed.” It now drains stderr throughout the session and
     logs its redacted 16 KiB tail on failure.
   - OMP 18.0.10 lists models whose ids contain `:`, but cannot select them.
-    Every OpenRouter `:free` id therefore fails with “model not found.” Paid ids
-    and `openrouter/free` work. Supporting them needs a gateway alias; this is
-    open.
-  - The model gateway loads providers only when the daemon starts. A company
-    that connects an API provider afterwards needs a daemon restart. A wake
-    during gateway startup reports “connect a provider” instead of “starting.”
-    This is open.
+    Every OpenRouter `:free` id therefore failed with “model not found.”
+    The Runtime now sees `~` in place of `:`. The relay accepts only that alias
+    of the granted model, restores the exact id before forwarding and records
+    spend under the exact id.
+  - The model gateway loaded providers only when the daemon started, so an API
+    provider connected afterwards required a restart. The gateway now checks
+    company model routes and credential references every five seconds. When
+    they change, it withdraws the route and restarts with the new provider.
+- Verification used a disposable daemon, a new `_test` company and
+  `litellm/nvidia/nemotron-3-ultra-550b-a55b:free`. The gateway loaded the
+  company provider 29 seconds after creation, without a daemon restart. Exec
+  replied “Online and ready.” Two $0 records named the exact `:free` model.
+  Cleanup was verified.
+- `web/` now uses npm only. `pnpm-lock.yaml` was removed, `package-lock.json`
+  was updated and `packageManager` was set, so pnpm refuses to install.

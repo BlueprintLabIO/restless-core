@@ -245,7 +245,9 @@ impl AcpProfile {
 
     fn session_model(self, provider_model: &str) -> Result<String> {
         match self.harness {
-            crate::runtime::AgentHarness::RestlessManaged => Ok(provider_model.to_string()),
+            crate::runtime::AgentHarness::RestlessManaged => {
+                Ok(crate::model_gateway::runtime_model_id(provider_model))
+            }
             crate::runtime::AgentHarness::CustomAcp => {
                 Ok(crate::custom_harness::split_model(provider_model)?
                     .1
@@ -274,9 +276,12 @@ impl AcpProfile {
         tools: &[&str],
     ) -> Vec<String> {
         match self.harness {
-            crate::runtime::AgentHarness::RestlessManaged => {
-                omp_agent_command_args(model, effort, system_prompt, tools)
-            }
+            crate::runtime::AgentHarness::RestlessManaged => omp_agent_command_args(
+                &crate::model_gateway::runtime_model_id(model),
+                effort,
+                system_prompt,
+                tools,
+            ),
             crate::runtime::AgentHarness::ClaudeAgent => vec!["claude-agent-acp".to_string()],
             crate::runtime::AgentHarness::CustomAcp => vec![
                 "node".into(),

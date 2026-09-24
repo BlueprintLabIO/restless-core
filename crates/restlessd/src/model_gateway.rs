@@ -12,7 +12,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::Stdio;
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::RwLock;
 use std::task::{Context as TaskContext, Poll};
 use std::time::Duration;
 
@@ -126,28 +127,63 @@ fn preflight_runtime_relay_port(loopback_bind: &str) -> Result<()> {
     Ok(())
 }
 
-static CLIENT: OnceLock<ClientConfig> = OnceLock::new();
-static HOSTED_RELAY_STATE: OnceLock<RelayState> = OnceLock::new();
-static NO_DIRECT_PROVIDER: OnceLock<()> = OnceLock::new();
+// Replaced as a whole whenever the gateway (re)starts for a changed set of
+// company providers, so a provider connected after boot needs no restart.
+static CLIENT: RwLock<Option<ClientConfig>> = RwLock::new(None);
+static HOSTED_RELAY_STATE: RwLock<Option<RelayState>> = RwLock::new(None);
+static NO_DIRECT_PROVIDER: AtomicBool = AtomicBool::new(false);
 
-/// Companies the account plane could not admit a model route for at boot.
+/// Companies the account plane could not admit a model route for.
 /// Consulted before a company wakes so the refusal names the exact reason
 /// instead of failing later inside the company's first Attempt.
-static UNSTARTABLE: OnceLock<BTreeMap<String, String>> = OnceLock::new();
+static UNSTARTABLE: RwLock<BTreeMap<String, String>> = RwLock::new(BTreeMap::new());
 
 /// Why this company cannot start, if the plane could not admit it.
 pub fn unstartable_reason(company: &str) -> Option<String> {
-    UNSTARTABLE.get()?.get(company).cloned()
+    UNSTARTABLE.read().ok()?.get(company).cloned()
 }
 
 pub fn is_ready() -> bool {
-    CLIENT.get().is_some()
+    CLIENT.read().is_ok_and(|client| client.is_some())
 }
 
 /// Native harness routes do not need the imported host gateway. Keep this
 /// distinct from a gateway that is still starting or retrying after failure.
 pub fn has_no_direct_provider() -> bool {
-    NO_DIRECT_PROVIDER.get().is_some()
+    NO_DIRECT_PROVIDER.load(Ordering::Acquire)
+}
+
+/// Withdraw the installed route before its processes stop, so a wake during a
+/// gateway restart reports "starting" rather than reaching a dead gateway.
+pub fn uninstall() {
+    if let Ok(mut client) = CLIENT.write() {
+        *client = None;
+    }
+    if let Ok(mut relay) = HOSTED_RELAY_STATE.write() {
+        *relay = None;
+    }
+}
+
+fn set_unstartable(unstartable: BTreeMap<String, String>) {
+    if let Ok(mut slot) = UNSTARTABLE.write() {
+        *slot = unstartable;
+    }
+}
+
+/// What the gateway was started from: each company's model route and the
+/// credential references it names (references, never secret values).
+pub fn provider_fingerprint(configs: &[CompanyConfig]) -> String {
+    let mut routes = configs
+        .iter()
+        .map(|config| {
+            format!(
+                "{}|{}|{:?}|{:?}",
+                config.name, config.model, config.model_failover, config.credentials
+            )
+        })
+        .collect::<Vec<_>>();
+    routes.sort();
+    routes.join("\n")
 }
 
 #[derive(Clone)]
@@ -161,7 +197,7 @@ impl ClientConfig {
         let (provider, _) = split_model(model)?;
         self.providers.get(provider).copied().with_context(|| {
             format!(
-                "model provider {provider} was not loaded into the host gateway at daemon boot; configure its credential and restart restlessd"
+                "model provider {provider} is not loaded into the host gateway yet; Restless loads a newly configured credential within seconds"
             )
         })
     }
@@ -318,7 +354,7 @@ fn ordered_candidates(config: &CompanyConfig, preferred: Option<&str>) -> Result
     // A candidate whose provider was never admitted at boot cannot be reached.
     // Dropping it here keeps the boot-time warning and the runtime chain in
     // agreement, rather than failing one request deep into a wake.
-    if let Some(client) = CLIENT.get() {
+    if let Some(client) = CLIENT.read().ok().and_then(|client| client.clone()) {
         ordered.retain(|model| {
             split_model(model)
                 .map(|(provider, _)| client.providers.contains_key(provider))
@@ -576,8 +612,9 @@ pub async fn start(
         for (company, reason) in &admission.unstartable {
             tracing::warn!(company, reason, "company cannot start: {reason}");
         }
-        let _ = UNSTARTABLE.set(admission.unstartable);
-        let _ = NO_DIRECT_PROVIDER.set(());
+        set_unstartable(admission.unstartable);
+        uninstall();
+        NO_DIRECT_PROVIDER.store(true, Ordering::Release);
         tracing::warn!(
             companies = configs.len(),
             "no company model provider is available; the plane will serve the cockpit \
@@ -673,7 +710,7 @@ pub async fn start(
         tracing::warn!(company, reason, "company cannot start: {reason}");
     }
     let startable = admission.startable(configs);
-    let _ = UNSTARTABLE.set(admission.unstartable);
+    set_unstartable(admission.unstartable);
 
     let gateway_token = token(
         root,
@@ -752,19 +789,19 @@ pub async fn start(
             .context("build Runtime model relay client")?,
     };
     let relay = start_runtime_relay(relay_state.clone(), &endpoints.relay_bind).await?;
-    if CLIENT
-        .set(ClientConfig {
-            providers,
-            runtime_url: endpoints.relay_runtime_url.clone(),
-        })
-        .is_err()
-    {
-        relay.abort();
-        bail!("model gateway client was already installed");
-    }
-    if HOSTED_RELAY_STATE.set(relay_state).is_err() {
-        relay.abort();
-        bail!("hosted model relay state was already installed");
+    match (CLIENT.write(), HOSTED_RELAY_STATE.write()) {
+        (Ok(mut client), Ok(mut hosted)) => {
+            *client = Some(ClientConfig {
+                providers,
+                runtime_url: endpoints.relay_runtime_url.clone(),
+            });
+            *hosted = Some(relay_state);
+            NO_DIRECT_PROVIDER.store(false, Ordering::Release);
+        }
+        _ => {
+            relay.abort();
+            bail!("model gateway state lock is poisoned");
+        }
     }
     Ok(Some(Processes {
         broker,
@@ -1056,12 +1093,16 @@ fn hosted_relay_state(headers: &HeaderMap) -> std::result::Result<RelayState, Re
             "hosted model relay accepts machine requests only",
         ));
     }
-    HOSTED_RELAY_STATE.get().cloned().ok_or_else(|| {
-        relay_error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "hosted model relay is not ready",
-        )
-    })
+    HOSTED_RELAY_STATE
+        .read()
+        .ok()
+        .and_then(|state| state.clone())
+        .ok_or_else(|| {
+            relay_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "hosted model relay is not ready",
+            )
+        })
 }
 
 async fn hosted_relay_models(headers: HeaderMap) -> Response<Body> {
@@ -1216,7 +1257,7 @@ async fn relay_models(State(state): State<RelayState>, headers: HeaderMap) -> Re
     let body = serde_json::json!({
         "object": "list",
         "data": [{
-            "id": model_id,
+            "id": runtime_model_id(model_id),
             "object": "model",
             "owned_by": grant.provider,
         }],
@@ -1248,15 +1289,15 @@ async fn relay_pi_stream(
             )
         }
     };
-    let request = match serde_json::from_slice::<serde_json::Value>(&body) {
+    let mut request = match serde_json::from_slice::<serde_json::Value>(&body) {
         Ok(request) => request,
         Err(_) => return relay_error(StatusCode::BAD_REQUEST, "model request body is not JSON"),
     };
     let model = match requested_model(&request) {
-        Some(model) => model,
+        Some(model) => model.to_string(),
         None => return relay_error(StatusCode::BAD_REQUEST, "model request has no modelId"),
     };
-    let provider = match split_model(model) {
+    let provider = match split_model(&model) {
         Ok((provider, _)) => provider,
         Err(_) => {
             return relay_error(
@@ -1265,7 +1306,9 @@ async fn relay_pi_stream(
             )
         }
     };
-    if provider != grant.provider || model != grant.model {
+    if provider != grant.provider
+        || (model != grant.model && model != runtime_model_id(&grant.model))
+    {
         return relay_error(
             StatusCode::FORBIDDEN,
             "model capability does not permit this exact model",
@@ -1305,7 +1348,11 @@ async fn relay_pi_stream(
         .post(format!("{}/v1/pi/stream", state.upstream_url))
         .bearer_auth(&state.upstream_token)
         .header(CONTENT_TYPE, "application/json")
-        .body(body);
+        .body(if restore_runtime_model_ids(&mut request, &grant.model) {
+            Bytes::from(serde_json::to_vec(&request).expect("re-encode model request"))
+        } else {
+            body
+        });
     if let Some(accept) = headers.get(ACCEPT) {
         upstream_request = upstream_request.header(ACCEPT, accept);
     }
@@ -1341,7 +1388,7 @@ async fn relay_pi_stream(
             responsibility: grant.responsibility,
             work_id: grant.work_id,
             attempt_id: grant.attempt_id,
-            model: model.to_string(),
+            model: grant.model.clone(),
             billing,
         },
     );
@@ -1827,6 +1874,40 @@ fn bearer_capability(headers: &HeaderMap) -> std::result::Result<&str, String> {
     raw.strip_prefix("Bearer ")
         .filter(|token| !token.is_empty())
         .ok_or_else(|| "model request bearer capability is malformed".to_string())
+}
+
+/// OMP 18 lists model ids containing `:` (OpenRouter's `:free` variants) but
+/// cannot select them. The Runtime sees `~` in their place; the relay restores
+/// the exact id before a request leaves the host.
+pub(crate) fn runtime_model_id(model: &str) -> String {
+    model.replace(':', "~")
+}
+
+/// Replace every Runtime alias of the granted model, qualified or
+/// provider-local, with the exact id. Returns whether anything changed.
+fn restore_runtime_model_ids(value: &mut serde_json::Value, exact: &str) -> bool {
+    let local = split_model(exact).map(|(_, id)| id).unwrap_or(exact);
+    let (alias, local_alias) = (runtime_model_id(exact), runtime_model_id(local));
+    if alias == exact {
+        return false;
+    }
+    match value {
+        serde_json::Value::String(text) if *text == alias => {
+            *text = exact.to_string();
+            true
+        }
+        serde_json::Value::String(text) if *text == local_alias => {
+            *text = local.to_string();
+            true
+        }
+        serde_json::Value::Array(items) => items.iter_mut().fold(false, |changed, item| {
+            restore_runtime_model_ids(item, exact) | changed
+        }),
+        serde_json::Value::Object(fields) => fields.values_mut().fold(false, |changed, item| {
+            restore_runtime_model_ids(item, exact) | changed
+        }),
+        _ => false,
+    }
 }
 
 fn requested_model(request: &serde_json::Value) -> Option<&str> {
@@ -2452,10 +2533,12 @@ pub(crate) fn anthropic_model_has_pinned_tariff(provider_model: &str) -> bool {
         .is_some_and(|model| anthropic_tariff_micro_usd(model, 0, 0, 0, 0).is_some())
 }
 
-pub fn client() -> Result<&'static ClientConfig> {
+pub fn client() -> Result<ClientConfig> {
     CLIENT
-        .get()
-        .context("No direct intelligence provider is active. Connect a direct provider in Intelligence provider and restart Restless, or assign this agent to a connected harness.")
+        .read()
+        .ok()
+        .and_then(|client| client.clone())
+        .context("No direct intelligence provider is active yet. Connect a direct provider in Intelligence provider (Restless loads it within seconds), or assign this agent to a connected harness.")
 }
 
 pub fn oauth_is_loaded(provider: &str) -> Result<bool> {
@@ -3230,6 +3313,52 @@ mission = "Choose native intelligence"
         assert_eq!(catalogue["data"].as_array().unwrap().len(), 1);
         assert_eq!(catalogue["data"][0]["id"], "kimi-k3");
         assert_eq!(catalogue["data"][0]["owned_by"], "moonshot");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn colon_model_ids_reach_the_runtime_as_an_alias_and_leave_exact() {
+        use axum::body::to_bytes;
+
+        let exact = "litellm/nvidia/nemotron-3-ultra-550b-a55b:free";
+        let root = test_root();
+        let (issuer, _spend, state) = test_relay_state(&root);
+        let token = issuer
+            .issue_model_session(
+                "acme_test",
+                "exec",
+                "session_123",
+                "litellm",
+                exact,
+                "metered_api",
+                "exec",
+                None,
+                None,
+            )
+            .unwrap();
+        let response = relay_models(State(state), bearer_headers(&token)).await;
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let catalogue: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            catalogue["data"][0]["id"],
+            "nvidia/nemotron-3-ultra-550b-a55b~free"
+        );
+
+        let mut request = serde_json::json!({
+            "modelId": runtime_model_id(exact),
+            "model": {"id": "nvidia/nemotron-3-ultra-550b-a55b~free", "provider": "litellm"},
+            "messages": [{"role": "user", "content": "litellm/other~model"}],
+        });
+        assert!(restore_runtime_model_ids(&mut request, exact));
+        assert_eq!(request["modelId"], exact);
+        assert_eq!(
+            request["model"]["id"],
+            "nvidia/nemotron-3-ultra-550b-a55b:free"
+        );
+        assert_eq!(request["messages"][0]["content"], "litellm/other~model");
+        // Ids without a colon are never rewritten.
+        let mut plain = serde_json::json!({"modelId": "moonshot/kimi-k3"});
+        assert!(!restore_runtime_model_ids(&mut plain, "moonshot/kimi-k3"));
         std::fs::remove_dir_all(root).unwrap();
     }
 

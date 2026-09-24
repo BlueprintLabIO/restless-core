@@ -847,6 +847,13 @@ async fn run() -> Result<()> {
     let model_spend = daemon.spend.clone();
     let schedule_daemon = std::sync::Arc::clone(&daemon);
     tokio::spawn(async move {
+        let load_configs = |root: &std::path::Path| -> Result<Vec<runtime::CompanyConfig>> {
+            configured_companies(root)?
+                .into_iter()
+                .map(|company| runtime::CompanyConfig::load(root, &company))
+                .collect()
+        };
+        let mut model_configs = model_configs;
         loop {
             match model_gateway::start(
                 &model_configs,
@@ -862,14 +869,33 @@ async fn run() -> Result<()> {
                     } else {
                         tracing::info!("no direct model gateway needed; native harness routes remain available");
                     }
-                    let _processes = processes;
-                    std::future::pending::<()>().await;
+                    // Providers load only when the gateway starts, so restart it
+                    // when a company's model route or credential references
+                    // change instead of asking the owner to restart Restless.
+                    let started_from = model_gateway::provider_fingerprint(&model_configs);
+                    loop {
+                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                        if let Ok(current) = load_configs(&model_root) {
+                            if model_gateway::provider_fingerprint(&current) != started_from {
+                                model_configs = current;
+                                break;
+                            }
+                        }
+                    }
+                    tracing::info!("company model providers changed; reloading the model gateway");
+                    model_gateway::uninstall();
+                    drop(processes);
+                    // Let the stopped broker and gateway release their ports.
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                 }
                 Err(error) => {
                     tracing::error!(
                         "model gateway unavailable; owner plane remains ready and retry is scheduled: {error:#}"
                     );
                     tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                    if let Ok(current) = load_configs(&model_root) {
+                        model_configs = current;
+                    }
                 }
             }
         }
