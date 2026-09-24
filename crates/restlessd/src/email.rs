@@ -11,6 +11,9 @@ use sha2::{Digest as _, Sha256};
 use uuid::Uuid;
 
 const RESEND_EMAILS_URL: &str = "https://api.resend.com/emails";
+const RESEND_RECEIVING_URL: &str = "https://api.resend.com/emails/receiving";
+const RESEND_SUPPRESSIONS_URL: &str = "https://api.resend.com/suppressions";
+const OBSERVATION_PAGE_SIZE: u8 = 100;
 const MAX_SUBJECT_CHARS: usize = 998;
 const MAX_BODY_BYTES: usize = 1_000_000;
 const MAX_ATTACHMENTS: usize = 10;
@@ -233,6 +236,99 @@ pub enum EmailSendOutcome {
     Accepted { provider_id: String },
     Rejected { status: u16 },
     Unknown { reason: String },
+}
+
+/// A bounded metadata-only observation of Resend's inbound and outbound lists.
+/// Message bodies and the host-held API credential never cross this boundary.
+pub async fn observe(
+    resend_production_key: &str,
+    list: Option<&str>,
+    after: Option<&str>,
+) -> Result<serde_json::Value> {
+    if resend_production_key.trim().is_empty()
+        || resend_production_key.chars().any(|c| c == '\r' || c == '\n')
+    {
+        bail!("Resend production credential is missing or malformed");
+    }
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .context("create Resend observation client")?;
+    if after.is_some() && list.is_none() {
+        bail!("--after requires selecting one email observation --list");
+    }
+    if let Some(after) = after {
+        Uuid::parse_str(after).context("email observation cursor must be a provider UUID")?;
+    }
+    let inbound = if list.is_none() || list == Some("inbound") {
+        Some(observe_list(&client, RESEND_RECEIVING_URL, resend_production_key, (list == Some("inbound")).then_some(after).flatten()).await?)
+    } else { None };
+    let outbound = if list.is_none() || list == Some("outbound") {
+        Some(observe_list(&client, RESEND_EMAILS_URL, resend_production_key, (list == Some("outbound")).then_some(after).flatten()).await?)
+    } else { None };
+    let suppressions = if list.is_none() || list == Some("suppressions") {
+        Some(observe_list(&client, RESEND_SUPPRESSIONS_URL, resend_production_key, (list == Some("suppressions")).then_some(after).flatten()).await?)
+    } else { None };
+    Ok(serde_json::json!({
+        "observed_at": chrono::Utc::now(),
+        "provider": "resend",
+        "read_only": true,
+        "inbound": inbound,
+        "outbound": outbound,
+        "suppressions": suppressions,
+        "selected_list": list,
+        "note": "Metadata only; each list is limited to 100 records and reports has_more/next_after.",
+    }))
+}
+
+async fn observe_list(
+    client: &reqwest::Client,
+    endpoint: &str,
+    key: &str,
+    after: Option<&str>,
+) -> Result<serde_json::Value> {
+    let mut query = vec![("limit", OBSERVATION_PAGE_SIZE.to_string())];
+    if let Some(after) = after {
+        query.push(("after", after.to_owned()));
+    }
+    let response = client
+        .get(endpoint)
+        .query(&query)
+        .bearer_auth(key)
+        .send()
+        .await
+        .with_context(|| format!("request Resend list {}", endpoint.rsplit('/').next().unwrap_or("list")))?;
+    let status = response.status();
+    if !status.is_success() {
+        bail!("Resend list request returned HTTP {}", status.as_u16());
+    }
+    let value: serde_json::Value = response.json().await.context("decode Resend list response")?;
+    let data = value.get("data").and_then(serde_json::Value::as_array)
+        .context("Resend list response has no data array")?;
+    let messages: Vec<serde_json::Value> = data.iter().map(|item| {
+        let mut summary = serde_json::Map::new();
+        for field in ["id", "created_at", "from", "to", "subject", "last_event", "received_at"] {
+            if let Some(value) = item.get(field) {
+                summary.insert(field.to_owned(), value.clone());
+            }
+        }
+        serde_json::Value::Object(summary)
+    }).collect();
+    let has_more = value.get("has_more").and_then(serde_json::Value::as_bool)
+        .context("Resend list response has no boolean has_more field")?;
+    let next_after = if has_more {
+        Some(data.last().and_then(|item| item.get("id")).and_then(serde_json::Value::as_str)
+            .filter(|id| !id.trim().is_empty())
+            .context("Resend list reports has_more but has no last-item ID cursor")?)
+    } else {
+        None
+    };
+    Ok(serde_json::json!({
+        "messages": messages,
+        "count": data.len(),
+        "has_more": has_more,
+        "next_after": next_after,
+    }))
 }
 
 /// Resolve each declared attachment from a productive directory in the

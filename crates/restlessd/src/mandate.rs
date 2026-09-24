@@ -150,7 +150,7 @@ fn validate_digest(value: &str) -> Result<()> {
     Ok(())
 }
 
-async fn lock_company(tx: &mut Transaction<'_, Postgres>, company: &str) -> Result<()> {
+pub(super) async fn lock_company(tx: &mut Transaction<'_, Postgres>, company: &str) -> Result<()> {
     sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
         .bind(format!("email-authority:{company}"))
         .execute(&mut **tx)
@@ -202,43 +202,42 @@ pub(super) async fn grant(
     if owner_actor_id.trim().is_empty() {
         bail!("owner attribution is required to grant an email mandate");
     }
-    if mandate.purpose.trim().is_empty() || mandate.audience_guidance.trim().is_empty() {
-        bail!("email mandate needs a purpose and audience guidance");
+    let mut tx = pool.begin().await?;
+    lock_company(&mut tx, company).await?;
+    let mandate = grant_in_transaction(&mut tx, company, owner_actor_id, mandate).await?;
+    tx.commit().await?;
+    Ok(mandate)
+}
+
+pub(super) async fn grant_in_transaction(
+    tx: &mut Transaction<'_, Postgres>,
+    company: &str,
+    owner_actor_id: &str,
+    mandate: NewEmailMandate,
+) -> Result<EmailMandate> {
+    if owner_actor_id.trim().is_empty() {
+        bail!("owner attribution is required to grant an email mandate");
     }
-    if mandate.purpose.trim().len() > 2_000 || mandate.audience_guidance.trim().len() > 8_000 {
-        bail!("email mandate purpose or audience guidance exceeds its size limit");
-    }
-    let sender = normalize_mailbox(&mandate.sender)?;
-    let sender_name = normalize_sender_name(mandate.sender_name.as_deref())?;
-    if mandate.max_per_day == 0 || mandate.max_total == 0 || mandate.max_per_day > mandate.max_total
-    {
-        bail!("email mandate limits must be positive and daily limit cannot exceed total limit");
-    }
-    Tz::from_str(&mandate.timezone).context("timezone must be a valid IANA timezone")?;
+    let mandate = canonicalize_new_mandate(mandate)?;
     let now = Utc::now();
-    if mandate.expires_at <= now {
-        bail!("email mandate must expire in the future");
-    }
     let mandate = EmailMandate {
         id: Uuid::new_v4(),
-        purpose: mandate.purpose.trim().to_owned(),
-        audience_guidance: mandate.audience_guidance.trim().to_owned(),
-        sender,
-        sender_name,
+        purpose: mandate.purpose,
+        audience_guidance: mandate.audience_guidance,
+        sender: mandate.sender,
+        sender_name: mandate.sender_name,
         max_per_day: mandate.max_per_day,
         max_total: mandate.max_total,
         timezone: mandate.timezone,
         expires_at: mandate.expires_at,
         created_at: now,
     };
-    let mut tx = pool.begin().await?;
-    lock_company(&mut tx, company).await?;
     let grants = sqlx::query(
         "SELECT id,body FROM restless_authority.records \
          WHERE company=$1 AND kind='email_mandate_granted' ORDER BY id DESC",
     )
     .bind(company)
-    .fetch_all(&mut *tx)
+    .fetch_all(&mut **tx)
     .await?;
     for row in grants {
         let grant_id: i64 = row.try_get("id")?;
@@ -255,7 +254,7 @@ pub(super) async fn grant(
         .bind(company)
         .bind(existing.id.to_string())
         .bind(grant_id)
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut **tx)
         .await?;
         if !revoked {
             bail!("company already has an active email root mandate");
@@ -267,7 +266,7 @@ pub(super) async fn grant(
     )
     .bind(company)
     .bind(mandate.id.to_string())
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **tx)
     .await?;
     if exists {
         bail!("email mandate ids are immutable and cannot be granted twice");
@@ -279,9 +278,35 @@ pub(super) async fn grant(
     .bind(company)
     .bind(owner_actor_id)
     .bind(serde_json::to_value(&mandate)?)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
-    tx.commit().await?;
+    Ok(mandate)
+}
+
+pub(super) fn validate_new_mandate(mandate: &NewEmailMandate) -> Result<()> {
+    canonicalize_new_mandate(mandate.clone()).map(|_| ())
+}
+
+pub(super) fn canonicalize_new_mandate(mut mandate: NewEmailMandate) -> Result<NewEmailMandate> {
+    if mandate.purpose.trim().is_empty() || mandate.audience_guidance.trim().is_empty() {
+        bail!("email mandate needs a purpose and audience guidance");
+    }
+    if mandate.purpose.trim().len() > 2_000 || mandate.audience_guidance.trim().len() > 8_000 {
+        bail!("email mandate purpose or audience guidance exceeds its size limit");
+    }
+    mandate.sender = normalize_mailbox(&mandate.sender)?;
+    mandate.sender_name = normalize_sender_name(mandate.sender_name.as_deref())?;
+    mandate.purpose = mandate.purpose.trim().to_owned();
+    mandate.audience_guidance = mandate.audience_guidance.trim().to_owned();
+    if mandate.max_per_day == 0 || mandate.max_total == 0 || mandate.max_per_day > mandate.max_total
+    {
+        bail!("email mandate limits must be positive and daily limit cannot exceed total limit");
+    }
+    Tz::from_str(&mandate.timezone).context("timezone must be a valid IANA timezone")?;
+    let now = Utc::now();
+    if mandate.expires_at <= now {
+        bail!("email mandate must expire in the future");
+    }
     Ok(mandate)
 }
 

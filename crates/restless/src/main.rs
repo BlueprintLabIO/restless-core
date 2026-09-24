@@ -412,6 +412,15 @@ enum MandateCommand {
 
 #[derive(Subcommand)]
 enum EmailCommand {
+    /// Observe recent inbound and outbound Resend message metadata without sending.
+    Observe {
+        /// Inspect only one collection; use with --after to continue that list.
+        #[arg(long, value_parser = ["inbound", "outbound", "suppressions"])]
+        list: Option<String>,
+        /// Provider cursor returned as next_after by a prior observation.
+        #[arg(long)]
+        after: Option<String>,
+    },
     /// Validate and show the canonical payload digest without reserving or sending.
     Preview {
         /// JSON file containing the typed email request.
@@ -2338,7 +2347,17 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             }
         },
         Command::Email { company, command } => {
+            if let EmailCommand::Observe { list, after } = &command {
+                return Ok(serde_json::json!({
+                    "cmd": "email-observe",
+                    "company": company,
+                    "actor": acting_actor(),
+                    "email_observe_list": list,
+                    "email_observe_after": after,
+                }));
+            }
             let (cmd, request_file) = match command {
+                EmailCommand::Observe { .. } => unreachable!("handled above"),
                 EmailCommand::Preview { request_file } => ("email-preview", request_file),
                 EmailCommand::Send { request_file } => {
                     let actor = acting_actor();

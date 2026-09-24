@@ -1432,6 +1432,7 @@ fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Result
         | "mandate-permit"
         | "email-preview"
         | "email-send"
+        | "email-observe"
         | "connected-tool-attach"
         | "connected-tool-install"
         | "connected-tool-reconnect"
@@ -5629,6 +5630,37 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             match daemon.authority.list_email_mandates(company).await {
                 Ok(mandates) => Response::ok_serialized(mandates),
                 Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "email-observe" => {
+            let actor = request.orgintel.actor.as_deref().unwrap_or_default();
+            if actor.trim().is_empty() {
+                return Response::err("email observation needs an authenticated acting actor");
+            }
+            let config = match runtime::CompanyConfig::load(&daemon.root, company) {
+                Ok(config) => config,
+                Err(error) => return Response::err(format!("{error:#}")),
+            };
+            let key = match credential::resolve(&config, "resend.production").await {
+                Ok(key) => key,
+                Err(error) => return Response::err(format!("resolve host-held Resend credential: {error:#}")),
+            };
+            let mut observation = match email::observe(
+                &key,
+                request.authority.email_observe_list.as_deref(),
+                request.authority.email_observe_after.as_deref(),
+            ).await {
+                Ok(observation) => observation,
+                Err(error) => return Response::err(format!("observe Resend metadata: {error:#}")),
+            };
+            match daemon.authority.record_email_observation(company, actor, observation.clone()).await {
+                Ok(receipt_id) => {
+                    if let Some(object) = observation.as_object_mut() {
+                        object.insert("receipt_id".into(), serde_json::json!(receipt_id));
+                    }
+                    Response::ok(observation)
+                }
+                Err(error) => Response::err(format!("record Resend observation: {error:#}")),
             }
         }
         "mandate-permit" => {

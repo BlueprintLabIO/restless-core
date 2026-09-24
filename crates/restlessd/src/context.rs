@@ -476,7 +476,16 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          and optional declared attachments. The permit JSON names sender, recipient, \
          payload_sha256, effect_key, rationale, evidence_refs and an expiry within five minutes. \
          Reconcile prior sends and unknown outcomes before proposing; never retry an uncertain \
-         external effect. A provider-accepted send is not proof of delivery. An active email \
+         external effect. A provider-accepted send is not proof of delivery. Use `restless email \
+         observe -c <company>` for typed, host-side, read-only inbound/outbound/suppression metadata; \
+         each list is bounded to 100 and reports has_more/next_after. If has_more is true, continue \
+         that exact list with `restless email observe --list <inbound|outbound|suppressions> \
+         --after <next_after> -c <company>`; do not claim full reconciliation before the final page. \
+         Each page has a durable observation receipt. The Resend credential stays on the host. \
+         You must use judgement to decide what provider evidence means and whether the mandate \
+         should be enforced for a proposed send; provider metadata may be incomplete and your \
+         judgement can be mistaken, so state uncertainty and never present inference as observed \
+         fact. An active email \
          mandate cannot be used through the generic effect child. For other material external \
          argv, use \
          restless effect --class <class> --purpose <why> [--party <party>] \

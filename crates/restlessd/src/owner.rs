@@ -1405,6 +1405,8 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route("/companies/{company}/archive", post(archive_company))
         .route("/companies/{company}/restore", post(restore_company))
         .route("/companies/{company}/attention", get(attention_view))
+        .route("/companies/{company}/email-mandates/proposals", post(propose_email_mandate))
+        .route("/companies/{company}/email-mandates/proposals/{proposal}/decision", post(decide_email_mandate))
         .route("/companies/{company}/cockpit", get(cockpit_view))
         .route(
             "/companies/{company}/teams/{team}/outcome-standard",
@@ -3472,6 +3474,57 @@ async fn attention_view(
             "projection",
             format!("{error:#}"),
         ),
+    }
+}
+
+#[derive(Deserialize)]
+struct EmailMandateProposalInput {
+    proposal: mandate::NewEmailMandate,
+    #[serde(default)]
+    judgement_note: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct EmailMandateDecisionInput {
+    decision: String,
+    #[serde(default)]
+    owner_note: Option<String>,
+}
+
+async fn propose_email_mandate(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<EmailMandateProposalInput>,
+) -> impl IntoResponse {
+    if input.judgement_note.as_deref().is_some_and(|note| note.len() > 2_000) {
+        return api_error(StatusCode::BAD_REQUEST, "email_mandate", "judgement note is too long");
+    }
+    match state.daemon.authority.propose_email_mandate(&company, principal.actor_id(), input.proposal, input.judgement_note.as_deref()).await {
+        Ok(proposal_id) => Json(serde_json::json!({"proposal_id":proposal_id,"status":"pending"})).into_response(),
+        Err(error) => api_error(StatusCode::BAD_REQUEST, "email_mandate", format!("invalid mandate proposal: {error:#}")),
+    }
+}
+
+async fn decide_email_mandate(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, proposal)): AxumPath<(String, Uuid)>,
+    Json(input): Json<EmailMandateDecisionInput>,
+) -> impl IntoResponse {
+    let approve = match input.decision.as_str() { "approve" => true, "decline" => false, _ => return api_error(StatusCode::BAD_REQUEST, "email_mandate", "decision must be approve or decline") };
+    let org = state.daemon.orgintel.get(&company).await.ok();
+    let owner = match effective_authority_owner(&state, &company, org.as_ref()).await {
+        Ok(owner) => owner.actor_id,
+        Err(error) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "authority_owner", format!("could not resolve Authority owner: {error:#}")),
+    };
+    if principal.actor_id() != owner {
+        return api_error(StatusCode::FORBIDDEN, "authority_owner", "only the current Authority owner may decide this mandate");
+    }
+    match state.daemon.authority.decide_email_mandate_proposal(&company, principal.actor_id(), proposal, approve, input.owner_note.as_deref()).await {
+        Ok(Some(mandate)) => Json(serde_json::json!({"status":"approved","mandate":mandate})).into_response(),
+        Ok(None) => Json(serde_json::json!({"status":"declined"})).into_response(),
+        Err(error) => api_error(StatusCode::CONFLICT, "email_mandate", format!("mandate decision failed: {error:#}")),
     }
 }
 

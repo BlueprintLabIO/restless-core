@@ -1,7 +1,10 @@
 <script lang="ts">
+	import { useQueryClient } from '@tanstack/svelte-query';
 	import InfoTip from '$lib/components/InfoTip.svelte';
+	import { refreshAttention } from '$lib/model/queries.svelte';
 
 	let { companyId }: { companyId: string } = $props();
+	const queryClient = useQueryClient();
 
 	type EmailMandate = {
 		id: string;
@@ -74,6 +77,10 @@
 		return `/api/companies/${encodeURIComponent(companyId)}/mandates/email`;
 	}
 
+	function proposalEndpoint() {
+		return `/api/companies/${encodeURIComponent(companyId)}/email-mandates/proposals`;
+	}
+
 	async function responseBody(response: Response): Promise<Record<string, unknown>> {
 		try {
 			return (await response.json()) as Record<string, unknown>;
@@ -133,29 +140,34 @@
 		}
 		saving = true;
 		try {
-			const response = await fetch(endpoint(), {
+			const response = await fetch(proposalEndpoint(), {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({
-					purpose: draft.purpose.trim(),
-					audience_guidance: draft.audience_guidance.trim(),
-					sender: draft.sender.trim(),
-					sender_name: draft.sender_name.trim() || null,
-					max_per_day: daily,
-					max_total: total,
-					timezone: draft.timezone.trim(),
-					expires_at: new Date(draft.expires_at).toISOString()
+					proposal: {
+						purpose: draft.purpose.trim(),
+						audience_guidance: draft.audience_guidance.trim(),
+						sender: draft.sender.trim(),
+						sender_name: draft.sender_name.trim() || null,
+						max_per_day: daily,
+						max_total: total,
+						timezone: draft.timezone.trim(),
+						expires_at: new Date(draft.expires_at).toISOString()
+					}
 				})
 			});
 			const body = await responseBody(response);
-			if (!response.ok) throw new Error(messageFrom(body, 'The email mandate could not be saved.'));
-			const created = (body.mandate ?? body) as EmailMandate;
-			if (typeof created.id === 'string') mandates = [created, ...mandates];
-			else await loadMandates();
+			if (!response.ok)
+				throw new Error(messageFrom(body, 'The email mandate proposal could not be submitted.'));
+			await refreshAttention(queryClient, companyId);
 			editing = false;
-			notice = 'Email mandate saved. Exec can now judge qualifying prospects within these limits.';
+			notice =
+				'Mandate proposal sent to Attention. It will not authorize sends until you approve it there.';
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'The email mandate could not be saved.';
+			error =
+				cause instanceof Error
+					? cause.message
+					: 'The email mandate proposal could not be submitted.';
 		} finally {
 			saving = false;
 		}
@@ -213,7 +225,7 @@
 	<div class="section-heading">
 		<h2>Email authority</h2>
 		<InfoTip
-			text="Exec uses judgement to apply the audience guidance and choose relevant messages. The send boundary verifies the exact recipient and message, sender, daily and total limits, and expiry. Until you create a mandate, emails still need exact-recipient approval in Attention. Existing approvals are not converted."
+			text="Exec judges whether each prospect and message fits the approved purpose and audience, and it can make mistakes. The send boundary checks the exact recipient and message, sender, daily and total limits, and expiry; it cannot prove the judgement is right. Until you approve a mandate in Attention, emails still need exact-recipient approval. Existing approvals are not converted."
 		/>
 		{#if !editing}<button
 				class="btn small"
@@ -339,6 +351,11 @@
 				void save();
 			}}
 		>
+			<p class="judgement-note">
+				Exec must use judgement to decide whether each prospect and message fit this mandate, and it
+				can make mistakes. Review the full proposal in Attention and decide whether to enable that
+				discretion; no sends are authorized until you approve it.
+			</p>
 			<div class="field">
 				<label for="mandate-purpose">Purpose</label>
 				<textarea
@@ -444,7 +461,7 @@
 					}}>Cancel</button
 				>
 				<button class="btn primary small" type="submit" disabled={saving}
-					>{saving ? 'Saving…' : 'Create mandate'}</button
+					>{saving ? 'Submitting…' : 'Request approval'}</button
 				>
 			</div>
 		</form>
@@ -539,6 +556,14 @@
 		margin-top: var(--space-4);
 		padding-top: var(--space-4);
 		border-top: 1px solid var(--border);
+	}
+	.judgement-note {
+		margin: 0;
+		padding: 10px 12px;
+		border-left: 2px solid var(--intent-authority);
+		color: var(--text-muted);
+		font-size: var(--t-label);
+		line-height: 1.5;
 	}
 	.field {
 		display: grid;
