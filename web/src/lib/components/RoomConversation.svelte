@@ -57,6 +57,7 @@
 	import type { CollaborationTeam } from '$lib/model/collaboration';
 	import type { AttentionItem, ThreadMessage } from '$lib/model/view';
 	import Composer from '$lib/primitives/Composer.svelte';
+	import { followChat } from '$lib/actions/follow-chat';
 
 	const SEARCH_DEBOUNCE_MS = 250;
 
@@ -165,8 +166,6 @@
 	let draftTimer: number | undefined;
 	let roomScrollEl = $state<HTMLDivElement | undefined>();
 	let threadScrollEl = $state<HTMLDivElement | undefined>();
-	let roomOpenedFor = $state('');
-	let threadOpenedFor = $state('');
 	let messageSearch = $state('');
 	let debouncedMessageSearch = $state('');
 	let messageSearchOpen = $state(false);
@@ -599,34 +598,6 @@
 		const names = participants.map((participant) => actorName(participant.actor_id));
 		if (names.length <= 3) return names.join(', ');
 		return `${names.slice(0, 2).join(', ')} and ${names.length - 2} more`;
-	});
-
-	$effect(() => {
-		const room = selectedRoomId;
-		const scroller = roomScrollEl;
-		if (!room || !scroller || !roomMessages.length || roomOpenedFor === room) return;
-		roomOpenedFor = room;
-		void tick().then(() => scroller.scrollTo({ top: scroller.scrollHeight }));
-	});
-
-	$effect(() => {
-		const scope = threadRootId ? `${selectedRoomId}:${threadRootId}` : '';
-		const scroller = threadScrollEl;
-		const target = exactMessageTarget;
-		if (!scope) {
-			threadOpenedFor = '';
-			return;
-		}
-		if (
-			target &&
-			target.roomId === selectedRoomId.toLowerCase() &&
-			target.threadRootMessageId === threadRootId
-		) {
-			return;
-		}
-		if (!scroller || !threadMessages.length || threadOpenedFor === scope) return;
-		threadOpenedFor = scope;
-		void tick().then(() => scroller.scrollTo({ top: scroller.scrollHeight }));
 	});
 
 	$effect(() => {
@@ -1101,7 +1072,11 @@
 				</div>
 			{/if}
 
-			<div class="room-message-list" bind:this={roomScrollEl}>
+			<div
+				class="room-message-list"
+				bind:this={roomScrollEl}
+				use:followChat={{ key: selectedRoomId, enabled: !hasMessageSearch && !focusedMessageId }}
+			>
 				{#if hasMessageSearch}
 					<div class="message-search-results" aria-live="polite">
 						{#if messageSearchPending || messageSearchProjection.status === 'unknown'}
@@ -1277,7 +1252,18 @@
 					{exactTargetUnavailableCopy(exactTargetUnavailableReason)}
 				</div>
 			{/if}
-			<div class="thread-messages" bind:this={threadScrollEl}>
+			<div
+				class="thread-messages"
+				bind:this={threadScrollEl}
+				use:followChat={{
+					key: `${selectedRoomId}:${threadRootId ?? ''}`,
+					enabled:
+						!focusedMessageId &&
+						!(exactMessageTarget &&
+							exactMessageTarget.roomId === selectedRoomId.toLowerCase() &&
+							exactMessageTarget.threadRootMessageId === threadRootId)
+				}}
+			>
 				{#if threadProjection?.hasMore}
 					<button
 						type="button"
@@ -1697,6 +1683,7 @@
 		min-height: 0;
 		flex: 1;
 		overflow: auto;
+		overflow-anchor: none;
 		overscroll-behavior: contain;
 		background: var(--surface-pane);
 	}

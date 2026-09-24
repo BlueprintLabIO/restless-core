@@ -1,20 +1,28 @@
+type FollowChatParameter = string | { key: string; enabled?: boolean };
+
+function optionsFor(value: FollowChatParameter) {
+	return typeof value === 'string' ? { key: value, enabled: true } : { enabled: true, ...value };
+}
+
 /** Follow a growing transcript until the reader scrolls away from its end. */
-export function followChat(node: HTMLElement, resetKey: string) {
-	let following = true;
+export function followChat(node: HTMLElement, parameter: FollowChatParameter) {
+	let { key: resetKey, enabled } = optionsFor(parameter);
+	let following = enabled;
 	let lastTop = node.scrollTop;
 	let frame = 0;
 	let layout = [node.scrollHeight, node.clientHeight, node.clientWidth];
 	const atEnd = () => node.scrollHeight - node.clientHeight - node.scrollTop <= 48;
 	function schedule() {
-		if (frame) return;
+		if (!enabled || frame) return;
 		frame = requestAnimationFrame(() => {
 			frame = 0;
-			if (following) node.scrollTop = node.scrollHeight;
+			if (enabled && following) node.scrollTop = node.scrollHeight;
 			lastTop = node.scrollTop;
 			layout = [node.scrollHeight, node.clientHeight, node.clientWidth];
 		});
 	}
 	function onScroll() {
+		if (!enabled) return;
 		// Layout changes can clamp scrollTop without any reader input.
 		if (
 			layout[0] !== node.scrollHeight ||
@@ -51,11 +59,17 @@ export function followChat(node: HTMLElement, resetKey: string) {
 	observeChildren();
 	schedule();
 	return {
-		update(key: string) {
-			if (key !== resetKey) {
-				resetKey = key;
-				following = true;
-				schedule();
+		update(next: FollowChatParameter) {
+			const options = optionsFor(next);
+			if (options.key !== resetKey || options.enabled !== enabled) {
+				resetKey = options.key;
+				enabled = options.enabled;
+				following = enabled;
+				if (enabled) schedule();
+				else if (frame) {
+					cancelAnimationFrame(frame);
+					frame = 0;
+				}
 			}
 		},
 		destroy() {

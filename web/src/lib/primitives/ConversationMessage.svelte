@@ -41,6 +41,7 @@
 	} = $props();
 
 	let copyState = $state<'idle' | 'copied' | 'failed'>('idle');
+	let messageExpanded = $state(false);
 	let copyTimer: number | undefined;
 
 	function timeLabel(value: Date | string): string {
@@ -57,6 +58,12 @@
 	const messageDate = $derived(new Date(createdAt));
 	const validDate = $derived(!Number.isNaN(messageDate.getTime()));
 	const displayAuthor = $derived(author === 'The Exec' ? 'Exec' : author);
+	const longOwnerMessage = $derived(
+		sender === 'owner' && (text.length > 700 || (text.match(/\n/g)?.length ?? 0) >= 12)
+	);
+	const messagePreview = $derived(
+		text.replace(/\s+/g, ' ').trim().slice(0, 200).concat(text.trim().length > 200 ? '…' : '')
+	);
 
 	async function copyMessage() {
 		try {
@@ -104,7 +111,19 @@
 	</header>
 
 	<div class="message-body">
-		<Markdown {text} />
+		{#if longOwnerMessage}
+			<details class="message-fold" bind:open={messageExpanded}>
+				<summary>
+					<span class="message-preview">{messagePreview}</span>
+					<span class="message-fold-label">
+						{messageExpanded ? 'Show less' : 'Read full message'}
+					</span>
+				</summary>
+				<div class="message-fold-content"><Markdown {text} /></div>
+			</details>
+		{:else}
+			<Markdown {text} />
+		{/if}
 		{#if sender === 'agent' && (intent?.outcome || intent?.nextStep || intent?.ownerNeed)}
 			<dl class="message-glance" aria-label="At a glance">
 				{#if intent.outcome}
@@ -304,6 +323,50 @@
 
 	.message-body :global(:is(strong, h1, h2, h3, h4, h5, h6)) {
 		color: var(--ink);
+	}
+
+	.message-fold summary {
+		display: grid;
+		gap: 5px;
+		cursor: pointer;
+		list-style: none;
+	}
+
+	.message-fold summary::-webkit-details-marker {
+		display: none;
+	}
+
+	.message-preview {
+		display: -webkit-box;
+		overflow: hidden;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+		color: var(--text-secondary);
+	}
+
+	.message-fold[open] .message-preview {
+		display: none;
+	}
+
+	.message-fold-label {
+		width: fit-content;
+		color: var(--text-tertiary);
+		font: 600 var(--t-label) var(--font-ui);
+	}
+
+	.message-fold summary:hover .message-fold-label,
+	.message-fold summary:focus-visible .message-fold-label {
+		color: var(--ink);
+	}
+
+	.message-fold summary:focus-visible {
+		outline: 2px solid color-mix(in srgb, var(--intent-conversation) 34%, transparent);
+		outline-offset: 2px;
+	}
+
+	.message-fold-content {
+		padding-top: 8px;
 	}
 
 	.message-glance {
