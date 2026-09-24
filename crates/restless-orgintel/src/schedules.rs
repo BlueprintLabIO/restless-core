@@ -837,7 +837,7 @@ impl OrgIntel {
                     }
                     (Some("handoff"), Some(id)) => {
                         let handoff_state: Option<String> = sqlx::query_scalar(
-                            "SELECT h.state FROM owner_handoffs h JOIN opportunity_work ow ON ow.work_id=h.work_id \
+                            "SELECT h.state::text FROM owner_handoffs h JOIN opportunity_work ow ON ow.work_id=h.work_id \
                                WHERE ow.opportunity_id=$1 AND h.id=$2",
                         )
                         .bind(opportunity_id)
