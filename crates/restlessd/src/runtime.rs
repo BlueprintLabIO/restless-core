@@ -2697,13 +2697,31 @@ fn collect_files(path: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
 /// Stop the container. The volume — files, Git history, browser profile —
 /// survives (§5, §17 step 2: the persistent company computer).
 pub async fn down(company: &str) -> Result<String> {
+    let _start = company_start_guard(company).await;
+    down_locked(company).await
+}
+
+/// Stop a Runtime only if an async activity check still considers it idle.
+/// The predicate runs under the same per-company lifecycle lock as `up`, so a
+/// concurrent explicit start cannot be stopped after it has completed.
+pub async fn down_if_idle<F, Fut>(company: &str, is_idle: F) -> Result<bool>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<bool>>,
+{
+    let _start = company_start_guard(company).await;
+    if status(company).await? != ContainerStatus::Running || !is_idle().await? {
+        return Ok(false);
+    }
+    down_running_locked(company).await?;
+    invalidate_cockpit_health(company).await;
+    Ok(true)
+}
+
+async fn down_locked(company: &str) -> Result<String> {
     let result = match status(company).await? {
         ContainerStatus::Running => {
-            let name = container_name(company);
-            // Chromium's supervisor stop window is 20 seconds. Use a longer
-            // container deadline so cookies and profile state reach disk
-            // before Docker escalates to SIGKILL.
-            run_ok(&["stop", "--time", "30", &name]).await?;
+            down_running_locked(company).await?;
             format!("{company}: stopped (volume kept)")
         }
         ContainerStatus::Stopped => format!("{company}: already stopped"),
@@ -2711,6 +2729,15 @@ pub async fn down(company: &str) -> Result<String> {
     };
     invalidate_cockpit_health(company).await;
     Ok(result)
+}
+
+async fn down_running_locked(company: &str) -> Result<()> {
+    let name = container_name(company);
+    // Chromium's supervisor stop window is 20 seconds. Use a longer
+    // container deadline so cookies and profile state reach disk before
+    // Docker escalates to SIGKILL.
+    run_ok(&["stop", "--time", "30", &name]).await?;
+    Ok(())
 }
 
 /// S04-T1. Remove a throwaway company entirely: container, volume, OrgIntel

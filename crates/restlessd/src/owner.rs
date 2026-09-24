@@ -10,7 +10,7 @@
 #[path = "owner_agent_exchanges.rs"]
 mod agent_exchanges_api;
 #[path = "owner_capacity_activity.rs"]
-mod capacity_activity;
+pub(crate) mod capacity_activity;
 #[path = "owner_company_settings.rs"]
 mod company_settings_api;
 #[path = "owner_custom_harnesses.rs"]
