@@ -50,6 +50,7 @@ pub(crate) struct WakeClaims {
 
 const BACKOFF_FIRST: Duration = Duration::from_secs(30);
 const BACKOFF_CEILING: Duration = Duration::from_secs(300);
+const OWNER_MESSAGE_REASON: &str = "new owner message";
 
 impl WakeClaims {
     pub(crate) fn claim(&mut self, company: &str) -> bool {
@@ -79,6 +80,14 @@ impl WakeClaims {
     }
 
     fn queue(&mut self, company: &str, reason: &str) {
+        if reason != OWNER_MESSAGE_REASON
+            && self
+                .pending
+                .get(company)
+                .is_some_and(|pending| pending == OWNER_MESSAGE_REASON)
+        {
+            return;
+        }
         self.pending.insert(company.to_string(), reason.to_string());
     }
 
@@ -86,7 +95,7 @@ impl WakeClaims {
     /// automatic wake failed. A failed attempt re-enters the ordinary backoff.
     pub(crate) fn queue_owner_message(&mut self, company: &str) {
         self.backoff.remove(company);
-        self.queue(company, "new owner message");
+        self.queue(company, OWNER_MESSAGE_REASON);
     }
 
     /// Whether this company's next automatic wake is still held back by a
@@ -101,6 +110,15 @@ impl WakeClaims {
     /// and consumed nothing, so the owed facts still hold; hold the next
     /// automatic attempt instead of spinning on them.
     fn record_unusable_wake(&mut self, company: &str) {
+        // An owner message queued during this failed turn still deserves its
+        // first attempt before automatic retry backoff resumes.
+        if self
+            .pending
+            .get(company)
+            .is_some_and(|pending| pending == OWNER_MESSAGE_REASON)
+        {
+            return;
+        }
         let failures = self
             .backoff
             .get(company)
