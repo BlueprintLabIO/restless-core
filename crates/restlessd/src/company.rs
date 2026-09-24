@@ -142,7 +142,16 @@ struct Limits {
     cannot: Vec<LimitStatement>,
     approved_parties: Vec<String>,
     spend: SpendLimit,
+    runtime: RuntimeLimit,
     money_envelopes: Vec<finance::MoneyEnvelope>,
+}
+
+#[derive(Debug, Serialize)]
+struct RuntimeLimit {
+    auto_sleep_after_minutes: Option<u16>,
+    monthly_runtime_cap_hours: Option<u32>,
+    usage: Option<crate::runtime_usage::RuntimeUsage>,
+    usage_status: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -379,6 +388,14 @@ pub(crate) async fn project(
     .and_then(|metadata| metadata.modified().ok())
     .map(DateTime::<Utc>::from);
 
+    let (runtime_usage, runtime_usage_status) = match crate::runtime_usage::observe(&daemon.root, config).await {
+        Ok(usage) => (Some(usage), "available"),
+        Err(error) => {
+            tracing::warn!(company = %config.name, %error, "could not read runtime usage");
+            (None, "unavailable")
+        }
+    };
+
     let limits = Limits {
         status: if authority.is_some() {
             "available"
@@ -428,6 +445,12 @@ pub(crate) async fn project(
             .map(|value| value.approved_parties.clone())
             .unwrap_or_default(),
         spend,
+        runtime: RuntimeLimit {
+            auto_sleep_after_minutes: config.auto_sleep_after_minutes,
+            monthly_runtime_cap_hours: config.monthly_runtime_cap_hours,
+            usage: runtime_usage,
+            usage_status: runtime_usage_status,
+        },
         money_envelopes: authority
             .as_ref()
             .map(|value| value.envelopes.clone())

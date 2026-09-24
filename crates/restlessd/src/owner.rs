@@ -1397,6 +1397,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(company_settings_api::save_spend_limit),
         )
         .route(
+            "/companies/{company}/company/runtime-policy",
+            post(company_settings_api::save_runtime_policy),
+        )
+        .route(
             "/companies/{company}/company/outcome-standard",
             post(set_company_outcome_standard),
         )

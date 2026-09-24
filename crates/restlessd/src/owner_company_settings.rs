@@ -143,3 +143,69 @@ pub(super) async fn save_spend_limit(
     }
     Json(company_projection::project(&state.daemon, &config, false).await).into_response()
 }
+
+#[derive(Deserialize)]
+pub(super) struct RuntimePolicyInput {
+    auto_sleep_after_minutes: Option<u16>,
+    expected_auto_sleep_after_minutes: Option<u16>,
+    monthly_runtime_cap_hours: Option<u32>,
+    expected_monthly_runtime_cap_hours: Option<u32>,
+}
+
+pub(super) async fn save_runtime_policy(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<RuntimePolicyInput>,
+) -> impl IntoResponse {
+    if principal.membership_role() != "owner" {
+        return api_error(StatusCode::FORBIDDEN, "runtime_policy", "Only the owner can edit runtime limits.");
+    }
+    if input.auto_sleep_after_minutes.is_some_and(|minutes| !(1..=1440).contains(&minutes))
+        || input.monthly_runtime_cap_hours.is_some_and(|hours| !(1..=744).contains(&hours))
+    {
+        return api_error(StatusCode::BAD_REQUEST, "runtime_policy", "Sleep must be 1–1440 minutes and monthly runtime limit must be 1–744 hours.");
+    }
+    let _write = state.charter_writes.lock().await;
+    let mut config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => config,
+        Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+    };
+    if config.auto_sleep_after_minutes != input.expected_auto_sleep_after_minutes
+        || config.monthly_runtime_cap_hours != input.expected_monthly_runtime_cap_hours
+    {
+        return api_error(StatusCode::CONFLICT, "runtime_policy", "Runtime limits changed. Reload before saving.");
+    }
+    if config.auto_sleep_after_minutes != input.auto_sleep_after_minutes
+        || config.monthly_runtime_cap_hours != input.monthly_runtime_cap_hours
+    {
+        if let Err(error) = state.daemon.authority.emit(
+            &company,
+            "company_runtime_policy_requested",
+            Some(principal.actor_id()),
+            serde_json::json!({
+                "auto_sleep_after_minutes": input.auto_sleep_after_minutes,
+                "monthly_runtime_cap_hours": input.monthly_runtime_cap_hours,
+            }),
+        ).await {
+            return api_error(StatusCode::SERVICE_UNAVAILABLE, "authority", format!("The change could not be recorded: {error:#}"));
+        }
+        config.auto_sleep_after_minutes = input.auto_sleep_after_minutes;
+        config.monthly_runtime_cap_hours = input.monthly_runtime_cap_hours;
+        if let Err(error) = runtime::CompanyConfig::save(&state.daemon.root, &config) {
+            return api_error(StatusCode::SERVICE_UNAVAILABLE, "runtime_policy", format!("Runtime limits were not saved: {error:#}"));
+        }
+        if let Err(error) = state.daemon.authority.emit(
+            &company,
+            "company_runtime_policy_changed",
+            Some(principal.actor_id()),
+            serde_json::json!({
+                "auto_sleep_after_minutes": input.auto_sleep_after_minutes,
+                "monthly_runtime_cap_hours": input.monthly_runtime_cap_hours,
+            }),
+        ).await {
+            return api_error(StatusCode::SERVICE_UNAVAILABLE, "authority", format!("Runtime limits were saved but confirmation could not be recorded. Refresh to check them: {error:#}"));
+        }
+    }
+    Json(company_projection::project(&state.daemon, &config, false).await).into_response()
+}
