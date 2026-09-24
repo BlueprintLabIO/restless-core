@@ -55,7 +55,7 @@
 	let focusRailRestore = $state<boolean | null>(null);
 	let startupStalled = $state(false);
 	let retryingStartup = $state(false);
-	let startupErrorDialog: HTMLDivElement | undefined = $state();
+	let startupRetryButton: HTMLButtonElement | undefined = $state();
 
 	/* The shell and the Attention surface read one source rather than polling the
 	 * same endpoint on two clocks. The badge can no longer disagree with the
@@ -86,7 +86,7 @@
 		return () => window.clearTimeout(timeout);
 	});
 	$effect(() => {
-		if (startupBlocking && startupErrorDialog) startupErrorDialog.focus();
+		if (startupBlocking && startupRetryButton) startupRetryButton.focus();
 	});
 
 	const companyName = $derived(
@@ -349,11 +349,9 @@
 	{#if startupBlocking}
 		<div class="startup-error-scrim">
 			<div
-				bind:this={startupErrorDialog}
 				class="startup-error cockpit-pane"
 				role="alertdialog"
 				aria-modal="true"
-				tabindex="-1"
 				aria-labelledby="startup-error-title"
 				aria-describedby="startup-error-copy"
 			>
@@ -366,7 +364,13 @@
 						? 'We couldn’t complete the company check. Try again to continue.'
 						: 'This is taking longer than expected. The page is still here, and you can try reconnecting.'}
 				</p>
-				<button class="btn primary" type="button" disabled={retryingStartup} onclick={retryStartup}>
+				<button
+					bind:this={startupRetryButton}
+					class="btn primary"
+					type="button"
+					disabled={retryingStartup}
+					onclick={retryStartup}
+				>
 					{retryingStartup ? 'Reconnecting…' : 'Try again'}
 				</button>
 				<span class="startup-error-note">Your open page and drafts are being kept in place.</span>
@@ -393,7 +397,7 @@
 		inset: 0;
 		display: grid;
 		place-items: center;
-		padding: var(--space-5);
+		padding: 20px;
 		background: rgba(26, 33, 47, 0.3);
 		backdrop-filter: blur(7px) saturate(0.82);
 		-webkit-backdrop-filter: blur(7px) saturate(0.82);
@@ -402,12 +406,14 @@
 		width: min(100%, 440px);
 		display: grid;
 		justify-items: center;
-		gap: var(--space-3);
+		gap: 12px;
 		padding: clamp(24px, 5vw, 40px);
-		border: 1px solid var(--border-strong);
-		border-radius: var(--radius-pane);
-		background: var(--surface-pane);
-		box-shadow: var(--shadow-lift);
+		border: 1px solid rgba(76, 88, 117, 0.18);
+		border-radius: 6px;
+		background: #fafbfe;
+		box-shadow: 0 8px 28px rgba(65, 76, 104, 0.12);
+		color: #293244;
+		font: var(--t-body) / 1.55 var(--font-ui);
 		text-align: center;
 	}
 	.startup-error-mark {
@@ -415,10 +421,10 @@
 		height: 40px;
 		display: grid;
 		place-items: center;
-		border: 1px solid color-mix(in srgb, var(--state-danger) 25%, var(--border));
-		border-radius: var(--radius-control);
-		background: var(--state-danger-soft);
-		color: var(--state-danger);
+		border: 1px solid rgba(155, 84, 91, 0.25);
+		border-radius: 4px;
+		background: #f7e9eb;
+		color: #9b545b;
 	}
 	.startup-error h1,
 	.startup-error p {
@@ -430,15 +436,30 @@
 	}
 	.startup-error p {
 		max-width: 34ch;
-		color: var(--text-tertiary);
+		color: #687487;
 		line-height: 1.55;
 	}
 	.startup-error .btn {
 		min-width: 140px;
-		margin-top: var(--space-1);
+		margin-top: 4px;
+		padding: 9px 18px;
+		border: 1px solid #cdd5e2;
+		border-radius: 4px;
+		background: #e8eff8;
+		color: #456687;
+		font: 600 var(--t-body) var(--font-ui);
+		cursor: pointer;
+	}
+	.startup-error .btn:disabled {
+		opacity: 0.55;
+		cursor: wait;
+	}
+	.startup-error .btn:focus-visible {
+		outline: 2px solid #456687;
+		outline-offset: 2px;
 	}
 	.startup-error-note {
-		color: var(--text-tertiary);
+		color: #687487;
 		font-size: var(--t-body);
 	}
 
