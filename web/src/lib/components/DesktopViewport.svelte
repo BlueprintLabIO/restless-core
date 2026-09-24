@@ -10,6 +10,8 @@
 		resizeSession: boolean;
 		viewOnly: boolean;
 		_supportsSetDesktopSize?: boolean;
+		_screenSize?: () => { w: number; h: number };
+		_requestRemoteResize?: () => void;
 		background: string;
 		qualityLevel: number;
 		compressionLevel: number;
@@ -21,6 +23,7 @@
 	type RfbConstructor = new (target: HTMLElement, url: string) => Rfb;
 	type Status = 'connecting' | 'connected' | 'reconnecting' | 'error';
 	type BufferedInput = { event: Event; target: EventTarget | null };
+	const MAX_DESKTOP_FRAMEBUFFER = { width: 3840, height: 2160 };
 
 	let {
 		src = '',
@@ -67,15 +70,65 @@
 	let retryCount = 0;
 	let resizeObserver: ResizeObserver | undefined;
 	let displayLeaseTimer: ReturnType<typeof setInterval> | undefined;
+	let pixelRatioQuery: MediaQueryList | undefined;
 	let pendingInput: BufferedInput[] = [];
 	let claiming = false;
 	let lastReportedSize = '';
 	let resizeFrame = 0;
+	let physicalResize = $state(false);
+	let reportDisplaySize: (() => void) | undefined;
 
 	function report(next: Status, detail = '') {
 		status = next;
 		message = detail || (next === 'connected' ? '' : 'Connecting to the company computer…');
 		onstatus?.(next, detail);
+	}
+
+	function physicalDisplaySize(element: HTMLElement): { width: number; height: number } {
+		const rect = element.getBoundingClientRect();
+		const scale = Math.max(1, window.devicePixelRatio || 1);
+		const width = Math.max(1, Math.round(rect.width * scale));
+		const height = Math.max(1, Math.round(rect.height * scale));
+		const limit = Math.min(
+			1,
+			MAX_DESKTOP_FRAMEBUFFER.width / width,
+			MAX_DESKTOP_FRAMEBUFFER.height / height
+		);
+		return {
+			width: Math.max(1, Math.floor(width * limit)),
+			height: Math.max(1, Math.floor(height * limit))
+		};
+	}
+
+	function usePhysicalPixelsForResize(client: Rfb, element: HTMLElement): boolean {
+		const requestResize = client._requestRemoteResize;
+		const screenSize = client._screenSize;
+		if (
+			typeof requestResize !== 'function' ||
+			typeof screenSize !== 'function' ||
+			typeof client._supportsSetDesktopSize !== 'boolean'
+		)
+			return false;
+
+		// noVNC's built-in SetDesktopSize path otherwise requests CSS pixels.
+		// Override geometry only while that request is being assembled, so its
+		// ordinary canvas scaling and pointer-coordinate mapping stay in CSS pixels.
+		client._requestRemoteResize = () => {
+			if (!client.resizeSession || client.viewOnly || !client._supportsSetDesktopSize) {
+				requestResize.call(client);
+				return;
+			}
+			const currentScreenSize = client._screenSize;
+			const physical = physicalDisplaySize(element);
+			client._screenSize = () => ({ w: physical.width, h: physical.height });
+			try {
+				requestResize.call(client);
+			} finally {
+				if (currentScreenSize) client._screenSize = currentScreenSize;
+				else delete client._screenSize;
+			}
+		};
+		return true;
 	}
 
 	async function connect(current: number, route: string, display: HTMLDivElement) {
@@ -108,6 +161,11 @@
 			if (!active || current !== generation) return;
 			const client = new RFB(display, socketUrl.href);
 			rfb = client;
+			physicalResize = usePhysicalPixelsForResize(client, display);
+			if (physicalResize) {
+				lastReportedSize = '';
+				reportDisplaySize?.();
+			}
 			// The observer connection is stable. Control changes only flip this
 			// client-side gate after the server grants the tab's live lease.
 			client.viewOnly = !(interactive || canResize);
@@ -217,8 +275,9 @@
 			cancelAnimationFrame(resizeFrame);
 			resizeFrame = requestAnimationFrame(() => {
 				const rect = element.getBoundingClientRect();
-				const width = Math.max(1, Math.round(rect.width));
-				const height = Math.max(1, Math.round(rect.height));
+				const physical = physicalResize ? physicalDisplaySize(element) : undefined;
+				const width = physical?.width ?? Math.max(1, Math.round(rect.width));
+				const height = physical?.height ?? Math.max(1, Math.round(rect.height));
 				const signature = `${width}x${height}`;
 				if (signature === lastReportedSize || document.visibilityState !== 'visible') return;
 				lastReportedSize = signature;
@@ -226,8 +285,23 @@
 				ondisplayresize?.(width, height);
 			});
 		};
+		reportDisplaySize = reportSize;
 		resizeObserver = new ResizeObserver(reportSize);
 		resizeObserver.observe(element);
+		const onPixelRatioChange = () => {
+			lastReportedSize = '';
+			reportSize();
+			// A monitor move or browser zoom can change DPR without changing the
+			// element's CSS size, so ask noVNC for a new framebuffer explicitly.
+			if (rfb?._supportsSetDesktopSize) rfb._requestRemoteResize?.();
+			watchPixelRatio();
+		};
+		const watchPixelRatio = () => {
+			pixelRatioQuery?.removeEventListener('change', onPixelRatioChange);
+			pixelRatioQuery = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+			pixelRatioQuery.addEventListener('change', onPixelRatioChange, { once: true });
+		};
+		watchPixelRatio();
 		displayLeaseTimer = setInterval(() => {
 			if (document.visibilityState === 'visible') {
 				lastReportedSize = '';
@@ -247,6 +321,9 @@
 			if (displayLeaseTimer) clearInterval(displayLeaseTimer);
 			displayLeaseTimer = undefined;
 			document.removeEventListener('visibilitychange', onVisibility);
+			pixelRatioQuery?.removeEventListener('change', onPixelRatioChange);
+			pixelRatioQuery = undefined;
+			if (reportDisplaySize === reportSize) reportDisplaySize = undefined;
 			cancelAnimationFrame(resizeFrame);
 		};
 	});
