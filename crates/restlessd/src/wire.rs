@@ -35,6 +35,8 @@ pub(crate) struct CommonInput {
     #[serde(default)]
     pub(crate) evidence_refs: Vec<serde_json::Value>,
     #[serde(default)]
+    pub(crate) area_evidence: Vec<serde_json::Value>,
+    #[serde(default)]
     pub(crate) version: Option<i32>,
     #[serde(default)]
     pub(crate) objective: Option<String>,
@@ -926,6 +928,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
             "state",
             "reason",
             "evidence_refs",
+            "area_evidence",
             "as_actor",
         ],
         "schedule-responsibility-put" => &["id", "version", "objective", "policy"],

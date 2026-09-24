@@ -794,7 +794,7 @@ pub async fn dispatch_actor_conversation(
             .await?
             .context("claimed responsibility version disappeared before lead execution")?;
         opportunity_context.push(format!(
-            "Opportunity {} is claimed at epoch {}. Objective: {}. Authority and limits: {}. Inspect current state and coordinate attributable Work within your team. Link Work with `restless schedule link-work -c {} --opportunity {} --work <WORK_UUID> --owner-epoch {}`. Settle only with evidence using `restless schedule outcome -c {} --opportunity {} --owner-epoch {} --state <completed|needs_human|blocked> --reason <REASON> --evidence work:<LINKED_WORK_UUID>` (or a real handoff/artifact reference). A completed conversation turn alone does not complete this responsibility.",
+            "Opportunity {} is claimed at epoch {}. Objective: {}. Authority and limits: {}. Inspect current state and coordinate attributable Work within your team. Link Work with `restless schedule link-work -c {} --opportunity {} --work <WORK_UUID> --owner-epoch {}`. Settle only with evidence using `restless schedule outcome -c {} --opportunity {} --owner-epoch {} --state <completed|needs_human|blocked> --reason <REASON> --evidence work:<LINKED_WORK_UUID>` (or a real handoff/artifact reference). If policy lists required_outcome_areas, a completed outcome also needs a distinct completed linked Work for each area, supplied as `--area-evidence AREA=work:<WORK_UUID>` for each. If an area cannot be completed, report the exact blocker or owner decision instead of marking the whole responsibility completed. A completed conversation turn alone does not complete this responsibility.",
             claim.opportunity_id,
             claim.owner_epoch,
             version.objective,

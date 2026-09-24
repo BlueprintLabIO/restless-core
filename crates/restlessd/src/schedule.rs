@@ -447,7 +447,10 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
         .expedite_waiting_opportunities_with_work_result(Utc::now())
         .await
     {
-        tracing::warn!(company, "could not revisit opportunities after linked Work settled: {error:#}");
+        tracing::warn!(
+            company,
+            "could not revisit opportunities after linked Work settled: {error:#}"
+        );
     }
     if let Err(error) = org.wake_due_opportunities_at(Utc::now()).await {
         tracing::warn!(company, "could not redeliver due opportunities: {error:#}");
@@ -945,7 +948,7 @@ async fn run_exec_turn_with_lease(
         .ok_or_else(|| anyhow::anyhow!("claimed responsibility version disappeared"));
         let version = try_or_defer_claims!(version);
         opportunity_context.push(format!(
-            "Opportunity {} is claimed at epoch {}. Objective: {}. Authority and limits: {}. Inspect current state. Link any Work with `restless schedule link-work -c {} --opportunity {} --work <WORK_UUID> --owner-epoch {}`. Once the business outcome is supported, record it with `restless schedule outcome -c {} --opportunity {} --owner-epoch {} --state <completed|needs_human|blocked> --reason <REASON> --evidence work:<LINKED_WORK_UUID>` (or a real handoff/artifact reference). A completed agent turn alone does not complete the Opportunity.",
+            "Opportunity {} is claimed at epoch {}. Objective: {}. Authority and limits: {}. Inspect current state. Link any Work with `restless schedule link-work -c {} --opportunity {} --work <WORK_UUID> --owner-epoch {}`. Once the business outcome is supported, record it with `restless schedule outcome -c {} --opportunity {} --owner-epoch {} --state <completed|needs_human|blocked> --reason <REASON> --evidence work:<LINKED_WORK_UUID>` (or a real handoff/artifact reference). If policy lists required_outcome_areas, a completed outcome also needs a distinct completed linked Work for each area, supplied as `--area-evidence AREA=work:<WORK_UUID>` for each. If an area cannot be completed, report the exact blocker or owner decision instead of marking the whole responsibility completed. A completed agent turn alone does not complete the Opportunity.",
             claim.opportunity_id,
             claim.owner_epoch,
             version.objective,

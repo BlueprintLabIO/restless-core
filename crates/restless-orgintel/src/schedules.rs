@@ -22,6 +22,41 @@ fn opportunity_window_seconds(policy: &serde_json::Value) -> Result<i64> {
     }
     Ok(seconds)
 }
+
+fn required_outcome_areas(policy: &serde_json::Value) -> Result<Vec<String>> {
+    let Some(value) = policy.get("required_outcome_areas") else {
+        return Ok(Vec::new());
+    };
+    let areas = value.as_array().ok_or_else(|| {
+        OrgIntelError::InvalidWork("required_outcome_areas must be an array".into())
+    })?;
+    if areas.is_empty() || areas.len() > 8 {
+        return Err(OrgIntelError::InvalidWork(
+            "required_outcome_areas must contain one to eight areas".into(),
+        ));
+    }
+    let mut seen = std::collections::HashSet::new();
+    areas
+        .iter()
+        .map(|value| {
+            let area = value.as_str().ok_or_else(|| {
+                OrgIntelError::InvalidWork("required outcome area must be a string".into())
+            })?;
+            if area.is_empty()
+                || area.len() > 64
+                || !area
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+                || !seen.insert(area)
+            {
+                return Err(OrgIntelError::InvalidWork(
+                    "required outcome areas must be distinct lowercase identifiers".into(),
+                ));
+            }
+            Ok(area.to_owned())
+        })
+        .collect()
+}
 const OPPORTUNITY_WAKE_ACK_SECONDS: i64 = 300;
 
 fn recurring_occurrence_should_fire(
@@ -508,6 +543,7 @@ impl OrgIntel {
             ));
         }
         opportunity_window_seconds(&policy)?;
+        required_outcome_areas(&policy)?;
         let mut tx = self.pool.begin().await?;
         sqlx::query(
             "INSERT INTO responsibilities (id, current_version) VALUES ($1,$2) \
@@ -678,20 +714,80 @@ impl OrgIntel {
             ));
         }
         let mut tx = self.pool.begin().await?;
-        let opportunity = sqlx::query(
-            "SELECT id FROM opportunities WHERE id=$1 AND owner_epoch=$2 \
-               AND lease_expires_at > $3 AND state NOT IN ('completed','needs_human','blocked','cancelled') \
-             FOR UPDATE",
+        let responsibility_policy = sqlx::query_scalar::<_, serde_json::Value>(
+            "SELECT rv.policy FROM opportunities o \
+               JOIN responsibility_versions rv ON rv.responsibility_id=o.responsibility_id \
+                 AND rv.version=o.responsibility_version \
+             WHERE o.id=$1 AND o.owner_epoch=$2 \
+               AND o.lease_expires_at > $3 AND o.state NOT IN ('completed','needs_human','blocked','cancelled') \
+             FOR UPDATE OF o",
         )
         .bind(opportunity_id)
         .bind(owner_epoch)
         .bind(now)
         .fetch_optional(&mut *tx)
         .await?;
-        if opportunity.is_none() {
+        let Some(responsibility_policy) = responsibility_policy else {
             return Err(OrgIntelError::InvalidWork(
                 "opportunity claim expired, was superseded, or already settled".into(),
             ));
+        };
+        let required_areas = required_outcome_areas(&responsibility_policy)?;
+        if state == "completed" {
+            if !required_areas.is_empty() {
+                let area_evidence = outcome
+                    .get("area_evidence")
+                    .and_then(serde_json::Value::as_array)
+                    .ok_or_else(|| {
+                        OrgIntelError::InvalidWork(
+                            "completed responsibility needs area evidence".into(),
+                        )
+                    })?;
+                if area_evidence.len() != required_areas.len() {
+                    return Err(OrgIntelError::InvalidWork(
+                        "completed responsibility needs one linked Work for each required outcome area".into(),
+                    ));
+                }
+                let mut seen_areas = std::collections::HashSet::new();
+                let mut seen_work = std::collections::HashSet::new();
+                for entry in area_evidence {
+                    let area = entry
+                        .get("area")
+                        .and_then(serde_json::Value::as_str)
+                        .ok_or_else(|| {
+                            OrgIntelError::InvalidWork("area evidence needs an area".into())
+                        })?;
+                    let work_id = entry
+                        .get("work_id")
+                        .and_then(serde_json::Value::as_str)
+                        .and_then(|value| Uuid::parse_str(value).ok())
+                        .ok_or_else(|| {
+                            OrgIntelError::InvalidWork("area evidence needs a Work UUID".into())
+                        })?;
+                    if !required_areas.iter().any(|required| required == area)
+                        || !seen_areas.insert(area)
+                        || !seen_work.insert(work_id)
+                    {
+                        return Err(OrgIntelError::InvalidWork(
+                            "area evidence must cover each required area with distinct Work".into(),
+                        ));
+                    }
+                    let completed: bool = sqlx::query_scalar(
+                        "SELECT EXISTS (SELECT 1 FROM opportunity_work ow JOIN work w ON w.id=ow.work_id \
+                           WHERE ow.opportunity_id=$1 AND ow.work_id=$2 AND w.status='completed')",
+                    )
+                    .bind(opportunity_id)
+                    .bind(work_id)
+                    .fetch_one(&mut *tx)
+                    .await?;
+                    if !completed {
+                        return Err(OrgIntelError::InvalidWork(
+                            "area evidence must name completed Work linked to this Opportunity"
+                                .into(),
+                        ));
+                    }
+                }
+            }
         }
         if terminal {
             let refs = evidence_refs
@@ -699,6 +795,7 @@ impl OrgIntel {
                 .and_then(serde_json::Value::as_array)
                 .expect("validated terminal evidence array");
             let mut grounded_completion_evidence = false;
+            let mut pending_human_handoff = false;
             for evidence in refs {
                 let kind = evidence.get("kind").and_then(serde_json::Value::as_str);
                 let id = evidence
@@ -738,14 +835,20 @@ impl OrgIntel {
                         .fetch_one(&mut *tx)
                         .await?
                     }
-                    (Some("handoff"), Some(id)) => sqlx::query_scalar::<_, bool>(
-                        "SELECT EXISTS (SELECT 1 FROM owner_handoffs h JOIN opportunity_work ow ON ow.work_id=h.work_id \
-                           WHERE ow.opportunity_id=$1 AND h.id=$2)",
-                    )
-                    .bind(opportunity_id)
-                    .bind(id)
-                    .fetch_one(&mut *tx)
-                    .await?,
+                    (Some("handoff"), Some(id)) => {
+                        let handoff_state: Option<String> = sqlx::query_scalar(
+                            "SELECT h.state FROM owner_handoffs h JOIN opportunity_work ow ON ow.work_id=h.work_id \
+                               WHERE ow.opportunity_id=$1 AND h.id=$2",
+                        )
+                        .bind(opportunity_id)
+                        .bind(id)
+                        .fetch_optional(&mut *tx)
+                        .await?;
+                        pending_human_handoff |= handoff_state
+                            .as_deref()
+                            .is_some_and(|state| state == "pending" || state == "preparing");
+                        handoff_state.is_some()
+                    }
                     (Some("schedule_occurrence"), _) => {
                         let schedule_id = evidence
                             .get("schedule_id")
@@ -755,7 +858,9 @@ impl OrgIntel {
                             .get("scheduled_for")
                             .and_then(serde_json::Value::as_str)
                             .and_then(|value| DateTime::parse_from_rfc3339(value).ok());
-                        if let (Some(schedule_id), Some(scheduled_for)) = (schedule_id, scheduled_for) {
+                        if let (Some(schedule_id), Some(scheduled_for)) =
+                            (schedule_id, scheduled_for)
+                        {
                             sqlx::query_scalar::<_, bool>(
                                 "SELECT EXISTS (SELECT 1 FROM schedule_occurrences WHERE opportunity_id=$1 \
                                    AND schedule_id=$2 AND scheduled_for=$3)",
@@ -784,6 +889,12 @@ impl OrgIntel {
             if state == "completed" && !grounded_completion_evidence {
                 return Err(OrgIntelError::InvalidWork(
                     "completed requires an available linked ArtifactRef or a completed linked Work"
+                        .into(),
+                ));
+            }
+            if state == "needs_human" && !required_areas.is_empty() && !pending_human_handoff {
+                return Err(OrgIntelError::InvalidWork(
+                    "needs_human requires a pending owner handoff linked to this Opportunity"
                         .into(),
                 ));
             }

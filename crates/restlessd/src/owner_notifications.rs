@@ -541,6 +541,28 @@ async fn projected_intents(
                         "item",
                     )
                 }
+                ("orgintel", "blocked_opportunity") => {
+                    // A blocked Opportunity is terminal, owner-worthy work.
+                    // Keep its notification identity stable for this exact
+                    // Opportunity so repeated projection does not re-notify.
+                    // Recoverable waiting_retry Opportunities never enter the
+                    // Attention projection and therefore remain quiet here.
+                    let actor = item.responsible_actor.as_ref();
+                    let actor_id = actor
+                        .map(|actor| actor.id.clone())
+                        .unwrap_or_else(|| "exec".into());
+                    let actor_display = actor
+                        .map(|actor| actor.display.clone())
+                        .unwrap_or_else(|| actor_id.clone());
+                    (
+                        "personal_attention",
+                        format!("orgintel-opportunity:{}:blocked", item.source.reference),
+                        actor_id,
+                        None,
+                        actor_display,
+                        "item",
+                    )
+                }
                 _ => continue,
             };
         for owner in owners.iter().cloned() {

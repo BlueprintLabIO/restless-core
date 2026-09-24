@@ -1231,6 +1231,9 @@ enum ScheduleCommand {
         /// Evidence reference as KIND:UUID; repeat for multiple references. Use admin_action:UUID only for explicit cancellation.
         #[arg(long = "evidence", required = true)]
         evidence_refs: Vec<String>,
+        /// Required responsibility area backed by its own linked Work: AREA=work:UUID.
+        #[arg(long = "area-evidence")]
+        area_evidence: Vec<String>,
         #[arg(long = "as")]
         as_actor: Option<String>,
     },
@@ -3472,6 +3475,7 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 state,
                 reason,
                 evidence_refs,
+                area_evidence,
                 as_actor,
             } => {
                 let as_actor = as_actor.unwrap_or_else(acting_actor);
@@ -3480,6 +3484,7 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                     "id": opportunity, "owner_epoch": owner_epoch,
                     "state": state, "reason": reason,
                     "evidence_refs": parse_schedule_evidence_refs(&evidence_refs, &as_actor)?,
+                    "area_evidence": parse_schedule_area_evidence(&area_evidence)?,
                     "as_actor": as_actor,
                 })
             }
@@ -4467,6 +4472,29 @@ fn parse_schedule_evidence_refs(values: &[String], actor: &str) -> Result<Vec<se
                 }
                 _ => anyhow::bail!("unsupported evidence kind {kind:?}; use artifact_ref, work, handoff, or schedule_occurrence"),
             }
+        })
+        .collect()
+}
+
+fn parse_schedule_area_evidence(values: &[String]) -> Result<Vec<serde_json::Value>> {
+    let mut seen = std::collections::BTreeSet::new();
+    values
+        .iter()
+        .map(|value| {
+            let (area, work) = value
+                .split_once("=work:")
+                .context("area evidence must use AREA=work:UUID")?;
+            anyhow::ensure!(
+                !area.is_empty()
+                    && area.len() <= 64
+                    && area.bytes().all(|byte| byte.is_ascii_lowercase()
+                        || byte.is_ascii_digit()
+                        || byte == b'_'),
+                "area must use lowercase letters, digits, and underscores"
+            );
+            anyhow::ensure!(seen.insert(area), "duplicate area evidence for {area}");
+            anyhow::ensure!(!work.is_empty(), "area evidence needs a Work UUID");
+            Ok(serde_json::json!({ "area": area, "work_id": work }))
         })
         .collect()
 }

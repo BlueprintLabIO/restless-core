@@ -4282,10 +4282,12 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 return Response::err("schedule-outcome needs reason");
             };
             let refs = request.common.evidence_refs;
+            let area_evidence = request.common.area_evidence;
             let actor = request.common.as_actor.as_deref().unwrap_or("owner");
             let outcome = serde_json::json!({
                 "reason": reason,
                 "evidence_refs": refs,
+                "area_evidence": area_evidence,
                 "settled_by": actor,
             });
             match daemon.orgintel.get(company).await {
