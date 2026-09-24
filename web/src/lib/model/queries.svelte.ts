@@ -72,7 +72,7 @@ export function companyPrincipalQuery(companyId: string) {
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
 		refetchInterval: REFRESH_MS,
-		refetchIntervalInBackground: true,
+		refetchIntervalInBackground: false,
 		retry: (failureCount, error) => {
 			const status = (error as { status?: unknown }).status;
 			const code = (error as { code?: unknown }).code;
@@ -124,7 +124,7 @@ export function collaborationBootstrapQuery(
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
 		refetchInterval: REFRESH_MS,
-		refetchIntervalInBackground: true,
+		refetchIntervalInBackground: false,
 		retry: (failureCount, error) => {
 			const status = (error as { status?: unknown }).status;
 			const code = (error as { code?: unknown }).code;

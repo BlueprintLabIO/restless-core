@@ -632,6 +632,25 @@ impl AuthorityStore {
         .with_context(|| format!("read Authority {kind} records for {company}"))
     }
 
+    pub async fn recent_records_of_kind(
+        &self,
+        company: &str,
+        kind: &str,
+        limit: i64,
+    ) -> Result<Vec<AuthorityRecord>> {
+        sqlx::query_as(
+            "SELECT id, actor_id, body, created_at \
+             FROM restless_authority.records \
+             WHERE company = $1 AND kind = $2 ORDER BY id DESC LIMIT $3",
+        )
+        .bind(company)
+        .bind(kind)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .with_context(|| format!("read recent Authority {kind} records for {company}"))
+    }
+
     pub async fn find_body(
         &self,
         company: &str,

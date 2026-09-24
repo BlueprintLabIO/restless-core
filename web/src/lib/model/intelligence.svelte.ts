@@ -36,7 +36,9 @@ export function intelligenceQuery(company: string, enabled: () => boolean = () =
 		},
 		enabled: enabled(),
 		staleTime: 5000,
-		refetchInterval: 10000,
+		// Provider setup can change in another session. Keep a slow foreground
+		// fallback while mutations and window-focus reconciliation refresh sooner.
+		refetchInterval: 60_000,
 		retry: 1
 	}));
 	return {

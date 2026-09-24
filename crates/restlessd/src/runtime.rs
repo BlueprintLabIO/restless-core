@@ -1510,27 +1510,39 @@ pub async fn doctor(company: &str) -> Result<RuntimeDoctor> {
     let image = company_image();
     let container = status(company).await?;
     let volume = volume_name(company);
-    let volume_exists = docker_observe(&["volume", "inspect", &volume])
-        .await?
-        .status
-        .success();
-    let volume_mounted =
-        container != ContainerStatus::Absent && container_uses_company_volume(company).await?;
-    let container_image_id = if container == ContainerStatus::Absent {
-        None
-    } else {
-        inspect_value(&["inspect", "-f", "{{.Image}}", &container_name(company)]).await?
+    // Status decides whether container-specific fields can exist. The volume,
+    // container details, and both image observations are then independent
+    // read-only Docker probes; overlap them while retaining each probe's own
+    // timeout and error handling.
+    let image_source_format = format!("{{{{index .Config.Labels \"{SOURCE_DIGEST_LABEL}\"}}}}");
+    let volume_probe = async {
+        docker_observe(&["volume", "inspect", &volume])
+            .await
+            .map(|output| output.status.success())
     };
-    let target_image_id = inspect_value(&["image", "inspect", "-f", "{{.Id}}", &image]).await?;
-    let image_source_digest = inspect_value(&[
-        "image",
-        "inspect",
-        "-f",
-        &format!("{{{{index .Config.Labels \"{SOURCE_DIGEST_LABEL}\"}}}}"),
-        &image,
-    ])
-    .await?
-    .filter(|value| value != "<no value>");
+    let container_probe = async {
+        if container == ContainerStatus::Absent {
+            Ok((None, false))
+        } else {
+            inspect_container_image_and_volume(company).await
+        }
+    };
+    let target_image_probe =
+        async { inspect_value(&["image", "inspect", "-f", "{{.Id}}", &image]).await };
+    let source_label_probe =
+        async { inspect_value(&["image", "inspect", "-f", &image_source_format, &image]).await };
+    let (volume_exists, container_details, target_image_id, image_source_digest) = tokio::join!(
+        volume_probe,
+        container_probe,
+        target_image_probe,
+        source_label_probe
+    );
+    // Resolve errors in the original observation order, even though the
+    // independent subprocesses ran concurrently.
+    let volume_exists = volume_exists?;
+    let (container_image_id, volume_mounted) = container_details?;
+    let target_image_id = target_image_id?;
+    let image_source_digest = image_source_digest?.filter(|value| value != "<no value>");
     // Source comparison is a local-development diagnostic only. A released
     // plane may contain no Core checkout and identifies the Runtime by the
     // configured OCI digest instead.
@@ -1565,14 +1577,16 @@ pub async fn doctor(company: &str) -> Result<RuntimeDoctor> {
     };
 
     let (release, coordination, supervisor, browser) = if container == ContainerStatus::Running {
-        let supervisor = supervisor_doctor(company).await;
+        // These probes inspect independent Runtime surfaces. Browser service
+        // state is derived from the supervisor result, so that one stays after
+        // the parallel group.
+        let (release, coordination, supervisor) = tokio::join!(
+            release_identity_doctor(company),
+            coordination_doctor(company),
+            supervisor_doctor(company),
+        );
         let browser = browser_doctor(company, &supervisor).await;
-        (
-            release_identity_doctor(company).await,
-            Some(coordination_doctor(company).await),
-            Some(supervisor),
-            Some(browser),
-        )
+        (release, Some(coordination), Some(supervisor), Some(browser))
     } else {
         (None, None, None, None)
     };
@@ -1583,25 +1597,11 @@ pub async fn doctor(company: &str) -> Result<RuntimeDoctor> {
 
     let mut collaboration_tools = Vec::new();
     if container == ContainerStatus::Running {
-        for tool in ["document", "room"] {
-            let probe = tokio::time::timeout(
-                Duration::from_secs(5),
-                docker_observe(&[
-                    "exec",
-                    "-u",
-                    "company",
-                    &container_name(company),
-                    "restless",
-                    tool,
-                    "--help",
-                ]),
-            )
-            .await;
-            collaboration_tools.push(CollaborationToolDoctor {
-                tool: tool.into(),
-                installed: matches!(probe, Ok(Ok(output)) if output.status.success()),
-            });
-        }
+        let (document, room) = tokio::join!(
+            collaboration_tool_doctor(company, "document"),
+            collaboration_tool_doctor(company, "room"),
+        );
+        collaboration_tools.extend([document, room]);
     }
     Ok(RuntimeDoctor {
         collaboration_tools,
@@ -1624,6 +1624,26 @@ pub async fn doctor(company: &str) -> Result<RuntimeDoctor> {
         supervisor,
         browser,
     })
+}
+
+async fn collaboration_tool_doctor(company: &str, tool: &str) -> CollaborationToolDoctor {
+    let probe = tokio::time::timeout(
+        Duration::from_secs(5),
+        docker_observe(&[
+            "exec",
+            "-u",
+            "company",
+            &container_name(company),
+            "restless",
+            tool,
+            "--help",
+        ]),
+    )
+    .await;
+    CollaborationToolDoctor {
+        tool: tool.into(),
+        installed: matches!(probe, Ok(Ok(output)) if output.status.success()),
+    }
 }
 
 async fn release_identity_doctor(company: &str) -> Option<RuntimeReleaseIdentity> {
@@ -2624,6 +2644,25 @@ async fn container_uses_company_volume(company: &str) -> Result<bool> {
     ])
     .await?;
     Ok(mounted.as_deref() == Some(volume_name(company).as_str()))
+}
+
+async fn inspect_container_image_and_volume(company: &str) -> Result<(Option<String>, bool)> {
+    let output = docker_observe(&[
+        "inspect",
+        "-f",
+        "{{.Image}}|{{range .Mounts}}{{if eq .Destination \"/company\"}}{{.Name}}{{end}}{{end}}",
+        &container_name(company),
+    ])
+    .await?;
+    if !output.status.success() {
+        return Ok((None, false));
+    }
+    let output = String::from_utf8_lossy(&output.stdout);
+    let Some((image, mounted_volume)) = output.trim_end().split_once('|') else {
+        return Ok((None, false));
+    };
+    let image = (!image.trim().is_empty()).then(|| image.trim().to_string());
+    Ok((image, mounted_volume.trim() == volume_name(company)))
 }
 
 async fn inspect_value(args: &[&str]) -> Result<Option<String>> {

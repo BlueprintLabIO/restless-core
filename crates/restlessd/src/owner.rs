@@ -4465,13 +4465,11 @@ async fn cockpit_view(
     let receipts = match state
         .daemon
         .authority
-        .records_of_kind(&company, "effect")
+        .recent_records_of_kind(&company, "effect", 50)
         .await
     {
         Ok(events) => events
             .iter()
-            .rev()
-            .take(50)
             .map(|event| CockpitEffectReceipt {
                 id: event.id,
                 effect_class: event

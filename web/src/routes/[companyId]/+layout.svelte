@@ -22,7 +22,6 @@
 		collaborationBootstrapQuery,
 		companiesQuery,
 		companyPrincipalQuery,
-		companyQuery,
 		conversationQuery
 	} from '$lib/model/queries.svelte';
 	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
@@ -34,7 +33,20 @@
 	const principalProjection = $derived(companyPrincipalQuery(companyId));
 	const principal = $derived(principalProjection.view);
 	const ownerAccess = $derived(hasOwnerSurfaceAccess(principal));
-	const intelligence = $derived(intelligenceQuery(companyId, () => ownerAccess));
+	/* People owns its selected-person conversation, and immersive computer pages
+	 * do not render the Exec rail. Do not keep shell-only rail state polling there. */
+	const railVisible = $derived.by(() => {
+		if (!ownerAccess) return false;
+		const path = page.url.pathname;
+		const people = `/${companyId}/people`;
+		return !(
+			path === people ||
+			path.startsWith(`${people}/`) ||
+			path === `/${companyId}/company/computer` ||
+			(path === `/${companyId}` && page.url.searchParams.has('computer'))
+		);
+	});
+	const intelligence = $derived(intelligenceQuery(companyId, () => railVisible));
 	const collaboration = $derived(collaborationBootstrapQuery(companyId, () => principal));
 	const companyCatalog = companiesQuery(() => ownerAccess);
 	const companies = $derived(companyCatalog.view);
@@ -47,9 +59,6 @@
 	const attention = $derived(attentionQuery(companyId, () => ownerAccess));
 	const cockpitProjection = cockpitQuery(() => companyId, () => ownerAccess);
 	const cockpit = $derived(cockpitProjection.view);
-	const companyProjection = $derived(companyQuery(companyId, () => ownerAccess));
-
-	$effect(() => companyProjection.attach());
 
 	const companyName = $derived(
 		setupDraft.name ??
@@ -196,20 +205,6 @@
 		}
 		void goto(`/${companyId}?item=${encodeURIComponent(focusedAttention.id)}`);
 	}
-
-	/* People holds its own conversation with the selected person, so a permanent
-	 * rail there would render a second conversation with a different actor beside
-	 * it — and duplicate itself outright when the Exec is the selection (S06-T2). */
-	const railVisible = $derived.by(() => {
-		if (!ownerAccess) return false;
-		const path = page.url.pathname;
-		const people = `/${companyId}/people`;
-		return !(
-			path === people ||
-			path.startsWith(`${people}/`) ||
-			(path === `/${companyId}` && page.url.searchParams.has('computer'))
-		);
-	});
 
 	const currentContext = $derived.by(() => {
 		const path = page.url.pathname;
