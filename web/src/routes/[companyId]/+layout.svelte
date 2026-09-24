@@ -26,6 +26,7 @@
 	} from '$lib/model/queries.svelte';
 	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
 	import { actorCanReceive } from '$lib/model/cockpit';
+	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 
 	let { children } = $props();
 
@@ -52,13 +53,41 @@
 	const companies = $derived(companyCatalog.view);
 	let execRailOpen = $state(true);
 	let focusRailRestore = $state<boolean | null>(null);
+	let startupStalled = $state(false);
+	let retryingStartup = $state(false);
+	let startupErrorDialog: HTMLDivElement | undefined = $state();
 
 	/* The shell and the Attention surface read one source rather than polling the
 	 * same endpoint on two clocks. The badge can no longer disagree with the
 	 * queue it is counting. */
 	const attention = $derived(attentionQuery(companyId, () => ownerAccess));
-	const cockpitProjection = cockpitQuery(() => companyId, () => ownerAccess);
+	const cockpitProjection = cockpitQuery(
+		() => companyId,
+		() => ownerAccess
+	);
 	const cockpit = $derived(cockpitProjection.view);
+	const startupReady = $derived.by(() => {
+		if (!principal) return false;
+		if (!ownerAccess) return Boolean(collaboration.view);
+		return Boolean(attention.view && cockpit);
+	});
+	const startupFailure = $derived(
+		principalProjection.failure ??
+			(ownerAccess ? (attention.failure ?? cockpitProjection.failure) : collaboration.failure)
+	);
+	const startupBlocking = $derived(!startupReady && Boolean(startupFailure || startupStalled));
+	$effect(() => {
+		if (startupReady) {
+			startupStalled = false;
+			return;
+		}
+		startupStalled = false;
+		const timeout = window.setTimeout(() => (startupStalled = true), 12_000);
+		return () => window.clearTimeout(timeout);
+	});
+	$effect(() => {
+		if (startupBlocking && startupErrorDialog) startupErrorDialog.focus();
+	});
 
 	const companyName = $derived(
 		setupDraft.name ??
@@ -231,6 +260,21 @@
 		prepareCompanyBrowser(companyId, url);
 		void goto(`/${companyId}/company/computer?focus=browser`, { noScroll: true });
 	}
+
+	async function retryStartup() {
+		if (retryingStartup) return;
+		retryingStartup = true;
+		try {
+			await Promise.allSettled([principalProjection.refresh()]);
+			if (ownerAccess) {
+				await Promise.allSettled([attention.refresh(), cockpitProjection.refresh()]);
+			} else {
+				await Promise.allSettled([collaboration.refresh()]);
+			}
+		} finally {
+			retryingStartup = false;
+		}
+	}
 </script>
 
 <CompanyQueryPersistence {companyId} />
@@ -264,43 +308,71 @@
 {/snippet}
 
 <div class="company-browser-link-capture" use:companyBrowserLinks={{ open: openInCompanyBrowser }}>
-<AppShell
-	{companyId}
-	companyName={companyName || companyId.charAt(0).toUpperCase() + companyId.slice(1)}
-	{companies}
-	{tabs}
-	homeHref={ownerAccess ? '/' : collaboratorHome(companyId)}
-	canSwitchCompanies={ownerAccess}
-	execHref={ownerAccess &&
-	(page.url.pathname === `/${companyId}/people` ||
-		page.url.pathname.startsWith(`/${companyId}/people/`))
-		? `/${companyId}/people?person=exec`
-		: null}
-	execName={railActorName}
-	execLive={railConnected}
-	railOpen={execRailOpen}
-	expandExec={page.url.pathname === `/${companyId}` &&
-		attention.status === 'live' &&
-		liveNeedsYou.length === 0 &&
-		!page.url.searchParams.has('computer') &&
-		!focusedAttention}
-	immersive={immersiveComputer}
-	onexectoggle={() => (execRailOpen = !execRailOpen)}
-	rail={railVisible ? executiveRail : null}
->
-	{#if childAllowed}
-		{@render children()}
-	{:else if principalProjection.failure}
-		<section class="company-access-state cockpit-pane" role="alert">
-			<h1>Company unavailable</h1>
-			<p>{principalProjection.failure.message}</p>
-		</section>
-	{:else}
-		<section class="company-access-state cockpit-pane" role="status" aria-live="polite">
-			<p>{principal ? 'Opening your company workspace…' : 'Verifying company access…'}</p>
-		</section>
+	<AppShell
+		{companyId}
+		companyName={companyName || companyId.charAt(0).toUpperCase() + companyId.slice(1)}
+		{companies}
+		{tabs}
+		homeHref={ownerAccess ? '/' : collaboratorHome(companyId)}
+		canSwitchCompanies={ownerAccess}
+		execHref={ownerAccess &&
+		(page.url.pathname === `/${companyId}/people` ||
+			page.url.pathname.startsWith(`/${companyId}/people/`))
+			? `/${companyId}/people?person=exec`
+			: null}
+		execName={railActorName}
+		execLive={railConnected}
+		railOpen={execRailOpen}
+		expandExec={page.url.pathname === `/${companyId}` &&
+			attention.status === 'live' &&
+			liveNeedsYou.length === 0 &&
+			!page.url.searchParams.has('computer') &&
+			!focusedAttention}
+		immersive={immersiveComputer}
+		blocked={startupBlocking}
+		onexectoggle={() => (execRailOpen = !execRailOpen)}
+		rail={railVisible ? executiveRail : null}
+	>
+		{#if childAllowed}
+			{@render children()}
+		{:else if principalProjection.failure}
+			<section class="company-access-state cockpit-pane" role="alert">
+				<h1>Company unavailable</h1>
+				<p>{principalProjection.failure.message}</p>
+			</section>
+		{:else}
+			<section class="company-access-state cockpit-pane" role="status" aria-live="polite">
+				<p>{principal ? 'Opening your company workspace…' : 'Verifying company access…'}</p>
+			</section>
+		{/if}
+	</AppShell>
+	{#if startupBlocking}
+		<div class="startup-error-scrim">
+			<div
+				bind:this={startupErrorDialog}
+				class="startup-error cockpit-pane"
+				role="alertdialog"
+				aria-modal="true"
+				tabindex="-1"
+				aria-labelledby="startup-error-title"
+				aria-describedby="startup-error-copy"
+			>
+				<div class="startup-error-mark" aria-hidden="true">
+					<TriangleAlert size={18} strokeWidth={1.8} />
+				</div>
+				<h1 id="startup-error-title">We couldn’t open this company</h1>
+				<p id="startup-error-copy">
+					{startupFailure
+						? 'We couldn’t complete the company check. Try again to continue.'
+						: 'This is taking longer than expected. The page is still here, and you can try reconnecting.'}
+				</p>
+				<button class="btn primary" type="button" disabled={retryingStartup} onclick={retryStartup}>
+					{retryingStartup ? 'Reconnecting…' : 'Try again'}
+				</button>
+				<span class="startup-error-note">Your open page and drafts are being kept in place.</span>
+			</div>
+		</div>
 	{/if}
-</AppShell>
 </div>
 
 <style>
@@ -314,6 +386,60 @@
 	}
 	.company-browser-link-capture {
 		display: contents;
+	}
+	.startup-error-scrim {
+		position: fixed;
+		z-index: var(--z-overlay);
+		inset: 0;
+		display: grid;
+		place-items: center;
+		padding: var(--space-5);
+		background: rgba(26, 33, 47, 0.3);
+		backdrop-filter: blur(7px) saturate(0.82);
+		-webkit-backdrop-filter: blur(7px) saturate(0.82);
+	}
+	.startup-error {
+		width: min(100%, 440px);
+		display: grid;
+		justify-items: center;
+		gap: var(--space-3);
+		padding: clamp(24px, 5vw, 40px);
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-pane);
+		background: var(--surface-pane);
+		box-shadow: var(--shadow-lift);
+		text-align: center;
+	}
+	.startup-error-mark {
+		width: 40px;
+		height: 40px;
+		display: grid;
+		place-items: center;
+		border: 1px solid color-mix(in srgb, var(--state-danger) 25%, var(--border));
+		border-radius: var(--radius-control);
+		background: var(--state-danger-soft);
+		color: var(--state-danger);
+	}
+	.startup-error h1,
+	.startup-error p {
+		margin: 0;
+	}
+	.startup-error h1 {
+		font-size: var(--t-title);
+		font-weight: 600;
+	}
+	.startup-error p {
+		max-width: 34ch;
+		color: var(--text-tertiary);
+		line-height: 1.55;
+	}
+	.startup-error .btn {
+		min-width: 140px;
+		margin-top: var(--space-1);
+	}
+	.startup-error-note {
+		color: var(--text-tertiary);
+		font-size: var(--t-body);
 	}
 
 	.company-access-state h1,

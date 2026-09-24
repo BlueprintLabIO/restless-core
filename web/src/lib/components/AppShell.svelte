@@ -32,6 +32,7 @@
 		execName = 'Exec',
 		execHref = null,
 		execLive = false,
+		blocked = false,
 		expandExec = false,
 		railOpen = true,
 		immersive = false,
@@ -50,6 +51,8 @@
 		execName?: string;
 		execHref?: string | null;
 		execLive?: boolean;
+		/** Temporarily removes the underlying page from interaction while a blocking recovery prompt is open. */
+		blocked?: boolean;
 		expandExec?: boolean;
 		railOpen?: boolean;
 		/** Gives a prepared live outcome the full browser window while preserving one bounded Exec control. */
@@ -77,7 +80,7 @@
 	};
 </script>
 
-<div class="bridge-root" class:immersive>
+<div class="bridge-root" class:immersive inert={blocked}>
 	<header class="bridge-topbar" aria-label="Global navigation">
 		<div class="tb-brand">
 			<a class="tb-brand-home" href={homeHref} aria-label={`${PRODUCT_NAME} company home`}>
