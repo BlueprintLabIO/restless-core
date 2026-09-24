@@ -1429,8 +1429,9 @@ enum WorkCommand {
         /// Existing Goal this Work serves.
         #[arg(long)]
         goal: Option<String>,
-        /// Authenticated external message that caused this Work. The
-        /// accountable lead may attach it once; creation and linkage commit
+        /// Registered external message from `world` that caused this Work.
+        /// Do not use an owner or Exec conversation message ID. The accountable
+        /// lead may attach the external source once; creation and linkage commit
         /// atomically so redelivery cannot commission duplicate Work.
         #[arg(long)]
         source_message: Option<i64>,
