@@ -25,6 +25,7 @@
 	let confirming = $state('');
 	let inviteEmail = $state('');
 	let inviteRole = $state<MembershipRole>('member');
+	let loadVersion = 0;
 
 	const rows = $derived(issuer && core ? joinMembers(core.members, issuer.members) : []);
 	const viewer = $derived(issuer?.viewer);
@@ -33,22 +34,30 @@
 	const canSuspend = $derived(core?.issuer?.terminal_statuses.includes('suspended') ?? false);
 
 	async function load() {
+		const version = ++loadVersion;
+		const requestedCompany = companyId;
 		failure = '';
 		try {
-			core = await getCoreMembers(companyId);
-			if (core.mode !== 'network' || !core.issuer || !core.company_id) {
+			const nextCore = await getCoreMembers(requestedCompany);
+			if (version !== loadVersion || requestedCompany !== companyId) return;
+			core = nextCore;
+			if (nextCore.mode !== 'network' || !nextCore.issuer || !nextCore.company_id) {
 				issuer = null;
 				return;
 			}
 			try {
-				issuer = await getIssuerMembers(core.issuer, core.company_id);
+				const nextIssuer = await getIssuerMembers(nextCore.issuer, nextCore.company_id);
+				if (version !== loadVersion || requestedCompany !== companyId) return;
+				issuer = nextIssuer;
 				signInNeeded = false;
 			} catch (cause) {
+				if (version !== loadVersion || requestedCompany !== companyId) return;
 				issuer = null;
 				if (cause instanceof IssuerSessionMissing) signInNeeded = true;
 				else throw cause;
 			}
 		} catch (cause) {
+			if (version !== loadVersion || requestedCompany !== companyId) return;
 			failure = cause instanceof Error ? cause.message : 'Company access could not be read.';
 		}
 	}
