@@ -60,9 +60,12 @@
 	let fullscreen = $state(false);
 	let utilityMessage = $state('');
 	let clipboardPanelOpen = $state(false);
+	let manualClipboardOpen = $state(false);
 	let clipboardDraft = $state('');
 	let clipboardFeedback = $state('');
+	let clipboardPanel = $state<HTMLDivElement>();
 	let clipboardInput = $state<HTMLTextAreaElement>();
+	let clipboardAction = $state<HTMLButtonElement>();
 	let generation = 0;
 	let retryTimer: ReturnType<typeof setTimeout> | undefined;
 	let active = true;
@@ -454,11 +457,14 @@
 		clipboardPanelOpen = true;
 		clipboardFeedback = '';
 		await tick();
-		clipboardInput?.focus();
+		if (clipboardAction?.disabled) clipboardPanel?.focus();
+		else clipboardAction?.focus();
 	}
 
 	function closeClipboardPanel() {
 		clipboardPanelOpen = false;
+		manualClipboardOpen = false;
+		clipboardDraft = '';
 		clipboardFeedback = '';
 	}
 
@@ -470,17 +476,45 @@
 		}
 	}
 
-	async function readLocalClipboard() {
+	async function openManualClipboard() {
+		manualClipboardOpen = true;
+		await tick();
+		clipboardInput?.focus();
+	}
+
+	async function sendLocalClipboard() {
+		if (!rfb || status !== 'connected' || !interactive) {
+			clipboardFeedback = 'Take control of the connected computer before sending text.';
+			return;
+		}
 		if (!navigator.clipboard?.readText) {
 			clipboardFeedback =
-				'This browser does not allow clipboard reading here. Paste into the text box instead.';
+				'This browser cannot read the device clipboard. Paste text manually below.';
+			await openManualClipboard();
+			return;
+		}
+		let text: string;
+		try {
+			text = await navigator.clipboard.readText();
+		} catch {
+			clipboardFeedback = 'Clipboard access was denied. Paste text manually below.';
+			await openManualClipboard();
+			return;
+		}
+		if (!text) {
+			clipboardFeedback = 'The device clipboard has no text to send.';
+			return;
+		}
+		if (!rfb || status !== 'connected' || !interactive) {
+			clipboardFeedback = 'Computer control changed before the clipboard could be sent.';
 			return;
 		}
 		try {
-			clipboardDraft = await navigator.clipboard.readText();
-			clipboardFeedback = 'Local clipboard loaded into the text box.';
+			rfb.clipboardPasteFrom(text);
+			onactivity?.();
+			clipboardFeedback = 'Sent to the computer. Press Ctrl+V in the company app.';
 		} catch {
-			clipboardFeedback = 'Browser clipboard access was denied. Paste into the text box instead.';
+			clipboardFeedback = 'Could not send the clipboard to the computer. Try again.';
 		}
 	}
 
@@ -495,7 +529,7 @@
 		}
 		try {
 			await navigator.clipboard.writeText(remoteClipboard);
-			clipboardFeedback = 'Remote clipboard copied to this device.';
+			clipboardFeedback = 'Computer clipboard copied to this device.';
 		} catch {
 			clipboardFeedback =
 				'Browser clipboard access was denied. Select and copy the text below instead.';
@@ -574,6 +608,7 @@
 		</div>
 		{#if clipboardPanelOpen}
 			<div
+				bind:this={clipboardPanel}
 				class="clipboard-panel"
 				role="dialog"
 				tabindex="-1"
@@ -590,25 +625,44 @@
 						onclick={closeClipboardPanel}>×</button
 					>
 				</div>
-				<label for="desktop-clipboard-draft">Text to send to the company computer</label>
-				<textarea
-					bind:this={clipboardInput}
-					bind:value={clipboardDraft}
-					id="desktop-clipboard-draft"
-					rows="5"
-					placeholder="Type or paste text here"></textarea>
 				<div class="clipboard-panel-actions">
-					<button type="button" onclick={readLocalClipboard}>Read local clipboard</button>
-					<button type="button" onclick={copyRemoteClipboard} disabled={!remoteClipboard}
-						>Copy remote clipboard</button
-					>
 					<button
 						type="button"
 						class="clipboard-send"
-						onclick={sendClipboard}
-						disabled={!rfb || status !== 'connected' || !interactive}>Send to computer</button
+						bind:this={clipboardAction}
+						onclick={sendLocalClipboard}
+						disabled={!rfb || status !== 'connected' || !interactive}>Send device clipboard</button
+					>
+					<button
+						type="button"
+						onclick={copyRemoteClipboard}
+						disabled={!remoteClipboard}
+						title={remoteClipboard
+							? 'Copy the computer clipboard to this device'
+							: 'Copy text inside the company computer first'}>Copy from computer</button
 					>
 				</div>
+				<button
+					class="clipboard-manual-toggle"
+					type="button"
+					onclick={openManualClipboard}
+					disabled={!rfb || status !== 'connected' || !interactive}>Enter text manually</button
+				>
+				{#if manualClipboardOpen}
+					<label for="desktop-clipboard-draft">Text to send to the company computer</label>
+					<textarea
+						bind:this={clipboardInput}
+						bind:value={clipboardDraft}
+						id="desktop-clipboard-draft"
+						rows="5"
+						placeholder="Type or paste text here"></textarea>
+					<button
+						type="button"
+						class="clipboard-manual-send"
+						onclick={sendClipboard}
+						disabled={!rfb || status !== 'connected' || !interactive}>Send text to computer</button
+					>
+				{/if}
 				{#if remoteClipboard}
 					<details class="clipboard-remote-text">
 						<summary>Remote clipboard text</summary>
@@ -675,8 +729,7 @@
 		box-sizing: border-box;
 		width: 100%;
 		min-height: 40px;
-		padding: 4px max(12px, env(safe-area-inset-right)) 4px
-			max(12px, env(safe-area-inset-left));
+		padding: 4px max(12px, env(safe-area-inset-right)) 4px max(12px, env(safe-area-inset-left));
 		border-top: 1px solid var(--border-strong);
 		background: var(--surface-pane);
 	}
@@ -756,10 +809,13 @@
 		font: var(--t-body) var(--font-ui);
 	}
 	.clipboard-panel-actions {
-		display: flex;
-		flex-wrap: wrap;
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
 		gap: 6px;
-		margin-top: 9px;
+	}
+	.clipboard-panel-actions button {
+		min-width: 0;
+		white-space: nowrap;
 	}
 	.clipboard-panel button {
 		min-height: 32px;
@@ -789,13 +845,27 @@
 		border-color: var(--control-edge);
 	}
 	.clipboard-panel .clipboard-send {
-		margin-left: auto;
 		color: var(--text-inverse);
 		background: var(--intent-conversation);
 		border-color: transparent;
 	}
 	.clipboard-panel .clipboard-send:hover:not(:disabled) {
 		background: color-mix(in srgb, var(--intent-conversation) 88%, var(--ink));
+	}
+	.clipboard-panel .clipboard-manual-toggle {
+		margin-top: 9px;
+		padding: 2px 0;
+		border: 0;
+		background: transparent;
+		color: var(--text-secondary);
+		text-decoration: underline;
+	}
+	.clipboard-panel .clipboard-manual-toggle:hover {
+		background: transparent;
+		color: var(--ink);
+	}
+	.clipboard-panel .clipboard-manual-send {
+		margin-top: 9px;
 	}
 	.clipboard-remote-text {
 		margin-top: 10px;
@@ -886,10 +956,6 @@
 		}
 		.desktop-live {
 			padding-inline: 0 4px;
-		}
-		.clipboard-panel-actions .clipboard-send {
-			margin-left: 0;
-			flex: 1 0 100%;
 		}
 	}
 	.desktop-viewport-empty {
