@@ -1173,9 +1173,7 @@
 							ondelete={(commandId) => removeMessage(message, commandId)}
 						/>
 					{:else}
-						{#if roomProjection?.status === 'unknown'}
-							<div class="conversation-empty">Loading conversation…</div>
-						{:else if roomProjection?.failure && !roomMessages.length}
+						{#if roomProjection?.failure && !roomMessages.length}
 							<div class="conversation-empty failure">
 								<strong>Conversation unavailable.</strong>
 								<p>{roomProjection.failure.message}</p>
@@ -1183,6 +1181,8 @@
 									>Try again</button
 								>
 							</div>
+						{:else if roomProjection?.status === 'unknown'}
+							<div class="conversation-empty">Loading conversation…</div>
 						{:else}
 							<div class="conversation-empty">
 								<strong>Nothing said yet.</strong>
