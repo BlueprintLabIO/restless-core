@@ -1758,10 +1758,8 @@
 .bridge-root .computer-app-switcher {
 	display: flex;
 	align-items: center;
-	gap: 6px;
-	flex: 0 1 280px;
+	flex: 0 1 240px;
 	min-width: 100px;
-	color: var(--text-tertiary);
 }
 
 .bridge-root .computer-app-switcher select {
@@ -1769,9 +1767,9 @@
 	width: 100%;
 	min-height: 36px;
 	padding: 6px 24px 6px 8px;
-	border: 1px solid transparent;
+	border: 1px solid var(--border-strong);
 	border-radius: var(--radius-control);
-	background-color: transparent;
+	background-color: var(--surface-pane);
 	color: var(--ink);
 	font: inherit;
 	font-size: var(--t-body);
@@ -1780,7 +1778,6 @@
 }
 
 .bridge-root .computer-app-switcher select:hover:not(:disabled) {
-	border-color: var(--border-strong);
 	background-color: var(--surface-alt);
 }
 

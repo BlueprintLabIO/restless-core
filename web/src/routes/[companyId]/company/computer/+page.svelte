@@ -6,7 +6,6 @@
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 	import ArrowUpRight from '@lucide/svelte/icons/arrow-up-right';
 	import Monitor from '@lucide/svelte/icons/monitor';
-	import PanelsTopLeft from '@lucide/svelte/icons/panels-top-left';
 	import { desktopWindows, focusDesktopWindow, type DesktopWindow } from '$lib/model/desktop';
 	import DesktopViewport from '$lib/components/DesktopViewport.svelte';
 	import { browserControl, issueDesktopTicket } from '$lib/model/attention';
@@ -59,6 +58,7 @@
 	let windowsLoading = $state(false);
 	let windowsError = $state('');
 	let windowCompany = $state('');
+	let lastWindowRefresh = 0;
 	const activeWindow = $derived(windows.find((window) => window.active)?.id ?? '');
 
 	const runtimeBrowser = $derived(view?.computer.runtime?.browser ?? null);
@@ -199,6 +199,7 @@
 			lastDesktopActivity = Date.now();
 			lastLeaseRenewal = Date.now();
 			void browserProjection.refresh();
+			void refreshWindows();
 			return true;
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Control is held elsewhere.';
@@ -331,6 +332,7 @@
 				windowsError = cause instanceof Error ? cause.message : 'Applications are unavailable.';
 		} finally {
 			windowsLoading = false;
+			lastWindowRefresh = Date.now();
 		}
 	}
 
@@ -354,6 +356,7 @@
 		const now = Date.now();
 		lastDesktopActivity = now;
 		if (controller !== 'owner') return;
+		if (now - lastWindowRefresh > 5_000) void refreshWindows();
 		if (activityRenewing || now - lastLeaseRenewal < 8_000) return;
 		activityRenewing = true;
 		lastLeaseRenewal = now;
@@ -400,21 +403,15 @@
 					{controllerLabel}
 				</span>
 			</div>
-			<div
-				class="computer-app-switcher"
-				title={windowsError ||
-					(controller === 'owner'
-						? 'Bring an open application to the front'
-						: 'Use the desktop first to switch applications')}
-			>
-				<PanelsTopLeft size={15} aria-hidden="true" />
+			{#if controller === 'owner' && windowCompany === companyId && windows.length > 1}
+				<div
+					class="computer-app-switcher"
+					title={windowsError || 'Bring an open application to the front'}
+				>
 				<select
-					aria-label="Open applications"
+					aria-label="Switch application"
 					value={activeWindow}
-					disabled={controller !== 'owner' ||
-						windowCompany !== companyId ||
-						!!working ||
-						windows.length === 0}
+					disabled={!!working}
 					onfocus={() => void refreshWindows()}
 					onpointerdown={() => void refreshWindows()}
 					onchange={(event) => void selectWindow(event.currentTarget.value)}
@@ -426,7 +423,8 @@
 						<option value={window.id}>{window.title || window.app}</option>
 					{/each}
 				</select>
-			</div>
+				</div>
+			{/if}
 			<div class="desktop-focus-actions">
 				{#if browserFocus && browserDestination}
 					<a
