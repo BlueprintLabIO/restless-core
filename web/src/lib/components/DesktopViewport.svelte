@@ -283,7 +283,11 @@
 		<div class="desktop-tools" aria-label="Desktop controls">
 			<span class="desktop-live" role="status">
 				{status === 'connected'
-					? 'Connected'
+					? rfb?.viewOnly
+						? fit
+							? 'Viewing · scaled'
+							: 'Viewing · actual pixels'
+						: 'Connected · full resolution'
 					: status === 'reconnecting'
 						? 'Reconnecting'
 						: status === 'error'
@@ -301,8 +305,8 @@
 			</button>
 			<button
 				type="button"
-				title={fit ? 'Actual size' : 'Fit to screen'}
-				aria-label={fit ? 'Actual size' : 'Fit to screen'}
+				title={fit ? 'Show actual pixels without scaling' : 'Fit to screen'}
+				aria-label={fit ? 'Show actual pixels without scaling' : 'Fit to screen'}
 				onclick={toggleFit}
 			>
 				{#if fit}<Scan size={14} />{:else}<Scaling size={14} />{/if}

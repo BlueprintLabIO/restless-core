@@ -363,7 +363,7 @@
 						class="btn small primary"
 						type="button"
 						disabled={!!working || !desktopUrl}
-						title="Claims input only if the computer is not held by another owner tab or company actor."
+						title="Take control to fit the computer to this window at full resolution. Available when no other tab or company actor holds it."
 						onclick={() => takeControl()}
 						>{working === 'control' ? 'Taking control…' : 'Take control'}</button
 					>

@@ -61,3 +61,25 @@ was exercised; GPU-heavy projects, video editing performance and audio were not.
 The local runtime image was built as a small derivative of the existing compatible
 image; the canonical Dockerfile contains the same defaults for future full builds.
 Old hashed frontend assets and the previous desktop image were retained for rollback.
+
+## Display sizing after the first live review
+
+The observer keeps the shared 1280 × 800 framebuffer and scales it locally. On a
+1450 × 1286 browser viewport, the 1448 × 1186 display area showed that image
+as 1448 × 905, leaving broad bands above and below. The enlargement also
+softened text. This follows the single-controller sizing rule; it is not an
+inherent limit of TigerVNC or noVNC.
+
+Taking control in the same tall viewport produced a 1448 × 1186 framebuffer in
+a 1448 × 1186 display area, without local enlargement or letterboxing. Live
+resizing during control also followed a 1198 × 700 display area pixel for pixel.
+The UI now identifies a scaled observation, describes the actual-pixels option,
+and explains that taking control uses the window's full resolution. Exec sits in
+the desktop utility bar rather than floating above it. Desktop and 390px mobile
+layouts were checked after deployment.
+
+The shared computer still has one framebuffer. Two observers with differently
+shaped windows cannot both fill their screens without changing global geometry,
+cropping, or distortion. A future primary-viewer resolution policy would need to
+arbitrate those changes around other humans and agents; this release keeps the
+single-controller boundary.
