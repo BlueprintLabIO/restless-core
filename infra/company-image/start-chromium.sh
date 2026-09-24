@@ -20,19 +20,27 @@ set -- \
 	--disable-background-networking \
 	--no-sandbox
 
-# Chromium's own session store does not record tabs navigated through CDP in
-# the Debian build used by this Runtime (observed in the Sprint 05 probe).
-# Restore checkpoint URLs when available; also restoring Chromium's session
-# would open those same tabs a second time. Keep native recovery as a fallback
-# for profiles that do not yet have a broker checkpoint.
-if [ -s "$tabs" ]; then
-	jq -r '.[] | select(type == "string")' "$tabs" > /company/run/restless-tabs.urls
+urls=/company/run/restless-tabs.urls
+: > "$urls"
+if [ -s "$tabs" ] && jq -e 'type == "array"' "$tabs" >/dev/null 2>&1; then
+	jq -r '.[] | select(type == "string") | select(startswith("http://") or startswith("https://") or startswith("file://"))' "$tabs" > "$urls"
+fi
+
+if [ -s "$urls" ]; then
+	# Chromium's own session store does not record tabs navigated through CDP
+	# in this Runtime's Debian build. Use the broker checkpoint and disable
+	# native restore so those URLs are not opened a second time. Its session
+	# files remain intact in the profile.
+	preferences=/company/browser-profile/Default/Preferences
+	if [ -f "$preferences" ]; then
+		jq '.session.restore_on_startup = 5' "$preferences" > /company/run/Preferences.next
+		mv /company/run/Preferences.next "$preferences"
+	fi
 	while IFS= read -r url; do
-		case "$url" in
-			http://*|https://*|file://*) set -- "$@" "$url" ;;
-		esac
-	done < /company/run/restless-tabs.urls
+		set -- "$@" "$url"
+	done < "$urls"
 else
+	# Missing, malformed, or URL-free checkpoints leave native recovery enabled.
 	set -- "$@" --restore-last-session
 fi
 
