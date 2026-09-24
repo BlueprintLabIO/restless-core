@@ -5,12 +5,14 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
+import { execFileSync } from 'node:child_process';
 
 const leasePath = '/company/run/browser-control.json';
 const listenPort = 9223;
 const chromePort = 9222;
 const active = new Set();
 const tabsPath = '/company/browser-profile/restless-tabs.json';
+const desktopEnv = { ...process.env, DISPLAY: ':1' };
 
 function ownerControls() {
   try {
@@ -31,7 +33,104 @@ function refuse(response) {
   );
 }
 
+function listWindows() {
+  const activeOutput = execFileSync('/usr/bin/xprop', ['-root', '_NET_ACTIVE_WINDOW'], {
+    encoding: 'utf8', timeout: 1000, env: desktopEnv
+  });
+  const activeMatch = activeOutput.match(/# (0x[0-9a-f]+)/i)?.[1];
+  const active = activeMatch ? BigInt(activeMatch).toString(16) : null;
+  const rows = execFileSync('/usr/bin/wmctrl', ['-lpGx'], {
+    encoding: 'utf8', timeout: 1000, env: desktopEnv
+  }).split('\n');
+  const windows = [];
+  for (const row of rows) {
+    const match = row.match(/^\s*(0x[0-9a-f]+)\s+\S+\s+\S+\s+(-?\d+)\s+(-?\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+\S+\s*(.*)$/i);
+    if (!match) continue;
+    const [, id, x, y, width, height, app, title] = match;
+    let type = '';
+    try {
+      type = execFileSync('/usr/bin/xprop', ['-id', id, '_NET_WM_WINDOW_TYPE'], {
+        encoding: 'utf8', timeout: 1000, env: desktopEnv
+      });
+    } catch {
+      continue;
+    }
+    if (type.includes('_NET_WM_WINDOW_TYPE_DOCK') || type.includes('_NET_WM_WINDOW_TYPE_DESKTOP')) continue;
+    windows.push({
+      id: id.toLowerCase(),
+      title: title.trim(),
+      app,
+      geometry: { x: Number(x), y: Number(y), width: Number(width), height: Number(height) },
+      active: BigInt(id).toString(16) === active
+    });
+  }
+  return windows;
+}
+
+function sendJson(response, status, value) {
+  response.writeHead(status, { 'content-type': 'application/json' });
+  response.end(JSON.stringify(value));
+}
+
+function desktopRequest(request, response) {
+  const pathname = new URL(request.url, 'http://127.0.0.1').pathname;
+  if (pathname === '/restless/desktop/windows' && request.method === 'GET') {
+    try {
+      sendJson(response, 200, { windows: listWindows() });
+    } catch (error) {
+      sendJson(response, 503, { error: 'desktop_unavailable', message: error.message });
+    }
+    return true;
+  }
+  const match = pathname.match(/^\/restless\/desktop\/windows\/(0x[0-9a-f]+)\/focus$/i);
+  if (match && request.method === 'POST') {
+    if (!ownerControls()) {
+      sendJson(response, 423, { error: 'owner_lease_required', message: 'take control of the company computer before focusing a window' });
+      return true;
+    }
+    let body = '';
+    request.setEncoding('utf8');
+    request.on('data', (chunk) => {
+      body += chunk;
+      if (body.length > 1024) request.destroy();
+    });
+    request.on('end', () => {
+      try {
+        const input = JSON.parse(body);
+        const lease = JSON.parse(fs.readFileSync(leasePath, 'utf8'));
+        if (typeof input.client_id !== 'string' || typeof input.lease_id !== 'string' ||
+            input.client_id.length > 128 || input.lease_id.length > 128 ||
+            lease.controller !== 'owner' || !(Date.parse(lease.expires_at) > Date.now()) ||
+            input.client_id !== lease.client_id || input.lease_id !== lease.lease_id) {
+          sendJson(response, 423, { error: 'owner_lease_required', message: 'this tab does not hold the live company computer lease' });
+          return;
+        }
+        const id = match[1].toLowerCase();
+        if (!listWindows().some((window) => window.id === id)) {
+          sendJson(response, 404, { error: 'window_unavailable', message: 'the selected window is no longer open' });
+          return;
+        }
+        const latest = JSON.parse(fs.readFileSync(leasePath, 'utf8'));
+        if (latest.controller !== 'owner' || !(Date.parse(latest.expires_at) > Date.now()) ||
+            latest.client_id !== input.client_id || latest.lease_id !== input.lease_id) {
+          sendJson(response, 423, { error: 'owner_lease_required', message: 'the company computer lease expired before focusing the window' });
+          return;
+        }
+        execFileSync('/usr/bin/wmctrl', ['-ia', id], {
+          stdio: 'ignore', timeout: 1000, env: desktopEnv
+        });
+        sendJson(response, 200, { focused: true });
+      } catch (error) {
+        sendJson(response, 400, { error: 'invalid_focus_request', message: error.message });
+      }
+    });
+    return true;
+  }
+  return false;
+}
+
 const server = http.createServer((request, response) => {
+  if (desktopRequest(request, response)) return;
   if (ownerControls()) {
     refuse(response);
     return;

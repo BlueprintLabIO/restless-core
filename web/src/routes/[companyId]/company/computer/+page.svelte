@@ -1,17 +1,18 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import Activity from '@lucide/svelte/icons/activity';
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 	import ArrowUpRight from '@lucide/svelte/icons/arrow-up-right';
 	import Monitor from '@lucide/svelte/icons/monitor';
+	import PanelsTopLeft from '@lucide/svelte/icons/panels-top-left';
+	import { desktopWindows, focusDesktopWindow, type DesktopWindow } from '$lib/model/desktop';
 	import DesktopViewport from '$lib/components/DesktopViewport.svelte';
 	import { browserControl, issueDesktopTicket } from '$lib/model/attention';
 	import { browserTabClientId } from '$lib/model/browserTab';
 	import {
 		COMPANY_BROWSER_OPEN_EVENT,
-		companyBrowserLabel,
 		consumeCompanyBrowserIntent,
 		lastCompanyBrowserDestination,
 		openCompanyBrowser,
@@ -47,6 +48,11 @@
 	let lastLeaseRenewal = $state(0);
 	let activityRenewing = $state(false);
 	let browserDestination = $state('');
+	let windows = $state<DesktopWindow[]>([]);
+	let windowsLoading = $state(false);
+	let windowsError = $state('');
+	let windowCompany = $state('');
+	const activeWindow = $derived(windows.find((window) => window.active)?.id ?? '');
 
 	const runtimeBrowser = $derived(view?.computer.runtime?.browser ?? null);
 	const canAttach = $derived(runtimeBrowser?.status === 'available');
@@ -99,18 +105,21 @@
 	$effect(() => {
 		const current = browserStatus;
 		if (!current) return;
-		if (
-			controlRequested &&
-			current.control?.controller === 'owner' &&
-			current.control.client_id === clientId
-		) {
-			controller = 'owner';
-			if (focus) desktopUrl = controlledUrl();
-		} else if (controller === 'owner') {
-			controller = 'observer';
-			if (focus) desktopUrl = observedUrl();
-		}
-		error = browserProjection.failure?.message ?? '';
+		// Apply a newly observed lease, not an old snapshot when a local action
+		// changes the controller. That used to reconnect three times per takeover.
+		untrack(() => {
+			if (
+				controlRequested &&
+				current.control?.controller === 'owner' &&
+				current.control.client_id === clientId
+			) {
+				controller = 'owner';
+				if (focus) desktopUrl = controlledUrl();
+			} else if (controller === 'owner') {
+				controller = 'observer';
+				if (focus) desktopUrl = observedUrl();
+			}
+		});
 	});
 
 	async function morphTo(href: string) {
@@ -165,7 +174,8 @@
 			controller = 'observer';
 			await browserProjection.refresh();
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'The Company browser could not open this page.';
+			error =
+				cause instanceof Error ? cause.message : 'The Company browser could not open this page.';
 		} finally {
 			working = '';
 		}
@@ -217,7 +227,41 @@
 	}
 
 	async function desktopReady() {
-		await browserProjection.refresh();
+		await Promise.all([browserProjection.refresh(), refreshWindows()]);
+	}
+
+	async function refreshWindows() {
+		const requestedCompany = companyId;
+		if (windowsLoading) return;
+		windowsLoading = true;
+		try {
+			const result = await desktopWindows(requestedCompany);
+			if (requestedCompany !== companyId) return;
+			windows = result;
+			windowCompany = requestedCompany;
+			windowsError = '';
+		} catch (cause) {
+			if (requestedCompany === companyId)
+				windowsError = cause instanceof Error ? cause.message : 'Applications are unavailable.';
+		} finally {
+			windowsLoading = false;
+		}
+	}
+
+	async function selectWindow(id: string) {
+		if (!id || windowCompany !== companyId || controller !== 'owner' || working) return;
+		working = 'window';
+		error = '';
+		try {
+			await focusDesktopWindow(companyId, id, clientId, controlLeaseId);
+			desktopActivity();
+			await refreshWindows();
+		} catch (cause) {
+			error =
+				cause instanceof Error ? cause.message : 'The application could not be brought forward.';
+		} finally {
+			working = '';
+		}
 	}
 
 	function desktopActivity() {
@@ -254,18 +298,46 @@
 	<div class="company-desktop-focus">
 		<header class="computer-focus-toolbar">
 			<div class="computer-focus-identity">
-				<span class="computer-focus-icon"><Monitor size={15} strokeWidth={1.8} /></span>
-				<div>
-					<h1>{browserFocus ? 'Company browser' : 'Computer'}</h1>
-					<span
-						><i
-							class="source-lamp status-{runtimeBrowser?.status === 'available' ? 'live' : 'stale'}"
-							aria-hidden="true"
-						></i>{browserFocus && browserDestination
-							? companyBrowserLabel(browserDestination)
-							: runtimeBrowser?.status ?? 'unknown'} · {controllerLabel}</span
+				<span class="computer-focus-icon"><Monitor size={17} strokeWidth={1.8} /></span>
+				<h1>{browserFocus ? 'Company browser' : 'Computer'}</h1>
+				<span
+					class="computer-control-state"
+					class:controlled={controller === 'owner'}
+					title="One person or agent controls the shared computer at a time. Inactive control is released after one minute."
+				>
+					<i
+						class="source-lamp status-{controller === 'owner' ? 'live' : 'stale'}"
+						aria-hidden="true"
+					></i>
+					{controllerLabel}
+				</span>
+			</div>
+			<div
+				class="computer-app-switcher"
+				title={windowsError ||
+					(controller === 'owner'
+						? 'Bring an open application to the front'
+						: 'Take control to switch applications')}
+			>
+				<PanelsTopLeft size={15} aria-hidden="true" />
+				<select
+					aria-label="Open applications"
+					value={activeWindow}
+					disabled={controller !== 'owner' ||
+						windowCompany !== companyId ||
+						!!working ||
+						windows.length === 0}
+					onfocus={() => void refreshWindows()}
+					onpointerdown={() => void refreshWindows()}
+					onchange={(event) => void selectWindow(event.currentTarget.value)}
+				>
+					<option value="" disabled
+						>{windowsError ? 'Applications unavailable' : 'Open applications'}</option
 					>
-				</div>
+					{#each windowCompany === companyId ? windows : [] as window (window.id)}
+						<option value={window.id}>{window.title || window.app}</option>
+					{/each}
+				</select>
 			</div>
 			<div class="desktop-focus-actions">
 				{#if browserFocus && browserDestination}
@@ -274,8 +346,8 @@
 						href={browserDestination}
 						target="_blank"
 						rel="noreferrer"
-						data-open-externally
-					>Open externally</a>
+						data-open-externally>Open externally</a
+					>
 				{/if}
 				{#if controller === 'owner'}
 					<button
@@ -283,7 +355,8 @@
 						type="button"
 						disabled={!!working}
 						title="Returns input to the company actor. It does not complete Work or an owner decision."
-						onclick={() => returnControl()}>Release control</button
+						onclick={() => returnControl()}
+						>{working === 'return' ? 'Releasing…' : 'Release control'}</button
 					>
 				{:else}
 					<button
@@ -291,7 +364,8 @@
 						type="button"
 						disabled={!!working || !desktopUrl}
 						title="Claims input only if the computer is not held by another owner tab or company actor."
-						onclick={() => takeControl()}>Take control</button
+						onclick={() => takeControl()}
+						>{working === 'control' ? 'Taking control…' : 'Take control'}</button
 					>
 				{/if}
 				<button
@@ -303,14 +377,6 @@
 			</div>
 		</header>
 		<div class="desktop-notices">
-			{#if controller !== 'owner'}
-				<p class="desktop-control-hint">
-					{browserFocus
-						? 'Opened in a new Company browser tab. Viewing only.'
-						: 'Viewing only. Click '}
-					{#if !browserFocus}<strong>Take control</strong> to use the mouse and keyboard.{/if}
-				</p>
-			{/if}
 			{#if error}<div class="computer-error" role="alert">{error}</div>{/if}
 		</div>
 		<DesktopViewport
@@ -359,7 +425,7 @@
 					</button>
 					<p>
 						{canAttach
-							? 'Opens read-only. Click Take control to enable input. Control is released after one minute without desktop activity.'
+							? 'Your team’s shared browser, files and applications. Take control when you want to join in.'
 							: 'The desktop has not passed its live probe. Open Doctor for the smallest available repair.'}
 					</p>
 				</div>

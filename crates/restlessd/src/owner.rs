@@ -650,6 +650,12 @@ struct ControlRequest {
     lease_id: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct DesktopWindowFocusRequest {
+    client_id: String,
+    lease_id: String,
+}
+
 #[derive(Debug, Deserialize, Default)]
 struct DesktopMode {
     client_id: Option<String>,
@@ -1471,6 +1477,11 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(issue_review_ticket),
         )
         .route("/companies/{company}/browser/status", get(browser_status))
+        .route("/companies/{company}/desktop/windows", get(desktop_windows))
+        .route(
+            "/companies/{company}/desktop/windows/{window_id}/focus",
+            post(focus_desktop_window),
+        )
         .route("/companies/{company}/browser/take", post(take_control))
         // Kept at the existing path so an already-open cockpit stays
         // compatible. Its meaning is input activity, not a background
@@ -8502,6 +8513,76 @@ async fn browser_status(AxumPath(company): AxumPath<String>) -> impl IntoRespons
             "runtime",
             format!("{error:#}"),
         ),
+    }
+}
+
+async fn desktop_windows(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if valid_attach(&state, &company, &headers).is_none() {
+        return api_error(
+            StatusCode::UNAUTHORIZED,
+            "attach",
+            "open this company computer before listing its windows",
+        );
+    }
+    match runtime::desktop_windows(&company).await {
+        Ok(windows) => Json(windows).into_response(),
+        Err(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "desktop",
+            format!("{error:#}"),
+        ),
+    }
+}
+
+async fn focus_desktop_window(
+    State(state): State<OwnerState>,
+    AxumPath((company, window_id)): AxumPath<(String, String)>,
+    headers: HeaderMap,
+    Json(input): Json<DesktopWindowFocusRequest>,
+) -> impl IntoResponse {
+    let Some(attach) = valid_attach(&state, &company, &headers) else {
+        return api_error(
+            StatusCode::UNAUTHORIZED,
+            "attach",
+            "open this company computer before focusing a window",
+        );
+    };
+    if input.client_id != attach.client_id
+        || input.client_id.len() > 128
+        || input.lease_id.len() > 128
+    {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "controller",
+            "window focus must come from the attached controlling tab",
+        );
+    }
+    // Hold the same lock as take/return/heartbeat until the broker completes
+    // activation, so hand-back cannot race a focus request.
+    let _control_guard = runtime::browser_control_guard(&company).await;
+    let Some(control) = runtime::read_browser_control(&company).await.ok().flatten() else {
+        return api_error(
+            StatusCode::CONFLICT,
+            "controller",
+            "take control of the company computer before focusing a window",
+        );
+    };
+    if control_expiry(Some(&control), &input.client_id, &input.lease_id).is_none() {
+        return api_error(
+            StatusCode::CONFLICT,
+            "controller",
+            "this tab does not hold the live company computer lease",
+        );
+    }
+    match runtime::focus_desktop_window(&company, &window_id, &input.client_id, &input.lease_id)
+        .await
+    {
+        Ok(()) => Json(serde_json::json!({ "focused": true })).into_response(),
+        Err(error) => api_error(StatusCode::CONFLICT, "desktop", format!("{error:#}")),
     }
 }
 

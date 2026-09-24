@@ -27,13 +27,19 @@ RUN apt-get update \
         ca-certificates \
         chromium \
         curl \
-		dbus-x11 \
+        dbus-x11 \
+        dmz-cursor-theme \
+        fonts-dejavu-core \
+        fonts-inter \
         fonts-liberation \
+        fonts-noto-color-emoji \
         g++ \
         git \
         jq \
         make \
         novnc \
+        arc-theme \
+        adwaita-icon-theme \
         openbox \
 		pcmanfm \
         python3 \
@@ -47,11 +53,39 @@ RUN apt-get update \
 		util-linux \
 		unzip \
 		wmctrl \
-		websockify \
-		xdotool \
-		xterm \
+        websockify \
+        xdotool \
+        x11-utils \
+        xterm \
 		x11-xserver-utils \
     && rm -rf /var/lib/apt/lists/*
+
+# System defaults apply to existing persistent homes that have no personal
+# override. Arc is GTK-only in Debian; use Openbox's bundled Breeze theme with
+# Restless colors, rather than naming Arc as a nonexistent Openbox theme.
+COPY infra/company-image/gtk-settings.ini /etc/gtk-3.0/settings.ini
+COPY infra/company-image/gtk-settings.ini /etc/gtk-4.0/settings.ini
+RUN test -f /usr/share/themes/Breeze-ob/openbox-3/themerc \
+    && sed -i \
+        -e 's/<name>Clearlooks<\/name>/<name>Breeze-ob<\/name>/' \
+        -e 's/<name>sans<\/name>/<name>Inter<\/name>/g' \
+        -e 's/<size>8<\/size>/<size>10<\/size>/g' \
+        -e 's/<size>9<\/size>/<size>10<\/size>/g' \
+        /etc/xdg/openbox/rc.xml \
+    && sed -i \
+        -e 's/#475057/#26384d/g' \
+        -e 's/#EFF0F1/#e9edf5/g' \
+        -e 's/#3498db/#5888bb/g' \
+        -e 's/#d0d2d2/#dad7cf/g' \
+        -e 's/#31363b/#354252/g' \
+        -e 's/#a5a7a9/#818995/g' \
+        -e 's/#3daee9/#315f91/g' \
+        -e 's/#fcfcfc/#ffffff/g' \
+        -e 's/#BBDCEE/#dce8f2/g' \
+        -e 's/#bdc3c7/#566577/g' \
+        -e 's/#CED4D9/#69798b/g' \
+        -e 's/#798085/#9ba7b5/g' \
+        /usr/share/themes/Breeze-ob/openbox-3/themerc
 
 # The ACP agent binary: omp (Oh My Pi), which speaks ACP natively and reports
 # per-turn token and dollar usage on the session stream — the fact that moved
@@ -187,6 +221,7 @@ COPY infra/company-image/refresh-desktop-launchers.sh /usr/local/bin/refresh-com
 COPY infra/company-image/git-credential-restless /usr/local/bin/git-credential-restless
 COPY infra/company-image/skills /opt/restless/skills
 COPY infra/company-image/tint2rc /etc/restless/tint2rc
+COPY infra/company-image/Xresources /etc/restless/Xresources
 COPY infra/company-image/company-browser.desktop /usr/share/applications/company-browser.desktop
 COPY infra/company-image/company-terminal.desktop /usr/share/applications/company-terminal.desktop
 COPY infra/company-image/company-godot.desktop /usr/share/applications/company-godot.desktop
@@ -221,6 +256,7 @@ RUN chmod 0555 /usr/local/bin/company-init /usr/local/bin/company-volume-init \
         /usr/local/lib/restless/release-health.mjs /etc/supervisor/conf.d/restless.conf \
         /etc/supervisor/conf.d/company.conf \
         /etc/restless/tint2rc /usr/share/applications/company-browser.desktop \
+        /etc/restless/Xresources \
         /usr/share/applications/company-terminal.desktop /usr/share/applications/company-godot.desktop
 RUN ln -s /usr/local/lib/restless/restless-scenario.mjs /usr/local/bin/restless-scenario
 RUN ln -s /usr/local/lib/restless/restless-web-review.mjs /usr/local/bin/restless-web-review

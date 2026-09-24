@@ -1,0 +1,33 @@
+! Consistent, comfortable pointer size across X11-native applications.
+Xcursor.theme: DMZ-White
+Xcursor.size: 24
+
+! Bridge Light companion terminal: dark slate, clear text, and blue selection.
+xterm*faceName: DejaVu Sans Mono
+xterm*faceSize: 12
+xterm*background: #202630
+xterm*foreground: #e7edf5
+xterm*cursorColor: #8ab4dc
+xterm*highlightColor: #365473
+xterm*highlightTextColor: #ffffff
+xterm*internalBorder: 12
+xterm*rightScrollBar: true
+xterm*scrollBar: false
+xterm*saveLines: 10000
+xterm*scrollTtyOutput: false
+xterm*color0: #202630
+xterm*color1: #ef6a65
+xterm*color2: #82c48b
+xterm*color3: #e9c46a
+xterm*color4: #7fb3e5
+xterm*color5: #c5a3e0
+xterm*color6: #74c9c5
+xterm*color7: #e7edf5
+xterm*color8: #77869a
+xterm*color9: #ff827a
+xterm*color10: #9cd6a4
+xterm*color11: #f5d27b
+xterm*color12: #9ac9f3
+xterm*color13: #d2b1ed
+xterm*color14: #8de0dc
+xterm*color15: #ffffff

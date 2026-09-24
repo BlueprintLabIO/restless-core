@@ -1877,6 +1877,76 @@ pub async fn open_browser_url(company: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
+/// Enumerate live X11 application windows through the private company broker.
+pub async fn desktop_windows(company: &str) -> Result<serde_json::Value> {
+    let container = container_name(company);
+    let output = docker_observe(&[
+        "exec",
+        &container,
+        "curl",
+        "--fail-with-body",
+        "--silent",
+        "--show-error",
+        "--max-time",
+        "5",
+        "http://127.0.0.1:9223/restless/desktop/windows",
+    ])
+    .await?;
+    if !output.status.success() {
+        bail!(
+            "company desktop window enumeration failed: {}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+    }
+    serde_json::from_slice(&output.stdout).context("decode company desktop windows")
+}
+
+/// Focus one enumerated X11 window, tied to the live owner browser lease.
+pub async fn focus_desktop_window(
+    company: &str,
+    window_id: &str,
+    client_id: &str,
+    lease_id: &str,
+) -> Result<()> {
+    if !window_id.strip_prefix("0x").is_some_and(|digits| {
+        !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_hexdigit())
+    }) {
+        bail!("invalid company desktop window id");
+    }
+    let body = serde_json::json!({ "client_id": client_id, "lease_id": lease_id }).to_string();
+    let container = container_name(company);
+    let url = format!("http://127.0.0.1:9223/restless/desktop/windows/{window_id}/focus");
+    let output = docker_bounded(
+        &[
+            "exec",
+            &container,
+            "curl",
+            "--fail-with-body",
+            "--silent",
+            "--show-error",
+            "--max-time",
+            "5",
+            "--request",
+            "POST",
+            "--header",
+            "content-type: application/json",
+            "--data-raw",
+            &body,
+            &url,
+        ],
+        Duration::from_secs(8),
+    )
+    .await
+    .context("bounded desktop focus request")?;
+    if !output.status.success() {
+        bail!(
+            "company desktop window focus failed: {}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+    }
+    Ok(())
+}
+
 /// A full-duplex byte stream backed by `docker exec socat`. This is the V0
 /// Runtime Bridge for the private desktop transport: mature process tooling,
 /// not a published port or a browser-action protocol.

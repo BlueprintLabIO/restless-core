@@ -1699,51 +1699,102 @@
 	grid-row: 1;
 	display: flex;
 	align-items: center;
-	justify-content: space-between;
-	gap: 18px;
-	min-height: 44px;
-	padding: 6px 8px;
-	border-bottom: 1px solid #313a48;
-	background: linear-gradient(180deg, #252c37, #20262f);
-	box-shadow:
-		inset 0 1px 0 rgba(255, 255, 255, 0.08),
-		0 2px 5px rgba(0, 0, 0, 0.18);
-	color: var(--text-inverse);
+	gap: 16px;
+	min-height: 60px;
+	padding: 8px 16px;
+	border-bottom: 1px solid var(--border-strong);
+	background: var(--surface-pane);
+	color: var(--ink);
 }
 
 .bridge-root .computer-focus-identity {
+	display: flex;
+	align-items: center;
 	min-width: 0;
 	gap: 10px;
+	flex-shrink: 0;
 }
 
 .bridge-root .computer-focus-icon {
-	width: 28px;
-	height: 28px;
+	width: 30px;
+	height: 30px;
 	display: grid;
 	place-items: center;
-	border: 1px solid rgba(255, 255, 255, 0.12);
+	border: 1px solid var(--border-strong);
 	border-radius: var(--radius-control);
-	background: rgba(255, 255, 255, 0.06);
-	box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+	background: var(--surface-alt);
+	color: var(--intent-conversation);
 }
 
 .bridge-root .computer-focus-identity h1 {
-	font-size: var(--t-head);
-	color: var(--text-inverse);
+	margin: 0;
+	font-size: var(--t-body);
+	font-weight: 600;
+	color: var(--ink);
+	white-space: nowrap;
 }
 
-.bridge-root .computer-focus-identity > div > span {
+.bridge-root .computer-control-state {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+	max-width: 200px;
+	padding: 5px 8px;
+	border-radius: var(--radius-control);
+	background: var(--surface-alt);
+	color: var(--text-secondary);
+	font-size: var(--t-label);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.bridge-root .computer-control-state.controlled {
+	background: var(--state-success-soft);
+	color: var(--state-success);
+}
+
+.bridge-root .computer-app-switcher {
 	display: flex;
 	align-items: center;
-	gap: 7px;
-	color: rgba(248, 250, 252, 0.66);
-	font: var(--t-label) var(--font-mono);
+	gap: 6px;
+	flex: 0 1 280px;
+	min-width: 100px;
+	color: var(--text-tertiary);
+}
+
+.bridge-root .computer-app-switcher select {
+	min-width: 0;
+	width: 100%;
+	min-height: 36px;
+	padding: 6px 24px 6px 8px;
+	border: 1px solid transparent;
+	border-radius: var(--radius-control);
+	background-color: transparent;
+	color: var(--ink);
+	font: inherit;
+	font-size: var(--t-body);
+	text-overflow: ellipsis;
+	cursor: pointer;
+}
+
+.bridge-root .computer-app-switcher select:hover:not(:disabled) {
+	border-color: var(--border-strong);
+	background-color: var(--surface-alt);
+}
+
+.bridge-root .computer-app-switcher select:disabled {
+	color: var(--text-tertiary);
+	cursor: default;
 }
 
 .bridge-root .desktop-focus-actions {
 	display: flex;
 	align-items: center;
-	gap: 7px;
+	gap: 6px;
+	margin-left: auto;
+	flex-shrink: 0;
 }
 
 .bridge-root .company-desktop-focus > .desktop-notices {
@@ -1760,8 +1811,8 @@
 }
 
 .bridge-root .desktop-focus-actions .btn {
-	min-height: 44px;
-	padding-inline: var(--space-4);
+	min-height: 36px;
+	padding-inline: var(--space-3);
 }
 
 .bridge-root .company-desktop-focus .computer-error {
@@ -2131,5 +2182,43 @@
 
 	::view-transition-group(company-computer) {
 		animation-duration: 0.01ms;
+	}
+}
+
+@media (max-width: 1000px) {
+	.bridge-root .computer-focus-toolbar {
+		flex-wrap: wrap;
+		gap: 8px 12px;
+	}
+	.bridge-root .computer-app-switcher {
+		order: 3;
+		flex: 1 1 100%;
+	}
+}
+
+@media (max-width: 640px) {
+	.bridge-root .computer-focus-toolbar {
+		flex-direction: row;
+		align-items: center;
+		padding: 8px;
+	}
+	.bridge-root .computer-focus-identity {
+		flex: 1 1 100%;
+	}
+	.bridge-root .computer-app-switcher {
+		order: 0;
+		flex: 1 1 100%;
+	}
+	.bridge-root .desktop-focus-actions {
+		gap: 4px;
+		width: 100%;
+		flex-wrap: wrap;
+	}
+	.bridge-root .desktop-focus-actions .btn {
+		min-height: 40px;
+		padding-inline: 8px;
+	}
+	.bridge-root .desktop-focus-actions a {
+		display: none;
 	}
 }
