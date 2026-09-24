@@ -82,6 +82,13 @@ impl WakeClaims {
         self.pending.insert(company.to_string(), reason.to_string());
     }
 
+    /// Fresh owner input earns one prompt attempt even when an earlier
+    /// automatic wake failed. A failed attempt re-enters the ordinary backoff.
+    pub(crate) fn queue_owner_message(&mut self, company: &str) {
+        self.backoff.remove(company);
+        self.queue(company, "new owner message");
+    }
+
     /// Whether this company's next automatic wake is still held back by a
     /// previous wake that never ran.
     fn is_backing_off(&self, company: &str) -> bool {

@@ -6483,6 +6483,12 @@ async fn send_actor_message(
                     .daemon
                     .activities
                     .expect_message(&company, &actor, message_id, input.work_id);
+                if actor == "exec" && input.work_id.is_none() {
+                    if let Ok(mut claims) = state.daemon.in_flight.lock() {
+                        claims.queue_owner_message(&company);
+                    }
+                    state.daemon.schedule_wake.notify_one();
+                }
             }
             // Persist the new direction before interrupting. The next wake
             // discovers it from OrgIntel; the cancelled turn never needs the
