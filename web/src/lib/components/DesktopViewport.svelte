@@ -86,7 +86,7 @@
 
 	function physicalDisplaySize(element: HTMLElement): { width: number; height: number } {
 		const rect = element.getBoundingClientRect();
-		const scale = Math.max(1, window.devicePixelRatio || 1);
+		const scale = Math.max(0.25, window.devicePixelRatio || 1);
 		const width = Math.max(1, Math.round(rect.width * scale));
 		const height = Math.max(1, Math.round(rect.height * scale));
 		const limit = Math.min(
@@ -530,16 +530,7 @@
 	});
 </script>
 
-<div
-	class="desktop-viewport"
-	bind:this={target}
-	aria-label={title}
-	data-desktop-interactive={interactive}
-	data-desktop-can-resize={canResize}
-	data-rfb-view-only={rfb?.viewOnly}
-	data-rfb-resize-session={rfb?.resizeSession}
-	data-rfb-supports-resize={rfb?._supportsSetDesktopSize}
->
+<div class="desktop-viewport" bind:this={target} aria-label={title}>
 	{#if src}
 		<div bind:this={screen} class="desktop-screen" aria-label={title}></div>
 		<div class="desktop-tools" aria-label="Desktop controls">
