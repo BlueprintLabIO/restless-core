@@ -124,6 +124,12 @@
 		clipboardDraft = '';
 	}
 
+	function clearRecentClips() {
+		clipboardClips = [];
+		selectedClipId = null;
+		clipboardFeedback = 'Recent items cleared.';
+	}
+
 	function physicalDisplaySize(element: HTMLElement): { width: number; height: number } {
 		const rect = element.getBoundingClientRect();
 		const scale = Math.max(0.25, window.devicePixelRatio || 1);
@@ -723,7 +729,11 @@
 				{/if}
 				{#if clipboardClips.length}
 					<section class="clipboard-recents" aria-labelledby="clipboard-recents-title">
-						<h3 id="clipboard-recents-title">Recent items <span>this session</span></h3>
+						<div class="clipboard-recents-heading">
+							<h3 id="clipboard-recents-title">Recent items <span>this session</span></h3>
+							<button type="button" class="clipboard-clear" onclick={clearRecentClips}>Clear</button
+							>
+						</div>
 						<p class="clipboard-list-hint">Select an item to transfer it.</p>
 						<div class="clipboard-clip-list" role="group" aria-label="Recent clipboard items">
 							{#each clipboardClips as clip (clip.id)}
@@ -950,12 +960,27 @@
 	.clipboard-recents {
 		margin-top: 13px;
 	}
+	.clipboard-recents-heading {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 8px;
+		margin-bottom: 7px;
+	}
 	.clipboard-recents h3 {
 		display: flex;
 		align-items: baseline;
 		gap: 6px;
-		margin: 0 0 7px;
+		margin: 0;
 		font: 600 var(--t-label) var(--font-ui);
+	}
+	.clipboard-panel .clipboard-clear {
+		min-height: 0;
+		padding: 0;
+		border: 0;
+		background: transparent;
+		color: var(--text-secondary);
+		text-decoration: underline;
 	}
 	.clipboard-recents h3 span {
 		color: var(--text-tertiary);
