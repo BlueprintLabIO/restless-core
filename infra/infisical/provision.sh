@@ -256,7 +256,12 @@ if [[ ! -f "$authority_env" ]]; then
   mv "$authority_temporary" "$authority_env"
 
 fi
-chmod 600 "$authority_env" "$admin_env"
+chmod 600 "$authority_env"
+# The bootstrap admin password is only needed while creating the authority
+# identity. An existing identity can keep starting if that file is lost.
+if [[ -f "$admin_env" ]]; then
+  chmod 600 "$admin_env"
+fi
 
 # Close the compatibility window now that the broad bootstrap token has been
 # discarded and the scoped Universal Auth identity exists. Recreating only the
