@@ -607,6 +607,8 @@ mod tests {
                 internal_network: false,
                 mission: "isolated inbound test".into(),
                 spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(0),
+                monthly_runtime_cap_hours: None,
+                auto_sleep_after_minutes: None,
                 outcome_standard: Default::default(),
                 model: "moonshot/kimi-k3".into(),
                 coordination_harness: crate::runtime::AgentHarness::RestlessManaged,

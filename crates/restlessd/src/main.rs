@@ -48,7 +48,9 @@ mod release;
 mod room_commands;
 mod runtime;
 mod runtime_bridge;
+mod runtime_idle;
 mod runtime_mode;
+mod runtime_usage;
 mod schedule;
 mod schedule_test;
 mod schedule_test_proxy;
@@ -318,7 +320,7 @@ async fn ensure_profile_database(
     Ok(())
 }
 
-fn configured_companies(root: &Path) -> Result<Vec<String>> {
+pub(crate) fn configured_companies(root: &Path) -> Result<Vec<String>> {
     let directory = root.join("companies");
     if !directory.is_dir() {
         return Ok(Vec::new());
@@ -846,6 +848,17 @@ async fn run() -> Result<()> {
     let model_capabilities = daemon.capabilities.clone();
     let model_spend = daemon.spend.clone();
     let schedule_daemon = std::sync::Arc::clone(&daemon);
+    let idle_daemon = std::sync::Arc::clone(&daemon);
+    let mut idle_recovery_ready_rx = recovery_ready_rx.clone();
+    tokio::spawn(async move {
+        while !*idle_recovery_ready_rx.borrow() {
+            if idle_recovery_ready_rx.changed().await.is_err() {
+                return;
+            }
+        }
+        runtime_idle::run(idle_daemon).await;
+    });
+
     tokio::spawn(async move {
         let load_configs = |root: &std::path::Path| -> Result<Vec<runtime::CompanyConfig>> {
             configured_companies(root)?

@@ -183,7 +183,7 @@ export type ScheduleRow = { id: string, actor_id: string, work_id: string | null
 /**
  * Present only for an interval recurrence (`/loop`).
  */
-interval_seconds: number | null, responsibility_id: string | null, responsibility_version: number | null, };
+interval_seconds: number | null, responsibility_id: string | null, responsibility_version: number | null, wake_runtime: boolean, };
 
 export type SkillRow = { name: string, description: string, source: string, path: string, digest: string, has_scripts: boolean,
 /**

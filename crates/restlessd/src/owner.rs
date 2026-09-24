@@ -10,7 +10,7 @@
 #[path = "owner_agent_exchanges.rs"]
 mod agent_exchanges_api;
 #[path = "owner_capacity_activity.rs"]
-mod capacity_activity;
+pub(crate) mod capacity_activity;
 #[path = "owner_company_settings.rs"]
 mod company_settings_api;
 #[path = "owner_custom_harnesses.rs"]
@@ -1384,6 +1384,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             "/companies/{company}/schedules/{schedule}/test",
             post(skills_api::test_schedule_trigger),
         )
+        .route(
+            "/companies/{company}/schedules/{schedule}/runtime-wake",
+            post(skills_api::set_schedule_runtime_wake),
+        )
         .route("/companies/{company}/vault", get(company_vault))
         .route(
             "/companies/{company}/vault/secret",
@@ -1413,6 +1417,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route(
             "/companies/{company}/company/spend-limit",
             post(company_settings_api::save_spend_limit),
+        )
+        .route(
+            "/companies/{company}/company/runtime-policy",
+            post(company_settings_api::save_runtime_policy),
         )
         .route(
             "/companies/{company}/company/outcome-standard",

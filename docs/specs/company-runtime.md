@@ -238,6 +238,18 @@ destroy
 
 This is infrastructure lifecycle, not company workflow.
 
+Local appliances may opt a company into idle sleep with an explicit
+`auto_sleep_after_minutes` setting; the default is disabled. Sleeping uses the
+ordinary Runtime stop path and retains the company volume. The owner plane may
+read company projections while the Runtime sleeps, and those reads never wake
+it. Sleep waits for the configured quiet period with no active or owed company
+work, live owner browser control, or running company-defined supervised
+service. If any activity source is unavailable, the Runtime stays awake. Hosted
+cells remain under Fleet's suspend policy. A configured monthly Runtime cap
+also stops a running computer once that same activity check is clear; a cap
+does not interrupt an active turn or project service, so usage can exceed the
+limit while protected work is still running.
+
 ---
 
 # 4. Runtime Bridge

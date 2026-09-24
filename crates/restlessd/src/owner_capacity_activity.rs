@@ -269,37 +269,35 @@ async fn observe_daemon(
         false => return Err(CapacityActivityFailure::Revision),
     }
 
+    protected_activity_kinds(daemon, &company, &org)
+        .await
+        .map_err(CapacityActivityFailure::Unavailable)
+}
+
+/// Shared source of truth for whether the company has activity that should
+/// keep its Runtime awake. Fleet calls it only after authenticating and
+/// admitting the exact company/cell/revision tuple; the local idle monitor
+/// uses the same predicate against its configured company identity.
+pub(crate) async fn protected_activity_kinds(
+    daemon: &Daemon,
+    company: &str,
+    org: &restless_orgintel::OrgIntel,
+) -> Result<Vec<&'static str>> {
     let mut protected_kinds = Vec::with_capacity(4);
     let in_flight = daemon
         .in_flight
         .lock()
-        .map_err(|_| {
-            CapacityActivityFailure::Unavailable(anyhow::anyhow!(
-                "in-flight activity lock poisoned"
-            ))
-        })?
-        .is_active(&company);
-    if in_flight || !daemon.staff.running_actors(&company).is_empty() {
+        .map_err(|_| anyhow::anyhow!("in-flight activity lock poisoned"))?
+        .is_active(company);
+    if in_flight || !daemon.staff.running_actors(company).is_empty() {
         protected_kinds.push("attempt");
     }
-    if !org
-        .actors_owing_message_mentions(1)
-        .await
-        .map_err(|error| CapacityActivityFailure::Unavailable(error.into()))?
-        .is_empty()
-        || !org
-            .actors_owing_document_mentions()
-            .await
-            .map_err(|error| CapacityActivityFailure::Unavailable(error.into()))?
-            .is_empty()
+    if !org.actors_owing_message_mentions(1).await?.is_empty()
+        || !org.actors_owing_document_mentions().await?.is_empty()
     {
         protected_kinds.push("mention");
     }
-    if org
-        .has_ready_work()
-        .await
-        .map_err(|error| CapacityActivityFailure::Unavailable(error.into()))?
-    {
+    if org.has_ready_work().await? {
         protected_kinds.push("ready_work");
     }
     if daemon.lifecycle.is_recovering()

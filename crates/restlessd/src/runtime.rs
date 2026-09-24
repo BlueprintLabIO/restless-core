@@ -452,6 +452,15 @@ pub struct CompanyConfig {
     /// Per-company model spend ceiling in USD (T2). The fuse, not governance.
     #[serde(default = "default_ceiling")]
     pub spend_ceiling_usd: SpendCeiling,
+    /// Optional monthly running-time cap. It gates new Runtime starts and does
+    /// not stop work that is already running. This is a capacity policy, not a
+    /// representation of the provider's invoice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub monthly_runtime_cap_hours: Option<u32>,
+    /// Opt-in sleep after this many idle minutes. `None` preserves the
+    /// persistent Runtime's existing always-on behaviour.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_sleep_after_minutes: Option<u16>,
     /// Standing owner promise for newly commissioned outcomes. This selects
     /// ambition, not authority, topology, model, or a spend allocation.
     #[serde(default)]
@@ -613,6 +622,7 @@ impl CompanyConfig {
         if !valid_reasoning_effort(&config.reasoning_effort) {
             bail!("unsupported reasoning effort {:?}", config.reasoning_effort);
         }
+        config.validate_resource_policies()?;
         Ok(config)
     }
 
@@ -631,6 +641,7 @@ impl CompanyConfig {
         if !valid_reasoning_effort(&config.reasoning_effort) {
             bail!("unsupported reasoning effort {:?}", config.reasoning_effort);
         }
+        config.validate_resource_policies()?;
         let dir = root.join("companies");
         let path = dir.join(format!("{}.toml", config.name));
         let archived = root
@@ -648,6 +659,22 @@ impl CompanyConfig {
             .with_context(|| format!("write {}", temporary.display()))?;
         std::fs::rename(&temporary, &path)
             .with_context(|| format!("replace {}", path.display()))?;
+        Ok(())
+    }
+
+    fn validate_resource_policies(&self) -> Result<()> {
+        if self
+            .monthly_runtime_cap_hours
+            .is_some_and(|hours| !(1..=744).contains(&hours))
+        {
+            bail!("monthly_runtime_cap_hours must be between 1 and 744 hours");
+        }
+        if self
+            .auto_sleep_after_minutes
+            .is_some_and(|minutes| !(1..=1440).contains(&minutes))
+        {
+            bail!("auto_sleep_after_minutes must be between 1 and 1440 minutes");
+        }
         Ok(())
     }
 
@@ -984,7 +1011,7 @@ const DOCKER_OBSERVATION_TIMEOUT: Duration = Duration::from_secs(8);
 /// on its VM. A cockpit refresh must degrade that one observation rather than
 /// retain a daemon child and an HTTP request indefinitely. `docker` marks the
 /// child kill-on-drop, so expiry also reaps the opaque CLI process.
-async fn docker_observe(args: &[&str]) -> Result<std::process::Output> {
+pub(crate) async fn docker_observe(args: &[&str]) -> Result<std::process::Output> {
     if STARTUP_RECOVERY_ACTIVE.load(Ordering::SeqCst) {
         bail!("Runtime observation is deferred while startup recovery owns Docker");
     }
@@ -1138,6 +1165,9 @@ pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
             && (container_uses_old_image(company).await?
                 || !container_uses_company_volume(company).await?)
         {
+            // Reconciliation replaces the shell. A configured monthly hours
+            // cap must gate that replacement before it stops live work.
+            crate::runtime_usage::ensure_start_allowed(&state_root(), config).await?;
             let name = container_name(company);
             // Give supervised Chromium long enough to flush its persistent
             // profile before replacing the shell. Docker's ten-second default
@@ -1145,6 +1175,11 @@ pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
             // was observed dropping a persistent cookie during reconciliation.
             if status(company).await? == ContainerStatus::Running {
                 run_ok(&["stop", "--time", "30", &name]).await?;
+                // Record the exact FinishedAt before replacing the container,
+                // so the next generation is not mistaken for a missed run.
+                if config.monthly_runtime_cap_hours.is_some() {
+                    crate::runtime_usage::observe(&state_root(), config).await?;
+                }
             }
             // Only the replaceable container is removed; the named company
             // volume remains the durable computer (§13.4).
@@ -1159,6 +1194,9 @@ pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
             }
         }
         ContainerStatus::Stopped => {
+            if !replaced {
+                crate::runtime_usage::ensure_start_allowed(&state_root(), config).await?;
+            }
             let name = container_name(company);
             if let Some(network) = internal_network.as_deref() {
                 ensure_container_on_network(company, network).await?;
@@ -1166,6 +1204,9 @@ pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
             run_ok(&["start", &name]).await?;
         }
         ContainerStatus::Absent => {
+            if !replaced {
+                crate::runtime_usage::ensure_start_allowed(&state_root(), config).await?;
+            }
             let volume = volume_name(company);
             let profile = std::env::var("RESTLESS_PROFILE").unwrap_or_else(|_| "stable".into());
             let namespace = std::env::var("RESTLESS_RESOURCE_NAMESPACE").unwrap_or_default();
@@ -2674,13 +2715,31 @@ fn collect_files(path: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
 /// Stop the container. The volume — files, Git history, browser profile —
 /// survives (§5, §17 step 2: the persistent company computer).
 pub async fn down(company: &str) -> Result<String> {
+    let _start = company_start_guard(company).await;
+    down_locked(company).await
+}
+
+/// Stop a Runtime only if an async activity check still considers it idle.
+/// The predicate runs under the same per-company lifecycle lock as `up`, so a
+/// concurrent explicit start cannot be stopped after it has completed.
+pub async fn down_if_idle<F, Fut>(company: &str, is_idle: F) -> Result<bool>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<bool>>,
+{
+    let _start = company_start_guard(company).await;
+    if status(company).await? != ContainerStatus::Running || !is_idle().await? {
+        return Ok(false);
+    }
+    down_running_locked(company).await?;
+    invalidate_cockpit_health(company).await;
+    Ok(true)
+}
+
+async fn down_locked(company: &str) -> Result<String> {
     let result = match status(company).await? {
         ContainerStatus::Running => {
-            let name = container_name(company);
-            // Chromium's supervisor stop window is 20 seconds. Use a longer
-            // container deadline so cookies and profile state reach disk
-            // before Docker escalates to SIGKILL.
-            run_ok(&["stop", "--time", "30", &name]).await?;
+            down_running_locked(company).await?;
             format!("{company}: stopped (volume kept)")
         }
         ContainerStatus::Stopped => format!("{company}: already stopped"),
@@ -2688,6 +2747,15 @@ pub async fn down(company: &str) -> Result<String> {
     };
     invalidate_cockpit_health(company).await;
     Ok(result)
+}
+
+async fn down_running_locked(company: &str) -> Result<()> {
+    let name = container_name(company);
+    // Chromium's supervisor stop window is 20 seconds. Use a longer
+    // container deadline so cookies and profile state reach disk before
+    // Docker escalates to SIGKILL.
+    run_ok(&["stop", "--time", "30", &name]).await?;
+    Ok(())
 }
 
 /// S04-T1. Remove a throwaway company entirely: container, volume, OrgIntel
@@ -3649,6 +3717,8 @@ worker_harness = "claude_agent"
             internal_network: false,
             mission: "Preserve me".into(),
             spend_ceiling_usd: SpendCeiling::from_micro_usd(5_000_000),
+            monthly_runtime_cap_hours: None,
+            auto_sleep_after_minutes: None,
             outcome_standard: Default::default(),
             model: "moonshot/kimi-k3".into(),
             coordination_harness: AgentHarness::RestlessManaged,

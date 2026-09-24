@@ -48,6 +48,20 @@ export interface CompanyView {
 			remaining_usd?: number | null;
 			status: 'available' | 'exhausted' | 'metering_unknown';
 		};
+		runtime: {
+			auto_sleep_after_minutes: number | null;
+			monthly_runtime_cap_hours: number | null;
+			usage_status: 'available' | 'unavailable';
+			usage: {
+				status: 'running' | 'stopped' | 'absent';
+				month_utc: string;
+				used_seconds: number;
+				monthly_cap_hours: number | null;
+				remaining_seconds: number | null;
+				complete: boolean;
+				observed_at: string;
+			} | null;
+		};
 		money_envelopes: MoneyEnvelope[];
 	};
 	harnesses: {

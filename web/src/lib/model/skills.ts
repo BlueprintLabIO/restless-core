@@ -222,6 +222,17 @@ export async function monitorSchedules(company: string): Promise<MonitoredSchedu
 	return (await call<{ schedules: MonitoredSchedule[] }>(company, '/schedules')).schedules;
 }
 
+export function setScheduleRuntimeWake(
+	company: string,
+	schedule: string,
+	wakeRuntime: boolean
+): Promise<{ schedule_id: string; wake_runtime: boolean }> {
+	return call(company, `/schedules/${encodeURIComponent(schedule)}/runtime-wake`, {
+		method: 'POST',
+		body: JSON.stringify({ wake_runtime: wakeRuntime })
+	});
+}
+
 export function testScheduleTrigger(
 	company: string,
 	schedule: string

@@ -1248,6 +1248,8 @@ mod tests {
             internal_network: false,
             mission: "Sprint 26 integrated fixture".into(),
             spend_ceiling_usd: SpendCeiling::from_micro_usd(0),
+            monthly_runtime_cap_hours: None,
+            auto_sleep_after_minutes: None,
             outcome_standard: Default::default(),
             model: "litellm/gpt-5.6-terra".into(),
             coordination_harness: crate::runtime::AgentHarness::RestlessManaged,
