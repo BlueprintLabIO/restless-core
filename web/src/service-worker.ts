@@ -31,18 +31,15 @@ worker.addEventListener('activate', (event) => {
 	);
 });
 
-async function networkFirstNavigation(request: Request): Promise<Response> {
+async function cacheNavigationFallback(response: Response): Promise<void> {
+	if (!response.ok || !response.headers.get('content-type')?.includes('text/html')) return;
+
 	try {
-		const response = await fetch(request);
-		if (response.ok && response.headers.get('content-type')?.includes('text/html')) {
-			const cache = await caches.open(SHELL_CACHE);
-			await cache.put(SHELL_FALLBACK, response.clone()).catch(() => undefined);
-		}
-		return response;
-	} catch (error) {
-		const shell = await caches.match(SHELL_FALLBACK);
-		if (shell) return shell;
-		throw error;
+		const copy = response.clone();
+		const cache = await caches.open(SHELL_CACHE);
+		await cache.put(SHELL_FALLBACK, copy);
+	} catch {
+		// A cache failure must not delay or fail the navigation response.
 	}
 }
 
@@ -64,7 +61,15 @@ worker.addEventListener('fetch', (event) => {
 	if (url.origin !== worker.location.origin || url.pathname.startsWith('/api/')) return;
 
 	if (request.mode === 'navigate') {
-		event.respondWith(networkFirstNavigation(request));
+		const network = fetch(request);
+		event.waitUntil(network.then(cacheNavigationFallback, () => undefined));
+		event.respondWith(
+			network.catch(async (error) => {
+				const shell = await caches.match(SHELL_FALLBACK);
+				if (shell) return shell;
+				throw error;
+			})
+		);
 		return;
 	}
 	if (url.pathname.startsWith('/_app/immutable/')) {
