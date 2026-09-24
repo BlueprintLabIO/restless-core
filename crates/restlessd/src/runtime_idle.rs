@@ -72,6 +72,11 @@ pub(crate) async fn run(daemon: Arc<Daemon>) {
                 continue;
             }
         };
+        tracing::debug!(
+            configured = configs.len(),
+            running = running.len(),
+            "Runtime auto-sleep scan"
+        );
 
         for config in configs {
             let company = config.name.as_str();
@@ -171,17 +176,23 @@ pub(crate) async fn run(daemon: Arc<Daemon>) {
 /// Unavailable or malformed signals are errors so callers fail open.
 async fn is_idle(daemon: &Daemon, company: &str) -> Result<bool> {
     let org = daemon.orgintel.get(company).await?;
-    if !crate::owner::capacity_activity::protected_activity_kinds(daemon, company, &org)
-        .await?
-        .is_empty()
-    {
+    let protected =
+        crate::owner::capacity_activity::protected_activity_kinds(daemon, company, &org).await?;
+    if !protected.is_empty() {
+        tracing::debug!(
+            company,
+            ?protected,
+            "Runtime kept awake by company activity"
+        );
         return Ok(false);
     }
 
     if owner_holds_browser(&runtime::read_browser_control(company).await?)? {
+        tracing::debug!(company, "Runtime kept awake by owner browser lease");
         return Ok(false);
     }
     if project_service_is_active(company).await? {
+        tracing::debug!(company, "Runtime kept awake by project service");
         return Ok(false);
     }
     Ok(true)
