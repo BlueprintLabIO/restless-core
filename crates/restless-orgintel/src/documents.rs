@@ -2066,8 +2066,9 @@ fn parse_markdown_inline(input: &str, depth: usize, marks: &[Value]) -> Document
             if let Some(end) = tail.find('`').filter(|end| *end > 0) {
                 push_markdown_text(&mut nodes, &plain, marks);
                 plain.clear();
-                let mut code_marks = marks.to_vec();
-                code_marks.push(json!({"type":"code"}));
+                // The sidecar ProseMirror schema defines code with `excludes: '_'`;
+                // code spans therefore cannot carry inherited emphasis or link marks.
+                let code_marks = [json!({"type":"code"})];
                 push_markdown_text(&mut nodes, &tail[..end], &code_marks);
                 rest = &tail[end + 1..];
                 continue;
@@ -8236,6 +8237,18 @@ mod tests {
         assert!(!encoded.contains("\"type\":\"link\""));
         assert!(document_json_from_markdown("[bad](javascript:alert(1))").is_err());
         assert!(document_json_from_markdown("[bad](//example.com)").is_err());
+    }
+
+    #[test]
+    fn markdown_code_spans_drop_inherited_marks_excluded_by_prosemirror() {
+        let document = document_json_from_markdown("*before `code` after*").unwrap();
+        let content = document["content"][0]["content"].as_array().unwrap();
+
+        assert_eq!(content.len(), 3);
+        assert_eq!(content[0]["marks"][0]["type"], "italic");
+        assert_eq!(content[1]["text"], "code");
+        assert_eq!(content[1]["marks"], json!([{"type":"code"}]));
+        assert_eq!(content[2]["marks"][0]["type"], "italic");
     }
 
     #[test]

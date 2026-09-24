@@ -2140,10 +2140,9 @@ pub fn is_runtime_review_text_target(value: &str) -> bool {
 /// to the directory of the exact ReviewTarget the accountable actor chose.
 pub const MAX_REVIEW_FILE_BYTES: u64 = 32 * 1024 * 1024;
 
-/// What a browser will actually render, mapped to the exact type to send. An
-/// extension that is not here is not refused because it is dangerous — it is
-/// refused because presenting it would be a blank frame, and a blank frame that
-/// claims to be the outcome is worse than saying plainly what the file is.
+/// A format the owner can render or download during review, mapped to the
+/// exact type to send. Unsupported extensions are refused because presenting
+/// them would leave a blank frame while claiming to show the outcome.
 pub fn review_file_media_type(path: &Path) -> Option<&'static str> {
     let extension = path
         .extension()
@@ -2164,6 +2163,12 @@ pub fn review_file_media_type(path: &Path) -> Option<&'static str> {
         "avif" => "image/avif",
         "ico" => "image/x-icon",
         "pdf" => "application/pdf",
+        "doc" => "application/msword",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xls" => "application/vnd.ms-excel",
+        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "ppt" => "application/vnd.ms-powerpoint",
+        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         "mp4" | "m4v" => "video/mp4",
         "webm" => "video/webm",
         "ogv" => "video/ogg",
@@ -2180,6 +2185,19 @@ pub fn review_file_media_type(path: &Path) -> Option<&'static str> {
     })
 }
 
+/// Office formats are valid read-only review targets, but browsers do not
+/// render them. Serve them as downloads instead of presenting a blank frame.
+pub fn is_runtime_review_download(path: &Path) -> bool {
+    path.extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx"
+            )
+        })
+}
+
 /// The exact file a displayable ReviewTarget names, beneath `/company`.
 fn runtime_review_file_path(value: &str) -> Result<&Path> {
     let path = Path::new(value);
@@ -2192,7 +2210,7 @@ fn runtime_review_file_path(value: &str) -> Result<&Path> {
         bail!("file ReviewTarget must be a file beneath /company");
     }
     if review_file_media_type(path).is_none() {
-        bail!("file ReviewTarget is not a format the cockpit can display");
+        bail!("file ReviewTarget is not a format the cockpit can present");
     }
     Ok(path)
 }
@@ -3693,7 +3711,7 @@ worker_harness = "claude_agent"
         );
     }
 
-    /// A produced file the cockpit can display, and the exact boundary of what
+    /// A produced file the cockpit can present, and the exact boundary of what
     /// it will serve (S19-T5). The reported failure was a finished
     /// `index.html` — a real, complete website — reaching the owner as "this
     /// outcome does not have a directly reviewable website".
@@ -3707,12 +3725,15 @@ worker_harness = "claude_agent"
         assert!(is_runtime_review_file_target("/company/outputs/plan.pdf"));
         assert!(is_runtime_review_file_target("/company/outputs/shot.png"));
         assert!(is_runtime_review_file_target("/company/outputs/demo.mp4"));
+        assert!(is_runtime_review_file_target(
+            "/company/outputs/board-deck.pptx"
+        ));
 
         // Markdown keeps its own richer path: the cockpit renders it rather
         // than framing it, so this must not claim it.
         assert!(!is_runtime_review_file_target("/company/outputs/plan.md"));
-        // Nothing outside the company computer, and nothing the cockpit would
-        // present as a blank frame.
+        // Nothing outside the company computer, and nothing the cockpit cannot
+        // render or offer as a safe download.
         assert!(!is_runtime_review_file_target("/etc/passwd"));
         assert!(!is_runtime_review_file_target(
             "/company/../etc/shadow.html"
@@ -3764,13 +3785,17 @@ worker_harness = "claude_agent"
                 );
             }
         }
-        // A file inside the outcome that the cockpit cannot display is refused
-        // rather than framed blank.
-        assert!(resolve_review_file(&root, &entry, "/notes.docx").is_err());
+        // Office files stay within the selected outcome and are delivered as
+        // downloads rather than framed as blank browser previews.
+        assert_eq!(
+            resolve_review_file(&root, &entry, "/notes.docx").unwrap(),
+            root.join("notes.docx")
+        );
+        assert!(is_runtime_review_download(Path::new("notes.docx")));
     }
 
     #[test]
-    fn review_media_types_cover_only_what_a_browser_shows() {
+    fn review_media_types_cover_rendered_and_downloadable_formats() {
         assert_eq!(
             review_file_media_type(Path::new("a/b/index.HTML")),
             Some("text/html; charset=utf-8")
@@ -3782,6 +3807,18 @@ worker_harness = "claude_agent"
         assert_eq!(
             review_file_media_type(Path::new("clip.webm")),
             Some("video/webm")
+        );
+        assert_eq!(
+            review_file_media_type(Path::new("report.docx")),
+            Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        );
+        assert_eq!(
+            review_file_media_type(Path::new("budget.xlsx")),
+            Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        );
+        assert_eq!(
+            review_file_media_type(Path::new("slides.pptx")),
+            Some("application/vnd.openxmlformats-officedocument.presentationml.presentation")
         );
         assert_eq!(review_file_media_type(Path::new("archive.zip")), None);
         assert_eq!(review_file_media_type(Path::new("Makefile")), None);

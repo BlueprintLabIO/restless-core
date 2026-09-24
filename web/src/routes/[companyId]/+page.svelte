@@ -48,6 +48,10 @@
 	let reviewRequestKey = $state('');
 	let focusAttachKey = $state('');
 
+	function officeReviewExtension(uri: string | undefined): string | undefined {
+		return uri?.split(/[?#]/, 1)[0]?.match(/\.(doc|docx|xls|xlsx|ppt|pptx)$/i)?.[1];
+	}
+
 	const items = $derived(view?.items ?? []);
 	const graph = $derived(view?.workGraph ?? null);
 	const selectedItemId = $derived(page.url.searchParams.get('item'));
@@ -445,6 +449,18 @@
 					<article class="review-document">
 						<Markdown text={focusedReview.reviewTarget.content} />
 					</article>
+				{:else if officeReviewExtension(focusedReview.reviewTarget?.uri) && reviewUrl}
+					<div class="review-download">
+						<div class="review-download-kind">
+							{officeReviewExtension(focusedReview.reviewTarget?.uri)?.toUpperCase()}
+						</div>
+						<h1>{focusedReview.reviewTarget?.label ?? focusedReview.title}</h1>
+						<p>
+							This Office file is ready to download. Open it in Word, Excel or PowerPoint to review it.
+						</p>
+						<a href={reviewUrl} target="_blank" rel="noopener noreferrer">Download file</a>
+						<small>Restless can’t preview or edit Office files in this review.</small>
+					</div>
 				{:else if reviewUrl}
 					<iframe
 						title={focusedReview.reviewTarget?.label ?? focusedReview.title}
@@ -1007,6 +1023,41 @@
 		padding: 40px;
 		background: #fff;
 		color: var(--ink);
+	}
+	.review-download {
+		width: min(480px, calc(100% - 48px));
+		margin: auto;
+		padding: 28px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-lg);
+		background: var(--surface);
+		color: var(--ink);
+	}
+	.review-download-kind {
+		margin-bottom: 20px;
+		color: var(--text-tertiary);
+		font: var(--t-label) var(--font-mono);
+	}
+	.review-download h1 {
+		margin: 0;
+		font-size: var(--t-head);
+	}
+	.review-download p {
+		color: var(--text-secondary);
+		line-height: 1.5;
+	}
+	.review-download a {
+		display: inline-block;
+		margin: 8px 0 16px;
+		padding: 9px 14px;
+		border-radius: var(--radius-md);
+		background: var(--ink);
+		color: var(--surface);
+		text-decoration: none;
+	}
+	.review-download small {
+		display: block;
+		color: var(--text-tertiary);
 	}
 	.review-unavailable h1,
 	.review-unavailable p {

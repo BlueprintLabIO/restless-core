@@ -7689,6 +7689,24 @@ async fn review_proxy(
                     response
                         .headers_mut()
                         .insert(CONTENT_TYPE, HeaderValue::from_static(media_type));
+                    if runtime::is_runtime_review_download(&resolved) {
+                        let filename = resolved
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .map(safe_attachment_name)
+                            .unwrap_or_else(|| "review-file".into())
+                            .replace(['\\', '"'], "_");
+                        let disposition = format!("attachment; filename=\"{filename}\"");
+                        response.headers_mut().insert(
+                            CONTENT_DISPOSITION,
+                            HeaderValue::from_str(&disposition)
+                                .unwrap_or_else(|_| HeaderValue::from_static("attachment")),
+                        );
+                        response.headers_mut().insert(
+                            HeaderName::from_static("x-content-type-options"),
+                            HeaderValue::from_static("nosniff"),
+                        );
+                    }
                     return finish_review_response(response, &session, path);
                 }
                 Err(error) => {

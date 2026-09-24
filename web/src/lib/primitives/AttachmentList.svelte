@@ -14,6 +14,14 @@
 	} = $props();
 
 	const INLINE_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+	const OFFICE_FILE_TYPES = new Map<string, string>([
+		['doc', 'Word document'],
+		['docx', 'Word document'],
+		['xls', 'Excel workbook'],
+		['xlsx', 'Excel workbook'],
+		['ppt', 'PowerPoint presentation'],
+		['pptx', 'PowerPoint presentation']
+	]);
 
 	function hrefOf(attachment: MessageAttachment): string {
 		return hrefFor ? hrefFor(attachment) : '';
@@ -28,6 +36,10 @@
 	function extOf(name: string): string {
 		const match = /\.([a-z0-9]{1,8})$/i.exec(name);
 		return match ? match[1].toLowerCase() : 'file';
+	}
+
+	function fileDescription(attachment: MessageAttachment): string {
+		return OFFICE_FILE_TYPES.get(extOf(attachment.name)) ?? attachment.mediaType;
 	}
 </script>
 
@@ -49,7 +61,7 @@
 					<span class="a-kind">{extOf(attachment.name)}</span>
 					<span class="af-main">
 						<span class="a-name">{attachment.name}</span>
-						<span class="a-meta">{attachment.mediaType} · {fmtSize(attachment.sizeBytes)}</span>
+						<span class="a-meta">{fileDescription(attachment)} · {fmtSize(attachment.sizeBytes)}</span>
 					</span>
 				</a>
 			{/if}
