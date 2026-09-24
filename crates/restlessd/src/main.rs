@@ -402,7 +402,7 @@ impl OrgIntelRegistry {
             // operator drop, or a restore removes the tables and every later
             // query fails with `relation "actors" does not exist`. Re-ensure
             // instead of serving a handle to nothing.
-            if handle.is_live().await {
+            if handle.is_live().await? {
                 return Ok(handle);
             }
             tracing::warn!(

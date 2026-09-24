@@ -264,14 +264,13 @@ impl OrgIntel {
     /// a scenario reset, or a restore — and then fails every query with
     /// `relation "actors" does not exist`. Reconcile after failure rather than
     /// assuming the world held still (docs/specs/cross-layer-contract.md §18.5).
-    pub async fn is_live(&self) -> bool {
+    pub async fn is_live(&self) -> Result<bool> {
         sqlx::query_scalar::<_, Option<String>>("SELECT to_regclass(format('%I.actors', $1))::text")
             .bind(&self.schema)
             .fetch_one(&self.pool)
             .await
-            .ok()
-            .flatten()
-            .is_some()
+            .map(|relation| relation.is_some())
+            .map_err(OrgIntelError::Db)
     }
 
     pub async fn drop_schema(&self) -> Result<()> {

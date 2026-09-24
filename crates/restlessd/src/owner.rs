@@ -10759,7 +10759,7 @@ mod tests {
         // Prove the requested company exists in both the configured Runtime
         // set and the isolated OrgIntel database before publishing a surface.
         runtime::CompanyConfig::load(&root, &company).unwrap();
-        assert!(daemon.orgintel.get(&company).await.unwrap().is_live().await);
+        assert!(daemon.orgintel.get(&company).await.unwrap().is_live().await.unwrap());
         let address = std::env::var("RESTLESS_OWNER_SURFACE_TEST_ADDR")
             .unwrap_or_else(|_| "127.0.0.1:7888".into())
             .parse()

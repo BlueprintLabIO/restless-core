@@ -756,7 +756,7 @@ async fn verify_company_substrate(
     org: &restless_orgintel::OrgIntel,
     request: &CompanyBootstrapRequest,
 ) -> BootstrapResult<()> {
-    if !org.is_live().await
+    if !org.is_live().await.map_err(unavailable)?
         || !org
             .collaboration_surfaces_ready()
             .await
