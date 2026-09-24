@@ -16,6 +16,14 @@ use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Postgres, Row as _, Transaction};
 use uuid::Uuid;
 
+#[path = "mandate.rs"]
+mod mandate;
+
+pub use mandate::{
+    EmailMandate, EmailMandateUsage, EmailPermit, EmailPermitProposal, EmailReservation,
+    NewEmailMandate, ProviderOutcome,
+};
+
 pub const GOVERNANCE_KINDS: &[&str] = &[
     "effect_intent",
     "effect",
@@ -45,6 +53,11 @@ pub const GOVERNANCE_KINDS: &[&str] = &[
     "publication_invitation_revoked",
     "publication_stopped",
     "publication_cleanup",
+    "email_mandate_granted",
+    "email_mandate_revoked",
+    "email_permit_issued",
+    "email_send_reserved",
+    "email_send_status",
 ];
 
 const IMPORT_VERSION: i32 = 2;
@@ -216,6 +229,18 @@ impl AuthorityStore {
                 "CREATE UNIQUE INDEX IF NOT EXISTS authority_publication_cleanup_once \
                  ON restless_authority.records (company, (body->>'publication_id')) \
                  WHERE kind = 'publication_cleanup'",
+            ),
+            (
+                "email permit reservation once",
+                "CREATE UNIQUE INDEX IF NOT EXISTS authority_email_permit_reservation_once \
+                 ON restless_authority.records (company, (body->>'permit_id')) \
+                 WHERE kind = 'email_send_reserved'",
+            ),
+            (
+                "email effect key reservation once",
+                "CREATE UNIQUE INDEX IF NOT EXISTS authority_email_effect_key_once \
+                 ON restless_authority.records (company, (body->>'effect_key')) \
+                 WHERE kind = 'email_send_reserved'",
             ),
         ] {
             sqlx::query(sql)
@@ -394,6 +419,97 @@ impl AuthorityStore {
 
     pub(crate) fn pool(&self) -> &PgPool {
         &self.pool
+    }
+
+    pub async fn grant_email_mandate(
+        &self,
+        company: &str,
+        owner_actor_id: &str,
+        mandate: NewEmailMandate,
+    ) -> Result<EmailMandate> {
+        mandate::grant(&self.pool, company, owner_actor_id, mandate).await
+    }
+
+    pub async fn list_email_mandates(&self, company: &str) -> Result<Vec<EmailMandate>> {
+        mandate::list(&self.pool, company).await
+    }
+
+    pub async fn revoke_email_mandate(
+        &self,
+        company: &str,
+        owner_actor_id: &str,
+        mandate_id: Uuid,
+        reason: &str,
+    ) -> Result<()> {
+        mandate::revoke(&self.pool, company, owner_actor_id, mandate_id, reason).await
+    }
+
+    pub async fn issue_email_permit(
+        &self,
+        company: &str,
+        issuer_actor_id: &str,
+        mandate_id: Uuid,
+        proposal: EmailPermitProposal,
+    ) -> Result<EmailPermit> {
+        mandate::issue(&self.pool, company, issuer_actor_id, mandate_id, proposal).await
+    }
+
+    pub async fn list_email_permits(
+        &self,
+        company: &str,
+        mandate_id: Uuid,
+    ) -> Result<Vec<EmailPermit>> {
+        mandate::list_permits(&self.pool, company, mandate_id).await
+    }
+
+    pub async fn email_mandate_usage(
+        &self,
+        company: &str,
+        mandate_id: Uuid,
+    ) -> Result<EmailMandateUsage> {
+        mandate::usage(&self.pool, company, mandate_id).await
+    }
+
+    pub async fn reserve_email_send(
+        &self,
+        company: &str,
+        permit_id: Uuid,
+        actual_sender: &str,
+        recipient: &str,
+        payload_sha256: &str,
+        effect_key: &str,
+    ) -> Result<EmailReservation> {
+        mandate::reserve(
+            &self.pool,
+            company,
+            permit_id,
+            actual_sender,
+            recipient,
+            payload_sha256,
+            effect_key,
+        )
+        .await
+    }
+
+    pub async fn record_email_send_status(
+        &self,
+        company: &str,
+        permit_id: Uuid,
+        effect_key: &str,
+        outcome: ProviderOutcome,
+        provider_ref: Option<&str>,
+        provider_detail: Option<&str>,
+    ) -> Result<()> {
+        mandate::record_status(
+            &self.pool,
+            company,
+            permit_id,
+            effect_key,
+            outcome,
+            provider_ref,
+            provider_detail,
+        )
+        .await
     }
 
     pub async fn set_model_cooldown(

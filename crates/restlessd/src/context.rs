@@ -467,11 +467,22 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          # Presenting to the owner [company doctrine]\n{owner_briefing}\n\n\
          {skills_contract}\n\n\
          # Affecting the world [internal decision]\n\
-         Use installed Linux tools directly for reversible work. Wrap material external argv with \
+         Use installed Linux tools directly for reversible work. Check restless mandate list \
+         before outbound email. Under an active email mandate, use restless email preview \
+         --request-file <json> to obtain the exact payload digest, then as Exec record a \
+         recipient-specific rationale and evidence in restless mandate permit --mandate <id> \
+         --proposal-file <json>, then restless email send --request-file <json> with that \
+         permit id. The email JSON names from, to, subject, text or html, effect_key, permit_id, \
+         and optional declared attachments. The permit JSON names sender, recipient, \
+         payload_sha256, effect_key, rationale, evidence_refs and an expiry within five minutes. \
+         Reconcile prior sends and unknown outcomes before proposing; never retry an uncertain \
+         external effect. A provider-accepted send is not proof of delivery. An active email \
+         mandate cannot be used through the generic effect child. For other material external \
+         argv, use \
          restless effect --class <class> --purpose <why> [--party <party>] \
          [--artifact <path-or-url>] [--secret ENV=<binding>] --key <key> -- \
-         <program> <args...>. Restless does not own an email or Git API: it gates \
-         the ordinary process, injects named secrets only into that child, and records generic JSON. \
+         <program> <args...>. Restless gates that ordinary process, injects named secrets \
+         only into that child, and records generic JSON. \
          Probe tools with their own help, commands, doctor, or dry-run support. A _test company \
          must use a fake CLI and cannot receive live secret bindings.\n\n\
          # What your receipts actually record [observation — stronger than your own notes]\n\

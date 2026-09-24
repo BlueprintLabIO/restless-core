@@ -96,6 +96,12 @@ pub(crate) struct AuthorityInput {
     pub(crate) key: Option<String>,
     #[serde(default)]
     pub(crate) party: Option<String>,
+    #[serde(default)]
+    pub(crate) mandate_id: Option<String>,
+    #[serde(default)]
+    pub(crate) mandate_proposal: Option<serde_json::Value>,
+    #[serde(default)]
+    pub(crate) email_request: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -998,6 +1004,9 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
             "secret_bindings",
         ],
         "effect-reconcile" => &["key"],
+        "mandate-list" => &[],
+        "mandate-permit" => &["mandate_id", "mandate_proposal", "actor"],
+        "email-preview" | "email-send" => &["email_request", "actor"],
         "connected-tool-install" | "connected-tool-reconnect" => &[
             "tool_name",
             "endpoint",
@@ -1301,6 +1310,8 @@ pub(crate) const OWNER_ONLY: &[&str] = &[
 /// Actor-owned Opportunity mutations. The owner has a separate, future
 /// administrative path and cannot impersonate Exec through these commands.
 const COMPANY_EXEC_ONLY: &[&str] = &[
+    "mandate-permit",
+    "email-send",
     "schedule-link-work",
     "schedule-outcome",
     "browser-session-register",
