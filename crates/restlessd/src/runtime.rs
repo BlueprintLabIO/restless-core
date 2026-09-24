@@ -2517,6 +2517,119 @@ pub async fn read_browser_control(company: &str) -> Result<Option<serde_json::Va
     Ok(Some(normalize_expired_browser_control(state)))
 }
 
+/// Host-verified identity for one agent's short-lived shared-browser attach.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BrowserAgentSession {
+    pub ticket: String,
+    pub company: String,
+    pub actor: String,
+    pub session: String,
+    pub work_id: Option<Uuid>,
+    pub attempt_id: Option<Uuid>,
+    pub websocket_url: String,
+    pub expires_at: DateTime<Utc>,
+}
+
+pub async fn read_browser_agent_session(company: &str) -> Result<Option<BrowserAgentSession>> {
+    validate_company_name(company)?;
+    let output = docker_observe(&[
+        "exec", &container_name(company), "sh", "-c",
+        "test -f /company/run/browser-agent-session.json && cat /company/run/browser-agent-session.json",
+    ]).await?;
+    if !output.status.success() || output.stdout.is_empty() { return Ok(None); }
+    let session: BrowserAgentSession = serde_json::from_slice(&output.stdout)
+        .context("parse authenticated browser registration")?;
+    if session.expires_at <= Utc::now() { return Ok(None); }
+    Ok(Some(session))
+}
+
+pub async fn register_browser_agent_session(
+    company: &str,
+    grant: &crate::capability::CoordinationGrant,
+) -> Result<String> {
+    validate_company_name(company)?;
+    if grant.company != company { bail!("browser registration company does not match the signed ActorSession"); }
+    if grant.work_id.is_some() != grant.attempt_id.is_some() {
+        bail!("browser attachment needs both Work and Attempt coordinates, or neither");
+    }
+    let _control_guard = browser_control_guard(company).await;
+    let control = read_browser_control(company).await?.unwrap_or_default();
+    // read_browser_control normalizes expired owner leases before returning.
+    if control["controller"] == "owner" {
+        bail!("the owner currently controls the company browser");
+    }
+    if let Some(current) = read_browser_agent_session(company).await? {
+        if current.session == grant.session && current.actor == grant.actor
+            && current.work_id == grant.work_id && current.attempt_id == grant.attempt_id {
+            return Ok(current.websocket_url);
+        }
+        bail!("the shared company browser is attached to another live Work Attempt");
+    }
+    // Only Core reads Chrome's private endpoint. The opaque ticket is minted
+    // after Core verified the signed capability and is stored atomically for
+    // the broker; the issuer key never enters the company container.
+    let output = docker_observe(&[
+        "exec", &container_name(company), "curl", "--fail", "--silent", "--show-error",
+        "--max-time", "5", "http://127.0.0.1:9222/json/version",
+    ]).await?;
+    if !output.status.success() { bail!("could not inspect the company browser endpoint"); }
+    let discovery: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .context("decode the company browser endpoint")?;
+    let path = discovery["webSocketDebuggerUrl"].as_str()
+        .and_then(|value| url::Url::parse(value).ok())
+        .map(|value| value.path().to_string())
+        .filter(|value| value.starts_with("/devtools/browser/"))
+        .context("company browser did not return a browser-level CDP endpoint")?;
+    let ticket = Uuid::new_v4().simple().to_string();
+    let websocket_url = format!("ws://127.0.0.1:9223/session/{ticket}{path}");
+    let registration = BrowserAgentSession {
+        ticket, company: company.to_string(), actor: grant.actor.clone(),
+        session: grant.session.clone(), work_id: grant.work_id, attempt_id: grant.attempt_id,
+        websocket_url: websocket_url.clone(), expires_at: Utc::now() + chrono::Duration::minutes(45),
+    };
+    write_browser_agent_session(company, &registration).await?;
+    Ok(websocket_url)
+}
+
+pub async fn release_browser_agent_session(
+    company: &str,
+    grant: &crate::capability::CoordinationGrant,
+) -> Result<()> {
+    let Some(current) = read_browser_agent_session(company).await? else { return Ok(()); };
+    if current.company != grant.company || current.actor != grant.actor
+        || current.session != grant.session || current.work_id != grant.work_id
+        || current.attempt_id != grant.attempt_id {
+        bail!("browser registration does not belong to this signed ActorSession");
+    }
+    clear_browser_agent_session(company, &current.ticket).await
+}
+
+pub async fn clear_browser_agent_session(company: &str, ticket: &str) -> Result<()> {
+    validate_company_name(company)?;
+    let _control_guard = browser_control_guard(company).await;
+    let Some(current) = read_browser_agent_session(company).await? else { return Ok(()); };
+    if current.ticket != ticket { bail!("browser registration changed before it could be cleared"); }
+    let output = tokio::process::Command::new("docker").args([
+        "exec", &container_name(company), "rm", "-f", "/company/run/browser-agent-session.json",
+    ]).output().await.context("release company browser registration")?;
+    if !output.status.success() { bail!("could not release company browser registration"); }
+    Ok(())
+}
+
+async fn write_browser_agent_session(company: &str, session: &BrowserAgentSession) -> Result<()> {
+    let mut child = tokio::process::Command::new("docker").args([
+        "exec", "-i", "-u", "company", &container_name(company), "sh", "-c",
+        "umask 077; cat > /company/run/browser-agent-session.json.tmp && mv /company/run/browser-agent-session.json.tmp /company/run/browser-agent-session.json",
+    ]).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::piped()).spawn()
+        .context("write authenticated company browser registration")?;
+    let mut stdin = child.stdin.take().expect("piped");
+    stdin.write_all(&serde_json::to_vec(session)?).await?;
+    drop(stdin);
+    let output = child.wait_with_output().await?;
+    if !output.status.success() { bail!("could not write authenticated company browser registration"); }
+    Ok(())
+}
+
 /// An owner lease is bounded even if the SPA vanishes without hand-back.
 /// The Runtime file is reconstructable coordination, not durable truth, so a
 /// reader projects an expired owner back to the unclaimed state. The browser

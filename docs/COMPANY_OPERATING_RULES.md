@@ -81,14 +81,19 @@ actual tools first; never invent a tool, command, API, capability, credential, o
 
 The Runtime has one persistent company browser: the Chromium the owner sees on the company
 computer, with its signed-in profile, tabs and downloads. Use it for every interactive or stateful
-browser task and for anything the owner may watch, review or take over. Attach with Playwright
-`chromium.connectOverCDP('http://127.0.0.1:9223')` from a CommonJS script run with
-`NODE_PATH="$(npm root -g)"` (Playwright is installed globally; a plain `import` will not find it),
-use its existing context, open your own tab,
-and close or disconnect only what you opened. Never kill the process or connect to port 9222
-directly. A `423 owner_controls` response means the owner has control: wait, or continue with other
-work, and do not start a separate browser to get around it. Launch a throwaway headless Chromium
+browser task and for anything the owner may watch, review or take over. In the same supervised
+Work Attempt, run `restless browser attach` and use the returned WebSocket URL with Playwright
+`chromium.connectOverCDP(endpoint)`. The signed Runtime capability supplies the actor and session,
+and the exact Work and Attempt when the turn has them; do not provide those IDs yourself. Use the existing context, open your
+own tab, and close or disconnect only what you opened. Always run `restless browser release` in a
+`finally` block. Never kill the browser process or connect to port 9222 directly. When the owner
+controls the browser, pending CDP actions return an `owner_controls` error and are never replayed;
+after control returns, inspect the current page state and verify any action that was in flight before
+deciding what to do next. Do not start a separate browser to get around owner control. Launch a
+throwaway headless Chromium
 only for stateless, reproducible captures, such as the fixed viewports in web-native-review.
+For a CommonJS Playwright script, resolve the globally installed package with
+`NODE_PATH="$(npm root -g)" node your-script.cjs`; then call `require('playwright').chromium.connectOverCDP(endpoint)`.
 The same owner-control rule covers visible-desktop automation: do not use `xdotool` or `wmctrl` to
 focus, type into, move, or otherwise take over the shared desktop while the owner controls the browser.
 

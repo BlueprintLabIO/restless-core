@@ -1396,7 +1396,8 @@ fn authenticate_request(
             }
             bind_runtime_actor(request, &grant.actor)?;
             bind_runtime_document_scope(request, &grant)?;
-            request.company = Some(grant.company);
+            request.company = Some(grant.company.clone());
+            request.verified_coordination = Some(grant);
             authorize(Principal::CompanyExec, &request.cmd)
         }
     }
@@ -1662,6 +1663,69 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
         }
         daemon.lifecycle.resume();
         return Response::ok_serialized(appliance_drain_status(daemon));
+    }
+    if matches!(request.cmd.as_str(), "browser-session-register" | "browser-session-release") {
+        let Some(company) = request.company.as_deref() else {
+            return Response::err("browser session request needs a company");
+        };
+        let Some(grant) = request.verified_coordination.as_ref() else {
+            return Response::err_kind("forbidden", "browser sessions require a signed ActorSession");
+        };
+        if grant.work_id.is_some() != grant.attempt_id.is_some() {
+            return Response::err("browser sessions need both Work and Attempt scope, or neither");
+        }
+        if request.cmd == "browser-session-release" {
+            return match runtime::release_browser_agent_session(company, grant).await {
+                Ok(()) => Response::ok("browser registration released"),
+                Err(error) => Response::err(format!("release browser registration: {error:#}")),
+            };
+        }
+        let org = match daemon.orgintel.get(company).await {
+            Ok(org) => Some(org),
+            Err(error) if grant.work_id.is_some() => {
+                return Response::err(format!("open Work record: {error:#}"));
+            }
+            Err(_) => None,
+        };
+        if let (Some(work_id), Some(attempt_id)) = (grant.work_id, grant.attempt_id) {
+            let attempts = match org.as_ref().expect("Work-scoped sessions require OrgIntel")
+                .list_work_attempts(Some(work_id))
+                .await
+            {
+                Ok(attempts) => attempts,
+                Err(error) => return Response::err(format!("inspect Work Attempt: {error:#}")),
+            };
+            if !attempts.iter().any(|attempt| {
+                attempt.id == attempt_id
+                    && attempt.actor_id == grant.actor
+                    && attempt.state == restless_orgintel::WorkAttemptState::Running
+            }) {
+                return Response::err("browser attachment requires the exact signed Attempt to still be running");
+            }
+        }
+        if let Ok(Some(previous)) = runtime::read_browser_agent_session(company).await {
+            let previous_is_running = match (previous.work_id, previous.attempt_id, org.as_ref()) {
+                (Some(work_id), Some(attempt_id), Some(org)) => org
+                    .list_work_attempts(Some(work_id))
+                    .await
+                    .map(|attempts| attempts.iter().any(|attempt| {
+                        attempt.id == attempt_id
+                            && attempt.actor_id == previous.actor
+                            && attempt.state == restless_orgintel::WorkAttemptState::Running
+                    }))
+                    .unwrap_or(true),
+                _ => true,
+            };
+            if !previous_is_running {
+                if let Err(error) = runtime::clear_browser_agent_session(company, &previous.ticket).await {
+                    return Response::err(format!("clear stale browser registration: {error:#}"));
+                }
+            }
+        }
+        return match runtime::register_browser_agent_session(company, grant).await {
+            Ok(endpoint) => Response::ok(endpoint),
+            Err(error) => Response::err(format!("register browser session: {error:#}")),
+        };
     }
     // The company catalogue exists above any one company. Keep it explicit
     // instead of inventing a fake global company.

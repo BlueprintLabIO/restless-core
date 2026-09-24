@@ -1968,6 +1968,16 @@ enum BrowserCommand {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
     },
+    /// Attach the current signed Work Attempt to the shared browser.
+    Attach {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+    },
+    /// Release this signed session's shared browser registration.
+    Release {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+    },
 }
 
 /// Transport spelling only. The daemon derives real authority from its
@@ -2973,6 +2983,12 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
         Command::Browser { command } => match command {
             BrowserCommand::Status { company } => {
                 serde_json::json!({ "cmd": "browser-status", "company": company })
+            }
+            BrowserCommand::Attach { company } => {
+                serde_json::json!({ "cmd": "browser-session-register", "company": company })
+            }
+            BrowserCommand::Release { company } => {
+                serde_json::json!({ "cmd": "browser-session-release", "company": company })
             }
         },
         Command::Wake { company: c, reason } => {

@@ -268,6 +268,7 @@ RUN ln -s /usr/local/lib/restless/restless-codex-runner.mjs /usr/local/bin/restl
 COPY --from=cli /src/target/release/restless /usr/local/bin/restless
 COPY --from=cli /src/target/release/restless-runtime-bridge /usr/local/bin/restless-runtime-bridge
 ENV RESTLESS_COORDINATOR=host.docker.internal:7791
+RUN npm install -g ws@8.18.3 && npm cache clean --force
 
 # Release metadata changes with source, not with the pinned toolchain. Keep it
 # last so a new revision can reuse the large browser and agent installation layers.

@@ -7911,6 +7911,21 @@ async fn issue_ticket(
     .into_response()
 }
 
+async fn live_browser_agent_session(
+    state: &OwnerState,
+    company: &str,
+) -> Option<runtime::BrowserAgentSession> {
+    let session = runtime::read_browser_agent_session(company).await.ok().flatten()?;
+    if session.company != company { return None; }
+    if session.work_id.is_none() && session.attempt_id.is_none() { return Some(session); }
+    let (Some(work_id), Some(attempt_id)) = (session.work_id, session.attempt_id) else { return None; };
+    let org = state.daemon.orgintel.get(company).await.ok()?;
+    org.list_work_attempts(Some(work_id)).await.ok()?.iter().any(|attempt| {
+        attempt.id == attempt_id && attempt.actor_id == session.actor
+            && attempt.state == restless_orgintel::WorkAttemptState::Running
+    }).then_some(session)
+}
+
 async fn open_browser_link(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
@@ -7947,6 +7962,7 @@ async fn open_browser_link(
             "the company browser is currently under owner control; release control before opening this link",
         );
     }
+    let browser_session = live_browser_agent_session(&state, &company).await;
     if let Err(error) = runtime::open_browser_url(&company, &input.url).await {
         let detail = format!("{error:#}");
         if detail.contains("owner-controlled") {
@@ -7974,9 +7990,9 @@ async fn open_browser_link(
             generation: current,
             item_id: "web-link".into(),
             client_id: input.client_id,
-            requesting_actor: None,
-            work_id: None,
-            attempt_id: None,
+            requesting_actor: browser_session.as_ref().map(|session| session.actor.clone()),
+            work_id: browser_session.as_ref().and_then(|session| session.work_id),
+            attempt_id: browser_session.as_ref().and_then(|session| session.attempt_id),
             expires_at: SystemTime::now() + TICKET_TTL,
         },
     );
@@ -8608,13 +8624,22 @@ async fn take_control(
             );
         }
     }
+    let browser_session = live_browser_agent_session(&state, &company).await;
+    let (requesting_actor, work_id, attempt_id) =
+        if attach.work_id.is_some() && attach.attempt_id.is_some() {
+            (attach.requesting_actor.clone(), attach.work_id, attach.attempt_id)
+        } else if let Some(session) = browser_session.as_ref() {
+            (Some(session.actor.clone()), session.work_id, session.attempt_id)
+        } else {
+            (attach.requesting_actor.clone(), None, None)
+        };
     let state_value = serde_json::json!({
         "controller": "owner",
         "client_id": input.client_id,
         "lease_id": Uuid::new_v4().to_string(),
-        "requesting_actor": attach.requesting_actor,
-        "work_id": attach.work_id,
-        "attempt_id": attach.attempt_id,
+        "requesting_actor": requesting_actor,
+        "work_id": work_id,
+        "attempt_id": attempt_id,
         "acquired_at": Utc::now(),
         "last_activity_at": Utc::now(),
         "expires_at": Utc::now() + ChronoDuration::seconds(CONTROL_TTL_SECONDS),
@@ -8826,6 +8851,7 @@ async fn return_control(
         };
         if let Some(attempt) = attempts.iter().find(|attempt| {
             attempt.id == attempt_id
+                && current["requesting_actor"].as_str() == Some(attempt.actor_id.as_str())
                 && attempt.state == restless_orgintel::WorkAttemptState::Running
         }) {
             let body = format!(
@@ -8859,7 +8885,16 @@ async fn return_control(
                 )
                 .await
             {
-                Ok(_) => resumed_exact_attempt = true,
+                Ok((message_id, _created)) => {
+                    state.daemon.activities.expect_message(
+                        &company,
+                        &attempt.actor_id,
+                        message_id,
+                        Some(work_id),
+                    );
+                    state.daemon.schedule_wake.notify_one();
+                    resumed_exact_attempt = true;
+                }
                 Err(error) => {
                     return api_error(
                         StatusCode::SERVICE_UNAVAILABLE,
@@ -8894,6 +8929,7 @@ async fn return_control(
                         "Browser control returned. Inspect the same page state and verify the source condition; hand-back is not proof of completion.",
                     )
                     .await;
+                state.daemon.schedule_wake.notify_one();
             }
         }
     }
