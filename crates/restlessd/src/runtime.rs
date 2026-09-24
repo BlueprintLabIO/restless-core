@@ -3235,10 +3235,11 @@ pub fn state_root() -> PathBuf {
 mod tests {
     use super::{
         bound_docker_call, company_statuses, container_name, docker_observe,
-        is_immutable_image_digest, read_owner_attachment, remove_owner_attachment,
-        resolve_company_image, resolve_resource_bound, running_company_names, sort_source_files,
-        store_owner_attachment, AgentIntelligence, ContainerStatus, NativeHarnessConfig,
-        COMPANY_IMAGE, DEFAULT_CPUS, DEFAULT_MEMORY, DEFAULT_PIDS_LIMIT,
+        is_immutable_image_digest, is_runtime_review_download, read_owner_attachment,
+        remove_owner_attachment, resolve_company_image, resolve_resource_bound,
+        running_company_names, sort_source_files, store_owner_attachment, AgentIntelligence,
+        ContainerStatus, NativeHarnessConfig, COMPANY_IMAGE, DEFAULT_CPUS, DEFAULT_MEMORY,
+        DEFAULT_PIDS_LIMIT,
     };
 
     #[test]
