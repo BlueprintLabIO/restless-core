@@ -4,7 +4,7 @@ use super::*;
 use chrono::{Datelike as _, Days, LocalResult, NaiveDateTime, NaiveTime, TimeZone as _, Weekday};
 use chrono_tz::Tz;
 
-const SCHEDULE_COLUMNS: &str = "id, actor_id, work_id, reason, fire_at, fired_at, cancelled_at, recurrence, timezone, local_time, last_fired_at, missed_policy, catch_up_grace_seconds, last_missed_at, last_considered_at, machine_requirement, created_at, interval_seconds, responsibility_id, responsibility_version";
+const SCHEDULE_COLUMNS: &str = "id, actor_id, work_id, reason, fire_at, fired_at, cancelled_at, recurrence, timezone, local_time, last_fired_at, missed_policy, catch_up_grace_seconds, last_missed_at, last_considered_at, machine_requirement, created_at, interval_seconds, responsibility_id, responsibility_version, wake_runtime";
 const MISSED_TOLERANCE_SECONDS: i64 = 30;
 const DEFAULT_OPPORTUNITY_WINDOW_SECONDS: i64 = 2 * 60 * 60;
 
@@ -1442,6 +1442,53 @@ impl OrgIntel {
         )
         .fetch_one(&self.pool)
         .await?)
+    }
+
+    /// Whether a currently due schedule explicitly permits booting this
+    /// company's sleeping Runtime. This is an admission check only; the
+    /// normal due-claim transaction still owns delivery identity.
+    pub async fn has_due_runtime_wake_schedule(&self, now: DateTime<Utc>) -> Result<bool> {
+        Ok(sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM schedules WHERE fire_at <= $1 \
+             AND fired_at IS NULL AND cancelled_at IS NULL \
+             AND machine_requirement='local_mac' AND wake_runtime)",
+        )
+        .bind(now)
+        .fetch_one(&self.pool)
+        .await?)
+    }
+
+    /// Earliest future or overdue opted-in schedule, used to time a wake
+    /// without polling forever on schedules that cannot start a stopped Runtime.
+    pub async fn next_runtime_wake_schedule_due_at(&self) -> Result<Option<DateTime<Utc>>> {
+        Ok(sqlx::query_scalar::<_, Option<DateTime<Utc>>>(
+            "SELECT min(fire_at) FROM schedules \
+             WHERE fired_at IS NULL AND cancelled_at IS NULL \
+               AND machine_requirement='local_mac' AND wake_runtime",
+        )
+        .fetch_one(&self.pool)
+        .await?)
+    }
+
+    /// Owner-controlled opt-in for a single active schedule. New rows and
+    /// rows created before migration default to false.
+    pub async fn set_schedule_runtime_wake(
+        &self,
+        schedule_id: Uuid,
+        actor_id: &str,
+        enabled: bool,
+    ) -> Result<bool> {
+        Ok(sqlx::query(
+            "UPDATE schedules SET wake_runtime=$3 WHERE id=$1 AND actor_id=$2 \
+             AND fired_at IS NULL AND cancelled_at IS NULL",
+        )
+        .bind(schedule_id)
+        .bind(actor_id)
+        .bind(enabled)
+        .execute(&self.pool)
+        .await?
+        .rows_affected()
+            == 1)
     }
 
     pub async fn next_opportunity_due_at(&self) -> Result<Option<DateTime<Utc>>> {

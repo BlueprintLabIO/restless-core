@@ -3,6 +3,7 @@
 	import InfoTip from '$lib/components/InfoTip.svelte';
 	import {
 		monitorSchedules,
+		setScheduleRuntimeWake,
 		testScheduleTrigger,
 		type MonitoredSchedule,
 		type ScheduleTestReport
@@ -27,6 +28,21 @@
 		void companyId;
 		void load();
 	});
+
+	async function setRuntimeWake(schedule: string, enabled: boolean) {
+		if (busy) return;
+		busy = schedule;
+		failure = '';
+		try {
+			await setScheduleRuntimeWake(companyId, schedule, enabled);
+			await load();
+		} catch (cause) {
+			failure =
+				cause instanceof Error ? cause.message : 'The schedule wake setting could not be saved.';
+		} finally {
+			busy = '';
+		}
+	}
 
 	async function test(schedule: string) {
 		if (busy) return;
@@ -98,6 +114,20 @@
 						</div>
 						<p>
 							Next fire <time datetime={item.schedule.fire_at}>{when(item.schedule.fire_at)}</time>
+						</p>
+						<label class="runtime-wake">
+							<input
+								type="checkbox"
+								checked={item.schedule.wake_runtime}
+								disabled={busy !== ''}
+								onchange={(event) =>
+									void setRuntimeWake(item.schedule.id, event.currentTarget.checked)}
+							/>
+							<span>Wake the sleeping Runtime when this schedule is due</span>
+						</label>
+						<p class="runtime-wake-note">
+							When enabled, a due schedule can start this company’s computer and run its check,
+							which may incur model charges.
 						</p>
 						{#if item.schedule.last_fired_at}
 							<p>
@@ -227,6 +257,23 @@
 		color: var(--text-secondary);
 		font-size: var(--t-label);
 		margin: var(--space-2) 0 0;
+	}
+	.runtime-wake {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		margin-top: var(--space-3);
+		font-size: var(--t-label);
+		color: var(--text-primary);
+	}
+	.runtime-wake input {
+		accent-color: var(--accent);
+	}
+	.runtime-wake-note {
+		max-width: 52ch;
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+		margin: var(--space-1) 0 0 1.5rem;
 	}
 	.schedule-action {
 		display: flex;

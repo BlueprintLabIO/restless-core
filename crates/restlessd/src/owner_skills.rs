@@ -465,6 +465,48 @@ pub(super) async fn schedule_monitor(
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+pub(super) struct ScheduleRuntimeWakeInput {
+    wake_runtime: bool,
+}
+
+/// Explicit owner opt-in for allowing this recurring schedule to start a
+/// stopped local Runtime when its next occurrence becomes due.
+pub(super) async fn set_schedule_runtime_wake(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, schedule)): AxumPath<(String, Uuid)>,
+    Json(input): Json<ScheduleRuntimeWakeInput>,
+) -> Response<Body> {
+    if let Some(refusal) = owner_only(&principal) {
+        return refusal;
+    }
+    let org = match org_for(&state, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .set_schedule_runtime_wake(schedule, "exec", input.wake_runtime)
+        .await
+    {
+        Ok(true) => {
+            state.daemon.schedule_wake.notify_one();
+            Json(json!({
+                "schedule_id": schedule,
+                "wake_runtime": input.wake_runtime,
+            }))
+            .into_response()
+        }
+        Ok(false) => api_error(
+            StatusCode::NOT_FOUND,
+            "schedule",
+            "active schedule not found",
+        ),
+        Err(error) => orgintel_error(error),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct ScheduleTestInput {
     #[serde(default)]
     timeout_seconds: Option<u64>,

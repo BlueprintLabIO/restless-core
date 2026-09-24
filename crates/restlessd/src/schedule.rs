@@ -42,6 +42,10 @@ pub(crate) struct WakeClaims {
     /// in-memory on purpose: a daemon restart is itself a reason to try once
     /// more, and nothing here is organisational truth.
     backoff: HashMap<String, (std::time::Instant, u32)>,
+    /// Retry window for a Runtime start denied before a scheduled occurrence
+    /// can be delivered. Separate from Actor wake backoff so owner messages
+    /// remain eligible as soon as their Runtime is explicitly started.
+    runtime_start_backoff: HashMap<String, (std::time::Instant, u32)>,
 }
 
 const BACKOFF_FIRST: Duration = Duration::from_secs(30);
@@ -105,6 +109,30 @@ impl WakeClaims {
 
     pub(crate) fn record_usable_wake(&mut self, company: &str) {
         self.backoff.remove(company);
+    }
+
+    fn is_runtime_start_backing_off(&self, company: &str) -> bool {
+        self.runtime_start_backoff
+            .get(company)
+            .is_some_and(|(until, _)| std::time::Instant::now() < *until)
+    }
+
+    fn record_runtime_start_failure(&mut self, company: &str) {
+        let failures = self
+            .runtime_start_backoff
+            .get(company)
+            .map_or(1, |(_, failures)| failures.saturating_add(1));
+        let delay = BACKOFF_FIRST
+            .saturating_mul(1u32 << failures.saturating_sub(1).min(4))
+            .min(BACKOFF_CEILING);
+        self.runtime_start_backoff.insert(
+            company.to_string(),
+            (std::time::Instant::now() + delay, failures),
+        );
+    }
+
+    fn clear_runtime_start_backoff(&mut self, company: &str) {
+        self.runtime_start_backoff.remove(company);
     }
 
     fn release(&mut self, company: &str) {
@@ -336,19 +364,36 @@ async fn next_due_delay(daemon: &Arc<Daemon>) -> Duration {
         let Ok(org) = daemon.orgintel.get(&company).await else {
             continue;
         };
-        if let Ok(Some(next)) = org.next_schedule_due_at().await {
+        let runtime_running = daemon.runtime_bridges.is_hosted()
+            || matches!(
+                runtime::status(&company).await,
+                Ok(ContainerStatus::Running)
+            );
+        let schedule_due = if runtime_running {
+            org.next_schedule_due_at().await
+        } else if matches!(
+            runtime::status(&company).await,
+            Ok(ContainerStatus::Stopped)
+        ) {
+            org.next_runtime_wake_schedule_due_at().await
+        } else {
+            Ok(None)
+        };
+        if let Ok(Some(next)) = schedule_due {
             earliest = Some(
                 earliest.map_or(next, |current: chrono::DateTime<chrono::Utc>| {
                     current.min(next)
                 }),
             );
         }
-        if let Ok(Some(next)) = org.next_opportunity_due_at().await {
-            earliest = Some(
-                earliest.map_or(next, |current: chrono::DateTime<chrono::Utc>| {
-                    current.min(next)
-                }),
-            );
+        if runtime_running {
+            if let Ok(Some(next)) = org.next_opportunity_due_at().await {
+                earliest = Some(
+                    earliest.map_or(next, |current: chrono::DateTime<chrono::Utc>| {
+                        current.min(next)
+                    }),
+                );
+            }
         }
     }
     match earliest {
@@ -387,6 +432,9 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
     if !config.has_configured_model_route() {
         return;
     }
+    let Ok(org) = daemon.orgintel.get(company).await else {
+        return;
+    };
     if daemon.runtime_bridges.is_hosted() {
         let Ok(identity) =
             crate::runtime_bridge::expected_identity(&daemon.authority, company).await
@@ -398,12 +446,81 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
         {
             return;
         }
-    } else if !matches!(runtime::status(company).await, Ok(ContainerStatus::Running)) {
-        return;
+    } else {
+        match runtime::status(company).await {
+            Ok(ContainerStatus::Running) => {}
+            Ok(ContainerStatus::Stopped) => {
+                let due = match org.has_due_runtime_wake_schedule(Utc::now()).await {
+                    Ok(due) => due,
+                    Err(error) => {
+                        tracing::warn!(
+                            company,
+                            "could not inspect schedule Runtime opt-in: {error:#}"
+                        );
+                        return;
+                    }
+                };
+                if !due
+                    || in_flight
+                        .lock()
+                        .is_ok_and(|guard| guard.is_runtime_start_backing_off(company))
+                {
+                    return;
+                }
+                // A spent/incomplete company start allowance leaves this
+                // occurrence due. Reuse ordinary automatic-wake backoff so a
+                // capped company does not hammer its start path every scan.
+                if runtime::CompanyConfig::load_archived(&daemon.root, company).is_ok()
+                    || CompanyConfig::load(&daemon.root, company).is_err()
+                {
+                    return;
+                }
+                match runtime::up(&config, false).await {
+                    Ok(outcome) => {
+                        tracing::info!(company, %outcome, "starting Runtime for opted-in due schedule")
+                    }
+                    Err(error) => {
+                        if let Ok(mut guard) = in_flight.lock() {
+                            guard.record_runtime_start_failure(company);
+                        }
+                        tracing::warn!(
+                            company,
+                            "could not start Runtime for opted-in due schedule: {error:#}"
+                        );
+                        return;
+                    }
+                }
+                if !matches!(runtime::status(company).await, Ok(ContainerStatus::Running)) {
+                    if let Ok(mut guard) = in_flight.lock() {
+                        guard.record_runtime_start_failure(company);
+                    }
+                    tracing::warn!(
+                        company,
+                        "Runtime did not become running after opted-in schedule wake"
+                    );
+                    return;
+                }
+                if let Ok(mut guard) = in_flight.lock() {
+                    guard.clear_runtime_start_backoff(company);
+                }
+                if let Err(error) = crate::materialize_runtime_bridge(daemon, company).await {
+                    if let Ok(mut guard) = in_flight.lock() {
+                        guard.record_runtime_start_failure(company);
+                    }
+                    let stop = runtime::down(company).await;
+                    tracing::warn!(
+                        company,
+                        stop = ?stop,
+                        "could not prepare Runtime bridge for opted-in schedule; stopped the newly started Runtime: {error:#}"
+                    );
+                    return;
+                }
+            }
+            // A removed Runtime is not a sleeping Runtime. Do not recreate its
+            // container or volume from a timer; owner lifecycle must restore it.
+            Ok(ContainerStatus::Absent) | Err(_) => return,
+        }
     }
-    let Ok(org) = daemon.orgintel.get(company).await else {
-        return;
-    };
 
     if !daemon.runtime_bridges.is_hosted() {
         if let Err(error) =

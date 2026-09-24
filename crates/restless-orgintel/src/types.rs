@@ -1011,6 +1011,8 @@ pub struct ScheduleRow {
     pub interval_seconds: Option<i32>,
     pub responsibility_id: Option<Uuid>,
     pub responsibility_version: Option<i32>,
+    /// Explicit owner opt-in for waking a sleeping Runtime when this is due.
+    pub wake_runtime: bool,
 }
 
 /// Durable objective admitted by a schedule occurrence. `owner_epoch` fences

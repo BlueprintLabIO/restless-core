@@ -1366,6 +1366,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             "/companies/{company}/schedules/{schedule}/test",
             post(skills_api::test_schedule_trigger),
         )
+        .route(
+            "/companies/{company}/schedules/{schedule}/runtime-wake",
+            post(skills_api::set_schedule_runtime_wake),
+        )
         .route("/companies/{company}/vault", get(company_vault))
         .route(
             "/companies/{company}/vault/secret",
