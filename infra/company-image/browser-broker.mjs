@@ -356,8 +356,14 @@ async function checkpointTabs() {
     // A just-started new-tab page must not erase the last useful checkpoint
     // before start-company-chromium has had a chance to reopen it.
     if (urls.length === 0) return;
+    const snapshot = `${JSON.stringify(urls, null, 2)}\n`;
+    try {
+      if (fs.readFileSync(tabsPath, 'utf8') === snapshot) return;
+    } catch {
+      // A missing checkpoint needs recreating for browser restart recovery.
+    }
     const temporary = `${tabsPath}.tmp`;
-    fs.writeFileSync(temporary, `${JSON.stringify(urls, null, 2)}\n`, { mode: 0o600 });
+    fs.writeFileSync(temporary, snapshot, { mode: 0o600 });
     fs.renameSync(temporary, tabsPath);
   } catch {
     // Health reports Chrome separately; a transient checkpoint miss does not
