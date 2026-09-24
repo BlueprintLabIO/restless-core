@@ -30,7 +30,7 @@ async function codex(){
  child.stdin.write(JSON.stringify({method:'initialized',params:{}})+'\n');
  return {request,completion};
 }
-const timer=setTimeout(()=>{if(action==='login')write({state:'expired',message:'Sign-in expired. Start again.'});stop();process.exit(1);},action==='login'?900000:20000);
+const timer=setTimeout(()=>{if(action==='login')write({state:'expired',message:'Sign-in expired. Start again.'});stop();process.exit(1);},action==='login'?900000:action==='status'?45000:20000);
 try{
  if(action==='cancel'){cancel();write({state:'cancelled'});out({state:'cancelled'});}
  else if(action==='logout'){

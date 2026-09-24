@@ -56,7 +56,10 @@ pub async fn command(company: &str, harness: &str, action: &str) -> Result<Value
     }
     cmd.args(["-u", "company", &container, "node", HELPER, harness, action])
         .kill_on_drop(true);
-    let output = tokio::time::timeout(std::time::Duration::from_secs(25), cmd.output()).await;
+    // A native status read starts an app-server and may also enumerate models.
+    // On a busy local appliance that can exceed the helper's former 20s limit,
+    // which misreported a healthy OAuth session as unavailable to scheduled Work.
+    let output = tokio::time::timeout(std::time::Duration::from_secs(50), cmd.output()).await;
     // A read racing a sign-in action may have cached the old state. Drop it
     // again after the action so the next view sees the completed transition.
     if action != "status" {
@@ -67,7 +70,7 @@ pub async fn command(company: &str, harness: &str, action: &str) -> Result<Value
     }
     let output = output??;
     if !output.status.success() {
-        bail!("Native authentication is unavailable. Check the Company computer and retry.");
+        bail!("Native authentication check failed. Check the Company computer and retry.");
     }
     if action == "login" {
         return Ok(json!({"state":"starting"}));
