@@ -138,6 +138,11 @@ pub struct AttentionEvidence {
 pub struct RuntimeAttachRef {
     pub company: String,
     pub generation: String,
+    /// Exact producer coordinates for the human step attached to this browser.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub work_id: Option<uuid::Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attempt_id: Option<uuid::Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub requesting_actor: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -373,10 +378,16 @@ pub async fn project(
         ),
     };
     let generation = runtime::generation(&config.name).await.ok().flatten();
-    let attach_for = |actor: Option<&str>| {
+    let attach_for = |
+        actor: Option<&str>,
+        work_id: Option<uuid::Uuid>,
+        attempt_id: Option<uuid::Uuid>,
+    | {
         generation.as_ref().map(|generation| RuntimeAttachRef {
             company: config.name.clone(),
             generation: generation.clone(),
+            work_id,
+            attempt_id,
             requesting_actor: actor.map(str::to_string),
             requesting_actor_display: actor
                 .and_then(|actor| actors.get(actor))
@@ -653,7 +664,13 @@ pub async fn project(
         // pending they must not fall back to an unrelated desktop tab. This
         // also prevents stale computer links from obtaining an attach ticket.
         let runtime_attach = judgement
-            .then(|| attach_for(Some(responsible_id)))
+            .then(|| {
+                attach_for(
+                    Some(responsible_id),
+                    Some(handoff.work_id),
+                    handoff.attempt_id,
+                )
+            })
             .flatten();
         let outcome_review = brief
             .is_some_and(|brief| brief.kind == restless_orgintel::OwnerBriefKind::OutcomeReview);

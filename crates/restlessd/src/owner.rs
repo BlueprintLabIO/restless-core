@@ -252,6 +252,8 @@ struct AttachTicket {
     item_id: String,
     client_id: String,
     requesting_actor: Option<String>,
+    work_id: Option<Uuid>,
+    attempt_id: Option<Uuid>,
     expires_at: SystemTime,
 }
 
@@ -260,6 +262,8 @@ struct AttachSession {
     company: String,
     client_id: String,
     requesting_actor: Option<String>,
+    work_id: Option<Uuid>,
+    attempt_id: Option<Uuid>,
     expires_at: SystemTime,
 }
 
@@ -7843,6 +7847,8 @@ async fn issue_ticket(
         }
     };
     let mut requesting_actor = None;
+    let mut attached_work_id = None;
+    let mut attached_attempt_id = None;
     if input.item_id != "runtime-rescue" {
         let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
             Ok(config) => config,
@@ -7881,6 +7887,8 @@ async fn issue_ticket(
             );
         }
         requesting_actor.clone_from(&reference.requesting_actor);
+        attached_work_id = item.work_id;
+        attached_attempt_id = reference.attempt_id;
     }
     let ticket = Uuid::new_v4().simple().to_string();
     state.tickets.lock().expect("ticket registry").insert(
@@ -7891,6 +7899,8 @@ async fn issue_ticket(
             item_id: input.item_id,
             client_id: input.client_id,
             requesting_actor,
+            work_id: attached_work_id,
+            attempt_id: attached_attempt_id,
             expires_at: SystemTime::now() + TICKET_TTL,
         },
     );
@@ -7965,6 +7975,8 @@ async fn open_browser_link(
             item_id: "web-link".into(),
             client_id: input.client_id,
             requesting_actor: None,
+            work_id: None,
+            attempt_id: None,
             expires_at: SystemTime::now() + TICKET_TTL,
         },
     );
@@ -8015,6 +8027,8 @@ async fn open_desktop(
             company: company.clone(),
             client_id: client_id.clone(),
             requesting_actor: ticket.requesting_actor,
+            work_id: ticket.work_id,
+            attempt_id: ticket.attempt_id,
             expires_at: SystemTime::now() + ATTACH_TTL,
         },
     );
@@ -8599,6 +8613,8 @@ async fn take_control(
         "client_id": input.client_id,
         "lease_id": Uuid::new_v4().to_string(),
         "requesting_actor": attach.requesting_actor,
+        "work_id": attach.work_id,
+        "attempt_id": attach.attempt_id,
         "acquired_at": Utc::now(),
         "last_activity_at": Utc::now(),
         "expires_at": Utc::now() + ChronoDuration::seconds(CONTROL_TTL_SECONDS),
@@ -8777,6 +8793,83 @@ async fn return_control(
         );
     }
     let requesting_actor = current["requesting_actor"].as_str().map(str::to_string);
+    let work_id = current["work_id"]
+        .as_str()
+        .and_then(|value| Uuid::parse_str(value).ok());
+    let attempt_id = current["attempt_id"]
+        .as_str()
+        .and_then(|value| Uuid::parse_str(value).ok());
+    // Persist the return as exact Work feedback before relinquishing the
+    // Runtime lease. The command key is derived from this owner lease, so a
+    // retry after a lost response cannot create a duplicate wake.
+    let mut resumed_exact_attempt = false;
+    if let (Some(work_id), Some(attempt_id)) = (work_id, attempt_id) {
+        let org = match state.daemon.orgintel.get(&company).await {
+            Ok(org) => org,
+            Err(error) => {
+                return api_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "orgintel",
+                    format!("could not load the exact browser handoff: {error:#}"),
+                )
+            }
+        };
+        let attempts = match org.list_work_attempts(Some(work_id)).await {
+            Ok(attempts) => attempts,
+            Err(error) => {
+                return api_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "orgintel",
+                    format!("could not inspect the exact browser Attempt: {error:#}"),
+                )
+            }
+        };
+        if let Some(attempt) = attempts.iter().find(|attempt| {
+            attempt.id == attempt_id
+                && attempt.state == restless_orgintel::WorkAttemptState::Running
+        }) {
+            let body = format!(
+                "The owner is returning control of the company browser for this exact live Attempt ({attempt_id}). After the computer is available, inspect the current page state and verify the handoff's resume condition. Treat any action started before the owner took control as uncertain: observe its result before deciding whether another action is needed. Returning control does not prove the human step is complete. Continue this same Attempt; do not replay a stale browser action."
+            );
+            let command_id = format!(
+                "browser-return:{}",
+                input.lease_id.as_deref().unwrap_or_default()
+            );
+            let digest = format!("{:x}", Sha256::digest(body.as_bytes()));
+            if let Err(error) = org
+                .ensure_actor("owner", "owner", "owner", "The Owner")
+                .await
+            {
+                return api_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "orgintel",
+                    format!("could not prepare the owner return checkpoint: {error:#}"),
+                );
+            }
+            match org
+                .send_work_message_idempotent(
+                    "owner",
+                    &attempt.actor_id,
+                    work_id,
+                    &body,
+                    None,
+                    &[],
+                    &command_id,
+                    &digest,
+                )
+                .await
+            {
+                Ok(_) => resumed_exact_attempt = true,
+                Err(error) => {
+                    return api_error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "orgintel",
+                        format!("could not durably hand the exact Attempt its browser-return checkpoint: {error:#}"),
+                    )
+                }
+            }
+        }
+    }
     let next = serde_json::json!({ "controller": "unclaimed", "returned_at": Utc::now() });
     if let Err(error) = runtime::write_browser_control(&company, &next).await {
         return api_error(
@@ -8786,18 +8879,22 @@ async fn return_control(
         );
     }
     drop(control_guard);
-    if let Some(requesting_actor) = requesting_actor {
-        if let Ok(org) = state.daemon.orgintel.get(&company).await {
-            let _ = org
-                .ensure_actor("owner", "owner", "owner", "The Owner")
-                .await;
-            let _ = org
-                .send_message(
-                    "owner",
-                    Some(&requesting_actor),
-                    "Browser control returned. Inspect the same page state and verify the source condition; hand-back is not proof of completion.",
-                )
-                .await;
+    // A running producer receives durable Work feedback through its existing
+    // safe-checkpoint path. Other attachments retain the generic actor notice.
+    if !resumed_exact_attempt {
+        if let Some(requesting_actor) = requesting_actor {
+            if let Ok(org) = state.daemon.orgintel.get(&company).await {
+                let _ = org
+                    .ensure_actor("owner", "owner", "owner", "The Owner")
+                    .await;
+                let _ = org
+                    .send_message(
+                        "owner",
+                        Some(&requesting_actor),
+                        "Browser control returned. Inspect the same page state and verify the source condition; hand-back is not proof of completion.",
+                    )
+                    .await;
+            }
         }
     }
     Json(next).into_response()

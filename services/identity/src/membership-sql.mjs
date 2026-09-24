@@ -235,11 +235,12 @@ export async function createSqlMembershipStore({
    */
   async function enter(user, companyId) {
     const coordinates = await placed(companyId);
-    if (coordinates.ready === false)
-      refuse(503, "The company is starting. Try again in a moment.");
+    // Access first: someone without entry learns that, not the plane's state.
     const member = await membership(companyId, user.id);
     if (!member || member.status !== "active" || member.ending)
       refuse(403, "You do not currently have access to this company.");
+    if (coordinates.ready === false)
+      refuse(503, "The company is starting. Try again in a moment.");
     return {
       action: coordinates.coreOrigin + "/entry",
       assertion: await sign(
