@@ -101,7 +101,8 @@ already dangerous host; it is not a storage-retention policy.
 
 ## Working policy
 
-1. Before a full Rust verification run, check the host with `df -h /System/Volumes/Data`. Treat less
+1. Before a full Rust verification run, check the host with `df -h /System/Volumes/Data` on macOS
+   or `df -h /` on Linux. Treat less
    than 50 GiB free as a warning and do not start a full build below 30 GiB free.
 2. Keep the active workspace's build cache for fast iteration. When its `target` directory exceeds
    30 GiB, clean it while no `cargo` or `rustc` process is running:
@@ -138,3 +139,27 @@ warn near 50 GiB. This does not justify a bespoke storage manager or automatic d
 
 The accepted trade-off is an occasional cold rebuild after threshold cleanup. The guarded risk is a
 repeat disk fill. Automatic deletion of potentially durable state remains out of scope.
+
+## Linux pilot host check — 24 September 2026
+
+On the development host, the Core checkout's `target` directory occupied 27 GiB, including 16 GiB
+of `target/debug/incremental`. A separate scratch build target occupied 5.3 GiB. These are
+regenerable build artifacts, not company files. Keep one shared `CARGO_TARGET_DIR` for related
+worktrees where practical, and give disposable experiments their own target that can be removed
+when the experiment ends. For one-off verification in a disposable target, set
+`CARGO_INCREMENTAL=0` to avoid building another incremental cache; keep incremental compilation in
+the main checkout when fast edit/build cycles matter. Do not clean a target while a build is active.
+
+Docker held 21.6 GiB of images, with 9.8 GiB reported reclaimable; the named volumes held 3.2 GiB.
+The company image is large and successive releases can each add distinct layers. Keep the current
+release and one known-good rollback image, then remove only image IDs confirmed unused by every
+container. `docker system df -v` shows shared versus unique image bytes. Never use a broad volume
+prune: stopped company computers still own their named volumes.
+
+New local company containers and the account-plane Compose services use Docker's `local` log driver
+with a 10 MiB file and three-file limit. Existing containers retain their original logging settings
+until deliberately replaced or recreated. This bounds container stdout/stderr logs; it does not
+bound company files, browser profiles, package caches, database growth, or host-side daemon logs.
+Before a pilot, monitor free bytes and inodes on the filesystem, per-company named-volume sizes,
+database sizes, and Docker image usage. Alert before the filesystem reaches its reserve rather than
+deleting company data automatically.

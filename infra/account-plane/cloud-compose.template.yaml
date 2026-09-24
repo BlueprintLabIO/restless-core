@@ -4,6 +4,11 @@ services:
   plane-database:
     image: postgres@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280
     restart: unless-stopped
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       POSTGRES_DB: restless
       POSTGRES_USER: restless
@@ -24,6 +29,11 @@ services:
   account-plane:
     image: "{{ACCOUNT_PLANE_IMAGE}}"
     restart: unless-stopped
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       RESTLESS_PROFILE: stable
       RESTLESS_HOME: /state/restless

@@ -1226,7 +1226,22 @@ pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
             let cpus = resource_bound("RESTLESS_COMPANY_CPUS", DEFAULT_CPUS);
             let memory = resource_bound("RESTLESS_COMPANY_MEMORY", DEFAULT_MEMORY);
             let pids = resource_bound("RESTLESS_COMPANY_PIDS_LIMIT", DEFAULT_PIDS_LIMIT);
-            let mut args: Vec<&str> = vec!["run", "-d", "--name", &name, "--hostname", company];
+            // Keep one noisy company from filling the shared host disk. The
+            // local driver also supports `docker logs` for diagnosis.
+            let mut args: Vec<&str> = vec![
+                "run",
+                "-d",
+                "--name",
+                &name,
+                "--hostname",
+                company,
+                "--log-driver",
+                "local",
+                "--log-opt",
+                "max-size=10m",
+                "--log-opt",
+                "max-file=3",
+            ];
             if cfg!(target_os = "linux") && internal_network.is_none() {
                 args.extend(["--add-host", "host.docker.internal:host-gateway"]);
             }
