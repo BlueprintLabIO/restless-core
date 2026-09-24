@@ -16,10 +16,10 @@ RUN groupadd --system --gid 10001 restless-identity \
     && useradd --system --uid 10001 --gid 10001 --no-create-home \
         --home-dir /tmp --shell /usr/sbin/nologin restless-identity
 
-# The dependency-free issuer library another host mounts (ADR 0012). Restless
-# Cloud copies this directory from the image by digest.
-COPY library/package.json library/issuer.d.ts /opt/restless/issuer/
-COPY src/issuer.mjs /opt/restless/issuer/issuer.mjs
+# The issuer library and Core's membership Store that another host mounts
+# (ADR 0012). Restless Cloud copies this directory from the image by digest.
+COPY library/ /opt/restless/issuer/
+COPY src/issuer.mjs src/membership-sql.mjs src/core-request.mjs /opt/restless/issuer/
 
 # The self-hosted host.
 WORKDIR /opt/restless/identity

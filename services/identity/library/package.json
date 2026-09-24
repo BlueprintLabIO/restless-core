@@ -1,14 +1,25 @@
 {
   "name": "@restless/issuer",
-  "version": "1.0.0",
-  "description": "Restless identity issuer rules, membership admin API and metadata (ADR 0012). Dependency-free; hosts supply Better Auth, Placement and a membership Store.",
+  "version": "1.1.0",
+  "description": "Restless identity issuer rules, membership admin API and metadata (ADR 0012), plus Core's PostgreSQL membership Store. Hosts supply Better Auth, Placement and a pg Pool.",
   "type": "module",
   "types": "./issuer.d.ts",
   "exports": {
     ".": {
       "types": "./issuer.d.ts",
       "default": "./issuer.mjs"
+    },
+    "./membership-sql": {
+      "types": "./membership-sql.d.ts",
+      "default": "./membership-sql.mjs"
+    },
+    "./core-request": {
+      "types": "./core-request.d.ts",
+      "default": "./core-request.mjs"
     }
+  },
+  "dependencies": {
+    "jose": "6.2.12"
   },
   "engines": {
     "node": ">=24"
