@@ -183,7 +183,7 @@
 				<div class="section-heading">
 					<h2>Company computer</h2>
 					<InfoTip
-						text="Idle sleep stops the company computer while keeping its files and records. Scheduled wake is set separately for each schedule. The monthly runtime threshold blocks a stopped computer from starting again after it is reached; an already running computer may use more time."
+						text="Idle sleep stops the company computer while keeping its files and records. Scheduled wake is set separately for each schedule. The monthly hours threshold blocks a stopped computer from starting again after it is reached; an already running computer may use more time."
 					/>
 				</div>
 				{#if editingRuntime}
@@ -205,7 +205,7 @@
 								<option value={autoSleepMinutes}>{autoSleepMinutes} minutes</option>
 							{/if}
 						</select>
-						<label for="runtime-cap-hours">Monthly runtime limit (hours)</label>
+						<label for="runtime-cap-hours">Monthly computer hours limit</label>
 						<input
 							id="runtime-cap-hours"
 							type="number"
@@ -234,7 +234,7 @@
 						Idle sleep: {view.limits.runtime.auto_sleep_after_minutes == null
 							? 'Off'
 							: `${view.limits.runtime.auto_sleep_after_minutes} minutes`}
-						· Monthly runtime limit: {view.limits.runtime.monthly_runtime_cap_hours == null
+						· Monthly computer hours limit: {view.limits.runtime.monthly_runtime_cap_hours == null
 							? 'None'
 							: `${view.limits.runtime.monthly_runtime_cap_hours} hours`}
 					</p>

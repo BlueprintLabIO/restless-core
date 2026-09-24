@@ -117,20 +117,22 @@
 						<p>
 							Next fire <time datetime={item.schedule.fire_at}>{when(item.schedule.fire_at)}</time>
 						</p>
-						<label class="runtime-wake">
-							<input
-								type="checkbox"
-								checked={item.schedule.wake_runtime}
-								disabled={busy !== ''}
-								onchange={(event) =>
-									void setRuntimeWake(item.schedule.id, event.currentTarget.checked)}
-							/>
-							<span>Wake the sleeping Runtime when this schedule is due</span>
-						</label>
-						<p class="runtime-wake-note">
-							When enabled, a due schedule can start this company’s computer and run its check,
-							which uses compute time and may incur model charges.
-						</p>
+						{#if item.schedule.machine_requirement === 'local_mac'}
+							<label class="runtime-wake">
+								<input
+									type="checkbox"
+									checked={item.schedule.wake_runtime}
+									disabled={busy !== ''}
+									onchange={(event) =>
+										void setRuntimeWake(item.schedule.id, event.currentTarget.checked)}
+								/>
+								<span>Wake the company computer when this schedule is due</span>
+							</label>
+							<p class="runtime-wake-note">
+								When enabled, a due schedule can start this company’s computer and run its check,
+								which uses compute time and may incur model charges.
+							</p>
+						{/if}
 						{#if item.schedule.last_fired_at}
 							<p>
 								Last fired <time datetime={item.schedule.last_fired_at}
