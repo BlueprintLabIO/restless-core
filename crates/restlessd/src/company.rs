@@ -388,13 +388,14 @@ pub(crate) async fn project(
     .and_then(|metadata| metadata.modified().ok())
     .map(DateTime::<Utc>::from);
 
-    let (runtime_usage, runtime_usage_status) = match crate::runtime_usage::observe(&daemon.root, config).await {
-        Ok(usage) => (Some(usage), "available"),
-        Err(error) => {
-            tracing::warn!(company = %config.name, %error, "could not read runtime usage");
-            (None, "unavailable")
-        }
-    };
+    let (runtime_usage, runtime_usage_status) =
+        match crate::runtime_usage::observe(&daemon.root, config).await {
+            Ok(usage) => (Some(usage), "available"),
+            Err(error) => {
+                tracing::warn!(company = %config.name, %error, "could not read runtime usage");
+                (None, "unavailable")
+            }
+        };
 
     let limits = Limits {
         status: if authority.is_some() {

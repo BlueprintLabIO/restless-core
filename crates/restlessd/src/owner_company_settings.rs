@@ -159,12 +159,24 @@ pub(super) async fn save_runtime_policy(
     Json(input): Json<RuntimePolicyInput>,
 ) -> impl IntoResponse {
     if principal.membership_role() != "owner" {
-        return api_error(StatusCode::FORBIDDEN, "runtime_policy", "Only the owner can edit runtime limits.");
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "runtime_policy",
+            "Only the owner can edit runtime limits.",
+        );
     }
-    if input.auto_sleep_after_minutes.is_some_and(|minutes| !(1..=1440).contains(&minutes))
-        || input.monthly_runtime_cap_hours.is_some_and(|hours| !(1..=744).contains(&hours))
+    if input
+        .auto_sleep_after_minutes
+        .is_some_and(|minutes| !(1..=1440).contains(&minutes))
+        || input
+            .monthly_runtime_cap_hours
+            .is_some_and(|hours| !(1..=744).contains(&hours))
     {
-        return api_error(StatusCode::BAD_REQUEST, "runtime_policy", "Sleep must be 1–1440 minutes and monthly runtime limit must be 1–744 hours.");
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "runtime_policy",
+            "Sleep must be 1–1440 minutes and monthly runtime limit must be 1–744 hours.",
+        );
     }
     let _write = state.charter_writes.lock().await;
     let mut config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
@@ -174,36 +186,58 @@ pub(super) async fn save_runtime_policy(
     if config.auto_sleep_after_minutes != input.expected_auto_sleep_after_minutes
         || config.monthly_runtime_cap_hours != input.expected_monthly_runtime_cap_hours
     {
-        return api_error(StatusCode::CONFLICT, "runtime_policy", "Runtime limits changed. Reload before saving.");
+        return api_error(
+            StatusCode::CONFLICT,
+            "runtime_policy",
+            "Runtime limits changed. Reload before saving.",
+        );
     }
     if config.auto_sleep_after_minutes != input.auto_sleep_after_minutes
         || config.monthly_runtime_cap_hours != input.monthly_runtime_cap_hours
     {
-        if let Err(error) = state.daemon.authority.emit(
-            &company,
-            "company_runtime_policy_requested",
-            Some(principal.actor_id()),
-            serde_json::json!({
-                "auto_sleep_after_minutes": input.auto_sleep_after_minutes,
-                "monthly_runtime_cap_hours": input.monthly_runtime_cap_hours,
-            }),
-        ).await {
-            return api_error(StatusCode::SERVICE_UNAVAILABLE, "authority", format!("The change could not be recorded: {error:#}"));
+        if let Err(error) = state
+            .daemon
+            .authority
+            .emit(
+                &company,
+                "company_runtime_policy_requested",
+                Some(principal.actor_id()),
+                serde_json::json!({
+                    "auto_sleep_after_minutes": input.auto_sleep_after_minutes,
+                    "monthly_runtime_cap_hours": input.monthly_runtime_cap_hours,
+                }),
+            )
+            .await
+        {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "authority",
+                format!("The change could not be recorded: {error:#}"),
+            );
         }
         config.auto_sleep_after_minutes = input.auto_sleep_after_minutes;
         config.monthly_runtime_cap_hours = input.monthly_runtime_cap_hours;
         if let Err(error) = runtime::CompanyConfig::save(&state.daemon.root, &config) {
-            return api_error(StatusCode::SERVICE_UNAVAILABLE, "runtime_policy", format!("Runtime limits were not saved: {error:#}"));
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "runtime_policy",
+                format!("Runtime limits were not saved: {error:#}"),
+            );
         }
-        if let Err(error) = state.daemon.authority.emit(
-            &company,
-            "company_runtime_policy_changed",
-            Some(principal.actor_id()),
-            serde_json::json!({
-                "auto_sleep_after_minutes": input.auto_sleep_after_minutes,
-                "monthly_runtime_cap_hours": input.monthly_runtime_cap_hours,
-            }),
-        ).await {
+        if let Err(error) = state
+            .daemon
+            .authority
+            .emit(
+                &company,
+                "company_runtime_policy_changed",
+                Some(principal.actor_id()),
+                serde_json::json!({
+                    "auto_sleep_after_minutes": input.auto_sleep_after_minutes,
+                    "monthly_runtime_cap_hours": input.monthly_runtime_cap_hours,
+                }),
+            )
+            .await
+        {
             return api_error(StatusCode::SERVICE_UNAVAILABLE, "authority", format!("Runtime limits were saved but confirmation could not be recorded. Refresh to check them: {error:#}"));
         }
     }

@@ -28,16 +28,20 @@
 		runtimeError = '';
 		runtimeNotice = '';
 		try {
-			const response = await fetch(`/api/companies/${encodeURIComponent(companyId)}/company/runtime-policy`, {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					auto_sleep_after_minutes: autoSleepMinutes === '' ? null : Number(autoSleepMinutes),
-					expected_auto_sleep_after_minutes: baseAutoSleepMinutes,
-					monthly_runtime_cap_hours: monthlyRuntimeHours === '' ? null : Number(monthlyRuntimeHours),
-					expected_monthly_runtime_cap_hours: baseMonthlyRuntimeHours
-				})
-			});
+			const response = await fetch(
+				`/api/companies/${encodeURIComponent(companyId)}/company/runtime-policy`,
+				{
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({
+						auto_sleep_after_minutes: autoSleepMinutes === '' ? null : Number(autoSleepMinutes),
+						expected_auto_sleep_after_minutes: baseAutoSleepMinutes,
+						monthly_runtime_cap_hours:
+							monthlyRuntimeHours === '' ? null : Number(monthlyRuntimeHours),
+						expected_monthly_runtime_cap_hours: baseMonthlyRuntimeHours
+					})
+				}
+			);
 			const result = await response.json();
 			if (!response.ok) throw new Error(result.message ?? 'Runtime limits could not be saved.');
 			source.accept(result);
@@ -178,10 +182,18 @@
 			<section class="limits-ledger">
 				<div class="section-heading">
 					<h2>Company computer</h2>
-					<InfoTip text="Idle sleep stops the company computer while keeping its files and records. Scheduled wake is set separately for each schedule. The monthly runtime threshold blocks a stopped computer from starting again after it is reached; an already running computer may use more time." />
+					<InfoTip
+						text="Idle sleep stops the company computer while keeping its files and records. Scheduled wake is set separately for each schedule. The monthly runtime threshold blocks a stopped computer from starting again after it is reached; an already running computer may use more time."
+					/>
 				</div>
 				{#if editingRuntime}
-					<form class="limit-form" onsubmit={(event) => { event.preventDefault(); void saveRuntimePolicy(); }}>
+					<form
+						class="limit-form"
+						onsubmit={(event) => {
+							event.preventDefault();
+							void saveRuntimePolicy();
+						}}
+					>
 						<label for="auto-sleep-minutes">Sleep after inactivity</label>
 						<select id="auto-sleep-minutes" bind:value={autoSleepMinutes} disabled={runtimeSaving}>
 							<option value="">Off</option>
@@ -194,34 +206,64 @@
 							{/if}
 						</select>
 						<label for="runtime-cap-hours">Monthly runtime limit (hours)</label>
-						<input id="runtime-cap-hours" type="number" min="1" max="744" step="1" placeholder="No limit" bind:value={monthlyRuntimeHours} disabled={runtimeSaving} />
-						<button class="btn small" type="button" disabled={runtimeSaving} onclick={() => { editingRuntime = false; runtimeError = ''; }}>Cancel</button>
-						<button class="btn primary small" disabled={runtimeSaving}>{runtimeSaving ? 'Saving…' : 'Save limits'}</button>
+						<input
+							id="runtime-cap-hours"
+							type="number"
+							min="1"
+							max="744"
+							step="1"
+							placeholder="No limit"
+							bind:value={monthlyRuntimeHours}
+							disabled={runtimeSaving}
+						/>
+						<button
+							class="btn small"
+							type="button"
+							disabled={runtimeSaving}
+							onclick={() => {
+								editingRuntime = false;
+								runtimeError = '';
+							}}>Cancel</button
+						>
+						<button class="btn primary small" disabled={runtimeSaving}
+							>{runtimeSaving ? 'Saving…' : 'Save limits'}</button
+						>
 					</form>
 				{:else}
 					<p>
-						Idle sleep: {view.limits.runtime.auto_sleep_after_minutes == null ? 'Off' : `${view.limits.runtime.auto_sleep_after_minutes} minutes`}
-						· Monthly runtime limit: {view.limits.runtime.monthly_runtime_cap_hours == null ? 'None' : `${view.limits.runtime.monthly_runtime_cap_hours} hours`}
+						Idle sleep: {view.limits.runtime.auto_sleep_after_minutes == null
+							? 'Off'
+							: `${view.limits.runtime.auto_sleep_after_minutes} minutes`}
+						· Monthly runtime limit: {view.limits.runtime.monthly_runtime_cap_hours == null
+							? 'None'
+							: `${view.limits.runtime.monthly_runtime_cap_hours} hours`}
 					</p>
 					{#if view.limits.runtime.usage}
 						<p>
-							{view.limits.runtime.usage.complete ? '' : 'At least '}{(view.limits.runtime.usage.used_seconds / 3600).toFixed(1)} hours running this UTC month
-							· {view.limits.runtime.usage.status}
+							{view.limits.runtime.usage.complete ? '' : 'At least '}{(
+								view.limits.runtime.usage.used_seconds / 3600
+							).toFixed(1)} hours running this UTC month · {view.limits.runtime.usage.status}
 						</p>
 					{:else}
 						<p class="source-unavailable">Runtime usage is temporarily unavailable.</p>
 					{/if}
-					<button class="btn small" onclick={() => {
-						baseAutoSleepMinutes = view.limits.runtime.auto_sleep_after_minutes;
-						baseMonthlyRuntimeHours = view.limits.runtime.monthly_runtime_cap_hours;
-						autoSleepMinutes = baseAutoSleepMinutes == null ? '' : String(baseAutoSleepMinutes);
-						monthlyRuntimeHours = baseMonthlyRuntimeHours == null ? '' : String(baseMonthlyRuntimeHours);
-						runtimeError = '';
-						runtimeNotice = '';
-						editingRuntime = true;
-					}}>Edit runtime limits</button>
+					<button
+						class="btn small"
+						onclick={() => {
+							baseAutoSleepMinutes = view.limits.runtime.auto_sleep_after_minutes;
+							baseMonthlyRuntimeHours = view.limits.runtime.monthly_runtime_cap_hours;
+							autoSleepMinutes = baseAutoSleepMinutes == null ? '' : String(baseAutoSleepMinutes);
+							monthlyRuntimeHours =
+								baseMonthlyRuntimeHours == null ? '' : String(baseMonthlyRuntimeHours);
+							runtimeError = '';
+							runtimeNotice = '';
+							editingRuntime = true;
+						}}>Edit runtime limits</button
+					>
 				{/if}
-				{#if runtimeError}<p role="alert" class="standard-setting-message failure">{runtimeError}</p>{/if}
+				{#if runtimeError}<p role="alert" class="standard-setting-message failure">
+						{runtimeError}
+					</p>{/if}
 				{#if runtimeNotice}<p role="status">{runtimeNotice}</p>{/if}
 			</section>
 
