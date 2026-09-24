@@ -8330,13 +8330,18 @@ impl RfbObserverFilter {
                     if rest.len() < 7 {
                         break;
                     }
-                    8 + u32::from_be_bytes([rest[3], rest[4], rest[5], rest[6]]) as usize
+                    // Extended clipboard frames encode their payload length
+                    // as a negative signed integer. Treating that as u32
+                    // leaves every later input or resize frame queued behind
+                    // an impossible multi-gigabyte message.
+                    8 + i32::from_be_bytes([rest[3], rest[4], rest[5], rest[6]])
+                        .unsigned_abs() as usize
                 }
                 251 => {
-                    if rest.len() < 8 {
+                    if rest.len() < 7 {
                         break;
                     }
-                    8 + 16 * rest[6] as usize
+                    8 + 16 * rest[5] as usize
                 }
                 // Fence is coordination for the viewer, not desktop input:
                 // type + padding + flags + one-byte payload length.

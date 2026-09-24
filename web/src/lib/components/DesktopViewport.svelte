@@ -9,6 +9,7 @@
 		scaleViewport: boolean;
 		resizeSession: boolean;
 		viewOnly: boolean;
+		_supportsSetDesktopSize?: boolean;
 		background: string;
 		qualityLevel: number;
 		compressionLevel: number;
@@ -321,7 +322,29 @@
 			// remain viewport-relative and a detached/replaced canvas is discarded.
 			for (const input of pendingInput.splice(0)) {
 				const destination = input.target as HTMLElement | null;
-				if (destination?.isConnected) destination.dispatchEvent(input.event);
+				if (!destination?.isConnected) continue;
+				if (input.event instanceof PointerEvent) {
+					// noVNC listens for mouse events. A cancelled pointerdown does not
+					// produce compatibility mouse events, and redispatching a pointer
+					// event does not recreate them. Complete the first click as a pair
+					// so a slow lease response cannot leave the remote button held.
+					if (input.event.type !== 'pointerdown') continue;
+					const options = {
+						bubbles: true,
+						cancelable: true,
+						clientX: input.event.clientX,
+						clientY: input.event.clientY,
+						button: input.event.button,
+						ctrlKey: input.event.ctrlKey,
+						shiftKey: input.event.shiftKey,
+						altKey: input.event.altKey,
+						metaKey: input.event.metaKey
+					};
+					destination.dispatchEvent(new MouseEvent('mousedown', { ...options, buttons: 1 }));
+					destination.dispatchEvent(new MouseEvent('mouseup', { ...options, buttons: 0 }));
+				} else {
+					destination.dispatchEvent(input.event);
+				}
 			}
 		} finally {
 			claiming = false;
@@ -430,7 +453,16 @@
 	});
 </script>
 
-<div class="desktop-viewport" bind:this={target} aria-label={title}>
+<div
+	class="desktop-viewport"
+	bind:this={target}
+	aria-label={title}
+	data-desktop-interactive={interactive}
+	data-desktop-can-resize={canResize}
+	data-rfb-view-only={rfb?.viewOnly}
+	data-rfb-resize-session={rfb?.resizeSession}
+	data-rfb-supports-resize={rfb?._supportsSetDesktopSize}
+>
 	{#if src}
 		<div bind:this={screen} class="desktop-screen" aria-label={title}></div>
 		<div class="desktop-tools" aria-label="Desktop controls">

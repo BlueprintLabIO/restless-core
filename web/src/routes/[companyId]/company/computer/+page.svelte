@@ -65,9 +65,10 @@
 	const canAttach = $derived(runtimeBrowser?.status === 'available');
 	const controllerLabel = $derived.by(() => {
 		if (working === 'control') return 'Taking control…';
+		if (controller === 'owner') return 'You control';
 		const control = browserStatus?.control;
 		if (control?.controller === 'owner') {
-			return control.client_id === clientId ? 'You control' : 'Another owner tab controls';
+			return control.client_id === clientId ? 'Viewing only' : 'Another owner tab controls';
 		}
 		if (control?.controller === 'agent') {
 			return control.requesting_actor
