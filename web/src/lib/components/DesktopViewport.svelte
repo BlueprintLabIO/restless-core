@@ -23,6 +23,9 @@
 	type RfbConstructor = new (target: HTMLElement, url: string) => Rfb;
 	type Status = 'connecting' | 'connected' | 'reconnecting' | 'error';
 	type BufferedInput = { event: Event; target: EventTarget | null };
+	type ClipboardClip = { id: number; source: 'device' | 'manual' | 'computer'; text: string };
+	const MAX_CLIPS = 8;
+	const MAX_CLIP_LENGTH = 64000;
 	const MAX_DESKTOP_FRAMEBUFFER = { width: 3840, height: 2160 };
 
 	let {
@@ -56,7 +59,9 @@
 	let rfb = $state<Rfb | null>(null);
 	let status = $state<Status>('connecting');
 	let message = $state('Connecting to the company computer…');
-	let remoteClipboard = $state('');
+	let clipboardClips = $state<ClipboardClip[]>([]);
+	let selectedClipId = $state<number | null>(null);
+	let nextClipId = 0;
 	let fullscreen = $state(false);
 	let utilityMessage = $state('');
 	let clipboardPanelOpen = $state(false);
@@ -66,6 +71,7 @@
 	let clipboardPanel = $state<HTMLDivElement>();
 	let clipboardInput = $state<HTMLTextAreaElement>();
 	let clipboardAction = $state<HTMLButtonElement>();
+	let clipboardOpener = $state<HTMLButtonElement>();
 	let generation = 0;
 	let retryTimer: ReturnType<typeof setTimeout> | undefined;
 	let active = true;
@@ -85,6 +91,37 @@
 		status = next;
 		message = detail || (next === 'connected' ? '' : 'Connecting to the company computer…');
 		onstatus?.(next, detail);
+	}
+
+	function rememberClip(
+		source: ClipboardClip['source'],
+		text: string,
+		select = true
+	): ClipboardClip | null {
+		if (text.length > MAX_CLIP_LENGTH) {
+			clipboardFeedback = `That item is over the ${MAX_CLIP_LENGTH.toLocaleString()} character limit, so it was skipped.`;
+			return null;
+		}
+		const value = text;
+		if (!value.trim()) return null;
+		const existing = clipboardClips.find((item) => item.text === value);
+		if (existing) {
+			if (select) selectedClipId = existing.id;
+			return existing;
+		}
+		const clip = { id: ++nextClipId, source, text: value };
+		clipboardClips = [clip, ...clipboardClips.filter((item) => item.text !== value)].slice(
+			0,
+			MAX_CLIPS
+		);
+		if (select) selectedClipId = clip.id;
+		return clip;
+	}
+
+	function clearClipboardSession() {
+		clipboardClips = [];
+		selectedClipId = null;
+		clipboardDraft = '';
 	}
 
 	function physicalDisplaySize(element: HTMLElement): { width: number; height: number } {
@@ -184,10 +221,14 @@
 				onload?.();
 			});
 			client.addEventListener('clipboard', ((event: CustomEvent<{ text?: string }>) => {
-				remoteClipboard = event.detail?.text ?? '';
+				const text = event.detail?.text ?? '';
+				if (current === generation && text && !clipboardClips.some((clip) => clip.text === text)) {
+					rememberClip('computer', text, !clipboardPanelOpen || selectedClipId === null);
+				}
 			}) as EventListener);
 			client.addEventListener('disconnect', (() => {
 				if (current !== generation || !active) return;
+				clearClipboardSession();
 				untrack(() => {
 					client.disconnect();
 					if (rfb === client) rfb = null;
@@ -254,7 +295,7 @@
 			clearTimeout(retryTimer);
 			rfb?.disconnect();
 			rfb = null;
-			remoteClipboard = '';
+			clearClipboardSession();
 		});
 		untrack(() => void connect(current, route, display));
 		return () => {
@@ -264,6 +305,7 @@
 			untrack(() => {
 				rfb?.disconnect();
 				rfb = null;
+				clearClipboardSession();
 			});
 		};
 	});
@@ -454,6 +496,8 @@
 	}
 
 	async function openClipboardPanel() {
+		clipboardOpener =
+			document.activeElement instanceof HTMLButtonElement ? document.activeElement : undefined;
 		clipboardPanelOpen = true;
 		clipboardFeedback = '';
 		await tick();
@@ -466,6 +510,7 @@
 		manualClipboardOpen = false;
 		clipboardDraft = '';
 		clipboardFeedback = '';
+		clipboardOpener?.focus();
 	}
 
 	function handleClipboardPanelKeydown(event: KeyboardEvent) {
@@ -482,9 +527,15 @@
 		clipboardInput?.focus();
 	}
 
+	function toggleManualClipboard() {
+		manualClipboardOpen = !manualClipboardOpen;
+		if (!manualClipboardOpen) clipboardDraft = '';
+		else void openManualClipboard();
+	}
+
 	async function sendLocalClipboard() {
-		if (!rfb || status !== 'connected' || !interactive) {
-			clipboardFeedback = 'Take control of the connected computer before sending text.';
+		if (status !== 'connected') {
+			clipboardFeedback = 'Connect to the computer before reading the device clipboard.';
 			return;
 		}
 		if (!navigator.clipboard?.readText) {
@@ -501,53 +552,57 @@
 			await openManualClipboard();
 			return;
 		}
-		if (!text) {
+		if (!text.trim()) {
 			clipboardFeedback = 'The device clipboard has no text to send.';
 			return;
 		}
-		if (!rfb || status !== 'connected' || !interactive) {
-			clipboardFeedback = 'Computer control changed before the clipboard could be sent.';
-			return;
-		}
-		try {
-			rfb.clipboardPasteFrom(text);
-			onactivity?.();
-			clipboardFeedback = 'Sent to the computer. Press Ctrl+V in the company app.';
-		} catch {
-			clipboardFeedback = 'Could not send the clipboard to the computer. Try again.';
-		}
+		if (rememberClip('device', text)) clipboardFeedback = 'Added from the device clipboard.';
 	}
 
-	async function copyRemoteClipboard() {
-		if (!remoteClipboard) {
-			clipboardFeedback = 'There is no remote clipboard text yet.';
+	async function transferSelectedClip() {
+		if (clipboardDraft.trim()) {
+			if (!rfb || status !== 'connected' || !interactive) {
+				clipboardFeedback = 'Take control of the connected computer before sending text.';
+				return;
+			}
+			const text = clipboardDraft;
+			if (text.length > MAX_CLIP_LENGTH) {
+				clipboardFeedback = `Keep typed text under ${MAX_CLIP_LENGTH.toLocaleString()} characters.`;
+				return;
+			}
+			try {
+				rfb.clipboardPasteFrom(text);
+				onactivity?.();
+				rememberClip('manual', text);
+				clipboardDraft = '';
+				clipboardFeedback = 'Sent to the computer. Press Ctrl+V in the company app.';
+			} catch {
+				clipboardFeedback = 'Could not send the text. Try again.';
+			}
 			return;
 		}
-		if (!navigator.clipboard?.writeText) {
-			clipboardFeedback = 'This browser does not allow clipboard writing here.';
-			return;
-		}
-		try {
-			await navigator.clipboard.writeText(remoteClipboard);
-			clipboardFeedback = 'Computer clipboard copied to this device.';
-		} catch {
-			clipboardFeedback =
-				'Browser clipboard access was denied. Select and copy the text below instead.';
-		}
-	}
-
-	function sendClipboard() {
-		if (!clipboardDraft.trim()) {
-			clipboardFeedback = 'Enter or paste text before sending.';
+		const clip = clipboardClips.find((item) => item.id === selectedClipId);
+		if (!clip) return;
+		if (clip.source === 'computer') {
+			if (!navigator.clipboard?.writeText) {
+				clipboardFeedback = 'Select the text preview below and copy it manually.';
+				return;
+			}
+			try {
+				await navigator.clipboard.writeText(clip.text);
+				clipboardFeedback = 'Copied to the device clipboard.';
+			} catch {
+				clipboardFeedback = 'Select the text preview below and copy it manually.';
+			}
 			return;
 		}
 		if (!rfb || status !== 'connected' || !interactive) {
-			clipboardFeedback = 'Use the connected computer before sending clipboard text.';
+			clipboardFeedback = 'Take control of the connected computer before sending text.';
 			return;
 		}
-		rfb.clipboardPasteFrom(clipboardDraft);
+		rfb.clipboardPasteFrom(clip.text);
 		onactivity?.();
-		clipboardFeedback = 'Clipboard sent. Press Ctrl+V in the company app.';
+		clipboardFeedback = 'Sent to the computer. Press Ctrl+V in the company app.';
 	}
 
 	function retryConnection() {
@@ -568,6 +623,7 @@
 		generation += 1;
 		clearTimeout(retryTimer);
 		rfb?.disconnect();
+		clearClipboardSession();
 	});
 </script>
 
@@ -625,29 +681,37 @@
 						onclick={closeClipboardPanel}>×</button
 					>
 				</div>
-				<div class="clipboard-panel-actions">
+				<div class="clipboard-panel-actions" role="group" aria-label="Clipboard actions">
+					<button
+						type="button"
+						bind:this={clipboardAction}
+						onclick={sendLocalClipboard}
+						disabled={status !== 'connected'}>Read device</button
+					>
+					<button type="button" aria-expanded={manualClipboardOpen} onclick={toggleManualClipboard}
+						>Type text</button
+					>
 					<button
 						type="button"
 						class="clipboard-send"
-						bind:this={clipboardAction}
-						onclick={sendLocalClipboard}
-						disabled={!rfb || status !== 'connected' || !interactive}>Send device clipboard</button
-					>
-					<button
-						type="button"
-						onclick={copyRemoteClipboard}
-						disabled={!remoteClipboard}
-						title={remoteClipboard
-							? 'Copy the computer clipboard to this device'
-							: 'Copy text inside the company computer first'}>Copy from computer</button
+						aria-label={clipboardDraft.trim()
+							? 'Send typed text to the company computer'
+							: clipboardClips.find((clip) => clip.id === selectedClipId)?.source === 'computer'
+								? 'Copy selected computer text to the device clipboard'
+								: 'Send selected text to the company computer'}
+						onclick={transferSelectedClip}
+						disabled={clipboardDraft.trim()
+							? !rfb || status !== 'connected' || !interactive
+							: !clipboardClips.some((clip) => clip.id === selectedClipId) ||
+								(clipboardClips.find((clip) => clip.id === selectedClipId)?.source !== 'computer' &&
+									(!rfb || status !== 'connected' || !interactive))}
+						>{clipboardDraft.trim()
+							? 'Send text'
+							: clipboardClips.find((clip) => clip.id === selectedClipId)?.source === 'computer'
+								? 'Copy'
+								: 'Send'}</button
 					>
 				</div>
-				<button
-					class="clipboard-manual-toggle"
-					type="button"
-					onclick={openManualClipboard}
-					disabled={!rfb || status !== 'connected' || !interactive}>Enter text manually</button
-				>
 				{#if manualClipboardOpen}
 					<label for="desktop-clipboard-draft">Text to send to the company computer</label>
 					<textarea
@@ -655,22 +719,51 @@
 						bind:value={clipboardDraft}
 						id="desktop-clipboard-draft"
 						rows="5"
-						placeholder="Type or paste text here"></textarea>
-					<button
-						type="button"
-						class="clipboard-manual-send"
-						onclick={sendClipboard}
-						disabled={!rfb || status !== 'connected' || !interactive}>Send text to computer</button
-					>
+						placeholder="Paste text here"></textarea>
 				{/if}
-				{#if remoteClipboard}
-					<details class="clipboard-remote-text">
-						<summary>Remote clipboard text</summary>
-						<pre>{remoteClipboard}</pre>
-					</details>
+				{#if clipboardClips.length}
+					<section class="clipboard-recents" aria-labelledby="clipboard-recents-title">
+						<h3 id="clipboard-recents-title">Recent items <span>this session</span></h3>
+						<p class="clipboard-list-hint">Select an item to transfer it.</p>
+						<div class="clipboard-clip-list" role="group" aria-label="Recent clipboard items">
+							{#each clipboardClips as clip (clip.id)}
+								<button
+									type="button"
+									class="clipboard-clip"
+									aria-pressed={selectedClipId === clip.id}
+									onclick={() => {
+										selectedClipId = clip.id;
+										clipboardFeedback = '';
+									}}
+								>
+									<span class="clipboard-clip-source"
+										>{clip.source === 'computer'
+											? 'Computer'
+											: clip.source === 'device'
+												? 'Device'
+												: 'Typed text'}</span
+									>
+									<span class="clipboard-clip-text">{clip.text}</span>
+								</button>
+							{/each}
+						</div>
+						{#if clipboardClips.find((clip) => clip.id === selectedClipId)?.source === 'computer'}
+							<textarea
+								class="clipboard-preview"
+								aria-label="Selected computer clipboard text"
+								readonly
+								rows="4"
+								value={clipboardClips.find((clip) => clip.id === selectedClipId)?.text ?? ''}
+							></textarea>
+						{/if}
+					</section>
+				{:else if !manualClipboardOpen}
+					<p class="clipboard-empty">
+						Read device clipboard or copy text inside the computer to see it here.
+					</p>
 				{/if}
 				<p class="clipboard-feedback" aria-live="polite">
-					{clipboardFeedback || 'After sending, press Ctrl+V in the company app.'}
+					{clipboardFeedback || 'Clipboard items stay here only until disconnect.'}
 				</p>
 			</div>
 		{/if}
@@ -810,12 +903,14 @@
 	}
 	.clipboard-panel-actions {
 		display: grid;
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-		gap: 6px;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: 5px;
 	}
 	.clipboard-panel-actions button {
 		min-width: 0;
 		white-space: nowrap;
+		padding-inline: 5px;
+		font: var(--t-label) var(--font-ui);
 	}
 	.clipboard-panel button {
 		min-height: 32px;
@@ -831,7 +926,7 @@
 		background: var(--surface-alt);
 		border-color: var(--border-strong);
 	}
-	.clipboard-panel :is(button, textarea, summary):focus-visible {
+	.clipboard-panel :is(button, textarea):focus-visible {
 		outline: 2px solid var(--intent-conversation);
 		outline-offset: 2px;
 	}
@@ -852,34 +947,72 @@
 	.clipboard-panel .clipboard-send:hover:not(:disabled) {
 		background: color-mix(in srgb, var(--intent-conversation) 88%, var(--ink));
 	}
-	.clipboard-panel .clipboard-manual-toggle {
-		margin-top: 9px;
-		padding: 2px 0;
-		border: 0;
-		background: transparent;
-		color: var(--text-secondary);
-		text-decoration: underline;
+	.clipboard-recents {
+		margin-top: 13px;
 	}
-	.clipboard-panel .clipboard-manual-toggle:hover {
-		background: transparent;
-		color: var(--ink);
+	.clipboard-recents h3 {
+		display: flex;
+		align-items: baseline;
+		gap: 6px;
+		margin: 0 0 7px;
+		font: 600 var(--t-label) var(--font-ui);
 	}
-	.clipboard-panel .clipboard-manual-send {
-		margin-top: 9px;
-	}
-	.clipboard-remote-text {
-		margin-top: 10px;
-	}
-	.clipboard-remote-text summary {
-		cursor: pointer;
+	.clipboard-recents h3 span {
+		color: var(--text-tertiary);
 		font: var(--t-label) var(--font-ui);
 	}
-	.clipboard-remote-text pre {
-		max-height: 120px;
+	.clipboard-list-hint {
+		margin: -3px 0 7px;
+		color: var(--text-secondary);
+		font: var(--t-label) var(--font-ui);
+	}
+	.clipboard-clip-list {
+		display: grid;
+		gap: 5px;
+		max-height: 194px;
 		overflow: auto;
+	}
+	.clipboard-panel .clipboard-clip {
+		display: grid;
+		gap: 3px;
+		min-height: 0;
+		padding: 7px 9px;
+		text-align: left;
+		background: var(--surface);
+	}
+	.clipboard-panel .clipboard-clip[aria-pressed='true'] {
+		border-color: var(--intent-conversation);
+		background: color-mix(in srgb, var(--intent-conversation) 8%, var(--surface));
+	}
+	.clipboard-clip-source {
+		color: var(--text-secondary);
+		font: 600 10px var(--font-ui);
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
+	.clipboard-clip-text {
+		display: -webkit-box;
+		overflow: hidden;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
 		white-space: pre-wrap;
 		overflow-wrap: anywhere;
 		font: var(--t-label) var(--font-mono);
+	}
+	.clipboard-panel .clipboard-preview {
+		max-height: 96px;
+		overflow: auto;
+		resize: vertical;
+		margin: 7px 0 0;
+		padding: 8px;
+		border-radius: 6px;
+		background: var(--surface-alt);
+		font: var(--t-label) var(--font-mono);
+	}
+	.clipboard-empty {
+		margin: 13px 0 0;
+		color: var(--text-secondary);
+		font: var(--t-label) var(--font-ui);
 	}
 	.clipboard-feedback {
 		margin: 10px 0 0;
@@ -951,11 +1084,19 @@
 			max-height: min(70%, 520px);
 			padding: var(--space-3);
 		}
+		.clipboard-panel-actions {
+			gap: 4px;
+		}
 		.desktop-tools {
 			padding-right: max(8px, env(safe-area-inset-right));
 		}
 		.desktop-live {
 			padding-inline: 0 4px;
+		}
+	}
+	@media (max-width: 360px) {
+		.clipboard-panel-actions button {
+			font-size: 11px;
 		}
 	}
 	.desktop-viewport-empty {
