@@ -37,8 +37,10 @@
 			await setScheduleRuntimeWake(companyId, schedule, enabled);
 			await load();
 		} catch (cause) {
-			failure =
+			const message =
 				cause instanceof Error ? cause.message : 'The schedule wake setting could not be saved.';
+			await load();
+			failure = message;
 		} finally {
 			busy = '';
 		}
@@ -127,7 +129,7 @@
 						</label>
 						<p class="runtime-wake-note">
 							When enabled, a due schedule can start this company’s computer and run its check,
-							which may incur model charges.
+							which uses compute time and may incur model charges.
 						</p>
 						{#if item.schedule.last_fired_at}
 							<p>
