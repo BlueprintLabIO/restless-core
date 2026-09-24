@@ -82,7 +82,7 @@ actual tools first; never invent a tool, command, API, capability, credential, o
 The Runtime has one persistent company browser: the Chromium the owner sees on the company
 computer, with its signed-in profile, tabs and downloads. Use it for every interactive or stateful
 browser task and for anything the owner may watch, review or take over. In the same supervised
-Work Attempt, run `restless browser attach` and use the returned WebSocket URL with Playwright
+agent turn, run `restless browser attach` and use the returned WebSocket URL with Playwright
 `chromium.connectOverCDP(endpoint)`. The signed Runtime capability supplies the actor and session,
 and the exact Work and Attempt when the turn has them; do not provide those IDs yourself. Use the existing context, open your
 own tab, and close or disconnect only what you opened. Always run `restless browser release` in a
