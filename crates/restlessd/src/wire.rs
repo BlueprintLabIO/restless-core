@@ -607,6 +607,10 @@ pub(crate) struct Request {
     /// deliberately separate from the Authority-domain capability input.
     #[serde(default)]
     pub(crate) session_capability: Option<String>,
+    /// Populated only after the listener verifies `session_capability`.
+    /// Never deserialized from a caller-controlled JSON field.
+    #[serde(skip)]
+    pub(crate) verified_coordination: Option<crate::capability::CoordinationGrant>,
     #[serde(flatten)]
     pub(crate) common: CommonInput,
     #[serde(flatten)]
@@ -725,6 +729,8 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         | "clear-poison"
         | "attention"
         | "browser-status"
+        | "browser-session-register"
+        | "browser-session-release"
         | "browser-release"
         | "watch"
         | "connected-tools"
@@ -1294,7 +1300,12 @@ pub(crate) const OWNER_ONLY: &[&str] = &[
 
 /// Actor-owned Opportunity mutations. The owner has a separate, future
 /// administrative path and cannot impersonate Exec through these commands.
-const COMPANY_EXEC_ONLY: &[&str] = &["schedule-link-work", "schedule-outcome"];
+const COMPANY_EXEC_ONLY: &[&str] = &[
+    "schedule-link-work",
+    "schedule-outcome",
+    "browser-session-register",
+    "browser-session-release",
+];
 
 pub(crate) fn authorize(principal: Principal, cmd: &str) -> std::result::Result<Principal, String> {
     if principal != Principal::Owner && OWNER_ONLY.contains(&cmd) {
@@ -1690,6 +1701,8 @@ mod tests {
             "decline",
             "attention",
             "browser-status",
+            "browser-session-register",
+            "browser-session-release",
             "browser-request",
             "browser-release",
             "effect",

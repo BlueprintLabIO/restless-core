@@ -4,14 +4,18 @@
 // WebSocket through this gate instead of following Chrome's private 9222 URL.
 import fs from 'node:fs';
 import http from 'node:http';
-import net from 'node:net';
+import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
+
+const { WebSocket, WebSocketServer } = createRequire(import.meta.url)('ws');
 
 const leasePath = '/company/run/browser-control.json';
 const listenPort = 9223;
 const chromePort = 9222;
 const active = new Set();
+const websocketServer = new WebSocketServer({ noServer: true, perMessageDeflate: false });
 const tabsPath = '/company/browser-profile/restless-tabs.json';
+const sessionPath = '/company/run/browser-agent-session.json';
 const desktopEnv = { ...process.env, DISPLAY: ':1' };
 
 function ownerControls() {
@@ -20,6 +24,17 @@ function ownerControls() {
     return lease.controller === 'owner' && Date.parse(lease.expires_at) > Date.now();
   } catch {
     return false;
+  }
+}
+
+function activeAgentSession(ticket) {
+  try {
+    const session = JSON.parse(fs.readFileSync(sessionPath, 'utf8'));
+    return session.ticket === ticket && Date.parse(session.expires_at) > Date.now()
+      ? session
+      : null;
+  } catch {
+    return null;
   }
 }
 
@@ -170,45 +185,162 @@ const server = http.createServer((request, response) => {
   request.pipe(upstream);
 });
 
-server.on('upgrade', (request, client, head) => {
-  if (ownerControls()) {
-    client.end('HTTP/1.1 423 Locked\r\nConnection: close\r\n\r\n');
+server.on('upgrade', (request, socket, head) => {
+  const pathname = new URL(request.url, 'http://127.0.0.1').pathname;
+  const match = pathname.match(/^\/session\/([a-f0-9]{32})(\/devtools\/browser\/[a-zA-Z0-9_-]+)$/);
+  if (!match || !activeAgentSession(match[1])) {
+    socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
     return;
   }
-  const chrome = net.connect({ host: '127.0.0.1', port: chromePort }, () => {
-    const headers = Object.entries(request.headers)
-      .map(([name, value]) => `${name}: ${value}`)
-      .join('\r\n');
-    chrome.write(`${request.method} ${request.url} HTTP/${request.httpVersion}\r\n${headers}\r\n\r\n`);
-    if (head.length) chrome.write(head);
-    client.pipe(chrome);
-    chrome.pipe(client);
+  if (ownerControls()) {
+    socket.end('HTTP/1.1 423 Locked\r\nConnection: close\r\n\r\n');
+    return;
+  }
+
+  websocketServer.handleUpgrade(request, socket, head, (agent) => {
+    const upstream = new WebSocket(`ws://127.0.0.1:${chromePort}${match[2]}`, {
+      perMessageDeflate: false,
+      handshakeTimeout: 5000
+    });
+    const pair = {
+      agent, upstream, ticket: match[1], pending: new Map(), ownerErrored: new Set(),
+      openingQueue: [], ownerPaused: false, closed: false
+    };
+    active.add(pair);
+    const close = () => {
+      if (pair.closed) return;
+      pair.closed = true;
+      active.delete(pair);
+      if (agent.readyState !== WebSocket.CLOSED) agent.close();
+      if (upstream.readyState === WebSocket.OPEN || upstream.readyState === WebSocket.CONNECTING) upstream.close();
+    };
+    agent.on('message', (data, binary) => {
+      if (pair.closed) return;
+      if (ownerControls()) { rejectOwnerCommand(pair, data, binary); return; }
+      if (!activeAgentSession(pair.ticket)) { close(); return; }
+      if (upstream.readyState === WebSocket.CONNECTING) {
+        if (pair.openingQueue.length >= 256) {
+          rejectUnavailableCommand(pair, data, binary, 'browser connection is still starting; command was not forwarded');
+          return;
+        }
+        pair.openingQueue.push({ data, binary });
+        return;
+      }
+      forwardAgentCommand(pair, data, binary);
+    });
+    upstream.on('open', () => {
+      const queued = pair.openingQueue.splice(0);
+      if (pair.closed) return;
+      if (ownerControls() || !activeAgentSession(pair.ticket)) {
+        for (const item of queued) rejectUnavailableCommand(pair, item.data, item.binary,
+          'owner_controls: browser connection changed before command forwarding');
+        return;
+      }
+      for (const item of queued) forwardAgentCommand(pair, item.data, item.binary);
+    });
+    upstream.on('message', (data, binary) => {
+      if (pair.closed || agent.readyState !== WebSocket.OPEN) return;
+      if (!binary) {
+        try {
+          const message = JSON.parse(data.toString());
+          if (Number.isInteger(message.id)) {
+            if (pair.ownerErrored.delete(message.id)) return;
+            if (ownerControls()) {
+              const pending = pair.pending.get(message.id);
+              if (pending) {
+                pair.pending.delete(message.id);
+                agent.send(JSON.stringify({
+                  id: message.id,
+                  ...(pending.sessionId ? { sessionId: pending.sessionId } : {}),
+                  error: { code: -32000, message: 'owner_controls: the result may be uncertain; inspect current browser state before continuing' }
+                }));
+              }
+              return;
+            }
+            pair.pending.delete(message.id);
+          }
+        } catch { /* forward non-JSON payloads unchanged */ }
+      }
+      agent.send(data, { binary });
+    });
+    agent.on('error', close);
+    upstream.on('error', close);
+    agent.on('close', close);
+    upstream.on('close', close);
   });
-  const pair = { client, chrome };
-  active.add(pair);
-  const close = () => {
-    active.delete(pair);
-    client.destroy();
-    chrome.destroy();
-  };
-  client.on('error', close);
-  chrome.on('error', close);
-  client.on('close', close);
-  chrome.on('close', close);
 });
 
-// Existing automation WebSockets cannot race the owner's keyboard. Sever
-// them at acquisition; clients see a transport loss and resume only after the
-// source-owned hand-back wake.
+function rejectOwnerCommand(pair, data, binary) {
+  if (binary || pair.agent.readyState !== WebSocket.OPEN) return;
+  let message;
+  try { message = JSON.parse(data.toString()); } catch { return; }
+  if (!Number.isInteger(message.id)) return;
+  pair.agent.send(JSON.stringify({
+    id: message.id,
+    ...(message.sessionId ? { sessionId: message.sessionId } : {}),
+    error: { code: -32000, message: 'owner_controls: inspect current browser state after control returns; this command was not forwarded' }
+  }));
+}
+
+function rejectUnavailableCommand(pair, data, binary, reason) {
+  if (binary || pair.agent.readyState !== WebSocket.OPEN) return;
+  let message;
+  try { message = JSON.parse(data.toString()); } catch { return; }
+  if (!Number.isInteger(message.id)) return;
+  pair.agent.send(JSON.stringify({
+    id: message.id,
+    ...(message.sessionId ? { sessionId: message.sessionId } : {}),
+    error: { code: -32000, message: reason }
+  }));
+}
+
+function forwardAgentCommand(pair, data, binary) {
+  if (pair.closed || pair.upstream.readyState !== WebSocket.OPEN) {
+    rejectUnavailableCommand(pair, data, binary, 'browser connection closed before command forwarding');
+    return;
+  }
+  if (!binary) {
+    try {
+      const message = JSON.parse(data.toString());
+      if (Number.isInteger(message.id)) {
+        pair.pending.set(message.id, { method: message.method ?? '', sessionId: message.sessionId });
+      }
+    } catch { return; }
+  }
+  pair.upstream.send(data, { binary });
+}
+
+// Keep each authenticated CDP socket alive through control changes. On
+// takeover, fail pending commands and stop forwarding new ones; never queue
+// or replay browser actions after the owner returns.
 setInterval(() => {
-  // Handover only needs to sever live automation sockets. New requests check
-  // the lease before connecting, so an idle broker need not read it at 10 Hz.
+  // No live authenticated sockets can need a lease transition while idle.
+  // New requests check both the session and lease before connecting.
   if (active.size === 0) return;
-  if (!ownerControls()) return;
   for (const pair of [...active]) {
-    pair.client.destroy(new Error('owner took browser control'));
-    pair.chrome.destroy();
-    active.delete(pair);
+    if (!activeAgentSession(pair.ticket)) {
+      pair.agent.close();
+      pair.upstream.close();
+      active.delete(pair);
+      continue;
+    }
+    const controlled = ownerControls();
+    if (controlled && !pair.ownerPaused) {
+      pair.ownerPaused = true;
+      for (const [id, pending] of pair.pending) {
+        pair.ownerErrored.add(id);
+        if (pair.agent.readyState === WebSocket.OPEN) {
+          pair.agent.send(JSON.stringify({
+            id,
+            ...(pending.sessionId ? { sessionId: pending.sessionId } : {}),
+            error: { code: -32000, message: 'owner_controls: the result may be uncertain; inspect current browser state before continuing' }
+          }));
+        }
+      }
+      pair.pending.clear();
+    } else if (!controlled && pair.ownerPaused) {
+      pair.ownerPaused = false;
+    }
   }
 }, 100);
 
