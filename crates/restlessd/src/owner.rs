@@ -87,6 +87,12 @@ const REVIEW_TTL: Duration = Duration::from_secs(30 * 60);
 /// only after input reaches the remote desktop; merely leaving a tab open must
 /// not strand the Company computer under an absent owner's control.
 const CONTROL_TTL_SECONDS: i64 = 60;
+const DISPLAY_LEASE_SECONDS: i64 = 30;
+const MAX_DESKTOP_WIDTH: u32 = 3840;
+const MAX_DESKTOP_HEIGHT: u32 = 2160;
+static DESKTOP_DISPLAY_LEASES: std::sync::LazyLock<
+    tokio::sync::Mutex<HashMap<String, DesktopDisplayLease>>,
+> = std::sync::LazyLock::new(|| tokio::sync::Mutex::new(HashMap::new()));
 const MAX_ATTACHMENTS: usize = 6;
 const MAX_ATTACHMENT_BYTES: usize = 5 * 1024 * 1024;
 const MAX_STAGED_ATTACHMENT_FILES: usize = 24;
@@ -656,6 +662,19 @@ struct DesktopWindowFocusRequest {
     lease_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct DesktopDisplayLeaseRequest {
+    client_id: String,
+    width: u32,
+    height: u32,
+}
+
+#[derive(Clone)]
+struct DesktopDisplayLease {
+    client_id: String,
+    expires_at: SystemTime,
+}
+
 #[derive(Debug, Deserialize, Default)]
 struct DesktopMode {
     client_id: Option<String>,
@@ -663,8 +682,7 @@ struct DesktopMode {
 
 #[derive(Debug, Deserialize, Default)]
 struct DesktopWebsocketMode {
-    mode: Option<String>,
-    lease_id: Option<String>,
+    client_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1478,6 +1496,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         )
         .route("/companies/{company}/browser/status", get(browser_status))
         .route("/companies/{company}/desktop/windows", get(desktop_windows))
+        .route(
+            "/companies/{company}/desktop/display-lease",
+            post(claim_desktop_display_lease),
+        )
         .route(
             "/companies/{company}/desktop/windows/{window_id}/focus",
             post(focus_desktop_window),
@@ -7960,22 +7982,24 @@ async fn open_desktop(
         );
     }
     let attach = Uuid::new_v4().simple().to_string();
+    let client_id = ticket.client_id.clone();
     state.attaches.lock().expect("attach registry").insert(
         attach.clone(),
         AttachSession {
             company: company.clone(),
-            client_id: ticket.client_id,
+            client_id: client_id.clone(),
             requesting_actor: ticket.requesting_actor,
             expires_at: SystemTime::now() + ATTACH_TTL,
         },
     );
     tracing::info!(company, item = %ticket.item_id, "owner desktop attached");
-    let target = desktop_client_url(&company, DesktopClientMode::Observe, None);
+    let target = desktop_client_url(&company, DesktopClientMode::Observe, None, &client_id);
     let mut response = Redirect::to(&target).into_response();
     response.headers_mut().insert(
         SET_COOKIE,
         HeaderValue::from_str(&format!(
-            "{ATTACH_COOKIE}={attach}; Path=/; HttpOnly; SameSite=Strict; Max-Age={}",
+            "{}={attach}; Path=/; HttpOnly; SameSite=Strict; Max-Age={}",
+            attach_cookie_name(&client_id).expect("ticket client id is a UUID"),
             ATTACH_TTL.as_secs()
         ))
         .expect("attach cookie"),
@@ -7989,21 +8013,24 @@ enum DesktopClientMode {
     Control,
 }
 
-/// Keep the imported display client behind one server-owned seam. Observers
-/// scale locally so two browser tabs cannot fight over the dimensions of the
-/// shared company computer; only the sole controller may resize its framebuffer.
-fn desktop_client_url(company: &str, mode: DesktopClientMode, lease_id: Option<&str>) -> String {
+/// Every attached tab uses one persistent, input-capable protocol connection.
+/// The server gates input and desktop resizing against live leases per frame.
+fn desktop_client_url(
+    company: &str,
+    mode: DesktopClientMode,
+    lease_id: Option<&str>,
+    client_id: &str,
+) -> String {
     let (resize, view_only) = match mode {
-        DesktopClientMode::Observe => ("scale", "1"),
+        DesktopClientMode::Observe => ("remote", "1"),
         DesktopClientMode::Control => ("remote", "0"),
     };
     // noVNC reads `path` as one URL query value and uses it to construct its
-    // WebSocket URL. Encode the inner query so an observer cannot turn its
-    // connection into a control channel by sending input frames.
+    // WebSocket URL. All modes share the server-authorized dynamic socket.
     let websocket_path = match mode {
-        DesktopClientMode::Observe => format!("desktop/{company}/websockify"),
+        DesktopClientMode::Observe => format!("desktop/{company}/websockify%3Fclient_id%3D{client_id}"),
         DesktopClientMode::Control => format!(
-            "desktop/{company}/websockify%3Fmode%3Dcontrol%26lease_id%3D{}",
+            "desktop/{company}/websockify%3Fmode%3Dcontrol%26lease_id%3D{}%26client_id%3D{client_id}",
             lease_id.expect("control desktop URL requires a lease id"),
         ),
     };
@@ -8016,18 +8043,23 @@ async fn open_observed_desktop(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
     headers: HeaderMap,
+    Query(query): Query<DesktopMode>,
 ) -> impl IntoResponse {
-    if valid_attach(&state, &company, &headers).is_none() {
+    let Some(client_id) = query.client_id.as_deref() else {
+        return api_error(StatusCode::BAD_REQUEST, "client", "client_id is required");
+    };
+    let Some(attach) = valid_attach_for(&state, &company, &headers, client_id) else {
         return api_error(
             StatusCode::UNAUTHORIZED,
             "attach",
             "desktop attachment is absent or expired",
         );
-    }
+    };
     Redirect::to(&desktop_client_url(
         &company,
         DesktopClientMode::Observe,
         None,
+        &attach.client_id,
     ))
     .into_response()
 }
@@ -8038,14 +8070,17 @@ async fn open_controlled_desktop(
     headers: HeaderMap,
     Query(query): Query<DesktopMode>,
 ) -> impl IntoResponse {
-    let Some(attach) = valid_attach(&state, &company, &headers) else {
+    let Some(client_id) = query.client_id.as_deref() else {
+        return api_error(StatusCode::BAD_REQUEST, "client", "client_id is required");
+    };
+    let Some(attach) = valid_attach_for(&state, &company, &headers, client_id) else {
         return api_error(
             StatusCode::UNAUTHORIZED,
             "attach",
             "desktop attachment is absent or expired",
         );
     };
-    let requested = query.client_id.as_deref().unwrap_or(&attach.client_id);
+    let requested = client_id;
     if requested != attach.client_id {
         return api_error(
             StatusCode::FORBIDDEN,
@@ -8078,6 +8113,7 @@ async fn open_controlled_desktop(
         control
             .as_ref()
             .and_then(|value| value["lease_id"].as_str()),
+        &attach.client_id,
     ))
     .into_response()
 }
@@ -8156,37 +8192,26 @@ async fn desktop_websocket(
             "this plane requires a live verified entry session",
         );
     }
-    let Some(attach) = valid_attach(&state, &company, &headers) else {
+    let Some(client_id) = query.client_id.as_deref() else {
+        return api_error(StatusCode::BAD_REQUEST, "client", "client_id is required");
+    };
+    let Some(attach) = valid_attach_for(&state, &company, &headers, client_id) else {
         return api_error(
             StatusCode::UNAUTHORIZED,
             "attach",
             "desktop attachment is absent or expired",
         );
     };
-    let (access, control_watch) = match query.mode.as_deref() {
-        None | Some("observe") => (DesktopWebsocketAccess::Observe, None),
-        Some("control") => {
-            match desktop_control_lease(&company, &attach.client_id, query.lease_id.as_deref())
-                .await
-            {
-                Some(lease) => (
-                    DesktopWebsocketAccess::Control {
-                        client_id: attach.client_id,
-                        lease_id: lease.lease_id,
-                    },
-                    Some(lease.watch),
-                ),
-                None => {
-                    return api_error(
-                        StatusCode::CONFLICT,
-                        "controller",
-                        "this browser tab no longer holds control",
-                    );
-                }
-            }
-        }
-        Some(_) => return api_error(StatusCode::BAD_REQUEST, "desktop", "unknown desktop mode"),
+    // One transport stays attached for the lifetime of the viewer. Server-side
+    // RFB filtering grants input and resize independently as leases change.
+    let access = DesktopWebsocketAccess::Live {
+        client_id: attach.client_id,
     };
+    let control_guard = runtime::browser_control_guard(&company).await;
+    let current_control = runtime::read_browser_control(&company).await.ok().flatten();
+    runtime::publish_browser_control(&company, current_control).await;
+    let control_watch = Some(runtime::watch_browser_control(&company).await);
+    drop(control_guard);
     let session_lease = session_lease.map(|Extension(lease)| lease);
     upgrade
         .on_upgrade(move |socket| async move {
@@ -8200,13 +8225,7 @@ async fn desktop_websocket(
 }
 
 enum DesktopWebsocketAccess {
-    Observe,
-    Control { client_id: String, lease_id: String },
-}
-
-struct DesktopControlLease {
-    lease_id: String,
-    watch: tokio::sync::watch::Receiver<Option<serde_json::Value>>,
+    Live { client_id: String },
 }
 
 /// Server-enforced view-only filtering for the RFB client-to-server stream.
@@ -8230,7 +8249,12 @@ impl Default for RfbObserverFilter {
 }
 
 impl RfbObserverFilter {
-    fn filter(&mut self, bytes: &[u8]) -> Result<Vec<tungstenite::Message>> {
+    fn filter(
+        &mut self,
+        bytes: &[u8],
+        allow_input: bool,
+        allow_resize: bool,
+    ) -> Result<Vec<tungstenite::Message>> {
         const MAX_PENDING: usize = 1024 * 1024;
         self.pending.extend_from_slice(bytes);
         if self.pending.len() > MAX_PENDING {
@@ -8290,6 +8314,12 @@ impl RfbObserverFilter {
                     }
                     8 + u32::from_be_bytes([rest[3], rest[4], rest[5], rest[6]]) as usize
                 }
+                251 => {
+                    if rest.len() < 8 {
+                        break;
+                    }
+                    8 + 16 * rest[6] as usize
+                }
                 // Fence is coordination for the viewer, not desktop input:
                 // type + padding + flags + one-byte payload length.
                 248 => {
@@ -8307,7 +8337,10 @@ impl RfbObserverFilter {
                 break;
             }
             let message: Vec<u8> = self.pending.drain(..length).collect();
-            if matches!(kind, 0 | 2 | 3 | 150 | 248) {
+            if matches!(kind, 0 | 2 | 3 | 150 | 248)
+                || (allow_input && matches!(kind, 4 | 5 | 6))
+                || (allow_resize && kind == 251)
+            {
                 forwarded.push(tungstenite::Message::Binary(message.into()));
             }
         }
@@ -8340,62 +8373,40 @@ async fn proxy_websocket(
     let (mut browser_tx, mut browser_rx) = browser.split();
     let (mut runtime_tx, mut runtime_rx) = runtime.split();
     let mut observer_filter = RfbObserverFilter::default();
-    let mut control_ended = control_watch.as_ref().and_then(|watch| {
-        let DesktopWebsocketAccess::Control {
-            client_id,
-            lease_id,
-        } = &access
-        else {
-            return None;
-        };
-        control_expiry(watch.borrow().as_ref(), client_id, lease_id).map(|expires_at| {
-            spawn_desktop_control_guard(
-                company.to_string(),
-                client_id.clone(),
-                lease_id.clone(),
-                expires_at,
-                watch.clone(),
-            )
-        })
-    });
     loop {
         tokio::select! {
             _ = optional_session_ended(session_lease.as_ref()) => break,
-            _ = optional_control_ended(&mut control_ended) => break,
             incoming = browser_rx.next() => match incoming {
                 Some(Ok(message)) => {
-                    // The visual client flag is a convenience, not an access
-                    // boundary. Observers receive the same framebuffer but
-                    // their input is never bridged. Controllers recheck while
-                    // holding the transition lock, so return, expiry, and a
-                    // replacement cannot race one last input into the VNC.
-                    let translated = match &access {
-                        DesktopWebsocketAccess::Control { client_id, lease_id } => {
-                            let Some(watch) = control_watch.as_ref() else { break; };
+                    let translated = match (&access, message) {
+                        (DesktopWebsocketAccess::Live { client_id }, AxumMessage::Binary(value)) => {
                             let control_guard = runtime::browser_control_guard(company).await;
-                            if control_expiry(watch.borrow().as_ref(), client_id, lease_id).is_none() {
-                                break;
-                            }
-                            let translated = match message {
-                                AxumMessage::Text(value) => tungstenite::Message::Text(value.to_string().into()),
-                                AxumMessage::Binary(value) => tungstenite::Message::Binary(value),
-                                AxumMessage::Ping(value) => tungstenite::Message::Ping(value),
-                                AxumMessage::Pong(value) => tungstenite::Message::Pong(value),
-                                AxumMessage::Close(_) => break,
+                            let active = control_watch.as_ref().and_then(|watch| watch.borrow().clone());
+                            let allow_input = active.as_ref().is_some_and(|control| {
+                                control_expiry(Some(control), client_id,
+                                    control["lease_id"].as_str().unwrap_or_default()).is_some()
+                            });
+                            let active_controller = active.as_ref().is_some_and(|control| {
+                                control["controller"] == "owner" && lease_is_live(control)
+                            });
+                            let leases = DESKTOP_DISPLAY_LEASES.lock().await;
+                            let lease = leases.get(company).cloned().filter(|lease| lease.expires_at > SystemTime::now());
+                            let allow_resize = if active_controller {
+                                allow_input
+                            } else {
+                                lease.as_ref().is_some_and(|lease| lease.client_id == *client_id)
                             };
-                            // Keep the transition lock through the VNC write:
-                            // return/replacement either precedes this input or
-                            // waits until it has reached the desktop.
-                            runtime_tx.send(translated).await?;
+                            let messages = observer_filter.filter(value.as_ref(), allow_input, allow_resize)?;
+                            // Hold control and display arbitration through writes so take/return
+                            // or a competing viewport cannot race a final input/resize.
+                            for message in messages { runtime_tx.send(message).await?; }
+                            drop(leases);
                             drop(control_guard);
                             continue;
                         }
-                        DesktopWebsocketAccess::Observe => match message {
-                            AxumMessage::Binary(value) => observer_filter.filter(value.as_ref())?,
-                            AxumMessage::Ping(value) => vec![tungstenite::Message::Ping(value)],
-                            AxumMessage::Pong(value) => vec![tungstenite::Message::Pong(value)],
-                            AxumMessage::Text(_) | AxumMessage::Close(_) => break,
-                        },
+                        (DesktopWebsocketAccess::Live { .. }, AxumMessage::Ping(value)) => vec![tungstenite::Message::Ping(value)],
+                        (DesktopWebsocketAccess::Live { .. }, AxumMessage::Pong(value)) => vec![tungstenite::Message::Pong(value)],
+                        (_, AxumMessage::Text(_) | AxumMessage::Close(_)) => break,
                     };
                     for message in translated {
                         runtime_tx.send(message).await?;
@@ -8422,24 +8433,6 @@ async fn proxy_websocket(
     Ok(())
 }
 
-async fn desktop_control_lease(
-    company: &str,
-    client_id: &str,
-    requested_lease_id: Option<&str>,
-) -> Option<DesktopControlLease> {
-    let watch = runtime::watch_browser_control(company).await;
-    let _guard = runtime::browser_control_guard(company).await;
-    let control = runtime::read_browser_control(company)
-        .await
-        .ok()
-        .flatten()?;
-    let lease_id = control["lease_id"].as_str()?.to_string();
-    let live = requested_lease_id == Some(lease_id.as_str())
-        && control_expiry(Some(&control), client_id, &lease_id).is_some();
-    runtime::publish_browser_control(company, Some(control)).await;
-    live.then_some(DesktopControlLease { lease_id, watch })
-}
-
 fn control_expiry(
     value: Option<&serde_json::Value>,
     client_id: &str,
@@ -8451,46 +8444,6 @@ fn control_expiry(
         && value["lease_id"].as_str() == Some(lease_id))
     .then(|| value["expires_at"].as_str()?.parse::<DateTime<Utc>>().ok())?
     .filter(|expires| *expires > Utc::now())
-}
-
-fn spawn_desktop_control_guard(
-    company: String,
-    client_id: String,
-    lease_id: String,
-    mut expires_at: DateTime<Utc>,
-    mut watch: tokio::sync::watch::Receiver<Option<serde_json::Value>>,
-) -> tokio::sync::oneshot::Receiver<()> {
-    let (ended, receiver) = tokio::sync::oneshot::channel();
-    tokio::spawn(async move {
-        let _ended = ended;
-        loop {
-            let until_expiry = expires_at
-                .signed_duration_since(Utc::now())
-                .to_std()
-                .unwrap_or_default();
-            tokio::select! {
-                _ = tokio::time::sleep(until_expiry) => return,
-                changed = watch.changed() => {
-                    if changed.is_err() {
-                        return;
-                    }
-                    let Some(next_expiry) = control_expiry(watch.borrow().as_ref(), &client_id, &lease_id) else {
-                        return;
-                    };
-                    expires_at = next_expiry;
-                }
-            }
-        }
-    });
-    receiver
-}
-
-async fn optional_control_ended(control_ended: &mut Option<tokio::sync::oneshot::Receiver<()>>) {
-    let Some(control_ended) = control_ended else {
-        std::future::pending::<()>().await;
-        return;
-    };
-    let _ = control_ended.await;
 }
 
 async fn optional_session_ended(session_lease: Option<&SessionLease>) {
@@ -8544,17 +8497,14 @@ async fn focus_desktop_window(
     headers: HeaderMap,
     Json(input): Json<DesktopWindowFocusRequest>,
 ) -> impl IntoResponse {
-    let Some(attach) = valid_attach(&state, &company, &headers) else {
+    let Some(_attach) = valid_attach_for(&state, &company, &headers, &input.client_id) else {
         return api_error(
             StatusCode::UNAUTHORIZED,
             "attach",
             "open this company computer before focusing a window",
         );
     };
-    if input.client_id != attach.client_id
-        || input.client_id.len() > 128
-        || input.lease_id.len() > 128
-    {
+    if input.client_id.len() > 128 || input.lease_id.len() > 128 {
         return api_error(
             StatusCode::FORBIDDEN,
             "controller",
@@ -8592,20 +8542,13 @@ async fn take_control(
     headers: HeaderMap,
     Json(input): Json<ControlRequest>,
 ) -> impl IntoResponse {
-    let Some(attach) = valid_attach(&state, &company, &headers) else {
+    let Some(attach) = valid_attach_for(&state, &company, &headers, &input.client_id) else {
         return api_error(
             StatusCode::UNAUTHORIZED,
             "attach",
             "open this runtime attachment before taking control",
         );
     };
-    if attach.client_id != input.client_id {
-        return api_error(
-            StatusCode::FORBIDDEN,
-            "controller",
-            "attachment belongs to another browser tab",
-        );
-    }
     let _control_guard = runtime::browser_control_guard(&company).await;
     let prior = runtime::read_browser_control(&company).await.ok().flatten();
     if let Some(prior) = prior.as_ref() {
@@ -8637,6 +8580,109 @@ async fn take_control(
             format!("{error:#}"),
         ),
     }
+}
+
+async fn claim_desktop_display_lease(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+    headers: HeaderMap,
+    Json(input): Json<DesktopDisplayLeaseRequest>,
+) -> impl IntoResponse {
+    let Some(attach) = valid_attach_for(&state, &company, &headers, &input.client_id) else {
+        return api_error(
+            StatusCode::UNAUTHORIZED,
+            "attach",
+            "desktop attachment is absent or expired",
+        );
+    };
+    // Bound the exact CSS geometry noVNC will send in its SetDesktopSize
+    // message, so the lease metadata and the wire request stay in agreement.
+    if !(1..=MAX_DESKTOP_WIDTH).contains(&input.width)
+        || !(1..=MAX_DESKTOP_HEIGHT).contains(&input.height)
+    {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "display",
+            "viewport dimensions are outside supported bounds",
+        );
+    }
+    let width = input.width;
+    let height = input.height;
+    let _control_guard = runtime::browser_control_guard(&company).await;
+    let active_control = runtime::read_browser_control(&company).await.ok().flatten();
+    let controlling_here = active_control.as_ref().is_some_and(|control| {
+        control["controller"] == "owner"
+            && control["client_id"].as_str() == Some(&attach.client_id)
+            && lease_is_live(control)
+    });
+    let other_controller = active_control
+        .as_ref()
+        .is_some_and(|control| control["controller"] == "owner" && lease_is_live(control))
+        && !controlling_here;
+    let mut leases = DESKTOP_DISPLAY_LEASES.lock().await;
+    let now = SystemTime::now();
+    leases.retain(|_, lease| lease.expires_at > now);
+    let current = leases
+        .get(&company)
+        .cloned()
+        .filter(|lease| lease.expires_at > now);
+    let can_resize = if controlling_here {
+        true
+    } else if other_controller {
+        false
+    } else {
+        match current {
+            Some(ref lease) if lease.client_id == attach.client_id => true,
+            Some(_) => false,
+            None => {
+                leases.insert(
+                    company.clone(),
+                    DesktopDisplayLease {
+                        client_id: attach.client_id.clone(),
+                        expires_at: now + Duration::from_secs(DISPLAY_LEASE_SECONDS as u64),
+                    },
+                );
+                true
+            }
+        }
+    };
+    if can_resize {
+        // An active controller owns the display lease too, so this tab remains
+        // the primary viewer briefly after hand-back instead of being displaced
+        // by a background observer's older claim.
+        leases.insert(
+            company.clone(),
+            DesktopDisplayLease {
+                client_id: attach.client_id.clone(),
+                expires_at: now + Duration::from_secs(DISPLAY_LEASE_SECONDS as u64),
+            },
+        );
+    }
+    drop(leases);
+    let Some(attach_id) = refresh_attach(&state, &company, &headers, &attach.client_id) else {
+        return api_error(
+            StatusCode::UNAUTHORIZED,
+            "attach",
+            "desktop attachment expired during refresh",
+        );
+    };
+    let mut response = Json(serde_json::json!({
+        "can_resize": can_resize,
+        "width": width,
+        "height": height,
+        "expires_in_seconds": if can_resize { DISPLAY_LEASE_SECONDS } else { 0 },
+    }))
+    .into_response();
+    response.headers_mut().insert(
+        SET_COOKIE,
+        HeaderValue::from_str(&format!(
+            "{}={attach_id}; Path=/; HttpOnly; SameSite=Strict; Max-Age={}",
+            attach_cookie_name(&attach.client_id).expect("attached client id is a UUID"),
+            ATTACH_TTL.as_secs()
+        ))
+        .expect("attach refresh cookie"),
+    );
+    response
 }
 
 async fn record_activity(
@@ -8726,14 +8772,68 @@ async fn return_control(
     Json(next).into_response()
 }
 
-fn valid_attach(state: &OwnerState, company: &str, headers: &HeaderMap) -> Option<AttachSession> {
-    let id = cookie(headers, ATTACH_COOKIE)?;
+fn attach_cookie_name(client_id: &str) -> Option<String> {
+    Uuid::parse_str(client_id)
+        .ok()
+        .map(|client_id| format!("{ATTACH_COOKIE}_{}", client_id.simple()))
+}
+
+fn valid_attach_for(
+    state: &OwnerState,
+    company: &str,
+    headers: &HeaderMap,
+    client_id: &str,
+) -> Option<AttachSession> {
+    let id = cookie(headers, &attach_cookie_name(client_id)?)?;
     let mut attaches = state.attaches.lock().expect("attach registry");
     attaches.retain(|_, attach| attach.expires_at > SystemTime::now());
     attaches
         .get(&id)
-        .filter(|attach| attach.company == company)
+        .filter(|attach| {
+            attach.company == company
+                && Uuid::parse_str(&attach.client_id).ok() == Uuid::parse_str(client_id).ok()
+        })
         .cloned()
+}
+
+fn refresh_attach(
+    state: &OwnerState,
+    company: &str,
+    headers: &HeaderMap,
+    client_id: &str,
+) -> Option<String> {
+    let id = cookie(headers, &attach_cookie_name(client_id)?)?;
+    let mut attaches = state.attaches.lock().expect("attach registry");
+    let attach = attaches.get_mut(&id)?;
+    if attach.company != company
+        || Uuid::parse_str(&attach.client_id).ok() != Uuid::parse_str(client_id).ok()
+        || attach.expires_at <= SystemTime::now()
+    {
+        return None;
+    }
+    attach.expires_at = SystemTime::now() + ATTACH_TTL;
+    Some(id)
+}
+
+fn valid_attach(state: &OwnerState, company: &str, headers: &HeaderMap) -> Option<AttachSession> {
+    let cookie_header = headers.get(COOKIE)?.to_str().ok()?;
+    let ids: Vec<String> = cookie_header
+        .split(';')
+        .filter_map(|pair| {
+            let (name, value) = pair.trim().split_once('=')?;
+            let suffix = name.strip_prefix(&format!("{ATTACH_COOKIE}_"));
+            (name == ATTACH_COOKIE || suffix.is_some_and(|id| Uuid::parse_str(id).is_ok()))
+                .then(|| value.to_string())
+        })
+        .collect();
+    let mut attaches = state.attaches.lock().expect("attach registry");
+    attaches.retain(|_, attach| attach.expires_at > SystemTime::now());
+    ids.iter().find_map(|id| {
+        attaches
+            .get(id)
+            .filter(|attach| attach.company == company)
+            .cloned()
+    })
 }
 
 fn cookie(headers: &HeaderMap, name: &str) -> Option<String> {
@@ -11967,16 +12067,20 @@ mod tests {
     }
 
     #[test]
-    fn only_the_controller_can_resize_the_shared_desktop() {
-        let observer = desktop_client_url("company_test", DesktopClientMode::Observe, None);
-        assert!(observer.contains("resize=scale"));
+    fn attached_viewers_share_the_dynamic_desktop_socket() {
+        let client_id = "00000000-0000-0000-0000-000000000001";
+        let observer =
+            desktop_client_url("company_test", DesktopClientMode::Observe, None, client_id);
+        assert!(observer.contains("resize=remote"));
         assert!(observer.contains("view_only=1"));
         assert!(observer.contains("show_dot=1"));
+        assert!(observer.contains("client_id%3D00000000-0000-0000-0000-000000000001"));
 
         let controller = desktop_client_url(
             "company_test",
             DesktopClientMode::Control,
             Some("lease-test"),
+            client_id,
         );
         assert!(controller.contains("resize=remote"));
         assert!(controller.contains("view_only=0"));
@@ -11986,17 +12090,17 @@ mod tests {
     }
 
     #[test]
-    fn observed_desktop_forwards_rfb_setup_and_pixels_but_not_input() {
+    fn observed_desktop_gates_input_and_resize_per_live_lease() {
         let mut filter = RfbObserverFilter::default();
-        assert!(filter.filter(b"RFB 003.008\n").unwrap().len() == 1);
-        assert!(filter.filter(&[1]).unwrap().len() == 1);
-        assert!(filter.filter(&[1]).unwrap().len() == 1);
+        assert!(filter.filter(b"RFB 003.008\n", false, false).unwrap().len() == 1);
+        assert!(filter.filter(&[1], false, false).unwrap().len() == 1);
+        assert!(filter.filter(&[1], false, false).unwrap().len() == 1);
 
         let framebuffer_request = [3, 0, 0, 0, 0, 0, 0, 4, 0, 4];
         let key_event = [4, 0, 0, 0, 0, 0, 0, 65];
         let mut frames = framebuffer_request.to_vec();
         frames.extend(key_event);
-        let forwarded = filter.filter(&frames).unwrap();
+        let forwarded = filter.filter(&frames, false, false).unwrap();
         assert_eq!(forwarded.len(), 1);
         match &forwarded[0] {
             tungstenite::Message::Binary(bytes) => assert_eq!(bytes.as_ref(), framebuffer_request),

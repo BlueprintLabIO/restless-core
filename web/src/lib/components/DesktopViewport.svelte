@@ -4,8 +4,6 @@
 	import Maximize2 from '@lucide/svelte/icons/maximize-2';
 	import Minimize2 from '@lucide/svelte/icons/minimize-2';
 	import Clipboard from '@lucide/svelte/icons/clipboard';
-	import Scaling from '@lucide/svelte/icons/scaling';
-	import Scan from '@lucide/svelte/icons/scan';
 
 	type Rfb = {
 		scaleViewport: boolean;
@@ -21,6 +19,7 @@
 	};
 	type RfbConstructor = new (target: HTMLElement, url: string) => Rfb;
 	type Status = 'connecting' | 'connected' | 'reconnecting' | 'error';
+	type BufferedInput = { event: Event; target: EventTarget | null };
 
 	let {
 		src = '',
@@ -28,6 +27,10 @@
 		offline = null,
 		onload = null,
 		onactivity = null,
+		onclaim = null,
+		interactive = false,
+		canResize = false,
+		ondisplayresize = null,
 		onstatus = null
 	}: {
 		src?: string;
@@ -36,6 +39,11 @@
 		onload?: (() => void) | null;
 		/** A real pointer/key event observed inside the live desktop. */
 		onactivity?: (() => void) | null;
+		/** Called after the viewer's first deliberate input. Resolves true when the lease is granted. */
+		onclaim?: (() => Promise<boolean>) | null;
+		interactive?: boolean;
+		canResize?: boolean;
+		ondisplayresize?: ((width: number, height: number) => void) | null;
 		onstatus?: ((status: Status, message?: string) => void) | null;
 	} = $props();
 
@@ -45,7 +53,6 @@
 	let status = $state<Status>('connecting');
 	let message = $state('Connecting to the company computer…');
 	let remoteClipboard = $state('');
-	let fit = $state(true);
 	let fullscreen = $state(false);
 	let utilityMessage = $state('');
 	let clipboardPanelOpen = $state(false);
@@ -57,6 +64,12 @@
 	let active = true;
 	let resolvedClientUrl = $state('');
 	let retryCount = 0;
+	let resizeObserver: ResizeObserver | undefined;
+	let displayLeaseTimer: ReturnType<typeof setInterval> | undefined;
+	let pendingInput: BufferedInput[] = [];
+	let claiming = false;
+	let lastReportedSize = '';
+	let resizeFrame = 0;
 
 	function report(next: Status, detail = '') {
 		status = next;
@@ -94,11 +107,11 @@
 			if (!active || current !== generation) return;
 			const client = new RFB(display, socketUrl.href);
 			rfb = client;
-			const readOnly = query.get('view_only') === '1';
-			fit = readOnly || query.get('resize') === 'scale';
-			client.viewOnly = readOnly;
-			client.resizeSession = !readOnly && query.get('resize') === 'remote';
-			client.scaleViewport = fit;
+			// The observer connection is stable. Control changes only flip this
+			// client-side gate after the server grants the tab's live lease.
+			client.viewOnly = !(interactive || canResize);
+			client.resizeSession = interactive || canResize;
+			client.scaleViewport = true;
 			client.background = '#101217';
 			client.qualityLevel = 9;
 			client.compressionLevel = 2;
@@ -150,8 +163,23 @@
 				return;
 			}
 			recordActivity();
+			if (!rfb || status !== 'connected' || interactive || !onclaim) return;
+			if (!claiming && !isDesktopInput(event)) return;
+			event.preventDefault();
+			event.stopImmediatePropagation();
+			if (event instanceof PointerEvent && event.type === 'pointerdown') {
+				try {
+					(event.target as Element).setPointerCapture(event.pointerId);
+				} catch {
+					// Pointer capture is only an assist; the lease request still proceeds.
+				}
+			}
+			if (event.type !== 'pointermove')
+				pendingInput.push({ event: copyInputEvent(event), target: event.target });
+			if (pendingInput.length > 40) pendingInput.splice(0, pendingInput.length - 40);
+			if (!claiming) void claimAndReplay(display);
 		};
-		const inputEvents = ['pointerdown', 'pointermove', 'wheel', 'keydown', 'keyup'] as const;
+		const inputEvents = ['pointerdown', 'pointerup', 'pointermove', 'wheel', 'keydown', 'keyup'] as const;
 		for (const name of inputEvents) display.addEventListener(name, captureActivity, true);
 		untrack(() => {
 			clearTimeout(retryTimer);
@@ -171,13 +199,138 @@
 		};
 	});
 
-	function recordActivity() {
-		onactivity?.();
+	$effect(() => {
+		const client = rfb;
+		const mayInteract = interactive;
+		const mayResize = canResize;
+		if (client) {
+			client.viewOnly = !(mayInteract || mayResize);
+			client.resizeSession = mayInteract || mayResize;
+		}
+	});
+
+	$effect(() => {
+		const element = screen;
+		if (!element || !ondisplayresize) return;
+		const reportSize = () => {
+			cancelAnimationFrame(resizeFrame);
+			resizeFrame = requestAnimationFrame(() => {
+				const rect = element.getBoundingClientRect();
+				const width = Math.max(1, Math.round(rect.width));
+				const height = Math.max(1, Math.round(rect.height));
+				const signature = `${width}x${height}`;
+				if (signature === lastReportedSize || document.visibilityState !== 'visible') return;
+				lastReportedSize = signature;
+				if (rfb) rfb.scaleViewport = true;
+				ondisplayresize?.(width, height);
+			});
+		};
+		resizeObserver = new ResizeObserver(reportSize);
+		resizeObserver.observe(element);
+		displayLeaseTimer = setInterval(() => {
+			if (document.visibilityState === 'visible') {
+				lastReportedSize = '';
+				reportSize();
+			}
+		}, 15_000);
+		const onVisibility = () => {
+			if (document.visibilityState === 'visible') {
+				lastReportedSize = '';
+				reportSize();
+			}
+		};
+		document.addEventListener('visibilitychange', onVisibility);
+		return () => {
+			resizeObserver?.disconnect();
+			resizeObserver = undefined;
+			if (displayLeaseTimer) clearInterval(displayLeaseTimer);
+			displayLeaseTimer = undefined;
+			document.removeEventListener('visibilitychange', onVisibility);
+			cancelAnimationFrame(resizeFrame);
+		};
+	});
+
+	function isDesktopInput(event: Event): boolean {
+		return (
+			(event instanceof PointerEvent && event.type === 'pointerdown') ||
+			event instanceof WheelEvent ||
+			(event instanceof KeyboardEvent && event.type === 'keydown' && event.key !== 'Escape')
+		);
 	}
 
-	function toggleFit() {
-		fit = !fit;
-		if (rfb) rfb.scaleViewport = fit;
+	function copyInputEvent(event: Event): Event {
+		if (event instanceof PointerEvent) {
+			return new PointerEvent(event.type, {
+				bubbles: true,
+				cancelable: true,
+				composed: true,
+				pointerId: event.pointerId,
+				pointerType: event.pointerType,
+				isPrimary: event.isPrimary,
+				button: event.button,
+				buttons: event.buttons,
+				clientX: event.clientX,
+				clientY: event.clientY,
+				ctrlKey: event.ctrlKey,
+				shiftKey: event.shiftKey,
+				altKey: event.altKey,
+				metaKey: event.metaKey
+			});
+		}
+		if (event instanceof WheelEvent) {
+			return new WheelEvent(event.type, {
+				bubbles: true,
+				cancelable: true,
+				clientX: event.clientX,
+				clientY: event.clientY,
+				deltaX: event.deltaX,
+				deltaY: event.deltaY,
+				deltaZ: event.deltaZ,
+				deltaMode: event.deltaMode
+			});
+		}
+		if (event instanceof KeyboardEvent) {
+			return new KeyboardEvent(event.type, {
+				bubbles: true,
+				cancelable: true,
+				composed: true,
+				key: event.key,
+				code: event.code,
+				location: event.location,
+				repeat: event.repeat,
+				ctrlKey: event.ctrlKey,
+				shiftKey: event.shiftKey,
+				altKey: event.altKey,
+				metaKey: event.metaKey
+			});
+		}
+		return event;
+	}
+
+	async function claimAndReplay(display: HTMLDivElement) {
+		if (claiming || !onclaim) return;
+		claiming = true;
+		try {
+			const granted = await onclaim();
+			await tick();
+			if (!granted || !active || !rfb || !interactive) {
+				pendingInput = [];
+				return;
+			}
+			// Replay against the same live canvas after authorization. Coordinates
+			// remain viewport-relative and a detached/replaced canvas is discarded.
+			for (const input of pendingInput.splice(0)) {
+				const destination = input.target as HTMLElement | null;
+				if (destination?.isConnected) destination.dispatchEvent(input.event);
+			}
+		} finally {
+			claiming = false;
+			if (pendingInput.length && !interactive) pendingInput = [];
+		}
+	}
+
+	function recordActivity() {
+		onactivity?.();
 	}
 
 	async function toggleFullscreen() {
@@ -247,8 +400,8 @@
 			clipboardFeedback = 'Enter or paste text before sending.';
 			return;
 		}
-		if (!rfb || status !== 'connected' || rfb.viewOnly) {
-			clipboardFeedback = 'Take control of the connected computer before sending clipboard text.';
+		if (!rfb || status !== 'connected' || !interactive) {
+			clipboardFeedback = 'Use the connected computer before sending clipboard text.';
 			return;
 		}
 		rfb.clipboardPasteFrom(clipboardDraft);
@@ -283,11 +436,9 @@
 		<div class="desktop-tools" aria-label="Desktop controls">
 			<span class="desktop-live" role="status">
 				{status === 'connected'
-					? rfb?.viewOnly
-						? fit
-							? 'Viewing · scaled'
-							: 'Viewing · actual pixels'
-						: 'Connected · full resolution'
+					? interactive
+						? 'You’re using the computer'
+						: 'Viewing · auto-fit'
 					: status === 'reconnecting'
 						? 'Reconnecting'
 						: status === 'error'
@@ -305,14 +456,6 @@
 			</button>
 			<button
 				type="button"
-				title={fit ? 'Show actual pixels without scaling' : 'Fit to screen'}
-				aria-label={fit ? 'Show actual pixels without scaling' : 'Fit to screen'}
-				onclick={toggleFit}
-			>
-				{#if fit}<Scan size={14} />{:else}<Scaling size={14} />{/if}
-			</button>
-			<button
-				type="button"
 				title="Toggle fullscreen"
 				aria-label="Toggle fullscreen"
 				onclick={toggleFullscreen}
@@ -324,6 +467,7 @@
 			<div
 				class="clipboard-panel"
 				role="dialog"
+				tabindex="-1"
 				aria-modal="false"
 				aria-labelledby="clipboard-panel-title"
 				onkeydown={handleClipboardPanelKeydown}
@@ -353,7 +497,7 @@
 						type="button"
 						class="clipboard-send"
 						onclick={sendClipboard}
-						disabled={!rfb || status !== 'connected' || !!rfb?.viewOnly}>Send to computer</button
+						disabled={!rfb || status !== 'connected' || !interactive}>Send to computer</button
 					>
 				</div>
 				{#if remoteClipboard}

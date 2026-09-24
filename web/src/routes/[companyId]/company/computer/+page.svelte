@@ -42,11 +42,18 @@
 	const browserStatus = $derived(browserProjection.view);
 	let controller = $state<'observer' | 'owner'>('observer');
 	let controlRequested = $state(false);
+	let canResize = $state(false);
 	let working = $state('');
 	let error = $state('');
 	let lastDesktopActivity = $state(0);
 	let lastLeaseRenewal = $state(0);
 	let activityRenewing = $state(false);
+	let displaySizeTimer: ReturnType<typeof setTimeout> | undefined;
+	let displaySizePending: { width: number; height: number } | undefined;
+	let displaySizeRenewing = false;
+	let attachmentRecoveryAttempted = false;
+	let attachmentRecoveryInFlight = false;
+	let attachmentRecoveryGoodLeases = 0;
 	let browserDestination = $state('');
 	let windows = $state<DesktopWindow[]>([]);
 	let windowsLoading = $state(false);
@@ -57,6 +64,7 @@
 	const runtimeBrowser = $derived(view?.computer.runtime?.browser ?? null);
 	const canAttach = $derived(runtimeBrowser?.status === 'available');
 	const controllerLabel = $derived.by(() => {
+		if (working === 'control') return 'Taking control…';
 		const control = browserStatus?.control;
 		if (control?.controller === 'owner') {
 			return control.client_id === clientId ? 'You control' : 'Another owner tab controls';
@@ -98,6 +106,7 @@
 		}, 5_000);
 		return () => {
 			window.clearInterval(idleRelease);
+			clearTimeout(displaySizeTimer);
 			window.removeEventListener(COMPANY_BROWSER_OPEN_EVENT, browserRequest);
 		};
 	});
@@ -114,10 +123,10 @@
 				current.control.client_id === clientId
 			) {
 				controller = 'owner';
-				if (focus) desktopUrl = controlledUrl();
 			} else if (controller === 'owner') {
 				controller = 'observer';
-				if (focus) desktopUrl = observedUrl();
+				controlLeaseId = '';
+				canResize = false;
 			}
 		});
 	});
@@ -132,16 +141,10 @@
 		await goto(href, { noScroll: true });
 	}
 
-	function observedUrl(): string {
-		return `/desktop/${encodeURIComponent(companyId)}/observe`;
-	}
-
-	function controlledUrl(): string {
-		return `/desktop/${encodeURIComponent(companyId)}/control?client_id=${encodeURIComponent(clientId)}`;
-	}
-
 	async function attachDesktop(navigate = true) {
 		if (!clientId || working) return;
+		attachmentRecoveryAttempted = false;
+		attachmentRecoveryGoodLeases = 0;
 		working = 'attach';
 		error = '';
 		try {
@@ -181,8 +184,10 @@
 		}
 	}
 
-	async function takeControl() {
-		if (!clientId || working) return;
+	async function claimControl(): Promise<boolean> {
+		if (!clientId) return false;
+		if (controller === 'owner') return true;
+		if (working) return false;
 		working = 'control';
 		error = '';
 		try {
@@ -190,12 +195,14 @@
 			controlLeaseId = control.lease_id ?? '';
 			controlRequested = true;
 			controller = 'owner';
-			desktopUrl = controlledUrl();
 			lastDesktopActivity = Date.now();
 			lastLeaseRenewal = Date.now();
-			await browserProjection.refresh();
+			void browserProjection.refresh();
+			return true;
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Control is held elsewhere.';
+			void browserProjection.refresh();
+			return false;
 		} finally {
 			working = '';
 		}
@@ -210,7 +217,7 @@
 			controlLeaseId = '';
 			controlRequested = false;
 			controller = 'observer';
-			desktopUrl = observedUrl();
+			canResize = false;
 			lastDesktopActivity = 0;
 			await browserProjection.refresh();
 		} catch (cause) {
@@ -218,6 +225,84 @@
 				error = cause instanceof Error ? cause.message : 'Control could not be returned.';
 		} finally {
 			working = '';
+		}
+	}
+
+	function requestDisplayResize(width: number, height: number) {
+		displaySizePending = { width, height };
+		clearTimeout(displaySizeTimer);
+		displaySizeTimer = setTimeout(() => void flushDisplayResize(), 180);
+	}
+
+	async function flushDisplayResize() {
+		if (displaySizeRenewing || !displaySizePending || !clientId || !desktopUrl) return;
+		displaySizeRenewing = true;
+		try {
+			while (displaySizePending && clientId && desktopUrl) {
+				const size = displaySizePending;
+				displaySizePending = undefined;
+				const response = await fetch(
+					`/api/companies/${encodeURIComponent(companyId)}/desktop/display-lease`,
+					{
+						method: 'POST',
+						headers: { 'content-type': 'application/json' },
+						body: JSON.stringify({
+							client_id: clientId,
+							width: size.width,
+							height: size.height
+						}),
+						credentials: 'same-origin'
+					}
+				);
+				if (response.status === 401) {
+					canResize = false;
+					displaySizePending = undefined;
+					if (document.visibilityState === 'visible') {
+						if (attachmentRecoveryAttempted && !attachmentRecoveryInFlight) {
+							error = 'The computer session is still unavailable. Reopen the computer to reconnect.';
+						} else {
+							await recoverExpiredAttachment();
+						}
+					}
+					return;
+				}
+				if (!response.ok) throw new Error(`Display sizing returned ${response.status}.`);
+				const result = (await response.json()) as { can_resize?: boolean };
+				canResize = result.can_resize === true;
+				if (attachmentRecoveryAttempted && ++attachmentRecoveryGoodLeases >= 2) {
+					attachmentRecoveryAttempted = false;
+					attachmentRecoveryGoodLeases = 0;
+				}
+			}
+		} catch (cause) {
+			canResize = false;
+			if (document.visibilityState === 'visible')
+				error = cause instanceof Error ? cause.message : 'Computer sizing could not be updated.';
+		} finally {
+			displaySizeRenewing = false;
+		}
+	}
+
+	async function recoverExpiredAttachment() {
+		if (attachmentRecoveryInFlight || attachmentRecoveryAttempted) return;
+		attachmentRecoveryAttempted = true;
+		attachmentRecoveryInFlight = true;
+		attachmentRecoveryGoodLeases = 0;
+		try {
+			const freshUrl = await issueDesktopTicket(companyId, 'runtime-rescue', clientId);
+			if (document.visibilityState !== 'visible') {
+				attachmentRecoveryAttempted = false;
+				return;
+			}
+			desktopUrl = freshUrl;
+			error = '';
+			void browserProjection.refresh();
+		} catch (cause) {
+			error = cause instanceof Error
+				? `The computer session expired and could not be restored: ${cause.message}`
+				: 'The computer session expired. Reopen the computer to reconnect.';
+		} finally {
+			attachmentRecoveryInFlight = false;
 		}
 	}
 
@@ -275,7 +360,9 @@
 			.then(() => browserProjection.refresh())
 			.catch((cause) => {
 				controller = 'observer';
-				desktopUrl = observedUrl();
+				controlRequested = false;
+				controlLeaseId = '';
+				canResize = false;
 				error = cause instanceof Error ? cause.message : 'Desktop control expired.';
 			})
 			.finally(() => (activityRenewing = false));
@@ -317,7 +404,7 @@
 				title={windowsError ||
 					(controller === 'owner'
 						? 'Bring an open application to the front'
-						: 'Take control to switch applications')}
+						: 'Use the desktop first to switch applications')}
 			>
 				<PanelsTopLeft size={15} aria-hidden="true" />
 				<select
@@ -358,15 +445,6 @@
 						onclick={() => returnControl()}
 						>{working === 'return' ? 'Releasing…' : 'Release control'}</button
 					>
-				{:else}
-					<button
-						class="btn small primary"
-						type="button"
-						disabled={!!working || !desktopUrl}
-						title="Take control to fit the computer to this window at full resolution. Available when no other tab or company actor holds it."
-						onclick={() => takeControl()}
-						>{working === 'control' ? 'Taking control…' : 'Take control'}</button
-					>
 				{/if}
 				<button
 					class="btn small"
@@ -382,6 +460,10 @@
 		<DesktopViewport
 			src={desktopUrl}
 			title="Live Company computer"
+			interactive={controller === 'owner'}
+			canResize={canResize || controller === 'owner'}
+			onclaim={claimControl}
+			ondisplayresize={requestDisplayResize}
 			onload={() => void desktopReady()}
 			onactivity={desktopActivity}
 		/>
@@ -425,7 +507,7 @@
 					</button>
 					<p>
 						{canAttach
-							? 'Your team’s shared browser, files and applications. Take control when you want to join in.'
+							? 'Your team’s shared browser, files and applications. Click or type on the desktop to join in.'
 							: 'The desktop has not passed its live probe. Open Doctor for the smallest available repair.'}
 					</p>
 				</div>
