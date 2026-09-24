@@ -675,12 +675,13 @@
 		box-sizing: border-box;
 		width: 100%;
 		min-height: 40px;
-		padding: 4px 88px 4px max(12px, env(safe-area-inset-left));
+		padding: 4px max(12px, env(safe-area-inset-right)) 4px
+			max(12px, env(safe-area-inset-left));
 		border-top: 1px solid var(--border-strong);
 		background: var(--surface-pane);
 	}
 	.desktop-viewport:fullscreen > .desktop-tools {
-		padding-right: 8px;
+		padding-right: max(12px, env(safe-area-inset-right));
 	}
 	.desktop-live {
 		min-width: 0;
@@ -709,7 +710,7 @@
 	.clipboard-panel {
 		position: absolute;
 		z-index: 4;
-		right: 88px;
+		right: 12px;
 		bottom: 48px;
 		width: min(380px, calc(100% - 24px));
 		max-height: min(70%, 520px);
@@ -881,7 +882,7 @@
 			padding: var(--space-3);
 		}
 		.desktop-tools {
-			padding-right: max(88px, calc(8px + env(safe-area-inset-right)));
+			padding-right: max(8px, env(safe-area-inset-right));
 		}
 		.desktop-live {
 			padding-inline: 0 4px;
