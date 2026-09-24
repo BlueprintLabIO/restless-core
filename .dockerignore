@@ -46,3 +46,6 @@ tools/*
 !tools/custom-harness/openclaw.mjs
 
 !tools/custom-harness/hermes.py
+!tools/harness-auth/
+!tools/harness-auth/auth.mjs
+!tools/schedule-test-proxy.py
