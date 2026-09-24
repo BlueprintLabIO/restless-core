@@ -49,6 +49,7 @@ mod room_commands;
 mod runtime;
 mod runtime_bridge;
 mod runtime_mode;
+mod runtime_usage;
 mod schedule;
 mod schedule_test;
 mod schedule_test_proxy;
