@@ -29,7 +29,7 @@ try:
     target = os.path.realpath("/proc/self/fd/" + str(fd))
     roots = ("/company/outputs", "/company/repos", "/company/workspaces",
              "/company/projects", "/company/knowledge", "/company/decisions",
-             "/company/goals", "/company/documents")
+             "/company/goals", "/company/documents", "/company/releases")
     if not any(target.startswith(root + "/") for root in roots):
         raise SystemExit(23)
     data = bytearray()
@@ -60,7 +60,10 @@ pub struct EmailAttachmentRef {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EmailSendRequest {
+    /// Sender mailbox. The optional display name is a separate mandate-bound field.
     pub from: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_name: Option<String>,
     pub to: String,
     pub subject: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -90,6 +93,7 @@ struct ProviderAttachment {
 #[derive(Debug, Clone, Serialize)]
 struct ProviderPayload {
     from: String,
+    reply_to: String,
     to: Vec<String>,
     subject: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -111,6 +115,8 @@ struct CanonicalAttachment<'a> {
 #[derive(Debug, Clone, Serialize)]
 struct CanonicalPayload<'a> {
     from: &'a str,
+    from_name: &'a Option<String>,
+    reply_to: &'a str,
     to: &'a str,
     subject: &'a str,
     text: &'a Option<String>,
@@ -123,6 +129,7 @@ struct CanonicalPayload<'a> {
 #[derive(Debug, Clone)]
 pub struct PreparedEmail {
     from: String,
+    from_name: Option<String>,
     to: String,
     effect_key: String,
     permit_id: Uuid,
@@ -133,6 +140,10 @@ pub struct PreparedEmail {
 impl PreparedEmail {
     pub fn sender(&self) -> &str {
         &self.from
+    }
+
+    pub fn sender_name(&self) -> Option<&str> {
+        self.from_name.as_deref()
     }
 
     pub fn recipient(&self) -> &str {
@@ -300,6 +311,7 @@ fn validate_company_attachment_path(reference: &str) -> Result<()> {
             | "decisions"
             | "goals"
             | "documents"
+            | "releases"
     ) || parts.clone().next().is_none()
         || parts.any(|part| part.is_empty() || part == "." || part == "..")
     {
@@ -316,6 +328,7 @@ pub fn prepare_email(
     resolved_attachments: Vec<ResolvedEmailAttachment>,
 ) -> Result<PreparedEmail> {
     let from = canonical_address(&request.from, "from")?;
+    let from_name = canonical_sender_name(request.from_name)?;
     let to = canonical_address(&request.to, "to")?;
     let subject = request.subject.trim().to_owned();
     if subject.is_empty()
@@ -409,6 +422,8 @@ pub fn prepare_email(
     let html = request.html;
     let canonical = CanonicalPayload {
         from: &from,
+        from_name: &from_name,
+        reply_to: &from,
         to: &to,
         subject: &subject,
         text: &text,
@@ -417,8 +432,17 @@ pub fn prepare_email(
     };
     let payload_sha256 =
         hex_sha256(&serde_json::to_vec(&canonical).context("serialize canonical email payload")?);
+    let provider_from = match from_name.as_deref() {
+        Some(name) => format!(
+            "\"{}\" <{}>",
+            name.replace('\\', "\\\\").replace('\"', "\\\""),
+            from
+        ),
+        None => from.clone(),
+    };
     let provider_payload = ProviderPayload {
-        from: from.clone(),
+        from: provider_from,
+        reply_to: from.clone(),
         to: vec![to.clone()],
         subject,
         text,
@@ -427,12 +451,28 @@ pub fn prepare_email(
     };
     Ok(PreparedEmail {
         from,
+        from_name,
         to,
         effect_key: request.effect_key.trim().to_owned(),
         permit_id: request.permit_id,
         payload_sha256,
         provider_payload,
     })
+}
+
+fn canonical_sender_name(value: Option<String>) -> Result<Option<String>> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let value = value.trim();
+    if value.is_empty()
+        || value.chars().count() > 120
+        || value.chars().any(char::is_control)
+        || value.chars().any(|c| c == '<' || c == '>')
+    {
+        bail!("sender display name must be non-empty, at most 120 characters, and contain no control or address-delimiter characters");
+    }
+    Ok(Some(value.to_owned()))
 }
 
 fn canonical_address(value: &str, field: &str) -> Result<String> {

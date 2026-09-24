@@ -1668,6 +1668,7 @@ async fn send_mandated_email(
             company,
             prepared.permit_id(),
             prepared.sender(),
+            prepared.sender_name(),
             prepared.recipient(),
             prepared.payload_sha256(),
             prepared.effect_key(),
@@ -5669,6 +5670,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             if request.cmd == "email-preview" {
                 Response::ok(serde_json::json!({
                     "sender": prepared.sender(),
+                    "sender_name": prepared.sender_name(),
                     "recipient": prepared.recipient(),
                     "payload_sha256": prepared.payload_sha256(),
                     "effect_key": prepared.effect_key(),

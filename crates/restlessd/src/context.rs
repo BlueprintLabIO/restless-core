@@ -472,7 +472,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          --request-file <json> to obtain the exact payload digest, then as Exec record a \
          recipient-specific rationale and evidence in restless mandate permit --mandate <id> \
          --proposal-file <json>, then restless email send --request-file <json> with that \
-         permit id. The email JSON names from, to, subject, text or html, effect_key, permit_id, \
+         permit id. The email JSON names from, optional from_name, to, subject, text or html, effect_key, permit_id, \
          and optional declared attachments. The permit JSON names sender, recipient, \
          payload_sha256, effect_key, rationale, evidence_refs and an expiry within five minutes. \
          Reconcile prior sends and unknown outcomes before proposing; never retry an uncertain \

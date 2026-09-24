@@ -1,6 +1,6 @@
 # Exec email mandates
 
-An owner may grant one active outbound email mandate per company in **Access & limits**. The root records a purpose, audience guidance, sending address, IANA quota timezone, daily and total limits, and expiry. It is an Authority record, not a schedule instruction. Revocation stops new sends immediately.
+An owner may grant one active outbound email mandate per company in **Access & limits**. The root records a purpose, audience guidance, sending address and optional exact sender name, IANA quota timezone, daily and total limits, and expiry. It is an Authority record, not a schedule instruction. Revocation stops new sends immediately.
 
 Exec applies the purpose and audience guidance to current company state. Before each send it must supply a recipient-specific rationale and evidence references. The kernel records that decision as a short-lived, one-use permit. Audience fit is a semantic judgement by Exec; the host enforces the machine-checkable boundary: authenticated Exec issuer, active root, exact sender, recipient, message digest and effect key, expiry, quotas, and no earlier accepted or uncertain outreach to the same recipient. A typed host-side Resend adapter reads the final payload, reserves the permit transactionally, holds the credential outside the Runtime, and records provider acceptance, rejection, or an unknown outcome. Accepted means Resend returned a message ID; it does not prove delivery.
 
@@ -13,6 +13,6 @@ The runtime flow is:
 3. As authenticated Exec, run restless mandate permit --mandate ID --proposal-file PROPOSAL.json. The proposal binds the preview digest, sender, recipient and effect key, and includes rationale, evidence references and an expiry within five minutes.
 4. Put the returned permit ID in the email JSON and run restless email send --request-file EMAIL.json once. If the outcome is unknown, reconcile against Resend before any new outreach. Do not replay the send.
 
-The email JSON has from, to, subject, text or html, effect_key, permit_id, and optional declared attachments with reference, filename, and content_type. Preview may omit permit_id; sending requires the issued ID. The permit proposal JSON has sender, recipient, payload_sha256, effect_key, rationale, evidence_refs, and expires_at.
+The email JSON has from, optional from_name, to, subject, text or html, effect_key, permit_id, and optional declared attachments with reference, filename, and content_type. Declared files may be in productive company folders including /company/releases; the host checks the opened file target. Reply-To is the sending mailbox. Preview may omit permit_id; sending requires the issued ID. The permit proposal JSON has sender, recipient, payload_sha256, effect_key, rationale, evidence_refs, and expires_at.
 
 Authority records are the canonical decision and effect trail. The owner mandate view shows quota use, recent recipient decisions, provider references and uncertain outcomes. The company external-action view and Exec receipt summary include typed sends; neither treats a reservation as a completed send.

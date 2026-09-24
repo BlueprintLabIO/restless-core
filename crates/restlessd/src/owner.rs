@@ -7499,6 +7499,7 @@ async fn email_mandates(
             "purpose": mandate.purpose,
             "audience_guidance": mandate.audience_guidance,
             "sender": mandate.sender,
+            "sender_name": mandate.sender_name,
             "max_per_day": mandate.max_per_day,
             "max_total": mandate.max_total,
             "timezone": mandate.timezone,

@@ -23,6 +23,8 @@ pub struct EmailMandate {
     pub purpose: String,
     pub audience_guidance: String,
     pub sender: String,
+    #[serde(default)]
+    pub sender_name: Option<String>,
     pub max_per_day: u32,
     pub max_total: u32,
     pub timezone: String,
@@ -36,6 +38,8 @@ pub struct NewEmailMandate {
     pub purpose: String,
     pub audience_guidance: String,
     pub sender: String,
+    #[serde(default)]
+    pub sender_name: Option<String>,
     pub max_per_day: u32,
     pub max_total: u32,
     pub timezone: String,
@@ -126,6 +130,19 @@ fn normalize_mailbox(value: &str) -> Result<String> {
     Ok(format!("{local}@{domain}"))
 }
 
+fn normalize_sender_name(value: Option<&str>) -> Result<Option<String>> {
+    value.map(|name| {
+        let name = name.trim();
+        if name.is_empty()
+            || name.chars().count() > 120
+            || name.chars().any(|c| c.is_control() || matches!(c, '<' | '>'))
+        {
+            bail!("sender name must be at most 120 characters without control or address delimiters");
+        }
+        Ok(name.to_owned())
+    }).transpose()
+}
+
 fn validate_digest(value: &str) -> Result<()> {
     if value.len() != 64 || !value.bytes().all(|b| b.is_ascii_hexdigit()) {
         bail!("payload digest must be 64 hexadecimal SHA256 characters");
@@ -192,6 +209,7 @@ pub(super) async fn grant(
         bail!("email mandate purpose or audience guidance exceeds its size limit");
     }
     let sender = normalize_mailbox(&mandate.sender)?;
+    let sender_name = normalize_sender_name(mandate.sender_name.as_deref())?;
     if mandate.max_per_day == 0 || mandate.max_total == 0 || mandate.max_per_day > mandate.max_total
     {
         bail!("email mandate limits must be positive and daily limit cannot exceed total limit");
@@ -206,6 +224,7 @@ pub(super) async fn grant(
         purpose: mandate.purpose.trim().to_owned(),
         audience_guidance: mandate.audience_guidance.trim().to_owned(),
         sender,
+        sender_name,
         max_per_day: mandate.max_per_day,
         max_total: mandate.max_total,
         timezone: mandate.timezone,
@@ -511,11 +530,13 @@ pub(super) async fn reserve(
     company: &str,
     permit_id: Uuid,
     actual_sender: &str,
+    actual_sender_name: Option<&str>,
     recipient: &str,
     payload_sha256: &str,
     effect_key: &str,
 ) -> Result<EmailReservation> {
     let actual_sender = normalize_mailbox(actual_sender)?;
+    let actual_sender_name = normalize_sender_name(actual_sender_name)?;
     let recipient = normalize_mailbox(recipient)?;
     validate_digest(payload_sha256)?;
     let now = Utc::now();
@@ -543,6 +564,7 @@ pub(super) async fn reserve(
         bail!("email permit has expired");
     }
     if normalize_mailbox(&root.sender)? != actual_sender
+        || root.sender_name != actual_sender_name
         || permit.sender != actual_sender
         || recipient != permit.recipient
         || payload_sha256.to_ascii_lowercase() != permit.payload_sha256
@@ -697,6 +719,7 @@ pub(super) async fn reserve(
         "mandate_version": permit.mandate_version,
         "recipient": recipient,
         "sender": actual_sender,
+        "sender_name": actual_sender_name,
         "payload_sha256": payload_sha256.to_ascii_lowercase(),
         "effect_key": effect_key,
         "usage_day": usage_day,

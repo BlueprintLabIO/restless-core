@@ -8,6 +8,7 @@
 		purpose: string;
 		audience_guidance: string;
 		sender: string;
+		sender_name?: string | null;
 		max_per_day: number;
 		max_total: number;
 		timezone: string;
@@ -39,6 +40,7 @@
 		purpose: string;
 		audience_guidance: string;
 		sender: string;
+		sender_name: string;
 		max_per_day: string;
 		max_total: string;
 		timezone: string;
@@ -60,6 +62,7 @@
 			purpose: '',
 			audience_guidance: '',
 			sender: '',
+			sender_name: '',
 			max_per_day: '',
 			max_total: '',
 			timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
@@ -137,6 +140,7 @@
 					purpose: draft.purpose.trim(),
 					audience_guidance: draft.audience_guidance.trim(),
 					sender: draft.sender.trim(),
+					sender_name: draft.sender_name.trim() || null,
 					max_per_day: daily,
 					max_total: total,
 					timezone: draft.timezone.trim(),
@@ -239,7 +243,11 @@
 						<dl>
 							<div>
 								<dt>Sender</dt>
-								<dd>{mandate.sender}</dd>
+								<dd>
+									{mandate.sender_name
+										? mandate.sender_name + ' <' + mandate.sender + '>'
+										: mandate.sender}
+								</dd>
 							</div>
 							<div>
 								<dt>Limits</dt>
@@ -363,6 +371,17 @@
 					bind:value={draft.sender}
 					disabled={saving}
 					placeholder="you@company.com"
+				/>
+			</div>
+			<div class="field">
+				<label for="mandate-sender-name">Sender name (optional)</label>
+				<input
+					id="mandate-sender-name"
+					type="text"
+					maxlength="120"
+					bind:value={draft.sender_name}
+					disabled={saving}
+					placeholder="Aris Academy"
 				/>
 			</div>
 			<div class="field-row">
