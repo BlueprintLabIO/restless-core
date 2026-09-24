@@ -257,8 +257,6 @@ impl OrgIntel {
         Ok(rows.iter().map(|row| row.get(0)).collect())
     }
 
-    /// Drop this company's schema and everything in it. Company teardown —
-    /// the one destructive operation here, and it is never called implicitly.
     /// Cheap check that this handle's schema still has its tables. A cached
     /// handle survives the schema being dropped underneath it — by an operator,
     /// a scenario reset, or a restore — and then fails every query with
@@ -273,6 +271,8 @@ impl OrgIntel {
             .map_err(OrgIntelError::Db)
     }
 
+    /// Drop this company's schema and everything in it. Company teardown —
+    /// the one destructive operation here, and it is never called implicitly.
     pub async fn drop_schema(&self) -> Result<()> {
         sqlx::query(&format!("DROP SCHEMA IF EXISTS {} CASCADE", self.schema))
             .execute(&self.pool)
