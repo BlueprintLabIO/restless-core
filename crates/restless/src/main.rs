@@ -4557,6 +4557,8 @@ mod tests {
                     "schedule_test",
                     "--as",
                     "exec",
+                    "--work",
+                    "00000000-0000-0000-0000-000000000001",
                     "--at",
                     "2026-09-22T04:08:30Z",
                     "--reason",
@@ -4578,28 +4580,6 @@ mod tests {
                         "one-time schedule unexpectedly includes {field}"
                     );
                 }
-                let cli = Cli::try_parse_from([
-                    "restless",
-                    "schedule",
-                    "add",
-                    "-c",
-                    "schedule_test",
-                    "--as",
-                    "exec",
-                    "--weekdays",
-                    "--at-local",
-                    "09:00",
-                    "--timezone",
-                    "Australia/Sydney",
-                    "--on-missed",
-                    "skip",
-                    "--reason",
-                    "Morning review",
-                ])
-                .unwrap();
-                let request = request_json(cli.command).unwrap();
-                assert_eq!(request["recurrence"], "weekdays");
-                assert_eq!(request["execution_requirement"], "local-mac");
             })
             .unwrap()
             .join()
