@@ -142,7 +142,8 @@ fn load_ledger(path: &Path, month: &str) -> Result<(Ledger, bool)> {
             ledger.version
         );
     }
-    if ledger.month_utc != month {
+    let tracked_this_month = ledger.month_utc == month;
+    if !tracked_this_month {
         ledger.month_utc = month.to_string();
         ledger.completed_seconds = 0;
         ledger.last_run_started_at = None;
@@ -150,7 +151,7 @@ fn load_ledger(path: &Path, month: &str) -> Result<(Ledger, bool)> {
         ledger.last_observed_running = false;
         ledger.complete = true;
     }
-    Ok((ledger, true))
+    Ok((ledger, tracked_this_month))
 }
 
 fn save_ledger(path: &Path, ledger: &Ledger) -> Result<()> {
@@ -208,7 +209,7 @@ pub(crate) async fn observe(root: &Path, config: &CompanyConfig) -> Result<Runti
     let now = Utc::now();
     let month = month_key(now);
     let path = ledger_path(root, company);
-    let (mut ledger, existed) = load_ledger(&path, &month)?;
+    let (mut ledger, tracked_this_month) = load_ledger(&path, &month)?;
     let old_start = ledger.last_run_started_at.clone();
     let mut active_seconds = 0;
 
@@ -225,7 +226,8 @@ pub(crate) async fn observe(root: &Path, config: &CompanyConfig) -> Result<Runti
             }
             // A first observation of a pre-existing container cannot prove
             // that earlier runs in this month were observed.
-            if ledger.last_run_started_at.is_none()
+            if !tracked_this_month
+                && ledger.last_run_started_at.is_none()
                 && observed
                     .created_at
                     .is_some_and(|created| start > created + Duration::seconds(2))
@@ -252,7 +254,8 @@ pub(crate) async fn observe(root: &Path, config: &CompanyConfig) -> Result<Runti
                         .completed_seconds
                         .saturating_add(duration_in_month(start, finished, now));
                 }
-                if ledger.last_run_started_at.is_none()
+                if !tracked_this_month
+                    && ledger.last_run_started_at.is_none()
                     && observed
                         .created_at
                         .is_some_and(|created| start > created + Duration::seconds(2))
@@ -270,7 +273,7 @@ pub(crate) async fn observe(root: &Path, config: &CompanyConfig) -> Result<Runti
                 ledger.complete = false;
             }
             ledger.last_observed_running = false;
-            if !existed {
+            if !tracked_this_month {
                 // A newly configured company with no Runtime has no usage to
                 // reconcile, so an owner may configure a cap before first up.
                 ledger.complete = true;
@@ -302,10 +305,13 @@ pub(crate) async fn observe(root: &Path, config: &CompanyConfig) -> Result<Runti
 /// Reject a new start once an owner-configured monthly cap is exhausted.
 /// Existing work remains available and is never stopped by this guard.
 pub(crate) async fn ensure_start_allowed(root: &Path, config: &CompanyConfig) -> Result<()> {
+    // Observe even without a cap: a newly created Runtime must establish a
+    // metering baseline before Docker starts it. Otherwise its first later
+    // observation looks like an untracked pre-existing container.
+    let usage = observe(root, config).await?;
     let Some(cap_hours) = config.monthly_runtime_cap_hours else {
         return Ok(());
     };
-    let usage = observe(root, config).await?;
     if !usage.complete {
         bail!("monthly Runtime usage is incomplete; clear the cap or wait for the next UTC month before starting this company");
     }
