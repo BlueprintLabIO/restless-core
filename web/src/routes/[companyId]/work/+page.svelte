@@ -522,6 +522,12 @@
 	.map-legend summary {
 		cursor: pointer;
 	}
+	@media (pointer: coarse) {
+		/* The summary carries the 44px target; the chip itself stays compact. */
+		.map-legend {
+			padding: 0 10px;
+		}
+	}
 	.map-legend .map-key {
 		display: flex;
 		margin-top: 8px;

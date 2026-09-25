@@ -135,10 +135,11 @@
 	{:else}
 		<p class="empty-graph">No current Work is available for this scope.</p>
 	{/if}
-	<div class="work-flow-scope">
-		<strong>{scopeLabel}</strong>
-		<span>{work.length} of {totalCount} Work items</span>
-	</div>
+	<!-- Only worth saying when the map is showing part of the Work. -->
+	{#if work.length < totalCount}<div class="work-flow-scope">
+			<strong>{scopeLabel}</strong>
+			<span>{work.length} of {totalCount} Work items</span>
+		</div>{/if}
 </div>
 
 <style>
