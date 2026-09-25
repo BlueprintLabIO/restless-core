@@ -403,6 +403,7 @@
 
 	.message-glance {
 		display: grid;
+		grid-template-columns: max-content minmax(0, 1fr);
 		gap: 0;
 		margin: 10px 0 2px;
 		border-block: 1px solid var(--border-strong);
@@ -410,8 +411,10 @@
 
 	.message-glance > div {
 		display: grid;
-		grid-template-columns: 62px minmax(0, 1fr);
-		gap: 8px;
+		grid-column: 1 / -1;
+		/* One label column for every row, as wide as its longest label. */
+		grid-template-columns: subgrid;
+		column-gap: 12px;
 		padding: 7px 0;
 	}
 

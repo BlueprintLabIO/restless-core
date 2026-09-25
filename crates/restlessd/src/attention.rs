@@ -218,7 +218,7 @@ async fn conversation_requests(
             let Some((body, need)) = crate::owner::conversation_owner_need(message) else {
                 return Ok(None);
             };
-            let href = format!("/{company}/people?person={}&message={message_id}", actor.id);
+            let href = format!("/{company}/people?person={}", actor.id);
             Ok(Some(AttentionItem {
                 id: format!("conversation:{}:{message_id}", actor.id),
                 work_id: None,

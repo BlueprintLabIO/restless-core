@@ -6702,7 +6702,14 @@ fn room_event_stream(
     // stream begins with the shortest repair interval.
     state.fallback_current = state.fallback_initial;
 
-    futures_util::stream::unfold(state, |mut state| async move {
+    // A caught-up stream has nothing to send until the next event or
+    // keep-alive. Buffering proxies hold the response head until the first
+    // body byte, so the browser would report "connecting" for up to 15s. One
+    // comment opens it at once; EventSource ignores comments.
+    let opened = futures_util::stream::once(async {
+        Ok::<_, Infallible>(Event::default().comment("connected"))
+    });
+    opened.chain(futures_util::stream::unfold(state, |mut state| async move {
         loop {
             if state
                 .session_lease
@@ -6772,7 +6779,7 @@ fn room_event_stream(
                 }
             }
         }
-    })
+    }))
 }
 
 /// Wait for either a matching body-free hint or a bounded repair read. Wrong
@@ -10709,13 +10716,27 @@ mod tests {
             .expect("Room GET response")
     }
 
+    /// A Room stream's frames without the opening comment, which exists only
+    /// to push the response head through buffering proxies.
+    fn room_sse_frames(
+        response: Response<Body>,
+    ) -> std::pin::Pin<
+        Box<dyn futures_util::Stream<Item = Result<axum::body::Bytes, axum::Error>> + Send>,
+    > {
+        Box::pin(response.into_body().into_data_stream().filter(|frame| {
+            let opening = matches!(frame, Ok(bytes) if std::str::from_utf8(bytes)
+                .is_ok_and(|text| text.trim().trim_start_matches(':').trim() == "connected"));
+            std::future::ready(!opening)
+        }))
+    }
+
     async fn first_sse_chunk(response: Response<Body>) -> String {
         assert_eq!(response.status(), StatusCode::OK);
         assert!(response.headers()[CONTENT_TYPE]
             .to_str()
             .unwrap()
             .starts_with("text/event-stream"));
-        let mut stream = response.into_body().into_data_stream();
+        let mut stream = room_sse_frames(response);
         let bytes = tokio::time::timeout(Duration::from_secs(2), stream.next())
             .await
             .expect("SSE emits within the bound")
@@ -11651,7 +11672,7 @@ mod tests {
 
         let response = room_get_response(&alice, format!("{events_path}/live"), None).await;
         assert_eq!(response.status(), StatusCode::OK);
-        let mut stream = response.into_body().into_data_stream();
+        let mut stream = room_sse_frames(response);
         let resync = tokio::time::timeout(Duration::from_secs(2), stream.next())
             .await
             .expect("resync is immediate")
@@ -11682,7 +11703,7 @@ mod tests {
         )
         .await;
         assert_eq!(response.status(), StatusCode::OK);
-        let mut removed_stream = response.into_body().into_data_stream();
+        let mut removed_stream = room_sse_frames(response);
         fixture
             .org
             .remove_room_participant("alice", room.id, "bob")
@@ -11714,7 +11735,7 @@ mod tests {
         )
         .await;
         assert_eq!(response.status(), StatusCode::OK);
-        let mut revoked_stream = response.into_body().into_data_stream();
+        let mut revoked_stream = room_sse_frames(response);
         sessions.revoke(&revoked_token);
         assert!(
             tokio::time::timeout(Duration::from_secs(1), revoked_stream.next())
@@ -11735,7 +11756,7 @@ mod tests {
         )
         .await;
         assert_eq!(response.status(), StatusCode::OK);
-        let mut expiry_stream = response.into_body().into_data_stream();
+        let mut expiry_stream = room_sse_frames(response);
         assert!(
             tokio::time::timeout(Duration::from_secs(1), expiry_stream.next())
                 .await
@@ -11774,7 +11795,7 @@ mod tests {
         let alice = fixture.app("alice", "member", &fixture.company);
         let response = room_get_response(&alice, &live_path, None).await;
         assert_eq!(response.status(), StatusCode::OK);
-        let mut stream = response.into_body().into_data_stream();
+        let mut stream = room_sse_frames(response);
         assert!(
             fixture
                 .state
@@ -11843,7 +11864,7 @@ mod tests {
         );
         let response = room_get_response(&fallback_app, &fallback_path, None).await;
         assert_eq!(response.status(), StatusCode::OK);
-        let mut fallback_stream = response.into_body().into_data_stream();
+        let mut fallback_stream = room_sse_frames(response);
         let second = fixture
             .org
             .send_room_message(
@@ -11929,7 +11950,7 @@ mod tests {
         // returns admission immediately.
         let response = room_get_response(&bob, &live_path, None).await;
         assert_eq!(response.status(), StatusCode::OK);
-        let mut removed_stream = response.into_body().into_data_stream();
+        let mut removed_stream = room_sse_frames(response);
         assert!(
             hub.wait_until_ready(&fixture.company, Duration::from_secs(2))
                 .await
@@ -11958,7 +11979,7 @@ mod tests {
         let network = fixture.network_app_with_state(state, lease);
         let response = room_get_response(&network, &live_path, None).await;
         assert_eq!(response.status(), StatusCode::OK);
-        let mut revoked_stream = response.into_body().into_data_stream();
+        let mut revoked_stream = room_sse_frames(response);
         assert_eq!(hub.active_streams(), 1);
         sessions.revoke(&token);
         assert!(
@@ -11984,7 +12005,7 @@ mod tests {
         );
         let response = room_get_response(&alice, &deconfigured_path, None).await;
         assert_eq!(response.status(), StatusCode::OK);
-        let mut deconfigured_stream = response.into_body().into_data_stream();
+        let mut deconfigured_stream = room_sse_frames(response);
         assert_eq!(hub.active_streams(), 1);
         hub.remove_company(&fixture.company);
         assert!(
