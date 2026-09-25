@@ -4575,7 +4575,11 @@ async fn update_company_setup(
     let actor_update = async {
         let org = state.daemon.orgintel.get(&company).await?;
         let actor = org.active_actor("exec").await?;
-        if actor.and_then(|actor| actor.model).as_deref() != Some(selected_model.as_str()) {
+        // A company with no model yet (renamed before choosing a provider) has
+        // nothing to hand the Exec; "" is not a model to switch to.
+        if !selected_model.is_empty()
+            && actor.and_then(|actor| actor.model).as_deref() != Some(selected_model.as_str())
+        {
             org.change_actor_model(
                 "exec",
                 &selected_model,

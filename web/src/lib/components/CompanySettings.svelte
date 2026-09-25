@@ -37,8 +37,16 @@
 	const draftKey = $derived(`restless-settings:${section}:${companyId}`);
 	const endpoint = $derived(`/api/companies/${encodeURIComponent(companyId)}/setup`);
 
+	/* The model as the server holds it. The name section sends it back
+	 * unchanged: re-deriving it from the picker would turn an unset model into
+	 * "/" and block every name edit on the custom-model check. */
+	let storedModel = '';
 	function values() {
-		return { display_name: name.trim(), mission, model };
+		return {
+			display_name: name.trim(),
+			mission,
+			model: section === 'provider' ? model : storedModel
+		};
 	}
 	function selectModel(value: string) {
 		const slash = value.indexOf('/');
@@ -68,6 +76,7 @@
 				revision = settings.revision;
 				name = settings.display_name;
 				mission = settings.mission;
+				storedModel = settings.model;
 				selectModel(settings.model);
 				saved = JSON.stringify(values());
 				const draft = sessionStorage.getItem(draftKey);
@@ -136,8 +145,9 @@
 		if (!dirty) return Promise.resolve(true);
 		if (
 			!name.trim() ||
-			(provider === 'custom' && !customProvider.trim()) ||
-			(modelChoice === 'custom' && !customModel.trim())
+			(section === 'provider' &&
+				((provider === 'custom' && !customProvider.trim()) ||
+					(modelChoice === 'custom' && !customModel.trim())))
 		)
 			return Promise.resolve(false);
 		const snapshot = JSON.stringify(values());
@@ -156,6 +166,7 @@
 				savedOnce = true;
 				revision = body.revision;
 				saved = snapshot;
+				storedModel = JSON.parse(snapshot).model;
 				dirty = JSON.stringify(values()) !== saved;
 				if (dirty) sessionStorage.setItem(draftKey, JSON.stringify({ ...values(), revision }));
 				else sessionStorage.removeItem(draftKey);
