@@ -514,6 +514,25 @@ fn valid_reasoning_effort(value: &str) -> bool {
 
 const LEGACY_UNCONFIGURED_MODEL: &str = "unconfigured/pending";
 
+/// Native harness IDs are internal route markers, not direct provider IDs.
+/// Keep rejecting them at model write boundaries while leaving old config
+/// readable so an owner can repair it through the Intelligence provider UI.
+pub fn validate_company_model_selection(model: &str) -> Result<()> {
+    if let Some((provider, _)) = model.split_once('/') {
+        validate_direct_provider(provider)?;
+    }
+    Ok(())
+}
+
+/// A direct connection must name a real provider, never an internal native
+/// harness route marker.
+pub fn validate_direct_provider(provider: &str) -> Result<()> {
+    if provider.starts_with("native-") {
+        bail!("Native harness models must be selected through Company → Intelligence provider.");
+    }
+    Ok(())
+}
+
 impl CompanyConfig {
     pub fn configured_model(&self) -> Option<&str> {
         let model = self.model.as_str();
