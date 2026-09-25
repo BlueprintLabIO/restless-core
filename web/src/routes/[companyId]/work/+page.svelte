@@ -355,7 +355,7 @@
 		</header>
 
 		{#if !loaded}
-			<p class="empty-state">Loading the current Work projection…</p>
+			<p class="empty-state">Loading Work…</p>
 		{:else if !graph}
 			<p class="empty-state">Work is unavailable. No empty state is being inferred.</p>
 		{:else if lens === 'map'}

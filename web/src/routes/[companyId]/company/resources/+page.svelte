@@ -72,7 +72,7 @@
 			'live'
 				? 'Live sources'
 				: source.status === 'stale'
-					? 'Last observation'
+					? 'Last checked'
 					: 'Reading sources'}
 		</div>
 	</header>
@@ -134,7 +134,7 @@
 				{#if nativeNotice}<p class="launch-message" role="status">{nativeNotice}</p>{/if}
 				{#if embedded}
 					<div class="launch-viewport">
-						<div><strong>{embedded.label}</strong><span>Bounded owner session</span></div>
+						<div><strong>{embedded.label}</strong><span>Your session</span></div>
 						<iframe
 							src={embedded.href}
 							title={embedded.label}

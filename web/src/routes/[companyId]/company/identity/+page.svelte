@@ -211,7 +211,7 @@
 			{source.status === 'live'
 				? 'Live source'
 				: source.status === 'stale'
-					? 'Last observation'
+					? 'Last checked'
 					: 'Reading source'}
 		</div>
 	</header>
@@ -252,7 +252,7 @@
 							</div>
 							<div>
 								<dt>Evidence</dt>
-								<dd>{currentEvidence.length} source-owned statements</dd>
+								<dd>{currentEvidence.length} sourced statements</dd>
 							</div>
 						</dl>
 					</div>

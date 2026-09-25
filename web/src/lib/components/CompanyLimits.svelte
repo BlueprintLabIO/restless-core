@@ -287,7 +287,7 @@
 						<div class="section-heading">
 							<h2>May do independently</h2>
 							<InfoTip
-								text="These are the outer classes of work allowed without a new owner decision. Each real effect still passes its source-owned checks."
+								text="These are the outer classes of work allowed without a new owner decision. Each real action is still checked before it runs."
 							/>
 						</div>
 						{#each view.limits.independently as item (item.title)}<article>

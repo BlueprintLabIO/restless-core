@@ -75,12 +75,12 @@
 	function statusCopy(status: string): string {
 		return (
 			{
-				healthy: 'Every current source and Company-computer check answered healthy.',
-				degraded: 'The company is reachable, but at least one check needs a bounded repair.',
-				unknown: 'A source answered without enough evidence to call the company healthy.',
+				healthy: 'Every check passed, including the company computer.',
+				degraded: 'The company is running, but at least one check needs fixing.',
+				unknown: 'A check answered, but not clearly enough to call the company healthy.',
 				unavailable:
-					'A primary source could not be observed. Unavailable is not treated as empty or healthy.'
-			}[status] ?? 'The company state is still being observed.'
+					'A core check could not be reached, so the company is not shown as healthy.'
+			}[status] ?? 'Checking the company…'
 		);
 	}
 	async function recheck() {
@@ -123,7 +123,7 @@
 	{#if notice}<div class="computer-notice" role="status">{notice}</div>{/if}
 
 	{#if view && source.failure}<p class="company-source-error" role="alert">
-			Could not refresh diagnostics. Showing the last observation. {source.failure.message}
+			Could not refresh diagnostics. Showing the last result. {source.failure.message}
 		</p>{/if}
 	{#if view}
 		<section class="doctor-overview doctor-{view.computer.doctor.status}">
@@ -190,7 +190,7 @@
 				</div>
 			{:else}
 				<p class="quiet-empty">
-					Doctor has no safe automatic repair for the current observation. Exec can inspect the
+					Doctor has no safe automatic fix for this problem. Exec can inspect the
 					source without turning uncertainty into a destructive action.
 				</p>
 			{/if}

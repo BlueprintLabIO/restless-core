@@ -526,7 +526,7 @@
 		<footer class="computer-portal-footer">
 			<div>
 				<span class="source-lamp status-{source.status}" aria-hidden="true"></span>
-				<span>{source.status === 'live' ? 'Live observation' : 'Last observation'}</span>
+				<span>{source.status === 'live' ? 'Live' : 'Last checked'}</span>
 				<time>{when(view?.computer.doctor.observed_at)}</time>
 			</div>
 			{#if preparedHandoffs.length}

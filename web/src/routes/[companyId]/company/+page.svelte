@@ -160,7 +160,7 @@
 					{source.status === 'live'
 						? when(view?.refreshed_at)
 						: source.status === 'stale'
-							? 'Last live observation'
+							? 'Last checked'
 							: 'Reading source'}
 				</div>
 				{#if view}

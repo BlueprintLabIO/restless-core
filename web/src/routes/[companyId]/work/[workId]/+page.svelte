@@ -530,10 +530,9 @@
 									</p>
 								{:else}
 									<p>
-										{ownerName(work.owner_id)} owns this bounded contribution for
-										{accountableLead?.display ?? ownerName(accountableLeadId ?? work.owner_id)}. Its
-										run and outputs are evidence of the contribution, not proof that the whole
-										outcome was accepted.
+										{ownerName(work.owner_id)} owns this part of the work for
+										{accountableLead?.display ?? ownerName(accountableLeadId ?? work.owner_id)}. Finishing
+										this part does not mean the whole outcome was accepted.
 									</p>
 								{/if}
 								{#if work.status === 'abandoned'}
@@ -542,7 +541,7 @@
 									</p>
 								{:else if revisions.length}
 									<p class="contribution-status">
-										A source-observed revision route is shown in the Work graph below.
+										Revisions are shown in the Work graph below.
 									</p>
 								{/if}
 							</section>
@@ -555,7 +554,7 @@
 						<dt title="The lead accountable for integrating the whole outcome">Lead</dt>
 						<dd>{accountableLead?.display ?? ownerName(accountableLeadId ?? work.owner_id)}</dd>
 						{#if !workIsLeadOwned}
-							<dt title="The Staff member producing this bounded Work under the lead">Staff</dt>
+							<dt title="The Staff member doing this work under the lead">Staff</dt>
 							<dd>{ownerName(work.owner_id)}</dd>
 						{/if}
 						<dt>Goal</dt>
@@ -618,7 +617,7 @@
 		<div class="work-detail-missing">
 			<MatrixGlyph rows={GLYPHS.ring} size={14} />
 			<h1>Work not found</h1>
-			<p>This Work is no longer present in the current company projection.</p>
+			<p>This Work no longer exists in this company.</p>
 			<a class="btn small" href={backHref()}>Back to Work</a>
 		</div>
 	{:else if !error}

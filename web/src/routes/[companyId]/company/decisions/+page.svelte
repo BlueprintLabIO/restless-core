@@ -41,7 +41,7 @@
 			{source.status === 'live'
 				? `${decisions.length} recorded`
 				: source.status === 'stale'
-					? 'Last observation'
+					? 'Last checked'
 					: 'Reading decisions'}
 		</div>
 	</header>
