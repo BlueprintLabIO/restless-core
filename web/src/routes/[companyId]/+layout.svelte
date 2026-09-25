@@ -201,6 +201,13 @@
 				? { notice: 'Message sent without the current-screen link.' }
 				: {};
 		} catch (cause) {
+			const status = (cause as { status?: unknown } | null)?.status;
+			// The conversation query retains this exact send's command ID for a safe retry.
+			if (typeof status !== 'number' || status >= 500 || [408, 425, 429].includes(status)) {
+				return {
+					error: 'We could not confirm that your message was sent. Your draft is still here. Try sending it again.'
+				};
+			}
 			return {
 				error: cause instanceof Error ? cause.message : 'Your message was not delivered.'
 			};
