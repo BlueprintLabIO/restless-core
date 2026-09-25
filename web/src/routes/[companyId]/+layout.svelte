@@ -124,6 +124,24 @@
 				? (attention.view?.company.name ?? '')
 				: (collaboration.view?.company.name ?? ''))
 	);
+	/* The last name this browser saw for the company stands in until the source
+	 * answers, so the topbar does not re-flow from an id-shaped placeholder. */
+	const nameKey = (id: string) => `restless:company-name:${id}`;
+	function rememberedName(id: string): string {
+		try {
+			return localStorage.getItem(nameKey(id)) ?? '';
+		} catch {
+			return '';
+		}
+	}
+	$effect(() => {
+		if (!companyName) return;
+		try {
+			localStorage.setItem(nameKey(companyId), companyName);
+		} catch {
+			/* A convenience only. */
+		}
+	});
 	const liveNeedsYou = $derived(attention.view?.items ?? []);
 	const focusedReviewId = $derived(page.url.searchParams.get('review'));
 	const focusedReview = $derived(
@@ -454,7 +472,9 @@
 <div class="company-browser-link-capture" use:companyBrowserLinks={{ open: openInCompanyBrowser }}>
 	<AppShell
 		{companyId}
-		companyName={companyName || companyId.charAt(0).toUpperCase() + companyId.slice(1)}
+		companyName={companyName ||
+			rememberedName(companyId) ||
+			companyId.charAt(0).toUpperCase() + companyId.slice(1)}
 		{companies}
 		{tabs}
 		{commands}
@@ -488,7 +508,8 @@
 			</section>
 		{:else}
 			<section class="company-access-state cockpit-pane" role="status" aria-live="polite">
-				<span class="access-mark" aria-hidden="true"><MatrixGlyph rows={GLYPHS.r} size={11} /></span>
+				<span class="access-mark" aria-hidden="true"><MatrixGlyph rows={GLYPHS.r} size={11} /></span
+				>
 				<p>{principal ? 'Opening your company workspace…' : 'Verifying company access…'}</p>
 			</section>
 		{/if}
