@@ -2815,6 +2815,51 @@ pub(crate) async fn oauth_account_key(provider: &str) -> Result<Option<String>> 
         .map(str::to_owned))
 }
 
+/// Import a legacy company Codex sign-in into the account broker. The caller
+/// validates the source profile and holds the account connection write lock.
+/// No provider credential is ever returned to the browser or written to a
+/// second company volume.
+pub(crate) async fn import_codex_oauth(
+    access_token: &str,
+    refresh_token: &str,
+    expires_ms: u64,
+    account_id: &str,
+) -> Result<()> {
+    let access = BROKER_ACCESS
+        .read()
+        .map_err(|_| anyhow::anyhow!("host model broker state is unavailable"))?
+        .clone()
+        .context("host model broker is not running")?;
+    let http = reqwest::Client::builder().timeout(Duration::from_secs(10)).build()?;
+    if broker_snapshot(&http, &access.token, &access.url)
+        .await?
+        .credentials
+        .iter()
+        .any(|row| row.provider == "openai-codex")
+    {
+        bail!("the account broker already has a Codex credential");
+    }
+    let response = http
+        .post(format!("{}/v1/credential", access.url))
+        .bearer_auth(&access.token)
+        .json(&serde_json::json!({
+            "provider": "openai-codex",
+            "credential": {
+                "type": "oauth",
+                "access": access_token,
+                "refresh": refresh_token,
+                "expires": expires_ms,
+                "accountId": account_id,
+            }
+        }))
+        .send()
+        .await?;
+    if !response.status().is_success() {
+        bail!("the account broker refused the Codex credential (HTTP {})", response.status());
+    }
+    Ok(())
+}
+
 pub fn models_config(model: &str, runtime_url: &str, token_env: &str) -> Result<String> {
     let (provider, model_id) = split_model(model)?;
     if !provider

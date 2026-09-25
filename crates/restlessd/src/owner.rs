@@ -25,6 +25,8 @@ mod members_api;
 mod notification_delivery_api;
 #[path = "owner_oauth_login.rs"]
 mod oauth_login_api;
+#[path = "owner_native_import.rs"]
+mod native_import_api;
 #[path = "owner_vault.rs"]
 mod owner_vault;
 #[path = "owner_plane_readiness.rs"]
@@ -1332,6 +1334,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             get(list_owner_connections).post(create_owner_connection),
         )
         .route("/connections/import", post(import_owner_connection))
+        .route("/connections/import/company-codex", post(native_import_api::import_company_codex))
         .route("/connections/oauth/codex", post(oauth_login_api::start_codex_login))
         .route("/connections/oauth/claude", post(oauth_login_api::start_claude_login))
         .route("/connections/oauth/jobs/{job}", get(oauth_login_api::oauth_login_status))
@@ -3388,13 +3391,16 @@ async fn list_owner_connections(State(state): State<OwnerState>, Extension(princ
             let probe = credential::probe_reference(&owner_connection_reference(connection)).await;
             summary["status"] = serde_json::Value::String(probe.status.as_str().to_string());
             if connection.kind == "oauth" && probe.status == credential::ProbeStatus::Present {
-                let verified_account = match (&connection.account_key, model_gateway::oauth_account_key(&connection.provider).await) {
-                    (Some(expected), Ok(Some(actual))) => expected == &actual,
-                    _ => false,
-                };
-                if !verified_account {
-                    summary["status"] = serde_json::Value::String("invalid".into());
-                    summary["detail"] = serde_json::Value::String("This sign-in no longer matches the saved account identity. Reconnect the original account.".into());
+                match (&connection.account_key, model_gateway::oauth_account_key(&connection.provider).await) {
+                    (Some(expected), Ok(Some(actual))) if expected == &actual => {},
+                    (_, Err(_)) => {
+                        summary["status"] = serde_json::Value::String("checking".into());
+                        summary["detail"] = serde_json::Value::String("Checking the account connection. This can take a moment after company settings change.".into());
+                    },
+                    _ => {
+                        summary["status"] = serde_json::Value::String("invalid".into());
+                        summary["detail"] = serde_json::Value::String("This sign-in no longer matches the saved account identity. Reconnect the original account.".into());
+                    },
                 }
                 if account_owner {
                     if let Ok(Some(identity)) = model_gateway::oauth_account_identity(&connection.provider).await {
@@ -3410,8 +3416,11 @@ async fn list_owner_connections(State(state): State<OwnerState>, Extension(princ
                     "The key is missing from the account vault.".to_string()
                 });
             } else if probe.status == credential::ProbeStatus::Invalid {
+                if connection.kind == "oauth" {
+                    summary["status"] = serde_json::Value::String("checking".into());
+                }
                 summary["detail"] = serde_json::Value::String(if connection.kind == "oauth" {
-                    "The host OMP broker could not be checked. Try again.".to_string()
+                    "Checking the account connection. This can take a moment after company settings change.".to_string()
                 } else {
                     "The account vault could not be checked. Try again.".to_string()
                 });

@@ -11,7 +11,7 @@
 		provider: string;
 		kind?: 'api_key' | 'oauth';
 		account_identity?: string;
-		status?: 'present' | 'absent' | 'invalid';
+		status?: 'present' | 'absent' | 'invalid' | 'checking';
 		detail?: string | null;
 		companies: CompanyUse[];
 	};
@@ -39,6 +39,8 @@
 	let claudeSaved = $derived(connections.some((connection) => connection.kind === 'oauth' && connection.provider === 'anthropic'));
 	let codexConnected = $derived(connections.some((connection) => connection.kind === 'oauth' && connection.provider === 'openai-codex' && connection.status === 'present'));
 	let claudeConnected = $derived(connections.some((connection) => connection.kind === 'oauth' && connection.provider === 'anthropic' && connection.status === 'present'));
+	let codexChecking = $derived(connections.some((connection) => connection.kind === 'oauth' && connection.provider === 'openai-codex' && connection.status === 'checking'));
+	let claudeChecking = $derived(connections.some((connection) => connection.kind === 'oauth' && connection.provider === 'anthropic' && connection.status === 'checking'));
 	let accountScope = $state<'account' | 'company'>('account');
 	let manageUrl = $state('/account/settings/connections');
 	let loading = $state(true);
@@ -61,6 +63,7 @@
 	let nativeSignIns = $state<NativeSignIn[]>([]);
 	let nativeLoading = $state(true);
 	let nativeError = $state('');
+	let importingCompany = $state('');
 	let managingId = $state('');
 	let companyRevisions = $state<Record<string, string>>({});
 	let selectedCompany = $state('');
@@ -69,6 +72,8 @@
 	let replaceRequired = $state(false);
 	let busyCompany = $state(false);
 	let confirmRevocation = $state('');
+	let statusRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+	let statusRefreshAttempts = 0;
 
 	async function refresh() {
 		loading = true;
@@ -80,6 +85,14 @@
 			connections = body.connections ?? [];
 			accountScope = body.scope === 'company' ? 'company' : 'account';
 			manageUrl = body.manage_url ?? '/account/settings/connections';
+			if (statusRefreshTimer) clearTimeout(statusRefreshTimer);
+			if (connections.some((connection) => connection.status === 'checking') && statusRefreshAttempts < 6) {
+				statusRefreshAttempts += 1;
+				statusRefreshTimer = setTimeout(() => void refresh(), 2500);
+			} else {
+				statusRefreshAttempts = 0;
+				statusRefreshTimer = undefined;
+			}
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Could not load account connections.';
 		} finally {
@@ -127,6 +140,25 @@
 				} as Record<string, string>
 			)[state] ?? state
 		);
+	}
+	async function importCompanyCodex(companyId: string) {
+		if (importingCompany) return;
+		importingCompany = companyId;
+		error = '';
+		try {
+			const response = await fetch('/api/connections/import/company-codex', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ company: companyId })
+			});
+			const body = await response.json();
+			if (!response.ok) throw new Error(body.message ?? 'Could not use this sign-in for the account.');
+			await refresh();
+		} catch (cause) {
+			error = cause instanceof Error ? cause.message : 'Could not use this sign-in for the account.';
+		} finally {
+			importingCompany = '';
+		}
 	}
 	async function create(event: SubmitEvent) {
 		event.preventDefault();
@@ -221,6 +253,7 @@
 	function statusText(item: AccountConnection) {
 		const credential = item.kind === 'oauth' ? 'Sign-in' : 'Key';
 		if (item.status === 'present') return item.kind === 'oauth' ? 'Signed in' : 'Key stored';
+		if (item.status === 'checking') return 'Checking sign-in';
 		if (item.status === 'invalid') return `${credential} unavailable`;
 		return `${credential} missing`;
 	}
@@ -345,6 +378,7 @@
 				nativeError = 'Company sign-ins could not be loaded.';
 				nativeLoading = false;
 			});
+		return () => { if (statusRefreshTimer) clearTimeout(statusRefreshTimer); };
 	});
 </script>
 
@@ -363,16 +397,16 @@
 		>{/if}{:else if connections.length}<a class="btn primary" href={manageUrl}>Open account ↗</a>{/if}
 	</header>
 	{#if accountScope === 'account'}<section class="native-section" aria-label="Account Codex sign-in">
-		<div class="section-head"><h2>ChatGPT / Codex</h2><button class="btn primary" disabled={!!oauthJob} onclick={() => void startSignIn('codex')}>{oauthJob && oauthProvider === 'codex' ? 'Signing in…' : codexSaved ? 'Reconnect Codex' : 'Connect Codex'}</button></div>
-		<p>{codexConnected ? 'Connected to this account. Grant company access below, or reconnect the same account if its sign-in stops working.' : codexSaved ? 'The saved Codex sign-in is unavailable. Reconnect the same account to restore company access.' : 'Sign in once with a device code, then grant this account connection to the companies that need it.'}</p>
+		<div class="section-head"><h2>ChatGPT / Codex</h2><button class="btn primary" disabled={!!oauthJob || codexChecking} onclick={() => void startSignIn('codex')}>{oauthJob && oauthProvider === 'codex' ? 'Signing in…' : codexSaved ? 'Reconnect Codex' : 'Connect Codex'}</button></div>
+		<p>{codexConnected ? 'Connected to this account. Grant company access below, or reconnect the same account if its sign-in stops working.' : codexChecking ? 'Checking this sign-in after a company settings change…' : codexSaved ? 'The saved Codex sign-in is unavailable. Reconnect the same account to restore company access.' : 'Sign in once with a device code, then grant this account connection to the companies that need it.'}</p>
 		{#if oauthProvider === 'codex'}
 			{#if oauthUrl}<p><a href={oauthUrl} target="_blank" rel="noreferrer">Open Codex sign-in ↗</a>{#if oauthCode} · Enter code <strong>{oauthCode}</strong>{/if}</p>{/if}
 			{#if oauthMessage}<p role="status">{oauthMessage}</p>{:else if oauthState === 'connected'}<p role="status">Codex connected. Choose company access below.</p>{/if}
 		{/if}
 	</section>
 	<section class="native-section" aria-label="Account Claude sign-in">
-		<div class="section-head"><h2>Claude</h2><button class="btn primary" disabled={!!oauthJob} onclick={() => void startSignIn('claude')}>{oauthJob && oauthProvider === 'claude' ? 'Signing in…' : claudeSaved ? 'Reconnect Claude' : 'Connect Claude'}</button></div>
-		<p>{claudeConnected ? 'Connected to this account. Grant Claude Agent access below, or reconnect the same account if its sign-in stops working.' : claudeSaved ? 'The saved Claude sign-in is unavailable. Reconnect the same account to restore company access.' : 'Sign in once with Claude, then grant its Claude Agent model route to individual companies.'}</p>
+		<div class="section-head"><h2>Claude</h2><button class="btn primary" disabled={!!oauthJob || claudeChecking} onclick={() => void startSignIn('claude')}>{oauthJob && oauthProvider === 'claude' ? 'Signing in…' : claudeSaved ? 'Reconnect Claude' : 'Connect Claude'}</button></div>
+		<p>{claudeConnected ? 'Connected to this account. Grant Claude Agent access below, or reconnect the same account if its sign-in stops working.' : claudeChecking ? 'Checking this sign-in after a company settings change…' : claudeSaved ? 'The saved Claude sign-in is unavailable. Reconnect the same account to restore company access.' : 'Sign in once with Claude, then grant its Claude Agent model route to individual companies.'}</p>
 		{#if oauthProvider === 'claude'}
 			{#if oauthUrl}<p><a href={oauthUrl} target="_blank" rel="noreferrer">Open Claude sign-in ↗</a></p>
 				{#if oauthState === 'waiting'}<label class="callback-label">If your browser cannot reach the callback on this computer, copy its final localhost URL and paste it here.<input type="url" bind:value={oauthCallback} placeholder="http://localhost:54545/callback?code=…" autocomplete="off" /></label><button class="btn primary small" disabled={!oauthCallback.trim() || callbackBusy} onclick={() => void completeClaudeSignIn()}>{callbackBusy ? 'Finishing…' : 'Finish sign-in'}</button>{/if}
@@ -560,7 +594,7 @@
 			<h2>Company sign-ins</h2>
 			<button class="text-button" disabled={nativeLoading} onclick={() => void refreshNativeSignIns(companies)}>Refresh status</button>
 		</div>
-		<p>These older sign-ins belong to the company shown here. Connect a provider above to share one account sign-in with other companies.</p>
+		<p>These sign-ins belong to their companies. Add an existing Codex sign-in to your account, then choose which companies may use it. Adding it grants no company access; the original company sign-in stays in place.</p>
 		{#if nativeError}<p class="native-error" role="alert">{nativeError}</p>{/if}
 		{#if nativeLoading}<p role="status">Checking company sign-ins…</p>
 		{:else if nativeSignIns.length}
@@ -570,7 +604,12 @@
 						<strong>{signIn.harness === 'codex' ? 'ChatGPT / Codex' : 'Claude Code'}</strong>
 						<span>{signIn.companyName}</span>
 						<span class="native-status" class:connected={signIn.state === 'connected'}>{nativeStatus(signIn.state)}</span>
-						<a href={`/${encodeURIComponent(signIn.companyId)}/company/provider`}>Manage in company ↗</a>
+						<div class="native-actions">
+							{#if accountScope === 'account' && signIn.harness === 'codex' && signIn.state === 'connected' && !codexSaved}
+								<button class="btn small" disabled={!!importingCompany} onclick={() => void importCompanyCodex(signIn.companyId)}>{importingCompany === signIn.companyId ? 'Adding…' : 'Add to account'}</button>
+							{/if}
+							<a href={`/${encodeURIComponent(signIn.companyId)}/company/provider`}>Manage in company ↗</a>
+						</div>
 					</div>
 				{/each}
 			</div>
@@ -673,6 +712,13 @@
 	.native-status.connected {
 		color: var(--state-success);
 	}
+	.native-actions {
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: var(--space-3);
+		white-space: nowrap;
+	}
 	.native-row a {
 		justify-self: end;
 		color: var(--intent-conversation);
@@ -695,7 +741,7 @@
 	}
 	.connection-list {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr));
+		grid-template-columns: minmax(0, 1fr);
 		gap: 14px;
 		margin-top: 30px;
 	}
@@ -896,7 +942,7 @@
 		color: var(--text-tertiary);
 		line-height: 1.5;
 	}
-	@media (max-width: 620px) {
+	@media (max-width: 860px) {
 		.native-row {
 			grid-template-columns: 1fr auto;
 		}
@@ -908,10 +954,14 @@
 			grid-column: 2;
 			grid-row: 1;
 		}
-		.native-row a {
-			grid-column: 2;
-			grid-row: 2;
+		.native-actions {
+			grid-column: 1 / -1;
+			grid-row: 3;
+			justify-content: flex-start;
+			flex-wrap: wrap;
 		}
+	}
+	@media (max-width: 620px) {
 		.account-connections {
 			min-height: auto;
 			padding: 26px 20px 36px;
