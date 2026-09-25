@@ -1563,6 +1563,17 @@ async fn relay_responses(
     // The host gateway catalogue names custom routes by provider-qualified id;
     // Codex correctly uses the provider-local id on the OpenAI wire.
     request["model"] = serde_json::Value::String(grant.model.clone());
+    // Codex can replay empty message and reasoning content as `null` on a
+    // later turn. OpenAI accepts those Responses shapes, while the pinned OMP
+    // gateway's parser requires arrays. Preserve each item and its other
+    // fields, changing only the empty content representation.
+    if let Some(input) = request.get_mut("input").and_then(serde_json::Value::as_array_mut) {
+        for item in input {
+            if item.get("content").is_some_and(serde_json::Value::is_null) {
+                item["content"] = serde_json::Value::Array(Vec::new());
+            }
+        }
+    }
     let config = match live_company_model_grant(&state.root, &grant).await {
         Ok(config) => config,
         Err(_) => return relay_error(StatusCode::FORBIDDEN, "company model access was removed"),
