@@ -413,7 +413,7 @@
 								href={workHref(item.id)}
 								aria-label={`Open Work: ${item.title}`}
 							>
-								<strong>{item.title}</strong>
+								<strong style:view-transition-name={`work-title-${item.id}`}>{item.title}</strong>
 								{#if item.signal}<p>{item.signal}</p>{/if}
 								<footer>
 									<span>{ownerName(item.owner_id)}</span>

@@ -6,11 +6,29 @@
 
 	import '$lib/design/index.css';
 	import { navigating } from '$app/state';
-	import { goto } from '$app/navigation';
+	import { goto, onNavigate } from '$app/navigation';
 	import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
 	import { onMount } from 'svelte';
 
 	let { children } = $props();
+
+	/* Moving between surfaces crossfades the work area while the chrome stays
+	 * put (their view-transition names live in design/motion.css). Query-only
+	 * changes — selecting an item, switching a lens — update in place. */
+	onNavigate((navigation) => {
+		if (
+			!document.startViewTransition ||
+			window.matchMedia('(prefers-reduced-motion: reduce)').matches ||
+			navigation.from?.url.pathname === navigation.to?.url.pathname
+		)
+			return;
+		return new Promise((resolve) => {
+			document.startViewTransition(async () => {
+				resolve();
+				await navigation.complete;
+			});
+		});
+	});
 
 	let online = $state(true);
 	const isLoading = $derived(navigating.to !== null);

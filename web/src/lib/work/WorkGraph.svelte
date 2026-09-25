@@ -124,7 +124,9 @@
 								>R{node.data.item.revision}</span
 							>{/if}
 					</header>
-					<strong>{node.data.item.title}</strong>
+					<strong style:view-transition-name={`work-title-${node.data.item.id}`}
+						>{node.data.item.title}</strong
+					>
 					<footer>
 						<span>{node.data.owner}</span>
 						<small>{signal(node)}</small>

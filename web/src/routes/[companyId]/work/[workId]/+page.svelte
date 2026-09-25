@@ -288,7 +288,7 @@
 				<span title={goal?.body || undefined}>{goal?.title ?? 'Unassigned'}</span>
 			</nav>
 			<div class="work-title-row">
-				<h1>{work.title}</h1>
+				<h1 style:view-transition-name={`work-title-${work.id}`}>{work.title}</h1>
 				<div
 					class="work-detail-status status-{work.status}"
 					class:unverified={unverifiedCompletion}
@@ -531,8 +531,8 @@
 								{:else}
 									<p>
 										{ownerName(work.owner_id)} owns this part of the work for
-										{accountableLead?.display ?? ownerName(accountableLeadId ?? work.owner_id)}. Finishing
-										this part does not mean the whole outcome was accepted.
+										{accountableLead?.display ?? ownerName(accountableLeadId ?? work.owner_id)}.
+										Finishing this part does not mean the whole outcome was accepted.
 									</p>
 								{/if}
 								{#if work.status === 'abandoned'}
@@ -540,9 +540,7 @@
 										This Work was stopped and is not presented as accepted output.
 									</p>
 								{:else if revisions.length}
-									<p class="contribution-status">
-										Revisions are shown in the Work graph below.
-									</p>
+									<p class="contribution-status">Revisions are shown in the Work graph below.</p>
 								{/if}
 							</section>
 						</div>
@@ -559,11 +557,10 @@
 						{/if}
 						<dt>Goal</dt>
 						<dd>
-							{#if goal}<a href={`/${encodeURIComponent(companyId)}/work?goal=${encodeURIComponent(goal.id)}`}
+							{#if goal}<a
+									href={`/${encodeURIComponent(companyId)}/work?goal=${encodeURIComponent(goal.id)}`}
 									>{goal.title}</a
-								>{:else}<span class="muted"
-									>Unassigned</span
-								>{/if}
+								>{:else}<span class="muted">Unassigned</span>{/if}
 						</dd>
 						{#if latestAttempt}
 							<dt>Latest run</dt>

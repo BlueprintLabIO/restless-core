@@ -78,6 +78,44 @@
 	}
 }
 
+/* Surface changes (see routes/+layout.svelte). The chrome is named so it
+ * holds still; the rest of the page crossfades with a 4px settle. A Work
+ * title carries the same name on the board and on its own page, so opening
+ * it moves the title into place instead of cutting to it. */
+.bridge-root .bridge-topbar {
+	view-transition-name: bridge-topbar;
+}
+.bridge-root .bridge-dock {
+	view-transition-name: bridge-dock;
+}
+.bridge-root .bridge-exrail.open {
+	view-transition-name: bridge-exrail;
+}
+
+@keyframes bridge-vt-out {
+	to {
+		opacity: 0;
+	}
+}
+
+@keyframes bridge-vt-in {
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+}
+
+::view-transition-old(root) {
+	animation: bridge-vt-out 120ms var(--ease-out, ease-out) both;
+}
+::view-transition-new(root) {
+	animation: bridge-vt-in 220ms var(--ease-out, ease-out) 40ms both;
+}
+::view-transition-group(*) {
+	animation-duration: 260ms;
+	animation-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
 @media (prefers-reduced-motion: reduce) {
 	.bridge-root {
 		--motion-press: 1ms;
