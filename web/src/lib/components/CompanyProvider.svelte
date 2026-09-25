@@ -404,7 +404,7 @@
 <svelte:head><title>Intelligence provider — Company</title></svelte:head>
 <div class="company-page provider-page">
 	<header class="company-page-head">
-		<h1 id="reuse-title" title="Use an account sign-in or API key in this company. Model choices stay company-specific.">Intelligence</h1>
+		<h1 title="Use an account sign-in or API key in this company. Model choices stay company-specific.">Intelligence</h1>
 		<div class="provider-head-actions">
 			<CopyCompanySetting {companyId} setting="models" label="Model choices" oncopied={async () => { await Promise.all([refresh(), intelligence.refresh()]); }} />
 			<a class="account-link" href={manageUrl}>{accountScope === 'company' ? 'Open account to manage connections' : 'Manage account connections'} <span aria-hidden="true">↗</span></a>
@@ -414,9 +414,9 @@
 	<section class="connect-section" aria-labelledby="connect-title">
 		<h2 id="connect-title" title="Sign in with a subscription, or use an API key. Either can power any agent above.">Connect</h2>
 		<HarnessConnections {companyId} />
-	<section class="reuse-panel" aria-labelledby="reuse-title">
+	<section class="reuse-panel" aria-labelledby="account-connections-title">
 		<div class="reuse-section-head">
-			<div><h3 title="API keys saved in your account. Each company needs an explicit grant to use one.">Account API keys</h3></div>
+			<div><h3 id="account-connections-title" title="Sign-ins and API keys saved in your account. Each company needs an explicit grant to use one.">Account connections</h3></div>
 			{#if accountScope === 'account'}<button class="btn small" disabled={accountBusy} onclick={toggleAddConnection}>
 				{addConnectionOpen ? 'Close' : 'Add API key'}
 			</button>{/if}
@@ -448,7 +448,7 @@
 				{/each}
 			</div>
 		{:else}
-			<div class="reuse-empty"><p>No account API key is available to this company yet.</p><span>{accountScope === 'company' ? 'Open your account, then choose Account settings to grant one.' : 'Save one here or bring an existing company connection into your account.'}</span></div>
+			<div class="reuse-empty"><p>No account connection is available to this company yet.</p><span>{accountScope === 'company' ? 'Open your account, then choose Account settings to grant one.' : 'Sign in or save an API key in your account, then grant it to this company.'}</span></div>
 		{/if}
 		{#if addConnectionOpen && accountScope === 'account'}
 			<form class="add-form" onsubmit={createReusableConnection}>
