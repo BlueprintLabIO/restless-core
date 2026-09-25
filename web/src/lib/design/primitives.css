@@ -442,3 +442,12 @@
 	scrollbar-width: thin;
 	scrollbar-color: var(--scroll-thumb) transparent;
 }
+
+/* Typographic finish: headings balance their lines and prose avoids a lone
+ * last word, where the browser supports it. */
+:where(.bridge-root) :where(h1, h2, h3) {
+	text-wrap: balance;
+}
+:where(.bridge-root) :where(p, dd, li) {
+	text-wrap: pretty;
+}
