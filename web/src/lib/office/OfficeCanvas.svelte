@@ -1707,6 +1707,15 @@
 		border-right: 0;
 	}
 
+	@media (pointer: coarse) {
+		.office-camera-controls button,
+		.decor-tray button,
+		.decorate-trigger {
+			width: 44px;
+			height: 44px;
+		}
+	}
+
 	.office-camera-controls button:not(:disabled):hover,
 	.decor-tray button:hover,
 	.decorate-trigger:hover,

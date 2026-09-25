@@ -109,3 +109,21 @@
 		min-height: 44px;
 	}
 }
+
+/* Fingers need a 44px target. Disclosures and compact header controls keep
+ * their look and grow only their hit area on touch screens. */
+@media (pointer: coarse) {
+	.bridge-root details > summary {
+		box-sizing: border-box;
+		min-height: 44px;
+		padding-block: 12px;
+	}
+	.bridge-root :is(.tb-brand-home, .exr-who) {
+		min-height: 44px;
+	}
+	.bridge-root .tb-brand-home {
+		min-width: 44px;
+		justify-content: center;
+		margin-inline: -8px;
+	}
+}
