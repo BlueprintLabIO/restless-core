@@ -10,6 +10,7 @@
 
 <script lang="ts">
 	import { tooltips } from '$lib/actions/tooltips';
+	import { selectMenu } from '$lib/actions/select-menu';
 	import { theme } from '$lib/theme.svelte';
 	/* Bridge Light has one company shell. Owners receive the four owner surfaces
 	 * and bounded Exec control; collaborators receive only Work and People. The
@@ -234,7 +235,7 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<div class="bridge-root" class:immersive inert={blocked} use:tooltips>
+<div class="bridge-root" class:immersive inert={blocked} use:tooltips use:selectMenu>
 	<header class="bridge-topbar" aria-label="Global navigation">
 		<div class="tb-brand">
 			<a class="tb-brand-home" href={homeHref} aria-label={`${PRODUCT_NAME} company home`}>

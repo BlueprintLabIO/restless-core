@@ -451,3 +451,66 @@
 :where(.bridge-root) :where(p, dd, li) {
 	text-wrap: pretty;
 }
+
+/* The cockpit's own select list (actions/select-menu.ts) for browsers that
+ * cannot style the native one: the same lifted menu as ::picker(select). */
+.bridge-root .bridge-select-menu {
+	position: fixed;
+	z-index: var(--z-palette);
+	max-height: min(320px, calc(100vh - 16px));
+	overflow: auto;
+	display: grid;
+	gap: 1px;
+	padding: 4px;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius-md);
+	background: var(--surface-menu);
+	box-shadow: var(--shadow-lift);
+	transform-origin: top left;
+	animation: bridge-popover-in var(--motion-state) var(--ease-out) both;
+}
+.bridge-root .bridge-select-menu[data-side='above'] {
+	transform-origin: bottom left;
+}
+.bridge-root .bridge-select-menu [role='option'] {
+	display: flex;
+	align-items: center;
+	min-height: 30px;
+	padding: 0 10px 0 28px;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: var(--ink);
+	font: 400 var(--t-body) var(--font-ui);
+	text-align: left;
+	white-space: nowrap;
+	cursor: pointer;
+	position: relative;
+}
+.bridge-root .bridge-select-menu [role='option']:is(:hover, :focus-visible) {
+	background: var(--wash-hover);
+	outline: none;
+}
+.bridge-root .bridge-select-menu [role='option'][aria-selected='true'] {
+	font-weight: 500;
+}
+.bridge-root .bridge-select-menu [role='option'][aria-selected='true']::before {
+	content: '';
+	position: absolute;
+	left: 11px;
+	top: 50%;
+	width: 8px;
+	height: 4px;
+	border-left: 1.6px solid var(--intent-conversation);
+	border-bottom: 1.6px solid var(--intent-conversation);
+	transform: translateY(-70%) rotate(-45deg);
+}
+.bridge-root .bridge-select-menu [role='option']:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+.bridge-root .bridge-select-group {
+	padding: 6px 10px 2px;
+	color: var(--text-tertiary);
+	font-size: var(--t-label);
+}
