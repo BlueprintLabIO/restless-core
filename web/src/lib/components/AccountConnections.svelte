@@ -356,9 +356,11 @@
 				Connections
 			</h1>
 		</div>
-		{#if accountScope === 'account'}<button class="btn primary" onclick={() => (addOpen = !addOpen)}
+		<!-- The empty state carries the one first action; the header takes over
+		     once there is a list to add to. -->
+		{#if accountScope === 'account'}{#if addOpen || connections.length}<button class="btn primary" onclick={() => (addOpen = !addOpen)}
 			>{addOpen ? 'Close' : 'Add connection'}</button
-		>{:else}<a class="btn primary" href={manageUrl}>Open account ↗</a>{/if}
+		>{/if}{:else if connections.length}<a class="btn primary" href={manageUrl}>Open account ↗</a>{/if}
 	</header>
 	{#if accountScope === 'account'}<section class="native-section" aria-label="Account Codex sign-in">
 		<div class="section-head"><h2>ChatGPT / Codex</h2><button class="btn primary" disabled={!!oauthJob} onclick={() => void startSignIn('codex')}>{oauthJob && oauthProvider === 'codex' ? 'Signing in…' : codexSaved ? 'Reconnect Codex' : 'Connect Codex'}</button></div>

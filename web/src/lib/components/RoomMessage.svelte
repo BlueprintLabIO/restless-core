@@ -492,7 +492,13 @@
 		outline-offset: 2px;
 	}
 
-	.inline-actions .delete-action,
+	.inline-actions .delete-action {
+		color: var(--text-tertiary);
+	}
+
+	.inline-actions .delete-action:hover,
+	.inline-actions .delete-action:focus-visible,
+	.inline-actions .delete-action[aria-expanded='true'],
 	.delete-confirm .danger-action {
 		color: var(--state-danger);
 	}

@@ -62,7 +62,11 @@
 		sender === 'owner' && (text.length > 700 || (text.match(/\n/g)?.length ?? 0) >= 12)
 	);
 	const messagePreview = $derived(
-		text.replace(/\s+/g, ' ').trim().slice(0, 200).concat(text.trim().length > 200 ? '…' : '')
+		text
+			.replace(/\s+/g, ' ')
+			.trim()
+			.slice(0, 200)
+			.concat(text.trim().length > 200 ? '…' : '')
 	);
 
 	async function copyMessage() {
@@ -268,6 +272,20 @@
 		display: flex;
 		align-items: center;
 		gap: 2px;
+	}
+
+	/* With a mouse, actions wait for the message you are pointing at; their
+	 * space stays reserved so nothing moves. Touch keeps them visible. */
+	@media (hover: hover) and (pointer: fine) {
+		.message-actions {
+			opacity: 0;
+			transition: opacity var(--motion-state) var(--ease-standard);
+		}
+
+		.conversation-message:hover .message-actions,
+		.conversation-message:focus-within .message-actions {
+			opacity: 1;
+		}
 	}
 
 	.copy-message {

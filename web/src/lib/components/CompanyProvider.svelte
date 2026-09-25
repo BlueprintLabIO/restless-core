@@ -81,6 +81,7 @@
 	let grantMakeDefault = $state(false);
 	let grantModels = $state<Record<string, string>>({});
 	let companies = $state<CompanyCatalogEntry[]>([]);
+	const otherCompanies = $derived(companies.filter((company) => company.id !== companyId));
 	let importOpen = $state(false);
 	let importSource = $state('');
 	let importProviders = $state<Connection[]>([]);
@@ -451,8 +452,10 @@
 		{/if}
 		{#if accountScope === 'company'}
 			<p class="form-note">Account connections and grants are managed by the account owner.</p>
+		{:else if !otherCompanies.length}
+			<!-- Nothing to bring in until a second company exists. -->
 		{:else if !importOpen}
-			<button class="text-button import-link" disabled={accountBusy || companies.filter((company) => company.id !== companyId).length === 0} onclick={() => { importOpen = true; accountError = ''; }}>Bring in an API connection from another company</button>
+			<button class="text-button import-link" disabled={accountBusy} onclick={() => { importOpen = true; accountError = ''; }}>Bring in an API connection from another company</button>
 		{:else}
 			<div class="import-form"><h3>Bring in an existing connection</h3><p>Restless creates an account-level copy of the key. The original company keeps its connection. Only one API key per provider can be used across companies.</p>
 				<label>Source company<select bind:value={importSource} onchange={() => void loadImportProviders()}><option value="">Choose a company…</option>{#each companies.filter((company) => company.id !== companyId) as company}<option value={company.id}>{company.name}</option>{/each}</select></label>

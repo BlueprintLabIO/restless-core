@@ -1029,20 +1029,28 @@
 						{participants}
 					/>
 				{/if}
-				<div
-					class="room-transport"
-					class:degraded={!online || activity?.transport === 'reconnecting'}
-					role="status"
-					aria-live="polite"
-				>
-					{#if online && activity?.transport === 'live'}
-						<Wifi size={13} strokeWidth={2} aria-hidden="true" /> Live
-					{:else if online}
-						<WifiOff size={13} strokeWidth={2} aria-hidden="true" /> Reconnecting
-					{:else}
-						<WifiOff size={13} strokeWidth={2} aria-hidden="true" /> Offline
-					{/if}
-				</div>
+				<!-- Quiet while live: the stream only earns a chip when it is not. -->
+				{#if !online || activity?.transport !== 'live'}
+					<div
+						class="room-transport"
+						class:degraded={!online || activity?.transport === 'reconnecting'}
+						role="status"
+						aria-live="polite"
+						title={!online
+							? 'This device is offline. Messages will send when it reconnects.'
+							: 'New messages appear when the live connection is restored; nothing is lost.'}
+					>
+						{#if !online}
+							<WifiOff size={13} strokeWidth={2} aria-hidden="true" /> Offline
+						{:else if activity?.transport === 'reconnecting'}
+							<WifiOff size={13} strokeWidth={2} aria-hidden="true" /> Reconnecting
+						{:else}
+							<Wifi size={13} strokeWidth={2} aria-hidden="true" /> Connecting
+						{/if}
+					</div>
+				{:else}
+					<span class="sr-only" role="status">Live</span>
+				{/if}
 				{@render actions?.()}
 			</header>
 			{#if ownerAccess && directPartner && actorIsAgent(directPartner)}
@@ -1259,9 +1267,11 @@
 					key: `${selectedRoomId}:${threadRootId ?? ''}`,
 					enabled:
 						!focusedMessageId &&
-						!(exactMessageTarget &&
+						!(
+							exactMessageTarget &&
 							exactMessageTarget.roomId === selectedRoomId.toLowerCase() &&
-							exactMessageTarget.threadRootMessageId === threadRootId)
+							exactMessageTarget.threadRootMessageId === threadRootId
+						)
 				}}
 			>
 				{#if threadProjection?.hasMore}
@@ -1641,11 +1651,12 @@
 		gap: 5px;
 		flex: 0 0 auto;
 		padding: 3px 7px;
-		border: 1px solid color-mix(in srgb, var(--state-success) 24%, var(--border));
+		border: 1px solid var(--border);
 		border-radius: var(--radius-control);
-		background: var(--state-success-soft);
-		font: 500 var(--t-label) var(--font-mono);
-		color: var(--state-success);
+		background: var(--surface-alt);
+		font: 500 var(--t-label) var(--font-ui);
+		color: var(--text-tertiary);
+		animation: bridge-disclosure-in var(--motion-disclosure) var(--ease-out) both;
 	}
 
 	.room-transport.degraded {
@@ -1851,6 +1862,9 @@
 	@container conversation (max-width: 650px) {
 		.room-head {
 			flex-wrap: wrap;
+		}
+		.room-head :global(.room-manage-trigger span) {
+			display: none;
 		}
 		.room-head-copy {
 			flex: 1 0 100%;

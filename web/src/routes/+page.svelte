@@ -156,7 +156,7 @@
 											<strong>{company.name}</strong>
 											{#if company.unstartable_reason}
 												<small class="portfolio-company-unstartable" title={startIssue}
-													>cannot start</small
+													>can’t start</small
 												>
 											{:else}
 												<small>{company.runtime_status}</small>

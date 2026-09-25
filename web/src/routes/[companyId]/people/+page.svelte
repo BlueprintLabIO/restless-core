@@ -228,6 +228,15 @@
 		url.searchParams.set('view', view);
 		void goto(url, { noScroll: true, keepFocus: true });
 	}
+	/* "The Exec" is one person, not T. E.: leading articles never become initials. */
+	function initials(name: string): string {
+		return name
+			.split(/\s+/)
+			.filter((part) => part && !/^(the|a|an)$/i.test(part))
+			.slice(0, 2)
+			.map((part) => part[0]?.toUpperCase() ?? '')
+			.join('');
+	}
 	function href(person: string, room = '') {
 		const params = new URLSearchParams(room ? { room } : person ? { person } : {});
 		params.set('view', directory ? 'people' : 'conversations');
@@ -321,13 +330,7 @@
 						? 'page'
 						: undefined}
 				>
-					<span class="avatar"
-						>{person.display
-							.split(/\s+/)
-							.slice(0, 2)
-							.map((part) => part[0])
-							.join('')}</span
-					>
+					<span class="avatar">{initials(person.display)}</span>
 					<span class="directory-person-copy"
 						><span class="name">{person.display}</span>{@render personStatuses(
 							person.actor_id,
@@ -394,16 +397,8 @@
 								: undefined}
 							title={row.hint}
 						>
-							<span class="avatar"
-								>{row.name
-									.split(/\s+/)
-									.slice(0, 2)
-									.map((s) => s[0])
-									.join('')}</span
-							><span class="name">{row.name}</span>{#if row.person}{@render personStatuses(
-									row.person,
-									row.name
-								)}{/if}
+							<span class="avatar">{initials(row.name)}</span><span class="name">{row.name}</span
+							>{#if row.person}{@render personStatuses(row.person, row.name)}{/if}
 						</a>
 					</div>
 				{:else}<p class="empty">
@@ -553,24 +548,22 @@
 		min-height: 0;
 		padding: 6px;
 	}
+	/* One quiet list grouped by team: a label and spacing say "new group"; no
+	 * boxes or header bands compete with the people in it. */
 	.directory-section {
-		margin-bottom: 8px;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-control);
-		overflow: hidden;
-	}
-	.executive-section {
-		border-color: color-mix(in srgb, var(--intent-conversation) 28%, var(--border));
+		display: grid;
+		gap: 1px;
+		margin-bottom: 10px;
 	}
 	.team-directory-head {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 		gap: 8px;
-		padding: 7px 8px;
-		background: var(--surface-alt);
-		color: var(--text-secondary);
+		padding: 8px 8px 4px;
+		color: var(--text-tertiary);
 		font-size: var(--t-label);
+		font-weight: 500;
 	}
 	.team-directory-head > span {
 		display: inline-flex;
@@ -585,25 +578,38 @@
 		display: flex;
 		align-items: center;
 		box-sizing: border-box;
-		height: 42px;
-		gap: 8px;
-		padding: 8px;
+		height: 38px;
+		gap: 9px;
+		padding: 6px 8px;
 		overflow: hidden;
+		border-radius: var(--radius-control);
 		color: var(--ink);
 		text-decoration: none;
+		transition: background-color var(--motion-state) var(--ease-standard);
 	}
-	.directory-person:hover,
+	.directory-person:hover {
+		background: rgba(255, 255, 255, 0.66);
+	}
 	.directory-person:focus-visible,
 	.directory-person[aria-current='page'] {
 		background: var(--intent-conversation-soft);
 	}
+	.directory-person[aria-current='page'] .name {
+		font-weight: 600;
+	}
 	.directory-person.member {
-		padding-left: 28px;
+		padding-left: 24px;
 	}
 	.directory-person .avatar {
-		width: 25px;
-		height: 25px;
-		border-radius: 7px;
+		width: 22px;
+		height: 22px;
+		border-radius: 6px;
+	}
+	.directory-person.executive .avatar,
+	.directory-person.lead .avatar {
+		border-color: color-mix(in srgb, var(--intent-conversation) 26%, var(--border));
+		background: var(--intent-conversation-soft);
+		color: var(--intent-conversation);
 	}
 	.directory-person-copy {
 		display: flex;

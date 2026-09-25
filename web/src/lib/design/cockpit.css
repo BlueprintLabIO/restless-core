@@ -296,14 +296,12 @@
 
 .bridge-root .portfolio-grid-head > span {
 	display: flex;
-	min-height: 42px;
+	min-height: 40px;
 	align-items: center;
 	padding: 0 15px;
 	border-right: 1px solid var(--border);
 	border-bottom: 1px solid var(--border);
-	font: 600 var(--t-label) var(--font-mono);
-	letter-spacing: 0.07em;
-	text-transform: uppercase;
+	font-weight: 500;
 	color: var(--text-tertiary);
 }
 
@@ -365,8 +363,11 @@
 .bridge-root .portfolio-company-copy small {
 	margin-top: 2px;
 	font-size: var(--t-label);
-	text-transform: capitalize;
 	color: var(--text-tertiary);
+}
+
+.bridge-root .portfolio-company-copy small::first-letter {
+	text-transform: uppercase;
 }
 
 /* A company that cannot start is not merely idle: nothing will happen in it
@@ -2659,10 +2660,8 @@
 	}
 	.bridge-root .portfolio-metric .portfolio-mobile-label {
 		display: block;
-		margin: 0 0 3px;
-		font: 600 var(--t-label) var(--font-mono);
-		letter-spacing: 0.07em;
-		text-transform: uppercase;
+		margin: 0 0 2px;
+		font-weight: 500;
 	}
 	.bridge-root .attention-screen {
 		grid-template-columns: 1fr;
