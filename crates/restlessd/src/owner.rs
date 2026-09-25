@@ -3540,8 +3540,14 @@ async fn decide_email_mandate(
         return api_error(StatusCode::FORBIDDEN, "authority_owner", "only the current Authority owner may decide this mandate");
     }
     match state.daemon.authority.decide_email_mandate_proposal(&company, principal.actor_id(), proposal, approve, input.owner_note.as_deref()).await {
-        Ok(Some(mandate)) => Json(serde_json::json!({"status":"approved","mandate":mandate})).into_response(),
-        Ok(None) => Json(serde_json::json!({"status":"declined"})).into_response(),
+        Ok(Some(mandate)) => {
+            crate::approval::announce_decisions(&company, &state.daemon.authority, org.as_ref()).await;
+            Json(serde_json::json!({"status":"approved","mandate":mandate})).into_response()
+        },
+        Ok(None) => {
+            crate::approval::announce_decisions(&company, &state.daemon.authority, org.as_ref()).await;
+            Json(serde_json::json!({"status":"declined"})).into_response()
+        },
         Err(error) => api_error(StatusCode::CONFLICT, "email_mandate", format!("mandate decision failed: {error:#}")),
     }
 }
