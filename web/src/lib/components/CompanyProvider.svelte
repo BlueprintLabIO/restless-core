@@ -59,6 +59,7 @@
 		id: string;
 		label: string;
 		provider: string;
+		kind?: 'api_key' | 'oauth';
 		status?: 'present' | 'absent' | 'invalid';
 		detail?: string | null;
 		companies: { id: string; name: string; in_use?: boolean }[];
@@ -225,9 +226,10 @@
 		return model.startsWith(`${provider}/`) ? model : `${provider}/${model}`;
 	}
 	function keyStatus(connection: ReusableConnection) {
-		if (connection.status === 'present') return 'Key stored';
-		if (connection.status === 'invalid') return 'Key unavailable';
-		return 'Key missing';
+		const noun = connection.kind === 'oauth' ? 'Sign-in' : 'Key';
+		if (connection.status === 'present') return connection.kind === 'oauth' ? 'Signed in' : 'Key stored';
+		if (connection.status === 'invalid') return `${noun} unavailable`;
+		return `${noun} missing`;
 	}
 	function defaultModel(provider: string) {
 		const models = modelChoices(provider);
@@ -394,13 +396,13 @@
 	<section class="reuse-panel" aria-labelledby="reuse-title">
 		<div class="reuse-heading">
 			<div>
-				<h1 id="reuse-title" title="A provider API key is stored once at account level. Grant access to this company here; model choices stay company-specific.">Intelligence</h1>
+				<h1 id="reuse-title" title="Use an account sign-in or API key in this company. Model choices stay company-specific.">Intelligence</h1>
 			</div>
 			<a class="account-link" href={manageUrl}>{accountScope === 'company' ? 'Open account to manage connections' : 'Manage account connections'} <span aria-hidden="true">↗</span></a>
 		</div>
 		<CopyCompanySetting {companyId} setting="models" label="Model choices" oncopied={async () => { await Promise.all([refresh(), intelligence.refresh()]); }} />
 		<div class="reuse-section-head">
-			<div><h2 title="Each company needs an explicit grant to use an account-level API connection.">Available connections</h2></div>
+			<div><h2 title="Each company needs an explicit grant to use an account connection.">Available connections</h2></div>
 			{#if accountScope === 'account'}<button class="btn small" disabled={accountBusy} onclick={toggleAddConnection}>
 				{addConnectionOpen ? 'Close' : 'Add connection'}
 			</button>{/if}
@@ -411,7 +413,7 @@
 				{#each reusableConnections as item (item.id)}
 					{@const companyGrant = item.companies.find((company) => company.id === companyId)}
 					<div class="reuse-row">
-						<div class="reuse-identity"><strong>{item.label}</strong><span>{labels[item.provider] ?? item.provider}</span></div>
+						<div class="reuse-identity"><strong>{item.label}</strong><span>{labels[item.provider] ?? item.provider} · {item.kind === 'oauth' ? 'Account sign-in' : 'API key'}</span></div>
 						{#if companyGrant}
 							<span class="grant-state">Available to this company</span>
 							{#if companyGrant.in_use}<span class="grant-count" title="Choose another model for this provider before removing access.">In use</span>{:else if accountScope === 'account'}<button class="text-button danger" disabled={accountBusy || !status} onclick={() => revokeConnection(item)}>Remove access</button>{/if}
@@ -427,7 +429,7 @@
 							<span class="grant-count">{keyStatus(item)}{item.companies.length ? ` · used by ${item.companies.length}` : ''}</span>
 							<button class="btn primary small" disabled={accountBusy || !status || item.status !== 'present'} onclick={() => beginGrant(item)}>Use</button>
 						{/if}
-						{#if item.status !== 'present'}<span class="connection-unavailable" title={item.detail ?? 'Check or replace this API key from account connections.'}>Unavailable</span>{/if}
+						{#if item.status !== 'present'}<span class="connection-unavailable" title={item.detail ?? 'Check this connection in account settings.'}>Unavailable</span>{/if}
 					</div>
 				{/each}
 			</div>

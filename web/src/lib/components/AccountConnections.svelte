@@ -35,7 +35,10 @@
 		['litellm', 'OpenAI-compatible gateway']
 	];
 	let connections = $state<AccountConnection[]>([]);
-	let codexConnected = $derived(connections.some((connection) => connection.kind === 'oauth' && connection.provider === 'openai-codex'));
+	let codexSaved = $derived(connections.some((connection) => connection.kind === 'oauth' && connection.provider === 'openai-codex'));
+	let claudeSaved = $derived(connections.some((connection) => connection.kind === 'oauth' && connection.provider === 'anthropic'));
+	let codexConnected = $derived(connections.some((connection) => connection.kind === 'oauth' && connection.provider === 'openai-codex' && connection.status === 'present'));
+	let claudeConnected = $derived(connections.some((connection) => connection.kind === 'oauth' && connection.provider === 'anthropic' && connection.status === 'present'));
 	let accountScope = $state<'account' | 'company'>('account');
 	let manageUrl = $state('/account/settings/connections');
 	let loading = $state(true);
@@ -46,8 +49,11 @@
 	let provider = $state('anthropic');
 	let secret = $state('');
 	let oauthJob = $state('');
+	let oauthProvider = $state<'codex' | 'claude'>('codex');
 	let oauthUrl = $state('');
 	let oauthCode = $state('');
+	let oauthCallback = $state('');
+	let callbackBusy = $state(false);
 	let oauthState = $state('');
 	let oauthMessage = $state('');
 	let companies = $state<CompanyCatalogEntry[]>([]);
@@ -146,24 +152,46 @@
 			busy = false;
 		}
 	}
-	async function startCodexSignIn() {
+	async function startSignIn(provider: 'codex' | 'claude') {
 		if (oauthJob) return;
+		oauthProvider = provider;
 		oauthMessage = '';
 		oauthUrl = '';
 		oauthCode = '';
+		oauthCallback = '';
 		oauthState = '';
 		try {
-			const response = await fetch('/api/connections/oauth/codex', { method: 'POST' });
+			const response = await fetch(`/api/connections/oauth/${provider}`, { method: 'POST' });
 			const body = await response.json();
-			if (!response.ok) throw new Error(body.message ?? 'Could not start Codex sign-in.');
+			if (!response.ok) throw new Error(body.message ?? 'Could not start sign-in.');
 			oauthJob = body.job;
 			oauthState = 'starting';
-			void pollCodexSignIn(body.job);
+			void pollSignIn(body.job);
 		} catch (cause) {
-			oauthMessage = cause instanceof Error ? cause.message : 'Could not start Codex sign-in.';
+			oauthMessage = cause instanceof Error ? cause.message : 'Could not start sign-in.';
 		}
 	}
-	async function pollCodexSignIn(job: string) {
+	async function completeClaudeSignIn() {
+		if (!oauthJob || !oauthCallback.trim() || callbackBusy) return;
+		callbackBusy = true;
+		oauthMessage = '';
+		try {
+			const response = await fetch(`/api/connections/oauth/jobs/${encodeURIComponent(oauthJob)}/callback`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ callback_url: oauthCallback.trim() })
+			});
+			const body = await response.json();
+			if (!response.ok) throw new Error(body.message ?? 'Could not finish Claude sign-in.');
+			oauthCallback = '';
+			oauthState = 'completing';
+		} catch (cause) {
+			oauthMessage = cause instanceof Error ? cause.message : 'Could not finish Claude sign-in.';
+		} finally {
+			callbackBusy = false;
+		}
+	}
+	async function pollSignIn(job: string) {
 		for (let attempt = 0; attempt < 300 && oauthJob === job; attempt++) {
 			try {
 				const response = await fetch(`/api/connections/oauth/jobs/${encodeURIComponent(job)}`, { cache: 'no-store' });
@@ -177,7 +205,6 @@
 					oauthJob = '';
 					if (body.state === 'connected') {
 						await refresh();
-						setTimeout(() => void refresh(), 8000);
 					}
 					return;
 				}
@@ -334,43 +361,23 @@
 		>{:else}<a class="btn primary" href={manageUrl}>Open account ↗</a>{/if}
 	</header>
 	{#if accountScope === 'account'}<section class="native-section" aria-label="Account Codex sign-in">
-		<div class="section-head"><h2>ChatGPT / Codex</h2>{#if !codexConnected}<button class="btn primary" disabled={!!oauthJob} onclick={() => void startCodexSignIn()}>{oauthJob ? 'Signing in…' : 'Connect Codex'}</button>{/if}</div>
-		<p>{codexConnected ? 'Connected to this account. Choose company access below.' : 'Sign in once with a device code, then grant this account connection to the companies that need it.'}</p>
-		{#if oauthUrl}<p><a href={oauthUrl} target="_blank" rel="noreferrer">Open Codex sign-in ↗</a>{#if oauthCode} · Enter code <strong>{oauthCode}</strong>{/if}</p>{/if}
-		{#if oauthMessage}<p role="status">{oauthMessage}</p>{:else if oauthState === 'connected'}<p role="status">Codex connected. Choose company access below.</p>{/if}
-	</section>{/if}
-	<section class="native-section" aria-label="Native sign-ins by company">
-		<div class="section-head">
-			<h2>Company sign-ins</h2>
-			<button
-				class="text-button"
-				disabled={nativeLoading}
-				onclick={() => void refreshNativeSignIns(companies)}>Refresh status</button
-			>
-		</div>
-		<p>
-			Codex and Claude sign-ins belong to the company shown here. They cannot yet be granted to
-			another company.
-		</p>
-		{#if nativeError}<p class="native-error" role="alert">{nativeError}</p>{/if}
-		{#if nativeLoading}<p role="status">Checking company sign-ins…</p>
-		{:else if nativeSignIns.length}
-			<div class="native-list">
-				{#each nativeSignIns as signIn (`${signIn.companyId}:${signIn.harness}`)}
-					<div class="native-row">
-						<strong>{signIn.harness === 'codex' ? 'ChatGPT / Codex' : 'Claude Code'}</strong>
-						<span>{signIn.companyName}</span>
-						<span class="native-status" class:connected={signIn.state === 'connected'}
-							>{nativeStatus(signIn.state)}</span
-						>
-						<a href={`/${encodeURIComponent(signIn.companyId)}/company/provider`}
-							>Manage in company ↗</a
-						>
-					</div>
-				{/each}
-			</div>
-		{:else}<p>No company OAuth sign-ins are configured.</p>{/if}
+		<div class="section-head"><h2>ChatGPT / Codex</h2><button class="btn primary" disabled={!!oauthJob} onclick={() => void startSignIn('codex')}>{oauthJob && oauthProvider === 'codex' ? 'Signing in…' : codexSaved ? 'Reconnect Codex' : 'Connect Codex'}</button></div>
+		<p>{codexConnected ? 'Connected to this account. Grant company access below, or reconnect the same account if its sign-in stops working.' : codexSaved ? 'The saved Codex sign-in is unavailable. Reconnect the same account to restore company access.' : 'Sign in once with a device code, then grant this account connection to the companies that need it.'}</p>
+		{#if oauthProvider === 'codex'}
+			{#if oauthUrl}<p><a href={oauthUrl} target="_blank" rel="noreferrer">Open Codex sign-in ↗</a>{#if oauthCode} · Enter code <strong>{oauthCode}</strong>{/if}</p>{/if}
+			{#if oauthMessage}<p role="status">{oauthMessage}</p>{:else if oauthState === 'connected'}<p role="status">Codex connected. Choose company access below.</p>{/if}
+		{/if}
 	</section>
+	<section class="native-section" aria-label="Account Claude sign-in">
+		<div class="section-head"><h2>Claude</h2><button class="btn primary" disabled={!!oauthJob} onclick={() => void startSignIn('claude')}>{oauthJob && oauthProvider === 'claude' ? 'Signing in…' : claudeSaved ? 'Reconnect Claude' : 'Connect Claude'}</button></div>
+		<p>{claudeConnected ? 'Connected to this account. Grant Claude Agent access below, or reconnect the same account if its sign-in stops working.' : claudeSaved ? 'The saved Claude sign-in is unavailable. Reconnect the same account to restore company access.' : 'Sign in once with Claude, then grant its Claude Agent model route to individual companies.'}</p>
+		{#if oauthProvider === 'claude'}
+			{#if oauthUrl}<p><a href={oauthUrl} target="_blank" rel="noreferrer">Open Claude sign-in ↗</a></p>
+				{#if oauthState === 'waiting'}<label class="callback-label">If your browser cannot reach the callback on this computer, copy its final localhost URL and paste it here.<input type="url" bind:value={oauthCallback} placeholder="http://localhost:54545/callback?code=…" autocomplete="off" /></label><button class="btn primary small" disabled={!oauthCallback.trim() || callbackBusy} onclick={() => void completeClaudeSignIn()}>{callbackBusy ? 'Finishing…' : 'Finish sign-in'}</button>{/if}
+			{/if}
+			{#if oauthMessage}<p role="status">{oauthMessage}</p>{:else if oauthState === 'completing'}<p role="status">Finishing Claude sign-in…</p>{:else if oauthState === 'connected'}<p role="status">Claude connected. Choose company access below.</p>{/if}
+		{/if}
+	</section>{/if}
 	{#if error}<div class="error" role="alert">
 			{error}<button class="btn small" onclick={() => void refresh()}>Try again</button>
 		</div>{/if}
@@ -539,13 +546,34 @@
 		<div class="empty">
 			<h2>No reusable connections yet</h2>
 			<p>
-				Save an API key or connect Codex above, then choose
+				Save an API key or connect Codex or Claude above, then choose
 				which companies can use it.
 			</p>
 			<button class="btn primary" onclick={() => (addOpen = true)}>Add your first connection</button
 			>
 		</div>
 	{/if}
+	<section class="native-section" aria-label="Native sign-ins by company">
+		<div class="section-head">
+			<h2>Company sign-ins</h2>
+			<button class="text-button" disabled={nativeLoading} onclick={() => void refreshNativeSignIns(companies)}>Refresh status</button>
+		</div>
+		<p>These older sign-ins belong to the company shown here. Connect a provider above to share one account sign-in with other companies.</p>
+		{#if nativeError}<p class="native-error" role="alert">{nativeError}</p>{/if}
+		{#if nativeLoading}<p role="status">Checking company sign-ins…</p>
+		{:else if nativeSignIns.length}
+			<div class="native-list">
+				{#each nativeSignIns as signIn (`${signIn.companyId}:${signIn.harness}`)}
+					<div class="native-row">
+						<strong>{signIn.harness === 'codex' ? 'ChatGPT / Codex' : 'Claude Code'}</strong>
+						<span>{signIn.companyName}</span>
+						<span class="native-status" class:connected={signIn.state === 'connected'}>{nativeStatus(signIn.state)}</span>
+						<a href={`/${encodeURIComponent(signIn.companyId)}/company/provider`}>Manage in company ↗</a>
+					</div>
+				{/each}
+			</div>
+		{:else}<p>No company OAuth sign-ins are configured.</p>{/if}
+	</section>
 </main>
 
 <style>
@@ -599,6 +627,23 @@
 	}
 	.native-section .native-error {
 		color: var(--state-danger);
+	}
+	.callback-label {
+		display: grid;
+		gap: var(--space-2);
+		max-width: 720px;
+		margin: 16px 0 12px;
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+	}
+	.callback-label input {
+		width: 100%;
+		padding: 10px 12px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-control);
+		background: var(--surface-pane);
+		color: var(--text-primary);
+		font: inherit;
 	}
 	.native-list {
 		margin-top: 16px;

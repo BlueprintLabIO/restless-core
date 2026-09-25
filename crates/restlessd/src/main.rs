@@ -880,10 +880,10 @@ async fn run() -> Result<()> {
             .await
             {
                 Ok(processes) => {
-                    if processes.is_some() {
+                    if model_gateway::is_ready() {
                         tracing::info!("model gateway ready");
                     } else {
-                        tracing::info!("no direct model gateway needed; native harness routes remain available");
+                        tracing::info!("account model broker ready; no direct model route is admitted yet");
                     }
                     // Providers load only when the gateway starts, so restart it
                     // when a company's model route or credential references

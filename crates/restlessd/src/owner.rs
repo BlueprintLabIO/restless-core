@@ -1333,7 +1333,9 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         )
         .route("/connections/import", post(import_owner_connection))
         .route("/connections/oauth/codex", post(oauth_login_api::start_codex_login))
+        .route("/connections/oauth/claude", post(oauth_login_api::start_claude_login))
         .route("/connections/oauth/jobs/{job}", get(oauth_login_api::oauth_login_status))
+        .route("/connections/oauth/jobs/{job}/callback", post(oauth_login_api::complete_claude_login))
         .route(
             "/companies/{company}/connections/{connection}",
             post(grant_owner_connection).delete(revoke_owner_connection),
@@ -3140,6 +3142,8 @@ struct OwnerModelConnection {
     provider: String,
     #[serde(default = "default_owner_connection_kind")]
     kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    account_key: Option<String>,
 }
 
 fn default_owner_connection_kind() -> String {
@@ -3187,6 +3191,7 @@ fn load_owner_connections(root: &std::path::Path) -> Result<OwnerModelConnection
                 !matches!(connection.kind.as_str(), "api_key" | "oauth")
                     || !valid_provider_id(&connection.provider)
                     || connection.id.is_empty()
+                    || connection.account_key.as_ref().is_some_and(|key| connection.kind != "oauth" || key.is_empty() || key.len() > 200 || key.chars().any(char::is_control))
             }) {
                 bail!(
                     "owner connection registry contains an unsupported connection kind or identity"
@@ -3245,6 +3250,13 @@ pub(crate) fn account_connection_matches(root: &std::path::Path, provider: &str,
     Ok(registry.connections.iter().any(|connection| {
         connection.provider == provider && owner_connection_reference(connection) == reference
     }))
+}
+
+pub(crate) fn account_oauth_key(root: &std::path::Path, provider: &str, reference: &str) -> Result<Option<String>> {
+    let registry = load_owner_connections(root)?;
+    Ok(registry.connections.iter().find(|connection| {
+        connection.kind == "oauth" && connection.provider == provider && owner_connection_reference(connection) == reference
+    }).and_then(|connection| connection.account_key.clone()))
 }
 
 fn valid_provider_id(provider: &str) -> bool {
@@ -3341,9 +3353,19 @@ async fn list_owner_connections(State(state): State<OwnerState>, Extension(princ
             );
             let probe = credential::probe_reference(&owner_connection_reference(connection)).await;
             summary["status"] = serde_json::Value::String(probe.status.as_str().to_string());
-            if account_owner && connection.kind == "oauth" && probe.status == credential::ProbeStatus::Present {
-                if let Ok(Some(identity)) = model_gateway::oauth_account_identity(&connection.provider).await {
-                    summary["account_identity"] = serde_json::Value::String(identity);
+            if connection.kind == "oauth" && probe.status == credential::ProbeStatus::Present {
+                let verified_account = match (&connection.account_key, model_gateway::oauth_account_key(&connection.provider).await) {
+                    (Some(expected), Ok(Some(actual))) => expected == &actual,
+                    _ => false,
+                };
+                if !verified_account {
+                    summary["status"] = serde_json::Value::String("invalid".into());
+                    summary["detail"] = serde_json::Value::String("This sign-in no longer matches the saved account identity. Reconnect the original account.".into());
+                }
+                if account_owner {
+                    if let Ok(Some(identity)) = model_gateway::oauth_account_identity(&connection.provider).await {
+                        summary["account_identity"] = serde_json::Value::String(identity);
+                    }
                 }
             }
             if probe.status == credential::ProbeStatus::Absent {
@@ -3440,11 +3462,12 @@ async fn create_owner_connection(
             "An OAuth connection for this provider is already registered.",
         );
     }
-    let connection = OwnerModelConnection {
+    let mut connection = OwnerModelConnection {
         id: Uuid::new_v4().simple().to_string(),
         label: label.to_string(),
         provider: provider.to_string(),
         kind: kind.to_string(),
+        account_key: None,
     };
     if connection.kind == "oauth" {
         let reference = owner_connection_reference(&connection);
@@ -3456,6 +3479,10 @@ async fn create_owner_connection(
                 "The host OMP broker does not have an active OAuth connection for this provider.",
             );
         }
+        connection.account_key = match model_gateway::oauth_account_key(provider).await {
+            Ok(Some(key)) => Some(key),
+            _ => return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "The host broker did not provide a verifiable provider account identity."),
+        };
     } else {
         let reference = model_connection_reference(&connection.id);
         if credential::store_reference(&reference, input.secret.as_deref().unwrap_or_default())
@@ -3567,6 +3594,7 @@ async fn import_owner_connection(
         label: label.to_string(),
         provider: provider.to_string(),
         kind: "api_key".into(),
+        account_key: None,
     };
     let reference = owner_connection_reference(&connection);
     if credential::store_reference(&reference, &secret)
