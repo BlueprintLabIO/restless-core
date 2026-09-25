@@ -863,6 +863,14 @@
 		border-color var(--motion-state) var(--ease-standard);
 }
 
+.bridge-root .attention-start-blocker.inline {
+	position: static;
+	max-width: none;
+	margin: 8px;
+	box-shadow: none;
+	animation: none;
+}
+
 .bridge-root .attention-start-blocker:hover {
 	border-color: color-mix(in srgb, var(--intent-authority) 48%, rgba(255, 255, 255, 0.72));
 }

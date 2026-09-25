@@ -560,7 +560,9 @@
 						{/if}
 						<dt>Goal</dt>
 						<dd>
-							{#if goal}<a href={backHref()}>{goal.title}</a>{:else}<span class="muted"
+							{#if goal}<a href={`/${encodeURIComponent(companyId)}/work?goal=${encodeURIComponent(goal.id)}`}
+									>{goal.title}</a
+								>{:else}<span class="muted"
 									>Unassigned</span
 								>{/if}
 						</dd>

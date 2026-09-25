@@ -691,6 +691,18 @@
 		{#if error}<div class="cockpit-error attention-error">{error}</div>{/if}
 		<aside class="cockpit-pane attention-index" aria-hidden={queueClear} inert={queueClear}>
 			<div class="attention-index-scroll">
+				{#if startBlocker && !queueClear}
+					<a class="attention-start-blocker inline" href={startFixHref(companyId)}>
+						<span class="attention-start-glyph" aria-hidden="true">
+							<MatrixGlyph rows={GLYPHS.alert} size={7} />
+						</span>
+						<span class="attention-start-copy">
+							<strong>Can’t start yet</strong>
+							<span>{startBlocker}</span>
+						</span>
+						<span class="attention-start-go" aria-hidden="true">→</span>
+					</a>
+				{/if}
 				<div class="attention-list">
 					{#each items as item (item.id)}
 						<a

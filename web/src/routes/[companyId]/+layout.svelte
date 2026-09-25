@@ -152,11 +152,11 @@
 	/* Until intelligence is connected the rail can only say so, and the start
 	 * blocker already says it on Attention. Start it closed once so the work
 	 * surface keeps the width; the owner can still open it. */
-	let railClosedForSetup = false;
+	let railClosedForSetup = '';
 	$effect(() => {
-		if (railClosedForSetup || focusedAttention) return;
+		if (railClosedForSetup === companyId || focusedAttention) return;
 		if (intelligence.view?.has_connections === false) {
-			railClosedForSetup = true;
+			railClosedForSetup = companyId;
 			execRailOpen = false;
 		}
 	});

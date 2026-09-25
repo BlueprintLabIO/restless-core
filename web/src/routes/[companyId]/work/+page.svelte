@@ -2,6 +2,7 @@
 	import { WORK_STATUS_LABEL, runStateLabel, workStatusLabel } from '$lib/work/status';
 	import { resizePane } from '$lib/actions/resize-pane';
 	import { page } from '$app/state';
+	import { untrack } from 'svelte';
 	import { replaceState } from '$app/navigation';
 	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
 	import {
@@ -41,23 +42,32 @@
 	);
 	type WorkItem = WorkRow | CollaborationWork;
 	/* A dependency map needs width to be legible; on a phone the board, stacked
-	 * as one list, is the useful first view. An explicit lens always wins. */
-	const requestedLens = page.url.searchParams.get('lens');
-	let lens = $state<'map' | 'board'>(
-		requestedLens === 'board' || requestedLens === 'map'
-			? requestedLens
-			: typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches
-				? 'board'
-				: 'map'
-	);
+	 * as one list, is the useful first view. An explicit lens always wins, and
+	 * only an explicit choice is written into the address, so a shared link
+	 * still opens on the right default for the other person's screen. */
+	function defaultLens(): 'map' | 'board' {
+		return typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches
+			? 'board'
+			: 'map';
+	}
+	let lens = $state<'map' | 'board'>('map');
+	let lensExplicit = $state(false);
+	function chooseLens(value: 'map' | 'board') {
+		lens = value;
+		lensExplicit = true;
+	}
 	const ALL_WORK_QUERY = 'all';
 	const UNASSIGNED_QUERY = 'unassigned';
 	let selectedGoal = $state<string>('');
 	let goalSelectionInitialized = $state(false);
 	let showHistory = $state(false);
+	/* The search string this page last wrote. Any other change to the address
+	 * (a command-menu jump, the Work tab, Back) is read as a new request. */
+	let writtenSearch = '';
 
 	$effect(() => {
-		if (!loaded || goalSelectionInitialized) return;
+		const search = page.url.search;
+		if (!loaded || (goalSelectionInitialized && search === writtenSearch)) return;
 		const requestedGoal = page.url.searchParams.get('goal');
 		/* A named goal can only be matched once the goals themselves arrive. */
 		const goalsLoaded = ownerAccess ? !!cockpit : !!collaboration;
@@ -68,9 +78,16 @@
 			!goalsLoaded
 		)
 			return;
-		selectedGoal = goals.find((goal) => goal.id === requestedGoal)?.id ?? '';
-		if (!selectedGoal && requestedGoal === UNASSIGNED_QUERY) selectedGoal = UNASSIGNED_QUERY;
-		goalSelectionInitialized = true;
+		const requestedLens = page.url.searchParams.get('lens');
+		untrack(() => {
+			selectedGoal = goals.find((goal) => goal.id === requestedGoal)?.id ?? '';
+			if (!selectedGoal && requestedGoal === UNASSIGNED_QUERY) selectedGoal = UNASSIGNED_QUERY;
+			lensExplicit = requestedLens === 'board' || requestedLens === 'map';
+			lens = lensExplicit ? (requestedLens as 'map' | 'board') : defaultLens();
+			showHistory = false;
+			writtenSearch = search;
+			goalSelectionInitialized = true;
+		});
 	});
 
 	/* The view is part of the address: a filtered board can be reloaded,
@@ -80,7 +97,9 @@
 		const url = new URL(page.url);
 		if (selectedGoal) url.searchParams.set('goal', selectedGoal);
 		else url.searchParams.delete('goal');
-		url.searchParams.set('lens', lens);
+		if (lensExplicit) url.searchParams.set('lens', lens);
+		else url.searchParams.delete('lens');
+		writtenSearch = url.search;
 		if (url.search !== page.url.search) replaceState(url, page.state);
 	});
 
@@ -216,12 +235,12 @@
 
 	function toggleHistory() {
 		showHistory = !showHistory;
-		if (showHistory) lens = 'board';
+		if (showHistory) chooseLens('board');
 	}
 
 	function showMap() {
 		showHistory = false;
-		lens = 'map';
+		chooseLens('map');
 	}
 
 	function workHref(workId: string): string {
@@ -328,7 +347,7 @@
 				</a>
 				<div class="lens-switch" class:board={lens === 'board'} role="group" aria-label="Work view">
 					<button type="button" aria-pressed={lens === 'map'} onclick={showMap}>Map</button>
-					<button type="button" aria-pressed={lens === 'board'} onclick={() => (lens = 'board')}
+					<button type="button" aria-pressed={lens === 'board'} onclick={() => chooseLens('board')}
 						>Board</button
 					>
 				</div>

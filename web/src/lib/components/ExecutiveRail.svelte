@@ -258,6 +258,15 @@
 	const focusActive = $derived(newFocusPending || focusStartedAt !== null);
 	// Each durable reply keeps its own timestamp, intent, and navigation target.
 	const visibleMessages = $derived(messages);
+	/* Mirrors the transcript's empty-state branch: only there does the
+	 * connect action appear beside its explanation. */
+	const providerPromptInline = $derived(
+		visibleMessages.length === 0 &&
+			conversationStatus !== 'unknown' &&
+			!focusActive &&
+			!review &&
+			!workContext
+	);
 	const hasMessagesAfterFocus = $derived(
 		focusActive &&
 			messages.some((message) => messageNumericId(message.id) > activeFocusAfterMessageId)
@@ -593,7 +602,17 @@
 				</div>
 
 				{#if needsProvider}
-					<!-- The connect action sits with its explanation above. -->
+					<!-- In the empty state the connect action sits with its explanation
+					     above; otherwise it takes the composer's place. -->
+					{#if !providerPromptInline}
+						<a
+							class="btn primary small provider-connect-slot"
+							href={`/${companyId}/company/provider`}
+							><Plus size={14} strokeWidth={2} aria-hidden="true" /><span
+								>Add intelligence provider</span
+							></a
+						>
+					{/if}
 				{:else}
 					<form class="exr-composer" onsubmit={submitAsk}>
 						<Composer
@@ -662,6 +681,9 @@
 		border-radius: var(--radius-control);
 	}
 
+	.provider-connect-slot {
+		margin: var(--space-3);
+	}
 	.provider-connect {
 		margin-top: var(--space-4);
 	}

@@ -194,9 +194,13 @@
 			(event.target as Element | null)?.closest?.('#bridge-exrail') &&
 			!(event.target as Element).closest('dialog, [role="dialog"], [role="listbox"]')
 		) {
-			event.preventDefault();
-			onexectoggle();
-			document.querySelector<HTMLElement>('.tb-exec')?.focus();
+			/* Decide after dispatch: a search or popover inside the rail that
+			 * consumed Escape (preventDefault) keeps the rail open. */
+			window.setTimeout(() => {
+				if (event.defaultPrevented || !railOpen) return;
+				onexectoggle?.();
+				document.querySelector<HTMLElement>('.tb-exec')?.focus();
+			});
 			return;
 		}
 		if (event.metaKey || event.ctrlKey || event.altKey || typing(event.target)) return;
@@ -292,7 +296,7 @@
 				<span
 					class="tb-indicator"
 					class:placed={indicatorPlaced}
-					style:--tb-indicator-x={`${indicator.x - 3}px`}
+					style:--tb-indicator-x={`${indicator.x}px`}
 					style:--tb-indicator-w={`${indicator.w}px`}
 					style:--tab-tone={indicator.tone}
 					aria-hidden="true"

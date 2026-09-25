@@ -36,14 +36,19 @@
 		return MODEL_PRESETS.find((p) => p.id === id)?.name ?? id;
 	});
 	let detailsDismissed = $state(false);
+	let hover: HTMLDivElement | undefined = $state();
 </script>
 
 <svelte:window
 	onkeydown={(event) => {
-		if (event.key === 'Escape') detailsDismissed = true;
+		if (event.key !== 'Escape' || detailsDismissed) return;
+		detailsDismissed = true;
+		// Consumed only while the details were showing.
+		if (hover?.matches(':hover, :focus-within')) event.preventDefault();
 	}}
 />
 <div
+	bind:this={hover}
 	class="intelligence-hover"
 	role="group"
 	class:dismissed={detailsDismissed}

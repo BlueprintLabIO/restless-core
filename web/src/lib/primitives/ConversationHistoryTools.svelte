@@ -61,6 +61,8 @@
 			event.preventDefault();
 			jump(event.shiftKey ? -1 : 1);
 		} else if (event.key === 'Escape') {
+			// Consumed here: Escape closes the search, not the pane around it.
+			event.preventDefault();
 			open = false;
 		}
 	}
