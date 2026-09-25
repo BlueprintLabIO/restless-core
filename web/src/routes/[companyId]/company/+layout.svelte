@@ -14,30 +14,33 @@
 	import Users from '@lucide/svelte/icons/users';
 	import Sparkles from '@lucide/svelte/icons/sparkles';
 	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
+	import { COMPANY_PAGES, companyPageHref } from '$lib/model/company-pages';
 
 	let { children } = $props();
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	const computerSurface = $derived(page.url.pathname === `/${companyId}/company/computer`);
 	const principal = $derived(companyPrincipalQuery(companyId).view);
-	const allRoutes = $derived([
-		{ section: 'Setup', label: 'Charter', href: `/${companyId}/company`, exact: true, icon: BookOpen },
-		{ section: 'Setup', label: 'Identity', href: `/${companyId}/company/identity`, icon: Fingerprint },
-		{ section: 'Setup', label: 'Members', href: `/${companyId}/company/members`, icon: Users },
-		{ section: 'Setup', label: 'Skills', href: `/${companyId}/company/skills`, icon: Sparkles },
-		{ section: 'Setup', label: 'Intelligence', href: `/${companyId}/company/provider`, icon: Settings },
-		{ section: 'Setup', label: 'Vault', href: `/${companyId}/company/vault`, icon: KeyRound },
-		{ section: 'Operations', label: 'Schedules', href: `/${companyId}/company/schedules`, icon: Activity },
-		{
-			section: 'Operations',
-			label: 'Access & limits',
-			href: `/${companyId}/company/resources`,
-			icon: ShieldCheck
-		},
-		{ section: 'Operations', label: 'Computer', href: `/${companyId}/company/computer`, icon: Monitor },
-		{ section: 'Activity', label: 'Doctor', href: `/${companyId}/company/doctor`, icon: Activity },
-		{ section: 'Activity', label: 'Decision history', href: `/${companyId}/company/decisions`, icon: ListChecks },
-		{ section: 'Activity', label: 'External activity', href: `/${companyId}/company/actions`, icon: RadioTower }
-	]);
+	const icons = {
+		charter: BookOpen,
+		identity: Fingerprint,
+		members: Users,
+		skills: Sparkles,
+		provider: Settings,
+		vault: KeyRound,
+		schedules: Activity,
+		resources: ShieldCheck,
+		computer: Monitor,
+		doctor: Activity,
+		decisions: ListChecks,
+		actions: RadioTower
+	} as const;
+	const allRoutes = $derived(
+		COMPANY_PAGES.map((route) => ({
+			...route,
+			href: companyPageHref(companyId, route),
+			icon: icons[route.key as keyof typeof icons]
+		}))
+	);
 	// Administrators see only the access they manage; the rest is the owner's.
 	const routes = $derived(
 		principal?.membership_role === 'owner'
@@ -85,7 +88,11 @@
 			<nav aria-label="Company">
 				{#each routes as route, index (route.href)}
 					{@const RouteIcon = route.icon}
-					{#if index === 0 || routes[index - 1].section !== route.section}<div class="company-nav-group">{route.section}</div>{/if}
+					{#if index === 0 || routes[index - 1].section !== route.section}<div
+							class="company-nav-group"
+						>
+							{route.section}
+						</div>{/if}
 					<a
 						class:active={active(route)}
 						href={route.href}

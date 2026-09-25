@@ -20,6 +20,8 @@
 	import { resizePane } from '$lib/actions/resize-pane';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import MessageSquare from '@lucide/svelte/icons/message-square';
+	import SearchIcon from '@lucide/svelte/icons/search';
+	import CommandMenu, { type Command } from '$lib/components/CommandMenu.svelte';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import type { CompanyCatalogEntry } from '$lib/model/cockpit';
 	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
@@ -39,6 +41,7 @@
 		railOpen = true,
 		immersive = false,
 		onexectoggle = null,
+		commands = [],
 		rail = null,
 		children
 	}: {
@@ -61,6 +64,8 @@
 		immersive?: boolean;
 		/** The one control for the rail: presence lamp and open/close in a single stable button. */
 		onexectoggle?: (() => void) | null;
+		/** Destinations and actions for the command menu (⌘K). */
+		commands?: Command[];
 		/**
 		 * The persistent executive transcript. Omitted on surfaces that already
 		 * hold a conversation with a specific actor — People carries its own, and
@@ -84,6 +89,29 @@
 	const tabKeys: Record<string, string> = { attention: 'a', work: 'w', people: 'p', company: 'c' };
 	const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 	const execShortcut = isMac ? '⌘J' : 'Ctrl+J';
+	const menuShortcut = isMac ? '⌘K' : 'Ctrl+K';
+	let commandMenuOpen = $state(false);
+	const menuCommands = $derived<Command[]>([
+		...tabs.map((tab) => ({
+			id: `surface:${tab.key}`,
+			group: 'Go to',
+			label: tab.label,
+			hint: tabKeys[tab.key] ? `G then ${tabKeys[tab.key].toUpperCase()}` : undefined,
+			href: tab.href
+		})),
+		...(rail && onexectoggle
+			? [
+					{
+						id: 'exec:toggle',
+						group: 'Go to',
+						label: railOpen ? `Hide ${execName}` : `Talk to ${execName}`,
+						hint: execShortcut,
+						run: () => onexectoggle?.()
+					}
+				]
+			: []),
+		...commands
+	]);
 
 	let tabNav: HTMLElement | undefined = $state();
 	let indicator = $state<{ x: number; w: number; tone: string } | null>(null);
@@ -127,6 +155,12 @@
 	let surfaceKeyTimer: number | undefined;
 	function onKeydown(event: KeyboardEvent) {
 		if (event.defaultPrevented || blocked) return;
+		if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === 'k') {
+			event.preventDefault();
+			commandMenuOpen = !commandMenuOpen;
+			return;
+		}
+		if (commandMenuOpen) return;
 		if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === 'j') {
 			if (!rail || !onexectoggle) return;
 			event.preventDefault();
@@ -216,6 +250,18 @@
 		</nav>
 
 		<div class="tb-right">
+			<button
+				class="tb-search"
+				type="button"
+				aria-label="Search and jump"
+				aria-keyshortcuts={isMac ? 'Meta+K' : 'Control+K'}
+				title={`Search and jump · ${menuShortcut}`}
+				onclick={() => (commandMenuOpen = true)}
+			>
+				<SearchIcon size={15} strokeWidth={2} aria-hidden="true" />
+				<span class="tb-search-label">Search</span>
+				<kbd aria-hidden="true">{menuShortcut}</kbd>
+			</button>
 			{#if execHref}
 				<a class="tb-exec" class:live={execLive} href={execHref}>
 					<span class="tb-exec-lamp" aria-hidden="true"></span>{execName}
@@ -257,6 +303,8 @@
 			{#if tab.badge}<span class="tb-badge" aria-hidden="true">{tab.badge}</span>{/if}
 		</a>
 	{/snippet}
+
+	<CommandMenu bind:open={commandMenuOpen} commands={menuCommands} />
 
 	{#if !immersive}
 		<nav class="bridge-dock" aria-label="Company navigation">

@@ -5,6 +5,9 @@
 	setContext('company-setup-draft', setupDraft);
 	import { goto } from '$app/navigation';
 	import AppShell, { type ShellTab } from '$lib/components/AppShell.svelte';
+	import type { Command } from '$lib/components/CommandMenu.svelte';
+	import { COMPANY_PAGES, companyPageHref } from '$lib/model/company-pages';
+	import { workStatusLabel } from '$lib/work/status';
 	import { companyBrowserLinks } from '$lib/actions/company-browser-links';
 	import CompanyQueryPersistence from '$lib/components/CompanyQueryPersistence.svelte';
 	import ExecutiveRail from '$lib/components/ExecutiveRail.svelte';
@@ -262,6 +265,68 @@
 		);
 	});
 
+	/* Owner-only destinations for the command menu. Collaborators keep the
+	 * surface moves the shell adds for everyone. */
+	const commands = $derived.by((): Command[] => {
+		if (!ownerAccess) return [];
+		const root = `/${encodeURIComponent(companyId)}`;
+		const work = attention.view?.workGraph?.work ?? [];
+		const goalTitle = new Map((cockpit?.goals ?? []).map((goal) => [goal.id, goal.title]));
+		return [
+			...(attention.view?.items ?? []).map((item) => ({
+				id: `attention:${item.id}`,
+				group: 'Needs you',
+				label: item.title,
+				hint: item.requestedAction,
+				href: `${root}?item=${encodeURIComponent(item.id)}`
+			})),
+			...work
+				.filter((item) => item.status !== 'abandoned')
+				.map((item) => ({
+					id: `work:${item.id}`,
+					group: 'Work',
+					label: item.title,
+					hint: `${workStatusLabel(item.status)}${item.goal_id && goalTitle.has(item.goal_id) ? ` · ${goalTitle.get(item.goal_id)}` : ''}`,
+					href: `${root}/work/${encodeURIComponent(item.id)}`
+				})),
+			...(cockpit?.goals ?? [])
+				.filter((goal) => !goal.closed_at)
+				.map((goal) => ({
+					id: `goal:${goal.id}`,
+					group: 'Goals',
+					label: goal.title,
+					href: `${root}/work?goal=${encodeURIComponent(goal.id)}`
+				})),
+			...(cockpit?.people ?? [])
+				.filter((person) => !['system', 'owner'].includes(person.kind))
+				.map((person) => ({
+					id: `person:${person.actor_id}`,
+					group: 'People',
+					label: person.display,
+					hint: person.kind === 'exec' ? 'Executive' : person.role,
+					keywords: 'message talk chat',
+					href: `${root}/people?person=${encodeURIComponent(person.actor_id)}`
+				})),
+			...COMPANY_PAGES.map((companyPage) => ({
+				id: `company:${companyPage.key}`,
+				group: 'Company',
+				label: companyPage.label,
+				hint: companyPage.section,
+				keywords: `settings ${companyPage.keywords ?? ''}`,
+				href: companyPageHref(encodeURIComponent(companyId), companyPage)
+			})),
+			...companies
+				.filter((company) => company.lifecycle_status === 'active' && company.id !== companyId)
+				.map((company) => ({
+					id: `switch:${company.id}`,
+					group: 'Switch company',
+					label: company.name,
+					href: `/${encodeURIComponent(company.id)}`
+				})),
+			{ id: 'portfolio', group: 'Switch company', label: 'All companies', href: '/' }
+		];
+	});
+
 	const childAllowed = $derived(mayOpenCompanyRoute(companyId, page.url.pathname, principal));
 
 	function openInCompanyBrowser(url: string) {
@@ -324,6 +389,7 @@
 		companyName={companyName || companyId.charAt(0).toUpperCase() + companyId.slice(1)}
 		{companies}
 		{tabs}
+		{commands}
 		homeHref={ownerAccess ? '/' : collaboratorHome(companyId)}
 		canSwitchCompanies={ownerAccess}
 		execHref={ownerAccess &&
@@ -337,6 +403,7 @@
 		expandExec={page.url.pathname === `/${companyId}` &&
 			attention.status === 'live' &&
 			liveNeedsYou.length === 0 &&
+			intelligence.view?.has_connections !== false &&
 			!page.url.searchParams.has('computer') &&
 			!focusedAttention}
 		immersive={immersiveComputer}

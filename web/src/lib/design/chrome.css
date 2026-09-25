@@ -166,6 +166,37 @@
 	font: 600 var(--t-label) var(--font-mono);
 }
 
+.bridge-root .tb-search {
+	height: 30px;
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
+	padding: 0 6px 0 9px;
+	border: 1px solid transparent;
+	border-radius: var(--radius-control);
+	background: transparent;
+	color: var(--text-tertiary);
+	cursor: pointer;
+	transition:
+		border-color var(--motion-state) var(--ease-standard),
+		background-color var(--motion-state) var(--ease-standard),
+		color var(--motion-state) var(--ease-standard);
+}
+
+.bridge-root .tb-search:hover {
+	border-color: var(--control-edge);
+	background: rgba(255, 255, 255, 0.56);
+	color: var(--ink);
+}
+
+.bridge-root .tb-search kbd {
+	padding: 1px 5px;
+	border: 1px solid var(--border-strong);
+	border-radius: 3px;
+	color: var(--text-tertiary);
+	font: var(--t-label) var(--font-mono);
+}
+
 /* One control for the executive: the lamp reads presence, the button opens and
  * closes the rail. Its box never changes size, so the topbar stays still. */
 .bridge-root .tb-exec {
@@ -258,8 +289,17 @@
 	}
 
 	.bridge-topbar .tb-name,
-	.bridge-topbar .tb-tabs {
+	.bridge-topbar .tb-tabs,
+	.bridge-root .tb-search-label,
+	.bridge-root .tb-search kbd {
 		display: none;
+	}
+
+	.bridge-root .tb-search {
+		width: 44px;
+		height: 44px;
+		justify-content: center;
+		padding: 0;
 	}
 
 	.bridge-topbar .tb-right {
