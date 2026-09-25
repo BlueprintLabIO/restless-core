@@ -47,6 +47,7 @@ The Cloud account page now signs a distinct account-owner handoff after matching
 Account OAuth grants now store the exact account connection ID in the company's reference, and the relay checks that the referenced connection is still registered on every model request. The Codex Responses relay forwards a granted `openai-codex` model to the account-held OMP gateway, so a Codex runtime can use that route without copying OAuth into its company volume. The account page lets the owner explicitly make a new grant the company's default, while preserving any existing native profile. A second Codex sign-in is refused while the account already has one registered connection, preventing an accidental account switch through this UI.
 
 The company-only provider editor retains an existing OAuth reference but no longer creates a new one. New reusable OAuth access must be granted from the account page, where its connection ID and per-company revocation are visible.
+When the broker supplies an email or account ID for its sole active OAuth credential, the account page shows that identity to the owner. The credential snapshot itself is never sent to the browser.
 
 The gateway still admits only one credential per provider on an account plane; its broker has not yet been split by provider account identity. Existing native Codex and Claude CLI profiles remain company-local. The Cloud account handoff and the two-company/two-tenant paths need a live smoke before release.
 

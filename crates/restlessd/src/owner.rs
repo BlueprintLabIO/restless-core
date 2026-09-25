@@ -3341,6 +3341,11 @@ async fn list_owner_connections(State(state): State<OwnerState>, Extension(princ
             );
             let probe = credential::probe_reference(&owner_connection_reference(connection)).await;
             summary["status"] = serde_json::Value::String(probe.status.as_str().to_string());
+            if account_owner && connection.kind == "oauth" && probe.status == credential::ProbeStatus::Present {
+                if let Ok(Some(identity)) = model_gateway::oauth_account_identity(&connection.provider).await {
+                    summary["account_identity"] = serde_json::Value::String(identity);
+                }
+            }
             if probe.status == credential::ProbeStatus::Absent {
                 summary["detail"] = serde_json::Value::String(if connection.kind == "oauth" {
                     "The host OMP broker has no active OAuth connection for this provider."

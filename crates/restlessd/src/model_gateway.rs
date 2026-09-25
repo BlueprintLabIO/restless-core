@@ -2637,6 +2637,27 @@ pub async fn oauth_is_loaded(provider: &str) -> Result<bool> {
     Ok(true)
 }
 
+/// Only provider-supplied account metadata leaves the host broker. Never
+/// serialize its snapshot credential: it contains a live access token.
+pub(crate) async fn oauth_account_identity(provider: &str) -> Result<Option<String>> {
+    let access = BROKER_ACCESS
+        .read()
+        .map_err(|_| anyhow::anyhow!("host model broker state is unavailable"))?
+        .clone()
+        .context("host model broker is not running")?;
+    let http = reqwest::Client::builder().timeout(Duration::from_secs(2)).build()?;
+    let snapshot = broker_snapshot(&http, &access.token, &access.url).await?;
+    let rows = snapshot.credentials.iter()
+        .filter(|credential| credential.provider == provider && credential.is_oauth())
+        .collect::<Vec<_>>();
+    if rows.len() != 1 { return Ok(None); }
+    Ok(rows[0].credential.get("email")
+        .or_else(|| rows[0].credential.get("accountId"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|identity| !identity.is_empty() && identity.len() <= 200 && !identity.chars().any(char::is_control))
+        .map(str::to_owned))
+}
+
 pub fn models_config(model: &str, runtime_url: &str, token_env: &str) -> Result<String> {
     let (provider, model_id) = split_model(model)?;
     if !provider

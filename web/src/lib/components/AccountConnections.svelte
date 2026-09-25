@@ -10,6 +10,7 @@
 		label: string;
 		provider: string;
 		kind?: 'api_key' | 'oauth';
+		account_identity?: string;
 		status?: 'present' | 'absent' | 'invalid';
 		detail?: string | null;
 		companies: CompanyUse[];
@@ -422,6 +423,7 @@
 						<div>
 							<h2>{item.label}</h2>
 							<span>{providerName(item.provider)}</span>
+							{#if item.account_identity}<small class="account-identity">{item.account_identity}</small>{/if}
 						</div>
 						<span class="status" class:connected={item.status === 'present'}
 							>{statusText(item)}</span
@@ -438,7 +440,7 @@
 					</div>
 					<div class="connection-controls">
 						<span class="connection-kind"
-							>{item.kind === 'oauth' ? 'Host broker sign-in' : 'API key'}</span
+							>{item.kind === 'oauth' ? 'Account sign-in' : 'API key'}</span
 						>{#if accountScope === 'account'}<button class="text-button" onclick={() => toggleManage(item)}
 							>{managingId === item.id ? 'Close access' : 'Manage project access'}</button
 						>{/if}
@@ -671,6 +673,11 @@
 	.connection-head > div {
 		display: grid;
 		gap: 2px;
+	}
+	.account-identity {
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+		overflow-wrap: anywhere;
 	}
 	.status {
 		flex: none;
