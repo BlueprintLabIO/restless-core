@@ -396,10 +396,12 @@
 <div class="company-page provider-page">
 	<header class="company-page-head">
 		<h1 id="reuse-title" title="Use an account sign-in or API key in this company. Model choices stay company-specific.">Intelligence</h1>
-		<a class="account-link" href={manageUrl}>{accountScope === 'company' ? 'Open account to manage connections' : 'Manage account connections'} <span aria-hidden="true">↗</span></a>
+		<div class="provider-head-actions">
+			<CopyCompanySetting {companyId} setting="models" label="Model choices" oncopied={async () => { await Promise.all([refresh(), intelligence.refresh()]); }} />
+			<a class="account-link" href={manageUrl}>{accountScope === 'company' ? 'Open account to manage connections' : 'Manage account connections'} <span aria-hidden="true">↗</span></a>
+		</div>
 	</header>
 	<section class="reuse-panel" aria-labelledby="reuse-title">
-		<CopyCompanySetting {companyId} setting="models" label="Model choices" oncopied={async () => { await Promise.all([refresh(), intelligence.refresh()]); }} />
 		<div class="reuse-section-head">
 			<div><h2 title="Each company needs an explicit grant to use an account connection.">Available connections</h2></div>
 			{#if accountScope === 'account'}<button class="btn small" disabled={accountBusy} onclick={toggleAddConnection}>
@@ -625,6 +627,12 @@
 <style>
 	.provider-page {
 		box-sizing: border-box;
+	}
+	.provider-head-actions {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--space-3);
 	}
 	.reuse-panel {
 		padding: var(--space-5);
