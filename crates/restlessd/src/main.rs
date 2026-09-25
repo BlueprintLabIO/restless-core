@@ -888,11 +888,11 @@ async fn run() -> Result<()> {
                     // Providers load only when the gateway starts, so restart it
                     // when a company's model route or credential references
                     // change instead of asking the owner to restart Restless.
-                    let started_from = model_gateway::provider_fingerprint(&model_configs);
+                    let started_from = format!("{}|{:?}", model_gateway::provider_fingerprint(&model_configs), owner::account_oauth_providers(&model_root));
                     loop {
                         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                         if let Ok(current) = load_configs(&model_root) {
-                            if model_gateway::provider_fingerprint(&current) != started_from {
+                            if format!("{}|{:?}", model_gateway::provider_fingerprint(&current), owner::account_oauth_providers(&model_root)) != started_from {
                                 model_configs = current;
                                 break;
                             }

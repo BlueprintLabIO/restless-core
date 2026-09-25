@@ -37,3 +37,9 @@ Existing company sign-ins stay intact until an account-owned route is proven. Mi
 5. A local live smoke uses one real sign-in for two disposable companies, proves both can use it, revokes one while leaving the other working, and verifies that no reusable credential entered either company volume or process environment. Cloud repeats the same path with two tenants to prove isolation.
 
 Until all five are met for a provider/runtime, the UI should describe the available connection type precisely and must not label a company-local sign-in as shareable account OAuth.
+
+## Implementation checkpoint
+
+The local account page now starts a real ChatGPT/Codex device login through the host model broker profile. The authorization URL and one-time code are shown in the account page, and a successful login registers a reusable account connection. The broker can start for an account connection before any company has a grant. Company access still uses the existing explicit grant and revocation controls.
+
+This is a first provider path, not completion of the decision above. The gateway still admits only one credential per provider on an account plane, and OAuth company settings still resolve by provider rather than exact connection ID. Existing native Codex and Claude CLI profiles remain company-local. Cloud company-scoped handoffs cannot administer account connections; Cloud needs a separately signed account-owner entry before those routes can open. The live two-company and two-tenant checks remain to be done after those boundaries are implemented.

@@ -41,7 +41,11 @@
 	let label = $state('');
 	let provider = $state('anthropic');
 	let secret = $state('');
-	let kind = $state<'api_key' | 'oauth'>('api_key');
+	let oauthJob = $state('');
+	let oauthUrl = $state('');
+	let oauthCode = $state('');
+	let oauthState = $state('');
+	let oauthMessage = $state('');
 	let companies = $state<CompanyCatalogEntry[]>([]);
 	let companyError = $state('');
 	let nativeSignIns = $state<NativeSignIn[]>([]);
@@ -120,11 +124,7 @@
 			const response = await fetch('/api/connections', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify(
-					kind === 'oauth'
-						? { label: label.trim(), provider, kind: 'oauth' }
-						: { label: label.trim(), provider, secret }
-				)
+				body: JSON.stringify({ label: label.trim(), provider, secret })
 			});
 			const body = await response.json();
 			if (!response.ok) throw new Error(body.message ?? 'Could not save this connection.');
@@ -139,6 +139,51 @@
 			busy = false;
 		}
 	}
+	async function startCodexSignIn() {
+		if (oauthJob) return;
+		oauthMessage = '';
+		oauthUrl = '';
+		oauthCode = '';
+		oauthState = '';
+		try {
+			const response = await fetch('/api/connections/oauth/codex', { method: 'POST' });
+			const body = await response.json();
+			if (!response.ok) throw new Error(body.message ?? 'Could not start Codex sign-in.');
+			oauthJob = body.job;
+			oauthState = 'starting';
+			void pollCodexSignIn(body.job);
+		} catch (cause) {
+			oauthMessage = cause instanceof Error ? cause.message : 'Could not start Codex sign-in.';
+		}
+	}
+	async function pollCodexSignIn(job: string) {
+		for (let attempt = 0; attempt < 300 && oauthJob === job; attempt++) {
+			try {
+				const response = await fetch(`/api/connections/oauth/jobs/${encodeURIComponent(job)}`, { cache: 'no-store' });
+				const body = await response.json();
+				if (!response.ok) throw new Error(body.message ?? 'Could not check sign-in.');
+				oauthState = body.state;
+				oauthUrl = body.url ?? '';
+				oauthCode = body.code ?? '';
+				oauthMessage = body.message ?? '';
+				if (body.state === 'connected' || body.state === 'failed') {
+					oauthJob = '';
+					if (body.state === 'connected') {
+						await refresh();
+						setTimeout(() => void refresh(), 8000);
+					}
+					return;
+				}
+			} catch (cause) {
+				oauthMessage = cause instanceof Error ? cause.message : 'Could not check sign-in.';
+				oauthJob = '';
+				return;
+			}
+			await new Promise((resolve) => setTimeout(resolve, 1000));
+		}
+		oauthJob = '';
+		oauthMessage = 'Sign-in timed out. Start again.';
+	}
 	function statusText(item: AccountConnection) {
 		const credential = item.kind === 'oauth' ? 'Sign-in' : 'Key';
 		if (item.status === 'present') return item.kind === 'oauth' ? 'Signed in' : 'Key stored';
@@ -146,6 +191,7 @@
 		return `${credential} missing`;
 	}
 	function providerName(id: string) {
+		if (id === 'openai-codex') return 'ChatGPT / Codex';
 		return providerOptions.find(([key]) => key === id)?.[1] ?? id;
 	}
 	function modelChoices(providerId: string) {
@@ -271,9 +317,7 @@
 <main class="account-connections">
 	<header class="page-head">
 		<div class="page-intro">
-			<h1
-				title="Save API keys or register an existing host-broker sign-in. Grant each active project access here, and choose its model."
-			>
+			<h1 title="Connect an account once, then grant individual companies access.">
 				Connections
 			</h1>
 		</div>
@@ -281,6 +325,12 @@
 			>{addOpen ? 'Close' : 'Add connection'}</button
 		>
 	</header>
+	<section class="native-section" aria-label="Account Codex sign-in">
+		<div class="section-head"><h2>ChatGPT / Codex</h2><button class="btn primary" disabled={!!oauthJob} onclick={() => void startCodexSignIn()}>{oauthJob ? 'Signing in…' : 'Connect Codex'}</button></div>
+		<p>Sign in once with a device code, then grant this account connection to the companies that need it.</p>
+		{#if oauthUrl}<p><a href={oauthUrl} target="_blank" rel="noreferrer">Open Codex sign-in ↗</a>{#if oauthCode} · Enter code <strong>{oauthCode}</strong>{/if}</p>{/if}
+		{#if oauthMessage}<p role="status">{oauthMessage}</p>{:else if oauthState === 'connected'}<p role="status">Codex connected. Choose company access below.</p>{/if}
+	</section>
 	<section class="native-section" aria-label="Native sign-ins by company">
 		<div class="section-head">
 			<h2>Company sign-ins</h2>
@@ -319,15 +369,9 @@
 	{#if addOpen}
 		<form class="add-form" onsubmit={create}>
 			<h2>New provider connection</h2>
-			<p>Register an API key or a provider sign-in already available in the host broker.</p>
+			<p>Save an API key at account level, then grant individual companies access.</p>
 			<div class="form-grid">
 				<label
-					>Connection type<select bind:value={kind}
-						><option value="api_key">API key</option><option value="oauth"
-							>Existing host broker sign-in</option
-						></select
-					></label
-				><label
 					>Provider<select bind:value={provider}
 						>{#each providerOptions as [id, name]}<option value={id}>{name}</option>{/each}</select
 					></label
@@ -336,24 +380,20 @@
 						bind:value={label}
 						required
 						maxlength="80"
-						placeholder={kind === 'oauth' ? 'e.g. OpenAI host sign-in' : 'e.g. Anthropic team key'}
+						placeholder="e.g. Anthropic team key"
 					/></label
-				>{#if kind === 'api_key'}<label class="full"
+				><label class="full"
 						>API key<input
 							bind:value={secret}
 							type="password"
 							required
 							autocomplete="new-password"
 							placeholder="Paste API key"
-						/></label
-					>{:else}<p class="fine-print full">
-						This only registers a provider sign-in that already exists in the host broker. It does
-						not start a new sign-in. Native Codex and Claude CLI sign-ins remain project-local.
-					</p>{/if}
+					/></label>
 			</div>
 			<div class="actions">
 				<button class="btn primary" disabled={busy}
-					>{busy ? 'Saving…' : kind === 'oauth' ? 'Add broker connection' : 'Save API key'}</button
+					>{busy ? 'Saving…' : 'Save API key'}</button
 				><button
 					class="btn"
 					type="button"
@@ -486,7 +526,7 @@
 		<div class="empty">
 			<h2>No reusable connections yet</h2>
 			<p>
-				Save an API key or register a sign-in already held by the host model broker, then choose
+				Save an API key or connect Codex above, then choose
 				which companies can use it.
 			</p>
 			<button class="btn primary" onclick={() => (addOpen = true)}>Add your first connection</button
@@ -588,8 +628,7 @@
 	.add-form p,
 	.connection-head span,
 	.connection-detail,
-	.unused,
-	.fine-print {
+	.unused {
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 		line-height: 1.5;
@@ -770,9 +809,6 @@
 		flex-wrap: wrap;
 		gap: var(--space-2);
 		margin-top: var(--space-4);
-	}
-	.fine-print {
-		margin: var(--space-3) 0 0 !important;
 	}
 	.error {
 		display: flex;

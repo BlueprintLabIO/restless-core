@@ -489,6 +489,12 @@ fn resolved_program(program: &str) -> Result<PathBuf> {
     bail!("model child program {program:?} is not on PATH")
 }
 
+pub(crate) fn oauth_login_command() -> Result<(PathBuf, String)> {
+    let profile = GatewayEndpoints::from_env()?.broker_profile;
+    let program = resolved_program(&std::env::var("RESTLESS_OMP_BIN").unwrap_or_else(|_| "omp".to_owned()))?;
+    Ok((program, profile))
+}
+
 fn read_model_children(path: &Path) -> Vec<ManagedModelChild> {
     std::fs::read(path)
         .ok()
@@ -602,6 +608,15 @@ pub async fn start(
     sweep_orphaned_model_children(root)?;
     let endpoints = GatewayEndpoints::from_env()?;
     let mut provider_credentials = provider_credentials(configs).await?;
+    for provider in crate::owner::account_oauth_providers(root)? {
+        match provider_credentials.get(&provider) {
+            Some(ProviderCredential::ApiKey(_)) => bail!(
+                "account OAuth connection for {provider} conflicts with a company API key; choose one credential before starting the gateway"
+            ),
+            Some(ProviderCredential::OmpOauth) => {},
+            None => { provider_credentials.insert(provider, ProviderCredential::OmpOauth); },
+        }
+    }
     if provider_credentials.is_empty() {
         // The account plane is not a company. It serves the cockpit, holds the
         // owner's credentials and routes surfaces; it performs no company work,

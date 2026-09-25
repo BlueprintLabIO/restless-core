@@ -23,6 +23,8 @@ mod member_collaboration_api;
 mod members_api;
 #[path = "owner_notifications.rs"]
 mod notification_delivery_api;
+#[path = "owner_oauth_login.rs"]
+mod oauth_login_api;
 #[path = "owner_vault.rs"]
 mod owner_vault;
 #[path = "owner_plane_readiness.rs"]
@@ -1330,6 +1332,8 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             get(list_owner_connections).post(create_owner_connection),
         )
         .route("/connections/import", post(import_owner_connection))
+        .route("/connections/oauth/codex", post(oauth_login_api::start_codex_login))
+        .route("/connections/oauth/jobs/{job}", get(oauth_login_api::oauth_login_status))
         .route(
             "/companies/{company}/connections/{connection}",
             post(grant_owner_connection).delete(revoke_owner_connection),
@@ -3003,6 +3007,12 @@ struct OwnerModelConnections {
 
 fn owner_connections_path(root: &std::path::Path) -> PathBuf {
     root.join("owner-model-connections.json")
+}
+
+pub(crate) fn account_oauth_providers(root: &std::path::Path) -> Result<Vec<String>> {
+    Ok(load_owner_connections(root)?
+        .connections.into_iter().filter(|connection| connection.kind == "oauth")
+        .map(|connection| connection.provider).collect())
 }
 
 fn load_owner_connections(root: &std::path::Path) -> Result<OwnerModelConnections> {
