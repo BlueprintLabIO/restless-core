@@ -958,7 +958,7 @@
 		min-width: 0;
 		padding: var(--space-3);
 		border-left: 2px solid var(--intent-authority);
-		background: rgba(255, 255, 255, 0.64);
+		background: color-mix(in srgb, var(--highlight) 64%, transparent);
 	}
 	.conflict-compare pre {
 		max-height: 120px;
@@ -1000,7 +1000,7 @@
 				rgba(35, 117, 99, 0.08) 54px 55px,
 				transparent 55px
 			),
-			#fff;
+			var(--surface-raised);
 	}
 	.paper-rule {
 		position: absolute;
@@ -1148,7 +1148,7 @@
 		}
 		.paper {
 			padding: 28px 18px 96px;
-			background: #fff;
+			background: var(--surface-raised);
 		}
 		.paper-rule {
 			display: none;

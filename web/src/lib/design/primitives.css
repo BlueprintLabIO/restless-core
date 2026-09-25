@@ -22,9 +22,9 @@
 	min-height: 32px;
 	padding: 0 14px;
 	text-decoration: none;
-	border: 1px solid rgba(31, 41, 64, 0.14);
+	border: 1px solid var(--edge-control);
 	border-radius: var(--radius-control);
-	background: #fff;
+	background: var(--surface-raised);
 	box-shadow: var(--bevel), var(--control-depth);
 	color: var(--ink);
 	font: inherit;
@@ -44,8 +44,8 @@
 
 .bridge-root .btn:hover:not(:disabled),
 .bridge-root .hold-approve:hover:not(:disabled) {
-	border-color: rgba(31, 41, 64, 0.22);
-	background: #f8f9fb;
+	border-color: var(--edge-control-hover);
+	background: var(--surface-hover);
 }
 
 /* A press is felt, not watched: the control settles by a hair and its light
@@ -53,7 +53,7 @@
 .bridge-root .btn:active:not(:disabled),
 .bridge-root .hold-approve:active:not(:disabled) {
 	transform: scale(0.985);
-	background: #f2f4f7;
+	background: var(--surface-press);
 	box-shadow: var(--control-depth-pressed);
 }
 
@@ -67,29 +67,25 @@
 /* One primary per surface: solid ink, a lit top edge and a crisp contact
  * shadow. Pale tints read as disabled at a glance; this reads as the way on. */
 .bridge-root .btn.primary {
-	border-color: color-mix(in srgb, var(--intent-conversation) 70%, #0d1626);
-	background: linear-gradient(
-		180deg,
-		color-mix(in srgb, var(--intent-conversation) 88%, #fff),
-		var(--intent-conversation)
-	);
+	border-color: var(--primary-edge);
+	background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 88%, #fff), var(--primary));
 	box-shadow:
-		inset 0 1px 0 rgba(255, 255, 255, 0.2),
+		inset 0 1px 0 color-mix(in srgb, var(--highlight) 20%, transparent),
 		0 1px 2px rgba(20, 32, 52, 0.22);
-	color: #fff;
+	color: var(--on-primary);
 }
 
 .bridge-root .btn.primary:hover:not(:disabled) {
-	border-color: color-mix(in srgb, var(--intent-conversation) 70%, #0d1626);
+	border-color: var(--primary-edge);
 	background: linear-gradient(
 		180deg,
-		color-mix(in srgb, var(--intent-conversation) 80%, #fff),
-		color-mix(in srgb, var(--intent-conversation) 94%, #fff)
+		color-mix(in srgb, var(--primary) 80%, #fff),
+		color-mix(in srgb, var(--primary) 94%, #fff)
 	);
 }
 
 .bridge-root .btn.primary:active:not(:disabled) {
-	background: color-mix(in srgb, var(--intent-conversation) 92%, #000);
+	background: color-mix(in srgb, var(--primary) 92%, #000);
 	box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
@@ -101,7 +97,7 @@
 
 .bridge-root .btn.danger:hover:not(:disabled) {
 	border-color: color-mix(in srgb, var(--state-danger) 55%, var(--border));
-	background: color-mix(in srgb, var(--state-danger) 14%, #fff);
+	background: color-mix(in srgb, var(--state-danger) 14%, var(--surface-raised));
 }
 
 .bridge-root .btn.small,
@@ -197,11 +193,11 @@
 	padding: 5px 8px;
 	border: 0;
 	border-radius: var(--radius-md);
-	background: rgba(24, 30, 43, 0.94);
+	background: var(--tooltip-bg);
 	box-shadow:
-		0 0 0 1px rgba(255, 255, 255, 0.06) inset,
+		0 0 0 1px color-mix(in srgb, var(--highlight) 6%, transparent) inset,
 		0 6px 16px -6px rgba(15, 20, 30, 0.35);
-	color: #f4f6fa;
+	color: var(--tooltip-ink);
 	font: 500 var(--t-label) / 1.4 var(--font-ui);
 	letter-spacing: 0.01em;
 	pointer-events: none;
@@ -310,7 +306,7 @@
 }
 
 :where(.bridge-root) :where(select:not([multiple]):hover:not(:disabled)) {
-	border-color: rgba(31, 41, 64, 0.26);
+	border-color: var(--edge-control-hover);
 }
 
 /* Where the browser lets a select be styled end to end, its list becomes a
@@ -332,7 +328,7 @@
 		padding: 4px;
 		border: 1px solid var(--border-strong);
 		border-radius: var(--radius-md);
-		background: #fff;
+		background: var(--surface-menu);
 		box-shadow: var(--shadow-lift);
 		opacity: 0;
 		transform: translateY(-4px) scale(0.98);
@@ -393,12 +389,12 @@
 }
 
 .bridge-root .text-button:hover:not(:disabled) {
-	background: rgba(31, 41, 64, 0.06);
+	background: var(--wash-hover);
 	color: var(--ink);
 }
 
 .bridge-root .text-button:active:not(:disabled) {
-	background: rgba(31, 41, 64, 0.1);
+	background: var(--wash-press);
 }
 
 .bridge-root .text-button.danger {
@@ -436,5 +432,5 @@
 	transition: background-color var(--motion-state) var(--ease-standard);
 }
 .bridge-root button.exr-who:hover {
-	background: rgba(31, 41, 64, 0.05);
+	background: var(--wash-hover);
 }

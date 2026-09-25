@@ -147,6 +147,26 @@
 	--bevel: inset 0 1px 0 rgba(255, 255, 255, 0.8);
 	--bevel-subtle: inset 0 1px 0 rgba(255, 255, 255, 0.6);
 	--control-edge: #cdd5e2;
+	/* Theme-neutral names for what used to be literal whites and ink washes,
+	 * so a dark theme can re-point them in one place. */
+	--surface-raised: #fff;
+	--segment-thumb: #fff;
+	--highlight: #fff;
+	--surface-menu: #fcfdfe;
+	--surface-hover: #f8f9fb;
+	--surface-press: #f2f4f7;
+	--wash-hover: rgba(31, 41, 64, 0.06);
+	--wash-press: rgba(31, 41, 64, 0.1);
+	--edge-control: rgba(31, 41, 64, 0.14);
+	--edge-control-hover: rgba(31, 41, 64, 0.22);
+	--primary: var(--intent-conversation);
+	--primary-edge: color-mix(in srgb, var(--intent-conversation) 70%, #0d1626);
+	--on-primary: #fff;
+	--tooltip-bg: rgba(24, 30, 43, 0.94);
+	--tooltip-ink: #f4f6fa;
+	--canvas-glow: rgba(156, 149, 203, 0.07);
+	--canvas-glow-2: rgba(142, 183, 164, 0.06);
+	--canvas-glow-3: rgba(216, 190, 154, 0.025);
 	--control-depth: 0 1px 1px rgba(31, 41, 64, 0.06), 0 0 0 transparent;
 	--control-depth-pressed: inset 0 1px 2px rgba(31, 41, 64, 0.1);
 	--dot: rgba(76, 88, 117, 0.03);
@@ -166,9 +186,9 @@
 	overflow: hidden;
 	background-color: var(--bg-app);
 	background-image:
-		radial-gradient(circle at 78% 12%, rgba(156, 149, 203, 0.07), transparent 40%),
-		radial-gradient(circle at 16% 90%, rgba(142, 183, 164, 0.06), transparent 38%),
-		radial-gradient(circle at 48% 58%, rgba(216, 190, 154, 0.025), transparent 34%),
+		radial-gradient(circle at 78% 12%, var(--canvas-glow), transparent 40%),
+		radial-gradient(circle at 16% 90%, var(--canvas-glow-2), transparent 38%),
+		radial-gradient(circle at 48% 58%, var(--canvas-glow-3), transparent 34%),
 		radial-gradient(var(--dot) 1px, transparent 1.3px);
 	background-size:
 		auto,
@@ -193,4 +213,81 @@
 .bridge-root *::before,
 .bridge-root *::after {
 	box-sizing: border-box;
+}
+
+/* ---------- dark ----------
+ * The same language at night: surfaces step up in lightness as they rise
+ * (canvas < pane < raised < menu), borders become light at low alpha,
+ * shadows deepen and the lit top edge dims to a hairline. Intent colours
+ * shift lighter and less saturated so they keep their meaning on dark
+ * without glowing. Resolved on <html data-theme> before first paint. */
+:root[data-theme='dark'] .bridge-root {
+	--bg-app: #0e1014;
+	--surface: rgba(24, 27, 33, 0.92);
+	--surface-alt: #1a1d23;
+	--surface-pane: #15171c;
+	--surface-rail: #131519;
+	--r4: #262a32;
+	--sidebar-bg: rgba(20, 22, 27, 0.62);
+	--glass: rgba(17, 19, 24, 0.8);
+	--glass-strong: rgba(22, 24, 30, 0.92);
+	--glass-pane: rgba(22, 24, 30, 0.8);
+	--glass-pane-strong: rgba(24, 27, 33, 0.94);
+	--accent: #aab4c8;
+	--accent-soft: #232833;
+	--accent-strong: #d3d9e6;
+	--ink: #e4e7ee;
+	--text-secondary: rgba(228, 231, 238, 0.76);
+	--text-tertiary: rgba(228, 231, 238, 0.52);
+	--text-inverse: #0f1115;
+	--border: rgba(255, 255, 255, 0.07);
+	--border-strong: rgba(255, 255, 255, 0.11);
+	--status-offline: #5d6573;
+	--intent-conversation: #93b2d8;
+	--intent-conversation-soft: #1c2533;
+	--chat-owner-bg: #1b2330;
+	--chat-agent-bg: #16191e;
+	--chat-context-bg: #17221d;
+	--chat-owner-edge: #34506f;
+	--intent-feedback: #82bba8;
+	--intent-feedback-soft: #172420;
+	--intent-direction: #b6a6e0;
+	--intent-direction-soft: #221e30;
+	--intent-authority: #d6b67f;
+	--intent-authority-soft: #29231a;
+	--state-success: #86bf9b;
+	--state-success-soft: #17231c;
+	--state-danger: #e3979e;
+	--state-danger-soft: #2c1b1e;
+	--shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.3), 0 2px 8px -2px rgba(0, 0, 0, 0.3);
+	--shadow-lift:
+		0 0 0 1px rgba(255, 255, 255, 0.06), 0 4px 10px -4px rgba(0, 0, 0, 0.45),
+		0 14px 32px -10px rgba(0, 0, 0, 0.55);
+	--shadow-float:
+		0 0 0 1px rgba(255, 255, 255, 0.07), 0 8px 20px -8px rgba(0, 0, 0, 0.55),
+		0 28px 64px -16px rgba(0, 0, 0, 0.65);
+	--bevel: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+	--bevel-subtle: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+	--control-edge: #323743;
+	--control-depth: 0 1px 1px rgba(0, 0, 0, 0.35), 0 0 0 transparent;
+	--control-depth-pressed: inset 0 1px 2px rgba(0, 0, 0, 0.45);
+	--dot: rgba(255, 255, 255, 0.022);
+	--surface-raised: #1d2027;
+	--segment-thumb: #2c3039;
+	--highlight: rgba(255, 255, 255, 0.08);
+	--surface-menu: #1b1e25;
+	--surface-hover: #23262e;
+	--surface-press: #292d36;
+	--wash-hover: rgba(255, 255, 255, 0.06);
+	--wash-press: rgba(255, 255, 255, 0.1);
+	--edge-control: rgba(255, 255, 255, 0.1);
+	--edge-control-hover: rgba(255, 255, 255, 0.18);
+	--primary: #4b6f9b;
+	--primary-edge: #5b80ad;
+	--on-primary: #fff;
+	--tooltip-bg: rgba(238, 241, 246, 0.96);
+	--tooltip-ink: #14171d;
+	--canvas-glow: rgba(120, 110, 190, 0.07);
+	--canvas-glow-2: rgba(90, 150, 125, 0.05);
+	--canvas-glow-3: rgba(200, 170, 120, 0.02);
 }

@@ -1578,7 +1578,7 @@
 		gap: 9px;
 		padding: 9px 14px;
 		border-bottom: 1px solid var(--border);
-		background: rgba(255, 255, 255, 0.48);
+		background: color-mix(in srgb, var(--highlight) 48%, transparent);
 		box-shadow: var(--bevel-subtle);
 	}
 
@@ -1824,7 +1824,7 @@
 	.room-composer {
 		flex: 0 0 auto;
 		padding: 9px 16px max(11px, env(safe-area-inset-bottom));
-		background: rgba(255, 255, 255, 0.66);
+		background: color-mix(in srgb, var(--highlight) 66%, transparent);
 		box-shadow: 0 -10px 30px rgba(43, 51, 66, 0.035);
 	}
 

@@ -68,7 +68,7 @@
 		height: 30px;
 		border: 1px solid color-mix(in srgb, var(--mark-tone) 22%, var(--border));
 		border-radius: var(--radius-control);
-		background: color-mix(in srgb, var(--mark-soft) 74%, rgba(255, 255, 255, 0.66));
+		background: color-mix(in srgb, var(--mark-soft) 74%, color-mix(in srgb, var(--highlight) 66%, transparent));
 		box-shadow: var(--bevel-subtle);
 		color: var(--mark-tone);
 	}

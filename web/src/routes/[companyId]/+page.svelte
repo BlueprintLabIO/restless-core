@@ -1055,13 +1055,13 @@
 		background: var(--surface-alt);
 	}
 	.review-outcome {
-		background: #fff;
+		background: var(--surface-raised);
 	}
 	.review-outcome-stage iframe {
 		width: 100%;
 		height: 100%;
 		border: 0;
-		background: #fff;
+		background: var(--surface-raised);
 	}
 	.review-document {
 		width: min(820px, calc(100% - 48px));
@@ -1085,7 +1085,7 @@
 		place-content: center;
 		gap: 8px;
 		padding: 40px;
-		background: #fff;
+		background: var(--surface-raised);
 		color: var(--ink);
 	}
 	.review-download {

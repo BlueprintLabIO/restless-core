@@ -513,7 +513,7 @@
 		padding: 5px 7px;
 		border: 1px solid var(--control-edge);
 		border-radius: var(--radius-control);
-		background: #fff;
+		background: var(--surface-raised);
 		color: var(--ink);
 		font: var(--t-body) var(--font-ui);
 	}
@@ -545,7 +545,7 @@
 		padding: 5px 8px 5px 29px;
 		border: 1px solid var(--border);
 		border-radius: var(--radius-control);
-		background: rgba(255, 255, 255, 0.72);
+		background: color-mix(in srgb, var(--highlight) 72%, transparent);
 		color: var(--ink);
 		font: var(--t-body) var(--font-ui);
 	}

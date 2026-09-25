@@ -200,7 +200,7 @@
 		padding: 12px 13px 11px;
 		border: 1px solid var(--border-strong);
 		border-radius: var(--radius-control);
-		background: rgba(255, 255, 255, 0.96);
+		background: color-mix(in srgb, var(--highlight) 96%, transparent);
 		box-shadow:
 			var(--bevel-subtle),
 			0 1px 2px rgba(43, 51, 66, 0.06),
@@ -321,7 +321,7 @@
 		padding: 6px 8px;
 		border: 1px solid var(--border);
 		border-radius: var(--radius-control);
-		background: rgba(255, 255, 255, 0.9);
+		background: color-mix(in srgb, var(--highlight) 90%, transparent);
 		box-shadow:
 			var(--bevel-subtle),
 			0 4px 12px rgba(43, 51, 66, 0.05);

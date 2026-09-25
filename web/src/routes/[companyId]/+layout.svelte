@@ -550,11 +550,11 @@
 		justify-items: center;
 		gap: 12px;
 		padding: clamp(24px, 5vw, 40px);
-		border: 1px solid rgba(76, 88, 117, 0.18);
+		border: 1px solid var(--border-strong);
 		border-radius: 6px;
-		background: #fafbfe;
-		box-shadow: 0 8px 28px rgba(65, 76, 104, 0.12);
-		color: #293244;
+		background: var(--surface-pane);
+		box-shadow: var(--shadow-lift);
+		color: var(--ink);
 		font: var(--t-body) / 1.55 var(--font-ui);
 		text-align: center;
 	}
@@ -565,8 +565,8 @@
 		place-items: center;
 		border: 1px solid rgba(155, 84, 91, 0.25);
 		border-radius: 4px;
-		background: #f7e9eb;
-		color: #9b545b;
+		background: var(--state-danger-soft);
+		color: var(--state-danger);
 	}
 	.startup-error h1,
 	.startup-error p {
@@ -578,17 +578,17 @@
 	}
 	.startup-error p {
 		max-width: 34ch;
-		color: #687487;
+		color: var(--text-tertiary);
 		line-height: 1.55;
 	}
 	.startup-error .btn {
 		min-width: 140px;
 		margin-top: 4px;
 		padding: 9px 18px;
-		border: 1px solid #cdd5e2;
+		border: 1px solid var(--control-edge);
 		border-radius: 4px;
-		background: #e8eff8;
-		color: #456687;
+		background: var(--intent-conversation-soft);
+		color: var(--intent-conversation);
 		font: 600 var(--t-body) var(--font-ui);
 		cursor: pointer;
 	}
@@ -597,11 +597,11 @@
 		cursor: wait;
 	}
 	.startup-error .btn:focus-visible {
-		outline: 2px solid #456687;
+		outline: 2px solid var(--intent-conversation);
 		outline-offset: 2px;
 	}
 	.startup-error-note {
-		color: #687487;
+		color: var(--text-tertiary);
 		font-size: var(--t-body);
 	}
 

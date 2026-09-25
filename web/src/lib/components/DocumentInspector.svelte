@@ -1256,7 +1256,7 @@
 		padding: 8px 9px;
 		border: 1px solid var(--control-edge);
 		border-radius: var(--radius-control);
-		background: #fff;
+		background: var(--surface-raised);
 		color: var(--ink);
 		font: var(--t-body) / 1.5 var(--font-ui);
 		resize: vertical;

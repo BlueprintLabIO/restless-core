@@ -136,7 +136,7 @@
 }
 
 .bridge-topbar .tb-tab:not(.on):hover {
-	background: rgba(255, 255, 255, 0.46);
+	background: color-mix(in srgb, var(--highlight) 46%, transparent);
 }
 
 .bridge-topbar .tb-tab.on {
@@ -206,7 +206,7 @@
 
 .bridge-root .tb-search:hover {
 	border-color: var(--control-edge);
-	background: rgba(255, 255, 255, 0.56);
+	background: color-mix(in srgb, var(--highlight) 56%, transparent);
 	color: var(--ink);
 }
 
@@ -228,7 +228,7 @@
 	padding: 0 11px 0 9px;
 	border: 1px solid var(--control-edge);
 	border-radius: var(--radius-control);
-	background: rgba(255, 255, 255, 0.56);
+	background: color-mix(in srgb, var(--highlight) 56%, transparent);
 	box-shadow: var(--control-depth);
 	color: var(--text-secondary);
 	font: 500 var(--t-body) var(--font-ui);

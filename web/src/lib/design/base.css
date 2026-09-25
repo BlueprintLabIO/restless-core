@@ -26,6 +26,40 @@
 	font-synthesis: none;
 }
 
+:root[data-theme='dark'] {
+	color: #e6e8ee;
+	background: #0e1014;
+	color-scheme: dark;
+}
+
+/* The app frame outside .bridge-root (loading bar, offline banner, stalled
+ * navigation) cannot see the scoped tokens, so it gets its own small set. */
+:root {
+	--app-ink: #293244;
+	--app-muted: rgba(23, 27, 36, 0.66);
+	--app-surface: #fafbfe;
+	--app-edge: rgba(76, 88, 117, 0.18);
+	--app-accent: #456687;
+	--app-accent-soft: #e8eff8;
+	--app-danger: #9b545b;
+	--app-danger-soft: #f7e9eb;
+	--highlight: #fff;
+	--surface-pane: #fafbfe;
+}
+
+:root[data-theme='dark'] {
+	--app-ink: #e4e7ee;
+	--app-muted: rgba(228, 231, 238, 0.6);
+	--app-surface: #1b1e25;
+	--app-edge: rgba(255, 255, 255, 0.1);
+	--app-accent: #93b2d8;
+	--app-accent-soft: #1c2533;
+	--app-danger: #e3979e;
+	--app-danger-soft: #2c1b1e;
+	--highlight: rgba(255, 255, 255, 0.08);
+	--surface-pane: #15171c;
+}
+
 * {
 	box-sizing: border-box;
 }

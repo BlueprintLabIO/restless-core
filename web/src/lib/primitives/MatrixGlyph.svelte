@@ -74,6 +74,6 @@
 		vertical-align: middle;
 	}
 	.matrix-glyph.glow {
-		filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.45));
+		filter: drop-shadow(0 0 3px color-mix(in srgb, var(--highlight) 45%, transparent));
 	}
 </style>

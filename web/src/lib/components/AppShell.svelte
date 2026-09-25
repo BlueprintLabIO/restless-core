@@ -10,6 +10,7 @@
 
 <script lang="ts">
 	import { tooltips } from '$lib/actions/tooltips';
+	import { theme } from '$lib/theme.svelte';
 	/* Bridge Light has one company shell. Owners receive the four owner surfaces
 	 * and bounded Exec control; collaborators receive only Work and People. The
 	 * executive transcript remains a persistent sibling of the owner workspace,
@@ -120,7 +121,15 @@
 					}
 				]
 			: []),
-		...commands
+		...commands,
+		...(['system', 'light', 'dark'] as const).map((choice) => ({
+			id: `appearance:${choice}`,
+			group: 'Appearance',
+			label: { system: 'Match system appearance', light: 'Light', dark: 'Dark' }[choice],
+			hint: theme.preference === choice ? 'Current' : undefined,
+			keywords: 'theme appearance mode dark light',
+			run: () => theme.set(choice)
+		}))
 	]);
 
 	let tabNav: HTMLElement | undefined = $state();

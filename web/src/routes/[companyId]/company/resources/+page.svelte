@@ -278,7 +278,7 @@
 		width: 100%;
 		min-height: min(62vh, 720px);
 		border: 1px solid var(--company-edge-soft);
-		background: #fff;
+		background: var(--surface-raised);
 	}
 
 	@media (max-width: 820px) {

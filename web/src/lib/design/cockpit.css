@@ -44,15 +44,15 @@
 	align-items: center;
 	gap: 6px;
 	padding: 5px 10px;
-	border: 1px solid rgba(255, 255, 255, 0.18);
+	border: 1px solid color-mix(in srgb, var(--highlight) 18%, transparent);
 	border-radius: var(--radius-control);
 	background: rgba(24, 29, 38, 0.9);
 	box-shadow:
-		inset 0 1px 0 rgba(255, 255, 255, 0.08),
+		inset 0 1px 0 color-mix(in srgb, var(--highlight) 8%, transparent),
 		0 8px 24px rgba(0, 0, 0, 0.2);
 	backdrop-filter: blur(16px) saturate(1.1);
 	-webkit-backdrop-filter: blur(16px) saturate(1.1);
-	color: rgba(248, 250, 252, 0.82);
+	color: color-mix(in srgb, var(--highlight) 82%, transparent);
 	font: 600 var(--t-label) var(--font-ui);
 	font-variant-numeric: tabular-nums;
 	cursor: pointer;
@@ -67,7 +67,7 @@
 .bridge-root .immersive-exec:focus-visible,
 .bridge-root .immersive-exec.on {
 	background: rgba(39, 48, 62, 0.96);
-	border-color: rgba(255, 255, 255, 0.3);
+	border-color: color-mix(in srgb, var(--highlight) 30%, transparent);
 }
 
 .bridge-root.immersive .bridge-exrail.open {
@@ -90,7 +90,7 @@
 .bridge-root .bridge-topbar {
 	position: relative;
 	top: auto;
-	background: rgba(250, 251, 253, 0.74);
+	background: color-mix(in srgb, var(--highlight) 74%, transparent);
 	border: 1px solid rgba(57, 66, 84, 0.14);
 	border-radius: var(--radius-pane);
 	box-shadow: var(--shadow-soft);
@@ -135,7 +135,7 @@
 
 .bridge-root .company-switcher summary:hover,
 .bridge-root .company-switcher[open] summary {
-	background: rgba(255, 255, 255, 0.62);
+	background: color-mix(in srgb, var(--highlight) 62%, transparent);
 	color: var(--ink);
 }
 
@@ -165,7 +165,7 @@
 	border-radius: var(--radius-pane);
 	/* Opaque: the topbar is already a backdrop root, so a nested blur here
 	 * would sample nothing and let the page read through the menu. */
-	background: #fcfdfe;
+	background: var(--surface-menu);
 	box-shadow: var(--bevel), var(--shadow-lift);
 	transform-origin: top left;
 	animation: bridge-popover-in var(--motion-disclosure) var(--ease-spring) both;
@@ -450,7 +450,7 @@
 	padding: 5px 9px;
 	border: 1px solid color-mix(in srgb, var(--intent-conversation) 14%, var(--control-edge));
 	border-radius: var(--radius-control);
-	background: rgba(255, 255, 255, 0.34);
+	background: color-mix(in srgb, var(--highlight) 34%, transparent);
 	box-shadow: var(--bevel-subtle);
 	color: var(--text-secondary);
 	font: 500 var(--t-label) var(--font-ui);
@@ -697,10 +697,10 @@
 }
 
 .bridge-root .attention-item.selected {
-	background: color-mix(in srgb, var(--item-tone) 9%, rgba(255, 255, 255, 0.7));
+	background: color-mix(in srgb, var(--item-tone) 9%, color-mix(in srgb, var(--highlight) 70%, transparent));
 	box-shadow:
 		inset 3px 0 0 var(--item-tone),
-		inset 0 1px 0 rgba(255, 255, 255, 0.8);
+		inset 0 1px 0 color-mix(in srgb, var(--highlight) 80%, transparent);
 }
 
 .bridge-root .attention-item-meta,
@@ -823,11 +823,11 @@
 	align-items: center;
 	gap: 7px;
 	padding: 5px 10px 5px 6px;
-	border: 1px solid color-mix(in srgb, var(--state-success) 25%, rgba(255, 255, 255, 0.72));
+	border: 1px solid color-mix(in srgb, var(--state-success) 25%, color-mix(in srgb, var(--highlight) 72%, transparent));
 	border-radius: var(--radius-control);
-	background: color-mix(in srgb, var(--state-success-soft) 72%, rgba(255, 255, 255, 0.9));
+	background: color-mix(in srgb, var(--state-success-soft) 72%, color-mix(in srgb, var(--highlight) 90%, transparent));
 	box-shadow:
-		inset 0 1px 0 rgba(255, 255, 255, 0.72),
+		inset 0 1px 0 color-mix(in srgb, var(--highlight) 72%, transparent),
 		0 2px 0 rgba(35, 91, 65, 0.12),
 		0 6px 18px rgba(35, 91, 65, 0.07);
 	backdrop-filter: blur(7px);
@@ -860,9 +860,9 @@
 	align-items: center;
 	gap: 10px;
 	padding: 9px 12px 9px 9px;
-	border: 1px solid color-mix(in srgb, var(--intent-authority) 28%, rgba(255, 255, 255, 0.72));
+	border: 1px solid color-mix(in srgb, var(--intent-authority) 28%, color-mix(in srgb, var(--highlight) 72%, transparent));
 	border-radius: var(--radius-pane);
-	background: color-mix(in srgb, var(--intent-authority-soft) 82%, rgba(255, 255, 255, 0.92));
+	background: color-mix(in srgb, var(--intent-authority-soft) 82%, color-mix(in srgb, var(--highlight) 92%, transparent));
 	box-shadow: var(--shadow-lift);
 	backdrop-filter: blur(7px);
 	color: var(--ink);
@@ -882,7 +882,7 @@
 }
 
 .bridge-root .attention-start-blocker:hover {
-	border-color: color-mix(in srgb, var(--intent-authority) 48%, rgba(255, 255, 255, 0.72));
+	border-color: color-mix(in srgb, var(--intent-authority) 48%, color-mix(in srgb, var(--highlight) 72%, transparent));
 }
 
 .bridge-root .attention-start-blocker:hover .attention-start-go {
@@ -927,10 +927,10 @@
 
 .bridge-root .attention-clear-control.visible:hover {
 	transform: translateY(-1px);
-	border-color: color-mix(in srgb, var(--state-success) 38%, rgba(255, 255, 255, 0.72));
-	background: color-mix(in srgb, var(--state-success-soft) 82%, rgba(255, 255, 255, 0.94));
+	border-color: color-mix(in srgb, var(--state-success) 38%, color-mix(in srgb, var(--highlight) 72%, transparent));
+	background: color-mix(in srgb, var(--state-success-soft) 82%, color-mix(in srgb, var(--highlight) 94%, transparent));
 	box-shadow:
-		inset 0 1px 0 rgba(255, 255, 255, 0.78),
+		inset 0 1px 0 color-mix(in srgb, var(--highlight) 78%, transparent),
 		0 3px 0 rgba(35, 91, 65, 0.12),
 		0 8px 22px rgba(35, 91, 65, 0.1);
 }
@@ -938,7 +938,7 @@
 .bridge-root .attention-clear-control.visible:active {
 	transform: translateY(1px);
 	box-shadow:
-		inset 0 1px 0 rgba(255, 255, 255, 0.7),
+		inset 0 1px 0 color-mix(in srgb, var(--highlight) 70%, transparent),
 		0 1px 0 rgba(35, 91, 65, 0.14);
 }
 
@@ -1010,7 +1010,7 @@
 }
 
 .bridge-root .goal-spine button:hover {
-	background: rgba(255, 255, 255, 0.62);
+	background: color-mix(in srgb, var(--highlight) 62%, transparent);
 	color: var(--ink);
 }
 
@@ -1069,7 +1069,7 @@
 	display: flex;
 	padding: 2px;
 	border: 0;
-	background: rgba(31, 41, 64, 0.06);
+	background: var(--wash-hover);
 	border-radius: var(--radius-md);
 	box-shadow: inset 0 0 0 1px rgba(31, 41, 64, 0.04);
 	isolation: isolate;
@@ -1085,7 +1085,7 @@
 	left: 2px;
 	width: calc(50% - 2px);
 	border-radius: calc(var(--radius-md) - 2px);
-	background: #fff;
+	background: var(--segment-thumb);
 	box-shadow:
 		0 0 0 1px rgba(31, 41, 64, 0.06),
 		0 1px 2px rgba(31, 41, 64, 0.1),
@@ -1109,7 +1109,7 @@
 	padding: 5px 9px;
 	border: 1px solid var(--control-edge);
 	border-radius: var(--radius-control);
-	background: linear-gradient(180deg, #fff, #edf0f4);
+	background: linear-gradient(180deg, var(--surface-raised), var(--surface-alt));
 	box-shadow: var(--bevel-subtle), var(--control-depth);
 	font: 500 var(--t-label) var(--font-ui);
 	font-variant-numeric: tabular-nums;
@@ -1121,8 +1121,8 @@
 	border-color: color-mix(in srgb, var(--state-success) 35%, var(--control-edge));
 	background: linear-gradient(
 		180deg,
-		#fff,
-		color-mix(in srgb, var(--state-success-soft) 75%, #edf0f4)
+		var(--surface-raised),
+		color-mix(in srgb, var(--state-success-soft) 75%, var(--surface-alt))
 	);
 	color: var(--state-success);
 }
@@ -1208,7 +1208,7 @@
 	padding: 12px 13px;
 	border: 1px solid var(--border-strong);
 	border-radius: var(--radius-control);
-	background: rgba(255, 255, 255, 0.82);
+	background: color-mix(in srgb, var(--highlight) 82%, transparent);
 	box-shadow:
 		var(--bevel-subtle),
 		0 1px 2px rgba(43, 51, 66, 0.07),
@@ -1310,7 +1310,7 @@
 	min-width: 0;
 	padding: 12px;
 	border-right: 1px solid var(--border);
-	background: rgba(247, 249, 252, 0.46);
+	background: color-mix(in srgb, var(--highlight) 46%, transparent);
 }
 
 .bridge-root .board-column:nth-child(2) {
@@ -1397,7 +1397,7 @@
 	gap: 8px;
 	padding: 16px 24px 18px;
 	border-bottom: 1px solid var(--border);
-	background: rgba(255, 255, 255, 0.48);
+	background: color-mix(in srgb, var(--highlight) 48%, transparent);
 }
 
 .bridge-root .work-crumbs {
@@ -1966,7 +1966,7 @@
 	padding: 9px 10px;
 	border: 1px solid color-mix(in srgb, var(--intent-feedback) 17%, var(--border));
 	border-radius: var(--radius-control);
-	background: color-mix(in srgb, var(--intent-feedback-soft) 55%, rgba(255, 255, 255, 0.6));
+	background: color-mix(in srgb, var(--intent-feedback-soft) 55%, color-mix(in srgb, var(--highlight) 60%, transparent));
 	color: var(--intent-feedback);
 }
 
@@ -1977,7 +1977,7 @@
 .bridge-root .detail-gate {
 	grid-template-columns: 14px minmax(0, 1fr);
 	border-color: var(--border);
-	background: rgba(255, 255, 255, 0.48);
+	background: color-mix(in srgb, var(--highlight) 48%, transparent);
 	color: var(--text-tertiary);
 }
 
@@ -2150,7 +2150,7 @@
 	gap: 11px;
 	padding: 12px 16px;
 	border-bottom: 1px solid var(--border);
-	background: rgba(255, 255, 255, 0.42);
+	background: color-mix(in srgb, var(--highlight) 42%, transparent);
 	box-shadow: var(--bevel-subtle);
 }
 
@@ -2186,7 +2186,7 @@
 
 .bridge-root .talk-composer {
 	padding: 10px 24px 14px;
-	background: rgba(255, 255, 255, 0.58);
+	background: color-mix(in srgb, var(--highlight) 58%, transparent);
 	box-shadow: 0 -10px 30px rgba(43, 51, 66, 0.035);
 }
 
@@ -2196,30 +2196,30 @@
 	display: grid;
 	place-items: center;
 	border: 1px solid var(--border-strong);
-	background: #e7ebf1;
+	background: var(--accent-soft);
 	font: 600 var(--t-body) var(--font-ui);
 	font-variant-numeric: tabular-nums;
 	color: var(--ink);
 }
 
 .bridge-root .person-avatar.tone-0 {
-	background: #e7edf5;
+	background: var(--intent-conversation-soft);
 	color: #2f5f8e;
 }
 .bridge-root .person-avatar.tone-1 {
-	background: #e7f1ee;
+	background: var(--intent-feedback-soft);
 	color: #286a5b;
 }
 .bridge-root .person-avatar.tone-2 {
-	background: #efeaf7;
+	background: var(--intent-direction-soft);
 	color: #624996;
 }
 .bridge-root .person-avatar.tone-3 {
-	background: #f5eee3;
+	background: var(--intent-authority-soft);
 	color: #87591c;
 }
 .bridge-root .person-avatar.tone-4 {
-	background: #f3e9e8;
+	background: var(--state-danger-soft);
 	color: #944a46;
 }
 
@@ -2382,7 +2382,7 @@
 .bridge-root .authority-group-action button {
 	padding: 3px 6px;
 	border: 1px solid var(--border);
-	background: rgba(255, 255, 255, 0.55);
+	background: color-mix(in srgb, var(--highlight) 55%, transparent);
 	font: 500 var(--t-label) var(--font-ui);
 	font-variant-numeric: tabular-nums;
 	text-transform: none;
@@ -2394,7 +2394,7 @@
 .bridge-root .bounded-confirm button {
 	padding: 5px 8px;
 	border: 1px solid var(--border-strong);
-	background: rgba(255, 255, 255, 0.65);
+	background: color-mix(in srgb, var(--highlight) 65%, transparent);
 	font-size: var(--t-label);
 	cursor: pointer;
 }
@@ -2492,7 +2492,7 @@
 
 .bridge-root .exr-head {
 	justify-content: space-between;
-	background: rgba(255, 255, 255, 0.42);
+	background: color-mix(in srgb, var(--highlight) 42%, transparent);
 	box-shadow: var(--bevel-subtle);
 }
 
@@ -2526,7 +2526,7 @@
 
 .bridge-root .exr-composer {
 	padding: 10px;
-	background: rgba(255, 255, 255, 0.58);
+	background: color-mix(in srgb, var(--highlight) 58%, transparent);
 	box-shadow: 0 -10px 30px rgba(43, 51, 66, 0.035);
 }
 
@@ -2569,7 +2569,7 @@
 .bridge-root .exec-context-chip:hover {
 	transform: translateY(-1px);
 	border-color: var(--border-strong);
-	background: rgba(255, 255, 255, 0.62);
+	background: color-mix(in srgb, var(--highlight) 62%, transparent);
 }
 
 .bridge-root .exec-context-chip.off {
@@ -2579,18 +2579,18 @@
 }
 
 .bridge-root .hc-field {
-	background: rgba(255, 255, 255, 0.76);
+	background: color-mix(in srgb, var(--highlight) 76%, transparent);
 	box-shadow:
 		var(--bevel),
 		0 7px 22px rgba(43, 51, 66, 0.07),
-		0 0 0 1px rgba(255, 255, 255, 0.32);
+		0 0 0 1px color-mix(in srgb, var(--highlight) 32%, transparent);
 }
 
 .bridge-root .hc-send {
 	border-color: #2d4569;
 	background: linear-gradient(180deg, #42628f, #2c4569);
 	box-shadow:
-		inset 0 1px 0 rgba(255, 255, 255, 0.22),
+		inset 0 1px 0 color-mix(in srgb, var(--highlight) 22%, transparent),
 		0 4px 12px rgba(44, 69, 105, 0.16);
 	color: var(--text-inverse);
 }
@@ -2598,7 +2598,7 @@
 .bridge-root .hc-send:active:not(:disabled) {
 	transform: translateY(1px);
 	box-shadow:
-		inset 0 1px 0 rgba(255, 255, 255, 0.24),
+		inset 0 1px 0 color-mix(in srgb, var(--highlight) 24%, transparent),
 		0 1px 0 #204e7d;
 }
 

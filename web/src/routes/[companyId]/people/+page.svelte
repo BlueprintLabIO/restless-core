@@ -569,7 +569,7 @@
 		transition: background-color var(--motion-state) var(--ease-standard);
 	}
 	.directory-person:hover {
-		background: rgba(255, 255, 255, 0.66);
+		background: color-mix(in srgb, var(--highlight) 66%, transparent);
 	}
 	.directory-person:focus-visible,
 	.directory-person[aria-current='page'] {

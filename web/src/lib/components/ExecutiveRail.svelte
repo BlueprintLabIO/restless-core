@@ -791,7 +791,7 @@
 		padding: 0;
 		border: 1px solid var(--control-edge);
 		border-radius: var(--radius-control);
-		background: rgba(255, 255, 255, 0.58);
+		background: color-mix(in srgb, var(--highlight) 58%, transparent);
 		color: var(--text-secondary);
 		cursor: pointer;
 	}

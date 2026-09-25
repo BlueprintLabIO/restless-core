@@ -4,7 +4,7 @@
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
 	let { children } = $props();
-	const active = $derived(page.url.pathname.endsWith('/connections'));
+	const section = $derived(page.url.pathname.split('/').at(-1));
 </script>
 
 <svelte:head><title>Account settings — {PRODUCT_NAME}</title></svelte:head>
@@ -23,8 +23,13 @@
 			<nav>
 				<a
 					href="/account/settings/connections"
-					class:active
-					aria-current={active ? 'page' : undefined}>Connections</a
+					class:active={section === 'connections'}
+					aria-current={section === 'connections' ? 'page' : undefined}>Connections</a
+				>
+				<a
+					href="/account/settings/appearance"
+					class:active={section === 'appearance'}
+					aria-current={section === 'appearance' ? 'page' : undefined}>Appearance</a
 				>
 			</nav>
 		</aside>
