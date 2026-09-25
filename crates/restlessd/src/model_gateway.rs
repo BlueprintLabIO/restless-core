@@ -787,7 +787,11 @@ pub async fn start(
         &required_models,
     )
     .await?;
-    let responses_routes = direct_responses_routes(&provider_credentials)?;
+    let responses_routes = direct_responses_routes(
+        &provider_credentials,
+        &endpoints.gateway_host_url,
+        &gateway_token,
+    )?;
     let anthropic_routes = direct_anthropic_routes(&provider_credentials)?;
     let providers = provider_credentials
         .into_iter()
@@ -1173,8 +1177,19 @@ async fn hosted_relay_anthropic_count_tokens(headers: HeaderMap, body: Bytes) ->
 
 fn direct_responses_routes(
     credentials: &BTreeMap<String, ProviderCredential>,
+    gateway_url: &str,
+    gateway_token: &str,
 ) -> Result<BTreeMap<String, DirectResponsesRoute>> {
     let mut routes = BTreeMap::new();
+    if matches!(credentials.get("openai-codex"), Some(ProviderCredential::OmpOauth)) {
+        routes.insert(
+            "openai-codex".to_string(),
+            DirectResponsesRoute {
+                base_url: format!("{gateway_url}/v1"),
+                api_key: gateway_token.to_owned(),
+            },
+        );
+    }
     if let Some(ProviderCredential::ApiKey(api_key)) = credentials.get("litellm") {
         let mut url = reqwest::Url::parse(
             &std::env::var("GPT_BASE_URL").context("litellm Responses route needs GPT_BASE_URL")?,
@@ -1975,6 +1990,15 @@ fn live_company_model_grant(
     });
     if current_reference.map(String::as_str) != grant.credential_reference.as_deref() {
         bail!("company model connection changed since this session started");
+    }
+    if let Some(reference) = current_reference {
+        if (reference.starts_with("omp-oauth:") && reference.contains('@'))
+            || reference.starts_with("infisical:/owner/model-connections/")
+        {
+            if !crate::owner::account_connection_matches(root, &grant.provider, reference)? {
+                bail!("account model connection is no longer registered");
+            }
+        }
     }
     Ok(config)
 }

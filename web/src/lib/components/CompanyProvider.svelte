@@ -99,7 +99,7 @@
 		notice = '';
 		const row = status?.connections.find((c) => c.provider === provider);
 		mode =
-			row?.reference?.startsWith('omp-oauth:') || provider === 'openai-codex'
+			row?.reference?.startsWith('omp-oauth:')
 				? 'oauth'
 				: row?.reference?.startsWith('env:')
 					? 'env'
@@ -546,7 +546,7 @@
 					><select id="provider-auth" bind:value={mode} onchange={selectMode} disabled={busy}
 						><option value="infisical">API key stored securely</option><option value="env"
 							>Existing host environment variable</option
-						><option value="oauth">Existing host broker login</option></select
+						>{#if connection?.reference?.startsWith('omp-oauth:')}<option value="oauth">Existing company OAuth reference</option>{/if}</select
 					>
 					<label for="provider-reference">Credential reference</label><input
 						id="provider-reference"
@@ -557,9 +557,7 @@
 						spellcheck="false"
 					/>
 					{#if mode === 'oauth'}<p>
-							This uses an existing host broker login. For native Codex or Claude sign-in, open <a
-								href="#harnesses">Harness connections</a
-							>.
+						This existing company reference is kept for compatibility. Grant reusable sign-ins from Account → Connections.
 						</p>{/if}
 				</details>
 				<div class="actions">

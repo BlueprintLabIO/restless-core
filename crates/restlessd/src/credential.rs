@@ -458,14 +458,16 @@ fn parse_reference(reference: &str) -> Result<CredentialReference<'_>> {
             locator,
         )?)),
         "omp-oauth" => {
-            if locator.is_empty()
-                || !locator.bytes().all(|byte| {
+            let (provider, connection) = locator.split_once('@').map_or((locator, None), |(provider, connection)| (provider, Some(connection)));
+            if provider.is_empty()
+                || !provider.bytes().all(|byte| {
                     byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'
                 })
+                || connection.is_some_and(|id| id.len() != 32 || !id.bytes().all(|byte| byte.is_ascii_hexdigit()))
             {
-                bail!("omp-oauth: locator must be a provider identifier such as anthropic");
+                bail!("omp-oauth: locator must be a provider, optionally followed by @ and a connection ID");
             }
-            Ok(CredentialReference::OmpOauth(locator))
+            Ok(CredentialReference::OmpOauth(provider))
         }
         other => bail!(
             "unknown credential scheme {other:?} in {reference:?}; supported schemes are env:, infisical:, and omp-oauth:"

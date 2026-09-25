@@ -17,12 +17,36 @@ struct LoginJob {
 static JOBS: LazyLock<tokio::sync::Mutex<HashMap<Uuid, LoginJob>>> =
     LazyLock::new(|| tokio::sync::Mutex::new(HashMap::new()));
 
-pub(super) async fn start_codex_login(State(state): State<OwnerState>, Extension(principal): Extension<RequestPrincipal>) -> Response<Body> {
+pub(super) async fn start_codex_login(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+) -> Response<Body> {
     if !principal.is_account_owner() {
         return api_error(
             StatusCode::FORBIDDEN,
             "connections",
             "Only the account owner can start this sign-in.",
+        );
+    }
+    let registry = match load_owner_connections(&state.daemon.root) {
+        Ok(registry) => registry,
+        Err(_) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "connections",
+                "Could not check existing account connections.",
+            )
+        }
+    };
+    if registry
+        .connections
+        .iter()
+        .any(|connection| connection.kind == "oauth" && connection.provider == "openai-codex")
+    {
+        return api_error(
+            StatusCode::CONFLICT,
+            "connections",
+            "Codex is already connected to this account. Its sign-in refreshes automatically.",
         );
     }
     let companies = match crate::configured_companies(&state.daemon.root) {
@@ -51,7 +75,9 @@ pub(super) async fn start_codex_login(State(state): State<OwnerState>, Extension
                     .then(|| config.credentials.get("model.inference"))
                     .flatten()
             });
-        if current.is_some_and(|reference| reference != "omp-oauth:openai-codex") {
+        if current.is_some_and(|reference| {
+            credential::omp_oauth_provider(reference).ok().flatten() != Some("openai-codex")
+        }) {
             return api_error(StatusCode::CONFLICT, "connections", "A company already uses a different Codex credential. Change that company connection before adding account sign-in.");
         }
     }

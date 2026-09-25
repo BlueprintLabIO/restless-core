@@ -34,6 +34,7 @@
 		['litellm', 'OpenAI-compatible gateway']
 	];
 	let connections = $state<AccountConnection[]>([]);
+	let codexConnected = $derived(connections.some((connection) => connection.kind === 'oauth' && connection.provider === 'openai-codex'));
 	let accountScope = $state<'account' | 'company'>('account');
 	let manageUrl = $state('/account/settings/connections');
 	let loading = $state(true);
@@ -57,6 +58,7 @@
 	let companyRevisions = $state<Record<string, string>>({});
 	let selectedCompany = $state('');
 	let selectedModel = $state('');
+	let selectedMakeDefault = $state(false);
 	let replaceRequired = $state(false);
 	let busyCompany = $state(false);
 	let confirmRevocation = $state('');
@@ -213,6 +215,7 @@
 		managingId = managingId === item.id ? '' : item.id;
 		selectedCompany = '';
 		selectedModel = defaultModel(item.provider);
+		selectedMakeDefault = false;
 		replaceRequired = false;
 	}
 	async function grant(item: AccountConnection, companyId: string, replace = false) {
@@ -239,7 +242,7 @@
 					headers: { 'content-type': 'application/json' },
 					body: JSON.stringify({
 						model: selectedModel || defaultModel(item.provider),
-						make_default: false,
+						make_default: selectedMakeDefault,
 						revision,
 						...(replace ? { replace_existing: true } : {})
 					})
@@ -330,8 +333,8 @@
 		>{:else}<a class="btn primary" href={manageUrl}>Open account ↗</a>{/if}
 	</header>
 	{#if accountScope === 'account'}<section class="native-section" aria-label="Account Codex sign-in">
-		<div class="section-head"><h2>ChatGPT / Codex</h2><button class="btn primary" disabled={!!oauthJob} onclick={() => void startCodexSignIn()}>{oauthJob ? 'Signing in…' : 'Connect Codex'}</button></div>
-		<p>Sign in once with a device code, then grant this account connection to the companies that need it.</p>
+		<div class="section-head"><h2>ChatGPT / Codex</h2>{#if !codexConnected}<button class="btn primary" disabled={!!oauthJob} onclick={() => void startCodexSignIn()}>{oauthJob ? 'Signing in…' : 'Connect Codex'}</button>{/if}</div>
+		<p>{codexConnected ? 'Connected to this account. Choose company access below.' : 'Sign in once with a device code, then grant this account connection to the companies that need it.'}</p>
 		{#if oauthUrl}<p><a href={oauthUrl} target="_blank" rel="noreferrer">Open Codex sign-in ↗</a>{#if oauthCode} · Enter code <strong>{oauthCode}</strong>{/if}</p>{/if}
 		{#if oauthMessage}<p role="status">{oauthMessage}</p>{:else if oauthState === 'connected'}<p role="status">Codex connected. Choose company access below.</p>{/if}
 	</section>{/if}
@@ -482,8 +485,9 @@
 														value={routeModel(item.provider, model.id)}
 														>{model.name ?? model.id}</option
 													>{/each}</select
-											></label
+										></label
 										>
+										<label class="model-picker"><input type="checkbox" bind:checked={selectedMakeDefault} /> Use as this company’s default model</label>
 										{#if replaceRequired}<span class="replace-warning" role="alert"
 												>This replaces the current {providerName(item.provider)} connection for {company.name}.</span
 											><button
@@ -515,6 +519,7 @@
 											onclick={() => {
 												selectedCompany = company.id;
 												selectedModel = defaultModel(item.provider);
+												selectedMakeDefault = false;
 												replaceRequired = false;
 											}}>Choose model and grant</button
 										>{/if}

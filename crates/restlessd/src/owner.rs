@@ -3016,6 +3016,18 @@ async fn update_company_provider(
         }
         _ => {}
     }
+    if reference.starts_with("omp-oauth:")
+        && config.credentials.get(&format!("model.inference.{provider}")).map(String::as_str)
+            != Some(reference)
+        && !(config.model.split('/').next() == Some(provider)
+            && config.credentials.get("model.inference").map(String::as_str) == Some(reference))
+    {
+        return api_error(
+            StatusCode::CONFLICT,
+            "connections",
+            "Grant an account connection to this company from Account → Connections. New company-only OAuth references are no longer created here.",
+        );
+    }
     if let Some(secret) = input.secret.as_deref().filter(|s| !s.is_empty()) {
         if !reference.starts_with("infisical:") || secret.len() > 32768 {
             return api_error(
@@ -3171,10 +3183,17 @@ fn model_connection_reference(id: &str) -> String {
 
 fn owner_connection_reference(connection: &OwnerModelConnection) -> String {
     if connection.kind == "oauth" {
-        format!("omp-oauth:{}", connection.provider)
+        format!("omp-oauth:{}@{}", connection.provider, connection.id)
     } else {
         model_connection_reference(&connection.id)
     }
+}
+
+pub(crate) fn account_connection_matches(root: &std::path::Path, provider: &str, reference: &str) -> Result<bool> {
+    let registry = load_owner_connections(root)?;
+    Ok(registry.connections.iter().any(|connection| {
+        connection.provider == provider && owner_connection_reference(connection) == reference
+    }))
 }
 
 fn valid_provider_id(provider: &str) -> bool {
