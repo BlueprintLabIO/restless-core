@@ -127,7 +127,7 @@
 			group: 'Appearance',
 			label: { system: 'Match system appearance', light: 'Light', dark: 'Dark' }[choice],
 			hint: theme.preference === choice ? 'Current' : undefined,
-			keywords: 'theme appearance mode dark light',
+			keywords: `theme appearance mode${choice === 'system' ? ' auto os device' : ''}`,
 			run: () => theme.set(choice)
 		}))
 	]);

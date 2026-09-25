@@ -365,7 +365,10 @@
 					id: `person:${person.actor_id}`,
 					group: 'People',
 					label: person.display,
-					hint: person.kind === 'exec' ? 'Executive' : person.role,
+					hint:
+						person.kind === 'exec'
+							? 'Executive'
+							: person.role.charAt(0).toUpperCase() + person.role.slice(1),
 					keywords: 'message talk chat',
 					href: `${root}/people?person=${encodeURIComponent(person.actor_id)}`
 				})),

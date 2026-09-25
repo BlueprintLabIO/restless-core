@@ -394,6 +394,7 @@
 
 .bridge-root .portfolio-metric strong {
 	font-size: var(--t-body);
+	font-weight: 400;
 	color: var(--ink);
 }
 
@@ -412,7 +413,7 @@
 	overflow: hidden;
 	-webkit-box-orient: vertical;
 	-webkit-line-clamp: 2;
-	font-weight: 500;
+	color: var(--text-secondary);
 }
 
 .bridge-root .portfolio-loading {

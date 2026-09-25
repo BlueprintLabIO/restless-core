@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { plainText } from '$lib/text';
 	import { tooltips } from '$lib/actions/tooltips';
 	import { goto } from '$app/navigation';
 	import { Settings2 } from '@lucide/svelte';
@@ -79,7 +80,7 @@
 		<div class="tb-right">
 			{#if loaded}<CreateCompany />{/if}
 			<a
-				class="settings-link"
+				class="btn settings-link"
 				href="/account/settings"
 				aria-label="Account settings"
 				title="Account settings"
@@ -167,10 +168,10 @@
 									</span>
 									<span
 										class="portfolio-metric portfolio-focus"
-										title={company.mission || undefined}
+										title={plainText(company.mission, { dropTitle: true }) || undefined}
 									>
 										<small class="portfolio-mobile-label">Current focus</small>
-										<strong>{company.mission || 'Focus not set'}</strong>
+										<strong>{plainText(company.mission, { dropTitle: true }) || 'Focus not set'}</strong>
 									</span>
 									<span class="portfolio-metric portfolio-proof">
 										<small class="portfolio-mobile-label">Next item of value</small>
@@ -214,25 +215,7 @@
 
 <style>
 	.settings-link {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
 		gap: var(--space-2);
-		min-height: 38px;
-		padding: var(--space-2) var(--space-3);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-control);
-		color: var(--text-secondary);
-		font-size: var(--t-label);
-		text-decoration: none;
-	}
-	.settings-link:hover {
-		border-color: var(--intent-conversation);
-		color: var(--intent-conversation);
-	}
-	.settings-link:focus-visible {
-		outline: 2px solid var(--intent-conversation);
-		outline-offset: 2px;
 	}
 
 	.appliance-notice {
