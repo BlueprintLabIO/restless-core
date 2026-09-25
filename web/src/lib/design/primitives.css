@@ -434,3 +434,11 @@
 .bridge-root button.exr-who:hover {
 	background: var(--wash-hover);
 }
+
+/* Scrollbars stay out of the way: a thin thumb in the ink of the theme on
+ * no track, instead of the platform's grey gutter. */
+:where(.bridge-root),
+:where(.bridge-root) * {
+	scrollbar-width: thin;
+	scrollbar-color: var(--scroll-thumb) transparent;
+}

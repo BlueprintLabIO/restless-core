@@ -151,6 +151,7 @@
 	 * so a dark theme can re-point them in one place. */
 	--surface-raised: #fff;
 	--segment-thumb: #fff;
+	--scroll-thumb: rgba(31, 41, 64, 0.2);
 	--highlight: #fff;
 	--surface-menu: #fcfdfe;
 	--surface-hover: #f8f9fb;
@@ -274,6 +275,7 @@
 	--dot: rgba(255, 255, 255, 0.022);
 	--surface-raised: #1d2027;
 	--segment-thumb: #2c3039;
+	--scroll-thumb: rgba(255, 255, 255, 0.16);
 	--highlight: rgba(255, 255, 255, 0.08);
 	--surface-menu: #1b1e25;
 	--surface-hover: #23262e;
