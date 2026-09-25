@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { initials } from '$lib/model/initials';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import FileText from '@lucide/svelte/icons/file-text';
@@ -227,15 +228,6 @@
 		const url = new URL(page.url);
 		url.searchParams.set('view', view);
 		void goto(url, { noScroll: true, keepFocus: true });
-	}
-	/* "The Exec" is one person, not T. E.: leading articles never become initials. */
-	function initials(name: string): string {
-		return name
-			.split(/\s+/)
-			.filter((part) => part && !/^(the|a|an)$/i.test(part))
-			.slice(0, 2)
-			.map((part) => part[0]?.toUpperCase() ?? '')
-			.join('');
 	}
 	function href(person: string, room = '') {
 		const params = new URLSearchParams(room ? { room } : person ? { person } : {});

@@ -10,6 +10,7 @@
 	import WifiOff from '@lucide/svelte/icons/wifi-off';
 	import X from '@lucide/svelte/icons/x';
 	import AttentionCard from '$lib/components/AttentionCard.svelte';
+	import { initials } from '$lib/model/initials';
 	import AgentExchanges from '$lib/components/AgentExchanges.svelte';
 	import IntelligencePopover from '$lib/components/IntelligencePopover.svelte';
 	import ConversationTurnDock from '$lib/primitives/ConversationTurnDock.svelte';
@@ -547,14 +548,6 @@
 			: []
 	);
 	const actorNameForHeader = $derived(directPerson?.display ?? directPartner ?? '');
-	function initials(name: string): string {
-		return name
-			.split(/\s+/)
-			.filter(Boolean)
-			.slice(0, 2)
-			.map((part) => part[0]?.toUpperCase() ?? '')
-			.join('');
-	}
 	const actorDisplay = $derived(directPerson?.display ?? directPartner ?? '');
 	function isOwnerTeam(team: CockpitTeam | CollaborationTeam | null): team is CockpitTeam {
 		return !!team && 'outcome_standard_source' in team;
