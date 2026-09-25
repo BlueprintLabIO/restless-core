@@ -2713,9 +2713,6 @@ async fn create_company(
         Ok(config) => config,
         Err(error) => return api_error(StatusCode::BAD_REQUEST, "company", error.to_string()),
     };
-    if let Err(error) = runtime::validate_company_model_selection(&config.model) {
-        return api_error(StatusCode::BAD_REQUEST, "company", error.to_string());
-    }
     if let Err(error) = config.model_candidates().and_then(|models| {
         for model in models {
             runtime::validate_company_model_selection(&model)?;
@@ -3169,9 +3166,6 @@ async fn update_company_setup(
     }
     config.display_name = Some(input.display_name.trim().to_string());
     config.model = input.model.trim().to_string();
-    if let Err(error) = runtime::validate_company_model_selection(&config.model) {
-        return api_error(StatusCode::BAD_REQUEST, "company_setup", error.to_string());
-    }
     if let Err(error) = config
         .model_candidates()
         .and_then(|models| {

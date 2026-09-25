@@ -518,10 +518,22 @@ const LEGACY_UNCONFIGURED_MODEL: &str = "unconfigured/pending";
 /// Keep rejecting them at model write boundaries while leaving old config
 /// readable so an owner can repair it through the Intelligence provider UI.
 pub fn validate_company_model_selection(model: &str) -> Result<()> {
-    if let Some((provider, _)) = model.split_once('/') {
-        validate_direct_provider(provider)?;
+    validate_direct_provider(provider_for_model(model)?)
+}
+
+fn provider_for_model(model: &str) -> Result<&str> {
+    let Some((provider, id)) = model.split_once('/') else {
+        bail!("model {model:?} must be provider-qualified, e.g. moonshot/kimi-k3");
+    };
+    if provider.is_empty()
+        || id.is_empty()
+        || !provider
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+    {
+        bail!("invalid provider-qualified model {model:?}");
     }
-    Ok(())
+    Ok(provider)
 }
 
 /// A direct connection must name a real provider, never an internal native
@@ -712,17 +724,7 @@ impl CompanyConfig {
         let mut candidates = Vec::with_capacity(1 + self.model_failover.len());
         for model in std::iter::once(primary).chain(self.model_failover.iter().map(String::as_str))
         {
-            let Some((provider, id)) = model.split_once('/') else {
-                bail!("model {model:?} must be provider-qualified, e.g. moonshot/kimi-k3");
-            };
-            if provider.is_empty()
-                || id.is_empty()
-                || !provider
-                    .bytes()
-                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
-            {
-                bail!("invalid provider-qualified model {model:?}");
-            }
+            provider_for_model(model)?;
             if !seen.insert(model) {
                 bail!("duplicate model candidate {model:?}");
             }
