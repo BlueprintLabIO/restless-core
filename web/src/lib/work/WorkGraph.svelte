@@ -227,7 +227,7 @@
 		transform: translateY(-1px);
 	}
 	.work-flow-node:focus-visible {
-		outline: 3px solid color-mix(in srgb, var(--intent-conversation) 30%, transparent);
+		outline: 2px solid var(--intent-conversation);
 		outline-offset: 3px;
 	}
 	.work-flow-node.is-focus {

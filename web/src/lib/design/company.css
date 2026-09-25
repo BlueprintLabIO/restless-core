@@ -927,15 +927,14 @@
 .bridge-root .evidence-chip {
 	display: inline-flex;
 	align-items: center;
-	min-height: 25px;
-	padding: 3px 9px;
+	flex: none;
+	width: fit-content;
+	min-height: 22px;
+	padding: 2px 9px;
 	border: 1px solid var(--company-edge-soft);
 	border-radius: 999px;
-	background: linear-gradient(180deg, #fff, #edf1f5);
-	box-shadow:
-		var(--bevel-subtle),
-		0 1px 2px rgba(43, 51, 66, 0.05);
-	font: var(--t-label) var(--font-mono);
+	background: var(--surface-alt);
+	font: 500 var(--t-label) var(--font-ui);
 	white-space: nowrap;
 }
 
@@ -996,9 +995,7 @@
 	background: var(--company-inset);
 	box-shadow: var(--company-inset-shadow);
 	color: var(--text-tertiary);
-	font: var(--t-label) var(--font-mono);
-	text-transform: uppercase;
-	letter-spacing: var(--track-label);
+	font-weight: 500;
 }
 
 .bridge-root .resource-row {

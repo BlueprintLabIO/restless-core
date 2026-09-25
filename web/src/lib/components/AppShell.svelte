@@ -14,7 +14,7 @@
 	 * executive transcript remains a persistent sibling of the owner workspace,
 	 * never a collaboration control inferred from company membership. */
 
-	import type { Snippet } from 'svelte';
+	import { tick, type Snippet } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { dismissable } from '$lib/actions/dismissable';
 	import { resizePane } from '$lib/actions/resize-pane';
@@ -104,6 +104,7 @@
 			group: 'Go to',
 			label: tab.label,
 			hint: tabKeys[tab.key] ? `G then ${tabKeys[tab.key].toUpperCase()}` : undefined,
+			shortcut: true,
 			href: tab.href
 		})),
 		...(rail && onexectoggle
@@ -113,6 +114,7 @@
 						group: 'Go to',
 						label: railOpen ? `Hide ${execName}` : `Talk to ${execName}`,
 						hint: execShortcut,
+						shortcut: true,
 						run: () => onexectoggle?.()
 					}
 				]
@@ -151,6 +153,14 @@
 		return () => observer.disconnect();
 	});
 
+	function focusRail() {
+		const rail = document.getElementById('bridge-exrail');
+		const target =
+			rail?.querySelector<HTMLElement>('textarea:not([disabled])') ??
+			rail?.querySelector<HTMLElement>('a[href], button:not([disabled])');
+		target?.focus();
+	}
+
 	function typing(target: EventTarget | null) {
 		const element = target as HTMLElement | null;
 		return !!element?.closest(
@@ -171,7 +181,22 @@
 		if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === 'j') {
 			if (!rail || !onexectoggle) return;
 			event.preventDefault();
+			const opening = !railOpen;
 			onexectoggle();
+			/* A keyboard open should land the keyboard in the rail. */
+			if (opening) void tick().then(() => focusRail());
+			return;
+		}
+		if (
+			event.key === 'Escape' &&
+			railOpen &&
+			onexectoggle &&
+			(event.target as Element | null)?.closest?.('#bridge-exrail') &&
+			!(event.target as Element).closest('dialog, [role="dialog"], [role="listbox"]')
+		) {
+			event.preventDefault();
+			onexectoggle();
+			document.querySelector<HTMLElement>('.tb-exec')?.focus();
 			return;
 		}
 		if (event.metaKey || event.ctrlKey || event.altKey || typing(event.target)) return;

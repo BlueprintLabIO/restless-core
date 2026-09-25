@@ -2,6 +2,7 @@
 	import { WORK_STATUS_LABEL, runStateLabel, workStatusLabel } from '$lib/work/status';
 	import { resizePane } from '$lib/actions/resize-pane';
 	import { page } from '$app/state';
+	import { replaceState } from '$app/navigation';
 	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
 	import {
 		attentionQuery,
@@ -58,9 +59,29 @@
 	$effect(() => {
 		if (!loaded || goalSelectionInitialized) return;
 		const requestedGoal = page.url.searchParams.get('goal');
+		/* A named goal can only be matched once the goals themselves arrive. */
+		const goalsLoaded = ownerAccess ? !!cockpit : !!collaboration;
+		if (
+			requestedGoal &&
+			requestedGoal !== UNASSIGNED_QUERY &&
+			requestedGoal !== ALL_WORK_QUERY &&
+			!goalsLoaded
+		)
+			return;
 		selectedGoal = goals.find((goal) => goal.id === requestedGoal)?.id ?? '';
 		if (!selectedGoal && requestedGoal === UNASSIGNED_QUERY) selectedGoal = UNASSIGNED_QUERY;
 		goalSelectionInitialized = true;
+	});
+
+	/* The view is part of the address: a filtered board can be reloaded,
+	 * shared or reached again with Back. Shallow, so nothing reloads. */
+	$effect(() => {
+		if (!goalSelectionInitialized) return;
+		const url = new URL(page.url);
+		if (selectedGoal) url.searchParams.set('goal', selectedGoal);
+		else url.searchParams.delete('goal');
+		url.searchParams.set('lens', lens);
+		if (url.search !== page.url.search) replaceState(url, page.state);
 	});
 
 	const graph = $derived(
@@ -555,7 +576,7 @@
 	}
 
 	.documents-entry:focus-visible {
-		outline: 3px solid color-mix(in srgb, var(--intent-conversation) 30%, transparent);
+		outline: 2px solid var(--intent-conversation);
 		outline-offset: 2px;
 	}
 

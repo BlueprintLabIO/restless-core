@@ -274,6 +274,13 @@
 		gap: 2px;
 	}
 
+	@media (pointer: coarse) {
+		.copy-message {
+			width: 44px;
+			height: 44px;
+		}
+	}
+
 	/* With a mouse, actions wait for the message you are pointing at; their
 	 * space stays reserved so nothing moves. Touch keeps them visible. */
 	@media (hover: hover) and (pointer: fine) {

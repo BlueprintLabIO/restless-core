@@ -15,11 +15,14 @@
 	let {
 		companyId,
 		graph,
-		sourceHealth
+		sourceHealth,
+		quietSignal = false
 	}: {
 		companyId: string;
 		graph: WorkGraphSnapshot | null;
 		sourceHealth: Record<string, string>;
+		/** The surface already explains why the floor is not live (a start blocker). */
+		quietSignal?: boolean;
 	} = $props();
 
 	const cockpitProjection = $derived(cockpitQuery(companyId));
@@ -105,7 +108,7 @@
 			onpreferenceschange={updatePreferences}
 		/>
 
-		{#if signalUnavailable}
+		{#if signalUnavailable && !quietSignal}
 			<div class="office-signal unavailable" role="status" title={signalTitle || undefined}>
 				<i></i>{!orgintelAvailable ? 'Coordination offline' : 'Live view offline'}
 			</div>

@@ -746,7 +746,7 @@
 				type="button"
 				aria-hidden={!showClear}
 				tabindex={showClear ? 0 : -1}
-				title="No owner action is required. Check again now."
+				title={showClear ? 'No owner action is required. Check again now.' : undefined}
 				onclick={() => void refresh()}
 			>
 				<span class="attention-clear-glyph" aria-hidden="true">
@@ -771,7 +771,12 @@
 				     one round trip reads as loading; the zero-state hero reads as a
 				     verdict, and it was the wrong one about half a second later. -->
 			{:else}
-				<CompanyOffice {companyId} {graph} sourceHealth={view?.sourceHealth ?? {}} />
+				<CompanyOffice
+					{companyId}
+					{graph}
+					sourceHealth={view?.sourceHealth ?? {}}
+					quietSignal={!!startBlocker}
+				/>
 			{/if}
 		</section>
 	</div>

@@ -8,6 +8,8 @@
 		href?: string;
 		run?: () => void;
 		keywords?: string;
+		/** The hint is a keyboard shortcut, so touch screens leave it out. */
+		shortcut?: boolean;
 	};
 </script>
 
@@ -144,6 +146,7 @@
 				spellcheck="false"
 			/>
 			<kbd>esc</kbd>
+			<button type="button" class="command-cancel" onclick={close}>Cancel</button>
 		</label>
 		<div class="command-results" id="command-results" role="listbox" bind:this={list}>
 			{#each results as section (section.group)}
@@ -164,7 +167,9 @@
 							onclick={() => choose(command)}
 						>
 							<span class="command-label">{command.label}</span>
-							{#if command.hint}<span class="command-hint">{command.hint}</span>{/if}
+							{#if command.hint}<span class="command-hint" class:shortcut={command.shortcut}
+									>{command.hint}</span
+								>{/if}
 							<CornerDownLeft class="command-enter" size={13} aria-hidden="true" />
 						</button>
 					{/each}
@@ -305,6 +310,23 @@
 		opacity: 1;
 	}
 
+	.command-cancel {
+		display: none;
+		min-height: 44px;
+		padding: 0 4px 0 10px;
+		border: 0;
+		background: none;
+		color: var(--intent-conversation);
+		font-weight: 500;
+		cursor: pointer;
+	}
+
+	@media (hover: none), (pointer: coarse) {
+		.command-hint.shortcut {
+			display: none;
+		}
+	}
+
 	.command-empty {
 		margin: 0;
 		padding: 22px 12px;
@@ -349,6 +371,11 @@
 		.command-foot,
 		.command-search kbd {
 			display: none;
+		}
+
+		.command-cancel {
+			display: inline-flex;
+			align-items: center;
 		}
 
 		.command-item {

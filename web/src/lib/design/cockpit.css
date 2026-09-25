@@ -139,7 +139,7 @@
 }
 
 .bridge-root .company-switcher summary:focus-visible {
-	outline: 3px solid color-mix(in srgb, var(--intent-conversation) 28%, transparent);
+	outline: 2px solid var(--intent-conversation);
 	outline-offset: 1px;
 }
 
@@ -191,7 +191,7 @@
 }
 
 .bridge-root .company-switcher-menu a:focus-visible {
-	outline: 3px solid color-mix(in srgb, var(--intent-conversation) 28%, transparent);
+	outline: 2px solid var(--intent-conversation);
 	outline-offset: -1px;
 }
 
@@ -323,7 +323,7 @@
 
 .bridge-root .portfolio-company-row:focus-visible {
 	z-index: 2;
-	outline: 3px solid color-mix(in srgb, var(--intent-conversation) 28%, transparent);
+	outline: 2px solid var(--intent-conversation);
 	outline-offset: -2px;
 }
 
@@ -479,7 +479,7 @@
 }
 
 .bridge-root .exr-new-focus:focus-visible {
-	outline: 3px solid color-mix(in srgb, var(--intent-conversation) 28%, transparent);
+	outline: 2px solid var(--intent-conversation);
 	outline-offset: 2px;
 }
 
@@ -1214,7 +1214,7 @@
 
 .bridge-root .board-item:focus-visible,
 .bridge-root .work-relations-section a:focus-visible {
-	outline: 3px solid color-mix(in srgb, var(--intent-conversation) 30%, transparent);
+	outline: 2px solid var(--intent-conversation);
 	outline-offset: 2px;
 }
 

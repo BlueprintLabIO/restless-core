@@ -240,10 +240,7 @@
 
 	.launch-identity span {
 		color: var(--text-tertiary);
-		font-family: var(--font-mono);
 		font-size: var(--t-label);
-		text-transform: uppercase;
-		letter-spacing: var(--track-label);
 	}
 
 	.launch-control,

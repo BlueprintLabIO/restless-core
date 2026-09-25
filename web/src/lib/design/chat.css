@@ -593,3 +593,14 @@
 	background: color-mix(in srgb, var(--intent-conversation) 14%, transparent);
 	color: var(--ink);
 }
+
+/* Composer controls are 28px marks on a desk; on touch they need a finger's
+ * worth of target. */
+@media (pointer: coarse) {
+	.bridge-root .hc-field .attach-btn,
+	.bridge-root .hc-voice,
+	.bridge-root .hc-send {
+		width: 44px;
+		height: 44px;
+	}
+}
