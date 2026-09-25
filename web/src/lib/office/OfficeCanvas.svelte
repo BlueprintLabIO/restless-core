@@ -403,7 +403,8 @@
 		if (character.tileCol !== col || character.tileRow !== row) {
 			snapCharacter(character, col, row, spot.facing, state);
 		} else {
-			character.dir = spot.facing;
+			// A standing glance turns back to this facing on its own.
+			if (!character.glance || state !== CharacterState.IDLE) character.dir = spot.facing;
 			if (character.state !== state) {
 				character.state = state;
 				character.frame = 0;
