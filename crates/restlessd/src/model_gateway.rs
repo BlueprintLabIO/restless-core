@@ -3370,7 +3370,10 @@ mission = "Choose native intelligence"
                 // live_company_model_grant), so the fixture must hold one.
                 credentials: BTreeMap::from([
                     ("model.inference".into(), "env:MOONSHOT_API_KEY".into()),
-                    ("model.inference.litellm".into(), "env:LITELLM_API_KEY".into()),
+                    (
+                        "model.inference.litellm".into(),
+                        "env:LITELLM_API_KEY".into(),
+                    ),
                 ]),
                 approved_parties: Vec::new(),
             },
