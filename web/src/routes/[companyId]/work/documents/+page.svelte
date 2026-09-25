@@ -341,7 +341,11 @@
 				ondirtychange={(value) => (documentDirty = value)}
 			>
 				{#snippet actions()}
-                    <a class="btn small" href={`/${encodeURIComponent(companyId)}/people?${documentView.document.linked_room_id ? `room=${encodeURIComponent(documentView.document.linked_room_id)}` : 'person=exec'}&document=${encodeURIComponent(documentView.document.id)}`}>Discuss alongside</a>
+					<a
+						class="btn small"
+						href={`/${encodeURIComponent(companyId)}/people?${documentView.document.linked_room_id ? `room=${encodeURIComponent(documentView.document.linked_room_id)}` : 'person=exec'}&document=${encodeURIComponent(documentView.document.id)}`}
+						>Discuss alongside</a
+					>
 					<button
 						type="button"
 						class="btn small"
@@ -706,17 +710,6 @@
 	.mobile-document-bar,
 	.mobile-inspector-bar {
 		display: none;
-	}
-	.sr-only {
-		position: absolute;
-		width: 1px;
-		height: 1px;
-		padding: 0;
-		margin: -1px;
-		overflow: hidden;
-		clip: rect(0, 0, 0, 0);
-		white-space: nowrap;
-		border: 0;
 	}
 	@keyframes document-loading {
 		0% {

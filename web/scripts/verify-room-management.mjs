@@ -157,7 +157,7 @@ try {
 	});
 
 	await page.goto(`${base}/${company}/people`);
-	await page.getByRole('heading', { name: 'Conversations', exact: true }).waitFor();
+	await page.getByRole('heading', { name: 'People', exact: true }).waitFor();
 	await page.getByRole('button', { name: 'New conversation', exact: true }).click();
 	const createDialog = page.locator('dialog[open]');
 	await createDialog

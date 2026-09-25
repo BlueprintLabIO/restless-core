@@ -83,79 +83,52 @@
 
 .bridge-root .company-spine nav {
 	display: grid;
-	gap: 5px;
+	gap: 1px;
 }
 
+/* Settings navigation in the Linear manner: a plain icon, a label and one
+ * soft fill for the current page. No tiles, borders or edge bars competing
+ * with the page they open. */
 .bridge-root .company-spine nav a {
 	position: relative;
 	min-width: 0;
 	display: grid;
-	grid-template-columns: 34px minmax(0, 1fr);
+	grid-template-columns: 18px minmax(0, 1fr);
 	align-items: center;
-	gap: 8px;
-	min-height: 43px;
-	padding: 5px 11px 5px 5px;
-	border: 1px solid transparent;
+	gap: 10px;
+	min-height: 32px;
+	padding: 5px 10px;
 	border-radius: var(--radius-control);
 	color: var(--text-secondary);
 	font-weight: 500;
 	text-decoration: none;
 	transition:
-		transform var(--motion-press) var(--ease-standard),
-		border-color var(--motion-state) var(--ease-standard),
 		background-color var(--motion-state) var(--ease-standard),
-		box-shadow var(--motion-state) var(--ease-standard),
 		color var(--motion-state) var(--ease-standard);
 }
 
-.bridge-root .company-spine nav a:hover,
-.bridge-root .company-spine nav a:focus-visible {
-	border-color: color-mix(in srgb, var(--company-blue) 13%, var(--company-edge-soft));
-	background: rgba(255, 255, 255, 0.58);
-	box-shadow: var(--bevel-subtle);
+.bridge-root .company-spine nav a:hover {
+	background: rgba(255, 255, 255, 0.62);
 	color: var(--ink);
-}
-
-.bridge-root .company-spine nav a:active {
-	transform: translateY(1px);
 }
 
 .bridge-root .company-spine nav a.active {
-	border-color: color-mix(in srgb, var(--company-blue) 24%, var(--company-edge-soft));
 	background: var(--intent-conversation-soft);
-	box-shadow: none;
 	color: var(--ink);
-	font-weight: 600;
-}
-
-.bridge-root .company-spine nav a.active::after {
-	content: '';
-	position: absolute;
-	right: -1px;
-	top: 10px;
-	bottom: 10px;
-	width: 2px;
-	border-radius: 2px 0 0 2px;
-	background: var(--company-blue);
-	box-shadow: 0 0 8px color-mix(in srgb, var(--company-blue) 22%, transparent);
 }
 
 .bridge-root .company-spine nav i {
-	width: 30px;
-	height: 30px;
 	display: grid;
 	place-items: center;
-	border: 1px solid var(--company-edge-soft);
-	border-radius: var(--radius-control);
-	background: var(--surface-pane);
-	box-shadow: none;
 	color: var(--text-tertiary);
+	transition: color var(--motion-state) var(--ease-standard);
+}
+
+.bridge-root .company-spine nav a:hover i {
+	color: var(--text-secondary);
 }
 
 .bridge-root .company-spine nav a.active i {
-	border-color: color-mix(in srgb, var(--company-blue) 34%, var(--company-edge-soft));
-	background: var(--intent-conversation-soft);
-	box-shadow: none;
 	color: var(--intent-conversation);
 }
 
@@ -1639,6 +1612,11 @@
 	cursor: not-allowed;
 }
 
+.bridge-root .computer-portal-bezel > p.computer-unavailable-copy {
+	margin: 0 0 16px;
+	color: var(--text-secondary);
+}
+
 .bridge-root .computer-portal-bezel > p {
 	max-width: 370px;
 	margin: 17px 0 0;
@@ -2009,16 +1987,6 @@
 		min-width: 196px;
 	}
 
-	.bridge-root .company-spine nav a {
-		grid-template-columns: 32px minmax(0, 1fr);
-		padding-right: 7px;
-	}
-
-	.bridge-root .company-spine nav i {
-		width: 28px;
-		height: 28px;
-	}
-
 	.bridge-root .company-desktop-focus {
 		padding: 0;
 	}
@@ -2050,21 +2018,8 @@
 
 	.bridge-root .company-spine nav a {
 		flex: 0 0 auto;
-		grid-template-columns: 28px auto;
+		grid-template-columns: 18px auto;
 		min-height: 38px;
-		padding: 4px 9px 4px 4px;
-	}
-
-	.bridge-root .company-spine nav i {
-		width: 27px;
-		height: 27px;
-	}
-
-	.bridge-root .company-spine nav a.active::after {
-		inset: auto 8px -1px;
-		width: auto;
-		height: 2px;
-		border-radius: 2px 2px 0 0;
 	}
 
 	.bridge-root .company-canvas {
@@ -2153,8 +2108,7 @@
 	}
 
 	.bridge-root .company-spine nav a {
-		grid-template-columns: 28px;
-		padding-right: 4px;
+		grid-template-columns: 18px;
 	}
 
 	.bridge-root .company-page-head {

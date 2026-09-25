@@ -261,7 +261,8 @@
 					displaySizePending = undefined;
 					if (document.visibilityState === 'visible') {
 						if (attachmentRecoveryAttempted && !attachmentRecoveryInFlight) {
-							error = 'The computer session is still unavailable. Reopen the computer to reconnect.';
+							error =
+								'The computer session is still unavailable. Reopen the computer to reconnect.';
 						} else {
 							await recoverExpiredAttachment();
 						}
@@ -300,9 +301,10 @@
 			error = '';
 			void browserProjection.refresh();
 		} catch (cause) {
-			error = cause instanceof Error
-				? `The computer session expired and could not be restored: ${cause.message}`
-				: 'The computer session expired. Reopen the computer to reconnect.';
+			error =
+				cause instanceof Error
+					? `The computer session expired and could not be restored: ${cause.message}`
+					: 'The computer session expired. Reopen the computer to reconnect.';
 		} finally {
 			attachmentRecoveryInFlight = false;
 		}
@@ -408,21 +410,21 @@
 					class="computer-app-switcher"
 					title={windowsError || 'Bring an open application to the front'}
 				>
-				<select
-					aria-label="Switch application"
-					value={activeWindow}
-					disabled={!!working}
-					onfocus={() => void refreshWindows()}
-					onpointerdown={() => void refreshWindows()}
-					onchange={(event) => void selectWindow(event.currentTarget.value)}
-				>
-					<option value="" disabled
-						>{windowsError ? 'Applications unavailable' : 'Open applications'}</option
+					<select
+						aria-label="Switch application"
+						value={activeWindow}
+						disabled={!!working}
+						onfocus={() => void refreshWindows()}
+						onpointerdown={() => void refreshWindows()}
+						onchange={(event) => void selectWindow(event.currentTarget.value)}
 					>
-					{#each windowCompany === companyId ? windows : [] as window (window.id)}
-						<option value={window.id}>{window.title || window.app}</option>
-					{/each}
-				</select>
+						<option value="" disabled
+							>{windowsError ? 'Applications unavailable' : 'Open applications'}</option
+						>
+						{#each windowCompany === companyId ? windows : [] as window (window.id)}
+							<option value={window.id}>{window.title || window.app}</option>
+						{/each}
+					</select>
 				</div>
 			{/if}
 			<div class="desktop-focus-actions">
@@ -495,20 +497,28 @@
 						></span>
 						{controllerLabel}
 					</div>
-					<button
-						class="computer-enter"
-						type="button"
-						disabled={!canAttach || !!working || !clientId}
-						onclick={() => attachDesktop()}
-					>
-						<span>{working === 'attach' ? 'Connecting…' : 'Enter computer'}</span>
-						<ArrowUpRight size={16} strokeWidth={2} aria-hidden="true" />
-					</button>
-					<p>
-						{canAttach
-							? 'Your team’s shared browser, files and applications. Click or type on the desktop to join in.'
-							: 'The desktop has not passed its live probe. Open Doctor for the smallest available repair.'}
-					</p>
+					{#if canAttach}
+						<button
+							class="computer-enter"
+							type="button"
+							disabled={!!working || !clientId}
+							onclick={() => attachDesktop()}
+						>
+							<span>{working === 'attach' ? 'Connecting…' : 'Enter computer'}</span>
+							<ArrowUpRight size={16} strokeWidth={2} aria-hidden="true" />
+						</button>
+						<p>
+							Your team’s shared browser, files and applications. Click or type on the desktop to
+							join in.
+						</p>
+					{:else}
+						<p class="computer-unavailable-copy">
+							The desktop hasn’t passed its live check yet, so it can’t be opened.
+						</p>
+						<a class="btn primary" href={`/${companyId}/company/doctor`}>
+							<Activity size={14} strokeWidth={1.8} aria-hidden="true" /> See what needs fixing
+						</a>
+					{/if}
 				</div>
 			</section>
 		</main>

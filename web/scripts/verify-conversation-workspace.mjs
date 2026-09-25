@@ -442,7 +442,7 @@ try {
 	});
 
 	await page.goto(`${base}/${company}/people/rooms?person=${encodeURIComponent(exec.actor_id)}`);
-	await page.getByRole('heading', { name: 'Conversations', exact: true }).waitFor();
+	await page.getByRole('heading', { name: 'People', exact: true }).waitFor();
 	assert.equal(new URL(page.url()).pathname, `/${company}/people`, 'legacy Rooms URL redirects');
 
 	await page.getByRole('button', { name: 'New conversation', exact: true }).click();
@@ -528,7 +528,7 @@ try {
 	);
 	await page.getByRole('button', { name: `Pin ${createdRoom.title}`, exact: true }).click();
 	await page.reload();
-	await page.getByRole('heading', { name: 'Conversations', exact: true }).waitFor();
+	await page.getByRole('heading', { name: 'People', exact: true }).waitFor();
 	assert.equal(
 		await page.locator('aside[aria-label="Conversations"] .entry .name').first().textContent(),
 		createdRoom.title,

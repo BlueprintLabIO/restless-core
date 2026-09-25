@@ -25,6 +25,7 @@
 	let saved = '';
 	let ready = $state(false);
 	let saving = $state(false);
+	let savedOnce = $state(false);
 	let dirty = $state(false);
 	let error = $state('');
 	let timer: ReturnType<typeof setTimeout>;
@@ -152,6 +153,7 @@
 				if (!response.ok)
 					throw new Error(body.message ?? 'Could not save settings. Your edits are preserved.');
 				error = '';
+				savedOnce = true;
 				revision = body.revision;
 				saved = snapshot;
 				dirty = JSON.stringify(values()) !== saved;
@@ -183,6 +185,7 @@
 <section class="setup-page">
 	<header>
 		<h2>{section === 'provider' ? 'Model' : 'Company name'}</h2>
+		<!-- Quiet until something happens: an untouched form is not news. -->
 		<span class:failed={!!error} role="status" aria-live="polite"
 			>{error
 				? 'Not saved'
@@ -190,9 +193,9 @@
 					? 'Saving…'
 					: dirty
 						? 'Unsaved changes'
-						: ready
+						: savedOnce
 							? 'Saved'
-							: 'Loading…'}</span
+							: ''}</span
 		>
 	</header>
 	{#if error}<div class="error" role="alert">
