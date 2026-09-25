@@ -120,7 +120,9 @@
 				>
 					<header>
 						<span class="node-state"><i></i>{stateLabel(node.data.item)}</span>
-						<span class="node-revision">R{node.data.item.revision}</span>
+						{#if node.data.item.revision > 1}<span class="node-revision" title="Revision"
+								>R{node.data.item.revision}</span
+							>{/if}
 					</header>
 					<strong>{node.data.item.title}</strong>
 					<footer>
@@ -258,8 +260,11 @@
 	.node-state,
 	.node-revision,
 	.work-flow-node footer {
-		font: 500 var(--t-label) var(--font-mono);
+		font: 500 var(--t-label) var(--font-ui);
 		color: var(--text-tertiary);
+	}
+	.node-revision {
+		font-family: var(--font-mono);
 	}
 	.node-state {
 		display: inline-flex;
