@@ -15,7 +15,7 @@
 	import CompanyOffice from '$lib/office/CompanyOffice.svelte';
 	import type { AttentionItem } from '$lib/model/view';
 	import { attentionQuery, companiesQuery, conversationQuery } from '$lib/model/queries.svelte';
-	import { startFixHref, startGuidance } from '$lib/model/company-start';
+	import { startFixHref, startLinkLabel } from '$lib/model/company-start';
 	import { browserTabClientId } from '$lib/model/browserTab';
 	import { getBrowserStatus } from '$lib/model/company';
 	import { browserControl, issueDesktopTicket, issueReviewTicket } from '$lib/model/attention';
@@ -63,7 +63,7 @@
 		const reason = companyCatalog.view.find(
 			(company) => company.id === companyId
 		)?.unstartable_reason;
-		return reason ? startGuidance(reason) : '';
+		return reason ? startLinkLabel(reason) : '';
 	});
 	const queueClear = $derived(loaded && items.length === 0);
 	const showClear = $derived(queueClear && !startBlocker);
