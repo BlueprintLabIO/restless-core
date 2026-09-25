@@ -9,6 +9,7 @@
 </script>
 
 <script lang="ts">
+	import { tooltips } from '$lib/actions/tooltips';
 	/* Bridge Light has one company shell. Owners receive the four owner surfaces
 	 * and bounded Exec control; collaborators receive only Work and People. The
 	 * executive transcript remains a persistent sibling of the owner workspace,
@@ -224,7 +225,7 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<div class="bridge-root" class:immersive inert={blocked}>
+<div class="bridge-root" class:immersive inert={blocked} use:tooltips>
 	<header class="bridge-topbar" aria-label="Global navigation">
 		<div class="tb-brand">
 			<a class="tb-brand-home" href={homeHref} aria-label={`${PRODUCT_NAME} company home`}>

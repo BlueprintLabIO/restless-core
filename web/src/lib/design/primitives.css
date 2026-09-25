@@ -185,3 +185,44 @@
 		animation: none;
 	}
 }
+
+/* The cockpit's one tooltip (see actions/tooltips.ts). Ink on the page's
+ * lightest plane would vanish; a dark chip reads instantly and says "this is
+ * about the thing under the pointer", not "this is content". */
+.bridge-root .bridge-tooltip {
+	position: fixed;
+	inset: auto;
+	margin: 0;
+	max-width: min(280px, calc(100vw - 16px));
+	padding: 5px 8px;
+	border: 0;
+	border-radius: var(--radius-md);
+	background: rgba(24, 30, 43, 0.94);
+	box-shadow:
+		0 0 0 1px rgba(255, 255, 255, 0.06) inset,
+		0 6px 16px -6px rgba(15, 20, 30, 0.35);
+	color: #f4f6fa;
+	font: 500 var(--t-label) / 1.4 var(--font-ui);
+	letter-spacing: 0.01em;
+	pointer-events: none;
+	opacity: 0;
+	transform: translateY(2px) scale(0.97);
+	transition:
+		opacity 120ms var(--ease-out),
+		transform 120ms var(--ease-out);
+}
+
+.bridge-root .bridge-tooltip[data-side='above'] {
+	transform: translateY(-2px) scale(0.97);
+}
+
+.bridge-root .bridge-tooltip[data-open] {
+	opacity: 1;
+	transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.bridge-root .bridge-tooltip {
+		transition: none;
+	}
+}
