@@ -526,7 +526,7 @@ fn provider_for_model(model: &str) -> Result<&str> {
         bail!("model {model:?} must be provider-qualified, e.g. moonshot/kimi-k3");
     };
     if provider.is_empty()
-        || id.is_empty()
+        || id.trim().is_empty()
         || !provider
             .bytes()
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
