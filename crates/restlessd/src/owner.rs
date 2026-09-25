@@ -1593,6 +1593,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route("/desktop/{company}/websockify", get(desktop_websocket))
         .route("/desktop/{company}/{*asset}", get(desktop_asset))
         .fallback_service(static_files)
+        .layer(middleware::from_fn(prevent_cached_cockpit_html))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             enforce_owner_boundary,
@@ -1618,6 +1619,23 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
     )
     .map(|_| ())
     .context("owner gateways")
+}
+
+async fn prevent_cached_cockpit_html(request: Request, next: Next) -> Response<Body> {
+    let mut response = next.run(request).await;
+    // The SPA shell names hashed modules from one build. A cached shell after
+    // deployment can request modules that no longer exist and render a blank
+    // page, so revalidate HTML while leaving immutable assets cacheable.
+    if response
+        .headers()
+        .get(CONTENT_TYPE)
+        .is_some_and(|value| value.as_bytes().starts_with(b"text/html"))
+    {
+        response
+            .headers_mut()
+            .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    }
+    response
 }
 
 /// The one place entry is decided.
