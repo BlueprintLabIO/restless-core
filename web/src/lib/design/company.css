@@ -730,23 +730,15 @@
 .bridge-root .limits-lower {
 	display: grid;
 	grid-template-columns: repeat(2, minmax(0, 1fr));
-	gap: var(--pane-gap);
-	padding: var(--pane-gap);
-	border: 1px solid var(--company-edge);
-	border-radius: var(--radius-pane);
-	background: var(--company-deck);
-	box-shadow: var(--company-inset-shadow);
+	gap: var(--space-4);
 }
 
 .bridge-root .limits-lower > section {
 	min-width: 0;
-	padding: 23px;
+	padding: 20px 22px;
 	border: 1px solid var(--company-edge-soft);
-	border-radius: var(--radius-control);
+	border-radius: var(--radius-pane);
 	background: var(--company-panel);
-	box-shadow:
-		var(--bevel-subtle),
-		0 2px 8px rgba(43, 51, 66, 0.04);
 }
 
 .bridge-root .company-facts,
@@ -877,31 +869,31 @@
 	box-shadow: var(--company-surface-shadow);
 }
 
+/* Three figures read as one line of numbers, separated by hairlines rather
+ * than set in tiles inside a tray inside the card. */
 .bridge-root .spend-line {
 	display: grid;
 	grid-template-columns: repeat(3, minmax(0, 1fr));
-	gap: var(--pane-gap);
-	margin-bottom: 13px;
-	padding: var(--pane-gap);
-	border: 1px solid var(--company-edge-soft);
-	border-radius: var(--radius-control);
-	background: var(--company-inset);
-	box-shadow: var(--company-inset-shadow);
+	margin: 4px 0 14px;
 }
 
 .bridge-root .spend-line > div {
 	min-width: 0;
 	display: grid;
 	gap: 2px;
-	padding: 12px 14px;
-	border: 1px solid rgba(255, 255, 255, 0.68);
-	border-radius: calc(var(--radius-control) - 1px);
-	background: rgba(255, 255, 255, 0.58);
+	padding: 4px 16px;
+	border-left: 1px solid var(--company-edge-soft);
+}
+
+.bridge-root .spend-line > div:first-child {
+	padding-left: 0;
+	border-left: 0;
 }
 
 .bridge-root .spend-line strong {
 	font-family: var(--font-mono);
 	font-size: var(--t-head);
+	font-variant-numeric: tabular-nums;
 }
 
 .bridge-root .spend-line span {
@@ -909,12 +901,10 @@
 }
 
 .bridge-root .spend-track {
-	height: 8px;
+	height: 4px;
 	overflow: hidden;
-	border: 1px solid var(--company-edge-soft);
 	border-radius: 999px;
-	background: var(--company-inset);
-	box-shadow: var(--company-inset-shadow);
+	background: color-mix(in srgb, var(--intent-conversation) 10%, transparent);
 }
 
 .bridge-root .spend-track i {
