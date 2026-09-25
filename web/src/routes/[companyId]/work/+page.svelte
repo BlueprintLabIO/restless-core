@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { listFlip, listIn, listOut } from '$lib/motion';
 	import { WORK_STATUS_LABEL, runStateLabel, workStatusLabel } from '$lib/work/status';
 	import { resizePane } from '$lib/actions/resize-pane';
 	import { page } from '$app/state';
@@ -406,6 +407,9 @@
 						{#each column.rows.map( (row) => ({ ...row, signal: boardSignal(row) }) ) as item (item.id)}
 							<a
 								class="board-item status-{item.status}"
+								animate:listFlip
+								in:listIn
+								out:listOut
 								href={workHref(item.id)}
 								aria-label={`Open Work: ${item.title}`}
 							>

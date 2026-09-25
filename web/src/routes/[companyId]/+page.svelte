@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { listFlip, listIn, listOut } from '$lib/motion';
 	import { resizePane } from '$lib/actions/resize-pane';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
@@ -721,6 +722,9 @@
 					{#each items as item (item.id)}
 						<a
 							class="attention-item category-{item.category}"
+							animate:listFlip
+							in:listIn
+							out:listOut
 							class:selected={selectedItem?.id === item.id}
 							href={itemHref(item.id)}
 							aria-current={selectedItem?.id === item.id ? 'true' : undefined}
