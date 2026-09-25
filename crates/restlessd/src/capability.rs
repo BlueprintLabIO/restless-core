@@ -7,7 +7,7 @@
 
 use std::fs::{self, OpenOptions};
 use std::io::Write as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
@@ -30,6 +30,7 @@ type HmacSha256 = Hmac<Sha256>;
 #[derive(Clone)]
 pub(crate) struct CapabilityIssuer {
     key: Arc<[u8]>,
+    root: Arc<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -83,6 +84,8 @@ struct Claims {
     volume_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     source_revision: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    model_credential_reference: Option<String>,
     session: String,
     expires_at: DateTime<Utc>,
 }
@@ -107,6 +110,7 @@ pub(crate) struct ModelGrant {
     pub(crate) actor: String,
     pub(crate) session: String,
     pub(crate) provider: String,
+    pub(crate) credential_reference: Option<String>,
     pub(crate) model: String,
     pub(crate) billing: String,
     pub(crate) responsibility: String,
@@ -178,7 +182,10 @@ impl CapabilityIssuer {
                 key.len()
             );
         }
-        Ok(Self { key: key.into() })
+        Ok(Self {
+            key: key.into(),
+            root: Arc::new(root.to_path_buf()),
+        })
     }
 
     /// A company computer's ordinary bridge identity. It is deliberately
@@ -206,6 +213,7 @@ impl CapabilityIssuer {
             runtime_image: None,
             volume_name: None,
             source_revision: None,
+            model_credential_reference: None,
             session: format!("bridge-{}", Uuid::new_v4().simple()),
             expires_at: Utc::now() + RUNTIME_BRIDGE_TTL,
         })
@@ -239,6 +247,7 @@ impl CapabilityIssuer {
             runtime_image: Some(scope.runtime_image.clone()),
             volume_name: Some(scope.volume_name.clone()),
             source_revision: Some(scope.source_revision.clone()),
+            model_credential_reference: None,
             session: format!("hosted-bridge-{}", credential_id.simple()),
             expires_at,
         })
@@ -327,6 +336,7 @@ impl CapabilityIssuer {
             runtime_image: None,
             volume_name: None,
             source_revision: None,
+            model_credential_reference: None,
             session: session.to_string(),
             expires_at: Utc::now() + SESSION_TTL,
         })
@@ -350,6 +360,19 @@ impl CapabilityIssuer {
         work_id: Option<Uuid>,
         attempt_id: Option<Uuid>,
     ) -> Result<String> {
+        let model_credential_reference = crate::runtime::CompanyConfig::load(&self.root, company)
+            .ok()
+            .and_then(|config| {
+                config
+                    .credentials
+                    .get(&format!("model.inference.{provider}"))
+                    .or_else(|| {
+                        (config.model.split('/').next() == Some(provider))
+                            .then(|| config.credentials.get("model.inference"))
+                            .flatten()
+                    })
+                    .cloned()
+            });
         self.issue(Claims {
             version: 1,
             kind: CapabilityKind::ModelSession,
@@ -371,6 +394,7 @@ impl CapabilityIssuer {
             runtime_image: None,
             volume_name: None,
             source_revision: None,
+            model_credential_reference,
             session: session.to_string(),
             expires_at: Utc::now() + SESSION_TTL,
         })
@@ -411,6 +435,7 @@ impl CapabilityIssuer {
             provider: claims
                 .provider
                 .context("model capability is missing its provider")?,
+            credential_reference: claims.model_credential_reference,
             model: claims
                 .model
                 .context("model capability is missing its exact model")?,
@@ -785,6 +810,7 @@ mod tests {
                 runtime_image: None,
                 volume_name: None,
                 source_revision: None,
+                model_credential_reference: None,
                 session: "expired_1".into(),
                 expires_at: Utc::now() - Duration::seconds(1),
             })

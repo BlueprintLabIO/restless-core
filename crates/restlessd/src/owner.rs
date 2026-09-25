@@ -3697,6 +3697,11 @@ enum CompanySetupSection {
     Identity,
     Models,
     Limits,
+    Name,
+    Purpose,
+    Spend,
+    Runtime,
+    OutcomeStandard,
 }
 
 impl CompanySetupSection {
@@ -3705,6 +3710,11 @@ impl CompanySetupSection {
             Self::Identity => "identity",
             Self::Models => "models",
             Self::Limits => "limits",
+            Self::Name => "name",
+            Self::Purpose => "purpose",
+            Self::Spend => "spend",
+            Self::Runtime => "runtime",
+            Self::OutcomeStandard => "outcome_standard",
         }
     }
     fn label(self) -> &'static str {
@@ -3712,6 +3722,11 @@ impl CompanySetupSection {
             Self::Identity => "Name and purpose",
             Self::Models => "Model choices",
             Self::Limits => "Limits and outcome standard",
+            Self::Name => "Company name",
+            Self::Purpose => "Purpose",
+            Self::Spend => "Model spend limit",
+            Self::Runtime => "Computer limits",
+            Self::OutcomeStandard => "Outcome standard",
         }
     }
 }
@@ -3738,8 +3753,10 @@ fn selected_setup_sections(sections: &[CompanySetupSection]) -> Result<Vec<Compa
         }
         selected.push(*section);
     }
-    if selected.is_empty() {
-        bail!("Select at least one setup section to copy")
+    if selected.len() != 1
+        || matches!(selected[0], CompanySetupSection::Identity | CompanySetupSection::Limits)
+    {
+        bail!("Choose one specific company setting to copy")
     }
     Ok(selected)
 }
@@ -3757,6 +3774,8 @@ fn setup_copy_preview(
                 serde_json::json!({"label":"Name","from":target.display_name.clone().unwrap_or_else(|| company_display_name(&target.name)),"to":source.display_name.clone().unwrap_or_else(|| company_display_name(&source.name))}),
                 serde_json::json!({"label":"Purpose","from":target.mission,"to":source.mission}),
             ],
+            CompanySetupSection::Name => vec![serde_json::json!({"label":"Name","from":target.display_name.clone().unwrap_or_else(|| company_display_name(&target.name)),"to":source.display_name.clone().unwrap_or_else(|| company_display_name(&source.name))})],
+            CompanySetupSection::Purpose => vec![serde_json::json!({"label":"Purpose","from":target.mission,"to":source.mission})],
             CompanySetupSection::Models => vec![
                 serde_json::json!({"label":"Default model","from":target_default,"to":source_default,"credential_configured":!source_default.is_empty() && company_has_model_provider(target,source_default.split('/').next().unwrap_or_default())}),
                 serde_json::json!({"label":"Agent model choices","count":source.agent_intelligence.values().filter(|route| route.connection.starts_with("direct:") && company_has_model_provider(target,route.connection.trim_start_matches("direct:"))).count(),"omitted":source.agent_intelligence.values().filter(|route| route.connection.starts_with("direct:") && !company_has_model_provider(target,route.connection.trim_start_matches("direct:"))).count(),"preserved":true}),
@@ -3767,6 +3786,9 @@ fn setup_copy_preview(
                 serde_json::json!({"label":"Runtime limits","from":{"monthly_hours":target.monthly_runtime_cap_hours,"auto_sleep_minutes":target.auto_sleep_after_minutes},"to":{"monthly_hours":source.monthly_runtime_cap_hours,"auto_sleep_minutes":source.auto_sleep_after_minutes}}),
                 serde_json::json!({"label":"Outcome standard","from":target.outcome_standard,"to":source.outcome_standard}),
             ],
+            CompanySetupSection::Spend => vec![serde_json::json!({"label":"Spend ceiling","from":target.spend_ceiling_usd,"to":source.spend_ceiling_usd})],
+            CompanySetupSection::Runtime => vec![serde_json::json!({"label":"Computer limits","from":{"monthly_hours":target.monthly_runtime_cap_hours,"auto_sleep_minutes":target.auto_sleep_after_minutes},"to":{"monthly_hours":source.monthly_runtime_cap_hours,"auto_sleep_minutes":source.auto_sleep_after_minutes}})],
+            CompanySetupSection::OutcomeStandard => vec![serde_json::json!({"label":"Outcome standard","from":target.outcome_standard,"to":source.outcome_standard})],
         };
         serde_json::json!({"id":section.id(),"label":section.label(),"changes":changes})
     }).collect::<Vec<_>>();
@@ -3821,6 +3843,7 @@ async fn preview_company_setup_copy(
 
 async fn copy_company_setup(
     State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
     AxumPath(target_name): AxumPath<String>,
     Json(input): Json<CopyCompanySetupInput>,
 ) -> Response<Body> {
@@ -3863,6 +3886,7 @@ async fn copy_company_setup(
             )
         }
     };
+    let original_target = target.clone();
     if input.source_revision.as_deref()
         != Some(
             company_setup_view(&source)["revision"]
@@ -3882,8 +3906,25 @@ async fn copy_company_setup(
             "Company settings changed since the preview. Refresh the preview before copying.",
         );
     }
-    if sections.iter().any(|section| section.id() == "identity") {
-        target.display_name = source.display_name.clone();
+    if sections.iter().any(|section| {
+        matches!(
+            section,
+            CompanySetupSection::Identity | CompanySetupSection::Name
+        )
+    }) {
+        target.display_name = Some(
+            source
+                .display_name
+                .clone()
+                .unwrap_or_else(|| company_display_name(&source.name)),
+        );
+    }
+    if sections.iter().any(|section| {
+        matches!(
+            section,
+            CompanySetupSection::Identity | CompanySetupSection::Purpose
+        )
+    }) {
         target.mission = source.mission.clone();
     }
     if sections.iter().any(|section| section.id() == "models") {
@@ -3892,6 +3933,13 @@ async fn copy_company_setup(
         if !source_default.is_empty() && company_has_model_provider(&target, default_provider) {
             target.model = source_default.to_string();
             target.reasoning_effort = source.reasoning_effort.clone();
+            target.agent_intelligence.insert(
+                "default".into(),
+                runtime::AgentIntelligence {
+                    connection: format!("direct:{default_provider}"),
+                    model: source_default.to_string(),
+                },
+            );
         }
         let source_failover_providers = source
             .model_failover
@@ -3925,20 +3973,86 @@ async fn copy_company_setup(
             }
         }
     }
-    if sections.iter().any(|section| section.id() == "limits") {
+    if sections.iter().any(|section| {
+        matches!(
+            section,
+            CompanySetupSection::Limits | CompanySetupSection::Spend
+        )
+    }) {
         target.spend_ceiling_usd = source.spend_ceiling_usd;
+    }
+    if sections.iter().any(|section| {
+        matches!(
+            section,
+            CompanySetupSection::Limits | CompanySetupSection::Runtime
+        )
+    }) {
         target.monthly_runtime_cap_hours = source.monthly_runtime_cap_hours;
         target.auto_sleep_after_minutes = source.auto_sleep_after_minutes;
+    }
+    if sections.iter().any(|section| {
+        matches!(
+            section,
+            CompanySetupSection::Limits | CompanySetupSection::OutcomeStandard
+        )
+    }) {
         target.outcome_standard = source.outcome_standard;
     }
-    if runtime::CompanyConfig::save(&state.daemon.root, &target).is_err() {
-        return api_error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "setup_copy",
-            "Could not apply these setup choices.",
-        );
+    let changed = company_setup_view(&original_target)["revision"]
+        != company_setup_view(&target)["revision"];
+    if changed {
+        let section = sections[0];
+        let audit = serde_json::json!({
+            "source_company": source.name,
+            "source_revision": input.source_revision,
+            "target_revision": input.target_revision,
+            "setting": section.id(),
+        });
+        if state
+            .daemon
+            .authority
+            .emit(
+                &target_name,
+                "company_setting_copy_requested",
+                Some(principal.actor_id()),
+                audit.clone(),
+            )
+            .await
+            .is_err()
+        {
+            return api_error(StatusCode::SERVICE_UNAVAILABLE, "authority", "Could not record the requested setting copy.");
+        }
+        let saved = if matches!(section, CompanySetupSection::Purpose) {
+            authority::revise_mandate(
+                &state.daemon.authority,
+                &state.daemon.root,
+                original_target,
+                target.mission.clone(),
+            )
+            .await
+            .is_ok()
+        } else {
+            runtime::CompanyConfig::save(&state.daemon.root, &target).is_ok()
+        };
+        if !saved {
+            return api_error(StatusCode::SERVICE_UNAVAILABLE, "setup_copy", "Could not apply this company setting. The requested change remains recorded for review.");
+        }
+        if state
+            .daemon
+            .authority
+            .emit(
+                &target_name,
+                "company_setting_copy_applied",
+                Some(principal.actor_id()),
+                audit,
+            )
+            .await
+            .is_err()
+        {
+            return api_error(StatusCode::SERVICE_UNAVAILABLE, "authority", "The setting changed, but its confirmation could not be recorded. Refresh the page before retrying.");
+        }
     }
-    Json(serde_json::json!({"copied":true,"setup":setup_copy_preview(&source, &target, &sections)}))
+    Json(serde_json::json!({"copied":changed,"setup":setup_copy_preview(&source, &target, &sections)}))
         .into_response()
 }
 
@@ -4146,15 +4260,12 @@ async fn update_company_setup(
     }
     config.display_name = Some(input.display_name.trim().to_string());
     config.model = input.model.trim().to_string();
-    if let Err(error) = config
-        .model_candidates()
-        .and_then(|models| {
-            for model in models {
-                runtime::validate_company_model_selection(&model)?;
-            }
-            config.validate_harness_models()
-        })
-    {
+    if let Err(error) = config.model_candidates().and_then(|models| {
+        for model in models {
+            runtime::validate_company_model_selection(&model)?;
+        }
+        config.validate_harness_models()
+    }) {
         return api_error(StatusCode::BAD_REQUEST, "company_setup", error.to_string());
     }
     let selected_model = config.model.clone();

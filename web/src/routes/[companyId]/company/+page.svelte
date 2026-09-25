@@ -3,8 +3,13 @@
 	import { page } from '$app/state';
 	import { tick } from 'svelte';
 	import CompanySettings from '$lib/components/CompanySettings.svelte';
+	import CopyCompanySetting from '$lib/components/CopyCompanySetting.svelte';
 	import InfoTip from '$lib/components/InfoTip.svelte';
-	import { reviseCompanyCharter } from '$lib/model/company';
+	import {
+		reviseCompanyCharter,
+		setCompanyOutcomeStandard,
+		type OutcomeStandard
+	} from '$lib/model/company';
 	import Markdown from '$lib/primitives/Markdown.svelte';
 	import { companyQuery } from '$lib/model/queries.svelte';
 
@@ -24,6 +29,8 @@
 	let editor = $state<HTMLTextAreaElement>();
 	let notice = $state('');
 	let failure = $state('');
+	let qualitySaving = $state(false);
+	let qualityError = $state('');
 	const changed = $derived(editing && draft !== openedMarkdown);
 
 	beforeNavigate((navigation) => {
@@ -78,6 +85,19 @@
 			}
 		} finally {
 			saving = false;
+		}
+	}
+
+	async function saveQuality(standard: OutcomeStandard) {
+		if (qualitySaving || !view) return;
+		qualitySaving = true;
+		qualityError = '';
+		try {
+			source.accept(await setCompanyOutcomeStandard(companyId, standard));
+		} catch (cause) {
+			qualityError = cause instanceof Error ? cause.message : 'Could not change the quality bar.';
+		} finally {
+			qualitySaving = false;
 		}
 	}
 
@@ -155,6 +175,15 @@
 	{#if view}
 		<div style="margin-bottom: 24px">
 			{#key `${companyId}:${nameVersion}`}<CompanySettings {companyId} section="name" />{/key}
+			<CopyCompanySetting
+				{companyId}
+				setting="name"
+				label="Company name"
+				oncopied={async () => {
+					nameVersion += 1;
+					await source.refresh();
+				}}
+			/>
 		</div>
 		<div class="charter-layout">
 			<article class="charter-document">
@@ -181,6 +210,12 @@
 							<button class="btn primary" onclick={beginEditing}>Write company charter</button>{/if}
 					</div>
 				{/if}
+				<CopyCompanySetting
+					{companyId}
+					setting="purpose"
+					label="Purpose"
+					oncopied={() => source.refresh()}
+				/>
 				<footer>
 					<span>Effective {when(view.charter.effective_at)}</span>
 					<span>Owner authorised</span>
@@ -191,6 +226,35 @@
 			</article>
 
 			<aside class="charter-context" aria-label="Charter context">
+				<section class="charter-profile-card">
+					<div class="section-heading">
+						<h2>Quality bar</h2>
+						<InfoTip
+							text="The standing level of ambition for new outcomes. The accountable lead still judges what proof is needed for each piece of work."
+						/>
+					</div>
+					<label class="quality-choice"
+						>New work should be
+						<select
+							value={view.company.outcome_standard}
+							disabled={qualitySaving}
+							onchange={(event) => void saveQuality(event.currentTarget.value as OutcomeStandard)}
+						>
+							<option value="fast">Fast</option><option value="thorough">Thorough</option><option
+								value="exceptional">Exceptional</option
+							><option value="frontier">Frontier</option>
+						</select>
+					</label>
+					<CopyCompanySetting
+						{companyId}
+						setting="outcome_standard"
+						label="Quality bar"
+						oncopied={() => source.refresh()}
+					/>
+					{#if qualityError}<p role="alert" class="charter-save-message failure">
+							{qualityError}
+						</p>{/if}
+				</section>
 				<section class="charter-direction-card">
 					<div class="section-heading">
 						<h2>Current direction</h2>
@@ -255,3 +319,21 @@
 		<div class="company-page-wait" aria-label="Reading Company charter"></div>
 	{/if}
 </div>
+
+<style>
+	.quality-choice {
+		display: grid;
+		gap: var(--space-2);
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+	}
+	.quality-choice select {
+		width: 100%;
+		min-height: 36px;
+		padding: var(--space-2);
+		border: 1px solid var(--control-edge);
+		border-radius: var(--radius-control);
+		color: var(--ink);
+		background: var(--surface-pane);
+	}
+</style>

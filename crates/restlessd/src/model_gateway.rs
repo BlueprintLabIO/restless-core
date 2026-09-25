@@ -1953,6 +1953,14 @@ fn live_company_model_grant(
     if !has_scoped && !has_legacy_primary {
         bail!("company no longer has access to this model provider");
     }
+    let current_reference = config.credentials.get(&scoped).or_else(|| {
+        has_legacy_primary
+            .then(|| config.credentials.get("model.inference"))
+            .flatten()
+    });
+    if current_reference.map(String::as_str) != grant.credential_reference.as_deref() {
+        bail!("company model connection changed since this session started");
+    }
     Ok(config)
 }
 
@@ -3574,6 +3582,7 @@ mission = "Choose native intelligence"
                 actor: "delivery-lead".into(),
                 session: "session_123".into(),
                 provider: "moonshot".into(),
+                credential_reference: None,
                 model: "moonshot/kimi-k3".into(),
                 billing: "metered_api".into(),
                 responsibility: "work:delivery".into(),

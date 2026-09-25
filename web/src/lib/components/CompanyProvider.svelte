@@ -6,6 +6,7 @@
 	import HarnessDiagnostics from './HarnessDiagnostics.svelte';
 	import CustomHarnesses from './CustomHarnesses.svelte';
 	import AgentIntelligence from './AgentIntelligence.svelte';
+	import CopyCompanySetting from './CopyCompanySetting.svelte';
 	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
 	import { getCompanies, type CompanyCatalogEntry } from '$lib/model/cockpit';
 	let { companyId }: { companyId: string } = $props();
@@ -76,22 +77,12 @@
 	let replaceGrantId = $state('');
 	let grantMakeDefault = $state(false);
 	let grantModels = $state<Record<string, string>>({});
-	let setupCopyOpen = $state(false);
-	let setupSource = $state('');
-	let setupSections = $state(['models', 'limits']);
-	let setupPreview = $state<any>(null);
-	let setupCopyBusy = $state(false);
 	let companies = $state<CompanyCatalogEntry[]>([]);
 	let importOpen = $state(false);
 	let importSource = $state('');
 	let importProviders = $state<Connection[]>([]);
 	let importProvider = $state('');
 	let importLabel = $state('');
-	const setupSectionLabels: Record<string, string> = {
-		identity: 'Name and purpose',
-		models: 'Model choices',
-		limits: 'Spending and runtime limits'
-	};
 	const endpoint = $derived(`/api/companies/${encodeURIComponent(companyId)}/provider`);
 	const connection = $derived(status?.connections.find((c) => c.provider === selected));
 	const savedCount = $derived(status?.connections.filter((c) => c.reference).length ?? 0);
@@ -239,18 +230,6 @@
 		const model = models.find((item) => 'default' in item && item.default)?.id ?? models[0]?.id;
 		return model ? routeModel(provider, model) : '';
 	}
-	function companyName(id: string) {
-		return companies.find((company) => company.id === id)?.name ?? id;
-	}
-	function formatCopiedValue(value: unknown) {
-		if (value === null || value === undefined || value === '') return 'Not set';
-		if (Array.isArray(value)) return value.length ? value.map(String).join(', ') : 'None';
-		if (typeof value === 'object') return JSON.stringify(value);
-		return String(value);
-	}
-	function hasCountChange(changes: any[] | undefined) {
-		return (changes ?? []).some((change: any) => change.count !== undefined);
-	}
 	function modelForGrant(connection: ReusableConnection) {
 		return grantModels[connection.id] ?? defaultModel(connection.provider);
 	}
@@ -396,46 +375,6 @@
 			accountError = cause instanceof Error ? cause.message : 'Could not make this connection reusable.';
 		} finally { accountBusy = false; }
 	}
-	async function previewSetupCopy() {
-		if (!setupSource || !setupSections.length || setupCopyBusy) return;
-		setupCopyBusy = true;
-		accountError = '';
-		try {
-			const response = await fetch(`/api/companies/${encodeURIComponent(companyId)}/copy-setup/preview`, {
-				method: 'POST', headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ source: setupSource, sections: setupSections })
-			});
-			const body = await response.json();
-			if (!response.ok) throw new Error(body.message ?? 'Could not preview the setup copy.');
-			setupPreview = body;
-		} catch (cause) {
-			accountError = cause instanceof Error ? cause.message : 'Could not preview the setup copy.';
-		} finally { setupCopyBusy = false; }
-	}
-	async function copySetup() {
-		if (!setupPreview || setupCopyBusy) return;
-		setupCopyBusy = true;
-		accountError = '';
-		try {
-			const response = await fetch(`/api/companies/${encodeURIComponent(companyId)}/copy-setup`, {
-				method: 'POST', headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ source: setupSource, sections: setupSections, source_revision: setupPreview.source_revision, target_revision: setupPreview.target_revision })
-			});
-			const body = await response.json();
-			if (!response.ok) throw new Error(body.message ?? 'Could not copy the selected setup.');
-			const copiedSetup = setupPreview;
-			const result = body.setup ?? copiedSetup;
-			const skipped = (result?.sections ?? []).some((section: any) => section.omitted || (section.changes ?? []).some((change: any) => change.credential_configured === false || change.omitted));
-			setupPreview = null;
-			setupCopyOpen = false;
-			await Promise.all([refresh(), intelligence.refresh()]);
-			notice = skipped
-				? 'Setup copied with unavailable model routes skipped. Review this company’s intelligence choices.'
-				: 'Selected setup copied. You can adjust it independently in this company.';
-		} catch (cause) {
-			accountError = cause instanceof Error ? cause.message : 'Could not copy the selected setup.';
-		} finally { setupCopyBusy = false; }
-	}
 	onMount(() => {
 		void refresh();
 		void refreshReusableConnections();
@@ -455,6 +394,7 @@
 			</div>
 			<a class="account-link" href="/account/settings/connections">Manage account connections <span aria-hidden="true">↗</span></a>
 		</div>
+		<CopyCompanySetting {companyId} setting="models" label="Model choices" oncopied={async () => { await Promise.all([refresh(), intelligence.refresh()]); }} />
 		<div class="reuse-section-head">
 			<div><h2 title="Each company needs an explicit grant to use an account-level API connection.">Available connections</h2></div>
 			<button class="btn small" disabled={accountBusy} onclick={toggleAddConnection}>
@@ -512,17 +452,6 @@
 				<div class="inline-actions"><button class="btn primary small" disabled={accountBusy || !importProvider} onclick={() => void importReusableConnection()}>{accountBusy ? 'Importing…' : 'Save as reusable connection'}</button><button class="text-button" disabled={accountBusy} onclick={() => { importOpen = false; importSource = ''; importProviders = []; }}>Cancel</button></div>
 			</div>
 		{/if}
-		<div class="copy-setup">
-			<div class="copy-summary"><div><strong>Copy setup from another company</strong><span>One-time copy. The companies remain independent.</span></div><button class="text-button" onclick={() => { setupCopyOpen = !setupCopyOpen; setupPreview = null; accountError = ''; }}>{setupCopyOpen ? 'Close' : 'Choose setup'}</button></div>
-			{#if setupCopyOpen}
-				<div class="copy-form"><label>Copy from<select bind:value={setupSource} onchange={() => (setupPreview = null)}><option value="">Choose a company…</option>{#each companies.filter((company) => company.id !== companyId) as company}<option value={company.id}>{company.name}</option>{/each}</select></label>
-					<fieldset><legend>Choose what to copy</legend>{#each Object.entries(setupSectionLabels) as [id, label]}<label class="check-option"><input type="checkbox" checked={setupSections.includes(id)} onchange={(event) => { setupSections = event.currentTarget.checked ? [...setupSections, id] : setupSections.filter((section) => section !== id); setupPreview = null; }} /><span><strong>{label}</strong>{#if id === 'models'}<small>Model routes copy only where this company has that provider connection. API keys and native sign-ins are not copied.</small>{/if}</span></label>{/each}</fieldset>
-					{#if !setupPreview}<button class="btn small" disabled={!setupSource || !setupSections.length || setupCopyBusy} onclick={() => void previewSetupCopy()}>{setupCopyBusy ? 'Preparing preview…' : 'Preview changes'}</button>{/if}
-					{#if setupPreview}<div class="copy-preview"><h3>Review the one-time copy</h3><p class="preview-context">Copying from <strong>{companyName(setupSource)}</strong> to <strong>{companyName(companyId)}</strong>. Changes will not sync later.</p>{#each setupPreview.sections ?? [] as section}<div class="preview-section"><strong>{section.label ?? setupSectionLabels[section.id] ?? section.id}</strong>{#if section.summary}<span>{section.summary}</span>{/if}{#each section.changes ?? [] as change}{#if typeof change === 'string'}<small>{change}</small>{:else if change.count !== undefined}<small>{change.count} {change.label ?? 'model routes'} copied · {change.omitted ?? 0} skipped{#if change.preserved} · Existing choices stay as-is{/if}</small>{:else}<div class="change-row"><span>{change.label ?? 'Setting'}</span><span class:unavailable={change.credential_configured === false}>{#if change.credential_configured === false}{change.to ? 'Provider connection missing; this choice will be skipped' : 'No default model selected in the source company'}{:else}{formatCopiedValue(change.from)} <span aria-hidden="true">→</span> {formatCopiedValue(change.to)}{/if}</span></div>{/if}{/each}{#if section.omitted !== undefined && !(section.changes ?? []).some((change: any) => change.count !== undefined)}<small class="omission">{section.omitted} routes skipped{#if section.preserved} · Existing choices stay as-is{/if}</small>{/if}</div>{/each}<div class="inline-actions"><button class="btn primary small" disabled={setupCopyBusy} onclick={() => void copySetup()}>{setupCopyBusy ? 'Copying…' : 'Copy selected setup'}</button><button class="text-button" disabled={setupCopyBusy} onclick={() => (setupPreview = null)}>Back</button></div></div>{/if}
-					<p class="form-note">Names and purpose, model choices, and selected limits are copied once. Future edits do not sync.</p>
-				</div>
-			{/if}
-		</div>
 		{#if accountError}<p class="inline-error" role="alert">{accountError}</p>{/if}
 	</section>
 	<details class="company-only-settings">
@@ -706,9 +635,7 @@
 	}
 	.reuse-heading,
 	.reuse-section-head,
-	.copy-summary,
 	.inline-actions,
-	.copy-summary > div,
 	.reuse-row,
 	.reuse-identity,
 	.grant-state,
@@ -718,14 +645,12 @@
 	}
 	.reuse-heading,
 	.reuse-section-head,
-	.copy-summary,
 	.reuse-row {
 		justify-content: space-between;
 		gap: var(--space-4);
 	}
 	.reuse-heading { align-items: flex-start; }
 	.reuse-heading h1 { margin: 0; font-size: var(--t-title); }
-	.copy-summary span,
 	.reuse-empty span,
 	.form-note,
 	.import-form > p {
@@ -770,8 +695,7 @@
 	.reuse-empty p { margin: 0; color: var(--text-secondary); }
 	.replace-confirm { flex: 1 1 100%; margin: 0; color: var(--company-amber); font-size: var(--t-label); line-height: 1.45; }
 	.add-form,
-	.import-form,
-	.copy-form {
+	.import-form {
 		padding: var(--space-4);
 		margin-top: var(--space-3);
 		background: var(--surface-alt);
@@ -779,37 +703,15 @@
 		border-radius: var(--radius-control);
 	}
 	.add-form h3,
-	.import-form h3,
-	.copy-preview h3 { margin: 0 0 var(--space-3); font-size: var(--t-head); }
+	.import-form h3 { margin: 0 0 var(--space-3); font-size: var(--t-head); }
 	.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
 	.form-grid label,
-	.import-form > label,
-	.copy-form > label { display: grid; gap: var(--space-1); color: var(--text-secondary); font-size: var(--t-label); }
+	.import-form > label { display: grid; gap: var(--space-1); color: var(--text-secondary); font-size: var(--t-label); }
 	.form-grid .wide { grid-column: 1 / -1; }
 	.inline-actions { flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
 	.form-note { margin-top: var(--space-2); }
 	.import-link { margin-top: var(--space-3); color: var(--text-secondary); }
 	.import-form > label { margin-top: var(--space-3); }
-	.copy-setup { margin-top: var(--space-4); border-top: 1px solid var(--border); }
-	.copy-summary { min-height: 56px; }
-	.copy-summary > div { flex-direction: column; align-items: flex-start; gap: 2px; }
-	.copy-summary strong { font-size: var(--t-label); }
-	.copy-form { margin-bottom: var(--space-2); }
-	.copy-form fieldset { display: grid; gap: var(--space-2); padding: var(--space-3); margin: var(--space-3) 0; border: 1px solid var(--border); border-radius: var(--radius-control); }
-	.copy-form legend { padding-inline: var(--space-1); color: var(--text-secondary); font-size: var(--t-label); }
-	.check-option { display: flex; align-items: flex-start; gap: var(--space-2); color: var(--text-primary); }
-	.check-option input { width: 16px; min-height: 16px; height: 16px; padding: 0; margin-top: 3px; accent-color: var(--intent-conversation); }
-	.check-option span { display: grid; gap: 2px; }
-	.check-option strong { font-size: var(--t-label); font-weight: 500; }
-	.check-option small { color: var(--text-tertiary); line-height: 1.4; }
-	.copy-preview { padding-top: var(--space-3); }
-	.preview-context { margin: 0 0 var(--space-3); }
-	.preview-section { display: grid; gap: 3px; padding-block: var(--space-2); border-top: 1px solid var(--border); }
-	.change-row { display: flex; justify-content: space-between; gap: var(--space-3); font-size: var(--t-label); }
-	.change-row > span:last-child { text-align: right; color: var(--text-secondary); }
-	.change-row .unavailable, .omission { color: var(--company-amber); }
-	.preview-section span,
-	.preview-section small { color: var(--text-secondary); font-size: var(--t-label); line-height: 1.45; }
 	.inline-status { color: var(--text-tertiary); }
 	.inline-error { padding: var(--space-3); color: var(--state-danger); background: color-mix(in srgb, var(--state-danger) 7%, var(--surface-pane)); border-radius: var(--radius-control); }
 	header,

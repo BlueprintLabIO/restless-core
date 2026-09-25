@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import InfoTip from '$lib/components/InfoTip.svelte';
+	import CopyCompanySetting from '$lib/components/CopyCompanySetting.svelte';
 	import { companyQuery } from '$lib/model/queries.svelte';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
@@ -103,6 +104,12 @@
 						text="The total model budget for this company, not a monthly allowance. Lowering it does not undo existing spend or cancel already admitted requests."
 					/>
 				</div>
+				<CopyCompanySetting
+					{companyId}
+					setting="spend"
+					label="Model spend limit"
+					oncopied={() => source.refresh()}
+				/>
 				{#if editingLimit}
 					<form
 						class="limit-form"
@@ -186,6 +193,12 @@
 						text="Idle sleep stops the company computer while keeping its files and records. Scheduled wake is set separately for each schedule. The monthly hours threshold blocks a stopped computer from starting again after it is reached; an already running computer may use more time."
 					/>
 				</div>
+				<CopyCompanySetting
+					{companyId}
+					setting="runtime"
+					label="Computer limits"
+					oncopied={() => source.refresh()}
+				/>
 				{#if editingRuntime}
 					<form
 						class="limit-form"

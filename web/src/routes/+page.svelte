@@ -211,8 +211,8 @@
 						<h2>No projects yet</h2>
 						<p>
 							{archivedCompanies.length
-								? 'Use + to create a project.'
-								: 'Use + to create your first project.'}
+								? 'Use + to start a company.'
+								: 'Use + to start your first company.'}
 						</p>
 					</div>
 				{/if}
