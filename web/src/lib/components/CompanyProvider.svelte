@@ -90,6 +90,15 @@
 	const endpoint = $derived(`/api/companies/${encodeURIComponent(companyId)}/provider`);
 	const connection = $derived(status?.connections.find((c) => c.provider === selected));
 	const savedCount = $derived(status?.connections.filter((c) => c.reference).length ?? 0);
+	/* Advanced stays folded until it holds something of this company's own, or a
+	 * link asks for the harnesses inside it. */
+	let advancedOpen = $state(false);
+	$effect(() => {
+		if (savedCount || editorOpen) advancedOpen = true;
+	});
+	onMount(() => {
+		if (location.hash === '#harnesses') advancedOpen = true;
+	});
 	function defaultReference(provider: string) {
 		return `infisical:/companies/${companyId}/MODEL_${provider.replace(/[^a-zA-Z0-9_]/g, '_')}_API_KEY`;
 	}
@@ -280,7 +289,7 @@
 			if (!response.ok) throw new Error(body.message ?? 'Could not save this connection.');
 			const created = body.connection ?? body;
 			await refreshReusableConnections();
-			if (!status || !created.id) throw new Error('Connection saved, but could not enable it in this company yet. Choose it from Available connections to finish.');
+			if (!status || !created.id) throw new Error('Connection saved, but could not enable it in this company yet. Choose it from Account API keys to finish.');
 			const grantResult = await requestGrant(created.id, connectionModel || defaultModel(connectionProvider), false, connectionMakeDefault);
 			connectionSecret = '';
 			connectionLabel = '';
@@ -364,7 +373,7 @@
 			if (!response.ok) throw new Error(body.message ?? 'Could not make this connection reusable.');
 			const imported = body.connection ?? body;
 			await refreshReusableConnections();
-			if (!status || !imported.id) throw new Error('Connection saved to your account, but it could not be granted to this company. Choose it from Available connections to finish.');
+			if (!status || !imported.id) throw new Error('Connection saved to your account, but it could not be granted to this company. Choose it from Account API keys to finish.');
 			const grantResult = await requestGrant(imported.id, defaultModel(importProvider));
 			importOpen = false;
 			importSource = '';
@@ -401,11 +410,15 @@
 			<a class="account-link" href={manageUrl}>{accountScope === 'company' ? 'Open account to manage connections' : 'Manage account connections'} <span aria-hidden="true">↗</span></a>
 		</div>
 	</header>
+	<AgentIntelligence {companyId} />
+	<section class="connect-section" aria-labelledby="connect-title">
+		<h2 id="connect-title" title="Sign in with a subscription, or use an API key. Either can power any agent above.">Connect</h2>
+		<HarnessConnections {companyId} />
 	<section class="reuse-panel" aria-labelledby="reuse-title">
 		<div class="reuse-section-head">
-			<div><h2 title="Each company needs an explicit grant to use an account connection.">Available connections</h2></div>
+			<div><h3 title="API keys saved in your account. Each company needs an explicit grant to use one.">Account API keys</h3></div>
 			{#if accountScope === 'account'}<button class="btn small" disabled={accountBusy} onclick={toggleAddConnection}>
-				{addConnectionOpen ? 'Close' : 'Add connection'}
+				{addConnectionOpen ? 'Close' : 'Add API key'}
 			</button>{/if}
 		</div>
 		{#if accountLoading}<p class="inline-status" role="status">Loading account connections…</p>
@@ -435,7 +448,7 @@
 				{/each}
 			</div>
 		{:else}
-			<div class="reuse-empty"><p>No account connection is available to this company yet.</p><span>{accountScope === 'company' ? 'Open your account, then choose Account settings to grant one.' : 'Save one here or bring an existing company connection into your account.'}</span></div>
+			<div class="reuse-empty"><p>No account API key is available to this company yet.</p><span>{accountScope === 'company' ? 'Open your account, then choose Account settings to grant one.' : 'Save one here or bring an existing company connection into your account.'}</span></div>
 		{/if}
 		{#if addConnectionOpen && accountScope === 'account'}
 			<form class="add-form" onsubmit={createReusableConnection}>
@@ -465,12 +478,14 @@
 		{/if}
 		{#if accountError}<p class="inline-error" role="alert">{accountError}</p>{/if}
 	</section>
-	<details class="company-only-settings">
-		<summary>Company-only API connections</summary>
-		<p>These keys belong only to this company. Use account connections above when several companies need the same provider.</p>
+	</section>
+	{#if error}<p role="alert">{error}</p>{/if}{#if notice}<p class="notice" role="status">{notice}</p>{/if}
+	<details class="advanced-settings" bind:open={advancedOpen}>
+		<summary>Advanced</summary>
+	<section class="company-only-settings">
 		<header>
-			<h2>Company-specific connections</h2>
-			<button class="btn small" disabled={!status || busy} onclick={() => { choose(''); editorOpen = true; }}>Add company-only connection</button>
+			<h3 title="These keys belong only to this company. Use account API keys when several companies need the same provider.">Company-only API keys</h3>
+			<button class="btn small" disabled={!status || busy} onclick={() => { choose(''); editorOpen = true; }}>Add key</button>
 		</header>
 	<div class="storage">
 		<span
@@ -504,10 +519,7 @@
 					</div>
 				{/each}
 			</section>
-		{:else}<div class="empty">
-				<h2>API connections</h2>
-				<p>Add a provider API key, or sign in with Codex or Claude below.</p>
-			</div>{/if}
+		{:else}<p class="empty">None yet.</p>{/if}
 	{/if}
 	{#if editorOpen && status}
 		<section class="connection-editor" bind:this={editor} aria-label="Connection settings">
@@ -592,8 +604,7 @@
 			</form>
 		</section>
 	{/if}
-	</details>
-	{#if error}<p role="alert">{error}</p>{/if}{#if notice}<p class="notice" role="status">{notice}</p>{/if}
+	</section>
 	<div
 		class="catalog-status"
 		title="Model suggestions refresh hourly from models.dev. Catalog inclusion does not confirm account access or harness compatibility. Local gateways keep bundled suggestions and custom IDs. Saved model choices are never changed automatically."
@@ -613,15 +624,9 @@
 			>Refresh models</button
 		>
 	</div>
-	<section id="harnesses" class="harness-section">
-		<h2 title="These sign-ins stay with this company and are separate from account API connections.">
-			Native sign-ins
-		</h2>
-		<HarnessConnections {companyId} />
-	</section>
-	<HarnessDiagnostics {companyId} />
-	<CustomHarnesses {companyId} />
-	<AgentIntelligence {companyId} />
+		<HarnessDiagnostics {companyId} />
+		<div id="harnesses"><CustomHarnesses {companyId} /></div>
+	</details>
 </div>
 
 <style>
@@ -676,7 +681,7 @@
 	.reuse-section-head {
 		padding-block: 0 var(--space-3);
 	}
-	.reuse-section-head h2 { margin: 0; font-size: var(--t-head); }
+	.reuse-section-head h3 { margin: 0; font-size: var(--t-head); }
 	.reuse-list { border-top: 1px solid var(--border); }
 	.reuse-row {
 		min-height: 56px;
@@ -847,10 +852,30 @@
 		flex-wrap: wrap;
 		margin-top: var(--space-3);
 	}
-	.harness-section {
-		margin-top: var(--space-6);
-		padding-top: var(--space-5);
+	.connect-section {
+		margin-top: calc(var(--space-6) * 1.5);
+	}
+	.connect-section > h2 {
+		margin-bottom: var(--space-4);
+	}
+	.connect-section .reuse-panel {
+		margin-top: var(--space-4);
+	}
+	h3 {
+		font-size: var(--t-head);
+		margin: 0;
+	}
+	.advanced-settings {
+		margin-block: var(--space-6) 0;
+		padding-top: var(--space-4);
 		border-top: 1px solid var(--control-edge);
+	}
+	.advanced-settings > summary {
+		padding-block: var(--space-2);
+		font-weight: 500;
+	}
+	.company-only-settings {
+		margin-top: var(--space-4);
 	}
 	.provider-page {
 		min-height: 0;

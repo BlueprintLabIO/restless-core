@@ -117,11 +117,12 @@
 
 <section class="assignments" aria-labelledby="agent-assignments-title">
 	<header>
-		<h2 id="agent-assignments-title">Agent intelligence</h2>
-		<span
-			title="Choose a company-local sign-in or a granted account connection for each agent. Account sign-ins can power Codex or Claude Agent without copying their credentials into the company. Changes apply to the next session; removing access stops the next model request."
-			>ⓘ</span
+		<h2
+			id="agent-assignments-title"
+			title="What powers each agent. Agents without their own choice use the company default. Changes apply to the next session; removing access stops the next model request."
 		>
+			In use
+		</h2>
 	</header>
 	{#if source.error}<p role="alert">
 			Could not load agents. <button class="btn small" onclick={() => source.refresh()}
@@ -131,12 +132,12 @@
 	{:else if !source.view}<p role="status">Loading agents…</p>
 	{:else}
 		{#if !source.view.connections.length}<p class="hint">
-				Add a connection above to choose what powers each agent.
+				Connect a provider below, then choose what powers each agent.
 			</p>{/if}
 		{#each rows as agent (agent.id)}
 			<div class="agent-row">
 				<div class="identity">
-					<strong>{agent.id === 'exec' ? 'Exec' : agent.name}</strong><small>{agent.role}</small>
+					<strong>{agent.id === 'exec' ? 'Exec' : agent.name}</strong>{#if agent.role.toLowerCase() !== agent.id}<small>{agent.role}</small>{/if}
 				</div>
 				<div class="route">
 					<span
@@ -230,9 +231,7 @@
 
 <style>
 	.assignments {
-		margin-top: var(--space-6);
-		border-top: 1px solid var(--control-edge);
-		padding-top: var(--space-5);
+		margin-top: var(--space-5);
 	}
 	header {
 		display: flex;
