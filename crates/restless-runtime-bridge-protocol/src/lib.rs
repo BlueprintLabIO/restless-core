@@ -1,13 +1,14 @@
 //! Bounded protocol for the outbound hosted Company Runtime bridge.
 //!
 //! It intentionally contains no generic command or shell frame. Core may
-//! preflight the immutable Runtime, supervise one declared ACP agent session,
+//! preflight the immutable Runtime, supervise one declared agent session,
 //! or proxy one existing coordination operation.
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use uuid::Uuid;
 
-pub const PROTOCOL_VERSION: u32 = 4;
+pub const PROTOCOL_VERSION: u32 = 5;
 pub const MAX_FRAME_BYTES: usize = 256 * 1024;
 pub const MAX_TEXT_BYTES: usize = 128 * 1024;
 pub const MAX_JSON_BYTES: usize = 128 * 1024;
@@ -371,6 +372,9 @@ pub enum Message {
         coordination_capability: String,
         model_capability: String,
         model_url: String,
+        /// Ephemeral, exact MCP child environment. Only the first-party Codex
+        /// runner needs this; ACP carries MCP environments in its session request.
+        mcp_environment: BTreeMap<String, String>,
         deadline_ms: i64,
     },
     AcpStdin {
@@ -733,6 +737,7 @@ fn validate_message(message: &Message) -> Result<(), ProtocolError> {
             coordination_capability,
             model_capability,
             model_url,
+            mcp_environment,
             deadline_ms,
         } => {
             !operation_id.is_nil()
@@ -747,6 +752,7 @@ fn validate_message(message: &Message) -> Result<(), ProtocolError> {
                 && bounded(coordination_capability, 16_384)
                 && bounded(model_capability, 16_384)
                 && bounded(model_url, 2_048)
+                && valid_mcp_environment(mcp_environment)
                 && valid_deadline(*deadline_ms)
         }
         Message::AcpStdin {
@@ -1121,6 +1127,31 @@ fn identifier(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+}
+
+fn valid_mcp_environment(values: &BTreeMap<String, String>) -> bool {
+    const RESERVED: &[&str] = &[
+        "HOME", "PATH", "CODEX_HOME", "OPENAI_API_KEY", "OPENAI_BASE_URL",
+        "RESTLESS_ACTOR", "RESTLESS_COORDINATOR", "RESTLESS_SESSION_CAPABILITY",
+        "RESTLESS_MODEL_CAPABILITY", "CLAUDE_CONFIG_DIR", "ANTHROPIC_AUTH_TOKEN",
+        "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_OAUTH_TOKEN",
+        "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+        "SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS",
+    ];
+    values.len() <= 32
+        && values.iter().map(|(name, value)| name.len() + value.len()).sum::<usize>() <= 64 * 1024
+        && values.iter().all(|(name, value)| {
+            !name.is_empty()
+                && name.len() <= 128
+                && name.bytes().enumerate().all(|(index, byte)| {
+                    if index == 0 { byte.is_ascii_alphabetic() || byte == b'_' }
+                    else { byte.is_ascii_alphanumeric() || byte == b'_' }
+                })
+                && !RESERVED.iter().any(|reserved| name.eq_ignore_ascii_case(reserved))
+                && !value.is_empty()
+                && value.len() <= 8 * 1024
+                && !value.contains('\0')
+        })
 }
 
 fn bounded(value: &str, max: usize) -> bool {

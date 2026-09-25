@@ -6,6 +6,8 @@
 //! it does not add planning or semantic rescue.
 
 use std::collections::BTreeMap;
+use std::os::unix::fs::OpenOptionsExt as _;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -15,7 +17,7 @@ use anyhow::{bail, Context as _, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _, BufReader};
-use tokio::process::{ChildStdin, Command};
+use tokio::process::Command;
 use tokio::sync::{mpsc, Mutex as AsyncMutex};
 use tokio_util::sync::CancellationToken;
 
@@ -30,6 +32,14 @@ const IDLE_SILENT: Duration = Duration::from_secs(8 * 60);
 const IDLE_TOOL_RUNNING: Duration = Duration::from_secs(15 * 60);
 const WATCHDOG_TICK: Duration = Duration::from_secs(5);
 
+struct AbortReaderOnDrop(tokio::task::AbortHandle);
+
+impl Drop for AbortReaderOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SessionLocator {
     version: u8,
@@ -42,6 +52,8 @@ struct SessionLocator {
     thread_id: String,
     runner_digest: String,
     mcp_contract_digest: String,
+    #[serde(default)]
+    credential_reference: Option<String>,
 }
 
 fn valid_env_name(name: &str) -> bool {
@@ -164,6 +176,65 @@ fn home_path(company: &str, actor: &str, responsibility: &str) -> String {
     )
 }
 
+fn hosted_locator_path(company: &str, actor: &str, responsibility: &str) -> PathBuf {
+    crate::runtime::state_root()
+        .join("hosted-codex-sessions")
+        .join(format!("{}.json", scope_digest(company, actor, responsibility)))
+}
+
+fn hosted_credential_reference(company: &str) -> Result<String> {
+    let config = crate::runtime::CompanyConfig::load(&crate::runtime::state_root(), company)?;
+    config
+        .credentials
+        .get("model.inference.openai-codex")
+        .cloned()
+        .context("hosted Codex requires an exact company grant")
+}
+
+fn read_hosted_locator(path: &std::path::Path) -> Result<Option<SessionLocator>> {
+    match std::fs::read_to_string(path) {
+        Ok(body) => Ok(Some(serde_json::from_str(&body).context("parse hosted Codex locator")?)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error).context("read hosted Codex locator"),
+    }
+}
+
+fn persist_hosted_locator(path: &std::path::Path, locator: &SessionLocator) -> Result<()> {
+    use std::io::Write as _;
+    let parent = path.parent().context("hosted Codex locator parent")?;
+    std::fs::create_dir_all(parent).context("create hosted Codex locator directory")?;
+    let temporary = parent.join(format!(".{}.tmp", uuid::Uuid::new_v4()));
+    let result = (|| -> Result<()> {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&temporary)
+            .context("create private hosted Codex locator")?;
+        file.write_all(&serde_json::to_vec(locator)?)?;
+        file.sync_all()?;
+        std::fs::rename(&temporary, path).context("commit hosted Codex locator")?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
+}
+
+pub(crate) fn discard_hosted_session_locator(
+    company: &str,
+    actor: &str,
+    responsibility: &str,
+) -> Result<()> {
+    let path = hosted_locator_path(company, actor, responsibility);
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error).context("discard hosted Codex locator"),
+    }
+}
+
 async fn read_locator(container: &str, path: &str) -> Result<Option<SessionLocator>> {
     let output = Command::new("docker")
         .args([
@@ -280,7 +351,7 @@ fn event_string<'a>(value: &'a serde_json::Value, field: &str) -> Option<&'a str
 }
 
 async fn send_operation(
-    stdin: &Arc<AsyncMutex<ChildStdin>>,
+    stdin: &Arc<AsyncMutex<Box<dyn tokio::io::AsyncWrite + Send + Unpin>>>,
     value: serde_json::Value,
 ) -> Result<()> {
     let mut stdin = stdin.lock().await;
@@ -293,7 +364,7 @@ async fn send_operation(
 }
 
 pub(crate) struct CodexSession {
-    stdin: Arc<AsyncMutex<ChildStdin>>,
+    stdin: Arc<AsyncMutex<Box<dyn tokio::io::AsyncWrite + Send + Unpin>>>,
     events: AsyncMutex<mpsc::UnboundedReceiver<serde_json::Value>>,
     observer: Option<SessionObserver>,
     live_observer_enabled: Arc<AtomicBool>,
@@ -685,7 +756,8 @@ where
         .spawn()
         .context("spawn first-party Codex runner in company Runtime")?;
     let stdin = Arc::new(AsyncMutex::new(
-        child.stdin.take().context("Codex runner stdin")?,
+        Box::new(child.stdin.take().context("Codex runner stdin")?)
+            as Box<dyn tokio::io::AsyncWrite + Send + Unpin>,
     ));
     let stdout = child.stdout.take().context("Codex runner stdout")?;
     let mut stderr = child.stderr.take().context("Codex runner stderr")?;
@@ -755,6 +827,7 @@ where
         thread_id: thread_id.clone(),
         runner_digest: runner_digest.clone(),
         mcp_contract_digest: mcp_contract_digest.clone(),
+        credential_reference: None,
     };
     persist_locator(container, &locator_path, &locator).await?;
     let tool_contract_digest = prove_tool_contract(container, auth, actor).await?;
@@ -818,6 +891,181 @@ where
                     container,
                     "Codex failed and terminal cleanup also failed: {cleanup:#}"
                 );
+            }
+            Err(error)
+        }
+    }
+}
+
+/// Run the same pinned JSONL agent through the hosted Runtime's supervised
+/// stream. The company receives only short-lived capabilities; the account
+/// connection and its reusable credential remain on Core.
+#[expect(clippy::too_many_arguments, reason = "the hosted Codex boundary keeps its authority and observation explicit")]
+pub(crate) async fn with_remote_agent_outcome<F, T>(
+    registry: &crate::runtime_bridge::RuntimeBridgeRegistry,
+    identity: &restless_runtime_bridge_protocol::RuntimeIdentity,
+    auth: &AgentAuth,
+    workdir: &str,
+    actor: &str,
+    responsibility: &str,
+    system_prompt: &str,
+    mcp_servers: Vec<McpServer>,
+    observer: Option<SessionObserver>,
+    drive: F,
+) -> Result<crate::acp::SessionOutcome<T>>
+where
+    F: for<'a> FnOnce(
+        &'a CodexSession,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<T>> + Send + 'a>>,
+{
+    if responsibility.trim().is_empty() || system_prompt.trim().is_empty() {
+        bail!("hosted Codex needs responsibility and developer instructions");
+    }
+    if !auth.model.starts_with("openai-codex/") || auth.gateway_token_env != MODEL_CAPABILITY_ENV {
+        bail!("hosted Codex requires its exact scoped account model route");
+    }
+    let credential_reference = hosted_credential_reference(&auth.company)?;
+    let (mcp_contract, mcp_runtime_env, mcp_contract_digest) = codex_mcp_contract(&mcp_servers)?;
+    let expected_runner_digest = format!("{:x}", Sha256::digest(
+        include_bytes!("../../../tools/codex-runner/restless-codex-runner.mjs")
+    ));
+    let path = hosted_locator_path(&auth.company, actor, responsibility);
+    let prior = read_hosted_locator(&path)?;
+    if let Some(locator) = &prior {
+        if locator.version != 3
+            || locator.company != auth.company
+            || locator.actor != actor
+            || locator.responsibility != responsibility
+        {
+            bail!("refusing hosted Codex locator outside its exact scope");
+        }
+    }
+    let reusable = prior.as_ref().is_some_and(|locator| {
+        locator.cwd == workdir
+            && locator.model == auth.model
+            && locator.effort == auth.effort
+            && locator.mcp_contract_digest == mcp_contract_digest
+            && locator.runner_digest == expected_runner_digest
+            && locator.credential_reference.as_deref() == Some(&credential_reference)
+    });
+    let reconstructed = prior.is_some() && !reusable;
+    let prior_thread = if reusable {
+        prior.as_ref().map(|locator| locator.thread_id.clone())
+    } else {
+        None
+    };
+    let (transport, completion) = crate::runtime_bridge::open_codex_transport(
+        registry, identity, auth, workdir, actor, responsibility, system_prompt, mcp_runtime_env,
+    )
+    .await?;
+    let (read, write) = tokio::io::split(transport);
+    let stdin = Arc::new(AsyncMutex::new(
+        Box::new(write) as Box<dyn tokio::io::AsyncWrite + Send + Unpin>
+    ));
+    let (events_tx, events_rx) = mpsc::unbounded_channel();
+    let reader = tokio::spawn(async move {
+        let mut lines = BufReader::new(read).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            let value = serde_json::from_str(&line).unwrap_or_else(|error| {
+                serde_json::json!({"type":"runner_error","message":format!("invalid runner JSON: {error}")})
+            });
+            if events_tx.send(value).is_err() {
+                return;
+            }
+        }
+        let _ = events_tx.send(serde_json::json!({"type":"runner_process_closed"}));
+    });
+    let _reader_abort = AbortReaderOnDrop(reader.abort_handle());
+    let events = AsyncMutex::new(events_rx);
+    send_operation(
+        &stdin,
+        serde_json::json!({
+            "op": "launch",
+            "cwd": workdir,
+            "model": auth.model,
+            "effort": auth.effort,
+            "provider_base_url": auth.gateway_url,
+            "developer_instructions": system_prompt,
+            "thread_id": prior_thread,
+            "mcp_servers": mcp_contract,
+        }),
+    )
+    .await?;
+    let mut receiver = events.lock().await;
+    let ready = loop {
+        let event = receiver.recv().await.context("hosted Codex closed before readiness")?;
+        match event_type(&event) {
+            "session_ready" => break event,
+            "runner_error" | "app_server_exited" | "runner_process_closed" => {
+                bail!("hosted Codex failed before readiness: {event}")
+            }
+            _ => {}
+        }
+    };
+    drop(receiver);
+    let thread_id = event_string(&ready, "thread_id")
+        .context("hosted Codex readiness omitted thread id")?
+        .to_string();
+    let observed = ready.get("observed").cloned().unwrap_or_default();
+    let runner_digest = event_string(&observed, "runner_digest")
+        .context("hosted Codex readiness omitted runner digest")?
+        .to_string();
+    if runner_digest != expected_runner_digest {
+        bail!("hosted Codex runner differs from the reviewed Core release");
+    }
+    let locator = SessionLocator {
+        version: 3,
+        company: auth.company.clone(),
+        actor: actor.to_string(),
+        responsibility: responsibility.to_string(),
+        cwd: workdir.to_string(),
+        model: auth.model.clone(),
+        effort: auth.effort.clone(),
+        thread_id: thread_id.clone(),
+        runner_digest: runner_digest.clone(),
+        mcp_contract_digest: mcp_contract_digest.clone(),
+        credential_reference: Some(credential_reference),
+    };
+    persist_hosted_locator(&path, &locator)?;
+    let tool_contract_digest = format!("{:x}", Sha256::digest(format!(
+        "hosted-runtime-bridge\0harness:codex\0actor:{actor}\0responsibility:{responsibility}"
+    )));
+    let session = CodexSession {
+        stdin: Arc::clone(&stdin),
+        events,
+        observer,
+        live_observer_enabled: Arc::new(AtomicBool::new(true)),
+        launch_id: auth.session_id.clone(),
+        thread_id,
+        model: auth.model.clone(),
+        effort: auth.effort.clone(),
+        resumed: ready.get("resumed").and_then(serde_json::Value::as_bool).unwrap_or(false),
+        reconstructed,
+        reconstruction_reason: reconstructed.then(|| "saved Codex thread did not match the exact workspace, model, effort or account connection".into()),
+        runner_digest,
+        tool_contract_digest,
+        mcp_contract_digest,
+        observed,
+    };
+    let result = drive(&session).await;
+    let _ = send_operation(&stdin, serde_json::json!({"op":"shutdown"})).await;
+    drop(session);
+    drop(stdin);
+    reader.abort();
+    let _ = reader.await;
+    let cleanup = tokio::time::timeout(Duration::from_secs(75), completion)
+        .await
+        .context("hosted Codex cleanup timed out")?
+        .context("hosted Codex cleanup receipt disappeared")?
+        .map_err(anyhow::Error::msg);
+    match result {
+        Ok(value) => match cleanup {
+            Ok(()) => Ok(crate::acp::SessionOutcome::Completed(value)),
+            Err(error) => Ok(crate::acp::SessionOutcome::CleanupFailed { outcome: value, error }),
+        },
+        Err(error) => {
+            if let Err(cleanup) = cleanup {
+                tracing::error!("hosted Codex failed and cleanup also failed: {cleanup:#}");
             }
             Err(error)
         }

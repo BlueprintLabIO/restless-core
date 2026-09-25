@@ -14525,7 +14525,7 @@ async fn intelligence_view(
                 let suffix = format!("{provider}@{}", account.id);
                 connections.push(serde_json::json!({"id":format!("account:{suffix}"),"provider":provider,"kind":"direct","label":account.label,"loaded":row["gateway_loaded"]}));
                 if account.kind == "oauth" {
-                    let harness = match provider {"openai-codex" if !hosted => Some("codex"), "anthropic" => Some("claude-agent"), _ => None};
+                    let harness = match provider {"openai-codex" => Some("codex"), "anthropic" => Some("claude-agent"), _ => None};
                     if let Some(harness) = harness {
                         connections.push(serde_json::json!({"id":format!("account-harness:{harness}:{suffix}"),"provider":harness,"account_provider":provider,"kind":"harness","label":account.label,"loaded":row["gateway_loaded"]}));
                     }
@@ -14613,8 +14613,8 @@ async fn update_agent_intelligence(
                 bail!("Choose a model or enter a custom model ID");
             }
             if let Some((provider, id, harness)) = runtime::account_intelligence_route(&input.connection) {
-                if state.entry.network().is_some() && !matches!(harness, runtime::AgentHarness::RestlessManaged | runtime::AgentHarness::ClaudeAgent) {
-                    bail!("This hosted runtime does not offer the Codex agent adapter yet");
+                if state.entry.network().is_some() && !matches!(harness, runtime::AgentHarness::RestlessManaged | runtime::AgentHarness::ClaudeAgent | runtime::AgentHarness::Codex) {
+                    bail!("This hosted runtime does not offer that agent adapter");
                 }
                 let registry = load_owner_connections(&state.daemon.root)?;
                 let account = registry.connections.iter().find(|connection| connection.id == id && connection.provider == provider)

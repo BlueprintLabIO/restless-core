@@ -6,6 +6,7 @@
 //! identity; it deliberately exposes no generic remote-shell operation.
 
 use std::fs;
+use std::collections::BTreeMap;
 use std::io::Read as _;
 use std::path::Path;
 use std::sync::Arc;
@@ -25,7 +26,7 @@ use base64::Engine as _;
 use futures_util::{SinkExt as _, StreamExt as _};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
 use crate::capability::HostedRuntimeBridgeScope;
@@ -1100,6 +1101,36 @@ pub(crate) async fn open_agent_transport(
     if !matches!(harness, crate::runtime::AgentHarness::RestlessManaged | crate::runtime::AgentHarness::ClaudeAgent) {
         anyhow::bail!("hosted Runtime ACP transport requires the Restless or Claude agent harness");
     }
+    open_agent_transport_with_environment(registry, identity, auth, workdir, actor, responsibility, harness, system_prompt, BTreeMap::new()).await.map(|(stream, _)| stream)
+}
+
+#[expect(clippy::too_many_arguments, reason = "the Codex launch carries an exact scoped MCP environment")]
+pub(crate) async fn open_codex_transport(
+    registry: &RuntimeBridgeRegistry,
+    identity: &RuntimeIdentity,
+    auth: &crate::acp::AgentAuth,
+    workdir: &str,
+    actor: &str,
+    responsibility: &str,
+    system_prompt: &str,
+    mcp_environment: BTreeMap<String, String>,
+) -> Result<(tokio::io::DuplexStream, oneshot::Receiver<std::result::Result<(), String>>)> {
+    open_agent_transport_with_environment(registry, identity, auth, workdir, actor, responsibility,
+        crate::runtime::AgentHarness::Codex, system_prompt, mcp_environment).await
+}
+
+#[expect(clippy::too_many_arguments, reason = "the hosted launch membrane keeps every exact agent capability explicit")]
+async fn open_agent_transport_with_environment(
+    registry: &RuntimeBridgeRegistry,
+    identity: &RuntimeIdentity,
+    auth: &crate::acp::AgentAuth,
+    workdir: &str,
+    actor: &str,
+    responsibility: &str,
+    harness: crate::runtime::AgentHarness,
+    system_prompt: &str,
+    mcp_environment: BTreeMap<String, String>,
+) -> Result<(tokio::io::DuplexStream, oneshot::Receiver<std::result::Result<(), String>>)> {
     preflight(registry, identity).await?;
     let operation_id = Uuid::new_v4();
     let deadline_ms = chrono::Utc::now().timestamp_millis()
@@ -1120,16 +1151,24 @@ pub(crate) async fn open_agent_transport(
             coordination_capability: auth.coordination_token.clone(),
             model_capability: auth.gateway_token.clone(),
             model_url: auth.gateway_url.clone(),
+            mcp_environment,
             deadline_ms,
         },
     )?;
     let (core, bridge) = tokio::io::duplex(256 * 1024);
+    let (completion_tx, completion_rx) = oneshot::channel();
     let (mut bridge_read, mut bridge_write) = tokio::io::split(bridge);
     let registry = registry.clone();
     let identity = identity.clone();
+    let cleanup_deadline = if harness == crate::runtime::AgentHarness::Codex {
+        Duration::from_secs(60)
+    } else {
+        Duration::from_secs(10)
+    };
     tokio::spawn(async move {
         let mut buffer = vec![0_u8; 48 * 1024];
         let mut local_closed = false;
+        let mut completion = Err("hosted Runtime agent stream closed without an Exit receipt".to_string());
         let mut cancellation_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
         loop {
             tokio::select! {
@@ -1141,7 +1180,7 @@ pub(crate) async fn open_agent_transport(
                                 reason: "Core ACP client closed the session".into(),
                             });
                             local_closed = true;
-                            cancellation_deadline = Some(Box::pin(tokio::time::sleep(Duration::from_secs(10))));
+                            cancellation_deadline = Some(Box::pin(tokio::time::sleep(cleanup_deadline)));
                         }
                         Ok(read) => {
                             let data_base64 = base64::engine::general_purpose::STANDARD.encode(&buffer[..read]);
@@ -1157,10 +1196,11 @@ pub(crate) async fn open_agent_transport(
                             let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(data_base64) else { break; };
                             if bridge_write.write_all(&bytes).await.is_err() { break; }
                         }
-                        Some(BridgeMessage::Exit { error: None, .. }) => break,
+                        Some(BridgeMessage::Exit { error: None, .. }) => { completion = Ok(()); break; },
                         Some(BridgeMessage::Exit { error: Some(error), .. })
                         | Some(BridgeMessage::Error { message: error, .. }) => {
-                            tracing::warn!(operation_id = %operation_id, "hosted Runtime ACP ended: {error}");
+                            tracing::warn!(operation_id = %operation_id, "hosted Runtime agent ended: {error}");
+                            completion = Err(error);
                             break;
                         }
                         None => break,
@@ -1177,8 +1217,9 @@ pub(crate) async fn open_agent_transport(
         }
         registry.abandon_operation(operation_id);
         let _ = bridge_write.shutdown().await;
+        let _ = completion_tx.send(completion);
     });
-    Ok(core)
+    Ok((core, completion_rx))
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]

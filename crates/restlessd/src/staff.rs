@@ -409,8 +409,8 @@ pub async fn dispatch_claimed_work(
         }
     }
     let hosted_identity = if runtime_bridges.is_hosted() {
-        if !matches!(config.worker_harness, crate::runtime::AgentHarness::RestlessManaged | crate::runtime::AgentHarness::ClaudeAgent) {
-            bail!("hosted delegated Work requires a supported ACP harness");
+        if !matches!(config.worker_harness, crate::runtime::AgentHarness::RestlessManaged | crate::runtime::AgentHarness::ClaudeAgent | crate::runtime::AgentHarness::Codex) {
+            bail!("hosted delegated Work requires a supported agent harness");
         }
         let identity = crate::runtime_bridge::expected_identity(authority, &config.name).await?;
         crate::runtime_bridge::preflight(runtime_bridges, &identity).await?;

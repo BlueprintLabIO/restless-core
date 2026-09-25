@@ -411,9 +411,13 @@ async function launch(operation) {
   // that exact route for the app-server; ordinary native turns keep the
   // denied task proxy and their direct provider exception.
   const isolatedModelProxy = native && process.env.HTTPS_PROXY === ISOLATED_MODEL_PROXY;
+  // The hosted relay has a private account-plane hostname. Core's Runtime
+  // Bridge validates that exact origin before launch; keep every other task
+  // destination behind the denied proxy.
+  const relayNoProxy = [...new Set([...MODEL_RELAY_NO_PROXY.split(','), new URL(baseUrl).hostname])].join(',');
   const nativeNoProxy = isolatedModelProxy
-    ? MODEL_RELAY_NO_PROXY
-    : MODEL_RELAY_NO_PROXY + ',api.openai.com,chatgpt.com,auth.openai.com';
+    ? relayNoProxy
+    : relayNoProxy + ',api.openai.com,chatgpt.com,auth.openai.com';
   const appServerEnv = {
     ...process.env,
     HTTP_PROXY: DENIED_TASK_PROXY,
@@ -422,8 +426,8 @@ async function launch(operation) {
     http_proxy: DENIED_TASK_PROXY,
     https_proxy: isolatedModelProxy ? ISOLATED_MODEL_PROXY : DENIED_TASK_PROXY,
     all_proxy: DENIED_TASK_PROXY,
-    NO_PROXY: native ? nativeNoProxy : MODEL_RELAY_NO_PROXY,
-    no_proxy: native ? nativeNoProxy : MODEL_RELAY_NO_PROXY,
+    NO_PROXY: native ? nativeNoProxy : relayNoProxy,
+    no_proxy: native ? nativeNoProxy : relayNoProxy,
   };
   attachAppServer(spawn(operation.codex_bin || 'codex', args, {
     cwd,

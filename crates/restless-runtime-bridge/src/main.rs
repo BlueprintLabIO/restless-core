@@ -1,7 +1,7 @@
 //! Runtime-side half of the hosted Company Runtime bridge.
 //!
 //! The process is supervised inside the immutable company image. It makes one
-//! outbound authenticated websocket, launches only the fixed ACP harnesses in
+//! outbound authenticated websocket, launches only the fixed agent harnesses in
 //! the bridge contract, and exposes the existing Restless coordination JSONL
 //! protocol on loopback. It is not a remote shell.
 
@@ -2104,6 +2104,7 @@ async fn launch_agent(
         operation_id,
         session_id: _,
         actor,
+        responsibility,
         harness,
         model,
         reasoning_effort,
@@ -2112,6 +2113,7 @@ async fn launch_agent(
         coordination_capability,
         model_capability,
         model_url,
+        mcp_environment,
         deadline_ms,
         ..
     } = message
@@ -2124,6 +2126,9 @@ async fn launch_agent(
         bail!("agent workdir must stay inside /company");
     }
     validate_model_url(&config.url, &model_url)?;
+    if harness != "codex" && !mcp_environment.is_empty() {
+        bail!("MCP child environment is only supported by the Codex runner");
+    }
     let session_root = create_session_root(operation_id)?;
     let system_prompt = session_root.join("system.md");
     write_private(&system_prompt, prompt.as_bytes())?;
@@ -2132,7 +2137,11 @@ async fn launch_agent(
         .as_deref()
         .map(|pem| {
             let path = session_root.join("model-gateway-ca.pem");
-            write_private(&path, pem)?;
+            let mut bundle = std::fs::read("/etc/ssl/certs/ca-certificates.crt")
+                .context("read system trust roots for hosted model relay")?;
+            bundle.push(b'\n');
+            bundle.extend_from_slice(pem);
+            write_private(&path, &bundle)?;
             anyhow::Ok(path)
         })
         .transpose()?;
@@ -2191,7 +2200,29 @@ async fn launch_agent(
             write_private(&profile.join("settings.json"), &settings)?;
             ("claude-agent-acp", Vec::new(), profile)
         }
-        _ => bail!("hosted Runtime bridge accepts only supported ACP harnesses"),
+        "codex" => {
+            model.strip_prefix("openai-codex/").filter(|value| !value.is_empty())
+                .context("Codex requires an openai-codex model route")?;
+            if !matches!(reasoning_effort.as_str(), "none" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra") {
+                bail!("Codex reasoning effort is unsupported");
+            }
+            let scope = format!("{}\0{actor}\0{responsibility}", config.identity.company);
+            let scope_hash = format!("{:x}", Sha256::digest(scope.as_bytes()));
+            let profile = PathBuf::from(format!("/company/home/.restless/codex-agent/homes/{scope_hash}"));
+            let created = run_company_command("mkdir", &["-p".into(), profile.to_string_lossy().to_string()]).await?;
+            require_success("prepare scoped Codex home", &created)?;
+            ("node", vec!["/usr/local/bin/restless-codex-runner".into()], profile)
+        }
+        _ => bail!("hosted Runtime bridge accepts only supported agent harnesses"),
+    };
+    let codex_cleanup_values = if harness == "codex" {
+        let mut values = vec![model_capability.clone(), coordination_capability.clone()];
+        values.extend(mcp_environment.values().cloned());
+        values.sort();
+        values.dedup();
+        Some(values)
+    } else {
+        None
     };
     make_company_owned(&session_root)?;
     let mut command = tokio::process::Command::new(program);
@@ -2216,13 +2247,22 @@ async fn launch_agent(
             .env("ANTHROPIC_BASE_URL", &model_url)
             .env("ANTHROPIC_API_KEY", "")
             .env("CLAUDE_CODE_OAUTH_TOKEN", "");
+    } else if harness == "codex" {
+        command
+            .envs(&mcp_environment)
+            .env("CODEX_HOME", &profile_dir)
+            .env("OPENAI_API_KEY", "")
+            .env("OPENAI_BASE_URL", "");
     } else {
         command.env("PI_CODING_AGENT_DIR", &profile_dir);
     }
     if let Some(ca_file) = model_ca_file {
-        // Both ACP runtimes use JavaScript TLS. Augment the public roots so
-        // the exact private plane hostname is trusted by the model relay.
-        command.env("NODE_EXTRA_CA_CERTS", ca_file);
+        // Node-based agents and the Rust Codex app-server both need the
+        // private model relay trust root without losing public system roots.
+        command.env("NODE_EXTRA_CA_CERTS", &ca_file);
+        if harness == "codex" {
+            command.env("SSL_CERT_FILE", &ca_file);
+        }
     }
     // Hosted Runtime runs the bridge with a dedicated credential boundary.
     // Clear supplementary groups before dropping the child to the ordinary
@@ -2273,17 +2313,25 @@ async fn launch_agent(
                 }
             }
         }.await;
-        // The ACP parent may exit before tool grandchildren. The Linux
+        // The agent parent may exit before tool grandchildren. The Linux
         // process group is the ownership record; reap it on every terminal
         // path before reporting Exit to Core.
         kill_process_group(process_group, nix::sys::signal::Signal::SIGKILL);
-        let (code, error) = match outcome {
+        let cleanup = if let Some(values) = codex_cleanup_values {
+            purge_codex_profile_capabilities(&profile_dir, &values).await
+        } else {
+            Ok(())
+        };
+        let (code, mut error) = match outcome {
             Ok(code) => (code, None),
             Err(error) => (
                 None,
-                Some(format!("Runtime ACP supervision failed: {error}")),
+                Some(format!("Runtime agent supervision failed: {error}")),
             ),
         };
+        if let Err(cleanup) = cleanup {
+            error = Some(format!("Runtime agent capability cleanup failed: {cleanup:#}"));
+        }
         let _ = queue(
             &outbound,
             BridgeMessage::Exit {
@@ -2300,6 +2348,32 @@ async fn launch_agent(
         stdin: stdin_tx,
         cancel: cancel_tx,
     })
+}
+
+async fn purge_codex_profile_capabilities(profile: &Path, values: &[String]) -> Result<()> {
+    for value in values {
+        if value.is_empty() {
+            bail!("refusing to purge an empty agent capability");
+        }
+        let mut command = tokio::process::Command::new("python3");
+        command
+            .args(["-c", include_str!("../../restlessd/src/purge_capability.py")])
+            .arg(profile)
+            .env_clear()
+            .env("RESTLESS_PURGE_SECRET", value)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
+        unsafe {
+            command.pre_exec(drop_agent_privileges);
+        }
+        let output = command.output().await.context("scan Codex profile for capability residue")?;
+        if !output.status.success() {
+            bail!("persistent Codex profile retained a scoped capability");
+        }
+    }
+    Ok(())
 }
 
 fn validate_model_url(bridge_url: &str, model_url: &str) -> Result<()> {

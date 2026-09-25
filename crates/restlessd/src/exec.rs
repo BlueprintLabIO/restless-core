@@ -432,47 +432,64 @@ pub async fn wake(
                 }
             }
             crate::runtime::AgentHarness::Codex => {
-                if hosted_identity.is_some() {
-                    anyhow::bail!("hosted Runtime Exec requires the restless-managed ACP harness");
-                }
-                let complete_reply_hook = complete_reply_hook.clone();
-                crate::codex::with_agent_outcome(
-                    &container,
-                    &auth,
-                    "/company",
-                    "exec",
-                    &responsibility,
-                    &package.system_prompt,
-                    mcp_servers,
-                    observer.clone(),
-                    {
-                        let company = config.name.clone();
-                        let model = model.clone();
-                        let cancellation = cancellation.clone();
-                        let session_org = org.clone();
-                        let turn_context = turn_context.clone();
-                        let session_responsibility = responsibility.clone();
-                        move |session| {
-                            Box::pin(async move {
+                if let Some(identity) = hosted_identity.as_ref() {
+                    crate::codex::with_remote_agent_outcome(
+                        runtime_bridges,
+                        identity,
+                        &auth,
+                        "/company",
+                        "exec",
+                        &responsibility,
+                        &package.system_prompt,
+                        mcp_servers,
+                        observer.clone(),
+                        {
+                            let company = config.name.clone();
+                            let model = model.clone();
+                            let cancellation = cancellation.clone();
+                            let session_org = org.clone();
+                            let turn_context = turn_context.clone();
+                            let session_responsibility = responsibility.clone();
+                            let complete_reply_hook = complete_reply_hook.clone();
+                            move |session| Box::pin(async move {
                                 run_ready_exec_session(
-                                    session,
-                                    &session_org,
-                                    &turn_context,
-                                    &company,
-                                    &model,
-                                    &session_responsibility,
-                                    remaining,
-                                    metered,
-                                    focused_mention,
-                                    complete_reply_hook,
-                                    &cancellation,
-                                )
-                                .await
+                                    session, &session_org, &turn_context, &company, &model,
+                                    &session_responsibility, remaining, metered,
+                                    focused_mention, complete_reply_hook, &cancellation,
+                                ).await
                             })
-                        }
-                    },
-                )
-                .await
+                        },
+                    )
+                    .await
+                } else {
+                    crate::codex::with_agent_outcome(
+                        &container,
+                        &auth,
+                        "/company",
+                        "exec",
+                        &responsibility,
+                        &package.system_prompt,
+                        mcp_servers,
+                        observer.clone(),
+                        {
+                            let company = config.name.clone();
+                            let model = model.clone();
+                            let cancellation = cancellation.clone();
+                            let session_org = org.clone();
+                            let turn_context = turn_context.clone();
+                            let session_responsibility = responsibility.clone();
+                            let complete_reply_hook = complete_reply_hook.clone();
+                            move |session| Box::pin(async move {
+                                run_ready_exec_session(
+                                    session, &session_org, &turn_context, &company, &model,
+                                    &session_responsibility, remaining, metered,
+                                    focused_mention, complete_reply_hook, &cancellation,
+                                ).await
+                            })
+                        },
+                    )
+                    .await
+                }
             }
         };
 
@@ -549,6 +566,12 @@ pub async fn wake(
                         .await?;
                     }
                 }
+            } else if harness == crate::runtime::AgentHarness::Codex {
+                crate::codex::discard_hosted_session_locator(
+                    &config.name,
+                    "exec",
+                    &responsibility,
+                )?;
             }
             org.emit_event(
                 "model_context_reconstruction_scheduled",

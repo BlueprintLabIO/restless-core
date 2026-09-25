@@ -78,8 +78,8 @@ pub(super) struct StaffOutcome {
 
 pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcome> {
     let hosted_identity = if run.runtime_bridges.is_hosted() {
-        if run.worker_harness != crate::runtime::AgentHarness::RestlessManaged {
-            bail!("hosted Staff Work requires the certified restless-managed ACP harness");
+        if !matches!(run.worker_harness, crate::runtime::AgentHarness::RestlessManaged | crate::runtime::AgentHarness::ClaudeAgent | crate::runtime::AgentHarness::Codex) {
+            bail!("hosted Staff Work requires a supported agent harness");
         }
         let durable =
             crate::runtime_bridge::expected_identity(&run.authority, &run.company).await?;
@@ -429,13 +429,21 @@ pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcom
                     .await?;
                 }
                 crate::runtime::AgentHarness::Codex => {
-                    crate::codex::discard_session_locator(
-                        &run.container,
-                        &run.company,
-                        &run.actor,
-                        &run.responsibility,
-                    )
-                    .await?;
+                    if hosted_identity.is_some() {
+                        crate::codex::discard_hosted_session_locator(
+                            &run.company,
+                            &run.actor,
+                            &run.responsibility,
+                        )?;
+                    } else {
+                        crate::codex::discard_session_locator(
+                            &run.container,
+                            &run.company,
+                            &run.actor,
+                            &run.responsibility,
+                        )
+                        .await?;
+                    }
                 }
                 crate::runtime::AgentHarness::ClaudeAgent
                 | crate::runtime::AgentHarness::CustomAcp => {
@@ -1626,21 +1634,35 @@ async fn run_staff(
             }
         }
         crate::runtime::AgentHarness::Codex => {
-            if hosted_identity.is_some() {
-                bail!("hosted Staff Work does not permit the local Codex process adapter");
+            if let Some(identity) = hosted_identity {
+                crate::codex::with_remote_agent_outcome(
+                    &runtime_bridges,
+                    &identity,
+                    &auth,
+                    &workdir,
+                    &actor,
+                    &responsibility,
+                    &system_prompt,
+                    mcp_servers,
+                    observer,
+                    move |session| Box::pin(drive.run(session)),
+                )
+                .await?
+                .into_result()
+            } else {
+                crate::codex::with_agent(
+                    &container,
+                    &auth,
+                    &workdir,
+                    &actor,
+                    &responsibility,
+                    &system_prompt,
+                    mcp_servers,
+                    observer,
+                    move |session| Box::pin(drive.run(session)),
+                )
+                .await
             }
-            crate::codex::with_agent(
-                &container,
-                &auth,
-                &workdir,
-                &actor,
-                &responsibility,
-                &system_prompt,
-                mcp_servers,
-                observer,
-                move |session| Box::pin(drive.run(session)),
-            )
-            .await
         }
     }
 }
