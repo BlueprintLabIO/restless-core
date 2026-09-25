@@ -15,6 +15,8 @@
 	 * never a collaboration control inferred from company membership. */
 
 	import type { Snippet } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { dismissable } from '$lib/actions/dismissable';
 	import { resizePane } from '$lib/actions/resize-pane';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import MessageSquare from '@lucide/svelte/icons/message-square';
@@ -78,7 +80,79 @@
 		people: GLYPHS.group,
 		company: GLYPHS.key
 	};
+	/* Linear-style two-key moves: G then the surface's initial. */
+	const tabKeys: Record<string, string> = { attention: 'a', work: 'w', people: 'p', company: 'c' };
+	const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
+	const execShortcut = isMac ? '⌘J' : 'Ctrl+J';
+
+	let tabNav: HTMLElement | undefined = $state();
+	let indicator = $state<{ x: number; w: number; tone: string } | null>(null);
+	let indicatorPlaced = $state(false);
+
+	function placeIndicator(): boolean {
+		const active = tabNav?.querySelector<HTMLElement>('.tb-tab.on');
+		if (!active) {
+			indicator = null;
+			return false;
+		}
+		indicator = {
+			x: active.offsetLeft,
+			w: active.offsetWidth,
+			tone: getComputedStyle(active).getPropertyValue('--tab-tone')
+		};
+		return true;
+	}
+
+	$effect(() => {
+		void tabs.map((tab) => `${tab.key}:${tab.on}:${tab.badge ?? 0}`).join();
+		/* The first placement lands without travel; only later moves animate. */
+		if (placeIndicator()) requestAnimationFrame(() => (indicatorPlaced = true));
+	});
+
+	$effect(() => {
+		if (!tabNav) return;
+		const observer = new ResizeObserver(() => placeIndicator());
+		observer.observe(tabNav);
+		return () => observer.disconnect();
+	});
+
+	function typing(target: EventTarget | null) {
+		const element = target as HTMLElement | null;
+		return !!element?.closest(
+			'input, textarea, select, [contenteditable=""], [contenteditable="true"]'
+		);
+	}
+
+	let awaitingSurfaceKey = false;
+	let surfaceKeyTimer: number | undefined;
+	function onKeydown(event: KeyboardEvent) {
+		if (event.defaultPrevented || blocked) return;
+		if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === 'j') {
+			if (!rail || !onexectoggle) return;
+			event.preventDefault();
+			onexectoggle();
+			return;
+		}
+		if (event.metaKey || event.ctrlKey || event.altKey || typing(event.target)) return;
+		const key = event.key.toLowerCase();
+		if (awaitingSurfaceKey) {
+			awaitingSurfaceKey = false;
+			window.clearTimeout(surfaceKeyTimer);
+			const tab = tabs.find((candidate) => tabKeys[candidate.key] === key);
+			if (tab) {
+				event.preventDefault();
+				void goto(tab.href);
+			}
+			return;
+		}
+		if (key === 'g') {
+			awaitingSurfaceKey = true;
+			surfaceKeyTimer = window.setTimeout(() => (awaitingSurfaceKey = false), 1200);
+		}
+	}
 </script>
+
+<svelte:window onkeydown={onKeydown} />
 
 <div class="bridge-root" class:immersive inert={blocked}>
 	<header class="bridge-topbar" aria-label="Global navigation">
@@ -89,7 +163,7 @@
 			</a>
 			<span class="tb-company-slash" aria-hidden="true">/</span>
 			{#if canSwitchCompanies}
-				<details class="company-switcher">
+				<details class="company-switcher" use:dismissable>
 					<summary aria-label={`Switch company. Current company: ${companyName}`}>
 						<span class="tb-co">{companyName}</span>
 						<ChevronDown class="company-chevron" size={14} strokeWidth={2} aria-hidden="true" />
@@ -125,29 +199,26 @@
 			{/if}
 		</div>
 
-		<nav class="tb-tabs" aria-label="Company navigation">
+		<nav class="tb-tabs" aria-label="Company navigation" bind:this={tabNav}>
+			{#if indicator}
+				<span
+					class="tb-indicator"
+					class:placed={indicatorPlaced}
+					style:--tb-indicator-x={`${indicator.x - 3}px`}
+					style:--tb-indicator-w={`${indicator.w}px`}
+					style:--tab-tone={indicator.tone}
+					aria-hidden="true"
+				></span>
+			{/if}
 			{#each tabs as tab (tab.key)}
-				<a
-					class="tb-tab"
-					class:on={tab.on}
-					data-surface={tab.key}
-					href={tab.href}
-					aria-current={tab.on ? 'page' : undefined}
-					aria-label={tab.badge ? `${tab.label}, ${tab.badge} items` : tab.label}
-				>
-					<span class="tb-tab-mark" aria-hidden="true">
-						<MatrixGlyph rows={tabGlyphs[tab.key] ?? GLYPHS.square} size={12} />
-					</span>
-					<span class="tb-tab-label" aria-hidden="true">{tab.label}</span>
-					{#if tab.badge}<span class="tb-badge">{tab.badge}</span>{/if}
-				</a>
+				{@render surfaceTab(tab)}
 			{/each}
 		</nav>
 
 		<div class="tb-right">
 			{#if execHref}
 				<a class="tb-exec" class:live={execLive} href={execHref}>
-					<MessageSquare size={13} strokeWidth={2} aria-hidden="true" />{execName}
+					<span class="tb-exec-lamp" aria-hidden="true"></span>{execName}
 				</a>
 			{:else if rail}
 				<button
@@ -157,13 +228,43 @@
 					type="button"
 					aria-controls="bridge-exrail"
 					aria-expanded={railOpen}
+					aria-keyshortcuts={isMac ? 'Meta+J' : 'Control+J'}
+					title={`${railOpen ? 'Hide' : 'Show'} ${execName} · ${execShortcut}`}
 					onclick={() => onexectoggle?.()}
 				>
-					<MessageSquare size={13} strokeWidth={2} aria-hidden="true" />{execName}
+					<span class="tb-exec-lamp" aria-hidden="true"></span>{execName}
 				</button>
 			{/if}
 		</div>
 	</header>
+
+	{#snippet surfaceTab(tab: ShellTab)}
+		<a
+			class="tb-tab"
+			class:on={tab.on}
+			data-surface={tab.key}
+			href={tab.href}
+			aria-current={tab.on ? 'page' : undefined}
+			aria-label={tab.badge ? `${tab.label}, ${tab.badge} items` : tab.label}
+			title={tabKeys[tab.key]
+				? `${tab.label} · G then ${tabKeys[tab.key].toUpperCase()}`
+				: tab.label}
+		>
+			<span class="tb-tab-mark" aria-hidden="true">
+				<MatrixGlyph rows={tabGlyphs[tab.key] ?? GLYPHS.square} size={12} />
+			</span>
+			<span class="tb-tab-label" aria-hidden="true">{tab.label}</span>
+			{#if tab.badge}<span class="tb-badge" aria-hidden="true">{tab.badge}</span>{/if}
+		</a>
+	{/snippet}
+
+	{#if !immersive}
+		<nav class="bridge-dock" aria-label="Company navigation">
+			{#each tabs as tab (tab.key)}
+				{@render surfaceTab(tab)}
+			{/each}
+		</nav>
+	{/if}
 
 	{#if immersive && rail}
 		<button

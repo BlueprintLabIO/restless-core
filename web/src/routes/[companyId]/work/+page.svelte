@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { WORK_STATUS_LABEL, runStateLabel, workStatusLabel } from '$lib/work/status';
 	import { resizePane } from '$lib/actions/resize-pane';
 	import { page } from '$app/state';
 	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
@@ -38,8 +39,15 @@
 				: collaborationProjection.status !== 'unknown')
 	);
 	type WorkItem = WorkRow | CollaborationWork;
+	/* A dependency map needs width to be legible; on a phone the board, stacked
+	 * as one list, is the useful first view. An explicit lens always wins. */
+	const requestedLens = page.url.searchParams.get('lens');
 	let lens = $state<'map' | 'board'>(
-		page.url.searchParams.get('lens') === 'board' ? 'board' : 'map'
+		requestedLens === 'board' || requestedLens === 'map'
+			? requestedLens
+			: typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches
+				? 'board'
+				: 'map'
 	);
 	const ALL_WORK_QUERY = 'all';
 	const UNASSIGNED_QUERY = 'unassigned';
@@ -133,28 +141,28 @@
 	}
 
 	function attemptState(work: WorkGraphItem): string {
-		return attemptOf(work)?.state ?? 'Not started';
+		return attemptOf(work)?.state ?? '';
 	}
 
 	const boardColumns = $derived([
 		{
 			key: 'proposed',
-			label: 'Next',
+			label: WORK_STATUS_LABEL.proposed,
 			rows: visibleWork.filter((item) => item.status === 'proposed')
 		},
 		{
 			key: 'active',
-			label: 'In motion',
+			label: WORK_STATUS_LABEL.active,
 			rows: visibleWork.filter((item) => item.status === 'active')
 		},
 		{
 			key: 'blocked',
-			label: 'Waiting',
+			label: WORK_STATUS_LABEL.blocked,
 			rows: visibleWork.filter((item) => item.status === 'blocked')
 		},
 		{
 			key: 'completed',
-			label: 'Done',
+			label: WORK_STATUS_LABEL.completed,
 			rows: visibleWork.filter((item) => item.status === 'completed')
 		}
 	]);
@@ -162,9 +170,15 @@
 	function goalProgress(goalId: string): string {
 		const rows = (graph?.work ?? []).filter((item) => item.goal_id === goalId);
 		if (!rows.length) return 'No Work';
-		const landed = rows.filter((item) => item.status === 'completed').length;
-		const inMotion = rows.filter((item) => item.status === 'active').length;
-		return `${landed} landed · ${inMotion} in motion`;
+		const done = rows.filter((item) => item.status === 'completed').length;
+		return `${done}/${rows.length}`;
+	}
+
+	function goalShare(goalId: string): number {
+		const rows = (graph?.work ?? []).filter((item) => item.goal_id === goalId);
+		return rows.length
+			? rows.filter((item) => item.status === 'completed').length / rows.length
+			: 0;
 	}
 
 	function ownerName(actorId: string): string {
@@ -198,11 +212,15 @@
 	}
 
 	function boardSignal(work: WorkItem): string {
-		const attempt = attemptState(work).replaceAll('_', ' ');
 		const gates = gateCount(work);
-		if (gates.total) return `${attempt} · ${gates.passed}/${gates.total} gates`;
 		const outputs = artifactCount(work);
-		return outputs ? `${attempt} · ${outputs} ${outputs === 1 ? 'output' : 'outputs'}` : attempt;
+		return [
+			runStateLabel(attemptState(work)),
+			gates.total ? `${gates.passed}/${gates.total} gates` : '',
+			outputs ? `${outputs} ${outputs === 1 ? 'output' : 'outputs'}` : ''
+		]
+			.filter(Boolean)
+			.join(' · ');
 	}
 </script>
 
@@ -229,57 +247,49 @@
 			</div>
 			<span class="pane-count">{goals.length}</span>
 		</header>
-		<a class="documents-entry" href={`/${encodeURIComponent(companyId)}/work/documents`}>
-			<MatrixGlyph rows={GLYPHS.rules} size={7} /> Documents
-		</a>
-		{#if completedWork.length}
-			<button type="button" aria-pressed={showHistory} onclick={toggleHistory}
-				>Completed <span>{completedWork.length}</span></button
-			>
-		{/if}
-
-		{#if loaded && graph}
-			<button
-				class:current={!selectedGoal}
-				type="button"
-				aria-pressed={!selectedGoal}
-				title="Every Work item across the company"
-				onclick={() => selectGoal('')}
-			>
-				<span class="goal-index"><em>ALL</em><b>{graph?.work.length ?? 0}</b></span>
-				<strong>All work</strong>
-			</button>
-			<button
-				class:current={selectedGoal === UNASSIGNED_QUERY}
-				type="button"
-				aria-pressed={selectedGoal === UNASSIGNED_QUERY}
-				title="Work not linked to a company goal"
-				onclick={() => selectGoal(UNASSIGNED_QUERY)}
-			>
-				<span class="goal-index"><em>—</em><b>{unassignedWork.length}</b></span>
-				<strong>Unassigned</strong>
-			</button>
-			{#each goals as goal, index (goal.id)}
+		<div class="goal-list">
+			{#if loaded && graph}
 				<button
-					class:current={selectedGoal === goal.id}
+					class:current={!selectedGoal}
 					type="button"
-					aria-pressed={selectedGoal === goal.id}
-					title={goal.body || `${goal.closed_at ? 'Closed' : 'Open'} company goal`}
-					onclick={() => selectGoal(goal.id)}
+					aria-pressed={!selectedGoal}
+					title="Every Work item across the company"
+					onclick={() => selectGoal('')}
 				>
-					<span class="goal-index">
-						<em>G–{String(index + 1).padStart(2, '0')}</em><b>{goalProgress(goal.id)}</b>
-					</span>
-					<strong>{goal.title}</strong>
+					<strong>All work</strong>
+					<b class="goal-count">{graph?.work.length ?? 0}</b>
 				</button>
+				<button
+					class:current={selectedGoal === UNASSIGNED_QUERY}
+					type="button"
+					aria-pressed={selectedGoal === UNASSIGNED_QUERY}
+					title="Work not linked to a company goal"
+					onclick={() => selectGoal(UNASSIGNED_QUERY)}
+				>
+					<strong>Unassigned</strong>
+					<b class="goal-count">{unassignedWork.length}</b>
+				</button>
+				{#each goals as goal (goal.id)}
+					<button
+						class:current={selectedGoal === goal.id}
+						type="button"
+						aria-pressed={selectedGoal === goal.id}
+						title={goal.body || `${goal.closed_at ? 'Closed' : 'Open'} company goal`}
+						onclick={() => selectGoal(goal.id)}
+					>
+						<strong>{goal.title}</strong>
+						<b class="goal-count" title="Done of total Work">{goalProgress(goal.id)}</b>
+						<i class="goal-progress" style:--goal-done={goalShare(goal.id)} aria-hidden="true"></i>
+					</button>
+				{:else}
+					<p class="empty-state">No company goals are recorded.</p>
+				{/each}
+			{:else if !loaded}
+				<p class="empty-state">Loading goals…</p>
 			{:else}
-				<p class="empty-state">No company goals are recorded.</p>
-			{/each}
-		{:else if !loaded}
-			<p class="empty-state">Loading goals…</p>
-		{:else}
-			<p class="empty-state">Goals are unavailable.</p>
-		{/if}
+				<p class="empty-state">Goals are unavailable.</p>
+			{/if}
+		</div>
 	</aside>
 
 	<section class="work-stage cockpit-pane">
@@ -292,6 +302,9 @@
 				</h1>
 			</div>
 			<div class="work-utilities">
+				<a class="work-documents-link" href={`/${encodeURIComponent(companyId)}/work/documents`}>
+					<MatrixGlyph rows={GLYPHS.rules} size={7} /> Documents
+				</a>
 				<div class="lens-switch" class:board={lens === 'board'} role="group" aria-label="Work view">
 					<button type="button" aria-pressed={lens === 'map'} onclick={showMap}>Map</button>
 					<button type="button" aria-pressed={lens === 'board'} onclick={() => (lens = 'board')}
@@ -346,11 +359,11 @@
 								href={workHref(item.id)}
 								aria-label={`Open Work: ${item.title}`}
 							>
-								<span><i></i>R{item.revision} · {item.status}</span>
 								<strong>{item.title}</strong>
-								<p>{boardSignal(item)}</p>
+								{#if boardSignal(item)}<p>{boardSignal(item)}</p>{/if}
 								<footer>
-									<span>{ownerName(item.owner_id)}</span><span>{artifactCount(item)} outputs</span>
+									<span>{ownerName(item.owner_id)}</span>
+									{#if item.revision > 1}<span title="Revision">R{item.revision}</span>{/if}
 								</footer>
 							</a>
 						{:else}
@@ -438,9 +451,22 @@
 	.work-map {
 		position: relative;
 	}
-	.goal-spine > .documents-entry {
-		justify-content: flex-start;
-		margin: 8px;
+	.work-documents-link {
+		display: inline-flex;
+		align-items: center;
+		gap: 7px;
+		padding: 6px 10px;
+		border-radius: var(--radius-control);
+		color: var(--text-secondary);
+		font-weight: 500;
+		text-decoration: none;
+		transition:
+			color var(--motion-state) var(--ease-standard),
+			background-color var(--motion-state) var(--ease-standard);
+	}
+	.work-documents-link:hover {
+		background: var(--accent-soft);
+		color: var(--ink);
 	}
 	.work-heading {
 		min-width: 0;
@@ -521,8 +547,11 @@
 		}
 
 		.work-utilities {
-			flex: 1 1 auto;
-			flex-wrap: wrap;
+			flex: 0 0 auto;
+		}
+
+		.work-documents-link {
+			display: none;
 		}
 	}
 

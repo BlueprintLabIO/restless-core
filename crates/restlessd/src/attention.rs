@@ -1598,7 +1598,7 @@ pub async fn project(
             name: config
                 .display_name
                 .clone()
-                .unwrap_or_else(|| title_case(&config.name)),
+                .unwrap_or_else(|| crate::company::display_name(&config.name)),
             mission: config.mission.clone(),
             model: config.model.clone(),
         },

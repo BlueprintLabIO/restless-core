@@ -205,7 +205,8 @@
 			// The conversation query retains this exact send's command ID for a safe retry.
 			if (typeof status !== 'number' || status >= 500 || [408, 425, 429].includes(status)) {
 				return {
-					error: 'We could not confirm that your message was sent. Your draft is still here. Try sending it again.'
+					error:
+						'We could not confirm that your message was sent. Your draft is still here. Try sending it again.'
 				};
 			}
 			return {
@@ -331,7 +332,7 @@
 			? `/${companyId}/people?person=exec`
 			: null}
 		execName={railActorName}
-		execLive={railConnected}
+		execLive={railConnected && intelligence.view?.has_connections !== false}
 		railOpen={execRailOpen}
 		expandExec={page.url.pathname === `/${companyId}` &&
 			attention.status === 'live' &&

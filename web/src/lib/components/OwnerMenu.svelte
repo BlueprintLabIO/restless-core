@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { dismissable } from '$lib/actions/dismissable';
 	import { archiveCompany, restoreCompany, type CompanyCatalogEntry } from '$lib/model/cockpit';
 
 	let {
@@ -48,7 +49,7 @@
 	}
 </script>
 
-<details class="owner-menu" bind:this={menu}>
+<details class="owner-menu" bind:this={menu} use:dismissable>
 	<summary aria-label="Open owner settings">
 		<span>Owner</span><span class="owner-chevron" aria-hidden="true">⌄</span>
 	</summary>

@@ -1011,7 +1011,7 @@
 	}
 	.clipboard-clip-source {
 		color: var(--text-secondary);
-		font: 600 10px var(--font-ui);
+		font: 600 var(--t-label) var(--font-ui);
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
 	}
@@ -1020,6 +1020,7 @@
 		overflow: hidden;
 		-webkit-box-orient: vertical;
 		-webkit-line-clamp: 2;
+		line-clamp: 2;
 		white-space: pre-wrap;
 		overflow-wrap: anywhere;
 		font: var(--t-label) var(--font-mono);
@@ -1121,7 +1122,7 @@
 	}
 	@media (max-width: 360px) {
 		.clipboard-panel-actions button {
-			font-size: 11px;
+			font-size: var(--t-label);
 		}
 	}
 	.desktop-viewport-empty {

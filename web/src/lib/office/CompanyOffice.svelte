@@ -51,7 +51,7 @@
 			(!orgintelAvailable
 				? 'Company coordination is unavailable.'
 				: !runtimeAvailable
-					? 'Company runtime observation is unavailable.'
+					? 'The company computer is not running, so this floor shows the last known team and Work rather than live activity.'
 					: '')
 	);
 
@@ -107,7 +107,7 @@
 
 		{#if signalUnavailable}
 			<div class="office-signal unavailable" role="status" title={signalTitle || undefined}>
-				<i></i>Source signal unavailable
+				<i></i>{!orgintelAvailable ? 'Coordination offline' : 'Live view offline'}
 			</div>
 		{/if}
 	</div>

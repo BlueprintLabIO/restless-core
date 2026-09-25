@@ -147,6 +147,8 @@
 	 * reads as separate from the surface below it rather than welded to it */
 	--topbar-seam: var(--pane-gap);
 	--topbar-total: calc(var(--topbar-h) + var(--topbar-seam));
+	/* the phone surface dock: a 48px target plus its own padding and seam */
+	--dock-h: 57px;
 
 	/* The z-index ladder lives on :root in layout.css — see the comment there. */
 

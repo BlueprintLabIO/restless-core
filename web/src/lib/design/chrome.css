@@ -43,56 +43,115 @@
 }
 
 .bridge-topbar .tb-co {
-	max-width: 200px;
+	max-width: 220px;
 	overflow: hidden;
-	font: var(--t-body) var(--font-mono);
+	font: 500 var(--t-body) var(--font-ui);
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	color: var(--text-tertiary);
+	color: var(--text-secondary);
 }
 
+/* The four surfaces read as one quiet segmented control. The selection is a
+ * single indicator that slides to the chosen tab, so a move between surfaces
+ * is visible as motion rather than as four boxes repainting. */
 .bridge-topbar .tb-tabs {
+	position: relative;
 	min-width: 0;
-	height: 100%;
 	display: flex;
-	align-items: stretch;
+	align-items: center;
 	gap: 2px;
-	overflow-x: auto;
-	scrollbar-width: none;
+	padding: 3px;
+	border-radius: calc(var(--radius-control) + 3px);
+	background: color-mix(in srgb, var(--accent-soft) 70%, transparent);
+}
+
+.bridge-topbar .tb-indicator {
+	position: absolute;
+	top: 3px;
+	bottom: 3px;
+	left: 0;
+	width: var(--tb-indicator-w, 0);
+	transform: translateX(var(--tb-indicator-x, 0));
+	border-radius: var(--radius-control);
+	background: var(--glass-pane-strong);
+	box-shadow:
+		0 0 0 1px color-mix(in srgb, var(--tab-tone, var(--accent)) 16%, var(--control-edge)),
+		0 1px 2px rgba(65, 76, 104, 0.08);
+	pointer-events: none;
+	opacity: 0;
+}
+
+.bridge-topbar .tb-indicator.placed {
+	opacity: 1;
+	transition:
+		transform var(--motion-disclosure) var(--ease-spring),
+		width var(--motion-disclosure) var(--ease-spring),
+		box-shadow var(--motion-state) var(--ease-standard);
 }
 
 .bridge-topbar .tb-tab {
+	--tab-tone: var(--surface-attention);
 	position: relative;
-	min-width: 76px;
+	z-index: 1;
+	height: 28px;
 	display: flex;
 	align-items: center;
 	justify-content: center;
 	gap: 6px;
-	padding: 0 12px;
-	border: 0;
-	background: transparent;
+	padding: 0 11px;
+	border-radius: var(--radius-control);
 	color: var(--text-secondary);
 	font-size: var(--t-body);
 	font-weight: 500;
 	text-decoration: none;
 	white-space: nowrap;
+	transition:
+		color var(--motion-state) var(--ease-standard),
+		background-color var(--motion-state) var(--ease-standard);
+}
+
+.bridge-topbar .tb-tab[data-surface='work'] {
+	--tab-tone: var(--surface-work);
+}
+.bridge-topbar .tb-tab[data-surface='people'] {
+	--tab-tone: var(--surface-people);
+}
+.bridge-topbar .tb-tab[data-surface='company'] {
+	--tab-tone: var(--surface-authority);
+}
+
+.bridge-topbar .tb-tab-mark {
+	display: inline-flex;
+	flex: 0 0 14px;
+	width: 14px;
+	align-items: center;
+	justify-content: center;
+	color: var(--tab-tone);
+	opacity: 0.72;
+	transition: opacity var(--motion-state) var(--ease-standard);
 }
 
 .bridge-topbar .tb-tab:hover {
-	background: rgba(23, 24, 28, 0.025);
 	color: var(--ink);
+}
+
+.bridge-topbar .tb-tab:not(.on):hover {
+	background: rgba(255, 255, 255, 0.46);
 }
 
 .bridge-topbar .tb-tab.on {
 	color: var(--ink);
 }
 
-.bridge-topbar .tb-tab.on::after {
-	content: '';
-	position: absolute;
-	inset: auto 12px 0;
-	height: 2px;
-	background: var(--intent-conversation);
+.bridge-topbar .tb-tab.on .tb-tab-mark,
+.bridge-topbar .tb-tab:hover .tb-tab-mark {
+	opacity: 1;
+}
+
+.bridge-topbar .tb-tab:focus-visible,
+.bridge-dock .tb-tab:focus-visible {
+	outline: 2px solid color-mix(in srgb, var(--intent-conversation) 45%, transparent);
+	outline-offset: 1px;
 }
 
 .bridge-root .tb-badge {
@@ -105,6 +164,69 @@
 	background: var(--intent-authority);
 	color: var(--text-inverse);
 	font: 600 var(--t-label) var(--font-mono);
+}
+
+/* One control for the executive: the lamp reads presence, the button opens and
+ * closes the rail. Its box never changes size, so the topbar stays still. */
+.bridge-root .tb-exec {
+	height: 30px;
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
+	padding: 0 11px 0 9px;
+	border: 1px solid var(--control-edge);
+	border-radius: var(--radius-control);
+	background: rgba(255, 255, 255, 0.56);
+	box-shadow: var(--control-depth);
+	color: var(--text-secondary);
+	font: 500 var(--t-body) var(--font-ui);
+	text-decoration: none;
+	white-space: nowrap;
+	cursor: pointer;
+	transition:
+		border-color var(--motion-state) var(--ease-standard),
+		background-color var(--motion-state) var(--ease-standard),
+		color var(--motion-state) var(--ease-standard),
+		transform var(--motion-press) var(--ease-standard);
+}
+
+.bridge-root .tb-exec-lamp {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--status-offline);
+	transition: background-color var(--motion-state) var(--ease-standard);
+}
+
+.bridge-root .tb-exec.live .tb-exec-lamp {
+	background: var(--state-success);
+	box-shadow: 0 0 0 3px color-mix(in srgb, var(--state-success) 16%, transparent);
+}
+
+.bridge-root .tb-exec.on {
+	background: var(--intent-conversation-soft);
+	border-color: color-mix(in srgb, var(--intent-conversation) 32%, var(--control-edge));
+	color: var(--ink);
+}
+
+.bridge-root .tb-exec:hover {
+	border-color: color-mix(in srgb, var(--intent-conversation) 40%, var(--control-edge));
+	color: var(--ink);
+}
+
+.bridge-root .tb-exec:active {
+	transform: translateY(0.5px);
+}
+
+.bridge-root .tb-exec:focus-visible {
+	outline: 2px solid color-mix(in srgb, var(--intent-conversation) 45%, transparent);
+	outline-offset: 2px;
+}
+
+/* Phones get the four surfaces as a thumb-reachable dock, the pattern every
+ * native app uses, instead of icons squeezed beside the company name. */
+.bridge-dock {
+	display: none;
 }
 
 .bridge-topbar .tb-right {
@@ -135,28 +257,93 @@
 		padding-inline: 10px;
 	}
 
-	.bridge-topbar .tb-name {
-		display: none;
-	}
-
+	.bridge-topbar .tb-name,
 	.bridge-topbar .tb-tabs {
-		flex: 1 1 auto;
-		margin-left: 0;
-	}
-
-	.bridge-topbar .tb-tab {
-		flex: 0 0 auto;
-		min-width: 0;
-		padding-inline: 7px;
-		font-size: var(--t-body);
-	}
-
-	.bridge-topbar .tb-tab:not(.on) .tb-tab-label {
 		display: none;
 	}
 
 	.bridge-topbar .tb-right {
-		margin-left: 0;
+		margin-left: auto;
 		gap: 6px;
+	}
+
+	.bridge-root:not(.immersive) {
+		height: 100dvh;
+		padding-bottom: calc(var(--dock-h) + env(safe-area-inset-bottom) + var(--app-gutter));
+	}
+
+	.bridge-root:not(.immersive) .bridge-exrail.open {
+		bottom: calc(var(--dock-h) + env(safe-area-inset-bottom) + var(--app-gutter));
+	}
+
+	.bridge-dock {
+		height: calc(var(--dock-h) + env(safe-area-inset-bottom));
+		position: fixed;
+		z-index: var(--z-sticky);
+		left: 0;
+		right: 0;
+		bottom: 0;
+		display: grid;
+		grid-auto-columns: minmax(0, 1fr);
+		grid-auto-flow: column;
+		padding: 4px 6px calc(4px + env(safe-area-inset-bottom));
+		border-top: 1px solid var(--border);
+		background: var(--glass-strong);
+		backdrop-filter: blur(18px) saturate(1.3);
+		-webkit-backdrop-filter: blur(18px) saturate(1.3);
+	}
+
+	.bridge-dock .tb-tab {
+		--tab-tone: var(--surface-attention);
+		position: relative;
+		min-height: 48px;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 3px;
+		border-radius: var(--radius-pane);
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+		font-weight: 500;
+		text-decoration: none;
+		-webkit-tap-highlight-color: transparent;
+		transition:
+			color var(--motion-state) var(--ease-standard),
+			background-color var(--motion-state) var(--ease-standard);
+	}
+
+	.bridge-dock .tb-tab[data-surface='work'] {
+		--tab-tone: var(--surface-work);
+	}
+	.bridge-dock .tb-tab[data-surface='people'] {
+		--tab-tone: var(--surface-people);
+	}
+	.bridge-dock .tb-tab[data-surface='company'] {
+		--tab-tone: var(--surface-authority);
+	}
+
+	.bridge-dock .tb-tab-mark {
+		color: var(--tab-tone);
+		opacity: 0.6;
+	}
+
+	.bridge-dock .tb-tab.on {
+		background: color-mix(in srgb, var(--tab-tone) 9%, transparent);
+		color: var(--ink);
+	}
+
+	.bridge-dock .tb-tab.on .tb-tab-mark {
+		opacity: 1;
+	}
+
+	.bridge-dock .tb-tab:active {
+		background: color-mix(in srgb, var(--tab-tone) 14%, transparent);
+	}
+
+	.bridge-dock .tb-badge {
+		position: absolute;
+		top: 4px;
+		left: calc(50% + 6px);
 	}
 }

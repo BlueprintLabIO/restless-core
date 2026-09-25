@@ -24,20 +24,6 @@
 	}
 }
 
-@keyframes bridge-tab-arrive {
-	0% {
-		opacity: 0;
-		transform: translateX(-115%);
-	}
-	36% {
-		opacity: 0.72;
-	}
-	100% {
-		opacity: 0;
-		transform: translateX(115%);
-	}
-}
-
 @keyframes bridge-acknowledge {
 	0% {
 		box-shadow: var(--control-depth);

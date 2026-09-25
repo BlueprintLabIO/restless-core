@@ -1747,7 +1747,7 @@ fn container_name(status: runtime::ContainerStatus) -> &'static str {
     }
 }
 
-fn display_name(name: &str) -> String {
+pub(crate) fn display_name(name: &str) -> String {
     name.split('_')
         .filter(|part| !part.is_empty())
         .map(|part| {

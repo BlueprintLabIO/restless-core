@@ -14,7 +14,8 @@
 	import ConversationTurnDock from '$lib/primitives/ConversationTurnDock.svelte';
 	import CompanyOffice from '$lib/office/CompanyOffice.svelte';
 	import type { AttentionItem } from '$lib/model/view';
-	import { attentionQuery, conversationQuery } from '$lib/model/queries.svelte';
+	import { attentionQuery, companiesQuery, conversationQuery } from '$lib/model/queries.svelte';
+	import { startFixHref, startGuidance } from '$lib/model/company-start';
 	import { browserTabClientId } from '$lib/model/browserTab';
 	import { getBrowserStatus } from '$lib/model/company';
 	import { browserControl, issueDesktopTicket, issueReviewTicket } from '$lib/model/attention';
@@ -55,7 +56,17 @@
 	const items = $derived(view?.items ?? []);
 	const graph = $derived(view?.workGraph ?? null);
 	const selectedItemId = $derived(page.url.searchParams.get('item'));
+	const companyCatalog = companiesQuery();
+	/* A company that cannot start is not clear, whatever the queue says: say
+	 * the blocker in the portfolio's words and link straight to its fix. */
+	const startBlocker = $derived.by(() => {
+		const reason = companyCatalog.view.find(
+			(company) => company.id === companyId
+		)?.unstartable_reason;
+		return reason ? startGuidance(reason) : '';
+	});
 	const queueClear = $derived(loaded && items.length === 0);
+	const showClear = $derived(queueClear && !startBlocker);
 	const selectedItem = $derived(
 		items.find((item) => item.id === selectedItemId) ?? (selectedItemId ? null : (items[0] ?? null))
 	);
@@ -456,7 +467,8 @@
 						</div>
 						<h1>{focusedReview.reviewTarget?.label ?? focusedReview.title}</h1>
 						<p>
-							This Office file is ready to download. Open it in Word, Excel or PowerPoint to review it.
+							This Office file is ready to download. Open it in Word, Excel or PowerPoint to review
+							it.
 						</p>
 						<a href={reviewUrl} target="_blank" rel="noopener noreferrer">Download file</a>
 						<small>Restless can’t preview or edit Office files in this review.</small>
@@ -716,12 +728,24 @@
 		</aside>
 
 		<section class="cockpit-pane attention-focus" class:office-focus={!selectedItem && loaded}>
+			{#if queueClear && startBlocker}
+				<a class="attention-start-blocker" href={startFixHref(companyId)}>
+					<span class="attention-start-glyph" aria-hidden="true">
+						<MatrixGlyph rows={GLYPHS.alert} size={7} />
+					</span>
+					<span class="attention-start-copy">
+						<strong>Can’t start yet</strong>
+						<span>{startBlocker}</span>
+					</span>
+					<span class="attention-start-go" aria-hidden="true">→</span>
+				</a>
+			{/if}
 			<button
 				class="attention-clear-control"
-				class:visible={queueClear}
+				class:visible={showClear}
 				type="button"
-				aria-hidden={!queueClear}
-				tabindex={queueClear ? 0 : -1}
+				aria-hidden={!showClear}
+				tabindex={showClear ? 0 : -1}
 				title="No owner action is required. Check again now."
 				onclick={() => void refresh()}
 			>
@@ -758,7 +782,10 @@
 		<article class="conversation-request cockpit-pane">
 			<h1>{item.title}</h1>
 			<div class="request-message"><Markdown text={item.whatHappened} /></div>
-			<p class="request-need"><strong>{item.preparing ? 'Preparing' : 'Needs you'}</strong> {item.requestedAction}</p>
+			<p class="request-need">
+				<strong>{item.preparing ? 'Preparing' : 'Needs you'}</strong>
+				{item.requestedAction}
+			</p>
 			<a
 				class="btn small primary"
 				href={item.actions.find((action) => action.id === 'continue-conversation')?.href}
@@ -787,8 +814,7 @@
 					{/if}
 				</header>
 
-				{#if item.recommendation.trim() !== item.whatHappened.trim() &&
-					item.recommendation.trim() !== item.whyItMatters.trim()}
+				{#if item.recommendation.trim() !== item.whatHappened.trim() && item.recommendation.trim() !== item.whyItMatters.trim()}
 					<section class="folio-recommendation" aria-label="Recommendation">
 						<strong>Recommended</strong>
 						<Markdown text={item.recommendation} />
@@ -810,7 +836,9 @@
 					<summary title="Prepared by, supporting evidence, and source references">
 						<span class="evidence-chevron" aria-hidden="true">›</span>
 						<span>Details</span>
-						{#if item.evidence.length}<small>· {item.evidence.length} item{item.evidence.length === 1 ? '' : 's'}</small>{/if}
+						{#if item.evidence.length}<small
+								>· {item.evidence.length} item{item.evidence.length === 1 ? '' : 's'}</small
+							>{/if}
 					</summary>
 					<div class="folio-evidence-body">
 						<div class="folio-credit">

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { runStateLabel, workStatusLabel } from '$lib/work/status';
 	import {
 		layoutWorkGraph,
 		WORK_NODE_HEIGHT,
@@ -46,15 +47,7 @@
 	const scopeLabel = $derived(edges.length ? 'Current path' : 'Current Work');
 
 	function stateLabel(item: WorkGraphItem): string {
-		return item.status === 'proposed'
-			? 'Next'
-			: item.status === 'active'
-				? 'In motion'
-				: item.status === 'blocked'
-					? 'Waiting'
-					: item.status === 'completed'
-						? 'Landed'
-						: 'Stopped';
+		return workStatusLabel(item.status);
 	}
 
 	function signal(node: (typeof layout.nodes)[number]): string {
@@ -64,7 +57,7 @@
 		if (node.data.artifactCount) {
 			return `${node.data.artifactCount} ${node.data.artifactCount === 1 ? 'output' : 'outputs'}`;
 		}
-		return node.data.attemptState.replaceAll('_', ' ');
+		return runStateLabel(node.data.attemptState);
 	}
 </script>
 

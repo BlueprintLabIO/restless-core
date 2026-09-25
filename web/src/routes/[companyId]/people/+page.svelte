@@ -11,6 +11,7 @@
 	import Bell from '@lucide/svelte/icons/bell';
 	import RoomConversation from '$lib/components/RoomConversation.svelte';
 	import RoomManager from '$lib/components/RoomManager.svelte';
+	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
 	import {
 		companyPrincipalQuery,
 		cockpitQuery,
@@ -260,7 +261,7 @@
 >
 	<aside class="conversation-index cockpit-pane" aria-label="Conversations">
 		<header class="cockpit-pane-head">
-			<h1>Conversations</h1>
+			<h1>People</h1>
 			<RoomManager
 				{companyId}
 				actorId={principal.view?.actor_id ?? ''}
@@ -448,7 +449,20 @@
 					>
 				{/snippet}
 			</RoomConversation>
-		{:else}<div class="empty">Choose a conversation or start a new one.</div>{/if}
+		{:else}
+			<div class="conversation-empty cockpit-pane">
+				<span class="conversation-empty-mark" aria-hidden="true">
+					<MatrixGlyph rows={GLYPHS.group} size={10} />
+				</span>
+				<h2>Talk to anyone in the company</h2>
+				<p>Pick a lead or teammate on the left, or start with the Exec.</p>
+				{#if directoryExec}
+					<a class="btn primary" href={href(directoryExec.actor_id)}>
+						Message {directoryExec.display}
+					</a>
+				{/if}
+			</div>
+		{/if}
 	</section>
 	{#if documentOpen}<ConversationDocument
 			{companyId}
@@ -682,6 +696,36 @@
 		.row-status.working :global(svg) {
 			animation: none;
 		}
+	}
+	.conversation-empty {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: var(--space-2);
+		padding: var(--space-6);
+		text-align: center;
+		animation: bridge-disclosure-in var(--motion-disclosure) var(--ease-out) both;
+	}
+	.conversation-empty-mark {
+		display: grid;
+		place-items: center;
+		width: 44px;
+		height: 44px;
+		margin-bottom: var(--space-2);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-pane);
+		background: var(--intent-conversation-soft);
+		color: var(--intent-conversation);
+	}
+	.conversation-empty h2 {
+		font-size: var(--t-head);
+	}
+	.conversation-empty p {
+		max-width: 320px;
+		margin: 0 0 var(--space-3);
+		color: var(--text-secondary);
 	}
 	.empty {
 		padding: 12px;

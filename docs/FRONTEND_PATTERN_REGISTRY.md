@@ -25,7 +25,7 @@ authoritative. External libraries never supply palette, type, geometry or produc
 | `machine-field` | Native | `web/src/lib/design/tokens.css` | Establishes the observable-company substrate | Pale blue-grey field, faint semantic radials and 14px dot matrix |
 | `pane-machine` | Native | `tokens.css`, `cockpit.css` | Composes one instrument from bounded work regions | Large product encounters with 4px seams, top-left bevel and restrained lift |
 | `physical-control` | Native | `primitives.css` | Makes a bounded action feel pressable and consequential | CTAs, tabs and replay controls with 110ms press and 180ms state response |
-| `tab-arrive` | Native | `cockpit.css`, `motion.css` | Punctuates a newly selected surface | One 650ms semantic sweep after selection; never ambient looping |
+| `surface-indicator` | Native | `chrome.css`, `AppShell.svelte` | Shows where the owner moved between surfaces | One indicator slides to the selected tab (320ms spring); phones use a bottom dock. Replaced the per-tab `tab-arrive` sweep |
 | `acknowledge` | Native | `motion.css`, `HoldApprove.svelte` | Confirms that a state was recorded | Evidence attached, decision prepared or hold completed |
 | `work-lineage` | Native | `web/src/lib/work/WorkGraph.svelte` | Shows requires/revises responsibility and current state | Enlarged outcome topology; solid blue requires, dashed green revision return |
 | `inhabited-office` | Native | `web/src/lib/office/` | Makes the company and active responsibility visible | One large pixel-world brand moment or route-specific organisation figure |

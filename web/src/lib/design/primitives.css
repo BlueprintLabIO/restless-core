@@ -15,7 +15,12 @@
 
 .bridge-root .btn,
 .bridge-root .hold-approve {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
 	padding: 9px 18px;
+	text-decoration: none;
 	border: 1px solid var(--control-edge);
 	border-radius: var(--radius-control);
 	background: color-mix(in srgb, var(--intent-conversation) 3%, var(--surface));
@@ -95,4 +100,12 @@
 	:is(.btn, .hold-approve, .flat-control, .history-control, .board-history-toggle):focus-visible {
 	outline: 2px solid var(--intent-conversation);
 	outline-offset: 2px;
+}
+
+/* Fingers are not pointers. On phones and touch screens every bounded action
+ * gets a 44px target without changing how it looks on a desk. */
+@media (max-width: 760px), (pointer: coarse) {
+	.bridge-root :is(.btn, .hold-approve, .tb-exec) {
+		min-height: 44px;
+	}
 }

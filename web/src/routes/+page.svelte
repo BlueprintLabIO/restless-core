@@ -13,6 +13,7 @@
 		type PortfolioProjection
 	} from '$lib/model/queries.svelte';
 	import type { CompanyCatalogEntry } from '$lib/model/cockpit';
+	import { startGuidance } from '$lib/model/company-start';
 
 	const companyCatalog = companiesQuery();
 	const portfolio = portfolioQuery();
@@ -50,20 +51,6 @@
 
 	function safeNext(value: string | null): string {
 		return value?.startsWith('/') && !value.startsWith('//') ? value : '';
-	}
-
-	function startGuidance(reason: string): string {
-		if (reason.startsWith('Choose an intelligence provider')) return reason;
-		if (reason.startsWith('no usable host credential for model native-codex-oauth/')) {
-			return 'Check Codex sign-in and select Codex in Company → Intelligence provider.';
-		}
-		if (
-			reason.startsWith('no usable host credential') ||
-			reason.startsWith('Claude Agent requires')
-		) {
-			return 'Connect the selected intelligence provider in Company → Intelligence provider.';
-		}
-		return 'Check the intelligence provider setup in Company → Intelligence provider.';
 	}
 
 	function attentionLabel(company: CompanyCatalogEntry, projection?: PortfolioProjection): string {
