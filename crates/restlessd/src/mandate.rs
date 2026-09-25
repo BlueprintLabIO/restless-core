@@ -193,22 +193,6 @@ async fn current_root(
     Ok((mandate, version))
 }
 
-pub(super) async fn grant(
-    pool: &PgPool,
-    company: &str,
-    owner_actor_id: &str,
-    mandate: NewEmailMandate,
-) -> Result<EmailMandate> {
-    if owner_actor_id.trim().is_empty() {
-        bail!("owner attribution is required to grant an email mandate");
-    }
-    let mut tx = pool.begin().await?;
-    lock_company(&mut tx, company).await?;
-    let mandate = grant_in_transaction(&mut tx, company, owner_actor_id, mandate).await?;
-    tx.commit().await?;
-    Ok(mandate)
-}
-
 pub(super) async fn grant_in_transaction(
     tx: &mut Transaction<'_, Postgres>,
     company: &str,
@@ -281,10 +265,6 @@ pub(super) async fn grant_in_transaction(
     .execute(&mut **tx)
     .await?;
     Ok(mandate)
-}
-
-pub(super) fn validate_new_mandate(mandate: &NewEmailMandate) -> Result<()> {
-    canonicalize_new_mandate(mandate.clone()).map(|_| ())
 }
 
 pub(super) fn canonicalize_new_mandate(mut mandate: NewEmailMandate) -> Result<NewEmailMandate> {

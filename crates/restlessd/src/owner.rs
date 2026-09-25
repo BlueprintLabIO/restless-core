@@ -1505,7 +1505,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route("/companies/{company}/approvals/revoke", post(revoke))
         .route(
             "/companies/{company}/mandates/email",
-            get(email_mandates).post(grant_email_mandate),
+            get(email_mandates),
         )
         .route(
             "/companies/{company}/mandates/email/{mandate}/revoke",
@@ -7581,29 +7581,6 @@ async fn email_mandates(
         }));
     }
     Json(serde_json::json!({"mandates": entries})).into_response()
-}
-
-async fn grant_email_mandate(
-    State(state): State<OwnerState>,
-    Extension(principal): Extension<RequestPrincipal>,
-    AxumPath(company): AxumPath<String>,
-    Json(input): Json<mandate::NewEmailMandate>,
-) -> Response<Body> {
-    if let Err(refusal) = require_authority_owner(&state, &company, &principal).await {
-        return refusal;
-    }
-    if let Err(error) = runtime::CompanyConfig::load(&state.daemon.root, &company) {
-        return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}"));
-    }
-    match state
-        .daemon
-        .authority
-        .grant_email_mandate(&company, principal.actor_id(), input)
-        .await
-    {
-        Ok(mandate) => Json(serde_json::json!({"mandate": mandate})).into_response(),
-        Err(error) => api_error(StatusCode::BAD_REQUEST, "mandate", format!("{error:#}")),
-    }
 }
 
 async fn revoke_email_mandate(

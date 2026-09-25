@@ -430,15 +430,6 @@ impl AuthorityStore {
         &self.pool
     }
 
-    pub async fn grant_email_mandate(
-        &self,
-        company: &str,
-        owner_actor_id: &str,
-        mandate: NewEmailMandate,
-    ) -> Result<EmailMandate> {
-        mandate::grant(&self.pool, company, owner_actor_id, mandate).await
-    }
-
     pub async fn propose_email_mandate(
         &self,
         company: &str,
