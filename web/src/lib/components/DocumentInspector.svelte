@@ -595,7 +595,6 @@
 				command.id
 			);
 			mutationSucceeded = true;
-			if (isCurrentTarget(target)) restoreCommand = null;
 			const restored = await getDocument(target.companyId, receipt.document_id);
 			if (restored.current_version.version.id !== receipt.result_id) {
 				if (isCurrentTarget(target)) {
