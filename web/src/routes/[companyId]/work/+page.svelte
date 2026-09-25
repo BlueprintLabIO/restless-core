@@ -393,14 +393,14 @@
 				{#each boardColumns as column (column.key)}
 					<section class="board-column">
 						<header><span>{column.label}</span><b>{column.rows.length}</b></header>
-						{#each column.rows as item (item.id)}
+						{#each column.rows.map( (row) => ({ ...row, signal: boardSignal(row) }) ) as item (item.id)}
 							<a
 								class="board-item status-{item.status}"
 								href={workHref(item.id)}
 								aria-label={`Open Work: ${item.title}`}
 							>
 								<strong>{item.title}</strong>
-								{#if boardSignal(item)}<p>{boardSignal(item)}</p>{/if}
+								{#if item.signal}<p>{item.signal}</p>{/if}
 								<footer>
 									<span>{ownerName(item.owner_id)}</span>
 									{#if item.revision > 1}<span title="Revision">R{item.revision}</span>{/if}
@@ -555,50 +555,6 @@
 		margin-left: auto;
 	}
 
-	.documents-entry {
-		display: inline-flex;
-		min-height: 30px;
-		align-items: center;
-		justify-content: center;
-		gap: 7px;
-		padding: 5px 10px;
-		border: 1px solid color-mix(in srgb, var(--surface-work) 32%, var(--control-edge));
-		border-radius: var(--radius-control);
-		background: color-mix(in srgb, var(--surface-work) 7%, var(--surface));
-		box-shadow: var(--bevel-subtle), var(--control-depth);
-		font: 600 var(--t-label) var(--font-sans);
-		color: var(--ink);
-		text-decoration: none;
-		white-space: nowrap;
-		transition:
-			border-color var(--motion-state) var(--ease-standard),
-			background var(--motion-state) var(--ease-standard),
-			transform var(--motion-press) var(--ease-out),
-			box-shadow var(--motion-state) var(--ease-standard);
-	}
-
-	.documents-entry :global(.matrix-glyph) {
-		color: var(--surface-work);
-	}
-
-	.documents-entry:hover {
-		border-color: color-mix(in srgb, var(--surface-work) 52%, var(--control-edge));
-		background: color-mix(in srgb, var(--surface-work) 12%, var(--surface));
-		box-shadow:
-			var(--bevel-subtle),
-			0 2px 7px color-mix(in srgb, var(--surface-work) 14%, transparent);
-	}
-
-	.documents-entry:active {
-		transform: translateY(1px);
-		box-shadow: var(--bevel-subtle), var(--control-depth-pressed);
-	}
-
-	.documents-entry:focus-visible {
-		outline: 2px solid var(--intent-conversation);
-		outline-offset: 2px;
-	}
-
 	@media (max-width: 760px) {
 		:global(.bridge-root) .work-stage {
 			grid-template-rows: auto minmax(0, 1fr);
@@ -624,10 +580,6 @@
 	}
 
 	@media (max-width: 520px) {
-		.documents-entry {
-			padding-inline: 8px;
-		}
-
 		.work-utilities :global(.lens-switch button) {
 			min-width: 52px;
 			padding-inline: 8px;
@@ -635,8 +587,5 @@
 	}
 
 	@media (prefers-reduced-motion: reduce) {
-		.documents-entry {
-			transition: none;
-		}
 	}
 </style>
