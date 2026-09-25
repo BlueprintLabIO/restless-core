@@ -218,7 +218,10 @@ async fn conversation_requests(
             let Some((body, need)) = crate::owner::conversation_owner_need(message) else {
                 return Ok(None);
             };
-            let href = format!("/{company}/people?person={}", actor.id);
+            // The request comes from the latest direct message. Point Reply at
+            // that message so the owner lands on the actual question, even if
+            // the conversation has a longer history.
+            let href = format!("/{company}/people?person={}&focus={message_id}", actor.id);
             Ok(Some(AttentionItem {
                 id: format!("conversation:{}:{message_id}", actor.id),
                 work_id: None,
@@ -1863,7 +1866,7 @@ mod tests {
             .href
             .as_ref()
             .unwrap()
-            .ends_with(&format!("person=hosting-engineering&message={id}")));
+            .ends_with(&format!("person=hosting-engineering&focus={id}")));
         org.mark_read(id).await.unwrap();
         assert_eq!(read().await.unwrap().len(), 1, "reading is not answering");
         org.send_owner_conversation_message("exec", "Unrelated question", false)
