@@ -101,6 +101,12 @@
 				>{view.current_release ? 'Edit identity' : 'Add identity'}</button
 			>{/if}
 	</div>
+	{#if !view.current_release && !editing}
+		<p class="editor-empty">
+			What is true about the company, how it sounds, how it looks and how it works. You can
+			revise it at any time.
+		</p>
+	{/if}
 	{#if error}<p class="error" role="alert">{error}</p>{/if}
 	{#if notice}<p role="status">{notice}</p>{/if}
 	{#if editing}
@@ -146,6 +152,11 @@
 </section>
 
 <style>
+	.editor-empty {
+		max-width: 60ch;
+		margin: var(--space-2) 0 0;
+		color: var(--text-secondary);
+	}
 	.identity-editor {
 		border: 1px solid var(--border);
 		border-radius: var(--radius-pane);

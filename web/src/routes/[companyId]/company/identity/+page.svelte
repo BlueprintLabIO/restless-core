@@ -264,14 +264,6 @@
 					</div>
 				</section>
 			</details>
-		{:else}
-			<section class="identity-empty">
-				<h2>Define how your company shows up</h2>
-				<p>
-					Add your direction above: what is true about the company, how it sounds, how it looks, and
-					how it works. You can revise it at any time.
-				</p>
-			</section>
 		{/if}
 
 		{#if consequentialDrift.length || view.constitution_learning_proposals.length}
@@ -827,16 +819,6 @@
 		color: var(--warning, #9a6500);
 		font-size: var(--t-label);
 		font-style: normal;
-	}
-	.identity-empty {
-		padding: 36px;
-		border: 1px dashed var(--border-strong);
-		border-radius: var(--radius-pane);
-		background: var(--surface-alt);
-	}
-	.identity-empty p {
-		max-width: 65ch;
-		color: var(--text-secondary);
 	}
 	.proposal-section,
 	.voice-in-use,
