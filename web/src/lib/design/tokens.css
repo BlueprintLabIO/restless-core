@@ -131,16 +131,24 @@
 	--pane-head-h: 58px;
 	--exec-rail-w: 382px;
 	--glass-blur: 22px;
-	/* Pastel fills carry colour; darker semantic ink preserves readability.
-	 * Ordinary controls sit on the surface. Only overlays need real elevation.
-	 * Keep transparent shadow layers composable with existing shadow lists. */
-	--shadow-soft: 0 2px 8px rgba(65, 76, 104, 0.025);
-	--shadow-lift: 0 8px 28px rgba(65, 76, 104, 0.12);
-	--bevel: inset 0 0 0 transparent;
-	--bevel-subtle: inset 0 0 0 transparent;
+	/* Elevation: four planes, each a tight contact shadow plus a soft ambient
+	 * one, never a single blurry smear. Panes sit on the canvas (--shadow-soft),
+	 * menus and popovers float over panes (--shadow-lift), dialogs and the
+	 * command menu float over everything (--shadow-float). The bevel is the
+	 * light catching a surface's top edge; it is what makes a white pane read
+	 * as a physical sheet rather than a drawn rectangle. */
+	--shadow-soft: 0 1px 2px rgba(31, 41, 64, 0.04), 0 2px 8px -2px rgba(31, 41, 64, 0.05);
+	--shadow-lift:
+		0 0 0 1px rgba(31, 41, 64, 0.05), 0 4px 10px -4px rgba(31, 41, 64, 0.1),
+		0 14px 32px -10px rgba(31, 41, 64, 0.16);
+	--shadow-float:
+		0 0 0 1px rgba(31, 41, 64, 0.06), 0 8px 20px -8px rgba(31, 41, 64, 0.14),
+		0 28px 64px -16px rgba(31, 41, 64, 0.28);
+	--bevel: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+	--bevel-subtle: inset 0 1px 0 rgba(255, 255, 255, 0.6);
 	--control-edge: #cdd5e2;
-	--control-depth: 0 1px 2px rgba(65, 76, 104, 0.025);
-	--control-depth-pressed: inset 0 0 0 transparent;
+	--control-depth: 0 1px 1px rgba(31, 41, 64, 0.06), 0 0 0 transparent;
+	--control-depth-pressed: inset 0 1px 2px rgba(31, 41, 64, 0.1);
 	--dot: rgba(76, 88, 117, 0.03);
 	--topbar-h: 46px;
 	/* the seam under the chrome — same channel as the pane gutter, so the bar

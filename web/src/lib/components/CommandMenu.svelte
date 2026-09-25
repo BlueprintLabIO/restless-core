@@ -216,10 +216,7 @@
 		border: 1px solid var(--border-strong);
 		border-radius: var(--radius-lg);
 		background: var(--glass-strong);
-		box-shadow:
-			0 1px 0 rgba(255, 255, 255, 0.8) inset,
-			0 24px 60px rgba(43, 51, 66, 0.22),
-			0 4px 12px rgba(43, 51, 66, 0.08);
+		box-shadow: var(--bevel), var(--shadow-float);
 		backdrop-filter: blur(24px) saturate(1.2);
 		-webkit-backdrop-filter: blur(24px) saturate(1.2);
 	}

@@ -1066,7 +1066,7 @@
 		border: 1px solid var(--border);
 		border-radius: var(--radius-lg);
 		background: white;
-		box-shadow: 0 18px 48px rgba(43, 51, 66, 0.11);
+		box-shadow: var(--shadow-lift);
 	}
 	.review-document :global(.md) {
 		font-size: var(--t-head);

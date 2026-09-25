@@ -98,8 +98,15 @@
 		border-radius: var(--radius-control);
 		background: var(--surface-pane);
 		color: var(--ink);
-		box-shadow: 0 6px 20px rgb(0 0 0 / 12%);
+		box-shadow: var(--bevel), var(--shadow-lift);
 		visibility: hidden;
+		opacity: 0;
+		transform: translateY(-4px) scale(0.98);
+		transform-origin: top right;
+		transition:
+			opacity var(--motion-state) var(--ease-out),
+			transform var(--motion-state) var(--ease-out),
+			visibility 0s var(--motion-state);
 		font-size: var(--t-body);
 	}
 	.intelligence-popover::before {
@@ -113,6 +120,9 @@
 	.intelligence-hover:not(.dismissed):hover .intelligence-popover,
 	.intelligence-hover:not(.dismissed):focus-within .intelligence-popover {
 		visibility: visible;
+		opacity: 1;
+		transform: none;
+		transition-delay: 0s;
 	}
 	dl {
 		display: grid;
@@ -134,5 +144,6 @@
 	.align-start .intelligence-popover {
 		left: 0;
 		right: auto;
+		transform-origin: top left;
 	}
 </style>
