@@ -246,6 +246,7 @@
 						bind:value={createTitle}
 						maxlength="200"
 						placeholder="Name the document"
+						{@attach (input) => input.focus()}
 						disabled={!online || createBusy}
 						oninput={() => (createAttempt = null)}
 					/></label
@@ -489,7 +490,7 @@
 	}
 	.create-document {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) 108px;
+		grid-template-columns: minmax(0, 1fr);
 		gap: 8px;
 		padding: 11px;
 		border-bottom: 1px solid var(--border);
@@ -508,7 +509,7 @@
 	.create-document input {
 		min-width: 0;
 		width: 100%;
-		height: 32px;
+		height: 36px;
 		padding: 5px 7px;
 		border: 1px solid var(--control-edge);
 		border-radius: var(--radius-control);
