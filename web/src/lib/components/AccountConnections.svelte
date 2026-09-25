@@ -259,7 +259,7 @@
 				);
 				const state = await stateResponse.json();
 				if (!stateResponse.ok)
-					throw new Error(state.message ?? 'Could not load this project’s connection settings.');
+					throw new Error(state.message ?? 'Could not load this company’s connection settings.');
 				revision = state.revision;
 				companyRevisions = { ...companyRevisions, [companyId]: revision };
 			}
@@ -286,13 +286,13 @@
 				selectedCompany = companyId;
 				return;
 			}
-			if (!response.ok) throw new Error(body.message ?? 'Could not grant this project access.');
+			if (!response.ok) throw new Error(body.message ?? 'Could not grant this company access.');
 			companyRevisions = { ...companyRevisions, [companyId]: body.provider?.revision ?? revision };
 			await refresh();
 			selectedCompany = '';
 			replaceRequired = false;
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Could not grant this project access.';
+			error = cause instanceof Error ? cause.message : 'Could not grant this company access.';
 		} finally {
 			busyCompany = false;
 		}
@@ -310,7 +310,7 @@
 				);
 				const state = await stateResponse.json();
 				if (!stateResponse.ok)
-					throw new Error(state.message ?? 'Could not load this project’s connection settings.');
+					throw new Error(state.message ?? 'Could not load this company’s connection settings.');
 				revision = state.revision;
 			}
 			const response = await fetch(
@@ -322,12 +322,12 @@
 				}
 			);
 			const body = await response.json();
-			if (!response.ok) throw new Error(body.message ?? 'Could not remove this project’s access.');
+			if (!response.ok) throw new Error(body.message ?? 'Could not remove this company’s access.');
 			companyRevisions = { ...companyRevisions, [company.id]: body.provider?.revision ?? revision };
 			confirmRevocation = '';
 			await refresh();
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Could not remove this project’s access.';
+			error = cause instanceof Error ? cause.message : 'Could not remove this company’s access.';
 		} finally {
 			busyCompany = false;
 		}
@@ -341,7 +341,7 @@
 				void refreshNativeSignIns(companies);
 			})
 			.catch(() => {
-				companyError = 'Projects could not be loaded. Reload to manage access.';
+				companyError = 'Companies could not be loaded. Reload to manage access.';
 				nativeError = 'Company sign-ins could not be loaded.';
 				nativeLoading = false;
 			});
@@ -445,17 +445,17 @@
 										href={`/${encodeURIComponent(company.id)}/company/provider`}
 										>{company.name}<span aria-hidden="true">↗</span></a
 									>{/each}
-							</div>{:else}<span class="unused">No project access yet</span>{/if}
+							</div>{:else}<span class="unused">No company access yet</span>{/if}
 					</div>
 					<div class="connection-controls">
 						<span class="connection-kind"
 							>{item.kind === 'oauth' ? 'Account sign-in' : 'API key'}</span
 						>{#if accountScope === 'account'}<button class="text-button" onclick={() => toggleManage(item)}
-							>{managingId === item.id ? 'Close access' : 'Manage project access'}</button
+							>{managingId === item.id ? 'Close access' : 'Manage company access'}</button
 						>{/if}
 					</div>
 					{#if managingId === item.id}
-						<div class="access-manager" aria-label={`Project access for ${item.label}`}>
+						<div class="access-manager" aria-label={`Company access for ${item.label}`}>
 							{#if companyError}<span class="replace-warning" role="alert">{companyError}</span
 								>{/if}
 							{#each companies as company (company.id)}
@@ -536,7 +536,7 @@
 										>{/if}
 								</div>
 							{/each}
-							{#if !companies.length}<span class="unused">No active projects available.</span>{/if}
+							{#if !companies.length}<span class="unused">No active companies available.</span>{/if}
 						</div>
 					{/if}
 				</article>

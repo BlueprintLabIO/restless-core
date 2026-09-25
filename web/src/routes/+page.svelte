@@ -67,11 +67,11 @@
 	}
 </script>
 
-<svelte:head><title>Projects — {PRODUCT_NAME}</title></svelte:head>
+<svelte:head><title>Companies — {PRODUCT_NAME}</title></svelte:head>
 
 <div class="bridge-root portfolio-root">
 	<header class="bridge-topbar" aria-label="Portfolio navigation">
-		<a class="tb-brand portfolio-brand" href="/" aria-label={`${PRODUCT_NAME} projects`}>
+		<a class="tb-brand portfolio-brand" href="/" aria-label={`${PRODUCT_NAME} companies`}>
 			<span class="tb-mark"><MatrixGlyph rows={GLYPHS.r} size={13} glow /></span>
 			<span class="tb-name">{PRODUCT_NAME}</span>
 		</a>
@@ -115,11 +115,11 @@
 				</div>
 			{/if}
 			<header class="portfolio-head">
-				<h1>Projects</h1>
+				<h1>Companies</h1>
 			</header>
 
 			{#if error}<div class="portfolio-error">{error}</div>{/if}
-			<section class="portfolio-table" aria-label="Projects">
+			<section class="portfolio-table" aria-label="Companies">
 				{#if activeCompanies.length}
 					<div class="portfolio-table-scroll">
 						<div class="portfolio-grid">
@@ -196,7 +196,7 @@
 				{:else}
 					<div class="portfolio-empty">
 						<MatrixGlyph rows={GLYPHS.ring} size={14} />
-						<h2>No projects yet</h2>
+						<h2>No companies yet</h2>
 						<p>
 							{archivedCompanies.length
 								? 'Use + to start a company.'
@@ -207,7 +207,7 @@
 			</section>
 		</main>
 	{:else}
-		<main class="portfolio-loading">Loading projects…</main>
+		<main class="portfolio-loading">Loading companies…</main>
 	{/if}
 </div>
 

@@ -10,11 +10,11 @@
 
 <div class="bridge-root portfolio-root settings-root">
 	<header class="bridge-topbar" aria-label="Account navigation">
-		<a class="tb-brand portfolio-brand" href="/" aria-label={`${PRODUCT_NAME} projects`}>
+		<a class="tb-brand portfolio-brand" href="/" aria-label={`${PRODUCT_NAME} companies`}>
 			<span class="tb-mark"><MatrixGlyph rows={GLYPHS.r} size={13} glow /></span>
 			<span class="tb-name">{PRODUCT_NAME}</span>
 		</a>
-		<a class="back-link" href="/">Back to projects</a>
+		<a class="back-link" href="/">Back to companies</a>
 	</header>
 	<div class="settings-frame">
 		<aside class="settings-sidebar" aria-label="Account settings">
