@@ -591,7 +591,9 @@ impl CompanyConfig {
         {
             Some(&self.model)
         } else {
-            previous
+            // Older Staff runs could persist a native harness marker as an
+            // actor preference. It is not a direct route after a harness change.
+            previous.filter(|model| validate_company_model_selection(model).is_ok())
         }
     }
 

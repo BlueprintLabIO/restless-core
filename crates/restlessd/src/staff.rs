@@ -444,7 +444,11 @@ pub async fn dispatch_claimed_work(
         // A missing preference adopts the company's first available model.
         // A temporary cooldown must not overwrite an explicit preference;
         // actual models used remain visible on Attempt and model events.
-        if actor_row.model.is_none() {
+        // Native harness markers describe this attempt's route, not a durable
+        // actor preference that should survive a later harness change.
+        if actor_row.model.is_none()
+            && runtime::validate_company_model_selection(first_model).is_ok()
+        {
             org.update_actor_model(&actor, first_model).await?;
         }
         org.set_attempt_model(claimed.attempt_id, first_model)
