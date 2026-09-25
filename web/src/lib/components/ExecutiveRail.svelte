@@ -17,7 +17,7 @@
 	import HoldApprove from '$lib/primitives/HoldApprove.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
 	import SemanticMark from '$lib/primitives/SemanticMark.svelte';
-	import type { ActiveAgentTurn } from '$lib/model/queries.svelte';
+	import type { ActiveAgentTurn, QuerySourceStatus } from '$lib/model/queries.svelte';
 	import type { OutcomeStandard } from '$lib/model/company';
 	import type { ThreadMessage } from '$lib/model/view';
 	import {
@@ -45,6 +45,9 @@
 		membershipRole,
 		connected = false,
 		connectionStatus = 'unknown',
+		conversationStatus = 'unknown',
+		conversationFailed = false,
+		onrefreshConversation = null,
 		needsProvider = false,
 		contextLabel = 'Current screen',
 		focusAfterMessageId = 0,
@@ -66,6 +69,9 @@
 		connected?: boolean;
 		/** Separates confirmed unavailability from an unknown or failed status read. */
 		connectionStatus?: 'unknown' | 'error' | 'unavailable' | 'available';
+		conversationStatus?: QuerySourceStatus;
+		conversationFailed?: boolean;
+		onrefreshConversation?: (() => void) | null;
 		needsProvider?: boolean;
 		contextLabel?: string;
 		focusAfterMessageId?: number;
@@ -493,6 +499,12 @@
 					A conversation route for {participantName} is not available in the latest company status.
 				</p>
 			{/if}
+			{#if conversationFailed && conversationStatus === 'stale'}
+				<p class="exr-connection-notice" role="status">
+					Recent messages could not be refreshed. Showing the last loaded conversation.
+					<button type="button" class="exr-retry" onclick={() => onrefreshConversation?.()}>Try again</button>
+				</p>
+			{/if}
 			<div class="exr-chat">
 				<div
 					class="exr-msgs"
@@ -522,7 +534,15 @@
 							hrefFor={attachmentHref}
 						/>
 					{:else}
-						{#if focusActive}
+						{#if conversationFailed && conversationStatus === 'unknown'}
+							<div class="exr-empty" role="alert">
+								<p class="exr-empty-h">Conversation unavailable</p>
+								<p class="exr-empty-p">Recent messages could not be loaded.</p>
+								<button type="button" class="exr-retry" onclick={() => onrefreshConversation?.()}>Try again</button>
+							</div>
+						{:else if conversationStatus === 'unknown'}
+							<div class="exr-empty" role="status">Loading conversation…</div>
+						{:else if focusActive}
 							<!-- The focus boundary below is the empty transcript state. -->
 						{:else if review || workContext}
 							<div class="exr-empty review-empty">
@@ -740,6 +760,21 @@
 		color: var(--text-secondary);
 		font-size: var(--t-label);
 		line-height: 1.45;
+	}
+	.exr-retry {
+		display: inline-block;
+		margin-top: 8px;
+		border: 0;
+		padding: 0;
+		background: none;
+		color: var(--intent-conversation);
+		font: inherit;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.exr-retry:focus-visible {
+		outline: 2px solid var(--intent-conversation);
+		outline-offset: 3px;
 	}
 	.rail-back {
 		width: 34px;

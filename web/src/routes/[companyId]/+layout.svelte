@@ -297,6 +297,9 @@
 		membershipRole={principal?.membership_role ?? 'member'}
 		connected={railConnected}
 		connectionStatus={railConnectionStatus}
+		conversationStatus={railConversation.status}
+		conversationFailed={Boolean(railConversation.failure)}
+		onrefreshConversation={() => void railConversation.refresh()}
 		needsProvider={intelligence.view?.has_connections === false}
 		contextLabel={currentContext}
 		focusAfterMessageId={railConversation.focusAfterMessageId}
