@@ -166,7 +166,7 @@
 						disabled={!source || busy}
 						onclick={() => void request('preview')}>{busy ? 'Preparing…' : 'Preview change'}</button
 					>{/if}
-				<p class="copy-note">Only this setting changes. The two companies stay independent.</p>
+				<p class="copy-note">Only this setting changes. The two companies stay independent.{setting === 'models' ? ' Agent choices copy only for matching agents with a connection already available here.' : ''}</p>
 				{#if error}<p class="copy-error" role="alert">{error}</p>{/if}
 			</div>
 		{/if}

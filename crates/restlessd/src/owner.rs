@@ -3988,6 +3988,29 @@ fn model_assignment_copyable(
         .is_some_and(|provider| model_provider_copyable(source, target, provider))
 }
 
+async fn matching_model_actors(
+    state: &OwnerState,
+    source: &str,
+    target: &str,
+) -> Result<std::collections::BTreeSet<String>> {
+    let source_actors = state.daemon.orgintel.get(source).await?.list_actors().await?;
+    let target_actors = state.daemon.orgintel.get(target).await?.list_actors().await?;
+    let target_agents = target_actors
+        .into_iter()
+        .filter(|actor| actor.actor_class == "agent")
+        .map(|actor| (actor.id, (actor.role, actor.display)))
+        .collect::<BTreeMap<_, _>>();
+    Ok(source_actors
+        .into_iter()
+        .filter(|actor| actor.actor_class == "agent")
+        .filter(|actor| {
+            target_agents.get(&actor.id)
+                == Some(&(actor.role.clone(), actor.display.clone()))
+        })
+        .map(|actor| actor.id)
+        .collect())
+}
+
 #[derive(Clone, Copy, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum CompanySetupSection {
@@ -4063,6 +4086,7 @@ fn setup_copy_preview(
     target: &runtime::CompanyConfig,
     sections: &[CompanySetupSection],
     allow_native: bool,
+    matching_actors: &std::collections::BTreeSet<String>,
 ) -> serde_json::Value {
     let source_default = company_default_model(source);
     let target_default = company_default_model(target);
@@ -4079,7 +4103,7 @@ fn setup_copy_preview(
             CompanySetupSection::Purpose => vec![serde_json::json!({"label":"Purpose","from":target.mission,"to":source.mission})],
             CompanySetupSection::Models => vec![
                 serde_json::json!({"label":"Default model","from":target_default,"to":source_default,"credential_configured":!source_default.is_empty() && default_copyable}),
-                serde_json::json!({"label":"Agent model choices","count":source.agent_intelligence.values().filter(|route| model_assignment_copyable(source,target,route,allow_native)).count(),"omitted":source.agent_intelligence.values().filter(|route| !model_assignment_copyable(source,target,route,allow_native)).count(),"preserved":true}),
+                serde_json::json!({"label":"Matching agent choices","count":source.agent_intelligence.iter().filter(|(actor,route)| *actor != "default" && matching_actors.contains(*actor) && model_assignment_copyable(source,target,route,allow_native)).count(),"omitted":source.agent_intelligence.iter().filter(|(actor,route)| *actor != "default" && (!matching_actors.contains(*actor) || !model_assignment_copyable(source,target,route,allow_native))).count(),"preserved":true}),
                 serde_json::json!({"label":"Fallback models","count":source.model_failover.iter().filter(|model| model_provider_copyable(source,target,model.split('/').next().unwrap_or_default())).count(),"omitted":source.model_failover.iter().filter(|model| !model_provider_copyable(source,target,model.split('/').next().unwrap_or_default())).count(),"preserved":true}),
             ],
             CompanySetupSection::Limits => vec![
@@ -4136,7 +4160,15 @@ async fn preview_company_setup_copy(
             )
         }
     };
-    Json(setup_copy_preview(&source, &target, &sections, state.entry.network().is_none())).into_response()
+    let matching_actors = if matches!(sections[0], CompanySetupSection::Models) {
+        match matching_model_actors(&state, &source.name, &target.name).await {
+            Ok(actors) => actors,
+            Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "setup_copy", "Could not check matching agents in both companies."),
+        }
+    } else {
+        std::collections::BTreeSet::new()
+    };
+    Json(setup_copy_preview(&source, &target, &sections, state.entry.network().is_none(), &matching_actors)).into_response()
 }
 
 async fn copy_company_setup(
@@ -4181,6 +4213,14 @@ async fn copy_company_setup(
         }
     };
     let original_target = target.clone();
+    let matching_actors = if matches!(sections[0], CompanySetupSection::Models) {
+        match matching_model_actors(&state, &source.name, &target.name).await {
+            Ok(actors) => actors,
+            Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "setup_copy", "Could not check matching agents in both companies."),
+        }
+    } else {
+        std::collections::BTreeSet::new()
+    };
     if input.source_revision.as_deref()
         != Some(
             company_setup_view(&source)["revision"]
@@ -4259,7 +4299,10 @@ async fn copy_company_setup(
         }
         target.model_failover = fallbacks;
         for (actor, route) in &source.agent_intelligence {
-            if model_assignment_copyable(&source, &target, route, state.entry.network().is_none()) {
+            if actor != "default"
+                && matching_actors.contains(actor)
+                && model_assignment_copyable(&source, &target, route, state.entry.network().is_none())
+            {
                 target
                     .agent_intelligence
                     .insert(actor.clone(), route.clone());
@@ -4345,7 +4388,7 @@ async fn copy_company_setup(
             return api_error(StatusCode::SERVICE_UNAVAILABLE, "authority", "The setting changed, but its confirmation could not be recorded. Refresh the page before retrying.");
         }
     }
-    Json(serde_json::json!({"copied":changed,"setup":setup_copy_preview(&source, &target, &sections, state.entry.network().is_none())}))
+    Json(serde_json::json!({"copied":changed,"setup":setup_copy_preview(&source, &target, &sections, state.entry.network().is_none(), &matching_actors)}))
         .into_response()
 }
 
