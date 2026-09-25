@@ -131,6 +131,7 @@ fn preflight_runtime_relay_port(loopback_bind: &str) -> Result<()> {
 // company providers, so a provider connected after boot needs no restart.
 static CLIENT: RwLock<Option<ClientConfig>> = RwLock::new(None);
 static HOSTED_RELAY_STATE: RwLock<Option<RelayState>> = RwLock::new(None);
+static BROKER_ACCESS: RwLock<Option<BrokerAccess>> = RwLock::new(None);
 static NO_DIRECT_PROVIDER: AtomicBool = AtomicBool::new(false);
 
 /// Companies the account plane could not admit a model route for.
@@ -161,6 +162,9 @@ pub fn uninstall() {
     }
     if let Ok(mut relay) = HOSTED_RELAY_STATE.write() {
         *relay = None;
+    }
+    if let Ok(mut broker) = BROKER_ACCESS.write() {
+        *broker = None;
     }
 }
 
@@ -796,6 +800,12 @@ pub async fn start(
                 runtime_url: endpoints.relay_runtime_url.clone(),
             });
             *hosted = Some(relay_state);
+            if let Ok(mut broker) = BROKER_ACCESS.write() {
+                *broker = Some(BrokerAccess {
+                    url: endpoints.broker_url.clone(),
+                    token: broker_token.clone(),
+                });
+            }
             NO_DIRECT_PROVIDER.store(false, Ordering::Release);
         }
         _ => {
@@ -814,6 +824,12 @@ pub async fn start(
 #[derive(Deserialize)]
 struct BrokerSnapshot {
     credentials: Vec<BrokerCredential>,
+}
+
+#[derive(Clone)]
+struct BrokerAccess {
+    url: String,
+    token: String,
 }
 
 #[derive(Deserialize)]
@@ -2541,11 +2557,28 @@ pub fn client() -> Result<ClientConfig> {
         .context("No direct intelligence provider is active yet. Connect a direct provider in Intelligence provider (Restless loads it within seconds), or assign this agent to a connected harness.")
 }
 
-pub fn oauth_is_loaded(provider: &str) -> Result<bool> {
-    Ok(matches!(
-        client()?.providers.get(provider),
-        Some(ModelBilling::Subscription)
-    ))
+pub async fn oauth_is_loaded(provider: &str) -> Result<bool> {
+    let access = BROKER_ACCESS
+        .read()
+        .map_err(|_| anyhow::anyhow!("host model broker state is unavailable"))?
+        .clone()
+        .context("host model broker is not running")?;
+    let http = reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()?;
+    let snapshot = broker_snapshot(&http, &access.token, &access.url).await?;
+    let rows = snapshot
+        .credentials
+        .iter()
+        .filter(|credential| credential.provider == provider)
+        .collect::<Vec<_>>();
+    if rows.is_empty() {
+        return Ok(false);
+    }
+    if rows.len() != 1 || !rows[0].is_oauth() {
+        bail!("host model broker has conflicting credential modes for {provider}");
+    }
+    Ok(true)
 }
 
 pub fn models_config(model: &str, runtime_url: &str, token_env: &str) -> Result<String> {

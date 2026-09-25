@@ -412,7 +412,7 @@ pub(crate) async fn probe_reference(reference: &str) -> Probe {
             }
         }
         CredentialReference::OmpOauth(provider) => {
-            match crate::model_gateway::oauth_is_loaded(provider) {
+            match crate::model_gateway::oauth_is_loaded(provider).await {
                 Ok(true) => Probe {
                     status: ProbeStatus::Present,
                     detail: None,

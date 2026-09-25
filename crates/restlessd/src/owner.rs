@@ -2979,6 +2979,12 @@ struct OwnerModelConnection {
     id: String,
     label: String,
     provider: String,
+    #[serde(default = "default_owner_connection_kind")]
+    kind: String,
+}
+
+fn default_owner_connection_kind() -> String {
+    "api_key".into()
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -3010,7 +3016,24 @@ fn load_owner_connections(root: &std::path::Path) -> Result<OwnerModelConnection
                 }
             }
             let bytes = std::fs::read(&path)?;
-            serde_json::from_slice(&bytes).context("parse owner connection registry")
+            let registry: OwnerModelConnections =
+                serde_json::from_slice(&bytes).context("parse owner connection registry")?;
+            if registry.connections.iter().any(|connection| {
+                !matches!(connection.kind.as_str(), "api_key" | "oauth")
+                    || !valid_provider_id(&connection.provider)
+                    || connection.id.is_empty()
+            }) {
+                bail!(
+                    "owner connection registry contains an unsupported connection kind or identity"
+                );
+            }
+            let mut oauth_providers = std::collections::BTreeSet::new();
+            if registry.connections.iter().any(|connection| {
+                connection.kind == "oauth" && !oauth_providers.insert(connection.provider.as_str())
+            }) {
+                bail!("owner connection registry contains duplicate OAuth providers");
+            }
+            Ok(registry)
         }
     }
 }
@@ -3044,6 +3067,14 @@ fn model_connection_reference(id: &str) -> String {
     format!("infisical:/owner/model-connections/{id}/API_KEY")
 }
 
+fn owner_connection_reference(connection: &OwnerModelConnection) -> String {
+    if connection.kind == "oauth" {
+        format!("omp-oauth:{}", connection.provider)
+    } else {
+        model_connection_reference(&connection.id)
+    }
+}
+
 fn valid_provider_id(provider: &str) -> bool {
     !provider.is_empty()
         && provider.len() <= 80
@@ -3060,6 +3091,7 @@ fn safe_connection_summary(
         "id": connection.id,
         "label": connection.label,
         "provider": connection.provider,
+        "kind": connection.kind,
         "companies": companies,
     })
 }
@@ -3068,7 +3100,7 @@ fn companies_using_owner_connection(
     root: &std::path::Path,
     connection: &OwnerModelConnection,
 ) -> Vec<serde_json::Value> {
-    let reference = model_connection_reference(&connection.id);
+    let reference = owner_connection_reference(connection);
     crate::configured_companies(root)
         .unwrap_or_default()
         .into_iter()
@@ -3127,17 +3159,21 @@ async fn list_owner_connections(State(state): State<OwnerState>) -> Response<Bod
                 connection,
                 companies_using_owner_connection(&state.daemon.root, connection),
             );
-            let probe =
-                credential::probe_reference(&model_connection_reference(&connection.id)).await;
+            let probe = credential::probe_reference(&owner_connection_reference(connection)).await;
             summary["status"] = serde_json::Value::String(probe.status.as_str().to_string());
             if probe.status == credential::ProbeStatus::Absent {
-                summary["detail"] = serde_json::Value::String(
-                    "The key is missing from the account vault.".to_string(),
-                );
+                summary["detail"] = serde_json::Value::String(if connection.kind == "oauth" {
+                    "The host OMP broker has no active OAuth connection for this provider."
+                        .to_string()
+                } else {
+                    "The key is missing from the account vault.".to_string()
+                });
             } else if probe.status == credential::ProbeStatus::Invalid {
-                summary["detail"] = serde_json::Value::String(
-                    "The account vault could not be checked. Try again.".to_string(),
-                );
+                summary["detail"] = serde_json::Value::String(if connection.kind == "oauth" {
+                    "The host OMP broker could not be checked. Try again.".to_string()
+                } else {
+                    "The account vault could not be checked. Try again.".to_string()
+                });
             }
             summary
         }))
@@ -3150,7 +3186,10 @@ async fn list_owner_connections(State(state): State<OwnerState>) -> Response<Bod
 struct CreateOwnerConnectionInput {
     label: String,
     provider: String,
-    secret: String,
+    #[serde(default)]
+    kind: String,
+    #[serde(default)]
+    secret: Option<String>,
 }
 
 async fn create_owner_connection(
@@ -3166,16 +3205,26 @@ async fn create_owner_connection(
     }
     let label = input.label.trim();
     let provider = input.provider.trim();
+    let kind = if input.kind.is_empty() {
+        "api_key"
+    } else {
+        input.kind.as_str()
+    };
     if label.is_empty()
         || label.len() > 80
         || !valid_provider_id(provider)
-        || input.secret.trim().is_empty()
-        || input.secret.len() > 32768
+        || !matches!(kind, "api_key" | "oauth")
+        || (kind == "api_key"
+            && input
+                .secret
+                .as_deref()
+                .is_none_or(|secret| secret.trim().is_empty() || secret.len() > 32768))
+        || (kind == "oauth" && input.secret.is_some())
     {
         return api_error(
             StatusCode::BAD_REQUEST,
             "connections",
-            "Enter a label up to 80 characters, a valid provider ID, and an API key up to 32 KB.",
+            "Enter a label and valid provider ID; API-key connections need a key, while OAuth connections must not include one.",
         );
     }
     let _write = state.charter_writes.lock().await;
@@ -3189,25 +3238,50 @@ async fn create_owner_connection(
             )
         }
     };
+    if kind == "oauth"
+        && registry
+            .connections
+            .iter()
+            .any(|connection| connection.kind == "oauth" && connection.provider == provider)
+    {
+        return api_error(
+            StatusCode::CONFLICT,
+            "connections",
+            "An OAuth connection for this provider is already registered.",
+        );
+    }
     let connection = OwnerModelConnection {
         id: Uuid::new_v4().simple().to_string(),
         label: label.to_string(),
         provider: provider.to_string(),
+        kind: kind.to_string(),
     };
-    let reference = model_connection_reference(&connection.id);
-    if credential::store_reference(&reference, &input.secret)
-        .await
-        .is_err()
-    {
-        return api_error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "connections",
-            "Could not save the API key in the configured secret store.",
-        );
+    if connection.kind == "oauth" {
+        let reference = owner_connection_reference(&connection);
+        if credential::probe_reference(&reference).await.status != credential::ProbeStatus::Present
+        {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "connections",
+                "The host OMP broker does not have an active OAuth connection for this provider.",
+            );
+        }
+    } else {
+        let reference = model_connection_reference(&connection.id);
+        if credential::store_reference(&reference, input.secret.as_deref().unwrap_or_default())
+            .await
+            .is_err()
+        {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "connections",
+                "Could not save the API key in the configured secret store.",
+            );
+        }
     }
     registry.connections.push(connection.clone());
     if save_owner_connections(&state.daemon.root, &registry).is_err() {
-        return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "The API key was saved, but its connection could not be registered. Retry after checking the host state.");
+        return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "The connection is available, but could not be registered. Retry after checking the host state.");
     }
     Json(serde_json::json!({"connection": safe_connection_summary(&connection, vec![])}))
         .into_response()
@@ -3301,8 +3375,9 @@ async fn import_owner_connection(
         id: Uuid::new_v4().simple().to_string(),
         label: label.to_string(),
         provider: provider.to_string(),
+        kind: "api_key".into(),
     };
-    let reference = model_connection_reference(&connection.id);
+    let reference = owner_connection_reference(&connection);
     if credential::store_reference(&reference, &secret)
         .await
         .is_err()
@@ -3348,7 +3423,8 @@ async fn provider_credential_conflicts_with_other_companies(
     root: &std::path::Path,
     company: &str,
     provider: &str,
-    proposed_secret: &str,
+    proposed_reference: &str,
+    proposed_secret: Option<&str>,
 ) -> Result<bool> {
     let binding = format!("model.inference.{provider}");
     for other_name in crate::configured_companies(root)? {
@@ -3366,12 +3442,17 @@ async fn provider_credential_conflicts_with_other_companies(
         let Some(reference) = reference else {
             continue;
         };
-        let Ok(secret) = credential::resolve_reference(reference).await else {
-            // The model gateway also excludes an unavailable credential from
-            // provider admission, so it cannot conflict with this live key.
+        if reference == proposed_reference {
             continue;
-        };
-        if !constant_time_secret_match(proposed_secret, &secret) {
+        }
+        if proposed_secret.is_none() || crate::credential::omp_oauth_provider(reference)?.is_some()
+        {
+            return Ok(true);
+        }
+        let secret = credential::resolve_reference(reference)
+            .await
+            .context("could not verify another company's provider credential")?;
+        if !constant_time_secret_match(proposed_secret.expect("checked above"), &secret) {
             return Ok(true);
         }
     }
@@ -3441,7 +3522,7 @@ async fn grant_owner_connection(
     }
     let binding = format!("model.inference.{}", connection.provider);
     let existing = config.credentials.get(&binding);
-    let reference = model_connection_reference(&connection.id);
+    let reference = owner_connection_reference(connection);
     let legacy_primary_reference = (config.model.split('/').next()
         == Some(connection.provider.as_str()))
     .then(|| config.credentials.get("model.inference"))
@@ -3452,25 +3533,38 @@ async fn grant_owner_connection(
     if has_different_existing && !input.replace_existing {
         return api_error(StatusCode::CONFLICT, "provider_conflict", "This company already has a credential for that provider. Confirm replacing this company's provider key to continue.");
     }
-    let proposed_secret = match credential::resolve_reference(&reference).await {
-        Ok(secret) if !secret.trim().is_empty() => secret,
-        _ => {
+    let proposed_secret = if connection.kind == "oauth" {
+        if credential::probe_reference(&reference).await.status != credential::ProbeStatus::Present
+        {
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "connections",
-                "The saved API key is unavailable in the host secret store.",
-            )
+                "The host OMP broker does not have an active OAuth connection for this provider.",
+            );
+        }
+        None
+    } else {
+        match credential::resolve_reference(&reference).await {
+            Ok(secret) if !secret.trim().is_empty() => Some(secret),
+            _ => {
+                return api_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "connections",
+                    "The saved API key is unavailable in the host secret store.",
+                )
+            }
         }
     };
     match provider_credential_conflicts_with_other_companies(
         &state.daemon.root,
         &company,
         &connection.provider,
-        &proposed_secret,
+        &reference,
+        proposed_secret.as_deref(),
     )
     .await
     {
-        Ok(true) => return api_error(StatusCode::CONFLICT, "account_provider_conflict", "This account currently uses one API key per provider across companies. Another company has a different key for this provider."),
+        Ok(true) => return api_error(StatusCode::CONFLICT, "account_provider_conflict", "Another company already has a different account or credential mode for this provider. Resolve that account-level conflict first."),
         Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "Could not verify provider access across the account."),
         Ok(false) => {}
     }
@@ -3550,7 +3644,7 @@ async fn revoke_owner_connection(
         );
     }
     let binding = format!("model.inference.{}", connection.provider);
-    if config.credentials.get(&binding) != Some(&model_connection_reference(&connection.id)) {
+    if config.credentials.get(&binding) != Some(&owner_connection_reference(connection)) {
         return api_error(
             StatusCode::CONFLICT,
             "connections",

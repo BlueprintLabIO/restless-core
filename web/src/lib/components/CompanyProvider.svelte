@@ -453,7 +453,7 @@
 			<div>
 				<h1 id="reuse-title" title="A provider API key is stored once at account level. Grant access to this company here; model choices stay company-specific.">Intelligence</h1>
 			</div>
-			<a class="account-link" href="/connections">Manage account connections <span aria-hidden="true">↗</span></a>
+			<a class="account-link" href="/account/settings/connections">Manage account connections <span aria-hidden="true">↗</span></a>
 		</div>
 		<div class="reuse-section-head">
 			<div><h2 title="Each company needs an explicit grant to use an account-level API connection.">Available connections</h2></div>

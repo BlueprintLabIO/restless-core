@@ -4,5 +4,5 @@
 	onMount(() => void goto('/account/settings/connections', { replaceState: true }));
 </script>
 
-<svelte:head><title>Connections</title></svelte:head>
-<main aria-live="polite" style="padding: 2rem">Opening account connections…</main>
+<svelte:head><title>Account settings</title></svelte:head>
+<main aria-live="polite" style="padding: 2rem">Opening account settings…</main>

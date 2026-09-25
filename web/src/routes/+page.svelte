@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { Settings2 } from '@lucide/svelte';
 	import { page } from '$app/state';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import CreateCompany from '$lib/components/CreateCompany.svelte';
@@ -87,12 +88,16 @@
 			<span class="tb-mark"><MatrixGlyph rows={GLYPHS.r} size={13} glow /></span>
 			<span class="tb-name">{PRODUCT_NAME}</span>
 		</a>
-		{#if loaded}
-			<div class="tb-right">
-				<a class="connections-link" href="/connections">Connections</a>
-				<CreateCompany />
-			</div>
-		{/if}
+		<a
+			class="settings-link"
+			href="/account/settings"
+			aria-label="Account settings"
+			title="Account settings"
+		>
+			<Settings2 size={17} strokeWidth={1.8} aria-hidden="true" />
+			<span>Settings</span>
+		</a>
+		{#if loaded}<div class="tb-right"><CreateCompany /></div>{/if}
 	</header>
 
 	{#if error && !loaded}
@@ -137,7 +142,9 @@
 							</div>
 							{#each activeCompanies as company (company.id)}
 								{@const projection = projections[company.id]}
-								{@const startIssue = company.unstartable_reason ? startGuidance(company.unstartable_reason) : ''}
+								{@const startIssue = company.unstartable_reason
+									? startGuidance(company.unstartable_reason)
+									: ''}
 								<a
 									class="portfolio-company-row runtime-{company.runtime_status}"
 									href={`/${company.id}`}
@@ -159,9 +166,8 @@
 										<span class="portfolio-company-copy">
 											<strong>{company.name}</strong>
 											{#if company.unstartable_reason}
-												<small
-													class="portfolio-company-unstartable"
-														title={startIssue}>cannot start</small
+												<small class="portfolio-company-unstartable" title={startIssue}
+													>cannot start</small
 												>
 											{:else}
 												<small>{company.runtime_status}</small>
@@ -188,9 +194,9 @@
 												? 'Start blocked'
 												: projection?.attentionCount == null
 													? 'Checking…'
-												: projection.attentionCount === 0
-													? 'Nothing now'
-													: `${projection.attentionCount} item${projection.attentionCount === 1 ? '' : 's'}`}</strong
+													: projection.attentionCount === 0
+														? 'Nothing now'
+														: `${projection.attentionCount} item${projection.attentionCount === 1 ? '' : 's'}`}</strong
 										>
 									</span>
 								</a>
@@ -216,7 +222,12 @@
 </div>
 
 <style>
-	.connections-link {
+	.settings-link {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: var(--space-2);
+		min-height: 38px;
 		padding: var(--space-2) var(--space-3);
 		border: 1px solid var(--border);
 		border-radius: var(--radius-control);
@@ -224,7 +235,14 @@
 		font-size: var(--t-label);
 		text-decoration: none;
 	}
-	.connections-link:hover { border-color: var(--intent-conversation); color: var(--intent-conversation); }
+	.settings-link:hover {
+		border-color: var(--intent-conversation);
+		color: var(--intent-conversation);
+	}
+	.settings-link:focus-visible {
+		outline: 2px solid var(--intent-conversation);
+		outline-offset: 2px;
+	}
 
 	.appliance-notice {
 		display: grid;
