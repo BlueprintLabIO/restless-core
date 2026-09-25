@@ -51,6 +51,33 @@
 	}
 }
 
+/* The Exec rail arrives from the edge it lives on. On desktop the column
+ * opens at once so the work surface resizes a single time; only the rail's
+ * contents travel. As an overlay the whole rail travels. */
+@keyframes bridge-rail-in {
+	from {
+		opacity: 0;
+		transform: translateX(16px);
+	}
+	to {
+		opacity: 1;
+		transform: translateX(0);
+	}
+}
+
+.bridge-root:not(.immersive) .bridge-exrail.open .exr-inner {
+	animation: bridge-rail-in var(--motion-disclosure) var(--ease-out) backwards;
+}
+
+@media (max-width: 980px) {
+	.bridge-root:not(.immersive) .bridge-exrail.open {
+		animation: bridge-rail-in var(--motion-disclosure) var(--ease-out) backwards;
+	}
+	.bridge-root:not(.immersive) .bridge-exrail.open .exr-inner {
+		animation: none;
+	}
+}
+
 @media (prefers-reduced-motion: reduce) {
 	.bridge-root {
 		--motion-press: 1ms;
