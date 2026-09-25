@@ -146,7 +146,7 @@
 		{#each rows as agent (agent.id)}
 			<div class="agent-row">
 				<div class="identity">
-					<strong>{agent.id === 'exec' ? 'Exec' : agent.name}</strong>{#if agent.role.toLowerCase() !== agent.id}<small>{agent.role}</small>{/if}
+					<strong>{agent.id === 'exec' ? 'Exec' : agent.name}</strong>{#if agent.role.toLowerCase() !== agent.id}<small class="role">{agent.role}</small>{/if}
 				</div>
 				<div class="route">
 					<span
@@ -326,5 +326,8 @@
 			grid-column: 2;
 			grid-row: 1 / 3;
 		}
+	}
+	.role::first-letter {
+		text-transform: uppercase;
 	}
 </style>

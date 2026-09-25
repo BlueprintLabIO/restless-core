@@ -226,3 +226,147 @@
 		transition: none;
 	}
 }
+
+/* Disclosures. Every plain summary gets the same quiet chevron that turns a
+ * quarter when it opens, in place of the browser's black triangle. Summaries
+ * that are really menus or carry their own marker opt out by name. All of it
+ * is zero-specificity so any component can restyle its own. */
+:where(.bridge-root) :where(summary) {
+	list-style: none;
+	cursor: pointer;
+}
+
+:where(.bridge-root) :where(summary)::-webkit-details-marker {
+	display: none;
+}
+
+:where(.bridge-root)
+	:where(
+		summary:not(
+				.company-switcher > summary,
+				.owner-menu > summary,
+				.message-fold > summary,
+				.folio-details > summary,
+				.company-decision > summary
+			)
+	)::before {
+	content: '';
+	display: inline-block;
+	width: 6px;
+	height: 6px;
+	margin: 0 9px 2px 1px;
+	border-right: 1.5px solid currentColor;
+	border-bottom: 1.5px solid currentColor;
+	opacity: 0.7;
+	transform: rotate(-45deg);
+	transition: transform var(--motion-state) var(--ease-out);
+	vertical-align: middle;
+}
+
+:where(.bridge-root) :where(details[open] > summary)::before {
+	transform: rotate(45deg) translate(-1px, -1px);
+}
+
+/* Where the browser can animate to an intrinsic height, disclosures unfold
+ * instead of snapping. Menus built on details keep their own popover motion. */
+@supports selector(::details-content) {
+	.bridge-root {
+		interpolate-size: allow-keywords;
+	}
+	:where(.bridge-root) :where(details:not(.company-switcher, .owner-menu))::details-content {
+		block-size: 0;
+		overflow: clip;
+		opacity: 0;
+		transition:
+			block-size var(--motion-disclosure) var(--ease-out),
+			opacity var(--motion-state) var(--ease-out),
+			content-visibility var(--motion-disclosure) allow-discrete;
+	}
+	:where(.bridge-root) :where(details[open]:not(.company-switcher, .owner-menu))::details-content {
+		block-size: auto;
+		opacity: 1;
+	}
+}
+
+/* Selects. One control shape everywhere: the platform arrow is replaced with
+ * the cockpit's chevron. The chevron is painted with !important because many
+ * components set a `background` shorthand on their fields, which would
+ * otherwise erase it; nothing else here overrides component geometry. */
+:where(.bridge-root) :where(select:not([multiple])) {
+	appearance: none;
+	-webkit-appearance: none;
+	cursor: pointer;
+	transition:
+		border-color var(--motion-state) var(--ease-standard),
+		box-shadow var(--motion-state) var(--ease-standard);
+}
+
+.bridge-root select:not([multiple]) {
+	padding-inline-end: 32px !important;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235b6478' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E") !important;
+	background-repeat: no-repeat !important;
+	background-position: right 11px center !important;
+	background-size: 12px !important;
+}
+
+:where(.bridge-root) :where(select:not([multiple]):hover:not(:disabled)) {
+	border-color: rgba(31, 41, 64, 0.26);
+}
+
+/* Where the browser lets a select be styled end to end, its list becomes a
+ * lifted cockpit menu instead of the operating system's. */
+@supports (appearance: base-select) {
+	.bridge-root select:not([multiple]),
+	.bridge-root select:not([multiple])::picker(select) {
+		appearance: base-select;
+	}
+	.bridge-root select:not([multiple]) {
+		display: inline-flex;
+		align-items: center;
+	}
+	.bridge-root select:not([multiple])::picker-icon {
+		display: none;
+	}
+	.bridge-root select:not([multiple])::picker(select) {
+		margin-block: 4px;
+		padding: 4px;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-md);
+		background: #fff;
+		box-shadow: var(--shadow-lift);
+		opacity: 0;
+		transform: translateY(-4px) scale(0.98);
+		transition:
+			opacity var(--motion-state) var(--ease-out),
+			transform var(--motion-state) var(--ease-out),
+			overlay var(--motion-state) allow-discrete,
+			display var(--motion-state) allow-discrete;
+	}
+	.bridge-root select:not([multiple]):open::picker(select) {
+		opacity: 1;
+		transform: none;
+	}
+	@starting-style {
+		.bridge-root select:not([multiple]):open::picker(select) {
+			opacity: 0;
+			transform: translateY(-4px) scale(0.98);
+		}
+	}
+	.bridge-root select:not([multiple]) option {
+		padding: 7px 10px;
+		border-radius: var(--radius-sm);
+		font-size: var(--t-body);
+		cursor: pointer;
+	}
+	.bridge-root select:not([multiple]) option:hover,
+	.bridge-root select:not([multiple]) option:focus-visible {
+		background: var(--surface-alt);
+		outline: none;
+	}
+	.bridge-root select:not([multiple]) option:checked {
+		font-weight: 500;
+	}
+	.bridge-root select:not([multiple]) option::checkmark {
+		color: var(--intent-conversation);
+	}
+}

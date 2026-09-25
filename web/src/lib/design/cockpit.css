@@ -162,10 +162,10 @@
 	padding: 6px;
 	border: 1px solid var(--border-strong);
 	border-radius: var(--radius-pane);
-	background: rgba(251, 252, 254, 0.94);
+	/* Opaque: the topbar is already a backdrop root, so a nested blur here
+	 * would sample nothing and let the page read through the menu. */
+	background: #fcfdfe;
 	box-shadow: var(--bevel), var(--shadow-lift);
-	backdrop-filter: blur(24px) saturate(1.18);
-	-webkit-backdrop-filter: blur(24px) saturate(1.18);
 	transform-origin: top left;
 	animation: bridge-popover-in var(--motion-disclosure) var(--ease-spring) both;
 }

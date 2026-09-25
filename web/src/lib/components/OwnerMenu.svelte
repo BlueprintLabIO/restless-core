@@ -159,10 +159,8 @@
 		overflow: hidden;
 		border: 1px solid var(--border-strong);
 		border-radius: var(--radius-pane);
-		background: rgba(251, 252, 254, 0.96);
+		background: #fcfdfe;
 		box-shadow: var(--bevel), var(--shadow-lift);
-		backdrop-filter: blur(24px) saturate(1.16);
-		-webkit-backdrop-filter: blur(24px) saturate(1.16);
 		transform-origin: top right;
 		animation: bridge-popover-in var(--motion-disclosure) var(--ease-spring) both;
 	}

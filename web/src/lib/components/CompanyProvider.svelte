@@ -754,9 +754,14 @@
 		margin: 0;
 	}
 	.storage {
+		justify-content: flex-start;
+		gap: var(--space-4);
 		margin-block: var(--space-4) var(--space-5);
 		font-size: var(--t-label);
 		color: var(--text-tertiary);
+	}
+	.storage > button {
+		margin-left: auto;
 	}
 	.good {
 		color: var(--state-success);
