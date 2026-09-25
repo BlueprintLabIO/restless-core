@@ -1117,12 +1117,11 @@
 
 .bridge-root .action-ledger {
 	display: grid;
-	gap: var(--pane-gap);
-	padding: var(--pane-gap);
-	border: 1px solid var(--company-edge);
-	border-radius: var(--radius-pane);
-	background: var(--company-deck);
-	box-shadow: var(--company-inset-shadow);
+	border-top: 1px solid var(--company-edge-soft);
+}
+
+.bridge-root .action-ledger:has(> .quiet-empty) {
+	border-top: 0;
 }
 
 .bridge-root .action-ledger article {
@@ -1132,13 +1131,8 @@
 	align-items: center;
 	gap: 18px;
 	min-width: 0;
-	padding: 15px;
-	border: 1px solid var(--company-edge-soft);
-	border-radius: var(--radius-control);
-	background: var(--company-panel);
-	box-shadow:
-		var(--bevel-subtle),
-		0 2px 7px rgba(43, 51, 66, 0.035);
+	padding: 15px 4px 15px 14px;
+	border-bottom: 1px solid var(--company-edge-soft);
 }
 
 .bridge-root .action-ledger article::before {
