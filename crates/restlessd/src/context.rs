@@ -485,8 +485,10 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          You must use judgement to decide what provider evidence means and whether the mandate \
          should be enforced for a proposed send; provider metadata may be incomplete and your \
          judgement can be mistaken, so state uncertainty and never present inference as observed \
-         fact. An active email \
-         mandate cannot be used through the generic effect child. For other material external \
+         fact. `restless email observe` is read-only provider access and remains available when an \
+         email mandate is active; it needs no send permit. The mandate governs outbound sends. Do \
+         not route Resend observation through the generic effect child, which is closed for a \
+         company's Resend credential while its email mandate is active. For other material external \
          argv, use \
          restless effect --class <class> --purpose <why> [--party <party>] \
          [--artifact <path-or-url>] [--secret ENV=<binding>] --key <key> -- \
