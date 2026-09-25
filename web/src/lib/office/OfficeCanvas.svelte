@@ -1555,9 +1555,33 @@
 	:global(:root[data-theme='dark']) canvas {
 		filter: brightness(0.68) saturate(0.82) contrast(1.06) hue-rotate(-6deg);
 	}
+	/* The office's pixel chrome keeps its hard edge and drop at night, in
+	 * slate instead of mint. */
 	:global(:root[data-theme='dark'])
 		:is(.office-camera-controls, .decorate-trigger, .decor-tray, .person-detail) {
-		filter: brightness(0.9);
+		border-color: rgba(196, 226, 214, 0.28);
+		background: rgba(20, 27, 33, 0.94);
+		box-shadow:
+			0 3px 0 rgba(0, 0, 0, 0.5),
+			inset 0 1px rgba(255, 255, 255, 0.05);
+		color: #e3ece9;
+	}
+	:global(:root[data-theme='dark'])
+		:is(.office-camera-controls button, .decor-tray button, .decorate-trigger) {
+		border-color: rgba(196, 226, 214, 0.14);
+		color: #e3ece9;
+	}
+	:global(:root[data-theme='dark'])
+		:is(.office-camera-controls button, .decor-tray button, .decorate-trigger):not(
+			:disabled
+		):hover {
+		background: rgba(196, 226, 214, 0.1);
+	}
+	:global(:root[data-theme='dark']) .person-detail :is(span, time, p) {
+		color: rgba(227, 236, 233, 0.72);
+	}
+	:global(:root[data-theme='dark']) .person-detail strong {
+		color: #eef5f2;
 	}
 
 	canvas:focus-visible {
