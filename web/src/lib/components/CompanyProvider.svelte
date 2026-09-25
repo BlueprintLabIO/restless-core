@@ -7,6 +7,7 @@
 	import CustomHarnesses from './CustomHarnesses.svelte';
 	import AgentIntelligence from './AgentIntelligence.svelte';
 	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
+	import { getCompanies, type CompanyCatalogEntry } from '$lib/model/cockpit';
 	let { companyId }: { companyId: string } = $props();
 	const intelligence = $derived(intelligenceQuery(companyId));
 	let editorOpen = $state(false);
@@ -16,6 +17,7 @@
 		credential_status: string;
 		credential_detail: string | null;
 		gateway_loaded: boolean;
+		shareable_api_key?: boolean;
 	};
 	type ProviderStatus = {
 		revision: string;
@@ -52,6 +54,44 @@
 	let edited = false;
 	let editor = $state<HTMLElement>();
 	let requestSequence = 0;
+	type ReusableConnection = {
+		id: string;
+		label: string;
+		provider: string;
+		status?: 'present' | 'absent' | 'invalid';
+		detail?: string | null;
+		companies: { id: string; name: string; in_use?: boolean }[];
+	};
+	let reusableConnections = $state<ReusableConnection[]>([]);
+	let accountError = $state('');
+	let accountBusy = $state(false);
+	let accountLoading = $state(false);
+	let addConnectionOpen = $state(false);
+	let connectionLabel = $state('');
+	let connectionProvider = $state('anthropic');
+	let connectionModel = $state('');
+	let connectionMakeDefault = $state(false);
+	let connectionSecret = $state('');
+	let grantSelection = $state('');
+	let replaceGrantId = $state('');
+	let grantMakeDefault = $state(false);
+	let grantModels = $state<Record<string, string>>({});
+	let setupCopyOpen = $state(false);
+	let setupSource = $state('');
+	let setupSections = $state(['models', 'limits']);
+	let setupPreview = $state<any>(null);
+	let setupCopyBusy = $state(false);
+	let companies = $state<CompanyCatalogEntry[]>([]);
+	let importOpen = $state(false);
+	let importSource = $state('');
+	let importProviders = $state<Connection[]>([]);
+	let importProvider = $state('');
+	let importLabel = $state('');
+	const setupSectionLabels: Record<string, string> = {
+		identity: 'Name and purpose',
+		models: 'Model choices',
+		limits: 'Spending and runtime limits'
+	};
 	const endpoint = $derived(`/api/companies/${encodeURIComponent(companyId)}/provider`);
 	const connection = $derived(status?.connections.find((c) => c.provider === selected));
 	const savedCount = $derived(status?.connections.filter((c) => c.reference).length ?? 0);
@@ -164,8 +204,241 @@
 					? 'warning'
 					: 'neutral';
 	}
+	async function refreshReusableConnections() {
+		accountLoading = true;
+		accountError = '';
+		try {
+			const [connectionResponse, companyRows] = await Promise.all([
+				fetch('/api/connections', { cache: 'no-store' }),
+				getCompanies()
+			]);
+			const body = await connectionResponse.json();
+			if (!connectionResponse.ok)
+				throw new Error(body.message ?? 'Could not load reusable connections.');
+			reusableConnections = body.connections ?? [];
+			companies = companyRows.filter((company) => company.lifecycle_status === 'active');
+		} catch (cause) {
+			accountError = cause instanceof Error ? cause.message : 'Could not load reusable connections.';
+		} finally {
+			accountLoading = false;
+		}
+	}
+	function modelChoices(provider: string) {
+		return catalog.models(provider);
+	}
+	function routeModel(provider: string, model: string) {
+		return model.startsWith(`${provider}/`) ? model : `${provider}/${model}`;
+	}
+	function keyStatus(connection: ReusableConnection) {
+		if (connection.status === 'present') return 'Key stored';
+		if (connection.status === 'invalid') return 'Key unavailable';
+		return 'Key missing';
+	}
+	function defaultModel(provider: string) {
+		const models = modelChoices(provider);
+		const model = models.find((item) => 'default' in item && item.default)?.id ?? models[0]?.id;
+		return model ? routeModel(provider, model) : '';
+	}
+	function companyName(id: string) {
+		return companies.find((company) => company.id === id)?.name ?? id;
+	}
+	function formatCopiedValue(value: unknown) {
+		if (value === null || value === undefined || value === '') return 'Not set';
+		if (Array.isArray(value)) return value.length ? value.map(String).join(', ') : 'None';
+		if (typeof value === 'object') return JSON.stringify(value);
+		return String(value);
+	}
+	function hasCountChange(changes: any[] | undefined) {
+		return (changes ?? []).some((change: any) => change.count !== undefined);
+	}
+	function modelForGrant(connection: ReusableConnection) {
+		return grantModels[connection.id] ?? defaultModel(connection.provider);
+	}
+	function beginGrant(connection: ReusableConnection) {
+		grantModels[connection.id] = defaultModel(connection.provider);
+		grantSelection = connection.id;
+		grantMakeDefault = false;
+		replaceGrantId = '';
+		accountError = '';
+	}
+	function toggleAddConnection() {
+		addConnectionOpen = !addConnectionOpen;
+		if (addConnectionOpen) {
+			connectionModel = defaultModel(connectionProvider);
+			connectionMakeDefault = false;
+			accountError = '';
+		}
+	}
+	async function requestGrant(id: string, model: string, replaceExisting = false, makeDefault = false) {
+		if (!status) throw new Error('Company settings are still loading. Try again in a moment.');
+		const response = await fetch(`/api/companies/${encodeURIComponent(companyId)}/connections/${encodeURIComponent(id)}`, {
+			method: 'POST', headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ model, make_default: makeDefault, revision: status.revision, ...(replaceExisting ? { replace_existing: true } : {}) })
+		});
+		const body = await response.json();
+		if (response.status === 409 && (body.code ?? body.error) === 'provider_conflict' && !replaceExisting) return { replaceRequired: true as const };
+		if (!response.ok) throw new Error(body.message ?? 'Could not use this connection in the company.');
+		return { replaceRequired: false as const, provider: body.provider };
+	}
+	async function createReusableConnection(event: SubmitEvent) {
+		event.preventDefault();
+		if (accountBusy) return;
+		accountBusy = true;
+		accountError = '';
+		try {
+			const response = await fetch('/api/connections', {
+				method: 'POST', headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ label: connectionLabel.trim(), provider: connectionProvider, secret: connectionSecret })
+			});
+			const body = await response.json();
+			if (!response.ok) throw new Error(body.message ?? 'Could not save this connection.');
+			const created = body.connection ?? body;
+			await refreshReusableConnections();
+			if (!status || !created.id) throw new Error('Connection saved, but could not enable it in this company yet. Choose it from Available connections to finish.');
+			const grantResult = await requestGrant(created.id, connectionModel || defaultModel(connectionProvider), false, connectionMakeDefault);
+			connectionSecret = '';
+			connectionLabel = '';
+			connectionModel = '';
+			addConnectionOpen = false;
+			await Promise.all([refreshReusableConnections(), intelligence.refresh()]);
+			if (grantResult.replaceRequired) {
+				grantSelection = created.id;
+				replaceGrantId = created.id;
+				accountError = '';
+			} else {
+				status = grantResult.provider;
+				notice = 'Connection created and made available to this company.';
+			}
+		} catch (cause) {
+			connectionSecret = '';
+			accountError = cause instanceof Error ? cause.message : 'Could not save this connection.';
+		} finally { accountBusy = false; }
+	}
+	async function grantConnection(connection: ReusableConnection) {
+		if (!status || accountBusy) return;
+		accountBusy = true;
+		accountError = '';
+		try {
+			const result = await requestGrant(connection.id, modelForGrant(connection), replaceGrantId === connection.id, grantMakeDefault);
+			if (result.replaceRequired) {
+				replaceGrantId = connection.id;
+				accountError = '';
+				return;
+			}
+			status = result.provider;
+			grantSelection = '';
+			replaceGrantId = '';
+			await Promise.all([refreshReusableConnections(), intelligence.refresh()]);
+		} catch (cause) {
+			accountError = cause instanceof Error ? cause.message : 'Could not use this connection in the company.';
+		} finally { accountBusy = false; }
+	}
+	async function revokeConnection(connection: ReusableConnection) {
+		if (!status || accountBusy) return;
+		accountBusy = true;
+		accountError = '';
+		try {
+			const response = await fetch(`/api/companies/${encodeURIComponent(companyId)}/connections/${encodeURIComponent(connection.id)}`, {
+				method: 'DELETE', headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ revision: status.revision })
+			});
+			const body = await response.json();
+			if (!response.ok) throw new Error(body.message ?? 'Could not remove this company’s access.');
+			status = body.provider;
+			await Promise.all([refreshReusableConnections(), intelligence.refresh()]);
+		} catch (cause) {
+			accountError = cause instanceof Error ? cause.message : 'Could not remove this company’s access.';
+		} finally { accountBusy = false; }
+	}
+	async function loadImportProviders() {
+		importProviders = [];
+		importProvider = '';
+		if (!importSource || importSource === companyId) return;
+		try {
+			const response = await fetch(`/api/companies/${encodeURIComponent(importSource)}/provider`, { cache: 'no-store' });
+			const body = await response.json();
+			if (!response.ok) throw new Error(body.message ?? 'Could not inspect that company.');
+			importProviders = (body.connections ?? []).filter((row: Connection) => row.shareable_api_key && row.credential_status === 'present');
+			importProvider = importProviders[0]?.provider ?? '';
+			accountError = importProviders.length ? '' : 'No available API-key connections were found in that company.';
+		} catch (cause) {
+			accountError = cause instanceof Error ? cause.message : 'Could not inspect that company.';
+		}
+	}
+	async function importReusableConnection() {
+		if (accountBusy || !importSource || !importProvider) return;
+		accountBusy = true;
+		accountError = '';
+		try {
+			const response = await fetch('/api/connections/import', {
+				method: 'POST', headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ source_company: importSource, provider: importProvider, label: importLabel.trim() || `${labels[importProvider] ?? importProvider} API` })
+			});
+			const body = await response.json();
+			if (!response.ok) throw new Error(body.message ?? 'Could not make this connection reusable.');
+			const imported = body.connection ?? body;
+			await refreshReusableConnections();
+			if (!status || !imported.id) throw new Error('Connection saved to your account, but it could not be granted to this company. Choose it from Available connections to finish.');
+			const grantResult = await requestGrant(imported.id, defaultModel(importProvider));
+			importOpen = false;
+			importSource = '';
+			importProviders = [];
+			await Promise.all([refreshReusableConnections(), intelligence.refresh()]);
+			if (grantResult.replaceRequired) {
+				grantSelection = imported.id;
+				replaceGrantId = imported.id;
+				accountError = '';
+			} else {
+				status = grantResult.provider;
+				notice = 'Connection imported and made available to this company.';
+			}
+		} catch (cause) {
+			accountError = cause instanceof Error ? cause.message : 'Could not make this connection reusable.';
+		} finally { accountBusy = false; }
+	}
+	async function previewSetupCopy() {
+		if (!setupSource || !setupSections.length || setupCopyBusy) return;
+		setupCopyBusy = true;
+		accountError = '';
+		try {
+			const response = await fetch(`/api/companies/${encodeURIComponent(companyId)}/copy-setup/preview`, {
+				method: 'POST', headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ source: setupSource, sections: setupSections })
+			});
+			const body = await response.json();
+			if (!response.ok) throw new Error(body.message ?? 'Could not preview the setup copy.');
+			setupPreview = body;
+		} catch (cause) {
+			accountError = cause instanceof Error ? cause.message : 'Could not preview the setup copy.';
+		} finally { setupCopyBusy = false; }
+	}
+	async function copySetup() {
+		if (!setupPreview || setupCopyBusy) return;
+		setupCopyBusy = true;
+		accountError = '';
+		try {
+			const response = await fetch(`/api/companies/${encodeURIComponent(companyId)}/copy-setup`, {
+				method: 'POST', headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ source: setupSource, sections: setupSections, source_revision: setupPreview.source_revision, target_revision: setupPreview.target_revision })
+			});
+			const body = await response.json();
+			if (!response.ok) throw new Error(body.message ?? 'Could not copy the selected setup.');
+			const copiedSetup = setupPreview;
+			const result = body.setup ?? copiedSetup;
+			const skipped = (result?.sections ?? []).some((section: any) => section.omitted || (section.changes ?? []).some((change: any) => change.credential_configured === false || change.omitted));
+			setupPreview = null;
+			setupCopyOpen = false;
+			await Promise.all([refresh(), intelligence.refresh()]);
+			notice = skipped
+				? 'Setup copied with unavailable model routes skipped. Review this company’s intelligence choices.'
+				: 'Selected setup copied. You can adjust it independently in this company.';
+		} catch (cause) {
+			accountError = cause instanceof Error ? cause.message : 'Could not copy the selected setup.';
+		} finally { setupCopyBusy = false; }
+	}
 	onMount(() => {
 		void refresh();
+		void refreshReusableConnections();
 		return () => {
 			++requestSequence;
 			secret = '';
@@ -175,17 +448,90 @@
 
 <svelte:head><title>Intelligence provider — Company</title></svelte:head>
 <div class="provider-page">
-	<header>
-		<h1>Intelligence provider</h1>
-		<button
-			class="btn primary small"
-			disabled={!status || busy}
-			onclick={() => {
-				choose('');
-				editorOpen = true;
-			}}>+ Add API connection</button
-		>
-	</header>
+	<section class="reuse-panel" aria-labelledby="reuse-title">
+		<div class="reuse-heading">
+			<div>
+				<h1 id="reuse-title" title="A provider API key is stored once at account level. Grant access to this company here; model choices stay company-specific.">Intelligence</h1>
+			</div>
+			<a class="account-link" href="/connections">Manage account connections <span aria-hidden="true">↗</span></a>
+		</div>
+		<div class="reuse-section-head">
+			<div><h2 title="Each company needs an explicit grant to use an account-level API connection.">Available connections</h2></div>
+			<button class="btn small" disabled={accountBusy} onclick={toggleAddConnection}>
+				{addConnectionOpen ? 'Close' : 'Add connection'}
+			</button>
+		</div>
+		{#if accountLoading}<p class="inline-status" role="status">Loading account connections…</p>
+		{:else if reusableConnections.length}
+			<div class="reuse-list">
+				{#each reusableConnections as item (item.id)}
+					{@const companyGrant = item.companies.find((company) => company.id === companyId)}
+					<div class="reuse-row">
+						<div class="reuse-identity"><strong>{item.label}</strong><span>{labels[item.provider] ?? item.provider}</span></div>
+						{#if companyGrant}
+							<span class="grant-state">Available to this company</span>
+							{#if companyGrant.in_use}<span class="grant-count" title="Choose another model for this provider before removing access.">In use</span>{:else}<button class="text-button danger" disabled={accountBusy || !status} onclick={() => revokeConnection(item)}>Remove access</button>{/if}
+						{:else if grantSelection === item.id}
+							<label class="model-picker"><span>Model for this connection</span><select aria-label={`Model for ${item.label}`} value={modelForGrant(item)} onchange={(event) => (grantModels[item.id] = event.currentTarget.value)}>
+								{#each modelChoices(item.provider) as model}<option value={routeModel(item.provider, model.id)}>{model.name ?? model.id}</option>{/each}
+							</select></label>
+							{#if status?.primary_provider === 'unconfigured'}<p class="default-note">The first usable connection becomes this company’s default.</p>{:else}<label class="default-option"><input type="checkbox" bind:checked={grantMakeDefault} /><span>Make this the company default</span></label>{/if}
+							{#if replaceGrantId === item.id}<p class="replace-confirm" role="alert">This company already has a {labels[item.provider] ?? item.provider} connection. Replace it with <strong>{item.label}</strong> here?</p><button class="btn primary small" disabled={accountBusy || !status || !modelForGrant(item) || item.status !== 'present'} onclick={() => grantConnection(item)}>{accountBusy ? 'Switching…' : 'Replace this company’s connection'}</button><button class="text-button" disabled={accountBusy} onclick={() => { replaceGrantId = ''; grantSelection = ''; }}>Keep current</button>
+							{:else}<button class="btn primary small" disabled={accountBusy || !status || !modelForGrant(item) || item.status !== 'present'} onclick={() => grantConnection(item)}>{accountBusy ? 'Saving…' : 'Use in this company'}</button>{/if}
+							<button class="text-button" disabled={accountBusy} onclick={() => { grantSelection = ''; replaceGrantId = ''; }}>Cancel</button>
+						{:else}
+							<span class="grant-count">{keyStatus(item)}{item.companies.length ? ` · used by ${item.companies.length}` : ''}</span>
+							<button class="btn primary small" disabled={accountBusy || !status || item.status !== 'present'} onclick={() => beginGrant(item)}>Use</button>
+						{/if}
+						{#if item.status !== 'present'}<span class="connection-unavailable" title={item.detail ?? 'Check or replace this API key from account connections.'}>Unavailable</span>{/if}
+					</div>
+				{/each}
+			</div>
+		{:else}
+			<div class="reuse-empty"><p>No reusable API connections yet.</p><span>Save one here or bring an existing company connection into your account.</span></div>
+		{/if}
+		{#if addConnectionOpen}
+			<form class="add-form" onsubmit={createReusableConnection}>
+				<h3>Save an API connection</h3>
+				<div class="form-grid"><label>Provider<select bind:value={connectionProvider} onchange={() => (connectionModel = defaultModel(connectionProvider))}>{#each Object.entries(labels).filter(([id]) => id !== 'openai-codex') as [id, label]}<option value={id}>{label}</option>{/each}</select></label>
+					<label>Name<input bind:value={connectionLabel} placeholder="e.g. Anthropic team key" required maxlength="80" /></label>
+					<label class="wide">API key<input type="password" bind:value={connectionSecret} autocomplete="new-password" placeholder="Paste API key" required /></label>
+					<label class="wide">Model<select bind:value={connectionModel}><option value="">Choose a model…</option>{#each modelChoices(connectionProvider) as model}<option value={routeModel(connectionProvider, model.id)}>{model.name ?? model.id}</option>{/each}</select></label>
+					{#if status?.primary_provider === 'unconfigured'}<p class="default-note wide">The first usable connection becomes this company’s default.</p>{:else}<label class="default-option wide"><input type="checkbox" bind:checked={connectionMakeDefault} /><span>Make this the company default</span></label>{/if}
+				</div>
+				<div class="inline-actions"><button class="btn primary small" disabled={accountBusy}>{accountBusy ? 'Saving…' : 'Save connection'}</button><button class="text-button" type="button" disabled={accountBusy} onclick={() => { addConnectionOpen = false; connectionSecret = ''; }}>Cancel</button></div>
+				<p class="form-note">One API key per provider is shared across companies. Each company needs its own grant. This is a stored key check, not a provider sign-in test.</p>
+			</form>
+		{/if}
+		{#if !importOpen}
+			<button class="text-button import-link" disabled={accountBusy || companies.filter((company) => company.id !== companyId).length === 0} onclick={() => { importOpen = true; accountError = ''; }}>Bring in an API connection from another company</button>
+		{:else}
+			<div class="import-form"><h3>Bring in an existing connection</h3><p>Restless creates an account-level copy of the key. The original company keeps its connection. Only one API key per provider can be used across companies.</p>
+				<label>Source company<select bind:value={importSource} onchange={() => void loadImportProviders()}><option value="">Choose a company…</option>{#each companies.filter((company) => company.id !== companyId) as company}<option value={company.id}>{company.name}</option>{/each}</select></label>
+				{#if importProviders.length}<label>API connection<select bind:value={importProvider} onchange={() => (importLabel = '')}>{#each importProviders as item}<option value={item.provider}>{labels[item.provider] ?? item.provider}</option>{/each}</select></label><label>Name<input bind:value={importLabel} placeholder="Optional name" maxlength="80" /></label>{/if}
+				<div class="inline-actions"><button class="btn primary small" disabled={accountBusy || !importProvider} onclick={() => void importReusableConnection()}>{accountBusy ? 'Importing…' : 'Save as reusable connection'}</button><button class="text-button" disabled={accountBusy} onclick={() => { importOpen = false; importSource = ''; importProviders = []; }}>Cancel</button></div>
+			</div>
+		{/if}
+		<div class="copy-setup">
+			<div class="copy-summary"><div><strong>Copy setup from another company</strong><span>One-time copy. The companies remain independent.</span></div><button class="text-button" onclick={() => { setupCopyOpen = !setupCopyOpen; setupPreview = null; accountError = ''; }}>{setupCopyOpen ? 'Close' : 'Choose setup'}</button></div>
+			{#if setupCopyOpen}
+				<div class="copy-form"><label>Copy from<select bind:value={setupSource} onchange={() => (setupPreview = null)}><option value="">Choose a company…</option>{#each companies.filter((company) => company.id !== companyId) as company}<option value={company.id}>{company.name}</option>{/each}</select></label>
+					<fieldset><legend>Choose what to copy</legend>{#each Object.entries(setupSectionLabels) as [id, label]}<label class="check-option"><input type="checkbox" checked={setupSections.includes(id)} onchange={(event) => { setupSections = event.currentTarget.checked ? [...setupSections, id] : setupSections.filter((section) => section !== id); setupPreview = null; }} /><span><strong>{label}</strong>{#if id === 'models'}<small>Model routes copy only where this company has that provider connection. API keys and native sign-ins are not copied.</small>{/if}</span></label>{/each}</fieldset>
+					{#if !setupPreview}<button class="btn small" disabled={!setupSource || !setupSections.length || setupCopyBusy} onclick={() => void previewSetupCopy()}>{setupCopyBusy ? 'Preparing preview…' : 'Preview changes'}</button>{/if}
+					{#if setupPreview}<div class="copy-preview"><h3>Review the one-time copy</h3><p class="preview-context">Copying from <strong>{companyName(setupSource)}</strong> to <strong>{companyName(companyId)}</strong>. Changes will not sync later.</p>{#each setupPreview.sections ?? [] as section}<div class="preview-section"><strong>{section.label ?? setupSectionLabels[section.id] ?? section.id}</strong>{#if section.summary}<span>{section.summary}</span>{/if}{#each section.changes ?? [] as change}{#if typeof change === 'string'}<small>{change}</small>{:else if change.count !== undefined}<small>{change.count} {change.label ?? 'model routes'} copied · {change.omitted ?? 0} skipped{#if change.preserved} · Existing choices stay as-is{/if}</small>{:else}<div class="change-row"><span>{change.label ?? 'Setting'}</span><span class:unavailable={change.credential_configured === false}>{#if change.credential_configured === false}{change.to ? 'Provider connection missing; this choice will be skipped' : 'No default model selected in the source company'}{:else}{formatCopiedValue(change.from)} <span aria-hidden="true">→</span> {formatCopiedValue(change.to)}{/if}</span></div>{/if}{/each}{#if section.omitted !== undefined && !(section.changes ?? []).some((change: any) => change.count !== undefined)}<small class="omission">{section.omitted} routes skipped{#if section.preserved} · Existing choices stay as-is{/if}</small>{/if}</div>{/each}<div class="inline-actions"><button class="btn primary small" disabled={setupCopyBusy} onclick={() => void copySetup()}>{setupCopyBusy ? 'Copying…' : 'Copy selected setup'}</button><button class="text-button" disabled={setupCopyBusy} onclick={() => (setupPreview = null)}>Back</button></div></div>{/if}
+					<p class="form-note">Names and purpose, model choices, and selected limits are copied once. Future edits do not sync.</p>
+				</div>
+			{/if}
+		</div>
+		{#if accountError}<p class="inline-error" role="alert">{accountError}</p>{/if}
+	</section>
+	<details class="company-only-settings">
+		<summary>Company-only API connections</summary>
+		<p>These keys belong only to this company. Use account connections above when several companies need the same provider.</p>
+		<header>
+			<h2>Company-specific connections</h2>
+			<button class="btn small" disabled={!status || busy} onclick={() => { choose(''); editorOpen = true; }}>Add company-only connection</button>
+		</header>
 	<div class="storage">
 		<span
 			class:good={status?.infisical_status === 'present'}
@@ -308,9 +654,8 @@
 			</form>
 		</section>
 	{/if}
-	{#if error}<p role="alert">{error}</p>{/if}{#if notice}<p class="notice" role="status">
-			{notice}
-		</p>{/if}
+	</details>
+	{#if error}<p role="alert">{error}</p>{/if}{#if notice}<p class="notice" role="status">{notice}</p>{/if}
 	<div
 		class="catalog-status"
 		title="Model suggestions refresh hourly from models.dev. Catalog inclusion does not confirm account access or harness compatibility. Local gateways keep bundled suggestions and custom IDs. Saved model choices are never changed automatically."
@@ -331,8 +676,8 @@
 		>
 	</div>
 	<section id="harnesses" class="harness-section">
-		<h2 title="Native sign-in is independent of direct API connections.">
-			Subscription connections
+		<h2 title="These sign-ins stay with this company and are separate from account API connections.">
+			Native sign-ins
 		</h2>
 		<HarnessConnections {companyId} />
 	</section>
@@ -351,6 +696,122 @@
 		overflow-y: auto;
 		box-sizing: border-box;
 	}
+	.reuse-panel {
+		padding: var(--space-5);
+		margin-bottom: var(--space-6);
+		background: var(--surface-pane);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-pane);
+		box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 4%, transparent);
+	}
+	.reuse-heading,
+	.reuse-section-head,
+	.copy-summary,
+	.inline-actions,
+	.copy-summary > div,
+	.reuse-row,
+	.reuse-identity,
+	.grant-state,
+	.grant-count {
+		display: flex;
+		align-items: center;
+	}
+	.reuse-heading,
+	.reuse-section-head,
+	.copy-summary,
+	.reuse-row {
+		justify-content: space-between;
+		gap: var(--space-4);
+	}
+	.reuse-heading { align-items: flex-start; }
+	.reuse-heading h1 { margin: 0; font-size: var(--t-title); }
+	.copy-summary span,
+	.reuse-empty span,
+	.form-note,
+	.import-form > p {
+		display: block;
+		margin: var(--space-1) 0 0;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+		line-height: 1.5;
+	}
+	.account-link {
+		flex: none;
+		padding: var(--space-2) 0;
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+		text-decoration: none;
+	}
+	.account-link:hover { color: var(--intent-conversation); }
+	.reuse-section-head {
+		margin-top: var(--space-5);
+		padding-block: var(--space-3);
+		border-top: 1px solid var(--border);
+	}
+	.reuse-section-head h2 { margin: 0; font-size: var(--t-head); }
+	.reuse-list { border-top: 1px solid var(--border); }
+	.reuse-row {
+		min-height: 56px;
+		padding-block: var(--space-2);
+		border-bottom: 1px solid var(--border);
+		flex-wrap: wrap;
+	}
+	.reuse-identity { gap: var(--space-3); min-width: 160px; }
+	.reuse-identity span,
+	.grant-count,
+	.grant-state { color: var(--text-tertiary); font-size: var(--t-label); }
+	.grant-state { color: var(--state-success); }
+	.model-picker { display: flex; align-items: center; gap: var(--space-2); color: var(--text-secondary); font-size: var(--t-label); }
+	.model-picker select { width: auto; min-width: 180px; }
+	.default-option { display: flex; align-items: center; gap: var(--space-2); color: var(--text-secondary); font-size: var(--t-label); }
+	.default-option input { width: 16px; min-height: 16px; height: 16px; padding: 0; accent-color: var(--intent-conversation); }
+	.default-note { flex: 1 1 100%; margin: 0; color: var(--text-tertiary); font-size: var(--t-label); }
+	.reuse-empty { padding: var(--space-4) 0; }
+	.reuse-empty p { margin: 0; color: var(--text-secondary); }
+	.replace-confirm { flex: 1 1 100%; margin: 0; color: var(--company-amber); font-size: var(--t-label); line-height: 1.45; }
+	.add-form,
+	.import-form,
+	.copy-form {
+		padding: var(--space-4);
+		margin-top: var(--space-3);
+		background: var(--surface-alt);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-control);
+	}
+	.add-form h3,
+	.import-form h3,
+	.copy-preview h3 { margin: 0 0 var(--space-3); font-size: var(--t-head); }
+	.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+	.form-grid label,
+	.import-form > label,
+	.copy-form > label { display: grid; gap: var(--space-1); color: var(--text-secondary); font-size: var(--t-label); }
+	.form-grid .wide { grid-column: 1 / -1; }
+	.inline-actions { flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
+	.form-note { margin-top: var(--space-2); }
+	.import-link { margin-top: var(--space-3); color: var(--text-secondary); }
+	.import-form > label { margin-top: var(--space-3); }
+	.copy-setup { margin-top: var(--space-4); border-top: 1px solid var(--border); }
+	.copy-summary { min-height: 56px; }
+	.copy-summary > div { flex-direction: column; align-items: flex-start; gap: 2px; }
+	.copy-summary strong { font-size: var(--t-label); }
+	.copy-form { margin-bottom: var(--space-2); }
+	.copy-form fieldset { display: grid; gap: var(--space-2); padding: var(--space-3); margin: var(--space-3) 0; border: 1px solid var(--border); border-radius: var(--radius-control); }
+	.copy-form legend { padding-inline: var(--space-1); color: var(--text-secondary); font-size: var(--t-label); }
+	.check-option { display: flex; align-items: flex-start; gap: var(--space-2); color: var(--text-primary); }
+	.check-option input { width: 16px; min-height: 16px; height: 16px; padding: 0; margin-top: 3px; accent-color: var(--intent-conversation); }
+	.check-option span { display: grid; gap: 2px; }
+	.check-option strong { font-size: var(--t-label); font-weight: 500; }
+	.check-option small { color: var(--text-tertiary); line-height: 1.4; }
+	.copy-preview { padding-top: var(--space-3); }
+	.preview-context { margin: 0 0 var(--space-3); }
+	.preview-section { display: grid; gap: 3px; padding-block: var(--space-2); border-top: 1px solid var(--border); }
+	.change-row { display: flex; justify-content: space-between; gap: var(--space-3); font-size: var(--t-label); }
+	.change-row > span:last-child { text-align: right; color: var(--text-secondary); }
+	.change-row .unavailable, .omission { color: var(--company-amber); }
+	.preview-section span,
+	.preview-section small { color: var(--text-secondary); font-size: var(--t-label); line-height: 1.45; }
+	.inline-status { color: var(--text-tertiary); }
+	.inline-error { padding: var(--space-3); color: var(--state-danger); background: color-mix(in srgb, var(--state-danger) 7%, var(--surface-pane)); border-radius: var(--radius-control); }
 	header,
 	.storage,
 	.actions,
@@ -502,8 +963,18 @@
 		.provider-page {
 			padding: var(--space-4);
 		}
+		.reuse-panel { padding: var(--space-4); }
 		.connection-editor {
 			padding: var(--space-4);
 		}
+		.reuse-heading,
+		.reuse-section-head { align-items: flex-start; }
+		.reuse-heading { flex-direction: column; }
+		.reuse-row { align-items: flex-start; }
+		.reuse-identity { flex: 1 1 100%; }
+		.model-picker { flex: 1 1 100%; align-items: flex-start; flex-direction: column; }
+		.model-picker select { width: 100%; }
+		.form-grid { grid-template-columns: 1fr; }
+		.form-grid .wide { grid-column: auto; }
 	}
 </style>

@@ -20,22 +20,23 @@
 	const computerSurface = $derived(page.url.pathname === `/${companyId}/company/computer`);
 	const principal = $derived(companyPrincipalQuery(companyId).view);
 	const allRoutes = $derived([
-		{ label: 'Intelligence provider', href: `/${companyId}/company/provider`, icon: Settings },
-		{ label: 'Vault', href: `/${companyId}/company/vault`, icon: KeyRound },
-		{ label: 'Charter', href: `/${companyId}/company`, exact: true, icon: BookOpen },
-		{ label: 'Identity', href: `/${companyId}/company/identity`, icon: Fingerprint },
-		{ label: 'Members', href: `/${companyId}/company/members`, icon: Users },
-		{ label: 'Skills', href: `/${companyId}/company/skills`, icon: Sparkles },
-		{ label: 'Schedules', href: `/${companyId}/company/schedules`, icon: Activity },
+		{ section: 'Setup', label: 'Charter', href: `/${companyId}/company`, exact: true, icon: BookOpen },
+		{ section: 'Setup', label: 'Identity', href: `/${companyId}/company/identity`, icon: Fingerprint },
+		{ section: 'Setup', label: 'Members', href: `/${companyId}/company/members`, icon: Users },
+		{ section: 'Setup', label: 'Skills', href: `/${companyId}/company/skills`, icon: Sparkles },
+		{ section: 'Setup', label: 'Intelligence', href: `/${companyId}/company/provider`, icon: Settings },
+		{ section: 'Setup', label: 'Vault', href: `/${companyId}/company/vault`, icon: KeyRound },
+		{ section: 'Operations', label: 'Schedules', href: `/${companyId}/company/schedules`, icon: Activity },
 		{
+			section: 'Operations',
 			label: 'Access & limits',
 			href: `/${companyId}/company/resources`,
 			icon: ShieldCheck
 		},
-		{ label: 'Computer', href: `/${companyId}/company/computer`, icon: Monitor },
-		{ label: 'Doctor', href: `/${companyId}/company/doctor`, icon: Activity },
-		{ label: 'Decision history', href: `/${companyId}/company/decisions`, icon: ListChecks },
-		{ label: 'External activity', href: `/${companyId}/company/actions`, icon: RadioTower }
+		{ section: 'Operations', label: 'Computer', href: `/${companyId}/company/computer`, icon: Monitor },
+		{ section: 'Activity', label: 'Doctor', href: `/${companyId}/company/doctor`, icon: Activity },
+		{ section: 'Activity', label: 'Decision history', href: `/${companyId}/company/decisions`, icon: ListChecks },
+		{ section: 'Activity', label: 'External activity', href: `/${companyId}/company/actions`, icon: RadioTower }
 	]);
 	// Administrators see only the access they manage; the rest is the owner's.
 	const routes = $derived(
@@ -82,11 +83,11 @@
 				</select>
 			</label>
 			<nav aria-label="Company">
-				{#each routes as route (route.href)}
+				{#each routes as route, index (route.href)}
 					{@const RouteIcon = route.icon}
+					{#if index === 0 || routes[index - 1].section !== route.section}<div class="company-nav-group">{route.section}</div>{/if}
 					<a
 						class:active={active(route)}
-						class:history-start={route.label === 'Decision history'}
 						href={route.href}
 						title={route.label}
 						aria-current={active(route) ? 'page' : undefined}
@@ -105,9 +106,16 @@
 	.company-mobile-nav {
 		display: none;
 	}
-	:global(.company-spine nav a.history-start) {
-		margin-top: var(--space-4);
-		border-top-color: var(--border-strong);
+	:global(.company-spine nav .company-nav-group) {
+		padding: var(--space-3) var(--space-3) var(--space-1);
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+		font-weight: 600;
+		letter-spacing: 0.02em;
+	}
+	:global(.company-spine nav .company-nav-group:not(:first-child)) {
+		margin-top: var(--space-2);
+		border-top: 1px solid var(--border);
 	}
 	@media (max-width: 640px) {
 		.company-mobile-nav {

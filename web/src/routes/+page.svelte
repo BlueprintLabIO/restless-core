@@ -89,6 +89,7 @@
 		</a>
 		{#if loaded}
 			<div class="tb-right">
+				<a class="connections-link" href="/connections">Connections</a>
 				<CreateCompany />
 			</div>
 		{/if}
@@ -215,6 +216,16 @@
 </div>
 
 <style>
+	.connections-link {
+		padding: var(--space-2) var(--space-3);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-control);
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+		text-decoration: none;
+	}
+	.connections-link:hover { border-color: var(--intent-conversation); color: var(--intent-conversation); }
+
 	.appliance-notice {
 		display: grid;
 		grid-template-columns: max-content 1fr;

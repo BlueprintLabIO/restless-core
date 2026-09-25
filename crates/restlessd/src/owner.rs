@@ -1325,6 +1325,20 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
     let api = Router::new()
         .route("/appliance", get(appliance_status))
         .route("/companies", get(company_catalog).post(create_company))
+        .route(
+            "/connections",
+            get(list_owner_connections).post(create_owner_connection),
+        )
+        .route("/connections/import", post(import_owner_connection))
+        .route(
+            "/companies/{company}/connections/{connection}",
+            post(grant_owner_connection).delete(revoke_owner_connection),
+        )
+        .route(
+            "/companies/{company}/copy-setup/preview",
+            post(preview_company_setup_copy),
+        )
+        .route("/companies/{company}/copy-setup", post(copy_company_setup))
         .route("/companies/{company}/principal", get(company_principal))
         .route(
             "/companies/{company}/setup",
@@ -2784,8 +2798,13 @@ async fn provider_view(config: &runtime::CompanyConfig) -> serde_json::Value {
         let reference = config.credentials.get(&format!("model.inference.{provider}"))
             .or_else(|| if provider == primary { config.credentials.get("model.inference") } else { None });
         let probe = match reference { Some(reference) => Some(credential::probe_reference(reference).await), None => None };
+        let shareable_api_key = reference.is_some_and(|reference| {
+            (reference.starts_with("infisical:") && !reference.starts_with("infisical:/owner/model-connections/"))
+                || reference.starts_with("env:")
+        });
         serde_json::json!({
-            "provider": provider, "reference": reference,
+            "provider": provider, "reference": reference.filter(|reference| !reference.starts_with("infisical:/owner/model-connections/")),
+            "shareable_api_key": shareable_api_key,
             "credential_status": probe.as_ref().map(|p| p.status.as_str()).unwrap_or("absent"),
             "credential_detail": probe.and_then(|p| p.detail),
             "gateway_loaded": model_gateway::billing_for_model(&format!("{provider}/status")).is_ok(),
@@ -2952,6 +2971,877 @@ async fn update_company_provider(
         );
     }
     Json(provider_view(&config).await).into_response()
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OwnerModelConnection {
+    id: String,
+    label: String,
+    provider: String,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OwnerModelConnections {
+    connections: Vec<OwnerModelConnection>,
+}
+
+fn owner_connections_path(root: &std::path::Path) -> PathBuf {
+    root.join("owner-model-connections.json")
+}
+
+fn load_owner_connections(root: &std::path::Path) -> Result<OwnerModelConnections> {
+    let path = owner_connections_path(root);
+    match std::fs::symlink_metadata(&path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Ok(OwnerModelConnections::default())
+        }
+        Err(error) => Err(error.into()),
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
+            bail!("owner connection registry must be a regular file")
+        }
+        Ok(metadata) => {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt as _;
+                if metadata.permissions().mode() & 0o077 != 0 {
+                    bail!("owner connection registry permissions must be private")
+                }
+            }
+            let bytes = std::fs::read(&path)?;
+            serde_json::from_slice(&bytes).context("parse owner connection registry")
+        }
+    }
+}
+
+fn save_owner_connections(root: &std::path::Path, registry: &OwnerModelConnections) -> Result<()> {
+    let path = owner_connections_path(root);
+    let bytes = serde_json::to_vec_pretty(registry)?;
+    let temporary = root.join(format!(".owner-model-connections-{}.tmp", Uuid::new_v4()));
+    let result = (|| -> Result<()> {
+        use std::io::Write as _;
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&temporary)?;
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+        std::fs::rename(&temporary, &path)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
+}
+
+fn model_connection_reference(id: &str) -> String {
+    format!("infisical:/owner/model-connections/{id}/API_KEY")
+}
+
+fn valid_provider_id(provider: &str) -> bool {
+    !provider.is_empty()
+        && provider.len() <= 80
+        && provider
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"-_.".contains(&byte))
+}
+
+fn safe_connection_summary(
+    connection: &OwnerModelConnection,
+    companies: Vec<serde_json::Value>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "id": connection.id,
+        "label": connection.label,
+        "provider": connection.provider,
+        "companies": companies,
+    })
+}
+
+fn companies_using_owner_connection(
+    root: &std::path::Path,
+    connection: &OwnerModelConnection,
+) -> Vec<serde_json::Value> {
+    let reference = model_connection_reference(&connection.id);
+    crate::configured_companies(root)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|name| {
+            let config = runtime::CompanyConfig::load(root, &name).ok()?;
+            let granted = config
+                .credentials
+                .get(&format!("model.inference.{}", connection.provider))
+                .is_some_and(|stored| stored == &reference);
+            if !granted {
+                return None;
+            }
+            let in_use = company_connection_is_assigned(&config, &connection.provider);
+            Some(serde_json::json!({
+                "id": config.name,
+                "name": config.display_name.unwrap_or_else(|| company_display_name(&config.name)),
+                "in_use": in_use,
+            }))
+        })
+        .collect()
+}
+
+fn company_connection_is_assigned(config: &runtime::CompanyConfig, provider: &str) -> bool {
+    config.model.split('/').next() == Some(provider)
+        || config
+            .model_failover
+            .iter()
+            .any(|model| model.split('/').next() == Some(provider))
+        || config
+            .agent_intelligence
+            .values()
+            .any(|route| route.connection == format!("direct:{provider}"))
+}
+
+async fn list_owner_connections(State(state): State<OwnerState>) -> Response<Body> {
+    if state.entry.network().is_some() {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "connections",
+            "Manage model connections through your account provider.",
+        );
+    }
+    let registry = match load_owner_connections(&state.daemon.root) {
+        Ok(registry) => registry,
+        Err(_) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "connections",
+                "Could not read saved connections.",
+            )
+        }
+    };
+    let connections =
+        futures_util::future::join_all(registry.connections.iter().map(|connection| async {
+            let mut summary = safe_connection_summary(
+                connection,
+                companies_using_owner_connection(&state.daemon.root, connection),
+            );
+            let probe =
+                credential::probe_reference(&model_connection_reference(&connection.id)).await;
+            summary["status"] = serde_json::Value::String(probe.status.as_str().to_string());
+            if probe.status == credential::ProbeStatus::Absent {
+                summary["detail"] = serde_json::Value::String(
+                    "The key is missing from the account vault.".to_string(),
+                );
+            } else if probe.status == credential::ProbeStatus::Invalid {
+                summary["detail"] = serde_json::Value::String(
+                    "The account vault could not be checked. Try again.".to_string(),
+                );
+            }
+            summary
+        }))
+        .await;
+    Json(serde_json::json!({"connections": connections})).into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CreateOwnerConnectionInput {
+    label: String,
+    provider: String,
+    secret: String,
+}
+
+async fn create_owner_connection(
+    State(state): State<OwnerState>,
+    Json(input): Json<CreateOwnerConnectionInput>,
+) -> Response<Body> {
+    if state.entry.network().is_some() {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "connections",
+            "Manage model connections through your account provider.",
+        );
+    }
+    let label = input.label.trim();
+    let provider = input.provider.trim();
+    if label.is_empty()
+        || label.len() > 80
+        || !valid_provider_id(provider)
+        || input.secret.trim().is_empty()
+        || input.secret.len() > 32768
+    {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "connections",
+            "Enter a label up to 80 characters, a valid provider ID, and an API key up to 32 KB.",
+        );
+    }
+    let _write = state.charter_writes.lock().await;
+    let mut registry = match load_owner_connections(&state.daemon.root) {
+        Ok(registry) => registry,
+        Err(_) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "connections",
+                "Could not read saved connections.",
+            )
+        }
+    };
+    let connection = OwnerModelConnection {
+        id: Uuid::new_v4().simple().to_string(),
+        label: label.to_string(),
+        provider: provider.to_string(),
+    };
+    let reference = model_connection_reference(&connection.id);
+    if credential::store_reference(&reference, &input.secret)
+        .await
+        .is_err()
+    {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "connections",
+            "Could not save the API key in the configured secret store.",
+        );
+    }
+    registry.connections.push(connection.clone());
+    if save_owner_connections(&state.daemon.root, &registry).is_err() {
+        return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "The API key was saved, but its connection could not be registered. Retry after checking the host state.");
+    }
+    Json(serde_json::json!({"connection": safe_connection_summary(&connection, vec![])}))
+        .into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ImportOwnerConnectionInput {
+    source_company: String,
+    provider: String,
+    label: String,
+}
+
+async fn import_owner_connection(
+    State(state): State<OwnerState>,
+    Json(input): Json<ImportOwnerConnectionInput>,
+) -> Response<Body> {
+    if state.entry.network().is_some() {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "connections",
+            "Manage model connections through your account provider.",
+        );
+    }
+    let provider = input.provider.trim();
+    let label = input.label.trim();
+    if !valid_provider_id(provider) || label.is_empty() || label.len() > 80 {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "connections",
+            "Enter a valid provider ID and a label up to 80 characters.",
+        );
+    }
+    let source = match runtime::CompanyConfig::load(&state.daemon.root, input.source_company.trim())
+    {
+        Ok(config) => config,
+        Err(_) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "company",
+                "Source company does not exist.",
+            )
+        }
+    };
+    let source_reference = source
+        .credentials
+        .get(&format!("model.inference.{provider}"))
+        .or_else(|| {
+            if source.model.split('/').next() == Some(provider) {
+                source.credentials.get("model.inference")
+            } else {
+                None
+            }
+        });
+    let Some(source_reference) = source_reference else {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "connections",
+            "That company has no saved API credential for this provider.",
+        );
+    };
+    if source_reference.starts_with("omp-oauth:") {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "connections",
+            "Native sign-in connections stay private to their company and cannot be copied.",
+        );
+    }
+    let secret = match credential::resolve_reference(source_reference).await {
+        Ok(secret) if !secret.trim().is_empty() => secret,
+        _ => {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "connections",
+                "The source company credential could not be read. Reconnect it before sharing.",
+            )
+        }
+    };
+    let _write = state.charter_writes.lock().await;
+    let mut registry = match load_owner_connections(&state.daemon.root) {
+        Ok(registry) => registry,
+        Err(_) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "connections",
+                "Could not read saved connections.",
+            )
+        }
+    };
+    let connection = OwnerModelConnection {
+        id: Uuid::new_v4().simple().to_string(),
+        label: label.to_string(),
+        provider: provider.to_string(),
+    };
+    let reference = model_connection_reference(&connection.id);
+    if credential::store_reference(&reference, &secret)
+        .await
+        .is_err()
+    {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "connections",
+            "Could not copy the credential into the owner secret store.",
+        );
+    }
+    registry.connections.push(connection.clone());
+    if save_owner_connections(&state.daemon.root, &registry).is_err() {
+        return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "The credential was copied, but its connection could not be registered. Retry after checking the host state.");
+    }
+    Json(serde_json::json!({"connection": safe_connection_summary(&connection, vec![])}))
+        .into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GrantOwnerConnectionInput {
+    model: String,
+    revision: String,
+    #[serde(default)]
+    replace_existing: bool,
+    #[serde(default)]
+    make_default: bool,
+}
+
+fn constant_time_secret_match(left: &str, right: &str) -> bool {
+    use hmac::{Hmac, Mac as _};
+    let mut expected = Hmac::<Sha256>::new_from_slice(b"restless provider credential comparison")
+        .expect("HMAC accepts keys of any size");
+    expected.update(left.as_bytes());
+    let expected = expected.finalize().into_bytes();
+    let mut candidate = Hmac::<Sha256>::new_from_slice(b"restless provider credential comparison")
+        .expect("HMAC accepts keys of any size");
+    candidate.update(right.as_bytes());
+    candidate.verify_slice(&expected).is_ok()
+}
+
+async fn provider_credential_conflicts_with_other_companies(
+    root: &std::path::Path,
+    company: &str,
+    provider: &str,
+    proposed_secret: &str,
+) -> Result<bool> {
+    let binding = format!("model.inference.{provider}");
+    for other_name in crate::configured_companies(root)? {
+        if other_name == company {
+            continue;
+        }
+        let Ok(other) = runtime::CompanyConfig::load(root, &other_name) else {
+            continue;
+        };
+        let reference = other.credentials.get(&binding).or_else(|| {
+            (other.model.split('/').next() == Some(provider))
+                .then(|| other.credentials.get("model.inference"))
+                .flatten()
+        });
+        let Some(reference) = reference else {
+            continue;
+        };
+        let Ok(secret) = credential::resolve_reference(reference).await else {
+            // The model gateway also excludes an unavailable credential from
+            // provider admission, so it cannot conflict with this live key.
+            continue;
+        };
+        if !constant_time_secret_match(proposed_secret, &secret) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+async fn grant_owner_connection(
+    State(state): State<OwnerState>,
+    AxumPath((company, id)): AxumPath<(String, String)>,
+    Json(input): Json<GrantOwnerConnectionInput>,
+) -> Response<Body> {
+    if state.entry.network().is_some() {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "connections",
+            "Manage model connections through your account provider.",
+        );
+    }
+    let _write = state.charter_writes.lock().await;
+    let registry = match load_owner_connections(&state.daemon.root) {
+        Ok(registry) => registry,
+        Err(_) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "connections",
+                "Could not read saved connections.",
+            )
+        }
+    };
+    let Some(connection) = registry
+        .connections
+        .iter()
+        .find(|connection| connection.id == id)
+    else {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "connections",
+            "Connection does not exist.",
+        );
+    };
+    let mut config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => config,
+        Err(_) => return api_error(StatusCode::NOT_FOUND, "company", "Company does not exist."),
+    };
+    if company_setup_view(&config)["revision"].as_str() != Some(input.revision.as_str()) {
+        return api_error(
+            StatusCode::CONFLICT,
+            "provider_revision",
+            "Company settings changed. Refresh and try again.",
+        );
+    }
+    let has_configured_default =
+        config.configured_model().is_some() || config.agent_intelligence.contains_key("default");
+    let should_make_default = !has_configured_default || input.make_default;
+    if should_make_default
+        && (!input
+            .model
+            .starts_with(&format!("{}/", connection.provider))
+            || input.model.len() > 200
+            || input.model.chars().any(char::is_whitespace))
+    {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "connections",
+            "Choose a model for this provider before making it the company default.",
+        );
+    }
+    let binding = format!("model.inference.{}", connection.provider);
+    let existing = config.credentials.get(&binding);
+    let reference = model_connection_reference(&connection.id);
+    let legacy_primary_reference = (config.model.split('/').next()
+        == Some(connection.provider.as_str()))
+    .then(|| config.credentials.get("model.inference"))
+    .flatten();
+    let had_legacy_primary_reference = legacy_primary_reference.is_some();
+    let existing_reference = existing.or(legacy_primary_reference);
+    let has_different_existing = existing_reference.is_some_and(|stored| stored != &reference);
+    if has_different_existing && !input.replace_existing {
+        return api_error(StatusCode::CONFLICT, "provider_conflict", "This company already has a credential for that provider. Confirm replacing this company's provider key to continue.");
+    }
+    let proposed_secret = match credential::resolve_reference(&reference).await {
+        Ok(secret) if !secret.trim().is_empty() => secret,
+        _ => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "connections",
+                "The saved API key is unavailable in the host secret store.",
+            )
+        }
+    };
+    match provider_credential_conflicts_with_other_companies(
+        &state.daemon.root,
+        &company,
+        &connection.provider,
+        &proposed_secret,
+    )
+    .await
+    {
+        Ok(true) => return api_error(StatusCode::CONFLICT, "account_provider_conflict", "This account currently uses one API key per provider across companies. Another company has a different key for this provider."),
+        Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "Could not verify provider access across the account."),
+        Ok(false) => {}
+    }
+    config.credentials.insert(binding, reference);
+    if had_legacy_primary_reference {
+        config.credentials.remove("model.inference");
+    }
+    if should_make_default {
+        config.agent_intelligence.insert(
+            "default".into(),
+            runtime::AgentIntelligence {
+                connection: format!("direct:{}", connection.provider),
+                model: input.model.clone(),
+            },
+        );
+        config.model = input.model;
+    }
+    if runtime::CompanyConfig::save(&state.daemon.root, &config).is_err() {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "connections",
+            "Could not grant this connection to the company.",
+        );
+    }
+    Json(serde_json::json!({"connection": safe_connection_summary(connection, vec![serde_json::json!({"id":config.name,"name":config.display_name.clone().unwrap_or_else(|| company_display_name(&config.name))})]), "replaced_existing":has_different_existing, "made_default":should_make_default, "provider":provider_view(&config).await})).into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RevokeOwnerConnectionInput {
+    revision: String,
+}
+
+async fn revoke_owner_connection(
+    State(state): State<OwnerState>,
+    AxumPath((company, id)): AxumPath<(String, String)>,
+    Json(input): Json<RevokeOwnerConnectionInput>,
+) -> Response<Body> {
+    if state.entry.network().is_some() {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "connections",
+            "Manage model connections through your account provider.",
+        );
+    }
+    let _write = state.charter_writes.lock().await;
+    let registry = match load_owner_connections(&state.daemon.root) {
+        Ok(registry) => registry,
+        Err(_) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "connections",
+                "Could not read saved connections.",
+            )
+        }
+    };
+    let Some(connection) = registry
+        .connections
+        .iter()
+        .find(|connection| connection.id == id)
+    else {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "connections",
+            "Connection does not exist.",
+        );
+    };
+    let mut config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => config,
+        Err(_) => return api_error(StatusCode::NOT_FOUND, "company", "Company does not exist."),
+    };
+    if company_setup_view(&config)["revision"].as_str() != Some(input.revision.as_str()) {
+        return api_error(
+            StatusCode::CONFLICT,
+            "provider_revision",
+            "Company settings changed. Refresh and try again.",
+        );
+    }
+    let binding = format!("model.inference.{}", connection.provider);
+    if config.credentials.get(&binding) != Some(&model_connection_reference(&connection.id)) {
+        return api_error(
+            StatusCode::CONFLICT,
+            "connections",
+            "This connection is not currently granted to that company.",
+        );
+    }
+    if company_connection_is_assigned(&config, &connection.provider) {
+        return api_error(
+            StatusCode::CONFLICT,
+            "connection_in_use",
+            "Choose another model connection for this company before removing the current one.",
+        );
+    }
+    config.credentials.remove(&binding);
+    if runtime::CompanyConfig::save(&state.daemon.root, &config).is_err() {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "connections",
+            "Could not remove this company grant.",
+        );
+    }
+    Json(serde_json::json!({"revoked":true,"provider":provider_view(&config).await}))
+        .into_response()
+}
+
+fn company_has_model_provider(config: &runtime::CompanyConfig, provider: &str) -> bool {
+    config
+        .credentials
+        .contains_key(&format!("model.inference.{provider}"))
+        || (config.model.split('/').next() == Some(provider)
+            && config.credentials.contains_key("model.inference"))
+}
+
+fn company_default_model(config: &runtime::CompanyConfig) -> &str {
+    config
+        .agent_intelligence
+        .get("default")
+        .map(|route| route.model.as_str())
+        .filter(|model| !model.is_empty())
+        .unwrap_or(&config.model)
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum CompanySetupSection {
+    Identity,
+    Models,
+    Limits,
+}
+
+impl CompanySetupSection {
+    fn id(self) -> &'static str {
+        match self {
+            Self::Identity => "identity",
+            Self::Models => "models",
+            Self::Limits => "limits",
+        }
+    }
+    fn label(self) -> &'static str {
+        match self {
+            Self::Identity => "Name and purpose",
+            Self::Models => "Model choices",
+            Self::Limits => "Limits and outcome standard",
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CopyCompanySetupInput {
+    source: String,
+    sections: Vec<CompanySetupSection>,
+    #[serde(default)]
+    source_revision: Option<String>,
+    #[serde(default)]
+    target_revision: Option<String>,
+}
+
+fn selected_setup_sections(sections: &[CompanySetupSection]) -> Result<Vec<CompanySetupSection>> {
+    let mut selected = Vec::new();
+    for section in sections {
+        if selected
+            .iter()
+            .any(|current: &CompanySetupSection| current.id() == section.id())
+        {
+            continue;
+        }
+        selected.push(*section);
+    }
+    if selected.is_empty() {
+        bail!("Select at least one setup section to copy")
+    }
+    Ok(selected)
+}
+
+fn setup_copy_preview(
+    source: &runtime::CompanyConfig,
+    target: &runtime::CompanyConfig,
+    sections: &[CompanySetupSection],
+) -> serde_json::Value {
+    let source_default = company_default_model(source);
+    let target_default = company_default_model(target);
+    let items = sections.iter().map(|section| {
+        let changes = match section {
+            CompanySetupSection::Identity => vec![
+                serde_json::json!({"label":"Name","from":target.display_name.clone().unwrap_or_else(|| company_display_name(&target.name)),"to":source.display_name.clone().unwrap_or_else(|| company_display_name(&source.name))}),
+                serde_json::json!({"label":"Purpose","from":target.mission,"to":source.mission}),
+            ],
+            CompanySetupSection::Models => vec![
+                serde_json::json!({"label":"Default model","from":target_default,"to":source_default,"credential_configured":!source_default.is_empty() && company_has_model_provider(target,source_default.split('/').next().unwrap_or_default())}),
+                serde_json::json!({"label":"Agent model choices","count":source.agent_intelligence.values().filter(|route| route.connection.starts_with("direct:") && company_has_model_provider(target,route.connection.trim_start_matches("direct:"))).count(),"omitted":source.agent_intelligence.values().filter(|route| route.connection.starts_with("direct:") && !company_has_model_provider(target,route.connection.trim_start_matches("direct:"))).count(),"preserved":true}),
+                serde_json::json!({"label":"Fallback models","count":source.model_failover.iter().filter(|model| company_has_model_provider(target,model.split('/').next().unwrap_or_default())).count(),"omitted":source.model_failover.iter().filter(|model| !company_has_model_provider(target,model.split('/').next().unwrap_or_default())).count(),"preserved":true}),
+            ],
+            CompanySetupSection::Limits => vec![
+                serde_json::json!({"label":"Spend ceiling","from":target.spend_ceiling_usd,"to":source.spend_ceiling_usd}),
+                serde_json::json!({"label":"Runtime limits","from":{"monthly_hours":target.monthly_runtime_cap_hours,"auto_sleep_minutes":target.auto_sleep_after_minutes},"to":{"monthly_hours":source.monthly_runtime_cap_hours,"auto_sleep_minutes":source.auto_sleep_after_minutes}}),
+                serde_json::json!({"label":"Outcome standard","from":target.outcome_standard,"to":source.outcome_standard}),
+            ],
+        };
+        serde_json::json!({"id":section.id(),"label":section.label(),"changes":changes})
+    }).collect::<Vec<_>>();
+    serde_json::json!({"source":{"id":source.name,"name":source.display_name.clone().unwrap_or_else(|| company_display_name(&source.name))},"target":{"id":target.name,"name":target.display_name.clone().unwrap_or_else(|| company_display_name(&target.name))},"source_revision":company_setup_view(source)["revision"],"target_revision":company_setup_view(target)["revision"],"sections":items})
+}
+
+async fn preview_company_setup_copy(
+    State(state): State<OwnerState>,
+    AxumPath(target_name): AxumPath<String>,
+    Json(input): Json<CopyCompanySetupInput>,
+) -> Response<Body> {
+    if state.entry.network().is_some() {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "setup_copy",
+            "Hosted company setup is managed by your account provider.",
+        );
+    }
+    let sections = match selected_setup_sections(&input.sections) {
+        Ok(sections) => sections,
+        Err(error) => return api_error(StatusCode::BAD_REQUEST, "setup_copy", error.to_string()),
+    };
+    if input.source == target_name {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "setup_copy",
+            "Choose a different source company.",
+        );
+    }
+    let source = match runtime::CompanyConfig::load(&state.daemon.root, &input.source) {
+        Ok(config) => config,
+        Err(_) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "company",
+                "Source company does not exist.",
+            )
+        }
+    };
+    let target = match runtime::CompanyConfig::load(&state.daemon.root, &target_name) {
+        Ok(config) => config,
+        Err(_) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "company",
+                "Target company does not exist.",
+            )
+        }
+    };
+    Json(setup_copy_preview(&source, &target, &sections)).into_response()
+}
+
+async fn copy_company_setup(
+    State(state): State<OwnerState>,
+    AxumPath(target_name): AxumPath<String>,
+    Json(input): Json<CopyCompanySetupInput>,
+) -> Response<Body> {
+    if state.entry.network().is_some() {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "setup_copy",
+            "Hosted company setup is managed by your account provider.",
+        );
+    }
+    let sections = match selected_setup_sections(&input.sections) {
+        Ok(sections) => sections,
+        Err(error) => return api_error(StatusCode::BAD_REQUEST, "setup_copy", error.to_string()),
+    };
+    if input.source == target_name {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "setup_copy",
+            "Choose a different source company.",
+        );
+    }
+    let _write = state.charter_writes.lock().await;
+    let source = match runtime::CompanyConfig::load(&state.daemon.root, &input.source) {
+        Ok(config) => config,
+        Err(_) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "company",
+                "Source company does not exist.",
+            )
+        }
+    };
+    let mut target = match runtime::CompanyConfig::load(&state.daemon.root, &target_name) {
+        Ok(config) => config,
+        Err(_) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "company",
+                "Target company does not exist.",
+            )
+        }
+    };
+    if input.source_revision.as_deref()
+        != Some(
+            company_setup_view(&source)["revision"]
+                .as_str()
+                .unwrap_or_default(),
+        )
+        || input.target_revision.as_deref()
+            != Some(
+                company_setup_view(&target)["revision"]
+                    .as_str()
+                    .unwrap_or_default(),
+            )
+    {
+        return api_error(
+            StatusCode::CONFLICT,
+            "setup_copy_revision",
+            "Company settings changed since the preview. Refresh the preview before copying.",
+        );
+    }
+    if sections.iter().any(|section| section.id() == "identity") {
+        target.display_name = source.display_name.clone();
+        target.mission = source.mission.clone();
+    }
+    if sections.iter().any(|section| section.id() == "models") {
+        let source_default = company_default_model(&source);
+        let default_provider = source_default.split('/').next().unwrap_or_default();
+        if !source_default.is_empty() && company_has_model_provider(&target, default_provider) {
+            target.model = source_default.to_string();
+            target.reasoning_effort = source.reasoning_effort.clone();
+        }
+        let source_failover_providers = source
+            .model_failover
+            .iter()
+            .map(|model| model.split('/').next().unwrap_or_default().to_string())
+            .collect::<std::collections::BTreeSet<_>>();
+        let mut fallbacks = source
+            .model_failover
+            .iter()
+            .filter(|model| {
+                company_has_model_provider(&target, model.split('/').next().unwrap_or_default())
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        for model in &target.model_failover {
+            if !source_failover_providers.contains(model.split('/').next().unwrap_or_default())
+                && !fallbacks.contains(model)
+            {
+                fallbacks.push(model.clone());
+            }
+        }
+        target.model_failover = fallbacks;
+        for (actor, route) in &source.agent_intelligence {
+            let Some(provider) = route.connection.strip_prefix("direct:") else {
+                continue;
+            };
+            if company_has_model_provider(&target, provider) {
+                target
+                    .agent_intelligence
+                    .insert(actor.clone(), route.clone());
+            }
+        }
+    }
+    if sections.iter().any(|section| section.id() == "limits") {
+        target.spend_ceiling_usd = source.spend_ceiling_usd;
+        target.monthly_runtime_cap_hours = source.monthly_runtime_cap_hours;
+        target.auto_sleep_after_minutes = source.auto_sleep_after_minutes;
+        target.outcome_standard = source.outcome_standard;
+    }
+    if runtime::CompanyConfig::save(&state.daemon.root, &target).is_err() {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "setup_copy",
+            "Could not apply these setup choices.",
+        );
+    }
+    Json(serde_json::json!({"copied":true,"setup":setup_copy_preview(&source, &target, &sections)}))
+        .into_response()
 }
 
 async fn startup_doctor_report(
@@ -7919,15 +8809,30 @@ async fn live_browser_agent_session(
     state: &OwnerState,
     company: &str,
 ) -> Option<runtime::BrowserAgentSession> {
-    let session = runtime::read_browser_agent_session(company).await.ok().flatten()?;
-    if session.company != company { return None; }
-    if session.work_id.is_none() && session.attempt_id.is_none() { return Some(session); }
-    let (Some(work_id), Some(attempt_id)) = (session.work_id, session.attempt_id) else { return None; };
+    let session = runtime::read_browser_agent_session(company)
+        .await
+        .ok()
+        .flatten()?;
+    if session.company != company {
+        return None;
+    }
+    if session.work_id.is_none() && session.attempt_id.is_none() {
+        return Some(session);
+    }
+    let (Some(work_id), Some(attempt_id)) = (session.work_id, session.attempt_id) else {
+        return None;
+    };
     let org = state.daemon.orgintel.get(company).await.ok()?;
-    org.list_work_attempts(Some(work_id)).await.ok()?.iter().any(|attempt| {
-        attempt.id == attempt_id && attempt.actor_id == session.actor
-            && attempt.state == restless_orgintel::WorkAttemptState::Running
-    }).then_some(session)
+    org.list_work_attempts(Some(work_id))
+        .await
+        .ok()?
+        .iter()
+        .any(|attempt| {
+            attempt.id == attempt_id
+                && attempt.actor_id == session.actor
+                && attempt.state == restless_orgintel::WorkAttemptState::Running
+        })
+        .then_some(session)
 }
 
 async fn open_browser_link(
@@ -7994,9 +8899,13 @@ async fn open_browser_link(
             generation: current,
             item_id: "web-link".into(),
             client_id: input.client_id,
-            requesting_actor: browser_session.as_ref().map(|session| session.actor.clone()),
+            requesting_actor: browser_session
+                .as_ref()
+                .map(|session| session.actor.clone()),
             work_id: browser_session.as_ref().and_then(|session| session.work_id),
-            attempt_id: browser_session.as_ref().and_then(|session| session.attempt_id),
+            attempt_id: browser_session
+                .as_ref()
+                .and_then(|session| session.attempt_id),
             expires_at: SystemTime::now() + TICKET_TTL,
         },
     );
@@ -8376,8 +9285,8 @@ impl RfbObserverFilter {
                     // as a negative signed integer. Treating that as u32
                     // leaves every later input or resize frame queued behind
                     // an impossible multi-gigabyte message.
-                    8 + i32::from_be_bytes([rest[3], rest[4], rest[5], rest[6]])
-                        .unsigned_abs() as usize
+                    8 + i32::from_be_bytes([rest[3], rest[4], rest[5], rest[6]]).unsigned_abs()
+                        as usize
                 }
                 251 => {
                     if rest.len() < 7 {
@@ -8631,9 +9540,17 @@ async fn take_control(
     let browser_session = live_browser_agent_session(&state, &company).await;
     let (requesting_actor, work_id, attempt_id) =
         if attach.work_id.is_some() && attach.attempt_id.is_some() {
-            (attach.requesting_actor.clone(), attach.work_id, attach.attempt_id)
+            (
+                attach.requesting_actor.clone(),
+                attach.work_id,
+                attach.attempt_id,
+            )
         } else if let Some(session) = browser_session.as_ref() {
-            (Some(session.actor.clone()), session.work_id, session.attempt_id)
+            (
+                Some(session.actor.clone()),
+                session.work_id,
+                session.attempt_id,
+            )
         } else {
             (attach.requesting_actor.clone(), None, None)
         };
@@ -10759,7 +11676,14 @@ mod tests {
         // Prove the requested company exists in both the configured Runtime
         // set and the isolated OrgIntel database before publishing a surface.
         runtime::CompanyConfig::load(&root, &company).unwrap();
-        assert!(daemon.orgintel.get(&company).await.unwrap().is_live().await.unwrap());
+        assert!(daemon
+            .orgintel
+            .get(&company)
+            .await
+            .unwrap()
+            .is_live()
+            .await
+            .unwrap());
         let address = std::env::var("RESTLESS_OWNER_SURFACE_TEST_ADDR")
             .unwrap_or_else(|_| "127.0.0.1:7888".into())
             .parse()
