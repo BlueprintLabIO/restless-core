@@ -159,9 +159,10 @@
 		</header>{/if}
 	{#if !hasDocumentAction}<div class="request"><Markdown text={item.requestedAction} /></div>{/if}
 	{#if emailMandateProposal}<p class="mandate-judgement-warning">
-			Exec must use judgement to decide whether each prospect and message fit this mandate. It can
-			make mistakes. Review the proposal and decide whether to enable that discretion; approval
-			authorizes sends within the stated limits.
+			Exec must judge whether each recipient and message fits this mandate, and can get that
+			judgment wrong. Approval gives Exec bounded sending authority under the limits below. The
+			system checks mechanical limits, but cannot guarantee that a particular send is appropriate.
+			Review the exact proposal before approving.
 		</p>{/if}
 	{#if item.preparing}
 		<p class="waiting" role="status">
