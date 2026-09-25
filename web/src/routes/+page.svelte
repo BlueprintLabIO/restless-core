@@ -13,7 +13,7 @@
 		type PortfolioProjection
 	} from '$lib/model/queries.svelte';
 	import type { CompanyCatalogEntry } from '$lib/model/cockpit';
-	import { startGuidance } from '$lib/model/company-start';
+	import { startFixHref, startGuidance } from '$lib/model/company-start';
 
 	const companyCatalog = companiesQuery();
 	const portfolio = portfolioQuery();
@@ -57,7 +57,7 @@
 		// A company that cannot start is the one fact worth stating before
 		// attention counts: nothing will happen in it until it is resolved.
 		if (company.unstartable_reason) {
-			return `Open ${company.name}. It cannot start: ${startGuidance(company.unstartable_reason)}`;
+			return `Fix ${company.name} setup. It cannot start: ${startGuidance(company.unstartable_reason)}`;
 		}
 		const next = projection?.nextProof ? ` Next item of value: ${projection.nextProof}.` : '';
 		const count = projection?.attentionCount;
@@ -134,9 +134,10 @@
 								{@const startIssue = company.unstartable_reason
 									? startGuidance(company.unstartable_reason)
 									: ''}
+								<!-- A company that cannot start opens on the page that fixes it. -->
 								<a
 									class="portfolio-company-row runtime-{company.runtime_status}"
-									href={`/${company.id}`}
+									href={startIssue ? startFixHref(company.id) : `/${company.id}`}
 									aria-label={attentionLabel(company, projection)}
 								>
 									<span class="portfolio-company-cell">
