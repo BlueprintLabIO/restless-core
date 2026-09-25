@@ -16,11 +16,12 @@
 	const presets = $derived(
 		selected?.models ??
 			catalog.models(
-				selected?.kind === 'harness'
-					? selected.provider === 'codex'
-						? 'openai'
-						: 'anthropic'
-					: (selected?.provider ?? '')
+				selected?.account_provider ??
+					(selected?.kind === 'harness'
+						? selected.provider === 'codex'
+							? 'openai'
+							: 'anthropic'
+						: (selected?.provider ?? ''))
 			)
 	);
 	const rows = $derived(
@@ -41,7 +42,13 @@
 
 	function label(id: string) {
 		const c = source.view?.connections.find((c) => c.id === id);
-		if (!c) return id.replace('direct:', '').replace('harness:', '');
+		if (!c)
+			return id.startsWith('account:') || id.startsWith('account-harness:')
+				? 'Account connection unavailable'
+				: id.replace('direct:', '').replace('harness:', '');
+		if (c.id.startsWith('account-harness:'))
+			return `${c.label ?? c.account_provider} · ${c.provider === 'codex' ? 'Codex' : 'Claude Agent'}`;
+		if (c.id.startsWith('account:')) return `${c.label ?? c.provider} · Restless agent`;
 		if (c.id.startsWith('harness:custom:')) return c.provider;
 		return c.kind === 'harness'
 			? c.provider === 'codex'
@@ -112,7 +119,7 @@
 	<header>
 		<h2 id="agent-assignments-title">Agent intelligence</h2>
 		<span
-			title="Each assignment selects the connection and model used for this agent’s next conversation or work session. Running sessions keep their current connection."
+			title="Choose a company-local sign-in or a granted account connection for each agent. Account sign-ins can power Codex or Claude Agent without copying their credentials into the company. Changes apply to the next session; removing access stops the next model request."
 			>ⓘ</span
 		>
 	</header>

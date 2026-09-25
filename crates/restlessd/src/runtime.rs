@@ -430,6 +430,32 @@ pub struct AgentIntelligence {
     pub model: String,
 }
 
+/// Account assignments name the exact connection. The provider is repeated so
+/// a saved company config can resolve its model without reading account state;
+/// the owner API and model relay verify the ID against the current grant.
+pub(crate) fn account_intelligence_route(connection: &str) -> Option<(&str, &str, AgentHarness)> {
+    let (route, harness) = if let Some(route) = connection.strip_prefix("account:") {
+        (route, AgentHarness::RestlessManaged)
+    } else if let Some(route) = connection.strip_prefix("account-harness:codex:") {
+        (route, AgentHarness::Codex)
+    } else if let Some(route) = connection.strip_prefix("account-harness:claude-agent:") {
+        (route, AgentHarness::ClaudeAgent)
+    } else {
+        return None;
+    };
+    let (provider, id) = route.split_once('@')?;
+    if provider.is_empty()
+        || id.len() != 32
+        || !id.bytes().all(|byte| byte.is_ascii_hexdigit())
+        || !provider
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"-_.".contains(&byte))
+    {
+        return None;
+    }
+    Some((provider, id, harness))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompanyConfig {
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
@@ -573,9 +599,26 @@ impl CompanyConfig {
         {
             config.model_failover.clear();
             if let Some(provider) = route.connection.strip_prefix("direct:") {
-                config.model = format!("{provider}/{}", route.model);
+                config.model = if route.model.starts_with(&format!("{provider}/")) {
+                    route.model.clone()
+                } else {
+                    format!("{provider}/{}", route.model)
+                };
                 config.coordination_harness = AgentHarness::RestlessManaged;
                 config.worker_harness = AgentHarness::RestlessManaged;
+            } else if let Some((provider, _, harness)) =
+                account_intelligence_route(&route.connection)
+            {
+                config.model = if route.model.starts_with(&format!("{provider}/")) {
+                    route.model.clone()
+                } else {
+                    format!("{provider}/{}", route.model)
+                };
+                config.coordination_harness = harness;
+                config.worker_harness = harness;
+                // The same company may retain an older CLI sign-in for an
+                // explicit rollback. This assignment uses the account relay.
+                config.native_harnesses.remove(harness.as_str());
             } else if let Some(id) = route.connection.strip_prefix("harness:custom:") {
                 config.model = format!("native-custom-{id}/{}", route.model);
                 config.coordination_harness = AgentHarness::CustomAcp;
@@ -753,12 +796,17 @@ impl CompanyConfig {
             }
             let required_provider = match harness {
                 AgentHarness::RestlessManaged | AgentHarness::CustomAcp => continue,
-                AgentHarness::Codex => "litellm",
+                AgentHarness::Codex => "litellm or openai-codex",
                 AgentHarness::ClaudeAgent => "anthropic",
             };
             if let Some(model) = models
                 .iter()
-                .find(|model| !model.starts_with(&format!("{required_provider}/")))
+                .find(|model| match harness {
+                    AgentHarness::Codex => {
+                        !model.starts_with("litellm/") && !model.starts_with("openai-codex/")
+                    }
+                    _ => !model.starts_with(&format!("{required_provider}/")),
+                })
             {
                 bail!(
                     "{} harness requires every configured model to use provider {required_provider}; got {model}",
@@ -767,7 +815,8 @@ impl CompanyConfig {
             }
             if let Some(model) = models.iter().find(|model| match harness {
                 AgentHarness::Codex => {
-                    !crate::model_gateway::responses_model_has_pinned_tariff(model)
+                    !model.starts_with("openai-codex/")
+                        && !crate::model_gateway::responses_model_has_pinned_tariff(model)
                 }
                 AgentHarness::ClaudeAgent => {
                     !crate::model_gateway::anthropic_model_has_pinned_tariff(model)

@@ -2,6 +2,8 @@ import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 export type IntelligenceConnection = {
 	id: string;
 	provider: string;
+	label?: string;
+	account_provider?: string;
 	kind: 'direct' | 'harness';
 	model?: string;
 	models?: { id: string; name: string; default?: boolean }[] | null;

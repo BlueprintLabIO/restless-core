@@ -3252,6 +3252,20 @@ pub(crate) fn account_connection_matches(root: &std::path::Path, provider: &str,
     }))
 }
 
+pub(crate) fn account_assignment_is_granted(
+    root: &std::path::Path,
+    config: &runtime::CompanyConfig,
+    provider: &str,
+    id: &str,
+) -> Result<bool> {
+    let registry = load_owner_connections(root)?;
+    let Some(connection) = registry.connections.iter().find(|connection| {
+        connection.provider == provider && connection.id == id
+    }) else { return Ok(false); };
+    let reference = owner_connection_reference(connection);
+    Ok(config.credentials.get(&format!("model.inference.{provider}")) == Some(&reference))
+}
+
 pub(crate) fn account_oauth_key(root: &std::path::Path, provider: &str, reference: &str) -> Result<Option<String>> {
     let registry = load_owner_connections(root)?;
     Ok(registry.connections.iter().find(|connection| {
@@ -3297,7 +3311,7 @@ fn companies_using_owner_connection(
             if !granted {
                 return None;
             }
-            let in_use = company_connection_is_assigned(&config, &connection.provider);
+            let in_use = company_connection_is_assigned(&config, connection);
             Some(serde_json::json!({
                 "id": config.name,
                 "name": config.display_name.unwrap_or_else(|| company_display_name(&config.name)),
@@ -3307,16 +3321,21 @@ fn companies_using_owner_connection(
         .collect()
 }
 
-fn company_connection_is_assigned(config: &runtime::CompanyConfig, provider: &str) -> bool {
-    config.model.split('/').next() == Some(provider)
-        || config
-            .model_failover
-            .iter()
-            .any(|model| model.split('/').next() == Some(provider))
+fn company_connection_is_assigned(config: &runtime::CompanyConfig, connection: &OwnerModelConnection) -> bool {
+    let exact = format!("{}@{}", connection.provider, connection.id);
+    (!config.agent_intelligence.contains_key("default")
+        && (config.model.split('/').next() == Some(connection.provider.as_str())
+            || config.model_failover.iter().any(|model| {
+                model.split('/').next() == Some(connection.provider.as_str())
+            })))
         || config
             .agent_intelligence
             .values()
-            .any(|route| route.connection == format!("direct:{provider}"))
+            .any(|route| {
+                route.connection == format!("direct:{}", connection.provider)
+                    || runtime::account_intelligence_route(&route.connection)
+                        .is_some_and(|(provider, id, _)| format!("{provider}@{id}") == exact)
+            })
 }
 
 async fn list_owner_connections(State(state): State<OwnerState>, Extension(principal): Extension<RequestPrincipal>) -> Response<Body> {
@@ -3796,8 +3815,8 @@ async fn grant_owner_connection(
         config.agent_intelligence.insert(
             "default".into(),
             runtime::AgentIntelligence {
-                connection: format!("direct:{}", connection.provider),
-                model: input.model.clone(),
+                connection: format!("account:{}@{}", connection.provider, connection.id),
+                model: input.model.strip_prefix(&format!("{}/", connection.provider)).unwrap_or(&input.model).into(),
             },
         );
         config.model = input.model;
@@ -3895,13 +3914,54 @@ fn company_has_model_provider(config: &runtime::CompanyConfig, provider: &str) -
             && config.credentials.contains_key("model.inference"))
 }
 
-fn company_default_model(config: &runtime::CompanyConfig) -> &str {
-    config
-        .agent_intelligence
-        .get("default")
-        .map(|route| route.model.as_str())
-        .filter(|model| !model.is_empty())
-        .unwrap_or(&config.model)
+fn company_default_model(config: &runtime::CompanyConfig) -> String {
+    config.for_agent("default").model
+}
+
+fn model_provider_copyable(
+    source: &runtime::CompanyConfig,
+    target: &runtime::CompanyConfig,
+    provider: &str,
+) -> bool {
+    if !company_has_model_provider(target, provider) {
+        return false;
+    }
+    let binding = format!("model.inference.{provider}");
+    let source_reference = source.credentials.get(&binding).or_else(|| {
+        (source.model.split('/').next() == Some(provider))
+            .then(|| source.credentials.get("model.inference"))
+            .flatten()
+    });
+    if source_reference.is_some_and(|reference| {
+        reference.starts_with("omp-oauth:")
+            || reference.starts_with("infisical:/owner/model-connections/")
+    }) {
+        return target.credentials.get(&binding) == source_reference;
+    }
+    true
+}
+
+fn model_assignment_copyable(
+    source: &runtime::CompanyConfig,
+    target: &runtime::CompanyConfig,
+    route: &runtime::AgentIntelligence,
+    allow_native: bool,
+) -> bool {
+    if let Some((provider, id, harness)) = runtime::account_intelligence_route(&route.connection) {
+        if !allow_native && harness != runtime::AgentHarness::RestlessManaged {
+            return false;
+        }
+        let binding = format!("model.inference.{provider}");
+        let expected_oauth = format!("omp-oauth:{provider}@{id}");
+        let expected_key = model_connection_reference(id);
+        let source_reference = source.credentials.get(&binding);
+        return source_reference == target.credentials.get(&binding)
+            && source_reference.is_some_and(|reference| {
+                reference == &expected_oauth || reference == &expected_key
+            });
+    }
+    route.connection.strip_prefix("direct:")
+        .is_some_and(|provider| model_provider_copyable(source, target, provider))
 }
 
 #[derive(Clone, Copy, Deserialize)]
@@ -3978,9 +4038,13 @@ fn setup_copy_preview(
     source: &runtime::CompanyConfig,
     target: &runtime::CompanyConfig,
     sections: &[CompanySetupSection],
+    allow_native: bool,
 ) -> serde_json::Value {
     let source_default = company_default_model(source);
     let target_default = company_default_model(target);
+    let default_copyable = source.agent_intelligence.get("default")
+        .map(|route| model_assignment_copyable(source, target, route, allow_native))
+        .unwrap_or_else(|| model_provider_copyable(source, target, source_default.split('/').next().unwrap_or_default()));
     let items = sections.iter().map(|section| {
         let changes = match section {
             CompanySetupSection::Identity => vec![
@@ -3990,9 +4054,9 @@ fn setup_copy_preview(
             CompanySetupSection::Name => vec![serde_json::json!({"label":"Name","from":target.display_name.clone().unwrap_or_else(|| company_display_name(&target.name)),"to":source.display_name.clone().unwrap_or_else(|| company_display_name(&source.name))})],
             CompanySetupSection::Purpose => vec![serde_json::json!({"label":"Purpose","from":target.mission,"to":source.mission})],
             CompanySetupSection::Models => vec![
-                serde_json::json!({"label":"Default model","from":target_default,"to":source_default,"credential_configured":!source_default.is_empty() && company_has_model_provider(target,source_default.split('/').next().unwrap_or_default())}),
-                serde_json::json!({"label":"Agent model choices","count":source.agent_intelligence.values().filter(|route| route.connection.starts_with("direct:") && company_has_model_provider(target,route.connection.trim_start_matches("direct:"))).count(),"omitted":source.agent_intelligence.values().filter(|route| route.connection.starts_with("direct:") && !company_has_model_provider(target,route.connection.trim_start_matches("direct:"))).count(),"preserved":true}),
-                serde_json::json!({"label":"Fallback models","count":source.model_failover.iter().filter(|model| company_has_model_provider(target,model.split('/').next().unwrap_or_default())).count(),"omitted":source.model_failover.iter().filter(|model| !company_has_model_provider(target,model.split('/').next().unwrap_or_default())).count(),"preserved":true}),
+                serde_json::json!({"label":"Default model","from":target_default,"to":source_default,"credential_configured":!source_default.is_empty() && default_copyable}),
+                serde_json::json!({"label":"Agent model choices","count":source.agent_intelligence.values().filter(|route| model_assignment_copyable(source,target,route,allow_native)).count(),"omitted":source.agent_intelligence.values().filter(|route| !model_assignment_copyable(source,target,route,allow_native)).count(),"preserved":true}),
+                serde_json::json!({"label":"Fallback models","count":source.model_failover.iter().filter(|model| model_provider_copyable(source,target,model.split('/').next().unwrap_or_default())).count(),"omitted":source.model_failover.iter().filter(|model| !model_provider_copyable(source,target,model.split('/').next().unwrap_or_default())).count(),"preserved":true}),
             ],
             CompanySetupSection::Limits => vec![
                 serde_json::json!({"label":"Spend ceiling","from":target.spend_ceiling_usd,"to":source.spend_ceiling_usd}),
@@ -4010,15 +4074,12 @@ fn setup_copy_preview(
 
 async fn preview_company_setup_copy(
     State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
     AxumPath(target_name): AxumPath<String>,
     Json(input): Json<CopyCompanySetupInput>,
 ) -> Response<Body> {
-    if state.entry.network().is_some() {
-        return api_error(
-            StatusCode::FORBIDDEN,
-            "setup_copy",
-            "Hosted company setup is managed by your account provider.",
-        );
+    if state.entry.network().is_some() && !principal.is_account_owner() {
+        return api_error(StatusCode::FORBIDDEN, "setup_copy", "Open account settings to copy between companies.");
     }
     let sections = match selected_setup_sections(&input.sections) {
         Ok(sections) => sections,
@@ -4051,7 +4112,7 @@ async fn preview_company_setup_copy(
             )
         }
     };
-    Json(setup_copy_preview(&source, &target, &sections)).into_response()
+    Json(setup_copy_preview(&source, &target, &sections, state.entry.network().is_none())).into_response()
 }
 
 async fn copy_company_setup(
@@ -4060,12 +4121,8 @@ async fn copy_company_setup(
     AxumPath(target_name): AxumPath<String>,
     Json(input): Json<CopyCompanySetupInput>,
 ) -> Response<Body> {
-    if state.entry.network().is_some() {
-        return api_error(
-            StatusCode::FORBIDDEN,
-            "setup_copy",
-            "Hosted company setup is managed by your account provider.",
-        );
+    if state.entry.network().is_some() && !principal.is_account_owner() {
+        return api_error(StatusCode::FORBIDDEN, "setup_copy", "Open account settings to copy between companies.");
     }
     let sections = match selected_setup_sections(&input.sections) {
         Ok(sections) => sections,
@@ -4143,28 +4200,30 @@ async fn copy_company_setup(
     if sections.iter().any(|section| section.id() == "models") {
         let source_default = company_default_model(&source);
         let default_provider = source_default.split('/').next().unwrap_or_default();
-        if !source_default.is_empty() && company_has_model_provider(&target, default_provider) {
+        let default_copyable = source.agent_intelligence.get("default")
+            .map(|route| model_assignment_copyable(&source, &target, route, state.entry.network().is_none()))
+            .unwrap_or_else(|| model_provider_copyable(&source, &target, default_provider));
+        if !source_default.is_empty() && default_copyable {
             target.model = source_default.to_string();
             target.reasoning_effort = source.reasoning_effort.clone();
-            target.agent_intelligence.insert(
-                "default".into(),
+            let assignment = source.agent_intelligence.get("default").cloned().unwrap_or_else(||
                 runtime::AgentIntelligence {
                     connection: format!("direct:{default_provider}"),
-                    model: source_default.to_string(),
-                },
+                    model: source_default.split_once('/').map(|(_, model)| model).unwrap_or_default().to_string(),
+                }
             );
+            target.agent_intelligence.insert("default".into(), assignment);
         }
         let source_failover_providers = source
             .model_failover
             .iter()
+            .filter(|model| model_provider_copyable(&source, &target, model.split('/').next().unwrap_or_default()))
             .map(|model| model.split('/').next().unwrap_or_default().to_string())
             .collect::<std::collections::BTreeSet<_>>();
         let mut fallbacks = source
             .model_failover
             .iter()
-            .filter(|model| {
-                company_has_model_provider(&target, model.split('/').next().unwrap_or_default())
-            })
+            .filter(|model| model_provider_copyable(&source, &target, model.split('/').next().unwrap_or_default()))
             .cloned()
             .collect::<Vec<_>>();
         for model in &target.model_failover {
@@ -4176,10 +4235,7 @@ async fn copy_company_setup(
         }
         target.model_failover = fallbacks;
         for (actor, route) in &source.agent_intelligence {
-            let Some(provider) = route.connection.strip_prefix("direct:") else {
-                continue;
-            };
-            if company_has_model_provider(&target, provider) {
+            if model_assignment_copyable(&source, &target, route, state.entry.network().is_none()) {
                 target
                     .agent_intelligence
                     .insert(actor.clone(), route.clone());
@@ -4265,7 +4321,7 @@ async fn copy_company_setup(
             return api_error(StatusCode::SERVICE_UNAVAILABLE, "authority", "The setting changed, but its confirmation could not be recorded. Refresh the page before retrying.");
         }
     }
-    Json(serde_json::json!({"copied":changed,"setup":setup_copy_preview(&source, &target, &sections)}))
+    Json(serde_json::json!({"copied":changed,"setup":setup_copy_preview(&source, &target, &sections, state.entry.network().is_none())}))
         .into_response()
 }
 
@@ -14426,25 +14482,43 @@ async fn intelligence_view(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
 ) -> Response<Body> {
-    if state.entry.network().is_some() {
-        return api_error(
-            StatusCode::FORBIDDEN,
-            "intelligence",
-            "Manage intelligence on the account host.",
-        );
-    }
     let result: Result<serde_json::Value> = async {
         let config=runtime::CompanyConfig::load(&state.daemon.root,&company)?;
         let providers=provider_view(&config).await;
-        let natives=futures_util::future::join_all(["codex","claude-agent"].iter().map(|id|crate::native_harness::view(&config,id))).await;
+        let hosted = state.entry.network().is_some();
+        let registry = load_owner_connections(&state.daemon.root)?;
+        let natives=if hosted {Vec::new()} else {futures_util::future::join_all(["codex","claude-agent"].iter().map(|id|crate::native_harness::view(&config,id))).await};
         let mut connections=Vec::new();
         for row in providers["connections"].as_array().into_iter().flatten() {
-            if row["credential_status"]=="present" {connections.push(serde_json::json!({"id":format!("direct:{}",row["provider"].as_str().unwrap_or_default()),"provider":row["provider"],"kind":"direct","loaded":row["gateway_loaded"]}));}
+            if row["credential_status"]!="present" {continue;}
+            let Some(provider) = row["provider"].as_str() else {continue};
+            let reference = config.credentials.get(&format!("model.inference.{provider}")).or_else(|| {
+                (config.model.split('/').next() == Some(provider)).then(|| config.credentials.get("model.inference")).flatten()
+            });
+            let account = registry.connections.iter().find(|connection| {
+                connection.provider == provider && reference.is_some_and(|value| value == &owner_connection_reference(connection))
+            });
+            if let Some(account) = account {
+                if account.kind == "oauth" {
+                    let verified = matches!((&account.account_key, model_gateway::oauth_account_key(provider).await), (Some(expected), Ok(Some(actual))) if expected == &actual);
+                    if !verified {continue;}
+                }
+                let suffix = format!("{provider}@{}", account.id);
+                connections.push(serde_json::json!({"id":format!("account:{suffix}"),"provider":provider,"kind":"direct","label":account.label,"loaded":row["gateway_loaded"]}));
+                if !hosted && account.kind == "oauth" {
+                    let harness = match provider {"openai-codex" => Some("codex"), "anthropic" => Some("claude-agent"), _ => None};
+                    if let Some(harness) = harness {
+                        connections.push(serde_json::json!({"id":format!("account-harness:{harness}:{suffix}"),"provider":harness,"account_provider":provider,"kind":"harness","label":account.label,"loaded":row["gateway_loaded"]}));
+                    }
+                }
+            } else {
+                connections.push(serde_json::json!({"id":format!("direct:{provider}"),"provider":provider,"kind":"direct","loaded":row["gateway_loaded"]}));
+            }
         }
         for row in &natives {
             if matches!(row["auth"]["state"].as_str(),Some("connected"|"key_saved")) {connections.push(serde_json::json!({"id":format!("harness:{}",row["harness"].as_str().unwrap_or_default()),"provider":row["harness"],"kind":"harness","model":row["model"],"models":row["auth"]["models"],"loaded":true}));}
         }
-        for (id,harness) in crate::custom_harness::load(&state.daemon.root,&company)? {
+        for (id,harness) in if hosted {std::collections::BTreeMap::new()} else {crate::custom_harness::load(&state.daemon.root,&company)?} {
             let installed=crate::custom_harness::status(&company,&id).await.ok().is_some_and(|status|status["state"]=="installed");
             crate::custom_harness::refresh_if_due(&state.daemon.root,&company,&id,&harness,installed);
             if let Some(probe)=crate::custom_harness::cached_probe(&state.daemon.root,&company,&id,&harness) {
@@ -14486,13 +14560,6 @@ async fn update_agent_intelligence(
     AxumPath((company, actor)): AxumPath<(String, String)>,
     Json(input): Json<AgentIntelligenceInput>,
 ) -> Response<Body> {
-    if state.entry.network().is_some() {
-        return api_error(
-            StatusCode::FORBIDDEN,
-            "intelligence",
-            "Manage intelligence on the account host.",
-        );
-    }
     let _write = state.charter_writes.lock().await;
     let mut config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(c) => c,
@@ -14526,7 +14593,31 @@ async fn update_agent_intelligence(
             {
                 bail!("Choose a model or enter a custom model ID");
             }
-            if let Some(provider) = input.connection.strip_prefix("direct:") {
+            if let Some((provider, id, harness)) = runtime::account_intelligence_route(&input.connection) {
+                if state.entry.network().is_some() && harness != runtime::AgentHarness::RestlessManaged {
+                    bail!("This hosted runtime does not offer the Codex or Claude agent adapter yet");
+                }
+                let registry = load_owner_connections(&state.daemon.root)?;
+                let account = registry.connections.iter().find(|connection| connection.id == id && connection.provider == provider)
+                    .context("Account connection no longer exists")?;
+                let reference = owner_connection_reference(account);
+                if config.credentials.get(&format!("model.inference.{provider}")).map(String::as_str) != Some(reference.as_str()) {
+                    bail!("Grant this exact account connection to the company first");
+                }
+                if credential::probe_reference(&reference).await.status != credential::ProbeStatus::Present {
+                    bail!("This account connection is unavailable");
+                }
+                if account.kind == "oauth" && !matches!((&account.account_key, model_gateway::oauth_account_key(provider).await), (Some(expected), Ok(Some(actual))) if expected == &actual) {
+                    bail!("The connected provider account changed; reconnect the original account");
+                }
+                match harness {
+                    runtime::AgentHarness::Codex if provider == "openai-codex" && account.kind == "oauth" => {},
+                    runtime::AgentHarness::ClaudeAgent if provider == "anthropic" && account.kind == "oauth" => {},
+                    runtime::AgentHarness::RestlessManaged => {},
+                    _ => bail!("This account connection cannot power the selected agent runtime"),
+                }
+                runtime::validate_direct_provider(provider)?;
+            } else if let Some(provider) = input.connection.strip_prefix("direct:") {
                 runtime::validate_direct_provider(provider)?;
                 let reference = config
                     .credentials
@@ -14545,6 +14636,9 @@ async fn update_agent_intelligence(
                     bail!("This provider credential is unavailable");
                 }
             } else if let Some(id) = input.connection.strip_prefix("harness:custom:") {
+                if state.entry.network().is_some() {
+                    bail!("Company-local agent adapters are unavailable in this hosted runtime");
+                }
                 let registry = crate::custom_harness::load(&state.daemon.root, &company)?;
                 let harness = registry.get(id).context("Configure this harness first")?;
                 if crate::custom_harness::status(&company, id).await?["state"] != "installed" {
@@ -14565,6 +14659,7 @@ async fn update_agent_intelligence(
                     );
                 }
             } else if let Some(harness) = input.connection.strip_prefix("harness:") {
+                if state.entry.network().is_some() {bail!("Company-local agent sign-in is unavailable in this hosted runtime");}
                 crate::native_harness::validate(harness)?;
                 let status = crate::native_harness::view(&config, harness).await;
                 if !matches!(

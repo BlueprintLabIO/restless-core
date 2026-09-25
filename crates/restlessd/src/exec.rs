@@ -652,6 +652,19 @@ pub(crate) async fn agent_auth_for_model(
     attempt_id: Option<uuid::Uuid>,
 ) -> Result<acp::AgentAuth> {
     let session_id = uuid::Uuid::new_v4().simple().to_string();
+    let root = restlessd::appliance::MachineProfile::from_env()?.state_root;
+    let company_config = CompanyConfig::load(&root, company)?;
+    if let Some(route) = company_config.agent_intelligence.get(actor)
+        .or_else(|| company_config.agent_intelligence.get("default"))
+    {
+        if let Some((provider, id, _)) = runtime::account_intelligence_route(&route.connection) {
+            if model != company_config.for_agent(actor).model
+                || !crate::owner::account_assignment_is_granted(&root, &company_config, provider, id)?
+            {
+                anyhow::bail!("This agent's account connection is no longer granted to the company");
+            }
+        }
+    }
     let access = if model.starts_with("native-custom-") {
         crate::custom_harness::session_access(company, actor, model).await?
     } else if model.starts_with("native-") {
