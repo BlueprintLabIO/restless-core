@@ -331,6 +331,13 @@
 		overflow-wrap: anywhere;
 	}
 
+	/* Prose keeps a readable measure in a wide pane; tables and code still use
+	 * the full width they need. */
+	.message-body :global(.md > :is(p, ul, ol, blockquote, h1, h2, h3, h4, h5, h6)),
+	.message-body :global(.message-preview) {
+		max-width: 80ch;
+	}
+
 	.message-body :global(.md > :first-child) {
 		margin-top: 0;
 	}

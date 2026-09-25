@@ -1635,7 +1635,7 @@
 	.room-head-copy strong,
 	.thread-head strong {
 		font-size: var(--t-head);
-		font-weight: 650;
+		font-weight: 600;
 	}
 
 	.room-head-copy small,

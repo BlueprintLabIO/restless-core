@@ -53,7 +53,7 @@
 
 <div class="create-wrap">
 	<button class="add-company" type="button" title="Start a company" aria-label="Start a company" aria-expanded={open} aria-haspopup="dialog" onclick={toggle}>
-		<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+		<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg><span class="add-company-label">New</span>
 	</button>
 	{#if open}
 		<div class="create-popover" role="dialog" aria-label="Start a company">
@@ -71,7 +71,7 @@
 
 <style>
 	.create-wrap { position: relative; }
-	.add-company { display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface-pane); color: var(--intent-conversation); cursor: pointer; }
+	.add-company { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 36px; height: 36px; padding: 0 12px 0 9px; font: 500 var(--t-body) var(--font-ui); border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface-pane); color: var(--intent-conversation); cursor: pointer; }
 	.add-company:hover { background: var(--intent-conversation-soft); }
 	.add-company:focus-visible { outline: 2px solid var(--intent-conversation); outline-offset: 2px; }
 	.create-popover { position: absolute; right: 0; top: calc(100% + 8px); z-index: var(--z-popover, 80); width: min(470px, calc(100vw - 24px)); padding: var(--space-4); background: var(--surface-pane); border: 1px solid var(--border-strong); border-radius: var(--radius-pane); box-shadow: 0 16px 42px color-mix(in srgb, var(--ink) 16%, transparent); box-sizing: border-box; }
@@ -81,5 +81,5 @@
 	.create-popover form { display: grid; justify-items: stretch; gap: var(--space-3); margin-top: var(--space-4); }
 	.create-popover p { margin: 0; color: var(--text-tertiary); font-size: var(--t-label); line-height: 1.45; }
 	.create-popover .error { color: var(--state-danger); }
-	@media (max-width: 520px) { .add-company { width: 44px; height: 44px; } .create-popover { right: -8px; width: min(470px, calc(100vw - 16px)); } }
+	@media (max-width: 520px) { .add-company { width: 44px; height: 44px; padding: 0; } .add-company-label { display: none; } .create-popover { right: -8px; width: min(470px, calc(100vw - 16px)); } }
 </style>

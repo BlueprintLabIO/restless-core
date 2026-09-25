@@ -190,10 +190,6 @@
 	background: var(--intent-feedback-soft);
 }
 
-.bridge-root .company-switcher-menu a:hover {
-	transform: translateX(2px);
-}
-
 .bridge-root .company-switcher-menu a:focus-visible {
 	outline: 3px solid color-mix(in srgb, var(--intent-conversation) 28%, transparent);
 	outline-offset: -1px;
@@ -203,6 +199,7 @@
 	width: 7px;
 	height: 7px;
 	border: 1px solid var(--text-tertiary);
+	border-radius: 50%;
 	font-style: normal;
 }
 
@@ -217,6 +214,11 @@
 	color: var(--intent-authority);
 }
 
+.bridge-root .company-switcher-menu a > i.runtime-blocked {
+	border-color: var(--state-danger);
+	background: var(--state-danger-soft);
+}
+
 .bridge-root .company-switcher-menu a strong,
 .bridge-root .company-switcher-menu a small {
 	display: block;
@@ -226,14 +228,12 @@
 	font-size: var(--t-body);
 }
 
-.bridge-root .company-switcher-menu a small,
-.bridge-root .switcher-current {
-	font: var(--t-label) var(--font-mono);
-	text-transform: uppercase;
+.bridge-root .company-switcher-menu a small {
+	font-size: var(--t-label);
 	color: var(--text-tertiary);
 }
 
-.bridge-root .switcher-current {
+.bridge-root .company-switcher-menu .switcher-current {
 	color: var(--intent-feedback);
 }
 
@@ -452,7 +452,7 @@
 	background: rgba(255, 255, 255, 0.34);
 	box-shadow: var(--bevel-subtle);
 	color: var(--text-secondary);
-	font: 550 var(--t-label) var(--font-ui);
+	font: 500 var(--t-label) var(--font-ui);
 	white-space: nowrap;
 	cursor: pointer;
 	transition:
@@ -551,7 +551,7 @@
 .bridge-root .cockpit-pane-head h2 {
 	margin: 2px 0 0;
 	font-size: var(--t-head);
-	font-weight: 650;
+	font-weight: 600;
 	line-height: 1.25;
 }
 
@@ -737,7 +737,7 @@
 }
 
 .bridge-root .attention-item-action > span:first-child {
-	font-weight: 650;
+	font-weight: 600;
 	color: var(--ink);
 }
 
@@ -1362,9 +1362,7 @@
 	display: grid;
 	grid-template-rows: auto auto minmax(0, 1fr);
 	overflow: hidden;
-	background:
-		radial-gradient(circle at 100% 0, var(--intent-feedback-soft), transparent 32%),
-		var(--glass-pane);
+	background: var(--glass-pane);
 }
 
 .bridge-root .work-detail-head {
@@ -1624,7 +1622,7 @@
 	grid-row: 3;
 	min-height: 0;
 	overflow: auto;
-	padding: 18px 20px 28px;
+	padding: 20px 24px 32px;
 }
 
 /* The reading column is capped by the grid, not by a `max-width` inside a
@@ -1672,11 +1670,33 @@
 }
 
 .bridge-root .work-technical-details > summary {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	list-style: none;
 	padding: 11px 14px;
 	color: var(--text-secondary);
 	font-weight: 500;
 	cursor: pointer;
 	transition: color var(--motion-state) var(--ease-standard);
+}
+
+.bridge-root .work-technical-details > summary::-webkit-details-marker {
+	display: none;
+}
+
+.bridge-root .work-technical-details > summary::before {
+	content: '';
+	width: 6px;
+	height: 6px;
+	border-right: 1.5px solid currentColor;
+	border-bottom: 1.5px solid currentColor;
+	transform: rotate(-45deg);
+	transition: transform var(--motion-state) var(--ease-standard);
+}
+
+.bridge-root .work-technical-details[open] > summary::before {
+	transform: rotate(45deg);
 }
 
 .bridge-root .work-technical-details > summary:hover {
@@ -1970,7 +1990,7 @@
 
 .bridge-root .artifact-actions a {
 	font-size: var(--t-label);
-	font-weight: 650;
+	font-weight: 600;
 	text-decoration: none;
 	color: var(--intent-feedback);
 }
@@ -2118,7 +2138,7 @@
 
 .bridge-root .talk-who strong {
 	font-size: var(--t-head);
-	font-weight: 650;
+	font-weight: 600;
 	letter-spacing: -0.01em;
 }
 
@@ -2243,7 +2263,7 @@
 	align-items: center;
 	gap: 6px;
 	font-size: var(--t-body);
-	font-weight: 650;
+	font-weight: 600;
 	letter-spacing: -0.01em;
 }
 
@@ -2701,6 +2721,9 @@
 	.bridge-root .work-detail-scroll {
 		padding: 16px 15px 24px;
 	}
+	.bridge-root .work-detail-head {
+		padding-inline: 15px;
+	}
 	.bridge-root .recovery-brief {
 		grid-template-columns: 22px minmax(0, 1fr);
 		padding: 13px 15px 14px;
@@ -2721,11 +2744,10 @@
 		gap: 18px;
 	}
 	.bridge-root .work-detail-rail {
-		order: -1;
 		gap: 18px;
-		padding: 0 0 18px;
+		padding: 18px 0 0;
 		border-left: 0;
-		border-bottom: 1px solid var(--border);
+		border-top: 1px solid var(--border);
 	}
 	.bridge-root .people-screen {
 		grid-template-columns: 1fr;

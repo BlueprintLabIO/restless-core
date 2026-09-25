@@ -888,7 +888,6 @@
 	}
 	.loading,
 	.empty {
-		max-width: 900px;
 		margin-top: 30px;
 		color: var(--text-secondary);
 	}

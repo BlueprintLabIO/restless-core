@@ -248,7 +248,7 @@
 	.schedule-main h2 {
 		margin: 0;
 		font-size: var(--t-head);
-		font-weight: 550;
+		font-weight: 500;
 	}
 	.schedule-heading {
 		display: flex;

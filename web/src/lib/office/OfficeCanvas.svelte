@@ -1581,7 +1581,7 @@
 	}
 
 	.person-detail-heading strong {
-		font: 700 var(--t-head)/1.2 var(--font-sans);
+		font: 600 var(--t-head)/1.2 var(--font-sans);
 	}
 
 	.person-detail-heading span,
@@ -1624,7 +1624,7 @@
 	}
 
 	.person-detail-outcome {
-		font: 650 var(--t-body)/1.35 var(--font-sans);
+		font: 600 var(--t-body)/1.35 var(--font-sans);
 	}
 
 	.person-detail-step {
@@ -1641,7 +1641,7 @@
 		border: 1px solid rgba(23, 36, 51, 0.5);
 		background: #173d3b;
 		color: #eff8f4;
-		font: 650 var(--t-body)/1 var(--font-sans);
+		font: 600 var(--t-body)/1 var(--font-sans);
 		cursor: pointer;
 	}
 

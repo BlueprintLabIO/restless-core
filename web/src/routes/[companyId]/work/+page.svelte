@@ -370,7 +370,7 @@
 							<p class="column-empty">
 								{column.key === 'completed' && completedWork.length
 									? 'No evidence-backed completion yet.'
-									: 'Clear'}
+									: 'None'}
 							</p>
 						{/each}
 						{#if column.key === 'completed' && completedWork.length > recentlyLanded.length}
@@ -387,6 +387,19 @@
 			</div>
 		{/if}
 		<nav class="mobile-work-links" aria-label="Work resources">
+			{#if loaded && graph}
+				<!-- Phones hide the Goals list; the same filter lives here. -->
+				<select
+					class="mobile-goal"
+					aria-label="Goal"
+					value={selectedGoal}
+					onchange={(event) => selectGoal(event.currentTarget.value)}
+				>
+					<option value="">All work</option>
+					<option value={UNASSIGNED_QUERY}>Unassigned</option>
+					{#each goals as goal (goal.id)}<option value={goal.id}>{goal.title}</option>{/each}
+				</select>
+			{/if}
 			<a href={`/${encodeURIComponent(companyId)}/work/documents`}>Documents</a>
 			{#if completedWork.length}<button
 					type="button"
@@ -408,22 +421,37 @@
 		.mobile-work-links {
 			display: flex;
 			align-items: center;
-			justify-content: space-between;
-			gap: 12px;
-			padding: 10px 12px;
+			gap: 8px;
+			padding: 8px 10px;
 			border-top: 1px solid var(--border);
-			font-size: var(--t-label);
 		}
-		.mobile-work-links a {
+		.mobile-goal {
+			flex: 1;
+			min-width: 0;
+			min-height: 44px;
+			padding: 0 10px;
+			border: 1px solid var(--border-strong);
+			border-radius: var(--radius-control);
+			background: var(--surface);
 			color: var(--ink);
+			font: 500 var(--t-body) var(--font-ui);
 		}
+		.mobile-work-links a,
 		.mobile-work-links button {
-			padding: 0;
+			min-height: 44px;
+			display: inline-flex;
+			align-items: center;
+			padding: 0 10px;
+			border: 0;
+			border-radius: var(--radius-control);
 			background: none;
-			border: none;
 			color: var(--ink);
-			font: inherit;
+			font: 500 var(--t-body) var(--font-ui);
+			text-decoration: none;
 			cursor: pointer;
+		}
+		.work-utilities .lens-switch button {
+			min-height: 40px;
 		}
 		.map-legend {
 			bottom: 50px !important;

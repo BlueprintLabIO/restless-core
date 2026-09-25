@@ -18,6 +18,7 @@
 	import { goto } from '$app/navigation';
 	import { dismissable } from '$lib/actions/dismissable';
 	import { resizePane } from '$lib/actions/resize-pane';
+	import Check from '@lucide/svelte/icons/check';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import MessageSquare from '@lucide/svelte/icons/message-square';
 	import SearchIcon from '@lucide/svelte/icons/search';
@@ -84,6 +85,12 @@
 		work: GLYPHS.briefcase,
 		people: GLYPHS.group,
 		company: GLYPHS.key
+	};
+	const RUNTIME_LABEL: Record<string, string> = {
+		running: 'Running',
+		stopped: 'Asleep',
+		absent: 'Not started',
+		unavailable: 'Unavailable'
 	};
 	/* Linear-style two-key moves: G then the surface's initial. */
 	const tabKeys: Record<string, string> = { attention: 'a', work: 'w', people: 'p', company: 'c' };
@@ -205,20 +212,42 @@
 					<div class="company-switcher-menu">
 						<a class="company-overview-link" href="/">
 							<MatrixGlyph rows={GLYPHS.r} size={8} />
-							<span><strong>All companies</strong><small>Owner portfolio</small></span>
+							<span><strong>All companies</strong></span>
 						</a>
 						<div class="company-switcher-rule" role="separator"></div>
 						{#each activeCompanies as company (company.id)}
-							<a class:current={company.id === companyId} href={`/${company.id}`}>
-								<i class="runtime-{company.runtime_status}" aria-hidden="true"></i>
-								<span><strong>{company.name}</strong><small>{company.runtime_status}</small></span>
-								{#if company.id === companyId}<span class="switcher-current">Current</span>{/if}
+							<a
+								class:current={company.id === companyId}
+								href={`/${company.id}`}
+								aria-current={company.id === companyId ? 'page' : undefined}
+							>
+								<i
+									class="runtime-{company.unstartable_reason ? 'blocked' : company.runtime_status}"
+									aria-hidden="true"
+								></i>
+								<span
+									><strong>{company.name}</strong><small
+										>{company.unstartable_reason
+											? 'Can’t start'
+											: (RUNTIME_LABEL[company.runtime_status] ?? company.runtime_status)}</small
+									></span
+								>
+								{#if company.id === companyId}<Check
+										class="switcher-current"
+										size={14}
+										strokeWidth={2.2}
+										aria-label="Current company"
+									/>{/if}
 							</a>
 						{:else}
-							<a class="current" href={`/${companyId}`}>
-								<i aria-hidden="true"></i><span
-									><strong>{companyName}</strong><small>Current company</small></span
-								>
+							<a class="current" href={`/${companyId}`} aria-current="page">
+								<i aria-hidden="true"></i><span><strong>{companyName}</strong></span>
+								<Check
+									class="switcher-current"
+									size={14}
+									strokeWidth={2.2}
+									aria-label="Current company"
+								/>
 							</a>
 						{/each}
 					</div>

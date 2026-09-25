@@ -147,13 +147,14 @@
 			</div>
 			<div class="doctor-checks">
 				{#each view.computer.doctor.checks as check (check.id)}
-					<article>
+					<!-- The owning plane is diagnostic detail: a hover, not a column. -->
+					<article title={`Checked by ${check.source}`}>
 						<i class="check-state check-{check.status}" aria-hidden="true"></i>
 						<div>
 							<strong>{check.label}</strong>
 							<p>{check.summary}</p>
 						</div>
-						<span>{check.source}</span>
+						<span class="sr-only">Checked by {check.source}</span>
 						{#if check.detail}<InfoTip text={check.detail} />{/if}
 					</article>
 				{/each}

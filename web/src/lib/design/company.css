@@ -250,6 +250,8 @@
 	z-index: 4;
 	width: 24px;
 	height: 24px;
+	/* A 44px touch target around a 24px mark, without moving the layout. */
+	--tip-reach: 10px;
 	display: inline-grid;
 	place-items: center;
 	flex: 0 0 auto;
@@ -259,6 +261,14 @@
 	background: transparent;
 	color: var(--text-tertiary);
 	cursor: help;
+}
+
+@media (pointer: coarse) {
+	.bridge-root .info-tip::after {
+		content: '';
+		position: absolute;
+		inset: calc(var(--tip-reach) * -1);
+	}
 }
 
 .bridge-root .info-tip:hover,
@@ -1290,9 +1300,10 @@
 }
 
 .bridge-root .doctor-checks article {
+	position: relative;
 	min-width: 0;
 	display: grid;
-	grid-template-columns: 10px minmax(0, 1fr) auto auto;
+	grid-template-columns: 10px minmax(0, 1fr) auto;
 	align-items: start;
 	gap: 11px;
 	padding: 14px 2px;
@@ -1301,11 +1312,6 @@
 
 .bridge-root .doctor-checks .check-state {
 	margin-top: 5px;
-}
-
-.bridge-root .doctor-checks article > span {
-	color: var(--text-tertiary);
-	font: var(--t-label) var(--font-mono);
 }
 
 .bridge-root .doctor-actions {
@@ -2131,11 +2137,6 @@
 
 	.bridge-root .doctor-checks article {
 		grid-template-columns: 10px minmax(0, 1fr) auto;
-	}
-
-	.bridge-root .doctor-checks article > .info-tip {
-		grid-column: 3;
-		grid-row: 2;
 	}
 
 	.bridge-root .computer-portal-nav a {

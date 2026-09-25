@@ -3,6 +3,7 @@
 	import { resizePane } from '$lib/actions/resize-pane';
 	import { page } from '$app/state';
 	import Activity from '@lucide/svelte/icons/activity';
+	import CalendarClock from '@lucide/svelte/icons/calendar-clock';
 	import Settings from '@lucide/svelte/icons/settings';
 	import BookOpen from '@lucide/svelte/icons/book-open';
 	import KeyRound from '@lucide/svelte/icons/key-round';
@@ -27,7 +28,7 @@
 		skills: Sparkles,
 		provider: Settings,
 		vault: KeyRound,
-		schedules: Activity,
+		schedules: CalendarClock,
 		resources: ShieldCheck,
 		computer: Monitor,
 		doctor: Activity,

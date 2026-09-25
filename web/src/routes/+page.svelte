@@ -124,7 +124,7 @@
 					<div class="portfolio-table-scroll">
 						<div class="portfolio-grid">
 							<div class="portfolio-grid-head" aria-hidden="true">
-								<span></span>
+								<span>Name</span>
 								<span>Current focus</span>
 								<span>Next item of value</span>
 								<span>Needs you</span>
@@ -246,7 +246,7 @@
 	}
 
 	.appliance-notice span {
-		font-weight: 650;
+		font-weight: 600;
 	}
 
 	.appliance-notice p {
