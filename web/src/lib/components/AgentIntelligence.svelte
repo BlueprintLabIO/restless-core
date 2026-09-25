@@ -42,6 +42,19 @@
 			: []
 	);
 
+	/* Agents on the company default all say the same thing; list the default,
+	 * the Exec and anyone with their own choice, and fold the rest. */
+	let showAll = $state(false);
+	const shownRows = $derived(
+		showAll
+			? rows
+			: rows.filter(
+					(row) =>
+						row.id === 'default' || row.id === 'exec' || !!row.assignment || row.id === editing
+				)
+	);
+	const foldedCount = $derived(rows.length - shownRows.length);
+
 	function label(id: string) {
 		const c = source.view?.connections.find((c) => c.id === id);
 		if (!c)
@@ -143,7 +156,7 @@
 				<span class="skeleton-line" style:width="4.5em" style:height="40px"></span>
 			</div>{/each}
 	{:else}
-		{#each rows as agent (agent.id)}
+		{#each shownRows as agent (agent.id)}
 			<div class="agent-row">
 				<div class="identity">
 					<strong>{agent.id === 'exec' ? 'Exec' : agent.name}</strong>{#if agent.role.toLowerCase() !== agent.id}<small class="role">{agent.role}</small>{/if}
@@ -234,6 +247,13 @@
 				</form>
 			{/if}
 		{/each}
+		{#if foldedCount > 0 || showAll}
+			<button class="text-button fold-toggle" type="button" onclick={() => (showAll = !showAll)}>
+				{showAll
+					? 'Show fewer'
+					: `${foldedCount} more ${foldedCount === 1 ? 'agent uses' : 'agents use'} the company default`}
+			</button>
+		{/if}
 	{/if}
 	{#if error}<p role="alert">{error}</p>{/if}{#if notice}<p role="status">{notice}</p>{/if}
 </section>
@@ -329,5 +349,8 @@
 	}
 	.role::first-letter {
 		text-transform: uppercase;
+	}
+	.fold-toggle {
+		margin: var(--space-2) 0 0 -7px;
 	}
 </style>
