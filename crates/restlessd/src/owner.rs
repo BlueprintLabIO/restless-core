@@ -2675,6 +2675,20 @@ struct CreateCompanyInput {
     model: Option<String>,
 }
 
+/// Native harness routes are selected as `harness:<id>` assignments, never as
+/// provider-qualified model IDs. Keeping those internal route names out of the
+/// legacy company model field prevents them from being admitted as direct
+/// provider routes.
+fn validate_company_model_selection(model: &str) -> Result<()> {
+    let provider = model.split_once('/').map(|(provider, _)| provider);
+    if provider.is_some_and(|provider| {
+        provider.starts_with("native-codex-") || provider.starts_with("native-claude-")
+    }) {
+        bail!("Native harness models must be selected through Company → Intelligence provider.");
+    }
+    Ok(())
+}
+
 async fn create_company(
     State(state): State<OwnerState>,
     Json(input): Json<CreateCompanyInput>,
@@ -2713,6 +2727,9 @@ async fn create_company(
         Ok(config) => config,
         Err(error) => return api_error(StatusCode::BAD_REQUEST, "company", error.to_string()),
     };
+    if let Err(error) = validate_company_model_selection(&config.model) {
+        return api_error(StatusCode::BAD_REQUEST, "company", error.to_string());
+    }
     if let Err(error) = config.model_candidates() {
         return api_error(StatusCode::BAD_REQUEST, "company", error.to_string());
     }
@@ -3158,6 +3175,9 @@ async fn update_company_setup(
     }
     config.display_name = Some(input.display_name.trim().to_string());
     config.model = input.model.trim().to_string();
+    if let Err(error) = validate_company_model_selection(&config.model) {
+        return api_error(StatusCode::BAD_REQUEST, "company_setup", error.to_string());
+    }
     if let Err(error) = config
         .model_candidates()
         .and_then(|_| config.validate_harness_models())
