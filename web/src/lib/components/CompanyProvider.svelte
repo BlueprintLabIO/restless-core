@@ -413,8 +413,7 @@
 	</header>
 	<AgentIntelligence {companyId} />
 	<section class="connect-section" aria-labelledby="connect-title">
-		<h2 id="connect-title" title="Sign in with a subscription, or use an API key. Either can power any agent above.">Connect</h2>
-		<HarnessConnections {companyId} />
+		<h2 id="connect-title">Connections</h2>
 	<section class="reuse-panel" aria-labelledby="account-connections-title">
 		<div class="reuse-section-head">
 			<div><h3 id="account-connections-title" title="Sign-ins and API keys saved in your account. Each company needs an explicit grant to use one.">Account connections</h3></div>
@@ -482,7 +481,9 @@
 	</section>
 	{#if error}<p role="alert">{error}</p>{/if}{#if notice}<p class="notice" role="status">{notice}</p>{/if}
 	<details class="advanced-settings" bind:open={advancedOpen}>
-		<summary>Advanced</summary>
+		<summary>Company-only connections and advanced settings</summary>
+		<p class="form-note">These sign-ins belong to this company. Account connections above can be granted to other companies.</p>
+		<HarnessConnections {companyId} />
 	<section class="company-only-settings">
 		<header>
 			<h3 title="These keys belong only to this company. Use account API keys when several companies need the same provider.">Company-only API keys</h3>

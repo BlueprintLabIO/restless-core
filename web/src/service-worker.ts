@@ -91,7 +91,10 @@ async function boundedNavigationFetch(request: Request): Promise<Response> {
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), NAVIGATION_TIMEOUT_MS);
 	try {
-		const response = await fetch(new Request(request, { signal: controller.signal }));
+		// A previous shell response can remain in the browser's HTTP cache even
+		// after the server begins sending no-store. Ask the network on every
+		// navigation so a deployed cockpit is visible on the next reload.
+		const response = await fetch(new Request(request, { signal: controller.signal, cache: 'no-store' }));
 		// Fetch resolves at the headers. Read a clone so a response whose body stalls is
 		// bounded too, while leaving the original available to the browser and cache.
 		if (response.body) await response.clone().arrayBuffer();

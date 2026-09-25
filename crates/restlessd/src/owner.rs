@@ -1571,7 +1571,9 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             web.display()
         );
     }
-    let static_files = ServeDir::new(&web).fallback(ServeFile::new(web.join("index.html")));
+    let static_files = Router::<()>::new()
+        .fallback_service(ServeDir::new(&web).fallback(ServeFile::new(web.join("index.html"))))
+        .layer(middleware::from_fn(cockpit_cache_policy));
     let membership_controls = Router::<OwnerState>::new()
         .route(
             "/internal/v1/membership-controls",
@@ -1631,6 +1633,28 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
     )
     .map(|_| ())
     .context("owner gateways")
+}
+
+/// The shell and service worker must be fetched again after a cockpit release.
+/// Only fingerprinted assets are safe to keep across releases; old open tabs
+/// may still need their old fingerprinted files until they reload.
+async fn cockpit_cache_policy(request: Request, next: Next) -> Response<Body> {
+    let fingerprinted_path = request.uri().path().starts_with("/_app/immutable/");
+    let mut response = next.run(request).await;
+    let immutable = fingerprinted_path
+        && response.status().is_success()
+        && !response.headers().get(CONTENT_TYPE).is_some_and(|value| {
+            value.as_bytes().starts_with(b"text/html")
+        });
+    response.headers_mut().insert(
+        CACHE_CONTROL,
+        HeaderValue::from_static(if immutable {
+            "public, max-age=31536000, immutable"
+        } else {
+            "no-store"
+        }),
+    );
+    response
 }
 
 /// The one place entry is decided.
