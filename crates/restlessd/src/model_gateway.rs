@@ -3365,7 +3365,13 @@ mission = "Choose native intelligence"
                 worker_harness: crate::runtime::AgentHarness::RestlessManaged,
                 reasoning_effort: crate::acp::DEFAULT_REASONING_EFFORT.into(),
                 model_failover: Vec::new(),
-                credentials: BTreeMap::new(),
+                // Live relay requests re-check that the company still holds a
+                // connection for the granted provider (see
+                // live_company_model_grant), so the fixture must hold one.
+                credentials: BTreeMap::from([
+                    ("model.inference".into(), "env:MOONSHOT_API_KEY".into()),
+                    ("model.inference.litellm".into(), "env:LITELLM_API_KEY".into()),
+                ]),
                 approved_parties: Vec::new(),
             },
         )
@@ -3796,7 +3802,7 @@ mission = "Choose native intelligence"
                 actor: "delivery-lead".into(),
                 session: "session_123".into(),
                 provider: "moonshot".into(),
-                credential_reference: None,
+                credential_reference: Some("env:MOONSHOT_API_KEY".into()),
                 model: "moonshot/kimi-k3".into(),
                 billing: "metered_api".into(),
                 responsibility: "work:delivery".into(),
