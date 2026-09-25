@@ -242,7 +242,7 @@
 
 .bridge-root .hc-field:focus-within {
 	border-color: var(--intent-conversation);
-	background: color-mix(in srgb, var(--intent-conversation-soft) 36%, white);
+	background: color-mix(in srgb, var(--intent-conversation-soft) 36%, var(--surface-raised));
 	box-shadow: 0 0 0 2px color-mix(in srgb, var(--intent-conversation) 15%, transparent);
 }
 
@@ -599,6 +599,10 @@
 /* Composer controls are 28px marks on a desk; on touch they need a finger's
  * worth of target. */
 @media (pointer: coarse) {
+	.bridge-root .hc-toolbar {
+		grid-template-columns: 44px minmax(0, 1fr) 44px 44px;
+		gap: 2px;
+	}
 	.bridge-root .hc-field .attach-btn,
 	.bridge-root .hc-voice,
 	.bridge-root .hc-send {

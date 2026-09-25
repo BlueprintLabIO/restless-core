@@ -964,7 +964,7 @@
 	}
 	.review-source {
 		border-right: 1px solid var(--border-strong);
-		background: color-mix(in srgb, var(--surface-alt) 82%, white);
+		background: color-mix(in srgb, var(--surface-alt) 82%, var(--surface-raised));
 	}
 	.review-source-head,
 	.review-outcome-head {
@@ -1072,7 +1072,7 @@
 		padding: clamp(28px, 5vw, 58px);
 		border: 1px solid var(--border);
 		border-radius: var(--radius-lg);
-		background: white;
+		background: var(--surface-raised);
 		box-shadow: var(--shadow-lift);
 	}
 	.review-document :global(.md) {
@@ -1455,7 +1455,7 @@
 		height: 100%;
 		border: 1px solid var(--border-strong);
 		border-radius: var(--radius-control);
-		background: white;
+		background: var(--surface-raised);
 	}
 	.outcome-offline {
 		height: 100%;

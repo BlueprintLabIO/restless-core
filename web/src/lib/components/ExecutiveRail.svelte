@@ -847,7 +847,7 @@
 		margin: 0;
 		padding: 9px 14px;
 		border-bottom: 1px solid color-mix(in srgb, var(--danger) 28%, var(--border));
-		background: color-mix(in srgb, var(--danger) 6%, white);
+		background: color-mix(in srgb, var(--danger) 6%, var(--surface-raised));
 		font-size: var(--t-label);
 		line-height: 1.4;
 		color: var(--danger);
@@ -869,7 +869,7 @@
 		border-radius: var(--radius-pane);
 		background: linear-gradient(
 			145deg,
-			color-mix(in srgb, var(--intent-feedback-soft) 82%, white),
+			color-mix(in srgb, var(--intent-feedback-soft) 82%, var(--surface-raised)),
 			color-mix(in srgb, var(--intent-feedback-soft) 58%, var(--surface-alt))
 		);
 		box-shadow: var(--shadow-soft);
@@ -881,7 +881,7 @@
 		place-items: center;
 		border: 1px solid color-mix(in srgb, var(--intent-feedback) 28%, var(--border));
 		border-radius: var(--radius-control);
-		background: color-mix(in srgb, var(--intent-feedback-soft) 76%, white);
+		background: color-mix(in srgb, var(--intent-feedback-soft) 76%, var(--surface-raised));
 		box-shadow: var(--control-depth);
 		color: var(--intent-feedback);
 	}

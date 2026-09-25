@@ -44,7 +44,7 @@
 	.back-link {
 		margin-left: auto;
 		color: var(--text-secondary);
-		font-size: var(--t-label);
+		font-size: var(--t-body);
 		text-decoration: none;
 	}
 	.back-link:hover {
@@ -72,15 +72,18 @@
 		padding: 10px 12px;
 		border-radius: var(--radius-control);
 		color: var(--text-secondary);
-		font-size: var(--t-label);
+		font-size: var(--t-body);
 		text-decoration: none;
+		transition:
+			background-color var(--motion-state) var(--ease-standard),
+			color var(--motion-state) var(--ease-standard);
 	}
 	.settings-sidebar nav a:hover {
-		color: var(--text-primary);
+		color: var(--ink);
 		background: var(--surface-alt);
 	}
 	.settings-sidebar nav a.active {
-		color: var(--text-primary);
+		color: var(--ink);
 		background: var(--surface-alt);
 		box-shadow: inset 2px 0 var(--intent-conversation);
 	}

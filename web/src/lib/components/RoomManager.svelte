@@ -337,7 +337,7 @@
 		border: 1px solid var(--border);
 		border-radius: 10px;
 		background: var(--surface);
-		color: var(--text-primary);
+		color: var(--ink);
 	}
 	dialog::backdrop {
 		background: color-mix(in srgb, var(--ink) 28%, transparent);

@@ -268,7 +268,7 @@
 		gap: var(--space-2);
 		margin-top: var(--space-3);
 		font-size: var(--t-label);
-		color: var(--text-primary);
+		color: var(--ink);
 	}
 	.runtime-wake input {
 		accent-color: var(--accent);

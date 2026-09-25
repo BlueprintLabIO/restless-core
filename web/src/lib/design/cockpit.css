@@ -467,7 +467,7 @@
 .bridge-root .exr-new-focus:hover:not(:disabled) {
 	transform: translateY(-1px);
 	border-color: color-mix(in srgb, var(--intent-conversation) 30%, var(--control-edge));
-	background: color-mix(in srgb, var(--intent-conversation-soft) 42%, white);
+	background: color-mix(in srgb, var(--intent-conversation-soft) 42%, var(--surface-raised));
 	color: var(--ink);
 }
 
@@ -577,7 +577,7 @@
 	max-width: min(560px, calc(100% - 24px));
 	padding: 8px 12px;
 	border: 1px solid color-mix(in srgb, var(--state-danger) 35%, var(--border));
-	background: color-mix(in srgb, var(--state-danger-soft) 65%, white);
+	background: color-mix(in srgb, var(--state-danger-soft) 65%, var(--surface-raised));
 	box-shadow: var(--shadow-lift);
 	color: var(--state-danger);
 	font-size: var(--t-body);

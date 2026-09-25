@@ -397,7 +397,7 @@
 		>{/if}{:else if connections.length}<a class="btn primary" href={manageUrl}>Open account ↗</a>{/if}
 	</header>
 	{#if accountScope === 'account'}<section class="native-section" aria-label="Account Codex sign-in">
-		<div class="section-head"><h2>ChatGPT / Codex</h2><button class="btn primary" disabled={!!oauthJob || codexChecking} onclick={() => void startSignIn('codex')}>{oauthJob && oauthProvider === 'codex' ? 'Signing in…' : codexSaved ? 'Reconnect Codex' : 'Connect Codex'}</button></div>
+		<div class="section-head"><h2>ChatGPT / Codex</h2><button class="btn" disabled={!!oauthJob || codexChecking} onclick={() => void startSignIn('codex')}>{oauthJob && oauthProvider === 'codex' ? 'Signing in…' : codexSaved ? 'Reconnect Codex' : 'Connect Codex'}</button></div>
 		<p>{codexConnected ? 'Connected to this account. Grant company access below, or reconnect the same account if its sign-in stops working.' : codexChecking ? 'Checking this sign-in after a company settings change…' : codexSaved ? 'The saved Codex sign-in is unavailable. Reconnect the same account to restore company access.' : 'Sign in once with a device code, then grant this account connection to the companies that need it.'}</p>
 		{#if oauthProvider === 'codex'}
 			{#if oauthUrl}<p><a href={oauthUrl} target="_blank" rel="noreferrer">Open Codex sign-in ↗</a>{#if oauthCode} · Enter code <strong>{oauthCode}</strong>{/if}</p>{/if}
@@ -405,7 +405,7 @@
 		{/if}
 	</section>
 	<section class="native-section" aria-label="Account Claude sign-in">
-		<div class="section-head"><h2>Claude</h2><button class="btn primary" disabled={!!oauthJob || claudeChecking} onclick={() => void startSignIn('claude')}>{oauthJob && oauthProvider === 'claude' ? 'Signing in…' : claudeSaved ? 'Reconnect Claude' : 'Connect Claude'}</button></div>
+		<div class="section-head"><h2>Claude</h2><button class="btn" disabled={!!oauthJob || claudeChecking} onclick={() => void startSignIn('claude')}>{oauthJob && oauthProvider === 'claude' ? 'Signing in…' : claudeSaved ? 'Reconnect Claude' : 'Connect Claude'}</button></div>
 		<p>{claudeConnected ? 'Connected to this account. Grant Claude Agent access below, or reconnect the same account if its sign-in stops working.' : claudeChecking ? 'Checking this sign-in after a company settings change…' : claudeSaved ? 'The saved Claude sign-in is unavailable. Reconnect the same account to restore company access.' : 'Sign in once with Claude, then grant its Claude Agent model route to individual companies.'}</p>
 		{#if oauthProvider === 'claude'}
 			{#if oauthUrl}<p><a href={oauthUrl} target="_blank" rel="noreferrer">Open Claude sign-in ↗</a></p>
@@ -683,7 +683,7 @@
 		border: 1px solid var(--border);
 		border-radius: var(--radius-control);
 		background: var(--surface-pane);
-		color: var(--text-primary);
+		color: var(--ink);
 		font: inherit;
 	}
 	.native-list {
@@ -803,7 +803,7 @@
 		padding: 5px 8px;
 		border: 1px solid var(--border);
 		border-radius: var(--radius-control);
-		color: var(--text-primary);
+		color: var(--ink);
 		text-decoration: none;
 	}
 	.company-list a:hover {
