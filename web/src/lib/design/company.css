@@ -315,6 +315,13 @@
 	color: var(--text-secondary);
 }
 
+/* Stale is not broken: the last recorded list is still true, so it reads as
+ * a caution, not an error. */
+.bridge-root .source-unavailable {
+	border-color: color-mix(in srgb, var(--intent-authority) 26%, var(--company-edge-soft));
+	background: color-mix(in srgb, var(--intent-authority-soft) 55%, var(--surface));
+}
+
 .bridge-root .computer-notice {
 	border-color: color-mix(in srgb, var(--state-success) 28%, var(--company-edge-soft));
 	background: linear-gradient(

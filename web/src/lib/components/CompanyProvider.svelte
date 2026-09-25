@@ -393,14 +393,12 @@
 </script>
 
 <svelte:head><title>Intelligence provider — Company</title></svelte:head>
-<div class="provider-page">
+<div class="company-page provider-page">
+	<header class="company-page-head">
+		<h1 id="reuse-title" title="Use an account sign-in or API key in this company. Model choices stay company-specific.">Intelligence</h1>
+		<a class="account-link" href={manageUrl}>{accountScope === 'company' ? 'Open account to manage connections' : 'Manage account connections'} <span aria-hidden="true">↗</span></a>
+	</header>
 	<section class="reuse-panel" aria-labelledby="reuse-title">
-		<div class="reuse-heading">
-			<div>
-				<h1 id="reuse-title" title="Use an account sign-in or API key in this company. Model choices stay company-specific.">Intelligence</h1>
-			</div>
-			<a class="account-link" href={manageUrl}>{accountScope === 'company' ? 'Open account to manage connections' : 'Manage account connections'} <span aria-hidden="true">↗</span></a>
-		</div>
 		<CopyCompanySetting {companyId} setting="models" label="Model choices" oncopied={async () => { await Promise.all([refresh(), intelligence.refresh()]); }} />
 		<div class="reuse-section-head">
 			<div><h2 title="Each company needs an explicit grant to use an account connection.">Available connections</h2></div>
@@ -626,12 +624,6 @@
 
 <style>
 	.provider-page {
-		width: 100%;
-		min-width: 0;
-		max-width: 880px;
-		margin: 0 auto;
-		padding: var(--space-6);
-		overflow-y: auto;
 		box-sizing: border-box;
 	}
 	.reuse-panel {
@@ -642,7 +634,6 @@
 		border-radius: var(--radius-pane);
 		box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 4%, transparent);
 	}
-	.reuse-heading,
 	.reuse-section-head,
 	.inline-actions,
 	.reuse-row,
@@ -652,14 +643,11 @@
 		display: flex;
 		align-items: center;
 	}
-	.reuse-heading,
 	.reuse-section-head,
 	.reuse-row {
 		justify-content: space-between;
 		gap: var(--space-4);
 	}
-	.reuse-heading { align-items: flex-start; }
-	.reuse-heading h1 { margin: 0; font-size: var(--t-title); }
 	.reuse-empty span,
 	.form-note,
 	.import-form > p {
@@ -678,9 +666,7 @@
 	}
 	.account-link:hover { color: var(--intent-conversation); }
 	.reuse-section-head {
-		margin-top: var(--space-5);
-		padding-block: var(--space-3);
-		border-top: 1px solid var(--border);
+		padding-block: 0 var(--space-3);
 	}
 	.reuse-section-head h2 { margin: 0; font-size: var(--t-head); }
 	.reuse-list { border-top: 1px solid var(--border); }
@@ -871,16 +857,11 @@
 		border-radius: var(--radius-control);
 	}
 	@container company-canvas (max-width: 640px) {
-		.provider-page {
-			padding: var(--space-4);
-		}
 		.reuse-panel { padding: var(--space-4); }
 		.connection-editor {
 			padding: var(--space-4);
 		}
-		.reuse-heading,
 		.reuse-section-head { align-items: flex-start; }
-		.reuse-heading { flex-direction: column; }
 		.reuse-row { align-items: flex-start; }
 		.reuse-identity { flex: 1 1 100%; }
 		.model-picker { flex: 1 1 100%; align-items: flex-start; flex-direction: column; }

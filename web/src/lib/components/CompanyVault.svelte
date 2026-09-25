@@ -85,8 +85,8 @@
 </script>
 
 <svelte:head><title>Vault — Company</title></svelte:head>
-<div class="vault-page">
-	<header>
+<div class="company-page vault-page">
+	<header class="company-page-head">
 		<h1>Vault</h1>
 		<button class="btn small" onclick={refresh} disabled={busy}
 			>{busy ? 'Checking…' : 'Refresh'}</button
@@ -169,30 +169,11 @@
 
 <style>
 	.vault-page {
-		width: 100%;
-		max-width: 880px;
-		min-width: 0;
-		min-height: 0;
-		box-sizing: border-box;
-		padding: var(--space-6);
-		margin: 0 auto;
-		overflow-y: auto;
 		overflow-wrap: anywhere;
-	}
-	header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		gap: var(--space-3);
-		flex-wrap: wrap;
-	}
-	h1 {
-		margin: 0;
-		font-size: var(--t-title);
 	}
 	.status {
 		color: var(--text-tertiary);
-		margin-block: var(--space-5);
+		margin-block: 0 var(--space-3);
 	}
 	.connected {
 		color: var(--state-success);

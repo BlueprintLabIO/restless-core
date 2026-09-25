@@ -94,7 +94,7 @@
 		<InfoTip
 			text="Recurring Exec checks, their next fire time and latest outcomes. Test trigger checks durable schedule admission in a disposable company without starting Runtime or an actor."
 		/>
-		<button class="refresh" type="button" onclick={() => void load()} disabled={busy !== ''}
+		<button class="btn small refresh" type="button" onclick={() => void load()} disabled={busy !== ''}
 			>Refresh</button
 		>
 	</header>
