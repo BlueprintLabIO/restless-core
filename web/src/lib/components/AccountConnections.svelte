@@ -34,6 +34,8 @@
 		['litellm', 'OpenAI-compatible gateway']
 	];
 	let connections = $state<AccountConnection[]>([]);
+	let accountScope = $state<'account' | 'company'>('account');
+	let manageUrl = $state('/account/settings/connections');
 	let loading = $state(true);
 	let error = $state('');
 	let addOpen = $state(false);
@@ -67,6 +69,8 @@
 			const body = await response.json();
 			if (!response.ok) throw new Error(body.message ?? 'Could not load account connections.');
 			connections = body.connections ?? [];
+			accountScope = body.scope === 'company' ? 'company' : 'account';
+			manageUrl = body.manage_url ?? '/account/settings/connections';
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Could not load account connections.';
 		} finally {
@@ -321,16 +325,16 @@
 				Connections
 			</h1>
 		</div>
-		<button class="btn primary" onclick={() => (addOpen = !addOpen)}
+		{#if accountScope === 'account'}<button class="btn primary" onclick={() => (addOpen = !addOpen)}
 			>{addOpen ? 'Close' : 'Add connection'}</button
-		>
+		>{:else}<a class="btn primary" href={manageUrl}>Open account ↗</a>{/if}
 	</header>
-	<section class="native-section" aria-label="Account Codex sign-in">
+	{#if accountScope === 'account'}<section class="native-section" aria-label="Account Codex sign-in">
 		<div class="section-head"><h2>ChatGPT / Codex</h2><button class="btn primary" disabled={!!oauthJob} onclick={() => void startCodexSignIn()}>{oauthJob ? 'Signing in…' : 'Connect Codex'}</button></div>
 		<p>Sign in once with a device code, then grant this account connection to the companies that need it.</p>
 		{#if oauthUrl}<p><a href={oauthUrl} target="_blank" rel="noreferrer">Open Codex sign-in ↗</a>{#if oauthCode} · Enter code <strong>{oauthCode}</strong>{/if}</p>{/if}
 		{#if oauthMessage}<p role="status">{oauthMessage}</p>{:else if oauthState === 'connected'}<p role="status">Codex connected. Choose company access below.</p>{/if}
-	</section>
+	</section>{/if}
 	<section class="native-section" aria-label="Native sign-ins by company">
 		<div class="section-head">
 			<h2>Company sign-ins</h2>
@@ -366,7 +370,7 @@
 	{#if error}<div class="error" role="alert">
 			{error}<button class="btn small" onclick={() => void refresh()}>Try again</button>
 		</div>{/if}
-	{#if addOpen}
+	{#if addOpen && accountScope === 'account'}
 		<form class="add-form" onsubmit={create}>
 			<h2>New provider connection</h2>
 			<p>Save an API key at account level, then grant individual companies access.</p>
@@ -432,9 +436,9 @@
 					<div class="connection-controls">
 						<span class="connection-kind"
 							>{item.kind === 'oauth' ? 'Host broker sign-in' : 'API key'}</span
-						><button class="text-button" onclick={() => toggleManage(item)}
+						>{#if accountScope === 'account'}<button class="text-button" onclick={() => toggleManage(item)}
 							>{managingId === item.id ? 'Close access' : 'Manage project access'}</button
-						>
+						>{/if}
 					</div>
 					{#if managingId === item.id}
 						<div class="access-manager" aria-label={`Project access for ${item.label}`}>
@@ -522,6 +526,8 @@
 				</article>
 			{/each}
 		</section>
+	{:else if accountScope === 'company'}
+		<div class="empty"><h2>No account connection is granted here yet</h2><p>Open your account, then choose Account settings to connect a provider and grant access.</p><a class="btn primary" href={manageUrl}>Open account ↗</a></div>
 	{:else if !addOpen}
 		<div class="empty">
 			<h2>No reusable connections yet</h2>

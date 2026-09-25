@@ -17,12 +17,12 @@ struct LoginJob {
 static JOBS: LazyLock<tokio::sync::Mutex<HashMap<Uuid, LoginJob>>> =
     LazyLock::new(|| tokio::sync::Mutex::new(HashMap::new()));
 
-pub(super) async fn start_codex_login(State(state): State<OwnerState>) -> Response<Body> {
-    if state.entry.network().is_some() {
+pub(super) async fn start_codex_login(State(state): State<OwnerState>, Extension(principal): Extension<RequestPrincipal>) -> Response<Body> {
+    if !principal.is_account_owner() {
         return api_error(
             StatusCode::FORBIDDEN,
             "connections",
-            "Account sign-in is not available in Cloud yet.",
+            "Only the account owner can start this sign-in.",
         );
     }
     let companies = match crate::configured_companies(&state.daemon.root) {
@@ -174,14 +174,15 @@ pub(super) async fn start_codex_login(State(state): State<OwnerState>) -> Respon
 }
 
 pub(super) async fn oauth_login_status(
-    State(state): State<OwnerState>,
+    State(_state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
     AxumPath(job): AxumPath<Uuid>,
 ) -> Response<Body> {
-    if state.entry.network().is_some() {
+    if !principal.is_account_owner() {
         return api_error(
             StatusCode::FORBIDDEN,
             "connections",
-            "Account sign-in is not available in Cloud yet.",
+            "Only the account owner can view this sign-in.",
         );
     }
     let jobs = JOBS.lock().await;

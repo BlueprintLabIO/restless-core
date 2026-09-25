@@ -1593,6 +1593,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             crate::model_gateway::hosted_routes::<OwnerState>(),
         )
         .route("/entry", post(consume_entry_assertion))
+        .route("/entry/account", post(consume_account_entry_assertion))
         .route("/entry/logout", post(end_entry_session))
         .route("/desktop/{company}", get(open_desktop))
         .route("/desktop/{company}/observe", get(open_observed_desktop))
@@ -1759,6 +1760,12 @@ async fn network_session_is_current(
     state: &OwnerState,
     identity: &VerifiedIdentity,
 ) -> Result<bool> {
+    if identity.scope == CompanyScope::Owner {
+        return Ok(state.entry.network().is_some_and(|network| network.matches_account_owner(&identity.owner))
+            && identity.role == "owner"
+            && identity.actor.as_deref() == Some("owner")
+            && !identity.user.is_empty());
+    }
     let (
         CompanyScope::Company { company },
         Some(actor_id),
@@ -1947,7 +1954,7 @@ fn network_boundary_violation(
     // Fleet reaches the door with a cross-site auto-submitted form. The
     // single-use signed credential is the CSRF defence here; the destination
     // Host must still be this exact account plane.
-    if path == "/entry" || path == MEMBERSHIP_CONTROL_PATH {
+    if path == "/entry" || path == "/entry/account" || path == MEMBERSHIP_CONTROL_PATH {
         if !network_host_matches(headers, expected_host) {
             return Some(BoundaryRefusal {
                 status: StatusCode::FORBIDDEN,
@@ -2476,6 +2483,83 @@ async fn consume_entry_assertion(
     if let Ok(value) = HeaderValue::from_str(&cookie) {
         response.headers_mut().insert(SET_COOKIE, value);
     }
+    response
+}
+
+async fn consume_account_entry_assertion(
+    State(state): State<OwnerState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response<Body> {
+    let Some(network) = state.entry.network().cloned() else {
+        return api_error(StatusCode::NOT_FOUND, "local_entry", "Account entry is available only in Cloud mode.");
+    };
+    let (request, form_post) = match parse_entry_request(&headers, &body) {
+        Ok(request) => request,
+        Err(message) => return api_error(StatusCode::BAD_REQUEST, "entry_request", message),
+    };
+    let access = match network.verify_account(&request.assertion).await {
+        Ok(access) => access,
+        Err(refusal) => return api_error(StatusCode::UNAUTHORIZED, refusal.code(), refusal.message()),
+    };
+    // A browser assertion is single-use even across a Core restart. The
+    // marker lives in the account plane, not in any company cell.
+    let replay_dir = state.daemon.root.join("account-entry-replay");
+    if std::fs::create_dir_all(&replay_dir).is_err() {
+        return api_error(StatusCode::SERVICE_UNAVAILABLE, "entry_unavailable", "Account entry could not be recorded.");
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        if std::fs::set_permissions(&replay_dir, std::fs::Permissions::from_mode(0o700)).is_err() {
+            return api_error(StatusCode::SERVICE_UNAVAILABLE, "entry_unavailable", "Account entry could not be recorded.");
+        }
+    }
+    let marker = replay_dir.join(access.assertion_id.to_string());
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(0o600);
+    }
+    let recorded = options.open(&marker);
+    match recorded {
+        Ok(file) => {
+            if file.sync_all().is_err() {
+                return api_error(StatusCode::SERVICE_UNAVAILABLE, "entry_unavailable", "Account entry could not be recorded.");
+            }
+        },
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            return api_error(StatusCode::UNAUTHORIZED, "assertion_replayed", "Account entry assertion has already been used.");
+        }
+        Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "entry_unavailable", "Account entry could not be recorded."),
+    }
+    if std::fs::File::open(&replay_dir).and_then(|dir| dir.sync_all()).is_err() {
+        return api_error(StatusCode::SERVICE_UNAVAILABLE, "entry_unavailable", "Account entry could not be recorded.");
+    }
+    let identity = VerifiedIdentity {
+        user: access.subject,
+        issuer: Some(access.issuer),
+        owner: access.owner_id.to_string(),
+        scope: CompanyScope::Owner,
+        role: "owner".to_owned(),
+        actor: Some("owner".to_owned()),
+        company_id: None,
+        cell_id: None,
+        membership_id: None,
+        membership_version: None,
+    };
+    tracing::info!(owner = %access.owner_id, plane_id = %access.plane_id, "admitted a verified account-owner entry assertion");
+    let ttl = network.session_ttl();
+    let token = state.sessions.establish(identity, ttl);
+    let cookie = format!("{SESSION_COOKIE}={token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age={}", ttl.as_secs());
+    let mut response = if form_post {
+        Redirect::to("/account/settings/connections").into_response()
+    } else {
+        Json(serde_json::json!({"entered": true, "account": true})).into_response()
+    };
+    if let Ok(value) = HeaderValue::from_str(&cookie) { response.headers_mut().insert(SET_COOKIE, value); }
     response
 }
 
@@ -3153,8 +3237,8 @@ fn company_connection_is_assigned(config: &runtime::CompanyConfig, provider: &st
             .any(|route| route.connection == format!("direct:{provider}"))
 }
 
-async fn list_owner_connections(State(state): State<OwnerState>) -> Response<Body> {
-    if state.entry.network().is_some() {
+async fn list_owner_connections(State(state): State<OwnerState>, Extension(principal): Extension<RequestPrincipal>) -> Response<Body> {
+    if !principal.is_account_owner() && principal.scoped_company().is_none() {
         return api_error(
             StatusCode::FORBIDDEN,
             "connections",
@@ -3171,11 +3255,19 @@ async fn list_owner_connections(State(state): State<OwnerState>) -> Response<Bod
             )
         }
     };
+    let account_owner = principal.is_account_owner();
+    let allowed_company = principal.scoped_company().map(str::to_owned);
     let connections =
-        futures_util::future::join_all(registry.connections.iter().map(|connection| async {
+        futures_util::future::join_all(registry.connections.iter().filter_map(|connection| {
+            let mut companies = companies_using_owner_connection(&state.daemon.root, connection);
+            if let Some(allowed) = allowed_company.as_deref() {
+                companies.retain(|company| company["id"].as_str() == Some(allowed));
+                if companies.is_empty() { return None; }
+            }
+            Some(async move {
             let mut summary = safe_connection_summary(
                 connection,
-                companies_using_owner_connection(&state.daemon.root, connection),
+                companies,
             );
             let probe = credential::probe_reference(&owner_connection_reference(connection)).await;
             summary["status"] = serde_json::Value::String(probe.status.as_str().to_string());
@@ -3194,9 +3286,13 @@ async fn list_owner_connections(State(state): State<OwnerState>) -> Response<Bod
                 });
             }
             summary
-        }))
+        })}))
         .await;
-    Json(serde_json::json!({"connections": connections})).into_response()
+    Json(serde_json::json!({
+        "connections": connections,
+        "scope": if account_owner { "account" } else { "company" },
+        "manage_url": state.entry.network().map(|network| network.account_portfolio_url()),
+    })).into_response()
 }
 
 #[derive(Deserialize)]
@@ -3212,9 +3308,10 @@ struct CreateOwnerConnectionInput {
 
 async fn create_owner_connection(
     State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
     Json(input): Json<CreateOwnerConnectionInput>,
 ) -> Response<Body> {
-    if state.entry.network().is_some() {
+    if !principal.is_account_owner() {
         return api_error(
             StatusCode::FORBIDDEN,
             "connections",
@@ -3315,9 +3412,10 @@ struct ImportOwnerConnectionInput {
 
 async fn import_owner_connection(
     State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
     Json(input): Json<ImportOwnerConnectionInput>,
 ) -> Response<Body> {
-    if state.entry.network().is_some() {
+    if !principal.is_account_owner() {
         return api_error(
             StatusCode::FORBIDDEN,
             "connections",
@@ -3479,10 +3577,11 @@ async fn provider_credential_conflicts_with_other_companies(
 
 async fn grant_owner_connection(
     State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
     AxumPath((company, id)): AxumPath<(String, String)>,
     Json(input): Json<GrantOwnerConnectionInput>,
 ) -> Response<Body> {
-    if state.entry.network().is_some() {
+    if !principal.is_account_owner() {
         return api_error(
             StatusCode::FORBIDDEN,
             "connections",
@@ -3618,10 +3717,11 @@ struct RevokeOwnerConnectionInput {
 
 async fn revoke_owner_connection(
     State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
     AxumPath((company, id)): AxumPath<(String, String)>,
     Json(input): Json<RevokeOwnerConnectionInput>,
 ) -> Response<Body> {
-    if state.entry.network().is_some() {
+    if !principal.is_account_owner() {
         return api_error(
             StatusCode::FORBIDDEN,
             "connections",

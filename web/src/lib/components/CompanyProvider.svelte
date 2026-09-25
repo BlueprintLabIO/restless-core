@@ -64,6 +64,8 @@
 		companies: { id: string; name: string; in_use?: boolean }[];
 	};
 	let reusableConnections = $state<ReusableConnection[]>([]);
+	let accountScope = $state<'account' | 'company'>('account');
+	let manageUrl = $state('/account/settings/connections');
 	let accountError = $state('');
 	let accountBusy = $state(false);
 	let accountLoading = $state(false);
@@ -207,6 +209,8 @@
 			if (!connectionResponse.ok)
 				throw new Error(body.message ?? 'Could not load reusable connections.');
 			reusableConnections = body.connections ?? [];
+			accountScope = body.scope === 'company' ? 'company' : 'account';
+			manageUrl = accountScope === 'company' ? (body.manage_url ?? '/account/settings/connections') : '/account/settings/connections';
 			companies = companyRows.filter((company) => company.lifecycle_status === 'active');
 		} catch (cause) {
 			accountError = cause instanceof Error ? cause.message : 'Could not load reusable connections.';
@@ -392,14 +396,14 @@
 			<div>
 				<h1 id="reuse-title" title="A provider API key is stored once at account level. Grant access to this company here; model choices stay company-specific.">Intelligence</h1>
 			</div>
-			<a class="account-link" href="/account/settings/connections">Manage account connections <span aria-hidden="true">↗</span></a>
+			<a class="account-link" href={manageUrl}>{accountScope === 'company' ? 'Open account to manage connections' : 'Manage account connections'} <span aria-hidden="true">↗</span></a>
 		</div>
 		<CopyCompanySetting {companyId} setting="models" label="Model choices" oncopied={async () => { await Promise.all([refresh(), intelligence.refresh()]); }} />
 		<div class="reuse-section-head">
 			<div><h2 title="Each company needs an explicit grant to use an account-level API connection.">Available connections</h2></div>
-			<button class="btn small" disabled={accountBusy} onclick={toggleAddConnection}>
+			{#if accountScope === 'account'}<button class="btn small" disabled={accountBusy} onclick={toggleAddConnection}>
 				{addConnectionOpen ? 'Close' : 'Add connection'}
-			</button>
+			</button>{/if}
 		</div>
 		{#if accountLoading}<p class="inline-status" role="status">Loading account connections…</p>
 		{:else if reusableConnections.length}
@@ -410,7 +414,7 @@
 						<div class="reuse-identity"><strong>{item.label}</strong><span>{labels[item.provider] ?? item.provider}</span></div>
 						{#if companyGrant}
 							<span class="grant-state">Available to this company</span>
-							{#if companyGrant.in_use}<span class="grant-count" title="Choose another model for this provider before removing access.">In use</span>{:else}<button class="text-button danger" disabled={accountBusy || !status} onclick={() => revokeConnection(item)}>Remove access</button>{/if}
+							{#if companyGrant.in_use}<span class="grant-count" title="Choose another model for this provider before removing access.">In use</span>{:else if accountScope === 'account'}<button class="text-button danger" disabled={accountBusy || !status} onclick={() => revokeConnection(item)}>Remove access</button>{/if}
 						{:else if grantSelection === item.id}
 							<label class="model-picker"><span>Model for this connection</span><select aria-label={`Model for ${item.label}`} value={modelForGrant(item)} onchange={(event) => (grantModels[item.id] = event.currentTarget.value)}>
 								{#each modelChoices(item.provider) as model}<option value={routeModel(item.provider, model.id)}>{model.name ?? model.id}</option>{/each}
@@ -428,9 +432,9 @@
 				{/each}
 			</div>
 		{:else}
-			<div class="reuse-empty"><p>No reusable API connections yet.</p><span>Save one here or bring an existing company connection into your account.</span></div>
+			<div class="reuse-empty"><p>No account connection is available to this company yet.</p><span>{accountScope === 'company' ? 'Open your account, then choose Account settings to grant one.' : 'Save one here or bring an existing company connection into your account.'}</span></div>
 		{/if}
-		{#if addConnectionOpen}
+		{#if addConnectionOpen && accountScope === 'account'}
 			<form class="add-form" onsubmit={createReusableConnection}>
 				<h3>Save an API connection</h3>
 				<div class="form-grid"><label>Provider<select bind:value={connectionProvider} onchange={() => (connectionModel = defaultModel(connectionProvider))}>{#each Object.entries(labels).filter(([id]) => id !== 'openai-codex') as [id, label]}<option value={id}>{label}</option>{/each}</select></label>
@@ -443,7 +447,9 @@
 				<p class="form-note">One API key per provider is shared across companies. Each company needs its own grant. This is a stored key check, not a provider sign-in test.</p>
 			</form>
 		{/if}
-		{#if !importOpen}
+		{#if accountScope === 'company'}
+			<p class="form-note">Account connections and grants are managed by the account owner.</p>
+		{:else if !importOpen}
 			<button class="text-button import-link" disabled={accountBusy || companies.filter((company) => company.id !== companyId).length === 0} onclick={() => { importOpen = true; accountError = ''; }}>Bring in an API connection from another company</button>
 		{:else}
 			<div class="import-form"><h3>Bring in an existing connection</h3><p>Restless creates an account-level copy of the key. The original company keeps its connection. Only one API key per provider can be used across companies.</p>

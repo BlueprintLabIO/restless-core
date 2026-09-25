@@ -24,9 +24,11 @@ use uuid::Uuid;
 /// The released Fleet/Core handoff contract.
 pub(crate) const ASSERTION_CONTRACT_VERSION: u32 = 1;
 pub(crate) const HANDOFF_AUDIENCE: &str = "restless-core-account-plane";
+pub(crate) const ACCOUNT_HANDOFF_AUDIENCE: &str = "restless-core-account-owner";
 pub(crate) const MEMBERSHIP_CONTROL_AUDIENCE: &str = "restless-core-membership-control";
 
 const TOKEN_TYPE: &str = "JWT";
+const ACCOUNT_TOKEN_TYPE: &str = "restless-account-owner+jwt";
 const MEMBERSHIP_CONTROL_TOKEN_TYPE: &str = "restless-membership-control+jwt";
 const ALGORITHM: &str = "EdDSA";
 const MAX_ASSERTION_LIFETIME_SECONDS: i64 = 60;
@@ -52,6 +54,7 @@ pub(crate) enum Refusal {
     Expired,
     TooLongLived,
     InvalidMembership,
+    InvalidAccount,
 }
 
 impl Refusal {
@@ -71,6 +74,7 @@ impl Refusal {
             Self::Expired => "assertion_expired",
             Self::TooLongLived => "assertion_too_long_lived",
             Self::InvalidMembership => "assertion_invalid_membership",
+            Self::InvalidAccount => "assertion_invalid_account",
         }
     }
 
@@ -94,6 +98,7 @@ impl Refusal {
             Self::Expired => "entry assertion has expired".into(),
             Self::TooLongLived => "entry assertion exceeds the permitted lifetime".into(),
             Self::InvalidMembership => "entry assertion membership is invalid".into(),
+            Self::InvalidAccount => "account-owner entry assertion is invalid".into(),
         }
     }
 }
@@ -139,6 +144,32 @@ pub(crate) struct AssertionClaims {
     pub membership_role: String,
     pub membership_version: i64,
     pub assertion_version: u32,
+}
+
+/// Separate signed account-owner door. It carries no company coordinates or
+/// membership role, so a company handoff cannot be promoted by a route choice.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AccountAssertionClaims {
+    pub iss: String,
+    pub aud: String,
+    pub sub: String,
+    pub jti: Uuid,
+    pub exp: i64,
+    pub iat: i64,
+    pub kid: String,
+    pub owner_id: Uuid,
+    pub plane_id: Uuid,
+    pub assertion_version: u32,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct VerifiedAccountAccess {
+    pub issuer: String,
+    pub subject: String,
+    pub assertion_id: Uuid,
+    pub owner_id: Uuid,
+    pub plane_id: Uuid,
 }
 
 /// Exact signed terminal-membership command contract. It is intentionally a
@@ -303,6 +334,14 @@ impl RequestPrincipal {
         &self.membership_role
     }
 
+    pub(crate) fn is_account_owner(&self) -> bool {
+        self.company.is_none() && self.membership_role == "owner"
+    }
+
+    pub(crate) fn scoped_company(&self) -> Option<&str> {
+        self.company.as_deref()
+    }
+
     pub(crate) fn cache_partition(&self) -> &str {
         &self.cache_partition
     }
@@ -337,6 +376,13 @@ pub(crate) struct NetworkEntry {
 }
 
 impl NetworkEntry {
+    pub(crate) fn matches_account_owner(&self, owner: &str) -> bool {
+        owner == self.owner_id.to_string()
+    }
+
+    pub(crate) fn account_portfolio_url(&self) -> String {
+        format!("{}/account", self.issuer)
+    }
     pub(crate) fn host(&self) -> &str {
         &self.host
     }
@@ -427,6 +473,66 @@ impl NetworkEntry {
             }
             result => result,
         }
+    }
+
+    pub(crate) async fn verify_account(
+        &self,
+        token: &str,
+    ) -> Result<VerifiedAccountAccess, Refusal> {
+        self.refresh_keys(false)
+            .await
+            .map_err(|_| Refusal::SigningKeysUnavailable)?;
+        match self.verify_account_at(token, Utc::now()).await {
+            Err(Refusal::UnknownKeyVersion) => {
+                self.refresh_keys(true)
+                    .await
+                    .map_err(|_| Refusal::SigningKeysUnavailable)?;
+                self.verify_account_at(token, Utc::now()).await
+            }
+            result => result,
+        }
+    }
+
+    async fn verify_account_at(
+        &self,
+        token: &str,
+        now: DateTime<Utc>,
+    ) -> Result<VerifiedAccountAccess, Refusal> {
+        let parsed = parse_account_assertion(token)?;
+        let key = self
+            .keys
+            .read()
+            .await
+            .get(&parsed.header.kid)
+            .cloned()
+            .ok_or(Refusal::UnknownKeyVersion)?;
+        let signature = Signature::from_slice(&parsed.signature)
+            .map_err(|_| Refusal::Malformed("signature is not 64-byte Ed25519"))?;
+        key.verify(parsed.signing_input.as_bytes(), &signature)
+            .map_err(|_| Refusal::BadSignature)?;
+        let claims = parsed.claims;
+        if claims.assertion_version != ASSERTION_CONTRACT_VERSION {
+            return Err(Refusal::UnsupportedVersion { got: claims.assertion_version, supported: ASSERTION_CONTRACT_VERSION });
+        }
+        if claims.iss.trim_end_matches('/') != self.issuer { return Err(Refusal::UnknownIssuer); }
+        if claims.aud != ACCOUNT_HANDOFF_AUDIENCE { return Err(Refusal::WrongAudience); }
+        if claims.owner_id != self.owner_id { return Err(Refusal::WrongOwner); }
+        if claims.plane_id != self.plane_id { return Err(Refusal::WrongPlane); }
+        if claims.kid != parsed.header.kid || claims.sub.trim().is_empty() || claims.sub.len() > 512 || claims.jti.is_nil() {
+            return Err(Refusal::InvalidAccount);
+        }
+        if claims.iat > now.timestamp() + MAX_CLOCK_SKEW_SECONDS { return Err(Refusal::NotYetValid); }
+        if claims.exp <= now.timestamp() { return Err(Refusal::Expired); }
+        if claims.exp <= claims.iat || claims.exp.saturating_sub(claims.iat) > MAX_ASSERTION_LIFETIME_SECONDS {
+            return Err(Refusal::TooLongLived);
+        }
+        Ok(VerifiedAccountAccess {
+            issuer: claims.iss.trim_end_matches('/').to_owned(),
+            subject: claims.sub,
+            assertion_id: claims.jti,
+            owner_id: claims.owner_id,
+            plane_id: claims.plane_id,
+        })
     }
 
     /// Verify a terminal membership command. Its distinct token type,
@@ -554,6 +660,33 @@ struct ParsedAssertion {
     claims: AssertionClaims,
     signing_input: String,
     signature: Vec<u8>,
+}
+
+struct ParsedAccountAssertion {
+    header: AssertionHeader,
+    claims: AccountAssertionClaims,
+    signing_input: String,
+    signature: Vec<u8>,
+}
+
+fn parse_account_assertion(token: &str) -> Result<ParsedAccountAssertion, Refusal> {
+    let mut parts = token.split('.');
+    let header_b64 = parts.next().ok_or(Refusal::Malformed("no header"))?;
+    let payload_b64 = parts.next().ok_or(Refusal::Malformed("no payload"))?;
+    let signature_b64 = parts.next().ok_or(Refusal::Malformed("no signature"))?;
+    if parts.next().is_some() || header_b64.is_empty() || payload_b64.is_empty() || signature_b64.is_empty() {
+        return Err(Refusal::Malformed("invalid token segments"));
+    }
+    let header: AssertionHeader = decode_segment(header_b64, "header")?;
+    if header.typ != ACCOUNT_TOKEN_TYPE || header.alg != ALGORITHM {
+        return Err(Refusal::Malformed("unexpected account token header"));
+    }
+    let claims: AccountAssertionClaims = decode_segment(payload_b64, "payload")?;
+    if claims.kid != header.kid { return Err(Refusal::Malformed("header and payload key ids differ")); }
+    let signature = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(signature_b64)
+        .map_err(|_| Refusal::Malformed("signature is not base64url"))?;
+    Ok(ParsedAccountAssertion { header, claims, signing_input: format!("{header_b64}.{payload_b64}"), signature })
 }
 
 struct ParsedMembershipControl {
