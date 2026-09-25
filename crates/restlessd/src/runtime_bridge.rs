@@ -1097,8 +1097,8 @@ pub(crate) async fn open_agent_transport(
     harness: crate::runtime::AgentHarness,
     system_prompt: &str,
 ) -> Result<tokio::io::DuplexStream> {
-    if harness != crate::runtime::AgentHarness::RestlessManaged {
-        anyhow::bail!("hosted Runtime Exec currently requires the restless-managed ACP harness");
+    if !matches!(harness, crate::runtime::AgentHarness::RestlessManaged | crate::runtime::AgentHarness::ClaudeAgent) {
+        anyhow::bail!("hosted Runtime ACP transport requires the Restless or Claude agent harness");
     }
     preflight(registry, identity).await?;
     let operation_id = Uuid::new_v4();

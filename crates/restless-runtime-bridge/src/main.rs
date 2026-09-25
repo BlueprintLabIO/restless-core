@@ -2171,7 +2171,27 @@ async fn launch_agent(
                 profile,
             )
         }
-        _ => bail!("hosted Runtime bridge currently accepts only the certified restless-managed ACP harness"),
+        "claude-agent" => {
+            let selected_model = model.strip_prefix("anthropic/").filter(|value| !value.is_empty())
+                .context("Claude Agent requires an anthropic model route")?;
+            if !matches!(reasoning_effort.as_str(), "low" | "medium" | "high" | "max") {
+                bail!("Claude Agent reasoning effort is unsupported");
+            }
+            let profile = session_root.join("claude-profile");
+            std::fs::create_dir_all(&profile)?;
+            let settings = serde_json::to_vec_pretty(&serde_json::json!({
+                "availableModels": [selected_model],
+                "enabledPlugins": {},
+                "hooks": {},
+                "permissions": {
+                    "defaultMode": "default",
+                    "allow": [], "deny": [], "ask": []
+                }
+            }))?;
+            write_private(&profile.join("settings.json"), &settings)?;
+            ("claude-agent-acp", Vec::new(), profile)
+        }
+        _ => bail!("hosted Runtime bridge accepts only supported ACP harnesses"),
     };
     make_company_owned(&session_root)?;
     let mut command = tokio::process::Command::new(program);
@@ -2180,20 +2200,28 @@ async fn launch_agent(
         .current_dir(&canonical_workdir)
         .process_group(0)
         .env("HOME", "/company/home")
-        .env("PI_CODING_AGENT_DIR", &profile_dir)
         .env("DISPLAY", ":1")
         .env("RESTLESS_ACTOR", actor)
         .env("RESTLESS_COORDINATOR", COORDINATION_ADDRESS)
         .env("RESTLESS_SESSION_CAPABILITY", coordination_capability)
-        .env("RESTLESS_MODEL_CAPABILITY", model_capability)
+        .env("RESTLESS_MODEL_CAPABILITY", &model_capability)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .kill_on_drop(true);
+    if harness == "claude-agent" {
+        command
+            .env("CLAUDE_CONFIG_DIR", &profile_dir)
+            .env("ANTHROPIC_AUTH_TOKEN", &model_capability)
+            .env("ANTHROPIC_BASE_URL", &model_url)
+            .env("ANTHROPIC_API_KEY", "")
+            .env("CLAUDE_CODE_OAUTH_TOKEN", "");
+    } else {
+        command.env("PI_CODING_AGENT_DIR", &profile_dir);
+    }
     if let Some(ca_file) = model_ca_file {
-        // omp is a Bun executable. NODE_EXTRA_CA_CERTS augments, rather than
-        // replaces, the image's public WebPKI roots and makes the exact
-        // private plane hostname trusted by the hosted model relay.
+        // Both ACP runtimes use JavaScript TLS. Augment the public roots so
+        // the exact private plane hostname is trusted by the model relay.
         command.env("NODE_EXTRA_CA_CERTS", ca_file);
     }
     // Hosted Runtime runs the bridge with a dedicated credential boundary.

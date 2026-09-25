@@ -1292,8 +1292,8 @@ where
         Box<dyn std::future::Future<Output = Result<T>> + Send + 'a>,
     >,
 {
-    if harness != crate::runtime::AgentHarness::RestlessManaged {
-        anyhow::bail!("hosted ACP transport supports only the restless-managed harness");
+    if !matches!(harness, crate::runtime::AgentHarness::RestlessManaged | crate::runtime::AgentHarness::ClaudeAgent) {
+        anyhow::bail!("hosted ACP transport requires a supported harness");
     }
     if controls.completion_only {
         anyhow::bail!(
@@ -1383,6 +1383,14 @@ where
                     .block_task()
                     .await
                     .context("hosted acp initialize")?;
+                if harness == crate::runtime::AgentHarness::ClaudeAgent {
+                    let info = initialized.agent_info.as_ref().context(
+                        "Claude Agent ACP initialize omitted its adapter build identity",
+                    )?;
+                    if info.name != "@agentclientprotocol/claude-agent-acp" || info.version != "0.73.0" {
+                        anyhow::bail!("hosted Claude Agent ACP build mismatch");
+                    }
+                }
                 let session = cx
                     .send_request(
                         NewSessionRequest::new(launch_workdir.clone())
@@ -1413,6 +1421,36 @@ where
                 ) {
                     anyhow::bail!("hosted ACP agent did not confirm exact selected model");
                 }
+                if harness == crate::runtime::AgentHarness::ClaudeAgent {
+                    let (effort_id, effort_value) = exact_named_config_selection(
+                        &configured.config_options, "effort", &launch_auth.effort,
+                    ).context("select exact hosted Claude Agent effort")?;
+                    let effort_options = cx
+                        .send_request(SetSessionConfigOptionRequest::new(
+                            session.session_id.clone(), effort_id.clone(), effort_value.as_str(),
+                        ))
+                        .block_task()
+                        .await
+                        .context("set exact hosted Claude Agent effort")?
+                        .config_options;
+                    if !model_config_is_selected(&effort_options, &effort_id, &effort_value) {
+                        anyhow::bail!("hosted Claude Agent did not confirm exact selected effort");
+                    }
+                    let (mode_id, mode_value) = exact_named_config_selection(
+                        &effort_options, "mode", "default",
+                    ).context("select hosted Claude Agent permission mode")?;
+                    let mode_options = cx
+                        .send_request(SetSessionConfigOptionRequest::new(
+                            session.session_id.clone(), mode_id.clone(), mode_value.as_str(),
+                        ))
+                        .block_task()
+                        .await
+                        .context("set hosted Claude Agent permission mode")?
+                        .config_options;
+                    if !model_config_is_selected(&mode_options, &mode_id, &mode_value) {
+                        anyhow::bail!("hosted Claude Agent did not confirm isolated permission mode");
+                    }
+                }
                 let tool_contract_digest = format!(
                     "{:x}",
                     Sha256::digest(format!(
@@ -1428,8 +1466,8 @@ where
                     "mcp_server_count": mcp_server_count,
                     "session_load": initialized.agent_capabilities.load_session,
                     "model_selection": "exact",
-                    "effort_selection": "exact_process_flag",
-                    "permission_mode": "runtime_sandbox",
+                    "effort_selection": if harness == crate::runtime::AgentHarness::ClaudeAgent { "exact_acp" } else { "exact_process_flag" },
+                    "permission_mode": if harness == crate::runtime::AgentHarness::ClaudeAgent { "default_reasserted" } else { "runtime_sandbox" },
                     "transport": "hosted_runtime_bridge",
                     "tariff_version": if launch_auth.model.starts_with("native-") {None} else {profile.tariff_version()},
                 });
