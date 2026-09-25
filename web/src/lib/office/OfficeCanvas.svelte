@@ -160,6 +160,7 @@
 				chatBubbleUntil = 0;
 			}
 			if (shell) shell.dataset.motion = reducedMotion ? 'reduced' : 'full';
+			if (reducedMotion && office) settleMatrixEffects(office);
 			if (reducedMotion && office && plan) synchronizeMembers(office, members, plan);
 		};
 		const readVisibility = () => {
@@ -326,6 +327,19 @@
 		const member = members.find((candidate) => candidate.actorId === actorId);
 		if (returnToCommons && member && office && plan)
 			sendToRestingSpot(office, member, members, plan);
+	}
+
+	/* Spawn and despawn effects only advance in the update loop, which reduced
+	 * motion skips: finish them now so nobody is left half-drawn. */
+	function settleMatrixEffects(state: OfficeState) {
+		for (const character of [...state.characters.values()]) {
+			if (character.matrixEffect === 'despawn') state.characters.delete(character.id);
+			else if (character.matrixEffect === 'spawn') {
+				character.matrixEffect = null;
+				character.matrixEffectTimer = 0;
+				character.matrixEffectSeeds = [];
+			}
+		}
 	}
 
 	function sendToRestingSpot(
@@ -508,13 +522,17 @@
 				const member = members.find((candidate) => candidate.numericId === character.id);
 				if (member) releaseAmbient(member.actorId, false);
 				state.removeAgent(character.id);
+				/* Without the update loop the despawn effect never finishes. */
+				if (reducedMotion) state.characters.delete(character.id);
 			}
 		}
 
 		for (const member of nextMembers) {
 			const areaKey = member.actorId === 'exec' ? '__exec__' : (member.teamId ?? '__company__');
 			if (!state.characters.has(member.numericId)) {
-				state.addAgent(member.numericId, member.palette, 0, undefined, false, areaKey);
+				/* The spawn effect only advances in the update loop, which reduced
+				 * motion skips, so it would leave colleagues invisible. Appear in place. */
+				state.addAgent(member.numericId, member.palette, 0, undefined, reducedMotion, areaKey);
 			}
 		}
 
