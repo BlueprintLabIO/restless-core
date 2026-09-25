@@ -255,6 +255,29 @@
 			source.status === 'stale' ? (source.failure?.message ?? 'Attention is unavailable.') : '';
 	}
 
+	/* J/K and the arrow keys walk the queue, as in any triage list. Typing,
+	 * modifiers and open dialogs keep their own meaning for those keys. */
+	function stepQueue(event: KeyboardEvent) {
+		if (event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
+		const step = { j: 1, ArrowDown: 1, k: -1, ArrowUp: -1 }[event.key];
+		if (!step || items.length < 2) return;
+		const target = event.target as HTMLElement | null;
+		if (
+			target?.closest('input, textarea, select, [contenteditable], dialog, #bridge-exrail') ||
+			document.querySelector('dialog[open]')
+		)
+			return;
+		const index = items.findIndex((item) => item.id === selectedItem?.id);
+		const next = items[Math.max(0, Math.min(items.length - 1, index + step))];
+		if (!next || next.id === selectedItem?.id) return;
+		event.preventDefault();
+		void goto(itemHref(next.id), { keepFocus: true, noScroll: true }).then(() =>
+			document
+				.querySelector('.attention-item.selected')
+				?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+		);
+	}
+
 	function itemHref(id: string): string {
 		return `${baseHref}?item=${encodeURIComponent(id)}`;
 	}
@@ -413,6 +436,7 @@
 	}
 </script>
 
+<svelte:window onkeydown={stepQueue} />
 <svelte:head><title>Attention — {view?.company.name ?? companyId}</title></svelte:head>
 
 {#if focusedReview}
