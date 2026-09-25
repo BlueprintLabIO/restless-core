@@ -599,7 +599,11 @@
 							<p class="conversation-capability-hint">{capabilityHint}</p>
 						{/if}
 					{/if}
-					{#if turn}<ConversationTurnDock {participantName} {turn} />{/if}
+					{#if turn && needsProvider && (turn.live?.phase ?? 'queued') === 'queued'}
+						<p class="exr-setup-pending" role="status">
+							Message saved. {participantName} can reply after you add an intelligence provider.
+						</p>
+					{:else if turn}<ConversationTurnDock {participantName} {turn} />{/if}
 				</div>
 
 				{#if needsProvider}
@@ -746,6 +750,16 @@
 		line-height: 1.55;
 		text-align: center;
 		animation: focus-arrive var(--motion-disclosure) var(--ease-standard) both;
+	}
+	.exr-setup-pending {
+		margin: var(--space-3);
+		padding: var(--space-3);
+		border: 1px solid var(--border-soft);
+		border-radius: var(--radius-control);
+		background: var(--surface-pane);
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+		line-height: 1.5;
 	}
 	@keyframes focus-arrive {
 		from {
