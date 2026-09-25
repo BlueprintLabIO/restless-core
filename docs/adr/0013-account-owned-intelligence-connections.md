@@ -48,4 +48,6 @@ Account OAuth grants now store the exact account connection ID in the company's 
 
 The company-only provider editor retains an existing OAuth reference but no longer creates a new one. New reusable OAuth access must be granted from the account page, where its connection ID and per-company revocation are visible.
 
-The gateway still admits only one credential per provider on an account plane; its broker has not yet been split by provider account identity. Existing native Codex and Claude CLI profiles remain company-local. The Cloud account handoff and the two-company/two-tenant paths need a live smoke before release. Cloud also still has its legacy separate company-creation form; chat-led creation must be integrated with Fleet provisioning before it can be removed.
+The gateway still admits only one credential per provider on an account plane; its broker has not yet been split by provider account identity. Existing native Codex and Claude CLI profiles remain company-local. The Cloud account handoff and the two-company/two-tenant paths need a live smoke before release.
+
+Cloud's portfolio now asks for an opening message instead of a company-name form. Fleet provisions an unnamed company and keeps that message with a stable command ID. On the founding owner's first secure entry, Core delivers it to Exec through the same idempotent conversation store as a normal owner message; a later entry only rechecks the receipt. This path needs a live provision-and-entry smoke before release.

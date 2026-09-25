@@ -2114,6 +2114,10 @@ async fn end_entry_session(State(state): State<OwnerState>, headers: HeaderMap) 
 #[serde(deny_unknown_fields)]
 struct EntryRequest {
     assertion: String,
+    #[serde(default)]
+    opening_message: Option<String>,
+    #[serde(default)]
+    opening_command_id: Option<Uuid>,
 }
 
 #[derive(Deserialize)]
@@ -2464,6 +2468,34 @@ async fn consume_entry_assertion(
         );
     }
     let token = reconciled.token;
+    let opened_with_message = if let (Some(message), Some(command_id)) =
+        (request.opening_message.as_deref(), request.opening_command_id)
+    {
+        if identity.role != "owner" || identity.actor.as_deref() != Some("owner") {
+            return api_error(StatusCode::FORBIDDEN, "opening_message", "Only the founding owner can deliver the first message to Exec.");
+        }
+        let command = format!("fleet-opening:{command_id}");
+        let payload = format!("fleet-opening:{}:{}:{message}", access.company_id, command_id);
+        let digest = format!("{:x}", Sha256::digest(payload.as_bytes()));
+        match org.send_human_runtime_conversation_message_idempotent_with_standard(
+            "owner", "exec", message, true, None, &[], &command, &digest,
+        ).await {
+            Ok((message_id, _, created)) => {
+                if created {
+                    state.daemon.activities.expect_message(&company, "exec", message_id, None);
+                    if let Ok(mut claims) = state.daemon.in_flight.lock() {
+                        claims.queue_owner_message(&company);
+                    }
+                    state.daemon.schedule_wake.notify_one();
+                }
+                created
+            }
+            Err(error) => {
+                tracing::error!(%error, company = %company, "could not deliver the founding owner's message to Exec");
+                return api_error(StatusCode::SERVICE_UNAVAILABLE, "opening_message", "Your company is ready, but your first message could not be delivered. Reopen it from your account to retry.");
+            }
+        }
+    } else { false };
 
     let cookie = format!(
         "{SESSION_COOKIE}={token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age={}",
@@ -2472,7 +2504,7 @@ async fn consume_entry_assertion(
     let mut response = if form_post {
         // The verified company is also the member's landing page. The global
         // portfolio requires owner access and is not an invitation destination.
-        Redirect::to(&format!("/{company}")).into_response()
+        Redirect::to(&if opened_with_message { format!("/{company}/people?person=exec") } else { format!("/{company}") }).into_response()
     } else {
         Json(serde_json::json!({
             "entered": true,
@@ -2498,6 +2530,9 @@ async fn consume_account_entry_assertion(
         Ok(request) => request,
         Err(message) => return api_error(StatusCode::BAD_REQUEST, "entry_request", message),
     };
+    if request.opening_message.is_some() || request.opening_command_id.is_some() {
+        return api_error(StatusCode::BAD_REQUEST, "entry_request", "Account entry cannot deliver a company message.");
+    }
     let access = match network.verify_account(&request.assertion).await {
         Ok(access) => access,
         Err(refusal) => return api_error(StatusCode::UNAUTHORIZED, refusal.code(), refusal.message()),
@@ -2619,25 +2654,41 @@ fn parse_entry_request(
         .unwrap_or_default()
         .trim();
     if content_type == "application/x-www-form-urlencoded" {
-        let values = url::form_urlencoded::parse(body)
-            .filter(|(key, _)| key == "assertion")
-            .map(|(_, value)| value.into_owned())
-            .collect::<Vec<_>>();
-        return match values.as_slice() {
-            [assertion] if !assertion.is_empty() => Ok((
-                EntryRequest {
-                    assertion: assertion.clone(),
-                },
-                true,
-            )),
-            _ => Err("form entry requires exactly one non-empty assertion"),
+        let values = url::form_urlencoded::parse(body).into_owned().collect::<Vec<_>>();
+        let one = |name: &str| -> std::result::Result<Option<String>, &'static str> {
+            let matches = values.iter().filter(|(key, _)| key == name).map(|(_, value)| value.clone()).collect::<Vec<_>>();
+            match matches.as_slice() {
+                [] => Ok(None),
+                [value] => Ok(Some(value.clone())),
+                _ => Err("entry form has a repeated field"),
+            }
         };
+        if values.iter().any(|(key, _)| !matches!(key.as_str(), "assertion" | "opening_message" | "opening_command_id")) {
+            return Err("entry form has an unsupported field");
+        }
+        let assertion = one("assertion")?.filter(|value| !value.is_empty())
+            .ok_or("form entry requires exactly one non-empty assertion")?;
+        let opening_message = one("opening_message")?;
+        let opening_command_id = one("opening_command_id")?
+            .map(|value| Uuid::parse_str(&value).map_err(|_| "opening command ID is invalid"))
+            .transpose()?;
+        if opening_message.is_some() != opening_command_id.is_some()
+            || opening_message.as_ref().is_some_and(|message| message.trim().is_empty() || message.len() > 4000)
+        {
+            return Err("opening message and command ID must be one bounded pair");
+        }
+        return Ok((EntryRequest { assertion, opening_message, opening_command_id }, true));
     }
     if content_type.is_empty() || content_type == "application/json" {
         let request: EntryRequest =
             serde_json::from_slice(body).map_err(|_| "entry JSON is invalid")?;
         if request.assertion.is_empty() {
             return Err("entry assertion must not be empty");
+        }
+        if request.opening_message.is_some() != request.opening_command_id.is_some()
+            || request.opening_message.as_ref().is_some_and(|message| message.trim().is_empty() || message.len() > 4000)
+        {
+            return Err("opening message and command ID must be one bounded pair");
         }
         return Ok((request, false));
     }
