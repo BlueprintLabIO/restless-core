@@ -15,9 +15,10 @@
 }
 
 .bridge-root .day-sep span {
-	font: 600 var(--t-label) var(--font-mono);
-	letter-spacing: 0.1em;
-	text-transform: uppercase;
+	font: 600 var(--t-label) var(--font-ui);
+	font-variant-numeric: tabular-nums;
+	letter-spacing: normal;
+	text-transform: none;
 	color: var(--text-tertiary);
 }
 
@@ -32,9 +33,10 @@
 
 .bridge-root .needs-card .nc-kicker {
 	margin-bottom: 5px;
-	font: 600 var(--t-label) var(--font-mono);
-	letter-spacing: 0.1em;
-	text-transform: uppercase;
+	font: 600 var(--t-label) var(--font-ui);
+	font-variant-numeric: tabular-nums;
+	letter-spacing: normal;
+	text-transform: none;
 	color: var(--intent-authority);
 }
 

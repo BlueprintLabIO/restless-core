@@ -860,7 +860,8 @@
 		align-items: center;
 		gap: 6px;
 		color: var(--text-tertiary);
-		font: 500 var(--t-label) var(--font-mono);
+		font: 500 var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 		white-space: nowrap;
 	}
 	.collaboration-state > span {
@@ -1021,7 +1022,8 @@
 		padding-bottom: var(--space-2);
 		border-bottom: 1px solid var(--border);
 		color: var(--text-tertiary);
-		font: var(--t-label) var(--font-mono);
+		font: var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 	}
 	.projection-note strong {
 		color: var(--text-secondary);

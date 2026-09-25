@@ -256,7 +256,8 @@
 	.message-meta time {
 		flex: none;
 		color: var(--text-tertiary);
-		font: 500 var(--t-label) var(--font-mono);
+		font: 500 var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 	}
 
 	.message-footer {

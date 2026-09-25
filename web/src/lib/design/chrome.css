@@ -163,7 +163,8 @@
 	border-radius: 999px;
 	background: var(--intent-authority);
 	color: var(--text-inverse);
-	font: 600 var(--t-label) var(--font-mono);
+	font: 600 var(--t-label) var(--font-ui);
+	font-variant-numeric: tabular-nums;
 }
 
 /* The count sits on the tab's corner, so its arrival never pushes the other

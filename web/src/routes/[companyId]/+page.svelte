@@ -264,7 +264,7 @@
 		return date.toLocaleString(undefined, {
 			month: 'short',
 			day: 'numeric',
-			hour: '2-digit',
+			hour: 'numeric',
 			minute: '2-digit'
 		});
 	}
@@ -280,7 +280,7 @@
 				contradiction: 'Conflicting evidence',
 				human_step: 'Your participation',
 				collaboration: 'Work together',
-				conversation: 'Needs you'
+				conversation: 'Question'
 			}[category] ?? category.replaceAll('_', ' ')
 		);
 	}
@@ -738,7 +738,7 @@
 							</span>
 							<strong class="attention-item-title">{item.title}</strong>
 							<span class="attention-item-action">
-								<span>{item.preparing ? 'Preparing:' : 'Needs you:'}</span>
+								{#if item.preparing}<span>Preparing:</span>{/if}
 								{item.requestedAction} <span aria-hidden="true">→</span>
 							</span>
 						</a>
@@ -1019,7 +1019,8 @@
 	}
 	.review-source-card time {
 		flex: none;
-		font: var(--t-label) var(--font-mono);
+		font: var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 		color: var(--text-tertiary);
 	}
 	.review-source-meta {
@@ -1099,7 +1100,8 @@
 	.review-download-kind {
 		margin-bottom: 20px;
 		color: var(--text-tertiary);
-		font: var(--t-label) var(--font-mono);
+		font: var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 	}
 	.review-download h1 {
 		margin: 0;
@@ -1407,7 +1409,8 @@
 		flex: none;
 		padding: 4px 6px;
 		border: 1px solid var(--border-strong);
-		font: var(--t-label) var(--font-mono);
+		font: var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 		color: var(--text-tertiary);
 	}
 	.controller-badge.owner {

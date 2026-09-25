@@ -112,8 +112,9 @@
 		border-radius: var(--radius-control);
 		background: rgba(255, 255, 255, 0.58);
 		box-shadow: var(--bevel-subtle);
-		font: 600 var(--t-label) var(--font-mono);
-		text-transform: uppercase;
+		font: 600 var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
+		text-transform: none;
 		color: var(--text-secondary);
 		cursor: pointer;
 		list-style: none;
@@ -183,7 +184,8 @@
 
 	.owner-company-row small {
 		margin-top: 3px;
-		font: var(--t-label) var(--font-mono);
+		font: var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 		color: var(--text-tertiary);
 	}
 
@@ -222,7 +224,8 @@
 		border-radius: var(--radius-control);
 		background: rgba(255, 255, 255, 0.7);
 		box-shadow: var(--bevel-subtle);
-		font: 600 var(--t-label) var(--font-mono);
+		font: 600 var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 		color: var(--text-secondary);
 		cursor: pointer;
 		transition:

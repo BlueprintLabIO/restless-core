@@ -187,7 +187,8 @@
 	}
 	.work-edges text {
 		fill: var(--intent-feedback);
-		font: 500 var(--t-label) var(--font-mono);
+		font: 500 var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 		paint-order: stroke;
 		stroke: var(--surface-pane);
 		stroke-width: 5px;
@@ -267,7 +268,8 @@
 		color: var(--text-tertiary);
 	}
 	.node-revision {
-		font-family: var(--font-mono);
+		font-family: var(--font-ui);
+		font-variant-numeric: tabular-nums;
 	}
 	.node-state {
 		display: inline-flex;
@@ -323,7 +325,8 @@
 		box-shadow:
 			var(--bevel-subtle),
 			0 4px 12px rgba(43, 51, 66, 0.05);
-		font: var(--t-label) var(--font-mono);
+		font: var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 		color: var(--text-tertiary);
 		pointer-events: none;
 		backdrop-filter: blur(10px);

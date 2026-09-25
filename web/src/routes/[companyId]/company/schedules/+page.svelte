@@ -291,7 +291,8 @@
 	}
 	.recent h3 {
 		margin: 0 0 var(--space-2);
-		font: var(--t-label) var(--font-mono);
+		font: var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 		font-weight: 600;
 	}
 	.recent li {

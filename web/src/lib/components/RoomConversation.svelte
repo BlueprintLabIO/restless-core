@@ -1761,7 +1761,8 @@
 		align-items: center;
 		gap: 10px;
 		padding: 9px 14px 5px;
-		font: 500 var(--t-label) var(--font-mono);
+		font: 500 var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 		color: var(--text-tertiary);
 	}
 

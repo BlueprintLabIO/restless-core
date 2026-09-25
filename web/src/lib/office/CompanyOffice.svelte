@@ -147,7 +147,8 @@
 		background: rgba(239, 248, 244, 0.92);
 		box-shadow: 0 2px 0 rgba(23, 36, 51, 0.28);
 		color: #172433;
-		font: 600 var(--t-label) var(--font-mono);
+		font: 600 var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 		backdrop-filter: blur(4px);
 		z-index: 5;
 	}

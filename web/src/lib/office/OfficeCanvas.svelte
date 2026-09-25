@@ -1606,14 +1606,16 @@
 	.person-detail-heading span,
 	.person-detail-state time {
 		color: #69747a;
-		font: 500 var(--t-label)/1.35 var(--font-mono);
+		font: 500 var(--t-label)/1.35 var(--font-ui);
+		font-variant-numeric: tabular-nums;
 	}
 
 	.person-detail-state {
 		display: flex;
 		align-items: center;
 		gap: 7px;
-		font: 600 var(--t-label)/1.2 var(--font-mono);
+		font: 600 var(--t-label)/1.2 var(--font-ui);
+		font-variant-numeric: tabular-nums;
 	}
 
 	.person-detail-state i {
@@ -1798,7 +1800,8 @@
 		color: rgba(239, 248, 244, 0.9);
 		font:
 			400 var(--t-label)/1.35 Silkscreen,
-			var(--font-mono);
+			var(--font-ui);
+			font-variant-numeric: tabular-nums;
 		text-shadow: 1px 1px #172433;
 	}
 

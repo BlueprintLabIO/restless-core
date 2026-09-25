@@ -1065,7 +1065,8 @@
 		padding: 1px 4px;
 		border-radius: 999px;
 		background: var(--surface-attention-soft);
-		font: 600 var(--t-label) var(--font-mono);
+		font: 600 var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 	}
 	.inspector-body {
 		flex: 1;
@@ -1151,7 +1152,8 @@
 	}
 	.thread-index em {
 		color: var(--intent-authority);
-		font: 500 var(--t-label) var(--font-mono);
+		font: 500 var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 		font-style: normal;
 	}
 	.thread-state {
@@ -1214,7 +1216,8 @@
 	}
 	.comment-row time {
 		color: var(--text-tertiary);
-		font: var(--t-label) var(--font-mono);
+		font: var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 	}
 	.comment-row p {
 		margin: 5px 0 0;
@@ -1296,7 +1299,8 @@
 	.review-request.current > header time {
 		margin-left: auto;
 		color: var(--text-tertiary);
-		font: var(--t-label) var(--font-mono);
+		font: var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 	}
 	.review-request.current > p {
 		margin: 4px 0;

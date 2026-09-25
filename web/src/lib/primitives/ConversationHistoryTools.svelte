@@ -237,7 +237,8 @@
 		gap: 8px;
 		padding: 7px 2px 0 6px;
 		color: var(--text-tertiary);
-		font: 500 var(--t-label) var(--font-mono);
+		font: 500 var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 	}
 
 	.history-nav {

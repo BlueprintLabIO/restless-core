@@ -399,7 +399,8 @@
 	.mention-receipt,
 	.lifecycle {
 		flex: 0 0 auto;
-		font: 500 var(--t-label) var(--font-mono);
+		font: 500 var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 		color: var(--text-tertiary);
 	}
 

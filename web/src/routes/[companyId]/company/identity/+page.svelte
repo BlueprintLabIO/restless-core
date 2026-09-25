@@ -127,7 +127,7 @@
 			month: 'short',
 			day: 'numeric',
 			year: 'numeric',
-			hour: '2-digit',
+			hour: 'numeric',
 			minute: '2-digit'
 		});
 	}
@@ -771,8 +771,9 @@
 		font-size: var(--t-label);
 	}
 	.release-mark strong {
-		font: 600 var(--t-body) var(--font-mono);
-		letter-spacing: 0.04em;
+		font: 600 var(--t-body) var(--font-ui);
+		font-variant-numeric: tabular-nums;
+		letter-spacing: normal;
 	}
 	.release-account > p {
 		max-width: 68ch;
@@ -1058,7 +1059,8 @@
 	}
 	.pillar > header span {
 		color: var(--text-tertiary);
-		font: var(--t-label) var(--font-mono);
+		font: var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 	}
 	.pillar article {
 		display: grid;

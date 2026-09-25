@@ -330,14 +330,15 @@
 	.turn-summary time,
 	.action-count {
 		flex: none;
-		font: 500 var(--t-label) var(--font-mono);
+		font: 500 var(--t-label) var(--font-ui);
 		font-variant-numeric: tabular-nums;
 	}
 	.context-usage,
 	.output-usage {
 		margin-left: auto;
 		color: var(--text-tertiary);
-		font: 500 var(--t-caption) var(--font-mono);
+		font: 500 var(--t-caption) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 		white-space: normal;
 		overflow-wrap: anywhere;
 	}
@@ -454,7 +455,8 @@
 	.trace-copy small,
 	.trace-status {
 		color: var(--text-tertiary);
-		font: 500 var(--t-label) var(--font-mono);
+		font: 500 var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 	}
 
 	.trace-copy small {
@@ -489,7 +491,8 @@
 
 	.streamed-reply header span {
 		color: var(--text-tertiary);
-		font: 500 var(--t-label) var(--font-mono);
+		font: 500 var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 	}
 
 	.streamed-copy {

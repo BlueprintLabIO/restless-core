@@ -724,7 +724,8 @@
 		gap: 8px;
 		margin: 18px 14px 8px;
 		color: color-mix(in srgb, var(--intent-conversation) 58%, var(--text-tertiary));
-		font: 500 var(--t-label) var(--font-mono);
+		font: 500 var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 		animation: focus-arrive var(--motion-disclosure) var(--ease-spring) both;
 	}
 	.conversation-focus-boundary i {
