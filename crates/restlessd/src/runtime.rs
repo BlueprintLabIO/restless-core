@@ -514,6 +514,37 @@ fn valid_reasoning_effort(value: &str) -> bool {
 
 const LEGACY_UNCONFIGURED_MODEL: &str = "unconfigured/pending";
 
+/// Native harness IDs are internal route markers, not direct provider IDs.
+/// Keep rejecting them at model write boundaries while leaving old config
+/// readable so an owner can repair it through the Intelligence provider UI.
+pub fn validate_company_model_selection(model: &str) -> Result<()> {
+    validate_direct_provider(provider_for_model(model)?)
+}
+
+fn provider_for_model(model: &str) -> Result<&str> {
+    let Some((provider, id)) = model.split_once('/') else {
+        bail!("model {model:?} must be provider-qualified, e.g. moonshot/kimi-k3");
+    };
+    if provider.is_empty()
+        || id.trim().is_empty()
+        || !provider
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+    {
+        bail!("invalid provider-qualified model {model:?}");
+    }
+    Ok(provider)
+}
+
+/// A direct connection must name a real provider, never an internal native
+/// harness route marker.
+pub fn validate_direct_provider(provider: &str) -> Result<()> {
+    if provider.starts_with("native-") {
+        bail!("Native harness models must be selected through Company → Intelligence provider.");
+    }
+    Ok(())
+}
+
 impl CompanyConfig {
     pub fn configured_model(&self) -> Option<&str> {
         let model = self.model.as_str();
@@ -572,7 +603,9 @@ impl CompanyConfig {
         {
             Some(&self.model)
         } else {
-            previous
+            // Older Staff runs could persist a native harness marker as an
+            // actor preference. It is not a direct route after a harness change.
+            previous.filter(|model| validate_company_model_selection(model).is_ok())
         }
     }
 
@@ -691,17 +724,7 @@ impl CompanyConfig {
         let mut candidates = Vec::with_capacity(1 + self.model_failover.len());
         for model in std::iter::once(primary).chain(self.model_failover.iter().map(String::as_str))
         {
-            let Some((provider, id)) = model.split_once('/') else {
-                bail!("model {model:?} must be provider-qualified, e.g. moonshot/kimi-k3");
-            };
-            if provider.is_empty()
-                || id.is_empty()
-                || !provider
-                    .bytes()
-                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
-            {
-                bail!("invalid provider-qualified model {model:?}");
-            }
+            provider_for_model(model)?;
             if !seen.insert(model) {
                 bail!("duplicate model candidate {model:?}");
             }

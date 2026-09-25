@@ -100,6 +100,9 @@ async fn create_local_company_inner(
 ) -> Result<()> {
     static CREATION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     runtime::validate_company_name(&config.name)?;
+    for model in config.model_candidates()? {
+        runtime::validate_company_model_selection(&model)?;
+    }
     let _guard = CREATION.lock().await;
     for directory in ["companies", "archived-companies"] {
         if daemon
@@ -2361,8 +2364,8 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                             Ok(())
                         }
                         "model" => {
-                            config.model = value.to_string();
-                            Ok(())
+                            runtime::validate_company_model_selection(value)
+                                .map(|()| config.model = value.to_string())
                         }
                         "coordination_harness" => runtime::AgentHarness::parse_canonical(value)
                             .ok_or_else(|| anyhow::anyhow!(
@@ -2398,7 +2401,12 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                                 .filter(|model| !model.is_empty())
                                 .map(str::to_string)
                                 .collect();
-                            config.model_candidates().map(|_| ())
+                            config.model_candidates().and_then(|models| {
+                                for model in models {
+                                    runtime::validate_company_model_selection(&model)?;
+                                }
+                                Ok(())
+                            })
                         }
                         "spend_ceiling_usd" => runtime::SpendCeiling::parse(value)
                             .map(|parsed| config.spend_ceiling_usd = parsed),
@@ -3000,6 +3008,11 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             request.common.reason.as_deref(),
         ) {
             (Some(actor_id), Some(role), Some(display), Some(created_by), Some(reason)) => {
+                if let Some(model) = request.orgintel.model.as_deref() {
+                    if let Err(error) = runtime::validate_company_model_selection(model) {
+                        return Response::err(error.to_string());
+                    }
+                }
                 match daemon.orgintel.get(company).await {
                     Ok(org) => match org
                         .create_actor(
@@ -3037,6 +3050,9 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             request.common.reason.as_deref(),
         ) {
             (Some(actor_id), Some(model), Some(changed_by), Some(reason)) => {
+                if let Err(error) = runtime::validate_company_model_selection(model) {
+                    return Response::err(error.to_string());
+                }
                 match daemon.orgintel.get(company).await {
                     Ok(org) => match org
                         .change_actor_model(actor_id, model, changed_by, reason)

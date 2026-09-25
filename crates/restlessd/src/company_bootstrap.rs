@@ -925,6 +925,7 @@ fn exact_source_revision(value: &str) -> bool {
 
 fn valid_model(value: &str) -> bool {
     value.len() <= 160
+        && runtime::validate_company_model_selection(value).is_ok()
         && value.split_once('/').is_some_and(|(provider, model)| {
             !provider.is_empty()
                 && !model.is_empty()
