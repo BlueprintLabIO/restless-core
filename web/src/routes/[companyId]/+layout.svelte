@@ -381,7 +381,9 @@
 		contextLabel={currentContext}
 		focusAfterMessageId={railConversation.focusAfterMessageId}
 		focusStartedAt={railConversation.focusStartedAt}
-		newFocusAvailable={railActorId === 'exec' && !focusedAttention}
+		newFocusAvailable={railActorId === 'exec' &&
+			!focusedAttention &&
+			intelligence.view?.has_connections !== false}
 		open={execRailOpen}
 		onask={askRail}
 		review={focusedReview

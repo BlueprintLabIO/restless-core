@@ -2464,7 +2464,7 @@
 	padding: 24px 18px;
 }
 .bridge-root .exr-empty-h {
-	color: var(--intent-conversation);
+	color: var(--ink);
 }
 
 .bridge-root .exr-composer {

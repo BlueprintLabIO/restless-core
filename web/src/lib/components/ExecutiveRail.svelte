@@ -8,7 +8,6 @@
 	import IntelligencePopover from './IntelligencePopover.svelte';
 	import { SvelteDate } from 'svelte/reactivity';
 	import Plus from '@lucide/svelte/icons/plus';
-	import ArrowUpRight from '@lucide/svelte/icons/arrow-up-right';
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 	import Composer from '$lib/primitives/Composer.svelte';
 	import ConversationHistoryTools from '$lib/primitives/ConversationHistoryTools.svelte';
@@ -502,7 +501,9 @@
 			{#if conversationFailed && conversationStatus === 'stale'}
 				<p class="exr-connection-notice" role="status">
 					Recent messages could not be refreshed. Showing the last loaded conversation.
-					<button type="button" class="exr-retry" onclick={() => onrefreshConversation?.()}>Try again</button>
+					<button type="button" class="exr-retry" onclick={() => onrefreshConversation?.()}
+						>Try again</button
+					>
 				</p>
 			{/if}
 			<div class="exr-chat">
@@ -538,7 +539,9 @@
 							<div class="exr-empty" role="alert">
 								<p class="exr-empty-h">Conversation unavailable</p>
 								<p class="exr-empty-p">Recent messages could not be loaded.</p>
-								<button type="button" class="exr-retry" onclick={() => onrefreshConversation?.()}>Try again</button>
+								<button type="button" class="exr-retry" onclick={() => onrefreshConversation?.()}
+									>Try again</button
+								>
 							</div>
 						{:else if conversationStatus === 'unknown'}
 							<div class="exr-empty" role="status">Loading conversation…</div>
@@ -566,6 +569,15 @@
 										? `Add a connection to start talking with ${participantName}.`
 										: capabilityHint}
 								</p>
+								{#if needsProvider}
+									<a
+										class="btn primary small provider-connect"
+										href={`/${companyId}/company/provider`}
+										><Plus size={14} strokeWidth={2} aria-hidden="true" /><span
+											>Add intelligence provider</span
+										></a
+									>
+								{/if}
 							</div>
 						{/if}
 					{/each}
@@ -581,11 +593,7 @@
 				</div>
 
 				{#if needsProvider}
-					<a class="provider-connect" href={`/${companyId}/company/provider`}
-						><Plus size={15} strokeWidth={1.8} aria-hidden="true" /><span
-							>Add intelligence provider</span
-						><ArrowUpRight size={14} strokeWidth={1.8} aria-hidden="true" /></a
-					>
+					<!-- The connect action sits with its explanation above. -->
 				{:else}
 					<form class="exr-composer" onsubmit={submitAsk}>
 						<Composer
@@ -655,32 +663,7 @@
 	}
 
 	.provider-connect {
-		display: flex;
-		align-items: center;
-		justify-content: flex-start;
-		gap: var(--space-3);
-		min-height: 44px;
-		margin: var(--space-3);
-		padding: var(--space-3);
-		border: 1px solid var(--control-edge);
-		border-radius: var(--radius-control);
-		background: var(--surface-pane);
-		color: var(--intent-conversation);
-		box-shadow: var(--bevel);
-		font-size: var(--t-label);
-		font-weight: 500;
-		text-decoration: none;
-	}
-	.provider-connect span {
-		flex: 1;
-	}
-	.provider-connect:hover {
-		background: var(--surface-alt);
-		border-color: var(--intent-conversation);
-	}
-	.provider-connect:focus-visible {
-		outline: 2px solid var(--intent-conversation);
-		outline-offset: 3px;
+		margin-top: var(--space-4);
 	}
 
 	.exr-head-primary {
