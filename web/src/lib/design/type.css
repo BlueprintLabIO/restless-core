@@ -38,6 +38,11 @@
 	margin: 0;
 }
 
+/* Titles set in Inter's display cut read best a touch tighter. */
+.bridge-root h1 {
+	letter-spacing: -0.02em;
+}
+
 .bridge-root h1 {
 	font-size: var(--t-title);
 	line-height: 1.14;

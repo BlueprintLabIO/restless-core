@@ -22,10 +22,10 @@
 /* Latin and latin-ext only. The unqualified imports carry Cyrillic, Greek and
  * Vietnamese as well — 68 font files for a product whose owner surface is
  * English with European company and person names in it. */
-@import '@fontsource/ibm-plex-sans/latin-400.css';
-@import '@fontsource/ibm-plex-sans/latin-500.css';
-@import '@fontsource/ibm-plex-sans/latin-600.css';
-@import '@fontsource/ibm-plex-sans/latin-ext-400.css';
+/* Inter (variable with optical sizing, so titles take its display cut; one
+ * file per subset, fetched only when a glyph needs it)
+ * is the UI face; Plex Mono stays for code and identifiers. */
+@import '@fontsource-variable/inter/opsz.css';
 @import '@fontsource/ibm-plex-mono/latin-400.css';
 @import '@fontsource/ibm-plex-mono/latin-500.css';
 @import '@fontsource/ibm-plex-mono/latin-600.css';

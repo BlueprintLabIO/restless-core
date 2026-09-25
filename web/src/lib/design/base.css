@@ -18,6 +18,17 @@
 	--z-app: 1000; /* the app shell outside .bridge-root: offline banner, loading bar */
 }
 
+/* Until Inter arrives, text is set in a local Arial scaled to Inter's
+ * metrics, so the swap changes the letterforms and not the layout. */
+@font-face {
+	font-family: 'Inter Fallback';
+	src: local('Arial'), local('Liberation Sans'), local('Helvetica');
+	size-adjust: 107.4%;
+	ascent-override: 90.2%;
+	descent-override: 22.48%;
+	line-gap-override: 0%;
+}
+
 :root {
 	font-family: var(--font-ui);
 	color: #17181c;

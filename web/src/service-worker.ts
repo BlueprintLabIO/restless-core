@@ -54,7 +54,7 @@ function navigationErrorResponse(): Response {
 		<meta name="theme-color" content="#eef1f5">
 		<title>Page unavailable · Restless</title>
 		<style>
-			:root { color-scheme: light; font: 13px/1.5 'IBM Plex Sans', system-ui, sans-serif; }
+			:root { color-scheme: light; font: 13px/1.5 'Inter Variable', system-ui, sans-serif; }
 			* { box-sizing: border-box; }
 			body { min-height: 100svh; margin: 0; display: grid; place-items: center; padding: 24px;
 				color: #17181c; background: #eef1f5; position: relative; isolation: isolate; }

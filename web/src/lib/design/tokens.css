@@ -22,7 +22,7 @@
  * Sizes are chosen here and only here. A raw px font-size anywhere else is out
  * of band, and `npm run check:type` fails on one. */
 :root {
-	--font-ui: 'IBM Plex Sans', system-ui, sans-serif;
+	--font-ui: 'Inter Variable', 'Inter Fallback', system-ui, sans-serif;
 	--font-mono: 'IBM Plex Mono', ui-monospace, monospace;
 	/* Silkscreen is bitmap-derived: it only resolves cleanly on integer multiples
 	 * of its 8px design size, which is why the wordmark is 16px and never 15. */
