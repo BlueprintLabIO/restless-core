@@ -183,7 +183,8 @@
 		const connected = intelligence.view?.has_connections;
 		if (connected === false) {
 			railClosedForSetup = companyId;
-			if (readRail(companyId) === null || readRail(companyId) === 'open') {
+			// Only the default gives way to setup; an owner's own choice stands.
+			if (readRail(companyId) === null) {
 				execRailOpen = false;
 				writeRail(companyId, 'setup');
 			}

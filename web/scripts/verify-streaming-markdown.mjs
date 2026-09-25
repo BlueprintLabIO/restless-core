@@ -28,6 +28,10 @@ let b;
 try {
 	b = await chromium.launch({ headless: true, executablePath: process.env.RESTLESS_TEST_CHROMIUM });
 	const p = await b.newPage({ viewport: { width: 1440, height: 1000 } });
+	// The rail is under test; open it as the owner would, whatever the source company's setup.
+	await p.addInitScript(() => {
+		localStorage.setItem(`restless:exec-rail:${location.pathname.split('/')[1]}`, 'open');
+	});
 	let errors = [];
 	p.on('pageerror', (e) => errors.push(e.message));
 	const now = new Date().toISOString(),
