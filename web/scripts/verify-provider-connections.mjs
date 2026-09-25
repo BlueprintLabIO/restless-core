@@ -194,11 +194,13 @@ try {
 	connections = [];
 	agents = [];
 	await page.goto(`${origin}/${company}`);
-	// With no connection the Exec rail starts closed; the owner opens it.
-	await page
+	// With no connection the rail closes for setup unless the owner already
+	// chose to keep it open in this browser (it was open earlier in this run).
+	const closedRail = page
 		.locator('button[aria-controls="bridge-exrail"][aria-expanded="false"]')
-		.first()
-		.click();
+		.first();
+	await page.locator('button[aria-controls="bridge-exrail"]').first().waitFor();
+	if (await closedRail.count()) await closedRail.click();
 	const cta = page.getByRole('link', { name: /Add intelligence provider/i });
 	await cta.waitFor();
 	assert.match(await cta.getAttribute('href'), new RegExp(`/${company}/company/provider$`));
