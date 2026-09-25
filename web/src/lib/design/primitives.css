@@ -370,3 +370,47 @@
 		color: var(--intent-conversation);
 	}
 }
+
+/* The quiet action: no box until the pointer arrives, then a soft wash.
+ * Used for secondary verbs that sit beside content (Refresh, Cancel, Remove). */
+.bridge-root .text-button {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	min-height: 28px;
+	padding: 0 7px;
+	border: 0;
+	border-radius: var(--radius-control);
+	background: transparent;
+	color: var(--text-secondary);
+	font: inherit;
+	font-size: var(--t-body);
+	font-weight: 500;
+	cursor: pointer;
+	transition:
+		background-color var(--motion-state) var(--ease-standard),
+		color var(--motion-state) var(--ease-standard);
+}
+
+.bridge-root .text-button:hover:not(:disabled) {
+	background: rgba(31, 41, 64, 0.06);
+	color: var(--ink);
+}
+
+.bridge-root .text-button:active:not(:disabled) {
+	background: rgba(31, 41, 64, 0.1);
+}
+
+.bridge-root .text-button.danger {
+	color: var(--state-danger);
+}
+
+.bridge-root .text-button.danger:hover:not(:disabled) {
+	background: var(--state-danger-soft);
+	color: var(--state-danger);
+}
+
+.bridge-root .text-button:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}

@@ -97,7 +97,7 @@
 						<p>Open an exact released outcome without reconstructing ports or access material.</p>
 					</div>
 					{#if embedded}
-						<button class="launch-close" type="button" onclick={() => (embedded = null)}>
+						<button class="btn launch-close" type="button" onclick={() => (embedded = null)}>
 							Close viewer
 						</button>
 					{/if}
@@ -116,7 +116,7 @@
 								<p>{item.launch?.detail}</p>
 							</div>
 							<button
-								class="launch-control"
+								class="btn primary launch-control"
 								type="button"
 								disabled={item.launch?.availability !== 'ready' || opening !== null}
 								onclick={() => openResource(item)}
@@ -243,45 +243,6 @@
 		font-size: var(--t-label);
 	}
 
-	.launch-control,
-	.launch-close {
-		min-height: 36px;
-		border: 1px solid var(--control-edge);
-		border-radius: var(--radius-control);
-		background: var(--ink);
-		box-shadow: var(--control-depth);
-		color: var(--text-inverse);
-		font: 600 var(--t-body) / 1 var(--font-ui);
-		padding: 0 var(--space-4);
-		transition:
-			transform var(--motion-press) var(--ease-standard),
-			box-shadow var(--motion-press) var(--ease-standard);
-	}
-
-	.launch-control:active:not(:disabled),
-	.launch-close:active {
-		transform: translateY(1px);
-		box-shadow: var(--control-depth-pressed);
-	}
-
-	.launch-control:focus-visible,
-	.launch-close:focus-visible {
-		outline: 2px solid var(--company-blue);
-		outline-offset: 2px;
-	}
-
-	.launch-control:disabled {
-		background: var(--surface-alt);
-		box-shadow: none;
-		color: var(--text-tertiary);
-		cursor: not-allowed;
-	}
-
-	.launch-close {
-		background: var(--surface-alt);
-		color: var(--ink);
-	}
-
 	.launch-message {
 		margin: 0;
 		padding: var(--space-3) var(--space-6);
@@ -337,10 +298,4 @@
 		}
 	}
 
-	@media (prefers-reduced-motion: reduce) {
-		.launch-control,
-		.launch-close {
-			transition: none;
-		}
-	}
 </style>

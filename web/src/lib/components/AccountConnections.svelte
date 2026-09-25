@@ -820,25 +820,6 @@
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 	}
-	.text-button {
-		padding: 4px 0;
-		border: 0;
-		color: var(--intent-conversation);
-		background: transparent;
-		font: inherit;
-		font-size: var(--t-label);
-		cursor: pointer;
-	}
-	.text-button:hover {
-		text-decoration: underline;
-	}
-	.text-button:focus-visible {
-		outline: 2px solid var(--intent-conversation);
-		outline-offset: 3px;
-	}
-	.text-button.danger {
-		color: var(--state-danger);
-	}
 	.access-manager {
 		display: grid;
 		gap: 8px;

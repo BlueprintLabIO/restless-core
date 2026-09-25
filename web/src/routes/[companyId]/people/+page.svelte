@@ -281,14 +281,16 @@
 			/></label
 		>
 		<nav class="tabs" aria-label="Conversation list">
-			<button class:active={directory} aria-pressed={directory} onclick={() => setDirectory(true)}
-				>People</button
-			>
-			<button
-				class:active={!directory}
-				aria-pressed={!directory}
-				onclick={() => setDirectory(false)}>Conversations</button
-			>
+			<div class="lens-switch" class:board={!directory}>
+				<button class:active={directory} aria-pressed={directory} onclick={() => setDirectory(true)}
+					>People</button
+				>
+				<button
+					class:active={!directory}
+					aria-pressed={!directory}
+					onclick={() => setDirectory(false)}>Conversations</button
+				>
+			</div>
 		</nav>
 		<div class="entries">
 			{#snippet personStatuses(actorId: string, name: string)}
@@ -512,27 +514,14 @@
 		outline-offset: 3px;
 		color: var(--ink);
 	}
+	.tabs .lens-switch {
+		flex: 1;
+	}
 	.tabs {
 		display: flex;
 		gap: 4px;
 		padding: 0 8px 8px;
 		border-bottom: 1px solid var(--border);
-	}
-	.tabs button {
-		flex: 1;
-		padding: 7px 4px;
-		border: 0;
-		background: transparent;
-		border-radius: var(--radius-control);
-		color: var(--text-secondary);
-		cursor: pointer;
-		font: inherit;
-		font-size: var(--t-label);
-	}
-	.tabs button.active {
-		background: var(--intent-conversation-soft);
-		color: var(--intent-conversation);
-		font-weight: 600;
 	}
 	.entries {
 		overflow-y: auto;

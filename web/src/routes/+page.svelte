@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { tooltips } from '$lib/actions/tooltips';
 	import { goto } from '$app/navigation';
 	import { Settings2 } from '@lucide/svelte';
 	import { page } from '$app/state';
@@ -69,7 +70,7 @@
 
 <svelte:head><title>Companies — {PRODUCT_NAME}</title></svelte:head>
 
-<div class="bridge-root portfolio-root">
+<div class="bridge-root portfolio-root" use:tooltips>
 	<header class="bridge-topbar" aria-label="Portfolio navigation">
 		<a class="tb-brand portfolio-brand" href="/" aria-label={`${PRODUCT_NAME} companies`}>
 			<span class="tb-mark"><MatrixGlyph rows={GLYPHS.r} size={13} glow /></span>

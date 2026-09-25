@@ -766,7 +766,7 @@
 	.good {
 		color: var(--state-success);
 	}
-	button,
+	button:not(.text-button, .btn),
 	input,
 	select {
 		font: inherit;
@@ -785,11 +785,6 @@
 	button:disabled {
 		opacity: 0.5;
 		cursor: default;
-	}
-	.text-button {
-		border: 0;
-		background: transparent;
-		padding-inline: var(--space-1);
 	}
 	.connection-row {
 		padding-block: var(--space-3);

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { tooltips } from '$lib/actions/tooltips';
 	import { page } from '$app/state';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
@@ -8,7 +9,7 @@
 
 <svelte:head><title>Account settings — {PRODUCT_NAME}</title></svelte:head>
 
-<div class="bridge-root portfolio-root settings-root">
+<div class="bridge-root portfolio-root settings-root" use:tooltips>
 	<header class="bridge-topbar" aria-label="Account navigation">
 		<a class="tb-brand portfolio-brand" href="/" aria-label={`${PRODUCT_NAME} companies`}>
 			<span class="tb-mark"><MatrixGlyph rows={GLYPHS.r} size={13} glow /></span>
