@@ -180,6 +180,18 @@ function request(method, params) {
   return promise;
 }
 
+function missingSavedRollout(error, threadId) {
+  const prefix = 'thread/resume: ';
+  if (!(error instanceof Error) || !error.message.startsWith(prefix)) return false;
+  try {
+    const response = JSON.parse(error.message.slice(prefix.length));
+    return response.code === -32600
+      && response.message === `no rollout found for thread id ${threadId}`;
+  } catch {
+    return false;
+  }
+}
+
 function notify(method, params = {}) {
   if (!appInput || appInput.destroyed) {
     throw new Error('Codex app-server stdin is unavailable');
@@ -444,9 +456,24 @@ async function launch(operation) {
     ephemeral: false,
   };
   const prior = typeof operation.thread_id === 'string' && operation.thread_id ? operation.thread_id : null;
-  const result = prior
-    ? await request('thread/resume', { threadId: prior, ...common })
-    : await request('thread/start', common);
+  let result;
+  let resumed = false;
+  let reconstructionReason = null;
+  if (prior) {
+    try {
+      result = await request('thread/resume', { threadId: prior, ...common });
+      resumed = true;
+    } catch (error) {
+      // A supervisor restart can leave a valid durable locator whose Codex
+      // rollout is gone. Only this exact missing-rollout response permits a
+      // fresh session; other resume errors still fail visibly.
+      if (!missingSavedRollout(error, prior)) throw error;
+      result = await request('thread/start', common);
+      reconstructionReason = 'saved Codex rollout missing; fresh session started from durable actor context';
+    }
+  } else {
+    result = await request('thread/start', common);
+  }
   threadId = result.thread?.id;
   if (!threadId) throw new Error('Codex did not return a thread id');
   observed = {
@@ -473,7 +500,7 @@ async function launch(operation) {
     throw new Error(`exact effort admission failed: ${JSON.stringify(observed)}`);
   }
   ready = true;
-  emit({ type: 'session_ready', thread_id: threadId, resumed: Boolean(prior), observed });
+  emit({ type: 'session_ready', thread_id: threadId, resumed, reconstruction_reason: reconstructionReason, observed });
 }
 
 function textInput(text) {

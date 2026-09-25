@@ -737,6 +737,17 @@ where
         }
     };
     drop(receiver);
+    let resumed = ready
+        .get("resumed")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    let missing_rollout_reconstruction = prior_thread.is_some() && !resumed;
+    let reconstructed = reconstructed || missing_rollout_reconstruction;
+    let reconstruction_reason = if missing_rollout_reconstruction {
+        Some("saved Codex rollout missing; fresh session started from durable actor context".to_string())
+    } else {
+        reconstruction_reason
+    };
     let thread_id = event_string(&ready, "thread_id")
         .context("Codex readiness omitted thread id")?
         .to_string();
@@ -767,10 +778,7 @@ where
         thread_id,
         model: auth.model.clone(),
         effort: auth.effort.clone(),
-        resumed: ready
-            .get("resumed")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false),
+        resumed,
         reconstructed,
         reconstruction_reason,
         runner_digest,
