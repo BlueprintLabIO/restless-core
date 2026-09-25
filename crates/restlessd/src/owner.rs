@@ -2117,6 +2117,8 @@ async fn end_entry_session(State(state): State<OwnerState>, headers: HeaderMap) 
 struct EntryRequest {
     assertion: String,
     #[serde(default)]
+    target_company: Option<String>,
+    #[serde(default)]
     opening_message: Option<String>,
     #[serde(default)]
     opening_command_id: Option<Uuid>,
@@ -2539,6 +2541,16 @@ async fn consume_account_entry_assertion(
         Ok(access) => access,
         Err(refusal) => return api_error(StatusCode::UNAUTHORIZED, refusal.code(), refusal.message()),
     };
+    if let Some(company) = request.target_company.as_deref() {
+        if company.is_empty() || company.len() > 128 || !company.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-')) {
+            return api_error(StatusCode::BAD_REQUEST, "entry_request", "Invalid company destination.");
+        }
+        match crate::configured_companies(&state.daemon.root) {
+            Ok(companies) if companies.iter().any(|configured| configured == company) => {},
+            Ok(_) => return api_error(StatusCode::NOT_FOUND, "company", "Company settings are not available on this account plane."),
+            Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "company", "Company settings could not be opened."),
+        }
+    }
     // A browser assertion is single-use even across a Core restart. The
     // marker lives in the account plane, not in any company cell.
     let replay_dir = state.daemon.root.join("account-entry-replay");
@@ -2592,7 +2604,9 @@ async fn consume_account_entry_assertion(
     let token = state.sessions.establish(identity, ttl);
     let cookie = format!("{SESSION_COOKIE}={token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age={}", ttl.as_secs());
     let mut response = if form_post {
-        Redirect::to("/account/settings/connections").into_response()
+        Redirect::to(&request.target_company.as_ref()
+            .map(|company| format!("/{company}/company"))
+            .unwrap_or_else(|| "/account/settings/connections".to_owned())).into_response()
     } else {
         Json(serde_json::json!({"entered": true, "account": true})).into_response()
     };
@@ -2665,11 +2679,12 @@ fn parse_entry_request(
                 _ => Err("entry form has a repeated field"),
             }
         };
-        if values.iter().any(|(key, _)| !matches!(key.as_str(), "assertion" | "opening_message" | "opening_command_id")) {
+        if values.iter().any(|(key, _)| !matches!(key.as_str(), "assertion" | "target_company" | "opening_message" | "opening_command_id")) {
             return Err("entry form has an unsupported field");
         }
         let assertion = one("assertion")?.filter(|value| !value.is_empty())
             .ok_or("form entry requires exactly one non-empty assertion")?;
+        let target_company = one("target_company")?;
         let opening_message = one("opening_message")?;
         let opening_command_id = one("opening_command_id")?
             .map(|value| Uuid::parse_str(&value).map_err(|_| "opening command ID is invalid"))
@@ -2679,7 +2694,7 @@ fn parse_entry_request(
         {
             return Err("opening message and command ID must be one bounded pair");
         }
-        return Ok((EntryRequest { assertion, opening_message, opening_command_id }, true));
+        return Ok((EntryRequest { assertion, target_company, opening_message, opening_command_id }, true));
     }
     if content_type.is_empty() || content_type == "application/json" {
         let request: EntryRequest =
