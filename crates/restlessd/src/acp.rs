@@ -2357,7 +2357,8 @@ pub(crate) async fn verify_session_reaped(container: &str, session_id: &str) -> 
     // immediate ps can still see a dying child and wrongly discard a completed
     // model turn. Wait for observed absence, while retaining a finite failure
     // boundary for live residue or an unresponsive Docker daemon.
-    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+    let mut last_observed_pids = None;
+    tokio::time::timeout(std::time::Duration::from_secs(20), async {
         loop {
             let output = crate::runtime::docker_bounded(
                 &["exec", container, "ps", "-eo", "pid=,sid="],
@@ -2369,7 +2370,10 @@ pub(crate) async fn verify_session_reaped(container: &str, session_id: &str) -> 
                 output.status.success(),
                 "could not observe agent process sessions after cleanup"
             );
-            if pids_in_session(&String::from_utf8_lossy(&output.stdout), session_id).is_empty() {
+            let remaining_pids =
+                pids_in_session(&String::from_utf8_lossy(&output.stdout), session_id);
+            last_observed_pids = Some(remaining_pids.clone());
+            if remaining_pids.is_empty() {
                 return Ok(());
             }
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -2377,7 +2381,13 @@ pub(crate) async fn verify_session_reaped(container: &str, session_id: &str) -> 
     })
     .await
     .with_context(|| {
-        format!("agent session {session_id} did not disappear within the cleanup deadline")
+        let observation = match &last_observed_pids {
+            Some(pids) => format!("last observed remaining PIDs: {}", pids.join(", ")),
+            None => "no process observation completed".to_string(),
+        };
+        format!(
+            "agent session {session_id} did not disappear within the cleanup deadline; {observation}"
+        )
     })?
 }
 
