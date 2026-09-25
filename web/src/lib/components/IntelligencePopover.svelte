@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Skeleton from '$lib/primitives/Skeleton.svelte';
 	import type { Snippet } from 'svelte';
 	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
 	import { MODEL_PRESETS } from '$lib/model/model-presets';
@@ -60,7 +61,7 @@
 	<div id={tooltipId} class="intelligence-popover" role="tooltip">
 		<strong>{label} intelligence</strong>
 		{#if intelligence.error}<p>Could not load intelligence settings.</p>
-		{:else if !intelligence.view}<p>Loading intelligence…</p>
+		{:else if !intelligence.view}<Skeleton label="Loading intelligence" count={3} />
 		{:else if !exec}<p>No configuration available.</p>
 		{:else}<dl>
 				<dt>Provider</dt>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Skeleton from '$lib/primitives/Skeleton.svelte';
 	import { listFlip, listIn, listOut } from '$lib/motion';
 	import { WORK_STATUS_LABEL, runStateLabel, workStatusLabel } from '$lib/work/status';
 	import { resizePane } from '$lib/actions/resize-pane';
@@ -288,7 +289,7 @@
 			<div>
 				<h2>Goals</h2>
 			</div>
-			<span class="pane-count">{goals.length}</span>
+			{#if loaded}<span class="pane-count">{goals.length}</span>{/if}
 		</header>
 		<div class="goal-list">
 			{#if loaded && graph}
@@ -328,7 +329,7 @@
 					<p class="empty-state">No company goals are recorded.</p>
 				{/each}
 			{:else if !loaded}
-				<p class="empty-state">Loading goals…</p>
+				<Skeleton label="Loading goals" variant="list" count={4} />
 			{:else}
 				<p class="empty-state">Goals are unavailable.</p>
 			{/if}
@@ -358,7 +359,7 @@
 		</header>
 
 		{#if !loaded}
-			<p class="empty-state">Loading Work…</p>
+			<Skeleton label="Loading Work" variant="cards" count={6} />
 		{:else if !graph}
 			<p class="empty-state">Work is unavailable. No empty state is being inferred.</p>
 		{:else if noWorkYet}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Skeleton from '$lib/primitives/Skeleton.svelte';
 	import { runStateLabel, workStatusLabel } from '$lib/work/status';
 	import { resizePane } from '$lib/actions/resize-pane';
 	import { page } from '$app/state';
@@ -618,6 +619,6 @@
 			<a class="btn small" href={backHref()}>Back to Work</a>
 		</div>
 	{:else if !error}
-		<div class="work-detail-loading">Loading Work…</div>
+		<div class="work-detail-loading"><Skeleton label="Loading Work" variant="page" count={5} /></div>
 	{/if}
 </article>

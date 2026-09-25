@@ -1,4 +1,5 @@
 <script lang="ts">
+	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
 	import { page } from '$app/state';
 	import { setContext } from 'svelte';
 	const setupDraft = $state<{ name: string | null }>({ name: null });
@@ -487,6 +488,7 @@
 			</section>
 		{:else}
 			<section class="company-access-state cockpit-pane" role="status" aria-live="polite">
+				<span class="access-mark" aria-hidden="true"><MatrixGlyph rows={GLYPHS.r} size={11} /></span>
 				<p>{principal ? 'Opening your company workspace…' : 'Verifying company access…'}</p>
 			</section>
 		{/if}
@@ -619,5 +621,24 @@
 
 	.company-access-state p {
 		color: var(--text-tertiary);
+		/* A quick check shows only the calm mark; words appear if it lingers. */
+		animation: access-words-in var(--motion-disclosure) var(--ease-out) 600ms backwards;
+	}
+	.access-mark {
+		justify-self: center;
+		margin-bottom: var(--space-2);
+		color: var(--intent-direction);
+		animation: bridge-skeleton-breathe var(--motion-working) ease-in-out infinite;
+	}
+	@keyframes access-words-in {
+		from {
+			opacity: 0;
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.company-access-state p,
+		.access-mark {
+			animation: none;
+		}
 	}
 </style>

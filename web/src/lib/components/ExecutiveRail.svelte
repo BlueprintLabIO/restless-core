@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Skeleton from '$lib/primitives/Skeleton.svelte';
 	/* One contextual conversation rail. It normally belongs to the Exec; while
 	 * the owner focuses a review it belongs to that Work's accountable lead.
 	 * The rail stays mounted and takes real space rather than nesting another
@@ -495,9 +496,9 @@
 
 		<div class="exr-panel">
 			{#if !needsProvider && connectionStatus === 'unknown'}
-				<p class="exr-connection-notice" role="status">
-					Checking {participantName}'s conversation status…
-				</p>
+				<!-- Unknown is the ordinary first moment; the transcript skeleton below
+				     already says so without a sentence about it. -->
+				<p class="sr-only" role="status">Checking {participantName}'s conversation status…</p>
 			{:else if !needsProvider && connectionStatus === 'error'}
 				<p class="exr-connection-notice" role="status">
 					Connection status could not be refreshed. Try again shortly.
@@ -553,7 +554,7 @@
 								>
 							</div>
 						{:else if conversationStatus === 'unknown'}
-							<div class="exr-empty" role="status">Loading conversation…</div>
+							<Skeleton label="Loading conversation" variant="messages" count={3} />
 						{:else if focusActive}
 							<!-- The focus boundary below is the empty transcript state. -->
 						{:else if review || workContext}

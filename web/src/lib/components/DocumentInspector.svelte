@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Skeleton from '$lib/primitives/Skeleton.svelte';
 	import Check from '@lucide/svelte/icons/check';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import History from '@lucide/svelte/icons/history';
@@ -695,7 +696,7 @@
 						</button>
 					{:else}
 						{#if threads.status === 'unknown'}
-							<p class="quiet-state">Loading comments…</p>
+							<Skeleton label="Loading comments" variant="messages" count={2} />
 						{:else}
 							<div class="quiet-state">
 								<MessagesSquare size={18} strokeWidth={1.5} /><strong>No comments yet.</strong><span
@@ -755,7 +756,7 @@
 						</article>
 					{:else}
 						{#if threadMessages?.status === 'unknown'}
-							<p class="quiet-state">Loading the thread…</p>
+							<Skeleton label="Loading the thread" variant="messages" count={2} />
 						{/if}
 					{/each}
 				</div>
@@ -925,7 +926,7 @@
 						{/if}
 					{/if}
 				{:else if proposals.status === 'unknown'}
-					<p class="quiet-state">Loading proposals…</p>
+					<Skeleton label="Loading proposals" count={3} />
 				{:else}
 					<p class="quiet-state">No agent revisions are waiting.</p>
 				{/if}
@@ -972,7 +973,7 @@
 						>
 					</article>
 				{:else}
-					{#if versions.status === 'unknown'}<p class="quiet-state">Loading versions…</p>{:else}<p
+					{#if versions.status === 'unknown'}<Skeleton label="Loading versions" variant="list" count={3} />{:else}<p
 							class="quiet-state"
 						>
 							No version history is available.
@@ -999,7 +1000,7 @@
 					{:else if versionDetail.failure}
 						<p class="inline-error" role="alert">{versionDetail.failure.message}</p>
 					{:else}
-						<p class="quiet-state">Loading version preview…</p>
+						<Skeleton label="Loading version preview" count={4} />
 					{/if}
 				</section>
 			{/if}

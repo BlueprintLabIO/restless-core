@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Skeleton from '$lib/primitives/Skeleton.svelte';
 	import { onMount } from 'svelte';
 	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
 	let { companyId }: { companyId: string } = $props();
@@ -231,7 +232,7 @@
 			>
 		</p>{/if}
 	{#if notice}<p class="hint" role="status">{notice}</p>{/if}
-	{#if !view && !error}<p class="hint" role="status">Loading harnesses…</p>{/if}
+	{#if !view && !error}<Skeleton label="Loading harnesses" count={2} />{/if}
 	{#if adding && view}
 		<form
 			class="editor"

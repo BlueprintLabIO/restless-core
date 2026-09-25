@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Skeleton from '$lib/primitives/Skeleton.svelte';
 	import { plainText } from '$lib/text';
 	import { tooltips } from '$lib/actions/tooltips';
 	import { goto } from '$app/navigation';
@@ -209,7 +210,7 @@
 			</section>
 		</main>
 	{:else}
-		<main class="portfolio-loading">Loading companies…</main>
+		<main class="portfolio-loading"><Skeleton label="Loading companies" variant="list" count={3} /></main>
 	{/if}
 </div>
 

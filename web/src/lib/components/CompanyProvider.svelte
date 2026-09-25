@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Skeleton from '$lib/primitives/Skeleton.svelte';
 	import { onMount, tick } from 'svelte';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
 	const catalog = modelCatalog();
@@ -421,7 +422,7 @@
 				{addConnectionOpen ? 'Close' : 'Add API key'}
 			</button>{/if}
 		</div>
-		{#if accountLoading}<p class="inline-status" role="status">Loading account connections…</p>
+		{#if accountLoading}<Skeleton label="Loading account connections" variant="list" count={2} />
 		{:else if reusableConnections.length}
 			<div class="reuse-list">
 				{#each reusableConnections as item (item.id)}

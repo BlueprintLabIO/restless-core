@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Skeleton from '$lib/primitives/Skeleton.svelte';
 	import { onMount } from 'svelte';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import { getCompanies, type CompanyCatalogEntry } from '$lib/model/cockpit';
@@ -457,7 +458,7 @@
 			</div>
 		</form>
 	{/if}
-	{#if loading}<p class="loading" role="status">Loading connections…</p>
+	{#if loading}<Skeleton label="Loading connections" variant="list" count={2} />
 	{:else if connections.length}
 		<section class="connection-list" aria-label="Account connections">
 			{#each connections as item (item.id)}
@@ -913,7 +914,6 @@
 		background: color-mix(in srgb, var(--state-danger) 7%, var(--surface-pane));
 		border-radius: var(--radius-control);
 	}
-	.loading,
 	.empty {
 		margin-top: 30px;
 		color: var(--text-secondary);

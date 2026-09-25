@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Skeleton from '$lib/primitives/Skeleton.svelte';
 	import { tick } from 'svelte';
 	import MessageCircle from '@lucide/svelte/icons/message-circle';
 	import ConversationMessage from '$lib/primitives/ConversationMessage.svelte';
@@ -315,7 +316,7 @@
 	{#if historyOpen && !message.deleted_at}
 		<section class="revision-history" aria-label="Message edits">
 			{#if historyStatus === 'unknown'}
-				<p class="history-state">Loading edits…</p>
+				<Skeleton label="Loading edits" count={2} />
 			{:else if historyFailure}
 				<p class="action-error" role="alert">{historyFailure}</p>
 			{:else if revisions.length}

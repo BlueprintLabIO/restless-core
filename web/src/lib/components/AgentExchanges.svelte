@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Skeleton from '$lib/primitives/Skeleton.svelte';
 	import { createInfiniteQuery } from '@tanstack/svelte-query';
 	import Markdown from '$lib/primitives/Markdown.svelte';
 	let { companyId, actorId }: { companyId: string; actorId: string } = $props();
@@ -63,7 +64,7 @@
 			>
 		</p>
 	{:else if query.isPending}
-		<p role="status">Loading exchanges…</p>
+		<Skeleton label="Loading exchanges" count={2} />
 	{:else if !messages.length}
 		<p>No internal messages recorded for this person yet.</p>
 	{/if}

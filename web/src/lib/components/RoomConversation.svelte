@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Skeleton from '$lib/primitives/Skeleton.svelte';
 	import { onDestroy, tick, untrack, type Snippet } from 'svelte';
 	let { actions }: { actions?: Snippet } = $props();
 	import { goto } from '$app/navigation';
@@ -1183,7 +1184,7 @@
 								>
 							</div>
 						{:else if roomProjection?.status === 'unknown'}
-							<div class="conversation-empty">Loading conversation…</div>
+							<Skeleton label="Loading conversation" variant="messages" count={3} />
 						{:else}
 							<div class="conversation-empty">
 								<strong>Nothing said yet.</strong>
@@ -1314,7 +1315,7 @@
 					/>
 				{:else}
 					{#if threadProjection?.status === 'unknown'}
-						<div class="conversation-empty">Loading Thread…</div>
+						<Skeleton label="Loading thread" variant="messages" count={2} />
 					{:else}
 						<div class="conversation-empty failure">
 							<strong>Thread unavailable.</strong>
