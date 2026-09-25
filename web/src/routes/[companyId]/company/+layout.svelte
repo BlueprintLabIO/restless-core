@@ -76,7 +76,7 @@
 				<h2>Company</h2>
 			</div>
 			<label class="company-mobile-nav"
-				>Company page
+				><span class="sr-only">Company page</span>
 				<select
 					aria-label="Company page"
 					value={page.url.pathname}
@@ -136,8 +136,9 @@
 		.company-mobile-nav select {
 			flex: 1;
 			min-width: 0;
-			padding: var(--space-2);
-			font: inherit;
+			min-height: 44px;
+			padding: var(--space-2) var(--space-3);
+			font: 600 var(--t-body) var(--font-ui);
 			color: var(--ink);
 			background: var(--surface);
 			border: 1px solid var(--border-strong);
