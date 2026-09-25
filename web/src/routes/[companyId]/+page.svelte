@@ -794,7 +794,9 @@
 						/>
 					{/key}
 				{:else}
-					{@render attentionDetail(selectedItem)}
+					{#key `${companyId}:${selectedItem.id}`}
+						{@render attentionDetail(selectedItem)}
+					{/key}
 				{/if}
 			{:else if !loaded}
 				<!-- Deliberately nothing until the source answers. An empty pane for
@@ -1548,6 +1550,24 @@
 		}
 		.live-mark.owner {
 			box-shadow: none;
+		}
+	}
+	/* Choosing another item settles its detail in place (a short fade and
+	 * 4px rise after the selection lands) instead of swapping the pane. */
+	.conversation-request,
+	.inbox-pane {
+		animation: attention-detail-in 260ms var(--ease-out) 30ms backwards;
+	}
+	@keyframes attention-detail-in {
+		from {
+			opacity: 0;
+			transform: translateY(4px);
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.conversation-request,
+		.inbox-pane {
+			animation: none;
 		}
 	}
 </style>
