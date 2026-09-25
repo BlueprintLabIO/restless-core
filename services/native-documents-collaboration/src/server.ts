@@ -163,6 +163,8 @@ export class NativeDocumentsCollaborationServer {
   private listening = false;
   private initialized = false;
   private destroyed = false;
+  private lastReadinessStatus: string | undefined;
+  private readinessProbeSequence = 0;
 
   constructor(
     private readonly config: CollaborationConfig,
@@ -213,15 +215,22 @@ export class NativeDocumentsCollaborationServer {
           return stopHooks();
         }
         if ((method === 'GET' || method === 'HEAD') && path === READY_PATH) {
-          let ready = false;
-          try {
-            ready =
-              this.listening &&
-              this.initialized &&
-              (await this.tokenVerifier.probe()) &&
-              (await this.store.ready());
-          } catch {
-            ready = false;
+          const probeSequence = ++this.readinessProbeSequence;
+          const initialized = this.listening && this.initialized;
+          const [jwks, documentStore] = initialized
+            ? await Promise.allSettled([this.tokenVerifier.probe(), this.store.ready()])
+            : [];
+          const jwksReady = jwks?.status === 'fulfilled' && jwks.value;
+          const storeReady = documentStore?.status === 'fulfilled' && documentStore.value;
+          const ready = initialized && jwksReady && storeReady;
+          let status = 'ready';
+          if (!initialized) status = 'initializing';
+          else if (!jwksReady && !storeReady) status = 'jwks_and_document_store_unavailable';
+          else if (!jwksReady) status = 'jwks_unavailable';
+          else if (!storeReady) status = 'document_store_unavailable';
+          if (probeSequence === this.readinessProbeSequence && status !== this.lastReadinessStatus) {
+            this.lastReadinessStatus = status;
+            process.stderr.write(`native Documents collaboration readiness: ${status}\n`);
           }
           writeJson(response, method, ready ? 200 : 503, {
             status: ready ? 'ready' : 'not_ready',
