@@ -112,6 +112,8 @@
 		ownerAccess ? (cockpit?.company.name ?? companyId) : (collaboration?.company.name ?? companyId)
 	);
 	const unassignedWork = $derived((graph?.work ?? []).filter((item) => item.goal_id === null));
+	/* No Work anywhere yet: neither lens, key nor filter has anything to say. */
+	const noWorkYet = $derived(!!graph && graph.work.length === 0 && goals.length === 0);
 	const goalWork = $derived(
 		(graph?.work ?? []).filter(
 			(item) =>
@@ -358,6 +360,14 @@
 			<p class="empty-state">Loading Work…</p>
 		{:else if !graph}
 			<p class="empty-state">Work is unavailable. No empty state is being inferred.</p>
+		{:else if noWorkYet}
+			<div class="work-empty">
+				<span class="work-empty-mark" aria-hidden="true">
+					<MatrixGlyph rows={GLYPHS.work} size={10} />
+				</span>
+				<h2>No work yet</h2>
+				<p>Work appears here as the Exec turns what you want into outcomes.</p>
+			</div>
 		{:else if lens === 'map'}
 			<div class="work-map" aria-label="Work dependency map">
 				<details class="map-legend">
@@ -427,7 +437,7 @@
 			</div>
 		{/if}
 		<nav class="mobile-work-links" aria-label="Work resources">
-			{#if loaded && graph}
+			{#if loaded && graph && !noWorkYet}
 				<!-- Phones hide the Goals list; the same filter lives here. -->
 				<select
 					class="mobile-goal"
@@ -587,5 +597,36 @@
 	}
 
 	@media (prefers-reduced-motion: reduce) {
+	}
+	.work-empty {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: var(--space-2);
+		padding: var(--space-6);
+		text-align: center;
+		animation: bridge-disclosure-in var(--motion-disclosure) var(--ease-out) both;
+	}
+	.work-empty-mark {
+		display: grid;
+		place-items: center;
+		width: 44px;
+		height: 44px;
+		margin-bottom: var(--space-2);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-pane);
+		background: var(--intent-feedback-soft);
+		color: var(--intent-feedback);
+	}
+	.work-empty h2 {
+		margin: 0;
+		font-size: var(--t-head);
+	}
+	.work-empty p {
+		max-width: 320px;
+		margin: 0;
+		color: var(--text-secondary);
 	}
 </style>
