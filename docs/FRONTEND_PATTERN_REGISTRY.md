@@ -70,6 +70,7 @@ implements. If no native semantic job can be named, do not import it.
 | Text reveal as a substitute for content design | Animation does not turn prose into a product encounter |
 | Screenshot-exists acceptance | Mechanical presence is not design judgement |
 | Narrow nested article column | Wastes the publication grid and was explicitly rejected by the owner |
+| Standalone company-creation form as the primary path | It makes the owner configure a company before explaining the business. The intended primary path is a conversation that helps shape the mandate, then prepares creation for explicit owner approval. The account plane still performs the creation and authority checks; a company Exec does not receive host-root authority. Keep a direct form only as a secondary, deliberate shortcut if it earns its place. |
 
 ## Adoption record template
 

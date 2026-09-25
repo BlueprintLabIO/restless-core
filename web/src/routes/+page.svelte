@@ -88,16 +88,18 @@
 			<span class="tb-mark"><MatrixGlyph rows={GLYPHS.r} size={13} glow /></span>
 			<span class="tb-name">{PRODUCT_NAME}</span>
 		</a>
-		<a
-			class="settings-link"
-			href="/account/settings"
-			aria-label="Account settings"
-			title="Account settings"
-		>
-			<Settings2 size={17} strokeWidth={1.8} aria-hidden="true" />
-			<span>Settings</span>
-		</a>
-		{#if loaded}<div class="tb-right"><CreateCompany /></div>{/if}
+		<div class="tb-right">
+			{#if loaded}<CreateCompany />{/if}
+			<a
+				class="settings-link"
+				href="/account/settings"
+				aria-label="Account settings"
+				title="Account settings"
+			>
+				<Settings2 size={17} strokeWidth={1.8} aria-hidden="true" />
+				<span>Settings</span>
+			</a>
+		</div>
 	</header>
 
 	{#if error && !loaded}

@@ -14,6 +14,12 @@
 		detail?: string | null;
 		companies: CompanyUse[];
 	};
+	type NativeSignIn = {
+		companyId: string;
+		companyName: string;
+		harness: string;
+		state: string;
+	};
 	const providerOptions = [
 		['anthropic', 'Anthropic'],
 		['openai', 'OpenAI'],
@@ -29,7 +35,6 @@
 	];
 	let connections = $state<AccountConnection[]>([]);
 	let loading = $state(true);
-	let firstLoad = true;
 	let error = $state('');
 	let addOpen = $state(false);
 	let busy = $state(false);
@@ -39,6 +44,9 @@
 	let kind = $state<'api_key' | 'oauth'>('api_key');
 	let companies = $state<CompanyCatalogEntry[]>([]);
 	let companyError = $state('');
+	let nativeSignIns = $state<NativeSignIn[]>([]);
+	let nativeLoading = $state(true);
+	let nativeError = $state('');
 	let managingId = $state('');
 	let companyRevisions = $state<Record<string, string>>({});
 	let selectedCompany = $state('');
@@ -54,13 +62,51 @@
 			const body = await response.json();
 			if (!response.ok) throw new Error(body.message ?? 'Could not load account connections.');
 			connections = body.connections ?? [];
-			if (firstLoad && connections.length === 0) addOpen = true;
-			firstLoad = false;
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Could not load account connections.';
 		} finally {
 			loading = false;
 		}
+	}
+	async function refreshNativeSignIns(rows: CompanyCatalogEntry[]) {
+		nativeLoading = true;
+		const results = await Promise.allSettled(
+			rows.map(async (company) => {
+				const response = await fetch(
+					`/api/companies/${encodeURIComponent(company.id)}/harness-auth`,
+					{ cache: 'no-store' }
+				);
+				if (!response.ok) throw new Error(`Could not check ${company.name}.`);
+				const body = await response.json();
+				return (body.connections ?? [])
+					.filter((connection: { mode: string }) => connection.mode === 'oauth')
+					.map((connection: { harness: string; auth: { state: string } }) => ({
+						companyId: company.id,
+						companyName: company.name,
+						harness: connection.harness,
+						state: connection.auth.state
+					}));
+			})
+		);
+		nativeSignIns = results.flatMap((result) =>
+			result.status === 'fulfilled' ? result.value : []
+		);
+		nativeError = results.some((result) => result.status === 'rejected')
+			? 'Some company sign-ins could not be checked.'
+			: '';
+		nativeLoading = false;
+	}
+	function nativeStatus(state: string) {
+		return (
+			{
+				connected: 'Signed in',
+				expired: 'Expired',
+				unavailable: 'Unable to check',
+				failed: 'Sign-in failed',
+				waiting: 'Waiting for sign-in',
+				starting: 'Starting sign-in'
+			} as Record<string, string>
+		)[state] ?? state;
 	}
 	async function create(event: SubmitEvent) {
 		event.preventDefault();
@@ -207,9 +253,12 @@
 		void getCompanies()
 			.then((rows) => {
 				companies = rows.filter((company) => company.lifecycle_status === 'active');
+				void refreshNativeSignIns(companies);
 			})
 			.catch(() => {
 				companyError = 'Projects could not be loaded. Reload to manage access.';
+				nativeError = 'Company sign-ins could not be loaded.';
+				nativeLoading = false;
 			});
 	});
 </script>
@@ -228,6 +277,29 @@
 			>{addOpen ? 'Close' : 'Add connection'}</button
 		>
 	</header>
+	<section class="native-section" aria-label="Native sign-ins by company">
+		<div class="section-head">
+			<h2>Company sign-ins</h2>
+			<button class="text-button" disabled={nativeLoading} onclick={() => void refreshNativeSignIns(companies)}
+				>Refresh status</button
+			>
+		</div>
+		<p>Codex and Claude sign-ins belong to the company shown here. They cannot yet be granted to another company.</p>
+		{#if nativeError}<p class="native-error" role="alert">{nativeError}</p>{/if}
+		{#if nativeLoading}<p role="status">Checking company sign-ins…</p>
+		{:else if nativeSignIns.length}
+			<div class="native-list">
+				{#each nativeSignIns as signIn (`${signIn.companyId}:${signIn.harness}`)}
+					<div class="native-row">
+						<strong>{signIn.harness === 'codex' ? 'ChatGPT / Codex' : 'Claude Code'}</strong>
+						<span>{signIn.companyName}</span>
+						<span class="native-status" class:connected={signIn.state === 'connected'}>{nativeStatus(signIn.state)}</span>
+						<a href={`/${encodeURIComponent(signIn.companyId)}/company/provider`}>Manage in company ↗</a>
+					</div>
+				{/each}
+			</div>
+		{:else}<p>No company OAuth sign-ins are configured.</p>{/if}
+	</section>
 	{#if error}<div class="error" role="alert">
 			{error}<button class="btn small" onclick={() => void refresh()}>Try again</button>
 		</div>{/if}
@@ -385,8 +457,8 @@
 		</section>
 	{:else if !addOpen}
 		<div class="empty">
-			<h2>No account connections yet</h2>
-			<p>Save an API key or register an existing host broker sign-in, then grant project access.</p>
+			<h2>No reusable connections yet</h2>
+			<p>Save an API key or register a sign-in already held by the host model broker, then choose which companies can use it.</p>
 			<button class="btn primary" onclick={() => (addOpen = true)}>Add your first connection</button
 			>
 		</div>
@@ -418,6 +490,70 @@
 		margin: 0;
 		font-size: var(--t-title);
 		letter-spacing: -0.035em;
+	}
+	.native-section {
+		margin-top: 28px;
+		padding: 20px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-pane);
+		background: var(--surface-pane);
+	}
+	.section-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-3);
+	}
+	.section-head h2 {
+		margin: 0;
+		font-size: var(--t-head);
+	}
+	.native-section p {
+		margin: 8px 0 0;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+		line-height: 1.5;
+	}
+	.native-section .native-error {
+		color: var(--state-danger);
+	}
+	.native-list {
+		margin-top: 16px;
+		border-top: 1px solid var(--border);
+	}
+	.native-row {
+		display: grid;
+		grid-template-columns: minmax(150px, 1.2fr) minmax(140px, 1fr) 120px auto;
+		align-items: center;
+		gap: var(--space-3);
+		min-height: 48px;
+		padding: 8px 0;
+		border-bottom: 1px solid var(--border);
+		font-size: var(--t-label);
+	}
+	.native-row strong {
+		font-weight: 600;
+	}
+	.native-row > span:not(.native-status) {
+		color: var(--text-secondary);
+	}
+	.native-status {
+		color: var(--text-secondary);
+	}
+	.native-status.connected {
+		color: var(--state-success);
+	}
+	.native-row a {
+		justify-self: end;
+		color: var(--intent-conversation);
+		text-decoration: none;
+	}
+	.native-row a:hover {
+		text-decoration: underline;
+	}
+	.native-row a:focus-visible {
+		outline: 2px solid var(--intent-conversation);
+		outline-offset: 3px;
 	}
 	.add-form p,
 	.connection-head span,
@@ -631,6 +767,21 @@
 		line-height: 1.5;
 	}
 	@media (max-width: 620px) {
+		.native-row {
+			grid-template-columns: 1fr auto;
+		}
+		.native-row > span:not(.native-status) {
+			grid-column: 1;
+			grid-row: 2;
+		}
+		.native-status {
+			grid-column: 2;
+			grid-row: 1;
+		}
+		.native-row a {
+			grid-column: 2;
+			grid-row: 2;
+		}
 		.account-connections {
 			min-height: auto;
 			padding: 26px 20px 36px;
