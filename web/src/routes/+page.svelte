@@ -51,11 +51,22 @@
 		return value?.startsWith('/') && !value.startsWith('//') ? value : '';
 	}
 
+	function startGuidance(reason: string): string {
+		if (reason.startsWith('Choose an intelligence provider')) return reason;
+		if (
+			reason.startsWith('no usable host credential') ||
+			reason.startsWith('Claude Agent requires')
+		) {
+			return 'Connect the selected intelligence provider in Company → Intelligence provider.';
+		}
+		return 'Check the intelligence provider setup in Company → Intelligence provider.';
+	}
+
 	function attentionLabel(company: CompanyCatalogEntry, projection?: PortfolioProjection): string {
 		// A company that cannot start is the one fact worth stating before
 		// attention counts: nothing will happen in it until it is resolved.
 		if (company.unstartable_reason) {
-			return `Open ${company.name}. It cannot start: ${company.unstartable_reason}`;
+			return `Open ${company.name}. It cannot start: ${startGuidance(company.unstartable_reason)}`;
 		}
 		const next = projection?.nextProof ? ` Next item of value: ${projection.nextProof}.` : '';
 		const count = projection?.attentionCount;
@@ -122,6 +133,7 @@
 							</div>
 							{#each activeCompanies as company (company.id)}
 								{@const projection = projections[company.id]}
+								{@const startIssue = company.unstartable_reason ? startGuidance(company.unstartable_reason) : ''}
 								<a
 									class="portfolio-company-row runtime-{company.runtime_status}"
 									href={`/${company.id}`}
@@ -137,17 +149,15 @@
 														? 'unavailable'
 														: 'waiting'}
 											label={company.unstartable_reason
-												? `${company.name} cannot start: ${company.unstartable_reason}`
+												? `${company.name} cannot start: ${startIssue}`
 												: `${company.name} runtime: ${company.runtime_status}`}
 										/>
 										<span class="portfolio-company-copy">
 											<strong>{company.name}</strong>
 											{#if company.unstartable_reason}
-												<!-- The exact reason is the hover explanation; the row stays
-												     one short phrase rather than growing a second line. -->
 												<small
 													class="portfolio-company-unstartable"
-													title={company.unstartable_reason}>cannot start</small
+														title={startIssue}>cannot start</small
 												>
 											{:else}
 												<small>{company.runtime_status}</small>
@@ -163,13 +173,17 @@
 									</span>
 									<span class="portfolio-metric portfolio-proof">
 										<small class="portfolio-mobile-label">Next item of value</small>
-										<strong>{projection?.nextProof ?? 'Checking work…'}</strong>
+										<strong title={startIssue || undefined}
+											>{startIssue || projection?.nextProof || 'Checking work…'}</strong
+										>
 									</span>
 									<span class="portfolio-metric portfolio-attention">
 										<small class="portfolio-mobile-label">Needs you</small>
 										<strong
-											>{projection?.attentionCount == null
-												? 'Checking…'
+											>{company.unstartable_reason
+												? 'Start blocked'
+												: projection?.attentionCount == null
+													? 'Checking…'
 												: projection.attentionCount === 0
 													? 'Nothing now'
 													: `${projection.attentionCount} item${projection.attentionCount === 1 ? '' : 's'}`}</strong
