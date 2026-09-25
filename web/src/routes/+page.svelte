@@ -53,6 +53,9 @@
 
 	function startGuidance(reason: string): string {
 		if (reason.startsWith('Choose an intelligence provider')) return reason;
+		if (reason.startsWith('no usable host credential for model native-codex-oauth/')) {
+			return 'Check Codex sign-in and select Codex in Company → Intelligence provider.';
+		}
 		if (
 			reason.startsWith('no usable host credential') ||
 			reason.startsWith('Claude Agent requires')
