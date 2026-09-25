@@ -94,19 +94,20 @@
 	</header>
 	<p
 		class="status"
+		title="Secrets are kept in the company's Infisical vault; this page shows their names, never their values."
 		class:connected={!error && view?.status === 'connected'}
 		class:unavailable={!!error || view?.status === 'unavailable'}
 		role="status"
 	>
-		● {error
+		{error
 			? 'Vault status unavailable'
 			: view?.status === 'connected'
-				? 'Infisical connected'
+				? 'Secure storage connected'
 				: view?.status === 'unavailable'
-					? 'Infisical unavailable'
+					? 'Secure storage unavailable'
 					: busy
-						? 'Checking Infisical…'
-						: 'Infisical is not configured'}
+						? 'Checking secure storage…'
+						: 'Secure storage is not set up'}
 	</p>
 	<p class="scope">Secrets stored for this company. Values remain hidden.</p>
 	{#if error}<p role="alert">{error}</p>{/if}
@@ -256,5 +257,22 @@
 		article {
 			flex-direction: column;
 		}
+	}
+	.status::before {
+		content: '';
+		display: inline-block;
+		width: 7px;
+		height: 7px;
+		margin-right: 7px;
+		border-radius: 50%;
+		background: var(--status-offline);
+		vertical-align: 1px;
+	}
+	.status.connected::before {
+		background: var(--state-success);
+		box-shadow: 0 0 0 3px color-mix(in srgb, var(--state-success) 16%, transparent);
+	}
+	.status.unavailable::before {
+		background: var(--state-danger);
 	}
 </style>

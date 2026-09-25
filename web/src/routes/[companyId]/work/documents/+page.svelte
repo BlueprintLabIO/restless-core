@@ -377,11 +377,8 @@
 		{:else}
 			<div class="document-stage-empty">
 				<FilePlus2 class="stage-empty-icon" size={25} strokeWidth={1.4} aria-hidden="true" />
-				<h2>Start the company notebook.</h2>
-				<p>
-					Briefs, plans, decisions, reports, and reviews stay readable while the Company Runtime
-					sleeps.
-				</p>
+				<h2>Start the company notebook</h2>
+				<p>Briefs, plans, decisions and reports you write with the team, readable any time.</p>
 				<button type="button" class="btn primary" onclick={() => (creating = true)}
 					>Create the first document</button
 				>
