@@ -1547,6 +1547,19 @@
 		user-select: none;
 	}
 
+	/* At night the campus dims to dusk instead of glaring beside a dark
+	 * cockpit. One filter on the finished frame: no per-pixel work. */
+	:global(:root[data-theme='dark']) .office-canvas-shell {
+		background: #5c7a57;
+	}
+	:global(:root[data-theme='dark']) canvas {
+		filter: brightness(0.68) saturate(0.82) contrast(1.06) hue-rotate(-6deg);
+	}
+	:global(:root[data-theme='dark'])
+		:is(.office-camera-controls, .decorate-trigger, .decor-tray, .person-detail) {
+		filter: brightness(0.9);
+	}
+
 	canvas:focus-visible {
 		box-shadow: inset 0 0 0 3px rgba(118, 197, 209, 0.72);
 	}

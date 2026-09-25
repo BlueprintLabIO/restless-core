@@ -462,6 +462,8 @@ export function createCompanyOfficePlan(
 	add('exec-seat', 'CUSHIONED_CHAIR_BACK', 6, 22, DAYLIGHT.furniture);
 	add('exec-whiteboard', 'WHITEBOARD', 9, 19);
 	add('exec-plant', 'PLANT_2', 4, 24);
+	// Soft ground for the west plaza's garden court (furnished further down).
+	rug(4, 39, 13, 9, 2);
 
 	// West pavilion: quiet care spaces open directly onto the garden path.
 	rug(17, 19, 7, 13, 1);
@@ -618,6 +620,39 @@ export function createCompanyOfficePlan(
 		home,
 		requiredPoints: [...interactionPoints, ...waitingSpots, ...protectedPath]
 	};
+	// The west plaza is the longest stretch of open stone in the campus. A
+	// sitting corner at its north end and a small garden court at its south end
+	// give it somewhere to be, whatever the decor density. Every piece still
+	// passes the same route check, so no walkway or interaction point closes.
+	[
+		[4, 5, 'LARGE_PLANT'],
+		[6, 6, 'SOFA_FRONT'],
+		[7, 9, 'COFFEE_TABLE'],
+		[10, 5, 'PLANT_2'],
+		[5, 41, 'RESTLESS_CANOPY_TREE'],
+		[11, 42, 'CUSHIONED_BENCH'],
+		[9, 46, 'CUSHIONED_BENCH'],
+		[4, 46, 'LARGE_PLANT'],
+		[15, 44, 'PLANT_2']
+	].forEach(([col, row, type], index) => {
+		const candidate = {
+			uid: `plaza-${index}`,
+			type: String(type),
+			col: Number(col),
+			row: Number(row),
+			color: /SOFA|BENCH|TABLE/.test(String(type)) ? DAYLIGHT.furniture : undefined
+		};
+		if (
+			isDecorationPlacementValid(
+				baseLayout,
+				candidate.type,
+				candidate.col,
+				candidate.row,
+				routeConstraint
+			)
+		)
+			baseLayout.furniture.push(candidate);
+	});
 	if (preferences.decorDensity === 'lush') {
 		[
 			[4, 35, 'LARGE_PLANT'],
