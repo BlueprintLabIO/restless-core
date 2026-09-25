@@ -248,7 +248,7 @@ async fn conversation_requests(
                 native_document: None,
                 actions: vec![AttentionAction {
                     id: "continue-conversation".into(),
-                    label: "Continue conversation".into(),
+                    label: "Reply".into(),
                     role: "conversation",
                     consequence: "Return to the message asking for your input.".into(),
                     next_state: "Your reply clears this request.".into(),

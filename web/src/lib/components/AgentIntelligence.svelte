@@ -32,7 +32,9 @@
 						name: 'Company default',
 						role: 'Used by agents without an override',
 						assignment: source.view.default,
-						effective_model: source.view.default?.model ?? 'Choose a connection',
+						effective_model:
+							source.view.default?.model ??
+							(source.view.connections.length ? 'Choose a connection' : 'Connect a provider below'),
 						harness: ''
 					},
 					...source.view.agents
@@ -129,11 +131,18 @@
 				>Retry</button
 			>
 		</p>
-	{:else if !source.view}<p role="status">Loading agents…</p>
+	{:else if !source.view}<p class="sr-only" role="status">Loading agents…</p>
+		{#each [0, 1] as row (row)}<div class="agent-row" aria-hidden="true">
+				<div class="identity">
+					<span class="skeleton-line" style:width="7em"></span><span
+						class="skeleton-line"
+						style:width="11em"
+					></span>
+				</div>
+				<div class="route"><span class="skeleton-line" style:width="9em"></span></div>
+				<span class="skeleton-line" style:width="4.5em" style:height="40px"></span>
+			</div>{/each}
 	{:else}
-		{#if !source.view.connections.length}<p class="hint">
-				Connect a provider below, then choose what powers each agent.
-			</p>{/if}
 		{#each rows as agent (agent.id)}
 			<div class="agent-row">
 				<div class="identity">
@@ -242,7 +251,6 @@
 		font-size: var(--t-head);
 		margin: 0;
 	}
-	.hint,
 	small {
 		color: var(--text-tertiary);
 	}

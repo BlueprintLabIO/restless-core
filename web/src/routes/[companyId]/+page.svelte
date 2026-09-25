@@ -67,6 +67,19 @@
 	});
 	const queueClear = $derived(loaded && items.length === 0);
 	const showClear = $derived(queueClear && !startBlocker);
+	/* The queue collapses and returns with motion, but its first known state
+	 * is placed at once: animating a page into the layout it loaded with is
+	 * only movement the owner has to wait out. */
+	let paneMotion = $state(false);
+	$effect(() => {
+		if (!loaded || paneMotion) return;
+		const frame = requestAnimationFrame(() =>
+			requestAnimationFrame(() => {
+				paneMotion = true;
+			})
+		);
+		return () => cancelAnimationFrame(frame);
+	});
 	const selectedItem = $derived(
 		items.find((item) => item.id === selectedItemId) ?? (selectedItemId ? null : (items[0] ?? null))
 	);
@@ -676,7 +689,8 @@
 {:else}
 	<div
 		class="cockpit-screen attention-screen"
-		class:queue-clear={queueClear}
+		class:queue-clear={queueClear || !loaded}
+		class:pane-motion={paneMotion}
 		use:resizePane={{
 			key: `${companyId}:attention`,
 			label: 'Resize attention panes',
@@ -806,7 +820,7 @@
 			<a
 				class="btn small primary"
 				href={item.actions.find((action) => action.id === 'continue-conversation')?.href}
-				>Continue conversation →</a
+				>Reply →</a
 			>
 		</article>
 	{:else}

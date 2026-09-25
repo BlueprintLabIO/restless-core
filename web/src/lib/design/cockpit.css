@@ -611,6 +611,11 @@
 	gap: 0;
 }
 
+.bridge-root .attention-screen:not(.pane-motion),
+.bridge-root .attention-screen:not(.pane-motion) .attention-index {
+	transition: none;
+}
+
 .bridge-root .attention-index,
 .bridge-root .attention-focus {
 	overflow: hidden;

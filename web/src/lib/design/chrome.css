@@ -166,6 +166,26 @@
 	font: 600 var(--t-label) var(--font-mono);
 }
 
+/* The count sits on the tab's corner, so its arrival never pushes the other
+ * tabs sideways. It pops in once; it does not pulse. */
+@keyframes bridge-badge-in {
+	from {
+		opacity: 0;
+		transform: scale(0.6);
+	}
+}
+
+.bridge-topbar .tb-badge {
+	position: absolute;
+	top: -6px;
+	right: -7px;
+	min-width: 16px;
+	height: 16px;
+	padding: 0 4px;
+	box-shadow: 0 0 0 2px var(--surface-pane);
+	animation: bridge-badge-in var(--motion-state) var(--ease-spring) backwards;
+}
+
 .bridge-root .tb-search {
 	height: 30px;
 	display: inline-flex;

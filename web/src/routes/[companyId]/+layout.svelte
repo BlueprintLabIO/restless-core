@@ -54,7 +54,32 @@
 	const collaboration = $derived(collaborationBootstrapQuery(companyId, () => principal));
 	const companyCatalog = companiesQuery(() => ownerAccess);
 	const companies = $derived(companyCatalog.view);
-	let execRailOpen = $state(true);
+	/* The rail keeps the owner's last choice per company, so a reload does not
+	 * open it only to close it again. Phones always start with the overlay
+	 * closed. "setup" marks a rail closed because intelligence was missing;
+	 * it reopens once when intelligence is connected. */
+	const railKey = (id: string) => `restless:exec-rail:${id}`;
+	function readRail(id: string): string | null {
+		try {
+			return localStorage.getItem(railKey(id));
+		} catch {
+			return null;
+		}
+	}
+	function writeRail(id: string, value: 'open' | 'closed' | 'setup') {
+		try {
+			localStorage.setItem(railKey(id), value);
+		} catch {
+			/* Storage is a convenience; the rail still works without it. */
+		}
+	}
+	function initialRail(id: string): boolean {
+		if (window.matchMedia('(max-width: 980px)').matches) return false;
+		const stored = readRail(id);
+		return stored === null || stored === 'open';
+	}
+	let execRailOpen = $state(initialRail(page.params.companyId ?? ''));
+	let railCompany = page.params.companyId ?? '';
 	let focusRailRestore = $state<boolean | null>(null);
 	let startupStalled = $state(false);
 	let retryingStartup = $state(false);
@@ -155,10 +180,35 @@
 	let railClosedForSetup = '';
 	$effect(() => {
 		if (railClosedForSetup === companyId || focusedAttention) return;
-		if (intelligence.view?.has_connections === false) {
+		const connected = intelligence.view?.has_connections;
+		if (connected === false) {
 			railClosedForSetup = companyId;
-			execRailOpen = false;
+			if (readRail(companyId) === null || readRail(companyId) === 'open') {
+				execRailOpen = false;
+				writeRail(companyId, 'setup');
+			}
+		} else if (connected === true && readRail(companyId) === 'setup') {
+			railClosedForSetup = companyId;
+			execRailOpen = true;
 		}
+	});
+	$effect(() => {
+		if (companyId === railCompany) return;
+		railCompany = companyId;
+		execRailOpen = initialRail(companyId);
+	});
+	$effect(() => {
+		// Remember deliberate desktop choices only, not temporary closes.
+		const open = execRailOpen;
+		if (
+			focusRailRestore !== null ||
+			focusedAttention ||
+			companyId !== railCompany ||
+			window.matchMedia('(max-width: 980px)').matches
+		)
+			return;
+		if (open) writeRail(companyId, 'open');
+		else if (readRail(companyId) !== 'setup') writeRail(companyId, 'closed');
 	});
 	$effect(() => {
 		if (companyComputerSurface && focusRailRestore === null) {
