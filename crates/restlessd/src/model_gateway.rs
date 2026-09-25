@@ -1266,6 +1266,9 @@ async fn relay_models(State(state): State<RelayState>, headers: HeaderMap) -> Re
             );
         }
     };
+    if live_company_model_grant(&state.root, &grant).is_err() {
+        return relay_error(StatusCode::FORBIDDEN, "company model access was removed");
+    }
     let (_, model_id) = match split_model(&grant.model) {
         Ok(parts) => parts,
         Err(error) => return relay_error(StatusCode::UNAUTHORIZED, &format!("{error:#}")),
@@ -1330,14 +1333,9 @@ async fn relay_pi_stream(
             "model capability does not permit this exact model",
         );
     }
-    let config = match CompanyConfig::load(&state.root, &grant.company) {
+    let config = match live_company_model_grant(&state.root, &grant) {
         Ok(config) => config,
-        Err(_) => {
-            return relay_error(
-                StatusCode::FORBIDDEN,
-                "model capability company is unavailable",
-            )
-        }
+        Err(_) => return relay_error(StatusCode::FORBIDDEN, "company model access was removed"),
     };
     let billing = match grant.billing.as_str() {
         "metered_api" => ModelBilling::MeteredApi,
@@ -1480,14 +1478,9 @@ async fn relay_responses(
     // The host gateway catalogue names custom routes by provider-qualified id;
     // Codex correctly uses the provider-local id on the OpenAI wire.
     request["model"] = serde_json::Value::String(grant.model.clone());
-    let config = match CompanyConfig::load(&state.root, &grant.company) {
+    let config = match live_company_model_grant(&state.root, &grant) {
         Ok(config) => config,
-        Err(_) => {
-            return relay_error(
-                StatusCode::FORBIDDEN,
-                "model capability company is unavailable",
-            )
-        }
+        Err(_) => return relay_error(StatusCode::FORBIDDEN, "company model access was removed"),
     };
     let billing = match grant.billing.as_str() {
         "metered_api" => ModelBilling::MeteredApi,
@@ -1655,14 +1648,9 @@ async fn relay_anthropic_messages(
             "Claude Agent requires an API-key-backed metered Anthropic route",
         );
     }
-    let config = match CompanyConfig::load(&state.root, &grant.company) {
+    let config = match live_company_model_grant(&state.root, &grant) {
         Ok(config) => config,
-        Err(_) => {
-            return relay_error(
-                StatusCode::FORBIDDEN,
-                "model capability company is unavailable",
-            )
-        }
+        Err(_) => return relay_error(StatusCode::FORBIDDEN, "company model access was removed"),
     };
     let budget = state.spend.budget_state(&config);
     if !budget.is_available() {
@@ -1767,6 +1755,9 @@ async fn relay_anthropic_count_tokens(
             )
         }
     };
+    if live_company_model_grant(&state.root, &grant).is_err() {
+        return relay_error(StatusCode::FORBIDDEN, "company model access was removed");
+    }
     let (provider, model_id) = match split_model(&grant.model) {
         Ok(parts) => parts,
         Err(error) => return relay_error(StatusCode::UNAUTHORIZED, &format!("{error:#}")),
@@ -1945,6 +1936,24 @@ fn requested_model(request: &serde_json::Value) -> Option<&str> {
                 .and_then(serde_json::Value::as_str)
                 .filter(|model| !model.is_empty())
         })
+}
+
+/// A signed session proves who asked and which model it may use. The current
+/// company configuration decides whether that provider is still available.
+/// Checking here makes removal effective for an already-running session too.
+fn live_company_model_grant(
+    root: &Path,
+    grant: &crate::capability::ModelGrant,
+) -> Result<CompanyConfig> {
+    let config = CompanyConfig::load(root, &grant.company)?;
+    let scoped = format!("model.inference.{}", grant.provider);
+    let has_scoped = config.credentials.contains_key(&scoped);
+    let has_legacy_primary = config.model.split('/').next() == Some(grant.provider.as_str())
+        && config.credentials.contains_key("model.inference");
+    if !has_scoped && !has_legacy_primary {
+        bail!("company no longer has access to this model provider");
+    }
+    Ok(config)
 }
 
 fn relay_error(status: StatusCode, message: &str) -> Response<Body> {

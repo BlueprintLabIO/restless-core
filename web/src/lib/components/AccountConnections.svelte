@@ -53,6 +53,7 @@
 	let selectedModel = $state('');
 	let replaceRequired = $state(false);
 	let busyCompany = $state(false);
+	let confirmRevocation = $state('');
 
 	async function refresh() {
 		loading = true;
@@ -98,15 +99,17 @@
 	}
 	function nativeStatus(state: string) {
 		return (
-			{
-				connected: 'Signed in',
-				expired: 'Expired',
-				unavailable: 'Unable to check',
-				failed: 'Sign-in failed',
-				waiting: 'Waiting for sign-in',
-				starting: 'Starting sign-in'
-			} as Record<string, string>
-		)[state] ?? state;
+			(
+				{
+					connected: 'Signed in',
+					expired: 'Expired',
+					unavailable: 'Unable to check',
+					failed: 'Sign-in failed',
+					waiting: 'Waiting for sign-in',
+					starting: 'Starting sign-in'
+				} as Record<string, string>
+			)[state] ?? state
+		);
 	}
 	async function create(event: SubmitEvent) {
 		event.preventDefault();
@@ -214,7 +217,7 @@
 		}
 	}
 	async function revoke(item: AccountConnection, company: CompanyUse) {
-		if (busyCompany || company.in_use) return;
+		if (busyCompany) return;
 		busyCompany = true;
 		error = '';
 		try {
@@ -240,6 +243,7 @@
 			const body = await response.json();
 			if (!response.ok) throw new Error(body.message ?? 'Could not remove this project’s access.');
 			companyRevisions = { ...companyRevisions, [company.id]: body.provider?.revision ?? revision };
+			confirmRevocation = '';
 			await refresh();
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Could not remove this project’s access.';
@@ -280,11 +284,16 @@
 	<section class="native-section" aria-label="Native sign-ins by company">
 		<div class="section-head">
 			<h2>Company sign-ins</h2>
-			<button class="text-button" disabled={nativeLoading} onclick={() => void refreshNativeSignIns(companies)}
-				>Refresh status</button
+			<button
+				class="text-button"
+				disabled={nativeLoading}
+				onclick={() => void refreshNativeSignIns(companies)}>Refresh status</button
 			>
 		</div>
-		<p>Codex and Claude sign-ins belong to the company shown here. They cannot yet be granted to another company.</p>
+		<p>
+			Codex and Claude sign-ins belong to the company shown here. They cannot yet be granted to
+			another company.
+		</p>
 		{#if nativeError}<p class="native-error" role="alert">{nativeError}</p>{/if}
 		{#if nativeLoading}<p role="status">Checking company sign-ins…</p>
 		{:else if nativeSignIns.length}
@@ -293,8 +302,12 @@
 					<div class="native-row">
 						<strong>{signIn.harness === 'codex' ? 'ChatGPT / Codex' : 'Claude Code'}</strong>
 						<span>{signIn.companyName}</span>
-						<span class="native-status" class:connected={signIn.state === 'connected'}>{nativeStatus(signIn.state)}</span>
-						<a href={`/${encodeURIComponent(signIn.companyId)}/company/provider`}>Manage in company ↗</a>
+						<span class="native-status" class:connected={signIn.state === 'connected'}
+							>{nativeStatus(signIn.state)}</span
+						>
+						<a href={`/${encodeURIComponent(signIn.companyId)}/company/provider`}
+							>Manage in company ↗</a
+						>
 					</div>
 				{/each}
 			</div>
@@ -393,14 +406,28 @@
 									<strong>{company.name}</strong>
 									{#if granted}<span class="access-state"
 											>Available{granted.in_use ? ' · in use' : ''}</span
-										><button
-											class="text-button danger"
-											disabled={busyCompany || granted.in_use}
-											title={granted.in_use
-												? 'Choose another model for this provider before removing access.'
-												: 'Remove this project’s access'}
-											onclick={() => void revoke(item, granted)}>Remove access</button
-										>
+										>{#if granted.in_use && confirmRevocation === `${item.id}:${company.id}`}
+											<span class="replace-warning" role="alert"
+												>AI work using this connection will stop until another is selected.</span
+											>
+											<button
+												class="text-button danger"
+												disabled={busyCompany}
+												onclick={() => void revoke(item, granted)}>Remove access now</button
+											>
+											<button
+												class="text-button"
+												disabled={busyCompany}
+												onclick={() => (confirmRevocation = '')}>Keep access</button
+											>
+										{:else}<button
+												class="text-button danger"
+												disabled={busyCompany}
+												onclick={() => {
+													if (granted.in_use) confirmRevocation = `${item.id}:${company.id}`;
+													else void revoke(item, granted);
+												}}>Remove access</button
+											>{/if}
 									{:else if selectedCompany === company.id}
 										<label class="model-picker"
 											><span>Model</span><select
@@ -458,7 +485,10 @@
 	{:else if !addOpen}
 		<div class="empty">
 			<h2>No reusable connections yet</h2>
-			<p>Save an API key or register a sign-in already held by the host model broker, then choose which companies can use it.</p>
+			<p>
+				Save an API key or register a sign-in already held by the host model broker, then choose
+				which companies can use it.
+			</p>
 			<button class="btn primary" onclick={() => (addOpen = true)}>Add your first connection</button
 			>
 		</div>

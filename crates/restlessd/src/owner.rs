@@ -3659,13 +3659,9 @@ async fn revoke_owner_connection(
             "This connection is not currently granted to that company.",
         );
     }
-    if company_connection_is_assigned(&config, &connection.provider) {
-        return api_error(
-            StatusCode::CONFLICT,
-            "connection_in_use",
-            "Choose another model connection for this company before removing the current one.",
-        );
-    }
+    // An account owner must be able to revoke access even while an agent has
+    // this provider selected. Preserve the selection so the company fails
+    // explicitly instead of silently switching to another provider.
     config.credentials.remove(&binding);
     if runtime::CompanyConfig::save(&state.daemon.root, &config).is_err() {
         return api_error(
