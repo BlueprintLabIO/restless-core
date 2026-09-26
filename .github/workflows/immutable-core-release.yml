@@ -59,7 +59,7 @@ jobs:
     runs-on: [self-hosted, linux, x64, restless-core]
     # Three sequential multi-arch (amd64+arm64, QEMU-emulated) Rust builds
     # run on the owner's machine. No GitHub-hosted runner or Actions cache.
-    timeout-minutes: 240
+    timeout-minutes: 360
     outputs:
       account_plane: ${{ steps.refs.outputs.account_plane }}
       company_runtime: ${{ steps.refs.outputs.company_runtime }}
