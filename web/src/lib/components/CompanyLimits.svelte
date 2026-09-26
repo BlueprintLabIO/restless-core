@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import EmailMandates from '$lib/components/EmailMandates.svelte';
 	import InfoTip from '$lib/components/InfoTip.svelte';
 	import CopyCompanySetting from '$lib/components/CopyCompanySetting.svelte';
 	import { companyQuery } from '$lib/model/queries.svelte';
@@ -185,6 +186,10 @@
 					></i>
 				</div>
 			</section>
+
+			<div class="limits-ledger">
+				<EmailMandates {companyId} />
+			</div>
 
 			<section class="limits-ledger">
 				<div class="section-heading">

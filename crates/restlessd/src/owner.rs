@@ -77,6 +77,7 @@ use crate::{
     airwallex, approval, attention, authority, company as company_projection, credential, finance,
     legal, model_gateway, reconcile, runtime, Daemon,
 };
+use crate::authority as mandate;
 
 const ATTACH_COOKIE: &str = "restless_attach";
 const SESSION_COOKIE: &str = "restless_session";
@@ -1427,6 +1428,8 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route("/companies/{company}/archive", post(archive_company))
         .route("/companies/{company}/restore", post(restore_company))
         .route("/companies/{company}/attention", get(attention_view))
+        .route("/companies/{company}/email-mandates/proposals", post(propose_email_mandate))
+        .route("/companies/{company}/email-mandates/proposals/{proposal}/decision", post(decide_email_mandate))
         .route("/companies/{company}/cockpit", get(cockpit_view))
         .route(
             "/companies/{company}/teams/{team}/outcome-standard",
@@ -1523,6 +1526,14 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route("/companies/{company}/approvals/grant", post(grant))
         .route("/companies/{company}/approvals/decline", post(decline))
         .route("/companies/{company}/approvals/revoke", post(revoke))
+        .route(
+            "/companies/{company}/mandates/email",
+            get(email_mandates),
+        )
+        .route(
+            "/companies/{company}/mandates/email/{mandate}/revoke",
+            post(revoke_email_mandate),
+        )
         .route("/companies/{company}/browser/ticket", post(issue_ticket))
         .route("/companies/{company}/browser/open", post(open_browser_link))
         .route(
@@ -4931,6 +4942,63 @@ async fn attention_view(
             "projection",
             format!("{error:#}"),
         ),
+    }
+}
+
+#[derive(Deserialize)]
+struct EmailMandateProposalInput {
+    proposal: mandate::NewEmailMandate,
+    #[serde(default)]
+    judgement_note: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct EmailMandateDecisionInput {
+    decision: String,
+    #[serde(default)]
+    owner_note: Option<String>,
+}
+
+async fn propose_email_mandate(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<EmailMandateProposalInput>,
+) -> impl IntoResponse {
+    if input.judgement_note.as_deref().is_some_and(|note| note.len() > 2_000) {
+        return api_error(StatusCode::BAD_REQUEST, "email_mandate", "judgement note is too long");
+    }
+    match state.daemon.authority.propose_email_mandate(&company, principal.actor_id(), input.proposal, input.judgement_note.as_deref()).await {
+        Ok(proposal_id) => Json(serde_json::json!({"proposal_id":proposal_id,"status":"pending"})).into_response(),
+        Err(error) => api_error(StatusCode::BAD_REQUEST, "email_mandate", format!("invalid mandate proposal: {error:#}")),
+    }
+}
+
+async fn decide_email_mandate(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, proposal)): AxumPath<(String, Uuid)>,
+    Json(input): Json<EmailMandateDecisionInput>,
+) -> impl IntoResponse {
+    let approve = match input.decision.as_str() { "approve" => true, "decline" => false, _ => return api_error(StatusCode::BAD_REQUEST, "email_mandate", "decision must be approve or decline") };
+    let org = state.daemon.orgintel.get(&company).await.ok();
+    let owner = match effective_authority_owner(&state, &company, org.as_ref()).await {
+        Ok(owner) => owner.actor_id,
+        Err(error) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "authority_owner", format!("could not resolve Authority owner: {error:#}")),
+    };
+    if principal.actor_id() != owner {
+        return api_error(StatusCode::FORBIDDEN, "authority_owner", "only the current Authority owner may decide this mandate");
+    }
+    match state.daemon.authority.decide_email_mandate_proposal(&company, principal.actor_id(), proposal, approve, input.owner_note.as_deref()).await {
+        Ok(Some(mandate)) => {
+            crate::approval::announce_decisions(&company, &state.daemon.authority, org.as_ref()).await;
+            Json(serde_json::json!({"status":"approved","mandate":mandate})).into_response()
+        },
+        Ok(None) => {
+            crate::approval::announce_decisions(&company, &state.daemon.authority, org.as_ref()).await;
+            Json(serde_json::json!({"status":"declined"})).into_response()
+        },
+        Err(error) => api_error(StatusCode::CONFLICT, "email_mandate", format!("mandate decision failed: {error:#}")),
     }
 }
 
@@ -8895,6 +8963,110 @@ async fn require_authority_owner(
         ));
     }
     Ok(())
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EmailMandateRevocation {
+    reason: String,
+}
+
+async fn email_mandates(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+) -> Response<Body> {
+    if let Err(error) = runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}"));
+    }
+    let mandates = match state.daemon.authority.list_email_mandates(&company).await {
+        Ok(mandates) => mandates,
+        Err(error) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "mandate", format!("{error:#}")),
+    };
+    let reservations = match state.daemon.authority.records_of_kind(&company, "email_send_reserved").await {
+        Ok(records) => records,
+        Err(error) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "mandate", format!("{error:#}")),
+    };
+    let statuses = match state.daemon.authority.records_of_kind(&company, "email_send_status").await {
+        Ok(records) => records,
+        Err(error) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "mandate", format!("{error:#}")),
+    };
+    let reserved_ids: std::collections::HashSet<String> = reservations.iter()
+        .filter_map(|record| record.body.get("permit_id").and_then(serde_json::Value::as_str).map(str::to_owned))
+        .collect();
+    let latest_statuses: std::collections::HashMap<String, &serde_json::Value> = statuses.iter()
+        .filter_map(|record| record.body.get("permit_id").and_then(serde_json::Value::as_str).map(|id| (id.to_owned(), &record.body)))
+        .collect();
+    let mut entries = Vec::with_capacity(mandates.len());
+    for mandate in mandates {
+        let usage = match state
+            .daemon
+            .authority
+            .email_mandate_usage(&company, mandate.id)
+            .await
+        {
+            Ok(usage) => usage,
+            Err(error) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "mandate", format!("{error:#}")),
+        };
+        let recent_decisions = match state.daemon.authority.list_email_permits(&company, mandate.id).await {
+            Ok(permits) => permits.into_iter().take(20).map(|permit| {
+                let permit_id = permit.id.to_string();
+                let status = latest_statuses.get(&permit_id);
+                let outcome = status
+                    .and_then(|body| body.get("outcome").and_then(serde_json::Value::as_str))
+                    .unwrap_or_else(|| if reserved_ids.contains(&permit_id) { "outcome_unknown" } else { "permit_issued" });
+                serde_json::json!({
+                    "permit_id": permit.id,
+                    "recipient": permit.recipient,
+                    "effect_key": permit.effect_key,
+                    "issued_at": permit.issued_at,
+                    "rationale": permit.rationale,
+                    "evidence_refs": permit.evidence_refs,
+                    "outcome": outcome,
+                    "provider_ref": status.and_then(|body| body.get("provider_ref")),
+                    "provider_detail": status.and_then(|body| body.get("provider_detail")),
+                })
+            }).collect::<Vec<_>>(),
+            Err(error) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "mandate", format!("{error:#}")),
+        };
+        entries.push(serde_json::json!({
+            "id": mandate.id,
+            "purpose": mandate.purpose,
+            "audience_guidance": mandate.audience_guidance,
+            "sender": mandate.sender,
+            "sender_name": mandate.sender_name,
+            "max_per_day": mandate.max_per_day,
+            "max_total": mandate.max_total,
+            "timezone": mandate.timezone,
+            "expires_at": mandate.expires_at,
+            "created_at": mandate.created_at,
+            "usage": usage,
+            "recent_decisions": recent_decisions,
+        }));
+    }
+    Json(serde_json::json!({"mandates": entries})).into_response()
+}
+
+async fn revoke_email_mandate(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, mandate_id)): AxumPath<(String, Uuid)>,
+    Json(input): Json<EmailMandateRevocation>,
+) -> Response<Body> {
+    if let Err(refusal) = require_authority_owner(&state, &company, &principal).await {
+        return refusal;
+    }
+    if let Err(error) = runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}"));
+    }
+    match state
+        .daemon
+        .authority
+        .revoke_email_mandate(&company, principal.actor_id(), mandate_id, &input.reason)
+        .await
+    {
+        Ok(()) => Json(serde_json::json!({"revoked": true, "mandate_id": mandate_id})).into_response(),
+        Err(error) => api_error(StatusCode::BAD_REQUEST, "mandate", format!("{error:#}")),
+    }
 }
 
 async fn grant(

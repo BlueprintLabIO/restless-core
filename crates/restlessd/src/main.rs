@@ -25,6 +25,7 @@ mod credential;
 mod custom_harness;
 mod document_collaboration_token;
 mod document_commands;
+mod email;
 mod effect;
 mod entry;
 mod exec;
@@ -35,6 +36,7 @@ mod ingress;
 mod launch;
 mod legal;
 mod local_documents;
+use crate::authority as mandate;
 mod mentions;
 mod model_gateway;
 mod native_harness;
@@ -1430,6 +1432,10 @@ fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Result
         | "work-handoff"
         | "effect"
         | "effect-reconcile"
+        | "mandate-permit"
+        | "email-preview"
+        | "email-send"
+        | "email-observe"
         | "connected-tool-attach"
         | "connected-tool-install"
         | "connected-tool-reconnect"
@@ -1649,6 +1655,85 @@ fn parse_culture_case(
         Some("hiring") => Ok(Some(restless_orgintel::CultureCase::Hiring)),
         Some(other) => Err(format!("bad culture case {other}; expected disagreement|uncertain_incident|customer_recovery|quality_tradeoff|hiring")),
     }
+}
+
+async fn send_mandated_email(
+    daemon: &Daemon,
+    company: &str,
+    prepared: email::PreparedEmail,
+) -> Result<serde_json::Value> {
+    // Resolve host-held credentials before reserving an irreversible send.
+    // A missing binding must not consume a permit or daily allowance.
+    let config = runtime::CompanyConfig::load(&daemon.root, company)?;
+    let key = credential::resolve(&config, "resend.production").await?;
+    daemon
+        .authority
+        .reserve_email_send(
+            company,
+            prepared.permit_id(),
+            prepared.sender(),
+            prepared.sender_name(),
+            prepared.recipient(),
+            prepared.payload_sha256(),
+            prepared.effect_key(),
+        )
+        .await?;
+
+    let outcome = match prepared.send(&key).await {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            // PreparedEmail::send can fail here only before starting a request.
+            daemon
+                .authority
+                .record_email_send_status(
+                    company,
+                    prepared.permit_id(),
+                    prepared.effect_key(),
+                    mandate::ProviderOutcome::ConfirmedNotSent,
+                    None,
+                    Some("Request preparation failed before contacting Resend"),
+                )
+                .await?;
+            return Err(error);
+        }
+    };
+    let (status, provider_ref, provider_detail) = match &outcome {
+        email::EmailSendOutcome::Accepted { provider_id } => {
+            (mandate::ProviderOutcome::ConfirmedSent, Some(provider_id.as_str()), None)
+        }
+        email::EmailSendOutcome::Rejected { status } => {
+            (mandate::ProviderOutcome::ConfirmedNotSent, None, Some(format!("Resend HTTP {status}")))
+        }
+        email::EmailSendOutcome::Unknown { reason } => {
+            (mandate::ProviderOutcome::Unknown, None, Some(reason.clone()))
+        }
+    };
+    if let Err(error) = daemon
+        .authority
+        .record_email_send_status(
+            company,
+            prepared.permit_id(),
+            prepared.effect_key(),
+            status,
+            provider_ref,
+            provider_detail.as_deref(),
+        )
+        .await
+    {
+        tracing::error!(company, permit_id = %prepared.permit_id(), provider_ref, %error,
+            "could not persist mandated email provider outcome");
+        anyhow::bail!(
+            "email provider outcome needs reconciliation for permit {} (provider reference: {}): {error:#}",
+            prepared.permit_id(),
+            provider_ref.unwrap_or("unknown")
+        );
+    }
+    Ok(serde_json::json!({
+        "permit_id": prepared.permit_id(),
+        "effect_key": prepared.effect_key(),
+        "recipient": prepared.recipient(),
+        "outcome": outcome,
+    }))
 }
 
 async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Response {
@@ -5557,6 +5642,95 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             "unsupported",
             "browser control belongs to the owner cockpit; use the prepared owner handoff or send the accountable actor a Work message instead",
         ),
+        "mandate-list" => {
+            match daemon.authority.list_email_mandates(company).await {
+                Ok(mandates) => Response::ok_serialized(mandates),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "email-observe" => {
+            let actor = request.orgintel.actor.as_deref().unwrap_or_default();
+            if actor.trim().is_empty() {
+                return Response::err("email observation needs an authenticated acting actor");
+            }
+            let config = match runtime::CompanyConfig::load(&daemon.root, company) {
+                Ok(config) => config,
+                Err(error) => return Response::err(format!("{error:#}")),
+            };
+            let key = match credential::resolve(&config, "resend.production").await {
+                Ok(key) => key,
+                Err(error) => return Response::err(format!("resolve host-held Resend credential: {error:#}")),
+            };
+            let mut observation = match email::observe(
+                &key,
+                request.authority.email_observe_list.as_deref(),
+                request.authority.email_observe_after.as_deref(),
+            ).await {
+                Ok(observation) => observation,
+                Err(error) => return Response::err(format!("observe Resend metadata: {error:#}")),
+            };
+            match daemon.authority.record_email_observation(company, actor, observation.clone()).await {
+                Ok(receipt_id) => {
+                    if let Some(object) = observation.as_object_mut() {
+                        object.insert("receipt_id".into(), serde_json::json!(receipt_id));
+                    }
+                    Response::ok(observation)
+                }
+                Err(error) => Response::err(format!("record Resend observation: {error:#}")),
+            }
+        }
+        "mandate-permit" => {
+            let Some(mandate_id) = request.authority.mandate_id.as_deref() else {
+                return Response::err("mandate permit needs a mandate id");
+            };
+            let Ok(mandate_id) = uuid::Uuid::parse_str(mandate_id) else {
+                return Response::err("mandate permit id is invalid");
+            };
+            let Some(value) = request.authority.mandate_proposal else {
+                return Response::err("mandate permit needs a proposal");
+            };
+            let proposal: mandate::EmailPermitProposal = match serde_json::from_value(value) {
+                Ok(proposal) => proposal,
+                Err(error) => return Response::err(format!("invalid permit proposal: {error}")),
+            };
+            let actor = request.orgintel.actor.as_deref().unwrap_or_default();
+            match daemon
+                .authority
+                .issue_email_permit(company, actor, mandate_id, proposal)
+                .await
+            {
+                Ok(permit) => Response::ok_serialized(permit),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "email-preview" | "email-send" => {
+            let Some(value) = request.authority.email_request else {
+                return Response::err("email operation needs an email request");
+            };
+            let input: email::EmailSendRequest = match serde_json::from_value(value) {
+                Ok(input) => input,
+                Err(error) => return Response::err(format!("invalid email request: {error}")),
+            };
+            let prepared = match email::prepare_from_company(company, input).await {
+                Ok(prepared) => prepared,
+                Err(error) => return Response::err(format!("prepare email: {error:#}")),
+            };
+            if request.cmd == "email-preview" {
+                Response::ok(serde_json::json!({
+                    "sender": prepared.sender(),
+                    "sender_name": prepared.sender_name(),
+                    "recipient": prepared.recipient(),
+                    "payload_sha256": prepared.payload_sha256(),
+                    "effect_key": prepared.effect_key(),
+                    "note": "Preview only; no email was sent or reserved",
+                }))
+            } else {
+                match send_mandated_email(daemon, company, prepared).await {
+                    Ok(outcome) => Response::ok(outcome),
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+        }
         "effect" => match (
             request.authority.effect_class,
             request.authority.purpose,

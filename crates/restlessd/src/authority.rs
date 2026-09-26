@@ -16,6 +16,14 @@ use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Postgres, Row as _, Transaction};
 use uuid::Uuid;
 
+#[path = "mandate.rs"]
+mod mandate;
+
+pub use mandate::{
+    EmailMandate, EmailMandateUsage, EmailPermit, EmailPermitProposal, EmailReservation,
+    NewEmailMandate, ProviderOutcome,
+};
+
 pub const GOVERNANCE_KINDS: &[&str] = &[
     "effect_intent",
     "effect",
@@ -45,6 +53,14 @@ pub const GOVERNANCE_KINDS: &[&str] = &[
     "publication_invitation_revoked",
     "publication_stopped",
     "publication_cleanup",
+    "email_mandate_granted",
+    "email_mandate_proposal",
+    "email_mandate_proposal_decision",
+    "email_mandate_revoked",
+    "email_permit_issued",
+    "email_send_reserved",
+    "email_send_status",
+    "email_observation",
 ];
 
 const IMPORT_VERSION: i32 = 2;
@@ -216,6 +232,24 @@ impl AuthorityStore {
                 "CREATE UNIQUE INDEX IF NOT EXISTS authority_publication_cleanup_once \
                  ON restless_authority.records (company, (body->>'publication_id')) \
                  WHERE kind = 'publication_cleanup'",
+            ),
+            (
+                "email permit reservation once",
+                "CREATE UNIQUE INDEX IF NOT EXISTS authority_email_permit_reservation_once \
+                 ON restless_authority.records (company, (body->>'permit_id')) \
+                 WHERE kind = 'email_send_reserved'",
+            ),
+            (
+                "email mandate proposal decision once",
+                "CREATE UNIQUE INDEX IF NOT EXISTS authority_email_mandate_proposal_decision_once \
+                 ON restless_authority.records (company, (body->>'proposal_id')) \
+                 WHERE kind = 'email_mandate_proposal_decision'",
+            ),
+            (
+                "email effect key reservation once",
+                "CREATE UNIQUE INDEX IF NOT EXISTS authority_email_effect_key_once \
+                 ON restless_authority.records (company, (body->>'effect_key')) \
+                 WHERE kind = 'email_send_reserved'",
             ),
         ] {
             sqlx::query(sql)
@@ -394,6 +428,170 @@ impl AuthorityStore {
 
     pub(crate) fn pool(&self) -> &PgPool {
         &self.pool
+    }
+
+    pub async fn propose_email_mandate(
+        &self,
+        company: &str,
+        proposer: &str,
+        proposal: NewEmailMandate,
+        judgement_note: Option<&str>,
+    ) -> Result<Uuid> {
+        let proposal = mandate::canonicalize_new_mandate(proposal)?;
+        let id = Uuid::new_v4();
+        let body = serde_json::json!({"id":id,"proposal":proposal,"judgement_note":judgement_note});
+        sqlx::query("INSERT INTO restless_authority.records (company,kind,actor_id,body) VALUES ($1,'email_mandate_proposal',$2,$3)")
+            .bind(company).bind(proposer).bind(body).execute(&self.pool).await?;
+        Ok(id)
+    }
+
+    pub async fn record_email_observation(
+        &self,
+        company: &str,
+        actor: &str,
+        mut snapshot: serde_json::Value,
+    ) -> Result<i64> {
+        if actor.trim().is_empty() || !snapshot.is_object() {
+            anyhow::bail!("email observation needs an attributed actor and JSON object snapshot");
+        }
+        let observation_id = Uuid::new_v4();
+        let observed_at = Utc::now();
+        let object = snapshot.as_object_mut().expect("validated JSON object");
+        object.insert("observation_id".into(), serde_json::json!(observation_id));
+        object.insert("observed_at".into(), serde_json::json!(observed_at));
+        let row = sqlx::query("INSERT INTO restless_authority.records (company,kind,actor_id,body) VALUES ($1,'email_observation',$2,$3) RETURNING id")
+            .bind(company).bind(actor).bind(snapshot).fetch_one(&self.pool).await?;
+        Ok(sqlx::Row::try_get(&row, "id")?)
+    }
+
+    pub async fn pending_email_mandate_proposals(&self, company: &str) -> Result<Vec<AuthorityRecord>> {
+        Ok(sqlx::query_as("SELECT p.id,p.actor_id,p.body,p.created_at FROM restless_authority.records p WHERE p.company=$1 AND p.kind='email_mandate_proposal' AND NOT EXISTS (SELECT 1 FROM restless_authority.records d WHERE d.company=p.company AND d.kind='email_mandate_proposal_decision' AND d.body->>'proposal_id'=p.body->>'id') ORDER BY p.id")
+            .bind(company).fetch_all(&self.pool).await?)
+    }
+
+    pub async fn decide_email_mandate_proposal(&self, company: &str, owner: &str, proposal_id: Uuid, approve: bool, owner_note: Option<&str>) -> Result<Option<EmailMandate>> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+            .bind(format!("email-mandate:{company}:{proposal_id}"))
+            .execute(&mut *tx).await?;
+        let proposal_row = sqlx::query("SELECT body FROM restless_authority.records WHERE company=$1 AND kind='email_mandate_proposal' AND body->>'id'=$2 ORDER BY id DESC LIMIT 1 FOR UPDATE")
+            .bind(company).bind(proposal_id.to_string()).fetch_optional(&mut *tx).await?;
+        let Some(row) = proposal_row else { anyhow::bail!("email mandate proposal not found") };
+        let body: serde_json::Value = sqlx::Row::try_get(&row, "body")?;
+        if let Some(decision) = sqlx::query("SELECT body FROM restless_authority.records WHERE company=$1 AND kind='email_mandate_proposal_decision' AND body->>'proposal_id'=$2 ORDER BY id LIMIT 1")
+            .bind(company).bind(proposal_id.to_string()).fetch_optional(&mut *tx).await? {
+            let old: serde_json::Value = sqlx::Row::try_get(&decision, "body")?;
+            if old["decision"] == if approve {"approve"} else {"decline"} {
+                tx.commit().await?;
+                if approve {
+                    let mandate_id = old["mandate_id"].as_str().and_then(|s| Uuid::parse_str(s).ok());
+                    let granted = match mandate_id {
+                        Some(mandate_id) => self.records_of_kind(company, "email_mandate_granted").await?.into_iter().find_map(|record| {
+                            let mandate: EmailMandate = serde_json::from_value(record.body).ok()?;
+                            (mandate.id == mandate_id).then_some(mandate)
+                        }),
+                        None => None,
+                    };
+                    return Ok(granted);
+                }
+                return Ok(None);
+            }
+            anyhow::bail!("email mandate proposal was already decided")
+        }
+        let proposal: NewEmailMandate = serde_json::from_value(body["proposal"].clone())?;
+        let mandate = if approve {
+            mandate::lock_company(&mut tx, company).await?;
+            Some(mandate::grant_in_transaction(&mut tx, company, owner, proposal).await?)
+        } else { None };
+        let decision_body = serde_json::json!({"proposal_id":proposal_id,"decision":if approve {"approve"} else {"decline"},"mandate_id":mandate.as_ref().map(|m|m.id),"owner_note":owner_note});
+        sqlx::query("INSERT INTO restless_authority.records (company,kind,actor_id,body) VALUES ($1,'email_mandate_proposal_decision',$2,$3)")
+            .bind(company).bind(owner).bind(decision_body).execute(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(mandate)
+    }
+
+    pub async fn list_email_mandates(&self, company: &str) -> Result<Vec<EmailMandate>> {
+        mandate::list(&self.pool, company).await
+    }
+
+    pub async fn revoke_email_mandate(
+        &self,
+        company: &str,
+        owner_actor_id: &str,
+        mandate_id: Uuid,
+        reason: &str,
+    ) -> Result<()> {
+        mandate::revoke(&self.pool, company, owner_actor_id, mandate_id, reason).await
+    }
+
+    pub async fn issue_email_permit(
+        &self,
+        company: &str,
+        issuer_actor_id: &str,
+        mandate_id: Uuid,
+        proposal: EmailPermitProposal,
+    ) -> Result<EmailPermit> {
+        mandate::issue(&self.pool, company, issuer_actor_id, mandate_id, proposal).await
+    }
+
+    pub async fn list_email_permits(
+        &self,
+        company: &str,
+        mandate_id: Uuid,
+    ) -> Result<Vec<EmailPermit>> {
+        mandate::list_permits(&self.pool, company, mandate_id).await
+    }
+
+    pub async fn email_mandate_usage(
+        &self,
+        company: &str,
+        mandate_id: Uuid,
+    ) -> Result<EmailMandateUsage> {
+        mandate::usage(&self.pool, company, mandate_id).await
+    }
+
+    pub async fn reserve_email_send(
+        &self,
+        company: &str,
+        permit_id: Uuid,
+        actual_sender: &str,
+        actual_sender_name: Option<&str>,
+        recipient: &str,
+        payload_sha256: &str,
+        effect_key: &str,
+    ) -> Result<EmailReservation> {
+        mandate::reserve(
+            &self.pool,
+            company,
+            permit_id,
+            actual_sender,
+            actual_sender_name,
+            recipient,
+            payload_sha256,
+            effect_key,
+        )
+        .await
+    }
+
+    pub async fn record_email_send_status(
+        &self,
+        company: &str,
+        permit_id: Uuid,
+        effect_key: &str,
+        outcome: ProviderOutcome,
+        provider_ref: Option<&str>,
+        provider_detail: Option<&str>,
+    ) -> Result<()> {
+        mandate::record_status(
+            &self.pool,
+            company,
+            permit_id,
+            effect_key,
+            outcome,
+            provider_ref,
+            provider_detail,
+        )
+        .await
     }
 
     pub async fn set_model_cooldown(

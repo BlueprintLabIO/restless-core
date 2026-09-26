@@ -34,7 +34,9 @@
 	const documentRequest = $derived(
 		item.source.kind === 'document_collaboration' || item.source.kind === 'document_review'
 	);
-	const hasDocumentAction = $derived(documentRequest && Boolean(item.nativeDocument || onopenDocument));
+	const hasDocumentAction = $derived(
+		documentRequest && Boolean(item.nativeDocument || onopenDocument)
+	);
 	const documentLabel = $derived(
 		item.source.kind === 'document_review' ? 'Review this version' : 'Open and edit together'
 	);
@@ -53,6 +55,9 @@
 	const base = $derived(`/${encodeURIComponent(companyId)}?item=${encodeURIComponent(item.id)}`);
 	const grant = $derived(item.actions.find((a) => a.id === 'grant'));
 	const decline = $derived(item.actions.find((a) => a.id === 'decline'));
+	const emailMandateProposal = $derived(item.source.kind === 'email_mandate_proposal');
+	const approveEmailMandate = $derived(item.actions.find((a) => a.id === 'approve-email-mandate'));
+	const declineEmailMandate = $derived(item.actions.find((a) => a.id === 'decline-email-mandate'));
 	const record = $derived(item.actions.find((a) => a.id === 'record-decision'));
 	const open = $derived(item.actions.find((a) => a.id === 'open-outcome'));
 	const review = $derived(item.actions.some((a) => a.id === 'accept-review'));
@@ -72,13 +77,41 @@
 			return undefined;
 		}
 	});
-	async function act(kind: 'grant' | 'decline' | 'decision') {
+	async function act(
+		kind: 'grant' | 'decline' | 'decision' | 'approve-email-mandate' | 'decline-email-mandate'
+	) {
 		if (acting) return;
 		acting = true;
-		actionStatus = kind === 'grant' ? 'Saving approval…' : 'Saving decision…';
+		actionStatus =
+			kind === 'grant' || kind === 'approve-email-mandate'
+				? 'Saving approval…'
+				: 'Saving decision…';
 		error = '';
 		try {
-			if (kind === 'decision')
+			if (kind === 'approve-email-mandate' || kind === 'decline-email-mandate') {
+				const response = await fetch(
+					`/api/companies/${encodeURIComponent(companyId)}/email-mandates/proposals/${encodeURIComponent(item.source.reference)}/decision`,
+					{
+						method: 'POST',
+						headers: { 'content-type': 'application/json' },
+						credentials: 'same-origin',
+						body: JSON.stringify({
+							decision: kind === 'approve-email-mandate' ? 'approve' : 'decline'
+						})
+					}
+				);
+				if (!response.ok) {
+					let message = 'The mandate decision was not recorded. Try again.';
+					try {
+						const body = await response.json();
+						message = body.message ?? message;
+					} catch {
+						// Keep the useful fallback when the server response is not JSON.
+					}
+					throw new Error(message);
+				}
+				await refreshAttention(client, companyId);
+			} else if (kind === 'decision')
 				await resolveHandoffDecision(companyId, item.source.reference, decision.trim());
 			else {
 				if (!item.source.party)
@@ -104,7 +137,8 @@
 			await completeHandoffHumanStep(companyId, item.source.reference);
 			await refreshAttention(client, companyId);
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'The completion was not recorded. Try again.';
+			error =
+				cause instanceof Error ? cause.message : 'The completion was not recorded. Try again.';
 		} finally {
 			acting = false;
 		}
@@ -118,10 +152,23 @@
 	aria-label={item.preparing ? 'Preparing your next step' : item.title}
 	aria-busy={acting}
 >
-	{#if showTitle}<header><strong>{item.preparing ? 'Preparing your next step' : item.title}</strong><span>{actionStatus || (item.preparing ? 'Preparing' : 'Needs you')}</span></header>{/if}
+	{#if showTitle}<header>
+			<strong>{item.preparing ? 'Preparing your next step' : item.title}</strong><span
+				>{actionStatus || (item.preparing ? 'Preparing' : 'Needs you')}</span
+			>
+		</header>{/if}
 	{#if !hasDocumentAction}<div class="request"><Markdown text={item.requestedAction} /></div>{/if}
+	{#if emailMandateProposal}<p class="mandate-judgement-warning">
+			Exec must judge whether each recipient and message fits this mandate, and can get that
+			judgment wrong. Approval gives Exec bounded sending authority under the limits below. The
+			system checks mechanical limits, but cannot guarantee that a particular send is appropriate.
+			Review the exact proposal before approving.
+		</p>{/if}
 	{#if item.preparing}
-		<p class="waiting" role="status">Nothing to do yet. The team is preparing this step. Your instructions and any sign-in link will appear here when ready.</p>
+		<p class="waiting" role="status">
+			Nothing to do yet. The team is preparing this step. Your instructions and any sign-in link
+			will appear here when ready.
+		</p>
 	{:else if item.deadline && inChat}
 		<p class="quiet">{item.deadline}</p>
 	{/if}
@@ -129,8 +176,8 @@
 		<details>
 			<summary>Details</summary>
 			{#if !item.preparing}<p>{item.whatHappened}</p>
-			<p>{item.whyItMatters}</p>
-			<Markdown text={item.recommendation} />{/if}
+				<p>{item.whyItMatters}</p>
+				<Markdown text={item.recommendation} />{/if}
 			{#each item.evidence as evidence}
 				{#if evidence.content}<details>
 						<summary>{evidence.label}</summary>
@@ -145,11 +192,19 @@
 			{#if item.nativeDocument}
 				<a class="btn primary" href={base} title={item.ifNoAction}>{documentLabel}</a>
 			{:else if onopenDocument}
-				<button class="btn primary" disabled={acting} onclick={openDocument} title="Load the current document and access permissions">{acting ? 'Opening document…' : documentLabel}</button>
+				<button
+					class="btn primary"
+					disabled={acting}
+					onclick={openDocument}
+					title="Load the current document and access permissions"
+					>{acting ? 'Opening document…' : documentLabel}</button
+				>
 			{/if}
 		{/if}
 		{#if instructionLink}
-			<a class="btn small primary" href={instructionLink.href} target="_blank" rel="noreferrer">{instructionLink.label}</a>
+			<a class="btn small primary" href={instructionLink.href} target="_blank" rel="noreferrer"
+				>{instructionLink.label}</a
+			>
 		{/if}
 		{#each item.actions.filter((a) => a.href && !(inChat && a.id === 'continue-conversation')) as action (action.id)}
 			<a
@@ -157,7 +212,9 @@
 				href={action.href}
 				target={action.href?.startsWith('/') ? undefined : '_blank'}
 				rel="noreferrer"
-				title={action.role === 'human_step' ? action.nextState : `${action.consequence} ${action.nextState}`}>{action.label}</a
+				title={action.role === 'human_step'
+					? action.nextState
+					: `${action.consequence} ${action.nextState}`}>{action.label}</a
 			>
 		{/each}
 		{#if grant}
@@ -172,6 +229,24 @@
 				/>
 			{/key}
 		{/if}
+		{#if approveEmailMandate}
+			{#key `${item.id}:${attempt}`}
+				<HoldApprove
+					small
+					completeLabel="Saving approval…"
+					label={actionStatus || 'Hold to approve mandate'}
+					disabled={acting}
+					title={`${approveEmailMandate.consequence} ${approveEmailMandate.nextState}`}
+					onapprove={() => void act('approve-email-mandate')}
+				/>
+			{/key}
+		{/if}
+		{#if declineEmailMandate}<button
+				class="btn small"
+				disabled={acting}
+				title={`${declineEmailMandate.consequence} ${declineEmailMandate.nextState}`}
+				onclick={() => void act('decline-email-mandate')}>{declineEmailMandate.label}</button
+			>{/if}
 		{#if decline}<button
 				class="btn small"
 				disabled={acting}
@@ -265,6 +340,14 @@
 	}
 	.request {
 		font-size: var(--t-body);
+	}
+	.mandate-judgement-warning {
+		margin: 12px 0 0;
+		padding: 10px 12px;
+		border-left: 2px solid var(--intent-authority);
+		color: var(--text-muted);
+		font-size: var(--t-label);
+		line-height: 1.5;
 	}
 	.actions {
 		display: flex;
