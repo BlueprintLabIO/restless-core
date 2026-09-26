@@ -225,6 +225,27 @@ pub async fn request_effect(
     {
         bail!("finance credential bindings terminate in the host-side Authority adapter");
     }
+    // Once an email mandate exists, its provider credential must only cross
+    // the typed send boundary. Generic effects trust caller-declared party
+    // and class, so they cannot enforce a mandate against the actual email.
+    if !secret_bindings.is_empty() {
+        let resend_reference = config.credentials.get("resend.production");
+        let exposes_resend = secret_bindings.values().any(|binding| {
+            binding == "resend.production"
+                || resend_reference.is_some_and(|reference| {
+                    config.credentials.get(binding) == Some(reference)
+                })
+        });
+        if exposes_resend
+            && authority
+                .list_email_mandates(&config.name)
+                .await?
+                .iter()
+                .any(|mandate| mandate.expires_at > chrono::Utc::now())
+        {
+            bail!("an active email mandate requires the typed email send path for Resend");
+        }
+    }
     if crate::runtime::is_test_company(&config.name) && !secret_bindings.is_empty() {
         bail!("test companies cannot receive live secret bindings; install a fake CLI for the scenario");
     }

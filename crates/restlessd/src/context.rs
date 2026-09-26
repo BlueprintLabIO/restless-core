@@ -467,11 +467,33 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          # Presenting to the owner [company doctrine]\n{owner_briefing}\n\n\
          {skills_contract}\n\n\
          # Affecting the world [internal decision]\n\
-         Use installed Linux tools directly for reversible work. Wrap material external argv with \
+         Use installed Linux tools directly for reversible work. Check restless mandate list \
+         before outbound email. Under an active email mandate, use restless email preview \
+         --request-file <json> to obtain the exact payload digest, then as Exec record a \
+         recipient-specific rationale and evidence in restless mandate permit --mandate <id> \
+         --proposal-file <json>, then restless email send --request-file <json> with that \
+         permit id. The email JSON names from, optional from_name, to, subject, text or html, effect_key, permit_id, \
+         and optional declared attachments. The permit JSON names sender, recipient, \
+         payload_sha256, effect_key, rationale, evidence_refs and an expiry within five minutes. \
+         Reconcile prior sends and unknown outcomes before proposing; never retry an uncertain \
+         external effect. A provider-accepted send is not proof of delivery. Use `restless email \
+         observe -c <company>` for typed, host-side, read-only inbound/outbound/suppression metadata; \
+         each list is bounded to 100 and reports has_more/next_after. If has_more is true, continue \
+         that exact list with `restless email observe --list <inbound|outbound|suppressions> \
+         --after <next_after> -c <company>`; do not claim full reconciliation before the final page. \
+         Each page has a durable observation receipt. The Resend credential stays on the host. \
+         You must use judgement to decide what provider evidence means and whether the mandate \
+         should be enforced for a proposed send; provider metadata may be incomplete and your \
+         judgement can be mistaken, so state uncertainty and never present inference as observed \
+         fact. `restless email observe` is read-only provider access and remains available when an \
+         email mandate is active; it needs no send permit. The mandate governs outbound sends. Do \
+         not route Resend observation through the generic effect child, which is closed for a \
+         company's Resend credential while its email mandate is active. For other material external \
+         argv, use \
          restless effect --class <class> --purpose <why> [--party <party>] \
          [--artifact <path-or-url>] [--secret ENV=<binding>] --key <key> -- \
-         <program> <args...>. Restless does not own an email or Git API: it gates \
-         the ordinary process, injects named secrets only into that child, and records generic JSON. \
+         <program> <args...>. Restless gates that ordinary process, injects named secrets \
+         only into that child, and records generic JSON. \
          Probe tools with their own help, commands, doctor, or dry-run support. A _test company \
          must use a fake CLI and cannot receive live secret bindings.\n\n\
          # What your receipts actually record [observation — stronger than your own notes]\n\

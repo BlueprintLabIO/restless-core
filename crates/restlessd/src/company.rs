@@ -281,6 +281,8 @@ struct AuthorityProjection {
     effect_receipts: Vec<crate::authority::AuthorityRecord>,
     effect_intents: Vec<crate::authority::AuthorityRecord>,
     reconciliations: Vec<crate::authority::AuthorityRecord>,
+    email_reservations: Vec<crate::authority::AuthorityRecord>,
+    email_statuses: Vec<crate::authority::AuthorityRecord>,
     legal_profile: Option<legal::LegalProfile>,
     provider: Option<airwallex::Connection>,
     envelopes: Vec<finance::MoneyEnvelope>,
@@ -642,6 +644,8 @@ async fn read_authority(daemon: &Daemon, company: &str) -> Result<AuthorityProje
         effect_receipts,
         effect_intents,
         reconciliations,
+        email_reservations,
+        email_statuses,
         legal_profile,
         provider,
         envelopes,
@@ -655,6 +659,8 @@ async fn read_authority(daemon: &Daemon, company: &str) -> Result<AuthorityProje
         daemon
             .authority
             .records_of_kind(company, "effect_reconciled"),
+        daemon.authority.records_of_kind(company, "email_send_reserved"),
+        daemon.authority.records_of_kind(company, "email_send_status"),
         legal::get_profile(&daemon.authority, company),
         airwallex::connection(&daemon.authority, company),
         finance::envelopes(&daemon.authority, company),
@@ -667,6 +673,8 @@ async fn read_authority(daemon: &Daemon, company: &str) -> Result<AuthorityProje
         effect_receipts,
         effect_intents,
         reconciliations,
+        email_reservations,
+        email_statuses,
         legal_profile,
         provider,
         envelopes,
@@ -1204,6 +1212,39 @@ fn actions(authority: Option<&AuthorityProjection>) -> ExternalActions {
                 observed_at: row.created_at,
             }),
     );
+    let mut latest_email_status = std::collections::BTreeMap::new();
+    for status in &authority.email_statuses {
+        if let Some(id) = status.body.get("permit_id").and_then(serde_json::Value::as_str) {
+            latest_email_status.insert(id.to_owned(), status);
+        }
+    }
+    items.extend(authority.email_reservations.iter().rev().take(50).filter_map(|reservation| {
+        let permit_id = reservation.body.get("permit_id")?.as_str()?;
+        let status = latest_email_status.get(permit_id);
+        let outcome = status
+            .and_then(|record| record.body.get("outcome"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown");
+        let (state, evidence, detail) = match outcome {
+            "confirmed_sent" => ("succeeded", "provider_confirmed", "Resend accepted the email; delivery is unconfirmed."),
+            "confirmed_not_sent" => ("failed", "provider_confirmed", "Resend did not accept the email."),
+            _ => ("unknown", "authority_recorded", "The email send outcome needs reconciliation; do not retry."),
+        };
+        Some(ExternalActionRow {
+            id: format!("email:{permit_id}"),
+            title: "Outbound email".into(),
+            effect_class: "customer-contact.email".into(),
+            source: "authority_provider",
+            state: state.into(),
+            evidence,
+            actor: Some("exec".into()),
+            party: reservation.body.get("recipient").and_then(serde_json::Value::as_str).map(str::to_owned),
+            receipt_ref: status.and_then(|record| record.body.get("provider_ref"))
+                .and_then(serde_json::Value::as_str).map(str::to_owned),
+            detail: Some(detail.into()),
+            observed_at: status.map(|record| record.created_at).unwrap_or(reservation.created_at),
+        })
+    }));
     items.extend(authority.payments.iter().map(|payment| {
         let confirmed =
             payment.provider_transfer_id.is_some() || payment.raw_provider_status.is_some();

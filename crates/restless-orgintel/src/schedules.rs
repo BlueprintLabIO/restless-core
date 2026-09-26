@@ -7,6 +7,8 @@ use chrono_tz::Tz;
 const SCHEDULE_COLUMNS: &str = "id, actor_id, work_id, reason, fire_at, fired_at, cancelled_at, recurrence, timezone, local_time, last_fired_at, missed_policy, catch_up_grace_seconds, last_missed_at, last_considered_at, machine_requirement, created_at, interval_seconds, responsibility_id, responsibility_version, wake_runtime";
 const MISSED_TOLERANCE_SECONDS: i64 = 30;
 const DEFAULT_OPPORTUNITY_WINDOW_SECONDS: i64 = 2 * 60 * 60;
+const DEFAULT_OPPORTUNITY_DELIVERY_BUDGET: i32 = 4;
+const DEFAULT_OPPORTUNITY_PROGRESS_BUDGET: i32 = 4;
 
 fn opportunity_window_seconds(policy: &serde_json::Value) -> Result<i64> {
     let seconds = match policy.get("window_seconds") {
@@ -398,8 +400,13 @@ impl OrgIntel {
         &self,
         now: DateTime<Utc>,
     ) -> Result<Vec<OpportunityWake>> {
-        self.wake_due_opportunities_with_policy_at(now, 4, OPPORTUNITY_WAKE_ACK_SECONDS)
-            .await
+        self.wake_due_opportunities_with_budgets_at(
+            now,
+            DEFAULT_OPPORTUNITY_DELIVERY_BUDGET,
+            DEFAULT_OPPORTUNITY_DELIVERY_BUDGET + DEFAULT_OPPORTUNITY_PROGRESS_BUDGET,
+            OPPORTUNITY_WAKE_ACK_SECONDS,
+        )
+        .await
     }
 
     pub async fn wake_due_opportunities_with_policy_at(
@@ -408,7 +415,21 @@ impl OrgIntel {
         max_wakes: i32,
         retry_after_seconds: i64,
     ) -> Result<Vec<OpportunityWake>> {
-        if !(1..=20).contains(&max_wakes) || !(1..=86_400).contains(&retry_after_seconds) {
+        self.wake_due_opportunities_with_budgets_at(now, max_wakes, max_wakes, retry_after_seconds)
+            .await
+    }
+
+    async fn wake_due_opportunities_with_budgets_at(
+        &self,
+        now: DateTime<Utc>,
+        ordinary_wakes: i32,
+        total_wakes: i32,
+        retry_after_seconds: i64,
+    ) -> Result<Vec<OpportunityWake>> {
+        if !(1..=20).contains(&ordinary_wakes)
+            || !(ordinary_wakes..=20).contains(&total_wakes)
+            || !(1..=86_400).contains(&retry_after_seconds)
+        {
             return Err(OrgIntelError::InvalidWork(
                 "opportunity wake limits must be 1-20 deliveries and 1-86400 seconds backoff"
                     .into(),
@@ -429,10 +450,52 @@ impl OrgIntel {
         .await?;
         let mut results = Vec::with_capacity(rows.len());
         for row in rows {
-            if row.deadline_at.is_some_and(|deadline| deadline <= now)
-                || row.wake_count >= max_wakes
-            {
-                let reason = if row.deadline_at.is_some_and(|deadline| deadline <= now) {
+            let deadline_expired = row.deadline_at.is_some_and(|deadline| deadline <= now);
+            let ordinary_budget_exhausted = row.wake_count >= ordinary_wakes;
+            let mut progress_wake = false;
+            if !deadline_expired && ordinary_budget_exhausted {
+                // A Work Attempt can outlive the Exec turn that commissioned it.
+                // Waiting for that durable result consumes neither a delivery
+                // nor a progress credit; the absolute deadline still applies.
+                let linked_work_running = sqlx::query_scalar::<_, bool>(
+                    "SELECT EXISTS (SELECT 1 FROM opportunity_work ow JOIN work w ON w.id=ow.work_id \
+                     WHERE ow.opportunity_id=$1 AND w.status IN ('proposed','active'))",
+                )
+                .bind(row.id)
+                .fetch_one(&mut *tx)
+                .await?;
+                if linked_work_running {
+                    let retry_at = now + chrono::Duration::seconds(retry_after_seconds);
+                    let retry_at = row
+                        .deadline_at
+                        .map_or(retry_at, |deadline| retry_at.min(deadline));
+                    sqlx::query(
+                        "UPDATE opportunities SET state='waiting_retry', next_wake_at=$2, \
+                         lease_owner=NULL, lease_expires_at=NULL, revision=revision+1 WHERE id=$1",
+                    )
+                    .bind(row.id)
+                    .bind(retry_at)
+                    .execute(&mut *tx)
+                    .await?;
+                    continue;
+                }
+                // A newly settled linked Work item is substantive evidence.
+                // Give Exec one more adjudication turn for it, but only if it
+                // settled after the last delivered wake and within a separate
+                // hard cap. A timer retry alone never earns this credit.
+                progress_wake = row.wake_count < total_wakes
+                    && sqlx::query_scalar::<_, bool>(
+                        "SELECT EXISTS (SELECT 1 FROM opportunity_work ow JOIN work w ON w.id=ow.work_id \
+                         WHERE ow.opportunity_id=$1 AND w.status IN ('completed','blocked','abandoned') \
+                           AND w.updated_at > COALESCE((SELECT MAX(created_at) FROM opportunity_wakes \
+                                                         WHERE opportunity_id=$1), '-infinity'::timestamptz))",
+                    )
+                    .bind(row.id)
+                    .fetch_one(&mut *tx)
+                    .await?;
+            }
+            if deadline_expired || (ordinary_budget_exhausted && !progress_wake) {
+                let reason = if deadline_expired {
                     "absolute outcome deadline expired"
                 } else {
                     "bounded wake delivery budget exhausted"
@@ -488,19 +551,31 @@ impl OrgIntel {
             )
             .bind(room_id)
             .bind(&row.actor_id)
-            .bind(format!(
-                "[OPPORTUNITY RECOVERY {} SEQUENCE {}] The prior wake was not acknowledged before its lease or delivery window expired. Resume this responsibility from its durable checkpoint; inspect current facts before acting.",
-                row.id, sequence
-            ))
+            .bind(if progress_wake {
+                format!(
+                    "[OPPORTUNITY WORK RESULT {} SEQUENCE {}] Linked Work settled after the last wake. Inspect its durable result and effects, then record an evidence-backed outcome; do not replay an uncertain external effect.",
+                    row.id, sequence
+                )
+            } else {
+                format!(
+                    "[OPPORTUNITY RECOVERY {} SEQUENCE {}] The prior wake was not acknowledged before its lease or delivery window expired. Resume this responsibility from its durable checkpoint; inspect current facts before acting.",
+                    row.id, sequence
+                )
+            })
             .fetch_one(&mut *tx)
             .await?;
             sqlx::query(
                 "INSERT INTO opportunity_wakes (opportunity_id, sequence, message_id, reason) \
-                 VALUES ($1,$2,$3,'expired lease or unacknowledged wake')",
+                 VALUES ($1,$2,$3,$4)",
             )
             .bind(row.id)
             .bind(sequence)
             .bind(message_id)
+            .bind(if progress_wake {
+                "linked Work result after prior wake"
+            } else {
+                "expired lease or unacknowledged wake"
+            })
             .execute(&mut *tx)
             .await?;
             sqlx::query(

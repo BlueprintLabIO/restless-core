@@ -15,6 +15,7 @@ agent-client-protocol = { version = "2.0.0", features = ["unstable_end_turn_toke
 anyhow = "1"
 axum = { version = "0.8", features = ["ws", "multipart"] }
 chrono = "0.4"
+chrono-tz = "0.10"
 dotenvy = "0.15"
 restless-model-gateway = { path = "../restless-model-gateway" }
 restless-orgintel = { path = "../restless-orgintel" }

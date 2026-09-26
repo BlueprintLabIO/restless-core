@@ -277,6 +277,20 @@ enum Command {
         #[command(subcommand)]
         command: Option<GoalCommand>,
     },
+    /// Inspect the standing outbound-email mandate or ask Exec to issue a permit.
+    Mandate {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
+        company: Option<String>,
+        #[command(subcommand)]
+        command: MandateCommand,
+    },
+    /// Prepare or send one exact email under an Exec-issued permit.
+    Email {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
+        company: Option<String>,
+        #[command(subcommand)]
+        command: EmailCommand,
+    },
     /// Company skills: list, read, apply and import `SKILL.md` packages.
     Skill {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
@@ -378,6 +392,47 @@ enum Command {
     /// one process envelope and never resolves credentials itself.
     #[command(hide = true)]
     EffectChild,
+}
+
+#[derive(Subcommand)]
+enum MandateCommand {
+    /// List active owner-granted outbound email mandates.
+    List,
+    /// Issue a one-use permit for a specific sender, recipient and payload.
+    Permit {
+        /// The exact root mandate UUID.
+        #[arg(long)]
+        mandate: String,
+        /// JSON file containing sender, recipient, payload_sha256, effect_key,
+        /// rationale, evidence_refs and expires_at.
+        #[arg(long)]
+        proposal_file: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+enum EmailCommand {
+    /// Observe recent inbound and outbound Resend message metadata without sending.
+    Observe {
+        /// Inspect only one collection; use with --after to continue that list.
+        #[arg(long, value_parser = ["inbound", "outbound", "suppressions"])]
+        list: Option<String>,
+        /// Provider cursor returned as next_after by a prior observation.
+        #[arg(long)]
+        after: Option<String>,
+    },
+    /// Validate and show the canonical payload digest without reserving or sending.
+    Preview {
+        /// JSON file containing the typed email request.
+        #[arg(long)]
+        request_file: PathBuf,
+    },
+    /// Reserve the matching permit and send the exact prepared payload once.
+    Send {
+        /// JSON file containing the typed email request.
+        #[arg(long)]
+        request_file: PathBuf,
+    },
 }
 
 #[derive(Subcommand)]
@@ -2269,6 +2324,56 @@ fn stamp(mut request: serde_json::Value) -> serde_json::Value {
 /// One request/response pair; `watch` and `attach` handle their own I/O.
 fn request_json(command: Command) -> Result<serde_json::Value> {
     Ok(match command {
+        Command::Mandate { company, command } => match command {
+            MandateCommand::List => serde_json::json!({
+                "cmd": "mandate-list",
+                "company": company,
+            }),
+            MandateCommand::Permit {
+                mandate,
+                proposal_file,
+            } => {
+                let actor = acting_actor();
+                if principal() != "company/exec" || actor != "exec" {
+                    bail!("mandate permit must run as the authenticated Exec actor in the company Runtime");
+                }
+                serde_json::json!({
+                    "cmd": "mandate-permit",
+                    "company": company,
+                    "mandate_id": mandate,
+                    "mandate_proposal": read_json_file(&proposal_file)?,
+                    "actor": actor,
+                })
+            }
+        },
+        Command::Email { company, command } => {
+            if let EmailCommand::Observe { list, after } = &command {
+                return Ok(serde_json::json!({
+                    "cmd": "email-observe",
+                    "company": company,
+                    "actor": acting_actor(),
+                    "email_observe_list": list,
+                    "email_observe_after": after,
+                }));
+            }
+            let (cmd, request_file) = match command {
+                EmailCommand::Observe { .. } => unreachable!("handled above"),
+                EmailCommand::Preview { request_file } => ("email-preview", request_file),
+                EmailCommand::Send { request_file } => {
+                    let actor = acting_actor();
+                    if principal() != "company/exec" || actor != "exec" {
+                        bail!("email send must run as the authenticated Exec actor in the company Runtime");
+                    }
+                    ("email-send", request_file)
+                }
+            };
+            serde_json::json!({
+                "cmd": cmd,
+                "company": company,
+                "email_request": read_json_file(&request_file)?,
+                "actor": acting_actor(),
+            })
+        }
         Command::Room { company, command } => {
             let operation = match command {
                 RoomCommand::List {
@@ -3720,6 +3825,13 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             unreachable!("handled above")
         }
     })
+}
+
+fn read_json_file(path: &PathBuf) -> Result<serde_json::Value> {
+    let text = std::fs::read_to_string(path)
+        .with_context(|| format!("read JSON input from {}", path.display()))?;
+    serde_json::from_str(&text)
+        .with_context(|| format!("parse JSON input from {}", path.display()))
 }
 
 fn read_secret_source(source: &str) -> Result<String> {

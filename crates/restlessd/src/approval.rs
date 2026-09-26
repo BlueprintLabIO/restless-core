@@ -157,13 +157,23 @@ pub async fn decline(
 
 /// The exact Authority records that are an answer to the company, oldest first.
 const DECISION_KINDS: [&str; 3] = ["approval_granted", "approval_declined", "approval_revoked"];
+const EMAIL_MANDATE_DECISION_KIND: &str = "email_mandate_proposal_decision";
+
+enum DecisionSubject {
+    Party(String),
+    EmailMandate {
+        proposal_id: String,
+        mandate_id: Option<String>,
+        decision: String,
+    },
+}
 
 /// Kind of OrgIntel event that records "this exact Authority decision has been
 /// told to the company". Keying on the Authority record id is what makes the
 /// reconciler idempotent and keeps Authority the only writer of the decision.
 const ANNOUNCED_EVENT: &str = "authority_decision_announced";
 
-/// Project every unannounced Authority approval decision into the company.
+/// Project every unannounced Authority approval or mandate decision into the company.
 ///
 /// The owner's answer used to be durable in Authority while the company was
 /// told on a best-effort path that only logged a warning — and `decline` and
@@ -204,13 +214,36 @@ pub async fn announce_decisions(
             let Some(party) = record.body.get("party").and_then(|value| value.as_str()) else {
                 continue;
             };
-            pending.push((record.id, kind, normalize_party(party)));
+            pending.push((record.id, kind, DecisionSubject::Party(normalize_party(party))));
         }
+    }
+    let Ok(records) = authority.records_of_kind(company, EMAIL_MANDATE_DECISION_KIND).await else {
+        return 0;
+    };
+    for record in records {
+        let Some(proposal_id) = record.body.get("proposal_id").and_then(|value| value.as_str()) else {
+            continue;
+        };
+        let Some(decision) = record.body.get("decision").and_then(|value| value.as_str()) else {
+            continue;
+        };
+        if decision != "approve" && decision != "decline" {
+            continue;
+        }
+        pending.push((
+            record.id,
+            EMAIL_MANDATE_DECISION_KIND,
+            DecisionSubject::EmailMandate {
+                proposal_id: proposal_id.to_owned(),
+                mandate_id: record.body.get("mandate_id").and_then(|value| value.as_str()).map(str::to_owned),
+                decision: decision.to_owned(),
+            },
+        ));
     }
     pending.sort_by_key(|(id, _, _)| *id);
 
     let mut announced = 0;
-    for (record_id, kind, party) in pending {
+    for (record_id, kind, subject) in pending {
         match org
             .find_event_body(
                 ANNOUNCED_EVENT,
@@ -226,31 +259,41 @@ pub async fn announce_decisions(
                 return announced;
             }
         }
-        let body = match kind {
-            "approval_granted" => format!(
-                "The owner approved real external effects to {party}. You may proceed with the work that was waiting on it."
-            ),
-            "approval_declined" => format!(
-                "The owner declined first contact with {party}. Do not contact them. Work that was waiting on this needs a different route or an explicit decision to stop."
-            ),
-            _ => format!(
-                "The owner revoked approval for real external effects to {party}. Stop any work that depends on reaching them."
-            ),
+        let (body, event_subject) = match subject {
+            DecisionSubject::Party(party) => {
+                let body = match kind {
+                    "approval_granted" => format!("The owner approved real external effects to {party}. You may proceed with the work that was waiting on it."),
+                    "approval_declined" => format!("The owner declined first contact with {party}. Do not contact them. Work that was waiting on this needs a different route or an explicit decision to stop."),
+                    _ => format!("The owner revoked approval for real external effects to {party}. Stop any work that depends on reaching them."),
+                };
+                (body, serde_json::json!({ "party": party }))
+            }
+            DecisionSubject::EmailMandate { proposal_id, mandate_id, decision } => {
+                let body = if decision == "approve" {
+                    format!("The owner approved email mandate {} from proposal {proposal_id}. Revisit work and scheduled responsibilities waiting on this authority. Judge each candidate against the exact active mandate and current provider state; only a matching one-use permit can authorize a send. Continue useful independent work and do not replay uncertain effects.", mandate_id.as_deref().unwrap_or("unknown"))
+                } else {
+                    format!("The owner declined email mandate proposal {proposal_id}. Revisit work waiting on it, find an authorized route if possible, or identify the precise owner decision still needed. Do not send under the declined proposal.")
+                };
+                (body, serde_json::json!({ "proposal_id": proposal_id, "mandate_id": mandate_id, "mandate_decision": decision }))
+            }
         };
         // Record the announcement first. A duplicate message to the Exec is a
         // wasted turn; a duplicate *effect* is the thing that must never
         // happen, and the message itself performs none. Recording first means
         // a crash between the two loses one announcement rather than repeating
         // it forever, and the owner surface still shows the decision.
+        let mut event_body = serde_json::json!({
+            "authority_record_id": record_id.to_string(),
+            "decision": kind,
+        });
+        if let (Some(event), Some(subject)) = (event_body.as_object_mut(), event_subject.as_object()) {
+            event.extend(subject.clone());
+        }
         if let Err(error) = org
             .emit_event(
                 ANNOUNCED_EVENT,
                 Some("owner"),
-                serde_json::json!({
-                    "authority_record_id": record_id.to_string(),
-                    "decision": kind,
-                    "party": party,
-                }),
+                event_body,
             )
             .await
         {
