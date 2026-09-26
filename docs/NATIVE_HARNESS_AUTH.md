@@ -36,16 +36,13 @@ Configured references outside that inventory and native OAuth profile locations
 appear separately. The inventory does not expose secret values or edit/delete
 credentials; connection setup remains in Intelligence provider.
 
-Fallback model suggestions in company settings and agent assignments use `https://models.dev/api.json`. The browser checks hourly while the selectors
-are mounted (and on returning to stale settings), persists a validated last-good
-catalog, and offers a manual refresh. A failed fetch keeps cached suggestions;
+Fallback model suggestions in company settings and agent assignments use `https://models.dev/api.json`. The account plane checks hourly, retries failed checks after five minutes, and serves one validated last-good snapshot to all open cockpits. The browser checks that snapshot hourly while selectors are mounted, persists its own last-good copy, and offers a manual upstream refresh. A failed fetch keeps cached suggestions;
 without a cache, bundled suggestions remain available. Supported provider IDs are
 mapped explicitly, including Moonshot → `moonshotai`; local LiteLLM gateways keep
 their bundled/custom IDs. Only text-output, tool-calling, non-deprecated entries
 are suggested, newest releases first. Refresh never changes saved assignments or
 typed model IDs. Catalog presence does not establish account access, native CLI
-compatibility, runtime admission or billing prices. The public request sends no
-credentials or referrer. Parser invariants: `node scripts/verify-model-catalog.mjs`
+compatibility, runtime admission or billing prices. The account plane fetches the public catalog without credentials; browsers only request the account plane. Parser invariants: `node scripts/verify-model-catalog.mjs`
 from `web/`.
 
 For signed-in Codex connections, App Server `model/list` with hidden models excluded is the authoritative model list. Its recommended default is used for first-connection setup. If native discovery is unavailable (including Claude), selectors clearly identify models.dev suggestions as a fallback. Custom model IDs remain available. Model selection lives in the company default and agent overrides, not in a second harness setting. Refreshing a model list never changes an existing assignment.

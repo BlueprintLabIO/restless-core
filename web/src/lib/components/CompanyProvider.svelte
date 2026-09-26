@@ -653,7 +653,7 @@
 	</section>
 	<div
 		class="catalog-status"
-		title="Model suggestions refresh hourly from models.dev. Catalog inclusion does not confirm account access or harness compatibility. Local gateways keep bundled suggestions and custom IDs. Saved model choices are never changed automatically."
+		title="Restless checks models.dev hourly and keeps the last good catalog. Model availability depends on your connection. Saved model choices are never changed automatically."
 	>
 		<span
 			>{catalog.pending

@@ -19,6 +19,8 @@ mod custom_harnesses;
 mod documents_api;
 #[path = "owner_member_collaboration.rs"]
 mod member_collaboration_api;
+#[path = "owner_model_catalog.rs"]
+mod model_catalog_api;
 #[path = "owner_members.rs"]
 mod members_api;
 #[path = "owner_notifications.rs"]
@@ -1328,6 +1330,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
 
     let api = Router::new()
         .route("/appliance", get(appliance_status))
+        .route("/model-catalog", get(model_catalog_api::get_catalog))
         .route("/companies", get(company_catalog).post(create_company))
         .route(
             "/connections",
@@ -1628,6 +1631,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .with_context(|| format!("bind review gateway {review_address}"))?;
     tracing::info!(addr = %address, "owner gateway listening");
     tracing::info!(addr = %review_address, "isolated review gateway listening");
+    model_catalog_api::start_refresh_loop();
     tokio::try_join!(
         axum::serve(listener, app),
         axum::serve(preview_listener, preview)
