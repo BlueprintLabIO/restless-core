@@ -2596,7 +2596,7 @@ mod tests {
         let locator = SessionLocator {
             version: 2,
             harness: crate::runtime::AgentHarness::RestlessManaged,
-            harness_build: "omp-18.0.10".into(),
+            harness_build: "omp-18.3.2".into(),
             company: "acme_test".into(),
             actor: "account-reply-writer".into(),
             responsibility: "work:abc".into(),
@@ -3065,7 +3065,7 @@ mod tests {
         let locator = SessionLocator {
             version: 2,
             harness: crate::runtime::AgentHarness::RestlessManaged,
-            harness_build: "omp-18.0.10".into(),
+            harness_build: "omp-18.3.2".into(),
             company: "acme_test".into(),
             actor: "lead".into(),
             responsibility: "work:abc".into(),

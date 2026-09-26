@@ -1334,6 +1334,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             get(list_owner_connections).post(create_owner_connection),
         )
         .route("/connections/import", post(import_owner_connection))
+        .route("/connections/models/{provider}", get(oauth_login_api::account_models))
         .route("/connections/import/company-codex", post(native_import_api::import_company_codex))
         .route("/connections/oauth/codex", post(oauth_login_api::start_codex_login))
         .route("/connections/oauth/claude", post(oauth_login_api::start_claude_login))
@@ -14620,11 +14621,11 @@ async fn intelligence_view(
                     if !verified {continue;}
                 }
                 let suffix = format!("{provider}@{}", account.id);
-                connections.push(serde_json::json!({"id":format!("account:{suffix}"),"provider":provider,"kind":"direct","label":account.label,"loaded":row["gateway_loaded"]}));
+                connections.push(serde_json::json!({"id":format!("account:{suffix}"),"provider":provider,"kind":"direct","account_kind":account.kind,"label":account.label,"loaded":row["gateway_loaded"]}));
                 if account.kind == "oauth" {
                     let harness = match provider {"openai-codex" => Some("codex"), "anthropic" => Some("claude-agent"), _ => None};
                     if let Some(harness) = harness {
-                        connections.push(serde_json::json!({"id":format!("account-harness:{harness}:{suffix}"),"provider":harness,"account_provider":provider,"kind":"harness","label":account.label,"loaded":row["gateway_loaded"]}));
+                        connections.push(serde_json::json!({"id":format!("account-harness:{harness}:{suffix}"),"provider":harness,"account_provider":provider,"account_kind":account.kind,"kind":"harness","label":account.label,"loaded":row["gateway_loaded"]}));
                     }
                 }
             } else {

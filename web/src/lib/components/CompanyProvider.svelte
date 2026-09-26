@@ -46,6 +46,9 @@
 	};
 	let status = $state<ProviderStatus | null>(null);
 	let selected = $state('');
+	let advancedModel = $state('');
+	let advancedCustomModel = $state(false);
+	let advancedModelTouched = $state(false);
 	let mode = $state('infisical');
 	let reference = $state('');
 	let secret = $state('');
@@ -75,12 +78,15 @@
 	let connectionLabel = $state('');
 	let connectionProvider = $state('anthropic');
 	let connectionModel = $state('');
+	let connectionCustomModel = $state(false);
+	let connectionModelTouched = $state(false);
 	let connectionMakeDefault = $state(false);
 	let connectionSecret = $state('');
 	let grantSelection = $state('');
 	let replaceGrantId = $state('');
 	let grantMakeDefault = $state(false);
 	let grantModels = $state<Record<string, string>>({});
+	let grantCustomModels = $state<Record<string, boolean>>({});
 	let companies = $state<CompanyCatalogEntry[]>([]);
 	const otherCompanies = $derived(companies.filter((company) => company.id !== companyId));
 	let importOpen = $state(false);
@@ -104,6 +110,11 @@
 		return `infisical:/companies/${companyId}/MODEL_${provider.replace(/[^a-zA-Z0-9_]/g, '_')}_API_KEY`;
 	}
 	function choose(provider: string, reveal = false) {
+		if (provider !== selected) {
+			advancedModel = defaultModel(provider, mode === 'oauth' ? 'oauth' : 'api_key');
+			advancedCustomModel = false;
+			advancedModelTouched = false;
+		}
 		selected = provider;
 		edited = false;
 		secret = '';
@@ -160,6 +171,10 @@
 	async function connect(event?: SubmitEvent, disconnect = false) {
 		event?.preventDefault();
 		if (!status || busy || refreshing) return;
+		if (!disconnect && !validModel(selected, advancedModel)) {
+			error = 'Choose a model from the list or enter its full provider/model ID.';
+			return;
+		}
 		busy = true;
 		error = '';
 		notice = '';
@@ -170,7 +185,7 @@
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({
 					provider: selected,
-					model: catalog.models(selected)[0]?.id,
+					model: advancedModel.slice(selected.length + 1),
 					reference,
 					secret: secret || undefined,
 					revision: status.revision,
@@ -230,11 +245,14 @@
 			accountLoading = false;
 		}
 	}
-	function modelChoices(provider: string) {
-		return catalog.models(provider);
+	function modelChoices(provider: string, kind: 'api_key' | 'oauth' = 'api_key') {
+		return catalog.models(provider, kind);
 	}
 	function routeModel(provider: string, model: string) {
 		return model.startsWith(`${provider}/`) ? model : `${provider}/${model}`;
+	}
+	function validModel(provider: string, model: string) {
+		return model.startsWith(`${provider}/`) && model.length > provider.length + 1 && model.length <= 200 && !/\s/.test(model);
 	}
 	function keyStatus(connection: ReusableConnection) {
 		const noun = connection.kind === 'oauth' ? 'Sign-in' : 'Key';
@@ -242,16 +260,17 @@
 		if (connection.status === 'invalid') return `${noun} unavailable`;
 		return `${noun} missing`;
 	}
-	function defaultModel(provider: string) {
-		const models = modelChoices(provider);
+	function defaultModel(provider: string, kind: 'api_key' | 'oauth' = 'api_key') {
+		const models = modelChoices(provider, kind);
 		const model = models.find((item) => 'default' in item && item.default)?.id ?? models[0]?.id;
 		return model ? routeModel(provider, model) : '';
 	}
 	function modelForGrant(connection: ReusableConnection) {
-		return grantModels[connection.id] ?? defaultModel(connection.provider);
+		return grantModels[connection.id] ?? defaultModel(connection.provider, connection.kind ?? 'api_key');
 	}
 	function beginGrant(connection: ReusableConnection) {
-		grantModels[connection.id] = defaultModel(connection.provider);
+		delete grantModels[connection.id];
+		grantCustomModels[connection.id] = false;
 		grantSelection = connection.id;
 		grantMakeDefault = false;
 		replaceGrantId = '';
@@ -261,12 +280,22 @@
 		addConnectionOpen = !addConnectionOpen;
 		if (addConnectionOpen) {
 			connectionModel = defaultModel(connectionProvider);
+			connectionCustomModel = false;
+			connectionModelTouched = false;
 			connectionMakeDefault = false;
 			accountError = '';
 		}
 	}
+	$effect(() => {
+		if (addConnectionOpen && !connectionModelTouched) connectionModel = defaultModel(connectionProvider);
+	});
+	$effect(() => {
+		if (editorOpen && selected && !advancedModelTouched) advancedModel = defaultModel(selected, mode === 'oauth' ? 'oauth' : 'api_key');
+	});
 	async function requestGrant(id: string, model: string, replaceExisting = false, makeDefault = false) {
 		if (!status) throw new Error('Company settings are still loading. Try again in a moment.');
+		const connection = reusableConnections.find((row) => row.id === id);
+		if (!connection || !validModel(connection.provider, model)) throw new Error('Choose a model from the list or enter its full provider/model ID.');
 		const response = await fetch(`/api/companies/${encodeURIComponent(companyId)}/connections/${encodeURIComponent(id)}`, {
 			method: 'POST', headers: { 'content-type': 'application/json' },
 			body: JSON.stringify({ model, make_default: makeDefault, revision: status.revision, ...(replaceExisting ? { replace_existing: true } : {}) })
@@ -279,6 +308,10 @@
 	async function createReusableConnection(event: SubmitEvent) {
 		event.preventDefault();
 		if (accountBusy) return;
+		if (!validModel(connectionProvider, connectionModel)) {
+			accountError = 'Choose a model from the list or enter its full provider/model ID.';
+			return;
+		}
 		accountBusy = true;
 		accountError = '';
 		try {
@@ -291,7 +324,7 @@
 			const created = body.connection ?? body;
 			await refreshReusableConnections();
 			if (!status || !created.id) throw new Error('Connection saved, but could not enable it in this company yet. Choose it from Account API keys to finish.');
-			const grantResult = await requestGrant(created.id, connectionModel || defaultModel(connectionProvider), false, connectionMakeDefault);
+			const grantResult = await requestGrant(created.id, connectionModel, false, connectionMakeDefault);
 			connectionSecret = '';
 			connectionLabel = '';
 			connectionModel = '';
@@ -432,12 +465,15 @@
 							<span class="grant-state">Available to this company</span>
 							{#if companyGrant.in_use}<span class="grant-count" title="Choose another model for this provider before removing access.">In use</span>{:else if accountScope === 'account'}<button class="text-button danger" disabled={accountBusy || !status} onclick={() => revokeConnection(item)}>Remove access</button>{/if}
 						{:else if grantSelection === item.id}
-							<label class="model-picker"><span>Model for this connection</span><select aria-label={`Model for ${item.label}`} value={modelForGrant(item)} onchange={(event) => (grantModels[item.id] = event.currentTarget.value)}>
-								{#each modelChoices(item.provider) as model}<option value={routeModel(item.provider, model.id)}>{model.name ?? model.id}</option>{/each}
+							<label class="model-picker"><span>Model for this connection</span><select aria-label={`Model for ${item.label}`} value={grantCustomModels[item.id] ? '__custom' : modelForGrant(item)} onchange={(event) => { grantCustomModels[item.id] = event.currentTarget.value === '__custom'; grantModels[item.id] = grantCustomModels[item.id] ? '' : event.currentTarget.value; }}>
+								{#each modelChoices(item.provider, item.kind ?? 'api_key') as model}<option value={routeModel(item.provider, model.id)}>{model.name ?? model.id}</option>{/each}
+								<option value="__custom">Custom model ID…</option>
 							</select></label>
+							{#if grantCustomModels[item.id]}<label class="model-picker"><span>Full model ID</span><input aria-label={`Full model ID for ${item.label}`} placeholder={`${item.provider}/model-id`} bind:value={grantModels[item.id]} /></label>{/if}
+							<small class="model-source">{catalog.source(item.provider, item.kind ?? 'api_key') === 'connected' ? 'Models from this account’s connected runtime' : 'Model suggestions; availability depends on this connection'}</small>
 							{#if status?.primary_provider === 'unconfigured'}<p class="default-note">The first usable connection becomes this company’s default.</p>{:else}<label class="default-option"><input type="checkbox" bind:checked={grantMakeDefault} /><span>Make this the company default</span></label>{/if}
-							{#if replaceGrantId === item.id}<p class="replace-confirm" role="alert">This company already has a {labels[item.provider] ?? item.provider} connection. Replace it with <strong>{item.label}</strong> here?</p><button class="btn primary small" disabled={accountBusy || !status || !modelForGrant(item) || item.status !== 'present'} onclick={() => grantConnection(item)}>{accountBusy ? 'Switching…' : 'Replace this company’s connection'}</button><button class="text-button" disabled={accountBusy} onclick={() => { replaceGrantId = ''; grantSelection = ''; }}>Keep current</button>
-							{:else}<button class="btn primary small" disabled={accountBusy || !status || !modelForGrant(item) || item.status !== 'present'} onclick={() => grantConnection(item)}>{accountBusy ? 'Saving…' : 'Use in this company'}</button>{/if}
+							{#if replaceGrantId === item.id}<p class="replace-confirm" role="alert">This company already has a {labels[item.provider] ?? item.provider} connection. Replace it with <strong>{item.label}</strong> here?</p><button class="btn primary small" disabled={accountBusy || !status || !validModel(item.provider, modelForGrant(item)) || item.status !== 'present'} onclick={() => grantConnection(item)}>{accountBusy ? 'Switching…' : 'Replace this company’s connection'}</button><button class="text-button" disabled={accountBusy} onclick={() => { replaceGrantId = ''; grantSelection = ''; }}>Keep current</button>
+							{:else}<button class="btn primary small" disabled={accountBusy || !status || !validModel(item.provider, modelForGrant(item)) || item.status !== 'present'} onclick={() => grantConnection(item)}>{accountBusy ? 'Saving…' : 'Use in this company'}</button>{/if}
 							<button class="text-button" disabled={accountBusy} onclick={() => { grantSelection = ''; replaceGrantId = ''; }}>Cancel</button>
 						{:else}
 							<span class="grant-count">{keyStatus(item)}{item.companies.length ? ` · used by ${item.companies.length}` : ''}</span>
@@ -453,10 +489,12 @@
 		{#if addConnectionOpen && accountScope === 'account'}
 			<form class="add-form" onsubmit={createReusableConnection}>
 				<h3>Save an API connection</h3>
-				<div class="form-grid"><label>Provider<select bind:value={connectionProvider} onchange={() => (connectionModel = defaultModel(connectionProvider))}>{#each Object.entries(labels).filter(([id]) => id !== 'openai-codex') as [id, label]}<option value={id}>{label}</option>{/each}</select></label>
+				<div class="form-grid"><label>Provider<select bind:value={connectionProvider} onchange={() => { connectionModel = defaultModel(connectionProvider); connectionCustomModel = false; connectionModelTouched = false; }}>{#each Object.entries(labels).filter(([id]) => id !== 'openai-codex') as [id, label]}<option value={id}>{label}</option>{/each}</select></label>
 					<label>Name<input bind:value={connectionLabel} placeholder="e.g. Anthropic team key" required maxlength="80" /></label>
 					<label class="wide">API key<input type="password" bind:value={connectionSecret} autocomplete="new-password" placeholder="Paste API key" required /></label>
-					<label class="wide">Model<select bind:value={connectionModel}><option value="">Choose a model…</option>{#each modelChoices(connectionProvider) as model}<option value={routeModel(connectionProvider, model.id)}>{model.name ?? model.id}</option>{/each}</select></label>
+					<label class="wide">Model<select value={connectionCustomModel ? '__custom' : connectionModel} onchange={(event) => { connectionModelTouched = true; connectionCustomModel = event.currentTarget.value === '__custom'; connectionModel = connectionCustomModel ? '' : event.currentTarget.value; }}><option value="">Choose a model…</option>{#each modelChoices(connectionProvider) as model}<option value={routeModel(connectionProvider, model.id)}>{model.name ?? model.id}</option>{/each}<option value="__custom">Custom model ID…</option></select></label>
+					{#if connectionCustomModel}<label class="wide">Full model ID<input placeholder={`${connectionProvider}/model-id`} bind:value={connectionModel} /></label>{/if}
+					<small class="model-source wide">{catalog.source(connectionProvider) === 'connected' ? 'Models from this account’s connected runtime' : 'Model suggestions; availability depends on this connection'}</small>
 					{#if status?.primary_provider === 'unconfigured'}<p class="default-note wide">The first usable connection becomes this company’s default.</p>{:else}<label class="default-option wide"><input type="checkbox" bind:checked={connectionMakeDefault} /><span>Make this the company default</span></label>{/if}
 				</div>
 				<div class="inline-actions"><button class="btn primary small" disabled={accountBusy}>{accountBusy ? 'Saving…' : 'Save connection'}</button><button class="text-button" type="button" disabled={accountBusy} onclick={() => { addConnectionOpen = false; connectionSecret = ''; }}>Cancel</button></div>
@@ -560,6 +598,11 @@
 						required={!connection?.reference}
 					/>{/if}
 				{#if connection?.credential_detail}<p role="alert">{connection.credential_detail}</p>{/if}
+				<label for="provider-model">Model</label><select id="provider-model" value={advancedCustomModel ? '__custom' : advancedModel} onchange={(event) => { advancedModelTouched = true; advancedCustomModel = event.currentTarget.value === '__custom'; advancedModel = advancedCustomModel ? '' : event.currentTarget.value; }} disabled={busy}>
+					<option value="">Choose a model…</option>{#each modelChoices(selected, mode === 'oauth' ? 'oauth' : 'api_key') as model}<option value={routeModel(selected, model.id)}>{model.name ?? model.id}</option>{/each}<option value="__custom">Custom model ID…</option>
+				</select>
+				{#if advancedCustomModel}<label for="provider-custom-model">Full model ID</label><input id="provider-custom-model" placeholder={`${selected}/model-id`} bind:value={advancedModel} disabled={busy} />{/if}
+				<p class="model-source">{catalog.source(selected, mode === 'oauth' ? 'oauth' : 'api_key') === 'connected' ? 'Models from this account’s connected runtime' : 'Model suggestions; availability depends on this connection'}</p>
 				<details>
 					<summary>Advanced settings</summary><label for="provider-auth">Credential source</label
 					><select id="provider-auth" bind:value={mode} onchange={selectMode} disabled={busy}
@@ -586,6 +629,7 @@
 							refreshing ||
 							!selected ||
 							selected === 'custom' ||
+							!validModel(selected, advancedModel) ||
 							(mode === 'infisical' && status.infisical_status !== 'present')}
 						>{busy ? 'Saving…' : connection?.reference ? 'Save connection' : 'Connect'}</button
 					><button
@@ -697,7 +741,9 @@
 	.grant-state { color: var(--text-tertiary); font-size: var(--t-label); }
 	.grant-state { color: var(--state-success); }
 	.model-picker { display: flex; align-items: center; gap: var(--space-2); color: var(--text-secondary); font-size: var(--t-label); }
-	.model-picker select { width: auto; min-width: 180px; }
+	.model-picker select,
+	.model-picker input { width: auto; min-width: 180px; }
+	.model-source { flex: 1 1 100%; margin: 0; color: var(--text-tertiary); font-size: var(--t-label); }
 	.default-option { display: flex; align-items: center; gap: var(--space-2); color: var(--text-secondary); font-size: var(--t-label); }
 	.default-option input { width: 16px; min-height: 16px; height: 16px; padding: 0; accent-color: var(--intent-conversation); }
 	.default-note { flex: 1 1 100%; margin: 0; color: var(--text-tertiary); font-size: var(--t-label); }

@@ -1900,7 +1900,7 @@ model = "moonshot/kimi-k3"
             assertion_contract_version: 1,
             schema_version: crate::release::SCHEMA_VERSION,
             harnesses: [
-                ("restless-managed".into(), "omp-18.0.10".into()),
+                ("restless-managed".into(), "omp-18.3.2".into()),
                 ("codex".into(), "codex-cli-0.155.1".into()),
                 ("claude-agent".into(), "claude-agent-acp-0.73.0".into()),
             ]
@@ -1926,7 +1926,7 @@ model = "moonshot/kimi-k3"
             .find(|option| option.id == runtime::AgentHarness::RestlessManaged)
             .unwrap();
         assert_eq!(managed.status, "ready");
-        assert_eq!(managed.observed_build.as_deref(), Some("omp-18.0.10"));
+        assert_eq!(managed.observed_build.as_deref(), Some("omp-18.3.2"));
         for harness in [
             runtime::AgentHarness::Codex,
             runtime::AgentHarness::ClaudeAgent,

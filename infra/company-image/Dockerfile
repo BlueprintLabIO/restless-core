@@ -96,7 +96,7 @@ RUN test -f /usr/share/themes/Breeze-ob/openbox-3/themerc \
 # user can execute what root installed.
 ENV BUN_INSTALL=/usr/local/bun
 RUN npm install -g bun@1.3.14 \
-    && bun install -g @oh-my-pi/pi-coding-agent@18.0.10 \
+    && bun install -g @oh-my-pi/pi-coding-agent@18.3.2 \
     && ln -sf ${BUN_INSTALL}/bin/omp /usr/local/bin/omp \
     && chmod -R a+rX ${BUN_INSTALL} \
     && npm cache clean --force

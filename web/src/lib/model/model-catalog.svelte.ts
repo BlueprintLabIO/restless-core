@@ -1,8 +1,26 @@
 import { createQuery } from '@tanstack/svelte-query';
 import { MODEL_PRESETS } from './model-presets';
 import { parseCatalog, readSnapshot, type CatalogSnapshot } from './model-catalog';
-const KEY = 'restless-model-catalog-v1';
+const KEY = 'restless-model-catalog-v2';
+type RuntimeModels = { models: { id: string; name: string; default?: boolean }[] };
+function connectedModels(provider: 'openai-codex' | 'anthropic') {
+	return createQuery(() => ({
+		queryKey: ['connected-models', provider],
+		staleTime: 3600000,
+		refetchInterval: 3600000,
+		retry: false,
+		queryFn: async (): Promise<RuntimeModels> => {
+			const response = await fetch(`/api/connections/models/${provider}`, { cache: 'no-store' });
+			if (!response.ok) throw new Error('Connected model list unavailable');
+			return response.json();
+		}
+	}));
+}
 export function modelCatalog() {
+	const codex = connectedModels('openai-codex');
+	const claude = connectedModels('anthropic');
+	const connected = (provider: string, kind: 'api_key' | 'oauth' = 'api_key') =>
+		provider === 'openai-codex' ? codex : provider === 'anthropic' && kind === 'oauth' ? claude : undefined;
 	let initial: CatalogSnapshot | undefined;
 	if (typeof localStorage !== 'undefined') {
 		try {
@@ -49,8 +67,16 @@ export function modelCatalog() {
 		get failed() {
 			return !!query.error;
 		},
-		refresh: () => query.refetch(),
-		models(provider: string) {
+		refresh: () => Promise.all([query.refetch(), codex.refetch(), claude.refetch()]),
+		refreshConnected: () => Promise.all([codex.refetch(), claude.refetch()]),
+		source(provider: string, kind: 'api_key' | 'oauth' = 'api_key') {
+			if (connected(provider, kind)?.data?.models?.length) return 'connected';
+			if (provider === 'openai-codex') return 'bundled';
+			return query.data?.providers.find((p) => p.id === provider) ? 'public' : 'bundled';
+		},
+		models(provider: string, kind: 'api_key' | 'oauth' = 'api_key') {
+			const discovered = connected(provider, kind)?.data?.models;
+			if (discovered?.length) return discovered;
 			return (query.data?.providers ?? MODEL_PRESETS).find((p) => p.id === provider)?.models ?? [];
 		}
 	};

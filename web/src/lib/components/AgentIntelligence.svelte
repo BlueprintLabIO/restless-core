@@ -21,7 +21,8 @@
 						? selected.provider === 'codex'
 							? 'openai'
 							: 'anthropic'
-						: (selected?.provider ?? ''))
+						: (selected?.provider ?? '')),
+				selected?.account_kind ?? 'api_key'
 			)
 	);
 	const rows = $derived(

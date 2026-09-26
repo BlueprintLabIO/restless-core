@@ -4,6 +4,7 @@ export type IntelligenceConnection = {
 	provider: string;
 	label?: string;
 	account_provider?: string;
+	account_kind?: 'api_key' | 'oauth';
 	kind: 'direct' | 'harness';
 	model?: string;
 	models?: { id: string; name: string; default?: boolean }[] | null;

@@ -1,5 +1,5 @@
 import { MODEL_PRESETS } from './model-presets';
-export type CatalogProvider = { id: string; name: string; models: { id: string; name: string }[] };
+export type CatalogProvider = { id: string; name: string; models: { id: string; name: string; default?: boolean }[] };
 export type CatalogSnapshot = { updatedAt: number; providers: CatalogProvider[] };
 const aliases: Record<string, string> = { moonshot: 'moonshotai' };
 function record(value: unknown): Record<string, unknown> {
@@ -40,7 +40,7 @@ export function parseCatalog(value: unknown): CatalogProvider[] {
 					String(b.release_date ?? '').localeCompare(String(a.release_date ?? '')) ||
 					String(a.id).localeCompare(String(b.id))
 			)
-			.map((m) => ({ id: m.id as string, name: m.name as string }));
+			.map((m) => ({ id: m.id as string, name: m.name as string, default: m.id === p.models[0]?.id }));
 		if (models.length) found++;
 		return { id: p.id, name: p.name, models: models.length ? models : p.models };
 	});
@@ -72,7 +72,8 @@ export function readSnapshot(raw: string | null): CatalogSnapshot | undefined {
 				name: MODEL_PRESETS[i].name,
 				models: p.models.map((m) => {
 					if (!text(m.id) || !text(m.name)) throw new Error();
-					return { id: m.id, name: m.name };
+					if (m.default !== undefined && typeof m.default !== 'boolean') throw new Error();
+					return { id: m.id, name: m.name, ...(m.default === undefined ? {} : { default: m.default }) };
 				})
 			};
 		});

@@ -42,7 +42,7 @@ const RELAY_RUNTIME_URL: &str = "http://host.docker.internal:7790";
 const MODEL_CAPABILITY_ENV: &str = "RESTLESS_MODEL_CAPABILITY";
 const DISABLED_LOCAL_DISCOVERY_URL: &str = "http://127.0.0.1:1/v1";
 pub(crate) const HOSTED_MODEL_GATEWAY_PREFIX: &str = "/internal/v1/model-gateway";
-pub(crate) const RESPONSES_TARIFF_VERSION: &str = "omp-18.0.10-gpt-5.6-2026-08-30";
+pub(crate) const RESPONSES_TARIFF_VERSION: &str = "openai-gpt-6-standard-2026-09-26";
 pub(crate) const ANTHROPIC_TARIFF_VERSION: &str = "anthropic-list-2026-05-12";
 
 #[derive(Debug, Clone)]
@@ -2687,8 +2687,8 @@ fn ceiling_micro_usd(value: &serde_json::Value) -> Option<u64> {
 }
 
 /// Pinned tariff used only for the first-party Responses relay. Values are
-/// hundredths of a micro-USD per token and match the GPT-5.6 entries shipped
-/// in the pinned OMP 18.0.10 catalogue in the Company image. Integer math and
+/// hundredths of a micro-USD per token and match the published standard API
+/// rates for GPT-6 and GPT-5.6. Integer math and
 /// upward rounding preserve the existing hard-spend invariant.
 fn response_tariff_micro_usd(
     model: &str,
@@ -2698,6 +2698,12 @@ fn response_tariff_micro_usd(
 ) -> Option<u64> {
     let long_context = input_tokens > 272_000;
     let (input_rate, output_rate, cached_rate): (u64, u64, u64) = match (model, long_context) {
+        ("gpt-6-astra", false) => (1_000, 5_000, 100),
+        ("gpt-6-astra", true) => (2_000, 7_500, 200),
+        ("gpt-6-sol", false) => (200, 1_000, 20),
+        ("gpt-6-sol", true) => (400, 1_500, 40),
+        ("gpt-6-luna", false) => (10, 50, 1),
+        ("gpt-6-luna", true) => (20, 75, 2),
         ("gpt-5.6-sol", false) => (500, 3_000, 50),
         ("gpt-5.6-sol", true) => (1_000, 4_500, 100),
         ("gpt-5.6-terra", false) => (200, 1_200, 20),
@@ -2733,6 +2739,9 @@ fn anthropic_tariff_micro_usd(
 ) -> Option<u64> {
     let (input_rate, output_rate, cache_write_rate, cache_read_rate): (u64, u64, u64, u64) =
         match model {
+            "claude-fable-5-1" => (1_000, 5_000, 1_250, 25),
+            "claude-opus-5-5" => (400, 2_000, 500, 20),
+            "claude-sonnet-5" => (200, 1_000, 250, 20),
             "claude-opus-4-6" => (500, 2_500, 625, 50),
             "claude-sonnet-4-6" | "claude-sonnet-4-5-20250929" => (300, 1_500, 375, 30),
             "claude-haiku-4-5" | "claude-haiku-4-5-20251001" => (100, 500, 125, 10),
@@ -4352,7 +4361,7 @@ mission = "Choose native intelligence"
             Some(1),
             "a positive sub-micro-dollar cache-read charge rounds upward"
         );
-        assert!(anthropic_tariff_micro_usd("claude-sonnet-5", 1, 1, 0, 0).is_none());
+        assert!(anthropic_tariff_micro_usd("unknown", 1, 1, 0, 0).is_none());
     }
 
     #[test]
