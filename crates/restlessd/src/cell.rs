@@ -72,6 +72,24 @@ pub(crate) fn native_documents_store_credential_path(
         .join("native-documents-database.url")
 }
 
+fn native_documents_pending_credential_path(
+    root: &std::path::Path,
+    company: &str,
+) -> std::path::PathBuf {
+    root.join("cells")
+        .join(company)
+        .join("native-documents-database.rotation-pending.url")
+}
+
+pub(crate) fn native_documents_rotation_marker_path(
+    root: &std::path::Path,
+    company: &str,
+) -> std::path::PathBuf {
+    root.join("cells")
+        .join(company)
+        .join("native-documents-restart-required")
+}
+
 fn native_documents_role_name(company: &str) -> String {
     use sha2::{Digest, Sha256};
 
@@ -99,6 +117,53 @@ fn generate_password() -> String {
         }
     }
     password
+}
+
+/// PostgreSQL accepts an already encrypted SCRAM verifier as a ROLE password.
+/// Derive it in the account plane so even server-side DDL logging cannot
+/// record the plaintext password. The 16-byte random salt is unique to each
+/// provisioning run; the 48-character password is generated separately.
+fn scram_password_verifier(password: &str) -> Result<String> {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    use hmac::{Hmac, Mac as _};
+    use sha2::{Digest as _, Sha256};
+
+    const ITERATIONS: usize = 4096;
+    type HmacSha256 = Hmac<Sha256>;
+    let salt = *uuid::Uuid::new_v4().as_bytes();
+    let mut salted_input = Vec::with_capacity(salt.len() + 4);
+    salted_input.extend_from_slice(&salt);
+    salted_input.extend_from_slice(&1_u32.to_be_bytes());
+    let mut mac = HmacSha256::new_from_slice(password.as_bytes())?;
+    mac.update(&salted_input);
+    let mut previous = mac.finalize().into_bytes();
+    let mut salted_password = previous;
+    for _ in 1..ITERATIONS {
+        let mut mac = HmacSha256::new_from_slice(password.as_bytes())?;
+        mac.update(&previous);
+        previous = mac.finalize().into_bytes();
+        for (target, value) in salted_password.iter_mut().zip(previous.iter()) {
+            *target ^= value;
+        }
+    }
+    let mut client_mac = HmacSha256::new_from_slice(&salted_password)?;
+    client_mac.update(b"Client Key");
+    let client_key = client_mac.finalize().into_bytes();
+    let stored_key = Sha256::digest(client_key);
+    let mut server_mac = HmacSha256::new_from_slice(&salted_password)?;
+    server_mac.update(b"Server Key");
+    let server_key = server_mac.finalize().into_bytes();
+    Ok(format!(
+        "SCRAM-SHA-256${ITERATIONS}:{}${}:{}",
+        STANDARD.encode(salt),
+        STANDARD.encode(stored_key),
+        STANDARD.encode(server_key)
+    ))
+}
+
+fn rotation_marker_value(password: &str) -> String {
+    use sha2::{Digest as _, Sha256};
+    format!("sha256:{:x}", Sha256::digest(password.as_bytes()))
 }
 
 /// Rewrite an admin connection URL to point at a different database, keeping
@@ -217,7 +282,11 @@ fn persist_private_credential(path: &std::path::Path, value: &str) -> Result<()>
     file.sync_all()
         .with_context(|| format!("sync {}", temporary.display()))?;
     std::fs::rename(&temporary, path).with_context(|| format!("install {}", path.display()))?;
-    restrict_to_owner(path)
+    restrict_to_owner(path)?;
+    std::fs::File::open(directory)
+        .with_context(|| format!("open {} for sync", directory.display()))?
+        .sync_all()
+        .with_context(|| format!("sync {}", directory.display()))
 }
 
 /// Ensure this cell's role, database and recorded connection string exist, and
@@ -334,20 +403,42 @@ pub(crate) async fn ensure_native_documents_store(
     admin_url: &str,
     company: &str,
 ) -> Result<std::path::PathBuf> {
+    ensure_native_documents_store_inner(root, admin_url, company, false).await
+}
+
+/// Run only while the account plane singleton is stopped and the local Docs
+/// container has exited. A private pending URL makes a crash after ALTER ROLE
+/// recoverable without restoring the old, possibly exposed password.
+pub(crate) async fn rotate_native_documents_store(
+    root: &std::path::Path,
+    admin_url: &str,
+    company: &str,
+) -> Result<std::path::PathBuf> {
+    ensure_native_documents_store_inner(root, admin_url, company, true).await
+}
+
+async fn ensure_native_documents_store_inner(
+    root: &std::path::Path,
+    admin_url: &str,
+    company: &str,
+    rotate: bool,
+) -> Result<std::path::PathBuf> {
     if !valid_identifier(company) {
         bail!("company {company:?} is not a valid cell identifier");
     }
     let cell_database = cell_object_name(company);
     let sidecar_role = native_documents_role_name(company);
     let credential_path = native_documents_store_credential_path(root, company);
+    let pending_path = native_documents_pending_credential_path(root, company);
+    let restart_marker = native_documents_rotation_marker_path(root, company);
     ensure_database(root, admin_url, company).await?;
 
     // Role creation is cluster-global and credential installation is a file
     // effect, so serialize them with a session advisory lock. A crashed caller
     // releases the lock with its connection; the next call repairs grants and
     // either reuses the installed secret or rotates an incomplete role.
-    // This admin connection executes CREATE/ALTER ROLE with the sidecar
-    // password inline. Keep SQLx from writing those statements to the journal.
+    // This admin connection executes CREATE/ALTER ROLE with a SCRAM verifier.
+    // Keep SQLx from writing even the verifier to the journal.
     let mut admin = admin_url
         .parse::<PgConnectOptions>()
         .context("parse OrgIntel admin connection options")?
@@ -362,21 +453,61 @@ pub(crate) async fn ensure_native_documents_store(
         .await
         .context("lock native Documents database provisioning")?;
 
-    let password = existing_native_documents_password(
+    let pending_password = existing_native_documents_password(
+        &pending_path,
+        admin_url,
+        &cell_database,
+        &sidecar_role,
+    )?;
+    if !rotate && pending_password.is_some() {
+        bail!("native Documents password rotation is pending; resume the owner rotation before starting this cell");
+    }
+    let existing_password = existing_native_documents_password(
         &credential_path,
         admin_url,
         &cell_database,
         &sidecar_role,
-    )?
-    .unwrap_or_else(generate_password);
+    )?;
+    let previous_password = rotate.then(|| existing_password.clone()).flatten();
+    let password = if rotate {
+        let old_password = existing_password.as_ref().context("native Documents rotation requires an existing credential")?;
+        match pending_password.as_ref() {
+            Some(pending) => pending.clone(),
+            None if restart_marker.exists() => old_password.clone(),
+            None => {
+                let generated = generate_password();
+                let pending_url = cell_url(admin_url, &cell_database, &sidecar_role, &generated)?;
+                persist_private_credential(&pending_path, &pending_url)?;
+                generated
+            }
+        }
+    } else {
+        existing_password.unwrap_or_else(generate_password)
+    };
+    if restart_marker.exists() {
+        // A completed rotation leaves only this marker. Bind it to the new
+        // password so a missing pending file cannot revive the exposed one.
+        let marker = std::fs::read_to_string(&restart_marker)
+            .with_context(|| format!("read {}", restart_marker.display()))?;
+        anyhow::ensure!(
+            marker == rotation_marker_value(&password),
+            "native Documents rotation marker does not match its credential"
+        );
+    } else if rotate {
+        // The pending file is durable first. Ordinary startup refuses while it
+        // exists, so a crash before this marker cannot silently revive the old
+        // password. The marker makes the next startup replace the bind mount.
+        persist_private_credential(&restart_marker, &rotation_marker_value(&password))?;
+    }
     let role_exists: bool =
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=$1)")
             .bind(&sidecar_role)
             .fetch_one(&mut admin)
             .await?;
+    let password_verifier = scram_password_verifier(&password)?;
     let role_attributes = format!(
         "{sidecar_role} WITH LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE \
-         NOREPLICATION NOBYPASSRLS CONNECTION LIMIT 16 PASSWORD '{password}' \
+         NOREPLICATION NOBYPASSRLS CONNECTION LIMIT 16 PASSWORD '{password_verifier}' \
          VALID UNTIL 'infinity'"
     );
     if role_exists {
@@ -389,6 +520,40 @@ pub(crate) async fn ensure_native_documents_store(
             .execute(format!("CREATE ROLE {role_attributes}").as_str())
             .await
             .with_context(|| format!("create native Documents role {sidecar_role}"))?;
+    }
+    if rotate && pending_path.exists() {
+        // ALTER ROLE rejects the old password for new connections but does not
+        // evict sessions that authenticated before the change. The local Docs
+        // sidecar has already exited; terminate any remaining old sessions.
+        let terminated: Vec<bool> = sqlx::query_scalar(
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity \
+             WHERE usename=$1 AND pid<>pg_backend_pid()",
+        )
+        .bind(&sidecar_role)
+        .fetch_all(&mut admin)
+        .await
+        .context("terminate sessions using the prior native Documents password")?;
+        anyhow::ensure!(
+            terminated.into_iter().all(|stopped| stopped),
+            "a prior native Documents database session could not be terminated"
+        );
+        let mut remaining = 0_i64;
+        for _ in 0..20 {
+            remaining = sqlx::query_scalar(
+                "SELECT count(*) FROM pg_stat_activity WHERE usename=$1 AND pid<>pg_backend_pid()",
+            )
+            .bind(&sidecar_role)
+            .fetch_one(&mut admin)
+            .await?;
+            if remaining == 0 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        anyhow::ensure!(
+            remaining == 0,
+            "prior native Documents sessions remain after password rotation"
+        );
     }
     admin
         .execute(format!("ALTER ROLE {sidecar_role} RESET ALL").as_str())
@@ -476,13 +641,8 @@ pub(crate) async fn ensure_native_documents_store(
     cell_admin.close().await.ok();
 
     let sidecar_url = cell_url(admin_url, &cell_database, &sidecar_role, &password)?;
-    if !credential_path.exists() {
-        persist_private_credential(&credential_path, &sidecar_url)?;
-    }
-    admin.close().await.ok();
-
-    // Prove the installed credential can open only the intended database
-    // before making the path available to the deployment layer.
+    // Prove the new role password and exact cell scope before replacing the
+    // live file. A failed probe leaves the pending URL for an explicit retry.
     let mut probe = PgConnection::connect(&sidecar_url)
         .await
         .context("connect with the native Documents database credential")?;
@@ -496,6 +656,31 @@ pub(crate) async fn ensure_native_documents_store(
     if current_database != cell_database || current_schema != company {
         bail!("native Documents database credential resolved outside its exact company cell");
     }
+    if rotate && pending_path.exists() {
+        let old_password = previous_password
+            .as_deref()
+            .context("native Documents rotation lost its prior credential")?;
+        let old_url = cell_url(admin_url, &cell_database, &sidecar_role, old_password)?;
+        match PgConnection::connect(&old_url).await {
+            Ok(old_connection) => {
+                old_connection.close().await.ok();
+                bail!("the prior native Documents password still authenticates; check PostgreSQL host authentication before committing rotation");
+            }
+            Err(sqlx::Error::Database(error)) if error.code().as_deref() == Some("28P01") => {}
+            Err(error) => {
+                return Err(error).context(
+                    "could not prove the prior native Documents password is rejected",
+                );
+            }
+        }
+        std::fs::rename(&pending_path, &credential_path)
+            .with_context(|| format!("commit native Documents credential for {company}"))?;
+        std::fs::File::open(credential_path.parent().expect("credential has a parent"))?
+            .sync_all()?;
+    } else if !credential_path.exists() {
+        persist_private_credential(&credential_path, &sidecar_url)?;
+    }
+    admin.close().await.ok();
     Ok(credential_path)
 }
 

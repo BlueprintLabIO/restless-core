@@ -734,6 +734,44 @@ async fn run() -> Result<()> {
         lock = %_singleton.path().display(),
         "machine profile locked"
     );
+    if std::env::args().nth(1).as_deref() == Some("rotate-native-documents-credential") {
+        let args = std::env::args().collect::<Vec<_>>();
+        anyhow::ensure!(
+            args.len() == 3,
+            "usage: restlessd rotate-native-documents-credential <company>"
+        );
+        let company = &args[2];
+        runtime::CompanyConfig::load(&root, company)
+            .with_context(|| format!("rotation company {company} is not configured"))?;
+        anyhow::ensure!(
+            owner::OwnerConfig::from_env()?.local_documents_issuer().is_some(),
+            "native Documents credential rotation is supported for the local Docs service only"
+        );
+        anyhow::ensure!(
+            root.join("cells").join(company).join("database.url").is_file()
+                && cell::native_documents_store_credential_path(&root, company).is_file(),
+            "native Documents rotation requires an existing cell and sidecar credential"
+        );
+        let orgintel = OrgIntelConfig::read_only(&machine_profile)?;
+        OrgIntel::probe(&orgintel.database_url).await?;
+        let cell_url = cell::ensure_database(&root, &orgintel.database_url, company).await?;
+        let mut cell_connection = PgConnection::connect(&cell_url).await?;
+        let cell_id: uuid::Uuid = sqlx::query_scalar(
+            format!("SELECT cell_id FROM {company}.company_access_identity WHERE singleton=TRUE")
+                .as_str(),
+        )
+        .fetch_one(&mut cell_connection)
+        .await
+        .context("read existing native Documents cell identity")?;
+        cell_connection.close().await?;
+        local_documents::stop_for_credential_rotation(&root, cell_id).await?;
+        cell::rotate_native_documents_store(&root, &orgintel.database_url, company).await?;
+        println!(
+            "{}",
+            serde_json::json!({"status":"credential_rotated_restart_required","company":company})
+        );
+        return Ok(());
+    }
     let capabilities = capability::CapabilityIssuer::open(&root)?;
     // Two supported topologies (ADR 0007): direct loopback, or a network
     // entry that verifies a signed assertion. Resolve and validate the entry
