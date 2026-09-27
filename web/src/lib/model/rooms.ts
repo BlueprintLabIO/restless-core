@@ -271,9 +271,7 @@ export function getRooms(
 	return roomJson(`${roomPath(company)}?${query}`);
 }
 
-export function getRecentDirectConversations(
-	company: string
-): Promise<RecentDirectConversation[]> {
+export function getRecentDirectConversations(company: string): Promise<RecentDirectConversation[]> {
 	return roomJson(`/api/companies/${encodeURIComponent(company)}/direct-conversations`);
 }
 

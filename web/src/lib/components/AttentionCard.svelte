@@ -34,7 +34,9 @@
 	const documentRequest = $derived(
 		item.source.kind === 'document_collaboration' || item.source.kind === 'document_review'
 	);
-	const hasDocumentAction = $derived(documentRequest && Boolean(item.nativeDocument || onopenDocument));
+	const hasDocumentAction = $derived(
+		documentRequest && Boolean(item.nativeDocument || onopenDocument)
+	);
 	const documentLabel = $derived(
 		item.source.kind === 'document_review' ? 'Review this version' : 'Open and edit together'
 	);
@@ -104,7 +106,8 @@
 			await completeHandoffHumanStep(companyId, item.source.reference);
 			await refreshAttention(client, companyId);
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'The completion was not recorded. Try again.';
+			error =
+				cause instanceof Error ? cause.message : 'The completion was not recorded. Try again.';
 		} finally {
 			acting = false;
 		}
@@ -118,10 +121,17 @@
 	aria-label={item.preparing ? 'Preparing your next step' : item.title}
 	aria-busy={acting}
 >
-	{#if showTitle}<header><strong>{item.preparing ? 'Preparing your next step' : item.title}</strong><span>{actionStatus || (item.preparing ? 'Preparing' : 'Needs you')}</span></header>{/if}
+	{#if showTitle}<header>
+			<strong>{item.preparing ? 'Preparing your next step' : item.title}</strong><span
+				>{actionStatus || (item.preparing ? 'Preparing' : 'Needs you')}</span
+			>
+		</header>{/if}
 	{#if !hasDocumentAction}<div class="request"><Markdown text={item.requestedAction} /></div>{/if}
 	{#if item.preparing}
-		<p class="waiting" role="status">Nothing to do yet. The team is preparing this step. Your instructions and any sign-in link will appear here when ready.</p>
+		<p class="waiting" role="status">
+			Nothing to do yet. The team is preparing this step. Your instructions and any sign-in link
+			will appear here when ready.
+		</p>
 	{:else if item.deadline && inChat}
 		<p class="quiet">{item.deadline}</p>
 	{/if}
@@ -129,8 +139,8 @@
 		<details>
 			<summary>Details</summary>
 			{#if !item.preparing}<p>{item.whatHappened}</p>
-			<p>{item.whyItMatters}</p>
-			<Markdown text={item.recommendation} />{/if}
+				<p>{item.whyItMatters}</p>
+				<Markdown text={item.recommendation} />{/if}
 			{#each item.evidence as evidence}
 				{#if evidence.content}<details>
 						<summary>{evidence.label}</summary>
@@ -145,11 +155,19 @@
 			{#if item.nativeDocument}
 				<a class="btn primary" href={base} title={item.ifNoAction}>{documentLabel}</a>
 			{:else if onopenDocument}
-				<button class="btn primary" disabled={acting} onclick={openDocument} title="Load the current document and access permissions">{acting ? 'Opening document…' : documentLabel}</button>
+				<button
+					class="btn primary"
+					disabled={acting}
+					onclick={openDocument}
+					title="Load the current document and access permissions"
+					>{acting ? 'Opening document…' : documentLabel}</button
+				>
 			{/if}
 		{/if}
 		{#if instructionLink}
-			<a class="btn small primary" href={instructionLink.href} target="_blank" rel="noreferrer">{instructionLink.label}</a>
+			<a class="btn small primary" href={instructionLink.href} target="_blank" rel="noreferrer"
+				>{instructionLink.label}</a
+			>
 		{/if}
 		{#each item.actions.filter((a) => a.href && !(inChat && a.id === 'continue-conversation')) as action (action.id)}
 			<a
@@ -157,7 +175,9 @@
 				href={action.href}
 				target={action.href?.startsWith('/') ? undefined : '_blank'}
 				rel="noreferrer"
-				title={action.role === 'human_step' ? action.nextState : `${action.consequence} ${action.nextState}`}>{action.label}</a
+				title={action.role === 'human_step'
+					? action.nextState
+					: `${action.consequence} ${action.nextState}`}>{action.label}</a
 			>
 		{/each}
 		{#if grant}

@@ -173,7 +173,9 @@
 										title={plainText(company.mission, { dropTitle: true }) || undefined}
 									>
 										<small class="portfolio-mobile-label">Current focus</small>
-										<strong>{plainText(company.mission, { dropTitle: true }) || 'Focus not set'}</strong>
+										<strong
+											>{plainText(company.mission, { dropTitle: true }) || 'Focus not set'}</strong
+										>
 									</span>
 									<span class="portfolio-metric portfolio-proof">
 										<small class="portfolio-mobile-label">Next</small>
@@ -212,7 +214,9 @@
 			</section>
 		</main>
 	{:else}
-		<main class="portfolio-loading"><Skeleton label="Loading companies" variant="list" count={3} /></main>
+		<main class="portfolio-loading">
+			<Skeleton label="Loading companies" variant="list" count={3} />
+		</main>
 	{/if}
 </div>
 

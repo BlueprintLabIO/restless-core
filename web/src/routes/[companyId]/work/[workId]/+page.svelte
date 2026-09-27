@@ -619,6 +619,8 @@
 			<a class="btn small" href={backHref()}>Back to Work</a>
 		</div>
 	{:else if !error}
-		<div class="work-detail-loading"><Skeleton label="Loading Work" variant="page" count={5} /></div>
+		<div class="work-detail-loading">
+			<Skeleton label="Loading Work" variant="page" count={5} />
+		</div>
 	{/if}
 </article>

@@ -194,8 +194,8 @@
 				</div>
 			{:else}
 				<p class="quiet-empty">
-					Doctor has no safe automatic fix for this problem. Exec can inspect the
-					source without turning uncertainty into a destructive action.
+					Doctor has no safe automatic fix for this problem. Exec can inspect the source without
+					turning uncertainty into a destructive action.
 				</p>
 			{/if}
 		</section>

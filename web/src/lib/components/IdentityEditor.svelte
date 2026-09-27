@@ -101,8 +101,8 @@
 	</div>
 	{#if !view.current_release && !editing}
 		<p class="editor-empty">
-			What is true about the company, how it sounds, how it looks and how it works. You can
-			revise it at any time.
+			What is true about the company, how it sounds, how it looks and how it works. You can revise
+			it at any time.
 		</p>
 	{/if}
 	{#if error}<p class="error" role="alert">{error}</p>{/if}

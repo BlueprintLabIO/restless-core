@@ -12,7 +12,9 @@ const destinationKey = (company: string) => `restless.company-browser-destinatio
 export function prepareCompanyBrowser(company: string, url: string): void {
 	const intent = { url } satisfies BrowserIntent;
 	sessionStorage.setItem(intentKey(company), JSON.stringify(intent));
-	window.dispatchEvent(new CustomEvent<BrowserIntent>(COMPANY_BROWSER_OPEN_EVENT, { detail: intent }));
+	window.dispatchEvent(
+		new CustomEvent<BrowserIntent>(COMPANY_BROWSER_OPEN_EVENT, { detail: intent })
+	);
 }
 
 export function consumeCompanyBrowserIntent(company: string): BrowserIntent | null {
@@ -76,7 +78,8 @@ async function browserOpenError(response: Response): Promise<Error & { status: n
 		// Keep the HTTP result useful if a proxy supplied a non-JSON response.
 	}
 	if (response.status === 409) {
-		message = 'The Company computer is under control. Return control before opening this link here.';
+		message =
+			'The Company computer is under control. Return control before opening this link here.';
 	}
 	return Object.assign(new Error(message), { status: response.status });
 }

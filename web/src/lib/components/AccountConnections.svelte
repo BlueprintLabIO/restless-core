@@ -4,7 +4,10 @@
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import { getCompanies, type CompanyCatalogEntry } from '$lib/model/cockpit';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
-	import { announceIntelligenceChange, watchIntelligenceChanges } from '$lib/model/intelligence-events';
+	import {
+		announceIntelligenceChange,
+		watchIntelligenceChanges
+	} from '$lib/model/intelligence-events';
 	const catalog = modelCatalog();
 	type CompanyUse = { id: string; name: string; in_use?: boolean };
 	type AccountConnection = {
@@ -37,12 +40,48 @@
 		['litellm', 'OpenAI-compatible gateway']
 	];
 	let connections = $state<AccountConnection[]>([]);
-	let codexSaved = $derived(connections.some((connection) => connection.kind === 'oauth' && connection.provider === 'openai-codex'));
-	let claudeSaved = $derived(connections.some((connection) => connection.kind === 'oauth' && connection.provider === 'anthropic'));
-	let codexConnected = $derived(connections.some((connection) => connection.kind === 'oauth' && connection.provider === 'openai-codex' && connection.status === 'present'));
-	let claudeConnected = $derived(connections.some((connection) => connection.kind === 'oauth' && connection.provider === 'anthropic' && connection.status === 'present'));
-	let codexChecking = $derived(connections.some((connection) => connection.kind === 'oauth' && connection.provider === 'openai-codex' && connection.status === 'checking'));
-	let claudeChecking = $derived(connections.some((connection) => connection.kind === 'oauth' && connection.provider === 'anthropic' && connection.status === 'checking'));
+	let codexSaved = $derived(
+		connections.some(
+			(connection) => connection.kind === 'oauth' && connection.provider === 'openai-codex'
+		)
+	);
+	let claudeSaved = $derived(
+		connections.some(
+			(connection) => connection.kind === 'oauth' && connection.provider === 'anthropic'
+		)
+	);
+	let codexConnected = $derived(
+		connections.some(
+			(connection) =>
+				connection.kind === 'oauth' &&
+				connection.provider === 'openai-codex' &&
+				connection.status === 'present'
+		)
+	);
+	let claudeConnected = $derived(
+		connections.some(
+			(connection) =>
+				connection.kind === 'oauth' &&
+				connection.provider === 'anthropic' &&
+				connection.status === 'present'
+		)
+	);
+	let codexChecking = $derived(
+		connections.some(
+			(connection) =>
+				connection.kind === 'oauth' &&
+				connection.provider === 'openai-codex' &&
+				connection.status === 'checking'
+		)
+	);
+	let claudeChecking = $derived(
+		connections.some(
+			(connection) =>
+				connection.kind === 'oauth' &&
+				connection.provider === 'anthropic' &&
+				connection.status === 'checking'
+		)
+	);
 	let accountScope = $state<'account' | 'company'>('account');
 	let manageUrl = $state('/account/settings/connections');
 	let loading = $state(true);
@@ -89,9 +128,21 @@
 			const body = await response.json();
 			if (sequence !== refreshSequence) return;
 			if (!response.ok) throw new Error(body.message ?? 'Could not load account connections.');
-			const previouslySignedIn = new Set(connections.filter((item) => item.kind === 'oauth' && item.status === 'present').map((item) => item.provider));
+			const previouslySignedIn = new Set(
+				connections
+					.filter((item) => item.kind === 'oauth' && item.status === 'present')
+					.map((item) => item.provider)
+			);
 			connections = body.connections ?? [];
-			if (connections.some((item) => item.kind === 'oauth' && item.status === 'present' && !previouslySignedIn.has(item.provider))) void catalog.refreshConnected();
+			if (
+				connections.some(
+					(item) =>
+						item.kind === 'oauth' &&
+						item.status === 'present' &&
+						!previouslySignedIn.has(item.provider)
+				)
+			)
+				void catalog.refreshConnected();
 			accountScope = body.scope === 'company' ? 'company' : 'account';
 			manageUrl = body.manage_url ?? '/account/settings/connections';
 			if (statusRefreshTimer) clearTimeout(statusRefreshTimer);
@@ -163,11 +214,13 @@
 				body: JSON.stringify({ company: companyId })
 			});
 			const body = await response.json();
-			if (!response.ok) throw new Error(body.message ?? 'Could not use this sign-in for the account.');
+			if (!response.ok)
+				throw new Error(body.message ?? 'Could not use this sign-in for the account.');
 			await refresh();
 			announceIntelligenceChange();
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Could not use this sign-in for the account.';
+			error =
+				cause instanceof Error ? cause.message : 'Could not use this sign-in for the account.';
 		} finally {
 			importingCompany = '';
 		}
@@ -221,11 +274,14 @@
 		callbackBusy = true;
 		oauthMessage = '';
 		try {
-			const response = await fetch(`/api/connections/oauth/jobs/${encodeURIComponent(oauthJob)}/callback`, {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ callback_url: oauthCallback.trim() })
-			});
+			const response = await fetch(
+				`/api/connections/oauth/jobs/${encodeURIComponent(oauthJob)}/callback`,
+				{
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ callback_url: oauthCallback.trim() })
+				}
+			);
 			const body = await response.json();
 			if (!response.ok) throw new Error(body.message ?? 'Could not finish Claude sign-in.');
 			oauthCallback = '';
@@ -239,7 +295,9 @@
 	async function pollSignIn(job: string) {
 		for (let attempt = 0; attempt < 300 && oauthJob === job; attempt++) {
 			try {
-				const response = await fetch(`/api/connections/oauth/jobs/${encodeURIComponent(job)}`, { cache: 'no-store' });
+				const response = await fetch(`/api/connections/oauth/jobs/${encodeURIComponent(job)}`, {
+					cache: 'no-store'
+				});
 				const body = await response.json();
 				if (!response.ok) throw new Error(body.message ?? 'Could not check sign-in.');
 				oauthState = body.state;
@@ -282,7 +340,12 @@
 		return model.startsWith(`${providerId}/`) ? model : `${providerId}/${model}`;
 	}
 	function validModel(providerId: string, model: string) {
-		return model.startsWith(`${providerId}/`) && model.length > providerId.length + 1 && model.length <= 200 && !/\s/.test(model);
+		return (
+			model.startsWith(`${providerId}/`) &&
+			model.length > providerId.length + 1 &&
+			model.length <= 200 &&
+			!/\s/.test(model)
+		);
 	}
 	function defaultModel(providerId: string, kind: 'api_key' | 'oauth' = 'api_key') {
 		const models = modelChoices(providerId, kind);
@@ -405,7 +468,10 @@
 				nativeError = 'Company sign-ins could not be loaded.';
 				nativeLoading = false;
 			});
-		return () => { if (statusRefreshTimer) clearTimeout(statusRefreshTimer); stopWatching(); };
+		return () => {
+			if (statusRefreshTimer) clearTimeout(statusRefreshTimer);
+			stopWatching();
+		};
 	});
 </script>
 
@@ -413,34 +479,106 @@
 <main class="account-connections">
 	<header class="page-head">
 		<div class="page-intro">
-			<h1 title="Connect an account once, then grant individual companies access.">
-				Connections
-			</h1>
+			<h1 title="Connect an account once, then grant individual companies access.">Connections</h1>
 		</div>
 		<!-- The empty state carries the one first action; the header takes over
 		     once there is a list to add to. -->
-		{#if accountScope === 'account'}{#if addOpen || connections.length}<button class="btn primary" onclick={() => (addOpen = !addOpen)}
-			>{addOpen ? 'Close' : 'Add connection'}</button
-		>{/if}{:else if connections.length}<a class="btn primary" href={manageUrl}>Open account ↗</a>{/if}
+		{#if accountScope === 'account'}{#if addOpen || connections.length}<button
+					class="btn primary"
+					onclick={() => (addOpen = !addOpen)}>{addOpen ? 'Close' : 'Add connection'}</button
+				>{/if}{:else if connections.length}<a class="btn primary" href={manageUrl}>Open account ↗</a
+			>{/if}
 	</header>
-	{#if accountScope === 'account'}<section class="native-section" aria-label="Account Codex sign-in">
-		<div class="section-head"><h2>ChatGPT / Codex</h2><button class="btn" disabled={!!oauthJob || codexChecking} onclick={() => void startSignIn('codex')}>{oauthJob && oauthProvider === 'codex' ? 'Signing in…' : codexSaved ? 'Reconnect Codex' : 'Connect Codex'}</button></div>
-		<p>{codexConnected ? 'Connected to this account. Grant company access below, or reconnect the same account if its sign-in stops working.' : codexChecking ? 'Checking this sign-in after a company settings change…' : codexSaved ? 'The saved Codex sign-in is unavailable. Reconnect the same account to restore company access.' : 'Sign in once, then choose which companies can use it.'}</p>
-		{#if oauthProvider === 'codex'}
-			{#if oauthUrl}<p><a href={oauthUrl} target="_blank" rel="noreferrer">Open Codex sign-in ↗</a>{#if oauthCode} · Enter code <strong>{oauthCode}</strong>{/if}</p>{/if}
-			{#if oauthMessage}<p role="status">{oauthMessage}</p>{:else if oauthState === 'connected'}<p role="status">Codex connected. Choose company access below.</p>{/if}
-		{/if}
-	</section>
-	<section class="native-section" aria-label="Account Claude sign-in">
-		<div class="section-head"><h2>Claude</h2><button class="btn" disabled={!!oauthJob || claudeChecking} onclick={() => void startSignIn('claude')}>{oauthJob && oauthProvider === 'claude' ? 'Signing in…' : claudeSaved ? 'Reconnect Claude' : 'Connect Claude'}</button></div>
-		<p>{claudeConnected ? 'Connected to this account. Grant Claude Agent access below, or reconnect the same account if its sign-in stops working.' : claudeChecking ? 'Checking this sign-in after a company settings change…' : claudeSaved ? 'The saved Claude sign-in is unavailable. Reconnect the same account to restore company access.' : 'Sign in once, then choose which companies can use it.'}</p>
-		{#if oauthProvider === 'claude'}
-			{#if oauthUrl}<p><a href={oauthUrl} target="_blank" rel="noreferrer">Open Claude sign-in ↗</a></p>
-				{#if oauthState === 'waiting'}<label class="callback-label">If your browser cannot reach the callback on this computer, copy its final localhost URL and paste it here.<input type="url" bind:value={oauthCallback} placeholder="http://localhost:54545/callback?code=…" autocomplete="off" /></label><button class="btn primary small" disabled={!oauthCallback.trim() || callbackBusy} onclick={() => void completeClaudeSignIn()}>{callbackBusy ? 'Finishing…' : 'Finish sign-in'}</button>{/if}
+	{#if accountScope === 'account'}<section
+			class="native-section"
+			aria-label="Account Codex sign-in"
+		>
+			<div class="section-head">
+				<h2>ChatGPT / Codex</h2>
+				<button
+					class="btn"
+					disabled={!!oauthJob || codexChecking}
+					onclick={() => void startSignIn('codex')}
+					>{oauthJob && oauthProvider === 'codex'
+						? 'Signing in…'
+						: codexSaved
+							? 'Reconnect Codex'
+							: 'Connect Codex'}</button
+				>
+			</div>
+			<p>
+				{codexConnected
+					? 'Connected to this account. Grant company access below, or reconnect the same account if its sign-in stops working.'
+					: codexChecking
+						? 'Checking this sign-in after a company settings change…'
+						: codexSaved
+							? 'The saved Codex sign-in is unavailable. Reconnect the same account to restore company access.'
+							: 'Sign in once, then choose which companies can use it.'}
+			</p>
+			{#if oauthProvider === 'codex'}
+				{#if oauthUrl}<p>
+						<a href={oauthUrl} target="_blank" rel="noreferrer">Open Codex sign-in ↗</a
+						>{#if oauthCode}
+							· Enter code <strong>{oauthCode}</strong>{/if}
+					</p>{/if}
+				{#if oauthMessage}<p role="status">{oauthMessage}</p>{:else if oauthState === 'connected'}<p
+						role="status"
+					>
+						Codex connected. Choose company access below.
+					</p>{/if}
 			{/if}
-			{#if oauthMessage}<p role="status">{oauthMessage}</p>{:else if oauthState === 'completing'}<p role="status">Finishing Claude sign-in…</p>{:else if oauthState === 'connected'}<p role="status">Claude connected. Choose company access below.</p>{/if}
-		{/if}
-	</section>{/if}
+		</section>
+		<section class="native-section" aria-label="Account Claude sign-in">
+			<div class="section-head">
+				<h2>Claude</h2>
+				<button
+					class="btn"
+					disabled={!!oauthJob || claudeChecking}
+					onclick={() => void startSignIn('claude')}
+					>{oauthJob && oauthProvider === 'claude'
+						? 'Signing in…'
+						: claudeSaved
+							? 'Reconnect Claude'
+							: 'Connect Claude'}</button
+				>
+			</div>
+			<p>
+				{claudeConnected
+					? 'Connected to this account. Grant Claude Agent access below, or reconnect the same account if its sign-in stops working.'
+					: claudeChecking
+						? 'Checking this sign-in after a company settings change…'
+						: claudeSaved
+							? 'The saved Claude sign-in is unavailable. Reconnect the same account to restore company access.'
+							: 'Sign in once, then choose which companies can use it.'}
+			</p>
+			{#if oauthProvider === 'claude'}
+				{#if oauthUrl}<p>
+						<a href={oauthUrl} target="_blank" rel="noreferrer">Open Claude sign-in ↗</a>
+					</p>
+					{#if oauthState === 'waiting'}<label class="callback-label"
+							>If your browser cannot reach the callback on this computer, copy its final localhost
+							URL and paste it here.<input
+								type="url"
+								bind:value={oauthCallback}
+								placeholder="http://localhost:54545/callback?code=…"
+								autocomplete="off"
+							/></label
+						><button
+							class="btn primary small"
+							disabled={!oauthCallback.trim() || callbackBusy}
+							onclick={() => void completeClaudeSignIn()}
+							>{callbackBusy ? 'Finishing…' : 'Finish sign-in'}</button
+						>{/if}
+				{/if}
+				{#if oauthMessage}<p role="status">
+						{oauthMessage}
+					</p>{:else if oauthState === 'completing'}<p role="status">
+						Finishing Claude sign-in…
+					</p>{:else if oauthState === 'connected'}<p role="status">
+						Claude connected. Choose company access below.
+					</p>{/if}
+			{/if}
+		</section>{/if}
 	{#if error}<div class="error" role="alert">
 			{error}<button class="btn small" onclick={() => void refresh()}>Try again</button>
 		</div>{/if}
@@ -461,17 +599,17 @@
 						placeholder="e.g. Anthropic team key"
 					/></label
 				><label class="full"
-						>API key<input
-							bind:value={secret}
-							type="password"
-							required
-							autocomplete="new-password"
-							placeholder="Paste API key"
-					/></label>
+					>API key<input
+						bind:value={secret}
+						type="password"
+						required
+						autocomplete="new-password"
+						placeholder="Paste API key"
+					/></label
+				>
 			</div>
 			<div class="actions">
-				<button class="btn primary" disabled={busy}
-					>{busy ? 'Saving…' : 'Save API key'}</button
+				<button class="btn primary" disabled={busy}>{busy ? 'Saving…' : 'Save API key'}</button
 				><button
 					class="btn"
 					type="button"
@@ -493,7 +631,9 @@
 						<div>
 							<h2>{item.label}</h2>
 							<span>{providerName(item.provider)}</span>
-							{#if item.account_identity}<small class="account-identity">{item.account_identity}</small>{/if}
+							{#if item.account_identity}<small class="account-identity"
+									>{item.account_identity}</small
+								>{/if}
 						</div>
 						<span class="status" class:connected={item.status === 'present'}
 							>{statusText(item)}</span
@@ -511,9 +651,11 @@
 					<div class="connection-controls">
 						<span class="connection-kind"
 							>{item.kind === 'oauth' ? 'Account sign-in' : 'API key'}</span
-						>{#if accountScope === 'account'}<button class="text-button" onclick={() => toggleManage(item)}
-							>{managingId === item.id ? 'Close access' : 'Manage company access'}</button
-						>{/if}
+						>{#if accountScope === 'account'}<button
+								class="text-button"
+								onclick={() => toggleManage(item)}
+								>{managingId === item.id ? 'Close access' : 'Manage company access'}</button
+							>{/if}
 					</div>
 					{#if managingId === item.id}
 						<div class="access-manager" aria-label={`Company access for ${item.label}`}>
@@ -551,18 +693,35 @@
 										<label class="model-picker"
 											><span>Model</span><select
 												value={selectedCustomModel ? '__custom' : selectedModel}
-												onchange={(event) => { modelTouched = true; selectedCustomModel = event.currentTarget.value === '__custom'; selectedModel = selectedCustomModel ? '' : event.currentTarget.value; }}
+												onchange={(event) => {
+													modelTouched = true;
+													selectedCustomModel = event.currentTarget.value === '__custom';
+													selectedModel = selectedCustomModel ? '' : event.currentTarget.value;
+												}}
 												aria-label={`Model for ${item.label} in ${company.name}`}
 												><option value="">Choose a model…</option
 												>{#each modelChoices(item.provider, item.kind) as model}<option
 														value={routeModel(item.provider, model.id)}
 														>{model.name ?? model.id}</option
 													>{/each}<option value="__custom">Custom model ID…</option></select
-										></label
+											></label
 										>
-										{#if selectedCustomModel}<label class="model-picker"><span>Full model ID</span><input aria-label="Full model ID" placeholder={`${item.provider}/model-id`} bind:value={selectedModel} /></label>{/if}
-										<small class="model-source">{catalog.source(item.provider, item.kind) === 'connected' ? 'Models from this account’s connected runtime' : 'Model suggestions; availability depends on this connection'}</small>
-										<label class="model-picker"><input type="checkbox" bind:checked={selectedMakeDefault} /> Use as this company’s default model</label>
+										{#if selectedCustomModel}<label class="model-picker"
+												><span>Full model ID</span><input
+													aria-label="Full model ID"
+													placeholder={`${item.provider}/model-id`}
+													bind:value={selectedModel}
+												/></label
+											>{/if}
+										<small class="model-source"
+											>{catalog.source(item.provider, item.kind) === 'connected'
+												? 'Models from this account’s connected runtime'
+												: 'Model suggestions; availability depends on this connection'}</small
+										>
+										<label class="model-picker"
+											><input type="checkbox" bind:checked={selectedMakeDefault} /> Use as this company’s
+											default model</label
+										>
 										{#if replaceRequired}<span class="replace-warning" role="alert"
 												>This replaces the current {providerName(item.provider)} connection for {company.name}.</span
 											><button
@@ -580,7 +739,9 @@
 											>
 										{:else}<button
 												class="btn primary small"
-												disabled={busyCompany || !validModel(item.provider, selectedModel) || item.status !== 'present'}
+												disabled={busyCompany ||
+													!validModel(item.provider, selectedModel) ||
+													item.status !== 'present'}
 												onclick={() => void grant(item, company.id)}
 												>{busyCompany ? 'Granting…' : 'Grant access'}</button
 											><button
@@ -593,7 +754,7 @@
 											disabled={busyCompany || item.status !== 'present'}
 											onclick={() => {
 												selectedCompany = company.id;
-								selectedModel = defaultModel(item.provider, item.kind);
+												selectedModel = defaultModel(item.provider, item.kind);
 												selectedCustomModel = false;
 												modelTouched = false;
 												selectedMakeDefault = false;
@@ -609,13 +770,16 @@
 			{/each}
 		</section>
 	{:else if accountScope === 'company'}
-		<div class="empty"><h2>No account connection is granted here yet</h2><p>Open your account, then choose Account settings to connect a provider and grant access.</p><a class="btn primary" href={manageUrl}>Open account ↗</a></div>
+		<div class="empty">
+			<h2>No account connection is granted here yet</h2>
+			<p>Open your account, then choose Account settings to connect a provider and grant access.</p>
+			<a class="btn primary" href={manageUrl}>Open account ↗</a>
+		</div>
 	{:else if !addOpen}
 		<div class="empty">
 			<h2>No reusable connections yet</h2>
 			<p>
-				Save an API key or connect Codex or Claude above, then choose
-				which companies can use it.
+				Save an API key or connect Codex or Claude above, then choose which companies can use it.
 			</p>
 			<button class="btn primary" onclick={() => (addOpen = true)}>Add your first connection</button
 			>
@@ -624,9 +788,16 @@
 	<section class="native-section" aria-label="Native sign-ins by company">
 		<div class="section-head">
 			<h2>Older company-only sign-ins</h2>
-			<button class="text-button" disabled={nativeLoading} onclick={() => void refreshNativeSignIns(companies)}>Refresh status</button>
+			<button
+				class="text-button"
+				disabled={nativeLoading}
+				onclick={() => void refreshNativeSignIns(companies)}>Refresh status</button
+			>
 		</div>
-		<p>Sign-ins saved inside individual company computers. They do not affect the account connections above.</p>
+		<p>
+			Sign-ins saved inside individual company computers. They do not affect the account connections
+			above.
+		</p>
 		{#if nativeError}<p class="native-error" role="alert">{nativeError}</p>{/if}
 		{#if nativeLoading}<p role="status">Checking company sign-ins…</p>
 		{:else if nativeSignIns.length}
@@ -635,12 +806,21 @@
 					<div class="native-row">
 						<strong>{signIn.harness === 'codex' ? 'ChatGPT / Codex' : 'Claude Code'}</strong>
 						<span>{signIn.companyName}</span>
-						<span class="native-status" class:connected={signIn.state === 'connected'}>{nativeStatus(signIn.state)}</span>
+						<span class="native-status" class:connected={signIn.state === 'connected'}
+							>{nativeStatus(signIn.state)}</span
+						>
 						<div class="native-actions">
 							{#if accountScope === 'account' && signIn.harness === 'codex' && signIn.state === 'connected' && !codexSaved}
-								<button class="btn small" disabled={!!importingCompany} onclick={() => void importCompanyCodex(signIn.companyId)}>{importingCompany === signIn.companyId ? 'Adding…' : 'Add to account'}</button>
+								<button
+									class="btn small"
+									disabled={!!importingCompany}
+									onclick={() => void importCompanyCodex(signIn.companyId)}
+									>{importingCompany === signIn.companyId ? 'Adding…' : 'Add to account'}</button
+								>
 							{/if}
-							<a href={`/${encodeURIComponent(signIn.companyId)}/company/provider`}>Manage in company ↗</a>
+							<a href={`/${encodeURIComponent(signIn.companyId)}/company/provider`}
+								>Manage in company ↗</a
+							>
 						</div>
 					</div>
 				{/each}
@@ -891,7 +1071,11 @@
 		background: var(--surface-pane);
 		font: inherit;
 	}
-	.model-source { flex-basis: 100%; color: var(--text-tertiary); font-size: var(--t-label); }
+	.model-source {
+		flex-basis: 100%;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
 	.replace-warning {
 		flex-basis: 100%;
 		color: var(--state-danger);

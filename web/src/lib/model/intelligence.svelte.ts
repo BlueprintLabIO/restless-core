@@ -27,7 +27,8 @@ export type IntelligenceView = {
 	agents: IntelligenceAgent[];
 };
 
-export type AgentRouteState = 'checking' | 'ready' | 'starting' | 'needs_connection' | 'unavailable';
+export type AgentRouteState =
+	'checking' | 'ready' | 'starting' | 'needs_connection' | 'unavailable';
 
 /** The selected route for this agent, distinct from whether OrgIntel can
  * address the agent or whether a model call will ultimately succeed. */

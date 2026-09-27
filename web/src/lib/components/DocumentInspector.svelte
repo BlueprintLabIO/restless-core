@@ -957,9 +957,11 @@
 						</header>
 						<p>{item.reason}</p>
 						<footer>
-							<span>{item.created_by_actor_id === 'daemon' ? 'Restless' : actorName(item.created_by_actor_id)}</span><time datetime={item.created_at}
-								>{shortDate(item.created_at)}</time
-							>
+							<span
+								>{item.created_by_actor_id === 'daemon'
+									? 'Restless'
+									: actorName(item.created_by_actor_id)}</span
+							><time datetime={item.created_at}>{shortDate(item.created_at)}</time>
 						</footer>
 						<button
 							type="button"
@@ -973,11 +975,11 @@
 						>
 					</article>
 				{:else}
-					{#if versions.status === 'unknown'}<Skeleton label="Loading versions" variant="list" count={3} />{:else}<p
-							class="quiet-state"
-						>
-							No version history is available.
-						</p>{/if}
+					{#if versions.status === 'unknown'}<Skeleton
+							label="Loading versions"
+							variant="list"
+							count={3}
+						/>{:else}<p class="quiet-state">No version history is available.</p>{/if}
 				{/each}
 			</div>
 			{#if selectedVersionId}

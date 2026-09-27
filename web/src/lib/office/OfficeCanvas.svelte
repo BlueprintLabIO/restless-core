@@ -1838,7 +1838,7 @@
 		font:
 			400 var(--t-label)/1.35 Silkscreen,
 			var(--font-ui);
-			font-variant-numeric: tabular-nums;
+		font-variant-numeric: tabular-nums;
 		text-shadow: 1px 1px #172433;
 	}
 

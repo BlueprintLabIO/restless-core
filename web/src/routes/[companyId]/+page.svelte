@@ -838,8 +838,7 @@
 			</p>
 			<a
 				class="btn small primary"
-				href={item.actions.find((action) => action.id === 'continue-conversation')?.href}
-				>Reply →</a
+				href={item.actions.find((action) => action.id === 'continue-conversation')?.href}>Reply →</a
 			>
 		</article>
 	{:else}

@@ -765,7 +765,8 @@
 				type="button"
 				class="btn small"
 				disabled={!online}
-				onclick={() => (retryGeneration += 1)}>{documentRestored ? 'Load restored version' : 'Retry'}</button
+				onclick={() => (retryGeneration += 1)}
+				>{documentRestored ? 'Load restored version' : 'Retry'}</button
 			>
 		</div>
 	{/if}

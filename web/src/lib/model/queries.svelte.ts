@@ -166,7 +166,7 @@ function refresh<T>(query: { refetch: () => Promise<T> }): Promise<T> {
 }
 
 export function attentionQuery(companyId: string | (() => string), enabled: QueryEnabled = true) {
-	const currentCompany = () => typeof companyId === 'function' ? companyId() : companyId;
+	const currentCompany = () => (typeof companyId === 'function' ? companyId() : companyId);
 	const client = useQueryClient();
 	onMount(() => {
 		if (typeof BroadcastChannel === 'undefined') return;
@@ -223,10 +223,14 @@ export async function removeConfirmedAttention(
 	const queryKey = queryKeys.attention(companyId);
 	// An older in-flight read must not put the decided card back into the queue.
 	await client.cancelQueries({ queryKey });
-	client.setQueryData<AttentionView>(queryKey, (view) => view && ({
-		...view,
-		items: view.items.filter((item) => item.id !== itemId)
-	}));
+	client.setQueryData<AttentionView>(
+		queryKey,
+		(view) =>
+			view && {
+				...view,
+				items: view.items.filter((item) => item.id !== itemId)
+			}
+	);
 	void refreshAttention(client, companyId);
 }
 
@@ -335,7 +339,7 @@ export function portfolioQuery() {
 }
 
 export function cockpitQuery(companyId: string | (() => string), enabled: QueryEnabled = true) {
-	const currentCompany = () => typeof companyId === 'function' ? companyId() : companyId;
+	const currentCompany = () => (typeof companyId === 'function' ? companyId() : companyId);
 	const query = createQuery(() => ({
 		queryKey: queryKeys.cockpit(currentCompany()),
 		queryFn: ({ queryKey }) => getCockpit(queryKey[1]),

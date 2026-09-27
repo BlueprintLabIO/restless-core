@@ -41,7 +41,19 @@
 				}
 			}
 			commandId ||= crypto.randomUUID();
-			await sendActorMessage(createdCompany, 'exec', direction.trim(), undefined, [], undefined, false, false, undefined, undefined, commandId);
+			await sendActorMessage(
+				createdCompany,
+				'exec',
+				direction.trim(),
+				undefined,
+				[],
+				undefined,
+				false,
+				false,
+				undefined,
+				undefined,
+				commandId
+			);
 			await goto(`/${createdCompany}`);
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Could not send this to Exec.';
@@ -52,33 +64,143 @@
 </script>
 
 <div class="create-wrap">
-	<button class="btn primary add-company" type="button" title="Start a company" aria-label="Start a company" aria-expanded={open} aria-haspopup="dialog" onclick={toggle}>
-		<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg><span class="add-company-label">New</span>
+	<button
+		class="btn primary add-company"
+		type="button"
+		title="Start a company"
+		aria-label="Start a company"
+		aria-expanded={open}
+		aria-haspopup="dialog"
+		onclick={toggle}
+	>
+		<svg
+			width="15"
+			height="15"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			stroke-width="2"
+			aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg
+		><span class="add-company-label">New</span>
 	</button>
 	{#if open}
 		<div class="create-popover" role="dialog" aria-label="Start a company">
-			<div class="popover-head"><h2>Start with Exec</h2><button class="close" type="button" aria-label="Close" disabled={busy} onclick={toggle}>×</button></div>
-			<form onsubmit={(event) => { event.preventDefault(); void create(); }}>
-				<Composer bind:value={direction} {focusKey} allowAttachments={false} minlength={1} actionLabel={createdCompany ? 'Retry sending to Exec' : 'Send to Exec'} placeholder="Tell Exec what you want to build or run…" ariaLabel="Message to Exec" disabled={busy || !!createdCompany} />
-				<p>Exec will receive this as the first message. You can name the company and choose its intelligence in the cockpit.</p>
+			<div class="popover-head">
+				<h2>Start with Exec</h2>
+				<button class="close" type="button" aria-label="Close" disabled={busy} onclick={toggle}
+					>×</button
+				>
+			</div>
+			<form
+				onsubmit={(event) => {
+					event.preventDefault();
+					void create();
+				}}
+			>
+				<Composer
+					bind:value={direction}
+					{focusKey}
+					allowAttachments={false}
+					minlength={1}
+					actionLabel={createdCompany ? 'Retry sending to Exec' : 'Send to Exec'}
+					placeholder="Tell Exec what you want to build or run…"
+					ariaLabel="Message to Exec"
+					disabled={busy || !!createdCompany}
+				/>
+				<p>
+					Exec will receive this as the first message. You can name the company and choose its
+					intelligence in the cockpit.
+				</p>
 				{#if error}<p class="error" role="alert">{error}</p>{/if}
 				{#if createdCompany}<a href={`/${createdCompany}`}>Open the company</a>{/if}
-				{#if createdCompany}<button class="btn small" type="button" disabled={busy} onclick={() => void create()}>Retry sending</button>{/if}
+				{#if createdCompany}<button
+						class="btn small"
+						type="button"
+						disabled={busy}
+						onclick={() => void create()}>Retry sending</button
+					>{/if}
 			</form>
 		</div>
 	{/if}
 </div>
 
 <style>
-	.create-wrap { position: relative; }
-	.add-company { padding: 0 12px 0 9px; }
-	.create-popover { position: absolute; right: 0; top: calc(100% + 8px); z-index: var(--z-popover, 80); width: min(470px, calc(100vw - 24px)); padding: var(--space-4); background: var(--surface-pane); border: 1px solid var(--border-strong); border-radius: var(--radius-pane); box-shadow: var(--bevel), var(--shadow-lift); animation: bridge-popover-in var(--motion-disclosure) var(--ease-spring) both; transform-origin: top right; box-sizing: border-box; }
-	.popover-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
-	.popover-head h2 { margin: 0; font-size: var(--t-head); }
-	.close { min-width: 28px; min-height: 28px; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--text-tertiary); font-size: var(--t-head); line-height: 1; cursor: pointer; transition: background-color var(--motion-state) var(--ease-standard), color var(--motion-state) var(--ease-standard); }
-	.close:hover:not(:disabled) { background: rgba(31, 41, 64, 0.06); color: var(--ink); }
-	.create-popover form { display: grid; justify-items: stretch; gap: var(--space-3); margin-top: var(--space-4); }
-	.create-popover p { margin: 0; color: var(--text-tertiary); font-size: var(--t-label); line-height: 1.45; }
-	.create-popover .error { color: var(--state-danger); }
-	@media (max-width: 520px) { .add-company { width: 44px; height: 44px; padding: 0; } .add-company-label { display: none; } .create-popover { right: -8px; width: min(470px, calc(100vw - 16px)); } }
+	.create-wrap {
+		position: relative;
+	}
+	.add-company {
+		padding: 0 12px 0 9px;
+	}
+	.create-popover {
+		position: absolute;
+		right: 0;
+		top: calc(100% + 8px);
+		z-index: var(--z-popover, 80);
+		width: min(470px, calc(100vw - 24px));
+		padding: var(--space-4);
+		background: var(--surface-pane);
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-pane);
+		box-shadow: var(--bevel), var(--shadow-lift);
+		animation: bridge-popover-in var(--motion-disclosure) var(--ease-spring) both;
+		transform-origin: top right;
+		box-sizing: border-box;
+	}
+	.popover-head {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: var(--space-3);
+	}
+	.popover-head h2 {
+		margin: 0;
+		font-size: var(--t-head);
+	}
+	.close {
+		min-width: 28px;
+		min-height: 28px;
+		border: 0;
+		border-radius: var(--radius-control);
+		background: transparent;
+		color: var(--text-tertiary);
+		font-size: var(--t-head);
+		line-height: 1;
+		cursor: pointer;
+		transition:
+			background-color var(--motion-state) var(--ease-standard),
+			color var(--motion-state) var(--ease-standard);
+	}
+	.close:hover:not(:disabled) {
+		background: rgba(31, 41, 64, 0.06);
+		color: var(--ink);
+	}
+	.create-popover form {
+		display: grid;
+		justify-items: stretch;
+		gap: var(--space-3);
+		margin-top: var(--space-4);
+	}
+	.create-popover p {
+		margin: 0;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+		line-height: 1.45;
+	}
+	.create-popover .error {
+		color: var(--state-danger);
+	}
+	@media (max-width: 520px) {
+		.add-company {
+			width: 44px;
+			height: 44px;
+			padding: 0;
+		}
+		.add-company-label {
+			display: none;
+		}
+		.create-popover {
+			right: -8px;
+			width: min(470px, calc(100vw - 16px));
+		}
+	}
 </style>

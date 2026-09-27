@@ -113,9 +113,11 @@
 		);
 	}
 	function isInUse(harness: string) {
-		return intelligence.view?.agents.some((agent) =>
-			agent.effective_model.startsWith(harness === 'codex' ? 'native-codex-' : 'native-claude-')
-		) ?? false;
+		return (
+			intelligence.view?.agents.some((agent) =>
+				agent.effective_model.startsWith(harness === 'codex' ? 'native-codex-' : 'native-claude-')
+			) ?? false
+		);
 	}
 </script>
 

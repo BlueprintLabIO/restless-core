@@ -260,11 +260,11 @@
 						<p>
 							{view.limits.runtime.usage.complete ? '' : 'At least '}{(
 								view.limits.runtime.usage.used_seconds / 3600
-							).toFixed(1)} hours running this month (UTC) · {({
+							).toFixed(1)} hours running this month (UTC) · {{
 								running: 'Running now',
 								stopped: 'Asleep',
 								absent: 'Not created yet'
-							})[view.limits.runtime.usage.status] ?? view.limits.runtime.usage.status}
+							}[view.limits.runtime.usage.status] ?? view.limits.runtime.usage.status}
 						</p>
 					{:else}
 						<p class="source-unavailable">Runtime usage is temporarily unavailable.</p>

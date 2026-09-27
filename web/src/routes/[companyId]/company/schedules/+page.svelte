@@ -91,11 +91,12 @@
 <div class="company-page schedules-page">
 	<header class="company-page-head">
 		<h1>Schedules</h1>
-		<InfoTip
-			text="Recurring Exec check-ins: when each runs next and how the last one went."
-		/>
-		<button class="btn small refresh" type="button" onclick={() => void load()} disabled={busy !== ''}
-			>Refresh</button
+		<InfoTip text="Recurring Exec check-ins: when each runs next and how the last one went." />
+		<button
+			class="btn small refresh"
+			type="button"
+			onclick={() => void load()}
+			disabled={busy !== ''}>Refresh</button
 		>
 	</header>
 

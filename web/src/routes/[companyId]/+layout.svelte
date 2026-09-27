@@ -55,9 +55,11 @@
 		);
 	});
 	const intelligence = $derived(intelligenceQuery(companyId, () => railVisible));
-	onMount(() => watchIntelligenceChanges((changed) => {
-		if (affectsCompany(changed, companyId)) void intelligence.refresh();
-	}));
+	onMount(() =>
+		watchIntelligenceChanges((changed) => {
+			if (affectsCompany(changed, companyId)) void intelligence.refresh();
+		})
+	);
 	const collaboration = $derived(collaborationBootstrapQuery(companyId, () => principal));
 	const companyCatalog = companiesQuery(() => ownerAccess);
 	const companies = $derived(companyCatalog.view);

@@ -44,7 +44,10 @@
 		busy = true;
 		error = '';
 		try {
-			const r = await fetch(`/api/companies/${companyId}/vault`, { cache: 'no-store', credentials: 'same-origin' });
+			const r = await fetch(`/api/companies/${companyId}/vault`, {
+				cache: 'no-store',
+				credentials: 'same-origin'
+			});
 			if (!r.ok) throw new Error('Could not read the company vault.');
 			view = await r.json();
 		} catch (e) {
@@ -114,31 +117,31 @@
 	{#if notice}<p class="notice" role="status">{notice}</p>{/if}
 	{#if view?.status === 'unavailable'}<p role="alert">{view.message}</p>{:else if view?.secrets}
 		{#if writable.length}<section aria-label="Add or replace a secret">
-			<h2>Add or replace a secret</h2>
-			<form onsubmit={saveSecret}>
-				<label for="vault-binding">Connection</label><select
-					id="vault-binding"
-					bind:value={binding}
-					required
-					disabled={busy}
-				>
-					<option value="" disabled>Choose a connection…</option>
-					{#each writable as ref}<option value={ref.name}>{ref.name}</option>{/each}
-				</select>
-				<label for="vault-secret">API key</label><input
-					id="vault-secret"
-					type="password"
-					bind:value={secret}
-					autocomplete="new-password"
-					placeholder="Paste API key"
-					required
-					disabled={busy}
-				/>
-				<button class="btn primary small" type="submit" disabled={busy}
-					>{busy ? 'Saving…' : 'Save in Infisical'}</button
-				>
-			</form>
-		</section>{/if}
+				<h2>Add or replace a secret</h2>
+				<form onsubmit={saveSecret}>
+					<label for="vault-binding">Connection</label><select
+						id="vault-binding"
+						bind:value={binding}
+						required
+						disabled={busy}
+					>
+						<option value="" disabled>Choose a connection…</option>
+						{#each writable as ref}<option value={ref.name}>{ref.name}</option>{/each}
+					</select>
+					<label for="vault-secret">API key</label><input
+						id="vault-secret"
+						type="password"
+						bind:value={secret}
+						autocomplete="new-password"
+						placeholder="Paste API key"
+						required
+						disabled={busy}
+					/>
+					<button class="btn primary small" type="submit" disabled={busy}
+						>{busy ? 'Saving…' : 'Save in Infisical'}</button
+					>
+				</form>
+			</section>{/if}
 		<label for="vault-search">Find a secret</label><input
 			id="vault-search"
 			type="search"

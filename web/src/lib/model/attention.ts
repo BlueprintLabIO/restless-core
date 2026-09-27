@@ -310,10 +310,7 @@ export async function resolveHandoffDecision(
 	if (!response.ok) throw await ownerError(response);
 }
 
-export async function completeHandoffHumanStep(
-	company: string,
-	handoff: string
-): Promise<void> {
+export async function completeHandoffHumanStep(company: string, handoff: string): Promise<void> {
 	const response = await fetch(
 		`/api/companies/${encodeURIComponent(company)}/handoffs/${encodeURIComponent(handoff)}/complete`,
 		{
