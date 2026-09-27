@@ -68,6 +68,20 @@ the actor Runtime with the same Attempt grant. This is a compatibility
 fallback, not evidence that native model MCP calls work. It must not access
 CH directly or broaden the actor's tool authority.
 
+### Pilot isolation limit
+
+The compatibility command reads an Attempt grant from a `0600` file in the
+company Runtime. That mode protects the file from other Unix users, but the
+current company agents share the `company` Unix identity and Runtime volume.
+A same-UID peer that finds another live Attempt's file could copy its grant
+and impersonate that scoped actor until the grant expires or the Attempt
+ends. Core still enforces the signed company, actor, Work, Attempt, connection,
+tool allowlist, and live-Attempt checks; those checks do not authenticate the
+process holding a stolen bearer. The pilot must not be described as providing
+OS-enforced actor isolation. Move each actor into a distinct UID/container or
+replace the file with a credential-free, process-authenticated broker channel
+before treating this as a general multi-actor security boundary.
+
 ## Release gates
 
 - The CH pilot reads a current listing from its saved authenticated profile in
