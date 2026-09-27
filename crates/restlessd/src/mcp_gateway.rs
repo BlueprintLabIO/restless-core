@@ -36,8 +36,8 @@ use rmcp::{
     },
     RoleServer, ServerHandler, ServiceExt,
 };
-use sha2::{Digest as _, Sha256};
 use serde::Deserialize;
+use sha2::{Digest as _, Sha256};
 use sqlx::PgPool;
 use tower::ServiceExt as _;
 
@@ -51,9 +51,43 @@ const MAX_FACADE_REQUEST_BYTES: usize = 16 * 1024;
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "kebab-case", deny_unknown_fields)]
 enum ReadRequest {
-    MarketplaceSearch { query: String, limit: Option<u8> },
-    MarketplaceDetails { urls: Vec<String> },
-    GumtreeListing { url: String },
+    MarketplaceSearch {
+        query: String,
+        limit: Option<u8>,
+        #[serde(rename = "fastSearch")]
+        fast_search: Option<bool>,
+    },
+    MarketplaceDetails {
+        urls: Vec<String>,
+        #[serde(rename = "streamDetails")]
+        stream_details: Option<bool>,
+    },
+    GumtreeListing {
+        url: String,
+    },
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MarketplaceSearchArgs {
+    query: String,
+    limit: Option<u8>,
+    #[serde(rename = "fastSearch")]
+    fast_search: Option<bool>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MarketplaceDetailsArgs {
+    urls: Vec<String>,
+    #[serde(rename = "streamDetails")]
+    stream_details: Option<bool>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GumtreeListingArgs {
+    url: String,
 }
 
 pub(crate) struct McpProbe {
@@ -147,7 +181,11 @@ fn valid_listing_url(raw: &str, site: &str) -> bool {
 
 fn read_request_params(request: ReadRequest) -> Result<CallToolRequestParams> {
     let (name, arguments) = match request {
-        ReadRequest::MarketplaceSearch { query, limit } => {
+        ReadRequest::MarketplaceSearch {
+            query,
+            limit,
+            fast_search,
+        } => {
             let query = query.trim();
             if query.is_empty()
                 || query.chars().count() > 120
@@ -156,22 +194,27 @@ fn read_request_params(request: ReadRequest) -> Result<CallToolRequestParams> {
             {
                 bail!("invalid Marketplace search request");
             }
-            (
-                "clapping_hands_marketplace_search",
-                serde_json::json!({"query":query,"limit":limit.unwrap_or(12)}),
-            )
+            let mut arguments = serde_json::json!({"query":query,"limit":limit.unwrap_or(12)});
+            if let Some(fast_search) = fast_search {
+                arguments["fastSearch"] = serde_json::json!(fast_search);
+            }
+            ("clapping_hands_marketplace_search", arguments)
         }
-        ReadRequest::MarketplaceDetails { urls } => {
+        ReadRequest::MarketplaceDetails {
+            urls,
+            stream_details,
+        } => {
             if !(1..=8).contains(&urls.len())
                 || !urls.iter().all(|url| valid_listing_url(url, "facebook"))
                 || urls.iter().collect::<std::collections::HashSet<_>>().len() != urls.len()
             {
                 bail!("invalid Marketplace detail request");
             }
-            (
-                "clapping_hands_marketplace_details",
-                serde_json::json!({"urls":urls}),
-            )
+            let mut arguments = serde_json::json!({"urls":urls});
+            if let Some(stream_details) = stream_details {
+                arguments["streamDetails"] = serde_json::json!(stream_details);
+            }
+            ("clapping_hands_marketplace_details", arguments)
         }
         ReadRequest::GumtreeListing { url } => {
             if !valid_listing_url(&url, "gumtree") {
@@ -189,6 +232,43 @@ fn read_request_params(request: ReadRequest) -> Result<CallToolRequestParams> {
             .context("MCP facade arguments are not an object")?
             .clone(),
     ))
+}
+
+/// The same Attempt grant can reach both the MCP SDK route and the narrow CLI
+/// facade. Normalize and validate arguments here so neither transport can
+/// widen the reviewed read-only CH profile.
+fn validated_read_params(params: CallToolRequestParams) -> Result<CallToolRequestParams> {
+    if params.meta.is_some() || params.input_responses.is_some() || params.request_state.is_some() {
+        bail!("MCP read request has unsupported protocol fields");
+    }
+    let arguments = serde_json::Value::Object(
+        params
+            .arguments
+            .context("MCP read arguments are required")?,
+    );
+    let request = match params.name.as_ref() {
+        "clapping_hands_marketplace_search" => {
+            let args: MarketplaceSearchArgs = serde_json::from_value(arguments)?;
+            ReadRequest::MarketplaceSearch {
+                query: args.query,
+                limit: args.limit,
+                fast_search: args.fast_search,
+            }
+        }
+        "clapping_hands_marketplace_details" => {
+            let args: MarketplaceDetailsArgs = serde_json::from_value(arguments)?;
+            ReadRequest::MarketplaceDetails {
+                urls: args.urls,
+                stream_details: args.stream_details,
+            }
+        }
+        "clapping_hands_gumtree_public_listing" => {
+            let args: GumtreeListingArgs = serde_json::from_value(arguments)?;
+            ReadRequest::GumtreeListing { url: args.url }
+        }
+        _ => bail!("MCP tool is outside the reviewed read profile"),
+    };
+    read_request_params(request)
 }
 
 pub(crate) fn read_host_token(token_file: &str) -> Result<String> {
@@ -360,6 +440,7 @@ impl ScopedMcp {
     }
 
     async fn invoke(&self, params: CallToolRequestParams) -> Result<CallToolResult> {
+        let params = validated_read_params(params)?;
         let tool_name = params.name.to_string();
         if !self
             .connection
