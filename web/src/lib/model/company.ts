@@ -279,6 +279,15 @@ export async function openCompanyResource(
 	);
 }
 
+export async function disableCompanyMcp(company: string, name: string): Promise<void> {
+	await ownerResponse<unknown>(
+		await fetch(
+			`/api/companies/${encodeURIComponent(company)}/company/mcp/${encodeURIComponent(name)}/disable`,
+			{ method: 'POST', credentials: 'same-origin' }
+		)
+	);
+}
+
 export async function recoverCompany(
 	company: string,
 	action: RecoveryAction

@@ -1485,6 +1485,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(recover_company_computer),
         )
         .route(
+            "/companies/{company}/company/mcp/{name}/disable",
+            post(disable_company_mcp),
+        )
+        .route(
             "/companies/{company}/company/authority-owner",
             get(company_authority_owner),
         )
@@ -5682,6 +5686,41 @@ async fn recover_company_computer(
             format!("{error:#}"),
         ),
     }
+}
+
+/// Revocation is an owner action. The MCP gateway reads enabled state on each
+/// request, so an already-issued Attempt grant stops working immediately.
+async fn disable_company_mcp(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, name)): AxumPath<(String, String)>,
+) -> impl IntoResponse {
+    if runtime::CompanyConfig::load(&state.daemon.root, &company).is_err() {
+        return api_error(StatusCode::NOT_FOUND, "company", "company does not exist");
+    }
+    if let Err(refusal) = require_authority_owner(&state, &company, &principal).await {
+        return refusal;
+    }
+    let server = match crate::connected_tool::disable_local_mcp(
+        state.daemon.authority.pool(),
+        &company,
+        &name,
+    )
+    .await
+    {
+        Ok(server) => server,
+        Err(error) => return api_error(StatusCode::CONFLICT, "local_mcp", format!("{error:#}")),
+    };
+    if let Ok(org) = state.daemon.orgintel.get(&company).await {
+        let _ = org
+            .emit_event(
+                "local_mcp_disabled",
+                Some(principal.actor_id()),
+                serde_json::json!({ "name": server.name, "assigned_actor": server.assigned_actor }),
+            )
+            .await;
+    }
+    Json(server).into_response()
 }
 
 #[derive(Debug, Serialize)]

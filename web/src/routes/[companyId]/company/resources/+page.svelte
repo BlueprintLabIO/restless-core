@@ -3,7 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import InfoTip from '$lib/components/InfoTip.svelte';
-	import { openCompanyResource, type CompanyResource } from '$lib/model/company';
+	import { disableCompanyMcp, openCompanyResource, type CompanyResource } from '$lib/model/company';
 	import { companyQuery } from '$lib/model/queries.svelte';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
@@ -21,6 +21,10 @@
 	let launchError = $state<string | null>(null);
 	let embedded = $state<{ href: string; label: string } | null>(null);
 	let nativeNotice = $state<string | null>(null);
+	let disableTarget = $state<string | null>(null);
+	let disabling = $state<string | null>(null);
+	let disableError = $state<string | null>(null);
+	let disableNotice = $state<string | null>(null);
 
 	function when(value: string): string {
 		return new Date(value).toLocaleString(undefined, {
@@ -35,13 +39,44 @@
 		return value.replaceAll('_', ' ');
 	}
 
-	function connectionState(status: string): string {
-		switch (status) {
+	function connectionState(item: CompanyResource): string {
+		const read = metadataText(item, 'last_read_status');
+		const site = metadataText(item, 'last_read_site');
+		const failure = metadataText(item, 'failure');
+		if (item.status === 'ready' && site === 'facebook-marketplace' && read === 'complete') {
+			return 'Facebook read worked';
+		}
+		if (failure === 'authentication-required' || read === 'auth-required') return 'Login needed';
+		if (failure === 'profile-in-use' || failure === 'profile-recovery-required') return 'Browser needs attention';
+		switch (item.status) {
 			case 'ready': return 'MCP reachable';
 			case 'degraded': return 'Needs attention';
 			case 'disabled': return 'Disabled';
 			case 'disconnected': return 'Not connected';
-			default: return words(status);
+			default: return words(item.status);
+		}
+	}
+
+	async function confirmDisable(item: CompanyResource) {
+		const name = metadataText(item, 'name');
+		if (!name || disabling) return;
+		if (disableTarget !== item.id) {
+			disableTarget = item.id;
+			disableError = null;
+			return;
+		}
+		disabling = item.id;
+		disableError = null;
+		disableNotice = null;
+		try {
+			await disableCompanyMcp(companyId, name);
+			disableNotice = `${item.label} is disabled. Active agent access has been revoked.`;
+			await source.refresh();
+		} catch (error) {
+			disableError = error instanceof Error ? error.message : 'Could not disable this connection.';
+		} finally {
+			disabling = null;
+			disableTarget = null;
 		}
 	}
 
@@ -119,7 +154,7 @@
 						<article class="mcp-card" aria-label={item.label}>
 							<div class="mcp-card-head">
 								<h3>{item.label}</h3>
-								<span class="state-chip state-{item.status}">{connectionState(item.status)}</span>
+								<span class="state-chip state-{item.status}">{connectionState(item)}</span>
 							</div>
 							{#if item.detail}<p>{item.detail}</p>{/if}
 							<dl class="mcp-facts">
@@ -129,6 +164,19 @@
 								<div><dt>Assigned to</dt><dd>{metadataText(item, 'assigned_actor') ?? 'No agent assigned'}</dd></div>
 								<div><dt>Last successful tool call</dt><dd>{observedTime(metadataText(item, 'last_success_at'))}</dd></div>
 							</dl>
+							{#if metadataText(item, 'last_read_status')}
+								<p class="mcp-read-state">Last read: {words(metadataText(item, 'last_read_status') ?? '')}{#if metadataText(item, 'last_read_site')} on {words(metadataText(item, 'last_read_site') ?? '')}{/if}.</p>
+							{/if}
+							{#if item.status !== 'disabled' && metadataText(item, 'name')}
+								<div class="mcp-actions">
+									{#if disableTarget === item.id}<span>Stop agent access to this connection now?</span>{/if}
+									<button type="button" class="btn small" disabled={disabling !== null}
+										onclick={() => confirmDisable(item)}>
+										{disabling === item.id ? 'Disabling…' : disableTarget === item.id ? 'Confirm disable' : 'Disable connection'}
+									</button>
+									{#if disableTarget === item.id}<button type="button" class="btn small" onclick={() => (disableTarget = null)}>Cancel</button>{/if}
+								</div>
+							{/if}
 							<details class="mcp-details">
 								<summary>Connection details</summary>
 								<dl>
@@ -137,14 +185,17 @@
 									<div><dt>Permitted tools</dt><dd>{metadataList(item, 'allowed_tools').join(', ') || 'None'}</dd></div>
 									<div><dt>Observed tools</dt><dd>{metadataList(item, 'observed_tools').join(', ') || 'None yet'}</dd></div>
 									<div><dt>Tool contract</dt><dd>{metadataText(item, 'tool_contract_digest') ?? 'Unverified'}</dd></div>
+									{#if metadataText(item, 'last_read_tool')}<div><dt>Last tool</dt><dd>{metadataText(item, 'last_read_tool')}</dd></div>{/if}
 									{#if metadataText(item, 'failure')}
 										<div><dt>Current error</dt><dd>{metadataText(item, 'failure')}</dd></div>
 									{/if}
 								</dl>
 							</details>
 						</article>
-					{/each}
-				</div>
+							{/each}
+						</div>
+						{#if disableError}<p class="launch-message launch-message-error" role="alert">{disableError}</p>{/if}
+						{#if disableNotice}<p class="launch-message" role="status">{disableNotice}</p>{/if}
 			{:else if view.resources.status === 'available'}
 				<p class="quiet-empty">No local MCP connection has been observed for this company.</p>
 			{/if}
@@ -318,6 +369,19 @@
 		margin-top: var(--space-4);
 		border-top: 1px solid var(--company-edge-soft);
 		padding-top: var(--space-3);
+	}
+
+	.mcp-read-state {
+		margin: var(--space-3) 0 0;
+		color: var(--text-secondary);
+	}
+
+	.mcp-actions {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: var(--space-2);
+		margin-top: var(--space-4);
 	}
 
 	.mcp-details summary {
