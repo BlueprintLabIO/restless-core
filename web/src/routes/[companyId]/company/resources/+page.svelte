@@ -46,8 +46,17 @@
 		if (item.status === 'ready' && site === 'facebook-marketplace' && read === 'complete') {
 			return 'Facebook read worked';
 		}
-		if (failure === 'authentication-required' || read === 'auth-required') return 'Login needed';
-		if (failure === 'profile-in-use' || failure === 'profile-recovery-required') return 'Browser needs attention';
+		if (
+			failure === 'authentication-required' ||
+			read === 'auth-required' ||
+			read === 'authentication-required'
+		) return 'Login needed';
+		if (
+			failure === 'profile-in-use' ||
+			failure === 'profile-recovery-required' ||
+			read === 'profile-in-use' ||
+			read === 'profile-recovery-required'
+		) return 'Browser needs attention';
 		switch (item.status) {
 			case 'ready': return 'MCP reachable';
 			case 'degraded': return 'Needs attention';
@@ -184,6 +193,7 @@
 									<div><dt>Work</dt><dd>{metadataText(item, 'work_id') ?? 'Not Work-bound'}</dd></div>
 									<div><dt>Permitted tools</dt><dd>{metadataList(item, 'allowed_tools').join(', ') || 'None'}</dd></div>
 									<div><dt>Observed tools</dt><dd>{metadataList(item, 'observed_tools').join(', ') || 'None yet'}</dd></div>
+									{#if metadataText(item, 'server_version')}<div><dt>Server version</dt><dd>{metadataText(item, 'server_version')}</dd></div>{/if}
 									<div><dt>Tool contract</dt><dd>{metadataText(item, 'tool_contract_digest') ?? 'Unverified'}</dd></div>
 									{#if metadataText(item, 'last_read_tool')}<div><dt>Last tool</dt><dd>{metadataText(item, 'last_read_tool')}</dd></div>{/if}
 									{#if metadataText(item, 'failure')}
