@@ -27,7 +27,7 @@ const RUNTIME_CREDENTIAL_ROOT: &str = "/company/home/.restless/connected-tools";
 /// passed to the MCP child; the child receives only selected ambient variable
 /// names from its already-scoped actor session.
 pub(crate) const BROKER_AWARE_ACTOR_ENV_MARKER: &str = "RESTLESS_INTERNAL_BROKER_AWARE_ACTOR_ENV";
-pub(crate) const LOCAL_MCP_PROXY_PORT: u16 = 7795;
+pub(crate) const LOCAL_MCP_PROXY_PORT: u16 = 7797;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
