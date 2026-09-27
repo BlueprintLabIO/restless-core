@@ -126,6 +126,7 @@ pub(crate) fn read_host_token(token_file: &str) -> Result<String> {
 fn transport(endpoint: &str, token: String) -> StreamableHttpClientTransport<reqwest_mcp::Client> {
     let client = reqwest_mcp::Client::builder()
         .connect_timeout(Duration::from_secs(5))
+        .no_proxy()
         .redirect(reqwest_mcp::redirect::Policy::none())
         .build()
         .expect("fixed local MCP HTTP client configuration");

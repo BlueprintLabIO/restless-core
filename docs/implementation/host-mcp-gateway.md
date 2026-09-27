@@ -13,7 +13,7 @@ still runs inside its Runtime volume.
    owner-only token file is outside every company Runtime.
 2. Choose a blocked Work owned by the intended active Staff actor. Install an
    exact endpoint, actor, Work, and one or more exact tool names with the owner
-   CLI `restless local-mcp <company> install-host --name <name> --endpoint
+   CLI `restless local-mcp --company <company> install-host --name <name> --endpoint
    http://127.0.0.1:8799/mcp --token-file <absolute-private-file> --actor
    <actor> --work <work-uuid> --tool <tool-name>`.
 3. Install probes the server through the MCP SDK, records its version and the
@@ -23,7 +23,7 @@ still runs inside its Runtime volume.
    company, actor, connection, Work, and Attempt. The capability expires after
    the normal session TTL. The Docker bridge endpoint accepts only that grant
    while the Attempt remains live and un-interrupted.
-5. `restless local-mcp <company> disable --name <name>` or the owner Resources
+5. `restless local-mcp --company <company> disable --name <name>` or the owner Resources
    action disables new calls. An in-flight call checks connection and Attempt
    state every two seconds and stops waiting if revoked. The upstream read may
    already be underway, so disabling is not a rollback of that read.
