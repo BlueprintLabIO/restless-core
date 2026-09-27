@@ -13,6 +13,7 @@ struct WorkCreationPolicy<'a> {
     /// Explicitly selected company skills, pinned to their current digest in
     /// the same transaction so the first Attempt already carries them.
     skills: &'a [String],
+    opportunity_source: Option<OpportunityWorkSource>,
 }
 
 impl Default for WorkCreationPolicy<'_> {
@@ -24,6 +25,7 @@ impl Default for WorkCreationPolicy<'_> {
             commissioned_by: None,
             constitution_contracts: None,
             skills: &[],
+            opportunity_source: None,
         }
     }
 }
@@ -228,6 +230,7 @@ impl OrgIntel {
                 commissioned_by: Some(commissioned_by),
                 constitution_contracts: None,
                 skills: &[],
+                opportunity_source: None,
             },
         )
         .await
@@ -249,6 +252,39 @@ impl OrgIntel {
         constitution_contracts: Option<&InitialConstitutionContracts>,
         skills: &[String],
     ) -> Result<Uuid> {
+        self.add_commissioned_work_with_opportunity(
+            work,
+            requires,
+            revises,
+            gates,
+            owner_review_required,
+            source_message_id,
+            commissioned_by,
+            producing_topology,
+            constitution_contracts,
+            skills,
+            None,
+        )
+        .await
+    }
+
+    /// The ordinary commissioning contract with an optional exact scheduled
+    /// Opportunity. The source and primary link commit before Work is visible.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn add_commissioned_work_with_opportunity(
+        &self,
+        work: NewWork<'_>,
+        requires: &[Uuid],
+        revises: &[Uuid],
+        gates: &[InitialWorkGate<'_>],
+        owner_review_required: bool,
+        source_message_id: Option<i64>,
+        commissioned_by: &str,
+        producing_topology: ProducingTopology,
+        constitution_contracts: Option<&InitialConstitutionContracts>,
+        skills: &[String],
+        opportunity_source: Option<OpportunityWorkSource>,
+    ) -> Result<Uuid> {
         self.add_work_inner(
             work,
             requires,
@@ -261,6 +297,7 @@ impl OrgIntel {
                 commissioned_by: Some(commissioned_by),
                 constitution_contracts,
                 skills,
+                opportunity_source,
             },
         )
         .await
@@ -294,6 +331,7 @@ impl OrgIntel {
                 commissioned_by: Some(commissioned_by),
                 constitution_contracts: Some(constitution_contracts),
                 skills: &[],
+                opportunity_source: None,
             },
         )
         .await
@@ -326,6 +364,7 @@ impl OrgIntel {
                 commissioned_by: Some(commissioned_by),
                 constitution_contracts: None,
                 skills: &[],
+                opportunity_source: None,
             },
         )
         .await
@@ -370,6 +409,7 @@ impl OrgIntel {
             commissioned_by,
             constitution_contracts,
             skills,
+            opportunity_source,
         } = policy;
         if work.title.trim().is_empty() || work.outcome.trim().is_empty() {
             return Err(OrgIntelError::InvalidWork(
@@ -382,6 +422,95 @@ impl OrgIntel {
             ));
         }
         let mut tx = self.pool.begin().await?;
+        let validated_opportunity_source = if let Some(source) = opportunity_source {
+            let commissioner = commissioned_by.ok_or_else(|| {
+                OrgIntelError::InvalidWork(
+                    "scheduled Opportunity Work needs an attributed commissioner".into(),
+                )
+            })?;
+            // The scheduler locks Schedule before Opportunity. Match that
+            // order, and keep both rows stable until Work and link commit.
+            let schedule = sqlx::query_as::<_, (String, Uuid, i32)>(
+                "SELECT actor_id, responsibility_id, responsibility_version FROM schedules \
+                 WHERE id=$1 AND recurrence IS NOT NULL AND cancelled_at IS NULL \
+                   AND work_id IS NULL AND responsibility_id IS NOT NULL \
+                   AND responsibility_version IS NOT NULL FOR SHARE",
+            )
+            .bind(source.schedule_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| {
+                OrgIntelError::InvalidWork(format!(
+                    "schedule {} is not a live recurring responsibility",
+                    source.schedule_id
+                ))
+            })?;
+            let opportunity = sqlx::query_as::<
+                _,
+                (
+                    String,
+                    Uuid,
+                    i32,
+                    i64,
+                    Option<String>,
+                    Option<DateTime<Utc>>,
+                    String,
+                    Option<DateTime<Utc>>,
+                ),
+            >(
+                "SELECT actor_id, responsibility_id, responsibility_version, owner_epoch, \
+                   lease_owner, lease_expires_at, state, deadline_at \
+                 FROM opportunities WHERE id=$1 FOR UPDATE",
+            )
+            .bind(source.opportunity_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| {
+                OrgIntelError::InvalidWork(format!(
+                    "Opportunity {} does not exist",
+                    source.opportunity_id
+                ))
+            })?;
+            let now = Utc::now();
+            if schedule.0 != opportunity.0
+                || schedule.1 != opportunity.1
+                || schedule.2 != opportunity.2
+                || opportunity.3 != source.owner_epoch
+                || opportunity.4.as_deref() != Some(commissioner)
+                || !opportunity.5.is_some_and(|expires_at| expires_at > now)
+                || matches!(
+                    opportunity.6.as_str(),
+                    "completed" | "needs_human" | "blocked" | "cancelled"
+                )
+                || !opportunity.7.is_some_and(|deadline_at| deadline_at > now)
+            {
+                return Err(OrgIntelError::InvalidWork(
+                    "scheduled Opportunity needs the current commissioner lease, matching responsibility and open deadline".into(),
+                ));
+            }
+            let scheduled_for = sqlx::query_scalar::<_, DateTime<Utc>>(
+                "SELECT scheduled_for FROM schedule_occurrences \
+                 WHERE schedule_id=$1 AND opportunity_id=$2 \
+                   AND responsibility_id=$3 AND responsibility_version=$4 \
+                   AND admission IN ('admitted','coalesced') \
+                 ORDER BY scheduled_for DESC LIMIT 1 FOR SHARE",
+            )
+            .bind(source.schedule_id)
+            .bind(source.opportunity_id)
+            .bind(schedule.1)
+            .bind(schedule.2)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| {
+                OrgIntelError::InvalidWork(format!(
+                    "Opportunity {} has no admitted occurrence from schedule {}",
+                    source.opportunity_id, source.schedule_id
+                ))
+            })?;
+            Some((source.opportunity_id, source.schedule_id, scheduled_for))
+        } else {
+            None
+        };
         if let Some((message_id, commissioned_by)) = external_source {
             // This transaction-scoped lock is deliberately local to one
             // factual source message. It closes the only duplicate-commission
@@ -627,6 +756,22 @@ impl OrgIntel {
         .bind(work.attempt_limit)
         .execute(&mut *tx)
         .await?;
+
+        if let Some((opportunity_id, schedule_id, scheduled_for)) = validated_opportunity_source {
+            // This insert and Work creation share one transaction. An existing
+            // primary link fails the unique index and rolls the Work back.
+            sqlx::query(
+                "INSERT INTO opportunity_work \
+                 (opportunity_id, work_id, relation, source_schedule_id, source_scheduled_for) \
+                 VALUES ($1,$2,'primary',$3,$4)",
+            )
+            .bind(opportunity_id)
+            .bind(id)
+            .bind(schedule_id)
+            .bind(scheduled_for)
+            .execute(&mut *tx)
+            .await?;
+        }
 
         // Bind the identity release at commissioning time, not first
         // execution. A queued Work item must not silently adopt a release that

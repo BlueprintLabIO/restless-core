@@ -236,6 +236,11 @@ pub(crate) struct OrgIntelInput {
     pub(crate) goal: Option<String>,
     #[serde(default)]
     pub(crate) source_message_id: Option<i64>,
+    /// Exact recurring Opportunity provenance for atomic Work commissioning.
+    #[serde(default)]
+    pub(crate) opportunity_id: Option<String>,
+    #[serde(default)]
+    pub(crate) schedule_id: Option<String>,
     #[serde(default)]
     pub(crate) outcome_standard: Option<String>,
     #[serde(default)]
@@ -893,6 +898,9 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
             "attempt_limit",
             "owner_review",
             "source_message_id",
+            "opportunity_id",
+            "owner_epoch",
+            "schedule_id",
             "requires",
             "revises",
             "gates",

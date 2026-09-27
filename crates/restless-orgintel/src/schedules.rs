@@ -337,7 +337,7 @@ impl OrgIntel {
         opportunity_id: Uuid,
     ) -> Result<Vec<OpportunityWorkLink>> {
         Ok(sqlx::query_as::<_, OpportunityWorkLink>(
-            "SELECT opportunity_id, work_id, linked_at, relation FROM opportunity_work \
+            "SELECT opportunity_id, work_id, linked_at, relation, source_schedule_id, source_scheduled_for FROM opportunity_work \
              WHERE opportunity_id=$1 ORDER BY linked_at, work_id",
         )
         .bind(opportunity_id)

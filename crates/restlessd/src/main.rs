@@ -3970,6 +3970,37 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                             },
                             None => None,
                         };
+                        let opportunity_source = match (
+                            request.orgintel.opportunity_id.as_deref(),
+                            request.common.owner_epoch,
+                            request.orgintel.schedule_id.as_deref(),
+                        ) {
+                            (None, None, None) => None,
+                            (Some(opportunity_id), Some(owner_epoch), Some(schedule_id))
+                                if owner_epoch > 0 =>
+                            {
+                                let opportunity_id = match uuid::Uuid::parse_str(opportunity_id) {
+                                    Ok(id) => id,
+                                    Err(error) => return Response::err(format!(
+                                        "bad Opportunity id: {error}"
+                                    )),
+                                };
+                                let schedule_id = match uuid::Uuid::parse_str(schedule_id) {
+                                    Ok(id) => id,
+                                    Err(error) => return Response::err(format!(
+                                        "bad schedule id: {error}"
+                                    )),
+                                };
+                                Some(restless_orgintel::OpportunityWorkSource {
+                                    opportunity_id,
+                                    owner_epoch,
+                                    schedule_id,
+                                })
+                            }
+                            _ => return Response::err(
+                                "scheduled Work needs --opportunity, positive --owner-epoch and --schedule together",
+                            ),
+                        };
                         let work = restless_orgintel::NewWork {
                             owner_id: owner,
                             title,
@@ -4016,7 +4047,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                             })
                             .collect::<Vec<_>>();
                         let added = org
-                            .add_commissioned_work(
+                            .add_commissioned_work_with_opportunity(
                                 work,
                                 &requires,
                                 &revises,
@@ -4027,6 +4058,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                                 producing_topology,
                                 request.orgintel.constitution_contracts.as_ref(),
                                 &request.orgintel.skills,
+                                opportunity_source,
                             )
                             .await;
                         match added {
@@ -4037,6 +4069,8 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                                 "commissioned_by": commissioned_by,
                                 "producing_topology": producing_topology,
                                 "skills": &request.orgintel.skills,
+                                "opportunity_id": opportunity_source.map(|source| source.opportunity_id),
+                                "source_schedule_id": opportunity_source.map(|source| source.schedule_id),
                             })),
                             Err(error) => Response::err(format!("{error:#}")),
                         }

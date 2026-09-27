@@ -284,6 +284,16 @@ pub struct NewWork<'a> {
     pub attempt_limit: Option<i32>,
 }
 
+/// A currently leased Opportunity and exact recurring schedule that a
+/// commissioner intends to turn into primary Work. OrgIntel resolves and
+/// stores the admitted occurrence inside the Work creation transaction.
+#[derive(Debug, Clone, Copy)]
+pub struct OpportunityWorkSource {
+    pub opportunity_id: Uuid,
+    pub owner_epoch: i64,
+    pub schedule_id: Uuid,
+}
+
 /// One deterministic check declared in the same transaction as its Work.
 /// It runs from the current Attempt workspace, so a revision cannot silently
 /// keep checking the prior revision's generated worktree.
@@ -1093,6 +1103,8 @@ pub struct OpportunityWorkLink {
     pub work_id: Uuid,
     pub linked_at: DateTime<Utc>,
     pub relation: String,
+    pub source_schedule_id: Option<Uuid>,
+    pub source_scheduled_for: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]

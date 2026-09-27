@@ -1497,6 +1497,16 @@ enum WorkCommand {
         /// atomically so redelivery cannot commission duplicate Work.
         #[arg(long)]
         source_message: Option<i64>,
+        /// Lease-held Opportunity whose primary Work and exact recurring
+        /// source occurrence must be committed with this Work.
+        #[arg(long, requires_all = ["owner_epoch", "schedule"])]
+        opportunity: Option<String>,
+        /// Current Opportunity lease epoch, paired with --opportunity.
+        #[arg(long, requires_all = ["opportunity", "schedule"])]
+        owner_epoch: Option<i64>,
+        /// Recurring schedule whose admitted occurrence sourced this Work.
+        #[arg(long, requires_all = ["opportunity", "owner_epoch"])]
+        schedule: Option<String>,
         /// Existing Work this node requires. Repeat for more than one. These
         /// edges are committed atomically with the node so it cannot start
         /// against a half-built graph.
@@ -3427,6 +3437,9 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 owner_review,
                 goal,
                 source_message,
+                opportunity,
+                owner_epoch,
+                schedule,
                 requires,
                 revises,
                 gate,
@@ -3455,6 +3468,8 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                     "integration_branch": integration_branch, "worktree": worktree,
                     "attempt_limit": attempt_limit, "owner_review": owner_review, "goal": goal,
                     "source_message_id": source_message,
+                    "opportunity_id": opportunity, "owner_epoch": owner_epoch,
+                    "schedule_id": schedule,
                     "requires": requires, "revises": revises, "gates": gates,
                     "constitution_contracts": constitution_contracts,
                     "skills": skill,
