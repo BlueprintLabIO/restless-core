@@ -1,24 +1,26 @@
 # Recurring Clapping Hands MCP grant: implementation contract
 
-Status: design only. No recurring MCP authority is implemented by this document.
-The current `clapping-hands` connection remains pinned to one Work. Do not
-change its row or the active sourcing Attempt while implementing this design.
+Status: implemented in Core `e2b8902` and smoke-checked in an isolated company
+on 28 September 2026 AEST. Sydney Resale has a separate active daily read-only
+responsibility and standing CH policy; its first scheduled outcome is pending.
+The existing `clapping-hands` fixed-Work pin remains available and is not
+rewritten by a recurring policy.
 
 ## Observed gap and ownership
 
 `schedule create-responsibility` binds a schedule to an immutable responsibility
 version. A due occurrence admits an Opportunity; Exec or its accountable lead
 may commission Staff Work and link that Work to the Opportunity. The scheduler
-does not create production Work merely because a time fact fired. Today the
-reviewed CH connection stores one `assigned_work_id`; both actor launch and the
-MCP gateway compare against that exact UUID. A new daily Work therefore has no
-CH tools until the owner re-pins the connection.
+does not create production Work merely because a time fact fired. The reviewed
+CH connection still stores one `assigned_work_id` for its fixed pin. The
+separate approved recurring policy grants a new Work only when its atomic
+Opportunity source matches this schedule and responsibility.
 
 The owner should approve a **standing eligibility policy**, while Core still
 issues a fresh, short-lived MCP grant only for one real Staff Attempt. The
 policy is restricted to one company, existing reviewed CH connection, recurring
 schedule UUID, responsibility UUID and version, and Staff actor. It copies the
-connection's exact four-tool read allowlist, server version, contract
+connection's exact reviewed four- or five-tool read allowlist, server version, contract
 digest, endpoint identity and current connection policy revision. It grants no
 OAuth, local stdio, browser-control or effectful MCP tool.
 
@@ -41,7 +43,7 @@ Inspection shows both the standing policy and the existing fixed-Work pin.
 Approval performs a fresh MCP probe and requires its server version and exact
 selected-tool digest to equal the enabled connection's pin. It also verifies
 the connection's reviewed `clapping_hands_v1` host HTTP profile and exact
-four-tool allowlist. The schedule must be uncancelled and recurring, name the supplied
+four- or five-tool allowlist. The schedule must be uncancelled and recurring, name the supplied
 responsibility version, and belongs to this company; the actor must be active
 Staff and match the connection's assigned actor. This command never changes
 the connection's Work assignment, token file, endpoint or browser profile.
@@ -123,18 +125,18 @@ Work/Attempt and live policy scope, but this change does not provide OS-level
 actor isolation. Do not claim that boundary until separate identities or a
 process-authenticated channel replaces the grant file.
 
-Before release, complete one isolated `_test` company smoke using the real CH
-MCP service: approve the policy without mutating the fixed pin; admit an
-Opportunity; atomically commission and link a Staff Work; observe a native CH
-call and its matching started/terminal receipts with Work, Attempt, schedule
-and Opportunity. Confirm a same-Goal Work, a Work sourced from another
-schedule that coalesced into this Opportunity, and a Work linked only by the
-old `schedule link-work` path receive no recurring CH tool. Revoke the policy and
-confirm the old grant fails; confirm the prior fixed-Work connection remains
-usable. Repeat the lineage check after schedule cancellation or version
-change, and fail closed on an upstream contract change. No live company
-service, browser profile, or existing connection pin needs to be changed for
-the implementation build.
+The isolated `_test` company smoke used the real CH MCP service. Owner approval
+left the fixed pin intact; a scheduled Opportunity was admitted; Exec created
+and linked Staff Work atomically; Staff made one native Facebook detail call;
+and Core recorded its matching started/terminal receipts with Work, Attempt,
+schedule and Opportunity. The schedule was then cancelled, its policy revoked
+and rotated, and the disposable company removed. An old-grant denial after
+revocation was not isolated because the Attempt had already ended; a terminal
+Attempt would independently deny the call. Other negative lineage, cancellation,
+and upstream-contract cases are enforced by source checks but were not all
+replayed in this black-box smoke. The first Sydney daily sourcing outcome is
+still pending. Its actor guidance corrects the isolated Exec's use of the
+generic effect ledger and misreading of CH's `document-replay` engine.
 
 Code boundaries: `crates/restless-orgintel/migrations/` and
 `src/goals_work.rs`/`src/schedules.rs` own the atomic link and lineage query;
@@ -142,5 +144,5 @@ Code boundaries: `crates/restless-orgintel/migrations/` and
 attachment; `capability.rs` carries the recurring policy identity;
 `mcp_gateway.rs` owns request-time rechecks and receipt attribution;
 `main.rs`/`wire.rs` and `crates/restless/src/main.rs` expose the owner commands
-and optional atomic Work arguments. The owner Resources view can follow after
-the CLI path passes the live smoke.
+and optional atomic Work arguments. Company Schedules exposes the runtime-wake
+setting; the owner CLI exposes the recurring CH approval and receipts.
