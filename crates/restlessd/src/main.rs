@@ -37,6 +37,7 @@ mod launch;
 mod legal;
 mod local_documents;
 use crate::authority as mandate;
+mod mcp_gateway;
 mod mentions;
 mod model_gateway;
 mod native_harness;
@@ -1058,6 +1059,14 @@ async fn run() -> Result<()> {
             tracing::error!("owner gateway stopped: {error:#}");
         }
     });
+    if !daemon.runtime_bridges.is_hosted() {
+        let mcp_daemon = std::sync::Arc::clone(&daemon);
+        tokio::spawn(async move {
+            if let Err(error) = mcp_gateway::serve(mcp_daemon).await {
+                tracing::error!("local MCP gateway stopped: {error:#}");
+            }
+        });
+    }
 
     // T6: the scheduler is what makes the company act without the owner
     // typing — time triggers (exec-set schedules + periodic tick) and
@@ -1734,6 +1743,28 @@ async fn send_mandated_email(
         "recipient": prepared.recipient(),
         "outcome": outcome,
     }))
+}
+
+async fn validate_local_mcp_work(org: &OrgIntel, actor: &str, work_id: uuid::Uuid) -> Result<()> {
+    if org.active_actor(actor).await?.is_none() {
+        anyhow::bail!("local MCP actor {actor:?} is not active");
+    }
+    let work = org
+        .get_work(work_id)
+        .await?
+        .context("local MCP Work not found")?;
+    if work.owner_id != actor || work.status != restless_orgintel::WorkStatus::Blocked {
+        anyhow::bail!("local MCP installation requires blocked Work owned by the assigned actor");
+    }
+    if org
+        .list_running_work_attempts()
+        .await?
+        .iter()
+        .any(|attempt| attempt.work_id == work_id)
+    {
+        anyhow::bail!("interrupt the running Work Attempt before changing its MCP tools");
+    }
+    Ok(())
 }
 
 async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Response {
@@ -2774,10 +2805,10 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                     .context("local MCP install needs command")?;
                 let actor = request.connected_tool.assigned_actor.as_deref()
                     .context("local MCP install needs actor")?;
+                let work_id = request.connected_tool.work_id.as_deref()
+                    .context("local MCP install needs Work")?.parse::<uuid::Uuid>()?;
                 let org = daemon.orgintel.get(company).await?;
-                if org.active_actor(actor).await?.is_none() {
-                    anyhow::bail!("local MCP actor {actor:?} is not active in company {company:?}");
-                }
+                validate_local_mcp_work(&org, actor, work_id).await?;
                 let server = connected_tool::install_local_mcp(
                     daemon.authority.pool(),
                     company,
@@ -2785,12 +2816,44 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                     command,
                     &request.local_mcp.args,
                     actor,
+                    work_id,
                     request.local_mcp.broker_aware,
                 )
                 .await?;
                 org.emit_event("local_mcp_installed", Some("owner"), serde_json::json!({
                     "name": server.name, "command": server.command,
-                    "assigned_actor": server.assigned_actor, "broker_aware": server.broker_aware,
+                    "assigned_actor": server.assigned_actor, "work_id": work_id,
+                    "broker_aware": server.broker_aware,
+                })).await?;
+                Ok::<_, anyhow::Error>(server)
+            }.await;
+            match result {
+                Ok(server) => Response::ok_serialized(server),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "local-mcp-install-host" => {
+            let result = async {
+                let name = request.connected_tool.tool_name.as_deref()
+                    .context("host MCP install needs name")?;
+                let endpoint = request.connected_tool.endpoint.as_deref()
+                    .context("host MCP install needs endpoint")?;
+                let token_file = request.local_mcp.token_file.as_deref()
+                    .context("host MCP install needs token file")?;
+                let actor = request.connected_tool.assigned_actor.as_deref()
+                    .context("host MCP install needs actor")?;
+                let work_id = request.connected_tool.work_id.as_deref()
+                    .context("host MCP install needs Work")?.parse::<uuid::Uuid>()?;
+                let org = daemon.orgintel.get(company).await?;
+                validate_local_mcp_work(&org, actor, work_id).await?;
+                let server = connected_tool::install_host_mcp(
+                    daemon.authority.pool(), company, name, endpoint, token_file,
+                    actor, work_id, &request.local_mcp.allowed_tools,
+                ).await?;
+                org.emit_event("local_mcp_installed", Some("owner"), serde_json::json!({
+                    "name": server.name, "transport": "host_http", "assigned_actor": actor,
+                    "work_id": work_id, "allowed_tools": server.allowed_tools,
+                    "tool_contract_digest": server.tool_contract_digest,
                 })).await?;
                 Ok::<_, anyhow::Error>(server)
             }.await;

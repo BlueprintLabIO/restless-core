@@ -9,7 +9,9 @@
 use std::path::Path;
 use std::process::Stdio;
 
-use agent_client_protocol::schema::v1::{EnvVariable, McpServer, McpServerStdio};
+use agent_client_protocol::schema::v1::{
+    EnvVariable, HttpHeader, McpServer, McpServerHttp, McpServerStdio,
+};
 use anyhow::{bail, Context as _, Result};
 use chrono::{DateTime, Utc};
 use restless_orgintel::{NewOwnerHandoff, OrgIntel, OwnerHandoffCategory, OwnerHandoffState};
@@ -25,6 +27,7 @@ const RUNTIME_CREDENTIAL_ROOT: &str = "/company/home/.restless/connected-tools";
 /// passed to the MCP child; the child receives only selected ambient variable
 /// names from its already-scoped actor session.
 pub(crate) const BROKER_AWARE_ACTOR_ENV_MARKER: &str = "RESTLESS_INTERNAL_BROKER_AWARE_ACTOR_ENV";
+pub(crate) const LOCAL_MCP_PROXY_PORT: u16 = 7795;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -72,17 +75,31 @@ pub(crate) struct ConnectionLaunch {
     pub(crate) owner_handoff_id: Option<Uuid>,
 }
 
-/// Owner-installed, company-local stdio server. Environment values and
-/// credentials are intentionally excluded from storage. A broker-aware opt-in
-/// forwards named variables from the exact actor session only for Codex.
+/// An owner-installed MCP. Stdio runs inside the company Runtime; host_http
+/// is an Authority-side client to a loopback-only MCP service. The host token
+/// file path is private state and is never returned to company actors.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub(crate) struct LocalMcpServer {
     pub(crate) name: String,
+    pub(crate) transport: String,
     pub(crate) command: String,
     pub(crate) args: Vec<String>,
+    pub(crate) endpoint: Option<String>,
+    #[serde(skip_serializing)]
+    pub(crate) token_file: Option<String>,
     pub(crate) assigned_actor: String,
+    pub(crate) assigned_work_id: Option<Uuid>,
     pub(crate) broker_aware: bool,
     pub(crate) enabled: bool,
+    pub(crate) allowed_tools: Vec<String>,
+    pub(crate) observed_tools: Vec<String>,
+    pub(crate) tool_contract_digest: Option<String>,
+    pub(crate) last_observed_at: Option<DateTime<Utc>>,
+    pub(crate) last_success_at: Option<DateTime<Utc>>,
+    pub(crate) last_read_status: Option<String>,
+    pub(crate) last_read_site: Option<String>,
+    pub(crate) last_read_tool: Option<String>,
+    pub(crate) failure: Option<String>,
 }
 
 pub(crate) async fn ensure_schema(pool: &PgPool) -> Result<()> {
@@ -125,7 +142,20 @@ pub(crate) async fn ensure_schema(pool: &PgPool) -> Result<()> {
     .context("create company-local MCP descriptors")?;
     sqlx::query(
         "ALTER TABLE restless_authority.local_mcp_servers \
-         ADD COLUMN IF NOT EXISTS broker_aware BOOLEAN NOT NULL DEFAULT FALSE",
+         ADD COLUMN IF NOT EXISTS broker_aware BOOLEAN NOT NULL DEFAULT FALSE, \
+         ADD COLUMN IF NOT EXISTS transport TEXT NOT NULL DEFAULT 'stdio', \
+         ADD COLUMN IF NOT EXISTS endpoint TEXT, \
+         ADD COLUMN IF NOT EXISTS token_file TEXT, \
+         ADD COLUMN IF NOT EXISTS assigned_work_id UUID, \
+         ADD COLUMN IF NOT EXISTS allowed_tools JSONB NOT NULL DEFAULT '[]'::jsonb, \
+         ADD COLUMN IF NOT EXISTS observed_tools JSONB NOT NULL DEFAULT '[]'::jsonb, \
+         ADD COLUMN IF NOT EXISTS tool_contract_digest TEXT, \
+         ADD COLUMN IF NOT EXISTS last_observed_at TIMESTAMPTZ, \
+         ADD COLUMN IF NOT EXISTS last_success_at TIMESTAMPTZ, \
+         ADD COLUMN IF NOT EXISTS last_read_status TEXT, \
+         ADD COLUMN IF NOT EXISTS last_read_site TEXT, \
+         ADD COLUMN IF NOT EXISTS last_read_tool TEXT, \
+         ADD COLUMN IF NOT EXISTS failure TEXT",
     )
     .execute(pool)
     .await
@@ -195,7 +225,9 @@ pub(crate) fn validate_local_server(
 
 pub(crate) async fn local_mcp_list(pool: &PgPool, company: &str) -> Result<Vec<LocalMcpServer>> {
     sqlx::query(
-        "SELECT name,command,args,assigned_actor,broker_aware,enabled FROM restless_authority.local_mcp_servers \
+        "SELECT name,transport,command,args,endpoint,token_file,assigned_actor,assigned_work_id, \
+                broker_aware,enabled,allowed_tools,observed_tools,tool_contract_digest, \
+                last_observed_at,last_success_at,last_read_status,last_read_site,last_read_tool,failure FROM restless_authority.local_mcp_servers \
          WHERE company=$1 ORDER BY name",
     )
     .bind(company)
@@ -205,11 +237,24 @@ pub(crate) async fn local_mcp_list(pool: &PgPool, company: &str) -> Result<Vec<L
     .map(|row| {
         Ok(LocalMcpServer {
             name: row.try_get("name")?,
+            transport: row.try_get("transport")?,
             command: row.try_get("command")?,
             args: serde_json::from_value(row.try_get::<serde_json::Value, _>("args")?)?,
+            endpoint: row.try_get("endpoint")?,
+            token_file: row.try_get("token_file")?,
             assigned_actor: row.try_get("assigned_actor")?,
+            assigned_work_id: row.try_get("assigned_work_id")?,
             broker_aware: row.try_get("broker_aware")?,
             enabled: row.try_get("enabled")?,
+            allowed_tools: serde_json::from_value(row.try_get("allowed_tools")?)?,
+            observed_tools: serde_json::from_value(row.try_get("observed_tools")?)?,
+            tool_contract_digest: row.try_get("tool_contract_digest")?,
+            last_observed_at: row.try_get("last_observed_at")?,
+            last_success_at: row.try_get("last_success_at")?,
+            last_read_status: row.try_get("last_read_status")?,
+            last_read_site: row.try_get("last_read_site")?,
+            last_read_tool: row.try_get("last_read_tool")?,
+            failure: row.try_get("failure")?,
         })
     })
     .collect()
@@ -222,6 +267,7 @@ pub(crate) async fn install_local_mcp(
     command: &str,
     args: &[String],
     assigned_actor: &str,
+    work_id: Uuid,
     broker_aware: bool,
 ) -> Result<LocalMcpServer> {
     validate_local_server(name, command, args, assigned_actor)?;
@@ -241,17 +287,21 @@ pub(crate) async fn install_local_mcp(
     let args = serde_json::to_value(args)?;
     sqlx::query(
         "INSERT INTO restless_authority.local_mcp_servers \
-           (company,name,command,args,assigned_actor,broker_aware,enabled,created_by) \
-         VALUES ($1,$2,$3,$4,$5,$6,TRUE,'owner') \
+           (company,name,transport,command,args,assigned_actor,assigned_work_id,broker_aware,enabled,created_by) \
+         VALUES ($1,$2,'stdio',$3,$4,$5,$6,$7,TRUE,'owner') \
          ON CONFLICT (company,name) DO UPDATE SET command=EXCLUDED.command,args=EXCLUDED.args, \
-           assigned_actor=EXCLUDED.assigned_actor,broker_aware=EXCLUDED.broker_aware, \
-           enabled=TRUE,updated_at=now()",
+           transport='stdio',endpoint=NULL,token_file=NULL,assigned_actor=EXCLUDED.assigned_actor, \
+           assigned_work_id=EXCLUDED.assigned_work_id,broker_aware=EXCLUDED.broker_aware, \
+           enabled=TRUE,allowed_tools='[]'::jsonb,observed_tools='[]'::jsonb, \
+           tool_contract_digest=NULL,last_observed_at=NULL,last_success_at=NULL,last_read_status=NULL, \
+           failure=NULL,updated_at=now()",
     )
     .bind(company)
     .bind(name)
     .bind(command)
     .bind(args)
     .bind(assigned_actor)
+    .bind(work_id)
     .bind(broker_aware)
     .execute(pool)
     .await?;
@@ -260,6 +310,88 @@ pub(crate) async fn install_local_mcp(
         .into_iter()
         .find(|server| server.name == name)
         .context("installed local MCP descriptor disappeared")
+}
+
+/// A host-owned service keeps its browser and bearer outside the company
+/// Runtime. Only its exact, observed tool names are exposed by the gateway.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one owner-approved local MCP grant"
+)]
+pub(crate) async fn install_host_mcp(
+    pool: &PgPool,
+    company: &str,
+    name: &str,
+    endpoint: &str,
+    token_file: &str,
+    actor: &str,
+    work_id: Uuid,
+    allowed_tools: &[String],
+) -> Result<LocalMcpServer> {
+    validate_name(name)?;
+    validate_host_endpoint(endpoint)?;
+    if allowed_tools.is_empty() || allowed_tools.len() > 16 {
+        bail!("host MCP requires 1-16 explicitly permitted tools");
+    }
+    let mut allowed = allowed_tools.to_vec();
+    allowed.sort();
+    allowed.dedup();
+    if allowed.len() != allowed_tools.len()
+        || allowed.iter().any(|name| {
+            name.is_empty() || name.len() > 128 || name.chars().any(char::is_whitespace)
+        })
+    {
+        bail!("host MCP tool allowlist has a duplicate or invalid name");
+    }
+    let provider_name_in_use: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM restless_authority.provider_connections \
+         WHERE company=$1 AND name=$2 AND status <> 'disabled')",
+    )
+    .bind(company)
+    .bind(name)
+    .fetch_one(pool)
+    .await?;
+    if provider_name_in_use {
+        bail!("MCP name {name:?} is already used by a provider connection");
+    }
+    let probe = crate::mcp_gateway::probe_upstream(endpoint, token_file, &allowed).await?;
+    sqlx::query(
+        "INSERT INTO restless_authority.local_mcp_servers \
+           (company,name,transport,command,args,endpoint,token_file,assigned_actor,assigned_work_id, \
+            broker_aware,enabled,allowed_tools,observed_tools,tool_contract_digest,last_observed_at,created_by) \
+         VALUES ($1,$2,'host_http','','[]'::jsonb,$3,$4,$5,$6,FALSE,TRUE,$7,$8,$9,now(),'owner') \
+         ON CONFLICT (company,name) DO UPDATE SET transport='host_http',command='',args='[]'::jsonb, \
+           endpoint=EXCLUDED.endpoint,token_file=EXCLUDED.token_file,assigned_actor=EXCLUDED.assigned_actor, \
+           assigned_work_id=EXCLUDED.assigned_work_id,broker_aware=FALSE,enabled=TRUE, \
+           allowed_tools=EXCLUDED.allowed_tools,observed_tools=EXCLUDED.observed_tools, \
+           tool_contract_digest=EXCLUDED.tool_contract_digest,last_observed_at=now(), \
+           last_success_at=NULL,last_read_status=NULL,failure=NULL,updated_at=now()",
+    )
+    .bind(company).bind(name).bind(endpoint).bind(token_file).bind(actor).bind(work_id)
+    .bind(serde_json::to_value(&allowed)?)
+    .bind(serde_json::to_value(&probe.names)?)
+    .bind(&probe.digest)
+    .execute(pool).await?;
+    local_mcp_list(pool, company)
+        .await?
+        .into_iter()
+        .find(|server| server.name == name)
+        .context("installed host MCP disappeared")
+}
+
+pub(crate) fn validate_host_endpoint(endpoint: &str) -> Result<()> {
+    let url = url::Url::parse(endpoint).context("host MCP endpoint must be a URL")?;
+    if url.scheme() != "http"
+        || url.host_str() != Some("127.0.0.1")
+        || url.port().is_none()
+        || url.username() != ""
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        bail!("host MCP endpoint must be explicit http://127.0.0.1:<port>/... without credentials");
+    }
+    Ok(())
 }
 
 pub(crate) async fn disable_local_mcp(
@@ -698,6 +830,7 @@ pub(crate) async fn attach_existing(
 
 pub(crate) async fn session_servers(
     pool: &PgPool,
+    capabilities: &crate::capability::CapabilityIssuer,
     company: &str,
     actor: &str,
     work_id: Option<Uuid>,
@@ -735,19 +868,66 @@ pub(crate) async fn session_servers(
         servers.push(McpServer::Stdio(server));
     }
     for server in local_mcp_list(pool, company).await? {
-        if !server.enabled || server.assigned_actor != actor {
+        if !server.enabled || !local_work_scope_matches(&server, actor, work_id, attempt_id) {
             continue;
         }
-        if server.broker_aware && !supports_broker_aware {
-            bail!("broker-aware local MCP server {:?} requires a Codex actor session", server.name);
+        match server.transport.as_str() {
+            "stdio" => {
+                if server.broker_aware && !supports_broker_aware {
+                    bail!(
+                        "broker-aware local MCP server {:?} requires a Codex actor session",
+                        server.name
+                    );
+                }
+                let mut stdio =
+                    McpServerStdio::new(&server.name, &server.command).args(server.args);
+                if server.broker_aware {
+                    stdio = stdio.env(vec![EnvVariable::new(BROKER_AWARE_ACTOR_ENV_MARKER, "1")]);
+                }
+                servers.push(McpServer::Stdio(stdio));
+            }
+            "host_http" => {
+                let (Some(work_id), Some(attempt_id)) = (work_id, attempt_id) else {
+                    continue;
+                };
+                let grant = capabilities.issue_mcp_session(
+                    company,
+                    actor,
+                    &server.name,
+                    work_id,
+                    attempt_id,
+                )?;
+                let port = crate::port_with_offset(LOCAL_MCP_PROXY_PORT)?;
+                // The nonce changes the ACP/Codex launch contract when a new
+                // grant is issued; the URL carries no secret.
+                let url = format!(
+                    "http://host.docker.internal:{port}/mcp/{company}/{}?launch={}",
+                    server.name,
+                    Uuid::new_v4().simple(),
+                );
+                servers.push(McpServer::Http(
+                    McpServerHttp::new(&server.name, url).headers(vec![HttpHeader::new(
+                        "Authorization",
+                        format!("Bearer {grant}"),
+                    )]),
+                ));
+            }
+            other => bail!("unknown local MCP transport {other:?}"),
         }
-        let mut stdio = McpServerStdio::new(&server.name, &server.command).args(server.args);
-        if server.broker_aware {
-            stdio = stdio.env(vec![EnvVariable::new(BROKER_AWARE_ACTOR_ENV_MARKER, "1")]);
-        }
-        servers.push(McpServer::Stdio(stdio));
     }
     Ok(servers)
+}
+
+fn local_work_scope_matches(
+    server: &LocalMcpServer,
+    actor: &str,
+    work_id: Option<Uuid>,
+    attempt_id: Option<Uuid>,
+) -> bool {
+    server.assigned_actor == actor
+        && server.assigned_work_id.is_some()
+        && server.assigned_work_id == work_id
+        && attempt_id.is_some()
 }
 
 fn work_scope_matches(connection: &ConnectedTool, actor: &str, work_id: Option<Uuid>) -> bool {

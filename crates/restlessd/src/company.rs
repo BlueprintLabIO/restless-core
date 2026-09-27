@@ -11,7 +11,9 @@ use chrono::{DateTime, Utc};
 use restless_orgintel::{ArtifactRefRow, ScheduleRow};
 use serde::Serialize;
 
-use crate::{airwallex, approval, credential, finance, legal, reconcile, runtime, Daemon};
+use crate::{
+    airwallex, approval, connected_tool, credential, finance, legal, reconcile, runtime, Daemon,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -460,12 +462,15 @@ pub(crate) async fn project(
             .unwrap_or_default(),
     };
 
+    let local_mcp = connected_tool::local_mcp_list(daemon.authority.pool(), &config.name).await;
     let resources = resources(
         config,
         authority.as_ref(),
         runtime_doctor.as_ref(),
         &artifacts,
         &schedules,
+        local_mcp.as_deref().unwrap_or_default(),
+        local_mcp.as_ref().err().map(|error| format!("{error:#}")),
         probe_credentials,
     )
     .await;
@@ -711,6 +716,8 @@ async fn resources(
     doctor: Option<&runtime::RuntimeDoctor>,
     artifacts: &[ArtifactRefRow],
     schedules: &[ScheduleRow],
+    local_mcp: &[connected_tool::LocalMcpServer],
+    local_mcp_error: Option<String>,
     probe_credentials: bool,
 ) -> Resources {
     let observed_at = Utc::now();
@@ -1128,10 +1135,78 @@ async fn resources(
         });
     }
 
+    for connection in local_mcp {
+        let status = if !connection.enabled {
+            "disabled"
+        } else if connection.failure.is_some()
+            || matches!(
+                connection.last_read_status.as_deref(),
+                Some(
+                    "auth-required"
+                        | "blocked"
+                        | "access-restricted"
+                        | "profile-recovery-required"
+                        | "profile-in-use"
+                        | "unavailable"
+                        | "tool_error"
+                )
+            )
+        {
+            "degraded"
+        } else if connection.last_observed_at.is_some() {
+            "ready"
+        } else {
+            "disconnected"
+        };
+        items.push(ResourceRow {
+            id: format!("mcp:{}", connection.name),
+            label: if connection.name == "clapping-hands" { "Clapping Hands".into() } else { connection.name.clone() },
+            kind: "mcp_connection",
+            source: "authority",
+            status: status.into(),
+            observed_at: connection.last_observed_at.unwrap_or(observed_at),
+            detail: Some(match status {
+                "ready" => "MCP connection reached and tools discovered. Site login is only verified by a successful live read.",
+                "disabled" => "Owner disabled this MCP connection; new calls are rejected.",
+                "degraded" => "MCP connection or latest site read needs attention.",
+                _ => "MCP connection has not completed live tool discovery.",
+            }.into()),
+            metadata: Some(serde_json::json!({
+                "name": connection.name,
+                "browser_owner": if connection.name == "clapping-hands" { "CH" } else { "external" },
+                "transport": connection.transport,
+                "assigned_actor": connection.assigned_actor,
+                "work_id": connection.assigned_work_id,
+                "allowed_tools": connection.allowed_tools,
+                "observed_tools": connection.observed_tools,
+                "tool_contract_digest": connection.tool_contract_digest,
+                "last_observed_at": connection.last_observed_at,
+                "last_success_at": connection.last_success_at,
+                "last_read_status": connection.last_read_status,
+                "last_read_site": connection.last_read_site,
+                "last_read_tool": connection.last_read_tool,
+                "failure": connection.failure,
+            })),
+            launch: None,
+        });
+    }
+    if let Some(error) = local_mcp_error.as_ref() {
+        items.push(ResourceRow {
+            id: "mcp:unavailable".into(),
+            label: "MCP connections".into(),
+            kind: "mcp_connection",
+            source: "authority",
+            status: "degraded".into(),
+            observed_at,
+            detail: Some("Could not read MCP connection status.".into()),
+            metadata: Some(serde_json::json!({"failure": error})),
+            launch: None,
+        });
+    }
     Resources {
         status: if authority.is_none() && doctor.is_none() {
             "unavailable"
-        } else if authority.is_none() || doctor.is_none() {
+        } else if authority.is_none() || doctor.is_none() || local_mcp_error.is_some() {
             "partial"
         } else {
             "available"

@@ -1870,6 +1870,7 @@ enum ConnectedToolCommand {
         /// The only durable actor whose fresh sessions receive this MCP.
         #[arg(long)]
         actor: String,
+        /// Blocked Work that owns this grant. It applies only to fresh Attempts.
         #[arg(long)]
         work: String,
         #[arg(long)]
@@ -1924,12 +1925,32 @@ enum LocalMcpCommand {
         /// Durable actor id that receives the server in its ACP launch contract.
         #[arg(long)]
         actor: String,
+        /// Blocked Work that owns this grant. It applies only to fresh Attempts.
+        #[arg(long)]
+        work: String,
         /// Non-secret argument. Repeat to preserve order.
         #[arg(long = "arg")]
         args: Vec<String>,
         /// Forward the signed actor coordination environment to a trusted broker-aware MCP.
         #[arg(long)]
         broker_aware: bool,
+    },
+    /// Connect a host-owned, loopback HTTP MCP through the Attempt-scoped gateway.
+    InstallHost {
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        endpoint: String,
+        /// Owner-only bearer file shared with the host MCP service.
+        #[arg(long)]
+        token_file: String,
+        #[arg(long)]
+        actor: String,
+        #[arg(long)]
+        work: String,
+        /// Exact permitted MCP tool name. Repeat for each tool.
+        #[arg(long = "tool", required = true)]
+        tools: Vec<String>,
     },
     /// Stop attaching this server to future actor sessions.
     Disable {
@@ -2679,12 +2700,25 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 name,
                 command,
                 actor,
+                work,
                 args,
                 broker_aware,
             } => serde_json::json!({
                 "cmd": "local-mcp-install", "company": company,
                 "tool_name": name, "command": command, "assigned_actor": actor,
-                "args": args, "broker_aware": broker_aware,
+                "work_id": work, "args": args, "broker_aware": broker_aware,
+            }),
+            LocalMcpCommand::InstallHost {
+                name,
+                endpoint,
+                token_file,
+                actor,
+                work,
+                tools,
+            } => serde_json::json!({
+                "cmd": "local-mcp-install-host", "company": company,
+                "tool_name": name, "endpoint": endpoint, "token_file": token_file,
+                "assigned_actor": actor, "work_id": work, "allowed_tools": tools,
             }),
             LocalMcpCommand::Disable { name } => serde_json::json!({
                 "cmd": "local-mcp-disable", "company": company, "tool_name": name,

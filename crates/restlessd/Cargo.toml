@@ -21,6 +21,8 @@ restless-model-gateway = { path = "../restless-model-gateway" }
 restless-orgintel = { path = "../restless-orgintel" }
 restless-runtime-bridge-protocol = { path = "../restless-runtime-bridge-protocol" }
 reqwest = { version = "0.12", features = ["rustls-tls", "json", "brotli"], default-features = false }
+reqwest_mcp = { package = "reqwest", version = "0.13", features = ["rustls"], default-features = false }
+rmcp = { version = "3.4.1", default-features = false, features = ["client", "server", "transport-streamable-http-client-reqwest", "transport-streamable-http-server"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
@@ -46,6 +48,7 @@ tokio-rustls = "0.26"
 rustls = "0.23"
 rcgen = "0.13"
 tower-http = { version = "0.6", features = ["fs", "trace"] }
+tower = { version = "0.5", features = ["util"] }
 ts-rs = { version = "12.0.1", features = ["chrono-impl", "uuid-impl", "serde-json-impl"] }
 
 [dev-dependencies]

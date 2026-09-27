@@ -327,6 +327,7 @@ pub async fn wake(
         let harness = config.coordination_harness;
         let mcp_servers = crate::connected_tool::session_servers(
             authority.pool(),
+            capabilities,
             &config.name,
             "exec",
             None,
@@ -1341,10 +1342,9 @@ async fn gather_snapshot(
         crate::legal::safe_projection(authority, &config.name),
         authority.records_of_kind(&config.name, "effect"),
     )?;
-    let effect_ledger =
-        crate::reconcile::effect_ledger(authority, &config.name, &effect_records)
-            .await?
-            .summary();
+    let effect_ledger = crate::reconcile::effect_ledger(authority, &config.name, &effect_records)
+        .await?
+        .summary();
     let org_signals = health::organisational(spent_usd, &work, &effect_records)
         .into_iter()
         .map(|signal| format!("[{}] {}", signal.kind, signal.detail))

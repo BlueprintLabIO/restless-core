@@ -136,6 +136,10 @@ pub(crate) struct LocalMcpInput {
     pub(crate) args: Vec<String>,
     #[serde(default)]
     pub(crate) broker_aware: bool,
+    #[serde(default)]
+    pub(crate) token_file: Option<String>,
+    #[serde(default)]
+    pub(crate) allowed_tools: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1045,7 +1049,22 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
             "actor",
         ],
         "connected-tool-disable" => &["tool_name", "actor"],
-        "local-mcp-install" => &["tool_name", "command", "args", "assigned_actor", "broker_aware"],
+        "local-mcp-install" => &[
+            "tool_name",
+            "command",
+            "args",
+            "assigned_actor",
+            "work_id",
+            "broker_aware",
+        ],
+        "local-mcp-install-host" => &[
+            "tool_name",
+            "endpoint",
+            "token_file",
+            "assigned_actor",
+            "work_id",
+            "allowed_tools",
+        ],
         "local-mcp-disable" => &["tool_name"],
         "identity-evidence-add" => &[
             "identity_pillar",
@@ -1328,6 +1347,7 @@ pub(crate) const OWNER_ONLY: &[&str] = &[
     "skill-disposition",
     "skill-assign",
     "local-mcp-install",
+    "local-mcp-install-host",
     "local-mcp-disable",
     "local-mcp-list",
 ];
@@ -1753,6 +1773,7 @@ mod tests {
             "connected-tool-disable",
             "local-mcp-list",
             "local-mcp-install",
+            "local-mcp-install-host",
             "local-mcp-disable",
             "document-review-request",
         ];
