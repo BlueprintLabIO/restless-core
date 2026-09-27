@@ -165,6 +165,13 @@
 	border-bottom: 1px solid var(--company-edge-soft);
 }
 
+/* A title's explanation sits beside the title on every page, whatever else
+ * the header holds, instead of being pushed to the far edge. */
+.bridge-root .company-page-head > h1 + .info-tip {
+	margin-right: auto;
+	margin-left: calc(8px - var(--space-5));
+}
+
 .bridge-root .company-page-freshness,
 .bridge-root .attention-crosslink,
 .bridge-root .doctor-computer-link {
@@ -1883,10 +1890,15 @@
 		padding: 24px;
 	}
 
+	/* A narrow header wraps rather than stacks: the title and its explanation
+	 * stay together, and actions follow on the right or on the next line. */
 	.bridge-root .company-page-head {
-		align-items: flex-start;
-		flex-direction: column;
-		gap: 11px;
+		flex-wrap: wrap;
+		gap: 11px var(--space-3);
+	}
+
+	.bridge-root .company-page-head > h1 + .info-tip {
+		margin-left: calc(8px - var(--space-3));
 	}
 
 	.bridge-root .charter-head-actions {
