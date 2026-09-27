@@ -341,7 +341,16 @@ impl ScopedMcp {
             .structured_content
             .as_ref()
             .and_then(|body| body.get("source"))
-            .and_then(|value| value.as_str());
+            .and_then(|value| value.as_str())
+            .or_else(|| {
+                if tool_name.starts_with("clapping_hands_marketplace_") {
+                    Some("facebook-marketplace")
+                } else if tool_name == "clapping_hands_gumtree_public_listing" {
+                    Some("gumtree")
+                } else {
+                    None
+                }
+            });
         sqlx::query(
             "UPDATE restless_authority.local_mcp_servers SET \
              last_success_at=CASE WHEN $3 THEN now() ELSE last_success_at END, \

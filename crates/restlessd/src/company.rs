@@ -1143,10 +1143,13 @@ async fn resources(
                 connection.last_read_status.as_deref(),
                 Some(
                     "auth-required"
+                        | "authentication-required"
                         | "blocked"
                         | "access-restricted"
                         | "profile-recovery-required"
                         | "profile-in-use"
+                        | "search-unverified"
+                        | "task-failed"
                         | "unavailable"
                         | "tool_error"
                 )
