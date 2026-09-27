@@ -1585,6 +1585,11 @@ async fn relay_responses(
             .flatten()
             .filter_map(|tool| tool.get("name").and_then(serde_json::Value::as_str))
             .collect::<Vec<_>>();
+        let types = tools
+            .into_iter()
+            .flatten()
+            .filter_map(|tool| tool.get("type").and_then(serde_json::Value::as_str))
+            .collect::<Vec<_>>();
         let mcp_names = names
             .iter()
             .copied()
@@ -1596,8 +1601,11 @@ async fn relay_responses(
             work_id = ?grant.work_id,
             attempt_id = ?grant.attempt_id,
             tool_count = tools.map_or(0, Vec::len),
+            function_tool_count = types.iter().filter(|kind| **kind == "function").count(),
+            mcp_descriptor_count = types.iter().filter(|kind| **kind == "mcp").count(),
             mcp_tool_names = ?mcp_names,
-            tool_search_present = names.iter().any(|name| name.contains("tool_search")),
+            tool_search_present = types.contains(&"tool_search")
+                || names.iter().any(|name| name.contains("tool_search")),
             "Runtime Responses tool catalogue"
         );
     }
