@@ -22,10 +22,33 @@ async function fetchCatalog(force = false): Promise<CatalogSnapshot> {
 	}
 	return snapshot;
 }
-function connectedModels(provider: 'openai-codex' | 'anthropic', enabled: () => boolean) {
+type AccountConnection = { provider: string; kind: string; status?: string };
+/* Which providers this account has signed in to. A provider's model list is
+ * only asked for once it is connected: asking first only produces a 404 the
+ * browser logs as an error on every settings page. */
+function accountConnections(enabled: () => boolean) {
 	return createQuery(() => ({
-		queryKey: ['connected-models', provider],
+		queryKey: ['account-connections'],
 		enabled: enabled(),
+		staleTime: 30_000,
+		retry: false,
+		queryFn: async (): Promise<AccountConnection[]> => {
+			const response = await fetch('/api/connections', { cache: 'no-store' });
+			if (!response.ok) throw new Error('Account connections unavailable');
+			return ((await response.json()) as { connections?: AccountConnection[] }).connections ?? [];
+		}
+	}));
+}
+function connectedModels(
+	provider: 'openai-codex' | 'anthropic',
+	enabled: () => boolean,
+	connections: { data?: AccountConnection[] }
+) {
+	const signedIn = () =>
+		connections.data?.some((row) => row.kind === 'oauth' && row.provider === provider) ?? false;
+	return createQuery(() => ({
+		queryKey: ['connected-models', provider, signedIn()],
+		enabled: enabled() && signedIn(),
 		staleTime: 3600000,
 		refetchInterval: 3600000,
 		retry: false,
@@ -42,10 +65,20 @@ export function modelCatalog(enabled: () => boolean = () => true) {
 	const queryClient = useQueryClient();
 	let manualPending = $state(false);
 	let manualFailed = $state(false);
-	const codex = connectedModels('openai-codex', enabled);
-	const claude = connectedModels('anthropic', enabled);
+	const connections = accountConnections(enabled);
+	const codex = connectedModels('openai-codex', enabled, connections);
+	const claude = connectedModels('anthropic', enabled, connections);
+	/* Invalidation, unlike refetch, leaves a disabled (not signed-in) list alone. */
+	const refreshSignedIn = async () => {
+		await connections.refetch();
+		await queryClient.invalidateQueries({ queryKey: ['connected-models'] });
+	};
 	const connected = (provider: string, kind: 'api_key' | 'oauth' = 'api_key') =>
-		provider === 'openai-codex' ? codex : provider === 'anthropic' && kind === 'oauth' ? claude : undefined;
+		provider === 'openai-codex'
+			? codex
+			: provider === 'anthropic' && kind === 'oauth'
+				? claude
+				: undefined;
 	let initial: CatalogSnapshot | undefined;
 	if (typeof localStorage !== 'undefined') {
 		try {
@@ -80,7 +113,7 @@ export function modelCatalog(enabled: () => boolean = () => true) {
 		refresh: async () => {
 			manualPending = true;
 			try {
-				const [snapshot] = await Promise.all([fetchCatalog(true), codex.refetch(), claude.refetch()]);
+				const [snapshot] = await Promise.all([fetchCatalog(true), refreshSignedIn()]);
 				queryClient.setQueryData(CATALOG_QUERY_KEY, snapshot);
 				manualFailed = false;
 			} catch {
@@ -89,7 +122,7 @@ export function modelCatalog(enabled: () => boolean = () => true) {
 				manualPending = false;
 			}
 		},
-		refreshConnected: () => Promise.all([codex.refetch(), claude.refetch()]),
+		refreshConnected: refreshSignedIn,
 		source(provider: string, kind: 'api_key' | 'oauth' = 'api_key') {
 			if (connected(provider, kind)?.data?.models?.length) return 'connected';
 			if (provider === 'openai-codex') return 'bundled';
