@@ -128,6 +128,7 @@ pub(crate) struct McpReadReceipt {
     result_digest: Option<String>,
     subject: serde_json::Value,
     status: String,
+    provider_status: Option<String>,
     observed_at: DateTime<Utc>,
     wall_ms: Option<i64>,
     error_class: Option<String>,
@@ -205,6 +206,7 @@ pub(crate) async fn ensure_schema(pool: &PgPool) -> Result<()> {
            request_digest TEXT NOT NULL, result_digest TEXT, subject JSONB NOT NULL, \
            status TEXT NOT NULL CHECK (status IN ('started','complete','tool_error', \
              'response_observed_unverified','outcome_unknown','not_invoked')), \
+           provider_status TEXT, \
            observed_at TIMESTAMPTZ NOT NULL DEFAULT now(), \
            wall_ms BIGINT, error_class TEXT, UNIQUE(call_id, phase)\
          )",
@@ -212,6 +214,13 @@ pub(crate) async fn ensure_schema(pool: &PgPool) -> Result<()> {
     .execute(pool)
     .await
     .context("create Core MCP read receipts")?;
+    sqlx::query(
+        "ALTER TABLE restless_authority.mcp_read_receipts \
+         ADD COLUMN IF NOT EXISTS provider_status TEXT",
+    )
+    .execute(pool)
+    .await
+    .context("add normalized provider status to Core MCP read receipts")?;
     sqlx::query(
         "CREATE INDEX IF NOT EXISTS mcp_read_receipts_scope_idx \
          ON restless_authority.mcp_read_receipts(company, connection_name, observed_at DESC)",
@@ -338,7 +347,7 @@ pub(crate) async fn list_mcp_read_receipts(
     }
     sqlx::query(
         "SELECT call_id,phase,actor,work_id,attempt_id,connection_name,tool_name, \
-                tool_contract_digest,policy_revision,request_digest,result_digest,subject,status,observed_at, \
+                tool_contract_digest,policy_revision,request_digest,result_digest,subject,status,provider_status,observed_at, \
                 wall_ms,error_class FROM restless_authority.mcp_read_receipts \
          WHERE company=$1 AND ($2::text IS NULL OR connection_name=$2) \
          ORDER BY observed_at DESC LIMIT 100",
@@ -355,6 +364,7 @@ pub(crate) async fn list_mcp_read_receipts(
         request_digest: row.try_get("request_digest")?,
         result_digest: row.try_get("result_digest")?,
         subject: row.try_get("subject")?, status: row.try_get("status")?,
+        provider_status: row.try_get("provider_status")?,
         observed_at: row.try_get("observed_at")?, wall_ms: row.try_get("wall_ms")?,
         error_class: row.try_get("error_class")?,
     })).collect()
@@ -466,7 +476,7 @@ pub(crate) async fn install_host_mcp(
            assigned_work_id=EXCLUDED.assigned_work_id,broker_aware=FALSE,enabled=TRUE, \
            allowed_tools=EXCLUDED.allowed_tools,observed_tools=EXCLUDED.observed_tools, \
            tool_contract_digest=EXCLUDED.tool_contract_digest,policy_revision=gen_random_uuid(),server_version=EXCLUDED.server_version,last_observed_at=now(), \
-           last_success_at=NULL,last_read_status=NULL,failure=NULL,updated_at=now()",
+           last_success_at=NULL,last_read_status=NULL,last_read_site=NULL,last_read_tool=NULL,failure=NULL,updated_at=now()",
     )
     .bind(company).bind(name).bind(endpoint).bind(token_file).bind(actor).bind(work_id)
     .bind(serde_json::to_value(&allowed)?)

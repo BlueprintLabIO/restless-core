@@ -163,6 +163,29 @@ fn classify_read_status(result: &CallToolResult) -> String {
     "unverified".into()
 }
 
+/// CH statuses are untrusted provider data. Keep only reviewed outcome codes in
+/// durable receipts and connection health; never persist an arbitrary string
+/// from a listing or an upstream error object as a status.
+fn safe_clapping_hands_status(result: &CallToolResult) -> &'static str {
+    match classify_read_status(result).as_str() {
+        "complete" => "complete",
+        "incomplete" => "incomplete",
+        "unavailable" => "unavailable",
+        "blocked" => "blocked",
+        "auth-required" => "auth-required",
+        "partial" => "partial",
+        "unverified" => "unverified",
+        "access-restricted" => "access-restricted",
+        "owner-paused" => "owner-paused",
+        "runtime-busy" => "runtime-busy",
+        "saved-plan-changed" => "saved-plan-changed",
+        "task-failed" => "task-failed",
+        "tool_error" => "tool_error",
+        _ if result.is_error == Some(true) => "unrecognized-tool-error",
+        _ => "unrecognized",
+    }
+}
+
 fn filesystem_read_complete(result: &CallToolResult) -> bool {
     result.is_error != Some(true)
         && result.structured_content.as_ref()
@@ -472,6 +495,11 @@ enum BrokerReadProfile {
     Filesystem,
 }
 
+enum RequestValidationError {
+    InvalidParams,
+    Connection,
+}
+
 #[derive(Clone)]
 struct ScopedMcp {
     pool: PgPool,
@@ -641,12 +669,13 @@ impl ScopedMcp {
         result_digest: Option<&str>,
         wall_ms: Option<i64>,
         error_class: Option<&str>,
+        provider_status: Option<&str>,
     ) -> Result<()> {
         sqlx::query(
             "INSERT INTO restless_authority.mcp_read_receipts \
              (id,call_id,phase,company,actor,work_id,attempt_id,connection_name,tool_name, \
-              tool_contract_digest,policy_revision,request_digest,result_digest,subject,status,wall_ms,error_class) \
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)",
+              tool_contract_digest,policy_revision,request_digest,result_digest,subject,status,wall_ms,error_class,provider_status) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)",
         )
         .bind(Uuid::new_v4()).bind(call_id).bind(phase).bind(&self.company)
         .bind(&self.grant.actor).bind(self.grant.work_id).bind(self.grant.attempt_id)
@@ -654,28 +683,46 @@ impl ScopedMcp {
         .bind(self.connection.tool_contract_digest.as_deref().context("MCP pin missing")?)
         .bind(self.connection.policy_revision)
         .bind(request_digest).bind(result_digest).bind(self.safe_subject(tool_name))
-        .bind(status).bind(wall_ms).bind(error_class)
+        .bind(status).bind(wall_ms).bind(error_class).bind(provider_status)
         .execute(&self.pool).await.context("append Core MCP read receipt")?;
         Ok(())
     }
 
-    async fn invoke(&self, params: CallToolRequestParams) -> Result<CallToolResult> {
+    fn validated_params(&self, params: CallToolRequestParams)
+        -> std::result::Result<CallToolRequestParams, RequestValidationError>
+    {
         let params = match &self.profile {
-            BrokerReadProfile::Http(profile) => validated_profile_params(profile, params)?,
+            BrokerReadProfile::Http(profile) => validated_profile_params(profile, params)
+                .map_err(|_| RequestValidationError::InvalidParams)?,
             BrokerReadProfile::Filesystem => {
-                let read_root = connected_tool::require_reviewed_stdio_profile(&self.connection)?;
-                crate::stdio_mcp::validated_read_params(params, read_root)?
+                let read_root = connected_tool::require_reviewed_stdio_profile(&self.connection)
+                    .map_err(|_| RequestValidationError::Connection)?;
+                crate::stdio_mcp::validated_read_params(params, read_root)
+                    .map_err(|_| RequestValidationError::InvalidParams)?
             }
         };
-        let tool_name = params.name.to_string();
-        if !self.connection.allowed_tools.iter().any(|name| name == &tool_name) {
-            bail!("MCP tool is outside this connection's allowlist");
+        if !self.connection.allowed_tools.iter().any(|name| name == params.name.as_ref()) {
+            return Err(RequestValidationError::InvalidParams);
         }
+        Ok(params)
+    }
+
+    async fn append_rejected_params_receipt(&self, tool_name: &str) -> Result<()> {
+        // Rejected arguments may contain arbitrary private text. Deliberately
+        // omit even their digest; this fixed marker says why no request hash
+        // can identify the rejected payload.
+        let request_digest = format!("{:x}", Sha256::digest(b"invalid-mcp-arguments-withheld"));
+        self.append_receipt(Uuid::new_v4(), "terminal", tool_name, &request_digest,
+            "not_invoked", None, Some(0), Some("invalid_params"), None).await
+    }
+
+    async fn invoke_validated(&self, params: CallToolRequestParams) -> Result<CallToolResult> {
+        let tool_name = params.name.to_string();
         let request_digest = format!("{:x}", Sha256::digest(serde_json::to_vec(&params)?));
         let call_id = Uuid::new_v4();
         let started = Instant::now();
         self.append_receipt(call_id, "started", &tool_name, &request_digest,
-            "started", None, None, None).await?;
+            "started", None, None, None, None).await?;
         let mut call_started = false;
         let observed = self.invoke_inner(params, &tool_name, &mut call_started).await;
         // A provider may have executed even if the grant disappears before
@@ -686,27 +733,32 @@ impl ScopedMcp {
         } else {
             observed
         };
-        let (status, result_digest, error_class) = match &outcome {
+        let (status, result_digest, error_class, provider_status) = match &outcome {
             Ok(result) => {
+                let provider_status = match &self.profile {
+                    BrokerReadProfile::Http(ReviewedHttpReadProfile::ClappingHands) =>
+                        Some(safe_clapping_hands_status(result)),
+                    _ => None,
+                };
                 let status = if result.is_error == Some(true) {
                     "tool_error"
                 } else if matches!(&self.profile, BrokerReadProfile::Http(ReviewedHttpReadProfile::ClappingHands))
-                    && classify_read_status(result) == "complete"
+                    && provider_status == Some("complete")
                     || matches!(&self.profile, BrokerReadProfile::Filesystem)
                         && filesystem_read_complete(result) {
                     "complete"
                 } else {
                     "response_observed_unverified"
                 };
-                (status, Some(format!("{:x}", Sha256::digest(serde_json::to_vec(result)?))), None)
+                (status, Some(format!("{:x}", Sha256::digest(serde_json::to_vec(result)?))), None, provider_status)
             }
-            Err(_) if revoked_after_result => ("outcome_unknown", None, Some("grant_revoked_after_result")),
-            Err(_) if call_started => ("outcome_unknown", None, Some("broker_call_failed")),
-            Err(_) => ("not_invoked", None, Some("broker_pre_call_failed")),
+            Err(_) if revoked_after_result => ("outcome_unknown", None, Some("grant_revoked_after_result"), None),
+            Err(_) if call_started => ("outcome_unknown", None, Some("broker_call_failed"), None),
+            Err(_) => ("not_invoked", None, Some("broker_pre_call_failed"), None),
         };
         self.append_receipt(call_id, "terminal", &tool_name, &request_digest,
             status, result_digest.as_deref(), Some(started.elapsed().as_millis() as i64),
-            error_class).await?;
+            error_class, provider_status).await?;
         outcome
     }
 
@@ -744,7 +796,7 @@ impl ScopedMcp {
                 bail!("MCP grant was revoked before the read result was returned");
             }
             let read_status = match &self.profile {
-                BrokerReadProfile::Http(ReviewedHttpReadProfile::ClappingHands) => classify_read_status(&result),
+                BrokerReadProfile::Http(ReviewedHttpReadProfile::ClappingHands) => safe_clapping_hands_status(&result).into(),
                 BrokerReadProfile::Http(ReviewedHttpReadProfile::DeepWikiStructure { .. }) if result.is_error == Some(true) => "tool_error".into(),
                 BrokerReadProfile::Http(ReviewedHttpReadProfile::DeepWikiStructure { .. }) => "response_observed_unverified".into(),
                 BrokerReadProfile::Filesystem if result.is_error == Some(true) => "tool_error".into(),
@@ -847,15 +899,31 @@ impl ServerHandler for ScopedMcp {
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> std::result::Result<CallToolResponse, ErrorData> {
+        let tool_name = request.name.to_string();
         if !self
             .connection
             .allowed_tools
             .iter()
-            .any(|name| name == request.name.as_ref())
+            .any(|name| name == &tool_name)
         {
             return Err(ErrorData::invalid_params("MCP tool is not permitted", None));
         }
-        match self.invoke(request).await {
+        let request = match self.validated_params(request) {
+            Ok(request) => request,
+            Err(RequestValidationError::InvalidParams) => {
+                if self.append_rejected_params_receipt(&tool_name).await.is_err() {
+                    return Err(ErrorData::internal_error("MCP read receipt unavailable", None));
+                }
+                return Err(ErrorData::invalid_params("MCP read arguments are invalid", None));
+            }
+            Err(RequestValidationError::Connection) => {
+                self.record_failure("connection_profile_failed").await;
+                return Ok(CallToolResult::error(vec![ContentBlock::text(
+                    "Connected MCP read profile is unavailable; inspect the connection status.",
+                )]).into());
+            }
+        };
+        match self.invoke_validated(request).await {
             Ok(result) => Ok(result.into()),
             Err(_error) => {
                 self.record_failure("call_failed").await;
@@ -944,7 +1012,23 @@ async fn handle_read(
         tool_name = %params.name,
         "Core MCP read facade invoked"
     );
-    match scope.invoke(params).await {
+    let tool_name = params.name.to_string();
+    let params = match scope.validated_params(params) {
+        Ok(params) => params,
+        Err(RequestValidationError::InvalidParams) => {
+            if scope.connection.allowed_tools.iter().any(|name| name == &tool_name)
+                && scope.append_rejected_params_receipt(&tool_name).await.is_err()
+            {
+                return StatusCode::BAD_GATEWAY.into_response();
+            }
+            return StatusCode::BAD_REQUEST.into_response();
+        }
+        Err(RequestValidationError::Connection) => {
+            scope.record_failure("facade_connection_profile_failed").await;
+            return StatusCode::BAD_GATEWAY.into_response();
+        }
+    };
+    match scope.invoke_validated(params).await {
         Ok(result) => Json(result).into_response(),
         Err(_error) => {
             scope.record_failure("facade_read_failed").await;

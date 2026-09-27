@@ -54,6 +54,16 @@ not a verified real-world outcome. A tool error is `tool_error`, and an
 interrupted or failed upstream call after invocation begins is
 `outcome_unknown`.
 
+The receipt CLI also shows a separate `provider_status` for Clapping Hands
+reads. It keeps reviewed CH outcomes such as `complete`, `incomplete`,
+`unavailable`, `blocked`, `auth-required`, and mixed-row `partial` without
+turning those provider observations into broker success claims. Unrecognized
+provider codes are normalized to a fixed label; arbitrary provider text is
+never retained in that field. Malformed actor arguments for an allowed tool
+return `invalid_params` without changing connection health. They produce a
+terminal-only `not_invoked` receipt with a fixed omitted-arguments digest,
+rather than storing or hashing the rejected private arguments.
+
 This pilot does not migrate OAuth MCP or local stdio servers. It does not
 authorize any provider writes. A production acceptance check still needs a
 fresh actor Attempt invoking `read_wiki_structure` through Core and a matching
