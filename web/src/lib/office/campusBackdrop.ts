@@ -415,7 +415,61 @@ function clipAroundOffice(context: CanvasRenderingContext2D, options: CampusBack
 	context.clip('evenodd');
 }
 
+/* The backdrop only changes when its geometry moves or one of its discrete
+ * animation steps advances (water every 760ms, leaves every 540ms, a wildlife
+ * moment while one plays). Between those steps every frame would repaint the
+ * same thousands of fills, so the result is kept on one offscreen canvas and
+ * blitted. Its office-shaped hole stays transparent, so the office drawn
+ * beneath shows through exactly as before. */
+let backdropCache: {
+	canvas: HTMLCanvasElement;
+	key: string;
+	tiles: readonly number[];
+} | null = null;
+
+function backdropKey(options: CampusBackdropOptions): string {
+	const { now, motion } = options;
+	const wildlife = motion ? campusWildlifeAt(Date.now()) : null;
+	return [
+		options.canvasWidth,
+		options.canvasHeight,
+		options.officeLeft,
+		options.officeTop,
+		options.officeCols,
+		options.officeRows,
+		options.tilePixelSize,
+		motion ? Math.floor(now / 760) % 6 : 0,
+		motion ? Math.floor(now / 540) % 8 : 0,
+		wildlife ? `${wildlife.kind}:${Math.round(wildlife.progress * 400)}` : ''
+	].join('|');
+}
+
 export function drawCampusBackdrop(
+	context: CanvasRenderingContext2D,
+	options: CampusBackdropOptions
+): void {
+	if (typeof document === 'undefined') return paintCampusBackdrop(context, options);
+	const key = backdropKey(options);
+	let cache = backdropCache;
+	if (
+		!cache ||
+		cache.key !== key ||
+		cache.tiles !== options.officeTiles ||
+		cache.canvas.width !== options.canvasWidth
+	) {
+		const canvas = cache?.canvas ?? document.createElement('canvas');
+		canvas.width = options.canvasWidth;
+		canvas.height = options.canvasHeight;
+		const layer = canvas.getContext('2d');
+		if (!layer) return paintCampusBackdrop(context, options);
+		layer.clearRect(0, 0, canvas.width, canvas.height);
+		paintCampusBackdrop(layer, options);
+		cache = backdropCache = { canvas, key, tiles: options.officeTiles };
+	}
+	context.drawImage(cache.canvas, 0, 0);
+}
+
+function paintCampusBackdrop(
 	context: CanvasRenderingContext2D,
 	options: CampusBackdropOptions
 ): void {

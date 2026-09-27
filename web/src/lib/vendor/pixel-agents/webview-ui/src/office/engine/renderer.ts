@@ -882,6 +882,41 @@ export interface SelectionRenderState {
 	characters: Map<number, Character>;
 }
 
+/* Restless: one cached floor layer, rebuilt when the camera, canvas size or
+ * the layout arrays (by identity) change. */
+let floorCache: {
+	canvas: HTMLCanvasElement;
+	key: string;
+	sources: readonly unknown[];
+} | null = null;
+
+function drawFloorLayer(
+	ctx: CanvasRenderingContext2D,
+	width: number,
+	height: number,
+	offsetX: number,
+	offsetY: number,
+	zoom: number,
+	paint: () => void,
+	sources: readonly unknown[]
+): void {
+	const key = `${width}x${height}|${offsetX},${offsetY}|${zoom}`;
+	const stale =
+		!floorCache ||
+		floorCache.key !== key ||
+		floorCache.sources.length !== sources.length ||
+		floorCache.sources.some((source, index) => source !== sources[index]);
+	if (stale) {
+		const canvas = floorCache?.canvas ?? document.createElement('canvas');
+		canvas.width = width;
+		canvas.height = height;
+		canvas.getContext('2d')!.clearRect(0, 0, width, height);
+		floorCache = { canvas, key, sources };
+		paint();
+	}
+	ctx.drawImage(floorCache!.canvas, 0, 0);
+}
+
 export function renderFrame(
 	ctx: CanvasRenderingContext2D,
 	canvasWidth: number,
@@ -915,13 +950,28 @@ export function renderFrame(
 	// the DOM overlays so a label lands exactly on the sprite it belongs to.
 	const { offsetX, offsetY } = mapOffset(canvasWidth, canvasHeight, cols, rows, zoom, panX, panY);
 
-	// Draw tiles (floor + wall base color)
-	renderTileGrid(ctx, tileMap, offsetX, offsetY, zoom, tileColors, layoutCols);
-
-	// Carpet layer (above floor, below seat indicators / furniture / characters)
-	if (carpetTiles && carpetTiles.length > 0) {
-		renderCarpetLayer(ctx, carpetTiles, cols, rows, offsetX, offsetY, zoom);
-	}
+	// Floor, wall base and carpet change only with the camera or the layout,
+	// yet they are the bulk of a frame's fills. Restless keeps them on one
+	// cached layer and blits it (see floorLayer below).
+	drawFloorLayer(
+		ctx,
+		canvasWidth,
+		canvasHeight,
+		offsetX,
+		offsetY,
+		zoom,
+		() => {
+			const layer = floorCache!.canvas.getContext('2d')!;
+			layer.imageSmoothingEnabled = false;
+			// Draw tiles (floor + wall base color)
+			renderTileGrid(layer, tileMap, offsetX, offsetY, zoom, tileColors, layoutCols);
+			// Carpet layer (above floor, below seat indicators / furniture / characters)
+			if (carpetTiles && carpetTiles.length > 0) {
+				renderCarpetLayer(layer, carpetTiles, cols, rows, offsetX, offsetY, zoom);
+			}
+		},
+		[tileMap, tileColors, carpetTiles]
+	);
 
 	// Area overlay (translucent color wash) — above carpets, below seat indicators
 	if (showAreas) {

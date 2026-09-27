@@ -189,7 +189,15 @@
 					update: (delta) => {
 						if (documentVisible && !reducedMotion) updateOffice(delta);
 					},
-					render: (context) => render(context, performance.now())
+					render: (context) => {
+						/* Pixel art reads the same at 30 frames a second, and a
+						 * 60Hz repaint of a full-pane canvas is the office's main
+						 * cost; the canvas keeps its last frame in between. */
+						const now = performance.now();
+						if (now - lastPaintAt < MIN_PAINT_INTERVAL_MS) return;
+						lastPaintAt = now;
+						render(context, now);
+					}
 				});
 				ready = true;
 			})
@@ -605,6 +613,9 @@
 		if (selectedActorId && !nextMembers.some((member) => member.actorId === selectedActorId))
 			selectedActorId = null;
 	}
+
+	const MIN_PAINT_INTERVAL_MS = 1000 / 30 - 2;
+	let lastPaintAt = 0;
 
 	function render(context: CanvasRenderingContext2D, now: number) {
 		if (!office || !plan || !canvas.width || !canvas.height) return;
