@@ -78,3 +78,31 @@ Clapping Hands results are observations, not verified sale outcomes.
   actor process, but every gateway request checks current authority.
 - Clapping Hands owns its separate browser profile. The company browser's
   owner-control pause/resume mechanism does not govern that profile.
+
+## Model connection recovery during the pilot
+
+The Staff read also depends on the company model relay. A transient failure
+while the host OAuth broker supplies its account identity previously surfaced
+as a generic 403 and could set a 24-hour credential cooldown. The relay now
+returns 503 for a typed broker failure and gives its snapshot up to five
+seconds; a revoked assignment or changed account identity still returns 403.
+The 503 follows the short transport cooldown rather than marking the OAuth
+connection revoked.
+
+For an older cooldown caused by the relay's ambiguous 403, the owner can run
+`restless credential verify-model -c <company> --model <primary-provider/model>`
+to compare the current OAuth account identity with the registered owner
+connection. Add `--clear-relay-cooldown` only after that read-only check. The
+action deletes only an active credential cooldown for that exact company and
+model whose recorded failure contains Core's `company model access was removed`
+marker; it writes an Authority receipt in the same database transaction. It
+cannot clear a provider's own 403 cooldown or bypass a failed identity probe.
+Verification proves the current account assignment, not that a subsequent
+model inference or marketplace read will succeed.
+
+Roll out daemon and owner CLI from the same source revision after draining
+running sessions, then check `/health`, the model relay listener, the startup
+recovery barrier, and appliance admission before resuming Staff Work. Retain
+the previous daemon and CLI for rollback. If the new relay or owner command
+fails, restore the previous release and leave the cooldown and CH version pin
+unchanged until the failure is diagnosed.

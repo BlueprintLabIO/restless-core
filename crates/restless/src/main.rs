@@ -1846,6 +1846,16 @@ enum CredentialCommand {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
     },
+    /// Verify the owner's current OAuth account and, if requested, clear only
+    /// an old Core-relay 403 cooldown for this exact primary model.
+    VerifyModel {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[arg(long)]
+        model: String,
+        #[arg(long)]
+        clear_relay_cooldown: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -2641,6 +2651,14 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             CredentialCommand::Check { company } => {
                 serde_json::json!({ "cmd": "credential-check", "company": company })
             }
+            CredentialCommand::VerifyModel {
+                company,
+                model,
+                clear_relay_cooldown,
+            } => serde_json::json!({
+                "cmd": "credential-verify-model", "company": company,
+                "model": model, "apply": clear_relay_cooldown,
+            }),
         },
         Command::ConnectedTool { company, command } => match command {
             ConnectedToolCommand::List => serde_json::json!({

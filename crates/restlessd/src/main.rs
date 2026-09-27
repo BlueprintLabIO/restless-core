@@ -2652,6 +2652,31 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             }
             Err(error) => Response::err(format!("{error:#}")),
         },
+        "credential-verify-model" => {
+            let result = async {
+                let model = request.orgintel.model.as_deref()
+                    .context("model account verification needs an exact model")?;
+                model_gateway::verify_owner_model_account(&daemon.root, company, model).await?;
+                let cleared = if request.authority.apply {
+                    let cleared = daemon.authority
+                        .clear_verified_relay_cooldown(company, model).await?;
+                    if !cleared {
+                        anyhow::bail!("no active credential cooldown from the Core relay 403 exists for this exact company and model");
+                    }
+                    true
+                } else {
+                    false
+                };
+                Ok::<_, anyhow::Error>(serde_json::json!({
+                    "company":company,"model":model,"account_identity_verified":true,
+                    "relay_cooldown_cleared":cleared,
+                }))
+            }.await;
+            match result {
+                Ok(receipt) => Response::ok(receipt),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
         "connected-tools" => match connected_tool::list(daemon.authority.pool(), company).await {
             Ok(connections) => Response::ok_serialized(connections),
             Err(error) => Response::err(format!("{error:#}")),

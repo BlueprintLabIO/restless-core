@@ -637,6 +637,36 @@ impl AuthorityStore {
         Ok(())
     }
 
+    /// Clear only a credential cooldown caused by this Core relay's old
+    /// ambiguous 403, after the caller independently verifies the current
+    /// owner OAuth account. A genuine upstream provider 403 has a different
+    /// reason and cannot be removed through this owner repair path.
+    pub async fn clear_verified_relay_cooldown(&self, company: &str, model: &str) -> Result<bool> {
+        let mut transaction = self.pool.begin().await?;
+        let removed = sqlx::query(
+            "DELETE FROM restless_authority.model_cooldowns \
+             WHERE company=$1 AND model=$2 AND kind='credential' AND retry_at>now() \
+             AND reason LIKE '%company model access was removed%'",
+        )
+        .bind(company)
+        .bind(model)
+        .execute(&mut *transaction)
+        .await?
+        .rows_affected();
+        if removed == 1 {
+            sqlx::query(
+                "INSERT INTO restless_authority.records (company,kind,actor_id,body) \
+                 VALUES ($1,'model_cooldown_owner_repaired','owner',$2)",
+            )
+            .bind(company)
+            .bind(serde_json::json!({"model":model,"cause":"verified-core-relay-403"}))
+            .execute(&mut *transaction)
+            .await?;
+        }
+        transaction.commit().await?;
+        Ok(removed == 1)
+    }
+
     pub async fn emit(
         &self,
         company: &str,

@@ -1364,8 +1364,8 @@ async fn relay_models(State(state): State<RelayState>, headers: HeaderMap) -> Re
             );
         }
     };
-    if live_company_model_grant(&state.root, &grant).await.is_err() {
-        return relay_error(StatusCode::FORBIDDEN, "company model access was removed");
+    if let Err(error) = live_company_model_grant(&state.root, &grant).await {
+        return relay_model_grant_error(error);
     }
     let (_, model_id) = match split_model(&grant.model) {
         Ok(parts) => parts,
@@ -1433,7 +1433,7 @@ async fn relay_pi_stream(
     }
     let config = match live_company_model_grant(&state.root, &grant).await {
         Ok(config) => config,
-        Err(_) => return relay_error(StatusCode::FORBIDDEN, "company model access was removed"),
+        Err(error) => return relay_model_grant_error(error),
     };
     let billing = match grant.billing.as_str() {
         "metered_api" => ModelBilling::MeteredApi,
@@ -1644,7 +1644,7 @@ async fn relay_responses(
     }
     let config = match live_company_model_grant(&state.root, &grant).await {
         Ok(config) => config,
-        Err(_) => return relay_error(StatusCode::FORBIDDEN, "company model access was removed"),
+        Err(error) => return relay_model_grant_error(error),
     };
     let billing = match grant.billing.as_str() {
         "metered_api" => ModelBilling::MeteredApi,
@@ -1814,7 +1814,7 @@ async fn relay_anthropic_messages(
     }
     let config = match live_company_model_grant(&state.root, &grant).await {
         Ok(config) => config,
-        Err(_) => return relay_error(StatusCode::FORBIDDEN, "company model access was removed"),
+        Err(error) => return relay_model_grant_error(error),
     };
     if grant.billing == "metered_api" {
         let budget = state.spend.budget_state(&config);
@@ -1921,8 +1921,8 @@ async fn relay_anthropic_count_tokens(
             )
         }
     };
-    if live_company_model_grant(&state.root, &grant).await.is_err() {
-        return relay_error(StatusCode::FORBIDDEN, "company model access was removed");
+    if let Err(error) = live_company_model_grant(&state.root, &grant).await {
+        return relay_model_grant_error(error);
     }
     let (provider, model_id) = match split_model(&grant.model) {
         Ok(parts) => parts,
@@ -2173,6 +2173,17 @@ fn requested_model(request: &serde_json::Value) -> Option<&str> {
 /// A signed session proves who asked and which model it may use. The current
 /// company configuration decides whether that provider is still available.
 /// Checking here makes removal effective for an already-running session too.
+#[derive(Debug)]
+struct BrokerIdentityUnavailable;
+
+impl std::fmt::Display for BrokerIdentityUnavailable {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("host model account broker is temporarily unavailable")
+    }
+}
+
+impl std::error::Error for BrokerIdentityUnavailable {}
+
 async fn live_company_model_grant(
     root: &Path,
     grant: &crate::capability::ModelGrant,
@@ -2203,7 +2214,9 @@ async fn live_company_model_grant(
             if reference.starts_with("omp-oauth:") {
                 let expected = crate::owner::account_oauth_key(root, &grant.provider, reference)?
                     .context("account OAuth connection has no verified identity")?;
-                let actual = oauth_account_key(&grant.provider).await?
+                let actual = oauth_account_key(&grant.provider)
+                    .await
+                    .map_err(|_| BrokerIdentityUnavailable)?
                     .context("host broker has no unique provider account identity")?;
                 if actual != expected {
                     bail!("host provider account changed since this company was granted access");
@@ -2212,6 +2225,56 @@ async fn live_company_model_grant(
         }
     }
     Ok(config)
+}
+
+fn relay_model_grant_error(error: anyhow::Error) -> Response<Body> {
+    if error.downcast_ref::<BrokerIdentityUnavailable>().is_some() {
+        tracing::warn!(class = "host_model_broker_unavailable", "model grant probe unavailable");
+        relay_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "company model account broker is temporarily unavailable",
+        )
+    } else {
+        relay_error(StatusCode::FORBIDDEN, "company model access was removed")
+    }
+}
+
+/// Owner-only cooldown repair may proceed only after the currently configured
+/// OAuth account identity agrees with the durable owner registry. A matching
+/// identity does not assert that an upstream inference call will succeed; the
+/// cooldown deletion separately requires this relay's exact 403 marker.
+pub(crate) async fn verify_owner_model_account(
+    root: &Path,
+    company: &str,
+    model: &str,
+) -> Result<()> {
+    let config = CompanyConfig::load(root, company)?;
+    if config.model != model {
+        bail!("model cooldown repair requires the company's exact primary model");
+    }
+    let (provider, _) = split_model(model)?;
+    let scoped = format!("model.inference.{provider}");
+    let reference = config
+        .credentials
+        .get(&scoped)
+        .context("company has no scoped model connection")?;
+    if !reference.starts_with("omp-oauth:") {
+        bail!("model cooldown repair requires a registered OAuth account");
+    }
+    let grant = crate::capability::ModelGrant {
+        company: company.to_string(),
+        actor: "owner-model-probe".to_string(),
+        session: "owner-model-probe".to_string(),
+        provider: provider.to_string(),
+        credential_reference: Some(reference.clone()),
+        model: model.to_string(),
+        billing: "subscription".to_string(),
+        responsibility: "owner-model-probe".to_string(),
+        work_id: None,
+        attempt_id: None,
+    };
+    live_company_model_grant(root, &grant).await?;
+    Ok(())
 }
 
 fn relay_error(status: StatusCode, message: &str) -> Response<Body> {
@@ -2908,7 +2971,7 @@ pub(crate) async fn oauth_account_key(provider: &str) -> Result<Option<String>> 
         .map_err(|_| anyhow::anyhow!("host model broker state is unavailable"))?
         .clone()
         .context("host model broker is not running")?;
-    let http = reqwest::Client::builder().timeout(Duration::from_secs(2)).build()?;
+    let http = reqwest::Client::builder().timeout(Duration::from_secs(5)).build()?;
     let snapshot = broker_snapshot(&http, &access.token, &access.url).await?;
     let rows = snapshot.credentials.iter()
         .filter(|credential| credential.provider == provider && credential.is_oauth())
