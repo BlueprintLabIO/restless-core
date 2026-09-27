@@ -300,15 +300,9 @@
 	min-height: 40px;
 	align-items: center;
 	padding: 0 15px;
-	border-right: 1px solid var(--border);
 	border-bottom: 1px solid var(--border);
 	font-weight: 500;
 	color: var(--text-tertiary);
-}
-
-.bridge-root .portfolio-grid-head > span:last-child,
-.bridge-root .portfolio-company-row > span:last-child {
-	border-right: 0;
 }
 
 .bridge-root .portfolio-company-row {
@@ -319,7 +313,7 @@
 }
 
 .bridge-root .portfolio-company-row:hover {
-	background: rgba(63, 120, 182, 0.045);
+	background: var(--wash-hover);
 }
 
 .bridge-root .portfolio-company-row:focus-visible {
@@ -332,7 +326,6 @@
 .bridge-root .portfolio-metric {
 	min-width: 0;
 	min-height: 72px;
-	border-right: 1px solid var(--border);
 	border-bottom: 1px solid var(--border);
 }
 
@@ -2703,7 +2696,6 @@
 	.bridge-root .portfolio-company-cell,
 	.bridge-root .portfolio-metric {
 		min-height: 0;
-		border-right: 0;
 	}
 	.bridge-root .portfolio-company-cell {
 		padding-block: 14px;
