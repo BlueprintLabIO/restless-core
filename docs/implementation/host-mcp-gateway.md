@@ -66,7 +66,8 @@ tools; this host HTTP policy does not govern their effects.
 `ready` means MCP initialization and permitted tool discovery succeeded. It
 does not assert site login. A `last_success_at` is recorded only for a typed
 complete read, alongside the site and tool; blocked, auth-required, incomplete,
-and tool errors remain separate statuses. Asking prices and availability in
+`search-unverified`, and tool errors remain separate statuses. A narrow query
+that cannot produce verified cards is not a confirmed empty result. Asking prices and availability in
 Clapping Hands results are observations, not verified sale outcomes.
 
 ## Boundaries
