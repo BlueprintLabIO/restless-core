@@ -1,10 +1,11 @@
 # Local MCP browser owner-control lifecycle
 
-Status: the owner-controlled, actor-scoped local stdio descriptor has been
-ported onto the account-sharing branch. The public-only Cash Converters reader
-can be staged after its package and Runtime installation are verified. A
-broker-backed Clapping Hands descriptor remains blocked on a per-call Runtime
-Bridge contract; this note does not claim that pause/resume currently works.
+Status: historical analysis of an in-company browser broker design. The
+2026-09-27 Clapping Hands integration instead keeps its authenticated browser
+on the host and exposes three restricted, read-only MCP tools through the
+Attempt-scoped gateway described in [host-mcp-gateway.md](host-mcp-gateway.md).
+The owner-visible company browser pause/resume contract discussed below is
+still unresolved, but it is not used by that host-owned integration.
 
 ## Current boundary
 
