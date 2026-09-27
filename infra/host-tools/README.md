@@ -8,7 +8,7 @@ and history replay. It also accepts namespace tools in a Responses Lite
 remain distinct on the wire.
 
 `npm --prefix infra/host-tools ci` runs `apply-pi-ai-patch.mjs` after install.
-`scripts/restless-dev` checks the patch again when it reuses an existing
+`scripts/restless-dev` checks the patch again with pinned Bun when it reuses an existing
 host-tools install. The script requires the pinned package version and a clean
 patch context, and is safe to rerun. It uses the system `patch` command.
 
