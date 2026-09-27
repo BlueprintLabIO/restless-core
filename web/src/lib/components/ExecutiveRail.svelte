@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { failureSentence } from '$lib/model/failure';
 	import Skeleton from '$lib/primitives/Skeleton.svelte';
 	/* One contextual conversation rail. It normally belongs to the Exec; while
 	 * the owner focuses a review it belongs to that Work's accountable lead.
@@ -365,7 +366,7 @@
 			}
 		} catch (cause) {
 			composer = sent;
-			askError = cause instanceof Error ? cause.message : 'Your message was not delivered.';
+			askError = failureSentence(cause, 'Your message was not delivered.');
 		} finally {
 			sending = false;
 		}

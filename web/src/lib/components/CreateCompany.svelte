@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { failureSentence } from '$lib/model/failure';
 	import { goto } from '$app/navigation';
 	import { createCompany, getCompanies } from '$lib/model/cockpit';
 	import { sendActorMessage } from '$lib/model/attention';
@@ -56,7 +57,7 @@
 			);
 			await goto(`/${createdCompany}`);
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Could not send this to Exec.';
+			error = failureSentence(cause, 'Could not send this to Exec.');
 		} finally {
 			busy = false;
 		}

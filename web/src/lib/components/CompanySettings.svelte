@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { failureSentence } from '$lib/model/failure';
 	import { beforeNavigate } from '$app/navigation';
 	import { getContext, onMount } from 'svelte';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
@@ -129,7 +130,7 @@
 			ready = true;
 			sessionStorage.removeItem(draftKey);
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Could not reload settings.';
+			error = failureSentence(cause, 'Could not reload settings.');
 		}
 	}
 
@@ -177,7 +178,7 @@
 				onsaved?.();
 				return true;
 			} catch (cause) {
-				error = cause instanceof Error ? cause.message : 'Could not save settings.';
+				error = failureSentence(cause, 'Could not save settings.');
 				return false;
 			} finally {
 				saving = false;

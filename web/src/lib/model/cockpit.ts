@@ -1,4 +1,5 @@
 import type { CockpitView } from './generated/cockpit';
+import { responseFailure } from './failure.ts';
 
 export type {
 	CockpitEffectReceipt as EffectReceipt,
@@ -31,16 +32,7 @@ export async function getCompanies(): Promise<CompanyCatalogEntry[]> {
 		credentials: 'same-origin',
 		cache: 'no-store'
 	});
-	if (!response.ok) {
-		let message = `${response.status} ${response.statusText}`;
-		try {
-			const body = await response.json();
-			message = body.message ?? message;
-		} catch {
-			// Preserve the transport status when an intermediary returns non-JSON.
-		}
-		throw Object.assign(new Error(message), { status: response.status });
-	}
+	if (!response.ok) throw await responseFailure(response);
 	return response.json();
 }
 
@@ -76,16 +68,7 @@ async function changeCompanyLifecycle(
 		method: 'POST',
 		credentials: 'same-origin'
 	});
-	if (!response.ok) {
-		let message = `${response.status} ${response.statusText}`;
-		try {
-			const body = await response.json();
-			message = body.message ?? message;
-		} catch {
-			// Preserve the transport status when an intermediary returns non-JSON.
-		}
-		throw Object.assign(new Error(message), { status: response.status });
-	}
+	if (!response.ok) throw await responseFailure(response);
 }
 
 export function archiveCompany(company: string): Promise<void> {
@@ -102,16 +85,7 @@ export async function getCockpit(company: string, probeCredentials = false): Pro
 		credentials: 'same-origin',
 		cache: 'no-store'
 	});
-	if (!response.ok) {
-		let message = `${response.status} ${response.statusText}`;
-		try {
-			const body = await response.json();
-			message = body.message ?? message;
-		} catch {
-			// Preserve the transport status when an intermediary returns non-JSON.
-		}
-		throw Object.assign(new Error(message), { status: response.status });
-	}
+	if (!response.ok) throw await responseFailure(response);
 	return response.json();
 }
 

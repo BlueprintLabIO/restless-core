@@ -6,6 +6,7 @@
  * primitives (a Goal and an Exec interval schedule), not harness features. */
 
 import type { GoalRow, ScheduleRow, SkillAssignmentRow, SkillRow } from './generated/orgintel';
+import { responseFailure } from './failure.ts';
 
 export type { SkillRow, SkillAssignmentRow };
 
@@ -28,13 +29,9 @@ export type ComposerOption = {
 };
 
 async function failure(response: Response, fallback: string): Promise<Error> {
-	let message = fallback;
-	try {
-		message = (await response.json()).message ?? message;
-	} catch {
-		/* Keep the transport status when the body is not JSON. */
-	}
-	return Object.assign(new Error(message), { status: response.status });
+	const error = await responseFailure(response);
+	if (!error.serverMessage) error.message = fallback;
+	return error;
 }
 
 function companyPath(company: string, path: string): string {

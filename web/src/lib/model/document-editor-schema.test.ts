@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { getSchema } from '@tiptap/core';
 import * as Y from 'yjs';
-// @ts-expect-error Node's strip-only test runner needs the explicit TypeScript suffix.
 import * as documentEditorSchema from './document-editor-schema.ts';
 
 test('the browser editor schema is the exact sidecar-compatible node and mark set', (context) => {

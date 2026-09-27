@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { failureSentence } from '$lib/model/failure';
 	import Skeleton from '$lib/primitives/Skeleton.svelte';
 	import { onMount } from 'svelte';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
@@ -156,7 +157,7 @@
 			}
 		} catch (cause) {
 			if (sequence === refreshSequence)
-				error = cause instanceof Error ? cause.message : 'Could not load account connections.';
+				error = failureSentence(cause, 'Could not load account connections.');
 		} finally {
 			if (sequence === refreshSequence) loading = false;
 		}
@@ -219,8 +220,7 @@
 			await refresh();
 			announceIntelligenceChange();
 		} catch (cause) {
-			error =
-				cause instanceof Error ? cause.message : 'Could not use this sign-in for the account.';
+			error = failureSentence(cause, 'Could not use this sign-in for the account.');
 		} finally {
 			importingCompany = '';
 		}
@@ -245,7 +245,7 @@
 			announceIntelligenceChange();
 		} catch (cause) {
 			secret = '';
-			error = cause instanceof Error ? cause.message : 'Could not save this connection.';
+			error = failureSentence(cause, 'Could not save this connection.');
 		} finally {
 			busy = false;
 		}
@@ -266,7 +266,7 @@
 			oauthState = 'starting';
 			void pollSignIn(body.job);
 		} catch (cause) {
-			oauthMessage = cause instanceof Error ? cause.message : 'Could not start sign-in.';
+			oauthMessage = failureSentence(cause, 'Could not start sign-in.');
 		}
 	}
 	async function completeClaudeSignIn() {
@@ -287,7 +287,7 @@
 			oauthCallback = '';
 			oauthState = 'completing';
 		} catch (cause) {
-			oauthMessage = cause instanceof Error ? cause.message : 'Could not finish Claude sign-in.';
+			oauthMessage = failureSentence(cause, 'Could not finish Claude sign-in.');
 		} finally {
 			callbackBusy = false;
 		}
@@ -313,7 +313,7 @@
 					return;
 				}
 			} catch (cause) {
-				oauthMessage = cause instanceof Error ? cause.message : 'Could not check sign-in.';
+				oauthMessage = failureSentence(cause, 'Could not check sign-in.');
 				oauthJob = '';
 				return;
 			}
@@ -413,7 +413,7 @@
 			selectedCompany = '';
 			replaceRequired = false;
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Could not grant this company access.';
+			error = failureSentence(cause, 'Could not grant this company access.');
 		} finally {
 			busyCompany = false;
 		}
@@ -449,7 +449,7 @@
 			await refresh();
 			announceIntelligenceChange(company.id);
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Could not remove this company’s access.';
+			error = failureSentence(cause, 'Could not remove this company’s access.');
 		} finally {
 			busyCompany = false;
 		}

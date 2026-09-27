@@ -7,8 +7,16 @@
 	import '$lib/design/index.css';
 	import { navigating } from '$app/state';
 	import { goto, onNavigate } from '$app/navigation';
-	import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
+	import {
+		MutationCache,
+		QueryCache,
+		QueryClient,
+		QueryClientProvider
+	} from '@tanstack/svelte-query';
 	import { onMount } from 'svelte';
+	import { fade } from 'svelte/transition';
+	import { connection, observeFailure, observeSuccess } from '$lib/model/connection.svelte';
+	import { isRetryable } from '$lib/model/failure';
 
 	let { children } = $props();
 
@@ -63,16 +71,35 @@
 		navigationStalled = false;
 		navigationDialog?.close();
 	}
+	let restored = $state(false);
+	let restoredTimer: ReturnType<typeof setTimeout> | undefined;
+	function succeeded() {
+		if (!observeSuccess()) return;
+		/* Anything read during the outage may be behind: refresh what is on
+		 * screen once, then confirm briefly. */
+		void queryClient.invalidateQueries({ refetchType: 'active' });
+		restored = true;
+		clearTimeout(restoredTimer);
+		restoredTimer = setTimeout(() => (restored = false), 2_400);
+	}
 	const queryClient = new QueryClient({
+		queryCache: new QueryCache({ onError: observeFailure, onSuccess: succeeded }),
+		mutationCache: new MutationCache({ onError: observeFailure, onSuccess: succeeded }),
 		defaultOptions: {
 			queries: {
 				staleTime: 5_000,
 				gcTime: 10 * 60_000,
 				refetchOnWindowFocus: true,
-				retry: 1
+				/* Retry only what a second attempt can fix. A 404 or a rejected
+				 * request is shown at once rather than after a pointless wait. */
+				retry: (failureCount, error) => failureCount < 3 && isRetryable(error),
+				retryDelay: (attempt) => Math.min(500 * 2 ** attempt, 4_000)
 			}
 		}
 	});
+	function reconnectNow() {
+		void queryClient.refetchQueries({ type: 'active' });
+	}
 
 	onMount(() => {
 		let backgrounded = document.visibilityState === 'hidden';
@@ -119,7 +146,19 @@
 {/if}
 
 {#if !online}
-	<div class="app-banner app-banner-offline" role="status" aria-live="polite">You're offline.</div>
+	<div class="app-banner" role="status" aria-live="polite" transition:fade={{ duration: 160 }}>
+		You're offline.
+	</div>
+{:else if connection.lost}
+	<div class="app-banner" role="status" aria-live="polite" transition:fade={{ duration: 160 }}>
+		<span class="app-banner-dot" aria-hidden="true"></span>
+		Connection lost. Reconnecting…
+		<button type="button" onclick={reconnectNow}>Retry now</button>
+	</div>
+{:else if restored}
+	<div class="app-banner" role="status" aria-live="polite" transition:fade={{ duration: 160 }}>
+		Reconnected.
+	</div>
 {/if}
 
 {#if navigationStalled}
@@ -190,6 +229,44 @@
 		color: var(--app-ink);
 		border: 1px solid var(--app-edge);
 		box-shadow: 0 12px 32px rgba(43, 51, 66, 0.14);
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		white-space: nowrap;
+	}
+	.app-banner button {
+		margin: -4px -8px -4px 2px;
+		padding: 4px 8px;
+		border: 0;
+		border-radius: 4px;
+		background: transparent;
+		color: var(--app-accent);
+		font: 600 var(--t-body) var(--font-ui);
+		cursor: pointer;
+	}
+	.app-banner button:hover {
+		background: var(--app-accent-soft);
+	}
+	.app-banner button:focus-visible {
+		outline: 2px solid var(--app-accent);
+		outline-offset: 1px;
+	}
+	.app-banner-dot {
+		width: 7px;
+		height: 7px;
+		border-radius: 50%;
+		background: var(--app-danger);
+		animation: app-banner-pulse var(--motion-working) ease-in-out infinite;
+	}
+	@keyframes app-banner-pulse {
+		50% {
+			opacity: 0.35;
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.app-banner-dot {
+			animation: none;
+		}
 	}
 	.app-navigation-error {
 		position: fixed;

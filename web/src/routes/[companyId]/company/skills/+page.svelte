@@ -1,4 +1,6 @@
 <script lang="ts">
+	import Skeleton from '$lib/primitives/Skeleton.svelte';
+	import { failureSentence } from '$lib/model/failure';
 	import { page } from '$app/state';
 	import InfoTip from '$lib/components/InfoTip.svelte';
 	import {
@@ -31,7 +33,7 @@
 		try {
 			library = await fetchSkillLibrary(companyId);
 		} catch (cause) {
-			failure = cause instanceof Error ? cause.message : 'Company skills could not be read.';
+			failure = failureSentence(cause, 'Company skills could not be read.');
 		}
 	}
 
@@ -69,7 +71,7 @@
 			notice = done;
 			await load();
 		} catch (cause) {
-			failure = cause instanceof Error ? cause.message : 'That change was not made.';
+			failure = failureSentence(cause, 'That change was not made.');
 		} finally {
 			busy = '';
 		}
@@ -170,7 +172,7 @@
 	{#if notice}<p class="skills-message" role="status">{notice}</p>{/if}
 
 	{#if !library}
-		{#if !failure}<div class="company-page-wait" aria-label="Reading company skills"></div>{/if}
+		{#if !failure}<Skeleton label="Reading company skills…" variant="page" count={4} />{/if}
 	{:else}
 		{#if library.scan.state === 'unavailable'}
 			<p class="source-unavailable">

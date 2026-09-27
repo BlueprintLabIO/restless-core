@@ -1,4 +1,7 @@
 <script lang="ts">
+	import Skeleton from '$lib/primitives/Skeleton.svelte';
+	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
+	import { failureSentence } from '$lib/model/failure';
 	import CompanyLimits from '$lib/components/CompanyLimits.svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
@@ -55,7 +58,7 @@
 					: `${item.label} launched on this computer.`;
 			}
 		} catch (error) {
-			launchError = error instanceof Error ? error.message : 'The resource could not be opened.';
+			launchError = failureSentence(error, 'The resource could not be opened.');
 		} finally {
 			opening = null;
 		}
@@ -180,9 +183,14 @@
 					</p>{/if}
 			{/each}
 		</div>
-	{:else if source.failure}<div class="company-source-error" role="alert">
-			{source.failure.message}
-		</div>{:else}<div class="company-page-wait" aria-label="Probing resources"></div>{/if}
+	{:else if source.failure}
+		<FailureNotice
+			error={source.failure}
+			subject="resources"
+			variant="block"
+			onretry={source.refresh}
+		/>
+	{:else}<Skeleton label="Probing resources…" variant="page" count={4} />{/if}
 </div>
 
 <style>

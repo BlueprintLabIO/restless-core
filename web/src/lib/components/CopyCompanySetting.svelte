@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { failureSentence } from '$lib/model/failure';
 	import { onMount } from 'svelte';
 	import { getCompanies, type CompanyCatalogEntry } from '$lib/model/cockpit';
 
@@ -98,7 +99,7 @@
 				}
 			}
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Could not copy this setting.';
+			error = failureSentence(cause, 'Could not copy this setting.');
 			if (kind === 'apply') preview = null;
 		} finally {
 			busy = false;

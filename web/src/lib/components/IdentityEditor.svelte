@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { failureSentence } from '$lib/model/failure';
 	import { beforeNavigate } from '$app/navigation';
 	import { tick } from 'svelte';
 	import type { CompanyIdentitySnapshot } from '$lib/model/identity';
@@ -74,7 +75,7 @@
 			notice = 'Identity saved. New work will use this version.';
 			await onSaved();
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Identity could not be saved.';
+			error = failureSentence(e, 'Identity could not be saved.');
 		} finally {
 			saving = false;
 		}

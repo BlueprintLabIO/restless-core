@@ -1,4 +1,6 @@
 <script lang="ts">
+	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
+	import { failureSentence } from '$lib/model/failure';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
@@ -80,9 +82,7 @@
 		});
 	});
 
-	const sourceFailure = $derived(
-		shellPrincipal.failure?.message ?? list.failure?.message ?? detail.failure?.message ?? ''
-	);
+	const sourceFailure = $derived(shellPrincipal.failure ?? list.failure ?? detail.failure ?? null);
 
 	function documentHref(documentId: string): string {
 		return `/${encodeURIComponent(companyId)}/work/documents?document=${encodeURIComponent(documentId)}`;
@@ -165,7 +165,7 @@
 		} catch (cause) {
 			failClosedDocumentRead(client, cause, targetCompanyId, createdDocumentId);
 			if (companyId !== targetCompanyId) return;
-			createFailure = cause instanceof Error ? cause.message : 'The document was not created.';
+			createFailure = failureSentence(cause, 'The document was not created.');
 			if (!isRetryableDocumentFailure(cause)) createAttempt = null;
 		} finally {
 			createBusy = false;
@@ -201,7 +201,20 @@
 	class:document-requested={requestedDocumentId !== ''}
 	class:inspector-open={inspectorOpen}
 >
-	{#if sourceFailure}<div class="cockpit-error" role="alert">{sourceFailure}</div>{/if}
+	{#if sourceFailure}
+		<div class="cockpit-error">
+			<FailureNotice
+				error={sourceFailure}
+				subject="documents"
+				stale={list.status === 'stale'}
+				onretry={() => {
+					void shellPrincipal.refresh();
+					void list.refresh();
+					void detail.refresh();
+				}}
+			/>
+		</div>
+	{/if}
 
 	<aside class="document-index cockpit-pane" aria-label="Company documents">
 		<header class="cockpit-pane-head document-index-head">

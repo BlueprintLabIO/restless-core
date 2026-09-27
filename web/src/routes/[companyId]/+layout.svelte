@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { describeFailure, failureSentence } from '$lib/model/failure';
+	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
 	import { page } from '$app/state';
 	import { setContext } from 'svelte';
@@ -306,7 +308,7 @@
 				};
 			}
 			return {
-				error: cause instanceof Error ? cause.message : 'Your message was not delivered.'
+				error: failureSentence(cause, 'Your message was not delivered.')
 			};
 		}
 	}
@@ -322,7 +324,7 @@
 			await goto(`/${companyId}`);
 			return null;
 		} catch (cause) {
-			return cause instanceof Error ? cause.message : 'The review decision was not recorded.';
+			return failureSentence(cause, 'The review decision was not recorded.');
 		}
 	}
 
@@ -512,9 +514,13 @@
 		{#if childAllowed}
 			{@render children()}
 		{:else if principalProjection.failure}
-			<section class="company-access-state cockpit-pane" role="alert">
-				<h1>Company unavailable</h1>
-				<p>{principalProjection.failure.message}</p>
+			<section class="company-access-state cockpit-pane">
+				<FailureNotice
+					error={principalProjection.failure}
+					subject="this company"
+					variant="page"
+					onretry={principalProjection.refresh}
+				/>
 			</section>
 		{:else}
 			<section class="company-access-state cockpit-pane" role="status" aria-live="polite">
@@ -539,8 +545,8 @@
 				<h1 id="startup-error-title">We couldn’t open this company</h1>
 				<p id="startup-error-copy">
 					{startupFailure
-						? 'We couldn’t complete the company check. Try again to continue.'
-						: 'This is taking longer than expected. The page is still here, and you can try reconnecting.'}
+						? describeFailure(startupFailure).detail
+						: 'This is taking longer than expected. Your page is still here; try reconnecting.'}
 				</p>
 				<button
 					bind:this={startupRetryButton}
@@ -641,16 +647,8 @@
 		font-size: var(--t-body);
 	}
 
-	.company-access-state h1,
 	.company-access-state p {
 		margin: 0;
-	}
-
-	.company-access-state h1 {
-		font-size: var(--t-head);
-	}
-
-	.company-access-state p {
 		color: var(--text-tertiary);
 		/* A quick check shows only the calm mark; words appear if it lingers. */
 		animation: access-words-in var(--motion-disclosure) var(--ease-out) 600ms backwards;

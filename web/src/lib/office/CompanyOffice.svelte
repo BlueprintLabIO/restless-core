@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { describeFailure } from '$lib/model/failure';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { cockpitQuery } from '$lib/model/queries.svelte';
@@ -27,7 +28,9 @@
 
 	const cockpitProjection = $derived(cockpitQuery(companyId));
 	const cockpit = $derived(cockpitProjection.view);
-	const error = $derived(cockpitProjection.failure?.message ?? '');
+	const error = $derived(
+		cockpitProjection.failure ? describeFailure(cockpitProjection.failure).title + '.' : ''
+	);
 	let selectedActorId = $state<string | null>(null);
 	let preferences = $state<OfficePreferences>({ ...DEFAULT_OFFICE_PREFERENCES });
 

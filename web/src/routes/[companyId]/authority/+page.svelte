@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Skeleton from '$lib/primitives/Skeleton.svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
@@ -10,4 +11,4 @@
 </script>
 
 <svelte:head><title>Opening Company…</title></svelte:head>
-<div class="company-page-wait" aria-label="Opening Authority and limits"></div>
+<Skeleton label="Opening Authority and limits…" variant="page" count={4} />

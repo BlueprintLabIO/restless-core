@@ -3,7 +3,6 @@ import test from 'node:test';
 import { HocuspocusProvider } from '@hocuspocus/provider';
 import { Server } from '@hocuspocus/server';
 import * as Y from 'yjs';
-// @ts-expect-error Node's strip-only test runner needs the explicit TypeScript suffix.
 import * as collaboration from './document-collaboration.ts';
 
 const COMPANY = '018f47f1-7b60-7c2e-8a2b-151fef2b7aa1';

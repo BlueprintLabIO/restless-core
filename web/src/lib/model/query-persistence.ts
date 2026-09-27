@@ -1,4 +1,5 @@
 import type { QueryClient } from '@tanstack/query-core';
+import { responseFailure } from './failure.ts';
 
 export const QUERY_CACHE_SCHEMA = 2;
 export const QUERY_CACHE_MAX_AGE_MS = 12 * 60 * 60_000;
@@ -483,13 +484,12 @@ export async function getCompanyPrincipal(
 		signal
 	});
 	if (!response.ok) {
-		const message =
-			response.status === 401
-				? 'Your company session has ended. Sign in again. If your access was removed, ask the company owner for an invitation.'
-				: `${response.status} ${response.statusText}`;
-		throw Object.assign(new Error(message), {
-			status: response.status
-		});
+		const failure = await responseFailure(response);
+		if (response.status === 401) {
+			failure.message = failure.serverMessage =
+				'Your session has ended. Sign in again, or ask the owner for a new invitation.';
+		}
+		throw failure;
 	}
 	const value = record(await response.json());
 	const actorId = string(value?.actor_id, 256);

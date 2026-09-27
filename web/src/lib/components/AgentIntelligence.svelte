@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { failureSentence } from '$lib/model/failure';
 	import { intelligenceQuery, type IntelligenceAgent } from '$lib/model/intelligence.svelte';
 	import { announceIntelligenceChange } from '$lib/model/intelligence-events';
 	import { MODEL_PRESETS } from '$lib/model/model-presets';
@@ -125,7 +126,7 @@
 			editing = '';
 			notice = 'Intelligence saved. Applies to the next session.';
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Could not save assignment.';
+			error = failureSentence(cause, 'Could not save assignment.');
 			await source.refresh();
 		} finally {
 			busy = false;

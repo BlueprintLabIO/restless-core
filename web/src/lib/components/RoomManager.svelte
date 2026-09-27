@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { failureSentence } from '$lib/model/failure';
 	import Plus from '@lucide/svelte/icons/plus';
 	import Users from '@lucide/svelte/icons/users';
 	import X from '@lucide/svelte/icons/x';
@@ -162,7 +163,7 @@
 			createdCallback(created);
 		} catch (error) {
 			if (isCurrentScope(requestedScope) && actorId === requestedActorId) {
-				failure = error instanceof Error ? error.message : 'Conversation could not be created.';
+				failure = failureSentence(error, 'Conversation could not be created.');
 			}
 		} finally {
 			if (busyFor === requestedScope) busyFor = '';
@@ -188,7 +189,7 @@
 				actorId === requestedActorId &&
 				room?.id === requestedRoomId
 			) {
-				failure = error instanceof Error ? error.message : 'Membership could not be updated.';
+				failure = failureSentence(error, 'Membership could not be updated.');
 			}
 		} finally {
 			if (busyFor === requestedScope) busyFor = '';

@@ -1,4 +1,7 @@
 <script lang="ts">
+	import Skeleton from '$lib/primitives/Skeleton.svelte';
+	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
+	import { failureSentence } from '$lib/model/failure';
 	import { page } from '$app/state';
 	import Activity from '@lucide/svelte/icons/activity';
 	import ArrowUpRight from '@lucide/svelte/icons/arrow-up-right';
@@ -36,8 +39,7 @@
 					startupError = '';
 				}
 			} catch (cause) {
-				if (!stopped)
-					startupError = cause instanceof Error ? cause.message : 'Startup check is unavailable.';
+				if (!stopped) startupError = failureSentence(cause, 'Startup check is unavailable.');
 			} finally {
 				if (!stopped && !startup.ran_at && !startup.error && !startupError)
 					timer = setTimeout(read, 5000);
@@ -63,7 +65,7 @@
 			notice = outcome.message;
 			await source.refresh();
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Recovery did not complete.';
+			error = failureSentence(cause, 'Recovery did not complete.');
 		} finally {
 			working = '';
 		}
@@ -128,9 +130,9 @@
 	{#if error}<div class="computer-error" role="alert">{error}</div>{/if}
 	{#if notice}<div class="computer-notice" role="status">{notice}</div>{/if}
 
-	{#if view && source.failure}<p class="company-source-error" role="alert">
-			Could not refresh diagnostics. Showing the last result. {source.failure.message}
-		</p>{/if}
+	{#if view && source.failure}
+		<FailureNotice error={source.failure} subject="diagnostics" stale onretry={source.refresh} />
+	{/if}
 	{#if view}
 		<section class="doctor-overview doctor-{view.computer.doctor.status}">
 			<div class="doctor-overview-mark"><Activity size={22} strokeWidth={1.7} /></div>
@@ -207,9 +209,9 @@
 					>{working === 'recheck' ? 'Checking…' : 'Recheck'}</button
 				>
 			</div>
-			<p class="company-source-error" role="alert">{source.failure.message}</p>
+			<FailureNotice error={source.failure} subject="diagnostics" onretry={source.refresh} />
 		</section>
 	{:else}
-		<div class="company-page-wait" aria-label="Running company doctor"></div>
+		<Skeleton label="Running company doctor…" variant="page" count={4} />
 	{/if}
 </div>

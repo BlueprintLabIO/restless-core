@@ -1,4 +1,6 @@
 <script lang="ts">
+	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
+	import { failureSentence } from '$lib/model/failure';
 	import Skeleton from '$lib/primitives/Skeleton.svelte';
 	import { onDestroy, tick, untrack, type Snippet } from 'svelte';
 	let { actions }: { actions?: Snippet } = $props();
@@ -295,8 +297,7 @@
 				})
 				.catch((cause) => {
 					if (key === `${companyId}:${principalActorId}:${requestedPersonId}`)
-						personResolutionFailure =
-							cause instanceof Error ? cause.message : 'Could not open this conversation.';
+						personResolutionFailure = failureSentence(cause, 'Could not open this conversation.');
 				})
 				.finally(() => {
 					if (resolvingPersonKey === key) resolvingPersonKey = '';
@@ -574,7 +575,7 @@
 			}
 		} catch (cause) {
 			control.value = team.outcome_standard;
-			standardError = cause instanceof Error ? cause.message : 'Could not save the quality target.';
+			standardError = failureSentence(cause, 'Could not save the quality target.');
 		} finally {
 			try {
 				await cockpitProjection.refresh();
@@ -896,7 +897,7 @@
 			retryCommandId = retryable ? commandId : null;
 			retryBody = retryable ? body : '';
 			pendingMessage = null;
-			sendError = cause instanceof Error ? cause.message : 'This message was not delivered.';
+			sendError = failureSentence(cause, 'This message was not delivered.');
 			if (files.length) volatileFileDrafts.set(targetDraft, files);
 		} finally {
 			sending = false;
@@ -1084,9 +1085,11 @@
 						{#if messageSearchPending || messageSearchProjection.status === 'unknown'}
 							<p class="room-empty">Searching messages…</p>
 						{:else if messageSearchProjection.failure}
-							<p class="room-source-error" role="alert">
-								{messageSearchProjection.failure.message}
-							</p>
+							<FailureNotice
+								error={messageSearchProjection.failure}
+								subject="search results"
+								onretry={messageSearchProjection.refresh}
+							/>
 						{:else}
 							{#each messageSearchProjection.messages as result (result.id)}
 								<button
@@ -1161,7 +1164,9 @@
 								? (revisionProjection?.status ?? 'unknown')
 								: 'live'}
 							historyFailure={historyMessageId === message.id
-								? (revisionProjection?.failure?.message ?? '')
+								? revisionProjection?.failure
+									? failureSentence(revisionProjection.failure, 'Edit history couldn’t load.')
+									: ''
 								: ''}
 							historyHasMore={historyMessageId === message.id &&
 								Boolean(revisionProjection?.hasMore)}
@@ -1176,13 +1181,12 @@
 						/>
 					{:else}
 						{#if roomProjection?.failure && !roomMessages.length}
-							<div class="conversation-empty failure">
-								<strong>Conversation unavailable.</strong>
-								<p>{roomProjection.failure.message}</p>
-								<button type="button" onclick={() => void roomProjection?.refresh()}
-									>Try again</button
-								>
-							</div>
+							<FailureNotice
+								error={roomProjection.failure}
+								subject="this conversation"
+								variant="page"
+								onretry={() => roomProjection?.refresh()}
+							/>
 						{:else if roomProjection?.status === 'unknown'}
 							<Skeleton label="Loading conversation" variant="messages" count={3} />
 						{:else}
@@ -1303,7 +1307,9 @@
 							? (revisionProjection?.status ?? 'unknown')
 							: 'live'}
 						historyFailure={historyMessageId === message.id
-							? (revisionProjection?.failure?.message ?? '')
+							? revisionProjection?.failure
+								? failureSentence(revisionProjection.failure, 'Edit history couldn’t load.')
+								: ''
 							: ''}
 						historyHasMore={historyMessageId === message.id && Boolean(revisionProjection?.hasMore)}
 						historyLoadingMore={historyMessageId === message.id &&
@@ -1317,10 +1323,12 @@
 					{#if threadProjection?.status === 'unknown'}
 						<Skeleton label="Loading thread" variant="messages" count={2} />
 					{:else}
-						<div class="conversation-empty failure">
-							<strong>Thread unavailable.</strong>
-							<p>{threadProjection?.failure?.message ?? 'This Thread could not be loaded.'}</p>
-						</div>
+						<FailureNotice
+							error={threadProjection?.failure ?? new Error('This thread couldn’t be loaded.')}
+							subject="this thread"
+							variant="block"
+							onretry={threadProjection ? () => threadProjection?.refresh() : undefined}
+						/>
 					{/if}
 				{/each}
 			</div>
@@ -1560,17 +1568,11 @@
 		border-bottom: 1px solid var(--border);
 	}
 
-	.room-empty,
-	.room-source-error {
+	.room-empty {
 		margin: 0;
 		padding: 14px 12px;
 		font-size: var(--t-body);
 		color: var(--text-secondary);
-	}
-
-	.room-source-error {
-		border-top: 1px solid color-mix(in srgb, var(--state-danger) 24%, var(--border));
-		color: var(--state-danger);
 	}
 
 	.room-head,
@@ -1815,11 +1817,6 @@
 		background: var(--surface);
 		box-shadow: var(--control-depth);
 		cursor: pointer;
-	}
-
-	.conversation-empty.failure strong,
-	.conversation-empty.failure p {
-		color: var(--state-danger);
 	}
 
 	.room-composer {

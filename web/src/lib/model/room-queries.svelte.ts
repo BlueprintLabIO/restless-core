@@ -58,8 +58,7 @@ export function recentDirectConversationsQuery(companyId: string, enabled: () =>
 		enabled: enabled(),
 		staleTime: ROOM_STALE_MS,
 		gcTime: ROOM_RETAIN_MS,
-		refetchInterval: ROOM_REFRESH_MS,
-		retry: 1
+		refetchInterval: ROOM_REFRESH_MS
 	}));
 	return {
 		get conversations() {
@@ -70,7 +69,8 @@ export function recentDirectConversationsQuery(companyId: string, enabled: () =>
 		},
 		get failure() {
 			return (query.error as (Error & { status?: number }) | null) ?? null;
-		}
+		},
+		refresh: () => query.refetch()
 	};
 }
 
@@ -100,8 +100,7 @@ export function roomsQuery(companyId: string) {
 		initialPageParam: null as RoomListCursor | null,
 		getNextPageParam: roomListCursor,
 		staleTime: ROOM_STALE_MS,
-		gcTime: ROOM_RETAIN_MS,
-		retry: 1
+		gcTime: ROOM_RETAIN_MS
 	}));
 	return {
 		get rooms() {
@@ -134,8 +133,7 @@ export function roomTitleSearchQuery(companyId: string, search: string) {
 		getNextPageParam: roomListCursor,
 		enabled: normalized.length > 0,
 		staleTime: ROOM_STALE_MS,
-		gcTime: ROOM_RETAIN_MS,
-		retry: 1
+		gcTime: ROOM_RETAIN_MS
 	}));
 	return {
 		get rooms() {
@@ -173,8 +171,7 @@ export function roomMessageSearchQuery(companyId: string, search: string) {
 		getNextPageParam: olderSearchCursor,
 		enabled: normalized.length > 0,
 		staleTime: ROOM_STALE_MS,
-		gcTime: ROOM_RETAIN_MS,
-		retry: 1
+		gcTime: ROOM_RETAIN_MS
 	}));
 	return {
 		get messages() {
@@ -192,7 +189,8 @@ export function roomMessageSearchQuery(companyId: string, search: string) {
 		get loadingMore() {
 			return query.isFetchingNextPage;
 		},
-		loadMore: () => query.fetchNextPage()
+		loadMore: () => query.fetchNextPage(),
+		refresh: () => query.refetch()
 	};
 }
 
@@ -229,8 +227,7 @@ export function roomMessagesQuery(companyId: string, roomId: string) {
 		getNextPageParam: olderMessageCursor,
 		staleTime: ROOM_STALE_MS,
 		gcTime: ROOM_RETAIN_MS,
-		refetchInterval: ROOM_REFRESH_MS,
-		retry: 1
+		refetchInterval: ROOM_REFRESH_MS
 	}));
 	return {
 		get messages() {
@@ -378,8 +375,7 @@ export function roomThreadQuery(companyId: string, roomId: string, rootMessageId
 		getNextPageParam: olderMessageCursor,
 		staleTime: ROOM_STALE_MS,
 		gcTime: ROOM_RETAIN_MS,
-		refetchInterval: ROOM_REFRESH_MS,
-		retry: 1
+		refetchInterval: ROOM_REFRESH_MS
 	}));
 	return {
 		get messages() {
@@ -447,8 +443,7 @@ export function roomMessageRevisionsQuery(
 		getNextPageParam: olderRevisionCursor,
 		enabled: enabled && messageId > 0,
 		staleTime: ROOM_STALE_MS,
-		gcTime: ROOM_RETAIN_MS,
-		retry: 1
+		gcTime: ROOM_RETAIN_MS
 	}));
 	return {
 		get revisions() {
@@ -476,8 +471,7 @@ export function roomParticipantsQuery(companyId: string, roomId: string) {
 		queryKey: roomQueryKeys.participants(companyId, roomId),
 		queryFn: () => getRoomParticipants(companyId, roomId),
 		staleTime: ROOM_STALE_MS,
-		gcTime: ROOM_RETAIN_MS,
-		retry: 1
+		gcTime: ROOM_RETAIN_MS
 	}));
 	return {
 		get participants() {
@@ -498,8 +492,7 @@ export function roomReadCursorQuery(companyId: string, roomId: string) {
 		queryKey: roomQueryKeys.readCursor(companyId, roomId),
 		queryFn: () => getRoomReadCursor(companyId, roomId),
 		staleTime: ROOM_STALE_MS,
-		gcTime: ROOM_RETAIN_MS,
-		retry: 1
+		gcTime: ROOM_RETAIN_MS
 	}));
 	return {
 		get cursor() {

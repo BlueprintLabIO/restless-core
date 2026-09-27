@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { failureSentence } from '$lib/model/failure';
 	import { onMount } from 'svelte';
 	import Check from '@lucide/svelte/icons/check';
 	import Eraser from '@lucide/svelte/icons/eraser';
@@ -194,7 +195,7 @@
 			})
 			.catch((cause) => {
 				if (destroyed) return;
-				error = cause instanceof Error ? cause.message : 'The company floor could not be opened.';
+				error = failureSentence(cause, 'The company floor could not be opened.');
 			});
 
 		return () => {

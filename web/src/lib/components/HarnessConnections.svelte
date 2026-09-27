@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { failureSentence } from '$lib/model/failure';
 	import { onMount } from 'svelte';
 	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
 	import { announceIntelligenceChange } from '$lib/model/intelligence-events';
@@ -50,7 +51,7 @@
 			try {
 				if (!busy && document.visibilityState === 'visible') await refresh();
 			} catch (cause) {
-				if (!stopped) readError = cause instanceof Error ? cause.message : String(cause);
+				if (!stopped) readError = failureSentence(cause);
 			} finally {
 				polling = false;
 				if (!stopped) timer = setTimeout(poll, 5000);
@@ -90,7 +91,7 @@
 			await intelligence.refresh();
 			announceIntelligenceChange(companyId);
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Harness settings could not be saved.';
+			error = failureSentence(cause, 'Harness settings could not be saved.');
 		} finally {
 			busy = '';
 		}

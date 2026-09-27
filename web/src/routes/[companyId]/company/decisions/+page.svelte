@@ -1,4 +1,6 @@
 <script lang="ts">
+	import Skeleton from '$lib/primitives/Skeleton.svelte';
+	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { page } from '$app/state';
 	import InfoTip from '$lib/components/InfoTip.svelte';
 	import { attentionQuery } from '$lib/model/queries.svelte';
@@ -96,11 +98,13 @@
 			<p class="quiet-empty">No owner decisions have been recorded yet.</p>
 		{/if}
 	{:else if source.failure}
-		<div class="company-source-error" role="alert">
-			{source.failure.message}
-			<button class="btn small" onclick={() => source.refresh()}>Retry</button>
-		</div>
+		<FailureNotice
+			error={source.failure}
+			subject="decision history"
+			variant="block"
+			onretry={source.refresh}
+		/>
 	{:else}
-		<div class="company-page-wait" aria-label="Reading decision history"></div>
+		<Skeleton label="Reading decision history…" variant="page" count={4} />
 	{/if}
 </div>

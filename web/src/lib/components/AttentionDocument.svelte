@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { failureSentence } from '$lib/model/failure';
 	import DocumentEditor from './LazyDocumentEditor.svelte';
 	import DocumentActions from './DocumentActions.svelte';
 	import MessageSquare from '@lucide/svelte/icons/message-square';
@@ -68,7 +69,7 @@
 			if (sameDocumentTarget(target, companyId, request.document_id) && request.id === requestId)
 				onresolved();
 		} catch (error) {
-			failure = error instanceof Error ? error.message : 'Could not complete the request.';
+			failure = failureSentence(error, 'Could not complete the request.');
 		} finally {
 			busy = false;
 		}

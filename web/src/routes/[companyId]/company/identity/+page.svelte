@@ -1,4 +1,7 @@
 <script lang="ts">
+	import Skeleton from '$lib/primitives/Skeleton.svelte';
+	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
+	import { failureSentence } from '$lib/model/failure';
 	import IdentityEditor from '$lib/components/IdentityEditor.svelte';
 	import { page } from '$app/state';
 	import InfoTip from '$lib/components/InfoTip.svelte';
@@ -89,7 +92,7 @@
 			decisionText = '';
 			await source.refresh();
 		} catch (cause) {
-			failure = cause instanceof Error ? cause.message : 'The identity decision was not recorded.';
+			failure = failureSentence(cause, 'The identity decision was not recorded.');
 		} finally {
 			saving = false;
 		}
@@ -112,7 +115,7 @@
 			migrationRationale = '';
 			await source.refresh();
 		} catch (cause) {
-			failure = cause instanceof Error ? cause.message : 'The migration decision was not recorded.';
+			failure = failureSentence(cause, 'The migration decision was not recorded.');
 		} finally {
 			saving = false;
 		}
@@ -690,12 +693,14 @@
 			</section>
 		{/if}
 	{:else if source.failure}
-		<div class="company-source-error" role="alert">
-			{source.failure.message}
-			<button class="btn small" onclick={() => source.refresh()}>Retry</button>
-		</div>
+		<FailureNotice
+			error={source.failure}
+			subject="identity"
+			variant="block"
+			onretry={source.refresh}
+		/>
 	{:else}
-		<div class="company-page-wait" aria-label="Reading company identity"></div>
+		<Skeleton label="Reading company identity…" variant="page" count={4} />
 	{/if}
 </div>
 

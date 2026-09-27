@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { failureSentence } from '$lib/model/failure';
 	import Skeleton from '$lib/primitives/Skeleton.svelte';
 	import { onMount, tick } from 'svelte';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
@@ -155,7 +156,7 @@
 			}
 		} catch (cause) {
 			if (sequence === requestSequence)
-				error = cause instanceof Error ? cause.message : 'Could not read connections.';
+				error = failureSentence(cause, 'Could not read connections.');
 		} finally {
 			if (sequence === requestSequence) refreshing = false;
 		}
@@ -209,7 +210,7 @@
 				: 'Connection saved. Restart Restless to activate this provider.';
 		} catch (cause) {
 			secret = '';
-			error = cause instanceof Error ? cause.message : 'Could not save this connection.';
+			error = failureSentence(cause, 'Could not save this connection.');
 		} finally {
 			busy = false;
 		}
@@ -248,8 +249,7 @@
 					: '/account/settings/connections';
 			companies = companyRows.filter((company) => company.lifecycle_status === 'active');
 		} catch (cause) {
-			accountError =
-				cause instanceof Error ? cause.message : 'Could not load reusable connections.';
+			accountError = failureSentence(cause, 'Could not load reusable connections.');
 		} finally {
 			accountLoading = false;
 		}
@@ -395,7 +395,7 @@
 			}
 		} catch (cause) {
 			connectionSecret = '';
-			accountError = cause instanceof Error ? cause.message : 'Could not save this connection.';
+			accountError = failureSentence(cause, 'Could not save this connection.');
 		} finally {
 			accountBusy = false;
 		}
@@ -422,8 +422,7 @@
 			await Promise.all([refreshReusableConnections(), intelligence.refresh()]);
 			announceIntelligenceChange(companyId);
 		} catch (cause) {
-			accountError =
-				cause instanceof Error ? cause.message : 'Could not use this connection in the company.';
+			accountError = failureSentence(cause, 'Could not use this connection in the company.');
 		} finally {
 			accountBusy = false;
 		}
@@ -447,8 +446,7 @@
 			await Promise.all([refreshReusableConnections(), intelligence.refresh()]);
 			announceIntelligenceChange(companyId);
 		} catch (cause) {
-			accountError =
-				cause instanceof Error ? cause.message : 'Could not remove this company’s access.';
+			accountError = failureSentence(cause, 'Could not remove this company’s access.');
 		} finally {
 			accountBusy = false;
 		}
@@ -471,7 +469,7 @@
 				? ''
 				: 'No available API-key connections were found in that company.';
 		} catch (cause) {
-			accountError = cause instanceof Error ? cause.message : 'Could not inspect that company.';
+			accountError = failureSentence(cause, 'Could not inspect that company.');
 		}
 	}
 	async function importReusableConnection() {
@@ -511,8 +509,7 @@
 				notice = 'Connection imported and made available to this company.';
 			}
 		} catch (cause) {
-			accountError =
-				cause instanceof Error ? cause.message : 'Could not make this connection reusable.';
+			accountError = failureSentence(cause, 'Could not make this connection reusable.');
 		} finally {
 			accountBusy = false;
 		}

@@ -1,3 +1,4 @@
+import { ownerJson } from './failure';
 import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 export type IntelligenceConnection = {
 	id: string;
@@ -62,15 +63,13 @@ export function intelligenceQuery(company: string, enabled: () => boolean = () =
 			const r = await fetch(`/api/companies/${encodeURIComponent(company)}/intelligence`, {
 				signal
 			});
-			if (!r.ok) throw new Error('Could not check intelligence connections.');
-			return (await r.json()) as IntelligenceView;
+			return ownerJson<IntelligenceView>(r);
 		},
 		enabled: enabled(),
 		staleTime: 5000,
 		// Events handle known changes. Poll for CLI and broker changes made
 		// outside this browser, without making a sign-in wait a full minute.
-		refetchInterval: 15_000,
-		retry: 1
+		refetchInterval: 15_000
 	}));
 	return {
 		get view() {

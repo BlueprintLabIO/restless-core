@@ -31,8 +31,7 @@
 		},
 		getNextPageParam: (lastPage) => lastPage.next_before ?? undefined,
 		refetchInterval: open ? 10000 : 30000,
-		staleTime: 5000,
-		retry: 1
+		staleTime: 5000
 	}));
 	const messages = $derived(query.data?.pages.flatMap((p) => p.messages) ?? []);
 	const names = $derived(

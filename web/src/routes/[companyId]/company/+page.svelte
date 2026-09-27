@@ -1,4 +1,7 @@
 <script lang="ts">
+	import Skeleton from '$lib/primitives/Skeleton.svelte';
+	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
+	import { failureSentence } from '$lib/model/failure';
 	import { beforeNavigate } from '$app/navigation';
 	import { page } from '$app/state';
 	import { tick } from 'svelte';
@@ -79,7 +82,7 @@
 			openedMarkdown = '';
 			baseRevision = '';
 		} catch (cause) {
-			failure = cause instanceof Error ? cause.message : 'The charter was not saved.';
+			failure = failureSentence(cause, 'The charter was not saved.');
 			if ((cause as Error & { status?: number })?.status === 409) {
 				await source.refresh();
 			}
@@ -95,7 +98,7 @@
 		try {
 			source.accept(await setCompanyOutcomeStandard(companyId, standard));
 		} catch (cause) {
-			qualityError = cause instanceof Error ? cause.message : 'Could not change the quality bar.';
+			qualityError = failureSentence(cause, 'Could not change the quality bar.');
 		} finally {
 			qualitySaving = false;
 		}
@@ -315,9 +318,14 @@
 			</aside>
 		</div>
 	{:else if source.failure}
-		<div class="company-source-error" role="alert">{source.failure.message}</div>
+		<FailureNotice
+			error={source.failure}
+			subject="the charter"
+			variant="block"
+			onretry={source.refresh}
+		/>
 	{:else}
-		<div class="company-page-wait" aria-label="Reading Company charter"></div>
+		<Skeleton label="Reading Company charter…" variant="page" count={4} />
 	{/if}
 </div>
 

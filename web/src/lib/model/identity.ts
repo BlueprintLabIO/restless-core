@@ -23,6 +23,7 @@ import type {
 	VisualReviewRow,
 	VisualWorkContractRow
 } from './generated/orgintel';
+import { ownerJson } from './failure.ts';
 
 export type {
 	CompanyIdentitySnapshot,
@@ -50,19 +51,7 @@ export type {
 	VisualWorkContractRow
 };
 
-async function ownerResponse<T>(response: Response): Promise<T> {
-	if (!response.ok) {
-		let message = `${response.status} ${response.statusText}`;
-		try {
-			const body = await response.json();
-			message = body.message ?? message;
-		} catch {
-			// Preserve the transport failure when an intermediary returns non-JSON.
-		}
-		throw Object.assign(new Error(message), { status: response.status });
-	}
-	return response.json() as Promise<T>;
-}
+const ownerResponse = ownerJson;
 
 export async function getCompanyIdentity(company: string): Promise<CompanyIdentitySnapshot> {
 	return ownerResponse(

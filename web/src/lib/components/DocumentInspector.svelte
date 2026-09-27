@@ -1,4 +1,6 @@
 <script lang="ts">
+	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
+	import { failureSentence } from '$lib/model/failure';
 	import Skeleton from '$lib/primitives/Skeleton.svelte';
 	import Check from '@lucide/svelte/icons/check';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
@@ -342,7 +344,7 @@
 		} catch (cause) {
 			failClosedDocumentRead(client, cause, target.companyId, target.documentId);
 			if (!isCurrentTarget(target)) return;
-			commentFailure = cause instanceof Error ? cause.message : 'The comment was not saved.';
+			commentFailure = failureSentence(cause, 'The comment was not saved.');
 			if (!isRetryableDocumentFailure(cause)) commentAttempt = null;
 		} finally {
 			if (isCurrentTarget(target)) commentBusy = false;
@@ -373,7 +375,7 @@
 		} catch (cause) {
 			failClosedDocumentRead(client, cause, target.companyId, target.documentId);
 			if (!isCurrentTarget(target)) return;
-			commentFailure = cause instanceof Error ? cause.message : 'The thread was not resolved.';
+			commentFailure = failureSentence(cause, 'The thread was not resolved.');
 			if (!isRetryableDocumentFailure(cause)) resolveAttempt = null;
 		} finally {
 			if (isCurrentTarget(target)) commentBusy = false;
@@ -422,7 +424,7 @@
 		} catch (cause) {
 			failClosedDocumentRead(client, cause, target.companyId, target.documentId);
 			if (!isCurrentTarget(target)) return;
-			reviewFailure = cause instanceof Error ? cause.message : 'Review could not be requested.';
+			reviewFailure = failureSentence(cause, 'Review could not be requested.');
 			if (!isRetryableDocumentFailure(cause)) reviewRequestAttempt = null;
 		} finally {
 			if (isCurrentTarget(target)) reviewBusy = false;
@@ -464,7 +466,7 @@
 		} catch (cause) {
 			failClosedDocumentRead(client, cause, target.companyId, target.documentId);
 			if (!isCurrentTarget(target)) return;
-			reviewFailure = cause instanceof Error ? cause.message : 'The review was not accepted.';
+			reviewFailure = failureSentence(cause, 'The review was not accepted.');
 			if (!isRetryableDocumentFailure(cause)) reviewAcceptAttempt = null;
 		} finally {
 			if (isCurrentTarget(target)) reviewBusy = false;
@@ -525,7 +527,7 @@
 		} catch (cause) {
 			failClosedDocumentRead(client, cause, target.companyId, target.documentId);
 			if (!isCurrentTarget(target)) return;
-			proposalFailure = cause instanceof Error ? cause.message : 'The proposal was not resolved.';
+			proposalFailure = failureSentence(cause, 'The proposal was not resolved.');
 			if (!isRetryableDocumentFailure(cause)) proposalAttempt = null;
 		} finally {
 			if (isCurrentTarget(target)) proposalBusy = false;
@@ -576,7 +578,7 @@
 		} catch (cause) {
 			failClosedDocumentRead(client, cause, target.companyId, target.documentId);
 			if (!isCurrentTarget(target)) return;
-			versionFailure = cause instanceof Error ? cause.message : 'The version was not restored.';
+			versionFailure = failureSentence(cause, 'The version was not restored.');
 			if (!isRetryableDocumentFailure(cause)) restoreCommand = null;
 		} finally {
 			if (isCurrentTarget(target)) restoringVersionId = '';
@@ -651,7 +653,9 @@
 				{/if}
 			</header>
 
-			{#if threads.failure}<p class="inline-error" role="alert">{threads.failure.message}</p>{/if}
+			{#if threads.failure}
+				<FailureNotice error={threads.failure} subject="comments" onretry={threads.refresh} />
+			{/if}
 
 			{#if composingThread}
 				<div class="comment-target">
@@ -1000,7 +1004,11 @@
 						</header>
 						<pre>{versionDetail.version.version.plain_text || 'This version is empty.'}</pre>
 					{:else if versionDetail.failure}
-						<p class="inline-error" role="alert">{versionDetail.failure.message}</p>
+						<FailureNotice
+							error={versionDetail.failure}
+							subject="this version"
+							onretry={versionDetail.refresh}
+						/>
 					{:else}
 						<Skeleton label="Loading version preview" count={4} />
 					{/if}

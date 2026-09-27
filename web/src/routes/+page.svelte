@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Skeleton from '$lib/primitives/Skeleton.svelte';
+	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { plainText } from '$lib/text';
 	import { tooltips } from '$lib/actions/tooltips';
 	import { selectMenu } from '$lib/actions/select-menu';
@@ -26,7 +27,6 @@
 		portfolio.view?.projections ?? ({} as Record<string, PortfolioProjection>)
 	);
 	const loaded = $derived(companyCatalog.status !== 'unknown');
-	const error = $derived(companyCatalog.failure?.message ?? '');
 	let redirected = $state(false);
 	let appliance = $state<ApplianceStatus | null>(null);
 	const activeCompanies = $derived(
@@ -93,12 +93,14 @@
 		</div>
 	</header>
 
-	{#if error && !loaded}
+	{#if companyCatalog.failure && !loaded}
 		<main class="portfolio-main">
-			<div class="portfolio-error" role="alert">{error}</div>
-			<button class="btn small" type="button" onclick={() => void companyCatalog.refresh()}
-				>Try again</button
-			>
+			<FailureNotice
+				error={companyCatalog.failure}
+				subject="your companies"
+				variant="page"
+				onretry={companyCatalog.refresh}
+			/>
 		</main>
 	{:else if loaded}
 		<main class="portfolio-main">
@@ -122,7 +124,14 @@
 				<h1>Companies</h1>
 			</header>
 
-			{#if error}<div class="portfolio-error">{error}</div>{/if}
+			{#if companyCatalog.failure}
+				<FailureNotice
+					error={companyCatalog.failure}
+					subject="your companies"
+					stale
+					onretry={companyCatalog.refresh}
+				/>
+			{/if}
 			<section class="portfolio-table" aria-label="Companies">
 				{#if activeCompanies.length}
 					<div class="portfolio-table-scroll">

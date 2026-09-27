@@ -1,4 +1,5 @@
 import type { MoneyEnvelope } from './cockpit';
+import { ownerJson } from './failure.ts';
 
 export type CompanySourceStatus = 'available' | 'unavailable' | 'stale' | 'absent';
 
@@ -240,19 +241,7 @@ export interface CharterRevisionOutcome {
 	evidence_status: 'recorded' | 'incomplete' | 'unchanged';
 }
 
-async function ownerResponse<T>(response: Response): Promise<T> {
-	if (!response.ok) {
-		let message = `${response.status} ${response.statusText}`;
-		try {
-			const body = await response.json();
-			message = body.message ?? message;
-		} catch {
-			// Preserve the transport status when an intermediary returns non-JSON.
-		}
-		throw Object.assign(new Error(message), { status: response.status });
-	}
-	return response.json() as Promise<T>;
-}
+const ownerResponse = ownerJson;
 
 export async function getCompany(company: string, probeCredentials = false): Promise<CompanyView> {
 	const query = probeCredentials ? '?probe_credentials=true' : '';

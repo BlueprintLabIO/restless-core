@@ -1,4 +1,6 @@
 <script lang="ts">
+	import Skeleton from '$lib/primitives/Skeleton.svelte';
+	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { page } from '$app/state';
 	import InfoTip from '$lib/components/InfoTip.svelte';
 	import { companyQuery } from '$lib/model/queries.svelte';
@@ -79,7 +81,12 @@
 				{/each}
 			</div>
 		{/if}
-	{:else if source.failure}<div class="company-source-error" role="alert">
-			{source.failure.message}
-		</div>{:else}<div class="company-page-wait" aria-label="Reading external actions"></div>{/if}
+	{:else if source.failure}
+		<FailureNotice
+			error={source.failure}
+			subject="external actions"
+			variant="block"
+			onretry={source.refresh}
+		/>
+	{:else}<Skeleton label="Reading external actions…" variant="page" count={4} />{/if}
 </div>

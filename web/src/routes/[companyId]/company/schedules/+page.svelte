@@ -1,4 +1,6 @@
 <script lang="ts">
+	import Skeleton from '$lib/primitives/Skeleton.svelte';
+	import { failureSentence } from '$lib/model/failure';
 	import { page } from '$app/state';
 	import InfoTip from '$lib/components/InfoTip.svelte';
 	import {
@@ -20,7 +22,7 @@
 		try {
 			schedules = await monitorSchedules(companyId);
 		} catch (cause) {
-			failure = cause instanceof Error ? cause.message : 'Schedules could not be read.';
+			failure = failureSentence(cause, 'Schedules could not be read.');
 		}
 	}
 
@@ -37,8 +39,7 @@
 			await setScheduleRuntimeWake(companyId, schedule, enabled);
 			await load();
 		} catch (cause) {
-			const message =
-				cause instanceof Error ? cause.message : 'The schedule wake setting could not be saved.';
+			const message = failureSentence(cause, 'The schedule wake setting could not be saved.');
 			await load();
 			failure = message;
 		} finally {
@@ -55,8 +56,7 @@
 			report = await testScheduleTrigger(companyId, schedule);
 			await load();
 		} catch (cause) {
-			failure =
-				cause instanceof Error ? cause.message : 'The schedule trigger could not be tested.';
+			failure = failureSentence(cause, 'The schedule trigger could not be tested.');
 		} finally {
 			busy = '';
 		}
@@ -103,7 +103,7 @@
 	{#if failure}<p class="schedule-message schedule-error" role="alert">{failure}</p>{/if}
 
 	{#if schedules === null}
-		{#if !failure}<div class="company-page-wait" aria-label="Reading schedules"></div>{/if}
+		{#if !failure}<Skeleton label="Reading schedules…" variant="page" count={4} />{/if}
 	{:else if schedules.length === 0}
 		<p class="quiet-empty">No recurring check-ins yet.</p>
 	{:else}

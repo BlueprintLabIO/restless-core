@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { failureSentence } from '$lib/model/failure';
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import type { AttentionItem } from '$lib/model/view';
 	import {
@@ -91,7 +92,7 @@
 			if (kind === 'decision') await refreshAttention(client, companyId);
 			else await removeConfirmedAttention(client, companyId, item.id);
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'The action was not recorded. Try again.';
+			error = failureSentence(cause, 'The action was not recorded. Try again.');
 		} finally {
 			acting = false;
 			actionStatus = '';
@@ -106,8 +107,7 @@
 			await completeHandoffHumanStep(companyId, item.source.reference);
 			await refreshAttention(client, companyId);
 		} catch (cause) {
-			error =
-				cause instanceof Error ? cause.message : 'The completion was not recorded. Try again.';
+			error = failureSentence(cause, 'The completion was not recorded. Try again.');
 		} finally {
 			acting = false;
 		}

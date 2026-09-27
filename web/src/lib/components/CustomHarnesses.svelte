@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { failureSentence } from '$lib/model/failure';
 	import Skeleton from '$lib/primitives/Skeleton.svelte';
 	import { onMount } from 'svelte';
 	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
@@ -57,8 +58,7 @@
 				if (changed) void intelligence.refresh();
 			}
 		} catch (cause) {
-			if (scope === companyId)
-				error = cause instanceof Error ? cause.message : 'Could not load harnesses.';
+			if (scope === companyId) error = failureSentence(cause, 'Could not load harnesses.');
 		}
 	}
 	$effect(() => {
@@ -117,7 +117,7 @@
 				setTimeout(() => void refresh(), 1000);
 			}
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Could not complete this action.';
+			error = failureSentence(cause, 'Could not complete this action.');
 		} finally {
 			busy = '';
 		}
@@ -167,7 +167,7 @@
 			notice = `Installing ${config.name}…`;
 			setTimeout(() => void refresh(), 1000);
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Could not add harness.';
+			error = failureSentence(cause, 'Could not add harness.');
 		} finally {
 			busy = '';
 		}
@@ -183,7 +183,7 @@
 			keyFor = '';
 			notice = 'Harness key saved in Vault.';
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Could not save key.';
+			error = failureSentence(cause, 'Could not save key.');
 		} finally {
 			busy = '';
 		}

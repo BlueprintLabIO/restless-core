@@ -1,3 +1,4 @@
+import { responseFailure } from './failure.ts';
 export type DocumentKind =
 	| 'brief'
 	| 'plan'
@@ -336,16 +337,7 @@ const documentsPath = (company: string, document?: string): string => {
 };
 
 async function responseError(response: Response): Promise<DocumentError> {
-	let message = `${response.status} ${response.statusText}`;
-	let code: string | null = null;
-	try {
-		const body = (await response.json()) as { message?: string; error?: string; code?: string };
-		message = body.message ?? body.error ?? message;
-		code = body.code ?? null;
-	} catch {
-		// Preserve the HTTP status if an intermediary returns a non-JSON body.
-	}
-	return Object.assign(new Error(message), { status: response.status, code });
+	return (await responseFailure(response)) as DocumentError;
 }
 
 async function documentJson<T>(url: string, init?: RequestInit): Promise<T> {

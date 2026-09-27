@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Skeleton from '$lib/primitives/Skeleton.svelte';
+	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { runStateLabel, workStatusLabel } from '$lib/work/status';
 	import { resizePane } from '$lib/actions/resize-pane';
 	import { page } from '$app/state';
@@ -40,13 +41,23 @@
 				? attentionProjection.status !== 'unknown' || cockpitProjection.status !== 'unknown'
 				: collaborationProjection.status !== 'unknown')
 	);
-	const error = $derived(
-		principalProjection.failure?.message ??
+	/* The first projection that failed, and whether this page still holds data
+	 * from before the failure. FailureNotice turns that into owner copy. */
+	const failure = $derived(
+		principalProjection.failure ??
 			(ownerAccess
-				? (attentionProjection.failure?.message ?? cockpitProjection.failure?.message)
-				: collaborationProjection.failure?.message) ??
-			''
+				? (attentionProjection.failure ?? cockpitProjection.failure)
+				: collaborationProjection.failure) ??
+			null
 	);
+	const error = $derived(Boolean(failure));
+	function retryWork() {
+		void principalProjection.refresh();
+		if (ownerAccess) {
+			void attentionProjection.reload();
+			void cockpitProjection.refresh();
+		} else void collaborationProjection.refresh();
+	}
 	type WorkItem = WorkRow | CollaborationWork;
 	type Artifact = ArtifactRefRow | CollaborationArtifact;
 
@@ -279,7 +290,11 @@
 <svelte:head><title>{work?.title ?? 'Work detail'} — {companyName}</title></svelte:head>
 
 <article class="work-detail-screen cockpit-pane">
-	{#if error}<div class="cockpit-error">{error}</div>{/if}
+	{#if failure && loaded}
+		<div class="cockpit-error">
+			<FailureNotice error={failure} subject="Work" stale onretry={retryWork} />
+		</div>
+	{/if}
 
 	{#if work}
 		<header class="work-detail-head">
@@ -622,5 +637,7 @@
 		<div class="work-detail-loading">
 			<Skeleton label="Loading Work" variant="page" count={5} />
 		</div>
+	{:else if !loaded}
+		<FailureNotice error={failure} subject="this Work" variant="page" onretry={retryWork} />
 	{/if}
 </article>

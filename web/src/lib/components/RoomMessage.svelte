@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { failureSentence } from '$lib/model/failure';
 	import Skeleton from '$lib/primitives/Skeleton.svelte';
 	import { tick } from 'svelte';
 	import MessageCircle from '@lucide/svelte/icons/message-circle';
@@ -169,7 +170,7 @@
 				editCommandId = null;
 				editCommandBody = '';
 			}
-			editError = cause instanceof Error ? cause.message : 'The edit was not saved.';
+			editError = failureSentence(cause, 'The edit was not saved.');
 		} finally {
 			saving = false;
 		}
@@ -190,7 +191,7 @@
 				return;
 			}
 			deleteCommandId = retryable(cause) ? commandId : null;
-			deleteError = cause instanceof Error ? cause.message : 'The message was not deleted.';
+			deleteError = failureSentence(cause, 'The message was not deleted.');
 		} finally {
 			deleting = false;
 		}

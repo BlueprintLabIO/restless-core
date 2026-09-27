@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Skeleton from '$lib/primitives/Skeleton.svelte';
+	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { listFlip, listIn, listOut } from '$lib/motion';
 	import { WORK_STATUS_LABEL, runStateLabel, workStatusLabel } from '$lib/work/status';
 	import { resizePane } from '$lib/actions/resize-pane';
@@ -29,13 +30,23 @@
 	const attention = $derived(attentionProjection.view);
 	const cockpit = $derived(cockpitProjection.view);
 	const collaboration = $derived(collaborationProjection.view);
-	const error = $derived(
-		principalProjection.failure?.message ??
+	/* The first projection that failed, and whether this page still holds data
+	 * from before the failure. FailureNotice turns that into owner copy. */
+	const failure = $derived(
+		principalProjection.failure ??
 			(ownerAccess
-				? (attentionProjection.failure?.message ?? cockpitProjection.failure?.message)
-				: collaborationProjection.failure?.message) ??
-			''
+				? (attentionProjection.failure ?? cockpitProjection.failure)
+				: collaborationProjection.failure) ??
+			null
 	);
+	const error = $derived(Boolean(failure));
+	function retryWork() {
+		void principalProjection.refresh();
+		if (ownerAccess) {
+			void attentionProjection.reload();
+			void cockpitProjection.refresh();
+		} else void collaborationProjection.refresh();
+	}
 	const loaded = $derived(
 		principalProjection.status !== 'unknown' &&
 			(ownerAccess
@@ -283,7 +294,11 @@
 		enabled: true
 	}}
 >
-	{#if error}<div class="cockpit-error">{error}</div>{/if}
+	{#if failure && loaded}
+		<div class="cockpit-error">
+			<FailureNotice error={failure} subject="Work" stale onretry={retryWork} />
+		</div>
+	{/if}
 	<aside class="goal-spine cockpit-pane" aria-label="Company goals">
 		<header class="cockpit-pane-head compact">
 			<div>
@@ -328,7 +343,7 @@
 				{:else}
 					<p class="empty-state">No company goals are recorded.</p>
 				{/each}
-			{:else if !loaded}
+			{:else if !loaded && !failure}
 				<Skeleton label="Loading goals" variant="list" count={4} />
 			{:else}
 				<p class="empty-state">Goals are unavailable.</p>
@@ -358,10 +373,12 @@
 			</div>
 		</header>
 
-		{#if !loaded}
+		{#if !loaded && failure}
+			<FailureNotice error={failure} subject="Work" variant="page" onretry={retryWork} />
+		{:else if !loaded}
 			<Skeleton label="Loading Work" variant="cards" count={6} />
 		{:else if !graph}
-			<p class="empty-state">Work is unavailable. No empty state is being inferred.</p>
+			<p class="empty-state">Work isn’t available yet.</p>
 		{:else if noWorkYet}
 			<div class="work-empty">
 				<span class="work-empty-mark" aria-hidden="true">

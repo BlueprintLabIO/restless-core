@@ -1,4 +1,5 @@
 <script lang="ts">
+	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { initials } from '$lib/model/initials';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
@@ -418,9 +419,13 @@
 						>More messages</button
 					>{/if}
 			{/if}
-			{#if recent.failure || messageSearch.failure}<p class="empty" role="status">
-					{recent.failure?.message ?? messageSearch.failure?.message}
-				</p>{/if}
+			{#if recent.failure || messageSearch.failure}
+				<FailureNotice
+					error={recent.failure ?? messageSearch.failure}
+					subject="conversations"
+					onretry={() => (recent.failure ? recent.refresh() : messageSearch.refresh())}
+				/>
+			{/if}
 		</div>
 	</aside>
 	<section class="conversation-main" aria-label="Selected conversation">

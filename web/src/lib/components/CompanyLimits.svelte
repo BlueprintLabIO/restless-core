@@ -1,4 +1,7 @@
 <script lang="ts">
+	import Skeleton from '$lib/primitives/Skeleton.svelte';
+	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
+	import { failureSentence } from '$lib/model/failure';
 	import { page } from '$app/state';
 	import InfoTip from '$lib/components/InfoTip.svelte';
 	import CopyCompanySetting from '$lib/components/CopyCompanySetting.svelte';
@@ -49,7 +52,7 @@
 			editingRuntime = false;
 			runtimeNotice = 'Runtime limits saved.';
 		} catch (error) {
-			runtimeError = error instanceof Error ? error.message : 'Runtime limits could not be saved.';
+			runtimeError = failureSentence(error, 'Runtime limits could not be saved.');
 		} finally {
 			runtimeSaving = false;
 		}
@@ -71,7 +74,7 @@
 			editingLimit = false;
 			limitNotice = 'Spend limit saved.';
 		} catch (e) {
-			limitError = e instanceof Error ? e.message : 'The limit could not be saved.';
+			limitError = failureSentence(e, 'The limit could not be saved.');
 		} finally {
 			limitSaving = false;
 		}
@@ -360,9 +363,14 @@
 				</section>
 			</div>
 		{/if}
-	{:else if source.failure}<div class="company-source-error" role="alert">
-			{source.failure.message}
-		</div>{:else}<div class="company-page-wait" aria-label="Reading Authority"></div>{/if}
+	{:else if source.failure}
+		<FailureNotice
+			error={source.failure}
+			subject="limits"
+			variant="block"
+			onretry={source.refresh}
+		/>
+	{:else}<Skeleton label="Reading Authority…" variant="page" count={4} />{/if}
 </div>
 
 <style>

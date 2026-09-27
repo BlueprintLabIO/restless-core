@@ -401,20 +401,6 @@
 	text-wrap: balance;
 }
 
-.bridge-root .company-page-wait {
-	width: 100%;
-	height: 3px;
-	border: 1px solid var(--company-edge-soft);
-	border-radius: 999px;
-	background:
-		linear-gradient(90deg, transparent, var(--company-blue), transparent), var(--company-inset);
-	background-size:
-		34% 100%,
-		auto;
-	box-shadow: var(--company-inset-shadow);
-	animation: company-reading var(--motion-working) linear infinite;
-}
-
 @keyframes company-reading {
 	from {
 		background-position:
@@ -2190,11 +2176,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.bridge-root .company-page-wait {
-		animation: none;
-		background: var(--company-blue);
-	}
-
 	.bridge-root .company-spine nav a,
 	.bridge-root .direction-link,
 	.bridge-root .resource-row,

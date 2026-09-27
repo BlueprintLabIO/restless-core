@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { failureSentence } from '$lib/model/failure';
 	import { onDestroy, onMount, tick, untrack } from 'svelte';
 	import type { Snippet } from 'svelte';
 	import Maximize2 from '@lucide/svelte/icons/maximize-2';
@@ -252,7 +253,7 @@
 			}) as EventListener);
 		} catch (cause) {
 			if (current !== generation || !active) return;
-			report('error', cause instanceof Error ? cause.message : 'The desktop could not be opened.');
+			report('error', failureSentence(cause, 'The desktop could not be opened.'));
 		}
 	}
 

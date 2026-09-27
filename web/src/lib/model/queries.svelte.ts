@@ -72,18 +72,7 @@ export function companyPrincipalQuery(companyId: string) {
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
 		refetchInterval: REFRESH_MS,
-		refetchIntervalInBackground: false,
-		retry: (failureCount, error) => {
-			const status = (error as { status?: unknown }).status;
-			const code = (error as { code?: unknown }).code;
-			return (
-				status !== 401 &&
-				status !== 403 &&
-				status !== 404 &&
-				code !== 'invalid_principal' &&
-				failureCount < 1
-			);
-		}
+		refetchIntervalInBackground: false
 	}));
 	return {
 		get view() {
@@ -124,19 +113,7 @@ export function collaborationBootstrapQuery(
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
 		refetchInterval: REFRESH_MS,
-		refetchIntervalInBackground: false,
-		retry: (failureCount, error) => {
-			const status = (error as { status?: unknown }).status;
-			const code = (error as { code?: unknown }).code;
-			return (
-				status !== 401 &&
-				status !== 403 &&
-				status !== 404 &&
-				code !== 'invalid_collaboration' &&
-				code !== 'collaboration_principal_changed' &&
-				failureCount < 1
-			);
-		}
+		refetchIntervalInBackground: false
 	}));
 	return {
 		get view() {
@@ -185,8 +162,7 @@ export function attentionQuery(companyId: string | (() => string), enabled: Quer
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
 		refetchInterval: REFRESH_MS,
-		refetchIntervalInBackground: false,
-		retry: 1
+		refetchIntervalInBackground: false
 	}));
 	return {
 		get view() {
@@ -242,8 +218,7 @@ export function companiesQuery(enabled: QueryEnabled = true) {
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
 		refetchInterval: 60_000,
-		refetchIntervalInBackground: false,
-		retry: 1
+		refetchIntervalInBackground: false
 	}));
 	return {
 		get view() {
@@ -321,8 +296,7 @@ export function portfolioQuery() {
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
 		refetchInterval: 30_000,
-		refetchIntervalInBackground: false,
-		retry: 1
+		refetchIntervalInBackground: false
 	}));
 	return {
 		get view() {
@@ -347,8 +321,7 @@ export function cockpitQuery(companyId: string | (() => string), enabled: QueryE
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
 		refetchInterval: REFRESH_MS,
-		refetchIntervalInBackground: false,
-		retry: 1
+		refetchIntervalInBackground: false
 	}));
 	return {
 		get view() {
@@ -374,8 +347,7 @@ export function companyQuery(companyId: string, enabled: QueryEnabled = true) {
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
 		refetchInterval: 60_000,
-		refetchIntervalInBackground: false,
-		retry: 1
+		refetchIntervalInBackground: false
 	}));
 	return {
 		get view() {
@@ -406,8 +378,7 @@ export function identityQuery(companyId: string) {
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
 		refetchInterval: REFRESH_MS,
-		refetchIntervalInBackground: false,
-		retry: 1
+		refetchIntervalInBackground: false
 	}));
 	return {
 		get view() {
@@ -430,8 +401,7 @@ export function browserStatusQuery(companyId: string) {
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
 		refetchInterval: REFRESH_MS,
-		refetchIntervalInBackground: false,
-		retry: 1
+		refetchIntervalInBackground: false
 	}));
 	return {
 		get view() {
@@ -499,8 +469,7 @@ export function conversationQuery(
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
 		refetchInterval: REFRESH_MS,
-		refetchIntervalInBackground: false,
-		retry: 1
+		refetchIntervalInBackground: false
 	}));
 
 	let live = $state<AgentActivityState | null>(null);

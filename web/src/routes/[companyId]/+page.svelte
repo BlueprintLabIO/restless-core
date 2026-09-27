@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { failureSentence } from '$lib/model/failure';
+	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { listFlip, listIn, listOut } from '$lib/motion';
 	import { resizePane } from '$lib/actions/resize-pane';
 	import { onMount } from 'svelte';
@@ -216,7 +218,7 @@
 			})
 			.catch((cause) => {
 				if (reviewRequestKey === key) {
-					reviewError = cause instanceof Error ? cause.message : 'The live website is unavailable.';
+					reviewError = failureSentence(cause, 'The live website is unavailable.');
 				}
 			});
 	});
@@ -241,8 +243,6 @@
 	 * the only path. The source coalesces this with any poll already running. */
 	async function refresh() {
 		await source.refresh();
-		error =
-			source.status === 'stale' ? (source.failure?.message ?? 'Attention is unavailable.') : '';
 	}
 
 	/* J/K and the arrow keys walk the queue, as in any triage list. Typing,
@@ -323,7 +323,7 @@
 				await takeControl(true);
 			}
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Browser control state is unavailable.';
+			error = failureSentence(cause, 'Browser control state is unavailable.');
 		}
 	}
 
@@ -343,7 +343,7 @@
 			desktopUrl = await issueDesktopTicket(companyId, item.id, clientId);
 			autoClaimPending = true;
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'The live browser is unavailable.';
+			error = failureSentence(cause, 'The live browser is unavailable.');
 		}
 	}
 
@@ -358,7 +358,7 @@
 			lastDesktopActivity = Date.now();
 			lastLeaseRenewal = Date.now();
 		} catch (cause) {
-			if (!silent) error = cause instanceof Error ? cause.message : 'Control is held elsewhere.';
+			if (!silent) error = failureSentence(cause, 'Control is held elsewhere.');
 		}
 	}
 
@@ -372,8 +372,7 @@
 			desktopUrl = observedDesktopUrl();
 			lastDesktopActivity = 0;
 		} catch (cause) {
-			if (!automatic)
-				error = cause instanceof Error ? cause.message : 'Control could not be returned.';
+			if (!automatic) error = failureSentence(cause, 'Control could not be returned.');
 		}
 	}
 
@@ -391,7 +390,7 @@
 			.catch((cause) => {
 				controller = 'observer';
 				desktopUrl = observedDesktopUrl();
-				error = cause instanceof Error ? cause.message : 'Desktop control expired.';
+				error = failureSentence(cause, 'Desktop control expired.');
 			})
 			.finally(() => (activityRenewing = false));
 	}
@@ -418,8 +417,7 @@
 			messageFiles = [];
 		} catch (cause) {
 			messageDraft = sent;
-			conversationError =
-				cause instanceof Error ? cause.message : 'Your message was not delivered.';
+			conversationError = failureSentence(cause, 'Your message was not delivered.');
 		} finally {
 			sendingMessage = false;
 		}
@@ -716,7 +714,13 @@
 			enabled: !queueClear
 		}}
 	>
-		{#if error}<div class="cockpit-error attention-error">{error}</div>{/if}
+		{#if error}
+			<div class="cockpit-error attention-error" role="alert">{error}</div>
+		{:else if source.failure && loaded}
+			<div class="cockpit-error attention-error">
+				<FailureNotice error={source.failure} subject="Attention" stale onretry={source.reload} />
+			</div>
+		{/if}
 		<aside class="cockpit-pane attention-index" aria-hidden={queueClear} inert={queueClear}>
 			<div class="attention-index-scroll">
 				{#if startBlocker && !queueClear}
@@ -811,6 +815,13 @@
 						{@render attentionDetail(selectedItem)}
 					{/key}
 				{/if}
+			{:else if !loaded && source.failure}
+				<FailureNotice
+					error={source.failure}
+					subject="Attention"
+					variant="page"
+					onretry={source.reload}
+				/>
 			{:else if !loaded}
 				<!-- Deliberately nothing until the source answers. An empty pane for
 				     one round trip reads as loading; the zero-state hero reads as a

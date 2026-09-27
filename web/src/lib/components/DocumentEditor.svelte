@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { failureSentence } from '$lib/model/failure';
 	import { browser } from '$app/environment';
 	import { tick, untrack, type Snippet } from 'svelte';
 	import DocumentActions from './DocumentActions.svelte';
@@ -238,8 +239,7 @@
 				name = documentCollaborationName(identity, documentId);
 			} catch (cause) {
 				collaborationState = 'degraded';
-				collaborationFailure =
-					cause instanceof Error ? cause.message : 'The collaboration target is invalid.';
+				collaborationFailure = failureSentence(cause, 'The collaboration target is invalid.');
 				return;
 			}
 
@@ -271,10 +271,10 @@
 								collaborationState,
 								'failed'
 							);
-							collaborationFailure =
-								cause instanceof Error
-									? cause.message
-									: 'A collaboration token could not be issued.';
+							collaborationFailure = failureSentence(
+								cause,
+								'A collaboration token could not be issued.'
+							);
 						}
 						throw new Error('A fresh collaboration token could not be issued.');
 					}
@@ -505,7 +505,7 @@
 				} catch {
 					saveFailure = 'Could not reload the document title.';
 				}
-			} else saveFailure = cause instanceof Error ? cause.message : 'The title was not saved.';
+			} else saveFailure = failureSentence(cause, 'The title was not saved.');
 		} finally {
 			if (sameDocumentTarget(target, companyId, view.document.id)) saving = false;
 		}

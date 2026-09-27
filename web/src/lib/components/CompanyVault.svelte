@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { failureSentence } from '$lib/model/failure';
 	import { onMount } from 'svelte';
 	let { companyId }: { companyId: string } = $props();
 	type Secret = { name: string; path: string; reference: string; updated_at: string | null };
@@ -51,7 +52,7 @@
 			if (!r.ok) throw new Error('Could not read the company vault.');
 			view = await r.json();
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Could not read the vault.';
+			error = failureSentence(e, 'Could not read the vault.');
 		} finally {
 			busy = false;
 		}
@@ -76,7 +77,7 @@
 			binding = '';
 			await refresh();
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Could not save the secret.';
+			error = failureSentence(e, 'Could not save the secret.');
 		} finally {
 			secret = '';
 			busy = false;

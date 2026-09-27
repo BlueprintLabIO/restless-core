@@ -6,6 +6,7 @@ import type {
 	WorkStatus
 } from './generated/orgintel';
 import type { CompanyMembershipRole } from './query-persistence';
+import { responseFailure } from './failure.ts';
 
 export const COLLABORATION_SCHEMA_VERSION = 'member-collaboration.v1';
 
@@ -424,16 +425,7 @@ export async function getCollaborationBootstrap(
 		`/api/companies/${encodeURIComponent(company)}/collaboration/bootstrap`,
 		{ credentials: 'same-origin', cache: 'no-store', signal }
 	);
-	if (!response.ok) {
-		let message = `${response.status} ${response.statusText}`;
-		try {
-			const body = object(await response.json());
-			if (typeof body.message === 'string') message = body.message;
-		} catch {
-			// Preserve the transport status when an intermediary returns non-JSON.
-		}
-		throw Object.assign(new Error(message), { status: response.status });
-	}
+	if (!response.ok) throw await responseFailure(response);
 	const view = parseCollaborationBootstrap(await response.json());
 	if (view.company.id !== company) invalid();
 	return view;

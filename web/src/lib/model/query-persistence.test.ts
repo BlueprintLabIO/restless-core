@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { QueryClient } from '@tanstack/query-core';
-// @ts-expect-error Node's strip-only test runner needs the explicit TypeScript suffix.
 import * as persistence from './query-persistence.ts';
 import type { PersistedQueryEnvelope, SafeQueryStore } from './query-persistence';
 
