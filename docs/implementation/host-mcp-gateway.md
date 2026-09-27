@@ -3,8 +3,9 @@
 The company actor can call a small set of host-owned MCP tools without
 receiving the upstream service bearer, browser profile, cookies, or CDP
 endpoint. This is for local Docker-bridge deployments. Remote OAuth providers
-continue through the existing `mcp-remote` path; a company-local stdio MCP
-still runs inside its Runtime volume.
+continue through the existing `mcp-remote` path. An explicitly reviewed,
+networkless filesystem stdio MCP can now run in a Core-owned Docker worker;
+arbitrary company-local stdio MCPs still run inside the Runtime volume.
 
 ## Install and use
 
@@ -13,7 +14,7 @@ still runs inside its Runtime volume.
    owner-only token file is outside every company Runtime.
 2. Choose a proposed or blocked Work owned by the intended active Staff actor. Install the
    reviewed `clapping-hands` connection at its local MCP endpoint, actor, Work,
-   and all three exact sourcing read tools with the owner
+   and either the original three or the reviewed four exact sourcing read tools with the owner
    CLI `restless local-mcp --company <company> install-host --name <name> --endpoint
    http://127.0.0.1:8799/mcp --token-file <absolute-private-file> --actor
    <actor> --work <work-uuid> --tool <tool-name>` (repeat `--tool` for each read tool).
@@ -45,7 +46,12 @@ The current host HTTP bridge admits only the reviewed Clapping Hands sourcing
 profile: `clapping-hands` at its local port (7799 plus the Restless port offset)
 with exactly `clapping_hands_marketplace_search`,
 `clapping_hands_marketplace_details`, and
-`clapping_hands_gumtree_public_listing`. Other host HTTP tools fail closed at
+`clapping_hands_gumtree_public_listing`, optionally plus the separately reviewed
+`clapping_hands_gumtree_public_listings` batch. Existing three-tool Work pins
+remain valid; the fourth tool needs a fresh install and Attempt. It accepts
+1–8 exact Gumtree URLs and retains a typed row per page, including blocked
+and incomplete outcomes. Gumtree's current edge 403 remains an access failure,
+not a successful batch read. Other host HTTP tools fail closed at
 installation, actor launch, and request handling. A server's MCP
 `readOnlyHint` is not evidence that the code cannot write. This profile trusts
 the owner-managed Clapping Hands service and its audited read surface; a

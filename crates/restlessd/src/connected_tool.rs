@@ -33,6 +33,15 @@ const CLAPPING_HANDS_READ_TOOLS: [&str; 3] = [
     "clapping_hands_marketplace_details",
     "clapping_hands_marketplace_search",
 ];
+// Keep existing three-tool Work pins valid while the bounded Gumtree batch is
+// explicitly installed for a fresh Work. A service advertising a new tool does
+// not grant it to an already-running Attempt.
+const CLAPPING_HANDS_BATCH_READ_TOOLS: [&str; 4] = [
+    "clapping_hands_gumtree_public_listing",
+    "clapping_hands_gumtree_public_listings",
+    "clapping_hands_marketplace_details",
+    "clapping_hands_marketplace_search",
+];
 const DEEPWIKI_ENDPOINT: &str = "https://mcp.deepwiki.com/mcp";
 const DEEPWIKI_READ_TOOL: &str = "read_wiki_structure";
 
@@ -614,10 +623,8 @@ pub(crate) fn require_reviewed_host_read_profile(
     let expected_endpoint = format!("http://127.0.0.1:{port}/mcp");
     if name != "clapping-hands"
         || endpoint != expected_endpoint
-        || !allowed_tools
-            .iter()
-            .map(String::as_str)
-            .eq(CLAPPING_HANDS_READ_TOOLS)
+        || !(allowed_tools.iter().map(String::as_str).eq(CLAPPING_HANDS_READ_TOOLS)
+            || allowed_tools.iter().map(String::as_str).eq(CLAPPING_HANDS_BATCH_READ_TOOLS))
     {
         bail!("host MCP requires the reviewed Clapping Hands sourcing read profile; other tools need an external-effect adapter");
     }

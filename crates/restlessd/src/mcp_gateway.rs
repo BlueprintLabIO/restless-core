@@ -69,6 +69,9 @@ enum ReadRequest {
     GumtreeListing {
         url: String,
     },
+    GumtreeListings {
+        urls: Vec<String>,
+    },
     DeepWikiStructure {
         #[serde(rename = "repoName")]
         repo_name: String,
@@ -96,6 +99,12 @@ struct MarketplaceDetailsArgs {
 #[serde(deny_unknown_fields)]
 struct GumtreeListingArgs {
     url: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GumtreeListingsArgs {
+    urls: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -178,7 +187,17 @@ fn safe_clapping_hands_status(result: &CallToolResult) -> &'static str {
         "access-restricted" => "access-restricted",
         "owner-paused" => "owner-paused",
         "runtime-busy" => "runtime-busy",
+        "runtime-closed" => "runtime-closed",
         "saved-plan-changed" => "saved-plan-changed",
+        "search-unverified" => "search-unverified",
+        "profile-in-use" => "profile-in-use",
+        "profile-recovery-required" => "profile-recovery-required",
+        "browser-shutdown-uncertain" => "browser-shutdown-uncertain",
+        "owner-control-revoked" => "owner-control-revoked",
+        "broker-unavailable" => "broker-unavailable",
+        "runtime-generation-changed" => "runtime-generation-changed",
+        "incompatible-evidence" => "incompatible-evidence",
+        "unknown-task" => "unknown-task",
         "task-failed" => "task-failed",
         "tool_error" => "tool_error",
         _ if result.is_error == Some(true) => "unrecognized-tool-error",
@@ -223,6 +242,10 @@ fn valid_listing_url(raw: &str, site: &str) -> bool {
         }
         _ => false,
     }
+}
+
+fn is_gumtree_tool(name: &str) -> bool {
+    matches!(name, "clapping_hands_gumtree_public_listing" | "clapping_hands_gumtree_public_listings")
 }
 
 fn read_request_params(request: ReadRequest) -> Result<CallToolRequestParams> {
@@ -271,6 +294,18 @@ fn read_request_params(request: ReadRequest) -> Result<CallToolRequestParams> {
                 serde_json::json!({"url":url}),
             )
         }
+        ReadRequest::GumtreeListings { urls } => {
+            if !(1..=8).contains(&urls.len())
+                || !urls.iter().all(|url| valid_listing_url(url, "gumtree"))
+                || urls.iter().collect::<std::collections::HashSet<_>>().len() != urls.len()
+            {
+                bail!("invalid Gumtree listing batch request");
+            }
+            (
+                "clapping_hands_gumtree_public_listings",
+                serde_json::json!({"urls":urls}),
+            )
+        }
         ReadRequest::DeepWikiStructure { repo_name } => {
             connected_tool::validate_public_repository(&repo_name)?;
             ("read_wiki_structure", serde_json::json!({"repoName":repo_name}))
@@ -315,6 +350,10 @@ fn validated_clapping_hands_params(params: CallToolRequestParams) -> Result<Call
         "clapping_hands_gumtree_public_listing" => {
             let args: GumtreeListingArgs = serde_json::from_value(arguments)?;
             ReadRequest::GumtreeListing { url: args.url }
+        }
+        "clapping_hands_gumtree_public_listings" => {
+            let args: GumtreeListingsArgs = serde_json::from_value(arguments)?;
+            ReadRequest::GumtreeListings { urls: args.urls }
         }
         _ => bail!("MCP tool is outside the reviewed read profile"),
     };
@@ -641,7 +680,7 @@ impl ScopedMcp {
     fn safe_subject(&self, tool_name: &str) -> serde_json::Value {
         match &self.profile {
             BrokerReadProfile::Http(ReviewedHttpReadProfile::ClappingHands) => {
-                let site = if tool_name == "clapping_hands_gumtree_public_listing" {
+                let site = if is_gumtree_tool(tool_name) {
                     "gumtree"
                 } else {
                     "facebook-marketplace"
@@ -823,7 +862,7 @@ impl ScopedMcp {
                 && (matches!(&self.profile, BrokerReadProfile::Http(ReviewedHttpReadProfile::DeepWikiStructure { .. }))
                     || read_status == "complete");
             let read_site = match &self.profile {
-                BrokerReadProfile::Http(ReviewedHttpReadProfile::ClappingHands) if tool_name == "clapping_hands_gumtree_public_listing" => "gumtree",
+                BrokerReadProfile::Http(ReviewedHttpReadProfile::ClappingHands) if is_gumtree_tool(tool_name) => "gumtree",
                 BrokerReadProfile::Http(ReviewedHttpReadProfile::ClappingHands) => "facebook-marketplace",
                 BrokerReadProfile::Http(ReviewedHttpReadProfile::DeepWikiStructure { .. }) => "deepwiki",
                 BrokerReadProfile::Filesystem => "local-filesystem",
