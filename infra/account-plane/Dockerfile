@@ -31,7 +31,14 @@ COPY docs/COMPANY_OPERATING_RULES.md ./docs/COMPANY_OPERATING_RULES.md
 # an honest answer but not a pinnable one.
 ARG SOURCE_REVISION=""
 ENV RESTLESS_SOURCE_REVISION=${SOURCE_REVISION}
-RUN cargo build --release -p restlessd
+ARG TARGETARCH
+# Keep compiled dependencies between source revisions on the workstation's
+# persistent BuildKit builder. Copy the finished binary out of the cache mount
+# so the image layer still contains the exact result of this build.
+RUN --mount=type=cache,id=restless-cargo-registry-v1,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=restless-cargo-target-${TARGETARCH}-v1,target=/src/target,sharing=locked \
+    cargo build --release -p restlessd \
+    && install -Dm755 /src/target/release/restlessd /out/restlessd
 
 FROM node:24-bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive
@@ -61,7 +68,7 @@ RUN npm install -g bun@1.3.14 \
     && npm cache clean --force \
     && omp --version
 
-COPY --from=build /src/target/release/restlessd /usr/local/bin/restlessd
+COPY --from=build /out/restlessd /usr/local/bin/restlessd
 
 # The owner cockpit's built SPA. The plane serves it directly to the browser
 # (CELL_ARCHITECTURE.md §5), so a plane image without it can start but cannot

@@ -15,7 +15,12 @@ FROM rust:1-bookworm AS cli
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
-RUN cargo build --release -p restless -p restless-runtime-bridge
+ARG TARGETARCH
+RUN --mount=type=cache,id=restless-cargo-registry-v1,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=restless-cargo-target-${TARGETARCH}-v1,target=/src/target,sharing=locked \
+    cargo build --release -p restless -p restless-runtime-bridge \
+    && install -Dm755 /src/target/release/restless /out/restless \
+    && install -Dm755 /src/target/release/restless-runtime-bridge /out/restless-runtime-bridge
 
 FROM node:24-bookworm-slim AS runtime-harnesses
 
@@ -265,8 +270,8 @@ RUN ln -s /usr/local/lib/restless/restless-codex-runner.mjs /usr/local/bin/restl
 # The coordination CLI, and where it finds the daemon from inside the
 # container (TCP: unix sockets do not cross the Docker Desktop file share —
 # probed in T10). RESTLESS_COMPANY is set per container at `docker run`.
-COPY --from=cli /src/target/release/restless /usr/local/bin/restless
-COPY --from=cli /src/target/release/restless-runtime-bridge /usr/local/bin/restless-runtime-bridge
+COPY --from=cli /out/restless /usr/local/bin/restless
+COPY --from=cli /out/restless-runtime-bridge /usr/local/bin/restless-runtime-bridge
 ENV RESTLESS_COORDINATOR=host.docker.internal:7791
 RUN npm install -g ws@8.18.3 && npm cache clean --force
 
