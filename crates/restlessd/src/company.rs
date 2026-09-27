@@ -1173,6 +1173,7 @@ async fn resources(
             observed_at: connection.last_observed_at.unwrap_or(observed_at),
             detail: Some(match status {
                 "ready" if public_read => "Public MCP tool discovered. A returned wiki structure is unverified provider content.",
+                "ready" if connection.transport == "broker_stdio" => "Sandboxed filesystem MCP connected. A live Staff Attempt read is needed to verify this connection.",
                 "ready" => "MCP connection reached and tools discovered. Site login is only verified by a successful live read.",
                 "disabled" => "Owner disabled this MCP connection; new calls are rejected.",
                 "degraded" if public_read => "Public MCP connection or latest tool call needs attention.",
@@ -1183,10 +1184,10 @@ async fn resources(
                 "name": connection.name,
                 "browser_owner": if connection.name == "clapping-hands" { Some("CH") } else { None },
                 "transport": connection.transport,
-                "authentication": if public_read { "none" } else if connection.transport == "host_http" { "host_bearer" } else { "local" },
+                "authentication": if public_read || connection.transport == "broker_stdio" { "none" } else if connection.transport == "host_http" { "host_bearer" } else { "local" },
                 "read_profile": connection.read_profile,
                 "target_repository": connection.target_repository,
-                "receipt_command": if public_read || connection.transport == "host_http" {
+                "receipt_command": if public_read || connection.transport == "host_http" || connection.transport == "broker_stdio" {
                     Some(format!("restless local-mcp -c {} receipts --name {}", config.name, connection.name))
                 } else { None },
                 "assigned_actor": connection.assigned_actor,

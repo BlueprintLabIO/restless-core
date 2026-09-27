@@ -38,6 +38,7 @@ mod legal;
 mod local_documents;
 use crate::authority as mandate;
 mod mcp_gateway;
+mod stdio_mcp;
 mod mentions;
 mod model_gateway;
 mod native_harness;
@@ -2919,6 +2920,36 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                     "endpoint": server.endpoint, "target_repository": server.target_repository,
                     "assigned_actor": actor, "work_id": work_id,
                     "allowed_tools": server.allowed_tools,
+                    "tool_contract_digest": server.tool_contract_digest,
+                })).await?;
+                Ok::<_, anyhow::Error>(server)
+            }.await;
+            match result {
+                Ok(server) => Response::ok_serialized(server),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "local-mcp-install-stdio-read" => {
+            let result = async {
+                let name = request.connected_tool.tool_name.as_deref()
+                    .context("stdio MCP install needs name")?;
+                let bundle = request.local_mcp.command.as_deref()
+                    .context("stdio MCP install needs provider bundle")?;
+                let [read_root] = request.local_mcp.args.as_slice() else {
+                    anyhow::bail!("stdio MCP install needs exactly one read root");
+                };
+                let actor = request.connected_tool.assigned_actor.as_deref()
+                    .context("stdio MCP install needs actor")?;
+                let work_id = request.connected_tool.work_id.as_deref()
+                    .context("stdio MCP install needs Work")?.parse::<uuid::Uuid>()?;
+                let org = daemon.orgintel.get(company).await?;
+                validate_local_mcp_work(&org, actor, work_id).await?;
+                let server = connected_tool::install_brokered_stdio_mcp(
+                    daemon.authority.pool(), company, name, bundle, read_root, actor, work_id,
+                ).await?;
+                org.emit_event("local_mcp_installed", Some("owner"), serde_json::json!({
+                    "name": server.name, "transport": "broker_stdio", "assigned_actor": actor,
+                    "work_id": work_id, "allowed_tools": server.allowed_tools,
                     "tool_contract_digest": server.tool_contract_digest,
                 })).await?;
                 Ok::<_, anyhow::Error>(server)

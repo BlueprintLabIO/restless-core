@@ -82,9 +82,9 @@ pub(crate) struct ConnectionLaunch {
     pub(crate) owner_handoff_id: Option<Uuid>,
 }
 
-/// An owner-installed MCP. Stdio runs inside the company Runtime; host_http
-/// is an Authority-side client to a loopback-only MCP service. The host token
-/// file path is private state and is never returned to company actors.
+/// An owner-installed MCP. Legacy stdio runs inside the company Runtime;
+/// host_http and broker_stdio pass through Core's Attempt-scoped gateway.
+/// The host token file path is private state and never reaches actors.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub(crate) struct LocalMcpServer {
     pub(crate) name: String,
@@ -264,6 +264,18 @@ pub(crate) fn validate_local_server(
     {
         bail!("local MCP command must be an absolute path inside the company Runtime volume");
     }
+    validate_actor(actor)?;
+    if args.len() > 32
+        || args
+            .iter()
+            .any(|arg| arg.len() > 2048 || arg.contains('\0'))
+    {
+        bail!("local MCP arguments exceed their bound");
+    }
+    Ok(())
+}
+
+fn validate_actor(actor: &str) -> Result<()> {
     if actor.is_empty()
         || actor.len() > 64
         || !actor.bytes().all(|byte| {
@@ -271,13 +283,6 @@ pub(crate) fn validate_local_server(
         })
     {
         bail!("local MCP actor must be a lowercase ASCII actor id");
-    }
-    if args.len() > 32
-        || args
-            .iter()
-            .any(|arg| arg.len() > 2048 || arg.contains('\0'))
-    {
-        bail!("local MCP arguments exceed their bound");
     }
     Ok(())
 }
@@ -474,6 +479,73 @@ pub(crate) async fn install_host_mcp(
         .into_iter()
         .find(|server| server.name == name)
         .context("installed host MCP disappeared")
+}
+
+/// A single filesystem MCP read tool, launched by Core inside a
+/// networkless, read-only bubblewrap worker. No company Runtime path or
+/// provider credential is passed to the actor.
+pub(crate) async fn install_brokered_stdio_mcp(
+    pool: &PgPool,
+    company: &str,
+    name: &str,
+    bundle: &str,
+    read_root: &str,
+    actor: &str,
+    work_id: Uuid,
+) -> Result<LocalMcpServer> {
+    validate_name(name)?;
+    validate_actor(actor)?;
+    if matches!(name, "clapping-hands" | "deepwiki") {
+        bail!("this MCP name is reserved for a reviewed HTTP profile");
+    }
+    let (bundle, read_root) = crate::stdio_mcp::validate_profile(bundle, read_root)?;
+    let bundle = bundle.to_string_lossy().to_string();
+    let read_root = read_root.to_string_lossy().to_string();
+    let provider_name_in_use: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM restless_authority.provider_connections \
+         WHERE company=$1 AND name=$2 AND status <> 'disabled')",
+    )
+    .bind(company).bind(name).fetch_one(pool).await?;
+    if provider_name_in_use {
+        bail!("MCP name {name:?} is already used by a provider connection");
+    }
+    let probe = crate::stdio_mcp::probe(&bundle, &read_root).await?;
+    let allowed = vec![crate::stdio_mcp::READ_TOOL.to_string()];
+    sqlx::query(
+        "INSERT INTO restless_authority.local_mcp_servers \
+           (company,name,transport,command,args,endpoint,token_file,read_profile,target_repository,assigned_actor,assigned_work_id, \
+            broker_aware,enabled,allowed_tools,observed_tools,tool_contract_digest,server_version,last_observed_at,created_by) \
+         VALUES ($1,$2,'broker_stdio',$3,$4,NULL,NULL,'filesystem_read_v1',NULL,$5,$6,FALSE,TRUE,$7,$8,$9,$10,now(),'owner') \
+         ON CONFLICT (company,name) DO UPDATE SET transport='broker_stdio',command=EXCLUDED.command,args=EXCLUDED.args, \
+           endpoint=NULL,token_file=NULL,read_profile='filesystem_read_v1',target_repository=NULL,assigned_actor=EXCLUDED.assigned_actor, \
+           assigned_work_id=EXCLUDED.assigned_work_id,broker_aware=FALSE,enabled=TRUE, \
+           allowed_tools=EXCLUDED.allowed_tools,observed_tools=EXCLUDED.observed_tools, \
+           tool_contract_digest=EXCLUDED.tool_contract_digest,policy_revision=gen_random_uuid(),server_version=EXCLUDED.server_version,last_observed_at=now(), \
+           last_success_at=NULL,last_read_status=NULL,last_read_site=NULL,last_read_tool=NULL,failure=NULL,updated_at=now()",
+    )
+    .bind(company).bind(name).bind(&bundle).bind(serde_json::json!([read_root]))
+    .bind(actor).bind(work_id).bind(serde_json::to_value(&allowed)?)
+    .bind(serde_json::to_value(&probe.names)?).bind(&probe.digest).bind(&probe.server_version)
+    .execute(pool).await?;
+    local_mcp_list(pool, company).await?.into_iter()
+        .find(|server| server.name == name)
+        .context("installed brokered stdio MCP disappeared")
+}
+
+pub(crate) fn require_reviewed_stdio_profile(server: &LocalMcpServer) -> Result<&str> {
+    if server.transport != "broker_stdio"
+        || server.endpoint.is_some()
+        || server.token_file.is_some()
+        || server.read_profile.as_deref() != Some("filesystem_read_v1")
+        || server.target_repository.is_some()
+        || server.args.len() != 1
+        || server.allowed_tools != [crate::stdio_mcp::READ_TOOL]
+    {
+        bail!("stdio MCP is outside the reviewed filesystem read profile");
+    }
+    let read_root = server.args[0].as_str();
+    crate::stdio_mcp::validate_profile(&server.command, read_root)?;
+    Ok(read_root)
 }
 
 pub(crate) fn validate_host_endpoint(endpoint: &str) -> Result<()> {
@@ -1132,8 +1204,12 @@ pub(crate) async fn session_servers(
                 }
                 servers.push(McpServer::Stdio(stdio));
             }
-            "host_http" | "public_http" => {
-                reviewed_http_read_profile(&server)?;
+            "host_http" | "public_http" | "broker_stdio" => {
+                if server.transport == "broker_stdio" {
+                    require_reviewed_stdio_profile(&server)?;
+                } else {
+                    reviewed_http_read_profile(&server)?;
+                }
                 let (Some(work_id), Some(attempt_id)) = (work_id, attempt_id) else {
                     continue;
                 };

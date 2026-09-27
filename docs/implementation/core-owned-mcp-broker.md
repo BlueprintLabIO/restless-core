@@ -17,8 +17,10 @@ The first live slice is the [host MCP gateway](host-mcp-gateway.md) for three
 reviewed Clapping Hands read tools. A separate
 [public HTTP pilot](public-http-mcp-pilot.md) uses the same Attempt-scoped
 Core broker for one reviewed DeepWiki tool and one owner-selected public
-repository. These are brokered profiles, not a general broker for every MCP
-transport. Existing company-local stdio servers and `mcp-remote` OAuth
+repository. An isolated [filesystem stdio pilot](brokered-stdio-filesystem-pilot.md)
+uses the same route for one reviewed local read tool and a sandboxed host worker.
+These are brokered profiles, not a general broker for every MCP transport.
+Existing arbitrary company-local stdio servers and `mcp-remote` OAuth
 connections still execute inside the company Runtime. They need migration
 before Core can make a general security or audit claim.
 
@@ -34,9 +36,9 @@ before Core can make a general security or audit claim.
    endpoint, browser debugger, credentials, or refresh tokens.
 3. Core checks the live Attempt and current owner policy on every discovery
    and call. It checks the pinned upstream tool contract before invocation,
-   bounds runtime and result size, and records a typed outcome. A durable,
-   Core-authored call receipt should bind the actor, Work, Attempt, connection,
-   tool, pin, status, duration, and request/result hashes without copying
+   bounds runtime and result size, and appends started and terminal call
+   receipts binding the actor, Work, Attempt, connection, tool, pin, policy
+   revision, status, duration, and request/result hashes without copying
    upstream secrets or arbitrary private response bodies. Revocation
    prevents new calls and stops waiting on in-flight reads, while marking
    their external outcome uncertain if necessary.
@@ -58,7 +60,7 @@ Staff actor -> scoped MCP namespace -> Core broker -> reviewed adapter -> upstre
 | Host Streamable HTTP, CH | Core relays three reviewed read tools; host owns bearer and browser. | Keep this path as the first end-to-end acceptance case. Add owner-visible pause, login recovery, and version switch with fresh sessions. |
 | Public Streamable HTTP, DeepWiki | Core has a reviewed no-auth profile for `read_wiki_structure` on one selected public repository. | Prove a fresh actor call and append-only receipt in an isolated company before release. Add other providers only with reviewed endpoints, exact tools, and argument validators. |
 | Remote HTTP with OAuth | A company-side `mcp-remote` child reads credentials from its Runtime directory. | Core-owned OAuth and refresh, with a broker adapter exposing only approved tools. Migrate an existing grant by a reviewed owner flow; never silently copy a shell-readable token into a new trust boundary. |
-| Local stdio | A child runs in the company Runtime with the actor. | Run each server in an isolated broker worker with an explicit filesystem/network envelope. Route calls through Core policy and audit; do not execute arbitrary third-party stdio code in the privileged Core process. |
+| Local stdio | Legacy children run in the company Runtime with the actor. The filesystem pilot launches one published provider in a host bubblewrap worker with no network and one read-only data mount. | Add reviewed profiles one at a time, with explicit filesystem/network envelopes. Route calls through Core policy and audit; do not execute arbitrary third-party stdio code in the privileged Core process. |
 
 The actor's tool list must be tested in its *actual* Codex mode. A Responses
 namespace such as `mcp__clapping_hands` contains child functions; counting
@@ -87,9 +89,9 @@ This verifies the native model-to-Core-to-CH read path for that Attempt. It
 does not verify listing availability, GPU condition, cooler noise, or a
 general MCP transport migration. The Attempt later blocked while trying to
 write its report because its advertised `apply_patch` tool was unavailable;
-the model tool call and Core log remain independently observable. Core's
-current latest-status field is not a durable per-call receipt, so this
-provenance gap remains until broker-owned receipts are released. The
+the model tool call and Core log remain independently observable. That
+historical Attempt predates Core's durable call receipts, so it does not
+validate the new receipt path. The
 compatibility `ch-read.mjs` command
 remains available for recovery, through the *same Core broker* and Attempt
 grant, but its use must be reported separately from native MCP calls.
@@ -115,9 +117,11 @@ before treating this as a general multi-actor security boundary.
   exact pin, actor scope, and disable control. Owner pause and hand-back are
   verified without a second process opening CH's browser profile.
 - One OAuth provider and one local stdio provider are migrated through the
-  broker in isolated smoke runs. Revoking a grant blocks a subsequent call;
-  the company Runtime has no reusable provider credential. The old direct
-  paths remain labelled as legacy until those migrations pass.
+  broker in isolated smoke runs. The stdio filesystem worker has passed a
+  direct provider/sandbox smoke; it still needs a fresh real Staff Attempt
+  through Core and a revocation check. Revoking a grant blocks a subsequent
+  call; the company Runtime has no reusable provider credential. The old
+  direct paths remain labelled as legacy until those migrations pass.
 - Effectful tool calls obtain a payload-bound permit and reconcile uncertain
   outcomes before retry. No generic write-capable MCP server becomes enabled
   merely because its metadata claims it is safe.

@@ -1080,6 +1080,13 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
             "work_id",
             "allowed_tools",
         ],
+        "local-mcp-install-stdio-read" => &[
+            "tool_name",
+            "command",
+            "args",
+            "assigned_actor",
+            "work_id",
+        ],
         "local-mcp-disable" => &["tool_name"],
         "identity-evidence-add" => &[
             "identity_pillar",
@@ -1365,6 +1372,7 @@ pub(crate) const OWNER_ONLY: &[&str] = &[
     "local-mcp-install",
     "local-mcp-install-host",
     "local-mcp-install-public-read",
+    "local-mcp-install-stdio-read",
     "local-mcp-disable",
     "local-mcp-list",
     "local-mcp-receipts",
@@ -1795,6 +1803,7 @@ mod tests {
             "local-mcp-install",
             "local-mcp-install-host",
             "local-mcp-install-public-read",
+            "local-mcp-install-stdio-read",
             "local-mcp-disable",
             "document-review-request",
         ];

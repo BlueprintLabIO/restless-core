@@ -1986,6 +1986,21 @@ enum LocalMcpCommand {
         #[arg(long = "tool", required = true)]
         tools: Vec<String>,
     },
+    /// Broker one filesystem MCP read tool through an isolated host stdio worker.
+    InstallStdioRead {
+        #[arg(long)]
+        name: String,
+        /// Owner-staged bundle containing node and the filesystem MCP package.
+        #[arg(long)]
+        bundle: String,
+        /// Host directory mounted read-only as /data inside the worker.
+        #[arg(long)]
+        read_root: String,
+        #[arg(long)]
+        actor: String,
+        #[arg(long)]
+        work: String,
+    },
     /// Stop attaching this server to future actor sessions.
     Disable {
         #[arg(long)]
@@ -2772,6 +2787,11 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 "read_profile": profile, "tool_name": name, "endpoint": endpoint,
                 "target_repository": repository, "assigned_actor": actor,
                 "work_id": work, "allowed_tools": tools,
+            }),
+            LocalMcpCommand::InstallStdioRead { name, bundle, read_root, actor, work } => serde_json::json!({
+                "cmd": "local-mcp-install-stdio-read", "company": company,
+                "tool_name": name, "command": bundle, "args": [read_root],
+                "assigned_actor": actor, "work_id": work,
             }),
             LocalMcpCommand::Disable { name } => serde_json::json!({
                 "cmd": "local-mcp-disable", "company": company, "tool_name": name,
