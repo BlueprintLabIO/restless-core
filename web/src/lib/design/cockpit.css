@@ -385,6 +385,12 @@
 	display: block;
 }
 
+/* What needs the owner is the one column that should catch the eye. */
+.bridge-root .portfolio-attention strong.urgent {
+	color: var(--intent-authority);
+	font-weight: 600;
+}
+
 .bridge-root .portfolio-metric strong {
 	font-size: var(--t-body);
 	font-weight: 400;
@@ -1254,13 +1260,15 @@
 
 .bridge-root .board-item {
 	transition:
+		background-color var(--motion-state) var(--ease-standard),
 		border-color var(--motion-state) var(--ease-standard),
 		box-shadow var(--motion-state) var(--ease-standard),
 		transform var(--motion-press) var(--ease-standard);
 }
 
 .bridge-root .board-item:hover {
-	border-color: color-mix(in srgb, var(--intent-feedback) 46%, var(--border));
+	border-color: color-mix(in srgb, var(--ink) 24%, transparent);
+	background-color: var(--surface-raised);
 	box-shadow:
 		var(--bevel),
 		0 10px 26px rgba(43, 51, 66, 0.09);
@@ -2837,6 +2845,20 @@
 	.bridge-root .board-column {
 		border-right: 0;
 		border-bottom: 1px solid var(--border);
+	}
+	/* Stacked, a full-width tone bar reads as a stray rule; the tone moves to a
+	 * status dot beside the column name, like the dots on cards. */
+	.bridge-root .board-column::before {
+		display: none;
+	}
+	.bridge-root .board-column > header::before {
+		width: 6px;
+		height: 6px;
+		align-self: center;
+		flex: none;
+		border-radius: 50%;
+		background: var(--column-tone);
+		content: '';
 	}
 	.bridge-root .board-column:has(.column-empty) {
 		padding-block: 12px 4px;

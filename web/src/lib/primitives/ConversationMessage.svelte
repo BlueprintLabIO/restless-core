@@ -7,6 +7,7 @@
 	import Markdown from './Markdown.svelte';
 	import SemanticMark from './SemanticMark.svelte';
 	import type { MessageAttachment, MessageIntentReceipt } from '$lib/model/view';
+	import { initials } from '$lib/model/initials';
 
 	let {
 		sender,
@@ -58,6 +59,13 @@
 	const messageDate = $derived(new Date(createdAt));
 	const validDate = $derived(!Number.isNaN(messageDate.getTime()));
 	const displayAuthor = $derived(author === 'The Exec' ? 'Exec' : author);
+	/* The Exec keeps its mark; every other person or agent is the same initial
+	 * avatar the directory shows, so a message is attributable at a glance. */
+	const personInitial = $derived(
+		(sender === 'agent' || sender === 'human') && displayAuthor !== 'Exec'
+			? initials(displayAuthor)
+			: ''
+	);
 	const longOwnerMessage = $derived(
 		sender === 'owner' && (text.length > 700 || (text.match(/\n/g)?.length ?? 0) >= 12)
 	);
@@ -94,17 +102,17 @@
 >
 	<header class="message-meta">
 		<span class="message-avatar">
-			<SemanticMark
-				meaning={sender === 'agent'
-					? 'executive'
-					: sender === 'owner'
-						? 'direction'
-						: sender === 'human'
-							? 'people'
-							: 'work'}
-				size="small"
-				label={sender === 'owner' ? 'Your message' : `${displayAuthor} message`}
-			/>
+			{#if personInitial}<span
+					class="message-initial"
+					role="img"
+					aria-label={`${displayAuthor} message`}>{personInitial}</span
+				>{:else}
+				<SemanticMark
+					meaning={sender === 'agent' ? 'executive' : sender === 'owner' ? 'direction' : 'work'}
+					size="small"
+					label={sender === 'owner' ? 'Your message' : `${displayAuthor} message`}
+				/>
+			{/if}
 		</span>
 		<strong>{displayAuthor}</strong>
 		{#if timestamp}<time
@@ -241,6 +249,18 @@
 	.message-avatar {
 		display: inline-flex;
 		flex: none;
+	}
+
+	.message-initial {
+		display: grid;
+		width: 24px;
+		height: 24px;
+		place-items: center;
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		background: var(--surface-alt);
+		color: var(--text-secondary);
+		font: 600 var(--t-label) var(--font-ui);
 	}
 
 	.message-meta {

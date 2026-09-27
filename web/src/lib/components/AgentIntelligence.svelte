@@ -162,7 +162,8 @@
 		{#each shownRows as agent (agent.id)}
 			<div class="agent-row">
 				<div class="identity">
-					<strong>{agent.id === 'exec' ? 'Exec' : agent.name}</strong>{#if agent.role.toLowerCase() !== agent.id}<small class="role">{agent.role}</small>{/if}
+					<strong>{agent.id === 'exec' ? 'Exec' : agent.name}</strong
+					>{#if agent.role.toLowerCase() !== agent.id}<small class="role">{agent.role}</small>{/if}
 				</div>
 				<div class="route">
 					<span
@@ -176,13 +177,15 @@
 							agent.effective_model.slice(agent.effective_model.indexOf('/') + 1)}</small
 					>
 				</div>
-				<button
-					class="btn small"
-					disabled={busy || !source.view.connections.length}
-					onclick={() => edit(agent)}
-					aria-label={`Change intelligence for ${agent.id === 'exec' ? 'Exec' : agent.name}`}
-					>Change</button
-				>
+				<!-- With nothing connected there is nothing to change to; the row
+				     already points to the connection that comes first. -->
+				{#if source.view.connections.length}<button
+						class="btn small"
+						disabled={busy}
+						onclick={() => edit(agent)}
+						aria-label={`Change intelligence for ${agent.id === 'exec' ? 'Exec' : agent.name}`}
+						>Change</button
+					>{/if}
 			</div>
 			{#if editing === agent.id}
 				<form

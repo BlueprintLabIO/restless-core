@@ -184,8 +184,9 @@
 									<span class="portfolio-metric portfolio-attention">
 										<small class="portfolio-mobile-label">Needs you</small>
 										<strong
+											class:urgent={!!company.unstartable_reason || !!projection?.attentionCount}
 											>{company.unstartable_reason
-												? 'Start blocked'
+												? 'Fix setup'
 												: projection?.attentionCount == null
 													? 'Checking…'
 													: projection.attentionCount === 0

@@ -376,8 +376,11 @@
 	.bridge-root select:not([multiple])::picker-icon {
 		display: none;
 	}
+	/* Chromium opens the list on whichever side has more room; like every other
+	 * menu here it should open below and flip only when it does not fit. */
 	.bridge-root select:not([multiple])::picker(select) {
 		margin-block: 4px;
+		position-try-order: normal;
 		padding: 4px;
 		border: 1px solid var(--border-strong);
 		border-radius: var(--radius-md);
