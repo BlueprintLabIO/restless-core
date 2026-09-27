@@ -1,20 +1,24 @@
-//! One reviewed local stdio adapter. The filesystem provider runs under
-//! bubblewrap, outside Core's process and mount/network namespaces. Its
-//! package and Node binary are owner-staged in a read-only bundle.
+//! One reviewed local stdio adapter. The filesystem provider runs in a
+//! disposable, networkless Docker worker, outside Core's process and mounts.
+//! Its package and Node binary are owner-staged in a read-only bundle.
 
-use std::os::unix::fs::PermissionsExt as _;
+use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 use std::path::{Component, Path, PathBuf};
+use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{bail, Context as _, Result};
 use rmcp::{
     model::{CallToolRequestParams, Tool},
-    transport::TokioChildProcess,
-    ServiceExt as _,
+    service::RunningService,
+    transport::async_rw::AsyncRwTransport,
+    RoleClient, ServiceExt as _,
 };
 use serde::Deserialize;
 use sha2::{Digest as _, Sha256};
+use tokio::io::AsyncReadExt as _;
+use uuid::Uuid;
 
 use crate::mcp_gateway::McpProbe;
 
@@ -22,8 +26,11 @@ pub(crate) const READ_TOOL: &str = "read_text_file";
 const PROVIDER_PACKAGE: &str = "@modelcontextprotocol/server-filesystem";
 const REVIEWED_PACKAGE_VERSION: &str = "2026.8.31";
 const PROVIDER_ENTRY: &str = "node_modules/@modelcontextprotocol/server-filesystem/dist/index.js";
-const PROBE_TIMEOUT: Duration = Duration::from_secs(12);
+const PROBE_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_FILE_BYTES: u64 = 256 * 1024;
+const WORKER_LIFETIME_SECONDS: u64 = 120;
+const STDERR_DIAGNOSTIC_BYTES: usize = 4096;
+const WORKER_IMAGE_ENV: &str = "RESTLESS_STDIO_MCP_IMAGE_ID";
 
 /// Keep the upstream tool definition pinned, but show actors only arguments
 /// that Core accepts. The published server also advertises head and tail.
@@ -106,70 +113,176 @@ fn canonical_directory(raw: &str, label: &str) -> Result<PathBuf> {
     if !meta.file_type().is_dir() {
         bail!("{label} must be a directory, not a symlink");
     }
-    path.canonicalize()
-        .with_context(|| format!("canonicalize {label}"))
+    let canonical = path.canonicalize()
+        .with_context(|| format!("canonicalize {label}"))?;
+    let docker_mount_path = canonical.to_str().context("Docker mount path must be UTF-8")?;
+    if docker_mount_path.contains(',') || docker_mount_path.contains('\n') {
+        bail!("{label} contains a Docker mount separator");
+    }
+    Ok(canonical)
 }
 
-/// rmcp owns JSON-RPC framing. Each discovery or call starts a fresh
-/// disposable provider; dropping the transport terminates its sandbox.
-pub(crate) fn transport(bundle: &str, read_root: &str) -> Result<TokioChildProcess> {
+fn worker_image_id() -> Result<String> {
+    let image = std::env::var(WORKER_IMAGE_ENV)
+        .with_context(|| format!("{WORKER_IMAGE_ENV} must pin a local Docker image ID"))?;
+    let digest = image.strip_prefix("sha256:").context("stdio MCP worker image must be a sha256 image ID")?;
+    if digest.len() != 64 || !digest.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        bail!("stdio MCP worker image must be a sha256 image ID");
+    }
+    Ok(image)
+}
+
+fn worker_command(bundle: &str, read_root: &str) -> Result<(tokio::process::Command, String)> {
     let (bundle, read_root) = validate_profile(bundle, read_root)?;
-    let mut command = tokio::process::Command::new("/usr/bin/bwrap");
+    let image = worker_image_id()?;
+    let process = std::fs::metadata("/proc/self").context("inspect host worker identity")?;
+    let user = format!("{}:{}", process.uid(), process.gid());
+    let bundle_mount = format!("type=bind,src={},dst=/provider,readonly", bundle.display());
+    let data_mount = format!("type=bind,src={},dst=/data,readonly", read_root.display());
+    let name = format!("restless-stdio-{}", Uuid::new_v4());
+    let mut command = tokio::process::Command::new("/usr/bin/docker");
     command.env_clear();
+    command.env("HOME", "/tmp").env("PATH", "/usr/bin:/bin");
     command.args([
-        "--unshare-all",
-        "--die-with-parent",
-        "--new-session",
-        "--clearenv",
-        "--ro-bind",
-        "/usr",
-        "/usr",
-        "--ro-bind",
-        "/lib",
-        "/lib",
-        "--ro-bind",
-        "/lib64",
-        "/lib64",
-        "--ro-bind",
-        "/bin",
-        "/bin",
-        "--proc",
-        "/proc",
-        "--dev",
-        "/dev",
-        "--tmpfs",
-        "/tmp",
-        "--setenv",
-        "HOME",
-        "/tmp",
-        "--setenv",
-        "TMPDIR",
-        "/tmp",
-        "--setenv",
-        "PATH",
-        "/usr/bin:/bin",
-        "--ro-bind",
+        "run", "--rm", "-i", "--pull=never", "--network", "none",
+        "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+        "--pids-limit", "64", "--memory", "512m", "--ipc", "none",
+        "--name", &name, "--label", "io.restless.stdio-worker=true",
+        "--user", &user, "--tmpfs", "/tmp:rw,nosuid,nodev,size=16m",
+        "--env", "HOME=/tmp", "--env", "TMPDIR=/tmp",
+        "--mount", &bundle_mount, "--mount", &data_mount,
+        "--entrypoint", "/usr/bin/timeout", &image,
     ]);
-    command.arg(&bundle).arg("/provider").arg("--ro-bind");
-    command.arg(&read_root).arg("/data");
     command.args([
-        "--",
+        "120s",
         "/provider/node",
         "/provider/node_modules/@modelcontextprotocol/server-filesystem/dist/index.js",
         "/data",
     ]);
-    Ok(TokioChildProcess::builder(command)
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .context("start isolated filesystem MCP provider")?
-        .0)
+    Ok((command, name))
+}
+
+/// Docker's `--rm` can leave a container in Created state when the attached
+/// CLI is interrupted before start. Remove only this invocation's UUID name.
+/// A failed startup needs a longer watch: its create request may reach the
+/// daemon after the CLI has exited and an initial removal found nothing.
+async fn cleanup_worker(name: &str, watch_late_create: bool) {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(
+        if watch_late_create { WORKER_LIFETIME_SECONDS + 10 } else { 5 },
+    );
+    let observed_absent = loop {
+        let mut command = tokio::process::Command::new("/usr/bin/docker");
+        command.env_clear().env("HOME", "/tmp").env("PATH", "/usr/bin:/bin");
+        let removal = tokio::time::timeout(
+            Duration::from_secs(8), command.args(["rm", "-f", name]).output(),
+        ).await;
+        let absent = match removal {
+            Ok(Ok(output)) if output.status.success() => return,
+            Ok(Ok(output)) if String::from_utf8_lossy(&output.stderr).contains("No such container") => {
+                if !watch_late_create { return; }
+                true
+            }
+            _ => false,
+        };
+        if tokio::time::Instant::now() >= deadline { break absent; }
+        tokio::time::sleep(Duration::from_secs(if watch_late_create { 5 } else { 1 })).await;
+    };
+    if !observed_absent {
+        tracing::warn!(worker = name, "exact stdio worker cleanup could not be confirmed");
+    }
+}
+
+struct StderrDiagnostic {
+    bytes: u64,
+    class: &'static str,
+}
+
+async fn read_stderr(mut stderr: tokio::process::ChildStderr) -> StderrDiagnostic {
+    let mut first = Vec::with_capacity(STDERR_DIAGNOSTIC_BYTES);
+    let mut bytes = 0u64;
+    let mut chunk = [0u8; 1024];
+    while let Ok(count) = stderr.read(&mut chunk).await {
+        if count == 0 { break; }
+        bytes = bytes.saturating_add(count as u64);
+        let room = STDERR_DIAGNOSTIC_BYTES.saturating_sub(first.len());
+        first.extend_from_slice(&chunk[..count.min(room)]);
+    }
+    // The worker or Docker may write arbitrary data. Expose only fixed classes,
+    // never the provider's stderr text, host paths, or listing contents.
+    let sample = String::from_utf8_lossy(&first);
+    let class = if sample.contains("Cannot connect to the Docker daemon") {
+        "docker_unavailable"
+    } else if sample.contains("No such image") {
+        "image_missing"
+    } else if sample.contains("Error response from daemon") {
+        "docker_daemon_error"
+    } else if sample.contains("Secure MCP Filesystem Server running on stdio") {
+        "provider_started"
+    } else if first.is_empty() {
+        "empty"
+    } else {
+        "other"
+    };
+    StderrDiagnostic { bytes, class }
+}
+
+/// A fresh local-only Docker worker carries the provider for at most two
+/// minutes. The image ID is immutable and must already exist on this host.
+/// rmcp still owns the JSON-RPC stream; Core keeps the child handle to report
+/// exit status on a failed handshake and reap it after calls.
+pub(crate) async fn connect(bundle: &str, read_root: &str) -> Result<RunningService<RoleClient, ()>> {
+    let (mut command, name) = worker_command(bundle, read_root)?;
+    let mut child = command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
+        .spawn().context("start isolated filesystem MCP worker")?;
+    let stdout = child.stdout.take().context("stdio MCP worker has no stdout")?;
+    let stdin = child.stdin.take().context("stdio MCP worker has no stdin")?;
+    let stderr = child.stderr.take().context("stdio MCP worker has no stderr")?;
+    let stderr_task = tokio::spawn(read_stderr(stderr));
+    let handshake = tokio::time::timeout(
+        PROBE_TIMEOUT,
+        ().serve(AsyncRwTransport::<RoleClient, _, _>::new(stdout, stdin)),
+    ).await;
+    match handshake {
+        Ok(Ok(client)) => {
+            tokio::spawn(async move {
+                if tokio::time::timeout(
+                    Duration::from_secs(WORKER_LIFETIME_SECONDS + 10), child.wait(),
+                ).await.is_err() {
+                    let _ = child.kill().await;
+                }
+                cleanup_worker(&name, false).await;
+            });
+            // Keep draining stderr so Docker cannot block on a full pipe.
+            drop(stderr_task);
+            Ok(client)
+        }
+        failed => {
+            let status = match tokio::time::timeout(Duration::from_millis(300), child.wait()).await {
+                Ok(Ok(status)) => status.code().map_or("signalled".to_string(), |code| code.to_string()),
+                _ => {
+                    let _ = child.kill().await;
+                    "still_running_terminated".to_string()
+                }
+            };
+            let diagnostic = tokio::time::timeout(Duration::from_millis(300), stderr_task).await
+                .ok().and_then(|result| result.ok());
+            // Keep watching after returning the error: a Docker create request
+            // can complete after the attached CLI has been killed.
+            tokio::spawn(async move { cleanup_worker(&name, true).await; });
+            let class = diagnostic.as_ref().map_or("unavailable", |value| value.class);
+            let bytes = diagnostic.as_ref().map_or(0, |value| value.bytes);
+            let reason = match failed {
+                Ok(Err(_)) => "protocol_or_connection_error",
+                Err(_) => "startup_timeout",
+                Ok(Ok(_)) => unreachable!(),
+            };
+            bail!("stdio MCP handshake failed: {reason}; worker_exit={status}; stderr_class={class}; stderr_bytes={bytes}");
+        }
+    }
 }
 
 pub(crate) async fn probe(bundle: &str, read_root: &str) -> Result<McpProbe> {
-    let child = transport(bundle, read_root)?;
-    let client = tokio::time::timeout(PROBE_TIMEOUT, ().serve(child))
-        .await
-        .context("stdio MCP handshake timed out")??;
+    let client = connect(bundle, read_root).await?;
     let server_version = client
         .peer_info()
         .as_ref()

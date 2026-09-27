@@ -531,10 +531,7 @@ impl ScopedMcp {
             }
             BrokerReadProfile::Filesystem => {
                 let read_root = connected_tool::require_reviewed_stdio_profile(&self.connection)?;
-                let child = crate::stdio_mcp::transport(&self.connection.command, read_root)?;
-                tokio::time::timeout(PROBE_TIMEOUT, ().serve(child))
-                    .await.context("stdio MCP handshake timed out")?
-                    .context("stdio MCP handshake failed")
+                crate::stdio_mcp::connect(&self.connection.command, read_root).await
             }
         }
     }
