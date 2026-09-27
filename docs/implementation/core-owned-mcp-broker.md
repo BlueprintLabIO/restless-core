@@ -4,6 +4,9 @@
 
 Restless Core is the authority and call path for company MCP tools. An actor
 receives a narrow MCP namespace bound to its company, actor, Work, and Attempt.
+Core acts as an MCP client to the upstream service and as a scoped MCP server
+to the actor. It is therefore the broker, including for tools whose browser
+or provider process is outside Restless.
 Core owns connection setup, upstream credentials, tool discovery, per-call
 policy, revocation, outcome recording, and owner controls. The upstream service
 owns its domain state: for Clapping Hands, that includes its browser profile and
