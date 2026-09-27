@@ -66,6 +66,10 @@ enum ReadRequest {
         #[serde(rename = "streamDetails")]
         stream_details: Option<bool>,
     },
+    MarketplacePhoto {
+        url: String,
+        position: serde_json::Value,
+    },
     GumtreeListing {
         url: String,
     },
@@ -93,6 +97,13 @@ struct MarketplaceDetailsArgs {
     urls: Vec<String>,
     #[serde(rename = "streamDetails")]
     stream_details: Option<bool>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MarketplacePhotoArgs {
+    url: String,
+    position: serde_json::Value,
 }
 
 #[derive(Deserialize)]
@@ -244,6 +255,18 @@ fn valid_listing_url(raw: &str, site: &str) -> bool {
     }
 }
 
+// This exact canonical path is also enforced inside CH. A photo read must
+// never accept a signed CDN URL, a different page, or an item redirect.
+fn valid_marketplace_photo_url(raw: &str) -> bool {
+    let Some(id) = raw
+        .strip_prefix("https://www.facebook.com/marketplace/item/")
+        .and_then(|tail| tail.strip_suffix('/'))
+    else {
+        return false;
+    };
+    (8..=20).contains(&id.len()) && id.bytes().all(|byte| byte.is_ascii_digit())
+}
+
 fn is_gumtree_tool(name: &str) -> bool {
     matches!(name, "clapping_hands_gumtree_public_listing" | "clapping_hands_gumtree_public_listings")
 }
@@ -284,6 +307,18 @@ fn read_request_params(request: ReadRequest) -> Result<CallToolRequestParams> {
                 arguments["streamDetails"] = serde_json::json!(stream_details);
             }
             ("clapping_hands_marketplace_details", arguments)
+        }
+        ReadRequest::MarketplacePhoto { url, position } => {
+            if !valid_marketplace_photo_url(&url)
+                || !(position == "last"
+                    || position.as_u64().is_some_and(|index| (1..=12).contains(&index)))
+            {
+                bail!("invalid Marketplace photo request");
+            }
+            (
+                "clapping_hands_marketplace_photo",
+                serde_json::json!({"url":url,"position":position}),
+            )
         }
         ReadRequest::GumtreeListing { url } => {
             if !valid_listing_url(&url, "gumtree") {
@@ -345,6 +380,13 @@ fn validated_clapping_hands_params(params: CallToolRequestParams) -> Result<Call
             ReadRequest::MarketplaceDetails {
                 urls: args.urls,
                 stream_details: args.stream_details,
+            }
+        }
+        "clapping_hands_marketplace_photo" => {
+            let args: MarketplacePhotoArgs = serde_json::from_value(arguments)?;
+            ReadRequest::MarketplacePhoto {
+                url: args.url,
+                position: args.position,
             }
         }
         "clapping_hands_gumtree_public_listing" => {

@@ -42,6 +42,16 @@ const CLAPPING_HANDS_BATCH_READ_TOOLS: [&str; 4] = [
     "clapping_hands_marketplace_details",
     "clapping_hands_marketplace_search",
 ];
+// Product photos are seller-provided evidence. They are exposed only by a
+// separate, bounded exact-item read, so adding the tool requires a fresh owner
+// pin instead of silently widening an existing four-tool Attempt.
+const CLAPPING_HANDS_PHOTO_READ_TOOLS: [&str; 5] = [
+    "clapping_hands_gumtree_public_listing",
+    "clapping_hands_gumtree_public_listings",
+    "clapping_hands_marketplace_details",
+    "clapping_hands_marketplace_photo",
+    "clapping_hands_marketplace_search",
+];
 const DEEPWIKI_ENDPOINT: &str = "https://mcp.deepwiki.com/mcp";
 const DEEPWIKI_READ_TOOL: &str = "read_wiki_structure";
 
@@ -438,15 +448,20 @@ pub(crate) fn reviewed_recurring_ch_connection(server: &LocalMcpServer) -> Resul
         || server.transport != "host_http"
         || server.read_profile.as_deref() != Some("clapping_hands_v1")
         || server.assigned_work_id.is_none()
-        || !server
+        || !(server
             .allowed_tools
             .iter()
             .map(String::as_str)
             .eq(CLAPPING_HANDS_BATCH_READ_TOOLS)
+            || server
+                .allowed_tools
+                .iter()
+                .map(String::as_str)
+                .eq(CLAPPING_HANDS_PHOTO_READ_TOOLS))
         || server.server_version.as_deref().is_none_or(str::is_empty)
         || server.tool_contract_digest.as_deref().is_none_or(str::is_empty)
     {
-        bail!("recurring MCP permits only the enabled reviewed four-tool Clapping Hands read profile");
+        bail!("recurring MCP permits only an enabled reviewed four- or five-tool Clapping Hands read profile");
     }
     reviewed_http_read_profile(server)?;
     Ok(())
@@ -863,7 +878,8 @@ pub(crate) fn require_reviewed_host_read_profile(
     if name != "clapping-hands"
         || endpoint != expected_endpoint
         || !(allowed_tools.iter().map(String::as_str).eq(CLAPPING_HANDS_READ_TOOLS)
-            || allowed_tools.iter().map(String::as_str).eq(CLAPPING_HANDS_BATCH_READ_TOOLS))
+            || allowed_tools.iter().map(String::as_str).eq(CLAPPING_HANDS_BATCH_READ_TOOLS)
+            || allowed_tools.iter().map(String::as_str).eq(CLAPPING_HANDS_PHOTO_READ_TOOLS))
     {
         bail!("host MCP requires the reviewed Clapping Hands sourcing read profile; other tools need an external-effect adapter");
     }
