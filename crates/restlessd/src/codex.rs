@@ -848,8 +848,10 @@ where
         launch_system_prompt.push_str(&format!(
             "\n\n# Clapping Hands read broker [trusted session tool]\n\
              This Attempt has an owner-installed, read-only Clapping Hands connection. \
-             The current model relay omits native MCP namespace tools. Use the Core broker \
-             client through your shell tool instead: `node {client_path} search 'search term' 12`, \
+             Prefer the three Clapping Hands MCP read tools shown in your tool list. \
+             They route through Restless Core, which checks this Attempt's grant. \
+             If those tools are unavailable in your session, use the same Core broker \
+             through your shell tool: `node {client_path} search 'search term' 12`, \
              `node {client_path} search-fast 'related search term' 12` for a burst of related \
              searches (first cold call may take about 9 seconds; warm context lease is 30 seconds), \
              `node {client_path} details https://www.facebook.com/marketplace/item/123456/`, \
