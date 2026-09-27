@@ -578,8 +578,17 @@
 	font-size: var(--t-body);
 }
 
+/* A notice that stays quiet (the app banner speaks for an outage) leaves its
+ * floating wrapper empty; an empty wrapper must not draw a frame. */
+.bridge-root .cockpit-error:empty {
+	display: none;
+}
+
 /* A floating source failure brings its own FailureNotice surface. */
 .bridge-root .cockpit-error:has(> .failure-notice) {
+	/* Below the content it qualifies, clear of every pane heading. */
+	top: auto;
+	bottom: 16px;
 	width: min(480px, calc(100% - 24px));
 	padding: 0;
 	border: 0;

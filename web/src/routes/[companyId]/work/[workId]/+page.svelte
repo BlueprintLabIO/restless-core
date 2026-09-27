@@ -290,9 +290,9 @@
 <svelte:head><title>{work?.title ?? 'Work detail'} — {companyName}</title></svelte:head>
 
 <article class="work-detail-screen cockpit-pane">
-	{#if failure && loaded}
+	{#if failure && work}
 		<div class="cockpit-error">
-			<FailureNotice error={failure} subject="Work" stale onretry={retryWork} />
+			<FailureNotice error={failure} subject="Work" stale={Boolean(work)} onretry={retryWork} />
 		</div>
 	{/if}
 
@@ -637,7 +637,7 @@
 		<div class="work-detail-loading">
 			<Skeleton label="Loading Work" variant="page" count={5} />
 		</div>
-	{:else if !loaded}
+	{:else}
 		<FailureNotice error={failure} subject="this Work" variant="page" onretry={retryWork} />
 	{/if}
 </article>

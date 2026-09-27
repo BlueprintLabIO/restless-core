@@ -733,7 +733,7 @@
 		{#if error}
 			<div class="cockpit-error attention-error" role="alert">{error}</div>
 		{:else if source.failure && loaded}
-			<div class="cockpit-error attention-error">
+			<div class="cockpit-error">
 				<FailureNotice error={source.failure} subject="Attention" stale onretry={source.reload} />
 			</div>
 		{/if}

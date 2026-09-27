@@ -39,7 +39,9 @@ test("the daemon's own message is kept for request-level failures and hidden for
 
 	// A 503 the daemon wrote is a dependency outage, not a lost connection.
 	const vault = describeFailure(
-		await responseFailure(json(503, { error: 'vault', message: 'Cannot read Infisical right now.' }))
+		await responseFailure(
+			json(503, { error: 'vault', message: 'Cannot read Infisical right now.' })
+		)
 	);
 	assert.equal(vault.kind, 'unavailable');
 	assert.equal(vault.detail, 'Cannot read Infisical right now.');

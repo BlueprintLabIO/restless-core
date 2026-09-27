@@ -90,7 +90,8 @@ export function failureKind(error: unknown): FailureKind {
 	const status = typeof failure?.status === 'number' ? failure.status : null;
 	// A plain Error was written by cockpit code for the owner. Anything else
 	// without a status (a SyntaxError from a bad body, a TypeError) is a fault.
-	if (status === null) return error instanceof Error && error.constructor === Error ? 'local' : 'server';
+	if (status === null)
+		return error instanceof Error && error.constructor === Error ? 'local' : 'server';
 	if (status === 401) return 'signed_out';
 	if (status === 403) return 'access';
 	if (status === 404 || status === 410) return 'missing';

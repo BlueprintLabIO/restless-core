@@ -49,6 +49,11 @@
 					: CircleAlert
 	);
 	const detail = $derived(stale && transient ? 'Showing the last update.' : view.detail);
+	// Over data still on screen the failure is that this source did not
+	// refresh — not, say, that the whole connection was lost.
+	const title = $derived(
+		stale && transient ? (subject ? `Couldn’t refresh ${subject}` : 'Couldn’t refresh') : view.title
+	);
 	// Quiet only while the app banner is actually speaking for this outage; a
 	// single failing endpoint must still be reported where it failed.
 	const silent = $derived(
@@ -72,27 +77,29 @@
 </script>
 
 {#if !silent}
-<div
-	class="failure-notice failure-{variant}"
-	class:transient
-	role={transient ? 'status' : 'alert'}
-	aria-live={transient ? 'polite' : 'assertive'}
->
-	<span class="failure-icon" aria-hidden="true"><Icon size={variant === 'page' ? 20 : 15} strokeWidth={1.8} /></span>
-	<div class="failure-copy">
-		<p class="failure-title">
-			{view.title}
-			{#if view.technical}<InfoTip text={view.technical} />{/if}
-		</p>
-		<p class="failure-detail">{detail}</p>
-		{#if children}{@render children()}{/if}
+	<div
+		class="failure-notice failure-{variant}"
+		class:transient
+		role={transient ? 'status' : 'alert'}
+		aria-live={transient ? 'polite' : 'assertive'}
+	>
+		<span class="failure-icon" aria-hidden="true"
+			><Icon size={variant === 'page' ? 20 : 15} strokeWidth={1.8} /></span
+		>
+		<div class="failure-copy">
+			<p class="failure-title">
+				{title}
+				{#if view.technical}<InfoTip text={view.technical} />{/if}
+			</p>
+			<p class="failure-detail">{detail}</p>
+			{#if children}{@render children()}{/if}
+		</div>
+		{#if onretry && view.retryable}
+			<button class="btn small failure-retry" type="button" onclick={retry} disabled={retrying}>
+				{retrying ? 'Retrying…' : 'Retry'}
+			</button>
+		{/if}
 	</div>
-	{#if onretry && view.retryable}
-		<button class="btn small failure-retry" type="button" onclick={retry} disabled={retrying}>
-			{retrying ? 'Retrying…' : 'Retry'}
-		</button>
-	{/if}
-</div>
 {/if}
 
 <style>

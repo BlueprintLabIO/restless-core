@@ -52,6 +52,10 @@ try {
 		(await page.locator('.failure-notice').count()) === 0,
 		'panes with data stay quiet during an outage'
 	);
+	check(
+		(await page.locator('.cockpit-error:visible').count()) === 0,
+		'no empty notice frame is left behind'
+	);
 
 	// 2. Recovery is announced once, then the banner leaves.
 	await page.unroute('**/api/**');
@@ -61,16 +65,23 @@ try {
 	await banner.waitFor({ state: 'detached', timeout: 5_000 });
 	check(true, 'the outage banner is removed after recovery');
 
-	// 3. One endpoint failing while the rest answer is reported where it failed,
-	// over the last data this browser kept.
+	// 3. One endpoint failing while the rest answer, on a page that already
+	// shows its data, is reported where it failed and keeps that data.
 	const warm = await context.newPage();
 	warm.on('pageerror', (error) => errors.push(error.message));
+	await warm.goto(`${origin}/${company}/work`);
+	await warm.getByRole('heading', { name: 'Goals' }).waitFor({ timeout: 60_000 });
+	await warm.waitForTimeout(6_000); // past staleTime, so focus refetches
 	await warm.route(`**/api/companies/${company}/attention`, (route) =>
 		route.fulfill({ status: 502, contentType: 'text/plain', body: 'Bad Gateway' })
 	);
-	await warm.goto(`${origin}/${company}/work`);
+	await warm.evaluate(() => window.dispatchEvent(new Event('visibilitychange')));
+	await warm.evaluate(() => window.dispatchEvent(new Event('focus')));
 	await warm.getByText('Showing the last update.').waitFor({ timeout: 60_000 });
-	check(true, 'a failing endpoint over cached data says the data is the last update');
+	check(
+		(await warm.getByText('Design the storefront identity').count()) > 0,
+		'"Showing the last update" appears only over data that is still shown'
+	);
 	check(!RAW.test(await text(warm)), 'that notice carries no transport text');
 	await warm.close();
 

@@ -294,7 +294,7 @@
 		enabled: true
 	}}
 >
-	{#if failure && loaded}
+	{#if failure && graph}
 		<div class="cockpit-error">
 			<FailureNotice error={failure} subject="Work" stale onretry={retryWork} />
 		</div>
@@ -373,7 +373,7 @@
 			</div>
 		</header>
 
-		{#if !loaded && failure}
+		{#if !graph && failure}
 			<FailureNotice error={failure} subject="Work" variant="page" onretry={retryWork} />
 		{:else if !loaded}
 			<Skeleton label="Loading Work" variant="cards" count={6} />
