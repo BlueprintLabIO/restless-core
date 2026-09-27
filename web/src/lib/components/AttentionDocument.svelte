@@ -1,5 +1,5 @@
 <script lang="ts">
-	import DocumentEditor from './DocumentEditor.svelte';
+	import DocumentEditor from './LazyDocumentEditor.svelte';
 	import DocumentActions from './DocumentActions.svelte';
 	import MessageSquare from '@lucide/svelte/icons/message-square';
 	import Markdown from '$lib/primitives/Markdown.svelte';

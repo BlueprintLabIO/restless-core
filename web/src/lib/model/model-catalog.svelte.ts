@@ -22,9 +22,10 @@ async function fetchCatalog(force = false): Promise<CatalogSnapshot> {
 	}
 	return snapshot;
 }
-function connectedModels(provider: 'openai-codex' | 'anthropic') {
+function connectedModels(provider: 'openai-codex' | 'anthropic', enabled: () => boolean) {
 	return createQuery(() => ({
 		queryKey: ['connected-models', provider],
+		enabled: enabled(),
 		staleTime: 3600000,
 		refetchInterval: 3600000,
 		retry: false,
@@ -35,12 +36,14 @@ function connectedModels(provider: 'openai-codex' | 'anthropic') {
 		}
 	}));
 }
-export function modelCatalog() {
+/** `enabled` lets a surface that only sometimes shows model choices skip the
+ * catalog fetch (about 75 KiB) until it needs it. */
+export function modelCatalog(enabled: () => boolean = () => true) {
 	const queryClient = useQueryClient();
 	let manualPending = $state(false);
 	let manualFailed = $state(false);
-	const codex = connectedModels('openai-codex');
-	const claude = connectedModels('anthropic');
+	const codex = connectedModels('openai-codex', enabled);
+	const claude = connectedModels('anthropic', enabled);
 	const connected = (provider: string, kind: 'api_key' | 'oauth' = 'api_key') =>
 		provider === 'openai-codex' ? codex : provider === 'anthropic' && kind === 'oauth' ? claude : undefined;
 	let initial: CatalogSnapshot | undefined;
@@ -53,6 +56,7 @@ export function modelCatalog() {
 	}
 	const query = createQuery(() => ({
 		queryKey: CATALOG_QUERY_KEY,
+		enabled: enabled(),
 		initialData: initial,
 		initialDataUpdatedAt: initial?.updatedAt,
 		staleTime: 3600000,

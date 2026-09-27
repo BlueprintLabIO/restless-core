@@ -13,7 +13,7 @@
 	import Markdown from '$lib/primitives/Markdown.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
 	import ConversationTurnDock from '$lib/primitives/ConversationTurnDock.svelte';
-	import CompanyOffice from '$lib/office/CompanyOffice.svelte';
+	import CompanyOffice from '$lib/office/LazyCompanyOffice.svelte';
 	import type { AttentionItem } from '$lib/model/view';
 	import { attentionQuery, companiesQuery, conversationQuery } from '$lib/model/queries.svelte';
 	import { startFixHref, startLinkLabel } from '$lib/model/company-start';
@@ -704,7 +704,7 @@
 {:else}
 	<div
 		class="cockpit-screen attention-screen"
-		class:queue-clear={queueClear || !loaded}
+		class:queue-clear={queueClear}
 		use:resizePane={{
 			key: `${companyId}:attention`,
 			label: 'Resize attention panes',

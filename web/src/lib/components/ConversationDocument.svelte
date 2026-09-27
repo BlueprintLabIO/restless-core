@@ -3,7 +3,7 @@
 	import { page } from '$app/state';
 	import X from '@lucide/svelte/icons/x';
 	import MessageSquare from '@lucide/svelte/icons/message-square';
-	import DocumentEditor from './DocumentEditor.svelte';
+	import DocumentEditor from './LazyDocumentEditor.svelte';
 	import DocumentInspector, { type DocumentInspectorPanel } from './DocumentInspector.svelte';
 	import { sameDocumentTarget, type DocumentTarget } from '$lib/model/document-cache';
 	import { documentQuery, documentsQuery } from '$lib/model/document-queries.svelte';

@@ -2,7 +2,8 @@
 	import { beforeNavigate } from '$app/navigation';
 	import { getContext, onMount } from 'svelte';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
-	const models = modelCatalog();
+	// The name section never shows model choices, so it skips the catalog.
+	const models = modelCatalog(() => section === 'provider');
 	import { attentionQuery, companiesQuery, companyQuery } from '$lib/model/queries.svelte';
 
 	type Settings = { display_name: string; mission: string; model: string; revision: string };

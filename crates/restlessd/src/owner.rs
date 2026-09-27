@@ -68,6 +68,7 @@ use futures_util::{SinkExt as _, StreamExt as _};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use tokio_tungstenite::{client_async, tungstenite};
+use tower_http::compression::CompressionLayer;
 use tower_http::services::{ServeDir, ServeFile};
 use uuid::Uuid;
 
@@ -1577,7 +1578,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
     }
     let static_files = Router::<()>::new()
         .fallback_service(ServeDir::new(&web).fallback(ServeFile::new(web.join("index.html"))))
-        .layer(middleware::from_fn(cockpit_cache_policy));
+        .layer(middleware::from_fn(cockpit_cache_policy))
+        // Scripts, styles and fonts are the cockpit's first-load cost; they
+        // compress to about a third.
+        .layer(CompressionLayer::new());
     let membership_controls = Router::<OwnerState>::new()
         .route(
             "/internal/v1/membership-controls",
@@ -1586,7 +1590,9 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .layer(DefaultBodyLimit::max(32 * 1024));
     let notification_delivery = notification_delivery_api::routes::<OwnerState>()?;
     let app = Router::new()
-        .nest("/api", api)
+        // The default predicate leaves event streams, images and tiny bodies
+        // alone, so live updates are never held back by the encoder.
+        .nest("/api", api.layer(CompressionLayer::new()))
         // Ungated on purpose: a fleet probe must be able to ask which release
         // is running without holding a session, and the answer carries release
         // identity only — never company, owner or configuration detail.
