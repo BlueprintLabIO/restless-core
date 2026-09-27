@@ -25,11 +25,12 @@ function listingUrl(raw, site) {
 
 const [verb, ...args] = process.argv.slice(2);
 let request;
-if (verb === 'search' && (args.length === 1 || args.length === 2)) {
+if ((verb === 'search' || verb === 'search-fast') && (args.length === 1 || args.length === 2)) {
   const query = args[0]?.trim();
   const limit = args.length === 2 ? Number(args[1]) : 12;
   if (!query || query.length > 100 || /[\x00-\x1f\x7f]/.test(query) || !Number.isInteger(limit) || limit < 1 || limit > 24) fail('invalid-search');
   request = { operation: 'marketplace-search', query, limit };
+  if (verb === 'search-fast') request.fastSearch = true;
 } else if (verb === 'details' && args.length >= 1 && args.length <= 8) {
   if (args.some((url) => !listingUrl(url, 'facebook')) || new Set(args).size !== args.length) fail('invalid-marketplace-url');
   request = { operation: 'marketplace-details', urls: args };
@@ -37,7 +38,7 @@ if (verb === 'search' && (args.length === 1 || args.length === 2)) {
   if (!listingUrl(args[0], 'gumtree')) fail('invalid-gumtree-url');
   request = { operation: 'gumtree-listing', url: args[0] };
 } else {
-  fail('usage: ch-read.mjs search QUERY [LIMIT] | details FB_ITEM_URL [FB_ITEM_URL...] | gumtree GUMTREE_LISTING_URL');
+  fail('usage: ch-read.mjs search QUERY [LIMIT] | search-fast QUERY [LIMIT] | details FB_ITEM_URL [FB_ITEM_URL...] | gumtree GUMTREE_LISTING_URL');
 }
 
 let config;
