@@ -9,15 +9,13 @@ dev_tools_ensure() {
     printf 'Installing the pinned model broker…\n'
     npm --prefix "$tools" ci --no-audit --no-fund || return 1
   fi
-  if command -v node >/dev/null 2>&1; then
-    node "$tools/apply-pi-ai-patch.mjs" || return 1
-  else
-    "$tools/node_modules/.bin/bun" "$tools/apply-pi-ai-patch.mjs" || return 1
-  fi
-  export PATH="$tools/node_modules/.bin:$PATH"
-  export RESTLESS_OMP_BIN="$tools/node_modules/.bin/omp"
-  "$tools/node_modules/.bin/bun" --version >/dev/null || {
+  source "$tools/resolve-bun.sh"
+  local bun_bin
+  bun_bin="$(host_tools_find_bun "$tools")" || {
     printf 'The model broker runtime could not start. Check your operating system and CPU support.\n' >&2
     return 1
   }
+  "$bun_bin" "$tools/apply-pi-ai-patch.mjs" || return 1
+  export RESTLESS_BUN_BIN="$bun_bin"
+  export RESTLESS_OMP_BIN="$tools/omp-source"
 }

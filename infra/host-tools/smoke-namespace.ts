@@ -1,5 +1,7 @@
 /** One offline protocol smoke for the pinned OMP Responses gateway patch. */
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import {
 	encodeResponse,
 	encodeStream,
@@ -12,6 +14,10 @@ import {
 } from "./node_modules/@oh-my-pi/pi-ai/src/providers/openai-codex-responses.ts";
 import { convertTools, mapOpenAIResponsesToolChoiceForTools } from "./node_modules/@oh-my-pi/pi-ai/src/providers/openai-responses.ts";
 import { AssistantMessageEventStream } from "./node_modules/@oh-my-pi/pi-ai/src/utils/event-stream.ts";
+
+const sourceCli = spawnSync(fileURLToPath(new URL("./omp-source", import.meta.url)), ["--version"], { encoding: "utf8" });
+assert.equal(sourceCli.status, 0, sourceCli.stderr);
+assert.match(sourceCli.stdout, /^omp\/18\.3\.2\s*$/);
 
 const definition = (namespace: string, deferred = false) => ({
 	type: "namespace" as const,
@@ -63,7 +69,7 @@ assert.deepEqual(normalizeCodexToolChoice({ type: "tool", name: "lookup", namesp
 assert.deepEqual(codexTools.map(tool => [tool.type, tool.name]), [
 	["function", "lookup"], ["namespace", "mcp__alpha"], ["namespace", "mcp__beta"],
 ]);
-assert.equal((codexTools[2] as any).tools[0].defer_loading, true);
+assert.equal((codexTools[2] as any).tools[0].defer_loading, undefined);
 const replay = convertCodexResponsesMessages({
 	...codexModel,
 	id: "gpt-6-sol",
@@ -88,6 +94,7 @@ assert.deepEqual(mapOpenAIResponsesToolChoiceForTools({ type: "tool", name: "loo
 assert.deepEqual(apiTools.map(tool => [tool.type, "name" in tool ? tool.name : ""]), [
 	["function", "lookup"], ["namespace", "mcp__alpha"], ["namespace", "mcp__beta"],
 ]);
+assert.equal((apiTools[2] as any).tools[0].defer_loading, undefined);
 
 const usage = {
 	input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,

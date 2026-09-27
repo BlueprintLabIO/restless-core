@@ -22,7 +22,7 @@ diff --git a/node_modules/@oh-my-pi/pi-ai/src/types.ts b/node_modules/@oh-my-pi/
  	arguments: Record<string, unknown>;
  	[kStreamingPartialJson]?: string;
  	thoughtSignature?: string; // Google-specific: opaque signature for reusing thought context
-@@ -1439,6 +1441,12 @@
+@@ -1439,6 +1441,10 @@
  	name: string;
  	description: string;
  	parameters: TParameters;
@@ -30,8 +30,6 @@ diff --git a/node_modules/@oh-my-pi/pi-ai/src/types.ts b/node_modules/@oh-my-pi/
 +	namespace?: string;
 +	/** Description of the namespace container advertised to the model. */
 +	namespaceDescription?: string;
-+	/** Codex tool-search visibility for a namespaced child. */
-+	responseDeferLoading?: boolean;
  	/** If true, tool is strictly typed and validated against the parameters schema before execution */
  	strict?: boolean;
  	/** Withhold this Anthropic tool until a `tool_addition` message references it. */
@@ -226,6 +224,8 @@ diff --git a/node_modules/@oh-my-pi/pi-ai/src/providers/openai-responses-server.
  function buildTools(tools: Array<OpenAIResponsesTool | { type: string }> | undefined): Tool[] | undefined {
  	if (!tools) return undefined;
  	const out: Tool[] = [];
++	// Tool search is not forwarded by this gateway. Expose namespaced children
++	// directly even when the caller marks them defer_loading.
 +	const addFunction = (
 +		fn: Extract<OpenAIResponsesTool, { type: "function" }> | NonNullable<OpenAIResponsesNamespaceTool["tools"]>[number],
 +		namespace?: OpenAIResponsesNamespaceTool,
@@ -238,7 +238,6 @@ diff --git a/node_modules/@oh-my-pi/pi-ai/src/providers/openai-responses-server.
 +				customWireName: fn.name,
 +				customFormat: { syntax: fn.format.syntax, definition: fn.format.definition },
 +				...(namespace ? { namespace: namespace.name, namespaceDescription: namespace.description ?? "" } : {}),
-+				...(fn.defer_loading !== undefined ? { responseDeferLoading: fn.defer_loading } : {}),
 +			});
 +			return;
 +		}
@@ -247,7 +246,6 @@ diff --git a/node_modules/@oh-my-pi/pi-ai/src/providers/openai-responses-server.
 +			description: fn.description ?? "",
 +			parameters: (fn.parameters ?? {}) as Tool["parameters"],
 +			...(namespace ? { namespace: namespace.name, namespaceDescription: namespace.description ?? "" } : {}),
-+			...(fn.defer_loading !== undefined ? { responseDeferLoading: fn.defer_loading } : {}),
 +		};
 +		if (fn.strict !== undefined && fn.strict !== null) tool.strict = fn.strict;
 +		out.push(tool);
@@ -634,7 +632,7 @@ diff --git a/node_modules/@oh-my-pi/pi-ai/src/providers/openai-codex-responses.t
 +			namespaces.set(tool.namespace, group);
 +			payloads.push(group);
 +		}
-+		group.tools.push({ ...payload, ...(tool.responseDeferLoading !== undefined ? { defer_loading: tool.responseDeferLoading } : {}) });
++		group.tools.push(payload);
 +	};
  	for (const tool of tools) {
  		// Subscription models default to the function fallback. Explicit metadata
@@ -710,7 +708,7 @@ diff --git a/node_modules/@oh-my-pi/pi-ai/src/providers/openai-responses.ts b/no
 +			namespaces.set(tool.namespace, group);
 +			out.push(group);
 +		}
-+		group.tools.push({ ...payload, ...(tool.responseDeferLoading !== undefined ? { defer_loading: tool.responseDeferLoading } : {}) });
++		group.tools.push(payload);
 +	};
  	for (const tool of tools) {
  		if (tool.native?.type === "computer" && model.supportsComputerUse === true) {
