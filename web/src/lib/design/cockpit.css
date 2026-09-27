@@ -2665,30 +2665,6 @@
 	color: var(--text-tertiary);
 }
 
-.bridge-root .hc-field {
-	background: color-mix(in srgb, var(--highlight) 76%, transparent);
-	box-shadow:
-		var(--bevel),
-		0 7px 22px rgba(43, 51, 66, 0.07),
-		0 0 0 1px color-mix(in srgb, var(--highlight) 32%, transparent);
-}
-
-.bridge-root .hc-send {
-	border-color: #2d4569;
-	background: linear-gradient(180deg, #42628f, #2c4569);
-	box-shadow:
-		inset 0 1px 0 color-mix(in srgb, var(--highlight) 22%, transparent),
-		0 4px 12px rgba(44, 69, 105, 0.16);
-	color: var(--text-inverse);
-}
-
-.bridge-root .hc-send:active:not(:disabled) {
-	transform: translateY(1px);
-	box-shadow:
-		inset 0 1px 0 color-mix(in srgb, var(--highlight) 24%, transparent),
-		0 1px 0 #204e7d;
-}
-
 .bridge-root .attach-btn {
 	border-radius: var(--radius-control);
 	background: transparent;

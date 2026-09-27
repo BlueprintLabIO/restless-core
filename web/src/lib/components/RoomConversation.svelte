@@ -1461,6 +1461,9 @@
 		max-width: 200px;
 		min-width: 0;
 		padding: 4px;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 		border: 1px solid var(--border);
 		border-radius: var(--radius-control);
 		font: inherit;
@@ -1868,7 +1871,7 @@
 			margin-left: auto;
 		}
 		.reply-picker {
-			max-width: 150px;
+			max-width: 100%;
 		}
 
 		.rooms-screen.thread-selected {
