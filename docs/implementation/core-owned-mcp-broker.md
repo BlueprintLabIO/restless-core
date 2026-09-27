@@ -57,16 +57,27 @@ successful `tools/list` or model request containing a namespace still does not
 prove a real tool call. The acceptance check is a fresh Staff Attempt reading
 an exact listing through Core, followed by a fresh Attempt repeating it.
 
-The September 2026 company model route uses OMP 18.3.2. Its Responses server
-currently skips `type: "namespace"` tools when translating a Codex request to
-its model request. Codex exposes the three CH children correctly, but OMP
-drops them before the model can choose one. Enabling Codex's
-`non_prefixed_mcp_tool_names` or `code_mode` does not remove the namespace
-shape. Until a versioned protocol adapter or provider fix passes an actual
-streaming call, a fixed CH read command may call the *same Core broker* from
-the actor Runtime with the same Attempt grant. This is a compatibility
-fallback, not evidence that native model MCP calls work. It must not access
-CH directly or broaden the actor's tool authority.
+The September 2026 company model route uses OMP 18.3.2. Its prebuilt
+`pi-coding-agent/dist/cli.js` skipped `type: "namespace"` tools when
+translating a Codex request to the model request, even though Codex exposed
+the three CH children correctly. Patching `pi-ai/src` alone did not affect
+that prebuilt CLI. The host launcher now applies a versioned OMP patch and
+runs its source CLI; the patch translates namespace children into callable
+model tools and exposes the three reviewed CH reads without relying on
+`tool_search` or deferred loading. The source patch and pinned package must
+be upgraded together, with a real actor call after each change.
+
+On 28 September 2026 AEST, Staff Attempt
+`bcac3e2a-978f-471b-9c05-20fe1c97e702` made a native
+`clapping_hands_marketplace_details` model tool call for the exact RX 6800
+listing `965653713159638`. Core recorded `host MCP read completed`, and the
+tool returned `complete`, displayed ask `AU$450`, `document-replay`, and an
+observation at `2026-09-27T16:05:21.305Z`; provider wall time was 6,038 ms.
+This verifies the native model-to-Core-to-CH read path for that Attempt. It
+does not verify listing availability, GPU condition, cooler noise, or a
+general MCP transport migration. The compatibility `ch-read.mjs` command
+remains available for recovery, through the *same Core broker* and Attempt
+grant, but its use must be reported separately from native MCP calls.
 
 ### Pilot isolation limit
 
