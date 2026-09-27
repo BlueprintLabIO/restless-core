@@ -21,6 +21,10 @@ use uuid::Uuid;
 const MCP_REMOTE: &str = "/usr/local/bin/mcp-remote";
 const MCP_REMOTE_CLIENT: &str = "/usr/local/bin/mcp-remote-client";
 const RUNTIME_CREDENTIAL_ROOT: &str = "/company/home/.restless/connected-tools";
+/// Internal marker consumed by the Codex launch adapter. The marker is never
+/// passed to the MCP child; the child receives only selected ambient variable
+/// names from its already-scoped actor session.
+pub(crate) const BROKER_AWARE_ACTOR_ENV_MARKER: &str = "RESTLESS_INTERNAL_BROKER_AWARE_ACTOR_ENV";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -68,6 +72,19 @@ pub(crate) struct ConnectionLaunch {
     pub(crate) owner_handoff_id: Option<Uuid>,
 }
 
+/// Owner-installed, company-local stdio server. Environment values and
+/// credentials are intentionally excluded from storage. A broker-aware opt-in
+/// forwards named variables from the exact actor session only for Codex.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct LocalMcpServer {
+    pub(crate) name: String,
+    pub(crate) command: String,
+    pub(crate) args: Vec<String>,
+    pub(crate) assigned_actor: String,
+    pub(crate) broker_aware: bool,
+    pub(crate) enabled: bool,
+}
+
 pub(crate) async fn ensure_schema(pool: &PgPool) -> Result<()> {
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS restless_authority.provider_connections (\
@@ -93,6 +110,26 @@ pub(crate) async fn ensure_schema(pool: &PgPool) -> Result<()> {
     .execute(pool)
     .await
     .context("add connected-tool execution scope")?;
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS restless_authority.local_mcp_servers (\
+           company TEXT NOT NULL, name TEXT NOT NULL, command TEXT NOT NULL, \
+           args JSONB NOT NULL DEFAULT '[]'::jsonb, assigned_actor TEXT NOT NULL, \
+           broker_aware BOOLEAN NOT NULL DEFAULT FALSE, \
+           enabled BOOLEAN NOT NULL DEFAULT TRUE, created_by TEXT NOT NULL, \
+           created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), \
+           PRIMARY KEY (company, name)\
+         )",
+    )
+    .execute(pool)
+    .await
+    .context("create company-local MCP descriptors")?;
+    sqlx::query(
+        "ALTER TABLE restless_authority.local_mcp_servers \
+         ADD COLUMN IF NOT EXISTS broker_aware BOOLEAN NOT NULL DEFAULT FALSE",
+    )
+    .execute(pool)
+    .await
+    .context("add broker-aware local MCP opt-in")?;
     Ok(())
 }
 
@@ -117,6 +154,137 @@ pub(crate) fn validate_endpoint(endpoint: &str) -> Result<()> {
         bail!("connected-tool endpoint must not contain credentials");
     }
     Ok(())
+}
+
+pub(crate) fn validate_local_server(
+    name: &str,
+    command: &str,
+    args: &[String],
+    actor: &str,
+) -> Result<()> {
+    validate_name(name)?;
+    let path = Path::new(command);
+    if !path.is_absolute()
+        || !command.starts_with("/company/")
+        || path.components().any(|part| {
+            matches!(
+                part,
+                std::path::Component::ParentDir | std::path::Component::CurDir
+            )
+        })
+    {
+        bail!("local MCP command must be an absolute path inside the company Runtime volume");
+    }
+    if actor.is_empty()
+        || actor.len() > 64
+        || !actor.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-' || byte == b'_'
+        })
+    {
+        bail!("local MCP actor must be a lowercase ASCII actor id");
+    }
+    if args.len() > 32
+        || args
+            .iter()
+            .any(|arg| arg.len() > 2048 || arg.contains('\0'))
+    {
+        bail!("local MCP arguments exceed their bound");
+    }
+    Ok(())
+}
+
+pub(crate) async fn local_mcp_list(pool: &PgPool, company: &str) -> Result<Vec<LocalMcpServer>> {
+    sqlx::query(
+        "SELECT name,command,args,assigned_actor,broker_aware,enabled FROM restless_authority.local_mcp_servers \
+         WHERE company=$1 ORDER BY name",
+    )
+    .bind(company)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|row| {
+        Ok(LocalMcpServer {
+            name: row.try_get("name")?,
+            command: row.try_get("command")?,
+            args: serde_json::from_value(row.try_get::<serde_json::Value, _>("args")?)?,
+            assigned_actor: row.try_get("assigned_actor")?,
+            broker_aware: row.try_get("broker_aware")?,
+            enabled: row.try_get("enabled")?,
+        })
+    })
+    .collect()
+}
+
+pub(crate) async fn install_local_mcp(
+    pool: &PgPool,
+    company: &str,
+    name: &str,
+    command: &str,
+    args: &[String],
+    assigned_actor: &str,
+    broker_aware: bool,
+) -> Result<LocalMcpServer> {
+    validate_local_server(name, command, args, assigned_actor)?;
+    let provider_name_in_use: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM restless_authority.provider_connections \
+         WHERE company=$1 AND name=$2 AND status <> 'disabled')",
+    )
+    .bind(company)
+    .bind(name)
+    .fetch_one(pool)
+    .await?;
+    if provider_name_in_use {
+        bail!(
+            "MCP server name {name:?} is already used by an enabled or pending provider connection"
+        );
+    }
+    let args = serde_json::to_value(args)?;
+    sqlx::query(
+        "INSERT INTO restless_authority.local_mcp_servers \
+           (company,name,command,args,assigned_actor,broker_aware,enabled,created_by) \
+         VALUES ($1,$2,$3,$4,$5,$6,TRUE,'owner') \
+         ON CONFLICT (company,name) DO UPDATE SET command=EXCLUDED.command,args=EXCLUDED.args, \
+           assigned_actor=EXCLUDED.assigned_actor,broker_aware=EXCLUDED.broker_aware, \
+           enabled=TRUE,updated_at=now()",
+    )
+    .bind(company)
+    .bind(name)
+    .bind(command)
+    .bind(args)
+    .bind(assigned_actor)
+    .bind(broker_aware)
+    .execute(pool)
+    .await?;
+    local_mcp_list(pool, company)
+        .await?
+        .into_iter()
+        .find(|server| server.name == name)
+        .context("installed local MCP descriptor disappeared")
+}
+
+pub(crate) async fn disable_local_mcp(
+    pool: &PgPool,
+    company: &str,
+    name: &str,
+) -> Result<LocalMcpServer> {
+    validate_name(name)?;
+    let updated = sqlx::query(
+        "UPDATE restless_authority.local_mcp_servers SET enabled=FALSE,updated_at=now() \
+         WHERE company=$1 AND name=$2",
+    )
+    .bind(company)
+    .bind(name)
+    .execute(pool)
+    .await?
+    .rows_affected();
+    if updated == 0 {
+        bail!("local MCP server {name:?} is not configured for company {company:?}");
+    }
+    local_mcp_list(pool, company)
+        .await?
+        .into_iter()
+        .find(|server| server.name == name)
+        .context("disabled local MCP descriptor disappeared")
 }
 
 pub(crate) fn runtime_credential_dir(name: &str) -> Result<String> {
@@ -478,7 +646,9 @@ pub(crate) async fn attach_existing(
 ) -> Result<ConnectedTool> {
     let work = org.get_work(work_id).await?.context("Work not found")?;
     if work.status != restless_orgintel::WorkStatus::Blocked {
-        bail!("attach requires blocked Work; interrupt active Work before changing its tools, then resume last");
+        bail!(
+            "attach requires blocked Work; interrupt active Work before changing its tools, then resume last"
+        );
     }
     let existing = get(pool, company, name)
         .await?
@@ -494,7 +664,9 @@ pub(crate) async fn attach_existing(
             Some(attempt.work_id) == existing.assigned_work_id || attempt.work_id == work_id
         })
     {
-        bail!("connection has a running source or target Attempt; finish or interrupt it before attachment");
+        bail!(
+            "connection has a running source or target Attempt; finish or interrupt it before attachment"
+        );
     }
     let updated = sqlx::query(
         "UPDATE restless_authority.provider_connections SET assigned_actor=$3, assigned_work_id=$4, \
@@ -530,6 +702,7 @@ pub(crate) async fn session_servers(
     actor: &str,
     work_id: Option<Uuid>,
     attempt_id: Option<Uuid>,
+    supports_broker_aware: bool,
 ) -> Result<Vec<McpServer>> {
     let mut servers = Vec::new();
     for connection in list(pool, company).await? {
@@ -560,6 +733,19 @@ pub(crate) async fn session_servers(
                 credential_dir,
             )]);
         servers.push(McpServer::Stdio(server));
+    }
+    for server in local_mcp_list(pool, company).await? {
+        if !server.enabled || server.assigned_actor != actor {
+            continue;
+        }
+        if server.broker_aware && !supports_broker_aware {
+            bail!("broker-aware local MCP server {:?} requires a Codex actor session", server.name);
+        }
+        let mut stdio = McpServerStdio::new(&server.name, &server.command).args(server.args);
+        if server.broker_aware {
+            stdio = stdio.env(vec![EnvVariable::new(BROKER_AWARE_ACTOR_ENV_MARKER, "1")]);
+        }
+        servers.push(McpServer::Stdio(stdio));
     }
     Ok(servers)
 }
@@ -594,6 +780,17 @@ pub(crate) async fn begin_oauth_install(
 ) -> Result<ConnectionLaunch> {
     validate_name(name)?;
     validate_endpoint(endpoint)?;
+    let local_name_in_use: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM restless_authority.local_mcp_servers \
+         WHERE company=$1 AND name=$2 AND enabled)",
+    )
+    .bind(company)
+    .bind(name)
+    .fetch_one(authority.pool())
+    .await?;
+    if local_name_in_use {
+        bail!("MCP server name {name:?} is already used by an enabled company-local server");
+    }
     ensure_runtime_bridge_available(company).await?;
     let credential_dir = host_credential_dir(root, company, name)?;
     recover_interrupted_reconnect(&credential_dir)?;

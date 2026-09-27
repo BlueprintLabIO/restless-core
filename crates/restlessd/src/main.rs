@@ -2760,6 +2760,64 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             }
             _ => Response::err("connected-tool disable needs name and actor"),
         },
+        "local-mcp-list" => {
+            match connected_tool::local_mcp_list(daemon.authority.pool(), company).await {
+                Ok(servers) => Response::ok_serialized(servers),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "local-mcp-install" => {
+            let result = async {
+                let name = request.connected_tool.tool_name.as_deref()
+                    .context("local MCP install needs name")?;
+                let command = request.local_mcp.command.as_deref()
+                    .context("local MCP install needs command")?;
+                let actor = request.connected_tool.assigned_actor.as_deref()
+                    .context("local MCP install needs actor")?;
+                let org = daemon.orgintel.get(company).await?;
+                if org.active_actor(actor).await?.is_none() {
+                    anyhow::bail!("local MCP actor {actor:?} is not active in company {company:?}");
+                }
+                let server = connected_tool::install_local_mcp(
+                    daemon.authority.pool(),
+                    company,
+                    name,
+                    command,
+                    &request.local_mcp.args,
+                    actor,
+                    request.local_mcp.broker_aware,
+                )
+                .await?;
+                org.emit_event("local_mcp_installed", Some("owner"), serde_json::json!({
+                    "name": server.name, "command": server.command,
+                    "assigned_actor": server.assigned_actor, "broker_aware": server.broker_aware,
+                })).await?;
+                Ok::<_, anyhow::Error>(server)
+            }.await;
+            match result {
+                Ok(server) => Response::ok_serialized(server),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "local-mcp-disable" => {
+            let result = async {
+                let name = request.connected_tool.tool_name.as_deref()
+                    .context("local MCP disable needs name")?;
+                let org = daemon.orgintel.get(company).await?;
+                let server = connected_tool::disable_local_mcp(
+                    daemon.authority.pool(), company, name,
+                )
+                .await?;
+                org.emit_event("local_mcp_disabled", Some("owner"), serde_json::json!({
+                    "name": server.name, "assigned_actor": server.assigned_actor,
+                })).await?;
+                Ok::<_, anyhow::Error>(server)
+            }.await;
+            match result {
+                Ok(server) => Response::ok_serialized(server),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
         "legal-show" => match legal::get_profile(&daemon.authority, company).await {
             Ok(profile) => Response::ok(serde_json::json!({
                 "profile": profile,

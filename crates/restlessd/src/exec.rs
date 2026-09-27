@@ -324,15 +324,16 @@ pub async fn wake(
             // sessions deliberately do not use the fuse.
             .unwrap_or_default();
         let metered = auth.billing == crate::model_gateway::ModelBilling::MeteredApi;
+        let harness = config.coordination_harness;
         let mcp_servers = crate::connected_tool::session_servers(
             authority.pool(),
             &config.name,
             "exec",
             None,
             None,
+            matches!(harness, crate::runtime::AgentHarness::Codex),
         )
         .await?;
-        let harness = config.coordination_harness;
         let outcome = match harness {
             crate::runtime::AgentHarness::RestlessManaged
             | crate::runtime::AgentHarness::ClaudeAgent

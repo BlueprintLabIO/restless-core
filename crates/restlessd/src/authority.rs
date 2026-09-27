@@ -1119,6 +1119,10 @@ impl AuthorityStore {
             .bind(company)
             .execute(&mut *tx)
             .await?;
+        sqlx::query("DELETE FROM restless_authority.local_mcp_servers WHERE company = $1")
+            .bind(company)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query("DELETE FROM restless_authority.records WHERE company = $1")
             .bind(company)
             .execute(&mut *tx)

@@ -102,6 +102,18 @@ fn codex_mcp_contract(
                 }
                 let mut env_vars = Vec::with_capacity(server.env.len());
                 for variable in &server.env {
+                    if variable.name == crate::connected_tool::BROKER_AWARE_ACTOR_ENV_MARKER {
+                        if variable.value != "1" || !server.command.starts_with("/company/") {
+                            bail!("broker-aware MCP marker requires a company-local command");
+                        }
+                        env_vars.extend([
+                            "RESTLESS_COMPANY".to_string(),
+                            "RESTLESS_ACTOR".to_string(),
+                            "RESTLESS_COORDINATOR".to_string(),
+                            "RESTLESS_SESSION_CAPABILITY".to_string(),
+                        ]);
+                        continue;
+                    }
                     insert_runtime_env(&mut runtime_env, &variable.name, &variable.value)?;
                     env_vars.push(variable.name.clone());
                 }
@@ -700,6 +712,7 @@ where
     }
     let mut args = crate::acp::agent_exec_prefix(workdir);
     for value in [
+        format!("RESTLESS_COMPANY={}", auth.company),
         format!("RESTLESS_ACTOR={actor}"),
         format!(
             "RESTLESS_COORDINATOR={}",

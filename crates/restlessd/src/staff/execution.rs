@@ -102,6 +102,7 @@ pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcom
         &run.actor,
         run.work_id,
         run.attempt_id,
+        matches!(run.worker_harness, crate::runtime::AgentHarness::Codex),
     )
     .await?;
 

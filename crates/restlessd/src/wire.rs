@@ -128,6 +128,16 @@ pub(crate) struct ConnectedToolInput {
     pub(crate) observed_tools: Vec<String>,
 }
 
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct LocalMcpInput {
+    #[serde(default)]
+    pub(crate) command: Option<String>,
+    #[serde(default)]
+    pub(crate) args: Vec<String>,
+    #[serde(default)]
+    pub(crate) broker_aware: bool,
+}
+
 #[derive(Debug, Deserialize)]
 pub(crate) struct InitialWorkGateRequest {
     pub(crate) name: String,
@@ -627,8 +637,12 @@ pub(crate) struct Request {
     pub(crate) lifecycle: LifecycleInput,
     #[serde(flatten)]
     pub(crate) authority: AuthorityInput,
+    // Both remote and local MCP commands use this shared name/actor pair.
+    // Duplicating either key in two flattened structs silently loses it.
     #[serde(flatten)]
     pub(crate) connected_tool: ConnectedToolInput,
+    #[serde(flatten)]
+    pub(crate) local_mcp: LocalMcpInput,
     #[serde(flatten)]
     pub(crate) orgintel: OrgIntelInput,
     #[serde(flatten)]
@@ -744,6 +758,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         | "browser-release"
         | "watch"
         | "connected-tools"
+        | "local-mcp-list"
         | "identity-show"
         | "publish-list" => &[],
         "schedule-wake" => &["adapter"],
@@ -1030,6 +1045,8 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
             "actor",
         ],
         "connected-tool-disable" => &["tool_name", "actor"],
+        "local-mcp-install" => &["tool_name", "command", "args", "assigned_actor", "broker_aware"],
+        "local-mcp-disable" => &["tool_name"],
         "identity-evidence-add" => &[
             "identity_pillar",
             "identity_kind",
@@ -1310,6 +1327,9 @@ pub(crate) const OWNER_ONLY: &[&str] = &[
     // may use it are owner trust decisions for this sprint.
     "skill-disposition",
     "skill-assign",
+    "local-mcp-install",
+    "local-mcp-disable",
+    "local-mcp-list",
 ];
 
 /// Actor-owned Opportunity mutations. The owner has a separate, future
@@ -1731,6 +1751,9 @@ mod tests {
             "connected-tool-reconnect",
             "connected-tool-observe",
             "connected-tool-disable",
+            "local-mcp-list",
+            "local-mcp-install",
+            "local-mcp-disable",
             "document-review-request",
         ];
         for command in COMMANDS {
@@ -1755,6 +1778,38 @@ mod tests {
         assert!(!command_fields("connected-tool-attach")
             .unwrap()
             .contains(&"requested_scopes"));
+    }
+
+    #[test]
+    fn local_mcp_install_decodes_shared_name_and_actor_under_owner_authority() {
+        let request = Request::decode(
+            r#"{"cmd":"local-mcp-install","company":"sydney_resale_test","tool_name":"cash-converters-public-read","command":"/company/clapping-hands/node_modules/.bin/clapping-hands-cash-converters","assigned_actor":"exec","args":[]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            request.connected_tool.tool_name.as_deref(),
+            Some("cash-converters-public-read")
+        );
+        assert_eq!(
+            request.connected_tool.assigned_actor.as_deref(),
+            Some("exec")
+        );
+        assert_eq!(
+            request.local_mcp.command.as_deref(),
+            Some("/company/clapping-hands/node_modules/.bin/clapping-hands-cash-converters")
+        );
+        assert!(request.local_mcp.args.is_empty());
+        assert!(!request.local_mcp.broker_aware);
+        assert_eq!(
+            authorize(Principal::Owner, &request.cmd).unwrap(),
+            Principal::Owner
+        );
+        assert!(authorize(Principal::CompanyExec, &request.cmd).is_err());
+        let broker_request = Request::decode(
+            r#"{"cmd":"local-mcp-install","company":"sydney_resale_test","tool_name":"broker-reader","command":"/company/bin/broker-reader","assigned_actor":"exec","args":[],"broker_aware":true}"#,
+        )
+        .unwrap();
+        assert!(broker_request.local_mcp.broker_aware);
     }
 
     #[test]

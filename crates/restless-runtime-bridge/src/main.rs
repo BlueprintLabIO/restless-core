@@ -2232,6 +2232,7 @@ async fn launch_agent(
         .process_group(0)
         .env("HOME", "/company/home")
         .env("DISPLAY", ":1")
+        .env("RESTLESS_COMPANY", &config.identity.company)
         .env("RESTLESS_ACTOR", actor)
         .env("RESTLESS_COORDINATOR", COORDINATION_ADDRESS)
         .env("RESTLESS_SESSION_CAPABILITY", coordination_capability)

@@ -60,6 +60,13 @@ enum Command {
         #[command(subcommand)]
         command: ConnectedToolCommand,
     },
+    /// Install company-local stdio MCPs into an explicit actor launch contract.
+    LocalMcp {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
+        company: Option<String>,
+        #[command(subcommand)]
+        command: LocalMcpCommand,
+    },
     /// Authority-owned legal identity safe for ordinary company use.
     Legal {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
@@ -1905,6 +1912,33 @@ enum ConnectedToolCommand {
 }
 
 #[derive(Subcommand)]
+enum LocalMcpCommand {
+    /// List company-local descriptors. No environment or credential values are stored.
+    List,
+    /// Install a server command from the company Runtime volume for one actor's future sessions.
+    Install {
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        command: String,
+        /// Durable actor id that receives the server in its ACP launch contract.
+        #[arg(long)]
+        actor: String,
+        /// Non-secret argument. Repeat to preserve order.
+        #[arg(long = "arg")]
+        args: Vec<String>,
+        /// Forward the signed actor coordination environment to a trusted broker-aware MCP.
+        #[arg(long)]
+        broker_aware: bool,
+    },
+    /// Stop attaching this server to future actor sessions.
+    Disable {
+        #[arg(long)]
+        name: String,
+    },
+}
+
+#[derive(Subcommand)]
 enum LegalCommand {
     /// Show the safe current profile and registry observation.
     Show,
@@ -2635,6 +2669,25 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             ConnectedToolCommand::Disable { name } => serde_json::json!({
                 "cmd": "connected-tool-disable", "company": company,
                 "tool_name": name, "actor": acting_actor(),
+            }),
+        },
+        Command::LocalMcp { company, command } => match command {
+            LocalMcpCommand::List => serde_json::json!({
+                "cmd": "local-mcp-list", "company": company,
+            }),
+            LocalMcpCommand::Install {
+                name,
+                command,
+                actor,
+                args,
+                broker_aware,
+            } => serde_json::json!({
+                "cmd": "local-mcp-install", "company": company,
+                "tool_name": name, "command": command, "assigned_actor": actor,
+                "args": args, "broker_aware": broker_aware,
+            }),
+            LocalMcpCommand::Disable { name } => serde_json::json!({
+                "cmd": "local-mcp-disable", "company": company, "tool_name": name,
             }),
         },
         Command::Legal { company, command } => match command {
