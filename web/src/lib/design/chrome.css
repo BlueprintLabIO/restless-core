@@ -303,6 +303,22 @@
 	flex: 1 1 auto;
 }
 
+/* Tablet widths cannot hold the wordmark, four tabs and a labelled search;
+ * the mark stays, and search keeps its icon with the shortcut in its tip. */
+@media (min-width: 761px) and (max-width: 1100px) {
+	.bridge-topbar .tb-name,
+	.bridge-root .tb-search-label,
+	.bridge-root .tb-search kbd {
+		display: none;
+	}
+
+	.bridge-root .tb-search {
+		width: 30px;
+		justify-content: center;
+		padding: 0;
+	}
+}
+
 @media (max-width: 760px) {
 	.bridge-topbar {
 		gap: 8px;
