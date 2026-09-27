@@ -2,6 +2,7 @@
 	import Skeleton from '$lib/primitives/Skeleton.svelte';
 	import { onMount } from 'svelte';
 	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
+	import { announceIntelligenceChange } from '$lib/model/intelligence-events';
 	let { companyId }: { companyId: string } = $props();
 	type Config = {
 		name: string;
@@ -98,6 +99,7 @@
 		if (!response.ok) throw new Error(result.message ?? 'Could not complete this action.');
 		await refresh();
 		await intelligence.refresh();
+		announceIntelligenceChange(companyId);
 		return result;
 	}
 	async function operate(row: Row, operation: string) {

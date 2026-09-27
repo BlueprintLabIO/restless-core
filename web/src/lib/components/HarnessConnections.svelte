@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
+	import { announceIntelligenceChange } from '$lib/model/intelligence-events';
 	let { companyId }: { companyId: string } = $props();
 	const intelligence = $derived(intelligenceQuery(companyId));
 	type Connection = {
@@ -33,7 +34,10 @@
 		readError = '';
 		const before = connections.map((c) => c.auth.state).join();
 		connections = data.connections;
-		if (before !== connections.map((c) => c.auth.state).join()) await intelligence.refresh();
+		if (before !== connections.map((c) => c.auth.state).join()) {
+			await intelligence.refresh();
+			announceIntelligenceChange(companyId);
+		}
 	}
 	onMount(() => {
 		let stopped = false;
@@ -84,6 +88,7 @@
 			if (action === 'api_key') keys[c.harness] = '';
 			connections = connections.map((row) => (row.harness === c.harness ? data : row));
 			await intelligence.refresh();
+			announceIntelligenceChange(companyId);
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Harness settings could not be saved.';
 		} finally {
@@ -107,6 +112,11 @@
 			)[state] ?? state
 		);
 	}
+	function isInUse(harness: string) {
+		return intelligence.view?.agents.some((agent) =>
+			agent.effective_model.startsWith(harness === 'codex' ? 'native-codex-' : 'native-claude-')
+		) ?? false;
+	}
 </script>
 
 <section class="native-connections" aria-label="Harness connections">
@@ -128,7 +138,7 @@
 	{#each connections as c (c.harness)}
 		<article>
 			<header>
-				<h2>{c.harness === 'codex' ? 'ChatGPT / Codex' : 'Claude Code'}</h2>
+				<h2>{c.harness === 'codex' ? 'Company-only Codex' : 'Company-only Claude'}</h2>
 				<span
 					class:connected={c.auth.state === 'connected' || c.auth.state === 'key_saved'}
 					class:failed={['failed', 'unavailable', 'expired'].includes(c.auth.state)}
@@ -136,6 +146,7 @@
 					role="status">{status(c.auth.state)}</span
 				>
 			</header>
+			{#if !isInUse(c.harness)}<p>This profile is not used by a current agent route.</p>{/if}
 			{#if c.auth.account?.email}<p>{c.auth.account.email}</p>{/if}
 			<div class="row actions">
 				<button class="btn primary small" disabled={!!busy} onclick={() => act(c, 'login')}

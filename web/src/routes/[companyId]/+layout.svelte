@@ -28,7 +28,9 @@
 		companyPrincipalQuery,
 		conversationQuery
 	} from '$lib/model/queries.svelte';
-	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
+	import { agentRouteState, intelligenceQuery } from '$lib/model/intelligence.svelte';
+	import { affectsCompany, watchIntelligenceChanges } from '$lib/model/intelligence-events';
+	import { onMount } from 'svelte';
 	import { actorCanReceive } from '$lib/model/cockpit';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 
@@ -52,6 +54,9 @@
 		);
 	});
 	const intelligence = $derived(intelligenceQuery(companyId, () => railVisible));
+	onMount(() => watchIntelligenceChanges((changed) => {
+		if (affectsCompany(changed, companyId)) void intelligence.refresh();
+	}));
 	const collaboration = $derived(collaborationBootstrapQuery(companyId, () => principal));
 	const companyCatalog = companiesQuery(() => ownerAccess);
 	const companies = $derived(companyCatalog.view);
@@ -171,12 +176,16 @@
 					railActorId)
 	);
 	const railActorRole = $derived(focusedAttention ? 'Responsible lead' : 'Executive');
+	const railRouteState = $derived(agentRouteState(intelligence.view, railActorId));
 	const railConnectionStatus = $derived.by(() => {
 		if (!cockpit) return cockpitProjection.failure ? 'error' : 'unknown';
 		if (cockpit.source_health.orgintel !== 'available') return 'error';
 		const actorAvailable = actorCanReceive(cockpit, railActorId);
 		if (cockpitProjection.status === 'stale' && !actorAvailable) return 'error';
-		return actorAvailable ? 'available' : 'unavailable';
+		if (!actorAvailable) return 'unavailable';
+		if (intelligence.error) return 'error';
+		if (railRouteState === 'checking' || railRouteState === 'starting') return 'unknown';
+		return railRouteState === 'ready' ? 'available' : 'unavailable';
 	});
 	const railConnected = $derived(railConnectionStatus === 'available');
 	const companyComputerSurface = $derived(page.url.pathname === `/${companyId}/company/computer`);
@@ -199,15 +208,15 @@
 	let railClosedForSetup = '';
 	$effect(() => {
 		if (railClosedForSetup === companyId || focusedAttention) return;
-		const connected = intelligence.view?.has_connections;
-		if (connected === false) {
+		const route = agentRouteState(intelligence.view, 'exec');
+		if (route === 'needs_connection' || route === 'unavailable') {
 			railClosedForSetup = companyId;
 			// Only the default gives way to setup; an owner's own choice stands.
 			if (readRail(companyId) === null) {
 				execRailOpen = false;
 				writeRail(companyId, 'setup');
 			}
-		} else if (connected === true && readRail(companyId) === 'setup') {
+		} else if (route === 'ready' && readRail(companyId) === 'setup') {
 			railClosedForSetup = companyId;
 			execRailOpen = true;
 		}
@@ -450,13 +459,11 @@
 		conversationStatus={railConversation.status}
 		conversationFailed={Boolean(railConversation.failure)}
 		onrefreshConversation={() => void railConversation.refresh()}
-		needsProvider={intelligence.view?.has_connections === false}
+		needsProvider={railRouteState === 'needs_connection' || railRouteState === 'unavailable'}
 		contextLabel={currentContext}
 		focusAfterMessageId={railConversation.focusAfterMessageId}
 		focusStartedAt={railConversation.focusStartedAt}
-		newFocusAvailable={railActorId === 'exec' &&
-			!focusedAttention &&
-			intelligence.view?.has_connections !== false}
+		newFocusAvailable={railActorId === 'exec' && !focusedAttention && railConnected}
 		open={execRailOpen}
 		onask={askRail}
 		review={focusedReview
@@ -486,12 +493,12 @@
 			? `/${companyId}/people?person=exec`
 			: null}
 		execName={railActorName}
-		execLive={railConnected && intelligence.view?.has_connections !== false}
+		execLive={railConnected}
 		railOpen={execRailOpen}
 		expandExec={page.url.pathname === `/${companyId}` &&
 			attention.status === 'live' &&
 			liveNeedsYou.length === 0 &&
-			intelligence.view?.has_connections !== false &&
+			railConnected &&
 			!page.url.searchParams.has('computer') &&
 			!focusedAttention}
 		immersive={immersiveComputer}

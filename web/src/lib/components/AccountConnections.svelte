@@ -4,6 +4,7 @@
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import { getCompanies, type CompanyCatalogEntry } from '$lib/model/cockpit';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
+	import { announceIntelligenceChange, watchIntelligenceChanges } from '$lib/model/intelligence-events';
 	const catalog = modelCatalog();
 	type CompanyUse = { id: string; name: string; in_use?: boolean };
 	type AccountConnection = {
@@ -77,13 +78,16 @@
 	let confirmRevocation = $state('');
 	let statusRefreshTimer: ReturnType<typeof setTimeout> | undefined;
 	let statusRefreshAttempts = 0;
+	let refreshSequence = 0;
 
 	async function refresh() {
+		const sequence = ++refreshSequence;
 		loading = true;
 		error = '';
 		try {
 			const response = await fetch('/api/connections', { cache: 'no-store' });
 			const body = await response.json();
+			if (sequence !== refreshSequence) return;
 			if (!response.ok) throw new Error(body.message ?? 'Could not load account connections.');
 			const previouslySignedIn = new Set(connections.filter((item) => item.kind === 'oauth' && item.status === 'present').map((item) => item.provider));
 			connections = body.connections ?? [];
@@ -91,17 +95,19 @@
 			accountScope = body.scope === 'company' ? 'company' : 'account';
 			manageUrl = body.manage_url ?? '/account/settings/connections';
 			if (statusRefreshTimer) clearTimeout(statusRefreshTimer);
-			if (connections.some((connection) => connection.status === 'checking') && statusRefreshAttempts < 6) {
-				statusRefreshAttempts += 1;
-				statusRefreshTimer = setTimeout(() => void refresh(), 2500);
+			if (connections.some((connection) => connection.status === 'checking')) {
+				statusRefreshAttempts = Math.min(statusRefreshAttempts + 1, 12);
+				const delay = Math.min(2500 * 2 ** Math.floor(statusRefreshAttempts / 3), 30_000);
+				statusRefreshTimer = setTimeout(() => void refresh(), delay);
 			} else {
 				statusRefreshAttempts = 0;
 				statusRefreshTimer = undefined;
 			}
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Could not load account connections.';
+			if (sequence === refreshSequence)
+				error = cause instanceof Error ? cause.message : 'Could not load account connections.';
 		} finally {
-			loading = false;
+			if (sequence === refreshSequence) loading = false;
 		}
 	}
 	async function refreshNativeSignIns(rows: CompanyCatalogEntry[]) {
@@ -159,6 +165,7 @@
 			const body = await response.json();
 			if (!response.ok) throw new Error(body.message ?? 'Could not use this sign-in for the account.');
 			await refresh();
+			announceIntelligenceChange();
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Could not use this sign-in for the account.';
 		} finally {
@@ -182,6 +189,7 @@
 			secret = '';
 			addOpen = false;
 			await refresh();
+			announceIntelligenceChange();
 		} catch (cause) {
 			secret = '';
 			error = cause instanceof Error ? cause.message : 'Could not save this connection.';
@@ -242,6 +250,7 @@
 					oauthJob = '';
 					if (body.state === 'connected') {
 						await refresh();
+						announceIntelligenceChange();
 					}
 					return;
 				}
@@ -337,6 +346,7 @@
 			if (!response.ok) throw new Error(body.message ?? 'Could not grant this company access.');
 			companyRevisions = { ...companyRevisions, [companyId]: body.provider?.revision ?? revision };
 			await refresh();
+			announceIntelligenceChange(companyId);
 			selectedCompany = '';
 			replaceRequired = false;
 		} catch (cause) {
@@ -374,6 +384,7 @@
 			companyRevisions = { ...companyRevisions, [company.id]: body.provider?.revision ?? revision };
 			confirmRevocation = '';
 			await refresh();
+			announceIntelligenceChange(company.id);
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Could not remove this company’s access.';
 		} finally {
@@ -383,6 +394,7 @@
 
 	onMount(() => {
 		void refresh();
+		const stopWatching = watchIntelligenceChanges(() => void refresh(), true);
 		void getCompanies()
 			.then((rows) => {
 				companies = rows.filter((company) => company.lifecycle_status === 'active');
@@ -393,7 +405,7 @@
 				nativeError = 'Company sign-ins could not be loaded.';
 				nativeLoading = false;
 			});
-		return () => { if (statusRefreshTimer) clearTimeout(statusRefreshTimer); };
+		return () => { if (statusRefreshTimer) clearTimeout(statusRefreshTimer); stopWatching(); };
 	});
 </script>
 
@@ -611,10 +623,10 @@
 	{/if}
 	<section class="native-section" aria-label="Native sign-ins by company">
 		<div class="section-head">
-			<h2>Company sign-ins</h2>
+			<h2>Older company-only sign-ins</h2>
 			<button class="text-button" disabled={nativeLoading} onclick={() => void refreshNativeSignIns(companies)}>Refresh status</button>
 		</div>
-		<p>These sign-ins belong to their companies. Add an existing Codex sign-in to your account, then choose which companies may use it. Adding it grants no company access; the original company sign-in stays in place.</p>
+		<p>These are separate profiles inside each company computer. An expired profile here does not affect an account connection shown above. Add an existing Codex sign-in to your account, then choose which companies may use it.</p>
 		{#if nativeError}<p class="native-error" role="alert">{nativeError}</p>{/if}
 		{#if nativeLoading}<p role="status">Checking company sign-ins…</p>
 		{:else if nativeSignIns.length}

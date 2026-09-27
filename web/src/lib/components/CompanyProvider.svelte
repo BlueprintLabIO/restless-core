@@ -9,6 +9,7 @@
 	import AgentIntelligence from './AgentIntelligence.svelte';
 	import CopyCompanySetting from './CopyCompanySetting.svelte';
 	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
+	import { announceIntelligenceChange, watchIntelligenceChanges, affectsCompany } from '$lib/model/intelligence-events';
 	import { getCompanies, type CompanyCatalogEntry } from '$lib/model/cockpit';
 	let { companyId }: { companyId: string } = $props();
 	const intelligence = $derived(intelligenceQuery(companyId));
@@ -64,7 +65,7 @@
 		label: string;
 		provider: string;
 		kind?: 'api_key' | 'oauth';
-		status?: 'present' | 'absent' | 'invalid';
+		status?: 'present' | 'absent' | 'invalid' | 'checking';
 		detail?: string | null;
 		companies: { id: string; name: string; in_use?: boolean }[];
 	};
@@ -197,6 +198,7 @@
 			if (!response.ok) throw new Error(body.message ?? 'Could not save this connection.');
 			status = body;
 			await intelligence.refresh();
+			announceIntelligenceChange(companyId);
 			editorOpen = false;
 			choose(selected);
 			notice = disconnect
@@ -257,6 +259,7 @@
 	function keyStatus(connection: ReusableConnection) {
 		const noun = connection.kind === 'oauth' ? 'Sign-in' : 'Key';
 		if (connection.status === 'present') return connection.kind === 'oauth' ? 'Signed in' : 'Key stored';
+		if (connection.status === 'checking') return `Checking ${noun.toLowerCase()}`;
 		if (connection.status === 'invalid') return `${noun} unavailable`;
 		return `${noun} missing`;
 	}
@@ -330,6 +333,7 @@
 			connectionModel = '';
 			addConnectionOpen = false;
 			await Promise.all([refreshReusableConnections(), intelligence.refresh()]);
+			announceIntelligenceChange(companyId);
 			if (grantResult.replaceRequired) {
 				grantSelection = created.id;
 				replaceGrantId = created.id;
@@ -358,6 +362,7 @@
 			grantSelection = '';
 			replaceGrantId = '';
 			await Promise.all([refreshReusableConnections(), intelligence.refresh()]);
+			announceIntelligenceChange(companyId);
 		} catch (cause) {
 			accountError = cause instanceof Error ? cause.message : 'Could not use this connection in the company.';
 		} finally { accountBusy = false; }
@@ -375,6 +380,7 @@
 			if (!response.ok) throw new Error(body.message ?? 'Could not remove this company’s access.');
 			status = body.provider;
 			await Promise.all([refreshReusableConnections(), intelligence.refresh()]);
+			announceIntelligenceChange(companyId);
 		} catch (cause) {
 			accountError = cause instanceof Error ? cause.message : 'Could not remove this company’s access.';
 		} finally { accountBusy = false; }
@@ -413,6 +419,7 @@
 			importSource = '';
 			importProviders = [];
 			await Promise.all([refreshReusableConnections(), intelligence.refresh()]);
+			announceIntelligenceChange(companyId);
 			if (grantResult.replaceRequired) {
 				grantSelection = imported.id;
 				replaceGrantId = imported.id;
@@ -428,7 +435,13 @@
 	onMount(() => {
 		void refresh();
 		void refreshReusableConnections();
+		const stopWatching = watchIntelligenceChanges((changed) => {
+			if (!affectsCompany(changed, companyId)) return;
+			void refresh();
+			void refreshReusableConnections();
+		}, true);
 		return () => {
+			stopWatching();
 			++requestSequence;
 			secret = '';
 		};
@@ -462,7 +475,7 @@
 					<div class="reuse-row">
 						<div class="reuse-identity"><strong>{item.label}</strong><span>{labels[item.provider] ?? item.provider} · {item.kind === 'oauth' ? 'Account sign-in' : 'API key'}</span></div>
 						{#if companyGrant}
-							<span class="grant-state">Available to this company</span>
+							<span class="grant-state">Access granted</span>
 							{#if companyGrant.in_use}<span class="grant-count" title="Choose another model for this provider before removing access.">In use</span>{:else if accountScope === 'account'}<button class="text-button danger" disabled={accountBusy || !status} onclick={() => revokeConnection(item)}>Remove access</button>{/if}
 						{:else if grantSelection === item.id}
 							<label class="model-picker"><span>Model for this connection</span><select aria-label={`Model for ${item.label}`} value={grantCustomModels[item.id] ? '__custom' : modelForGrant(item)} onchange={(event) => { grantCustomModels[item.id] = event.currentTarget.value === '__custom'; grantModels[item.id] = grantCustomModels[item.id] ? '' : event.currentTarget.value; }}>
@@ -479,7 +492,7 @@
 							<span class="grant-count">{keyStatus(item)}{item.companies.length ? ` · used by ${item.companies.length}` : ''}</span>
 							<button class="btn primary small" disabled={accountBusy || !status || item.status !== 'present'} onclick={() => beginGrant(item)}>Use</button>
 						{/if}
-						{#if item.status !== 'present'}<span class="connection-unavailable" title={item.detail ?? 'Check this connection in account settings.'}>Unavailable</span>{/if}
+						{#if item.status !== 'present'}<span class="connection-unavailable" title={item.detail ?? 'Check this connection in account settings.'}>{item.status === 'checking' ? 'Checking account sign-in' : item.kind === 'oauth' ? 'Account sign-in unavailable' : 'Account key unavailable'}</span>{/if}
 					</div>
 				{/each}
 			</div>
