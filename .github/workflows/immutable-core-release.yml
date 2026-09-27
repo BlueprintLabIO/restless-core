@@ -107,7 +107,7 @@ jobs:
         with:
           # The fixed name reuses the 26 Sep interrupted build's 16.6 GB
           # BuildKit state volume and keeps later releases warm.
-          name: builder-22ca3a12-1df4-458c-9464-ef1a9b2876380
+          name: builder-22ca3a12-1df4-458c-9464-ef1a9b287638
           keep-state: true
           driver-opts: |
             memory=40g
