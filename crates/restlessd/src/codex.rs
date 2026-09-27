@@ -358,7 +358,13 @@ pub(crate) async fn discard_session_locator(
     Ok(())
 }
 
-async fn prove_tool_contract(container: &str, auth: &AgentAuth, actor: &str) -> Result<String> {
+async fn probe_coordination_contract(
+    container: &str,
+    auth: &AgentAuth,
+    actor: &str,
+    runner_digest: &str,
+    model_catalog_digest: Option<&str>,
+) -> Result<String> {
     let mut args = vec![
         "exec".to_string(),
         "-u".to_string(),
@@ -388,12 +394,16 @@ async fn prove_tool_contract(container: &str, auth: &AgentAuth, actor: &str) -> 
     if !output.status.success() {
         bail!("Codex coordination readiness failed before prompt");
     }
+    // This records the observed runner/catalog and the coordination probe.
+    // Model-visible tools depend on Codex metadata and are not proved by
+    // running `restless people`.
     Ok(format!(
         "{:x}",
-        Sha256::digest(
-            format!("codex-native:shell,apply_patch\0coordination:restless-people\0actor:{actor}")
-                .as_bytes()
-        )
+        Sha256::digest(format!(
+            "coordination:restless-people\0actor:{actor}\0model:{}\0runner:{runner_digest}\0catalog:{}",
+            auth.model,
+            model_catalog_digest.unwrap_or("none"),
+        ))
     ))
 }
 
@@ -992,6 +1002,24 @@ where
     let runner_digest = event_string(&observed, "runner_digest")
         .context("Codex readiness omitted runner digest")?
         .to_string();
+    let model_catalog_digest = event_string(&observed, "model_catalog_sha256");
+    if auth.model == "openai-codex/gpt-6-sol" {
+        let expected_runner = format!(
+            "{:x}",
+            Sha256::digest(include_bytes!("../../../tools/codex-runner/restless-codex-runner.mjs"))
+        );
+        let expected_catalog = format!(
+            "{:x}",
+            Sha256::digest(include_bytes!(
+                "../../../tools/codex-runner/gpt-6-sol-0.156.1-model-catalog.json"
+            ))
+        );
+        if runner_digest != expected_runner
+            || model_catalog_digest != Some(expected_catalog.as_str())
+        {
+            bail!("company Codex runtime lacks the reviewed gpt-6-sol tool catalog");
+        }
+    }
     let locator = SessionLocator {
         version: 2,
         company: auth.company.clone(),
@@ -1006,7 +1034,10 @@ where
         credential_reference: None,
     };
     persist_locator(container, &locator_path, &locator).await?;
-    let tool_contract_digest = prove_tool_contract(container, auth, actor).await?;
+    let tool_contract_digest = probe_coordination_contract(
+        container, auth, actor, &runner_digest, model_catalog_digest,
+    )
+    .await?;
     let session = CodexSession {
         stdin: Arc::clone(&stdin),
         events,

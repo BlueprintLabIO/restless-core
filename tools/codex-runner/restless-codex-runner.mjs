@@ -40,6 +40,8 @@ const CLIENT = {
 const ALLOWED_OPS = new Set(['launch', 'turn', 'steer', 'interrupt', 'ping', 'shutdown']);
 const ALLOWED_EFFORTS = new Set(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
 const MODEL_CAPABILITY_ENV = 'RESTLESS_MODEL_CAPABILITY';
+const SOL_MODEL_CATALOG_ENV = 'RESTLESS_CODEX_GPT6_SOL_CATALOG';
+const SOL_MODEL_CATALOG_SHA256 = '04187020317177396a94b9a9e599a29118257bd93ff4e802ee5c7a2616972d23';
 const DISABLED_CODEX_FEATURES = [
   'multi_agent',
   'plugins',
@@ -401,6 +403,15 @@ async function launch(operation) {
     throw new Error(`missing scoped ${MODEL_CAPABILITY_ENV}`);
   }
   const codexHome = requireString(process.env.CODEX_HOME, 'CODEX_HOME');
+  // Codex 0.155.1 predates gpt-6-sol. The company image supplies the exact
+  // upstream model descriptor so code-mode exec includes apply_patch.
+  const solCatalogPath = exactModel === 'openai-codex/gpt-6-sol'
+    ? process.env[SOL_MODEL_CATALOG_ENV] : null;
+  const solCatalogSha256 = solCatalogPath
+    ? createHash('sha256').update(readFileSync(solCatalogPath)).digest('hex') : null;
+  if (solCatalogPath && solCatalogSha256 !== SOL_MODEL_CATALOG_SHA256) {
+    throw new Error('reviewed gpt-6-sol model catalog differs from the company image');
+  }
   const mcp = mcpConfigArgs(operation.mcp_servers);
   const disabledFeatureArgs = DISABLED_CODEX_FEATURES.flatMap((feature) => ['--disable', feature]);
   const args = [
@@ -415,6 +426,7 @@ async function launch(operation) {
     '-c', 'model_providers.restless.stream_max_retries=0',
     '-c', 'model_providers.restless.stream_idle_timeout_ms=900000',
     ]),
+    ...(solCatalogPath ? ['-c', `model_catalog_json=${JSON.stringify(solCatalogPath)}`] : []),
     '-c', `model_reasoning_effort=${JSON.stringify(effort)}`,
     ...mcp.args,
   ];
@@ -486,6 +498,7 @@ async function launch(operation) {
     protocol_version: PROTOCOL_VERSION,
     model_requested: exactModel,
     model_observed: result.model ?? null,
+    model_catalog_sha256: solCatalogSha256,
     provider_observed: result.modelProvider ?? null,
     effort_requested: effort,
     effort_observed: result.reasoningEffort ?? null,

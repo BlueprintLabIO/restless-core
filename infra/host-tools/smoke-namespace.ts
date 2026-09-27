@@ -96,6 +96,36 @@ assert.deepEqual(apiTools.map(tool => [tool.type, "name" in tool ? tool.name : "
 ]);
 assert.equal((apiTools[2] as any).tools[0].defer_loading, undefined);
 
+// Codex 0.155.1 with gpt-6-sol metadata emits code-mode exec inside the
+// `functions` namespace, carried in a Responses Lite additional_tools item.
+const execBody = 'const patch = "*** Begin Patch\\n*** Add File: smoke.txt\\n+ok\\n*** End Patch";\nawait tools.apply_patch(patch);';
+const execRequest = parseRequest({
+	model: "gpt-6-sol",
+	input: [
+		{ type: "additional_tools", role: "developer", tools: [{
+			type: "namespace", name: "functions", tools: [{
+				type: "custom", name: "exec", description: "Codex code-mode executor with apply_patch",
+				format: { type: "grammar", syntax: "lark", definition: "start: SOURCE\nSOURCE: /[\\s\\S]+/" },
+			}],
+		}] },
+		{ type: "custom_tool_call", id: "ctc_exec", call_id: "call_exec", namespace: "functions", name: "exec", input: execBody },
+		{ type: "custom_tool_call_output", call_id: "call_exec", output: "Done" },
+	],
+	tool_choice: { type: "custom", namespace: "functions", name: "exec" },
+});
+assert.deepEqual(execRequest.context.tools?.map(tool => [tool.namespace, tool.name, tool.customWireName]),
+	[["functions", "exec", "exec"]]);
+const fallbackModel = { supportsComputerUse: false } as any;
+assert.deepEqual(convertOpenAICodexResponsesTools(execRequest.context.tools!, fallbackModel)
+	.map(tool => [tool.type, tool.name, "tools" in tool ? tool.tools.map(child => [child.type, child.name]) : []]),
+	[["namespace", "functions", [["custom", "exec"]]]]);
+assert.deepEqual(normalizeCodexToolChoice({ type: "tool", namespace: "functions", name: "exec" },
+	execRequest.context.tools!, fallbackModel), { type: "custom", namespace: "functions", name: "exec" });
+assert.equal((convertTools(execRequest.context.tools!, false, { ...apiModel, applyPatchToolType: undefined })[0] as any)
+	.tools[0].type, "custom");
+assert.equal(execRequest.context.messages.filter(message => message.role === "assistant")
+	.flatMap(message => message.content).find(part => part.type === "toolCall")?.arguments.input, execBody);
+
 const usage = {
 	input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
 	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
@@ -112,6 +142,12 @@ const message = {
 };
 const output = encodeResponse(message, "gpt-6-sol").output as Array<Record<string, unknown>>;
 assert.deepEqual([output[0]?.namespace, output[0]?.name], ["mcp__beta", "lookup"]);
+const execOutput = encodeResponse({ ...message, content: [{
+	type: "toolCall", id: "call_exec", namespace: "functions", name: "exec",
+	arguments: { input: execBody }, customWireName: "exec",
+}] }, "gpt-6-sol").output as Array<Record<string, unknown>>;
+assert.deepEqual([execOutput[0]?.type, execOutput[0]?.namespace, execOutput[0]?.name, execOutput[0]?.input],
+	["custom_tool_call", "functions", "exec", execBody]);
 
 const events = new AssistantMessageEventStream();
 events.push({ type: "start", partial: message });
@@ -126,4 +162,4 @@ assert.deepEqual(items.map(event => [event.item.namespace, event.item.name]), [
 	["mcp__beta", "lookup"], ["mcp__beta", "lookup"],
 ]);
 
-console.log("OMP namespace protocol smoke passed: definitions, history replay, forced choice, JSON, and SSE");
+console.log("OMP namespace protocol smoke passed: definitions, code-mode exec, history replay, forced choice, JSON, and SSE");
