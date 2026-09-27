@@ -86,6 +86,24 @@ Clapping Hands results are observations, not verified sale outcomes.
 - Clapping Hands owns its separate browser profile. The company browser's
   owner-control pause/resume mechanism does not govern that profile.
 
+## Broker boundary and next migration
+
+Core is already the MCP client and actor-scoped MCP server for the reviewed
+Clapping Hands, DeepWiki, and filesystem-read profiles. It owns the connection
+pin, live Attempt grant, request validation, and read receipts. CH remains the
+owner of its authenticated browser and extraction code. This is the intended
+division for Sydney Resale.
+
+Company-local arbitrary stdio tools and remote OAuth providers still attach
+directly inside the Runtime. They need separate migration before Restless can
+claim to broker every MCP tool. That migration requires a raw HTTP response
+size limit before the rmcp client buffers JSON and error bodies, host-owned
+provider credentials, reviewed per-tool authority, and effect permits with
+reconciliation for writes. MCP `readOnlyHint` alone cannot establish those
+properties. The current same-UID Runtime actor boundary also does not stop one
+actor from reading another Attempt's grant file; treat the grant as logical
+scope until the runtime process boundary is strengthened.
+
 ## Model connection recovery during the pilot
 
 The Staff read also depends on the company model relay. A transient failure
