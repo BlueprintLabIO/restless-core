@@ -2,8 +2,6 @@
 	import { beforeNavigate } from '$app/navigation';
 	import { getContext, onMount } from 'svelte';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
-	// The name section never shows model choices, so it skips the catalog.
-	const models = modelCatalog(() => section === 'provider');
 	import { attentionQuery, companiesQuery, companyQuery } from '$lib/model/queries.svelte';
 
 	type Settings = { display_name: string; mission: string; model: string; revision: string };
@@ -12,6 +10,8 @@
 		section = 'provider',
 		onsaved
 	}: { companyId: string; section?: 'provider' | 'name'; onsaved?: () => void } = $props();
+	// The name section never shows model choices, so it skips the catalog.
+	const models = modelCatalog(() => section === 'provider');
 	const header = getContext<{ name: string | null }>('company-setup-draft');
 	const attention = $derived(attentionQuery(companyId));
 	const company = $derived(companyQuery(companyId));
