@@ -1844,6 +1844,7 @@
 @container company-canvas (max-width: 940px) {
 	.bridge-root .charter-layout {
 		grid-template-columns: 1fr;
+		row-gap: var(--space-6);
 	}
 
 	.bridge-root .charter-context {
