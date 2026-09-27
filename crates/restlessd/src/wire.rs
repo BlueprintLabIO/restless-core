@@ -140,6 +140,10 @@ pub(crate) struct LocalMcpInput {
     pub(crate) token_file: Option<String>,
     #[serde(default)]
     pub(crate) allowed_tools: Vec<String>,
+    #[serde(default)]
+    pub(crate) read_profile: Option<String>,
+    #[serde(default)]
+    pub(crate) target_repository: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -765,6 +769,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         | "local-mcp-list"
         | "identity-show"
         | "publish-list" => &[],
+        "local-mcp-receipts" => &["tool_name"],
         "schedule-wake" => &["adapter"],
         "publish-build" => &[
             "actor",
@@ -1066,6 +1071,15 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
             "work_id",
             "allowed_tools",
         ],
+        "local-mcp-install-public-read" => &[
+            "tool_name",
+            "endpoint",
+            "read_profile",
+            "target_repository",
+            "assigned_actor",
+            "work_id",
+            "allowed_tools",
+        ],
         "local-mcp-disable" => &["tool_name"],
         "identity-evidence-add" => &[
             "identity_pillar",
@@ -1350,8 +1364,10 @@ pub(crate) const OWNER_ONLY: &[&str] = &[
     "skill-assign",
     "local-mcp-install",
     "local-mcp-install-host",
+    "local-mcp-install-public-read",
     "local-mcp-disable",
     "local-mcp-list",
+    "local-mcp-receipts",
 ];
 
 /// Actor-owned Opportunity mutations. The owner has a separate, future
@@ -1775,8 +1791,10 @@ mod tests {
             "connected-tool-observe",
             "connected-tool-disable",
             "local-mcp-list",
+            "local-mcp-receipts",
             "local-mcp-install",
             "local-mcp-install-host",
+            "local-mcp-install-public-read",
             "local-mcp-disable",
             "document-review-request",
         ];

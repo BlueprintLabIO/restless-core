@@ -33,6 +33,8 @@ const CLAPPING_HANDS_READ_TOOLS: [&str; 3] = [
     "clapping_hands_marketplace_details",
     "clapping_hands_marketplace_search",
 ];
+const DEEPWIKI_ENDPOINT: &str = "https://mcp.deepwiki.com/mcp";
+const DEEPWIKI_READ_TOOL: &str = "read_wiki_structure";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -92,6 +94,8 @@ pub(crate) struct LocalMcpServer {
     pub(crate) endpoint: Option<String>,
     #[serde(skip_serializing)]
     pub(crate) token_file: Option<String>,
+    pub(crate) read_profile: Option<String>,
+    pub(crate) target_repository: Option<String>,
     pub(crate) assigned_actor: String,
     pub(crate) assigned_work_id: Option<Uuid>,
     pub(crate) broker_aware: bool,
@@ -99,6 +103,7 @@ pub(crate) struct LocalMcpServer {
     pub(crate) allowed_tools: Vec<String>,
     pub(crate) observed_tools: Vec<String>,
     pub(crate) tool_contract_digest: Option<String>,
+    pub(crate) policy_revision: Uuid,
     pub(crate) server_version: Option<String>,
     pub(crate) last_observed_at: Option<DateTime<Utc>>,
     pub(crate) last_success_at: Option<DateTime<Utc>>,
@@ -106,6 +111,26 @@ pub(crate) struct LocalMcpServer {
     pub(crate) last_read_site: Option<String>,
     pub(crate) last_read_tool: Option<String>,
     pub(crate) failure: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct McpReadReceipt {
+    call_id: Uuid,
+    phase: String,
+    actor: String,
+    work_id: Uuid,
+    attempt_id: Uuid,
+    connection_name: String,
+    tool_name: String,
+    tool_contract_digest: String,
+    policy_revision: Uuid,
+    request_digest: String,
+    result_digest: Option<String>,
+    subject: serde_json::Value,
+    status: String,
+    observed_at: DateTime<Utc>,
+    wall_ms: Option<i64>,
+    error_class: Option<String>,
 }
 
 pub(crate) async fn ensure_schema(pool: &PgPool) -> Result<()> {
@@ -152,10 +177,13 @@ pub(crate) async fn ensure_schema(pool: &PgPool) -> Result<()> {
          ADD COLUMN IF NOT EXISTS transport TEXT NOT NULL DEFAULT 'stdio', \
          ADD COLUMN IF NOT EXISTS endpoint TEXT, \
          ADD COLUMN IF NOT EXISTS token_file TEXT, \
+         ADD COLUMN IF NOT EXISTS read_profile TEXT, \
+         ADD COLUMN IF NOT EXISTS target_repository TEXT, \
          ADD COLUMN IF NOT EXISTS assigned_work_id UUID, \
          ADD COLUMN IF NOT EXISTS allowed_tools JSONB NOT NULL DEFAULT '[]'::jsonb, \
          ADD COLUMN IF NOT EXISTS observed_tools JSONB NOT NULL DEFAULT '[]'::jsonb, \
          ADD COLUMN IF NOT EXISTS tool_contract_digest TEXT, \
+         ADD COLUMN IF NOT EXISTS policy_revision UUID NOT NULL DEFAULT gen_random_uuid(), \
          ADD COLUMN IF NOT EXISTS server_version TEXT, \
          ADD COLUMN IF NOT EXISTS last_observed_at TIMESTAMPTZ, \
          ADD COLUMN IF NOT EXISTS last_success_at TIMESTAMPTZ, \
@@ -167,6 +195,30 @@ pub(crate) async fn ensure_schema(pool: &PgPool) -> Result<()> {
     .execute(pool)
     .await
     .context("add broker-aware local MCP opt-in")?;
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS restless_authority.mcp_read_receipts (\
+           id UUID PRIMARY KEY, call_id UUID NOT NULL, \
+           phase TEXT NOT NULL CHECK (phase IN ('started','terminal')), \
+           company TEXT NOT NULL, actor TEXT NOT NULL, \
+           work_id UUID NOT NULL, attempt_id UUID NOT NULL, connection_name TEXT NOT NULL, \
+           tool_name TEXT NOT NULL, tool_contract_digest TEXT NOT NULL, policy_revision UUID NOT NULL, \
+           request_digest TEXT NOT NULL, result_digest TEXT, subject JSONB NOT NULL, \
+           status TEXT NOT NULL CHECK (status IN ('started','complete','tool_error', \
+             'response_observed_unverified','outcome_unknown','not_invoked')), \
+           observed_at TIMESTAMPTZ NOT NULL DEFAULT now(), \
+           wall_ms BIGINT, error_class TEXT, UNIQUE(call_id, phase)\
+         )",
+    )
+    .execute(pool)
+    .await
+    .context("create Core MCP read receipts")?;
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS mcp_read_receipts_scope_idx \
+         ON restless_authority.mcp_read_receipts(company, connection_name, observed_at DESC)",
+    )
+    .execute(pool)
+    .await
+    .context("index Core MCP read receipts")?;
     Ok(())
 }
 
@@ -232,8 +284,8 @@ pub(crate) fn validate_local_server(
 
 pub(crate) async fn local_mcp_list(pool: &PgPool, company: &str) -> Result<Vec<LocalMcpServer>> {
     sqlx::query(
-        "SELECT name,transport,command,args,endpoint,token_file,assigned_actor,assigned_work_id, \
-                broker_aware,enabled,allowed_tools,observed_tools,tool_contract_digest,server_version, \
+        "SELECT name,transport,command,args,endpoint,token_file,read_profile,target_repository,assigned_actor,assigned_work_id, \
+                broker_aware,enabled,allowed_tools,observed_tools,tool_contract_digest,policy_revision,server_version, \
                 last_observed_at,last_success_at,last_read_status,last_read_site,last_read_tool,failure FROM restless_authority.local_mcp_servers \
          WHERE company=$1 ORDER BY name",
     )
@@ -249,6 +301,8 @@ pub(crate) async fn local_mcp_list(pool: &PgPool, company: &str) -> Result<Vec<L
             args: serde_json::from_value(row.try_get::<serde_json::Value, _>("args")?)?,
             endpoint: row.try_get("endpoint")?,
             token_file: row.try_get("token_file")?,
+            read_profile: row.try_get("read_profile")?,
+            target_repository: row.try_get("target_repository")?,
             assigned_actor: row.try_get("assigned_actor")?,
             assigned_work_id: row.try_get("assigned_work_id")?,
             broker_aware: row.try_get("broker_aware")?,
@@ -256,6 +310,7 @@ pub(crate) async fn local_mcp_list(pool: &PgPool, company: &str) -> Result<Vec<L
             allowed_tools: serde_json::from_value(row.try_get("allowed_tools")?)?,
             observed_tools: serde_json::from_value(row.try_get("observed_tools")?)?,
             tool_contract_digest: row.try_get("tool_contract_digest")?,
+            policy_revision: row.try_get("policy_revision")?,
             server_version: row.try_get("server_version")?,
             last_observed_at: row.try_get("last_observed_at")?,
             last_success_at: row.try_get("last_success_at")?,
@@ -266,6 +321,38 @@ pub(crate) async fn local_mcp_list(pool: &PgPool, company: &str) -> Result<Vec<L
         })
     })
     .collect()
+}
+
+pub(crate) async fn list_mcp_read_receipts(
+    pool: &PgPool,
+    company: &str,
+    name: Option<&str>,
+) -> Result<Vec<McpReadReceipt>> {
+    if let Some(name) = name {
+        validate_name(name)?;
+    }
+    sqlx::query(
+        "SELECT call_id,phase,actor,work_id,attempt_id,connection_name,tool_name, \
+                tool_contract_digest,policy_revision,request_digest,result_digest,subject,status,observed_at, \
+                wall_ms,error_class FROM restless_authority.mcp_read_receipts \
+         WHERE company=$1 AND ($2::text IS NULL OR connection_name=$2) \
+         ORDER BY observed_at DESC LIMIT 100",
+    )
+    .bind(company).bind(name).fetch_all(pool).await?
+    .into_iter().map(|row| Ok(McpReadReceipt {
+        call_id: row.try_get("call_id")?, phase: row.try_get("phase")?,
+        actor: row.try_get("actor")?, work_id: row.try_get("work_id")?,
+        attempt_id: row.try_get("attempt_id")?,
+        connection_name: row.try_get("connection_name")?,
+        tool_name: row.try_get("tool_name")?,
+        tool_contract_digest: row.try_get("tool_contract_digest")?,
+        policy_revision: row.try_get("policy_revision")?,
+        request_digest: row.try_get("request_digest")?,
+        result_digest: row.try_get("result_digest")?,
+        subject: row.try_get("subject")?, status: row.try_get("status")?,
+        observed_at: row.try_get("observed_at")?, wall_ms: row.try_get("wall_ms")?,
+        error_class: row.try_get("error_class")?,
+    })).collect()
 }
 
 pub(crate) async fn install_local_mcp(
@@ -298,10 +385,10 @@ pub(crate) async fn install_local_mcp(
            (company,name,transport,command,args,assigned_actor,assigned_work_id,broker_aware,enabled,created_by) \
          VALUES ($1,$2,'stdio',$3,$4,$5,$6,$7,TRUE,'owner') \
          ON CONFLICT (company,name) DO UPDATE SET command=EXCLUDED.command,args=EXCLUDED.args, \
-           transport='stdio',endpoint=NULL,token_file=NULL,assigned_actor=EXCLUDED.assigned_actor, \
+           transport='stdio',endpoint=NULL,token_file=NULL,read_profile=NULL,target_repository=NULL,assigned_actor=EXCLUDED.assigned_actor, \
            assigned_work_id=EXCLUDED.assigned_work_id,broker_aware=EXCLUDED.broker_aware, \
            enabled=TRUE,allowed_tools='[]'::jsonb,observed_tools='[]'::jsonb, \
-           tool_contract_digest=NULL,server_version=NULL,last_observed_at=NULL,last_success_at=NULL,last_read_status=NULL, \
+           tool_contract_digest=NULL,policy_revision=gen_random_uuid(),server_version=NULL,last_observed_at=NULL,last_success_at=NULL,last_read_status=NULL, \
            failure=NULL,updated_at=now()",
     )
     .bind(company)
@@ -366,14 +453,14 @@ pub(crate) async fn install_host_mcp(
     let probe = crate::mcp_gateway::probe_upstream(endpoint, token_file, &allowed).await?;
     sqlx::query(
         "INSERT INTO restless_authority.local_mcp_servers \
-           (company,name,transport,command,args,endpoint,token_file,assigned_actor,assigned_work_id, \
+           (company,name,transport,command,args,endpoint,token_file,read_profile,assigned_actor,assigned_work_id, \
             broker_aware,enabled,allowed_tools,observed_tools,tool_contract_digest,server_version,last_observed_at,created_by) \
-         VALUES ($1,$2,'host_http','','[]'::jsonb,$3,$4,$5,$6,FALSE,TRUE,$7,$8,$9,$10,now(),'owner') \
+         VALUES ($1,$2,'host_http','','[]'::jsonb,$3,$4,'clapping_hands_v1',$5,$6,FALSE,TRUE,$7,$8,$9,$10,now(),'owner') \
          ON CONFLICT (company,name) DO UPDATE SET transport='host_http',command='',args='[]'::jsonb, \
-           endpoint=EXCLUDED.endpoint,token_file=EXCLUDED.token_file,assigned_actor=EXCLUDED.assigned_actor, \
+           endpoint=EXCLUDED.endpoint,token_file=EXCLUDED.token_file,read_profile='clapping_hands_v1',target_repository=NULL,assigned_actor=EXCLUDED.assigned_actor, \
            assigned_work_id=EXCLUDED.assigned_work_id,broker_aware=FALSE,enabled=TRUE, \
            allowed_tools=EXCLUDED.allowed_tools,observed_tools=EXCLUDED.observed_tools, \
-           tool_contract_digest=EXCLUDED.tool_contract_digest,server_version=EXCLUDED.server_version,last_observed_at=now(), \
+           tool_contract_digest=EXCLUDED.tool_contract_digest,policy_revision=gen_random_uuid(),server_version=EXCLUDED.server_version,last_observed_at=now(), \
            last_success_at=NULL,last_read_status=NULL,failure=NULL,updated_at=now()",
     )
     .bind(company).bind(name).bind(endpoint).bind(token_file).bind(actor).bind(work_id)
@@ -427,6 +514,132 @@ pub(crate) fn require_reviewed_host_read_profile(
     Ok(())
 }
 
+/// Reviewed profiles are the policy boundary for HTTP MCP. A new endpoint or
+/// tool needs an explicit input validator in the Core gateway before it can be
+/// installed; an MCP read-only annotation is not authority.
+#[derive(Debug, Clone)]
+pub(crate) enum ReviewedHttpReadProfile {
+    ClappingHands,
+    DeepWikiStructure { repository: String },
+}
+
+pub(crate) fn validate_public_repository(repository: &str) -> Result<()> {
+    let Some((owner, repo)) = repository.split_once('/') else {
+        bail!("public repository must be owner/repo");
+    };
+    let valid_part = |part: &str| {
+        !part.is_empty()
+            && part.len() <= 100
+            && part != "."
+            && part != ".."
+            && part.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.')
+            })
+    };
+    if !valid_part(owner) || !valid_part(repo) {
+        bail!("public repository must be one bounded owner/repo target");
+    }
+    Ok(())
+}
+
+pub(crate) fn require_reviewed_public_read_profile(
+    profile: &str,
+    name: &str,
+    endpoint: &str,
+    allowed_tools: &[String],
+    repository: &str,
+) -> Result<ReviewedHttpReadProfile> {
+    validate_public_repository(repository)?;
+    if profile != "deepwiki_structure_v1"
+        || name != "deepwiki"
+        || endpoint != DEEPWIKI_ENDPOINT
+        || allowed_tools.len() != 1
+        || allowed_tools[0] != DEEPWIKI_READ_TOOL
+    {
+        bail!("public MCP currently permits only DeepWiki read_wiki_structure at its reviewed endpoint");
+    }
+    Ok(ReviewedHttpReadProfile::DeepWikiStructure {
+        repository: repository.to_string(),
+    })
+}
+
+pub(crate) fn reviewed_http_read_profile(server: &LocalMcpServer) -> Result<ReviewedHttpReadProfile> {
+    let endpoint = server.endpoint.as_deref().context("HTTP MCP endpoint missing")?;
+    match (server.transport.as_str(), server.read_profile.as_deref()) {
+        ("host_http", None | Some("clapping_hands_v1")) => {
+            if server.target_repository.is_some() || server.token_file.is_none() {
+                bail!("Clapping Hands broker is missing its host-only bearer");
+            }
+            require_reviewed_host_read_profile(&server.name, endpoint, &server.allowed_tools)?;
+            Ok(ReviewedHttpReadProfile::ClappingHands)
+        }
+        ("public_http", Some(profile)) => {
+            if server.token_file.is_some() {
+                bail!("public MCP profile cannot carry a credential");
+            }
+            require_reviewed_public_read_profile(
+                profile,
+                &server.name,
+                endpoint,
+                &server.allowed_tools,
+                server.target_repository.as_deref().context("public MCP repository missing")?,
+            )
+        }
+        _ => bail!("HTTP MCP connection has no reviewed read profile"),
+    }
+}
+
+/// Owner-selected public Streamable HTTP read. The live provider is probed for
+/// its exact tool definition and the selected public repository before grant.
+#[expect(clippy::too_many_arguments, reason = "one owner-reviewed HTTP MCP grant")]
+pub(crate) async fn install_public_http_read(
+    pool: &PgPool,
+    company: &str,
+    profile: &str,
+    name: &str,
+    endpoint: &str,
+    repository: &str,
+    actor: &str,
+    work_id: Uuid,
+    allowed_tools: &[String],
+) -> Result<LocalMcpServer> {
+    validate_name(name)?;
+    let reviewed = require_reviewed_public_read_profile(
+        profile, name, endpoint, allowed_tools, repository,
+    )?;
+    let provider_name_in_use: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM restless_authority.provider_connections \
+         WHERE company=$1 AND name=$2 AND status <> 'disabled')",
+    )
+    .bind(company).bind(name).fetch_one(pool).await?;
+    if provider_name_in_use {
+        bail!("MCP name {name:?} is already used by a provider connection");
+    }
+    let probe = crate::mcp_gateway::probe_public_upstream(endpoint, allowed_tools, &reviewed).await?;
+    sqlx::query(
+        "INSERT INTO restless_authority.local_mcp_servers \
+         (company,name,transport,command,args,endpoint,token_file,read_profile,target_repository, \
+          assigned_actor,assigned_work_id,broker_aware,enabled,allowed_tools,observed_tools, \
+          tool_contract_digest,server_version,last_observed_at,created_by) \
+         VALUES ($1,$2,'public_http','','[]'::jsonb,$3,NULL,$4,$5,$6,$7,FALSE,TRUE,$8,$9,$10,$11,now(),'owner') \
+         ON CONFLICT (company,name) DO UPDATE SET transport='public_http',command='',args='[]'::jsonb, \
+          endpoint=EXCLUDED.endpoint,token_file=NULL,read_profile=EXCLUDED.read_profile, \
+          target_repository=EXCLUDED.target_repository,assigned_actor=EXCLUDED.assigned_actor, \
+          assigned_work_id=EXCLUDED.assigned_work_id,broker_aware=FALSE,enabled=TRUE, \
+          allowed_tools=EXCLUDED.allowed_tools,observed_tools=EXCLUDED.observed_tools, \
+          tool_contract_digest=EXCLUDED.tool_contract_digest,policy_revision=gen_random_uuid(),server_version=EXCLUDED.server_version, \
+          last_observed_at=now(),last_success_at=NULL,last_read_status=NULL,last_read_site=NULL, \
+          last_read_tool=NULL,failure=NULL,updated_at=now()",
+    )
+    .bind(company).bind(name).bind(endpoint).bind(profile).bind(repository)
+    .bind(actor).bind(work_id).bind(serde_json::to_value(allowed_tools)?)
+    .bind(serde_json::to_value(&probe.names)?).bind(&probe.digest).bind(&probe.server_version)
+    .execute(pool).await?;
+    local_mcp_list(pool, company).await?.into_iter()
+        .find(|server| server.name == name)
+        .context("installed public MCP disappeared")
+}
+
 pub(crate) async fn disable_local_mcp(
     pool: &PgPool,
     company: &str,
@@ -434,7 +647,7 @@ pub(crate) async fn disable_local_mcp(
 ) -> Result<LocalMcpServer> {
     validate_name(name)?;
     let updated = sqlx::query(
-        "UPDATE restless_authority.local_mcp_servers SET enabled=FALSE,updated_at=now() \
+        "UPDATE restless_authority.local_mcp_servers SET enabled=FALSE,policy_revision=gen_random_uuid(),updated_at=now() \
          WHERE company=$1 AND name=$2",
     )
     .bind(company)
@@ -919,13 +1132,8 @@ pub(crate) async fn session_servers(
                 }
                 servers.push(McpServer::Stdio(stdio));
             }
-            "host_http" => {
-                let endpoint = server.endpoint.as_deref().context("host MCP endpoint missing")?;
-                require_reviewed_host_read_profile(
-                    &server.name,
-                    endpoint,
-                    &server.allowed_tools,
-                )?;
+            "host_http" | "public_http" => {
+                reviewed_http_read_profile(&server)?;
                 let (Some(work_id), Some(attempt_id)) = (work_id, attempt_id) else {
                     continue;
                 };
@@ -933,6 +1141,7 @@ pub(crate) async fn session_servers(
                     company,
                     actor,
                     &server.name,
+                    &server.policy_revision.to_string(),
                     work_id,
                     attempt_id,
                 )?;

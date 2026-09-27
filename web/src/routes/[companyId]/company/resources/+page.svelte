@@ -42,6 +42,9 @@
 	function connectionState(item: CompanyResource): string {
 		const read = metadataText(item, 'last_read_status');
 		const site = metadataText(item, 'last_read_site');
+		if (item.status === 'ready' && site === 'deepwiki' && read === 'response_observed_unverified') {
+			return 'Public read returned';
+		}
 		const failure = metadataText(item, 'failure');
 		if (item.status === 'ready' && site === 'facebook-marketplace' && read === 'complete') {
 			return 'Facebook read worked';
@@ -154,8 +157,8 @@
 		<CompanyLimits />
 		<section class="mcp-connections" aria-labelledby="mcp-connections-title">
 			<div class="section-heading">
-				<h2 id="mcp-connections-title">Local MCP connections</h2>
-				<InfoTip text="An MCP connection lets an assigned company agent call approved tools. Connection health does not prove a website login or a successful listing read." />
+				<h2 id="mcp-connections-title">MCP connections</h2>
+				<InfoTip text="An MCP connection lets an assigned company agent call approved tools. Discovery alone does not prove a successful read; returned public content is unverified." />
 			</div>
 			{#if mcpConnections.length}
 				<div class="mcp-list">
@@ -172,9 +175,14 @@
 								{/if}
 								<div><dt>Assigned to</dt><dd>{metadataText(item, 'assigned_actor') ?? 'No agent assigned'}</dd></div>
 								<div><dt>Last successful tool call</dt><dd>{observedTime(metadataText(item, 'last_success_at'))}</dd></div>
+								{#if metadataText(item, 'target_repository')}<div><dt>Public repository</dt><dd>{metadataText(item, 'target_repository')}</dd></div>{/if}
 							</dl>
 							{#if metadataText(item, 'last_read_status')}
-								<p class="mcp-read-state">Last read: {words(metadataText(item, 'last_read_status') ?? '')}{#if metadataText(item, 'last_read_site')} on {words(metadataText(item, 'last_read_site') ?? '')}{/if}.</p>
+								{#if metadataText(item, 'last_read_status') === 'response_observed_unverified' && metadataText(item, 'last_read_site') === 'deepwiki'}
+									<p class="mcp-read-state">DeepWiki returned wiki content. Its accuracy is unverified.</p>
+								{:else}
+									<p class="mcp-read-state">Last read: {words(metadataText(item, 'last_read_status') ?? '')}{#if metadataText(item, 'last_read_site')} on {words(metadataText(item, 'last_read_site') ?? '')}{/if}.</p>
+								{/if}
 							{/if}
 							{#if item.status !== 'disabled' && metadataText(item, 'name')}
 								<div class="mcp-actions">
@@ -190,6 +198,8 @@
 								<summary>Connection details</summary>
 								<dl>
 									<div><dt>Transport</dt><dd>{words(metadataText(item, 'transport') ?? 'unknown')}</dd></div>
+									{#if metadataText(item, 'authentication')}<div><dt>Authentication</dt><dd>{words(metadataText(item, 'authentication') ?? '')}</dd></div>{/if}
+									{#if metadataText(item, 'read_profile')}<div><dt>Read profile</dt><dd>{metadataText(item, 'read_profile')}</dd></div>{/if}
 									<div><dt>Work</dt><dd>{metadataText(item, 'work_id') ?? 'Not Work-bound'}</dd></div>
 									<div><dt>Permitted tools</dt><dd>{metadataList(item, 'allowed_tools').join(', ') || 'None'}</dd></div>
 									<div><dt>Observed tools</dt><dd>{metadataList(item, 'observed_tools').join(', ') || 'None yet'}</dd></div>
@@ -199,6 +209,7 @@
 									{#if metadataText(item, 'failure')}
 										<div><dt>Current error</dt><dd>{metadataText(item, 'failure')}</dd></div>
 									{/if}
+									{#if metadataText(item, 'receipt_command')}<div><dt>Owner receipts</dt><dd><code>{metadataText(item, 'receipt_command')}</code></dd></div>{/if}
 								</dl>
 							</details>
 						</article>

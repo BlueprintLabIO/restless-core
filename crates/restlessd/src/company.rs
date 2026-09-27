@@ -1136,6 +1136,7 @@ async fn resources(
     }
 
     for connection in local_mcp {
+        let public_read = connection.transport == "public_http";
         let status = if !connection.enabled {
             "disabled"
         } else if connection.failure.is_some()
@@ -1163,21 +1164,31 @@ async fn resources(
         };
         items.push(ResourceRow {
             id: format!("mcp:{}", connection.name),
-            label: if connection.name == "clapping-hands" { "Clapping Hands".into() } else { connection.name.clone() },
+            label: if connection.name == "clapping-hands" { "Clapping Hands".into() }
+                else if connection.name == "deepwiki" { "DeepWiki".into() }
+                else { connection.name.clone() },
             kind: "mcp_connection",
             source: "authority",
             status: status.into(),
             observed_at: connection.last_observed_at.unwrap_or(observed_at),
             detail: Some(match status {
+                "ready" if public_read => "Public MCP tool discovered. A returned wiki structure is unverified provider content.",
                 "ready" => "MCP connection reached and tools discovered. Site login is only verified by a successful live read.",
                 "disabled" => "Owner disabled this MCP connection; new calls are rejected.",
+                "degraded" if public_read => "Public MCP connection or latest tool call needs attention.",
                 "degraded" => "MCP connection or latest site read needs attention.",
                 _ => "MCP connection has not completed live tool discovery.",
             }.into()),
             metadata: Some(serde_json::json!({
                 "name": connection.name,
-                "browser_owner": if connection.name == "clapping-hands" { "CH" } else { "external" },
+                "browser_owner": if connection.name == "clapping-hands" { Some("CH") } else { None },
                 "transport": connection.transport,
+                "authentication": if public_read { "none" } else if connection.transport == "host_http" { "host_bearer" } else { "local" },
+                "read_profile": connection.read_profile,
+                "target_repository": connection.target_repository,
+                "receipt_command": if public_read || connection.transport == "host_http" {
+                    Some(format!("restless local-mcp -c {} receipts --name {}", config.name, connection.name))
+                } else { None },
                 "assigned_actor": connection.assigned_actor,
                 "work_id": connection.assigned_work_id,
                 "allowed_tools": connection.allowed_tools,

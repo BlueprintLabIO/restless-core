@@ -14,10 +14,13 @@ Facebook login. Neither cookies nor the upstream bearer enter the company
 Runtime.
 
 The first live slice is the [host MCP gateway](host-mcp-gateway.md) for three
-reviewed Clapping Hands read tools. It is a broker for that connection, not yet
-a general broker for every MCP transport. Existing company-local stdio servers
-and `mcp-remote` OAuth connections still execute inside the company Runtime.
-They need migration before Core can make a general security or audit claim.
+reviewed Clapping Hands read tools. A separate
+[public HTTP pilot](public-http-mcp-pilot.md) uses the same Attempt-scoped
+Core broker for one reviewed DeepWiki tool and one owner-selected public
+repository. These are brokered profiles, not a general broker for every MCP
+transport. Existing company-local stdio servers and `mcp-remote` OAuth
+connections still execute inside the company Runtime. They need migration
+before Core can make a general security or audit claim.
 
 ## Call path
 
@@ -53,6 +56,7 @@ Staff actor -> scoped MCP namespace -> Core broker -> reviewed adapter -> upstre
 | Transport | Current state | Target |
 | --- | --- | --- |
 | Host Streamable HTTP, CH | Core relays three reviewed read tools; host owns bearer and browser. | Keep this path as the first end-to-end acceptance case. Add owner-visible pause, login recovery, and version switch with fresh sessions. |
+| Public Streamable HTTP, DeepWiki | Core has a reviewed no-auth profile for `read_wiki_structure` on one selected public repository. | Prove a fresh actor call and append-only receipt in an isolated company before release. Add other providers only with reviewed endpoints, exact tools, and argument validators. |
 | Remote HTTP with OAuth | A company-side `mcp-remote` child reads credentials from its Runtime directory. | Core-owned OAuth and refresh, with a broker adapter exposing only approved tools. Migrate an existing grant by a reviewed owner flow; never silently copy a shell-readable token into a new trust boundary. |
 | Local stdio | A child runs in the company Runtime with the actor. | Run each server in an isolated broker worker with an explicit filesystem/network envelope. Route calls through Core policy and audit; do not execute arbitrary third-party stdio code in the privileged Core process. |
 

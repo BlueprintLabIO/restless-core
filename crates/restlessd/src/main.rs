@@ -2821,6 +2821,14 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 Err(error) => Response::err(format!("{error:#}")),
             }
         }
+        "local-mcp-receipts" => {
+            match connected_tool::list_mcp_read_receipts(
+                daemon.authority.pool(), company, request.connected_tool.tool_name.as_deref(),
+            ).await {
+                Ok(receipts) => Response::ok_serialized(receipts),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
         "local-mcp-install" => {
             let result = async {
                 let name = request.connected_tool.tool_name.as_deref()
@@ -2877,6 +2885,40 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 org.emit_event("local_mcp_installed", Some("owner"), serde_json::json!({
                     "name": server.name, "transport": "host_http", "assigned_actor": actor,
                     "work_id": work_id, "allowed_tools": server.allowed_tools,
+                    "tool_contract_digest": server.tool_contract_digest,
+                })).await?;
+                Ok::<_, anyhow::Error>(server)
+            }.await;
+            match result {
+                Ok(server) => Response::ok_serialized(server),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "local-mcp-install-public-read" => {
+            let result = async {
+                let name = request.connected_tool.tool_name.as_deref()
+                    .context("public MCP install needs name")?;
+                let endpoint = request.connected_tool.endpoint.as_deref()
+                    .context("public MCP install needs endpoint")?;
+                let profile = request.local_mcp.read_profile.as_deref()
+                    .context("public MCP install needs reviewed profile")?;
+                let repository = request.local_mcp.target_repository.as_deref()
+                    .context("public MCP install needs exact repository")?;
+                let actor = request.connected_tool.assigned_actor.as_deref()
+                    .context("public MCP install needs actor")?;
+                let work_id = request.connected_tool.work_id.as_deref()
+                    .context("public MCP install needs Work")?.parse::<uuid::Uuid>()?;
+                let org = daemon.orgintel.get(company).await?;
+                validate_local_mcp_work(&org, actor, work_id).await?;
+                let server = connected_tool::install_public_http_read(
+                    daemon.authority.pool(), company, profile, name, endpoint,
+                    repository, actor, work_id, &request.local_mcp.allowed_tools,
+                ).await?;
+                org.emit_event("local_mcp_installed", Some("owner"), serde_json::json!({
+                    "name": server.name, "transport": "public_http", "read_profile": server.read_profile,
+                    "endpoint": server.endpoint, "target_repository": server.target_repository,
+                    "assigned_actor": actor, "work_id": work_id,
+                    "allowed_tools": server.allowed_tools,
                     "tool_contract_digest": server.tool_contract_digest,
                 })).await?;
                 Ok::<_, anyhow::Error>(server)

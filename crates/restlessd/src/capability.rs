@@ -60,6 +60,8 @@ struct Claims {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     mcp_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    mcp_pin: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     billing: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     responsibility: Option<String>,
@@ -126,6 +128,7 @@ pub(crate) struct McpGrant {
     pub(crate) company: String,
     pub(crate) actor: String,
     pub(crate) name: String,
+    pub(crate) pin: String,
     pub(crate) work_id: Uuid,
     pub(crate) attempt_id: Uuid,
 }
@@ -212,6 +215,7 @@ impl CapabilityIssuer {
             provider: None,
             model: None,
             mcp_name: None,
+            mcp_pin: None,
             billing: None,
             responsibility: None,
             work_id: None,
@@ -247,6 +251,7 @@ impl CapabilityIssuer {
             provider: None,
             model: None,
             mcp_name: None,
+            mcp_pin: None,
             billing: None,
             responsibility: None,
             work_id: None,
@@ -337,6 +342,7 @@ impl CapabilityIssuer {
             provider: None,
             model: None,
             mcp_name: None,
+            mcp_pin: None,
             billing: None,
             responsibility: None,
             work_id,
@@ -365,6 +371,7 @@ impl CapabilityIssuer {
         company: &str,
         actor: &str,
         name: &str,
+        pin: &str,
         work_id: Uuid,
         attempt_id: Uuid,
     ) -> Result<String> {
@@ -376,6 +383,7 @@ impl CapabilityIssuer {
             provider: None,
             model: None,
             mcp_name: Some(name.to_string()),
+            mcp_pin: Some(pin.to_string()),
             billing: None,
             responsibility: None,
             work_id: Some(work_id),
@@ -405,6 +413,7 @@ impl CapabilityIssuer {
             company: claims.company,
             actor: claims.actor.context("MCP grant has no actor")?,
             name: claims.mcp_name.context("MCP grant has no name")?,
+            pin: claims.mcp_pin.context("MCP grant has no tool contract pin")?,
             work_id: claims.work_id.context("MCP grant has no Work")?,
             attempt_id: claims.attempt_id.context("MCP grant has no Attempt")?,
         })
@@ -449,6 +458,7 @@ impl CapabilityIssuer {
             provider: Some(provider.to_string()),
             model: Some(model.to_string()),
             mcp_name: None,
+            mcp_pin: None,
             billing: Some(billing.to_string()),
             responsibility: Some(responsibility.to_string()),
             work_id,
@@ -888,6 +898,8 @@ mod tests {
                 actor: Some("delivery-lead".into()),
                 provider: Some("moonshot".into()),
                 model: Some("moonshot/kimi-k3".into()),
+                mcp_name: None,
+                mcp_pin: None,
                 billing: Some("metered_api".into()),
                 responsibility: Some("work:delivery".into()),
                 work_id: None,

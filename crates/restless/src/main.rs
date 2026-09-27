@@ -1926,6 +1926,11 @@ enum ConnectedToolCommand {
 enum LocalMcpCommand {
     /// List company-local descriptors. No environment or credential values are stored.
     List,
+    /// Show the latest 100 Core-owned MCP read receipt events, optionally for one connection.
+    Receipts {
+        #[arg(long)]
+        name: Option<String>,
+    },
     /// Install a server command from the company Runtime volume for one actor's future sessions.
     Install {
         #[arg(long)]
@@ -1959,6 +1964,25 @@ enum LocalMcpCommand {
         #[arg(long)]
         work: String,
         /// Exact permitted MCP tool name. Repeat for each tool.
+        #[arg(long = "tool", required = true)]
+        tools: Vec<String>,
+    },
+    /// Connect one reviewed public Streamable HTTP read profile through Core.
+    InstallPublicRead {
+        #[arg(long)]
+        profile: String,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        endpoint: String,
+        /// Exact public owner/repo this Work may inspect.
+        #[arg(long)]
+        repository: String,
+        #[arg(long)]
+        actor: String,
+        #[arg(long)]
+        work: String,
+        /// Exact permitted MCP tool name. Repeat only if the profile permits it.
         #[arg(long = "tool", required = true)]
         tools: Vec<String>,
     },
@@ -2714,6 +2738,9 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             LocalMcpCommand::List => serde_json::json!({
                 "cmd": "local-mcp-list", "company": company,
             }),
+            LocalMcpCommand::Receipts { name } => serde_json::json!({
+                "cmd": "local-mcp-receipts", "company": company, "tool_name": name,
+            }),
             LocalMcpCommand::Install {
                 name,
                 command,
@@ -2737,6 +2764,14 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 "cmd": "local-mcp-install-host", "company": company,
                 "tool_name": name, "endpoint": endpoint, "token_file": token_file,
                 "assigned_actor": actor, "work_id": work, "allowed_tools": tools,
+            }),
+            LocalMcpCommand::InstallPublicRead {
+                profile, name, endpoint, repository, actor, work, tools,
+            } => serde_json::json!({
+                "cmd": "local-mcp-install-public-read", "company": company,
+                "read_profile": profile, "tool_name": name, "endpoint": endpoint,
+                "target_repository": repository, "assigned_actor": actor,
+                "work_id": work, "allowed_tools": tools,
             }),
             LocalMcpCommand::Disable { name } => serde_json::json!({
                 "cmd": "local-mcp-disable", "company": company, "tool_name": name,
