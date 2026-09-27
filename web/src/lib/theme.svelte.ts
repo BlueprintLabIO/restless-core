@@ -1,5 +1,7 @@
 /* Appearance: System, Light or Dark. app.html resolves it before first paint;
  * this keeps it resolved while the page lives and when the owner changes it. */
+import { inPlace } from './transition';
+
 export type ThemePreference = 'system' | 'light' | 'dark';
 
 const KEY = 'restless:theme';
@@ -44,6 +46,6 @@ export const theme = {
 		} catch {
 			/* A preference that cannot persist still applies for this page. */
 		}
-		apply(next);
+		inPlace(() => apply(next));
 	}
 };

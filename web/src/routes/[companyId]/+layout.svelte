@@ -33,6 +33,7 @@
 	import { onMount } from 'svelte';
 	import { actorCanReceive } from '$lib/model/cockpit';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
+	import { inPlace } from '$lib/transition';
 
 	let { children } = $props();
 
@@ -503,7 +504,7 @@
 			!focusedAttention}
 		immersive={immersiveComputer}
 		blocked={startupBlocking}
-		onexectoggle={() => (execRailOpen = !execRailOpen)}
+		onexectoggle={() => inPlace(() => (execRailOpen = !execRailOpen))}
 		rail={railVisible ? executiveRail : null}
 	>
 		{#if childAllowed}

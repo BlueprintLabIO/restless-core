@@ -111,6 +111,28 @@
 ::view-transition-new(root) {
 	animation: bridge-vt-in 220ms var(--ease-out, ease-out) 40ms both;
 }
+/* In-place changes (theme, Exec rail; see lib/transition.ts) crossfade
+ * without the navigation settle, and a closing rail slides away. */
+@keyframes bridge-vt-fade-in {
+	from {
+		opacity: 0;
+	}
+}
+@keyframes bridge-rail-out {
+	to {
+		opacity: 0;
+		transform: translateX(16px);
+	}
+}
+html:active-view-transition-type(in-place)::view-transition-old(root) {
+	animation: bridge-vt-out 180ms var(--ease-out, ease-out) both;
+}
+html:active-view-transition-type(in-place)::view-transition-new(root) {
+	animation: bridge-vt-fade-in 180ms var(--ease-out, ease-out) both;
+}
+html:active-view-transition-type(in-place)::view-transition-old(bridge-exrail) {
+	animation: bridge-rail-out 200ms var(--ease-out, ease-out) both;
+}
 ::view-transition-group(*) {
 	animation-duration: 260ms;
 	animation-timing-function: cubic-bezier(0.23, 1, 0.32, 1);

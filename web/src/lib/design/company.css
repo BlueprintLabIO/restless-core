@@ -287,6 +287,8 @@
 	color: var(--ink);
 }
 
+/* Explanations use the same inverse bubble as hover tips in both themes, and
+ * rise into place like the other popovers rather than appearing at once. */
 .bridge-root .info-tip-content {
 	position: fixed;
 	inset: auto;
@@ -299,13 +301,35 @@
 	padding: 10px 12px;
 	border: 1px solid color-mix(in srgb, var(--highlight) 12%, transparent);
 	border-radius: var(--radius-control);
-	background: #202631;
+	background: var(--tooltip-bg);
 	box-shadow: var(--shadow-lift);
-	color: var(--text-inverse);
+	color: var(--tooltip-ink);
 	font: var(--t-body) var(--font-ui);
 	line-height: 1.5;
 	text-align: left;
 	overflow-wrap: anywhere;
+}
+
+.bridge-root .info-tip-content:popover-open {
+	opacity: 1;
+	transform: none;
+}
+
+.bridge-root .info-tip-content {
+	opacity: 0;
+	transform: translateY(-3px) scale(0.985);
+	transition:
+		opacity var(--motion-state) var(--ease-out),
+		transform var(--motion-state) var(--ease-out),
+		overlay var(--motion-state) allow-discrete,
+		display var(--motion-state) allow-discrete;
+}
+
+@starting-style {
+	.bridge-root .info-tip-content:popover-open {
+		opacity: 0;
+		transform: translateY(-3px) scale(0.985);
+	}
 }
 
 .bridge-root .section-heading {
