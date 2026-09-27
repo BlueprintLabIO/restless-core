@@ -11,11 +11,12 @@ still runs inside its Runtime volume.
 1. Run the upstream MCP server on host loopback with a private token file.
    Clapping Hands uses `127.0.0.1:8799/mcp` and a user systemd service. Its
    owner-only token file is outside every company Runtime.
-2. Choose a proposed or blocked Work owned by the intended active Staff actor. Install an
-   exact endpoint, actor, Work, and one or more exact tool names with the owner
+2. Choose a proposed or blocked Work owned by the intended active Staff actor. Install the
+   reviewed `clapping-hands` connection at its local MCP endpoint, actor, Work,
+   and all three exact sourcing read tools with the owner
    CLI `restless local-mcp --company <company> install-host --name <name> --endpoint
    http://127.0.0.1:8799/mcp --token-file <absolute-private-file> --actor
-   <actor> --work <work-uuid> --tool <tool-name>`.
+   <actor> --work <work-uuid> --tool <tool-name>` (repeat `--tool` for each read tool).
 3. Install probes the server through the MCP SDK, records its version and the
    digest of the permitted tool definitions, and enables that connection.
    A changed version or tool definition requires owner reinstallation.
@@ -39,6 +40,20 @@ definitions before every invocation.
 It refuses calls after a 90-second bound and responses beyond 1 MiB. It does
 not retry an uncertain call automatically. No generic browser tools are
 installed for Clapping Hands.
+
+The current host HTTP bridge admits only the reviewed Clapping Hands sourcing
+profile: `clapping-hands` at its local port (7799 plus the Restless port offset)
+with exactly `clapping_hands_marketplace_search`,
+`clapping_hands_marketplace_details`, and
+`clapping_hands_gumtree_public_listing`. Other host HTTP tools fail closed at
+installation, actor launch, and request handling. A server's MCP
+`readOnlyHint` is not evidence that the code cannot write. This profile trusts
+the owner-managed Clapping Hands service and its audited read surface; a
+server version or tool schema pin detects declared contract changes but is not
+proof of behavior. Future effectful MCP tools need adapters that obtain
+Restless effect permits for exact payloads and reconcile uncertain outcomes.
+Existing company-local stdio and remote OAuth MCPs can still expose arbitrary
+tools; this host HTTP policy does not govern their effects.
 
 ## What the status means
 

@@ -488,6 +488,15 @@ async fn handle(
     {
         return StatusCode::FORBIDDEN.into_response();
     }
+    if crate::connected_tool::require_reviewed_host_read_profile(
+        &connection.name,
+        connection.endpoint.as_deref().unwrap_or_default(),
+        &connection.allowed_tools,
+    )
+    .is_err()
+    {
+        return StatusCode::FORBIDDEN.into_response();
+    }
     if !running_attempt(&daemon, &grant).await {
         return StatusCode::FORBIDDEN.into_response();
     }

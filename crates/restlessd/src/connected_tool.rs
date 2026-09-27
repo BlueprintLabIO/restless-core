@@ -27,6 +27,12 @@ const RUNTIME_CREDENTIAL_ROOT: &str = "/company/home/.restless/connected-tools";
 /// passed to the MCP child; the child receives only selected ambient variable
 /// names from its already-scoped actor session.
 pub(crate) const BROKER_AWARE_ACTOR_ENV_MARKER: &str = "RESTLESS_INTERNAL_BROKER_AWARE_ACTOR_ENV";
+const CLAPPING_HANDS_SOURCING_PORT: u16 = 7799;
+const CLAPPING_HANDS_READ_TOOLS: [&str; 3] = [
+    "clapping_hands_gumtree_public_listing",
+    "clapping_hands_marketplace_details",
+    "clapping_hands_marketplace_search",
+];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -345,6 +351,7 @@ pub(crate) async fn install_host_mcp(
     {
         bail!("host MCP tool allowlist has a duplicate or invalid name");
     }
+    require_reviewed_host_read_profile(name, endpoint, &allowed)?;
     let provider_name_in_use: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM restless_authority.provider_connections \
          WHERE company=$1 AND name=$2 AND status <> 'disabled')",
@@ -393,6 +400,29 @@ pub(crate) fn validate_host_endpoint(endpoint: &str) -> Result<()> {
         || url.fragment().is_some()
     {
         bail!("host MCP endpoint must be explicit http://127.0.0.1:<port>/... without credentials");
+    }
+    Ok(())
+}
+
+/// Generic MCP tool metadata cannot prove an operation has no external effect.
+/// Until there are per-tool effect adapters, the host bridge exposes only this
+/// reviewed local sourcing surface. The owner controls the loopback service.
+pub(crate) fn require_reviewed_host_read_profile(
+    name: &str,
+    endpoint: &str,
+    allowed_tools: &[String],
+) -> Result<()> {
+    validate_host_endpoint(endpoint)?;
+    let port = crate::port_with_offset(CLAPPING_HANDS_SOURCING_PORT)?;
+    let expected_endpoint = format!("http://127.0.0.1:{port}/mcp");
+    if name != "clapping-hands"
+        || endpoint != expected_endpoint
+        || !allowed_tools
+            .iter()
+            .map(String::as_str)
+            .eq(CLAPPING_HANDS_READ_TOOLS)
+    {
+        bail!("host MCP requires the reviewed Clapping Hands sourcing read profile; other tools need an external-effect adapter");
     }
     Ok(())
 }
@@ -890,6 +920,12 @@ pub(crate) async fn session_servers(
                 servers.push(McpServer::Stdio(stdio));
             }
             "host_http" => {
+                let endpoint = server.endpoint.as_deref().context("host MCP endpoint missing")?;
+                require_reviewed_host_read_profile(
+                    &server.name,
+                    endpoint,
+                    &server.allowed_tools,
+                )?;
                 let (Some(work_id), Some(attempt_id)) = (work_id, attempt_id) else {
                     continue;
                 };
