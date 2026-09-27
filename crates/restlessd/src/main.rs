@@ -1753,8 +1753,13 @@ async fn validate_local_mcp_work(org: &OrgIntel, actor: &str, work_id: uuid::Uui
         .get_work(work_id)
         .await?
         .context("local MCP Work not found")?;
-    if work.owner_id != actor || work.status != restless_orgintel::WorkStatus::Blocked {
-        anyhow::bail!("local MCP installation requires blocked Work owned by the assigned actor");
+    if work.owner_id != actor
+        || !matches!(
+            work.status,
+            restless_orgintel::WorkStatus::Proposed | restless_orgintel::WorkStatus::Blocked
+        )
+    {
+        anyhow::bail!("local MCP installation requires proposed or blocked Work owned by the assigned actor");
     }
     if org
         .list_running_work_attempts()

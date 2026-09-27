@@ -11,7 +11,7 @@ still runs inside its Runtime volume.
 1. Run the upstream MCP server on host loopback with a private token file.
    Clapping Hands uses `127.0.0.1:8799/mcp` and a user systemd service. Its
    owner-only token file is outside every company Runtime.
-2. Choose a blocked Work owned by the intended active Staff actor. Install an
+2. Choose a proposed or blocked Work owned by the intended active Staff actor. Install an
    exact endpoint, actor, Work, and one or more exact tool names with the owner
    CLI `restless local-mcp --company <company> install-host --name <name> --endpoint
    http://127.0.0.1:8799/mcp --token-file <absolute-private-file> --actor
