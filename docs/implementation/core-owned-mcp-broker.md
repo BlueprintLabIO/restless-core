@@ -1,0 +1,75 @@
+# Core-owned MCP broker: target and migration
+
+## Decision
+
+Restless Core is the authority and call path for company MCP tools. An actor
+receives a narrow MCP namespace bound to its company, actor, Work, and Attempt.
+Core owns connection setup, upstream credentials, tool discovery, per-call
+policy, revocation, outcome recording, and owner controls. The upstream service
+owns its domain state: for Clapping Hands, that includes its browser profile and
+Facebook login. Neither cookies nor the upstream bearer enter the company
+Runtime.
+
+The first live slice is the [host MCP gateway](host-mcp-gateway.md) for three
+reviewed Clapping Hands read tools. It is a broker for that connection, not yet
+a general broker for every MCP transport. Existing company-local stdio servers
+and `mcp-remote` OAuth connections still execute inside the company Runtime.
+They need migration before Core can make a general security or audit claim.
+
+## Call path
+
+1. The owner installs a connection and chooses the exact actor, Work, and
+   allowed tools. Core discovers the upstream contract and pins the version
+   and tool schema digest. Discovery metadata alone is not proof that a tool is
+   read-only.
+2. At each Attempt launch, Core issues a short-lived grant for the exact
+   company, actor, connection, Work, and Attempt. The actor sees the broker
+   endpoint and permitted tool descriptions; it does not see the upstream
+   endpoint, browser debugger, credentials, or refresh tokens.
+3. Core checks the live Attempt and current owner policy on every discovery
+   and call. It checks the pinned upstream tool contract before invocation,
+   bounds runtime and result size, and records a typed outcome. Revocation
+   prevents new calls and stops waiting on in-flight reads, while marking
+   their external outcome uncertain if necessary.
+4. Effectful tools require a separate Restless effect permit for an exact
+   action and payload, an idempotency or reconciliation key where possible,
+   and an owner decision when the company mandate requires one. Tool names or
+   MCP `readOnlyHint` values do not grant this authority.
+
+```
+Staff actor -> scoped MCP namespace -> Core broker -> reviewed adapter -> upstream MCP
+                                          |                         |
+                                   policy, audit, status       CH browser or provider
+```
+
+## Transport migration
+
+| Transport | Current state | Target |
+| --- | --- | --- |
+| Host Streamable HTTP, CH | Core relays three reviewed read tools; host owns bearer and browser. | Keep this path as the first end-to-end acceptance case. Add owner-visible pause, login recovery, and version switch with fresh sessions. |
+| Remote HTTP with OAuth | A company-side `mcp-remote` child reads credentials from its Runtime directory. | Core-owned OAuth and refresh, with a broker adapter exposing only approved tools. Migrate an existing grant by a reviewed owner flow; never silently copy a shell-readable token into a new trust boundary. |
+| Local stdio | A child runs in the company Runtime with the actor. | Run each server in an isolated broker worker with an explicit filesystem/network envelope. Route calls through Core policy and audit; do not execute arbitrary third-party stdio code in the privileged Core process. |
+
+The actor's tool list must be tested in its *actual* Codex mode. A Responses
+namespace such as `mcp__clapping_hands` contains child functions; counting
+only top-level functions can falsely report that the tools are absent. A
+successful `tools/list` or model request containing a namespace still does not
+prove a real tool call. The acceptance check is a fresh Staff Attempt reading
+an exact listing through Core, followed by a fresh Attempt repeating it.
+
+## Release gates
+
+- The CH pilot reads a current listing from its saved authenticated profile in
+  a real company Staff Attempt. The owner status page shows the typed result,
+  exact pin, actor scope, and disable control. Owner pause and hand-back are
+  verified without a second process opening CH's browser profile.
+- One OAuth provider and one local stdio provider are migrated through the
+  broker in isolated smoke runs. Revoking a grant blocks a subsequent call;
+  the company Runtime has no reusable provider credential. The old direct
+  paths remain labelled as legacy until those migrations pass.
+- Effectful tool calls obtain a payload-bound permit and reconcile uncertain
+  outcomes before retry. No generic write-capable MCP server becomes enabled
+  merely because its metadata claims it is safe.
+- The status page distinguishes connection, site authentication, completed
+  read, partial/blocked read, and uncertain result. Build success and tool
+  discovery are not reported as a successful marketplace read.
