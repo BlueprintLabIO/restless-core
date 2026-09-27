@@ -24,8 +24,8 @@ use axum::{
 use rmcp::{
     model::{
         CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, ErrorData,
-        Implementation, ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerConfig,
-        Tool,
+        Implementation, ListToolsResult, MetaObject, PaginatedRequestParams, ServerCapabilities,
+        ServerConfig, Tool,
     },
     service::{RequestContext, RunningService},
     transport::{
@@ -714,6 +714,8 @@ impl ScopedMcp {
     }
 
     async fn invoke_validated(&self, params: CallToolRequestParams) -> Result<CallToolResult> {
+        let contract_digest = self.connection.tool_contract_digest.as_deref()
+            .context("MCP contract pin missing")?;
         let tool_name = params.name.to_string();
         let request_digest = format!("{:x}", Sha256::digest(serde_json::to_vec(&params)?));
         let call_id = Uuid::new_v4();
@@ -756,6 +758,23 @@ impl ScopedMcp {
         self.append_receipt(call_id, "terminal", &tool_name, &request_digest,
             status, result_digest.as_deref(), Some(started.elapsed().as_millis() as i64),
             error_class, provider_status).await?;
+        let mut outcome = outcome;
+        if let Ok(result) = &mut outcome {
+            // The receipt hashes the unmodified upstream result. Core owns this
+            // key even if the provider supplied one in its otherwise preserved _meta.
+            result.meta.get_or_insert_with(MetaObject::new).0.insert(
+                "restlessBroker".into(),
+                serde_json::json!({
+                    "callId": call_id,
+                    "terminalStatus": status,
+                    "workId": self.grant.work_id,
+                    "attemptId": self.grant.attempt_id,
+                    "toolContractDigest": contract_digest,
+                    "policyRevision": self.connection.policy_revision,
+                    "startedAndTerminalRecorded": true,
+                }),
+            );
+        }
         outcome
     }
 
