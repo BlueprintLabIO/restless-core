@@ -27,6 +27,7 @@
 		cockpitQuery,
 		collaborationBootstrapQuery,
 		companiesQuery,
+		companyChangeStream,
 		companyPrincipalQuery,
 		conversationQuery
 	} from '$lib/model/queries.svelte';
@@ -99,6 +100,10 @@
 	/* The shell and the Attention surface read one source rather than polling the
 	 * same endpoint on two clocks. The badge can no longer disagree with the
 	 * queue it is counting. */
+	companyChangeStream(
+		() => companyId,
+		() => ownerAccess
+	);
 	const attention = $derived(attentionQuery(companyId, () => ownerAccess));
 	const cockpitProjection = cockpitQuery(
 		() => companyId,

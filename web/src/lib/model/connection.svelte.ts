@@ -9,9 +9,11 @@
 
 import { failureKind } from './failure';
 
-export const connection = $state<{ lost: boolean; lostAt: number | null; restoredAt: number | null }>(
-	{ lost: false, lostAt: null, restoredAt: null }
-);
+export const connection = $state<{
+	lost: boolean;
+	lostAt: number | null;
+	restoredAt: number | null;
+}>({ lost: false, lostAt: null, restoredAt: null });
 
 /* One endpoint failing while others answer is that endpoint's failure, shown
  * where it happened. The connection is lost only when nothing has answered for
@@ -35,4 +37,16 @@ export function observeSuccess(): boolean {
 	connection.lostAt = null;
 	connection.restoredAt = Date.now();
 	return true;
+}
+
+/**
+ * Whether the company change stream is connected. While it is, reads that
+ * OrgIntel notifies about refresh on a hint and poll only as a slow repair
+ * path; when it drops, they return to their ordinary interval.
+ */
+export const changes = $state<{ live: boolean }>({ live: false });
+
+/** A refetch interval that relaxes to `whenLive` while change hints arrive. */
+export function pollEvery(ordinary: number, whenLive: number): () => number {
+	return () => (changes.live ? whenLive : ordinary);
 }

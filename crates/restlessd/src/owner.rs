@@ -1432,6 +1432,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route("/companies/{company}/archive", post(archive_company))
         .route("/companies/{company}/restore", post(restore_company))
         .route("/companies/{company}/attention", get(attention_view))
+        .route("/companies/{company}/changes", get(company_changes))
         .route("/companies/{company}/cockpit", get(cockpit_view))
         .route(
             "/companies/{company}/teams/{team}/outcome-standard",
@@ -6716,6 +6717,144 @@ async fn room_events_live(
                 .text("still-connected"),
         )
         .into_response()
+}
+
+/// Body-free "something changed" hints for one company's owner surfaces.
+///
+/// The cockpit refetches its own projections when a hint arrives and polls
+/// only as a slow fallback. A hint names the notification kinds that fired in
+/// a short window (`work_changed`, `message`, ...) and never carries a row, so
+/// it grants nothing the owner's ordinary reads do not. A lagged receiver is
+/// reported as `resync`, which makes the cockpit refetch everything visible.
+async fn company_changes(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+    session_lease: Option<Extension<SessionLease>>,
+) -> Response<Body> {
+    if runtime::CompanyConfig::load(&state.daemon.root, &company).is_err() {
+        return api_error(StatusCode::NOT_FOUND, "company", "no such company");
+    }
+    let session_lease = session_lease.map(|Extension(lease)| lease);
+    if session_lease.as_ref().is_some_and(SessionLease::is_ended) {
+        return api_error(
+            StatusCode::UNAUTHORIZED,
+            "stale_membership",
+            "the verified company session is no longer active",
+        );
+    }
+    let admission = match state.daemon.cell_wakes.try_admit(&company, "owner-changes") {
+        Ok(admission) => admission,
+        Err(refusal) => return room_stream_refusal(refusal),
+    };
+    let database_url = match state.daemon.orgintel.cell_database_url(&company).await {
+        Ok(url) => url,
+        Err(error) => {
+            tracing::error!(%error, company, "could not resolve company change source");
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                "company changes are temporarily unavailable",
+            );
+        }
+    };
+    let wakes = state
+        .daemon
+        .cell_wakes
+        .subscribe_company(&company, &database_url);
+    Sse::new(company_change_stream(
+        company,
+        wakes,
+        admission,
+        session_lease,
+    ))
+    .keep_alive(
+        KeepAlive::new()
+            .interval(Duration::from_secs(15))
+            .text("still-connected"),
+    )
+    .into_response()
+}
+
+/// How long one burst of notifications is gathered into a single hint. A
+/// Work commission touches several rows; the cockpit should refetch once.
+const COMPANY_CHANGE_COALESCE: Duration = Duration::from_millis(250);
+
+fn company_change_kind(wake: &crate::cell_wake::CellWake) -> String {
+    match wake.kind.as_deref() {
+        Some(kind)
+            if !kind.is_empty()
+                && kind.len() <= 40
+                && kind
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte == b'_') =>
+        {
+            kind.to_string()
+        }
+        _ => "resync".to_string(),
+    }
+}
+
+fn company_change_stream(
+    company: String,
+    wakes: tokio::sync::broadcast::Receiver<crate::cell_wake::CellWake>,
+    admission: crate::cell_wake::StreamAdmission,
+    session_lease: Option<SessionLease>,
+) -> impl futures_util::Stream<Item = std::result::Result<Event, Infallible>> {
+    use tokio::sync::broadcast::error::RecvError;
+    let opened = futures_util::stream::once(async {
+        Ok::<_, Infallible>(Event::default().comment("connected"))
+    });
+    let state = (company, wakes, admission, session_lease);
+    opened.chain(futures_util::stream::unfold(
+        state,
+        |(company, mut wakes, admission, session_lease)| async move {
+            let mut kinds = std::collections::BTreeSet::new();
+            // Wait for the first hint of a burst, then gather the rest of it.
+            loop {
+                let received = match session_lease.as_ref() {
+                    Some(lease) => tokio::select! {
+                        received = wakes.recv() => received,
+                        _ = lease.ended() => return None,
+                    },
+                    None => wakes.recv().await,
+                };
+                match received {
+                    Ok(wake) if wake.company == company => {
+                        kinds.insert(company_change_kind(&wake));
+                        break;
+                    }
+                    Ok(_) => {}
+                    Err(RecvError::Lagged(_)) => {
+                        kinds.insert("resync".to_string());
+                        break;
+                    }
+                    Err(RecvError::Closed) => return None,
+                }
+            }
+            let window = tokio::time::sleep(COMPANY_CHANGE_COALESCE);
+            tokio::pin!(window);
+            loop {
+                tokio::select! {
+                    _ = &mut window => break,
+                    received = wakes.recv() => match received {
+                        Ok(wake) if wake.company == company => {
+                            kinds.insert(company_change_kind(&wake));
+                        }
+                        Ok(_) => {}
+                        Err(RecvError::Lagged(_)) => {
+                            kinds.insert("resync".to_string());
+                        }
+                        Err(RecvError::Closed) => break,
+                    },
+                }
+            }
+            let data = kinds.into_iter().collect::<Vec<_>>().join(",");
+            Some((
+                Ok(Event::default().event("change").data(data)),
+                (company, wakes, admission, session_lease),
+            ))
+        },
+    ))
 }
 
 fn room_stream_principal_key(

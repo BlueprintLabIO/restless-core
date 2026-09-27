@@ -29,6 +29,7 @@ import { getBrowserStatus, getCompany, type BrowserStatus, type CompanyView } fr
 import { getCompanyIdentity, type CompanyIdentitySnapshot } from './identity';
 import { getCompanyPrincipal, type CompanyPrincipal } from './query-persistence';
 import type { ThreadMessage } from './view';
+import { changes, pollEvery } from './connection.svelte';
 
 export type QuerySourceStatus = 'unknown' | 'live' | 'stale';
 export type ActivityTransport = 'idle' | 'connecting' | 'live' | 'reconnecting';
@@ -71,7 +72,7 @@ export function companyPrincipalQuery(companyId: string) {
 		enabled: Boolean(companyId),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
-		refetchInterval: REFRESH_MS,
+		refetchInterval: pollEvery(REFRESH_MS, 60_000),
 		refetchIntervalInBackground: false
 	}));
 	return {
@@ -112,7 +113,7 @@ export function collaborationBootstrapQuery(
 		enabled: Boolean(companyId) && Boolean(principal()),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
-		refetchInterval: REFRESH_MS,
+		refetchInterval: pollEvery(REFRESH_MS, 60_000),
 		refetchIntervalInBackground: false
 	}));
 	return {
@@ -161,7 +162,7 @@ export function attentionQuery(companyId: string | (() => string), enabled: Quer
 		enabled: queryEnabled(enabled),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
-		refetchInterval: REFRESH_MS,
+		refetchInterval: pollEvery(REFRESH_MS, 30_000),
 		refetchIntervalInBackground: false
 	}));
 	return {
@@ -320,7 +321,7 @@ export function cockpitQuery(companyId: string | (() => string), enabled: QueryE
 		enabled: queryEnabled(enabled),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
-		refetchInterval: REFRESH_MS,
+		refetchInterval: pollEvery(REFRESH_MS, 30_000),
 		refetchIntervalInBackground: false
 	}));
 	return {
@@ -468,7 +469,7 @@ export function conversationQuery(
 		enabled: queryEnabled(enabled),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
-		refetchInterval: REFRESH_MS,
+		refetchInterval: pollEvery(REFRESH_MS, 60_000),
 		refetchIntervalInBackground: false
 	}));
 
@@ -729,4 +730,31 @@ export function invalidateCompany(client: QueryClient, companyId: string): Promi
 		client.invalidateQueries({ queryKey: ['company-collaboration', companyId] }),
 		client.invalidateQueries({ queryKey: queryKeys.company(companyId, false) })
 	]).then(() => undefined);
+}
+
+/**
+ * One change stream per open company. Each hint refetches the company's
+ * queries that are on screen — a single rule, cheap because hints are
+ * coalesced server-side and only active queries refetch. EventSource
+ * reconnects by itself; while it is down, polling returns to its ordinary pace.
+ */
+export function companyChangeStream(companyId: () => string, enabled: QueryEnabled = true) {
+	const client = useQueryClient();
+	$effect(() => {
+		const company = companyId();
+		if (!company || !queryEnabled(enabled) || typeof EventSource === 'undefined') return;
+		const source = new EventSource(`/api/companies/${encodeURIComponent(company)}/changes`);
+		source.onopen = () => (changes.live = true);
+		source.onerror = () => (changes.live = false);
+		source.addEventListener('change', () => {
+			void client.invalidateQueries({
+				predicate: (query) => query.queryKey.includes(company),
+				refetchType: 'active'
+			});
+		});
+		return () => {
+			source.close();
+			changes.live = false;
+		};
+	});
 }

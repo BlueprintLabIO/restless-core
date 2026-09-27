@@ -1,4 +1,5 @@
 import { createInfiniteQuery, createQuery, useQueryClient } from '@tanstack/svelte-query';
+import { pollEvery } from './connection.svelte';
 import type { InfiniteData } from '@tanstack/svelte-query';
 import {
 	locateRoomMessageTarget,
@@ -58,7 +59,7 @@ export function recentDirectConversationsQuery(companyId: string, enabled: () =>
 		enabled: enabled(),
 		staleTime: ROOM_STALE_MS,
 		gcTime: ROOM_RETAIN_MS,
-		refetchInterval: ROOM_REFRESH_MS
+		refetchInterval: pollEvery(ROOM_REFRESH_MS, 60_000)
 	}));
 	return {
 		get conversations() {
@@ -227,7 +228,7 @@ export function roomMessagesQuery(companyId: string, roomId: string) {
 		getNextPageParam: olderMessageCursor,
 		staleTime: ROOM_STALE_MS,
 		gcTime: ROOM_RETAIN_MS,
-		refetchInterval: ROOM_REFRESH_MS
+		refetchInterval: pollEvery(ROOM_REFRESH_MS, 60_000)
 	}));
 	return {
 		get messages() {
@@ -375,7 +376,7 @@ export function roomThreadQuery(companyId: string, roomId: string, rootMessageId
 		getNextPageParam: olderMessageCursor,
 		staleTime: ROOM_STALE_MS,
 		gcTime: ROOM_RETAIN_MS,
-		refetchInterval: ROOM_REFRESH_MS
+		refetchInterval: pollEvery(ROOM_REFRESH_MS, 60_000)
 	}));
 	return {
 		get messages() {
