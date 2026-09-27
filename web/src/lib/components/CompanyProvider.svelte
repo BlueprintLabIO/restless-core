@@ -760,7 +760,7 @@
 	.default-option { display: flex; align-items: center; gap: var(--space-2); color: var(--text-secondary); font-size: var(--t-label); }
 	.default-option input { width: 16px; min-height: 16px; height: 16px; padding: 0; accent-color: var(--intent-conversation); }
 	.default-note { flex: 1 1 100%; margin: 0; color: var(--text-tertiary); font-size: var(--t-label); }
-	.reuse-empty { padding: var(--space-4) 0; }
+	.reuse-empty { padding: var(--space-3) 0 0; }
 	.reuse-empty p { margin: 0; color: var(--text-secondary); }
 	.replace-confirm { flex: 1 1 100%; margin: 0; color: var(--company-amber); font-size: var(--t-label); line-height: 1.45; }
 	.add-form,
