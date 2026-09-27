@@ -9,6 +9,7 @@ dev_tools_ensure() {
     printf 'Installing the pinned model broker…\n'
     npm --prefix "$tools" ci --no-audit --no-fund || return 1
   fi
+  node "$tools/apply-pi-ai-patch.mjs" || return 1
   export PATH="$tools/node_modules/.bin:$PATH"
   export RESTLESS_OMP_BIN="$tools/node_modules/.bin/omp"
   "$tools/node_modules/.bin/bun" --version >/dev/null || {

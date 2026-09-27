@@ -1,0 +1,755 @@
+diff --git a/node_modules/@oh-my-pi/pi-ai/src/types.ts b/node_modules/@oh-my-pi/pi-ai/src/types.ts
+--- a/node_modules/@oh-my-pi/pi-ai/src/types.ts
++++ b/node_modules/@oh-my-pi/pi-ai/src/types.ts
+@@ -115,9 +115,9 @@
+ 	| "none"
+ 	| "any"
+ 	| "required"
+-	| { type: "function"; name: string }
++	| { type: "function"; name: string; namespace?: string }
+ 	| { type: "function"; function: { name: string } }
+-	| { type: "tool"; name: string }
++	| { type: "tool"; name: string; namespace?: string }
+ 	| { type: "computer" };
+ 
+ // Base options all providers share
+@@ -915,6 +915,8 @@
+ 	type: "toolCall";
+ 	id: string;
+ 	name: string;
++	/** Responses namespace. Together with name, identifies the callable wire tool. */
++	namespace?: string;
+ 	arguments: Record<string, unknown>;
+ 	[kStreamingPartialJson]?: string;
+ 	thoughtSignature?: string; // Google-specific: opaque signature for reusing thought context
+@@ -1439,6 +1441,12 @@
+ 	name: string;
+ 	description: string;
+ 	parameters: TParameters;
++	/** Original Responses namespace for a grouped function or custom tool. */
++	namespace?: string;
++	/** Description of the namespace container advertised to the model. */
++	namespaceDescription?: string;
++	/** Codex tool-search visibility for a namespaced child. */
++	responseDeferLoading?: boolean;
+ 	/** If true, tool is strictly typed and validated against the parameters schema before execution */
+ 	strict?: boolean;
+ 	/** Withhold this Anthropic tool until a `tool_addition` message references it. */
+diff --git a/node_modules/@oh-my-pi/pi-ai/src/auth-gateway/types.ts b/node_modules/@oh-my-pi/pi-ai/src/auth-gateway/types.ts
+--- a/node_modules/@oh-my-pi/pi-ai/src/auth-gateway/types.ts
++++ b/node_modules/@oh-my-pi/pi-ai/src/auth-gateway/types.ts
+@@ -23,7 +23,7 @@
+ /** Default bind. Loopback-only — front with reverse proxy for remote access. */
+ export const DEFAULT_AUTH_GATEWAY_BIND = "127.0.0.1:4000";
+ 
+-export type AuthGatewayToolChoice = "auto" | "none" | "required" | { name: string } | { type: "computer" };
++export type AuthGatewayToolChoice = "auto" | "none" | "required" | { name: string; namespace?: string } | { type: "computer" };
+ 
+ export interface AuthGatewayParsedRequestOptions {
+ 	// ── Sampling ──────────────────────────────────────────────────────────
+diff --git a/node_modules/@oh-my-pi/pi-ai/src/auth-gateway/server.ts b/node_modules/@oh-my-pi/pi-ai/src/auth-gateway/server.ts
+--- a/node_modules/@oh-my-pi/pi-ai/src/auth-gateway/server.ts
++++ b/node_modules/@oh-my-pi/pi-ai/src/auth-gateway/server.ts
+@@ -158,7 +158,7 @@
+ 				? options.toolChoice
+ 				: "type" in options.toolChoice
+ 					? options.toolChoice
+-					: { type: "tool", name: options.toolChoice.name };
++					: { type: "tool", name: options.toolChoice.name, ...(options.toolChoice.namespace ? { namespace: options.toolChoice.namespace } : {}) };
+ 	}
+ 	if (options.reasoning !== undefined) opts.reasoning = options.reasoning;
+ 	if (options.disableReasoning !== undefined) opts.disableReasoning = options.disableReasoning;
+diff --git a/node_modules/@oh-my-pi/pi-ai/src/utils/tool-choice.ts b/node_modules/@oh-my-pi/pi-ai/src/utils/tool-choice.ts
+--- a/node_modules/@oh-my-pi/pi-ai/src/utils/tool-choice.ts
++++ b/node_modules/@oh-my-pi/pi-ai/src/utils/tool-choice.ts
+@@ -16,8 +16,8 @@
+ 	| "auto"
+ 	| "none"
+ 	| "required"
+-	| { type: "function"; name: string }
+-	| { type: "custom"; name: string }
++	| { type: "function"; name: string; namespace?: string }
++	| { type: "custom"; name: string; namespace?: string }
+ 	| { type: "computer" }
+ 	| undefined;
+ 
+@@ -81,7 +81,9 @@
+ 	}
+ 	if (choice.type === "computer") return { type: "computer" };
+ 	const name = extractFunctionName(choice);
+-	return name ? { type: "function", name } : undefined;
++	return name
++		? { type: "function", name, ...("namespace" in choice && choice.namespace ? { namespace: choice.namespace } : {}) }
++		: undefined;
+ }
+ 
+ /**
+diff --git a/node_modules/@oh-my-pi/pi-ai/src/providers/openai-responses-server-schema.ts b/node_modules/@oh-my-pi/pi-ai/src/providers/openai-responses-server-schema.ts
+--- a/node_modules/@oh-my-pi/pi-ai/src/providers/openai-responses-server-schema.ts
++++ b/node_modules/@oh-my-pi/pi-ai/src/providers/openai-responses-server-schema.ts
+@@ -122,6 +122,7 @@
+ 	"id?": "string",
+ 	call_id: "string >= 1",
+ 	name: "string >= 1",
++	"namespace?": "string >= 1",
+ 	"arguments?": "string",
+ });
+ 
+@@ -137,6 +138,7 @@
+ 	"id?": "string",
+ 	call_id: "string >= 1",
+ 	name: "string >= 1",
++	"namespace?": "string >= 1",
+ 	// Raw input string — NOT JSON.stringified. apply_patch flow streams a
+ 	// freeform body and reading it as JSON would corrupt it.
+ 	input: "string",
+@@ -248,6 +250,7 @@
+ 	custom_tool_call_output: true,
+ 	computer_call: true,
+ 	computer_call_output: true,
++	additional_tools: true,
+ };
+ 
+ const unbridgedInputItemSchema = type({ type: "string" }).narrow((value, ctx) =>
+@@ -297,17 +300,43 @@
+ 	"description?": "string",
+ 	"parameters?": type({ "[string]": "unknown" }),
+ 	"strict?": "boolean",
++	"defer_loading?": "boolean",
+ });
+ 
+ const computerToolSchema = type({ type: "'computer'" });
+ 
+-const BRIDGED_TOOL_TYPES: Record<string, true> = { function: true, computer: true };
++const customToolSchema = type({
++	type: "'custom'",
++	name: "string >= 1",
++	"description?": "string",
++	format: type({ type: "'grammar'", syntax: "'lark' | 'regex'", definition: "string" }),
++	"defer_loading?": "boolean",
++});
++
++const namespaceToolSchema = type({
++	type: "'namespace'",
++	name: "string >= 1",
++	"description?": "string",
++	"tools?": toolSchema.or(customToolSchema).array(),
++	// Accept the alternate child-list spelling used by some Responses clients.
++	"functions?": toolSchema.array(),
++}).narrow((value, ctx) =>
++	value.tools !== undefined || value.functions !== undefined ? true : ctx.mustBe("tools or functions"),
++);
++
++const BRIDGED_TOOL_TYPES: Record<string, true> = { function: true, computer: true, namespace: true };
+ 
+ // Built-in / hosted tool entries (web_search_preview, file_search, …) — accepted
+ // but skipped by the walker.
+ const builtinToolSchema = type({ type: "string" }).narrow((value, ctx) =>
+ 	value.type in BRIDGED_TOOL_TYPES ? ctx.mustBe("a valid bridged Responses tool") : true,
+ );
++const responsesToolSchema = toolSchema.or(computerToolSchema).or(namespaceToolSchema).or(builtinToolSchema);
++const additionalToolsItemSchema = type({
++	type: "'additional_tools'",
++	"role?": "'developer'",
++	tools: responsesToolSchema.array(),
++});
+ 
+ // ─── Tool choice ────────────────────────────────────────────────────────────
+ 
+@@ -325,12 +354,14 @@
+ 		type({
+ 			type: "'function'",
+ 			name: "string >= 1",
++			"namespace?": "string >= 1",
+ 		}),
+ 	)
+ 	.or(
+ 		type({
+ 			type: "'custom'",
+ 			name: "string >= 1",
++			"namespace?": "string >= 1",
+ 		}),
+ 	)
+ 	.or(
+@@ -364,9 +395,9 @@
+ 
+ export const openaiResponsesRequestSchema = type({
+ 	model: "string >= 1",
+-	"input?": type("string").or(inputItemSchema.array()),
++	"input?": type("string").or(inputItemSchema.or(additionalToolsItemSchema).array()),
+ 	"instructions?": "string | null",
+-	"tools?": toolSchema.or(computerToolSchema).or(builtinToolSchema).array(),
++	"tools?": responsesToolSchema.array(),
+ 	"tool_choice?": toolChoiceSchema,
+ 	"max_output_tokens?": "number",
+ 	"temperature?": "number",
+@@ -402,6 +433,7 @@
+ export type OpenAIResponsesRequest = ResponseCreateParams;
+ export type OpenAIResponsesInputItem = ResponseInputItem;
+ export type OpenAIResponsesTool = ResponsesTool;
++export type OpenAIResponsesNamespaceTool = typeof namespaceToolSchema.infer;
+ export type OpenAIResponsesToolChoice = NonNullable<ResponseCreateParams["tool_choice"]>;
+ export type OpenAIResponsesInputContent = ResponseInputContent;
+ export type OpenAIResponsesOutputContent = ResponseOutputMessage["content"][number];
+diff --git a/node_modules/@oh-my-pi/pi-ai/src/providers/openai-responses-server.ts b/node_modules/@oh-my-pi/pi-ai/src/providers/openai-responses-server.ts
+--- a/node_modules/@oh-my-pi/pi-ai/src/providers/openai-responses-server.ts
++++ b/node_modules/@oh-my-pi/pi-ai/src/providers/openai-responses-server.ts
+@@ -38,6 +38,7 @@
+ 	type OpenAIResponsesInputContent,
+ 	type OpenAIResponsesInputFileBlock,
+ 	type OpenAIResponsesInputImageBlock,
++	type OpenAIResponsesNamespaceTool,
+ 	type OpenAIResponsesOutputContent,
+ 	type OpenAIResponsesReasoningItem,
+ 	type OpenAIResponsesTool,
+@@ -218,8 +219,8 @@
+ 	| "auto"
+ 	| "none"
+ 	| "required"
+-	| { type: "function"; name: string }
+-	| { type: "custom"; name: string }
++	| { type: "function"; name: string; namespace?: string }
++	| { type: "custom"; name: string; namespace?: string }
+ 	| {
+ 			type:
+ 				| "web_search_preview"
+@@ -236,7 +237,7 @@
+ 	if (value === undefined) return undefined;
+ 	if (value === "auto" || value === "none" || value === "required") return value;
+ 	if ("type" in value) {
+-		if (value.type === "function" || value.type === "custom") return { name: value.name };
++		if (value.type === "function" || value.type === "custom") return { name: value.name, ...(value.namespace ? { namespace: value.namespace } : {}) };
+ 		if (value.type === "computer") return { type: "computer" };
+ 		// Other hosted tools + allowed_tools are not surfaced to pi-ai.
+ 		return "auto";
+@@ -247,7 +248,38 @@
+ function buildTools(tools: Array<OpenAIResponsesTool | { type: string }> | undefined): Tool[] | undefined {
+ 	if (!tools) return undefined;
+ 	const out: Tool[] = [];
++	const addFunction = (
++		fn: Extract<OpenAIResponsesTool, { type: "function" }> | NonNullable<OpenAIResponsesNamespaceTool["tools"]>[number],
++		namespace?: OpenAIResponsesNamespaceTool,
++	): void => {
++		if (fn.type === "custom") {
++			out.push({
++				name: fn.name,
++				description: fn.description ?? "",
++				parameters: {} as Tool["parameters"],
++				customWireName: fn.name,
++				customFormat: { syntax: fn.format.syntax, definition: fn.format.definition },
++				...(namespace ? { namespace: namespace.name, namespaceDescription: namespace.description ?? "" } : {}),
++				...(fn.defer_loading !== undefined ? { responseDeferLoading: fn.defer_loading } : {}),
++			});
++			return;
++		}
++		const tool: Tool = {
++			name: fn.name,
++			description: fn.description ?? "",
++			parameters: (fn.parameters ?? {}) as Tool["parameters"],
++			...(namespace ? { namespace: namespace.name, namespaceDescription: namespace.description ?? "" } : {}),
++			...(fn.defer_loading !== undefined ? { responseDeferLoading: fn.defer_loading } : {}),
++		};
++		if (fn.strict !== undefined && fn.strict !== null) tool.strict = fn.strict;
++		out.push(tool);
++	};
+ 	for (const t of tools) {
++		if (t.type === "namespace") {
++			const namespace = t as OpenAIResponsesNamespaceTool;
++			for (const child of namespace.tools ?? namespace.functions ?? []) addFunction(child, namespace);
++			continue;
++		}
+ 		if (t.type === "computer") {
+ 			out.push({
+ 				name: "computer",
+@@ -259,14 +291,7 @@
+ 		}
+ 		// Skip non-function tools (web_search, file_search, …).
+ 		if (t.type !== "function") continue;
+-		const fn = t as Extract<OpenAIResponsesTool, { type: "function" }>;
+-		const tool: Tool = {
+-			name: fn.name,
+-			description: fn.description ?? "",
+-			parameters: (fn.parameters ?? {}) as Tool["parameters"],
+-		};
+-		if (fn.strict !== undefined && fn.strict !== null) tool.strict = fn.strict;
+-		out.push(tool);
++		addFunction(t as Extract<OpenAIResponsesTool, { type: "function" }>);
+ 	}
+ 	return out.length > 0 ? out : undefined;
+ }
+@@ -374,6 +399,7 @@
+ 	const now = Date.now();
+ 	const messages: Message[] = [];
+ 	const systemPrompt: string[] = [];
++	const additionalTools: Array<OpenAIResponsesTool | { type: string }> = [];
+ 
+ 	if (typeof data.instructions === "string" && data.instructions.length > 0) {
+ 		systemPrompt.push(data.instructions);
+@@ -385,6 +411,10 @@
+ 		for (const item of data.input) {
+ 			// Items may omit `type` and rely on `role` (the convenience shape).
+ 			const effectiveType = item.type ?? ("role" in item ? "message" : undefined);
++			if (effectiveType === "additional_tools") {
++				additionalTools.push(...(item as { tools: typeof additionalTools }).tools);
++				continue;
++			}
+ 			if (effectiveType === "message") {
+ 				const msg = item as {
+ 					role?: string;
+@@ -482,6 +512,7 @@
+ 					type: "toolCall",
+ 					id: call.call_id,
+ 					name: call.name,
++					...(call.namespace ? { namespace: call.namespace } : {}),
+ 					arguments: args,
+ 					...(call.id ? { thoughtSignature: call.id } : {}),
+ 				};
+@@ -489,7 +520,7 @@
+ 				continue;
+ 			}
+ 			if (effectiveType === "custom_tool_call") {
+-				const call = item as { id?: string; call_id: string; name: string; input: string };
++				const call = item as { id?: string; call_id: string; name: string; namespace?: string; input: string };
+ 				// Custom tools carry a raw input string. We stash it in `arguments.input`
+ 				// matching pi-ai's openai-shared convention, and tag the call
+ 				// with `customWireName` so encoders re-emit it as `custom_tool_call`.
+@@ -497,6 +528,7 @@
+ 					type: "toolCall",
+ 					id: call.call_id,
+ 					name: call.name,
++					...(call.namespace ? { namespace: call.namespace } : {}),
+ 					arguments: { input: call.input ?? "" },
+ 					customWireName: call.name,
+ 					...(call.id ? { thoughtSignature: call.id } : {}),
+@@ -569,7 +601,7 @@
+ 		}
+ 	}
+ 
+-	const tools = buildTools(data.tools);
++	const tools = buildTools([...(data.tools ?? []), ...additionalTools]);
+ 	const context: Context = {
+ 		...(systemPrompt.length > 0 ? { systemPrompt } : {}),
+ 		messages,
+@@ -670,6 +702,7 @@
+ 	id: string;
+ 	call_id: string;
+ 	name: string;
++	namespace?: string;
+ 	arguments: string;
+ 	status: "completed";
+ };
+@@ -679,6 +712,7 @@
+ 	id: string;
+ 	call_id: string;
+ 	name: string;
++	namespace?: string;
+ 	input: string;
+ 	status: "completed";
+ };
+@@ -824,6 +858,7 @@
+ 					id: part.thoughtSignature ?? makeCustomCallId(),
+ 					call_id: wireCallId(part.id),
+ 					name: part.customWireName,
++					...(part.namespace ? { namespace: part.namespace } : {}),
+ 					input: rawInput,
+ 					status: "completed",
+ 				});
+@@ -833,6 +868,7 @@
+ 					id: part.thoughtSignature ?? makeFuncCallId(),
+ 					call_id: wireCallId(part.id),
+ 					name: part.name,
++					...(part.namespace ? { namespace: part.namespace } : {}),
+ 					arguments: JSON.stringify(part.arguments ?? {}),
+ 					status: "completed",
+ 				});
+@@ -915,6 +951,7 @@
+ 	contentIndex: number;
+ 	callId: string;
+ 	name: string;
++	namespace?: string;
+ 	argsText: string;
+ 	/** Set when the underlying ToolCall is a custom-tool emission. */
+ 	customWireName?: string;
+@@ -1079,6 +1116,7 @@
+ 							id: itemId,
+ 							call_id: callId,
+ 							name,
++							...(tc?.namespace ? { namespace: tc.namespace } : {}),
+ 							input: "",
+ 							status: "in_progress",
+ 						}
+@@ -1087,6 +1125,7 @@
+ 							id: itemId,
+ 							call_id: callId,
+ 							name,
++							...(tc?.namespace ? { namespace: tc.namespace } : {}),
+ 							arguments: "",
+ 							status: "in_progress",
+ 						};
+@@ -1098,6 +1137,7 @@
+ 					contentIndex,
+ 					callId,
+ 					name,
++					...(tc?.namespace ? { namespace: tc.namespace } : {}),
+ 					argsText: "",
+ 					...(isCustom ? { customWireName } : {}),
+ 				};
+@@ -1131,6 +1171,7 @@
+ 						id: call.itemId,
+ 						call_id: call.callId ?? "",
+ 						name: call.customWireName,
++						...(call.namespace ? { namespace: call.namespace } : {}),
+ 						input: text,
+ 						status: "completed",
+ 					};
+@@ -1140,6 +1181,7 @@
+ 						id: call.itemId,
+ 						call_id: call.callId ?? "",
+ 						name: call.customWireName,
++						...(call.namespace ? { namespace: call.namespace } : {}),
+ 						input: text,
+ 						status: "completed",
+ 					});
+@@ -1149,6 +1191,7 @@
+ 						id: call.itemId,
+ 						call_id: call.callId ?? "",
+ 						name: call.name ?? "",
++						...(call.namespace ? { namespace: call.namespace } : {}),
+ 						arguments: text,
+ 						status: "completed",
+ 					};
+@@ -1158,6 +1201,7 @@
+ 						id: call.itemId,
+ 						call_id: call.callId ?? "",
+ 						name: call.name ?? "",
++						...(call.namespace ? { namespace: call.namespace } : {}),
+ 						arguments: text,
+ 						status: "completed",
+ 					});
+@@ -1376,6 +1420,7 @@
+ 							if (tc.thoughtSignature) cur.itemId = tc.thoughtSignature;
+ 							cur.callId = wireCallId(tc.id);
+ 							cur.name = cur.customWireName ?? tc.name;
++							cur.namespace = tc.namespace;
+ 							if (cur.customWireName) {
+ 								// Custom tool: raw input string. Streamed deltas accumulated
+ 								// the wire-level body; fall back to `arguments.input` from
+diff --git a/node_modules/@oh-my-pi/pi-ai/src/providers/openai-shared.ts b/node_modules/@oh-my-pi/pi-ai/src/providers/openai-shared.ts
+--- a/node_modules/@oh-my-pi/pi-ai/src/providers/openai-shared.ts
++++ b/node_modules/@oh-my-pi/pi-ai/src/providers/openai-shared.ts
+@@ -2312,6 +2312,7 @@
+ 				...(itemId ? { id: itemId } : {}),
+ 				call_id: normalized.callId,
+ 				name: block.customWireName,
++				...(block.namespace ? { namespace: block.namespace } : {}),
+ 				input: rawInput,
+ 			} as ResponseInput[number]);
+ 			continue;
+@@ -2325,6 +2326,7 @@
+ 			...(itemId ? { id: itemId } : {}),
+ 			call_id: normalized.callId,
+ 			name: functionName,
++			...(block.namespace ? { namespace: block.namespace } : {}),
+ 			arguments: stringifyJson(block.arguments) ?? "null",
+ 		});
+ 	}
+@@ -3187,6 +3189,7 @@
+ 					type: "toolCall",
+ 					id: encodeResponsesToolCallId(item.call_id, item.id),
+ 					name: item.name,
++					...(item.namespace ? { namespace: item.namespace } : {}),
+ 					arguments: {},
+ 					[kStreamingPartialJson]: item.arguments || "",
+ 				};
+@@ -3220,6 +3223,7 @@
+ 					// `Tool.customWireName`, so this stays wire-accurate through
+ 					// history replay while still routing to the right handler.
+ 					name: item.name,
++					...(item.namespace ? { namespace: item.namespace } : {}),
+ 					arguments: { input: item.input ?? "" },
+ 					customWireName: item.name,
+ 					// Custom tools stream a raw string, but we reuse `partialJson` as the
+@@ -3410,6 +3414,7 @@
+ 					type: "toolCall",
+ 					id: encodeResponsesToolCallId(item.call_id, item.id),
+ 					name: item.name,
++					...(item.namespace ? { namespace: item.namespace } : {}),
+ 					arguments: args,
+ 				};
+ 				let contentIndex: number;
+@@ -3419,6 +3424,7 @@
+ 					// leaving block.arguments stale (often `{}`); the emitted toolCall
+ 					// and the persisted block must agree.
+ 					block.arguments = args;
++					block.namespace = toolCall.namespace;
+ 					clearStreamingPartialJson(block);
+ 					contentIndex = contentIndexOf(block);
+ 				} else {
+@@ -3463,6 +3469,7 @@
+ 					type: "toolCall",
+ 					id: encodeResponsesToolCallId(item.call_id, item.id),
+ 					name: item.name,
++					...(item.namespace ? { namespace: item.namespace } : {}),
+ 					arguments: { input: rawInput },
+ 					customWireName: item.name,
+ 				};
+@@ -3471,6 +3478,7 @@
+ 					// Persist the final input on the stored block and drop the transient
+ 					// accumulation buffer, mirroring the function_call branch above.
+ 					block.arguments = { input: rawInput };
++					block.namespace = toolCall.namespace;
+ 					clearStreamingPartialJson(block);
+ 					contentIndex = contentIndexOf(block);
+ 				} else {
+diff --git a/node_modules/@oh-my-pi/pi-ai/src/providers/openai-codex-responses.ts b/node_modules/@oh-my-pi/pi-ai/src/providers/openai-codex-responses.ts
+--- a/node_modules/@oh-my-pi/pi-ai/src/providers/openai-codex-responses.ts
++++ b/node_modules/@oh-my-pi/pi-ai/src/providers/openai-codex-responses.ts
+@@ -1219,10 +1219,10 @@
+ 	if (!choice) return undefined;
+ 	if (typeof choice === "string") return choice;
+ 	const allowFreeform = model ? model.applyPatchToolType === "freeform" : false;
+-	const mapName = (name: string): Record<string, string> | undefined => {
+-		const directTool = tools.find(tool => tool.name === name);
+-		const customTool = allowFreeform
+-			? tools.find(tool => tool.customFormat && (tool.name === name || tool.customWireName === name))
++	const mapName = (name: string, namespace?: string): Record<string, string> | undefined => {
++		const directTool = tools.find(tool => tool.namespace === namespace && tool.name === name);
++		const customTool = allowFreeform || namespace
++			? tools.find(tool => tool.namespace === namespace && tool.customFormat && (tool.name === name || tool.customWireName === name))
+ 			: undefined;
+ 		const offeredTool = customTool ?? directTool;
+ 		if (!offeredTool) return undefined;
+@@ -1230,8 +1230,8 @@
+ 			return { type: "computer" };
+ 		}
+ 		return customTool
+-			? { type: "custom", name: customTool.customWireName ?? customTool.name }
+-			: { type: "function", name: offeredTool.name };
++			? { type: "custom", name: customTool.customWireName ?? customTool.name, ...(namespace ? { namespace } : {}) }
++			: { type: "function", name: offeredTool.name, ...(namespace ? { namespace } : {}) };
+ 	};
+ 	if (choice.type === "computer") {
+ 		const computer = tools.find(tool => tool.native?.type === "computer");
+@@ -1243,11 +1243,11 @@
+ 			return mapName(choice.function.name);
+ 		}
+ 		if ("name" in choice && choice.name) {
+-			return mapName(choice.name);
++			return mapName(choice.name, choice.namespace);
+ 		}
+ 	}
+ 	if (choice.type === "tool" && choice.name) {
+-		return mapName(choice.name);
++		return mapName(choice.name, choice.namespace);
+ 	}
+ 	return undefined;
+ }
+@@ -2032,6 +2032,7 @@
+ 			type: "toolCall",
+ 			id: encodeResponsesToolCallId(item.call_id, item.id),
+ 			name: item.name,
++			...(item.namespace ? { namespace: item.namespace } : {}),
+ 			arguments: {},
+ 			[kStreamingPartialJson]: item.arguments || "",
+ 		};
+@@ -2054,6 +2055,7 @@
+ 			type: "toolCall",
+ 			id: encodeResponsesToolCallId(item.call_id, item.id),
+ 			name: item.name,
++			...(item.namespace ? { namespace: item.namespace } : {}),
+ 			arguments: { input: item.input ?? "" },
+ 			customWireName: item.name,
+ 			[kStreamingPartialJson]: item.input ?? "",
+@@ -2588,12 +2590,14 @@
+ 				type: "toolCall",
+ 				id: encodeResponsesToolCallId(item.call_id, item.id),
+ 				name: item.name,
++				...(item.namespace ? { namespace: item.namespace } : {}),
+ 				arguments: parseStreamingJson(item.arguments || "{}"),
+ 			};
+ 			if (block?.type === "toolCall") {
+ 				// Persist the authoritative final args on the stored block; the throttled
+ 				// delta parser may have left block.arguments stale (often `{}`).
+ 				block.arguments = toolCall.arguments;
++				block.namespace = toolCall.namespace;
+ 				clearStreamingPartialJson(block);
+ 			}
+ 			// Detach so a late/duplicate arguments.delta cannot append to the
+@@ -2634,11 +2638,13 @@
+ 				type: "toolCall",
+ 				id: encodeResponsesToolCallId(item.call_id, item.id),
+ 				name: item.name,
++				...(item.namespace ? { namespace: item.namespace } : {}),
+ 				arguments: { input: rawInput },
+ 				customWireName: item.name,
+ 			};
+ 			if (block?.type === "toolCall") {
+ 				block.arguments = { input: rawInput };
++				block.namespace = toolCall.namespace;
+ 				clearStreamingPartialJson(block);
+ 			}
+ 			runtime.closeOpenItem(entry);
+@@ -5032,21 +5038,26 @@
+ /** @internal Exported for tests. */
+ export { convertMessages as convertCodexResponsesMessages };
+ 
+-type CodexToolPayload =
+-	| { type: "computer"; name?: never }
++type CodexNamespaceChildPayload =
+ 	| {
+ 			type: "function";
+ 			name: string;
+ 			description: string;
+ 			parameters: Record<string, unknown>;
+ 			strict?: boolean;
++			defer_loading?: boolean;
+ 	  }
+ 	| {
+ 			type: "custom";
+ 			name: string;
+ 			description: string;
+ 			format: { type: "grammar"; syntax: "lark" | "regex"; definition: string };
++			defer_loading?: boolean;
+ 	  };
++type CodexToolPayload =
++	| { type: "computer"; name?: never }
++	| CodexNamespaceChildPayload
++	| { type: "namespace"; name: string; description: string; tools: CodexNamespaceChildPayload[] };
+ 
+ /** @internal Exported for tests. */
+ export function convertOpenAICodexResponsesTools(
+@@ -5055,6 +5066,20 @@
+ ): CodexToolPayload[] {
+ 	const allowFreeform = model.applyPatchToolType === "freeform";
+ 	const payloads: CodexToolPayload[] = [];
++	const namespaces = new Map<string, Extract<CodexToolPayload, { type: "namespace" }>>();
++	const addTool = (tool: Tool, payload: CodexNamespaceChildPayload): void => {
++		if (!tool.namespace) {
++			payloads.push(payload);
++			return;
++		}
++		let group = namespaces.get(tool.namespace);
++		if (!group) {
++			group = { type: "namespace", name: tool.namespace, description: tool.namespaceDescription ?? "", tools: [] };
++			namespaces.set(tool.namespace, group);
++			payloads.push(group);
++		}
++		group.tools.push({ ...payload, ...(tool.responseDeferLoading !== undefined ? { defer_loading: tool.responseDeferLoading } : {}) });
++	};
+ 	for (const tool of tools) {
+ 		// Subscription models default to the function fallback. Explicit metadata
+ 		// remains authoritative for future Codex endpoints that implement GA computer use.
+@@ -5062,8 +5087,8 @@
+ 			payloads.push({ type: "computer" });
+ 			continue;
+ 		}
+-		if (allowFreeform && tool.customFormat) {
+-			payloads.push({
++		if ((allowFreeform || tool.namespace) && tool.customFormat) {
++			addTool(tool, {
+ 				type: "custom",
+ 				name: tool.customWireName ?? tool.name,
+ 				description: tool.description || "",
+@@ -5078,7 +5103,7 @@
+ 		const strict = !!(!NO_STRICT && tool.strict);
+ 		const baseParameters = sanitizeSchemaForOpenAIResponses(toolWireSchema(tool));
+ 		const { schema: parameters, strict: effectiveStrict } = adaptSchemaForStrict(baseParameters, strict);
+-		payloads.push({
++		addTool(tool, {
+ 			type: "function",
+ 			name: tool.name,
+ 			description: tool.description || "",
+diff --git a/node_modules/@oh-my-pi/pi-ai/src/providers/openai-responses.ts b/node_modules/@oh-my-pi/pi-ai/src/providers/openai-responses.ts
+--- a/node_modules/@oh-my-pi/pi-ai/src/providers/openai-responses.ts
++++ b/node_modules/@oh-my-pi/pi-ai/src/providers/openai-responses.ts
+@@ -67,6 +67,7 @@
+ import { resolveCopilotRequestIdentity, wrapFetchForCopilotFallback } from "./github-copilot-headers";
+ import type {
+ 	Tool as OpenAITool,
++	NamespaceTool,
+ 	ReasoningEffort,
+ 	ResponseCreateParamsStreaming,
+ 	ResponseInput,
+@@ -1438,9 +1439,9 @@
+ 		return mapped;
+ 	}
+ 
+-	const directTool = tools.find(tool => tool.name === mapped.name);
+-	const customTool = supportsFreeformApplyPatch(model)
+-		? tools.find(tool => tool.customFormat && (tool.name === mapped.name || tool.customWireName === mapped.name))
++	const directTool = tools.find(tool => tool.namespace === mapped.namespace && tool.name === mapped.name);
++	const customTool = supportsFreeformApplyPatch(model) || mapped.namespace
++		? tools.find(tool => tool.namespace === mapped.namespace && tool.customFormat && (tool.name === mapped.name || tool.customWireName === mapped.name))
+ 		: undefined;
+ 	const offeredTool = customTool ?? directTool;
+ 	if (offeredTool?.native?.type === "computer") {
+@@ -1449,7 +1450,9 @@
+ 	if (!offeredTool) {
+ 		return undefined;
+ 	}
+-	return customTool ? { type: "custom", name: customTool.customWireName ?? customTool.name } : mapped;
++	return customTool
++		? { type: "custom", name: customTool.customWireName ?? customTool.name, ...(mapped.namespace ? { namespace: mapped.namespace } : {}) }
++		: mapped;
+ }
+ 
+ /** @internal Exported for tests. */
+@@ -1465,6 +1468,20 @@
+ 	const allowFreeform = supportsFreeformApplyPatch(model);
+ 	const rejectRootObjectUnion = model.compat.rejectRootObjectUnion;
+ 	const out: OpenAITool[] = [];
++	const namespaces = new Map<string, NamespaceTool>();
++	const addTool = (tool: Tool, payload: NamespaceTool["tools"][number]): void => {
++		if (!tool.namespace) {
++			out.push(payload as OpenAITool);
++			return;
++		}
++		let group = namespaces.get(tool.namespace);
++		if (!group) {
++			group = { type: "namespace", name: tool.namespace, description: tool.namespaceDescription ?? "", tools: [] };
++			namespaces.set(tool.namespace, group);
++			out.push(group);
++		}
++		group.tools.push({ ...payload, ...(tool.responseDeferLoading !== undefined ? { defer_loading: tool.responseDeferLoading } : {}) });
++	};
+ 	for (const tool of tools) {
+ 		if (tool.native?.type === "computer" && model.supportsComputerUse === true) {
+ 			out.push({ type: "computer" });
+@@ -1473,8 +1490,8 @@
+ 		// Models without native computer support fall through and receive the
+ 		// tool as a plain function tool (name/description/schema below), so
+ 		// function-calling models can still drive the desktop.
+-		if (allowFreeform && tool.customFormat) {
+-			out.push({
++		if ((allowFreeform || tool.namespace) && tool.customFormat) {
++			addTool(tool, {
+ 				type: "custom",
+ 				// Tool advertises its wire-level name (e.g. `apply_patch`) — the
+ 				// agent-loop dispatcher will match incoming calls by either the
+@@ -1486,7 +1503,7 @@
+ 					syntax: tool.customFormat.syntax,
+ 					definition: compactGrammarDefinition(tool.customFormat.syntax, tool.customFormat.definition),
+ 				},
+-			} as unknown as OpenAITool);
++			} as NamespaceTool["tools"][number]);
+ 			continue;
+ 		}
+ 		const strict = !NO_STRICT && strictMode && tool.strict !== false;
+@@ -1512,7 +1529,7 @@
+ 			onQuarantine(tool.name, violation);
+ 			continue;
+ 		}
+-		out.push({
++		addTool(tool, {
+ 			type: "function",
+ 			name: tool.name,
+ 			description: tool.description || "",
+@@ -1530,7 +1547,7 @@
+ 				: !NO_STRICT && strictMode && tool.strict === false
+ 					? { strict: false }
+ 					: {}),
+-		} as OpenAITool);
++		} as NamespaceTool["tools"][number]);
+ 	}
+ 	return out;
+ }
