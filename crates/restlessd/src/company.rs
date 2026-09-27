@@ -1180,6 +1180,7 @@ async fn resources(
                 "allowed_tools": connection.allowed_tools,
                 "observed_tools": connection.observed_tools,
                 "tool_contract_digest": connection.tool_contract_digest,
+                "server_version": connection.server_version,
                 "last_observed_at": connection.last_observed_at,
                 "last_success_at": connection.last_success_at,
                 "last_read_status": connection.last_read_status,

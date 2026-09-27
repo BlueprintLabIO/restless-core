@@ -94,6 +94,7 @@ pub(crate) struct LocalMcpServer {
     pub(crate) allowed_tools: Vec<String>,
     pub(crate) observed_tools: Vec<String>,
     pub(crate) tool_contract_digest: Option<String>,
+    pub(crate) server_version: Option<String>,
     pub(crate) last_observed_at: Option<DateTime<Utc>>,
     pub(crate) last_success_at: Option<DateTime<Utc>>,
     pub(crate) last_read_status: Option<String>,
@@ -150,6 +151,7 @@ pub(crate) async fn ensure_schema(pool: &PgPool) -> Result<()> {
          ADD COLUMN IF NOT EXISTS allowed_tools JSONB NOT NULL DEFAULT '[]'::jsonb, \
          ADD COLUMN IF NOT EXISTS observed_tools JSONB NOT NULL DEFAULT '[]'::jsonb, \
          ADD COLUMN IF NOT EXISTS tool_contract_digest TEXT, \
+         ADD COLUMN IF NOT EXISTS server_version TEXT, \
          ADD COLUMN IF NOT EXISTS last_observed_at TIMESTAMPTZ, \
          ADD COLUMN IF NOT EXISTS last_success_at TIMESTAMPTZ, \
          ADD COLUMN IF NOT EXISTS last_read_status TEXT, \
@@ -226,7 +228,7 @@ pub(crate) fn validate_local_server(
 pub(crate) async fn local_mcp_list(pool: &PgPool, company: &str) -> Result<Vec<LocalMcpServer>> {
     sqlx::query(
         "SELECT name,transport,command,args,endpoint,token_file,assigned_actor,assigned_work_id, \
-                broker_aware,enabled,allowed_tools,observed_tools,tool_contract_digest, \
+                broker_aware,enabled,allowed_tools,observed_tools,tool_contract_digest,server_version, \
                 last_observed_at,last_success_at,last_read_status,last_read_site,last_read_tool,failure FROM restless_authority.local_mcp_servers \
          WHERE company=$1 ORDER BY name",
     )
@@ -249,6 +251,7 @@ pub(crate) async fn local_mcp_list(pool: &PgPool, company: &str) -> Result<Vec<L
             allowed_tools: serde_json::from_value(row.try_get("allowed_tools")?)?,
             observed_tools: serde_json::from_value(row.try_get("observed_tools")?)?,
             tool_contract_digest: row.try_get("tool_contract_digest")?,
+            server_version: row.try_get("server_version")?,
             last_observed_at: row.try_get("last_observed_at")?,
             last_success_at: row.try_get("last_success_at")?,
             last_read_status: row.try_get("last_read_status")?,
@@ -293,7 +296,7 @@ pub(crate) async fn install_local_mcp(
            transport='stdio',endpoint=NULL,token_file=NULL,assigned_actor=EXCLUDED.assigned_actor, \
            assigned_work_id=EXCLUDED.assigned_work_id,broker_aware=EXCLUDED.broker_aware, \
            enabled=TRUE,allowed_tools='[]'::jsonb,observed_tools='[]'::jsonb, \
-           tool_contract_digest=NULL,last_observed_at=NULL,last_success_at=NULL,last_read_status=NULL, \
+           tool_contract_digest=NULL,server_version=NULL,last_observed_at=NULL,last_success_at=NULL,last_read_status=NULL, \
            failure=NULL,updated_at=now()",
     )
     .bind(company)
@@ -358,19 +361,20 @@ pub(crate) async fn install_host_mcp(
     sqlx::query(
         "INSERT INTO restless_authority.local_mcp_servers \
            (company,name,transport,command,args,endpoint,token_file,assigned_actor,assigned_work_id, \
-            broker_aware,enabled,allowed_tools,observed_tools,tool_contract_digest,last_observed_at,created_by) \
-         VALUES ($1,$2,'host_http','','[]'::jsonb,$3,$4,$5,$6,FALSE,TRUE,$7,$8,$9,now(),'owner') \
+            broker_aware,enabled,allowed_tools,observed_tools,tool_contract_digest,server_version,last_observed_at,created_by) \
+         VALUES ($1,$2,'host_http','','[]'::jsonb,$3,$4,$5,$6,FALSE,TRUE,$7,$8,$9,$10,now(),'owner') \
          ON CONFLICT (company,name) DO UPDATE SET transport='host_http',command='',args='[]'::jsonb, \
            endpoint=EXCLUDED.endpoint,token_file=EXCLUDED.token_file,assigned_actor=EXCLUDED.assigned_actor, \
            assigned_work_id=EXCLUDED.assigned_work_id,broker_aware=FALSE,enabled=TRUE, \
            allowed_tools=EXCLUDED.allowed_tools,observed_tools=EXCLUDED.observed_tools, \
-           tool_contract_digest=EXCLUDED.tool_contract_digest,last_observed_at=now(), \
+           tool_contract_digest=EXCLUDED.tool_contract_digest,server_version=EXCLUDED.server_version,last_observed_at=now(), \
            last_success_at=NULL,last_read_status=NULL,failure=NULL,updated_at=now()",
     )
     .bind(company).bind(name).bind(endpoint).bind(token_file).bind(actor).bind(work_id)
     .bind(serde_json::to_value(&allowed)?)
     .bind(serde_json::to_value(&probe.names)?)
     .bind(&probe.digest)
+    .bind(&probe.server_version)
     .execute(pool).await?;
     local_mcp_list(pool, company)
         .await?

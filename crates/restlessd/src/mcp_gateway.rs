@@ -48,6 +48,7 @@ const MAX_RESULT_BYTES: usize = 1024 * 1024;
 pub(crate) struct McpProbe {
     pub(crate) names: Vec<String>,
     pub(crate) digest: String,
+    pub(crate) server_version: String,
 }
 
 fn classify_read_status(result: &CallToolResult) -> String {
@@ -150,6 +151,15 @@ pub(crate) async fn probe_upstream(
         .await
         .context("host MCP handshake timed out")?
         .context("host MCP handshake failed")?;
+    let server_version = client
+        .peer_info()
+        .as_ref()
+        .and_then(|info| {
+            info.server_info
+                .as_ref()
+                .map(|server| server.version.clone())
+        })
+        .context("host MCP did not provide a server version")?;
     let tools = tokio::time::timeout(PROBE_TIMEOUT, client.list_all_tools())
         .await
         .context("host MCP tool discovery timed out")?
@@ -167,6 +177,7 @@ pub(crate) async fn probe_upstream(
     Ok(McpProbe {
         names: selected.iter().map(|tool| tool.name.to_string()).collect(),
         digest: format!("{:x}", Sha256::digest(&encoded)),
+        server_version,
     })
 }
 
@@ -216,6 +227,11 @@ impl ScopedMcp {
         let tools = tokio::time::timeout(PROBE_TIMEOUT, client.list_all_tools())
             .await
             .context("MCP discovery timeout")??;
+        let server_version = client.peer_info().as_ref().and_then(|info| {
+            info.server_info
+                .as_ref()
+                .map(|server| server.version.clone())
+        });
         let _ = client.cancel().await;
         let mut selected = tools
             .into_iter()
@@ -233,6 +249,9 @@ impl ScopedMcp {
         let digest = format!("{:x}", Sha256::digest(serde_json::to_vec(&selected)?));
         if self.connection.tool_contract_digest.as_deref() != Some(digest.as_str()) {
             bail!("permitted MCP tool definitions changed; owner must reinstall");
+        }
+        if server_version.as_deref() != self.connection.server_version.as_deref() {
+            bail!("MCP server version changed; owner must reinstall");
         }
         let names = selected
             .iter()
@@ -275,6 +294,15 @@ impl ScopedMcp {
         let client = tokio::time::timeout(PROBE_TIMEOUT, ().serve(transport(endpoint, token)))
             .await
             .context("MCP handshake timeout")??;
+        let server_version = client.peer_info().as_ref().and_then(|info| {
+            info.server_info
+                .as_ref()
+                .map(|server| server.version.clone())
+        });
+        if server_version.as_deref() != self.connection.server_version.as_deref() {
+            let _ = client.cancel().await;
+            bail!("MCP server version changed before invocation");
+        }
         let tools = tokio::time::timeout(PROBE_TIMEOUT, client.list_all_tools())
             .await
             .context("MCP discovery timeout")??;
