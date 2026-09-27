@@ -12,14 +12,21 @@ const out = process.env.RESTLESS_VERIFY_OUTPUT ?? '/tmp/restless-surfaces';
 const only = process.env.ROUTES?.split(',');
 const widths = (process.env.WIDTHS ?? '1440,1024,390').split(',').map(Number);
 const reduced = process.env.REDUCED === '1';
+const scheme = process.env.SCHEME === 'dark' ? 'dark' : 'light';
+/* Optional deep links for seeded data: WORK_ID and ROOM_ID. */
+const workId = process.env.WORK_ID;
+const roomId = process.env.ROOM_ID;
 
 const routes = [
 	['home', '/'],
 	['attention', `/${company}`],
 	['work', `/${company}/work`],
+	['work-board', `/${company}/work?lens=board`],
+	...(workId ? [['work-item', `/${company}/work/${workId}`]] : []),
 	['work-documents', `/${company}/work/documents`],
 	['people', `/${company}/people`],
 	['people-rooms', `/${company}/people/rooms`],
+	...(roomId ? [['people-room', `/${company}/people?room=${roomId}`]] : []),
 	['authority', `/${company}/authority`],
 	['company', `/${company}/company`],
 	['company-identity', `/${company}/company/identity`],
@@ -36,7 +43,8 @@ const routes = [
 	['company-computer', `/${company}/company/computer`],
 	['company-authority', `/${company}/company/authority`],
 	['account', '/account/settings'],
-	['connections', '/account/settings/connections']
+	['connections', '/account/settings/connections'],
+	['not-found', `/${company}/no-such-surface`]
 ].filter(([name]) => !only || only.includes(name));
 
 await fs.mkdir(out, { recursive: true });
@@ -51,6 +59,9 @@ try {
 		const context = await browser.newContext({
 			viewport: { width, height: width < 600 ? 844 : 900 },
 			deviceScaleFactor: width < 600 ? 2 : 1,
+			isMobile: width < 600,
+			hasTouch: width < 600,
+			colorScheme: scheme,
 			reducedMotion: reduced ? 'reduce' : 'no-preference'
 		});
 		for (const [name, path] of routes) {
@@ -77,9 +88,9 @@ try {
 					.map((el) => `${el.tagName.toLowerCase()}.${[...el.classList].join('.')}`);
 				return { scroll: doc.scrollWidth > doc.clientWidth + 1, wide };
 			});
-			const file = `${out}/${name}-${width}${reduced ? '-rm' : ''}.png`;
+			const file = `${out}/${name}-${width}-${scheme}${reduced ? '-rm' : ''}.png`;
 			await page.screenshot({ path: file });
-			report.push({ name, width, url: page.url().replace(origin, ''), errors, overflow });
+			report.push({ name, width, scheme, url: page.url().replace(origin, ''), errors, overflow });
 			await page.close();
 		}
 		await context.close();
