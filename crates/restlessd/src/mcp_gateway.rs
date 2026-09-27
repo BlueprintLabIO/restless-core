@@ -13,12 +13,12 @@ use std::time::Duration;
 
 use anyhow::{bail, Context as _, Result};
 use axum::{
-    body::Body,
+    body::{to_bytes, Body},
     extract::{ConnectInfo, DefaultBodyLimit, Path as AxumPath, State},
     http::{header::AUTHORIZATION, HeaderMap, Method, Request, StatusCode},
     response::{IntoResponse as _, Response},
     routing::any,
-    Router,
+    Json, Router,
 };
 use rmcp::{
     model::{
@@ -37,6 +37,7 @@ use rmcp::{
     RoleServer, ServerHandler, ServiceExt,
 };
 use sha2::{Digest as _, Sha256};
+use serde::Deserialize;
 use sqlx::PgPool;
 use tower::ServiceExt as _;
 
@@ -45,6 +46,15 @@ use crate::{capability::McpGrant, connected_tool::LocalMcpServer, Daemon};
 const PROBE_TIMEOUT: Duration = Duration::from_secs(12);
 const CALL_TIMEOUT: Duration = Duration::from_secs(90);
 const MAX_RESULT_BYTES: usize = 1024 * 1024;
+const MAX_FACADE_REQUEST_BYTES: usize = 16 * 1024;
+
+#[derive(Deserialize)]
+#[serde(tag = "operation", rename_all = "kebab-case", deny_unknown_fields)]
+enum ReadRequest {
+    MarketplaceSearch { query: String, limit: Option<u8> },
+    MarketplaceDetails { urls: Vec<String> },
+    GumtreeListing { url: String },
+}
 
 pub(crate) struct McpProbe {
     pub(crate) names: Vec<String>,
@@ -102,6 +112,83 @@ fn classify_read_status(result: &CallToolResult) -> String {
         return "complete".into();
     }
     "unverified".into()
+}
+
+fn valid_listing_url(raw: &str, site: &str) -> bool {
+    let Ok(url) = url::Url::parse(raw) else {
+        return false;
+    };
+    if url.scheme() != "https"
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.port().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return false;
+    }
+    let parts = url.path().split('/').collect::<Vec<_>>();
+    match site {
+        "facebook" => {
+            url.host_str() == Some("www.facebook.com")
+                && matches!(parts.as_slice(), ["", "marketplace", "item", id, ""] | ["", "marketplace", "item", id]
+                    if !id.is_empty() && id.len() <= 24 && id.bytes().all(|byte| byte.is_ascii_digit()))
+        }
+        "gumtree" => {
+            url.host_str() == Some("www.gumtree.com.au")
+                && matches!(parts.as_slice(), ["", "web", "listing", category, id]
+                    if !category.is_empty() && category.len() <= 64
+                        && category.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+                        && !id.is_empty() && id.len() <= 16 && id.bytes().all(|byte| byte.is_ascii_digit()))
+        }
+        _ => false,
+    }
+}
+
+fn read_request_params(request: ReadRequest) -> Result<CallToolRequestParams> {
+    let (name, arguments) = match request {
+        ReadRequest::MarketplaceSearch { query, limit } => {
+            let query = query.trim();
+            if query.is_empty()
+                || query.chars().count() > 120
+                || query.chars().any(char::is_control)
+                || !limit.is_none_or(|limit| (1..=24).contains(&limit))
+            {
+                bail!("invalid Marketplace search request");
+            }
+            (
+                "clapping_hands_marketplace_search",
+                serde_json::json!({"query":query,"limit":limit.unwrap_or(12)}),
+            )
+        }
+        ReadRequest::MarketplaceDetails { urls } => {
+            if !(1..=8).contains(&urls.len())
+                || !urls.iter().all(|url| valid_listing_url(url, "facebook"))
+                || urls.iter().collect::<std::collections::HashSet<_>>().len() != urls.len()
+            {
+                bail!("invalid Marketplace detail request");
+            }
+            (
+                "clapping_hands_marketplace_details",
+                serde_json::json!({"urls":urls}),
+            )
+        }
+        ReadRequest::GumtreeListing { url } => {
+            if !valid_listing_url(&url, "gumtree") {
+                bail!("invalid Gumtree listing request");
+            }
+            (
+                "clapping_hands_gumtree_public_listing",
+                serde_json::json!({"url":url}),
+            )
+        }
+    };
+    Ok(CallToolRequestParams::new(name).with_arguments(
+        arguments
+            .as_object()
+            .context("MCP facade arguments are not an object")?
+            .clone(),
+    ))
 }
 
 pub(crate) fn read_host_token(token_file: &str) -> Result<String> {
@@ -325,6 +412,17 @@ impl ScopedMcp {
             let _ = client.cancel().await;
             bail!("MCP tool contract changed before invocation");
         }
+        let enabled: Option<bool> = sqlx::query_scalar(
+            "SELECT enabled FROM restless_authority.local_mcp_servers WHERE company=$1 AND name=$2",
+        )
+        .bind(&self.company)
+        .bind(&self.connection.name)
+        .fetch_optional(&self.pool)
+        .await?;
+        if enabled != Some(true) || !running_attempt(&self.daemon, &self.grant).await {
+            let _ = client.cancel().await;
+            bail!("MCP grant was revoked before invocation");
+        }
         let result = tokio::select! {
             result = tokio::time::timeout(CALL_TIMEOUT, client.call_tool(params)) => Some(result),
             _ = self.await_revocation() => None,
@@ -443,6 +541,7 @@ impl ServerHandler for ScopedMcp {
 pub(crate) fn router(daemon: Arc<Daemon>) -> Router {
     Router::new()
         .route("/mcp/{company}/{name}", any(handle))
+        .route("/mcp-read/{company}/{name}", any(handle_read))
         .layer(DefaultBodyLimit::max(MAX_RESULT_BYTES))
         .with_state(daemon)
 }
@@ -454,58 +553,12 @@ async fn handle(
     headers: HeaderMap,
     request: Request<Body>,
 ) -> Response {
-    if !local_runtime_peer(peer.ip()) {
-        return StatusCode::FORBIDDEN.into_response();
-    }
     if request.method() != Method::POST || headers.contains_key("origin") {
         return StatusCode::METHOD_NOT_ALLOWED.into_response();
     }
-    let token = headers
-        .get(AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "));
-    let Some(token) = token else {
-        return StatusCode::UNAUTHORIZED.into_response();
-    };
-    let Ok(grant) = daemon.capabilities.verify_mcp(token) else {
-        return StatusCode::UNAUTHORIZED.into_response();
-    };
-    if grant.company != company || grant.name != name {
-        return StatusCode::FORBIDDEN.into_response();
-    }
-    let Some(connection) =
-        (match crate::connected_tool::local_mcp_list(daemon.authority.pool(), &company).await {
-            Ok(all) => all.into_iter().find(|item| item.name == name),
-            Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
-        })
-    else {
-        return StatusCode::NOT_FOUND.into_response();
-    };
-    if !connection.enabled
-        || connection.transport != "host_http"
-        || connection.assigned_actor != grant.actor
-        || connection.assigned_work_id != Some(grant.work_id)
-    {
-        return StatusCode::FORBIDDEN.into_response();
-    }
-    if crate::connected_tool::require_reviewed_host_read_profile(
-        &connection.name,
-        connection.endpoint.as_deref().unwrap_or_default(),
-        &connection.allowed_tools,
-    )
-    .is_err()
-    {
-        return StatusCode::FORBIDDEN.into_response();
-    }
-    if !running_attempt(&daemon, &grant).await {
-        return StatusCode::FORBIDDEN.into_response();
-    }
-    let scope = ScopedMcp {
-        pool: daemon.authority.pool().clone(),
-        company,
-        connection,
-        daemon,
-        grant,
+    let scope = match scoped_connection(daemon, peer, company, name, &headers).await {
+        Ok(scope) => scope,
+        Err(status) => return status.into_response(),
     };
     let mut config = StreamableHttpServerConfig::default();
     config.legacy_session_mode = false;
@@ -522,6 +575,109 @@ async fn handle(
         Ok(response) => response.into_response(),
         Err(_) => StatusCode::BAD_GATEWAY.into_response(),
     }
+}
+
+async fn handle_read(
+    State(daemon): State<Arc<Daemon>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    AxumPath((company, name)): AxumPath<(String, String)>,
+    headers: HeaderMap,
+    request: Request<Body>,
+) -> Response {
+    if request.method() != Method::POST || headers.contains_key("origin") {
+        return StatusCode::METHOD_NOT_ALLOWED.into_response();
+    }
+    let scope = match scoped_connection(daemon, peer, company, name, &headers).await {
+        Ok(scope) => scope,
+        Err(status) => return status.into_response(),
+    };
+    let body = match to_bytes(request.into_body(), MAX_FACADE_REQUEST_BYTES).await {
+        Ok(body) => body,
+        Err(_) => return StatusCode::PAYLOAD_TOO_LARGE.into_response(),
+    };
+    let params = match serde_json::from_slice::<ReadRequest>(&body)
+        .context("decode bounded MCP read request")
+        .and_then(read_request_params)
+    {
+        Ok(params) => params,
+        Err(_) => return StatusCode::BAD_REQUEST.into_response(),
+    };
+    tracing::info!(
+        company = %scope.company,
+        actor = %scope.grant.actor,
+        work_id = %scope.grant.work_id,
+        attempt_id = %scope.grant.attempt_id,
+        tool_name = %params.name,
+        "Core MCP read facade invoked"
+    );
+    match scope.invoke(params).await {
+        Ok(result) => Json(result).into_response(),
+        Err(error) => {
+            scope.record_failure("facade_read_failed").await;
+            tracing::warn!(company=%scope.company, name=%scope.connection.name,
+                "Core MCP read facade failed: {error:#}");
+            StatusCode::BAD_GATEWAY.into_response()
+        }
+    }
+}
+
+async fn scoped_connection(
+    daemon: Arc<Daemon>,
+    peer: SocketAddr,
+    company: String,
+    name: String,
+    headers: &HeaderMap,
+) -> std::result::Result<ScopedMcp, StatusCode> {
+    if !local_runtime_peer(peer.ip()) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let token = headers
+        .get(AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "));
+    let Some(token) = token else {
+        return Err(StatusCode::UNAUTHORIZED);
+    };
+    let Ok(grant) = daemon.capabilities.verify_mcp(token) else {
+        return Err(StatusCode::UNAUTHORIZED);
+    };
+    if grant.company != company || grant.name != name {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let Some(connection) =
+        (match crate::connected_tool::local_mcp_list(daemon.authority.pool(), &company).await {
+            Ok(all) => all.into_iter().find(|item| item.name == name),
+            Err(_) => return Err(StatusCode::SERVICE_UNAVAILABLE),
+        })
+    else {
+        return Err(StatusCode::NOT_FOUND);
+    };
+    if !connection.enabled
+        || connection.transport != "host_http"
+        || connection.assigned_actor != grant.actor
+        || connection.assigned_work_id != Some(grant.work_id)
+    {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    if crate::connected_tool::require_reviewed_host_read_profile(
+        &connection.name,
+        connection.endpoint.as_deref().unwrap_or_default(),
+        &connection.allowed_tools,
+    )
+    .is_err()
+    {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    if !running_attempt(&daemon, &grant).await {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    Ok(ScopedMcp {
+        pool: daemon.authority.pool().clone(),
+        company,
+        connection,
+        daemon,
+        grant,
+    })
 }
 
 fn local_runtime_peer(ip: IpAddr) -> bool {

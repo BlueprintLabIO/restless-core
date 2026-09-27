@@ -1595,6 +1595,24 @@ async fn relay_responses(
             .copied()
             .filter(|name| name.starts_with("mcp__"))
             .collect::<Vec<_>>();
+        let mcp_child_names = tools
+            .into_iter()
+            .flatten()
+            .filter(|tool| {
+                tool.get("type").and_then(serde_json::Value::as_str) == Some("namespace")
+                    && tool
+                        .get("name")
+                        .and_then(serde_json::Value::as_str)
+                        .is_some_and(|name| name.starts_with("mcp__"))
+            })
+            .flat_map(|tool| {
+                tool.get("tools")
+                    .and_then(serde_json::Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|child| child.get("name").and_then(serde_json::Value::as_str))
+            })
+            .collect::<Vec<_>>();
         tracing::info!(
             company = %grant.company,
             actor = %grant.actor,
@@ -1604,6 +1622,7 @@ async fn relay_responses(
             function_tool_count = types.iter().filter(|kind| **kind == "function").count(),
             mcp_descriptor_count = types.iter().filter(|kind| **kind == "mcp").count(),
             mcp_tool_names = ?mcp_names,
+            mcp_child_tool_names = ?mcp_child_names,
             tool_search_present = types.contains(&"tool_search")
                 || names.iter().any(|name| name.contains("tool_search")),
             "Runtime Responses tool catalogue"
@@ -2398,6 +2417,24 @@ impl MeteredStream {
                 }
             }
             MeteringProtocol::OpenAiResponses => {
+                if self.request.work_id.is_some()
+                    && event.get("type").and_then(serde_json::Value::as_str)
+                        == Some("response.output_item.done")
+                    && event.pointer("/item/type").and_then(serde_json::Value::as_str)
+                        == Some("function_call")
+                {
+                    tracing::info!(
+                        company = %self.request.company,
+                        actor = %self.request.actor,
+                        work_id = ?self.request.work_id,
+                        attempt_id = ?self.request.attempt_id,
+                        namespace = ?event.pointer("/item/namespace")
+                            .and_then(serde_json::Value::as_str),
+                        tool_name = ?event.pointer("/item/name")
+                            .and_then(serde_json::Value::as_str),
+                        "Runtime Responses function call"
+                    );
+                }
                 match event.get("type").and_then(serde_json::Value::as_str) {
                     Some("response.completed") => {
                         self.record_responses_terminal(event.pointer("/response/usage"));
