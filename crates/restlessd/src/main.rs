@@ -1740,33 +1740,6 @@ async fn send_mandated_email(
     }))
 }
 
-async fn validate_local_mcp_work(org: &OrgIntel, actor: &str, work_id: uuid::Uuid) -> Result<()> {
-    if org.active_actor(actor).await?.is_none() {
-        anyhow::bail!("local MCP actor {actor:?} is not active");
-    }
-    let work = org
-        .get_work(work_id)
-        .await?
-        .context("local MCP Work not found")?;
-    if work.owner_id != actor
-        || !matches!(
-            work.status,
-            restless_orgintel::WorkStatus::Proposed | restless_orgintel::WorkStatus::Blocked
-        )
-    {
-        anyhow::bail!("local MCP installation requires proposed or blocked Work owned by the assigned actor");
-    }
-    if org
-        .list_running_work_attempts()
-        .await?
-        .iter()
-        .any(|attempt| attempt.work_id == work_id)
-    {
-        anyhow::bail!("interrupt the running Work Attempt before changing its MCP tools");
-    }
-    Ok(())
-}
-
 async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Response {
     if request.cmd == "appliance-drain" {
         daemon.lifecycle.begin_drain();
@@ -2841,7 +2814,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 let work_id = request.connected_tool.work_id.as_deref()
                     .context("local MCP install needs Work")?.parse::<uuid::Uuid>()?;
                 let org = daemon.orgintel.get(company).await?;
-                validate_local_mcp_work(&org, actor, work_id).await?;
+                connected_tool::validate_assignable_mcp_work(&org, actor, work_id).await?;
                 let server = connected_tool::install_local_mcp(
                     daemon.authority.pool(),
                     company,
@@ -2878,10 +2851,10 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 let work_id = request.connected_tool.work_id.as_deref()
                     .context("host MCP install needs Work")?.parse::<uuid::Uuid>()?;
                 let org = daemon.orgintel.get(company).await?;
-                validate_local_mcp_work(&org, actor, work_id).await?;
+                connected_tool::validate_assignable_mcp_work(&org, actor, work_id).await?;
                 let server = connected_tool::install_host_mcp(
                     daemon.authority.pool(), company, name, endpoint, token_file,
-                    actor, work_id, &request.local_mcp.allowed_tools,
+                    actor, work_id, &request.local_mcp.allowed_tools, None,
                 ).await?;
                 org.emit_event("local_mcp_installed", Some("owner"), serde_json::json!({
                     "name": server.name, "transport": "host_http", "assigned_actor": actor,
@@ -2910,7 +2883,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 let work_id = request.connected_tool.work_id.as_deref()
                     .context("public MCP install needs Work")?.parse::<uuid::Uuid>()?;
                 let org = daemon.orgintel.get(company).await?;
-                validate_local_mcp_work(&org, actor, work_id).await?;
+                connected_tool::validate_assignable_mcp_work(&org, actor, work_id).await?;
                 let server = connected_tool::install_public_http_read(
                     daemon.authority.pool(), company, profile, name, endpoint,
                     repository, actor, work_id, &request.local_mcp.allowed_tools,
@@ -2943,7 +2916,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 let work_id = request.connected_tool.work_id.as_deref()
                     .context("stdio MCP install needs Work")?.parse::<uuid::Uuid>()?;
                 let org = daemon.orgintel.get(company).await?;
-                validate_local_mcp_work(&org, actor, work_id).await?;
+                connected_tool::validate_assignable_mcp_work(&org, actor, work_id).await?;
                 let server = connected_tool::install_brokered_stdio_mcp(
                     daemon.authority.pool(), company, name, bundle, read_root, actor, work_id,
                 ).await?;

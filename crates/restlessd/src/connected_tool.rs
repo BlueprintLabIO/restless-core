@@ -337,6 +337,28 @@ pub(crate) async fn local_mcp_list(pool: &PgPool, company: &str) -> Result<Vec<L
     .collect()
 }
 
+/// Installing or moving an MCP assignment requires a fresh, non-running Work
+/// owned by the actor who will receive the next Attempt grant.
+pub(crate) async fn validate_assignable_mcp_work(
+    org: &OrgIntel,
+    actor: &str,
+    work_id: Uuid,
+) -> Result<()> {
+    if org.active_actor(actor).await?.is_none() {
+        bail!("local MCP actor {actor:?} is not active");
+    }
+    let work = org.get_work(work_id).await?.context("local MCP Work not found")?;
+    if work.owner_id != actor
+        || !matches!(work.status, restless_orgintel::WorkStatus::Proposed | restless_orgintel::WorkStatus::Blocked)
+    {
+        bail!("local MCP installation requires proposed or blocked Work owned by the assigned actor");
+    }
+    if org.list_running_work_attempts().await?.iter().any(|attempt| attempt.work_id == work_id) {
+        bail!("interrupt the running Work Attempt before changing its MCP tools");
+    }
+    Ok(())
+}
+
 pub(crate) async fn list_mcp_read_receipts(
     pool: &PgPool,
     company: &str,
@@ -437,6 +459,7 @@ pub(crate) async fn install_host_mcp(
     actor: &str,
     work_id: Uuid,
     allowed_tools: &[String],
+    expected_policy_revision: Option<Uuid>,
 ) -> Result<LocalMcpServer> {
     validate_name(name)?;
     validate_host_endpoint(endpoint)?;
@@ -466,7 +489,7 @@ pub(crate) async fn install_host_mcp(
         bail!("MCP name {name:?} is already used by a provider connection");
     }
     let probe = crate::mcp_gateway::probe_upstream(endpoint, token_file, &allowed).await?;
-    sqlx::query(
+    let updated = sqlx::query(
         "INSERT INTO restless_authority.local_mcp_servers \
            (company,name,transport,command,args,endpoint,token_file,read_profile,assigned_actor,assigned_work_id, \
             broker_aware,enabled,allowed_tools,observed_tools,tool_contract_digest,server_version,last_observed_at,created_by) \
@@ -476,14 +499,19 @@ pub(crate) async fn install_host_mcp(
            assigned_work_id=EXCLUDED.assigned_work_id,broker_aware=FALSE,enabled=TRUE, \
            allowed_tools=EXCLUDED.allowed_tools,observed_tools=EXCLUDED.observed_tools, \
            tool_contract_digest=EXCLUDED.tool_contract_digest,policy_revision=gen_random_uuid(),server_version=EXCLUDED.server_version,last_observed_at=now(), \
-           last_success_at=NULL,last_read_status=NULL,last_read_site=NULL,last_read_tool=NULL,failure=NULL,updated_at=now()",
+           last_success_at=NULL,last_read_status=NULL,last_read_site=NULL,last_read_tool=NULL,failure=NULL,updated_at=now() \
+         WHERE $11::uuid IS NULL OR local_mcp_servers.policy_revision=$11",
     )
     .bind(company).bind(name).bind(endpoint).bind(token_file).bind(actor).bind(work_id)
     .bind(serde_json::to_value(&allowed)?)
     .bind(serde_json::to_value(&probe.names)?)
     .bind(&probe.digest)
     .bind(&probe.server_version)
-    .execute(pool).await?;
+    .bind(expected_policy_revision)
+    .execute(pool).await?.rows_affected();
+    if updated != 1 {
+        bail!("MCP connection changed during re-probe; refresh before retrying");
+    }
     local_mcp_list(pool, company)
         .await?
         .into_iter()

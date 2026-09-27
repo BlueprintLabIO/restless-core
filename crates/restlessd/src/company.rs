@@ -1173,7 +1173,11 @@ async fn resources(
             observed_at: connection.last_observed_at.unwrap_or(observed_at),
             detail: Some(match status {
                 "ready" if public_read => "Public MCP tool discovered. A returned wiki structure is unverified provider content.",
+                "ready" if connection.transport == "broker_stdio" && connection.last_success_at.is_some() =>
+                    "Sandboxed filesystem MCP completed a live Staff read. Review Core receipts for the exact call.",
                 "ready" if connection.transport == "broker_stdio" => "Sandboxed filesystem MCP connected. A live Staff Attempt read is needed to verify this connection.",
+                "ready" if connection.last_success_at.is_some() =>
+                    "MCP tool discovery and a live read were observed. Review Core receipts for the exact site and outcome.",
                 "ready" => "MCP connection reached and tools discovered. Site login is only verified by a successful live read.",
                 "disabled" => "Owner disabled this MCP connection; new calls are rejected.",
                 "degraded" if public_read => "Public MCP connection or latest tool call needs attention.",

@@ -569,6 +569,12 @@ struct CompanyRecoveryInput {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CompanyMcpRepinInput {
+    work_id: uuid::Uuid,
+}
+
+#[derive(Debug, Deserialize)]
 struct AuthorityOwnerTransferInput {
     to_actor_id: String,
     rationale: String,
@@ -1487,6 +1493,14 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route(
             "/companies/{company}/company/mcp/{name}/disable",
             post(disable_company_mcp),
+        )
+        .route(
+            "/companies/{company}/company/mcp/{name}/receipts",
+            get(company_mcp_receipts),
+        )
+        .route(
+            "/companies/{company}/company/mcp/{name}/repin",
+            post(repin_company_mcp),
         )
         .route(
             "/companies/{company}/company/authority-owner",
@@ -5721,6 +5735,95 @@ async fn disable_company_mcp(
             .await;
     }
     Json(server).into_response()
+}
+
+async fn company_mcp_receipts(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, name)): AxumPath<(String, String)>,
+) -> impl IntoResponse {
+    if runtime::CompanyConfig::load(&state.daemon.root, &company).is_err() {
+        return api_error(StatusCode::NOT_FOUND, "company", "company does not exist");
+    }
+    if let Err(refusal) = require_authority_owner(&state, &company, &principal).await {
+        return refusal;
+    }
+    let servers = match crate::connected_tool::local_mcp_list(state.daemon.authority.pool(), &company).await {
+        Ok(servers) => servers,
+        Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "local_mcp", "MCP connections are unavailable"),
+    };
+    if !servers.iter().any(|server| server.name == name
+        && matches!(server.transport.as_str(), "host_http" | "public_http" | "broker_stdio")) {
+        return api_error(StatusCode::NOT_FOUND, "local_mcp", "brokered MCP connection not found");
+    }
+    match crate::connected_tool::list_mcp_read_receipts(state.daemon.authority.pool(), &company, Some(&name)).await {
+        Ok(receipts) => Json(receipts).into_response(),
+        Err(_) => api_error(StatusCode::SERVICE_UNAVAILABLE, "local_mcp", "Core read receipts are unavailable"),
+    }
+}
+
+/// The browser selects only Work. Core retains the private bearer-file path,
+/// verifies the saved CH profile, probes the real service, and rotates the pin.
+async fn repin_company_mcp(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, name)): AxumPath<(String, String)>,
+    Json(input): Json<CompanyMcpRepinInput>,
+) -> impl IntoResponse {
+    if runtime::CompanyConfig::load(&state.daemon.root, &company).is_err() {
+        return api_error(StatusCode::NOT_FOUND, "company", "company does not exist");
+    }
+    if let Err(refusal) = require_authority_owner(&state, &company, &principal).await {
+        return refusal;
+    }
+    let servers = match crate::connected_tool::local_mcp_list(state.daemon.authority.pool(), &company).await {
+        Ok(servers) => servers,
+        Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "local_mcp", "MCP connections are unavailable"),
+    };
+    let Some(server) = servers.into_iter().find(|server| server.name == name) else {
+        return api_error(StatusCode::NOT_FOUND, "local_mcp", "brokered MCP connection not found");
+    };
+    if name != "clapping-hands" || !server.enabled || server.transport != "host_http"
+        || crate::connected_tool::reviewed_http_read_profile(&server).is_err() {
+        return api_error(StatusCode::CONFLICT, "local_mcp", "this connection is not an enabled reviewed Clapping Hands read");
+    }
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "work", "company Work is unavailable"),
+    };
+    let work = match org.get_work(input.work_id).await {
+        Ok(Some(work)) => work,
+        Ok(None) => return api_error(StatusCode::NOT_FOUND, "work", "selected Work does not exist"),
+        Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "work", "company Work is unavailable"),
+    };
+    if let Err(error) = crate::connected_tool::validate_assignable_mcp_work(&org, &work.owner_id, input.work_id).await {
+        return api_error(StatusCode::CONFLICT, "work", format!("{error:#}"));
+    }
+    let (Some(endpoint), Some(token_file)) = (server.endpoint.as_deref(), server.token_file.as_deref()) else {
+        return api_error(StatusCode::CONFLICT, "local_mcp", "reviewed Clapping Hands configuration is incomplete");
+    };
+    let updated = match crate::connected_tool::install_host_mcp(
+        state.daemon.authority.pool(), &company, &name, endpoint, token_file,
+        &work.owner_id, input.work_id, &server.allowed_tools, Some(server.policy_revision),
+    ).await {
+        Ok(updated) => updated,
+        Err(_) => return api_error(StatusCode::BAD_GATEWAY, "local_mcp", "Clapping Hands re-probe or re-pin could not be confirmed; refresh the connection before retrying"),
+    };
+    if org.emit_event("local_mcp_installed", Some(principal.actor_id()), serde_json::json!({
+        "name": updated.name, "transport": "host_http", "assigned_actor": updated.assigned_actor,
+        "work_id": updated.assigned_work_id, "allowed_tools": updated.allowed_tools,
+        "tool_contract_digest": updated.tool_contract_digest,
+    })).await.is_err() {
+        tracing::warn!(%company, connection = %name, "MCP re-pin Work event was not recorded");
+    }
+    Json(serde_json::json!({
+        "name": updated.name,
+        "assigned_actor": updated.assigned_actor,
+        "work_id": updated.assigned_work_id,
+        "tool_contract_digest": updated.tool_contract_digest,
+        "policy_revision": updated.policy_revision,
+        "last_observed_at": updated.last_observed_at,
+    })).into_response()
 }
 
 #[derive(Debug, Serialize)]
