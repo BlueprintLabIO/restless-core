@@ -28,7 +28,10 @@ They need migration before Core can make a general security or audit claim.
    endpoint, browser debugger, credentials, or refresh tokens.
 3. Core checks the live Attempt and current owner policy on every discovery
    and call. It checks the pinned upstream tool contract before invocation,
-   bounds runtime and result size, and records a typed outcome. Revocation
+   bounds runtime and result size, and records a typed outcome. A durable,
+   Core-authored call receipt should bind the actor, Work, Attempt, connection,
+   tool, pin, status, duration, and request/result hashes without copying
+   upstream secrets or arbitrary private response bodies. Revocation
    prevents new calls and stops waiting on in-flight reads, while marking
    their external outcome uncertain if necessary.
 4. Effectful tools require a separate Restless effect permit for an exact
@@ -75,7 +78,12 @@ tool returned `complete`, displayed ask `AU$450`, `document-replay`, and an
 observation at `2026-09-27T16:05:21.305Z`; provider wall time was 6,038 ms.
 This verifies the native model-to-Core-to-CH read path for that Attempt. It
 does not verify listing availability, GPU condition, cooler noise, or a
-general MCP transport migration. The compatibility `ch-read.mjs` command
+general MCP transport migration. The Attempt later blocked while trying to
+write its report because its advertised `apply_patch` tool was unavailable;
+the model tool call and Core log remain independently observable. Core's
+current latest-status field is not a durable per-call receipt, so this
+provenance gap remains until broker-owned receipts are released. The
+compatibility `ch-read.mjs` command
 remains available for recovery, through the *same Core broker* and Attempt
 grant, but its use must be reported separately from native MCP calls.
 
