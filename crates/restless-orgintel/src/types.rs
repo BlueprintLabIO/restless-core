@@ -1107,6 +1107,18 @@ pub struct OpportunityWorkLink {
     pub source_scheduled_for: Option<DateTime<Utc>>,
 }
 
+/// Live provenance for one Work commissioned atomically from a recurring
+/// Opportunity. Authority must still separately check its own owner policy
+/// and the running Attempt before granting any external read.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct RecurringWorkLineage {
+    pub opportunity_id: Uuid,
+    pub schedule_id: Uuid,
+    pub scheduled_for: DateTime<Utc>,
+    pub responsibility_id: Uuid,
+    pub responsibility_version: i32,
+}
+
 #[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
 pub struct ScheduleOccurrenceRow {
     pub schedule_id: Uuid,

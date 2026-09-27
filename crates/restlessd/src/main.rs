@@ -2803,6 +2803,68 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 Err(error) => Response::err(format!("{error:#}")),
             }
         }
+        "local-mcp-recurring" => {
+            let result = async {
+                let name = request.connected_tool.tool_name.as_deref();
+                let mut connections = connected_tool::local_mcp_list(daemon.authority.pool(), company).await?;
+                if let Some(name) = name {
+                    connected_tool::validate_name(name)?;
+                    connections.retain(|connection| connection.name == name);
+                }
+                let policies = connected_tool::recurring_mcp_policies(
+                    daemon.authority.pool(), company, name,
+                ).await?;
+                Ok::<_, anyhow::Error>(serde_json::json!({
+                    "connections": connections,
+                    "policies": policies,
+                }))
+            }.await;
+            match result {
+                Ok(value) => Response::ok(value),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "local-mcp-approve-recurring" => {
+            let result = async {
+                let name = request.connected_tool.tool_name.as_deref()
+                    .context("recurring CH approval needs connection name")?;
+                let schedule_id = request.orgintel.schedule_id.as_deref()
+                    .context("recurring CH approval needs schedule UUID")?
+                    .parse::<uuid::Uuid>()?;
+                let responsibility_id = request.common.responsibility_id.as_deref()
+                    .context("recurring CH approval needs responsibility UUID")?
+                    .parse::<uuid::Uuid>()?;
+                let version = request.common.version
+                    .context("recurring CH approval needs responsibility version")?;
+                let actor = request.connected_tool.assigned_actor.as_deref()
+                    .context("recurring CH approval needs Staff actor")?;
+                let org = daemon.orgintel.get(company).await?;
+                connected_tool::approve_recurring_ch_policy(
+                    daemon.authority.pool(), &org, company, name,
+                    schedule_id, responsibility_id, version, actor,
+                ).await
+            }.await;
+            match result {
+                Ok(policy) => Response::ok_serialized(policy),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "local-mcp-revoke-recurring" => {
+            let result = async {
+                let name = request.connected_tool.tool_name.as_deref()
+                    .context("recurring CH revoke needs connection name")?;
+                let schedule_id = request.orgintel.schedule_id.as_deref()
+                    .context("recurring CH revoke needs schedule UUID")?
+                    .parse::<uuid::Uuid>()?;
+                connected_tool::revoke_recurring_ch_policy(
+                    daemon.authority.pool(), company, name, schedule_id,
+                ).await
+            }.await;
+            match result {
+                Ok(policy) => Response::ok_serialized(policy),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
         "local-mcp-install" => {
             let result = async {
                 let name = request.connected_tool.tool_name.as_deref()

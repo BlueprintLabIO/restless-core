@@ -141,6 +141,29 @@ pub(crate) struct McpReadReceipt {
     observed_at: DateTime<Utc>,
     wall_ms: Option<i64>,
     error_class: Option<String>,
+    schedule_id: Option<Uuid>,
+    opportunity_id: Option<Uuid>,
+    responsibility_id: Option<Uuid>,
+    responsibility_version: Option<i32>,
+    recurring_policy_revision: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct RecurringMcpPolicy {
+    pub(crate) connection_name: String,
+    pub(crate) schedule_id: Uuid,
+    pub(crate) responsibility_id: Uuid,
+    pub(crate) responsibility_version: i32,
+    pub(crate) assigned_actor: String,
+    pub(crate) enabled: bool,
+    pub(crate) allowed_tools: Vec<String>,
+    pub(crate) server_version: String,
+    pub(crate) tool_contract_digest: String,
+    pub(crate) endpoint: String,
+    pub(crate) connection_policy_revision: Uuid,
+    pub(crate) policy_revision: Uuid,
+    pub(crate) approved_at: DateTime<Utc>,
+    pub(crate) revoked_at: Option<DateTime<Utc>>,
 }
 
 pub(crate) async fn ensure_schema(pool: &PgPool) -> Result<()> {
@@ -206,6 +229,21 @@ pub(crate) async fn ensure_schema(pool: &PgPool) -> Result<()> {
     .await
     .context("add broker-aware local MCP opt-in")?;
     sqlx::query(
+        "CREATE TABLE IF NOT EXISTS restless_authority.mcp_recurring_read_policies (\
+           company TEXT NOT NULL, connection_name TEXT NOT NULL, schedule_id UUID NOT NULL, \
+           responsibility_id UUID NOT NULL, responsibility_version INTEGER NOT NULL, \
+           assigned_actor TEXT NOT NULL, enabled BOOLEAN NOT NULL DEFAULT FALSE, \
+           allowed_tools JSONB NOT NULL, server_version TEXT NOT NULL, \
+           tool_contract_digest TEXT NOT NULL, endpoint TEXT NOT NULL, \
+           connection_policy_revision UUID NOT NULL, policy_revision UUID NOT NULL DEFAULT gen_random_uuid(), \
+           approved_at TIMESTAMPTZ NOT NULL DEFAULT now(), revoked_at TIMESTAMPTZ, \
+           PRIMARY KEY (company, connection_name, schedule_id)\
+         )",
+    )
+    .execute(pool)
+    .await
+    .context("create recurring MCP read policies")?;
+    sqlx::query(
         "CREATE TABLE IF NOT EXISTS restless_authority.mcp_read_receipts (\
            id UUID PRIMARY KEY, call_id UUID NOT NULL, \
            phase TEXT NOT NULL CHECK (phase IN ('started','terminal')), \
@@ -216,6 +254,8 @@ pub(crate) async fn ensure_schema(pool: &PgPool) -> Result<()> {
            status TEXT NOT NULL CHECK (status IN ('started','complete','tool_error', \
              'response_observed_unverified','outcome_unknown','not_invoked')), \
            provider_status TEXT, \
+           schedule_id UUID, opportunity_id UUID, responsibility_id UUID, \
+           responsibility_version INTEGER, recurring_policy_revision UUID, \
            observed_at TIMESTAMPTZ NOT NULL DEFAULT now(), \
            wall_ms BIGINT, error_class TEXT, UNIQUE(call_id, phase)\
          )",
@@ -225,7 +265,12 @@ pub(crate) async fn ensure_schema(pool: &PgPool) -> Result<()> {
     .context("create Core MCP read receipts")?;
     sqlx::query(
         "ALTER TABLE restless_authority.mcp_read_receipts \
-         ADD COLUMN IF NOT EXISTS provider_status TEXT",
+         ADD COLUMN IF NOT EXISTS provider_status TEXT, \
+         ADD COLUMN IF NOT EXISTS schedule_id UUID, \
+         ADD COLUMN IF NOT EXISTS opportunity_id UUID, \
+         ADD COLUMN IF NOT EXISTS responsibility_id UUID, \
+         ADD COLUMN IF NOT EXISTS responsibility_version INTEGER, \
+         ADD COLUMN IF NOT EXISTS recurring_policy_revision UUID",
     )
     .execute(pool)
     .await
@@ -346,6 +391,194 @@ pub(crate) async fn local_mcp_list(pool: &PgPool, company: &str) -> Result<Vec<L
     .collect()
 }
 
+pub(crate) async fn recurring_mcp_policies(
+    pool: &PgPool,
+    company: &str,
+    name: Option<&str>,
+) -> Result<Vec<RecurringMcpPolicy>> {
+    if let Some(name) = name {
+        validate_name(name)?;
+    }
+    sqlx::query(
+        "SELECT connection_name,schedule_id,responsibility_id,responsibility_version,assigned_actor, \
+                enabled,allowed_tools,server_version,tool_contract_digest,endpoint, \
+                connection_policy_revision,policy_revision,approved_at,revoked_at \
+         FROM restless_authority.mcp_recurring_read_policies \
+         WHERE company=$1 AND ($2::text IS NULL OR connection_name=$2) \
+         ORDER BY connection_name,schedule_id",
+    )
+    .bind(company)
+    .bind(name)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|row| {
+        Ok(RecurringMcpPolicy {
+            connection_name: row.try_get("connection_name")?,
+            schedule_id: row.try_get("schedule_id")?,
+            responsibility_id: row.try_get("responsibility_id")?,
+            responsibility_version: row.try_get("responsibility_version")?,
+            assigned_actor: row.try_get("assigned_actor")?,
+            enabled: row.try_get("enabled")?,
+            allowed_tools: serde_json::from_value(row.try_get("allowed_tools")?)?,
+            server_version: row.try_get("server_version")?,
+            tool_contract_digest: row.try_get("tool_contract_digest")?,
+            endpoint: row.try_get("endpoint")?,
+            connection_policy_revision: row.try_get("connection_policy_revision")?,
+            policy_revision: row.try_get("policy_revision")?,
+            approved_at: row.try_get("approved_at")?,
+            revoked_at: row.try_get("revoked_at")?,
+        })
+    })
+    .collect()
+}
+
+pub(crate) fn reviewed_recurring_ch_connection(server: &LocalMcpServer) -> Result<()> {
+    if !server.enabled
+        || server.transport != "host_http"
+        || server.read_profile.as_deref() != Some("clapping_hands_v1")
+        || server.assigned_work_id.is_none()
+        || !server
+            .allowed_tools
+            .iter()
+            .map(String::as_str)
+            .eq(CLAPPING_HANDS_BATCH_READ_TOOLS)
+        || server.server_version.as_deref().is_none_or(str::is_empty)
+        || server.tool_contract_digest.as_deref().is_none_or(str::is_empty)
+    {
+        bail!("recurring MCP permits only the enabled reviewed four-tool Clapping Hands read profile");
+    }
+    reviewed_http_read_profile(server)?;
+    Ok(())
+}
+
+pub(crate) fn recurring_policy_matches_connection(
+    policy: &RecurringMcpPolicy,
+    server: &LocalMcpServer,
+) -> bool {
+    policy.enabled
+        && policy.connection_name == server.name
+        && policy.assigned_actor == server.assigned_actor
+        && policy.connection_policy_revision == server.policy_revision
+        && policy.endpoint == server.endpoint.as_deref().unwrap_or_default()
+        && policy.allowed_tools == server.allowed_tools
+        && Some(policy.server_version.as_str()) == server.server_version.as_deref()
+        && Some(policy.tool_contract_digest.as_str()) == server.tool_contract_digest.as_deref()
+        && reviewed_recurring_ch_connection(server).is_ok()
+}
+
+pub(crate) async fn approve_recurring_ch_policy(
+    pool: &PgPool,
+    org: &OrgIntel,
+    company: &str,
+    name: &str,
+    schedule_id: Uuid,
+    responsibility_id: Uuid,
+    responsibility_version: i32,
+    actor: &str,
+) -> Result<RecurringMcpPolicy> {
+    validate_name(name)?;
+    validate_actor(actor)?;
+    let server = local_mcp_list(pool, company)
+        .await?
+        .into_iter()
+        .find(|server| server.name == name)
+        .context("reviewed CH connection not found")?;
+    reviewed_recurring_ch_connection(&server)?;
+    if server.assigned_actor != actor {
+        bail!("recurring policy actor must match the existing CH connection actor");
+    }
+    let staff = org.active_actor(actor).await?.context("recurring policy Staff actor is inactive")?;
+    if staff.kind != "staff" || staff.actor_class != "agent" {
+        bail!("recurring MCP policy requires an active Staff actor");
+    }
+    let schedule = org.get_schedule(schedule_id).await?.context("recurring schedule not found")?;
+    if schedule.cancelled_at.is_some()
+        || schedule.recurrence.is_none()
+        || schedule.work_id.is_some()
+        || schedule.responsibility_id != Some(responsibility_id)
+        || schedule.responsibility_version != Some(responsibility_version)
+    {
+        bail!("schedule is not an active recurring binding to that immutable responsibility version");
+    }
+    let endpoint = server.endpoint.as_deref().context("CH endpoint missing")?;
+    let token_file = server.token_file.as_deref().context("CH host token missing")?;
+    let observed = crate::mcp_gateway::probe_upstream(endpoint, token_file, &server.allowed_tools).await?;
+    if Some(observed.server_version.as_str()) != server.server_version.as_deref()
+        || Some(observed.digest.as_str()) != server.tool_contract_digest.as_deref()
+    {
+        bail!("CH tool contract changed; inspect and re-pin the connection before recurring approval");
+    }
+    let mut tx = pool.begin().await?;
+    let still_pinned: Option<Uuid> = sqlx::query_scalar(
+        "SELECT policy_revision FROM restless_authority.local_mcp_servers \
+         WHERE company=$1 AND name=$2 AND enabled=TRUE AND transport='host_http' \
+           AND read_profile='clapping_hands_v1' AND assigned_actor=$3 \
+           AND endpoint=$4 AND token_file=$5 AND allowed_tools=$6 \
+           AND server_version=$7 AND tool_contract_digest=$8 AND policy_revision=$9 \
+         FOR SHARE",
+    )
+    .bind(company)
+    .bind(name)
+    .bind(actor)
+    .bind(endpoint)
+    .bind(token_file)
+    .bind(serde_json::json!(server.allowed_tools))
+    .bind(&observed.server_version)
+    .bind(&observed.digest)
+    .bind(server.policy_revision)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if still_pinned != Some(server.policy_revision) {
+        bail!("CH connection changed during recurring approval");
+    }
+    sqlx::query(
+        "INSERT INTO restless_authority.mcp_recurring_read_policies \
+         (company,connection_name,schedule_id,responsibility_id,responsibility_version, \
+          assigned_actor,enabled,allowed_tools,server_version,tool_contract_digest,endpoint, \
+          connection_policy_revision,policy_revision,approved_at,revoked_at) \
+         VALUES ($1,$2,$3,$4,$5,$6,TRUE,$7,$8,$9,$10,$11,gen_random_uuid(),now(),NULL) \
+         ON CONFLICT (company,connection_name,schedule_id) DO UPDATE SET \
+           responsibility_id=EXCLUDED.responsibility_id, \
+           responsibility_version=EXCLUDED.responsibility_version, \
+           assigned_actor=EXCLUDED.assigned_actor,enabled=TRUE, \
+           allowed_tools=EXCLUDED.allowed_tools,server_version=EXCLUDED.server_version, \
+           tool_contract_digest=EXCLUDED.tool_contract_digest,endpoint=EXCLUDED.endpoint, \
+           connection_policy_revision=EXCLUDED.connection_policy_revision, \
+           policy_revision=gen_random_uuid(),approved_at=now(),revoked_at=NULL",
+    )
+    .bind(company).bind(name).bind(schedule_id).bind(responsibility_id)
+    .bind(responsibility_version).bind(actor)
+    .bind(serde_json::json!(server.allowed_tools)).bind(&observed.server_version)
+    .bind(&observed.digest).bind(endpoint).bind(server.policy_revision)
+    .execute(&mut *tx).await?;
+    tx.commit().await?;
+    recurring_mcp_policies(pool, company, Some(name)).await?
+        .into_iter().find(|policy| policy.schedule_id == schedule_id)
+        .context("approved recurring policy disappeared")
+}
+
+pub(crate) async fn revoke_recurring_ch_policy(
+    pool: &PgPool,
+    company: &str,
+    name: &str,
+    schedule_id: Uuid,
+) -> Result<RecurringMcpPolicy> {
+    validate_name(name)?;
+    let affected = sqlx::query(
+        "UPDATE restless_authority.mcp_recurring_read_policies \
+         SET enabled=FALSE,policy_revision=gen_random_uuid(),revoked_at=now() \
+         WHERE company=$1 AND connection_name=$2 AND schedule_id=$3",
+    )
+    .bind(company).bind(name).bind(schedule_id).execute(pool).await?.rows_affected();
+    if affected != 1 {
+        bail!("recurring CH policy not found");
+    }
+    recurring_mcp_policies(pool, company, Some(name)).await?
+        .into_iter().find(|policy| policy.schedule_id == schedule_id)
+        .context("revoked recurring policy disappeared")
+}
+
 /// Installing or moving an MCP assignment requires a fresh, non-running Work
 /// owned by the actor who will receive the next Attempt grant.
 pub(crate) async fn validate_assignable_mcp_work(
@@ -379,7 +612,8 @@ pub(crate) async fn list_mcp_read_receipts(
     sqlx::query(
         "SELECT call_id,phase,actor,work_id,attempt_id,connection_name,tool_name, \
                 tool_contract_digest,policy_revision,request_digest,result_digest,subject,status,provider_status,observed_at, \
-                wall_ms,error_class FROM restless_authority.mcp_read_receipts \
+                wall_ms,error_class,schedule_id,opportunity_id,responsibility_id,responsibility_version,recurring_policy_revision \
+         FROM restless_authority.mcp_read_receipts \
          WHERE company=$1 AND ($2::text IS NULL OR connection_name=$2) \
          ORDER BY observed_at DESC LIMIT 100",
     )
@@ -398,6 +632,11 @@ pub(crate) async fn list_mcp_read_receipts(
         provider_status: row.try_get("provider_status")?,
         observed_at: row.try_get("observed_at")?, wall_ms: row.try_get("wall_ms")?,
         error_class: row.try_get("error_class")?,
+        schedule_id: row.try_get("schedule_id")?,
+        opportunity_id: row.try_get("opportunity_id")?,
+        responsibility_id: row.try_get("responsibility_id")?,
+        responsibility_version: row.try_get("responsibility_version")?,
+        recurring_policy_revision: row.try_get("recurring_policy_revision")?,
     })).collect()
 }
 
@@ -1193,6 +1432,7 @@ pub(crate) async fn attach_existing(
 
 pub(crate) async fn session_servers(
     pool: &PgPool,
+    org: &OrgIntel,
     capabilities: &crate::capability::CapabilityIssuer,
     company: &str,
     actor: &str,
@@ -1230,8 +1470,37 @@ pub(crate) async fn session_servers(
             )]);
         servers.push(McpServer::Stdio(server));
     }
+    let recurring_policies = recurring_mcp_policies(pool, company, None).await?;
     for server in local_mcp_list(pool, company).await? {
-        if !server.enabled || !local_work_scope_matches(&server, actor, work_id, attempt_id) {
+        if !server.enabled || server.assigned_actor != actor {
+            continue;
+        }
+        let fixed_scope = local_work_scope_matches(&server, actor, work_id, attempt_id);
+        let mut recurring_scope = None;
+        if !fixed_scope && server.transport == "host_http" {
+            if let (Some(work_id), Some(attempt_id)) = (work_id, attempt_id) {
+                let running = org.list_running_work_attempts().await?.iter().any(|attempt| {
+                    attempt.id == attempt_id && attempt.work_id == work_id
+                        && attempt.actor_id == actor && attempt.interrupt_requested_at.is_none()
+                });
+                if running {
+                    for policy in recurring_policies.iter().filter(|policy| {
+                        policy.connection_name == server.name
+                            && policy.assigned_actor == actor
+                            && recurring_policy_matches_connection(policy, &server)
+                    }) {
+                        if org.recurring_work_lineage(
+                            work_id, actor, policy.schedule_id,
+                            policy.responsibility_id, policy.responsibility_version,
+                        ).await?.is_some() {
+                            recurring_scope = Some(policy);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if !fixed_scope && recurring_scope.is_none() {
             continue;
         }
         match server.transport.as_str() {
@@ -1258,14 +1527,17 @@ pub(crate) async fn session_servers(
                 let (Some(work_id), Some(attempt_id)) = (work_id, attempt_id) else {
                     continue;
                 };
-                let grant = capabilities.issue_mcp_session(
-                    company,
-                    actor,
-                    &server.name,
-                    &server.policy_revision.to_string(),
-                    work_id,
-                    attempt_id,
-                )?;
+                let grant = if let Some(policy) = recurring_scope {
+                    capabilities.issue_mcp_recurring_session(
+                        company, actor, &server.name, &server.policy_revision.to_string(),
+                        work_id, attempt_id, policy.schedule_id, policy.policy_revision,
+                    )?
+                } else {
+                    capabilities.issue_mcp_session(
+                        company, actor, &server.name, &server.policy_revision.to_string(),
+                        work_id, attempt_id,
+                    )?
+                };
                 let port = crate::port_with_offset(crate::model_gateway::RUNTIME_RELAY_PORT)?;
                 // The nonce changes the ACP/Codex launch contract when a new
                 // grant is issued; the URL carries no secret.

@@ -62,6 +62,10 @@ struct Claims {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     mcp_pin: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    mcp_recurring_schedule_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    mcp_recurring_policy_revision: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     billing: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     responsibility: Option<String>,
@@ -131,6 +135,8 @@ pub(crate) struct McpGrant {
     pub(crate) pin: String,
     pub(crate) work_id: Uuid,
     pub(crate) attempt_id: Uuid,
+    pub(crate) recurring_schedule_id: Option<Uuid>,
+    pub(crate) recurring_policy_revision: Option<Uuid>,
 }
 
 /// Exact deployment identity bound into the hosted Runtime bridge grant.
@@ -216,6 +222,8 @@ impl CapabilityIssuer {
             model: None,
             mcp_name: None,
             mcp_pin: None,
+            mcp_recurring_schedule_id: None,
+            mcp_recurring_policy_revision: None,
             billing: None,
             responsibility: None,
             work_id: None,
@@ -252,6 +260,8 @@ impl CapabilityIssuer {
             model: None,
             mcp_name: None,
             mcp_pin: None,
+            mcp_recurring_schedule_id: None,
+            mcp_recurring_policy_revision: None,
             billing: None,
             responsibility: None,
             work_id: None,
@@ -343,6 +353,8 @@ impl CapabilityIssuer {
             model: None,
             mcp_name: None,
             mcp_pin: None,
+            mcp_recurring_schedule_id: None,
+            mcp_recurring_policy_revision: None,
             billing: None,
             responsibility: None,
             work_id,
@@ -375,6 +387,42 @@ impl CapabilityIssuer {
         work_id: Uuid,
         attempt_id: Uuid,
     ) -> Result<String> {
+        self.issue_mcp_scoped_session(company, actor, name, pin, work_id, attempt_id, None)
+    }
+
+    pub(crate) fn issue_mcp_recurring_session(
+        &self,
+        company: &str,
+        actor: &str,
+        name: &str,
+        pin: &str,
+        work_id: Uuid,
+        attempt_id: Uuid,
+        schedule_id: Uuid,
+        policy_revision: Uuid,
+    ) -> Result<String> {
+        self.issue_mcp_scoped_session(
+            company,
+            actor,
+            name,
+            pin,
+            work_id,
+            attempt_id,
+            Some((schedule_id, policy_revision)),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn issue_mcp_scoped_session(
+        &self,
+        company: &str,
+        actor: &str,
+        name: &str,
+        pin: &str,
+        work_id: Uuid,
+        attempt_id: Uuid,
+        recurring: Option<(Uuid, Uuid)>,
+    ) -> Result<String> {
         self.issue(Claims {
             version: 1,
             kind: CapabilityKind::McpSession,
@@ -384,6 +432,8 @@ impl CapabilityIssuer {
             model: None,
             mcp_name: Some(name.to_string()),
             mcp_pin: Some(pin.to_string()),
+            mcp_recurring_schedule_id: recurring.map(|value| value.0),
+            mcp_recurring_policy_revision: recurring.map(|value| value.1),
             billing: None,
             responsibility: None,
             work_id: Some(work_id),
@@ -409,6 +459,11 @@ impl CapabilityIssuer {
         if claims.kind != CapabilityKind::McpSession {
             bail!("a non-MCP capability cannot call the MCP gateway");
         }
+        if claims.mcp_recurring_schedule_id.is_some()
+            != claims.mcp_recurring_policy_revision.is_some()
+        {
+            bail!("incomplete recurring MCP grant");
+        }
         Ok(McpGrant {
             company: claims.company,
             actor: claims.actor.context("MCP grant has no actor")?,
@@ -416,6 +471,8 @@ impl CapabilityIssuer {
             pin: claims.mcp_pin.context("MCP grant has no tool contract pin")?,
             work_id: claims.work_id.context("MCP grant has no Work")?,
             attempt_id: claims.attempt_id.context("MCP grant has no Attempt")?,
+            recurring_schedule_id: claims.mcp_recurring_schedule_id,
+            recurring_policy_revision: claims.mcp_recurring_policy_revision,
         })
     }
 
@@ -459,6 +516,8 @@ impl CapabilityIssuer {
             model: Some(model.to_string()),
             mcp_name: None,
             mcp_pin: None,
+            mcp_recurring_schedule_id: None,
+            mcp_recurring_policy_revision: None,
             billing: Some(billing.to_string()),
             responsibility: Some(responsibility.to_string()),
             work_id,
@@ -900,6 +959,8 @@ mod tests {
                 model: Some("moonshot/kimi-k3".into()),
                 mcp_name: None,
                 mcp_pin: None,
+                mcp_recurring_schedule_id: None,
+                mcp_recurring_policy_revision: None,
                 billing: Some("metered_api".into()),
                 responsibility: Some("work:delivery".into()),
                 work_id: None,

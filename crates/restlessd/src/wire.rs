@@ -775,6 +775,9 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         | "identity-show"
         | "publish-list" => &[],
         "local-mcp-receipts" => &["tool_name"],
+        "local-mcp-recurring" => &["tool_name"],
+        "local-mcp-approve-recurring" => &["tool_name", "schedule_id", "responsibility_id", "version", "assigned_actor"],
+        "local-mcp-revoke-recurring" => &["tool_name", "schedule_id"],
         "schedule-wake" => &["adapter"],
         "publish-build" => &[
             "actor",
@@ -1384,6 +1387,9 @@ pub(crate) const OWNER_ONLY: &[&str] = &[
     "local-mcp-disable",
     "local-mcp-list",
     "local-mcp-receipts",
+    "local-mcp-recurring",
+    "local-mcp-approve-recurring",
+    "local-mcp-revoke-recurring",
 ];
 
 /// Actor-owned Opportunity mutations. The owner has a separate, future

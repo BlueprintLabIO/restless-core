@@ -327,6 +327,7 @@ pub async fn wake(
         let harness = config.coordination_harness;
         let mcp_servers = crate::connected_tool::session_servers(
             authority.pool(),
+            org,
             capabilities,
             &config.name,
             "exec",

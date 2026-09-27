@@ -1941,6 +1941,31 @@ enum LocalMcpCommand {
         #[arg(long)]
         name: Option<String>,
     },
+    /// Inspect owner-approved recurring CH policies and the current fixed Work pin.
+    Recurring {
+        #[arg(long)]
+        name: Option<String>,
+    },
+    /// Approve one recurring responsibility for the exact reviewed CH actor and pin.
+    ApproveRecurring {
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        schedule: String,
+        #[arg(long)]
+        responsibility: String,
+        #[arg(long)]
+        version: i32,
+        #[arg(long)]
+        actor: String,
+    },
+    /// Revoke one schedule's future and in-flight recurring CH grants.
+    RevokeRecurring {
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        schedule: String,
+    },
     /// Install a server command from the company Runtime volume for one actor's future sessions.
     Install {
         #[arg(long)]
@@ -2765,6 +2790,21 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             }),
             LocalMcpCommand::Receipts { name } => serde_json::json!({
                 "cmd": "local-mcp-receipts", "company": company, "tool_name": name,
+            }),
+            LocalMcpCommand::Recurring { name } => serde_json::json!({
+                "cmd": "local-mcp-recurring", "company": company, "tool_name": name,
+            }),
+            LocalMcpCommand::ApproveRecurring {
+                name, schedule, responsibility, version, actor,
+            } => serde_json::json!({
+                "cmd": "local-mcp-approve-recurring", "company": company,
+                "tool_name": name, "schedule_id": schedule,
+                "responsibility_id": responsibility, "version": version,
+                "assigned_actor": actor,
+            }),
+            LocalMcpCommand::RevokeRecurring { name, schedule } => serde_json::json!({
+                "cmd": "local-mcp-revoke-recurring", "company": company,
+                "tool_name": name, "schedule_id": schedule,
             }),
             LocalMcpCommand::Install {
                 name,

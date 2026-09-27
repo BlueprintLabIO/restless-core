@@ -214,6 +214,58 @@ pub const MIN_INTERVAL_SECONDS: i32 = 300;
 pub const MAX_INTERVAL_SECONDS: i32 = 2_592_000;
 
 impl OrgIntel {
+    pub async fn get_schedule(&self, schedule_id: Uuid) -> Result<Option<ScheduleRow>> {
+        Ok(sqlx::query_as::<_, ScheduleRow>(&format!(
+            "SELECT {SCHEDULE_COLUMNS} FROM schedules WHERE id=$1"
+        ))
+        .bind(schedule_id)
+        .fetch_optional(&self.pool)
+        .await?)
+    }
+
+    /// Only the exact source occurrence written at Work creation can make a
+    /// recurring Work eligible. A later `schedule link-work`, shared Goal or
+    /// coalesced occurrence from another schedule cannot create this lineage.
+    pub async fn recurring_work_lineage(
+        &self,
+        work_id: Uuid,
+        actor: &str,
+        schedule_id: Uuid,
+        responsibility_id: Uuid,
+        responsibility_version: i32,
+    ) -> Result<Option<RecurringWorkLineage>> {
+        Ok(sqlx::query_as::<_, RecurringWorkLineage>(
+            "SELECT o.id AS opportunity_id, s.id AS schedule_id, \
+                    so.scheduled_for, o.responsibility_id, o.responsibility_version \
+             FROM work w \
+             JOIN actors a ON a.id=w.owner_id \
+             JOIN opportunity_work ow ON ow.work_id=w.id AND ow.relation='primary' \
+             JOIN opportunities o ON o.id=ow.opportunity_id \
+             JOIN schedules s ON s.id=ow.source_schedule_id \
+             JOIN schedule_occurrences so ON so.schedule_id=ow.source_schedule_id \
+               AND so.scheduled_for=ow.source_scheduled_for \
+             WHERE w.id=$1 AND w.owner_id=$2 AND s.id=$3 \
+               AND a.retired_at IS NULL AND a.kind='staff' AND a.actor_class='agent' \
+               AND o.responsibility_id=$4 AND o.responsibility_version=$5 \
+               AND s.responsibility_id=$4 AND s.responsibility_version=$5 \
+               AND s.actor_id=o.actor_id AND s.recurrence IS NOT NULL \
+               AND s.cancelled_at IS NULL AND s.work_id IS NULL \
+               AND o.state NOT IN ('completed','needs_human','blocked','cancelled') \
+               AND o.deadline_at > now() \
+               AND so.opportunity_id=o.id AND so.responsibility_id=$4 \
+               AND so.responsibility_version=$5 \
+               AND so.admission IN ('admitted','coalesced') \
+             ORDER BY so.scheduled_for DESC LIMIT 1",
+        )
+        .bind(work_id)
+        .bind(actor)
+        .bind(schedule_id)
+        .bind(responsibility_id)
+        .bind(responsibility_version)
+        .fetch_optional(&self.pool)
+        .await?)
+    }
+
     pub async fn get_opportunity(&self, opportunity_id: Uuid) -> Result<Option<OpportunityRow>> {
         Ok(sqlx::query_as::<_, OpportunityRow>(
             "SELECT id, actor_id, responsibility_id, responsibility_version, state, outcome, outcome_reason, \

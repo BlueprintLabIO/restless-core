@@ -43,7 +43,7 @@ use sqlx::PgPool;
 use tower::ServiceExt as _;
 use uuid::Uuid;
 
-use crate::{capability::McpGrant, connected_tool::{self, LocalMcpServer, ReviewedHttpReadProfile}, Daemon};
+use crate::{capability::McpGrant, connected_tool::{self, LocalMcpServer, RecurringMcpPolicy, ReviewedHttpReadProfile}, Daemon};
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(12);
 const CALL_TIMEOUT: Duration = Duration::from_secs(90);
@@ -547,6 +547,8 @@ struct ScopedMcp {
     profile: BrokerReadProfile,
     daemon: Arc<Daemon>,
     grant: McpGrant,
+    recurring_policy: Option<RecurringMcpPolicy>,
+    recurring_lineage: Option<restless_orgintel::RecurringWorkLineage>,
 }
 
 impl ScopedMcp {
@@ -587,7 +589,7 @@ impl ScopedMcp {
              FROM restless_authority.local_mcp_servers WHERE company=$1 AND name=$2",
         )
         .bind(&self.company).bind(&self.connection.name).bind(&self.grant.actor)
-        .bind(self.grant.work_id).bind(&self.connection.endpoint)
+        .bind(self.connection.assigned_work_id).bind(&self.connection.endpoint)
         .bind(&self.connection.read_profile).bind(&self.connection.target_repository)
         .bind(&self.connection.tool_contract_digest).bind(&self.connection.server_version)
         .bind(&self.connection.transport).bind(serde_json::json!(self.connection.allowed_tools))
@@ -595,7 +597,44 @@ impl ScopedMcp {
         .bind(self.connection.policy_revision)
         .bind(&self.connection.command).bind(serde_json::json!(self.connection.args))
         .fetch_optional(&self.pool).await;
-        matches!(enabled, Ok(Some(true))) && running_attempt(&self.daemon, &self.grant).await
+        if !matches!(enabled, Ok(Some(true)))
+            || !running_attempt(&self.daemon, &self.grant).await
+        {
+            return false;
+        }
+        let Some(policy) = &self.recurring_policy else {
+            return self.connection.assigned_work_id == Some(self.grant.work_id)
+                && self.grant.recurring_schedule_id.is_none();
+        };
+        if self.grant.recurring_schedule_id != Some(policy.schedule_id)
+            || self.grant.recurring_policy_revision != Some(policy.policy_revision)
+        {
+            return false;
+        }
+        let Ok(current) = connected_tool::recurring_mcp_policies(
+            &self.pool, &self.company, Some(&self.connection.name),
+        ).await else {
+            return false;
+        };
+        if !current.iter().any(|candidate| {
+            candidate.schedule_id == policy.schedule_id
+                && candidate.policy_revision == policy.policy_revision
+                && candidate.responsibility_id == policy.responsibility_id
+                && candidate.responsibility_version == policy.responsibility_version
+                && connected_tool::recurring_policy_matches_connection(candidate, &self.connection)
+        }) {
+            return false;
+        }
+        let Ok(org) = self.daemon.orgintel.get(&self.company).await else {
+            return false;
+        };
+        matches!(
+            org.recurring_work_lineage(
+                self.grant.work_id, &self.grant.actor, policy.schedule_id,
+                policy.responsibility_id, policy.responsibility_version,
+            ).await,
+            Ok(Some(lineage)) if Some(&lineage) == self.recurring_lineage.as_ref()
+        )
     }
 
     async fn observed_contract(&self, client: &RunningService<RoleClient, ()>) -> Result<Vec<Tool>> {
@@ -655,7 +694,7 @@ impl ScopedMcp {
         .bind(&self.company)
         .bind(&self.connection.name)
         .bind(serde_json::to_value(names)?)
-        .bind(&self.grant.actor).bind(self.grant.work_id)
+        .bind(&self.grant.actor).bind(self.connection.assigned_work_id)
         .bind(&self.connection.tool_contract_digest).bind(&self.connection.endpoint)
         .bind(&self.connection.read_profile).bind(&self.connection.target_repository)
         .bind(serde_json::json!(self.connection.allowed_tools))
@@ -664,6 +703,9 @@ impl ScopedMcp {
         .execute(&self.pool).await?.rows_affected();
         if recorded != 1 {
             bail!("MCP grant was revoked before discovery recording");
+        }
+        if !self.grant_still_current().await {
+            bail!("MCP grant was revoked after discovery recording");
         }
         if let BrokerReadProfile::Http(ReviewedHttpReadProfile::DeepWikiStructure { repository }) = &self.profile {
             selected[0].description = Some(format!(
@@ -710,8 +752,9 @@ impl ScopedMcp {
         sqlx::query(
             "INSERT INTO restless_authority.mcp_read_receipts \
              (id,call_id,phase,company,actor,work_id,attempt_id,connection_name,tool_name, \
-              tool_contract_digest,policy_revision,request_digest,result_digest,subject,status,wall_ms,error_class,provider_status) \
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)",
+              tool_contract_digest,policy_revision,request_digest,result_digest,subject,status,wall_ms,error_class,provider_status, \
+              schedule_id,opportunity_id,responsibility_id,responsibility_version,recurring_policy_revision) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)",
         )
         .bind(Uuid::new_v4()).bind(call_id).bind(phase).bind(&self.company)
         .bind(&self.grant.actor).bind(self.grant.work_id).bind(self.grant.attempt_id)
@@ -720,6 +763,11 @@ impl ScopedMcp {
         .bind(self.connection.policy_revision)
         .bind(request_digest).bind(result_digest).bind(self.safe_subject(tool_name))
         .bind(status).bind(wall_ms).bind(error_class).bind(provider_status)
+        .bind(self.recurring_lineage.as_ref().map(|lineage| lineage.schedule_id))
+        .bind(self.recurring_lineage.as_ref().map(|lineage| lineage.opportunity_id))
+        .bind(self.recurring_lineage.as_ref().map(|lineage| lineage.responsibility_id))
+        .bind(self.recurring_lineage.as_ref().map(|lineage| lineage.responsibility_version))
+        .bind(self.recurring_policy.as_ref().map(|policy| policy.policy_revision))
         .execute(&self.pool).await.context("append Core MCP read receipt")?;
         Ok(())
     }
@@ -810,6 +858,9 @@ impl ScopedMcp {
                     "attemptId": self.grant.attempt_id,
                     "toolContractDigest": contract_digest,
                     "policyRevision": self.connection.policy_revision,
+                    "scheduleId": self.recurring_lineage.as_ref().map(|lineage| lineage.schedule_id),
+                    "opportunityId": self.recurring_lineage.as_ref().map(|lineage| lineage.opportunity_id),
+                    "recurringPolicyRevision": self.recurring_policy.as_ref().map(|policy| policy.policy_revision),
                     "startedAndTerminalRecorded": true,
                 }),
             );
@@ -880,7 +931,7 @@ impl ScopedMcp {
             )
             .bind(&self.company).bind(&self.connection.name).bind(observed_success)
             .bind(&read_status).bind(result.is_error == Some(true)).bind(read_site)
-            .bind(tool_name).bind(&self.grant.actor).bind(self.grant.work_id)
+            .bind(tool_name).bind(&self.grant.actor).bind(self.connection.assigned_work_id)
             .bind(&self.connection.tool_contract_digest)
             .bind(&self.connection.endpoint).bind(&self.connection.read_profile)
             .bind(&self.connection.target_repository)
@@ -914,7 +965,7 @@ impl ScopedMcp {
         .bind(&self.company)
         .bind(&self.connection.name)
         .bind(class)
-        .bind(&self.grant.actor).bind(self.grant.work_id)
+        .bind(&self.grant.actor).bind(self.connection.assigned_work_id)
         .bind(&self.connection.tool_contract_digest).bind(&self.connection.endpoint)
         .bind(&self.connection.read_profile).bind(&self.connection.target_repository)
         .bind(serde_json::json!(self.connection.allowed_tools))
@@ -1128,8 +1179,12 @@ async fn scoped_connection(
     if !connection.enabled
         || !matches!(connection.transport.as_str(), "host_http" | "public_http" | "broker_stdio")
         || connection.assigned_actor != grant.actor
-        || connection.assigned_work_id != Some(grant.work_id)
         || connection.policy_revision.to_string() != grant.pin
+    {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    if grant.recurring_schedule_id.is_none()
+        && connection.assigned_work_id != Some(grant.work_id)
     {
         return Err(StatusCode::FORBIDDEN);
     }
@@ -1143,6 +1198,37 @@ async fn scoped_connection(
                 .map_err(|_| StatusCode::FORBIDDEN)?,
         )
     };
+    let (recurring_policy, recurring_lineage) =
+        if let (Some(schedule_id), Some(policy_revision)) = (
+            grant.recurring_schedule_id,
+            grant.recurring_policy_revision,
+        ) {
+            if !matches!(&profile, BrokerReadProfile::Http(ReviewedHttpReadProfile::ClappingHands))
+                || connected_tool::reviewed_recurring_ch_connection(&connection).is_err()
+            {
+                return Err(StatusCode::FORBIDDEN);
+            }
+            let policies = connected_tool::recurring_mcp_policies(
+                daemon.authority.pool(), &company, Some(&name),
+            )
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+            let policy = policies.into_iter().find(|policy| {
+                policy.schedule_id == schedule_id
+                    && policy.policy_revision == policy_revision
+                    && connected_tool::recurring_policy_matches_connection(policy, &connection)
+            }).ok_or(StatusCode::FORBIDDEN)?;
+            let org = daemon.orgintel.get(&company).await
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+            let lineage = org.recurring_work_lineage(
+                grant.work_id, &grant.actor, policy.schedule_id,
+                policy.responsibility_id, policy.responsibility_version,
+            ).await.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+                .ok_or(StatusCode::FORBIDDEN)?;
+            (Some(policy), Some(lineage))
+        } else {
+            (None, None)
+        };
     if !running_attempt(&daemon, &grant).await {
         return Err(StatusCode::FORBIDDEN);
     }
@@ -1153,6 +1239,8 @@ async fn scoped_connection(
         profile,
         daemon,
         grant,
+        recurring_policy,
+        recurring_lineage,
     })
 }
 

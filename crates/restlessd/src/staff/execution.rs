@@ -98,6 +98,7 @@ pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcom
     let mut continuity_note: Option<String> = None;
     let mcp_servers = crate::connected_tool::session_servers(
         run.authority.pool(),
+        &run.org,
         &run.capabilities,
         &run.company,
         &run.actor,
