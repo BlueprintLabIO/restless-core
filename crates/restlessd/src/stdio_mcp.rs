@@ -4,10 +4,15 @@
 
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{bail, Context as _, Result};
-use rmcp::{model::CallToolRequestParams, transport::TokioChildProcess, ServiceExt as _};
+use rmcp::{
+    model::{CallToolRequestParams, Tool},
+    transport::TokioChildProcess,
+    ServiceExt as _,
+};
 use serde::Deserialize;
 use sha2::{Digest as _, Sha256};
 
@@ -19,6 +24,31 @@ const REVIEWED_PACKAGE_VERSION: &str = "2026.8.31";
 const PROVIDER_ENTRY: &str = "node_modules/@modelcontextprotocol/server-filesystem/dist/index.js";
 const PROBE_TIMEOUT: Duration = Duration::from_secs(12);
 const MAX_FILE_BYTES: u64 = 256 * 1024;
+
+/// Keep the upstream tool definition pinned, but show actors only arguments
+/// that Core accepts. The published server also advertises head and tail.
+pub(crate) fn expose_path_only(tool: &mut Tool) -> Result<()> {
+    if tool.name.as_ref() != READ_TOOL {
+        bail!("filesystem MCP exposed an unexpected read tool");
+    }
+    let schema = serde_json::json!({
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Absolute path to one existing text file under /data"
+            }
+        },
+        "required": ["path"],
+        "additionalProperties": false
+    });
+    tool.input_schema = Arc::new(schema.as_object().expect("static path-only schema").clone());
+    tool.description = Some(
+        "Read the complete contents of one existing text file under /data (maximum 256 KiB)."
+            .into(),
+    );
+    Ok(())
+}
 
 /// Canonical paths are stored at install time so a parent symlink cannot
 /// silently retarget the provider or the read mount later.

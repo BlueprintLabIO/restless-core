@@ -1177,6 +1177,7 @@ async fn resources(
                 "ready" => "MCP connection reached and tools discovered. Site login is only verified by a successful live read.",
                 "disabled" => "Owner disabled this MCP connection; new calls are rejected.",
                 "degraded" if public_read => "Public MCP connection or latest tool call needs attention.",
+                "degraded" if connection.transport == "broker_stdio" => "Sandboxed filesystem MCP or latest local file read needs attention. Review Core read receipts.",
                 "degraded" => "MCP connection or latest site read needs attention.",
                 _ => "MCP connection has not completed live tool discovery.",
             }.into()),

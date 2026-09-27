@@ -569,6 +569,12 @@ impl ScopedMcp {
         if !self.grant_still_current().await {
             bail!("MCP grant was revoked during discovery");
         }
+        // Pin the upstream contract, then advertise only arguments Core accepts.
+        if matches!(&self.profile, BrokerReadProfile::Filesystem) {
+            for tool in &mut selected {
+                crate::stdio_mcp::expose_path_only(tool)?;
+            }
+        }
         let names = selected
             .iter()
             .map(|tool| tool.name.to_string())
@@ -671,7 +677,15 @@ impl ScopedMcp {
         self.append_receipt(call_id, "started", &tool_name, &request_digest,
             "started", None, None, None).await?;
         let mut call_started = false;
-        let outcome = self.invoke_inner(params, &tool_name, &mut call_started).await;
+        let observed = self.invoke_inner(params, &tool_name, &mut call_started).await;
+        // A provider may have executed even if the grant disappears before
+        // delivery. Suppress its result and record that uncertainty once.
+        let revoked_after_result = observed.is_ok() && !self.grant_still_current().await;
+        let outcome = if revoked_after_result {
+            Err(anyhow::anyhow!("MCP grant was revoked before returning the read"))
+        } else {
+            observed
+        };
         let (status, result_digest, error_class) = match &outcome {
             Ok(result) => {
                 let status = if result.is_error == Some(true) {
@@ -686,6 +700,7 @@ impl ScopedMcp {
                 };
                 (status, Some(format!("{:x}", Sha256::digest(serde_json::to_vec(result)?))), None)
             }
+            Err(_) if revoked_after_result => ("outcome_unknown", None, Some("grant_revoked_after_result")),
             Err(_) if call_started => ("outcome_unknown", None, Some("broker_call_failed")),
             Err(_) => ("not_invoked", None, Some("broker_pre_call_failed")),
         };
