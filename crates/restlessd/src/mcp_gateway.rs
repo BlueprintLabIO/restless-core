@@ -795,7 +795,7 @@ impl ScopedMcp {
             if !self.grant_still_current().await {
                 bail!("MCP grant was revoked before the read result was returned");
             }
-            let read_status = match &self.profile {
+            let read_status: String = match &self.profile {
                 BrokerReadProfile::Http(ReviewedHttpReadProfile::ClappingHands) => safe_clapping_hands_status(&result).into(),
                 BrokerReadProfile::Http(ReviewedHttpReadProfile::DeepWikiStructure { .. }) if result.is_error == Some(true) => "tool_error".into(),
                 BrokerReadProfile::Http(ReviewedHttpReadProfile::DeepWikiStructure { .. }) => "response_observed_unverified".into(),
