@@ -57,6 +57,17 @@ successful `tools/list` or model request containing a namespace still does not
 prove a real tool call. The acceptance check is a fresh Staff Attempt reading
 an exact listing through Core, followed by a fresh Attempt repeating it.
 
+The September 2026 company model route uses OMP 18.3.2. Its Responses server
+currently skips `type: "namespace"` tools when translating a Codex request to
+its model request. Codex exposes the three CH children correctly, but OMP
+drops them before the model can choose one. Enabling Codex's
+`non_prefixed_mcp_tool_names` or `code_mode` does not remove the namespace
+shape. Until a versioned protocol adapter or provider fix passes an actual
+streaming call, a fixed CH read command may call the *same Core broker* from
+the actor Runtime with the same Attempt grant. This is a compatibility
+fallback, not evidence that native model MCP calls work. It must not access
+CH directly or broaden the actor's tool authority.
+
 ## Release gates
 
 - The CH pilot reads a current listing from its saved authenticated profile in
