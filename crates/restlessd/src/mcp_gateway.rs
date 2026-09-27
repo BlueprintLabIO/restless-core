@@ -5,6 +5,7 @@
 //! profile never enter the Runtime. rmcp handles both MCP protocol directions;
 //! this layer owns only Restless authority and the exact tool allowlist.
 
+use std::net::{IpAddr, SocketAddr};
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::Path;
 use std::sync::Arc;
@@ -13,7 +14,7 @@ use std::time::Duration;
 use anyhow::{bail, Context as _, Result};
 use axum::{
     body::Body,
-    extract::{DefaultBodyLimit, Path as AxumPath, State},
+    extract::{ConnectInfo, DefaultBodyLimit, Path as AxumPath, State},
     http::{header::AUTHORIZATION, HeaderMap, Method, Request, StatusCode},
     response::{IntoResponse as _, Response},
     routing::any,
@@ -435,30 +436,27 @@ impl ServerHandler for ScopedMcp {
     }
 }
 
-/// Listen only on the Docker bridge address. The upstream itself remains on
-/// host loopback, and the public LAN cannot reach this listener.
-pub(crate) async fn serve(daemon: Arc<Daemon>) -> Result<()> {
-    let port = crate::port_with_offset(crate::connected_tool::LOCAL_MCP_PROXY_PORT)?;
-    let address = format!("172.17.0.1:{port}");
-    let app = Router::new()
+/// Mount on the already reachable Runtime model relay. This route retains its
+/// own actor capability and live Attempt checks; it does not accept a model
+/// capability. The peer gate also refuses requests from outside the local
+/// Docker bridge and host loopback, even though the relay binds 0.0.0.0.
+pub(crate) fn router(daemon: Arc<Daemon>) -> Router {
+    Router::new()
         .route("/mcp/{company}/{name}", any(handle))
         .layer(DefaultBodyLimit::max(MAX_RESULT_BYTES))
-        .with_state(daemon);
-    let listener = tokio::net::TcpListener::bind(&address)
-        .await
-        .with_context(|| format!("bind Docker-bridge MCP gateway {address}"))?;
-    tracing::info!(addr=%address, "Attempt-scoped MCP gateway listening");
-    axum::serve(listener, app)
-        .await
-        .context("MCP gateway stopped")
+        .with_state(daemon)
 }
 
 async fn handle(
     State(daemon): State<Arc<Daemon>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     AxumPath((company, name)): AxumPath<(String, String)>,
     headers: HeaderMap,
     request: Request<Body>,
 ) -> Response {
+    if !local_runtime_peer(peer.ip()) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
     if request.method() != Method::POST || headers.contains_key("origin") {
         return StatusCode::METHOD_NOT_ALLOWED.into_response();
     }
@@ -503,8 +501,8 @@ async fn handle(
     let mut config = StreamableHttpServerConfig::default();
     config.legacy_session_mode = false;
     config.json_response = true;
-    let port = crate::port_with_offset(crate::connected_tool::LOCAL_MCP_PROXY_PORT)
-        .unwrap_or(crate::connected_tool::LOCAL_MCP_PROXY_PORT);
+    let port = crate::port_with_offset(crate::model_gateway::RUNTIME_RELAY_PORT)
+        .unwrap_or(crate::model_gateway::RUNTIME_RELAY_PORT);
     config.allowed_hosts = vec![format!("host.docker.internal:{port}")];
     let service = StreamableHttpService::new(
         move || Ok(scope.clone()),
@@ -515,6 +513,13 @@ async fn handle(
         Ok(response) => response.into_response(),
         Err(_) => StatusCode::BAD_GATEWAY.into_response(),
     }
+}
+
+fn local_runtime_peer(ip: IpAddr) -> bool {
+    if ip.is_loopback() {
+        return true;
+    }
+    matches!(ip, IpAddr::V4(ipv4) if ipv4.octets()[0..2] == [172, 17])
 }
 
 async fn running_attempt(daemon: &Daemon, grant: &McpGrant) -> bool {

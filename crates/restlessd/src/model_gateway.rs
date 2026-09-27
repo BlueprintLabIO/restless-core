@@ -42,6 +42,7 @@ const RELAY_RUNTIME_URL: &str = "http://host.docker.internal:7790";
 const MODEL_CAPABILITY_ENV: &str = "RESTLESS_MODEL_CAPABILITY";
 const DISABLED_LOCAL_DISCOVERY_URL: &str = "http://127.0.0.1:1/v1";
 pub(crate) const HOSTED_MODEL_GATEWAY_PREFIX: &str = "/internal/v1/model-gateway";
+pub(crate) const RUNTIME_RELAY_PORT: u16 = 7790;
 pub(crate) const RESPONSES_TARIFF_VERSION: &str = "openai-gpt-6-standard-2026-09-26";
 pub(crate) const ANTHROPIC_TARIFF_VERSION: &str = "anthropic-list-2026-05-12";
 
@@ -63,7 +64,7 @@ impl GatewayEndpoints {
         let offset = crate::port_offset()?;
         let broker_port = crate::port_with_offset(7789)?;
         let gateway_port = crate::port_with_offset(7796)?;
-        let relay_port = crate::port_with_offset(7790)?;
+        let relay_port = crate::port_with_offset(RUNTIME_RELAY_PORT)?;
         let profile_suffix = (offset != 0).then(|| format!("-{offset}"));
         Ok(Self {
             broker_profile: format!(
@@ -604,6 +605,7 @@ pub async fn start(
     root: &std::path::Path,
     capabilities: crate::capability::CapabilityIssuer,
     spend: crate::spend::SpendLedger,
+    local_mcp_daemon: Option<std::sync::Arc<crate::Daemon>>,
 ) -> Result<Option<Processes>> {
     sweep_orphaned_model_children(root)?;
     let endpoints = GatewayEndpoints::from_env()?;
@@ -852,7 +854,8 @@ pub async fn start(
             .build()
             .context("build Runtime model relay client")?,
     };
-    let relay = start_runtime_relay(relay_state.clone(), &endpoints.relay_bind).await?;
+    let relay = start_runtime_relay(relay_state.clone(), &endpoints.relay_bind, local_mcp_daemon)
+        .await?;
     match (CLIENT.write(), HOSTED_RELAY_STATE.write()) {
         (Ok(mut client), Ok(mut hosted)) => {
             *client = Some(ClientConfig {
@@ -1307,11 +1310,12 @@ fn direct_anthropic_routes(
 async fn start_runtime_relay(
     state: RelayState,
     relay_bind: &str,
+    local_mcp_daemon: Option<std::sync::Arc<crate::Daemon>>,
 ) -> Result<tokio::task::JoinHandle<()>> {
     let listener = tokio::net::TcpListener::bind(relay_bind)
         .await
         .with_context(|| format!("bind Runtime model relay {relay_bind}"))?;
-    let app = Router::new()
+    let model_app = Router::new()
         .route("/v1/models", get(relay_models))
         .route("/v1/pi/stream", post(relay_pi_stream))
         .route("/v1/responses", post(relay_responses))
@@ -1322,8 +1326,17 @@ async fn start_runtime_relay(
         )
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
         .with_state(state);
+    let app = match local_mcp_daemon {
+        Some(daemon) => model_app.merge(crate::mcp_gateway::router(daemon)),
+        None => model_app,
+    };
     Ok(tokio::spawn(async move {
-        if let Err(error) = axum::serve(listener, app).await {
+        if let Err(error) = axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
+        {
             tracing::error!("Runtime model relay stopped: {error}");
         }
     }))

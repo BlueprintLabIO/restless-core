@@ -853,6 +853,8 @@ async fn run() -> Result<()> {
 
     let model_capabilities = daemon.capabilities.clone();
     let model_spend = daemon.spend.clone();
+    let local_mcp_daemon = (!daemon.runtime_bridges.is_hosted())
+        .then(|| std::sync::Arc::clone(&daemon));
     let schedule_daemon = std::sync::Arc::clone(&daemon);
     let idle_daemon = std::sync::Arc::clone(&daemon);
     let mut idle_recovery_ready_rx = recovery_ready_rx.clone();
@@ -879,6 +881,7 @@ async fn run() -> Result<()> {
                 &model_root,
                 model_capabilities.clone(),
                 model_spend.clone(),
+                local_mcp_daemon.clone(),
             )
             .await
             {
@@ -1059,15 +1062,6 @@ async fn run() -> Result<()> {
             tracing::error!("owner gateway stopped: {error:#}");
         }
     });
-    if !daemon.runtime_bridges.is_hosted() {
-        let mcp_daemon = std::sync::Arc::clone(&daemon);
-        tokio::spawn(async move {
-            if let Err(error) = mcp_gateway::serve(mcp_daemon).await {
-                tracing::error!("local MCP gateway stopped: {error:#}");
-            }
-        });
-    }
-
     // T6: the scheduler is what makes the company act without the owner
     // typing — time triggers (exec-set schedules + periodic tick) and
     // OrgIntel LISTEN/NOTIFY events share one loop. Product integration tests

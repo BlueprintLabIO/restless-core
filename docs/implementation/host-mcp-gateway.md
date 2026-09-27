@@ -21,17 +21,21 @@ still runs inside its Runtime volume.
    A changed version or tool definition requires owner reinstallation.
 4. When that Work starts, Staff receives a signed MCP capability for its exact
    company, actor, connection, Work, and Attempt. The capability expires after
-   the normal session TTL. The Docker bridge endpoint accepts only that grant
+   the normal session TTL. The Runtime relay endpoint accepts only that grant
    while the Attempt remains live and un-interrupted.
 5. `restless local-mcp --company <company> disable --name <name>` or the owner Resources
    action disables new calls. An in-flight call checks connection and Attempt
    state every two seconds and stops waiting if revoked. The upstream read may
    already be underway, so disabling is not a rollback of that read.
 
-The gateway listens on `172.17.0.1` only, not on the LAN. The company Runtime
-uses `host.docker.internal` to reach it. The upstream server remains bound to
-host loopback. The proxy uses the MCP SDK on both sides, advertises only the
-installed allowlist, and rechecks tool definitions before every invocation.
+The MCP route shares the existing Runtime model relay listener on port 7790
+(plus `RESTLESS_PORT_OFFSET`), which is already reachable from the company
+container through `host.docker.internal`. The route rejects peers outside
+the local Docker bridge `172.17.0.0/16` and host loopback before checking its
+separate signed MCP grant and live Attempt; it never accepts a model grant.
+The upstream server remains bound to host loopback. The proxy uses the MCP
+SDK on both sides, advertises only the installed allowlist, and rechecks tool
+definitions before every invocation.
 It refuses calls after a 90-second bound and responses beyond 1 MiB. It does
 not retry an uncertain call automatically. No generic browser tools are
 installed for Clapping Hands.
@@ -48,7 +52,9 @@ Clapping Hands results are observations, not verified sale outcomes.
 
 - Linux Docker bridge address `172.17.0.1` and the company Runtime's
   `host.docker.internal` mapping are required. A different local network
-  needs an explicit gateway configuration and the same narrow binding.
+  needs an explicit peer-gate configuration. Local MCP availability follows
+  the Runtime model relay lifecycle; actor execution already requires that
+  relay and an admitted model route.
 - The upstream token file is read by the host daemon and must be an absolute,
   private regular file. Its bytes are never serialized into company status or
   the actor launch contract.
