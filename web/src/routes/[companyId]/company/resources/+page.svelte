@@ -10,8 +10,13 @@
 	const source = $derived(companyQuery(companyId));
 	$effect(() => source.attach(true));
 	const view = $derived(source.view);
+	const mcpConnections = $derived(
+		view?.resources.items.filter((item) => item.kind === 'mcp_connection') ?? []
+	);
 	const launchable = $derived(view?.resources.items.filter((item) => item.launch) ?? []);
-	const supporting = $derived(view?.resources.items.filter((item) => !item.launch) ?? []);
+	const supporting = $derived(
+		view?.resources.items.filter((item) => !item.launch && item.kind !== 'mcp_connection') ?? []
+	);
 	let opening = $state<string | null>(null);
 	let launchError = $state<string | null>(null);
 	let embedded = $state<{ href: string; label: string } | null>(null);
@@ -28,6 +33,31 @@
 
 	function words(value: string): string {
 		return value.replaceAll('_', ' ');
+	}
+
+	function connectionState(status: string): string {
+		switch (status) {
+			case 'ready': return 'MCP reachable';
+			case 'degraded': return 'Needs attention';
+			case 'disabled': return 'Disabled';
+			case 'disconnected': return 'Not connected';
+			default: return words(status);
+		}
+	}
+
+	function metadataText(item: CompanyResource, key: string): string | null {
+		const value = item.metadata?.[key];
+		return typeof value === 'string' && value.trim() ? value : null;
+	}
+
+	function metadataList(item: CompanyResource, key: string): string[] {
+		const value = item.metadata?.[key];
+		return Array.isArray(value) ? value.filter((part): part is string => typeof part === 'string') : [];
+	}
+
+	function observedTime(value: string | null): string {
+		if (!value || Number.isNaN(new Date(value).getTime())) return 'No successful call observed';
+		return when(value);
 	}
 
 	function openLabel(item: CompanyResource): string {
@@ -78,6 +108,47 @@
 	</header>
 	{#if view}
 		<CompanyLimits />
+		<section class="mcp-connections" aria-labelledby="mcp-connections-title">
+			<div class="section-heading">
+				<h2 id="mcp-connections-title">Local MCP connections</h2>
+				<InfoTip text="An MCP connection lets an assigned company agent call approved tools. Connection health does not prove a website login or a successful listing read." />
+			</div>
+			{#if mcpConnections.length}
+				<div class="mcp-list">
+					{#each mcpConnections as item (item.id)}
+						<article class="mcp-card" aria-label={item.label}>
+							<div class="mcp-card-head">
+								<h3>{item.label}</h3>
+								<span class="state-chip state-{item.status}">{connectionState(item.status)}</span>
+							</div>
+							{#if item.detail}<p>{item.detail}</p>{/if}
+							<dl class="mcp-facts">
+								{#if metadataText(item, 'browser_owner')}
+									<div><dt>Browser owned by</dt><dd>{metadataText(item, 'browser_owner')}</dd></div>
+								{/if}
+								<div><dt>Assigned to</dt><dd>{metadataText(item, 'assigned_actor') ?? 'No agent assigned'}</dd></div>
+								<div><dt>Last successful tool call</dt><dd>{observedTime(metadataText(item, 'last_success_at'))}</dd></div>
+							</dl>
+							<details class="mcp-details">
+								<summary>Connection details</summary>
+								<dl>
+									<div><dt>Transport</dt><dd>{words(metadataText(item, 'transport') ?? 'unknown')}</dd></div>
+									<div><dt>Work</dt><dd>{metadataText(item, 'work_id') ?? 'Not Work-bound'}</dd></div>
+									<div><dt>Permitted tools</dt><dd>{metadataList(item, 'allowed_tools').join(', ') || 'None'}</dd></div>
+									<div><dt>Observed tools</dt><dd>{metadataList(item, 'observed_tools').join(', ') || 'None yet'}</dd></div>
+									<div><dt>Tool contract</dt><dd>{metadataText(item, 'tool_contract_digest') ?? 'Unverified'}</dd></div>
+									{#if metadataText(item, 'failure')}
+										<div><dt>Current error</dt><dd>{metadataText(item, 'failure')}</dd></div>
+									{/if}
+								</dl>
+							</details>
+						</article>
+					{/each}
+				</div>
+			{:else if view.resources.status === 'available'}
+				<p class="quiet-empty">No local MCP connection has been observed for this company.</p>
+			{/if}
+		</section>
 		<div class="section-heading">
 			<h2>Resources &amp; access</h2>
 			<InfoTip
@@ -184,6 +255,88 @@
 </div>
 
 <style>
+	.mcp-connections {
+		margin-block: var(--space-6);
+	}
+
+	.mcp-list {
+		display: grid;
+		gap: var(--space-3);
+	}
+
+	.mcp-card {
+		padding: var(--space-5) var(--space-6);
+		border: 1px solid var(--company-edge-soft);
+		border-radius: var(--radius-pane);
+		background: var(--surface-pane);
+		box-shadow: var(--company-surface-shadow);
+	}
+
+	.mcp-card-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-3);
+	}
+
+	.mcp-card-head h3 {
+		margin: 0;
+		font-size: var(--t-head);
+	}
+
+	.mcp-card > p {
+		margin: var(--space-2) 0 var(--space-4);
+		color: var(--text-secondary);
+	}
+
+	.mcp-facts,
+	.mcp-details dl {
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: var(--space-3) var(--space-5);
+		margin: var(--space-4) 0 0;
+	}
+
+	.mcp-facts > div,
+	.mcp-details dl > div {
+		min-width: 0;
+	}
+
+	.mcp-facts dt,
+	.mcp-details dt {
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+
+	.mcp-facts dd,
+	.mcp-details dd {
+		margin: var(--space-1) 0 0;
+		overflow-wrap: anywhere;
+	}
+
+	.mcp-details {
+		margin-top: var(--space-4);
+		border-top: 1px solid var(--company-edge-soft);
+		padding-top: var(--space-3);
+	}
+
+	.mcp-details summary {
+		width: fit-content;
+		cursor: pointer;
+		color: var(--text-secondary);
+	}
+
+	.mcp-details summary:focus-visible {
+		outline: 2px solid var(--company-blue);
+		outline-offset: 3px;
+	}
+
+	@media (max-width: 820px) {
+		.mcp-card { padding: var(--space-4); }
+		.mcp-facts,
+		.mcp-details dl { grid-template-columns: 1fr; }
+	}
+
 	.launch-surface {
 		margin-block: var(--space-6) calc(var(--space-6) * 1.5);
 		background: var(--surface-pane);
