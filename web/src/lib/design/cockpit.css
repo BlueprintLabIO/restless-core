@@ -619,6 +619,49 @@
 	overflow: auto;
 }
 
+/* An edge with more queue beyond it fades instead of slicing a row in half.
+ * The fade follows the scroll position, so a queue that fits, or one scrolled
+ * to its end, shows no fade on that edge. */
+@property --edge-fade-top {
+	syntax: '<length>';
+	inherits: false;
+	initial-value: 0px;
+}
+@property --edge-fade-bottom {
+	syntax: '<length>';
+	inherits: false;
+	initial-value: 0px;
+}
+@keyframes edge-fade {
+	from {
+		--edge-fade-top: 0px;
+		--edge-fade-bottom: 32px;
+	}
+	10% {
+		--edge-fade-top: 32px;
+	}
+	90% {
+		--edge-fade-bottom: 32px;
+	}
+	to {
+		--edge-fade-top: 32px;
+		--edge-fade-bottom: 0px;
+	}
+}
+@supports (animation-timeline: scroll()) {
+	.bridge-root .attention-index-scroll {
+		mask-image: linear-gradient(
+			to bottom,
+			transparent,
+			#000 var(--edge-fade-top),
+			#000 calc(100% - var(--edge-fade-bottom)),
+			transparent
+		);
+		animation: edge-fade linear both;
+		animation-timeline: scroll(self);
+	}
+}
+
 .bridge-root .attention-index {
 	display: grid;
 	grid-template-rows: minmax(0, 1fr);
@@ -1168,6 +1211,7 @@
 .bridge-root .lens-switch button {
 	flex: 1;
 	font-weight: 500;
+	white-space: nowrap;
 }
 
 .bridge-root .lens-switch button:hover {

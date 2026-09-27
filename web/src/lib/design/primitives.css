@@ -136,8 +136,18 @@
 /* Fingers are not pointers. On phones and touch screens every bounded action
  * gets a 44px target without changing how it looks on a desk. */
 @media (max-width: 760px), (pointer: coarse) {
-	.bridge-root :is(.btn, .hold-approve, .tb-exec) {
+	.bridge-root :is(.btn, .hold-approve) {
 		min-height: 44px;
+	}
+	/* The Exec control sits in a 46px bar, so its pill keeps its size and only
+	 * the invisible target grows to 44px. */
+	.bridge-root .tb-exec {
+		position: relative;
+	}
+	.bridge-root .tb-exec::after {
+		position: absolute;
+		inset: -7px -4px;
+		content: '';
 	}
 }
 
