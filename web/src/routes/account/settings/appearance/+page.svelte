@@ -10,7 +10,7 @@
 <svelte:head><title>Appearance — Account settings</title></svelte:head>
 
 <main class="appearance-page">
-	<h2>Appearance</h2>
+	<h1>Appearance</h1>
 	<div class="appearance-choices" role="radiogroup" aria-label="Appearance">
 		{#each choices as choice (choice.value)}
 			<button
@@ -34,13 +34,15 @@
 </main>
 
 <style>
+	/* The same page frame and title as Connections, so moving between the two
+	 * settings pages changes only the content. */
 	.appearance-page {
-		padding: 42px max(24px, calc((100vw - 1200px) / 2)) 42px 40px;
+		padding: 42px clamp(20px, 5vw, 72px);
 	}
-	h2 {
-		margin: 0 0 var(--space-5);
+	.appearance-page h1 {
+		margin: 0 0 28px;
 		font-size: var(--t-title);
-		font-weight: 600;
+		letter-spacing: -0.035em;
 	}
 	.appearance-choices {
 		display: grid;
@@ -126,10 +128,12 @@
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 	}
-	@media (max-width: 760px) {
+	@media (max-width: 620px) {
 		.appearance-page {
-			padding: var(--space-5) var(--space-4);
+			padding: 26px 20px 36px;
 		}
+	}
+	@media (max-width: 760px) {
 		.appearance-choices {
 			grid-template-columns: repeat(3, minmax(0, 1fr));
 			gap: var(--space-2);

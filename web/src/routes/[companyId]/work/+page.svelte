@@ -606,9 +606,6 @@
 			padding-inline: 8px;
 		}
 	}
-
-	@media (prefers-reduced-motion: reduce) {
-	}
 	.work-empty {
 		flex: 1;
 		display: flex;

@@ -294,7 +294,7 @@
 				{:else if search}
 					<p class="document-list-empty">No documents match “{search}”.</p>
 				{:else}
-					<div class="document-list-empty">
+					<div class="document-list-empty unwritten">
 						<Files size={19} strokeWidth={1.5} aria-hidden="true" /><strong
 							>No documents yet.</strong
 						>
@@ -620,6 +620,12 @@
 	.document-list-empty p {
 		margin: 0;
 	}
+	/* Beside the stage, the notebook prompt already says there is nothing yet. */
+	@media (min-width: 821px) {
+		.document-list-empty.unwritten {
+			display: none;
+		}
+	}
 	.document-list-loading,
 	.document-stage-loading {
 		display: grid;
@@ -685,6 +691,9 @@
 	.document-stage-empty h2,
 	.document-stage-empty p {
 		margin: 0;
+	}
+	.document-stage-empty .btn {
+		margin-top: var(--space-2);
 	}
 	.document-stage-empty p {
 		color: var(--text-secondary);

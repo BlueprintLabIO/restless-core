@@ -226,9 +226,6 @@
 </div>
 
 <style>
-	.schedules-page {
-		max-width: 900px;
-	}
 	.refresh {
 		margin-left: auto;
 	}

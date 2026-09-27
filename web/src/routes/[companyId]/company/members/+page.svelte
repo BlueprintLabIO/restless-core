@@ -340,7 +340,6 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-5);
-		max-width: 760px;
 	}
 	.members-message {
 		margin: 0;

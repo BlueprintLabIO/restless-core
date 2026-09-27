@@ -38,8 +38,20 @@ export function tooltips(root: HTMLElement) {
 		tip.style.top = `${Math.round(top)}px`;
 	}
 
+	/* A title that only repeats text already shown in full adds nothing; it is
+	 * there for when the text is cut short, so it shows only then. */
+	function redundant(element: HTMLElement): boolean {
+		const shown = element.innerText?.replace(/\s+/g, ' ').trim();
+		if (shown !== text.replace(/\s+/g, ' ').trim()) return false;
+		for (const node of [element, ...element.querySelectorAll<HTMLElement>('*')]) {
+			if (node.scrollWidth > node.clientWidth + 1 || node.scrollHeight > node.clientHeight + 1)
+				return false;
+		}
+		return true;
+	}
+
 	function show() {
-		if (!target || !text) return;
+		if (!target || !text || redundant(target)) return;
 		tip.textContent = text;
 		if (!tip.matches(':popover-open')) tip.showPopover();
 		place();

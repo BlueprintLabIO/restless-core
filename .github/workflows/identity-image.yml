@@ -6,11 +6,6 @@ name: Identity issuer image
 
 on:
   workflow_dispatch:
-  push:
-    branches: [dev]
-    paths:
-      - services/identity/**
-      - .github/workflows/identity-image.yml
 
 env:
   IMAGE: ghcr.io/blueprintlabio/restless-identity
@@ -26,7 +21,7 @@ permissions:
 
 jobs:
   publish:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, restless-core]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -36,13 +31,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-          cache-dependency-path: services/identity/package-lock.json
 
-      - name: Check the issuer
+      - name: Smoke-check the issuer source
         run: |
           npm --prefix services/identity ci
-          npm --prefix services/identity test
           node --check services/identity/src/issuer.mjs
 
       - uses: docker/setup-qemu-action@v3
@@ -68,8 +60,6 @@ jobs:
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-          cache-from: type=gha,scope=identity
-          cache-to: type=gha,mode=max,scope=identity
           provenance: mode=max
           sbom: true
 

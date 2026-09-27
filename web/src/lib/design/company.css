@@ -165,6 +165,13 @@
 	border-bottom: 1px solid var(--company-edge-soft);
 }
 
+/* A title's explanation sits beside the title on every page, whatever else
+ * the header holds, instead of being pushed to the far edge. */
+.bridge-root .company-page-head > h1 + .info-tip {
+	margin-right: auto;
+	margin-left: calc(8px - var(--space-5));
+}
+
 .bridge-root .company-page-freshness,
 .bridge-root .attention-crosslink,
 .bridge-root .doctor-computer-link {
@@ -307,6 +314,12 @@
 	margin-bottom: 15px;
 }
 
+/* A new section after the limits starts at the same distance the page uses
+ * between its other sections. */
+.bridge-root .authority-settings + .section-heading {
+	margin-top: 36px;
+}
+
 /* ---------- source, error and empty states ---------- */
 
 .bridge-root .source-unavailable,
@@ -351,13 +364,16 @@
  * quiet placeholder panel instead of a stray sentence under the title. */
 .bridge-root .company-page > .quiet-empty,
 .bridge-root .company-page > section > .quiet-empty:only-child {
-	display: grid;
-	place-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
 	min-height: 120px;
 	margin-top: var(--space-5);
 	padding: var(--space-6);
-	border: 1px dashed var(--border-strong);
 	border-radius: var(--radius-pane);
+	background: color-mix(in srgb, var(--ink) 3%, transparent);
 	text-align: center;
 	text-wrap: balance;
 }
@@ -1844,6 +1860,7 @@
 @container company-canvas (max-width: 940px) {
 	.bridge-root .charter-layout {
 		grid-template-columns: 1fr;
+		row-gap: var(--space-6);
 	}
 
 	.bridge-root .charter-context {
@@ -1882,10 +1899,15 @@
 		padding: 24px;
 	}
 
+	/* A narrow header wraps rather than stacks: the title and its explanation
+	 * stay together, and actions follow on the right or on the next line. */
 	.bridge-root .company-page-head {
-		align-items: flex-start;
-		flex-direction: column;
-		gap: 11px;
+		flex-wrap: wrap;
+		gap: 11px var(--space-3);
+	}
+
+	.bridge-root .company-page-head > h1 + .info-tip {
+		margin-left: calc(8px - var(--space-3));
 	}
 
 	.bridge-root .charter-head-actions {

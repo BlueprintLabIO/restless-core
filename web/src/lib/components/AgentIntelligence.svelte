@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { intelligenceQuery, type IntelligenceAgent } from '$lib/model/intelligence.svelte';
+	import { announceIntelligenceChange } from '$lib/model/intelligence-events';
 	import { MODEL_PRESETS } from '$lib/model/model-presets';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
 	const catalog = modelCatalog();
@@ -21,7 +22,8 @@
 						? selected.provider === 'codex'
 							? 'openai'
 							: 'anthropic'
-						: (selected?.provider ?? ''))
+						: (selected?.provider ?? '')),
+				selected?.account_kind ?? 'api_key'
 			)
 	);
 	const rows = $derived(
@@ -119,6 +121,7 @@
 			const body = await response.json();
 			if (!response.ok) throw new Error(body.message ?? 'Could not save assignment.');
 			await source.refresh();
+			announceIntelligenceChange(companyId);
 			editing = '';
 			notice = 'Intelligence saved. Applies to the next session.';
 		} catch (cause) {

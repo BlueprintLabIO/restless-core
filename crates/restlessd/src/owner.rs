@@ -19,6 +19,8 @@ mod custom_harnesses;
 mod documents_api;
 #[path = "owner_member_collaboration.rs"]
 mod member_collaboration_api;
+#[path = "owner_model_catalog.rs"]
+mod model_catalog_api;
 #[path = "owner_members.rs"]
 mod members_api;
 #[path = "owner_notifications.rs"]
@@ -1329,12 +1331,14 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
 
     let api = Router::new()
         .route("/appliance", get(appliance_status))
+        .route("/model-catalog", get(model_catalog_api::get_catalog))
         .route("/companies", get(company_catalog).post(create_company))
         .route(
             "/connections",
             get(list_owner_connections).post(create_owner_connection),
         )
         .route("/connections/import", post(import_owner_connection))
+        .route("/connections/models/{provider}", get(oauth_login_api::account_models))
         .route("/connections/import/company-codex", post(native_import_api::import_company_codex))
         .route("/connections/oauth/codex", post(oauth_login_api::start_codex_login))
         .route("/connections/oauth/claude", post(oauth_login_api::start_claude_login))
@@ -1638,6 +1642,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .with_context(|| format!("bind review gateway {review_address}"))?;
     tracing::info!(addr = %address, "owner gateway listening");
     tracing::info!(addr = %review_address, "isolated review gateway listening");
+    model_catalog_api::start_refresh_loop();
     tokio::try_join!(
         axum::serve(listener, app),
         axum::serve(preview_listener, preview)
@@ -14775,7 +14780,7 @@ async fn intelligence_view(
         let providers=provider_view(&config).await;
         let hosted = state.entry.network().is_some();
         let registry = load_owner_connections(&state.daemon.root)?;
-        let natives=if hosted {Vec::new()} else {futures_util::future::join_all(["codex","claude-agent"].iter().map(|id|crate::native_harness::view(&config,id))).await};
+        let natives=if hosted {Vec::new()} else {futures_util::future::join_all(["codex","claude-agent"].iter().map(|id|crate::native_harness::view_cached(&config,id))).await};
         let mut connections=Vec::new();
         for row in providers["connections"].as_array().into_iter().flatten() {
             if row["credential_status"]!="present" {continue;}
@@ -14792,11 +14797,11 @@ async fn intelligence_view(
                     if !verified {continue;}
                 }
                 let suffix = format!("{provider}@{}", account.id);
-                connections.push(serde_json::json!({"id":format!("account:{suffix}"),"provider":provider,"kind":"direct","label":account.label,"loaded":row["gateway_loaded"]}));
+                connections.push(serde_json::json!({"id":format!("account:{suffix}"),"provider":provider,"kind":"direct","account_kind":account.kind,"label":account.label,"loaded":row["gateway_loaded"]}));
                 if account.kind == "oauth" {
                     let harness = match provider {"openai-codex" => Some("codex"), "anthropic" => Some("claude-agent"), _ => None};
                     if let Some(harness) = harness {
-                        connections.push(serde_json::json!({"id":format!("account-harness:{harness}:{suffix}"),"provider":harness,"account_provider":provider,"kind":"harness","label":account.label,"loaded":row["gateway_loaded"]}));
+                        connections.push(serde_json::json!({"id":format!("account-harness:{harness}:{suffix}"),"provider":harness,"account_provider":provider,"account_kind":account.kind,"kind":"harness","label":account.label,"loaded":row["gateway_loaded"]}));
                     }
                 }
             } else {
@@ -14822,7 +14827,7 @@ async fn intelligence_view(
             let model=effective.native_model(harness).unwrap_or_else(||effective.agent_preference(&a.id,a.model.as_deref()).unwrap_or(&effective.model).to_string());
             serde_json::json!({"id":a.id,"name":a.display,"role":a.role,"assignment":config.agent_intelligence.get(&a.id),"effective_model":model,"harness":harness,"thinking_effort":effective.reasoning_effort})
         }).collect::<Vec<_>>();
-        let known=natives.iter().all(|row|row["auth"]["state"]!="unavailable") && providers["connections"].as_array().into_iter().flatten().all(|row|row["credential_status"]!="invalid");
+        let known=natives.iter().all(|row|!matches!(row["auth"]["state"].as_str(),Some("unavailable"|"checking"))) && providers["connections"].as_array().into_iter().flatten().all(|row|row["credential_status"]!="invalid");
         Ok(serde_json::json!({"revision":company_setup_view(&config)["revision"],"default":config.agent_intelligence.get("default"),"has_connections": if connections.is_empty() && !known {serde_json::Value::Null} else {serde_json::Value::Bool(!connections.is_empty())},"connections":connections,"agents":agents}))
     }.await;
     match result {

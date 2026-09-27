@@ -4,6 +4,7 @@
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import { getCompanies, type CompanyCatalogEntry } from '$lib/model/cockpit';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
+	import { announceIntelligenceChange, watchIntelligenceChanges } from '$lib/model/intelligence-events';
 	const catalog = modelCatalog();
 	type CompanyUse = { id: string; name: string; in_use?: boolean };
 	type AccountConnection = {
@@ -69,35 +70,44 @@
 	let companyRevisions = $state<Record<string, string>>({});
 	let selectedCompany = $state('');
 	let selectedModel = $state('');
+	let selectedCustomModel = $state(false);
+	let modelTouched = $state(false);
 	let selectedMakeDefault = $state(false);
 	let replaceRequired = $state(false);
 	let busyCompany = $state(false);
 	let confirmRevocation = $state('');
 	let statusRefreshTimer: ReturnType<typeof setTimeout> | undefined;
 	let statusRefreshAttempts = 0;
+	let refreshSequence = 0;
 
 	async function refresh() {
+		const sequence = ++refreshSequence;
 		loading = true;
 		error = '';
 		try {
 			const response = await fetch('/api/connections', { cache: 'no-store' });
 			const body = await response.json();
+			if (sequence !== refreshSequence) return;
 			if (!response.ok) throw new Error(body.message ?? 'Could not load account connections.');
+			const previouslySignedIn = new Set(connections.filter((item) => item.kind === 'oauth' && item.status === 'present').map((item) => item.provider));
 			connections = body.connections ?? [];
+			if (connections.some((item) => item.kind === 'oauth' && item.status === 'present' && !previouslySignedIn.has(item.provider))) void catalog.refreshConnected();
 			accountScope = body.scope === 'company' ? 'company' : 'account';
 			manageUrl = body.manage_url ?? '/account/settings/connections';
 			if (statusRefreshTimer) clearTimeout(statusRefreshTimer);
-			if (connections.some((connection) => connection.status === 'checking') && statusRefreshAttempts < 6) {
-				statusRefreshAttempts += 1;
-				statusRefreshTimer = setTimeout(() => void refresh(), 2500);
+			if (connections.some((connection) => connection.status === 'checking')) {
+				statusRefreshAttempts = Math.min(statusRefreshAttempts + 1, 12);
+				const delay = Math.min(2500 * 2 ** Math.floor(statusRefreshAttempts / 3), 30_000);
+				statusRefreshTimer = setTimeout(() => void refresh(), delay);
 			} else {
 				statusRefreshAttempts = 0;
 				statusRefreshTimer = undefined;
 			}
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Could not load account connections.';
+			if (sequence === refreshSequence)
+				error = cause instanceof Error ? cause.message : 'Could not load account connections.';
 		} finally {
-			loading = false;
+			if (sequence === refreshSequence) loading = false;
 		}
 	}
 	async function refreshNativeSignIns(rows: CompanyCatalogEntry[]) {
@@ -155,6 +165,7 @@
 			const body = await response.json();
 			if (!response.ok) throw new Error(body.message ?? 'Could not use this sign-in for the account.');
 			await refresh();
+			announceIntelligenceChange();
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Could not use this sign-in for the account.';
 		} finally {
@@ -178,6 +189,7 @@
 			secret = '';
 			addOpen = false;
 			await refresh();
+			announceIntelligenceChange();
 		} catch (cause) {
 			secret = '';
 			error = cause instanceof Error ? cause.message : 'Could not save this connection.';
@@ -238,6 +250,7 @@
 					oauthJob = '';
 					if (body.state === 'connected') {
 						await refresh();
+						announceIntelligenceChange();
 					}
 					return;
 				}
@@ -262,26 +275,36 @@
 		if (id === 'openai-codex') return 'ChatGPT / Codex';
 		return providerOptions.find(([key]) => key === id)?.[1] ?? id;
 	}
-	function modelChoices(providerId: string) {
-		return catalog.models(providerId);
+	function modelChoices(providerId: string, kind: 'api_key' | 'oauth' = 'api_key') {
+		return catalog.models(providerId, kind);
 	}
 	function routeModel(providerId: string, model: string) {
 		return model.startsWith(`${providerId}/`) ? model : `${providerId}/${model}`;
 	}
-	function defaultModel(providerId: string) {
-		const models = modelChoices(providerId);
+	function validModel(providerId: string, model: string) {
+		return model.startsWith(`${providerId}/`) && model.length > providerId.length + 1 && model.length <= 200 && !/\s/.test(model);
+	}
+	function defaultModel(providerId: string, kind: 'api_key' | 'oauth' = 'api_key') {
+		const models = modelChoices(providerId, kind);
 		const model = models.find((item) => 'default' in item && item.default)?.id ?? models[0]?.id;
 		return model ? routeModel(providerId, model) : '';
 	}
 	function toggleManage(item: AccountConnection) {
 		managingId = managingId === item.id ? '' : item.id;
 		selectedCompany = '';
-		selectedModel = defaultModel(item.provider);
+		selectedModel = defaultModel(item.provider, item.kind);
+		selectedCustomModel = false;
+		modelTouched = false;
 		selectedMakeDefault = false;
 		replaceRequired = false;
 	}
+	$effect(() => {
+		if (!managingId || !selectedCompany || modelTouched) return;
+		const item = connections.find((row) => row.id === managingId);
+		if (item) selectedModel = defaultModel(item.provider, item.kind);
+	});
 	async function grant(item: AccountConnection, companyId: string, replace = false) {
-		if (busyCompany) return;
+		if (busyCompany || !validModel(item.provider, selectedModel)) return;
 		busyCompany = true;
 		error = '';
 		try {
@@ -303,7 +326,7 @@
 					method: 'POST',
 					headers: { 'content-type': 'application/json' },
 					body: JSON.stringify({
-						model: selectedModel || defaultModel(item.provider),
+						model: selectedModel,
 						make_default: selectedMakeDefault,
 						revision,
 						...(replace ? { replace_existing: true } : {})
@@ -323,6 +346,7 @@
 			if (!response.ok) throw new Error(body.message ?? 'Could not grant this company access.');
 			companyRevisions = { ...companyRevisions, [companyId]: body.provider?.revision ?? revision };
 			await refresh();
+			announceIntelligenceChange(companyId);
 			selectedCompany = '';
 			replaceRequired = false;
 		} catch (cause) {
@@ -360,6 +384,7 @@
 			companyRevisions = { ...companyRevisions, [company.id]: body.provider?.revision ?? revision };
 			confirmRevocation = '';
 			await refresh();
+			announceIntelligenceChange(company.id);
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Could not remove this company’s access.';
 		} finally {
@@ -369,6 +394,7 @@
 
 	onMount(() => {
 		void refresh();
+		const stopWatching = watchIntelligenceChanges(() => void refresh(), true);
 		void getCompanies()
 			.then((rows) => {
 				companies = rows.filter((company) => company.lifecycle_status === 'active');
@@ -379,7 +405,7 @@
 				nativeError = 'Company sign-ins could not be loaded.';
 				nativeLoading = false;
 			});
-		return () => { if (statusRefreshTimer) clearTimeout(statusRefreshTimer); };
+		return () => { if (statusRefreshTimer) clearTimeout(statusRefreshTimer); stopWatching(); };
 	});
 </script>
 
@@ -524,21 +550,24 @@
 									{:else if selectedCompany === company.id}
 										<label class="model-picker"
 											><span>Model</span><select
-												bind:value={selectedModel}
+												value={selectedCustomModel ? '__custom' : selectedModel}
+												onchange={(event) => { modelTouched = true; selectedCustomModel = event.currentTarget.value === '__custom'; selectedModel = selectedCustomModel ? '' : event.currentTarget.value; }}
 												aria-label={`Model for ${item.label} in ${company.name}`}
 												><option value="">Choose a model…</option
-												>{#each modelChoices(item.provider) as model}<option
+												>{#each modelChoices(item.provider, item.kind) as model}<option
 														value={routeModel(item.provider, model.id)}
 														>{model.name ?? model.id}</option
-													>{/each}</select
+													>{/each}<option value="__custom">Custom model ID…</option></select
 										></label
 										>
+										{#if selectedCustomModel}<label class="model-picker"><span>Full model ID</span><input aria-label="Full model ID" placeholder={`${item.provider}/model-id`} bind:value={selectedModel} /></label>{/if}
+										<small class="model-source">{catalog.source(item.provider, item.kind) === 'connected' ? 'Models from this account’s connected runtime' : 'Model suggestions; availability depends on this connection'}</small>
 										<label class="model-picker"><input type="checkbox" bind:checked={selectedMakeDefault} /> Use as this company’s default model</label>
 										{#if replaceRequired}<span class="replace-warning" role="alert"
 												>This replaces the current {providerName(item.provider)} connection for {company.name}.</span
 											><button
 												class="btn primary small"
-												disabled={busyCompany || !selectedModel}
+												disabled={busyCompany || !validModel(item.provider, selectedModel)}
 												onclick={() => void grant(item, company.id, true)}
 												>{busyCompany ? 'Replacing…' : 'Confirm replacement'}</button
 											><button
@@ -551,7 +580,7 @@
 											>
 										{:else}<button
 												class="btn primary small"
-												disabled={busyCompany || !selectedModel || item.status !== 'present'}
+												disabled={busyCompany || !validModel(item.provider, selectedModel) || item.status !== 'present'}
 												onclick={() => void grant(item, company.id)}
 												>{busyCompany ? 'Granting…' : 'Grant access'}</button
 											><button
@@ -564,7 +593,9 @@
 											disabled={busyCompany || item.status !== 'present'}
 											onclick={() => {
 												selectedCompany = company.id;
-												selectedModel = defaultModel(item.provider);
+								selectedModel = defaultModel(item.provider, item.kind);
+												selectedCustomModel = false;
+												modelTouched = false;
 												selectedMakeDefault = false;
 												replaceRequired = false;
 											}}>Choose model and grant</button
@@ -592,10 +623,10 @@
 	{/if}
 	<section class="native-section" aria-label="Native sign-ins by company">
 		<div class="section-head">
-			<h2>Company sign-ins</h2>
+			<h2>Older company-only sign-ins</h2>
 			<button class="text-button" disabled={nativeLoading} onclick={() => void refreshNativeSignIns(companies)}>Refresh status</button>
 		</div>
-		<p>These sign-ins belong to their companies. Add an existing Codex sign-in to your account, then choose which companies may use it. Adding it grants no company access; the original company sign-in stays in place.</p>
+		<p>These are separate profiles inside each company computer. An expired profile here does not affect an account connection shown above. Add an existing Codex sign-in to your account, then choose which companies may use it.</p>
 		{#if nativeError}<p class="native-error" role="alert">{nativeError}</p>{/if}
 		{#if nativeLoading}<p role="status">Checking company sign-ins…</p>
 		{:else if nativeSignIns.length}
@@ -850,7 +881,8 @@
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 	}
-	.model-picker select {
+	.model-picker select,
+	.model-picker input {
 		min-height: 36px;
 		padding: 4px 8px;
 		border: 1px solid var(--control-edge);
@@ -859,6 +891,7 @@
 		background: var(--surface-pane);
 		font: inherit;
 	}
+	.model-source { flex-basis: 100%; color: var(--text-tertiary); font-size: var(--t-label); }
 	.replace-warning {
 		flex-basis: 100%;
 		color: var(--state-danger);

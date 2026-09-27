@@ -78,7 +78,6 @@
 	 * legible before reading the author line. These are sender surfaces, not
 	 * intent colours: every chat presentation consumes the same pair. */
 	--chat-owner-bg: #eaf0f8;
-	--chat-agent-bg: #f7f9fc;
 	--chat-context-bg: #eaf3ef;
 	--chat-owner-edge: #a7bcd3;
 	--intent-feedback: #466f63;
@@ -247,7 +246,6 @@
 	--intent-conversation: #93b2d8;
 	--intent-conversation-soft: #1c2533;
 	--chat-owner-bg: #1b2330;
-	--chat-agent-bg: #16191e;
 	--chat-context-bg: #17221d;
 	--chat-owner-edge: #34506f;
 	--intent-feedback: #82bba8;

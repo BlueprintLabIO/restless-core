@@ -300,15 +300,9 @@
 	min-height: 40px;
 	align-items: center;
 	padding: 0 15px;
-	border-right: 1px solid var(--border);
 	border-bottom: 1px solid var(--border);
 	font-weight: 500;
 	color: var(--text-tertiary);
-}
-
-.bridge-root .portfolio-grid-head > span:last-child,
-.bridge-root .portfolio-company-row > span:last-child {
-	border-right: 0;
 }
 
 .bridge-root .portfolio-company-row {
@@ -319,7 +313,7 @@
 }
 
 .bridge-root .portfolio-company-row:hover {
-	background: rgba(63, 120, 182, 0.045);
+	background: var(--wash-hover);
 }
 
 .bridge-root .portfolio-company-row:focus-visible {
@@ -332,7 +326,6 @@
 .bridge-root .portfolio-metric {
 	min-width: 0;
 	min-height: 72px;
-	border-right: 1px solid var(--border);
 	border-bottom: 1px solid var(--border);
 }
 
@@ -624,6 +617,49 @@
 	flex-direction: column;
 	min-height: 0;
 	overflow: auto;
+}
+
+/* An edge with more queue beyond it fades instead of slicing a row in half.
+ * The fade follows the scroll position, so a queue that fits, or one scrolled
+ * to its end, shows no fade on that edge. */
+@property --edge-fade-top {
+	syntax: '<length>';
+	inherits: false;
+	initial-value: 0px;
+}
+@property --edge-fade-bottom {
+	syntax: '<length>';
+	inherits: false;
+	initial-value: 0px;
+}
+@keyframes edge-fade {
+	from {
+		--edge-fade-top: 0px;
+		--edge-fade-bottom: 32px;
+	}
+	10% {
+		--edge-fade-top: 32px;
+	}
+	90% {
+		--edge-fade-bottom: 32px;
+	}
+	to {
+		--edge-fade-top: 32px;
+		--edge-fade-bottom: 0px;
+	}
+}
+@supports (animation-timeline: scroll()) {
+	.bridge-root .attention-index-scroll {
+		mask-image: linear-gradient(
+			to bottom,
+			transparent,
+			#000 var(--edge-fade-top),
+			#000 calc(100% - var(--edge-fade-bottom)),
+			transparent
+		);
+		animation: edge-fade linear both;
+		animation-timeline: scroll(self);
+	}
 }
 
 .bridge-root .attention-index {
@@ -1175,6 +1211,7 @@
 .bridge-root .lens-switch button {
 	flex: 1;
 	font-weight: 500;
+	white-space: nowrap;
 }
 
 .bridge-root .lens-switch button:hover {
@@ -2703,7 +2740,6 @@
 	.bridge-root .portfolio-company-cell,
 	.bridge-root .portfolio-metric {
 		min-height: 0;
-		border-right: 0;
 	}
 	.bridge-root .portfolio-company-cell {
 		padding-block: 14px;

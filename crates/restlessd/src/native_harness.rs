@@ -3,7 +3,7 @@
 use crate::{credential, runtime};
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 const HELPER: &str = "/usr/local/bin/restless-harness-auth";
@@ -12,6 +12,8 @@ pub const CLAUDE_HOME: &str = "/company/home/.restless/harness-auth/claude-agent
 const SOURCE: &str = include_str!("../../../tools/harness-auth/auth.mjs");
 type StatusSlot = Arc<tokio::sync::Mutex<Option<(Instant, Duration, Value)>>>;
 static STATUS_VIEW_CACHE: LazyLock<tokio::sync::Mutex<HashMap<(String, String), StatusSlot>>> =
+    LazyLock::new(Default::default);
+static STATUS_BACKGROUND_REFRESH: LazyLock<tokio::sync::Mutex<HashSet<(String, String)>>> =
     LazyLock::new(Default::default);
 pub fn validate(harness: &str) -> Result<()> {
     if !["codex", "claude-agent"].contains(&harness) {
@@ -107,7 +109,38 @@ async fn status_for_view(company: &str, harness: &str) -> Value {
     *cached = Some((Instant::now(), ttl, value.clone()));
     value
 }
-pub async fn view(config: &runtime::CompanyConfig, harness: &str) -> Value {
+
+/// Intelligence summaries must not wait for a company CLI to start. A cached
+/// observation is useful immediately; an absent or old one is refreshed in
+/// the background and surfaced by the normal foreground status poll.
+async fn cached_status_for_view(company: &str, harness: &str) -> Value {
+    let slot = STATUS_VIEW_CACHE
+        .lock()
+        .await
+        .entry((company.to_string(), harness.to_string()))
+        .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(None)))
+        .clone();
+    if let Ok(cached) = slot.try_lock() {
+        if let Some((at, ttl, value)) = cached.as_ref() {
+            if at.elapsed() < *ttl {
+                return value.clone();
+            }
+        }
+        let previous = cached.as_ref().map(|(_, _, value)| value.clone());
+        drop(cached);
+        let key = (company.to_owned(), harness.to_owned());
+        if STATUS_BACKGROUND_REFRESH.lock().await.insert(key.clone()) {
+            tokio::spawn(async move {
+                let _ = status_for_view(&key.0, &key.1).await;
+                STATUS_BACKGROUND_REFRESH.lock().await.remove(&key);
+            });
+        }
+        return previous.unwrap_or_else(|| json!({"state":"checking"}));
+    }
+    json!({"state":"checking"})
+}
+
+async fn view_inner(config: &runtime::CompanyConfig, harness: &str, cached: bool) -> Value {
     let connection = config.native_harnesses.get(harness);
     let mode = connection
         .map(|c| c.mode.as_str())
@@ -120,11 +153,23 @@ pub async fn view(config: &runtime::CompanyConfig, harness: &str) -> Value {
             _ => json!({"state":"disconnected"}),
         }
     } else if mode == "oauth" {
-        status_for_view(&config.name, harness).await
+        if cached {
+            cached_status_for_view(&config.name, harness).await
+        } else {
+            status_for_view(&config.name, harness).await
+        }
     } else {
         json!({"state":"disconnected"})
     };
     json!({"harness":harness,"configured":connection.is_some(),"mode":mode,"model":connection.map(|c| c.model.as_str()).unwrap_or(if harness=="codex" {"gpt-5.4"} else {"claude-sonnet-4-6"}),"auth":status})
+}
+
+pub async fn view(config: &runtime::CompanyConfig, harness: &str) -> Value {
+    view_inner(config, harness, false).await
+}
+
+pub async fn view_cached(config: &runtime::CompanyConfig, harness: &str) -> Value {
+    view_inner(config, harness, true).await
 }
 pub async fn session_access(
     company: &str,

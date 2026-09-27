@@ -25,6 +25,78 @@ struct ClaudeCallback {
 static JOBS: LazyLock<tokio::sync::Mutex<HashMap<Uuid, LoginJob>>> =
     LazyLock::new(|| tokio::sync::Mutex::new(HashMap::new()));
 
+/// List models offered by the account's actual OAuth runtime. The public API
+/// catalog is not a reliable list of models available through a subscription.
+pub(super) async fn account_models(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(provider): AxumPath<String>,
+) -> Response<Body> {
+    if !principal.is_account_owner() {
+        return api_error(StatusCode::FORBIDDEN, "connections", "Only the account owner can inspect this sign-in.");
+    }
+    if !matches!(provider.as_str(), "openai-codex" | "anthropic") {
+        return api_error(StatusCode::NOT_FOUND, "connections", "No account model list exists for this provider.");
+    }
+    let registry = match load_owner_connections(&state.daemon.root) {
+        Ok(registry) => registry,
+        Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "Could not read account connections."),
+    };
+    let Some(connection) = registry.connections.iter().find(|row| row.kind == "oauth" && row.provider == provider) else {
+        return api_error(StatusCode::NOT_FOUND, "connections", "Connect this provider in Account settings first.");
+    };
+    if !matches!((&connection.account_key, model_gateway::oauth_account_key(&provider).await), (Some(expected), Ok(Some(actual))) if expected == &actual) {
+        return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "The account sign-in is unavailable. Reconnect it in Account settings.");
+    }
+    let (program, profile) = match model_gateway::oauth_login_command() {
+        Ok(command) => command,
+        Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "The model runtime is unavailable."),
+    };
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(60),
+        tokio::process::Command::new(program)
+            .current_dir(&state.daemon.root)
+            .env("OMP_PROFILE", profile)
+            .args(["models", &provider, "--json"])
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .output(),
+    ).await;
+    let Ok(Ok(output)) = output else {
+        return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "Could not refresh models from the connected runtime.");
+    };
+    if !output.status.success() || output.stdout.len() > 1_000_000 {
+        return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "Could not refresh models from the connected runtime.");
+    }
+    let Ok(body) = serde_json::from_slice::<serde_json::Value>(&output.stdout) else {
+        return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "The connected runtime returned an invalid model list.");
+    };
+    let mut models = body["models"].as_array().into_iter().flatten().filter_map(|row| {
+        let id = row["id"].as_str()?;
+        let name = row["name"].as_str()?;
+        if row["provider"].as_str() != Some(provider.as_str()) || row["kind"].as_str().is_some_and(|kind| kind != "chat") || id.is_empty() || id.len() > 200 || name.is_empty() || name.len() > 200
+            || !id.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"._:-".contains(&byte))
+            || name.chars().any(char::is_control)
+        { return None; }
+        Some(serde_json::json!({"id": id, "name": name}))
+    }).collect::<Vec<_>>();
+    if models.is_empty() {
+        return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "The connected runtime has no available models for this sign-in.");
+    }
+    let preferred = if provider == "openai-codex" {
+        &["gpt-6-sol", "gpt-5.6-sol"][..]
+    } else {
+        &["claude-sonnet-5", "claude-sonnet-4-6"][..]
+    };
+    if let Some(id) = preferred.iter().find(|id| models.iter().any(|model| model["id"] == **id)) {
+        if let Some(default) = models.iter_mut().find(|model| model["id"] == *id) {
+            default["default"] = serde_json::Value::Bool(true);
+        }
+    }
+    Json(serde_json::json!({"provider": provider, "source": "connected_runtime", "models": models})).into_response()
+}
+
 pub(super) async fn start_codex_login(
     State(state): State<OwnerState>,
     Extension(principal): Extension<RequestPrincipal>,

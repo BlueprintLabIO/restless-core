@@ -474,7 +474,7 @@
 		position: relative;
 		padding: 10px 14px 13px;
 		border-top: 1px solid var(--border);
-		background: var(--chat-agent-bg);
+		background: transparent;
 	}
 
 	.streamed-reply header {

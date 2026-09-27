@@ -203,7 +203,13 @@
 		padding: 12px 14px 8px;
 		border: 0;
 		border-bottom: 1px solid var(--border);
-		background: var(--chat-agent-bg);
+		background: transparent;
+	}
+
+	/* Rules separate turns; nothing trails the last one, so a short conversation
+	 * ends on the rail surface rather than on a box edge. */
+	.conversation-message:last-of-type {
+		border-bottom-color: transparent;
 	}
 
 	/* The left edge is a signal, not a frame: it marks the two senders that are

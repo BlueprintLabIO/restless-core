@@ -354,7 +354,11 @@
 		min-width: 0;
 		padding: 13px 16px 11px;
 		border-bottom: 1px solid var(--border);
-		background: var(--chat-agent-bg);
+		background: transparent;
+	}
+
+	.room-message:last-of-type {
+		border-bottom-color: transparent;
 	}
 
 	.room-message.you {

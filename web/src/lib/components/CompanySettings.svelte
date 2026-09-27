@@ -193,7 +193,7 @@
 	});
 </script>
 
-<section class="setup-page">
+<section class="setup-page" class:inline-name={section === 'name'}>
 	<header>
 		<h2>{section === 'provider' ? 'Model' : 'Company name'}</h2>
 		<!-- Quiet until something happens: an untouched form is not news. -->
@@ -277,6 +277,9 @@
 		margin: 0 auto;
 		overflow-y: auto;
 	}
+	.setup-page.inline-name {
+		overflow: visible;
+	}
 	header {
 		display: flex;
 		align-items: center;
@@ -318,6 +321,27 @@
 		color: var(--ink);
 		font: inherit;
 		font-size: var(--t-body);
+	}
+	/* The name reads as the page text it is and shows field chrome only when
+	 * pointed at or edited, so the charter is not a form until you act on it. */
+	input#setup-name {
+		margin-inline: -10px;
+		width: calc(100% + 20px);
+		padding: 8px 10px;
+		border-color: transparent;
+		background: transparent;
+		font-size: var(--t-head);
+		font-weight: 500;
+		transition:
+			background var(--motion-state) var(--ease-standard),
+			border-color var(--motion-state) var(--ease-standard);
+	}
+	input#setup-name:hover {
+		background: var(--wash-hover);
+	}
+	input#setup-name:focus {
+		border-color: var(--edge-control);
+		background: var(--surface-raised);
 	}
 	input:focus-visible,
 	select:focus-visible {

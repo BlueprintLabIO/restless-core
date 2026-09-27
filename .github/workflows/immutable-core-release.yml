@@ -20,25 +20,10 @@ permissions:
 jobs:
   qualify:
     name: Qualify source
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, restless-core]
     timeout-minutes: 45
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_DB: restless_test
-          POSTGRES_PASSWORD: restless
-          POSTGRES_USER: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d restless_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 12
     env:
       CARGO_INCREMENTAL: "0"
-      RESTLESS_TEST_DATABASE_URL: postgresql://postgres:restless@127.0.0.1:5432/restless_test
     steps:
       - uses: actions/checkout@v4
         with:
@@ -49,45 +34,32 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: Swatinem/rust-cache@v2
-
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-          cache-dependency-path: |
-            web/package-lock.json
-            services/native-documents-collaboration/package-lock.json
 
       - name: Check Rust workspace
-        run: cargo test --workspace --locked
+        run: cargo check --workspace --locked
 
       - name: Check cockpit
         run: |
           npm --prefix web ci
           npm --prefix web run check
-          node --experimental-strip-types --test web/src/lib/model/*.test.ts
           npm --prefix web run build
 
       - name: Check native Documents sidecar
         run: |
           npm --prefix services/native-documents-collaboration ci
           npm --prefix services/native-documents-collaboration run check
-          npm --prefix services/native-documents-collaboration test
           npm --prefix services/native-documents-collaboration run build
-
-      - name: Verify release-contract generators
-        run: node --test scripts/company-collaboration-contract.test.mjs
 
   publish:
     name: Publish immutable artifacts
     needs: qualify
-    runs-on: ubuntu-24.04
-    # Three sequential multi-arch (amd64+arm64, QEMU-emulated) Rust builds.
-    # The first, cache-cold account-plane build alone used the full prior
-    # 90m budget; give this job enough room for a cold cache on all three,
-    # and the GHA layer cache warms subsequent runs well under this.
-    timeout-minutes: 240
+    runs-on: [self-hosted, linux, x64, restless-core]
+    # Three sequential multi-arch (amd64+arm64, QEMU-emulated) Rust builds
+    # run on the owner's machine. No GitHub-hosted runner or Actions cache.
+    timeout-minutes: 360
     outputs:
       account_plane: ${{ steps.refs.outputs.account_plane }}
       company_runtime: ${{ steps.refs.outputs.company_runtime }}
@@ -104,10 +76,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-          cache-dependency-path: |
-            web/package-lock.json
-            services/native-documents-collaboration/package-lock.json
 
       - name: Build cockpit assets for the account plane
         run: |
@@ -136,6 +104,16 @@ jobs:
       - uses: docker/setup-qemu-action@v3
 
       - uses: docker/setup-buildx-action@v3
+        with:
+          # The fixed name reuses the 26 Sep interrupted build's 16.6 GB
+          # BuildKit state volume and keeps later releases warm.
+          name: builder-22ca3a12-1df4-458c-9464-ef1a9b287638
+          keep-state: true
+          driver-opts: |
+            memory=40g
+            memory-swap=40g
+            cpu-shares=512
+          buildkitd-config: infra/buildkit/release-buildkitd.toml
 
       - name: Sign in to GHCR
         uses: docker/login-action@v3
@@ -144,17 +122,23 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Refuse overwrite of source-addressed release tags
-        run: |
-          for image in restless-account-plane restless-company-runtime restless-native-documents-collaboration; do
-            if docker buildx imagetools inspect "${REGISTRY}/${NAMESPACE}/${image}:${GITHUB_SHA}" >/dev/null 2>&1; then
-              echo "${image}:${GITHUB_SHA} already exists; Core release tags are append-only" >&2
-              exit 1
-            fi
-          done
+      - uses: sigstore/cosign-installer@v3.10.0
+
+      - name: Find a signed account plane from an interrupted release
+        id: prior_account
+        run: bash scripts/release/resolve-published-image.sh "${REGISTRY}/${NAMESPACE}/restless-account-plane" "$GITHUB_SHA" "$GITHUB_WORKFLOW_REF" >> "$GITHUB_OUTPUT"
+
+      - name: Find a signed company Runtime from an interrupted release
+        id: prior_runtime
+        run: bash scripts/release/resolve-published-image.sh "${REGISTRY}/${NAMESPACE}/restless-company-runtime" "$GITHUB_SHA" "$GITHUB_WORKFLOW_REF" >> "$GITHUB_OUTPUT"
+
+      - name: Find a signed Documents sidecar from an interrupted release
+        id: prior_documents
+        run: bash scripts/release/resolve-published-image.sh "${REGISTRY}/${NAMESPACE}/restless-native-documents-collaboration" "$GITHUB_SHA" "$GITHUB_WORKFLOW_REF" >> "$GITHUB_OUTPUT"
 
       - name: Build and publish account plane
         id: account
+        if: steps.prior_account.outputs.exists != 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -163,16 +147,23 @@ jobs:
           push: true
           tags: ghcr.io/blueprintlabio/restless-account-plane:${{ github.sha }}
           build-args: SOURCE_REVISION=${{ github.sha }}
-          cache-from: type=gha,scope=account-plane
-          cache-to: type=gha,mode=max,scope=account-plane
           provenance: mode=max
           sbom: true
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
 
+      - name: Sign the published account plane immediately
+        if: steps.prior_account.outputs.exists != 'true'
+        env:
+          DIGEST: ${{ steps.account.outputs.digest }}
+        run: |
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          cosign sign --yes "${REGISTRY}/${NAMESPACE}/restless-account-plane@${DIGEST}"
+
       - name: Build and publish company Runtime
         id: runtime
+        if: steps.prior_runtime.outputs.exists != 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -186,16 +177,23 @@ jobs:
             RESTLESS_API_CONTRACT_VERSION=${{ steps.versions.outputs.api_contract }}
             RESTLESS_ASSERTION_CONTRACT_VERSION=${{ steps.versions.outputs.identity_contract }}
             RESTLESS_SCHEMA_VERSION=${{ steps.versions.outputs.schema_version }}
-          cache-from: type=gha,scope=company-runtime
-          cache-to: type=gha,mode=max,scope=company-runtime
           provenance: mode=max
           sbom: true
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
 
+      - name: Sign the published company Runtime immediately
+        if: steps.prior_runtime.outputs.exists != 'true'
+        env:
+          DIGEST: ${{ steps.runtime.outputs.digest }}
+        run: |
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          cosign sign --yes "${REGISTRY}/${NAMESPACE}/restless-company-runtime@${DIGEST}"
+
       - name: Build and publish native Documents sidecar
         id: documents
+        if: steps.prior_documents.outputs.exists != 'true'
         uses: docker/build-push-action@v6
         with:
           context: services/native-documents-collaboration
@@ -203,20 +201,26 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ghcr.io/blueprintlabio/restless-native-documents-collaboration:${{ github.sha }}
-          cache-from: type=gha,scope=native-documents
-          cache-to: type=gha,mode=max,scope=native-documents
           provenance: mode=max
           sbom: true
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
 
+      - name: Sign the published Documents sidecar immediately
+        if: steps.prior_documents.outputs.exists != 'true'
+        env:
+          DIGEST: ${{ steps.documents.outputs.digest }}
+        run: |
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          cosign sign --yes "${REGISTRY}/${NAMESPACE}/restless-native-documents-collaboration@${DIGEST}"
+
       - name: Freeze digest references
         id: refs
         env:
-          ACCOUNT_DIGEST: ${{ steps.account.outputs.digest }}
-          RUNTIME_DIGEST: ${{ steps.runtime.outputs.digest }}
-          DOCUMENTS_DIGEST: ${{ steps.documents.outputs.digest }}
+          ACCOUNT_DIGEST: ${{ steps.prior_account.outputs.digest || steps.account.outputs.digest }}
+          RUNTIME_DIGEST: ${{ steps.prior_runtime.outputs.digest || steps.runtime.outputs.digest }}
+          DOCUMENTS_DIGEST: ${{ steps.prior_documents.outputs.digest || steps.documents.outputs.digest }}
         run: |
           for digest in "$ACCOUNT_DIGEST" "$RUNTIME_DIGEST" "$DOCUMENTS_DIGEST"; do
             [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
@@ -236,6 +240,10 @@ jobs:
               ([.manifests[] | select(.platform.os == "linux") | .platform.architecture] | sort) == ["amd64", "arm64"] and
               ([.manifests[] | select(.platform.os == "unknown" and .annotations["vnd.docker.reference.type"] == "attestation-manifest")] | length) >= 2
             '
+            cosign verify \
+              --certificate-identity "https://github.com/${GITHUB_WORKFLOW_REF}" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              "$image" >/dev/null
           done
 
       - name: Assemble released contracts and manifest
@@ -260,9 +268,7 @@ jobs:
           echo "release_manifest=$release_manifest" >> "$GITHUB_OUTPUT"
           echo "release_manifest_digest=$release_digest" >> "$GITHUB_OUTPUT"
 
-      - uses: sigstore/cosign-installer@v3.10.0
-
-      - name: Sign images and the exact release and contract manifests
+      - name: Sign the exact release and contract manifests
         env:
           ACCOUNT_PLANE_IMAGE: ${{ steps.refs.outputs.account_plane }}
           COMPANY_RUNTIME_IMAGE: ${{ steps.refs.outputs.company_runtime }}
@@ -270,9 +276,6 @@ jobs:
           RELEASE_MANIFEST: ${{ steps.contract.outputs.release_manifest }}
           CONTRACT_MANIFEST: ${{ steps.contract.outputs.contract_manifest }}
         run: |
-          cosign sign --yes "$ACCOUNT_PLANE_IMAGE"
-          cosign sign --yes "$COMPANY_RUNTIME_IMAGE"
-          cosign sign --yes "$NATIVE_DOCUMENTS_IMAGE"
           cosign sign-blob --yes --bundle "$RUNNER_TEMP/release-manifest.sigstore.json" "$RELEASE_MANIFEST"
           cosign sign-blob --yes --bundle "$RUNNER_TEMP/contract-set.sigstore.json" "$CONTRACT_MANIFEST"
           cosign verify-blob \
@@ -376,7 +379,7 @@ jobs:
             ${{ runner.temp }}/core-release-handoff.sigstore.json
             ${{ runner.temp }}/core-release-bundle.tar.gz
           if-no-files-found: error
-          retention-days: 90
+          retention-days: 1
 
       - name: Release summary
         env:

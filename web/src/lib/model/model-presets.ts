@@ -5,6 +5,9 @@ export const MODEL_PRESETS = [
 		id: 'openai',
 		name: 'OpenAI',
 		models: [
+			{ id: 'gpt-6-sol', name: 'GPT-6 Sol' },
+			{ id: 'gpt-6-astra', name: 'GPT-6 Astra' },
+			{ id: 'gpt-6-luna', name: 'GPT-6 Luna' },
 			{ id: 'gpt-5.6-terra', name: 'GPT-5.6 Terra' },
 			{ id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol' }
 		]
@@ -61,6 +64,9 @@ export const MODEL_PRESETS = [
 		id: 'anthropic',
 		name: 'Anthropic',
 		models: [
+			{ id: 'claude-sonnet-5', name: 'Claude Sonnet 5' },
+			{ id: 'claude-opus-5-5', name: 'Claude Opus 5.5' },
+			{ id: 'claude-fable-5-1', name: 'Claude Fable 5.1' },
 			{ id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6' },
 			{ id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5' }
 		]
@@ -68,7 +74,16 @@ export const MODEL_PRESETS = [
 	{
 		id: 'openai-codex',
 		name: 'OpenAI Codex (subscription)',
-		models: [{ id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol' }]
+		// Offline suggestions only; signed-in model discovery takes precedence.
+		models: [
+			{ id: 'gpt-6-sol', name: 'GPT-6 Sol' },
+			{ id: 'gpt-6-astra', name: 'GPT-6 Astra' },
+			{ id: 'gpt-6-luna', name: 'GPT-6 Luna' },
+			{ id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol' },
+			{ id: 'gpt-5.6-terra', name: 'GPT-5.6 Terra' },
+			{ id: 'gpt-5.6-luna', name: 'GPT-5.6 Luna' },
+			{ id: 'gpt-5.5', name: 'GPT-5.5' }
+		]
 	},
 	{
 		id: 'zai',
