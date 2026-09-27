@@ -688,6 +688,76 @@ where
         Box<dyn std::future::Future<Output = Result<T>> + Send + 'a>,
     >,
 {
+    let outcome = with_agent_outcome_inner(
+        container,
+        auth,
+        workdir,
+        actor,
+        responsibility,
+        system_prompt,
+        mcp_servers,
+        observer,
+        drive,
+    )
+    .await;
+    match outcome {
+        Ok(outcome) => Ok(outcome),
+        Err(error) => {
+            // The inner launch can fail after writing the private MCP grant but
+            // before reaching its ordinary post-turn cleanup.
+            match cleanup_failed_codex_launch(container, &auth.session_id).await {
+                Ok(()) => Err(error),
+                Err(cleanup) => Err(error.context(format!(
+                    "Codex failed launch cleanup: {cleanup:#}"
+                ))),
+            }
+        }
+    }
+}
+
+async fn cleanup_failed_codex_launch(container: &str, launch_id: &str) -> Result<()> {
+    uuid::Uuid::parse_str(launch_id).context("Codex failed launch ID is not a UUID")?;
+    let session_marker = format!("/tmp/restless-agent-{launch_id}.sid");
+    let session_runtime = format!("/company/run/agent-sessions/{launch_id}");
+    let process_cleanup = if let Some(session_id) =
+        crate::acp::read_session_id(container, &session_marker).await
+    {
+        let _ = crate::acp::reap_session(container, &session_id).await;
+        crate::acp::verify_session_reaped(container, &session_id).await
+    } else {
+        Ok(())
+    };
+    let artifact_cleanup = crate::acp::remove_and_verify_session_artifacts(
+        container,
+        &[&session_marker, &session_runtime],
+    )
+    .await;
+    artifact_cleanup?;
+    process_cleanup
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the Codex launch boundary keeps identity, responsibility, authority and observation explicit"
+)]
+async fn with_agent_outcome_inner<F, T>(
+    container: &str,
+    auth: &AgentAuth,
+    workdir: &str,
+    actor: &str,
+    responsibility: &str,
+    system_prompt: &str,
+    mcp_servers: Vec<McpServer>,
+    observer: Option<SessionObserver>,
+    drive: F,
+) -> Result<crate::acp::SessionOutcome<T>>
+where
+    F: for<'a> FnOnce(
+        &'a CodexSession,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<T>> + Send + 'a>,
+    >,
+{
     if responsibility.trim().is_empty() || system_prompt.trim().is_empty() {
         bail!("Codex session needs responsibility and developer instructions");
     }
