@@ -165,7 +165,9 @@
 					<div><strong>{ref.name}</strong><code>{ref.reference}</code></div>
 				</article>{/each}
 		</details>{/if}
-	<a href={`/${companyId}/company/provider`}>Manage intelligence connections →</a>
+	<a class="vault-provider-link" href={`/${companyId}/company/provider`}
+		>Manage intelligence connections →</a
+	>
 </div>
 
 <style>

@@ -506,7 +506,7 @@
 			cursor: pointer;
 		}
 		.work-utilities .lens-switch button {
-			min-height: 40px;
+			min-height: 44px;
 		}
 		.map-legend {
 			bottom: 50px !important;

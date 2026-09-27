@@ -136,8 +136,51 @@
 /* Fingers are not pointers. On phones and touch screens every bounded action
  * gets a 44px target without changing how it looks on a desk. */
 @media (max-width: 760px), (pointer: coarse) {
-	.bridge-root :is(.btn, .hold-approve) {
+	/* :is() takes its strongest argument's weight, so listing .btn.small lifts
+	 * this above component sizing (small buttons, fixed icon buttons) without
+	 * !important. Controls may look larger on a phone, as native ones do. */
+	.bridge-root
+		:is(
+			.btn.small,
+			.btn,
+			.hold-approve,
+			button:not(.tb-exec, .info-tip),
+			summary,
+			select,
+			textarea,
+			input:not([type='checkbox'], [type='radio'], [type='range']),
+			[role='tab']
+		) {
 		min-height: 44px;
+	}
+	.bridge-root :is(.btn.small, button:not(.tb-exec, .info-tip)) {
+		min-width: 44px;
+	}
+	/* Standalone links: the same reach, text links inside sentences excepted. */
+	.bridge-root
+		:is(
+			.btn.small,
+			.back-link,
+			.account-link,
+			.doctor-computer-link,
+			.directory-person,
+			.work-crumbs a,
+			nav a,
+			a.back,
+			.tb-brand,
+			.document-index-head a,
+			.vault-provider-link,
+			dd > a
+		) {
+		min-height: 44px;
+		align-items: center;
+	}
+	.bridge-root :is(.work-crumbs a, .back-link, .account-link, .vault-provider-link, dd > a) {
+		display: inline-flex;
+	}
+	.bridge-root :is(.tb-brand, .document-index-head a, .work-crumbs a) {
+		min-width: 44px;
+		justify-content: center;
 	}
 	/* The Exec control sits in a 46px bar, so its pill keeps its size and only
 	 * the invisible target grows to 44px. */
