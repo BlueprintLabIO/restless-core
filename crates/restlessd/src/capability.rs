@@ -390,6 +390,7 @@ impl CapabilityIssuer {
             runtime_image: None,
             volume_name: None,
             source_revision: None,
+            model_credential_reference: None,
             session: format!("mcp-{}", Uuid::new_v4().simple()),
             expires_at: Utc::now() + SESSION_TTL,
         })
@@ -729,6 +730,7 @@ fn validate_claims(claims: &Claims) -> Result<()> {
                 || claims.model.is_some()
                 || claims.billing.is_some()
                 || claims.responsibility.is_some()
+                || claims.model_credential_reference.is_some()
                 || any_hosted
             {
                 bail!("MCP capability has an invalid scope");
