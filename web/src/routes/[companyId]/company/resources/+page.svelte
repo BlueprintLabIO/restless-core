@@ -161,15 +161,17 @@
 						<span>{words(item.source)}</span><time>{when(item.observed_at)}</time>
 					</div>
 					{#if item.metadata && Object.keys(item.metadata).length}
-						<details>
-							<summary>Source detail</summary>
-							<dl>
-								{#each Object.entries(item.metadata) as [key, value]}<div>
-										<dt>{words(key)}</dt>
-										<dd>{Array.isArray(value) ? value.join(', ') || 'none' : String(value)}</dd>
-									</div>{/each}
-							</dl>
-						</details>
+						<div class="resource-detail-cell" role="cell">
+							<details>
+								<summary>Source detail</summary>
+								<dl>
+									{#each Object.entries(item.metadata) as [key, value]}<div>
+											<dt>{words(key)}</dt>
+											<dd>{Array.isArray(value) ? value.join(', ') || 'none' : String(value)}</dd>
+										</div>{/each}
+								</dl>
+							</details>
+						</div>
 					{/if}
 				</div>
 			{:else}
@@ -297,5 +299,4 @@
 			grid-row: 2;
 		}
 	}
-
 </style>

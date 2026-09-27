@@ -238,7 +238,7 @@
 	--accent-strong: #d3d9e6;
 	--ink: #e4e7ee;
 	--text-secondary: rgba(228, 231, 238, 0.76);
-	--text-tertiary: rgba(228, 231, 238, 0.52);
+	--text-tertiary: rgba(228, 231, 238, 0.6); /* 4.5:1 on the raised and selected dark surfaces */
 	--text-inverse: #0f1115;
 	--border: rgba(255, 255, 255, 0.07);
 	--border-strong: rgba(255, 255, 255, 0.11);

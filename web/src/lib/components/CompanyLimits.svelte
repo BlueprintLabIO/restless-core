@@ -178,7 +178,12 @@
 				</div>
 				<div
 					class="spend-track"
-					aria-label={`${money(view.limits.spend.accounted_usd)} of ${money(view.limits.spend.ceiling_usd)} accounted`}
+					role="meter"
+					aria-label="Model spend"
+					aria-valuemin={0}
+					aria-valuemax={view.limits.spend.ceiling_usd}
+					aria-valuenow={Math.min(view.limits.spend.accounted_usd, view.limits.spend.ceiling_usd)}
+					aria-valuetext={`${money(view.limits.spend.accounted_usd)} of ${money(view.limits.spend.ceiling_usd)} accounted`}
 				>
 					<i
 						style={`width: ${Math.min(100, (view.limits.spend.accounted_usd / Math.max(view.limits.spend.ceiling_usd, 0.01)) * 100)}%`}
