@@ -1573,6 +1573,34 @@ async fn relay_responses(
             "Runtime Responses requests must stream for terminal accounting",
         );
     }
+    // Tool names are safe operational metadata. This makes an MCP handshake
+    // distinguishable from tools actually advertised to the model, without
+    // recording prompts, schemas, arguments, capabilities, or response bodies.
+    if grant.work_id.is_some() {
+        let tools = request
+            .get("tools")
+            .and_then(serde_json::Value::as_array);
+        let names = tools
+            .into_iter()
+            .flatten()
+            .filter_map(|tool| tool.get("name").and_then(serde_json::Value::as_str))
+            .collect::<Vec<_>>();
+        let mcp_names = names
+            .iter()
+            .copied()
+            .filter(|name| name.starts_with("mcp__"))
+            .collect::<Vec<_>>();
+        tracing::info!(
+            company = %grant.company,
+            actor = %grant.actor,
+            work_id = ?grant.work_id,
+            attempt_id = ?grant.attempt_id,
+            tool_count = tools.map_or(0, Vec::len),
+            mcp_tool_names = ?mcp_names,
+            tool_search_present = names.iter().any(|name| name.contains("tool_search")),
+            "Runtime Responses tool catalogue"
+        );
+    }
     // The host gateway catalogue names custom routes by provider-qualified id;
     // Codex correctly uses the provider-local id on the OpenAI wire.
     request["model"] = serde_json::Value::String(grant.model.clone());
