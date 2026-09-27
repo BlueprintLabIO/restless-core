@@ -188,7 +188,7 @@ fn read_request_params(request: ReadRequest) -> Result<CallToolRequestParams> {
         } => {
             let query = query.trim();
             if query.is_empty()
-                || query.chars().count() > 120
+                || query.encode_utf16().count() > 100
                 || query.chars().any(char::is_control)
                 || !limit.is_none_or(|limit| (1..=24).contains(&limit))
             {

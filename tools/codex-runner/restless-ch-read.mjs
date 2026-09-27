@@ -28,7 +28,7 @@ let request;
 if (verb === 'search' && (args.length === 1 || args.length === 2)) {
   const query = args[0]?.trim();
   const limit = args.length === 2 ? Number(args[1]) : 12;
-  if (!query || query.length > 120 || /[\x00-\x1f\x7f]/.test(query) || !Number.isInteger(limit) || limit < 1 || limit > 24) fail('invalid-search');
+  if (!query || query.length > 100 || /[\x00-\x1f\x7f]/.test(query) || !Number.isInteger(limit) || limit < 1 || limit > 24) fail('invalid-search');
   request = { operation: 'marketplace-search', query, limit };
 } else if (verb === 'details' && args.length >= 1 && args.length <= 8) {
   if (args.some((url) => !listingUrl(url, 'facebook')) || new Set(args).size !== args.length) fail('invalid-marketplace-url');
