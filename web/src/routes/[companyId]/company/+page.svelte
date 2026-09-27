@@ -137,7 +137,7 @@
 		<div class="charter-heading">
 			<h1>Charter</h1>
 			<InfoTip
-				text="The durable purpose, business model, strategic intent and operating principles that guide this company. This is not its legal constitution or current Work plan."
+				text="Why the company exists and how it operates. Not its legal constitution or its current plan."
 			/>
 		</div>
 		<div class="charter-head-actions">
@@ -155,13 +155,16 @@
 					onclick={saveCharter}>{saving ? 'Saving…' : 'Save charter'}</button
 				>
 			{:else}
-				<div class="company-page-freshness">
+				<div
+					class="company-page-freshness"
+					title={view?.refreshed_at ? `Checked ${when(view.refreshed_at)}` : undefined}
+				>
 					<span class="source-lamp status-{source.status}" aria-hidden="true"></span>
 					{source.status === 'live'
-						? when(view?.refreshed_at)
+						? 'Live'
 						: source.status === 'stale'
-							? 'Last checked'
-							: 'Reading source'}
+							? 'Out of date'
+							: 'Checking…'}
 				</div>
 				{#if view}
 					<button class="btn small" type="button" onclick={beginEditing}>Edit charter</button>
@@ -219,9 +222,7 @@
 				<footer>
 					<span>Effective {when(view.charter.effective_at)}</span>
 					<span>Owner authorised</span>
-					<InfoTip
-						text="This charter comes from the owner-authorised company configuration. Only an explicit version-checked owner save can revise it; current Work and ordinary chat cannot."
-					/>
+					<InfoTip text="Only you can change the charter. Work and chat never do." />
 				</footer>
 			</article>
 
@@ -230,7 +231,7 @@
 					<div class="section-heading">
 						<h2>Quality bar</h2>
 						<InfoTip
-							text="The standing level of ambition for new outcomes. The accountable lead still judges what proof is needed for each piece of work."
+							text="How ambitious new work should be. Each lead decides what proof a piece of work needs."
 						/>
 					</div>
 					<label class="quality-choice"
@@ -259,7 +260,7 @@
 					<div class="section-heading">
 						<h2>Current direction</h2>
 						<InfoTip
-							text="Current direction comes from OrgIntel and can change with Work. It is linked here but never folded into the durable charter."
+							text="What the company is working toward now. It changes as work moves; the charter does not."
 						/>
 					</div>
 					{#if view.charter.current_direction}
@@ -281,7 +282,7 @@
 					<div class="section-heading">
 						<h2>Company profile</h2>
 						<InfoTip
-							text="Only legal-identity details approved for ordinary company output appear here. Evidence and provider verification remain protected."
+							text="Legal details approved for use in company output. Supporting evidence stays private."
 						/>
 					</div>
 					{#if view.sources.authority.status !== 'available'}
@@ -308,7 +309,7 @@
 							</div>
 						</dl>
 					{:else}
-						<p class="quiet-empty">No safe legal identity has been recorded.</p>
+						<p class="quiet-empty">No legal details yet.</p>
 					{/if}
 				</section>
 			</aside>

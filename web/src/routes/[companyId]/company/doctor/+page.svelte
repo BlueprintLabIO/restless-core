@@ -11,6 +11,13 @@
 	const source = $derived(companyQuery(companyId));
 	$effect(() => source.attach());
 	const view = $derived(source.view);
+	/* Checks report the service that ran them; the owner reads what it covers. */
+	const CHECKERS: Record<string, string> = {
+		authority: 'your account controls',
+		orgintel: 'company records',
+		runtime: 'the company computer'
+	};
+	const checker = (source: string) => CHECKERS[source] ?? source;
 
 	let startupError = $state('');
 	let startupRetry = $state(0);
@@ -75,11 +82,10 @@
 	function statusCopy(status: string): string {
 		return (
 			{
-				healthy: 'Every check passed, including the company computer.',
-				degraded: 'The company is running, but at least one check needs fixing.',
-				unknown: 'A check answered, but not clearly enough to call the company healthy.',
-				unavailable:
-					'A core check could not be reached, so the company is not shown as healthy.'
+				healthy: 'Every check passed.',
+				degraded: 'At least one check needs attention.',
+				unknown: 'Some checks were unclear, so health cannot be confirmed.',
+				unavailable: 'A core check could not be reached.'
 			}[status] ?? 'Checking the company…'
 		);
 	}
@@ -108,8 +114,8 @@
 		title="Doctor runs automatically when the local host starts and when a company is created."
 	>
 		{startup.ran_at
-			? `Automatic startup check: ${when(startup.ran_at)}${startup.error || startup.setup_failed ? ' · Setup needs attention; see diagnostics below.' : ''}`
-			: startupError || startup.error || 'Automatic startup check is pending.'}
+			? `Checked at startup, ${when(startup.ran_at)}${startup.error || startup.setup_failed ? '. Some checks need attention.' : ''}`
+			: startupError || startup.error || 'Startup check pending.'}
 	</p>
 
 	{#if startupError}<button
@@ -148,13 +154,13 @@
 			<div class="doctor-checks">
 				{#each view.computer.doctor.checks as check (check.id)}
 					<!-- The owning plane is diagnostic detail: a hover, not a column. -->
-					<article title={`Checked by ${check.source}`}>
+					<article title={`Checked by ${checker(check.source)}`}>
 						<i class="check-state check-{check.status}" aria-hidden="true"></i>
 						<div>
 							<strong>{check.label}</strong>
 							<p>{check.summary}</p>
 						</div>
-						<span class="sr-only">Checked by {check.source}</span>
+						<span class="sr-only">Checked by {checker(check.source)}</span>
 						{#if check.detail}<InfoTip text={check.detail} />{/if}
 					</article>
 				{/each}
@@ -164,9 +170,7 @@
 		<section class="doctor-recovery">
 			<div class="section-heading">
 				<h2>Recovery</h2>
-				<InfoTip
-					text="A repair appears only when it is the smallest current doctor recommendation. Every request and observed result is recorded by Authority."
-				/>
+				<InfoTip text="The smallest repair that would help. Every repair is recorded." />
 			</div>
 			{#if view.computer.doctor.actions.length}
 				<div class="doctor-actions">

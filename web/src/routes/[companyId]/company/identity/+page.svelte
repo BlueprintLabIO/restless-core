@@ -203,16 +203,12 @@
 		<div class="identity-title">
 			<h1>Identity</h1>
 			<InfoTip
-				text="The owner-released truth and expression evidence Restless uses when producing company work. Drafts can propose changes; they cannot make themselves authoritative."
+				text="What the company is and how it sounds. Agents use it in all company work. Drafts can suggest changes; only you approve them."
 			/>
 		</div>
 		<div class="company-page-freshness">
 			<span class="source-lamp status-{source.status}" aria-hidden="true"></span>
-			{source.status === 'live'
-				? 'Live source'
-				: source.status === 'stale'
-					? 'Last checked'
-					: 'Reading source'}
+			{source.status === 'live' ? 'Live' : source.status === 'stale' ? 'Out of date' : 'Checking…'}
 		</div>
 	</header>
 
@@ -233,7 +229,7 @@
 						<div class="section-heading">
 							<h2 id="effective-release">Current release</h2>
 							<InfoTip
-								text="This immutable release is the exact identity new Work binds to. A later release never rewrites old outcomes."
+								text="New work uses this version. A later version never changes finished work."
 							/>
 						</div>
 						<p>{view.current_release.change_account}</p>
@@ -573,7 +569,7 @@
 				<div class="section-heading">
 					<h2>Company identity</h2>
 					<InfoTip
-						text="Facts, beliefs, guidance, observations, examples and exceptions keep their distinct meaning. Open the locator to inspect the exact source when it is available in the company computer."
+						text="Each statement keeps its kind (fact, belief, guidance or example) and links to its source."
 					/>
 				</div>
 				<div class="pillar-grid">

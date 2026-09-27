@@ -70,10 +70,10 @@
 		<div class="company-page-freshness">
 			<span class="source-lamp status-{source.status}" aria-hidden="true"></span>{source.status ===
 			'live'
-				? 'Live sources'
+				? 'Live'
 				: source.status === 'stale'
-					? 'Last checked'
-					: 'Reading sources'}
+					? 'Out of date'
+					: 'Checking…'}
 		</div>
 	</header>
 	{#if view}
@@ -81,7 +81,7 @@
 		<div class="section-heading">
 			<h2>Resources &amp; access</h2>
 			<InfoTip
-				text="Connected tools and available company resources. Manage model credentials in Intelligence provider and Vault."
+				text="Tools and resources the company can use. Model credentials live in Intelligence and Vault."
 			/>
 		</div>
 		{#if view.resources.status === 'unavailable'}
@@ -94,7 +94,7 @@
 				<div class="launch-heading">
 					<div>
 						<h2 id="launch-title">Usable now</h2>
-						<p>Open an exact released outcome without reconstructing ports or access material.</p>
+						<p>Open finished work directly.</p>
 					</div>
 					{#if embedded}
 						<button class="btn launch-close" type="button" onclick={() => (embedded = null)}>

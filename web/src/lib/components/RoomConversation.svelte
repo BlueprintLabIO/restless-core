@@ -952,7 +952,7 @@
 									class="room-contact"
 									aria-label={`${directPerson.display} intelligence settings`}
 									aria-describedby={tooltipId}
-									title={directPerson.actor_id}
+									title={`Model settings for ${directPerson.display}`}
 								>
 									<span class="person-avatar">{initials(directPerson.display)}</span><strong
 										>{directPerson.display}</strong
@@ -966,7 +966,7 @@
 					<select
 						class="team-standard"
 						aria-label="Team quality target"
-						title="Quality target for future team coordination and new work. This is separate from model thinking effort."
+						title="How ambitious this team’s new work should be. Separate from model thinking effort."
 						value={directTeam.outcome_standard}
 						disabled={standardSaving}
 						onchange={(event) => void changeStandard(event.currentTarget)}

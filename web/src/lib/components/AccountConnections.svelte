@@ -425,7 +425,7 @@
 	</header>
 	{#if accountScope === 'account'}<section class="native-section" aria-label="Account Codex sign-in">
 		<div class="section-head"><h2>ChatGPT / Codex</h2><button class="btn" disabled={!!oauthJob || codexChecking} onclick={() => void startSignIn('codex')}>{oauthJob && oauthProvider === 'codex' ? 'Signing in…' : codexSaved ? 'Reconnect Codex' : 'Connect Codex'}</button></div>
-		<p>{codexConnected ? 'Connected to this account. Grant company access below, or reconnect the same account if its sign-in stops working.' : codexChecking ? 'Checking this sign-in after a company settings change…' : codexSaved ? 'The saved Codex sign-in is unavailable. Reconnect the same account to restore company access.' : 'Sign in once with a device code, then grant this account connection to the companies that need it.'}</p>
+		<p>{codexConnected ? 'Connected to this account. Grant company access below, or reconnect the same account if its sign-in stops working.' : codexChecking ? 'Checking this sign-in after a company settings change…' : codexSaved ? 'The saved Codex sign-in is unavailable. Reconnect the same account to restore company access.' : 'Sign in once, then choose which companies can use it.'}</p>
 		{#if oauthProvider === 'codex'}
 			{#if oauthUrl}<p><a href={oauthUrl} target="_blank" rel="noreferrer">Open Codex sign-in ↗</a>{#if oauthCode} · Enter code <strong>{oauthCode}</strong>{/if}</p>{/if}
 			{#if oauthMessage}<p role="status">{oauthMessage}</p>{:else if oauthState === 'connected'}<p role="status">Codex connected. Choose company access below.</p>{/if}
@@ -433,7 +433,7 @@
 	</section>
 	<section class="native-section" aria-label="Account Claude sign-in">
 		<div class="section-head"><h2>Claude</h2><button class="btn" disabled={!!oauthJob || claudeChecking} onclick={() => void startSignIn('claude')}>{oauthJob && oauthProvider === 'claude' ? 'Signing in…' : claudeSaved ? 'Reconnect Claude' : 'Connect Claude'}</button></div>
-		<p>{claudeConnected ? 'Connected to this account. Grant Claude Agent access below, or reconnect the same account if its sign-in stops working.' : claudeChecking ? 'Checking this sign-in after a company settings change…' : claudeSaved ? 'The saved Claude sign-in is unavailable. Reconnect the same account to restore company access.' : 'Sign in once with Claude, then grant its Claude Agent model route to individual companies.'}</p>
+		<p>{claudeConnected ? 'Connected to this account. Grant Claude Agent access below, or reconnect the same account if its sign-in stops working.' : claudeChecking ? 'Checking this sign-in after a company settings change…' : claudeSaved ? 'The saved Claude sign-in is unavailable. Reconnect the same account to restore company access.' : 'Sign in once, then choose which companies can use it.'}</p>
 		{#if oauthProvider === 'claude'}
 			{#if oauthUrl}<p><a href={oauthUrl} target="_blank" rel="noreferrer">Open Claude sign-in ↗</a></p>
 				{#if oauthState === 'waiting'}<label class="callback-label">If your browser cannot reach the callback on this computer, copy its final localhost URL and paste it here.<input type="url" bind:value={oauthCallback} placeholder="http://localhost:54545/callback?code=…" autocomplete="off" /></label><button class="btn primary small" disabled={!oauthCallback.trim() || callbackBusy} onclick={() => void completeClaudeSignIn()}>{callbackBusy ? 'Finishing…' : 'Finish sign-in'}</button>{/if}
@@ -626,7 +626,7 @@
 			<h2>Older company-only sign-ins</h2>
 			<button class="text-button" disabled={nativeLoading} onclick={() => void refreshNativeSignIns(companies)}>Refresh status</button>
 		</div>
-		<p>These are separate profiles inside each company computer. An expired profile here does not affect an account connection shown above. Add an existing Codex sign-in to your account, then choose which companies may use it.</p>
+		<p>Sign-ins saved inside individual company computers. They do not affect the account connections above.</p>
 		{#if nativeError}<p class="native-error" role="alert">{nativeError}</p>{/if}
 		{#if nativeLoading}<p role="status">Checking company sign-ins…</p>
 		{:else if nativeSignIns.length}
@@ -645,7 +645,7 @@
 					</div>
 				{/each}
 			</div>
-		{:else}<p>No company OAuth sign-ins are configured.</p>{/if}
+		{:else}<p>None.</p>{/if}
 	</section>
 </main>
 

@@ -676,7 +676,7 @@
 						? 'Using cached model catalog'
 						: 'Using bundled model suggestions'
 					: catalog.updatedAt
-						? 'Model catalog updated ' + new Date(catalog.updatedAt).toLocaleString()
+						? 'Models updated ' + new Date(catalog.updatedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
 						: 'Bundled model suggestions'}</span
 		>
 		<button class="text-button" disabled={catalog.pending} onclick={() => catalog.refresh()}

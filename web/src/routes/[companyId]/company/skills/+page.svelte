@@ -162,7 +162,7 @@
 	<header class="company-page-head">
 		<h1>Skills</h1>
 		<InfoTip
-			text="Reusable methods your agents apply, in the open SKILL.md format. They stay with the company when you change a model or harness. A skill never grants spending, credentials or approvals. Type $ in a message to ask for one."
+			text="Reusable methods your agents follow, in the open SKILL.md format. They stay when you change models. Skills never grant spending, credentials or approvals. Type $ in a message to use one."
 		/>
 	</header>
 
@@ -174,8 +174,8 @@
 	{:else}
 		{#if library.scan.state === 'unavailable'}
 			<p class="source-unavailable">
-				The company computer is not answering, so this list is the last one recorded.
-				<InfoTip text={library.scan.message} />
+				The company computer is not answering, so this is the last list recorded.
+				<InfoTip text="Start the company computer to refresh it." />
 			</p>
 		{/if}
 

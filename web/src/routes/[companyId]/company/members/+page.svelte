@@ -149,7 +149,7 @@
 	<header class="company-page-head">
 		<h1>Members</h1>
 		<InfoTip
-			text="Membership lets a person enter the company and collaborate. It grants no Authority: spending, policy and the company computer stay governed separately."
+			text="Members can enter the company and collaborate. Membership never grants spending, policy or computer access."
 		/>
 	</header>
 
@@ -167,7 +167,7 @@
 		<p class="quiet-empty">
 			This company is local-only, so nobody else can be invited yet.
 			<InfoTip
-				text="Inviting people needs network entry with an account service. The self-hosted setup is described in services/identity/README.md; on Restless Cloud it is already in place."
+				text="Invites need an account service. Restless Cloud includes one; to self-host, see services/identity/README.md."
 			/>
 		</p>
 	{:else if core.issuer_unavailable}

@@ -423,9 +423,9 @@
 							</a>
 						{:else}
 							<p class="column-empty">
-								{column.key === 'completed' && completedWork.length
-									? 'No evidence-backed completion yet.'
-									: 'None'}
+								{#if column.key === 'completed' && completedWork.length}Nothing accepted yet.{:else}<span
+										class="sr-only">No work here</span
+									>{/if}
 							</p>
 						{/each}
 						{#if column.key === 'completed' && completedWork.length > recentlyLanded.length}

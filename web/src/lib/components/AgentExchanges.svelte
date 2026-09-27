@@ -66,7 +66,7 @@
 	{:else if query.isPending}
 		<Skeleton label="Loading exchanges" count={2} />
 	{:else if !messages.length}
-		<p>No internal messages recorded for this person yet.</p>
+		<p>No messages between agents yet.</p>
 	{/if}
 	{#each messages as message (message.id)}
 		<details

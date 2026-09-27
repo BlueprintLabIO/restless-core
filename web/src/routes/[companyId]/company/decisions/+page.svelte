@@ -32,17 +32,17 @@
 	<header class="company-page-head">
 		<div class="decision-history-heading">
 			<h1>Decision history</h1>
-			<InfoTip
-				text="Past approvals and decisions stay in history. Open the related work to give new direction; pending decisions are in Attention."
-			/>
+			<InfoTip text="Your past approvals and decisions. Pending ones are in Attention." />
 		</div>
 		<div class="company-page-freshness">
 			<span class="source-lamp status-{source.status}" aria-hidden="true"></span>
 			{source.status === 'live'
-				? `${decisions.length} recorded`
+				? decisions.length
+					? `${decisions.length} recorded`
+					: 'Live'
 				: source.status === 'stale'
-					? 'Last checked'
-					: 'Reading decisions'}
+					? 'Out of date'
+					: 'Checking…'}
 		</div>
 	</header>
 

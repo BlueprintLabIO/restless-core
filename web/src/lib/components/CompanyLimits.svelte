@@ -101,7 +101,7 @@
 				<div class="section-heading">
 					<h2>Model spend</h2>
 					<InfoTip
-						text="The total model budget for this company, not a monthly allowance. Lowering it does not undo existing spend or cancel already admitted requests."
+						text="The total model budget, not a monthly one. Lowering it does not undo past spend."
 					/>
 				</div>
 				<CopyCompanySetting
@@ -195,7 +195,7 @@
 				<div class="section-heading">
 					<h2>Company computer</h2>
 					<InfoTip
-						text="Idle sleep stops the company computer while keeping its files and records. Scheduled wake is set separately for each schedule. The monthly hours threshold blocks a stopped computer from starting again after it is reached; an already running computer may use more time."
+						text="Idle sleep stops the computer when unused; its files are kept. Once the monthly hours limit is reached, a stopped computer will not start again that month."
 					/>
 				</div>
 				<CopyCompanySetting
@@ -296,7 +296,7 @@
 						<div class="section-heading">
 							<h2>May do independently</h2>
 							<InfoTip
-								text="These are the outer classes of work allowed without a new owner decision. Each real action is still checked before it runs."
+								text="What the company may do without asking you. Each action is still checked before it runs."
 							/>
 						</div>
 						{#each view.limits.independently as item (item.title)}<article>
@@ -307,9 +307,7 @@
 					<section>
 						<div class="section-heading">
 							<h2>Asks you</h2>
-							<InfoTip
-								text="Company shows the boundary; Attention remains the only place that resolves a pending owner decision."
-							/>
+							<InfoTip text="You approve these in Attention." />
 						</div>
 						{#each view.limits.asks_owner as item (item.title)}<article>
 								<strong>{item.title}</strong>
@@ -319,9 +317,7 @@
 					<section>
 						<div class="section-heading">
 							<h2>Cannot do</h2>
-							<InfoTip
-								text="These are authority and custody boundaries, not a speculative catalogue of every harmful act."
-							/>
+							<InfoTip text="The hard limits on what the company can do." />
 						</div>
 						{#each view.limits.cannot as item (item.title)}<article>
 								<strong>{item.title}</strong>
@@ -336,9 +332,7 @@
 				<section>
 					<div class="section-heading">
 						<h2>Approved external parties</h2>
-						<InfoTip
-							text="Standing first-contact grants are recorded when you approve a prepared external action in Attention."
-						/>
+						<InfoTip text="Added when you approve a first contact in Attention." />
 					</div>
 					{#if view.limits.approved_parties.length}<div class="party-list">
 							{#each view.limits.approved_parties as party}<span>{party}</span>{/each}
@@ -349,9 +343,7 @@
 				<section>
 					<div class="section-heading">
 						<h2>Payment allowances</h2>
-						<InfoTip
-							text="Payment allowances come from explicit owner authorizations. They are separate from the model spend limit above."
-						/>
+						<InfoTip text="Payments you have authorized. Separate from the model spend limit." />
 					</div>
 					{#if view.limits.money_envelopes.length}
 						{#each view.limits.money_envelopes as envelope (envelope.currency)}

@@ -92,7 +92,7 @@
 	<header class="company-page-head">
 		<h1>Schedules</h1>
 		<InfoTip
-			text="Recurring Exec checks, their next fire time and latest outcomes. Test trigger checks durable schedule admission in a disposable company without starting Runtime or an actor."
+			text="Recurring Exec check-ins: when each runs next and how the last one went."
 		/>
 		<button class="btn small refresh" type="button" onclick={() => void load()} disabled={busy !== ''}
 			>Refresh</button
@@ -104,7 +104,7 @@
 	{#if schedules === null}
 		{#if !failure}<div class="company-page-wait" aria-label="Reading schedules"></div>{/if}
 	{:else if schedules.length === 0}
-		<p class="quiet-empty">No active recurring Exec schedules.</p>
+		<p class="quiet-empty">No recurring check-ins yet.</p>
 	{:else}
 		<ul class="schedule-list">
 			{#each schedules as item (item.schedule.id)}

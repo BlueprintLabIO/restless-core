@@ -94,7 +94,7 @@
 	</header>
 	<p
 		class="status"
-		title="Secrets are kept in the company's Infisical vault; this page shows their names, never their values."
+		title="Secrets are kept in the company’s secure vault. You see their names, never their values."
 		class:connected={!error && view?.status === 'connected'}
 		class:unavailable={!!error || view?.status === 'unavailable'}
 		role="status"

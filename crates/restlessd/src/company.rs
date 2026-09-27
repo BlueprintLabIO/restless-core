@@ -1325,25 +1325,25 @@ fn company_doctor(
     let mut checks = vec![
         DoctorCheck {
             id: "authority",
-            label: "Authority",
+            label: "Controls and limits",
             source: "authority",
             status: source_check_status(&authority),
             summary: if authority.status == "available" {
-                "Mandate, limits and governance records are readable.".into()
+                "Limits and approvals are readable.".into()
             } else {
-                "Lifecycle changes and new external consequences must pause.".into()
+                "Unreadable, so starting, stopping and outside actions are paused.".into()
             },
             detail: authority.detail,
         },
         DoctorCheck {
             id: "orgintel",
-            label: "Organisation",
+            label: "Company records",
             source: "orgintel",
             status: source_check_status(&orgintel),
             summary: if orgintel.status == "available" {
-                "Current direction and organisational state are readable.".into()
+                "Goals, work and teams are readable.".into()
             } else {
-                "Coordination may be stale; Authority and Runtime are checked independently.".into()
+                "Unreadable, so work and team views may be out of date.".into()
             },
             detail: orgintel.detail,
         },
@@ -1358,12 +1358,12 @@ fn company_doctor(
             label: "Company computer",
             source: "runtime",
             status: container_status,
-            summary: format!("Container is {}.", container_name(doctor.container)),
+            summary: container_summary(doctor.container).into(),
             detail: None,
         });
         checks.push(DoctorCheck {
             id: "persistence",
-            label: "Persistent company files",
+            label: "Company files",
             source: "runtime",
             status: if doctor.volume_exists {
                 "healthy"
@@ -1372,24 +1372,21 @@ fn company_doctor(
             },
             summary: if doctor.volume_exists {
                 if doctor.container == runtime::ContainerStatus::Absent || doctor.volume_mounted {
-                    "The named company volume is present.".into()
+                    "Company files are safe.".into()
                 } else {
-                    "The company volume exists but is not mounted by the current container.".into()
+                    "Company files exist but are not attached to the running computer.".into()
                 }
             } else {
-                "The persistent company volume does not exist yet.".into()
+                "Company files have not been created yet.".into()
             },
             detail: (!doctor.volume_exists
                 || (doctor.container != runtime::ContainerStatus::Absent
                     && !doctor.volume_mounted))
-                .then(|| {
-                    "Reconcile before assuming the current container holds durable company work."
-                        .into()
-                }),
+                .then(|| "Rebuild the company computer before relying on its files.".into()),
         });
         checks.push(DoctorCheck {
             id: "image",
-            label: "Runtime image",
+            label: "Computer version",
             source: "runtime",
             status: match doctor.reconciliation {
                 runtime::ReconciliationStatus::Current => "healthy",
@@ -1397,14 +1394,12 @@ fn company_doctor(
                 runtime::ReconciliationStatus::Unknown => "unknown",
             },
             summary: match doctor.reconciliation {
-                runtime::ReconciliationStatus::Current => {
-                    "The running shell matches the current Restless source."
-                }
+                runtime::ReconciliationStatus::Current => "Up to date.",
                 runtime::ReconciliationStatus::Required => {
-                    "The replaceable shell needs reconciliation; the company volume is preserved."
+                    "Needs a rebuild. Company files are safe."
                 }
                 runtime::ReconciliationStatus::Unknown => {
-                    "The current image relationship could not be proved."
+                    "Could not confirm the installed version."
                 }
             }
             .into(),
@@ -1423,8 +1418,8 @@ fn company_doctor(
                 .any(|probe| probe.tool == tool && probe.installed);
             checks.push(DoctorCheck {
                 id, label, source: "runtime", status: if installed { "available" } else { "unavailable" },
-                summary: if installed { "Installed command help responds." } else { "The installed command surface could not be verified." }.into(),
-                detail: Some("This installation check does not verify actor permissions, document editing, message delivery or model replies. End-to-end probes must run in a disposable test company.".into()),
+                summary: if installed { "Installed." } else { "Could not be checked." }.into(),
+                detail: Some("Checks the installation only, not agent permissions, editing, delivery or model replies.".into()),
             });
         }
     } else {
@@ -1478,7 +1473,7 @@ fn service_check(doctor: &runtime::RuntimeDoctor) -> DoctorCheck {
             label: "Company services",
             source: "runtime",
             status: "unavailable",
-            summary: "Services are not observable while the Company computer is stopped.".into(),
+            summary: "Cannot be checked while the company computer is stopped.".into(),
             detail: None,
         },
     }
@@ -1513,8 +1508,7 @@ fn browser_check(doctor: &runtime::RuntimeDoctor) -> DoctorCheck {
             label: "Browser and desktop",
             source: "runtime",
             status: "unavailable",
-            summary: "Browser state is not observable while the Company computer is stopped."
-                .into(),
+            summary: "Cannot be checked while the company computer is stopped.".into(),
             detail: None,
         },
     }
@@ -1524,7 +1518,7 @@ fn coordination_check(doctor: &runtime::RuntimeDoctor) -> DoctorCheck {
     match doctor.coordination.as_ref() {
         Some(coordination) => DoctorCheck {
             id: "coordination",
-            label: "Runtime coordination",
+            label: "Agent connection",
             source: "runtime",
             status: if coordination.status == "available" {
                 "healthy"
@@ -1540,12 +1534,10 @@ fn coordination_check(doctor: &runtime::RuntimeDoctor) -> DoctorCheck {
         },
         None => DoctorCheck {
             id: "coordination",
-            label: "Runtime coordination",
+            label: "Agent connection",
             source: "runtime",
             status: "unavailable",
-            summary:
-                "Runtime coordination is not observable while the Company computer is stopped."
-                    .into(),
+            summary: "Cannot be checked while the company computer is stopped.".into(),
             detail: None,
         },
     }
@@ -1612,20 +1604,22 @@ fn action_copy(action: RecoveryAction) -> DoctorAction {
         RecoveryAction::Start => DoctorAction {
             id: action,
             label: "Start company computer",
-            consequence: "Starts the existing company shell and preserves its volume and browser profile.",
+            consequence:
+                "Starts the existing company shell and preserves its volume and browser profile.",
             confirmation: "Start the Company computer now?",
         },
         RecoveryAction::Restart => DoctorAction {
             id: action,
             label: "Restart company computer",
-            consequence: "Stops and starts the replaceable shell. Company files and the persistent browser profile remain on the named volume.",
-            confirmation: "Restart the Company computer and briefly interrupt its processes?",
+            consequence:
+                "Stops and starts the company computer. Files and the browser profile are kept.",
+            confirmation: "Restart the company computer? Running work pauses briefly.",
         },
         RecoveryAction::Reconcile => DoctorAction {
             id: action,
-            label: "Reconcile company computer",
-            consequence: "Rebuilds the current shell and restores its Runtime coordination grant while preserving the named company volume.",
-            confirmation: "Reconcile the Company computer with the current Restless source?",
+            label: "Rebuild company computer",
+            consequence: "Rebuilds the company computer from the current release. Files are kept.",
+            confirmation: "Rebuild the company computer from the current release?",
         },
     }
 }
@@ -1739,11 +1733,11 @@ fn execution_no(body: &serde_json::Value) -> i64 {
         .unwrap_or(1)
 }
 
-fn container_name(status: runtime::ContainerStatus) -> &'static str {
+fn container_summary(status: runtime::ContainerStatus) -> &'static str {
     match status {
-        runtime::ContainerStatus::Running => "running",
-        runtime::ContainerStatus::Stopped => "stopped",
-        runtime::ContainerStatus::Absent => "absent",
+        runtime::ContainerStatus::Running => "Running.",
+        runtime::ContainerStatus::Stopped => "Stopped.",
+        runtime::ContainerStatus::Absent => "Not created yet.",
     }
 }
 

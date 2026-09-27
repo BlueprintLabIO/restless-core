@@ -130,7 +130,7 @@
 							<div class="portfolio-grid-head" aria-hidden="true">
 								<span>Name</span>
 								<span>Current focus</span>
-								<span>Next item of value</span>
+								<span>Next</span>
 								<span>Needs you</span>
 							</div>
 							{#each activeCompanies as company (company.id)}
@@ -161,7 +161,7 @@
 											<strong>{company.name}</strong>
 											{#if company.unstartable_reason}
 												<small class="portfolio-company-unstartable" title={startIssue}
-													>can’t start</small
+													>Can’t start</small
 												>
 											{:else}
 												<small>{company.runtime_status}</small>
@@ -176,7 +176,7 @@
 										<strong>{plainText(company.mission, { dropTitle: true }) || 'Focus not set'}</strong>
 									</span>
 									<span class="portfolio-metric portfolio-proof">
-										<small class="portfolio-mobile-label">Next item of value</small>
+										<small class="portfolio-mobile-label">Next</small>
 										<strong title={startIssue || undefined}
 											>{startIssue || projection?.nextProof || 'Checking work…'}</strong
 										>

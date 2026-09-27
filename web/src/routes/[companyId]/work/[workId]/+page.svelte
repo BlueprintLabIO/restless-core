@@ -404,13 +404,14 @@
 					<section class="work-evidence-section" aria-labelledby="work-evidence-heading">
 						<header>
 							<h2 id="work-evidence-heading">Evidence</h2>
-							<span class="evidence-score"
-								>{artifacts.length} output{artifacts.length === 1 ? '' : 's'} · {ownerAccess
-									? gates.length
-										? `${passedGates}/${gates.length} checks passed`
-										: 'no checks'
-									: 'checks owner-visible'}</span
-							>
+							<!-- An empty count repeats the sentence below it. -->
+							{#if artifacts.length || gates.length}<span class="evidence-score"
+									>{artifacts.length} output{artifacts.length === 1 ? '' : 's'} · {ownerAccess
+										? gates.length
+											? `${passedGates}/${gates.length} checks passed`
+											: 'no checks'
+										: 'checks owner-visible'}</span
+								>{/if}
 						</header>
 						{#if work.expected_artifact}
 							<p class="expected-artifact" title="The output the accountable lead asked for">
@@ -474,7 +475,7 @@
 					</section>
 
 					<details class="work-technical-details">
-						<summary>Technical execution details</summary>
+						<summary>Run details</summary>
 						<div class="work-technical-body">
 							{#if readerSummary}<section class="work-detail-section outcome-contract">
 									<span
@@ -522,18 +523,17 @@
 							</section>
 
 							<section class="contribution-trace">
-								<h2>{workIsLeadOwned ? 'Accountability record' : 'Contribution record'}</h2>
+								<h2>{workIsLeadOwned ? 'Who decides' : 'Who does what'}</h2>
 								{#if workIsLeadOwned}
 									<p>
-										{accountableLead?.display ?? ownerName(accountableLeadId ?? work.owner_id)} owns the
-										final judgement for this outcome. Accepted, revised or stopped contributions retain
-										their own execution and observed-output records.
+										{accountableLead?.display ?? ownerName(accountableLeadId ?? work.owner_id)} makes
+										the final call on this outcome. Each contribution keeps its own record.
 									</p>
 								{:else}
 									<p>
-										{ownerName(work.owner_id)} owns this part of the work for
-										{accountableLead?.display ?? ownerName(accountableLeadId ?? work.owner_id)}.
-										Finishing this part does not mean the whole outcome was accepted.
+										{ownerName(work.owner_id)} does this part for
+										{accountableLead?.display ?? ownerName(accountableLeadId ?? work.owner_id)}, who
+										accepts the whole outcome.
 									</p>
 								{/if}
 								{#if work.status === 'abandoned'}

@@ -94,9 +94,7 @@
 <section class="identity-editor" aria-label="Edit company identity">
 	<div class="editor-heading">
 		<h2>Your direction</h2>
-		<InfoTip
-			text="Your authored direction is saved as a new identity version. Other attributed evidence is preserved. Earlier work keeps the version it started with."
-		/>
+		<InfoTip text="Saving creates a new version. Earlier work keeps the version it started with." />
 		{#if !editing}<button class="btn small" onclick={open}
 				>{view.current_release ? 'Edit identity' : 'Add identity'}</button
 			>{/if}
