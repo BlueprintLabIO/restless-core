@@ -554,7 +554,9 @@
 									>Try again</button
 								>
 							</div>
-						{:else if conversationStatus === 'unknown'}
+						{:else if conversationStatus === 'unknown' || (!needsProvider && connectionStatus === 'unknown')}
+							<!-- Whether intelligence is connected is not known yet: neither
+							     "Ask anything" nor "Connect intelligence" would be true. -->
 							<Skeleton label="Loading conversation" variant="messages" count={3} />
 						{:else if focusActive}
 							<!-- The focus boundary below is the empty transcript state. -->
