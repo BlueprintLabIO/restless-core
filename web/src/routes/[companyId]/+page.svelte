@@ -69,6 +69,19 @@
 		return reason ? startLinkLabel(reason) : '';
 	});
 	const queueClear = $derived(loaded && items.length === 0);
+	/* The queue opening or clearing while the owner watches is animated; the
+	 * page arriving in its first known layout is not. Two frames after the
+	 * first answer, later changes may move. */
+	let settled = $state(false);
+	$effect(() => {
+		if (!loaded || settled) return;
+		const frame = requestAnimationFrame(() =>
+			requestAnimationFrame(() => {
+				settled = true;
+			})
+		);
+		return () => cancelAnimationFrame(frame);
+	});
 	const showClear = $derived(queueClear && !startBlocker);
 	/* The queue starts collapsed until its source answers, so an idle
 	 * company's office is never squeezed and released; when items do arrive,
@@ -703,6 +716,9 @@
 	<div
 		class="cockpit-screen attention-screen"
 		class:queue-clear={queueClear}
+		class:settled
+		class:awaiting={!loaded && !source.failure}
+		aria-busy={!loaded && !source.failure}
 		use:resizePane={{
 			key: `${companyId}:attention`,
 			label: 'Resize attention panes',

@@ -610,6 +610,17 @@
 	display: grid;
 	grid-template-columns: minmax(0, var(--attention-index-w, 336px)) minmax(0, 1fr);
 	gap: var(--pane-gap);
+}
+
+/* Until the source answers, neither the queue layout nor the clear layout is
+ * known to be true. Showing one and then swapping to the other is a layout
+ * shift, so both panes stay invisible (still laid out) for that round trip. */
+.bridge-root .attention-screen.awaiting > * {
+	visibility: hidden;
+}
+
+/* Only a change after the first known layout moves (see `settled`). */
+.bridge-root .attention-screen.settled {
 	transition:
 		grid-template-columns 360ms cubic-bezier(0.22, 1, 0.36, 1),
 		grid-template-rows 360ms cubic-bezier(0.22, 1, 0.36, 1),
@@ -682,11 +693,14 @@
 	opacity: 1;
 	transform: translateX(0) scaleX(1);
 	transform-origin: left center;
+	will-change: transform, opacity;
+}
+
+.bridge-root .attention-screen.settled .attention-index {
 	transition:
 		opacity 180ms ease-out,
 		transform 360ms cubic-bezier(0.22, 1, 0.36, 1),
 		visibility 0s;
-	will-change: transform, opacity;
 }
 
 .bridge-root .attention-screen.queue-clear .attention-index {
@@ -694,6 +708,9 @@
 	opacity: 0;
 	transform: translateX(-16px) scaleX(0.96);
 	pointer-events: none;
+}
+
+.bridge-root .attention-screen.settled.queue-clear .attention-index {
 	transition:
 		opacity 140ms ease-out,
 		transform 360ms cubic-bezier(0.22, 1, 0.36, 1),
