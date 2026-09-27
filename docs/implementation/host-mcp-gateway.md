@@ -14,7 +14,7 @@ arbitrary company-local stdio MCPs still run inside the Runtime volume.
    owner-only token file is outside every company Runtime.
 2. Choose a proposed or blocked Work owned by the intended active Staff actor. Install the
    reviewed `clapping-hands` connection at its local MCP endpoint, actor, Work,
-   and either the original three or the reviewed four exact sourcing read tools with the owner
+   and a reviewed three-, four-, or five-tool sourcing read profile with the owner
    CLI `restless local-mcp --company <company> install-host --name <name> --endpoint
    http://127.0.0.1:8799/mcp --token-file <absolute-private-file> --actor
    <actor> --work <work-uuid> --tool <tool-name>` (repeat `--tool` for each read tool).
@@ -44,14 +44,16 @@ installed for Clapping Hands.
 
 The current host HTTP bridge admits only the reviewed Clapping Hands sourcing
 profile: `clapping-hands` at its local port (7799 plus the Restless port offset)
-with exactly `clapping_hands_marketplace_search`,
-`clapping_hands_marketplace_details`, and
-`clapping_hands_gumtree_public_listing`, optionally plus the separately reviewed
-`clapping_hands_gumtree_public_listings` batch. Existing three-tool Work pins
-remain valid; the fourth tool needs a fresh install and Attempt. It accepts
-1–8 exact Gumtree URLs and retains a typed row per page, including blocked
-and incomplete outcomes. Gumtree's current edge 403 remains an access failure,
-not a successful batch read. Other host HTTP tools fail closed at
+with `clapping_hands_marketplace_search`, `clapping_hands_marketplace_details`,
+and `clapping_hands_gumtree_public_listing`; the reviewed four-tool profile adds
+`clapping_hands_gumtree_public_listings`, and the five-tool profile adds
+`clapping_hands_marketplace_photo`. Older exact Work pins remain valid; adding
+either tool needs a fresh install and Attempt. The Gumtree batch accepts 1–8
+exact URLs and retains a typed row per page, including blocked and incomplete
+outcomes. Gumtree's current edge 403 remains an access failure, not a successful
+batch read. The photo tool accepts one exact Facebook item URL and one bounded
+photo position, returns a JPEG image block, and marks text-only details as
+having uninspected media. Other host HTTP tools fail closed at
 installation, actor launch, and request handling. A server's MCP
 `readOnlyHint` is not evidence that the code cannot write. This profile trusts
 the owner-managed Clapping Hands service and its audited read surface; a
