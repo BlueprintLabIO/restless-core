@@ -358,13 +358,16 @@
  * quiet placeholder panel instead of a stray sentence under the title. */
 .bridge-root .company-page > .quiet-empty,
 .bridge-root .company-page > section > .quiet-empty:only-child {
-	display: grid;
-	place-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
 	min-height: 120px;
 	margin-top: var(--space-5);
 	padding: var(--space-6);
-	border: 1px dashed var(--border-strong);
 	border-radius: var(--radius-pane);
+	background: color-mix(in srgb, var(--ink) 3%, transparent);
 	text-align: center;
 	text-wrap: balance;
 }
