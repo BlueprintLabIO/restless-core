@@ -412,6 +412,10 @@
 		gap: var(--space-6);
 		min-width: 0;
 	}
+	/* The grid gap spaces the panels; their own margins would double it. */
+	.authority-settings > :global(.limits-ledger) {
+		margin: 0;
+	}
 
 	.standard-setting-message {
 		margin-top: 4px;

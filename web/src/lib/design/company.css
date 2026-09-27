@@ -314,6 +314,12 @@
 	margin-bottom: 15px;
 }
 
+/* A new section after the limits starts at the same distance the page uses
+ * between its other sections. */
+.bridge-root .authority-settings + .section-heading {
+	margin-top: 36px;
+}
+
 /* ---------- source, error and empty states ---------- */
 
 .bridge-root .source-unavailable,
