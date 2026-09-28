@@ -743,7 +743,6 @@ export function invalidateCompany(client: QueryClient, companyId: string): Promi
  * snapshot and replay; refetching its messages here as well only doubles the
  * same request and cancels one of them. */
 const ROOM_STREAM_OWNED = new Set(['room-messages', 'room-thread']);
-const ROOM_LISTS = new Set(['rooms', 'recent-direct-conversations', 'room-search']);
 
 /**
  * One change stream per open company. Each hint refetches the company's
@@ -759,18 +758,14 @@ export function companyChangeStream(companyId: () => string, enabled: QueryEnabl
 		const source = new EventSource(`/api/companies/${encodeURIComponent(company)}/changes`);
 		source.onopen = () => (changes.live = true);
 		source.onerror = () => (changes.live = false);
-		source.addEventListener('change', (event) => {
-			/* A batch of only room events (someone read a room, a cursor
-			 * moved) changes the room lists and nothing else: a new message
-			 * also arrives as `message`, which refreshes everything. */
-			const kinds = String((event as MessageEvent).data ?? '').split(',');
-			const roomsOnly = kinds.every((kind) => kind === 'room_event');
+		source.addEventListener('change', () => {
+			/* Every kind refreshes every active query for the company, except
+			 * an open Room's messages, which the Room's own stream owns. A
+			 * bare `room_event` is not "only rooms": a message to the Exec is
+			 * one too, and the Exec rail must see it. */
 			void client.invalidateQueries({
-				predicate: (query) => {
-					const family = String(query.queryKey[0]);
-					if (!query.queryKey.includes(company) || ROOM_STREAM_OWNED.has(family)) return false;
-					return !roomsOnly || ROOM_LISTS.has(family);
-				},
+				predicate: (query) =>
+					query.queryKey.includes(company) && !ROOM_STREAM_OWNED.has(String(query.queryKey[0])),
 				refetchType: 'active'
 			});
 		});
