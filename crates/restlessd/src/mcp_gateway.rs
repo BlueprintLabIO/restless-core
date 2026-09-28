@@ -989,6 +989,14 @@ impl ScopedMcp {
         self.append_receipt(call_id, "terminal", &tool_name, &request_digest,
             status, result_digest.as_deref(), Some(started.elapsed().as_millis() as i64),
             error_class, provider_status).await?;
+        if status == "not_invoked" {
+            // Handshake or contract checks failed before client.call_tool.
+            // The terminal receipt is durable, so report this known outcome.
+            return Ok(not_invoked_result(
+                "broker_pre_call_failed",
+                "Core could not start this MCP read; no upstream tool call was made. Inspect the connection before retrying.",
+            ));
+        }
         let mut outcome = outcome;
         if let Ok(result) = &mut outcome {
             // The receipt hashes the unmodified upstream result. Core owns this
