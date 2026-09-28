@@ -60,7 +60,7 @@ export function layoutWorkGraph(
 		.setGraph({
 			rankdir: 'LR',
 			nodesep: 34,
-			ranksep: 82,
+			ranksep: 64,
 			edgesep: 16,
 			marginx: 28,
 			marginy: 28,

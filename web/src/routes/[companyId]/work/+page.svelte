@@ -60,11 +60,23 @@
 	 * as one list, is the useful first view. An explicit lens always wins, and
 	 * only an explicit choice is written into the address, so a shared link
 	 * still opens on the right default for the other person's screen. */
+	/* The measure is the stage itself, not the window: with goals and the
+	 * Exec rail open, a laptop's stage can be as narrow as a phone. */
+	let stageWidth = $state(0);
+	const MAP_MIN_WIDTH = 600;
 	function defaultLens(): 'map' | 'board' {
+		if (stageWidth) return stageWidth < MAP_MIN_WIDTH ? 'board' : 'map';
 		return typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches
 			? 'board'
 			: 'map';
 	}
+	$effect(() => {
+		if (!stageWidth) return;
+		const narrow = stageWidth < MAP_MIN_WIDTH;
+		untrack(() => {
+			if (goalSelectionInitialized && !lensExplicit) lens = narrow ? 'board' : 'map';
+		});
+	});
 	let lens = $state<'map' | 'board'>('map');
 	let lensExplicit = $state(false);
 	function chooseLens(value: 'map' | 'board') {
@@ -353,7 +365,7 @@
 		</div>
 	</aside>
 
-	<section class="work-stage cockpit-pane">
+	<section class="work-stage cockpit-pane" bind:clientWidth={stageWidth}>
 		<header class="cockpit-pane-head work-stage-head">
 			<div class="work-heading">
 				<h1>
