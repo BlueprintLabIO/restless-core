@@ -39,7 +39,7 @@
 	const loaded = $derived(
 		principalProjection.status !== 'unknown' &&
 			(ownerAccess
-				? attentionProjection.status !== 'unknown' || cockpitProjection.status !== 'unknown'
+				? attentionProjection.status !== 'unknown' && cockpitProjection.status !== 'unknown'
 				: collaborationProjection.status !== 'unknown')
 	);
 	/* The first projection that failed, and whether this page still holds data

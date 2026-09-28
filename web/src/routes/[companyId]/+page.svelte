@@ -15,7 +15,7 @@
 	import Markdown from '$lib/primitives/Markdown.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
 	import ConversationTurnDock from '$lib/primitives/ConversationTurnDock.svelte';
-	import CompanyOffice from '$lib/office/LazyCompanyOffice.svelte';
+	import CompanyOffice, { preloadOffice } from '$lib/office/LazyCompanyOffice.svelte';
 	import type { AttentionItem } from '$lib/model/view';
 	import { attentionQuery, companiesQuery, conversationQuery } from '$lib/model/queries.svelte';
 	import { startFixHref, startLinkLabel } from '$lib/model/company-start';
@@ -77,6 +77,11 @@
 		const change = () => (compactScreen = query.matches);
 		query.addEventListener('change', change);
 		return () => query.removeEventListener('change', change);
+	});
+	/* The office is the likely answer on a desktop; fetch its code and art
+	 * alongside Attention rather than after it. */
+	$effect(() => {
+		if (!compactScreen && !(loaded && items.length > 0)) void preloadOffice();
 	});
 	/* The queue opening or clearing while the owner watches is animated; the
 	 * page arriving in its first known layout is not. Two frames after the

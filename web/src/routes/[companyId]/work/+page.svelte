@@ -47,10 +47,12 @@
 			void cockpitProjection.refresh();
 		} else void collaborationProjection.refresh();
 	}
+	/* Goals come from the cockpit and the map from Attention: the page has
+	 * answered only when both have, or it says "unavailable" while loading. */
 	const loaded = $derived(
 		principalProjection.status !== 'unknown' &&
 			(ownerAccess
-				? attentionProjection.status !== 'unknown' || cockpitProjection.status !== 'unknown'
+				? attentionProjection.status !== 'unknown' && cockpitProjection.status !== 'unknown'
 				: collaborationProjection.status !== 'unknown')
 	);
 	type WorkItem = WorkRow | CollaborationWork;

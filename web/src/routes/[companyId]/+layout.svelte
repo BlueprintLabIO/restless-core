@@ -136,7 +136,9 @@
 	const companyName = $derived(
 		setupDraft.name ??
 			(ownerAccess
-				? (attention.view?.company.name ?? '')
+				? (attention.view?.company.name ??
+					companies.find((company) => company.id === companyId)?.name ??
+					'')
 				: (collaboration.view?.company.name ?? ''))
 	);
 	/* The last name this browser saw for the company stands in until the source

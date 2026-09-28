@@ -341,28 +341,35 @@ export function cockpitQuery(companyId: string | (() => string), enabled: QueryE
 export function companyQuery(companyId: string, enabled: QueryEnabled = true) {
 	const client = useQueryClient();
 	let probeCredentials = $state(false);
-	const query = createQuery(() => ({
-		queryKey: queryKeys.company(companyId, probeCredentials),
-		queryFn: () => getCompany(companyId, probeCredentials),
-		enabled: queryEnabled(enabled),
+	const options = (probe: boolean, on: () => boolean) => ({
+		queryKey: queryKeys.company(companyId, probe),
+		queryFn: () => getCompany(companyId, probe),
+		enabled: queryEnabled(enabled) && on(),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
 		refetchInterval: 60_000,
 		refetchIntervalInBackground: false
-	}));
+	});
+	/* The ordinary read always runs. A page that asks for a live credential
+	 * probe (which can take seconds) shows the ordinary read — where every
+	 * reference says it is unprobed — until the probe answers. */
+	const plain = createQuery(() => options(false, () => true));
+	const probed = createQuery(() => options(true, () => probeCredentials));
+	const current = () => (probeCredentials && (probed.data || probed.error) ? probed : plain);
 	return {
 		get view() {
-			return (query.data as CompanyView | undefined) ?? null;
+			return ((probed.data ?? plain.data) as CompanyView | undefined) ?? null;
 		},
 		get status() {
-			return statusOf(query);
+			if (probeCredentials && !probed.data && !probed.error) return 'unknown';
+			return statusOf(current());
 		},
 		get failure() {
-			return (query.error as (Error & { status?: number }) | null) ?? null;
+			return (current().error as (Error & { status?: number }) | null) ?? null;
 		},
-		refresh: () => refresh(query),
+		refresh: () => refresh(current()),
 		accept(view: CompanyView): void {
-			client.setQueryData(queryKeys.company(companyId, probeCredentials), view);
+			if (probeCredentials) client.setQueryData(queryKeys.company(companyId, true), view);
 			client.setQueryData(queryKeys.company(companyId, false), view);
 		},
 		attach(probe = false): () => void {
