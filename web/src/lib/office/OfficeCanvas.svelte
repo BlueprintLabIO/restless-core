@@ -32,10 +32,11 @@
 	import { chooseBubblePlacement, type BubbleRect } from './bubblePlacement';
 	import {
 		CAMPUS_MOTION_CHANNELS,
-		buildCampusWorld,
 		campusWildlifeAt,
+		campusWorldFor,
 		drawCampusBackground,
 		drawCampusOverlay,
+		layoutKey,
 		type CampusWorld
 	} from './campusBackdrop';
 	import { drawGroundMotion, paintOfficeGround, paintOfficeLight } from './officeGround';
@@ -109,7 +110,7 @@
 	let decorationMessage = $state('');
 	let documentVisible = $state(true);
 	let reducedMotion = $state(false);
-	let devicePixelRatio = 2;
+	let devicePixelRatio = 1;
 	let zoomCss = $state(2.5);
 	let minZoomCss = $state(0.5);
 	let maxZoomCss = $state(1);
@@ -193,7 +194,7 @@
 				rebuildOffice(teams, members, preferences);
 				// Paint the campus while loading, not in the first animated frame.
 				if (plan) {
-					campusWorld = buildCampusWorld(plan.layout);
+					campusWorld = campusWorldFor(plan);
 					campusTiles = plan.layout.tiles;
 				}
 				sizeCanvas();
@@ -207,7 +208,13 @@
 						 * 60Hz repaint of a full-pane canvas is the office's main
 						 * cost; the canvas keeps its last frame in between. */
 						const now = performance.now();
-						if (now - lastPaintAt < MIN_PAINT_INTERVAL_MS) return;
+						/* While someone is typing, keystrokes come first: the
+						 * floor slows to 12 frames a second. */
+						const typing = document.activeElement?.matches(
+							'input, textarea, [contenteditable="true"]'
+						);
+						const interval = typing ? TYPING_PAINT_INTERVAL_MS : MIN_PAINT_INTERVAL_MS;
+						if (now - lastPaintAt < interval) return;
 						lastPaintAt = now;
 						render(context, now);
 					}
@@ -229,13 +236,33 @@
 		};
 	});
 
+	let planInputs = '';
+	function officeInputsKey(
+		nextTeams: CockpitTeam[],
+		nextMembers: OfficeMember[],
+		nextPreferences: OfficePreferences
+	): string {
+		return JSON.stringify([
+			nextTeams.map((team) => [team.id, team.name]),
+			nextMembers.map((member) => [member.actorId, member.teamId]),
+			nextPreferences
+		]);
+	}
+
 	function rebuildOffice(
 		nextTeams: CockpitTeam[],
 		nextMembers: OfficeMember[],
 		nextPreferences: OfficePreferences
 	) {
 		if (!assets) return;
+		/* Polls and change hints deliver fresh member objects constantly; the
+		 * plan depends only on who is where, so regenerate it only then. */
+		if (office && plan && officeInputsKey(nextTeams, nextMembers, nextPreferences) === planInputs) {
+			synchronizeMembers(office, nextMembers, plan);
+			return;
+		}
 		const nextPlan = createCompanyOfficePlan(nextTeams, nextMembers, nextPreferences);
+		planInputs = officeInputsKey(nextTeams, nextMembers, nextPreferences);
 		if (nextPlan.signature === planSignature && office) {
 			synchronizeMembers(office, nextMembers, nextPlan);
 			return;
@@ -526,11 +553,24 @@
 	function sizeCanvas() {
 		if (!canvas || !shell) return;
 		const rectangle = shell.getBoundingClientRect();
-		devicePixelRatio = Math.max(2, Math.min(window.devicePixelRatio || 1, 2));
-		canvas.width = Math.max(1, Math.round(rectangle.width * devicePixelRatio));
-		canvas.height = Math.max(1, Math.round(rectangle.height * devicePixelRatio));
+		/* The display's real ratio: a 1x screen paints a quarter of the pixels a
+		 * forced 2x did, and pixel art stays exactly one canvas pixel per screen
+		 * pixel. */
+		devicePixelRatio = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
+		const width = Math.max(1, Math.round(rectangle.width * devicePixelRatio));
+		const height = Math.max(1, Math.round(rectangle.height * devicePixelRatio));
 		updateZoomBounds();
 		lastZoom = Math.max(1, Math.round(zoomCss * devicePixelRatio));
+		// Resizing clears the canvas. Only do it when the size really changed,
+		// and repaint at once so no blank frame is ever shown.
+		if (canvas.width === width && canvas.height === height) return;
+		canvas.width = width;
+		canvas.height = height;
+		const context = canvas.getContext('2d');
+		if (context && office && plan) {
+			lastPaintAt = performance.now();
+			render(context, lastPaintAt);
+		}
 	}
 
 	function synchronizeMembers(
@@ -628,6 +668,7 @@
 	}
 
 	const MIN_PAINT_INTERVAL_MS = 1000 / 30 - 2;
+	const TYPING_PAINT_INTERVAL_MS = 1000 / 12 - 2;
 	let lastPaintAt = 0;
 	/* The campus is painted once per layout (see campusBackdrop.ts). */
 	let campusWorld: CampusWorld | null = null;
@@ -637,7 +678,7 @@
 		if (!office || !plan || !canvas.width || !canvas.height) return;
 		const currentPlan = plan;
 		if (!campusWorld || campusTiles !== currentPlan.layout.tiles) {
-			campusWorld = buildCampusWorld(currentPlan.layout);
+			campusWorld = campusWorldFor(currentPlan);
 			campusTiles = currentPlan.layout.tiles;
 		}
 		const world = campusWorld;
@@ -697,7 +738,7 @@
 					: undefined,
 				ground: (layer) => paintOfficeGround(layer, currentPlan),
 				groundAbove: (layer) => paintOfficeLight(layer, currentPlan),
-				groundKey: currentPlan,
+				groundKey: layoutKey(currentPlan),
 				afterFloor: (layer, offsetX, offsetY) =>
 					drawGroundMotion(layer, currentPlan, { offsetX, offsetY, zoom: lastZoom, now, motion })
 			}

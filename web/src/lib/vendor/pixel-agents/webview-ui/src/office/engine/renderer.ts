@@ -922,8 +922,24 @@ function drawFloorLayer(
 	}
 	const smoothing = ctx.imageSmoothingEnabled;
 	ctx.imageSmoothingEnabled = false;
-	ctx.drawImage(floorCache!.canvas, offsetX, offsetY, width * zoom, height * zoom);
+	blitVisible(ctx, floorCache!.canvas, offsetX, offsetY, zoom);
 	ctx.imageSmoothingEnabled = smoothing;
+}
+
+/** Scale-blit only the part of a world-space layer that lands on screen. */
+export function blitVisible(
+	ctx: CanvasRenderingContext2D,
+	source: HTMLCanvasElement,
+	left: number,
+	top: number,
+	zoom: number
+): void {
+	const sx = Math.max(0, Math.floor(-left / zoom));
+	const sy = Math.max(0, Math.floor(-top / zoom));
+	const sw = Math.min(source.width, Math.ceil((ctx.canvas.width - left) / zoom) + 1) - sx;
+	const sh = Math.min(source.height, Math.ceil((ctx.canvas.height - top) / zoom) + 1) - sy;
+	if (sw <= 0 || sh <= 0) return;
+	ctx.drawImage(source, sx, sy, sw, sh, left + sx * zoom, top + sy * zoom, sw * zoom, sh * zoom);
 }
 
 /** Restless host layers around the vendored scene. */
@@ -993,7 +1009,9 @@ export function renderFrame(
 			}
 			layers?.groundAbove?.(layer);
 		},
-		[tileMap, tileColors, carpetTiles, layers?.groundKey]
+		// A host key describes the whole floor by content, so the cache also
+		// survives a remount that rebuilds identical arrays.
+		layers?.groundKey !== undefined ? [layers.groundKey] : [tileMap, tileColors, carpetTiles]
 	);
 	layers?.afterFloor?.(ctx, offsetX, offsetY);
 
