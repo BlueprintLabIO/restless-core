@@ -696,7 +696,7 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 		});
 	}
 	const glints: CampusWorld['glints'] = [];
-	for (let i = 0; i < 40; i += 1) {
+	for (let i = 0; i < 14; i += 1) {
 		const y = Math.round(top + motionRand() * (bottom - top));
 		const x = Math.round(shore(y) + 40 + motionRand() * (right - shore(y) - 60));
 		if (onPlate(x, y, 10)) continue;
@@ -890,40 +890,28 @@ function drawWater(ctx: Paint, world: CampusWorld, view: CampusView): void {
 	const z = view.zoom;
 	const firstRow = Math.floor(-view.offsetY / z) - 2;
 	const lastRow = Math.ceil((view.canvasHeight - view.offsetY) / z) + 2;
-	// Foam breathes along the waterline: it slides a pixel in and out of the
-	// sand with a slow swell, broken so it reads as lapping water.
+	// Foam: a continuous line on the waterline. A slow swell travels along the
+	// shore and moves it one pixel in or out; nothing blinks.
 	for (let y = firstRow; y <= lastRow; y += 1) {
 		const s = world.shore(y);
-		const swell = Math.sin(t * 0.8 + y * 0.07) + Math.sin(t * 0.37 + y * 0.023) * 0.6;
-		const reach = Math.round(swell * 1.1);
-		if ((y + Math.floor(t * 1.5)) % 5 === 0) continue;
-		screen(ctx, view, s + reach, y, 2, 1, swell > 0.6 ? C.foam : C.foamDim);
-		if (swell > 1.1) screen(ctx, view, s + reach - 1, y, 1, 1, C.foam);
+		const swell = Math.sin(t * 0.45 - y * 0.035);
+		const reach = swell > 0.55 ? 1 : swell < -0.55 ? -1 : 0;
+		screen(ctx, view, s + reach, y, 2, 1, C.foamDim);
+		if (reach >= 0) screen(ctx, view, s + reach + 1, y, 1, 1, C.foam);
 	}
-	// Ripples drift slowly east and fade in and out; one art pixel at a time.
+	// Ripples drift slowly east, always visible, one art pixel at a time.
 	for (const ripple of world.ripples) {
 		if (ripple.y < firstRow || ripple.y > lastRow) continue;
-		const life = (t / ripple.period + ripple.phase) % 1;
-		if (life > 0.9) continue;
-		const x = ripple.x + ((t * ripple.speed) % 40);
+		const x = ripple.x + Math.floor((t * ripple.speed * 0.4 + ripple.phase * 40) % 40);
 		if (x < world.shore(ripple.y) + 26) continue;
-		const strong = life > 0.18 && life < 0.72;
-		screen(ctx, view, x, ripple.y, ripple.len, 1, strong ? C.ripple : C.rippleDim);
-		if (strong && ripple.len > 8)
-			screen(ctx, view, x + 2, ripple.y + 1, ripple.len - 5, 1, C.rippleDim);
+		screen(ctx, view, x, ripple.y, ripple.len, 1, C.rippleDim);
 	}
-	// Sun glints: a brief sparkle, never more than a few at once.
+	// Sun glints: rare, soft single pixels.
 	for (const glint of world.glints) {
 		if (glint.y < firstRow || glint.y > lastRow) continue;
-		const life = (t / glint.period + glint.phase) % 1;
-		if (life > 0.1) continue;
-		screen(ctx, view, glint.x, glint.y, 1, 1, C.glint);
-		if (life > 0.03 && life < 0.07) {
-			screen(ctx, view, glint.x - 1, glint.y, 1, 1, C.glintArm);
-			screen(ctx, view, glint.x + 1, glint.y, 1, 1, C.glintArm);
-			screen(ctx, view, glint.x, glint.y - 1, 1, 1, C.glintArm);
-			screen(ctx, view, glint.x, glint.y + 1, 1, 1, C.glintArm);
-		}
+		const life = (t / (glint.period * 2) + glint.phase) % 1;
+		if (life > 0.05) continue;
+		screen(ctx, view, glint.x, glint.y, 1, 1, C.glintArm);
 	}
 }
 
