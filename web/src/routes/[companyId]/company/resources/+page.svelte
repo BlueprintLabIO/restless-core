@@ -193,6 +193,13 @@
 		return Array.isArray(value) ? value.filter((part): part is string => typeof part === 'string') : [];
 	}
 
+	function fixedWorkReadLimit(item: CompanyResource): string {
+		const limit = item.metadata?.max_calls_per_work;
+		return typeof limit === 'number' && Number.isInteger(limit) && limit > 0
+			? `${limit} total across Attempts`
+			: 'Unlimited';
+	}
+
 	function observedTime(value: string | null): string {
 		if (!value || Number.isNaN(new Date(value).getTime())) return 'No successful call observed';
 		return when(value);
@@ -265,6 +272,9 @@
 									<div><dt>Browser owned by</dt><dd>{metadataText(item, 'browser_owner')}</dd></div>
 								{/if}
 								<div><dt>Assigned to</dt><dd>{metadataText(item, 'assigned_actor') ?? 'No agent assigned'}</dd></div>
+								{#if ['host_http', 'public_http', 'broker_stdio'].includes(metadataText(item, 'transport') ?? '')}
+									<div><dt>Fixed Work read calls</dt><dd>{fixedWorkReadLimit(item)}</dd></div>
+								{/if}
 								<div><dt>Last successful tool call</dt><dd>{observedTime(metadataText(item, 'last_success_at'))}</dd></div>
 								{#if metadataText(item, 'target_repository')}<div><dt>Public repository</dt><dd>{metadataText(item, 'target_repository')}</dd></div>{/if}
 							</dl>

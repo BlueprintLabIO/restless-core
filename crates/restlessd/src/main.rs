@@ -2916,11 +2916,14 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 connected_tool::validate_assignable_mcp_work(&org, actor, work_id).await?;
                 let server = connected_tool::install_host_mcp(
                     daemon.authority.pool(), company, name, endpoint, token_file,
-                    actor, work_id, &request.local_mcp.allowed_tools, None,
+                    actor, work_id, &request.local_mcp.allowed_tools,
+                    request.local_mcp.max_calls_per_work,
+                    request.local_mcp.unlimited_read_calls, None,
                 ).await?;
                 org.emit_event("local_mcp_installed", Some("owner"), serde_json::json!({
                     "name": server.name, "transport": "host_http", "assigned_actor": actor,
                     "work_id": work_id, "allowed_tools": server.allowed_tools,
+                    "max_calls_per_work": server.max_calls_per_work,
                     "tool_contract_digest": server.tool_contract_digest,
                 })).await?;
                 Ok::<_, anyhow::Error>(server)
@@ -2949,12 +2952,15 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 let server = connected_tool::install_public_http_read(
                     daemon.authority.pool(), company, profile, name, endpoint,
                     repository, actor, work_id, &request.local_mcp.allowed_tools,
+                    request.local_mcp.max_calls_per_work,
+                    request.local_mcp.unlimited_read_calls,
                 ).await?;
                 org.emit_event("local_mcp_installed", Some("owner"), serde_json::json!({
                     "name": server.name, "transport": "public_http", "read_profile": server.read_profile,
                     "endpoint": server.endpoint, "target_repository": server.target_repository,
                     "assigned_actor": actor, "work_id": work_id,
                     "allowed_tools": server.allowed_tools,
+                    "max_calls_per_work": server.max_calls_per_work,
                     "tool_contract_digest": server.tool_contract_digest,
                 })).await?;
                 Ok::<_, anyhow::Error>(server)
@@ -2981,10 +2987,13 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 connected_tool::validate_assignable_mcp_work(&org, actor, work_id).await?;
                 let server = connected_tool::install_brokered_stdio_mcp(
                     daemon.authority.pool(), company, name, bundle, read_root, actor, work_id,
+                    request.local_mcp.max_calls_per_work,
+                    request.local_mcp.unlimited_read_calls,
                 ).await?;
                 org.emit_event("local_mcp_installed", Some("owner"), serde_json::json!({
                     "name": server.name, "transport": "broker_stdio", "assigned_actor": actor,
                     "work_id": work_id, "allowed_tools": server.allowed_tools,
+                    "max_calls_per_work": server.max_calls_per_work,
                     "tool_contract_digest": server.tool_contract_digest,
                 })).await?;
                 Ok::<_, anyhow::Error>(server)

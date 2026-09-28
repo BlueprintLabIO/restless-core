@@ -52,6 +52,15 @@ const MAX_PUBLIC_RESULT_BYTES: usize = 128 * 1024;
 const PUBLIC_CALL_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_FACADE_REQUEST_BYTES: usize = 16 * 1024;
 
+fn not_invoked_result(code: &'static str, message: &'static str) -> CallToolResult {
+    let mut result = CallToolResult::error(vec![ContentBlock::text(message)]);
+    result.structured_content = Some(serde_json::json!({
+        "status": "not_invoked",
+        "error": {"code": code},
+    }));
+    result
+}
+
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "kebab-case", deny_unknown_fields)]
 enum ReadRequest {
@@ -628,6 +637,7 @@ impl ScopedMcp {
               AND server_version IS NOT DISTINCT FROM $9 \
               AND transport=$10 AND allowed_tools=$11 AND token_file IS NOT DISTINCT FROM $12 \
               AND policy_revision=$13 AND command=$14 AND args=$15 \
+              AND max_calls_per_work IS NOT DISTINCT FROM $16 \
              FROM restless_authority.local_mcp_servers WHERE company=$1 AND name=$2",
         )
         .bind(&self.company).bind(&self.connection.name).bind(&self.grant.actor)
@@ -638,6 +648,7 @@ impl ScopedMcp {
         .bind(&self.connection.token_file)
         .bind(self.connection.policy_revision)
         .bind(&self.connection.command).bind(serde_json::json!(self.connection.args))
+        .bind(self.connection.max_calls_per_work)
         .fetch_optional(&self.pool).await;
         if !matches!(enabled, Ok(Some(true)))
             || !running_attempt(&self.daemon, &self.grant).await
@@ -842,6 +853,69 @@ impl ScopedMcp {
             "not_invoked", None, Some(0), Some("invalid_params"), None).await
     }
 
+    /// Lock the reviewed connection while counting this Work's prior started
+    /// reads, then write the next started receipt before releasing the lock.
+    /// Counting receipts across Attempts and policy revisions is conservative:
+    /// a timeout, crash, or uncertain provider outcome never refunds a call.
+    async fn reserve_started_receipt(
+        &self,
+        call_id: Uuid,
+        tool_name: &str,
+        request_digest: &str,
+    ) -> Result<bool> {
+        let Some(limit) = self.connection.max_calls_per_work.filter(|_| self.recurring_policy.is_none()) else {
+            self.append_receipt(call_id, "started", tool_name, request_digest,
+                "started", None, None, None, None).await?;
+            return Ok(true);
+        };
+        let mut tx = self.pool.begin().await?;
+        let pinned: Option<i32> = sqlx::query_scalar(
+            "SELECT max_calls_per_work FROM restless_authority.local_mcp_servers \
+             WHERE company=$1 AND name=$2 AND enabled=TRUE \
+               AND transport IN ('host_http','public_http','broker_stdio') \
+               AND assigned_actor=$3 AND assigned_work_id=$4 \
+               AND policy_revision=$5 AND max_calls_per_work=$6 \
+             FOR UPDATE",
+        )
+        .bind(&self.company).bind(&self.connection.name).bind(&self.grant.actor)
+        .bind(self.grant.work_id).bind(self.connection.policy_revision).bind(limit)
+        .fetch_optional(&mut *tx).await?;
+        if pinned != Some(limit) {
+            bail!("MCP Work read-call budget pin changed before reservation");
+        }
+        let used: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM restless_authority.mcp_read_receipts \
+             WHERE company=$1 AND connection_name=$2 AND work_id=$3 AND phase='started'",
+        )
+        .bind(&self.company).bind(&self.connection.name).bind(self.grant.work_id)
+        .fetch_one(&mut *tx).await?;
+        if used >= i64::from(limit) {
+            tx.commit().await?;
+            return Ok(false);
+        }
+        sqlx::query(
+            "INSERT INTO restless_authority.mcp_read_receipts \
+             (id,call_id,phase,company,actor,work_id,attempt_id,connection_name,tool_name, \
+              tool_contract_digest,policy_revision,request_digest,result_digest,subject,status,wall_ms,error_class,provider_status, \
+              schedule_id,opportunity_id,responsibility_id,responsibility_version,recurring_policy_revision) \
+             VALUES ($1,$2,'started',$3,$4,$5,$6,$7,$8,$9,$10,$11,NULL,$12,'started',NULL,NULL,NULL,$13,$14,$15,$16,$17)",
+        )
+        .bind(Uuid::new_v4()).bind(call_id).bind(&self.company).bind(&self.grant.actor)
+        .bind(self.grant.work_id).bind(self.grant.attempt_id)
+        .bind(&self.connection.name).bind(tool_name)
+        .bind(self.connection.tool_contract_digest.as_deref().context("MCP pin missing")?)
+        .bind(self.connection.policy_revision).bind(request_digest)
+        .bind(self.safe_subject(tool_name))
+        .bind(self.recurring_lineage.as_ref().map(|lineage| lineage.schedule_id))
+        .bind(self.recurring_lineage.as_ref().map(|lineage| lineage.opportunity_id))
+        .bind(self.recurring_lineage.as_ref().map(|lineage| lineage.responsibility_id))
+        .bind(self.recurring_lineage.as_ref().map(|lineage| lineage.responsibility_version))
+        .bind(self.recurring_policy.as_ref().map(|policy| policy.policy_revision))
+        .execute(&mut *tx).await.context("reserve Core MCP Work read call")?;
+        tx.commit().await?;
+        Ok(true)
+    }
+
     async fn invoke_validated(&self, params: CallToolRequestParams) -> Result<CallToolResult> {
         let contract_digest = self.connection.tool_contract_digest.as_deref()
             .context("MCP contract pin missing")?;
@@ -849,8 +923,36 @@ impl ScopedMcp {
         let request_digest = format!("{:x}", Sha256::digest(serde_json::to_vec(&params)?));
         let call_id = Uuid::new_v4();
         let started = Instant::now();
-        self.append_receipt(call_id, "started", &tool_name, &request_digest,
-            "started", None, None, None, None).await?;
+        match self.reserve_started_receipt(call_id, &tool_name, &request_digest).await {
+            Ok(true) => {}
+            Ok(false) => {
+                if self.append_receipt(call_id, "terminal", &tool_name, &request_digest,
+                    "not_invoked", None, Some(started.elapsed().as_millis() as i64),
+                    Some("work_call_budget_exhausted"), None).await.is_err() {
+                    tracing::warn!(company=%self.company, name=%self.connection.name,
+                        "Core MCP budget denial could not be recorded");
+                }
+                return Ok(not_invoked_result(
+                    "work_call_budget_exhausted",
+                    "MCP read-call budget exhausted for this Work; no upstream read was made.",
+                ));
+            }
+            Err(_) => {
+                // Reservation fails closed before connect_upstream/call_tool.
+                // A transaction may have committed its started receipt even if
+                // confirmation was lost, so keep that conservative reservation.
+                if self.append_receipt(call_id, "terminal", &tool_name, &request_digest,
+                    "not_invoked", None, Some(started.elapsed().as_millis() as i64),
+                    Some("broker_reservation_failed"), None).await.is_err() {
+                    tracing::warn!(company=%self.company, name=%self.connection.name,
+                        "Core MCP pre-call failure could not be recorded");
+                }
+                return Ok(not_invoked_result(
+                    "broker_reservation_failed",
+                    "Core could not reserve this MCP read. No upstream read was made; inspect the connection and receipts before retrying.",
+                ));
+            }
+        }
         let mut call_started = false;
         let observed = self.invoke_inner(params, &tool_name, &mut call_started).await;
         // A provider may have executed even if the grant disappears before

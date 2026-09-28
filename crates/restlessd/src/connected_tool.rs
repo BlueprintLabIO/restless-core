@@ -120,6 +120,9 @@ pub(crate) struct LocalMcpServer {
     pub(crate) broker_aware: bool,
     pub(crate) enabled: bool,
     pub(crate) allowed_tools: Vec<String>,
+    /// Optional hard count of brokered reads for the fixed Work pin.
+    /// Recurring Opportunity Works have a separate grant and are not capped here.
+    pub(crate) max_calls_per_work: Option<i32>,
     pub(crate) observed_tools: Vec<String>,
     pub(crate) tool_contract_digest: Option<String>,
     pub(crate) policy_revision: Uuid,
@@ -223,6 +226,7 @@ pub(crate) async fn ensure_schema(pool: &PgPool) -> Result<()> {
          ADD COLUMN IF NOT EXISTS read_profile TEXT, \
          ADD COLUMN IF NOT EXISTS target_repository TEXT, \
          ADD COLUMN IF NOT EXISTS assigned_work_id UUID, \
+         ADD COLUMN IF NOT EXISTS max_calls_per_work INTEGER, \
          ADD COLUMN IF NOT EXISTS allowed_tools JSONB NOT NULL DEFAULT '[]'::jsonb, \
          ADD COLUMN IF NOT EXISTS observed_tools JSONB NOT NULL DEFAULT '[]'::jsonb, \
          ADD COLUMN IF NOT EXISTS tool_contract_digest TEXT, \
@@ -238,6 +242,19 @@ pub(crate) async fn ensure_schema(pool: &PgPool) -> Result<()> {
     .execute(pool)
     .await
     .context("add broker-aware local MCP opt-in")?;
+    sqlx::query(
+        "DO $$ BEGIN \
+           IF NOT EXISTS (SELECT 1 FROM pg_constraint \
+             WHERE conname='local_mcp_max_calls_per_work_positive' \
+               AND conrelid='restless_authority.local_mcp_servers'::regclass) THEN \
+             ALTER TABLE restless_authority.local_mcp_servers \
+               ADD CONSTRAINT local_mcp_max_calls_per_work_positive CHECK (max_calls_per_work > 0); \
+           END IF; \
+         END $$",
+    )
+    .execute(pool)
+    .await
+    .context("constrain broker read-call budget")?;
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS restless_authority.mcp_recurring_read_policies (\
            company TEXT NOT NULL, connection_name TEXT NOT NULL, schedule_id UUID NOT NULL, \
@@ -292,6 +309,14 @@ pub(crate) async fn ensure_schema(pool: &PgPool) -> Result<()> {
     .execute(pool)
     .await
     .context("index Core MCP read receipts")?;
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS mcp_read_receipts_work_started_idx \
+         ON restless_authority.mcp_read_receipts(company, connection_name, work_id) \
+         WHERE phase='started'",
+    )
+    .execute(pool)
+    .await
+    .context("index Work broker read reservations")?;
     Ok(())
 }
 
@@ -360,10 +385,20 @@ fn validate_actor(actor: &str) -> Result<()> {
     Ok(())
 }
 
+fn validate_max_calls_per_work(max_calls_per_work: Option<i32>, unlimited_read_calls: bool) -> Result<()> {
+    if max_calls_per_work.is_some() && unlimited_read_calls {
+        bail!("choose a finite MCP read-call limit or explicitly unlimited reads, not both");
+    }
+    if max_calls_per_work.is_some_and(|limit| !(1..=10_000).contains(&limit)) {
+        bail!("MCP max calls per Work must be between 1 and 10000");
+    }
+    Ok(())
+}
+
 pub(crate) async fn local_mcp_list(pool: &PgPool, company: &str) -> Result<Vec<LocalMcpServer>> {
     sqlx::query(
         "SELECT name,transport,command,args,endpoint,token_file,read_profile,target_repository,assigned_actor,assigned_work_id, \
-                broker_aware,enabled,allowed_tools,observed_tools,tool_contract_digest,policy_revision,server_version, \
+                broker_aware,enabled,allowed_tools,max_calls_per_work,observed_tools,tool_contract_digest,policy_revision,server_version, \
                 last_observed_at,last_success_at,last_read_status,last_read_site,last_read_tool,failure FROM restless_authority.local_mcp_servers \
          WHERE company=$1 ORDER BY name",
     )
@@ -386,6 +421,7 @@ pub(crate) async fn local_mcp_list(pool: &PgPool, company: &str) -> Result<Vec<L
             broker_aware: row.try_get("broker_aware")?,
             enabled: row.try_get("enabled")?,
             allowed_tools: serde_json::from_value(row.try_get("allowed_tools")?)?,
+            max_calls_per_work: row.try_get("max_calls_per_work")?,
             observed_tools: serde_json::from_value(row.try_get("observed_tools")?)?,
             tool_contract_digest: row.try_get("tool_contract_digest")?,
             policy_revision: row.try_get("policy_revision")?,
@@ -687,7 +723,7 @@ pub(crate) async fn install_local_mcp(
          ON CONFLICT (company,name) DO UPDATE SET command=EXCLUDED.command,args=EXCLUDED.args, \
            transport='stdio',endpoint=NULL,token_file=NULL,read_profile=NULL,target_repository=NULL,assigned_actor=EXCLUDED.assigned_actor, \
            assigned_work_id=EXCLUDED.assigned_work_id,broker_aware=EXCLUDED.broker_aware, \
-           enabled=TRUE,allowed_tools='[]'::jsonb,observed_tools='[]'::jsonb, \
+           enabled=TRUE,allowed_tools='[]'::jsonb,max_calls_per_work=NULL,observed_tools='[]'::jsonb, \
            tool_contract_digest=NULL,policy_revision=gen_random_uuid(),server_version=NULL,last_observed_at=NULL,last_success_at=NULL,last_read_status=NULL, \
            failure=NULL,updated_at=now()",
     )
@@ -722,9 +758,12 @@ pub(crate) async fn install_host_mcp(
     actor: &str,
     work_id: Uuid,
     allowed_tools: &[String],
+    max_calls_per_work: Option<i32>,
+    unlimited_read_calls: bool,
     expected_policy_revision: Option<Uuid>,
 ) -> Result<LocalMcpServer> {
     validate_name(name)?;
+    validate_max_calls_per_work(max_calls_per_work, unlimited_read_calls)?;
     validate_host_endpoint(endpoint)?;
     if allowed_tools.is_empty() || allowed_tools.len() > 16 {
         bail!("host MCP requires 1-16 explicitly permitted tools");
@@ -755,22 +794,26 @@ pub(crate) async fn install_host_mcp(
     let updated = sqlx::query(
         "INSERT INTO restless_authority.local_mcp_servers \
            (company,name,transport,command,args,endpoint,token_file,read_profile,assigned_actor,assigned_work_id, \
-            broker_aware,enabled,allowed_tools,observed_tools,tool_contract_digest,server_version,last_observed_at,created_by) \
-         VALUES ($1,$2,'host_http','','[]'::jsonb,$3,$4,'clapping_hands_v1',$5,$6,FALSE,TRUE,$7,$8,$9,$10,now(),'owner') \
+            broker_aware,enabled,allowed_tools,max_calls_per_work,observed_tools,tool_contract_digest,server_version,last_observed_at,created_by) \
+         VALUES ($1,$2,'host_http','','[]'::jsonb,$3,$4,'clapping_hands_v1',$5,$6,FALSE,TRUE,$7,$8,$9,$10,$11,now(),'owner') \
          ON CONFLICT (company,name) DO UPDATE SET transport='host_http',command='',args='[]'::jsonb, \
            endpoint=EXCLUDED.endpoint,token_file=EXCLUDED.token_file,read_profile='clapping_hands_v1',target_repository=NULL,assigned_actor=EXCLUDED.assigned_actor, \
            assigned_work_id=EXCLUDED.assigned_work_id,broker_aware=FALSE,enabled=TRUE, \
-           allowed_tools=EXCLUDED.allowed_tools,observed_tools=EXCLUDED.observed_tools, \
+           allowed_tools=EXCLUDED.allowed_tools, \
+           max_calls_per_work=CASE WHEN $13 THEN NULL ELSE COALESCE(EXCLUDED.max_calls_per_work,local_mcp_servers.max_calls_per_work) END, \
+           observed_tools=EXCLUDED.observed_tools, \
            tool_contract_digest=EXCLUDED.tool_contract_digest,policy_revision=gen_random_uuid(),server_version=EXCLUDED.server_version,last_observed_at=now(), \
            last_success_at=NULL,last_read_status=NULL,last_read_site=NULL,last_read_tool=NULL,failure=NULL,updated_at=now() \
-         WHERE $11::uuid IS NULL OR local_mcp_servers.policy_revision=$11",
+         WHERE $12::uuid IS NULL OR local_mcp_servers.policy_revision=$12",
     )
     .bind(company).bind(name).bind(endpoint).bind(token_file).bind(actor).bind(work_id)
     .bind(serde_json::to_value(&allowed)?)
+    .bind(max_calls_per_work)
     .bind(serde_json::to_value(&probe.names)?)
     .bind(&probe.digest)
     .bind(&probe.server_version)
     .bind(expected_policy_revision)
+    .bind(unlimited_read_calls)
     .execute(pool).await?.rows_affected();
     if updated != 1 {
         bail!("MCP connection changed during re-probe; refresh before retrying");
@@ -793,9 +836,12 @@ pub(crate) async fn install_brokered_stdio_mcp(
     read_root: &str,
     actor: &str,
     work_id: Uuid,
+    max_calls_per_work: Option<i32>,
+    unlimited_read_calls: bool,
 ) -> Result<LocalMcpServer> {
     validate_name(name)?;
     validate_actor(actor)?;
+    validate_max_calls_per_work(max_calls_per_work, unlimited_read_calls)?;
     if matches!(name, "clapping-hands" | "deepwiki") {
         bail!("this MCP name is reserved for a reviewed HTTP profile");
     }
@@ -815,18 +861,22 @@ pub(crate) async fn install_brokered_stdio_mcp(
     sqlx::query(
         "INSERT INTO restless_authority.local_mcp_servers \
            (company,name,transport,command,args,endpoint,token_file,read_profile,target_repository,assigned_actor,assigned_work_id, \
-            broker_aware,enabled,allowed_tools,observed_tools,tool_contract_digest,server_version,last_observed_at,created_by) \
-         VALUES ($1,$2,'broker_stdio',$3,$4,NULL,NULL,'filesystem_read_v1',NULL,$5,$6,FALSE,TRUE,$7,$8,$9,$10,now(),'owner') \
+            broker_aware,enabled,allowed_tools,max_calls_per_work,observed_tools,tool_contract_digest,server_version,last_observed_at,created_by) \
+         VALUES ($1,$2,'broker_stdio',$3,$4,NULL,NULL,'filesystem_read_v1',NULL,$5,$6,FALSE,TRUE,$7,$8,$9,$10,$11,now(),'owner') \
          ON CONFLICT (company,name) DO UPDATE SET transport='broker_stdio',command=EXCLUDED.command,args=EXCLUDED.args, \
            endpoint=NULL,token_file=NULL,read_profile='filesystem_read_v1',target_repository=NULL,assigned_actor=EXCLUDED.assigned_actor, \
            assigned_work_id=EXCLUDED.assigned_work_id,broker_aware=FALSE,enabled=TRUE, \
-           allowed_tools=EXCLUDED.allowed_tools,observed_tools=EXCLUDED.observed_tools, \
+           allowed_tools=EXCLUDED.allowed_tools, \
+           max_calls_per_work=CASE WHEN $12 THEN NULL ELSE COALESCE(EXCLUDED.max_calls_per_work,local_mcp_servers.max_calls_per_work) END, \
+           observed_tools=EXCLUDED.observed_tools, \
            tool_contract_digest=EXCLUDED.tool_contract_digest,policy_revision=gen_random_uuid(),server_version=EXCLUDED.server_version,last_observed_at=now(), \
            last_success_at=NULL,last_read_status=NULL,last_read_site=NULL,last_read_tool=NULL,failure=NULL,updated_at=now()",
     )
     .bind(company).bind(name).bind(&bundle).bind(serde_json::json!([read_root]))
     .bind(actor).bind(work_id).bind(serde_json::to_value(&allowed)?)
+    .bind(max_calls_per_work)
     .bind(serde_json::to_value(&probe.names)?).bind(&probe.digest).bind(&probe.server_version)
+    .bind(unlimited_read_calls)
     .execute(pool).await?;
     local_mcp_list(pool, company).await?.into_iter()
         .find(|server| server.name == name)
@@ -974,8 +1024,11 @@ pub(crate) async fn install_public_http_read(
     actor: &str,
     work_id: Uuid,
     allowed_tools: &[String],
+    max_calls_per_work: Option<i32>,
+    unlimited_read_calls: bool,
 ) -> Result<LocalMcpServer> {
     validate_name(name)?;
+    validate_max_calls_per_work(max_calls_per_work, unlimited_read_calls)?;
     let reviewed = require_reviewed_public_read_profile(
         profile, name, endpoint, allowed_tools, repository,
     )?;
@@ -991,21 +1044,25 @@ pub(crate) async fn install_public_http_read(
     sqlx::query(
         "INSERT INTO restless_authority.local_mcp_servers \
          (company,name,transport,command,args,endpoint,token_file,read_profile,target_repository, \
-          assigned_actor,assigned_work_id,broker_aware,enabled,allowed_tools,observed_tools, \
+          assigned_actor,assigned_work_id,broker_aware,enabled,allowed_tools,max_calls_per_work,observed_tools, \
           tool_contract_digest,server_version,last_observed_at,created_by) \
-         VALUES ($1,$2,'public_http','','[]'::jsonb,$3,NULL,$4,$5,$6,$7,FALSE,TRUE,$8,$9,$10,$11,now(),'owner') \
+         VALUES ($1,$2,'public_http','','[]'::jsonb,$3,NULL,$4,$5,$6,$7,FALSE,TRUE,$8,$9,$10,$11,$12,now(),'owner') \
          ON CONFLICT (company,name) DO UPDATE SET transport='public_http',command='',args='[]'::jsonb, \
           endpoint=EXCLUDED.endpoint,token_file=NULL,read_profile=EXCLUDED.read_profile, \
           target_repository=EXCLUDED.target_repository,assigned_actor=EXCLUDED.assigned_actor, \
           assigned_work_id=EXCLUDED.assigned_work_id,broker_aware=FALSE,enabled=TRUE, \
-          allowed_tools=EXCLUDED.allowed_tools,observed_tools=EXCLUDED.observed_tools, \
+          allowed_tools=EXCLUDED.allowed_tools, \
+          max_calls_per_work=CASE WHEN $13 THEN NULL ELSE COALESCE(EXCLUDED.max_calls_per_work,local_mcp_servers.max_calls_per_work) END, \
+          observed_tools=EXCLUDED.observed_tools, \
           tool_contract_digest=EXCLUDED.tool_contract_digest,policy_revision=gen_random_uuid(),server_version=EXCLUDED.server_version, \
           last_observed_at=now(),last_success_at=NULL,last_read_status=NULL,last_read_site=NULL, \
           last_read_tool=NULL,failure=NULL,updated_at=now()",
     )
     .bind(company).bind(name).bind(endpoint).bind(profile).bind(repository)
     .bind(actor).bind(work_id).bind(serde_json::to_value(allowed_tools)?)
+    .bind(max_calls_per_work)
     .bind(serde_json::to_value(&probe.names)?).bind(&probe.digest).bind(&probe.server_version)
+    .bind(unlimited_read_calls)
     .execute(pool).await?;
     local_mcp_list(pool, company).await?.into_iter()
         .find(|server| server.name == name)

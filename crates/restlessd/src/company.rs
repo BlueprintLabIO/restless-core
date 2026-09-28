@@ -1198,6 +1198,7 @@ async fn resources(
                 "assigned_actor": connection.assigned_actor,
                 "work_id": connection.assigned_work_id,
                 "allowed_tools": connection.allowed_tools,
+                "max_calls_per_work": connection.max_calls_per_work,
                 "observed_tools": connection.observed_tools,
                 "tool_contract_digest": connection.tool_contract_digest,
                 "server_version": connection.server_version,

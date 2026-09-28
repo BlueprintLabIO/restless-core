@@ -2001,6 +2001,12 @@ enum LocalMcpCommand {
         /// Exact permitted MCP tool name. Repeat for each tool.
         #[arg(long = "tool", required = true)]
         tools: Vec<String>,
+        /// Hard limit on started reads across Attempts; omission preserves an existing limit.
+        #[arg(long)]
+        max_calls_per_work: Option<i32>,
+        /// Explicitly clear an existing fixed-Work read-call limit.
+        #[arg(long, conflicts_with = "max_calls_per_work")]
+        unlimited_read_calls: bool,
     },
     /// Connect one reviewed public Streamable HTTP read profile through Core.
     InstallPublicRead {
@@ -2020,6 +2026,12 @@ enum LocalMcpCommand {
         /// Exact permitted MCP tool name. Repeat only if the profile permits it.
         #[arg(long = "tool", required = true)]
         tools: Vec<String>,
+        /// Hard limit on started reads across Attempts; omission preserves an existing limit.
+        #[arg(long)]
+        max_calls_per_work: Option<i32>,
+        /// Explicitly clear an existing fixed-Work read-call limit.
+        #[arg(long, conflicts_with = "max_calls_per_work")]
+        unlimited_read_calls: bool,
     },
     /// Broker one filesystem MCP read tool through an isolated host stdio worker.
     InstallStdioRead {
@@ -2035,6 +2047,12 @@ enum LocalMcpCommand {
         actor: String,
         #[arg(long)]
         work: String,
+        /// Hard limit on started reads across Attempts; omission preserves an existing limit.
+        #[arg(long)]
+        max_calls_per_work: Option<i32>,
+        /// Explicitly clear an existing fixed-Work read-call limit.
+        #[arg(long, conflicts_with = "max_calls_per_work")]
+        unlimited_read_calls: bool,
     },
     /// Stop attaching this server to future actor sessions.
     Disable {
@@ -2825,23 +2843,32 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 actor,
                 work,
                 tools,
+                max_calls_per_work,
+                unlimited_read_calls,
             } => serde_json::json!({
                 "cmd": "local-mcp-install-host", "company": company,
                 "tool_name": name, "endpoint": endpoint, "token_file": token_file,
                 "assigned_actor": actor, "work_id": work, "allowed_tools": tools,
+                "max_calls_per_work": max_calls_per_work,
+                "unlimited_read_calls": unlimited_read_calls,
             }),
             LocalMcpCommand::InstallPublicRead {
                 profile, name, endpoint, repository, actor, work, tools,
+                max_calls_per_work, unlimited_read_calls,
             } => serde_json::json!({
                 "cmd": "local-mcp-install-public-read", "company": company,
                 "read_profile": profile, "tool_name": name, "endpoint": endpoint,
                 "target_repository": repository, "assigned_actor": actor,
                 "work_id": work, "allowed_tools": tools,
+                "max_calls_per_work": max_calls_per_work,
+                "unlimited_read_calls": unlimited_read_calls,
             }),
-            LocalMcpCommand::InstallStdioRead { name, bundle, read_root, actor, work } => serde_json::json!({
+            LocalMcpCommand::InstallStdioRead { name, bundle, read_root, actor, work, max_calls_per_work, unlimited_read_calls } => serde_json::json!({
                 "cmd": "local-mcp-install-stdio-read", "company": company,
                 "tool_name": name, "command": bundle, "args": [read_root],
                 "assigned_actor": actor, "work_id": work,
+                "max_calls_per_work": max_calls_per_work,
+                "unlimited_read_calls": unlimited_read_calls,
             }),
             LocalMcpCommand::Disable { name } => serde_json::json!({
                 "cmd": "local-mcp-disable", "company": company, "tool_name": name,

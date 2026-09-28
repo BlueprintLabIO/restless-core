@@ -47,6 +47,36 @@ before Core can make a general security or audit claim.
    and an owner decision when the company mandate requires one. Tool names or
    MCP `readOnlyHint` values do not grant this authority.
 
+### Optional fixed-Work read-call limit
+
+An owner may set `--max-calls-per-work N` (1–10000) when installing a reviewed
+`install-host`, `install-public-read`, or `install-stdio-read` connection. The
+default is `null`, meaning unlimited as before. Core exposes the configured
+limit in `local-mcp list` and the owner Resources connection card. For a fixed
+Work grant, Core locks the connection and reserves a `started` receipt before
+the upstream call. It counts all started receipts for that company, connection
+and Work across resumed Attempts and later pins, including timed-out or
+uncertain calls. Concurrent Attempts cannot both consume the last slot. Once
+the limit is reached, Core returns a typed `work_call_budget_exhausted` /
+`not_invoked` result and writes a terminal denial receipt without an upstream
+call. `tools/list` and invalid arguments do not consume a slot. The limit
+counts broker tool calls, not listing URLs or returned pages.
+
+If Core cannot reserve a call because its pin or receipt store changed, it
+fails closed before contacting the provider and returns typed
+`broker_reservation_failed` / `not_invoked`. It writes a terminal receipt when
+the receipt store is available; a lost commit acknowledgement may leave a
+started reservation that still counts toward the limit.
+
+This fixed-Work limit does not apply to recurring Opportunity Work grants,
+which require a separate recurring policy if they need a call budget. It also
+does not cover legacy direct company-local stdio or `mcp-remote` OAuth calls.
+On an existing connection, omitting `--max-calls-per-work` preserves its prior
+limit, including on re-pins; a new connection with no limit starts unlimited.
+To remove an existing finite limit, the owner must explicitly reinstall with
+`--unlimited-read-calls` (mutually exclusive with `--max-calls-per-work`). The
+owner Resources re-probe also preserves the current setting.
+
 ```
 Staff actor -> scoped MCP namespace -> Core broker -> reviewed adapter -> upstream MCP
                                           |                         |

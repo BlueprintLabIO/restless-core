@@ -141,6 +141,10 @@ pub(crate) struct LocalMcpInput {
     #[serde(default)]
     pub(crate) allowed_tools: Vec<String>,
     #[serde(default)]
+    pub(crate) max_calls_per_work: Option<i32>,
+    #[serde(default)]
+    pub(crate) unlimited_read_calls: bool,
+    #[serde(default)]
     pub(crate) read_profile: Option<String>,
     #[serde(default)]
     pub(crate) target_repository: Option<String>,
@@ -1081,6 +1085,8 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
             "assigned_actor",
             "work_id",
             "allowed_tools",
+            "max_calls_per_work",
+            "unlimited_read_calls",
         ],
         "local-mcp-install-public-read" => &[
             "tool_name",
@@ -1090,6 +1096,8 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
             "assigned_actor",
             "work_id",
             "allowed_tools",
+            "max_calls_per_work",
+            "unlimited_read_calls",
         ],
         "local-mcp-install-stdio-read" => &[
             "tool_name",
@@ -1097,6 +1105,8 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
             "args",
             "assigned_actor",
             "work_id",
+            "max_calls_per_work",
+            "unlimited_read_calls",
         ],
         "local-mcp-disable" => &["tool_name"],
         "identity-evidence-add" => &[

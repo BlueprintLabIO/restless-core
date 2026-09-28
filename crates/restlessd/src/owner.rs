@@ -5804,7 +5804,8 @@ async fn repin_company_mcp(
     };
     let updated = match crate::connected_tool::install_host_mcp(
         state.daemon.authority.pool(), &company, &name, endpoint, token_file,
-        &work.owner_id, input.work_id, &server.allowed_tools, Some(server.policy_revision),
+        &work.owner_id, input.work_id, &server.allowed_tools,
+        server.max_calls_per_work, false, Some(server.policy_revision),
     ).await {
         Ok(updated) => updated,
         Err(_) => return api_error(StatusCode::BAD_GATEWAY, "local_mcp", "Clapping Hands re-probe or re-pin could not be confirmed; refresh the connection before retrying"),
@@ -5812,6 +5813,7 @@ async fn repin_company_mcp(
     if org.emit_event("local_mcp_installed", Some(principal.actor_id()), serde_json::json!({
         "name": updated.name, "transport": "host_http", "assigned_actor": updated.assigned_actor,
         "work_id": updated.assigned_work_id, "allowed_tools": updated.allowed_tools,
+        "max_calls_per_work": updated.max_calls_per_work,
         "tool_contract_digest": updated.tool_contract_digest,
     })).await.is_err() {
         tracing::warn!(%company, connection = %name, "MCP re-pin Work event was not recorded");
@@ -5820,6 +5822,7 @@ async fn repin_company_mcp(
         "name": updated.name,
         "assigned_actor": updated.assigned_actor,
         "work_id": updated.assigned_work_id,
+        "max_calls_per_work": updated.max_calls_per_work,
         "tool_contract_digest": updated.tool_contract_digest,
         "policy_revision": updated.policy_revision,
         "last_observed_at": updated.last_observed_at,
