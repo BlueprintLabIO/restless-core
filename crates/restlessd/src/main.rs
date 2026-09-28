@@ -1297,9 +1297,11 @@ where
             watch_events(&mut write, daemon, request.company.as_deref()).await?;
             continue;
         }
+        // Read-only status must not hold a work lease: it would report its
+        // own request as lifecycle activity and be refused during recovery.
         let _lifecycle_lease = if matches!(
             request.cmd.as_str(),
-            "appliance-drain" | "appliance-resume"
+            "appliance-drain" | "appliance-resume" | "status"
         ) {
             None
         } else {

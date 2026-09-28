@@ -5155,10 +5155,40 @@ async fn appliance_status(State(state): State<OwnerState>) -> impl IntoResponse 
                 )
             }
         }
+        restlessd::appliance::ProfileKind::Stable if cfg!(target_os = "linux") => {
+            let definition = std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .map(|home| {
+                    home.join(".config/systemd/user")
+                        .join(restlessd::appliance::SYSTEMD_WAKE_TIMER)
+                        .is_file()
+                })
+                .unwrap_or(false);
+            let active = std::process::Command::new("systemctl")
+                .args([
+                    "--user",
+                    "is-active",
+                    "--quiet",
+                    restlessd::appliance::SYSTEMD_WAKE_TIMER,
+                ])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|status| status.success());
+            if definition && active {
+                ("ready", "systemd", None)
+            } else {
+                (
+                    "degraded",
+                    "unavailable",
+                    Some("Run `restless appliance start` to restore schedule wake delivery."),
+                )
+            }
+        }
         restlessd::appliance::ProfileKind::Stable => (
             "degraded",
             "unavailable",
-            Some("Install the released systemd wake adapter on this host."),
+            Some("Schedule wake delivery is supported on macOS (launchd) and Linux (systemd)."),
         ),
         restlessd::appliance::ProfileKind::Dev => ("development", "in_process", None),
         restlessd::appliance::ProfileKind::Test => ("test", "in_process", None),
