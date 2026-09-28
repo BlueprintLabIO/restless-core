@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { useQueryClient } from '@tanstack/svelte-query';
+	import { prefetchOnIntent } from '$lib/model/prefetch';
 	import { describeFailure, failureSentence } from '$lib/model/failure';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
@@ -63,6 +65,7 @@
 			if (affectsCompany(changed, companyId)) void intelligence.refresh();
 		})
 	);
+	const queryClient = useQueryClient();
 	const collaboration = $derived(
 		collaborationBootstrapQuery(companyId, () => (ownerAccess ? null : principal))
 	);
@@ -490,7 +493,11 @@
 	/>
 {/snippet}
 
-<div class="company-browser-link-capture" use:companyBrowserLinks={{ open: openInCompanyBrowser }}>
+<div
+	class="company-browser-link-capture"
+	use:companyBrowserLinks={{ open: openInCompanyBrowser }}
+	use:prefetchOnIntent={{ client: queryClient, company: () => companyId }}
+>
 	<AppShell
 		{companyId}
 		companyName={companyName ||

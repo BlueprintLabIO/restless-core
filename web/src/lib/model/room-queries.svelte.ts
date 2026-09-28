@@ -218,16 +218,42 @@ function uniqueMentions(pages: RoomMessagePage[]) {
 	return [...byId.values()];
 }
 
-export function roomMessagesQuery(companyId: string, roomId: string) {
-	const client = useQueryClient();
-	const query = createInfiniteQuery(() => ({
+/* Shared by the page and by hover prefetch, so a prefetched room is the
+ * exact cache entry the page then reads. */
+export function roomMessagesOptions(companyId: string, roomId: string) {
+	return {
 		queryKey: roomQueryKeys.messages(companyId, roomId),
 		queryFn: ({ pageParam }: { pageParam: number | null }) =>
 			getRoomMessages(companyId, roomId, pageParam),
 		initialPageParam: null as number | null,
 		getNextPageParam: olderMessageCursor,
 		staleTime: ROOM_STALE_MS,
-		gcTime: ROOM_RETAIN_MS,
+		gcTime: ROOM_RETAIN_MS
+	};
+}
+
+export function roomParticipantsOptions(companyId: string, roomId: string) {
+	return {
+		queryKey: roomQueryKeys.participants(companyId, roomId),
+		queryFn: () => getRoomParticipants(companyId, roomId),
+		staleTime: ROOM_STALE_MS,
+		gcTime: ROOM_RETAIN_MS
+	};
+}
+
+export function roomReadCursorOptions(companyId: string, roomId: string) {
+	return {
+		queryKey: roomQueryKeys.readCursor(companyId, roomId),
+		queryFn: () => getRoomReadCursor(companyId, roomId),
+		staleTime: ROOM_STALE_MS,
+		gcTime: ROOM_RETAIN_MS
+	};
+}
+
+export function roomMessagesQuery(companyId: string, roomId: string) {
+	const client = useQueryClient();
+	const query = createInfiniteQuery(() => ({
+		...roomMessagesOptions(companyId, roomId),
 		refetchInterval: pollEvery(ROOM_REFRESH_MS, 60_000)
 	}));
 	return {
@@ -468,12 +494,7 @@ export function roomMessageRevisionsQuery(
 }
 
 export function roomParticipantsQuery(companyId: string, roomId: string) {
-	const query = createQuery(() => ({
-		queryKey: roomQueryKeys.participants(companyId, roomId),
-		queryFn: () => getRoomParticipants(companyId, roomId),
-		staleTime: ROOM_STALE_MS,
-		gcTime: ROOM_RETAIN_MS
-	}));
+	const query = createQuery(() => roomParticipantsOptions(companyId, roomId));
 	return {
 		get participants() {
 			return query.data ?? [];
@@ -489,12 +510,7 @@ export function roomParticipantsQuery(companyId: string, roomId: string) {
 
 export function roomReadCursorQuery(companyId: string, roomId: string) {
 	const client = useQueryClient();
-	const query = createQuery(() => ({
-		queryKey: roomQueryKeys.readCursor(companyId, roomId),
-		queryFn: () => getRoomReadCursor(companyId, roomId),
-		staleTime: ROOM_STALE_MS,
-		gcTime: ROOM_RETAIN_MS
-	}));
+	const query = createQuery(() => roomReadCursorOptions(companyId, roomId));
 	return {
 		get cursor() {
 			return query.data?.cursor ?? null;
