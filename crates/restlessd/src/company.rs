@@ -1678,9 +1678,9 @@ fn coordination_check(doctor: &runtime::RuntimeDoctor) -> DoctorCheck {
                 "degraded"
             },
             summary: if coordination.status == "available" {
-                "The Runtime completed an authenticated coordination status request.".into()
+                "Agents can reach company coordination.".into()
             } else {
-                "The Runtime cannot currently use its bounded coordination path; files and already-running local work remain available.".into()
+                "Agents can't reach company coordination right now. Files and work already running are unaffected.".into()
             },
             detail: coordination.detail.clone(),
         },
