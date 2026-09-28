@@ -228,6 +228,7 @@ fn safe_clapping_hands_status(result: &CallToolResult) -> &'static str {
         "access-restricted" => "access-restricted",
         "owner-paused" => "owner-paused",
         "runtime-busy" => "runtime-busy",
+        "queue-timeout" => "queue-timeout",
         "runtime-closed" => "runtime-closed",
         "saved-plan-changed" => "saved-plan-changed",
         "search-unverified" => "search-unverified",
