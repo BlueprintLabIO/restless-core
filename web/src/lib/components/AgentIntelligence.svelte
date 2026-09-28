@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { connectionLabel, modelLabel } from '$lib/model/intelligence-labels';
 	import { failureSentence } from '$lib/model/failure';
 	import { intelligenceQuery, type IntelligenceAgent } from '$lib/model/intelligence.svelte';
 	import { announceIntelligenceChange } from '$lib/model/intelligence-events';
@@ -59,20 +60,7 @@
 	const foldedCount = $derived(rows.length - shownRows.length);
 
 	function label(id: string) {
-		const c = source.view?.connections.find((c) => c.id === id);
-		if (!c)
-			return id.startsWith('account:') || id.startsWith('account-harness:')
-				? 'Account connection unavailable'
-				: id.replace('direct:', '').replace('harness:', '');
-		if (c.id.startsWith('account-harness:'))
-			return `${c.label ?? c.account_provider} · ${c.provider === 'codex' ? 'Codex' : 'Claude Agent'}`;
-		if (c.id.startsWith('account:')) return `${c.label ?? c.provider} · Restless agent`;
-		if (c.id.startsWith('harness:custom:')) return c.provider;
-		return c.kind === 'harness'
-			? c.provider === 'codex'
-				? 'ChatGPT / Codex'
-				: 'Claude Code'
-			: (MODEL_PRESETS.find((p) => p.id === c.provider)?.name ?? c.provider);
+		return connectionLabel(id, source.view?.connections ?? []);
 	}
 	function choose() {
 		model =
@@ -173,10 +161,7 @@
 							: agent.id === 'default'
 								? 'No default selected'
 								: 'Use company default'}</span
-					><small
-						>{agent.assignment?.model ??
-							agent.effective_model.slice(agent.effective_model.indexOf('/') + 1)}</small
-					>
+					><small>{agent.assignment?.model ?? modelLabel(agent.effective_model)}</small>
 				</div>
 				<!-- With nothing connected there is nothing to change to; the row
 				     already points to the connection that comes first. -->

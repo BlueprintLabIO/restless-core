@@ -2,7 +2,7 @@
 	import Skeleton from '$lib/primitives/Skeleton.svelte';
 	import type { Snippet } from 'svelte';
 	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
-	import { MODEL_PRESETS } from '$lib/model/model-presets';
+	import { connectionLabel, effortLabel, modelLabel } from '$lib/model/intelligence-labels';
 	let {
 		companyId,
 		actorId = 'exec',
@@ -22,20 +22,9 @@
 	const connection = $derived(
 		exec?.assignment?.connection ?? intelligence.view?.default?.connection
 	);
-	const provider = $derived.by(() => {
-		if (!exec) return 'Unavailable';
-		if (connection?.startsWith('harness:custom:'))
-			return (
-				intelligence.view?.connections.find((c) => c.id === connection)?.provider ??
-				connection.slice('harness:custom:'.length)
-			);
-		if (connection === 'harness:codex' || exec.effective_model.startsWith('native-codex-'))
-			return 'ChatGPT / Codex';
-		if (connection === 'harness:claude-agent' || exec.effective_model.startsWith('native-claude-'))
-			return 'Claude Code';
-		const id = connection?.replace('direct:', '') ?? exec.effective_model.split('/')[0];
-		return MODEL_PRESETS.find((p) => p.id === id)?.name ?? id;
-	});
+	const provider = $derived(
+		exec ? connectionLabel(connection, intelligence.view?.connections ?? []) : 'Unavailable'
+	);
 	let detailsDismissed = $state(false);
 	let hover: HTMLDivElement | undefined = $state();
 </script>
@@ -64,16 +53,12 @@
 		{:else if !intelligence.view}<Skeleton label="Loading intelligence" count={3} />
 		{:else if !exec}<p>No configuration available.</p>
 		{:else}<dl>
-				<dt>Provider</dt>
-				<dd>{provider}</dd>
 				<dt>Model</dt>
-				<dd>{exec.effective_model.slice(exec.effective_model.indexOf('/') + 1)}</dd>
-				<dt>Thinking effort</dt>
-				<dd>
-					{exec.thinking_effort === 'default'
-						? 'Harness default'
-						: (exec.thinking_effort ?? 'Unavailable')}
-				</dd>
+				<dd title={exec.effective_model}>{modelLabel(exec.effective_model)}</dd>
+				<dt>Provider</dt>
+				<dd title={provider}>{provider}</dd>
+				<dt>Thinking</dt>
+				<dd>{effortLabel(exec.thinking_effort)}</dd>
 			</dl>{/if}
 	</div>
 </div>
@@ -93,8 +78,8 @@
 		right: 0;
 		top: calc(100% + 8px);
 		z-index: 100;
-		width: min(290px, calc(100vw - 32px));
-		padding: var(--space-4);
+		width: min(264px, calc(100vw - 32px));
+		padding: var(--space-3) var(--space-4) var(--space-4);
 		border: 1px solid var(--control-edge);
 		border-radius: var(--radius-control);
 		background: var(--surface-pane);
@@ -127,16 +112,20 @@
 	}
 	dl {
 		display: grid;
-		grid-template-columns: auto minmax(0, 1fr);
-		gap: var(--space-3);
-		margin: var(--space-4) 0 0;
+		grid-template-columns: 76px minmax(0, 1fr);
+		column-gap: var(--space-3);
+		row-gap: var(--space-2);
+		margin: var(--space-3) 0 0;
 	}
 	dt {
 		color: var(--text-tertiary);
 	}
 	dd {
 		margin: 0;
-		overflow-wrap: anywhere;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-weight: 500;
 	}
 	p {
 		margin-bottom: 0;
