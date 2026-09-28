@@ -739,6 +739,11 @@ export function invalidateCompany(client: QueryClient, companyId: string): Promi
 	]).then(() => undefined);
 }
 
+/* An open Room has its own exact event stream (room-queries.svelte.ts) with
+ * snapshot and replay; refetching its messages here as well only doubles the
+ * same request and cancels one of them. */
+const ROOM_STREAM_OWNED = new Set(['room-messages', 'room-thread']);
+
 /**
  * One change stream per open company. Each hint refetches the company's
  * queries that are on screen — a single rule, cheap because hints are
@@ -755,7 +760,8 @@ export function companyChangeStream(companyId: () => string, enabled: QueryEnabl
 		source.onerror = () => (changes.live = false);
 		source.addEventListener('change', () => {
 			void client.invalidateQueries({
-				predicate: (query) => query.queryKey.includes(company),
+				predicate: (query) =>
+					query.queryKey.includes(company) && !ROOM_STREAM_OWNED.has(String(query.queryKey[0])),
 				refetchType: 'active'
 			});
 		});

@@ -560,19 +560,27 @@ export function roomActivityStream(companyId: string, roomId: string) {
 		client.removeQueries({ queryKey: roomQueryKeys.revisions(companyId, roomId, messageId) });
 	};
 
+	/* Independent projections refetch together; one slow list must not hold
+	 * back the messages the owner is looking at. */
 	const invalidate = async (event?: RoomEvent): Promise<void> => {
-		await client.invalidateQueries({ queryKey: roomQueryKeys.messages(companyId, roomId) });
-		await client.invalidateQueries({ queryKey: roomQueryKeys.recentDirect(companyId) });
-		if (event?.message_id) {
-			await client.invalidateQueries({
-				/* A reply event carries the reply id, not its root. Revalidate every
-				 * cached Thread under this Room instead of guessing that relation. */
-				queryKey: ['room-thread', companyId, roomId]
-			});
-		}
-		if (event?.kind === 'room.message.edited.v1' || event?.kind === 'room.message.deleted.v1') {
-			await client.invalidateQueries({ queryKey: ['room-message-search', companyId] });
-		}
+		// Someone reading changes unread counts, not the messages themselves.
+		const readOnly = event?.kind === 'room.read_cursor.advanced.v1';
+		await Promise.all([
+			readOnly
+				? client.invalidateQueries({ queryKey: roomQueryKeys.readCursor(companyId, roomId) })
+				: client.invalidateQueries({ queryKey: roomQueryKeys.messages(companyId, roomId) }),
+			client.invalidateQueries({ queryKey: roomQueryKeys.recentDirect(companyId) }),
+			event?.message_id
+				? client.invalidateQueries({
+						/* A reply event carries the reply id, not its root. Revalidate
+						 * every cached Thread under this Room instead of guessing. */
+						queryKey: ['room-thread', companyId, roomId]
+					})
+				: undefined,
+			event?.kind === 'room.message.edited.v1' || event?.kind === 'room.message.deleted.v1'
+				? client.invalidateQueries({ queryKey: ['room-message-search', companyId] })
+				: undefined
+		]);
 	};
 
 	return {
@@ -623,10 +631,12 @@ export function roomActivityStream(companyId: string, roomId: string) {
 				try {
 					const snapshot = await getRoomEventSnapshot(companyId, roomId);
 					if (currentGeneration !== generation) return;
-					await invalidate();
-					if (currentGeneration !== generation) return;
+					/* Listen from the snapshot at once and refetch alongside: any
+					 * event after the cursor still revalidates, so nothing is
+					 * missed, and a slow refetch no longer delays live messages. */
 					latestEventId = snapshot.snapshot_cursor;
 					subscribe(latestEventId);
+					void invalidate();
 				} catch {
 					scheduleSnapshot();
 				}
