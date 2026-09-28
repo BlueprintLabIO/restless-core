@@ -69,6 +69,15 @@
 		return reason ? startLinkLabel(reason) : '';
 	});
 	const queueClear = $derived(loaded && items.length === 0);
+	/* Phones never mount the office canvas (see the clear state below). */
+	let compactScreen = $state(false);
+	$effect(() => {
+		const query = window.matchMedia('(max-width: 760px)');
+		compactScreen = query.matches;
+		const change = () => (compactScreen = query.matches);
+		query.addEventListener('change', change);
+		return () => query.removeEventListener('change', change);
+	});
 	/* The queue opening or clearing while the owner watches is animated; the
 	 * page arriving in its first known layout is not. Two frames after the
 	 * first answer, later changes may move. */
@@ -842,6 +851,17 @@
 				<!-- Deliberately nothing until the source answers. An empty pane for
 				     one round trip reads as loading; the zero-state hero reads as a
 				     verdict, and it was the wrong one about half a second later. -->
+			{:else if compactScreen}
+				<!-- A phone gets the verdict, not the company floor: the pixel
+				     campus is a large canvas that costs battery for little use at
+				     this size. -->
+				<div class="attention-clear-compact" role="status">
+					<span class="attention-clear-compact-mark" aria-hidden="true">
+						<MatrixGlyph rows={GLYPHS.check} size={10} />
+					</span>
+					<p>Nothing needs you right now.</p>
+					<a class="btn small" href={`/${companyId}/work`}>Open Work</a>
+				</div>
 			{:else}
 				<CompanyOffice
 					{companyId}
@@ -1178,6 +1198,31 @@
 		font-size: var(--t-body);
 		letter-spacing: 0.09em;
 		color: var(--text-tertiary);
+	}
+	.attention-clear-compact {
+		display: grid;
+		justify-items: center;
+		align-content: center;
+		gap: var(--space-3);
+		height: 100%;
+		padding: var(--space-6);
+		text-align: center;
+	}
+	.attention-clear-compact p {
+		margin: 0;
+		color: var(--text-secondary);
+		font-size: var(--t-head);
+		font-weight: 600;
+	}
+	.attention-clear-compact-mark {
+		display: grid;
+		place-items: center;
+		width: 40px;
+		height: 40px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-md);
+		background: var(--surface-raised);
+		color: var(--state-success);
 	}
 	.attention-error,
 	.focus-error {
