@@ -121,6 +121,10 @@
 	--motion-working: 1400ms;
 	--ease-standard: cubic-bezier(0.2, 0, 0, 1);
 	--ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+	/* Arrivals use a real spring (damping 0.8: a fast rise, ~1.5% overshoot,
+	 * settled well before the end). The same curve drives JS motion as
+	 * springEase in lib/motion.ts; browsers without linear() get a close
+	 * cubic fallback. */
 	--ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
 	/* The seam between panes. Wide enough to read as a channel, thin enough
 	 * that the panes still read as one divided surface rather than as cards
@@ -290,4 +294,38 @@
 	--canvas-glow: rgba(120, 110, 190, 0.07);
 	--canvas-glow-2: rgba(90, 150, 125, 0.05);
 	--canvas-glow-3: rgba(200, 170, 120, 0.02);
+}
+
+@supports (transition-timing-function: linear(0, 1)) {
+	:root {
+		--ease-spring: linear(
+			0,
+			0.0544,
+			0.1785,
+			0.3294,
+			0.4802,
+			0.616,
+			0.73,
+			0.8204,
+			0.8888,
+			0.9381,
+			0.9717,
+			0.9933,
+			1.0061,
+			1.0126,
+			1.015,
+			1.0148,
+			1.0133,
+			1.0111,
+			1.0088,
+			1.0066,
+			1.0047,
+			1.0032,
+			1.0021,
+			1.0012,
+			1.0006,
+			1.0002,
+			1
+		);
+	}
 }

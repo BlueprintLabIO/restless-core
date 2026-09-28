@@ -1,7 +1,11 @@
 <script lang="ts">
 	import { listIn } from '$lib/motion';
 	import { runStateLabel, workStatusLabel } from '$lib/work/status';
+	import { untrack } from 'svelte';
+	import { fade } from 'svelte/transition';
+	import { springEase } from '$lib/motion';
 	import {
+		blendLayouts,
 		layoutWorkGraph,
 		WORK_NODE_HEIGHT,
 		WORK_NODE_WIDTH,
@@ -34,6 +38,7 @@
 			.filter((item) => item.status === 'blocked' || item.status === 'active')
 			.toSorted((a, b) => b.priority - a.priority)[0]?.id ?? null
 	);
+	const GLIDE_MS = 700;
 	const layout = $derived.by(() =>
 		layoutWorkGraph(work, edges, (item) => ({
 			item,
@@ -45,6 +50,28 @@
 			isFocus: item.id === focusId
 		}))
 	);
+	/* When Work is added, finished or rewired, the map glides to its new
+	 * layout: nodes move and their lines bend with them, instead of the
+	 * whole graph jumping. The first layout and reduced motion apply at once. */
+	let shown = $state<typeof layout | null>(null);
+	$effect(() => {
+		const target = layout;
+		const from = untrack(() => shown);
+		const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+		if (!from || reduced) {
+			shown = target;
+			return;
+		}
+		const start = performance.now();
+		const origin = from;
+		let frame = requestAnimationFrame(function step(now) {
+			const t = Math.min(1, (now - start) / GLIDE_MS);
+			shown = blendLayouts(origin, target, springEase(t, 0.7));
+			if (t < 1) frame = requestAnimationFrame(step);
+		});
+		return () => cancelAnimationFrame(frame);
+	});
+	const view = $derived(shown ?? layout);
 	/* A path a little wider than the stage shrinks to fit (never below 85%,
 	 * where titles stay legible) instead of hiding its last column behind a
 	 * horizontal scroll. Larger graphs still scroll. */
@@ -110,8 +137,8 @@
 							<path d="M 0 0 L 10 5 L 0 10 z" fill="var(--intent-feedback)"></path>
 						</marker>
 					</defs>
-					{#each layout.edges as edge (edge.id)}
-						<g class:revises={edge.kind === 'revises'}>
+					{#each view.edges as edge (edge.id)}
+						<g class:revises={edge.kind === 'revises'} in:fade={{ duration: 200, delay: 160 }}>
 							<title>{edge.kind === 'revises' ? 'Revision return' : 'Required handover'}</title>
 							<path class="edge-underlay" d={edge.path}></path>
 							<path class="edge-line" d={edge.path} marker-end={`url(#work-${edge.kind}-arrow)`}
@@ -123,7 +150,7 @@
 						</g>
 					{/each}
 				</svg>
-				{#each layout.nodes as node (node.id)}
+				{#each view.nodes as node (node.id)}
 					<a
 						class="work-flow-node status-{node.data.item.status}"
 						in:listIn

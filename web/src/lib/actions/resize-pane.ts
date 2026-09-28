@@ -1,3 +1,4 @@
+import { springEase } from '$lib/motion';
 /** Resize one existing pane without introducing a second layout tree. */
 export type PaneResize = {
 	key: string;
@@ -94,11 +95,40 @@ export function resizePane(node: HTMLElement, initial: PaneResize) {
 		handle.setAttribute('aria-valuenow', String(Math.round(current)));
 		handle.setAttribute('aria-valuetext', `${Math.round(current)} pixels`);
 	}
+	/* Keyboard steps and a reset glide on the shared spring; dragging stays
+	 * one-to-one with the pointer. `settle` runs once the pane is in place. */
+	let glide = 0;
+	function glideTo(target: number, settle: () => void) {
+		cancelAnimationFrame(glide);
+		const from = current;
+		if (
+			window.matchMedia('(prefers-reduced-motion: reduce)').matches ||
+			Math.abs(target - from) < 1
+		) {
+			settle();
+			return;
+		}
+		const start = performance.now();
+		glide = requestAnimationFrame(function step(now) {
+			const t = Math.min(1, (now - start) / 320);
+			saved = from + (target - from) * springEase(t);
+			layout();
+			if (t < 1) glide = requestAnimationFrame(step);
+			else settle();
+		});
+	}
 	function reset() {
-		saved = null;
 		heldDefault = null;
-		persist();
-		layout();
+		const fallback =
+			typeof options.defaultSize === 'function'
+				? options.defaultSize(node.clientWidth)
+				: options.defaultSize;
+		const { min, max } = bounds();
+		glideTo(Math.max(min, Math.min(max, fallback)), () => {
+			saved = null;
+			persist();
+			layout();
+		});
 	}
 	function end() {
 		if (!dragging) return;
@@ -108,6 +138,7 @@ export function resizePane(node: HTMLElement, initial: PaneResize) {
 	}
 	function down(event: PointerEvent) {
 		if (event.button !== 0) return;
+		cancelAnimationFrame(glide);
 		event.preventDefault();
 		handle.focus();
 		startX = event.clientX;
@@ -137,14 +168,17 @@ export function resizePane(node: HTMLElement, initial: PaneResize) {
 			(event.key === 'ArrowRight' ? 1 : -1) *
 			(options.side === 'end' ? -1 : 1) *
 			(event.shiftKey ? 50 : 10);
-		saved =
+		const target =
 			event.key === 'Home'
 				? min
 				: event.key === 'End'
 					? max
 					: Math.max(min, Math.min(max, current + change));
-		persist();
-		layout();
+		glideTo(target, () => {
+			saved = target;
+			persist();
+			layout();
+		});
 	}
 	handle.addEventListener('pointerdown', down);
 	handle.addEventListener('pointermove', move);
@@ -168,6 +202,7 @@ export function resizePane(node: HTMLElement, initial: PaneResize) {
 			layout();
 		},
 		destroy() {
+			cancelAnimationFrame(glide);
 			end();
 			observer.disconnect();
 			window.removeEventListener('resize', layout);

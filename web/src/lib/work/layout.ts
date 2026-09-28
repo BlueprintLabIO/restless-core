@@ -40,6 +40,8 @@ export interface WorkGraphLayoutEdge {
 	id: string;
 	kind: WorkEdgeKind;
 	path: string;
+	/** The routed line, kept so a relayout can glide from one route to the next. */
+	points: Array<{ x: number; y: number }>;
 	labelX: number;
 	labelY: number;
 }
@@ -106,6 +108,7 @@ export function layoutWorkGraph(
 			id: reference.name ?? `${reference.v}:${reference.w}:${edge.kind}`,
 			kind: edge.kind,
 			path: roundedPolyline(points, 9),
+			points,
 			labelX: middle.x,
 			labelY: middle.y
 		};
@@ -119,7 +122,7 @@ export function layoutWorkGraph(
 	};
 }
 
-function roundedPolyline(points: Array<{ x: number; y: number }>, radius: number): string {
+export function roundedPolyline(points: Array<{ x: number; y: number }>, radius: number): string {
 	if (!points.length) return '';
 	if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
 	let result = `M ${points[0].x} ${points[0].y}`;
@@ -142,4 +145,67 @@ function roundedPolyline(points: Array<{ x: number; y: number }>, radius: number
 	}
 	const last = points.at(-1)!;
 	return `${result} L ${last.x} ${last.y}`;
+}
+
+/* Relayout motion. Routes from the layout engine have different numbers of
+ * bends before and after a change, so both are resampled to the same count
+ * along their length and interpolated point by point; the final frame then
+ * snaps to the exact new route. */
+const RESAMPLE = 16;
+
+function resample(points: Array<{ x: number; y: number }>, count = RESAMPLE) {
+	if (points.length < 2) return Array.from({ length: count }, () => points[0] ?? { x: 0, y: 0 });
+	const lengths = [0];
+	for (let index = 1; index < points.length; index += 1)
+		lengths.push(
+			lengths[index - 1] +
+				Math.hypot(points[index].x - points[index - 1].x, points[index].y - points[index - 1].y)
+		);
+	const total = lengths.at(-1) || 1;
+	return Array.from({ length: count }, (_, step) => {
+		const at = (step / (count - 1)) * total;
+		let segment = 1;
+		while (segment < lengths.length - 1 && lengths[segment] < at) segment += 1;
+		const span = lengths[segment] - lengths[segment - 1] || 1;
+		const t = (at - lengths[segment - 1]) / span;
+		const a = points[segment - 1];
+		const b = points[segment];
+		return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+	});
+}
+
+const mix = (a: number, b: number, t: number) => a + (b - a) * t;
+
+/** The layout at progress `t` (0..1) between `from` and `to`. */
+export function blendLayouts(
+	from: WorkGraphLayout,
+	to: WorkGraphLayout,
+	t: number
+): WorkGraphLayout {
+	if (t >= 1) return to;
+	const before = new Map(from.nodes.map((node) => [node.id, node]));
+	const beforeEdges = new Map(from.edges.map((edge) => [edge.id, edge]));
+	return {
+		...to,
+		nodes: to.nodes.map((node) => {
+			const start = before.get(node.id);
+			return start ? { ...node, x: mix(start.x, node.x, t), y: mix(start.y, node.y, t) } : node;
+		}),
+		edges: to.edges.map((edge) => {
+			const start = beforeEdges.get(edge.id);
+			if (!start) return edge;
+			const a = resample(start.points);
+			const b = resample(edge.points);
+			const points = a.map((point, index) => ({
+				x: mix(point.x, b[index].x, t),
+				y: mix(point.y, b[index].y, t)
+			}));
+			return {
+				...edge,
+				path: roundedPolyline(points, 9),
+				labelX: mix(start.labelX, edge.labelX, t),
+				labelY: mix(start.labelY, edge.labelY, t)
+			};
+		})
+	};
 }
