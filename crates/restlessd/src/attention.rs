@@ -1536,10 +1536,11 @@ pub async fn project(
     let dispatch_blocked = !config.has_configured_model_route()
         || (local_runtime
             && health.as_ref().is_some_and(|(container, _)| {
-                matches!(
-                    container,
-                    ContainerStatus::Stopped | ContainerStatus::Absent
-                )
+                // A sleeping computer wakes for due work, so only a
+                // stopped or missing one leaves it undispatched.
+                *container == ContainerStatus::Absent
+                    || (*container == ContainerStatus::Stopped
+                        && !runtime::is_sleeping(&config.name))
             }));
     if !test_company && dispatch_blocked {
         if let Some(org) = org {

@@ -150,7 +150,12 @@ struct Limits {
 
 #[derive(Debug, Serialize)]
 struct RuntimeLimit {
+    /// The stored setting: `None` follows the default, `Some(0)` is never.
     auto_sleep_after_minutes: Option<u16>,
+    /// The timeout this company actually sleeps after; `None` is never.
+    sleep_after_minutes: Option<u64>,
+    /// Stopped by the sleep policy, so owed demand will wake it.
+    asleep: bool,
     monthly_runtime_cap_hours: Option<u32>,
     usage: Option<crate::runtime_usage::RuntimeUsage>,
     usage_status: &'static str,
@@ -452,6 +457,8 @@ pub(crate) async fn project(
         spend,
         runtime: RuntimeLimit {
             auto_sleep_after_minutes: config.auto_sleep_after_minutes,
+            sleep_after_minutes: config.sleep_after().map(|after| after.as_secs() / 60),
+            asleep: runtime::is_sleeping(&config.name),
             monthly_runtime_cap_hours: config.monthly_runtime_cap_hours,
             usage: runtime_usage,
             usage_status: runtime_usage_status,
@@ -1487,8 +1494,11 @@ fn company_doctor(
         },
     ];
     if let Some(doctor) = doctor {
+        let asleep = doctor.container == runtime::ContainerStatus::Stopped
+            && runtime::is_sleeping(&doctor.company);
         let container_status = match doctor.container {
             runtime::ContainerStatus::Running => "healthy",
+            runtime::ContainerStatus::Stopped if asleep => "healthy",
             runtime::ContainerStatus::Stopped | runtime::ContainerStatus::Absent => "degraded",
         };
         checks.push(DoctorCheck {
@@ -1496,7 +1506,11 @@ fn company_doctor(
             label: "Company computer",
             source: "runtime",
             status: container_status,
-            summary: container_summary(doctor.container).into(),
+            summary: if asleep {
+                "Asleep. It wakes for messages, ready work and due schedules.".into()
+            } else {
+                container_summary(doctor.container).into()
+            },
             detail: None,
         });
         checks.push(DoctorCheck {
@@ -2129,7 +2143,8 @@ model = "moonshot/kimi-k3"
             .unwrap();
         assert_eq!(documents.status, "unavailable");
         assert_eq!(rooms.status, "available");
-        assert!(rooms.detail.as_deref().unwrap().contains("does not verify"));
+        // An installed command is not proof that agents can use it.
+        assert!(rooms.detail.as_deref().unwrap().contains("installation only"));
         assert_ne!(report.status, "healthy");
     }
 

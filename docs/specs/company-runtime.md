@@ -238,17 +238,21 @@ destroy
 
 This is infrastructure lifecycle, not company workflow.
 
-Local appliances may opt a company into idle sleep with an explicit
-`auto_sleep_after_minutes` setting; the default is disabled. Sleeping uses the
-ordinary Runtime stop path and retains the company volume. The owner plane may
-read company projections while the Runtime sleeps, and those reads never wake
-it. Sleep waits for the configured quiet period with no active or owed company
-work, live owner browser control, or running company-defined supervised
-service. If any activity source is unavailable, the Runtime stays awake. Hosted
-cells remain under Fleet's suspend policy. A configured monthly Runtime cap
-also stops a running computer once that same activity check is clear; a cap
-does not interrupt an active turn or project service, so usage can exceed the
-limit while protected work is still running.
+Every company computer sleeps when it has had no demand for its sleep timeout
+(30 minutes unless the owner chose another, or never) and wakes when demand is
+owed. The canonical definition of *asleep*, *stopped* and *demand* is the
+cross-layer contract §1.4.3; this section records only the local mechanics.
+
+Locally, `restlessd` performs both transitions itself: sleep uses the ordinary
+Runtime stop path, retains the volume and records a sleep marker; a start or an
+explicit `restless down` clears it. The scheduler scan and each owed Exec turn
+wake a computer that carries the marker. `restless sleep` sleeps a quiet computer
+on request and `restless status` reports the state and the demand behind it.
+
+A configured monthly Runtime cap also stops a running computer once the same
+demand check is clear. A cap stop is not sleep: demand does not restart it, and
+a cap does not interrupt an active turn or project service, so usage can exceed
+the limit while protected work is still running.
 
 ---
 

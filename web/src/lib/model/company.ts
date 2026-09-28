@@ -50,7 +50,12 @@ export interface CompanyView {
 			status: 'available' | 'exhausted' | 'metering_unknown';
 		};
 		runtime: {
+			/** Stored setting: null follows the default, 0 never sleeps. */
 			auto_sleep_after_minutes: number | null;
+			/** The timeout the company actually sleeps after; null never sleeps. */
+			sleep_after_minutes: number | null;
+			/** Stopped by the sleep policy, so owed work wakes it. */
+			asleep: boolean;
 			monthly_runtime_cap_hours: number | null;
 			usage_status: 'available' | 'unavailable';
 			usage: {

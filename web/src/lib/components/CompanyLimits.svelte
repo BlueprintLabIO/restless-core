@@ -203,7 +203,7 @@
 				<div class="section-heading">
 					<h2>Company computer</h2>
 					<InfoTip
-						text="Idle sleep stops the computer when unused; its files are kept. Once the monthly hours limit is reached, a stopped computer will not start again that month."
+						text="The computer sleeps when nothing needs it and wakes by itself for messages, ready work and due schedules; its files are kept. Once the monthly hours limit is reached, it will not start again that month."
 					/>
 				</div>
 				<CopyCompanySetting
@@ -220,14 +220,15 @@
 							void saveRuntimePolicy();
 						}}
 					>
-						<label for="auto-sleep-minutes">Sleep after inactivity</label>
+						<label for="auto-sleep-minutes">Sleep when quiet for</label>
 						<select id="auto-sleep-minutes" bind:value={autoSleepMinutes} disabled={runtimeSaving}>
-							<option value="">Off</option>
+							<option value="">Default (30 minutes)</option>
 							<option value="15">15 minutes</option>
 							<option value="30">30 minutes</option>
 							<option value="60">1 hour</option>
 							<option value="120">2 hours</option>
-							{#if autoSleepMinutes !== '' && !['15', '30', '60', '120'].includes(autoSleepMinutes)}
+							<option value="0">Never</option>
+							{#if autoSleepMinutes !== '' && !['0', '15', '30', '60', '120'].includes(autoSleepMinutes)}
 								<option value={autoSleepMinutes}>{autoSleepMinutes} minutes</option>
 							{/if}
 						</select>
@@ -257,9 +258,9 @@
 					</form>
 				{:else}
 					<p>
-						Idle sleep: {view.limits.runtime.auto_sleep_after_minutes == null
-							? 'Off'
-							: `${view.limits.runtime.auto_sleep_after_minutes} minutes`}
+						Sleeps when quiet for: {view.limits.runtime.sleep_after_minutes == null
+							? 'Never'
+							: `${view.limits.runtime.sleep_after_minutes} minutes`}
 						· Monthly computer hours limit: {view.limits.runtime.monthly_runtime_cap_hours == null
 							? 'None'
 							: `${view.limits.runtime.monthly_runtime_cap_hours} hours`}
@@ -268,11 +269,14 @@
 						<p>
 							{view.limits.runtime.usage.complete ? '' : 'At least '}{(
 								view.limits.runtime.usage.used_seconds / 3600
-							).toFixed(1)} hours running this month (UTC) · {{
-								running: 'Running now',
-								stopped: 'Asleep',
-								absent: 'Not created yet'
-							}[view.limits.runtime.usage.status] ?? view.limits.runtime.usage.status}
+							).toFixed(1)} hours running this month (UTC) · {view.limits.runtime.usage.status ===
+								'stopped' && view.limits.runtime.asleep
+								? 'Asleep'
+								: ({
+										running: 'Awake',
+										stopped: 'Stopped',
+										absent: 'Not created yet'
+									}[view.limits.runtime.usage.status] ?? view.limits.runtime.usage.status)}
 						</p>
 					{:else}
 						<p class="source-unavailable">Runtime usage is temporarily unavailable.</p>

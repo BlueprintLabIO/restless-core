@@ -17,7 +17,7 @@ export interface CompanyCatalogEntry {
 	mission: string;
 	model: string;
 	spend_ceiling_usd: number;
-	runtime_status: 'running' | 'stopped' | 'absent' | 'unavailable';
+	runtime_status: 'running' | 'asleep' | 'stopped' | 'absent' | 'unavailable';
 	lifecycle_status: 'active' | 'archived';
 	/**
 	 * Present when the account plane could not admit a model route for this

@@ -140,13 +140,13 @@ impl WakeClaims {
         self.backoff.remove(company);
     }
 
-    fn is_runtime_start_backing_off(&self, company: &str) -> bool {
+    pub(crate) fn is_runtime_start_backing_off(&self, company: &str) -> bool {
         self.runtime_start_backoff
             .get(company)
             .is_some_and(|(until, _)| std::time::Instant::now() < *until)
     }
 
-    fn record_runtime_start_failure(&mut self, company: &str) {
+    pub(crate) fn record_runtime_start_failure(&mut self, company: &str) {
         let failures = self
             .runtime_start_backoff
             .get(company)
@@ -160,7 +160,7 @@ impl WakeClaims {
         );
     }
 
-    fn clear_runtime_start_backoff(&mut self, company: &str) {
+    pub(crate) fn clear_runtime_start_backoff(&mut self, company: &str) {
         self.runtime_start_backoff.remove(company);
     }
 
@@ -398,13 +398,11 @@ async fn next_due_delay(daemon: &Arc<Daemon>) -> Duration {
                 runtime::status(&company).await,
                 Ok(ContainerStatus::Running)
             );
-        let schedule_due = if runtime_running {
+        // A sleeping computer is woken by the same due facts that a running
+        // one would act on; a stopped one is not timed at all.
+        let runtime_sleeping = !runtime_running && runtime::is_sleeping(&company);
+        let schedule_due = if runtime_running || runtime_sleeping {
             org.next_schedule_due_at().await
-        } else if matches!(
-            runtime::status(&company).await,
-            Ok(ContainerStatus::Stopped)
-        ) {
-            org.next_runtime_wake_schedule_due_at().await
         } else {
             Ok(None)
         };
@@ -415,7 +413,7 @@ async fn next_due_delay(daemon: &Arc<Daemon>) -> Duration {
                 }),
             );
         }
-        if runtime_running {
+        if runtime_running || runtime_sleeping {
             if let Ok(Some(next)) = org.next_opportunity_due_at().await {
                 earliest = Some(
                     earliest.map_or(next, |current: chrono::DateTime<chrono::Utc>| {
@@ -478,70 +476,10 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
     } else {
         match runtime::status(company).await {
             Ok(ContainerStatus::Running) => {}
+            // A sleeping computer wakes for owed demand. One the owner
+            // stopped stays stopped until the owner starts it again.
             Ok(ContainerStatus::Stopped) => {
-                let due = match org.has_due_runtime_wake_schedule(Utc::now()).await {
-                    Ok(due) => due,
-                    Err(error) => {
-                        tracing::warn!(
-                            company,
-                            "could not inspect schedule Runtime opt-in: {error:#}"
-                        );
-                        return;
-                    }
-                };
-                if !due
-                    || in_flight
-                        .lock()
-                        .is_ok_and(|guard| guard.is_runtime_start_backing_off(company))
-                {
-                    return;
-                }
-                // A spent/incomplete company start allowance leaves this
-                // occurrence due. Reuse ordinary automatic-wake backoff so a
-                // capped company does not hammer its start path every scan.
-                if runtime::CompanyConfig::load_archived(&daemon.root, company).is_ok()
-                    || CompanyConfig::load(&daemon.root, company).is_err()
-                {
-                    return;
-                }
-                match runtime::up(&config, false).await {
-                    Ok(outcome) => {
-                        tracing::info!(company, %outcome, "starting Runtime for opted-in due schedule")
-                    }
-                    Err(error) => {
-                        if let Ok(mut guard) = in_flight.lock() {
-                            guard.record_runtime_start_failure(company);
-                        }
-                        tracing::warn!(
-                            company,
-                            "could not start Runtime for opted-in due schedule: {error:#}"
-                        );
-                        return;
-                    }
-                }
-                if !matches!(runtime::status(company).await, Ok(ContainerStatus::Running)) {
-                    if let Ok(mut guard) = in_flight.lock() {
-                        guard.record_runtime_start_failure(company);
-                    }
-                    tracing::warn!(
-                        company,
-                        "Runtime did not become running after opted-in schedule wake"
-                    );
-                    return;
-                }
-                if let Ok(mut guard) = in_flight.lock() {
-                    guard.clear_runtime_start_backoff(company);
-                }
-                if let Err(error) = crate::materialize_runtime_bridge(daemon, company).await {
-                    if let Ok(mut guard) = in_flight.lock() {
-                        guard.record_runtime_start_failure(company);
-                    }
-                    let stop = runtime::down(company).await;
-                    tracing::warn!(
-                        company,
-                        stop = ?stop,
-                        "could not prepare Runtime bridge for opted-in schedule; stopped the newly started Runtime: {error:#}"
-                    );
+                if !crate::runtime_sleep::wake_if_owed(daemon, &config).await {
                     return;
                 }
             }
@@ -1445,6 +1383,9 @@ async fn fire_exec(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str, re
     let reason = reason.to_string();
     tokio::spawn(async move {
         let _guard = WakeGuard::new(&company, &in_flight);
+        // The Exec is owed this turn, so a sleeping computer wakes for it. A
+        // stopped one is left to the Exec preflight, which tells the owner.
+        crate::runtime_sleep::wake_for(&daemon, &company, &reason).await;
         let outcome = async {
             let config = CompanyConfig::load(&daemon.root, &company)?;
             let org = daemon.orgintel.get(&company).await?;

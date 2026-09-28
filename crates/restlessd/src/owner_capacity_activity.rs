@@ -1,8 +1,9 @@
-//! Fleet's bounded, read-only view of Runtime activity.
+//! Fleet's bounded, read-only view of company demand.
 //!
-//! The account plane stays up when a company Runtime sleeps. Fleet may ask
-//! this endpoint whether that exact cell is either busy or owed durable work;
-//! it never receives Work text, Message text, file paths, or credentials.
+//! The account plane stays up when a company Runtime sleeps. Fleet asks this
+//! endpoint whether that exact cell is busy or owed durable work, and sleeps or
+//! wakes the cell from the answer; Core stays the only definition of demand.
+//! Fleet never receives Work text, Message text, file paths, or credentials.
 
 use std::sync::Arc;
 
@@ -26,7 +27,9 @@ use super::OwnerState;
 use crate::{entry::EntryMode, Daemon};
 
 pub(super) const CAPACITY_ACTIVITY_PATH_PREFIX: &str = "/v1/cells/";
-const CONTRACT_VERSION: u32 = 1;
+/// v1 observes demand; v2 also carries the company's sleep timeout so Fleet can
+/// sleep a quiet hosted cell. A v1 caller receives exactly the v1 shape.
+const CONTRACT_VERSIONS: std::ops::RangeInclusive<u32> = 1..=2;
 const TOKEN_ENV: &str = "RESTLESS_ACTIVITY_TOKEN";
 
 #[derive(Clone)]
@@ -72,6 +75,9 @@ struct CapacityActivityRequest {
 #[derive(Debug, Serialize)]
 struct CapacityActivityObservation {
     contract_version: u32,
+    /// v2 only: sleep after this many quiet seconds; `null` never sleeps.
+    #[serde(skip_serializing_if = "SleepPolicy::is_absent")]
+    sleep_after_seconds: SleepPolicy,
     owner_id: Uuid,
     company_id: Uuid,
     cell_id: Uuid,
@@ -156,7 +162,7 @@ async fn observe_capacity_activity(
     if !authorized(&headers, deployment) {
         return refusal(StatusCode::UNAUTHORIZED, "capacity_activity_unauthorized");
     }
-    if request.contract_version != CONTRACT_VERSION
+    if !CONTRACT_VERSIONS.contains(&request.contract_version)
         || request.owner_id.is_nil()
         || request.company_id.is_nil()
         || request.cell_id.is_nil()
@@ -171,8 +177,8 @@ async fn observe_capacity_activity(
     let Some(source) = service.source() else {
         return refusal(StatusCode::NOT_FOUND, "capacity_activity_unavailable");
     };
-    let protected_kinds = match source.observe(&request).await {
-        Ok(kinds) => kinds,
+    let (protected_kinds, sleep_after) = match source.observe(&request).await {
+        Ok(observed) => observed,
         Err(CapacityActivityFailure::Identity) => {
             return refusal(StatusCode::CONFLICT, "capacity_activity_identity_mismatch");
         }
@@ -190,7 +196,12 @@ async fn observe_capacity_activity(
 
     let observed_at = Utc::now();
     Json(CapacityActivityObservation {
-        contract_version: CONTRACT_VERSION,
+        contract_version: request.contract_version,
+        sleep_after_seconds: if request.contract_version >= 2 {
+            SleepPolicy::After(sleep_after)
+        } else {
+            SleepPolicy::Absent
+        },
         owner_id: request.owner_id,
         company_id: request.company_id,
         cell_id: request.cell_id,
@@ -204,6 +215,27 @@ async fn observe_capacity_activity(
     .into_response()
 }
 
+#[derive(Debug)]
+enum SleepPolicy {
+    Absent,
+    After(Option<u64>),
+}
+
+impl SleepPolicy {
+    fn is_absent(&self) -> bool {
+        matches!(self, Self::Absent)
+    }
+}
+
+impl Serialize for SleepPolicy {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Absent | Self::After(None) => serializer.serialize_none(),
+            Self::After(Some(seconds)) => serializer.serialize_u64(*seconds),
+        }
+    }
+}
+
 enum CapacityActivityFailure {
     Identity,
     Revision,
@@ -214,7 +246,7 @@ impl CapacityActivitySource {
     async fn observe(
         &self,
         request: &CapacityActivityRequest,
-    ) -> std::result::Result<Vec<&'static str>, CapacityActivityFailure> {
+    ) -> std::result::Result<(Vec<&'static str>, Option<u64>), CapacityActivityFailure> {
         match self {
             Self::Daemon(daemon) => observe_daemon(daemon, request).await,
             #[cfg(test)]
@@ -234,7 +266,7 @@ impl CapacityActivitySource {
                 if request.desired_revision != *desired_revision {
                     return Err(CapacityActivityFailure::Revision);
                 }
-                Ok(protected_kinds.clone())
+                Ok((protected_kinds.clone(), Some(1800)))
             }
         }
     }
@@ -243,7 +275,7 @@ impl CapacityActivitySource {
 async fn observe_daemon(
     daemon: &Daemon,
     request: &CapacityActivityRequest,
-) -> std::result::Result<Vec<&'static str>, CapacityActivityFailure> {
+) -> std::result::Result<(Vec<&'static str>, Option<u64>), CapacityActivityFailure> {
     let company = company_for_cell(daemon, request.company_id, request.cell_id)
         .await
         .map_err(CapacityActivityFailure::Unavailable)?
@@ -269,44 +301,31 @@ async fn observe_daemon(
         false => return Err(CapacityActivityFailure::Revision),
     }
 
-    protected_activity_kinds(daemon, &company, &org)
+    let kinds = protected_activity_kinds(daemon, &company, &org)
         .await
-        .map_err(CapacityActivityFailure::Unavailable)
+        .map_err(CapacityActivityFailure::Unavailable)?;
+    let sleep_after = crate::runtime::CompanyConfig::load(&daemon.root, &company)
+        .map_err(CapacityActivityFailure::Unavailable)?
+        .sleep_after()
+        .map(|after| after.as_secs());
+    Ok((kinds, sleep_after))
 }
 
-/// Shared source of truth for whether the company has activity that should
-/// keep its Runtime awake. Fleet calls it only after authenticating and
-/// admitting the exact company/cell/revision tuple; the local idle monitor
-/// uses the same predicate against its configured company identity.
-pub(crate) async fn protected_activity_kinds(
+/// Fleet's v1 view of Core's single demand definition
+/// ([`crate::runtime_sleep::owed_demand`]). Fleet calls it only after
+/// authenticating and admitting the exact company/cell/revision tuple.
+async fn protected_activity_kinds(
     daemon: &Daemon,
     company: &str,
     org: &restless_orgintel::OrgIntel,
 ) -> Result<Vec<&'static str>> {
-    let mut protected_kinds = Vec::with_capacity(4);
-    let in_flight = daemon
-        .in_flight
-        .lock()
-        .map_err(|_| anyhow::anyhow!("in-flight activity lock poisoned"))?
-        .is_active(company);
-    if in_flight || !daemon.staff.running_actors(company).is_empty() {
-        protected_kinds.push("attempt");
-    }
-    if !org.actors_owing_message_mentions(1).await?.is_empty()
-        || !org.actors_owing_document_mentions().await?.is_empty()
-    {
-        protected_kinds.push("mention");
-    }
-    if org.has_ready_work().await? {
-        protected_kinds.push("ready_work");
-    }
-    if daemon.lifecycle.is_recovering()
-        || daemon.lifecycle.is_draining()
-        || daemon.lifecycle.active() > 0
-    {
-        protected_kinds.push("restore");
-    }
-    Ok(protected_kinds)
+    let mut kinds = crate::runtime_sleep::owed_demand(daemon, company, org)
+        .await?
+        .into_iter()
+        .map(crate::runtime_sleep::Demand::capacity_v1_kind)
+        .collect::<Vec<_>>();
+    kinds.dedup();
+    Ok(kinds)
 }
 
 async fn company_for_cell(
@@ -459,6 +478,34 @@ mod tests {
                 .unwrap();
         assert_eq!(body["desired_revision"], 7);
         assert_eq!(body["protected_kinds"], json!(["mention"]));
+        // Fleet deserialises v1 with deny_unknown_fields: v1 must stay exact.
+        assert!(body.get("sleep_after_seconds").is_none());
+
+        let v2 = Request::builder()
+            .method("POST")
+            .uri(format!("/v1/cells/{cell_id}/capacity-activity"))
+            .header(HOST, "plane.restless.test")
+            .header(AUTHORIZATION, format!("Bearer {token}"))
+            .header(CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&json!({
+                    "contract_version": 2,
+                    "owner_id": owner_id,
+                    "company_id": company_id,
+                    "cell_id": cell_id,
+                    "runtime_id": runtime_id.clone(),
+                    "desired_revision": 7,
+                }))
+                .unwrap(),
+            ))
+            .unwrap();
+        let response = app.clone().oneshot(v2).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 8 * 1024).await.unwrap())
+                .unwrap();
+        assert_eq!(body["contract_version"], 2);
+        assert_eq!(body["sleep_after_seconds"], 1800);
 
         for rejected in [
             request(

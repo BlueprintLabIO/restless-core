@@ -90,8 +90,9 @@
 		company: GLYPHS.key
 	};
 	const RUNTIME_LABEL: Record<string, string> = {
-		running: 'Running',
-		stopped: 'Asleep',
+		running: 'Awake',
+		asleep: 'Asleep',
+		stopped: 'Stopped',
 		absent: 'Not started',
 		unavailable: 'Unavailable'
 	};

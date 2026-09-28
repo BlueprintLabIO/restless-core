@@ -129,9 +129,59 @@ must not share a trigger.
 
 - The account plane is inert: it holds credentials but performs no work until asked. It is supervised
   by the platform (launchd/systemd/container supervisor) and may be started automatically.
-- **Waking a cell runs agents and spends money. No owner surface may auto-wake a cell.** A CLI verb or
-  cockpit view targeting a sleeping company reports that it is asleep and offers to wake it.
+- **Waking a cell runs agents and spends money. No owner surface may auto-wake a cell.** Reading,
+  browsing or opening a view of a sleeping company never wakes it; the view reports that it is asleep.
+  Only owed demand wakes a cell (§1.4.3) — including a message the owner deliberately sends.
 - The cockpit must be fully readable with every cell asleep, from account-plane projections.
+
+### 1.4.3 Runtime sleep and wake — *Core contract*
+
+One definition, owned by Core, used by every deployment. A local appliance and Fleet differ only in
+who performs the power change, never in when it is due.
+
+**States.** A company computer is in exactly one of:
+
+| State | Meaning | What starts it |
+| --- | --- | --- |
+| **awake** | The Runtime runs. | — |
+| **asleep** | Stopped by the sleep policy. Volume, OrgIntel and owner reads remain available. | Owed demand, or the owner. |
+| **stopped** | Stopped deliberately by the owner or an operator, or by a runtime-hours cap. | Only the owner. |
+| **suspended** | Held by the account (billing, capacity policy, abuse). Overrides every wake. | Only the account. |
+
+*Suspended* is an account/Fleet state, not a company one; a suspended cell is never woken by demand.
+
+**Demand** is the only input to both transitions. Core computes it; no other layer re-derives it.
+
+| Demand | Observable while asleep | Wakes an asleep computer |
+| --- | --- | --- |
+| `attempt` — an Attempt or actor session is running | yes | — (cannot exist asleep) |
+| `restore` — recovery, drain or lifecycle operation | yes | no |
+| `conversation` — owed mention, addressed mail, owner message to the Exec, undelivered judgement | yes | **yes** |
+| `ready_work` — Work ready for its owner to start | yes | **yes** |
+| `due` — a schedule or recurring opportunity is due | yes | **yes** |
+| `browser_claim` — the owner holds the company browser/desktop | no | — |
+| `supervised_service` — a company-defined service runs | no | — |
+
+**Transitions.**
+
+- *awake → asleep*: demand has been empty for the company's sleep timeout. The default timeout is
+  30 minutes; the owner may choose another or *never*. Any demand observation that fails keeps the
+  computer awake.
+- *asleep → awake*: any waking demand is owed. The wake is recorded with its reason as operational
+  telemetry, not as governed history.
+- *stopped* and *suspended* never change because of demand.
+
+**Placement.** Core exposes demand to Fleet through the authenticated capacity-activity endpoint
+(Cloud `docs/specs/core-capacity-activity.md`, contract v1). v1 predates `conversation` and `due`;
+Core reports them as `mention` and `ready_work`, which Fleet already treats as wake demand, so hosted
+cells wake for owner messages and due schedules without a contract bump. A local appliance performs
+sleep and wake in `restlessd` (`crates/restlessd/src/runtime_sleep.rs`).
+
+**Hosted automatic sleep.** Capacity-activity v2 adds one field, `sleep_after_seconds` (null = never),
+returned only when the caller asks for `contract_version: 2`; a v1 caller receives exactly the v1
+shape. Core implements v2. Fleet owns the timing: it records when a running cell's observation first
+became unprotected and stages `sleep` once that quiet period reaches `sleep_after_seconds`, re-checking
+demand before the stop as it already does. Until Fleet adopts v2, hosted cells sleep only on request.
 
 ---
 

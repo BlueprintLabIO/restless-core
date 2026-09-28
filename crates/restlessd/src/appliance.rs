@@ -313,6 +313,62 @@ impl MachineProfile {
     }
 }
 
+/// Non-secret release settings an installed release carries next to its
+/// binaries: the artifacts it was built with and where its host tools live.
+pub const RELEASE_ENVIRONMENT_FILE: &str = "release.env";
+pub const RELEASE_ENVIRONMENT_KEYS: &[&str] = &[
+    "RESTLESS_SOURCE_COMMIT",
+    "RESTLESS_COMPANY_IMAGE",
+    "RESTLESS_NATIVE_DOCUMENTS_IMAGE",
+    "RESTLESS_OMP_BIN",
+    "RESTLESS_BUN_BIN",
+];
+
+/// Parse and validate a release environment: only the allow-listed keys, no
+/// secret-shaped material, one `KEY=value` per line.
+pub fn parse_release_environment(text: &str) -> Result<Vec<(String, String)>> {
+    validate_service_definition(text)?;
+    let mut values = Vec::new();
+    for line in text.lines().map(str::trim) {
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let (name, value) = line
+            .split_once('=')
+            .with_context(|| format!("release environment line is not KEY=value: {line:?}"))?;
+        if !RELEASE_ENVIRONMENT_KEYS.contains(&name) {
+            bail!("release environment may not set {name}");
+        }
+        if value.is_empty() || value.contains(['\0', '\r']) {
+            bail!("release environment value for {name} is empty or malformed");
+        }
+        values.push((name.to_string(), value.to_string()));
+    }
+    Ok(values)
+}
+
+/// Load the running release's `release.env` (beside `bin/`), when this
+/// daemon was installed by the appliance. Explicitly inherited variables win.
+pub fn load_release_environment() -> Result<()> {
+    let Some(release) = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().and_then(Path::parent).map(Path::to_path_buf))
+    else {
+        return Ok(());
+    };
+    let path = release.join(RELEASE_ENVIRONMENT_FILE);
+    if !path.is_file() {
+        return Ok(());
+    }
+    let text = std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    for (name, value) in parse_release_environment(&text)? {
+        if std::env::var_os(&name).is_none() {
+            std::env::set_var(name, value);
+        }
+    }
+    Ok(())
+}
+
 /// Load profile-owned bootstrap credentials without putting any secret in an
 /// OS service definition. Explicitly inherited variables always win. The JSON
 /// file is written only by the filtered appliance importer; the legacy

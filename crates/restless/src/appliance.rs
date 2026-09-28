@@ -16,7 +16,42 @@ use std::time::{Duration, Instant};
 use anyhow::{bail, Context, Result};
 use restlessd::appliance::{
     self as contract, MachineProfile, ServicePaths, MACOS_PLANE_LABEL, MACOS_WAKE_LABEL,
+    RELEASE_ENVIRONMENT_FILE, SYSTEMD_PLANE_UNIT, SYSTEMD_WAKE_SERVICE, SYSTEMD_WAKE_TIMER,
 };
+
+/// The per-user OS supervisor that keeps the plane running and fires the
+/// durable schedule wake. Everything else about the appliance is shared.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Supervisor {
+    Launchd,
+    Systemd,
+}
+
+impl Supervisor {
+    fn detect() -> Result<Self> {
+        if cfg!(target_os = "macos") {
+            Ok(Self::Launchd)
+        } else if cfg!(target_os = "linux") {
+            Ok(Self::Systemd)
+        } else {
+            bail!("the local appliance supports macOS (launchd) and Linux (systemd --user)")
+        }
+    }
+
+    fn plane_name(self) -> &'static str {
+        match self {
+            Self::Launchd => MACOS_PLANE_LABEL,
+            Self::Systemd => SYSTEMD_PLANE_UNIT,
+        }
+    }
+
+    fn wake_name(self) -> &'static str {
+        match self {
+            Self::Launchd => MACOS_WAKE_LABEL,
+            Self::Systemd => SYSTEMD_WAKE_TIMER,
+        }
+    }
+}
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -28,7 +63,8 @@ struct Layout {
     current: PathBuf,
     previous: PathBuf,
     bin_link: PathBuf,
-    launch_agents: PathBuf,
+    supervisor: Supervisor,
+    service_dir: PathBuf,
     state_root: PathBuf,
 }
 
@@ -39,25 +75,113 @@ impl Layout {
             bail!("HOME must be absolute");
         }
         let install_root = home.join(".local/lib/restless");
+        let supervisor = Supervisor::detect()?;
         Ok(Self {
             releases: install_root.join("releases"),
             current: install_root.join("current"),
             previous: install_root.join("previous"),
             bin_link: home.join(".local/bin/restless"),
-            launch_agents: home.join("Library/LaunchAgents"),
+            service_dir: match supervisor {
+                Supervisor::Launchd => home.join("Library/LaunchAgents"),
+                Supervisor::Systemd => home.join(".config/systemd/user"),
+            },
+            supervisor,
             state_root: home.join(".restless"),
             home,
             install_root,
         })
     }
 
-    fn plane_plist(&self) -> PathBuf {
-        self.launch_agents
-            .join(format!("{MACOS_PLANE_LABEL}.plist"))
+    fn plane_definition(&self) -> PathBuf {
+        match self.supervisor {
+            Supervisor::Launchd => self.service_dir.join(format!("{MACOS_PLANE_LABEL}.plist")),
+            Supervisor::Systemd => self.service_dir.join(SYSTEMD_PLANE_UNIT),
+        }
     }
 
-    fn wake_plist(&self) -> PathBuf {
-        self.launch_agents.join(format!("{MACOS_WAKE_LABEL}.plist"))
+    fn wake_definition(&self) -> PathBuf {
+        match self.supervisor {
+            Supervisor::Launchd => self.service_dir.join(format!("{MACOS_WAKE_LABEL}.plist")),
+            Supervisor::Systemd => self.service_dir.join(SYSTEMD_WAKE_TIMER),
+        }
+    }
+
+    /// Every OS service definition for `release`, validated before any is written.
+    fn definitions(&self, release: &Path) -> Result<Vec<(PathBuf, String)>> {
+        let paths = self.release_paths(release);
+        let definitions = match self.supervisor {
+            Supervisor::Launchd => vec![
+                (self.plane_definition(), contract::launchd_plane_plist(&paths)?),
+                (self.wake_definition(), contract::launchd_wake_plist(&paths)?),
+            ],
+            Supervisor::Systemd => vec![
+                (self.plane_definition(), contract::systemd_plane_unit(&paths)?),
+                (
+                    self.service_dir.join(SYSTEMD_WAKE_SERVICE),
+                    contract::systemd_wake_service(&paths)?,
+                ),
+                (self.wake_definition(), contract::systemd_wake_timer().to_string()),
+            ],
+        };
+        for (_, text) in &definitions {
+            contract::validate_service_definition(text)?;
+        }
+        Ok(definitions)
+    }
+
+    fn service_loaded(&self, name: &str) -> bool {
+        match self.supervisor {
+            Supervisor::Launchd => service_loaded(name),
+            Supervisor::Systemd => systemctl(&["is-active", "--quiet", name]).is_ok(),
+        }
+    }
+
+    fn stop_services(&self) {
+        match self.supervisor {
+            Supervisor::Launchd => {
+                bootout(MACOS_WAKE_LABEL);
+                bootout(MACOS_PLANE_LABEL);
+            }
+            Supervisor::Systemd => {
+                let _ = systemctl(&["stop", SYSTEMD_WAKE_TIMER, SYSTEMD_PLANE_UNIT]);
+            }
+        }
+    }
+
+    fn start_services(&self) -> Result<()> {
+        match self.supervisor {
+            Supervisor::Launchd => {
+                bootstrap(&self.plane_definition())?;
+                bootstrap(&self.wake_definition())?;
+            }
+            Supervisor::Systemd => {
+                systemctl(&["daemon-reload"])?;
+                systemctl(&["enable", SYSTEMD_PLANE_UNIT, SYSTEMD_WAKE_TIMER])?;
+                systemctl(&["start", SYSTEMD_PLANE_UNIT, SYSTEMD_WAKE_TIMER])?;
+            }
+        }
+        Ok(())
+    }
+
+    fn remove_definitions(&self) -> Result<()> {
+        match self.supervisor {
+            Supervisor::Launchd => {
+                for (path, label) in [
+                    (self.wake_definition(), MACOS_WAKE_LABEL),
+                    (self.plane_definition(), MACOS_PLANE_LABEL),
+                ] {
+                    remove_if_owned_definition(&path, &format!("<string>{label}</string>"))?;
+                }
+            }
+            Supervisor::Systemd => {
+                let _ = systemctl(&["disable", SYSTEMD_PLANE_UNIT, SYSTEMD_WAKE_TIMER]);
+                for unit in [SYSTEMD_WAKE_TIMER, SYSTEMD_WAKE_SERVICE, SYSTEMD_PLANE_UNIT] {
+                    remove_if_owned_definition(&self.service_dir.join(unit), "Description=Restless")?;
+                }
+                systemctl(&["daemon-reload"])?;
+            }
+        }
+        Ok(())
     }
 
     fn release_paths(&self, release: &Path) -> ServicePaths {
@@ -75,10 +199,16 @@ struct Candidate {
     cli: PathBuf,
     daemon: PathBuf,
     cockpit: PathBuf,
+    /// Validated non-secret `release.env` text: artifacts and host tools.
+    release_environment: Option<String>,
 }
 
 impl Candidate {
-    fn discover(daemon: Option<PathBuf>, cockpit: Option<PathBuf>) -> Result<Self> {
+    fn discover(
+        daemon: Option<PathBuf>,
+        cockpit: Option<PathBuf>,
+        release_environment: Option<PathBuf>,
+    ) -> Result<Self> {
         let cli = std::env::current_exe().context("locate the running restless CLI")?;
         let daemon = daemon.unwrap_or_else(|| {
             cli.parent()
@@ -88,10 +218,19 @@ impl Candidate {
         let cockpit = cockpit
             .or_else(|| std::env::var_os("RESTLESS_COCKPIT_DIR").map(PathBuf::from))
             .unwrap_or_else(|| PathBuf::from("web/build"));
+        let release_environment = release_environment
+            .map(|path| {
+                let text = std::fs::read_to_string(&path)
+                    .with_context(|| format!("read release environment {}", path.display()))?;
+                contract::parse_release_environment(&text)?;
+                Ok::<_, anyhow::Error>(text)
+            })
+            .transpose()?;
         let candidate = Self {
             cli: absolute(&cli)?,
             daemon: absolute(&daemon)?,
             cockpit: absolute(&cockpit)?,
+            release_environment,
         };
         candidate.validate()?;
         Ok(candidate)
@@ -121,6 +260,9 @@ impl Candidate {
             hash_file(path, &mut digest)?;
         }
         hash_tree(&self.cockpit, &self.cockpit, &mut digest)?;
+        if let Some(environment) = &self.release_environment {
+            digest.update(environment.as_bytes());
+        }
         Ok(format!("{:x}", digest.finalize())[..20].to_string())
     }
 }
@@ -139,7 +281,10 @@ pub struct InstallReport {
 #[derive(Debug, Serialize)]
 pub struct StatusReport {
     pub profile: &'static str,
+    pub supervisor: &'static str,
     pub state_root: String,
+    /// The source commit the active release was built from, when recorded.
+    pub source_commit: Option<String>,
     pub installed_release: Option<String>,
     pub previous_release: Option<String>,
     pub plane_definition: bool,
@@ -221,21 +366,20 @@ impl Drop for DrainGuard {
 pub fn install(
     daemon: Option<PathBuf>,
     cockpit: Option<PathBuf>,
+    release_environment: Option<PathBuf>,
     environment: Option<PathBuf>,
     upgrading: bool,
     force: bool,
 ) -> Result<InstallReport> {
-    ensure_macos()?;
     ensure_stable_profile()?;
     let layout = Layout::discover()?;
-    let candidate = Candidate::discover(daemon, cockpit)?;
+    let candidate = Candidate::discover(daemon, cockpit, release_environment)?;
     let release = candidate.release_id()?;
     let release_dir = stage_candidate(&layout, &candidate, &release)?;
     let previous_target = read_link_name(&layout.current);
-    let paths = layout.release_paths(&release_dir);
 
     std::fs::create_dir_all(layout.state_root.join("logs"))?;
-    std::fs::create_dir_all(&layout.launch_agents)?;
+    std::fs::create_dir_all(&layout.service_dir)?;
     std::fs::create_dir_all(layout.bin_link.parent().expect("bin link has parent"))?;
 
     if let Some(source) = environment {
@@ -243,11 +387,8 @@ pub fn install(
     }
 
     // Validate every generated definition before activation. A candidate that
-    // leaks secret-shaped material never reaches launchd.
-    let plane = contract::launchd_plane_plist(&paths)?;
-    let wake = contract::launchd_wake_plist(&paths)?;
-    contract::validate_service_definition(&plane)?;
-    contract::validate_service_definition(&wake)?;
+    // leaks secret-shaped material never reaches the OS supervisor.
+    let definitions = layout.definitions(&release_dir)?;
 
     // Run the exact staged daemon's read-only preflight before changing the
     // activation pointer. A bad candidate cannot take the active service down.
@@ -266,20 +407,22 @@ pub fn install(
     }
     atomic_symlink(&release_dir, &layout.current)?;
     atomic_symlink(&layout.current.join("bin/restless"), &layout.bin_link)?;
-    atomic_write(&layout.plane_plist(), plane.as_bytes(), 0o644)?;
-    atomic_write(&layout.wake_plist(), wake.as_bytes(), 0o644)?;
+    for (path, text) in &definitions {
+        atomic_write(path, text.as_bytes(), 0o644)?;
+    }
 
     restart_services(&layout)?;
     let ready = wait_ready(&layout, Duration::from_secs(30));
     if ready {
         clear_recovery_state(&layout)?;
+        prune_releases(&layout)?;
         let report = InstallReport {
             release,
             previous_release: previous_target
                 .and_then(|path| path.file_name().map(|v| v.to_string_lossy().into_owned())),
             state_root: layout.state_root.display().to_string(),
-            plane_service: MACOS_PLANE_LABEL.into(),
-            wake_service: MACOS_WAKE_LABEL.into(),
+            plane_service: layout.supervisor.plane_name().into(),
+            wake_service: layout.supervisor.wake_name().into(),
             ready: true,
             rolled_back: false,
         };
@@ -314,8 +457,8 @@ pub fn install(
                     .file_name()
                     .map(|v| v.to_string_lossy().into_owned()),
                 state_root: layout.state_root.display().to_string(),
-                plane_service: MACOS_PLANE_LABEL.into(),
-                wake_service: MACOS_WAKE_LABEL.into(),
+                plane_service: layout.supervisor.plane_name().into(),
+                wake_service: layout.supervisor.wake_name().into(),
                 ready: false,
                 rolled_back: true,
             };
@@ -427,8 +570,14 @@ fn resume_appliance(state_root: &Path) -> Result<()> {
             Ok(_) => return Ok(()),
             Err(error) => {
                 let lock = state_root.join("machine/plane.lock");
+                let supervisor = Supervisor::detect()?;
                 let daemon_expected = contract::singleton_lock_is_held(&lock).unwrap_or(false)
-                    || service_loaded(MACOS_PLANE_LABEL);
+                    || match supervisor {
+                        Supervisor::Launchd => service_loaded(MACOS_PLANE_LABEL),
+                        Supervisor::Systemd => {
+                            systemctl(&["is-active", "--quiet", SYSTEMD_PLANE_UNIT]).is_ok()
+                        }
+                    };
                 if !daemon_expected {
                     contract::clear_drain_marker(state_root)?;
                     return Ok(());
@@ -546,15 +695,12 @@ fn collect_environment_references(
 }
 
 pub fn rollback(force: bool) -> Result<InstallReport> {
-    ensure_macos()?;
     ensure_stable_profile()?;
     let layout = Layout::discover()?;
     let previous = std::fs::read_link(&layout.previous)
         .context("no previous Restless release is available")?;
     let current = read_link_name(&layout.current);
-    let paths = layout.release_paths(&previous);
-    contract::validate_service_definition(&contract::launchd_plane_plist(&paths)?)?;
-    contract::validate_service_definition(&contract::launchd_wake_plist(&paths)?)?;
+    layout.definitions(&previous)?;
     let drain = begin_appliance_drain(&layout, force)?;
     atomic_symlink(&previous, &layout.current)?;
     if let Some(ref current) = current {
@@ -584,8 +730,8 @@ pub fn rollback(force: bool) -> Result<InstallReport> {
         previous_release: current
             .and_then(|v| v.file_name().map(|n| n.to_string_lossy().into_owned())),
         state_root: layout.state_root.display().to_string(),
-        plane_service: MACOS_PLANE_LABEL.into(),
-        wake_service: MACOS_WAKE_LABEL.into(),
+        plane_service: layout.supervisor.plane_name().into(),
+        wake_service: layout.supervisor.wake_name().into(),
         ready: true,
         rolled_back: true,
     };
@@ -594,21 +740,41 @@ pub fn rollback(force: bool) -> Result<InstallReport> {
 }
 
 fn write_service_definitions(layout: &Layout, release: &Path) -> Result<()> {
-    let paths = layout.release_paths(release);
-    let plane = contract::launchd_plane_plist(&paths)?;
-    let wake = contract::launchd_wake_plist(&paths)?;
-    contract::validate_service_definition(&plane)?;
-    contract::validate_service_definition(&wake)?;
-    atomic_write(&layout.plane_plist(), plane.as_bytes(), 0o644)?;
-    atomic_write(&layout.wake_plist(), wake.as_bytes(), 0o644)?;
+    for (path, text) in layout.definitions(release)? {
+        atomic_write(&path, text.as_bytes(), 0o644)?;
+    }
+    Ok(())
+}
+
+/// Keep only the active and previous releases. Older ones are unreachable by
+/// rollback and would otherwise accumulate one full build per upgrade.
+fn prune_releases(layout: &Layout) -> Result<()> {
+    let keep = [&layout.current, &layout.previous]
+        .into_iter()
+        .filter_map(|link| std::fs::canonicalize(link).ok())
+        .collect::<Vec<_>>();
+    let Ok(entries) = std::fs::read_dir(&layout.releases) else {
+        return Ok(());
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(resolved) = std::fs::canonicalize(&path) else {
+            continue;
+        };
+        if path.is_dir() && !keep.contains(&resolved) {
+            ensure_exact_child(&layout.releases, &path, None)?;
+            std::fs::remove_dir_all(&path)
+                .with_context(|| format!("remove superseded release {}", path.display()))?;
+        }
+    }
     Ok(())
 }
 
 pub fn status() -> Result<StatusReport> {
     ensure_stable_profile()?;
     let layout = Layout::discover()?;
-    let plane_loaded = service_loaded(MACOS_PLANE_LABEL);
-    let wake_loaded = service_loaded(MACOS_WAKE_LABEL);
+    let plane_loaded = layout.service_loaded(layout.supervisor.plane_name());
+    let wake_loaded = layout.service_loaded(layout.supervisor.wake_name());
     let lock_pid = read_lock_pid(&layout.state_root.join("machine/plane.lock"));
     let lock_pid_alive = lock_pid.is_some_and(process_alive);
     let lock_held = contract::singleton_lock_is_held(&layout.state_root.join("machine/plane.lock"))
@@ -616,8 +782,8 @@ pub fn status() -> Result<StatusReport> {
     let active_binary = lock_pid.is_some_and(|pid| process_is_active_release(&layout, pid));
     let owner_health = owner_health_status();
     let owner_state = owner_appliance_state();
-    let plane_definition = layout.plane_plist().is_file();
-    let wake_definition = layout.wake_plist().is_file();
+    let plane_definition = layout.plane_definition().is_file();
+    let wake_definition = layout.wake_definition().is_file();
     let draining = contract::drain_marker_exists(&layout.state_root);
     let recovery = read_recovery_state(&layout);
     let (state, repair) = if let Some(recovery) = recovery {
@@ -682,7 +848,9 @@ pub fn status() -> Result<StatusReport> {
     };
     Ok(StatusReport {
         profile: "stable",
+        supervisor: layout.supervisor.plane_name(),
         state_root: layout.state_root.display().to_string(),
+        source_commit: release_setting(&layout.current, "RESTLESS_SOURCE_COMMIT"),
         installed_release: read_link_name(&layout.current).and_then(file_name),
         previous_release: read_link_name(&layout.previous).and_then(file_name),
         plane_definition,
@@ -702,10 +870,9 @@ pub fn status() -> Result<StatusReport> {
 }
 
 pub fn start(force: bool) -> Result<StatusReport> {
-    ensure_macos()?;
     ensure_stable_profile()?;
     let layout = Layout::discover()?;
-    if !layout.plane_plist().is_file() || !layout.wake_plist().is_file() {
+    if !layout.plane_definition().is_file() || !layout.wake_definition().is_file() {
         bail!("Restless is not installed; run `restless appliance install`");
     }
     let current = status()?;
@@ -723,31 +890,26 @@ pub fn start(force: bool) -> Result<StatusReport> {
 }
 
 pub fn stop(force: bool) -> Result<StatusReport> {
-    ensure_macos()?;
     ensure_stable_profile()?;
     let layout = Layout::discover()?;
     let drain = begin_appliance_drain(&layout, force)?;
-    bootout(MACOS_WAKE_LABEL);
-    bootout(MACOS_PLANE_LABEL);
+    layout.stop_services();
     release_previous_singleton(&layout)?;
     drain.clear_without_daemon()?;
     status()
 }
 
 pub fn uninstall(force: bool) -> Result<StatusReport> {
-    ensure_macos()?;
     ensure_stable_profile()?;
     let layout = Layout::discover()?;
     let drain = begin_appliance_drain(&layout, force)?;
-    bootout(MACOS_WAKE_LABEL);
-    bootout(MACOS_PLANE_LABEL);
+    layout.stop_services();
     release_previous_singleton(&layout)?;
     drain.clear_without_daemon()?;
-    remove_if_owned_definition(&layout.wake_plist(), MACOS_WAKE_LABEL)?;
-    remove_if_owned_definition(&layout.plane_plist(), MACOS_PLANE_LABEL)?;
+    layout.remove_definitions()?;
     remove_if_owned_symlink(&layout.bin_link, &layout.install_root)?;
     if layout.install_root.is_dir() {
-        ensure_exact_child(&layout.home.join(".local/lib"), &layout.install_root)?;
+        ensure_exact_child(&layout.home.join(".local/lib"), &layout.install_root, Some("restless"))?;
         std::fs::remove_dir_all(&layout.install_root)?;
     }
     for owned in [
@@ -766,7 +928,6 @@ pub fn uninstall(force: bool) -> Result<StatusReport> {
 }
 
 pub fn resume() -> Result<StatusReport> {
-    ensure_macos()?;
     ensure_stable_profile()?;
     let layout = Layout::discover()?;
     resume_appliance(&layout.state_root)?;
@@ -810,6 +971,13 @@ fn stage_candidate(layout: &Layout, candidate: &Candidate, release: &str) -> Res
     copy_executable(&candidate.cli, &staging.join("bin/restless"))?;
     copy_executable(&candidate.daemon, &staging.join("bin/restlessd"))?;
     copy_tree(&candidate.cockpit, &staging.join("web"))?;
+    if let Some(environment) = &candidate.release_environment {
+        atomic_write(
+            &staging.join(RELEASE_ENVIRONMENT_FILE),
+            environment.as_bytes(),
+            0o644,
+        )?;
+    }
     if !staging.join("web/index.html").is_file() {
         bail!("staged Cockpit is incomplete");
     }
@@ -840,12 +1008,36 @@ fn run_candidate_preflight(release: &Path, state_root: &Path) -> Result<()> {
 }
 
 fn restart_services(layout: &Layout) -> Result<()> {
-    bootout(MACOS_WAKE_LABEL);
-    bootout(MACOS_PLANE_LABEL);
+    layout.stop_services();
     release_previous_singleton(layout)?;
-    bootstrap(&layout.plane_plist())?;
-    bootstrap(&layout.wake_plist())?;
+    layout.start_services()
+}
+
+fn systemctl(args: &[&str]) -> Result<()> {
+    let output = Command::new("systemctl")
+        .arg("--user")
+        .args(args)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .with_context(|| format!("run systemctl --user {}", args.join(" ")))?;
+    if !output.status.success() {
+        bail!(
+            "systemctl --user {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
     Ok(())
+}
+
+/// One non-secret setting recorded in a release's `release.env`.
+fn release_setting(release: &Path, name: &str) -> Option<String> {
+    let text = std::fs::read_to_string(release.join(RELEASE_ENVIRONMENT_FILE)).ok()?;
+    contract::parse_release_environment(&text)
+        .ok()?
+        .into_iter()
+        .find_map(|(key, value)| (key == name).then_some(value))
 }
 
 fn release_previous_singleton(layout: &Layout) -> Result<()> {
@@ -936,6 +1128,11 @@ fn terminate_and_wait(pid: u32) -> Result<()> {
 }
 
 fn process_command(pid: u32) -> Result<PathBuf> {
+    // Linux `ps -o comm=` truncates to the bare name; the kernel knows the path.
+    if cfg!(target_os = "linux") {
+        return std::fs::read_link(format!("/proc/{pid}/exe"))
+            .with_context(|| format!("process {pid} is not alive or not ours"));
+    }
     let output = Command::new("ps")
         .args(["-p", &pid.to_string(), "-o", "comm="])
         .output()
@@ -1254,11 +1451,11 @@ fn hash_tree(root: &Path, directory: &Path, digest: &mut Sha256) -> Result<()> {
     Ok(())
 }
 
-fn remove_if_owned_definition(path: &Path, label: &str) -> Result<()> {
+fn remove_if_owned_definition(path: &Path, marker: &str) -> Result<()> {
     let Ok(text) = std::fs::read_to_string(path) else {
         return Ok(());
     };
-    if !text.contains(&format!("<string>{label}</string>")) {
+    if !text.contains(marker) {
         bail!(
             "refusing to remove modified service definition {}",
             path.display()
@@ -1284,9 +1481,11 @@ fn remove_if_owned_symlink(path: &Path, root: &Path) -> Result<()> {
     Ok(())
 }
 
-fn ensure_exact_child(parent: &Path, child: &Path) -> Result<()> {
+fn ensure_exact_child(parent: &Path, child: &Path, name: Option<&str>) -> Result<()> {
+    let file_name = child.file_name().and_then(|v| v.to_str());
     if child.parent() != Some(parent)
-        || child.file_name().and_then(|v| v.to_str()) != Some("restless")
+        || file_name.is_none_or(|value| value.is_empty() || value.starts_with('.'))
+        || name.is_some_and(|name| file_name != Some(name))
     {
         bail!("refusing broad cleanup target {}", child.display());
     }
@@ -1299,13 +1498,6 @@ fn absolute(path: &Path) -> Result<PathBuf> {
     } else {
         Ok(std::env::current_dir()?.join(path))
     }
-}
-
-fn ensure_macos() -> Result<()> {
-    if !cfg!(target_os = "macos") {
-        bail!("live appliance installation is currently counted on macOS; use the generated systemd contract on Linux");
-    }
-    Ok(())
 }
 
 fn ensure_stable_profile() -> Result<()> {
@@ -1325,9 +1517,10 @@ mod tests {
 
     #[test]
     fn exact_cleanup_guard_rejects_a_parent_or_sibling() {
-        assert!(ensure_exact_child(Path::new("/tmp/lib"), Path::new("/tmp/lib/restless")).is_ok());
-        assert!(ensure_exact_child(Path::new("/tmp/lib"), Path::new("/tmp/lib")).is_err());
-        assert!(ensure_exact_child(Path::new("/tmp/lib"), Path::new("/tmp/lib/other")).is_err());
+        let exact = Some("restless");
+        assert!(ensure_exact_child(Path::new("/tmp/lib"), Path::new("/tmp/lib/restless"), exact).is_ok());
+        assert!(ensure_exact_child(Path::new("/tmp/lib"), Path::new("/tmp/lib"), exact).is_err());
+        assert!(ensure_exact_child(Path::new("/tmp/lib"), Path::new("/tmp/lib/other"), exact).is_err());
     }
 
     #[test]
@@ -1345,6 +1538,7 @@ mod tests {
             cli: root.join("restless"),
             daemon: root.join("restlessd"),
             cockpit: root.join("web"),
+            release_environment: None,
         };
         let one = candidate.release_id().unwrap();
         std::fs::write(root.join("web/index.html"), "two").unwrap();

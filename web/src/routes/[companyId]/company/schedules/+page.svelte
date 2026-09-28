@@ -5,7 +5,6 @@
 	import InfoTip from '$lib/components/InfoTip.svelte';
 	import {
 		monitorSchedules,
-		setScheduleRuntimeWake,
 		testScheduleTrigger,
 		type MonitoredSchedule,
 		type ScheduleTestReport
@@ -30,22 +29,6 @@
 		void companyId;
 		void load();
 	});
-
-	async function setRuntimeWake(schedule: string, enabled: boolean) {
-		if (busy) return;
-		busy = schedule;
-		failure = '';
-		try {
-			await setScheduleRuntimeWake(companyId, schedule, enabled);
-			await load();
-		} catch (cause) {
-			const message = failureSentence(cause, 'The schedule wake setting could not be saved.');
-			await load();
-			failure = message;
-		} finally {
-			busy = '';
-		}
-	}
 
 	async function test(schedule: string) {
 		if (busy) return;
@@ -118,22 +101,6 @@
 						<p>
 							Next fire <time datetime={item.schedule.fire_at}>{when(item.schedule.fire_at)}</time>
 						</p>
-						{#if item.schedule.machine_requirement === 'local_mac'}
-							<label class="runtime-wake">
-								<input
-									type="checkbox"
-									checked={item.schedule.wake_runtime}
-									disabled={busy !== ''}
-									onchange={(event) =>
-										void setRuntimeWake(item.schedule.id, event.currentTarget.checked)}
-								/>
-								<span>Wake the company computer when this schedule is due</span>
-							</label>
-							<p class="runtime-wake-note">
-								When enabled, a due schedule can start this company’s computer and run its check,
-								which uses compute time and may incur model charges.
-							</p>
-						{/if}
 						{#if item.schedule.last_fired_at}
 							<p>
 								Last fired <time datetime={item.schedule.last_fired_at}
@@ -259,23 +226,6 @@
 		color: var(--text-secondary);
 		font-size: var(--t-label);
 		margin: var(--space-2) 0 0;
-	}
-	.runtime-wake {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		margin-top: var(--space-3);
-		font-size: var(--t-label);
-		color: var(--ink);
-	}
-	.runtime-wake input {
-		accent-color: var(--accent);
-	}
-	.runtime-wake-note {
-		max-width: 52ch;
-		color: var(--text-secondary);
-		font-size: var(--t-label);
-		margin: var(--space-1) 0 0 1.5rem;
 	}
 	.schedule-action {
 		display: flex;

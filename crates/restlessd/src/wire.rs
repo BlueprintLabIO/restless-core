@@ -751,6 +751,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         | "appliance-resume"
         | "company-list"
         | "status"
+        | "sleep"
         | "doctor"
         | "doctor-collaboration"
         | "company-show"
@@ -1364,6 +1365,7 @@ pub(crate) const OWNER_ONLY: &[&str] = &[
     "revoke",
     "up",
     "down",
+    "sleep",
     "clear-poison",
     "spend-correct",
     "company-create",
@@ -1736,6 +1738,7 @@ mod tests {
         const COMMANDS: &[&str] = &[
             "up",
             "down",
+            "sleep",
             "status",
             "doctor",
             "doctor-collaboration",

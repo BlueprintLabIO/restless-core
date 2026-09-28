@@ -126,7 +126,13 @@ enum Command {
         #[arg(long)]
         destroy: bool,
     },
-    /// Company environment lifecycle status.
+    /// Put a quiet company computer to sleep now. Owed demand (messages,
+    /// ready Work, due schedules) wakes it; `down` stops it until you start it.
+    Sleep {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+    },
+    /// Whether the company computer is awake, asleep or stopped, and why.
     Status {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
@@ -450,6 +456,10 @@ enum ApplianceCommand {
         daemon: Option<PathBuf>,
         #[arg(long)]
         cockpit: Option<PathBuf>,
+        /// Non-secret release settings (`KEY=value`): source commit, Runtime
+        /// and Documents image tags, host-tools paths. Staged as `release.env`.
+        #[arg(long)]
+        release_environment: Option<PathBuf>,
         /// Import only company-referenced environment credentials and provider
         /// endpoints into the stable appliance's private credential file.
         #[arg(long)]
@@ -464,6 +474,10 @@ enum ApplianceCommand {
         daemon: Option<PathBuf>,
         #[arg(long)]
         cockpit: Option<PathBuf>,
+        /// Non-secret release settings (`KEY=value`): source commit, Runtime
+        /// and Documents image tags, host-tools paths. Staged as `release.env`.
+        #[arg(long)]
+        release_environment: Option<PathBuf>,
         /// Refresh the private, filtered stable environment from this dotenv file.
         #[arg(long)]
         environment: Option<PathBuf>,
@@ -2282,6 +2296,7 @@ fn main() -> Result<()> {
             ApplianceCommand::Install {
                 daemon,
                 cockpit,
+                release_environment,
                 environment,
                 force,
             } => {
@@ -2290,6 +2305,7 @@ fn main() -> Result<()> {
                     serde_json::to_string_pretty(&appliance::install(
                         daemon,
                         cockpit,
+                        release_environment,
                         environment,
                         false,
                         force,
@@ -2300,6 +2316,7 @@ fn main() -> Result<()> {
             ApplianceCommand::Upgrade {
                 daemon,
                 cockpit,
+                release_environment,
                 environment,
                 force,
             } => {
@@ -2308,6 +2325,7 @@ fn main() -> Result<()> {
                     serde_json::to_string_pretty(&appliance::install(
                         daemon,
                         cockpit,
+                        release_environment,
                         environment,
                         true,
                         force,
@@ -3010,6 +3028,9 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             destroy,
         } => {
             serde_json::json!({ "cmd": "down", "company": c, "destroy": destroy })
+        }
+        Command::Sleep { company: c } => {
+            serde_json::json!({ "cmd": "sleep", "company": c })
         }
         Command::Status { company: c } => {
             serde_json::json!({ "cmd": "status", "company": c })

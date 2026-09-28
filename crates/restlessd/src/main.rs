@@ -52,7 +52,7 @@ mod release;
 mod room_commands;
 mod runtime;
 mod runtime_bridge;
-mod runtime_idle;
+mod runtime_sleep;
 mod runtime_mode;
 mod runtime_usage;
 mod schedule;
@@ -667,6 +667,7 @@ async fn run() -> Result<()> {
         Err(dotenvy::Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(error).context("load local .env"),
     }
+    restlessd::appliance::load_release_environment()?;
     restlessd::appliance::load_profile_environment(&machine_profile)?;
     if matches!(std::env::args().nth(1).as_deref(), Some("--help" | "-h")) {
         println!(
@@ -865,7 +866,7 @@ async fn run() -> Result<()> {
                 return;
             }
         }
-        runtime_idle::run(idle_daemon).await;
+        runtime_sleep::run(idle_daemon).await;
     });
 
     tokio::spawn(async move {
@@ -2399,8 +2400,12 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             Ok(message) => Response::ok(message),
             Err(error) => Response::err(format!("{error:#}")),
         },
-        "status" => match runtime::status(company).await {
-            Ok(status) => Response::ok(format!("{company}: {status:?}")),
+        "sleep" => match runtime_sleep::sleep_now(daemon, company).await {
+            Ok(message) => Response::ok(message),
+            Err(error) => Response::err_kind("conflict", format!("{error:#}")),
+        },
+        "status" => match runtime_sleep::report(daemon, company).await {
+            Ok(report) => Response::ok(runtime_sleep::describe(&report)),
             Err(error) => Response::err(format!("{error:#}")),
         },
         "doctor-collaboration" => match collaboration_doctor::run(daemon).await {
