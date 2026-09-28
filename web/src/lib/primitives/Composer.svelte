@@ -393,10 +393,7 @@
 			aria-label={ariaLabel}
 			rows="1"
 			bind:value
-			oninput={() => {
-				autosize();
-				refreshMenu();
-			}}
+			oninput={refreshMenu}
 			onclick={refreshMenu}
 			onblur={() => (menu = null)}
 			onkeydown={onKeydown}

@@ -1,4 +1,5 @@
 import { TILE_SIZE } from '$lib/vendor/pixel-agents/webview-ui/src/office/types.js';
+import { blitVisible } from '$lib/vendor/pixel-agents/webview-ui/src/office/engine/renderer.js';
 
 /* The lakeside campus around the office: a textured meadow, a forest to the
  * north, a lake to the east, and garden beds woven around the work pavilions.
@@ -329,6 +330,15 @@ export interface CampusWorld {
 	}>;
 	glints: Array<{ x: number; y: number; period: number; phase: number }>;
 	leaves: Array<{ x: number; y: number; speed: number; drift: number; phase: number }>;
+	/** Molehills in the meadow; a mole peeks out of each now and then. */
+	molehills: Array<{ x: number; y: number; phase: number }>;
+	/** A heron standing in the shallows. */
+	heron: { x: number; y: number } | null;
+	/** Where ducks paddle and fish leap: a band of open water near the shore. */
+	shoreRows: { top: number; bottom: number };
+	/** Office-local width and height, for placing things over the campus. */
+	W: number;
+	H: number;
 }
 
 const MARGIN_X = 640;
@@ -494,6 +504,86 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 	] as Array<[number, number]>)
 		disc(ctx, shore(ry * H) + dx, ry * H, 6, 3, C.waterDark);
 
+	// A small hill in the north meadow between the two top pavilions: terraced
+	// greens lit from the north-west, a winding path and a lone tree on top.
+	// It goes wherever the layout leaves the most open meadow up north.
+	let hill = { x: 0, y: 0, rx: 0, ry: 0 };
+	for (let y = H * 0.1; y < H * 0.3; y += 8) {
+		for (let x = W * 0.12; x < W * 0.66; x += 8) {
+			if (!land(x + 80, y)) continue;
+			let clearance = 0;
+			while (clearance < 96 && !onPlate(x, y, clearance + 8)) clearance += 8;
+			if (clearance > hill.rx + 14) hill = { x, y, rx: clearance - 14, ry: 0 };
+		}
+	}
+	hill.rx = Math.min(64, hill.rx);
+	hill.ry = hill.rx * 0.64;
+	if (hill.rx >= 30) {
+		disc(ctx, hill.x + 8, hill.y + 10, hill.rx + 4, hill.ry * 0.9, C.shadowSoft);
+		disc(ctx, hill.x, hill.y, hill.rx, hill.ry, C.grassDeep);
+		disc(ctx, hill.x - 4, hill.y - 4, hill.rx * 0.82, hill.ry * 0.78, C.grassDark);
+		disc(ctx, hill.x - 8, hill.y - 8, hill.rx * 0.6, hill.ry * 0.56, C.grass);
+		disc(ctx, hill.x - 12, hill.y - 12, hill.rx * 0.36, hill.ry * 0.32, C.grassLight);
+		disc(ctx, hill.x - 16, hill.y - 15, hill.rx * 0.14, hill.ry * 0.12, C.grassPale);
+		// Contour dither where each terrace steps down.
+		for (let a = 0; a < Math.PI * 2; a += 0.05) {
+			for (const k of [0.82, 0.6]) {
+				const cx = hill.x - (k === 0.82 ? 4 : 8) + Math.cos(a) * hill.rx * k;
+				const cy = hill.y - (k === 0.82 ? 4 : 8) + Math.sin(a) * hill.ry * k;
+				if (Math.sin(a) > -0.2 && hash(Math.round(cx), Math.round(cy), 40) < 0.6)
+					px(ctx, cx, cy, 1, 1, C.grassDeep);
+			}
+		}
+		for (let t = 0; t < 1; t += 0.01) {
+			const pxX = hill.x + 40 - t * 50 + Math.sin(t * 9) * 8;
+			const pxY = hill.y + 34 - t * 44;
+			px(ctx, pxX, pxY, 2, 1, C.gravel);
+		}
+		stampTree(ctx, hill.x + 6, hill.y - 20, 10, 3_311, true);
+		paintFlowers(ctx, hill.x - 30, hill.y + 6, 91, 6);
+		paintFlowers(ctx, hill.x + 26, hill.y + 16, 92, 5);
+	}
+	const molehills: CampusWorld['molehills'] = [];
+	const moleRand = mulberry(59);
+	for (let i = 0; i < 400 && molehills.length < 6; i += 1) {
+		const x = W * 0.05 + moleRand() * W * 0.62;
+		const y = moleRand() * H * 1.08;
+		if (!land(x, y) || onPlate(x, y, 22)) continue;
+		if (Math.hypot((x - hill.x) / hill.rx, (y - hill.y) / hill.ry) < 1.2) continue;
+		if (molehills.some((m) => Math.hypot(m.x - x, m.y - y) < 60)) continue;
+		disc(ctx, x + 1, y + 2, 5, 2, C.shadowSoft);
+		disc(ctx, x, y, 4, 2.5, C.soilDark);
+		disc(ctx, x - 0.5, y - 0.5, 3, 1.8, C.soil);
+		px(ctx, x - 1, y - 2, 2, 1, '#b39c7a');
+		molehills.push({ x: Math.round(x), y: Math.round(y), phase: moleRand() });
+	}
+	// The longest stretch of shoreline with no deck over its water: ducks and
+	// leaping fish stay there, where they can be seen.
+	const openShore = () => {
+		let best = { top: 0, bottom: 0 };
+		let start: number | null = null;
+		for (let y = 0; y <= H * 1.1; y += 4) {
+			const open = !onPlate(world_shore(y) + 30, y, 16) && !onPlate(world_shore(y) + 70, y, 16);
+			if (open && start === null) start = y;
+			if ((!open || y + 4 > H * 1.1) && start !== null) {
+				if (y - start > best.bottom - best.top) best = { top: start + 8, bottom: y - 8 };
+				start = null;
+			}
+		}
+		return best;
+	};
+	const world_shore = shore;
+	let heron: CampusWorld['heron'] = null;
+	for (const ry of [0.3, 0.55, 0.8]) {
+		const y = Math.round(H * ry);
+		const x = shore(y) + 7;
+		if (!onPlate(x, y, 18)) {
+			heron = { x, y };
+			paintReeds(ctx, x - 6, y + 3, 71);
+			break;
+		}
+	}
+
 	// Meadow life: trees, rocks and flowers where no plate or water is.
 	const meadowRand = mulberry(47);
 	const meadowTrees: Array<[number, number, number, number]> = [];
@@ -623,6 +713,11 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 		});
 
 	return {
+		molehills,
+		heron,
+		shoreRows: openShore(),
+		W,
+		H,
 		canvas,
 		originX: MARGIN_X,
 		originY: MARGIN_Y,
@@ -633,6 +728,22 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 		glints,
 		leaves
 	};
+}
+
+/* The campus depends only on the plates' shape. Keep the last one painted
+ * across mounts, so returning to Attention does not repaint it. */
+let lastWorld: { key: string; world: CampusWorld | null } | null = null;
+
+export function campusWorldFor(plan: { layout: CampusSource }): CampusWorld | null {
+	const key = `${plan.layout.cols}x${plan.layout.rows}:${plan.layout.tiles.join('')}`;
+	if (lastWorld?.key === key) return lastWorld.world;
+	lastWorld = { key, world: buildCampusWorld(plan.layout) };
+	return lastWorld.world;
+}
+
+/** Identity of everything the cached floor is painted from. */
+export function layoutKey(plan: { signature: string }): string {
+	return plan.signature;
 }
 
 export interface CampusView {
@@ -676,9 +787,102 @@ export function drawCampusBackground(ctx: Paint, world: CampusWorld, view: Campu
 	ctx.fillRect(lakeFrom, 0, view.canvasWidth - lakeFrom, view.canvasHeight);
 	const smoothing = ctx.imageSmoothingEnabled;
 	ctx.imageSmoothingEnabled = false;
-	ctx.drawImage(world.canvas, worldLeft, worldTop, world.width * z, world.height * z);
+	blitVisible(ctx, world.canvas, worldLeft, worldTop, z);
 	ctx.imageSmoothingEnabled = smoothing;
 	drawWater(ctx, world, view);
+	drawGroundLife(ctx, world, view);
+}
+
+/* Creatures that live at ground and water level: moles, ducks, a heron and
+ * leaping fish. Each is a few pixels, deterministic in time, and rare enough
+ * to stay calm. */
+function drawGroundLife(ctx: Paint, world: CampusWorld, view: CampusView): void {
+	if (!view.motion) {
+		if (world.heron) drawHeron(ctx, view, world.heron.x, world.heron.y, false);
+		return;
+	}
+	const t = view.now / 1000;
+	// Moles: every 16s or so each one peeks out for two seconds.
+	for (const hill of world.molehills) {
+		const cycle = (t / 16 + hill.phase) % 1;
+		if (cycle > 0.13) continue;
+		const rise = Math.min(1, cycle * 40, (0.13 - cycle) * 40);
+		const up = Math.round(rise * 3);
+		if (up <= 0) continue;
+		screen(ctx, view, hill.x - 2, hill.y - 1 - up, 4, up + 1, '#4a4038');
+		screen(ctx, view, hill.x - 1, hill.y - 1 - up, 2, 1, '#6a5a4e');
+		if (up >= 2) {
+			screen(ctx, view, hill.x + 2, hill.y - up, 1, 1, '#e8a0a8');
+			screen(ctx, view, hill.x, hill.y - up, 1, 1, '#1d1a18');
+		}
+		screen(ctx, view, hill.x - 3, hill.y, 6, 1, C.soil);
+	}
+	// Ducks paddle slowly along the shore and turn back, leaving a small wake.
+	for (let i = 0; i < 3; i += 1) {
+		const span = world.shoreRows.bottom - world.shoreRows.top;
+		const travel = (t * 3 + i * 170) % (span * 2);
+		const along = travel < span ? travel : span * 2 - travel;
+		const heading = travel < span ? 1 : -1;
+		const y = world.shoreRows.top + along;
+		const x = world.shore(y) + 30 + i * 9 + Math.sin(t * 0.7 + i) * 3;
+		const bob = Math.floor(t * 2 + i) % 2;
+		screen(ctx, view, x - 3, y + 2 - heading * 3, 1, 1, C.ripple);
+		screen(ctx, view, x + 3, y + 2 - heading * 3, 1, 1, C.ripple);
+		screen(ctx, view, x - 2, y - 1 + bob, 5, 3, i === 0 ? '#7b5c3e' : '#f1ede3');
+		screen(
+			ctx,
+			view,
+			x - 1,
+			y - 2 + bob + (heading > 0 ? 3 : -1),
+			3,
+			2,
+			i === 0 ? '#2f6b4f' : '#e8e2d5'
+		);
+		screen(ctx, view, x, y - 2 + bob + (heading > 0 ? 5 : -2), 1, 1, '#e6a23c');
+	}
+	// A fish leaps somewhere near the shore every nine seconds.
+	const leap = Math.floor(t / 9);
+	const phase = (t % 9) / 1.4;
+	if (phase <= 1.6) {
+		const span = world.shoreRows.bottom - world.shoreRows.top;
+		const y = world.shoreRows.top + Math.floor(hash(leap, 1, 50) * span);
+		const x = world.shore(y) + 40 + Math.floor(hash(leap, 2, 50) * 140);
+		if (phase <= 1) {
+			const arcX = x + Math.round(phase * 10);
+			const arcY = y - Math.round(Math.sin(phase * Math.PI) * 7);
+			screen(ctx, view, arcX, arcY, 3, 1, '#d9e4e6');
+			screen(ctx, view, arcX + 1, arcY - 1, 1, 1, '#9fb4bb');
+			if (phase < 0.2) screen(ctx, view, x - 1, y, 3, 1, C.foam);
+		} else {
+			const r = Math.round((phase - 1) * 10) + 2;
+			const cx = x + 10;
+			screen(ctx, view, cx - r, y, 2, 1, C.foamDim);
+			screen(ctx, view, cx + r - 1, y, 2, 1, C.foamDim);
+			screen(ctx, view, cx - 1, y - Math.ceil(r / 2), 2, 1, C.foamDim);
+			screen(ctx, view, cx - 1, y + Math.ceil(r / 2), 2, 1, C.foamDim);
+		}
+	}
+	if (world.heron) {
+		const dip = t % 11 < 1.2;
+		drawHeron(ctx, view, world.heron.x, world.heron.y, dip);
+	}
+}
+
+function drawHeron(ctx: Paint, view: CampusView, x: number, y: number, dip: boolean): void {
+	screen(ctx, view, x - 1, y + 3, 5, 1, C.waterDark);
+	screen(ctx, view, x, y - 4, 1, 7, '#7c8a92');
+	screen(ctx, view, x + 2, y - 4, 1, 7, '#7c8a92');
+	screen(ctx, view, x - 1, y - 9, 5, 5, '#b9c3c8');
+	screen(ctx, view, x, y - 9, 3, 1, '#dde4e6');
+	if (dip) {
+		screen(ctx, view, x + 4, y - 7, 1, 4, '#b9c3c8');
+		screen(ctx, view, x + 5, y - 3, 2, 1, '#d8a44a');
+	} else {
+		screen(ctx, view, x + 3, y - 14, 1, 5, '#b9c3c8');
+		screen(ctx, view, x + 3, y - 16, 2, 2, '#dde4e6');
+		screen(ctx, view, x + 5, y - 15, 3, 1, '#d8a44a');
+		screen(ctx, view, x + 3, y - 16, 1, 1, '#1d1a18');
+	}
 }
 
 function drawWater(ctx: Paint, world: CampusWorld, view: CampusView): void {
@@ -741,6 +945,30 @@ export function drawCampusOverlay(
 		const y = leaf.y + run * 0.18 + Math.sin(t * 1.3 + leaf.phase * 9) * leaf.drift;
 		const flip = Math.sin(t * 2.1 + leaf.phase * 7) > 0;
 		screen(ctx, view, x, y, flip ? 2 : 1, 1, leaf.phase > 0.5 ? C.leafGold : C.leafGreen);
+	}
+	// Two gulls wheel slowly over the lake; their shadows fall on the water.
+	for (let i = 0; i < 2; i += 1) {
+		const a = t * (0.16 + i * 0.05) + i * 2.4;
+		const cx = world.shore(H * 0.4) + 150 + i * 70;
+		const cy = H * (0.35 + i * 0.35);
+		const x = cx + Math.cos(a) * (60 + i * 20);
+		const y = cy + Math.sin(a) * (34 + i * 10);
+		const wing = Math.floor(t * 3 + i) % 3 === 0 ? 1 : 0;
+		screen(ctx, view, x + 6, y + 14, 3, 1, C.shadowSoft);
+		screen(ctx, view, x, y, 1, 1, '#f5f7f7');
+		screen(ctx, view, x - 3, y - wing, 3, 1, '#e6ecee');
+		screen(ctx, view, x + 1, y - wing, 3, 1, '#e6ecee');
+		screen(ctx, view, x - 3, y - wing, 1, 1, '#5b6770');
+		screen(ctx, view, x + 3, y - wing, 1, 1, '#5b6770');
+	}
+	// Two butterflies drift between flowers in the meadow pockets.
+	for (let i = 0; i < 2; i += 1) {
+		const bx = W * (0.5 + i * 0.12) + Math.sin(t * 0.45 + i * 3) * 40 + Math.sin(t * 1.7 + i) * 6;
+		const by = H * (i === 0 ? 0.2 : 0.9) + Math.cos(t * 0.38 + i * 2) * 20;
+		const flutter = Math.floor(t * 9 + i) % 2;
+		screen(ctx, view, bx, by, 1, 2, '#4a5463');
+		screen(ctx, view, bx - 1 - flutter, by, 1 + flutter, 1, i === 0 ? '#e7a6c4' : '#b9cdf0');
+		screen(ctx, view, bx + 1, by, 1 + flutter, 1, i === 0 ? '#f1cf7c' : '#f7f3e9');
 	}
 	const wildlife = campusWildlifeAt(Date.now());
 	if (!wildlife) return;
