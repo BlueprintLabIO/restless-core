@@ -17,6 +17,8 @@ STACK_SCRIPT_DIR="$(cd "$(dirname "$STACK_SCRIPT_PATH")" && pwd)"
 STACK_REPO_ROOT="$(cd "${STACK_SCRIPT_DIR}/.." && pwd)"
 source "${STACK_SCRIPT_DIR}/lib/dev-company.sh"
 source "${STACK_SCRIPT_DIR}/lib/dev-database.sh"
+source "${STACK_SCRIPT_DIR}/lib/dev-release.sh"
+source "${STACK_SCRIPT_DIR}/lib/dev-worktree.sh"
 source "${STACK_SCRIPT_DIR}/lib/dev-tools.sh"
 source "${STACK_SCRIPT_DIR}/lib/dev-vault.sh"
 # A development checkout is a named appliance profile, never an accidental
@@ -49,6 +51,12 @@ if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ] || [ "${1:-}" = "help" ]; then
   STACK_ACTION="help"
   STACK_COMPANY="aris"
   STACK_RECONCILE=""
+elif [ "${1:-}" = "worktree" ] || [ "${1:-}" = "promote" ] || [ "${1:-}" = "reap-timer" ]; then
+  STACK_ACTION="$1"
+  STACK_COMPANY="aris"
+  STACK_RECONCILE=""
+  shift
+  STACK_ARGS=("$@")
 elif [ "${1:-}" = "doctor" ]; then
   STACK_ACTION="doctor"
   STACK_COMPANY="${2:-aris}"
@@ -76,6 +84,9 @@ usage() {
 usage:
   restless-dev [company] [--reconcile]
   restless-dev doctor [company]
+  restless-dev worktree new <name> | stale | prune
+  restless-dev promote [ref] [--build-only] [--force]
+  restless-dev reap-timer install | remove
 
 dev owns the foreground daemon and Vite processes it starts. Ctrl-C stops
 those host processes, while the company's persistent container and volume stay up.
@@ -88,6 +99,17 @@ For a new company, connect Codex, Claude or an API provider in Company > Intelli
 after startup. To initialise an API connection from your shell, set both
 RESTLESS_DEV_MODEL=provider/model and RESTLESS_DEV_CREDENTIAL_REFERENCE=env:YOUR_API_KEY.
 Existing companies keep their settings.
+
+worktree new starts a branch from a fresh origin/dev. stale lists every
+worktree's age, uncommitted files and commits no remote has. prune removes
+only worktrees that are clean, fully pushed and unused.
+
+promote builds one origin/dev commit (default: origin/dev) in a clean build
+worktree and installs it as the owner's stable appliance through
+`restless appliance upgrade`, which drains work and rolls back on failure. It
+refuses any commit that is not on origin/dev.
+
+reap-timer installs an hourly `restless-reap --check` (systemd on Linux).
 EOF
 }
 
@@ -259,34 +281,8 @@ dev() {
   # an image reference, matching the hosted path where Fleet publishes and
   # pins the Runtime artifact before asking a plane to reconcile it.
   if [ "$STACK_RECONCILE" = "--reconcile" ]; then
-    local source_digest
-    source_digest="$(
-      cd "$STACK_REPO_ROOT"
-      find Cargo.toml Cargo.lock crates infra/company-image -type f -print \
-        | LC_ALL=C sort \
-        | while IFS= read -r image_input; do
-            printf '%s\0' "$image_input"
-            command cat "$image_input"
-            printf '\0'
-          done \
-        | shasum -a 256 \
-        | awk '{print $1}'
-    )"
-    local api_contract assertion_contract schema_version
-    api_contract="$(sed -n 's/.*API_CONTRACT_VERSION: u32 = \([0-9]*\);.*/\1/p' "${STACK_REPO_ROOT}/crates/restlessd/src/release.rs")"
-    assertion_contract="$(sed -n 's/.*ASSERTION_CONTRACT_VERSION: u32 = \([0-9]*\);.*/\1/p' "${STACK_REPO_ROOT}/crates/restlessd/src/entry.rs")"
-    schema_version="$(sed -n 's/.*SCHEMA_VERSION: u32 = \([0-9]*\);.*/\1/p' "${STACK_REPO_ROOT}/crates/restlessd/src/release.rs")"
     printf '\nBuilding the company computer and its tools…\n'
-    docker build \
-      --file "${STACK_REPO_ROOT}/infra/company-image/Dockerfile" \
-      --tag "$RESTLESS_COMPANY_IMAGE" \
-      --label "io.restless.source-digest=${source_digest}" \
-      --build-arg RESTLESS_CORE_VERSION=0.0.0-dev \
-      --build-arg "RESTLESS_SOURCE_REVISION=dev-${source_digest}" \
-      --build-arg "RESTLESS_API_CONTRACT_VERSION=${api_contract}" \
-      --build-arg "RESTLESS_ASSERTION_CONTRACT_VERSION=${assertion_contract}" \
-      --build-arg "RESTLESS_SCHEMA_VERSION=${schema_version}" \
-      "$STACK_REPO_ROOT"
+    dev_build_company_image "$STACK_REPO_ROOT" "$RESTLESS_COMPANY_IMAGE" ""
   elif ! docker image inspect "$RESTLESS_COMPANY_IMAGE" >/dev/null 2>&1; then
     # Snapshot the current stable development image into this checkout's
     # namespace. Future dev rebuilds can no longer mutate the image selected by
@@ -411,7 +407,131 @@ report_resource_debt() {
   "$reaper" --check || true
 }
 
+# Build one origin/dev commit and hand it to the appliance. The appliance owns
+# activation, drain and rollback; this only produces the exact artifacts.
+promote() {
+  local ref="origin/dev" build_only=false
+  local appliance_args=()
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --build-only) build_only=true ;;
+      --force) appliance_args+=("--force") ;;
+      -*) printf 'unknown promote option %s\n' "$1" >&2; return 2 ;;
+      *) ref="$1" ;;
+    esac
+    shift
+  done
+  git -C "$STACK_REPO_ROOT" fetch --quiet origin
+  local commit
+  commit="$(git -C "$STACK_REPO_ROOT" rev-parse --verify "${ref}^{commit}")"
+  if ! git -C "$STACK_REPO_ROOT" merge-base --is-ancestor "$commit" origin/dev; then
+    printf 'refusing to promote %s: it is not on origin/dev. Land it first.\n' "$commit" >&2
+    return 1
+  fi
+  local short="${commit:0:12}"
+  local build_root="${RESTLESS_PROMOTE_ROOT:-${HOME}/.cache/restless/promote}"
+  local source="${build_root}/source"
+  local tools_root="${HOME}/.local/lib/restless/host-tools"
+  mkdir -p "$build_root"
+  if [ -d "$source" ]; then
+    git -C "$source" checkout --quiet --detach "$commit"
+    git -C "$source" clean -fdq -e web/node_modules
+  else
+    git -C "$STACK_REPO_ROOT" worktree add --detach "$source" "$commit"
+  fi
+  printf 'PROMOTE  %s (%s)\n' "$short" "$(git -C "$source" log -1 --format=%s)"
+
+  printf '\nBuilding Restless (release)…\n'
+  cargo build --release --manifest-path "${source}/Cargo.toml" \
+    --target-dir "${build_root}/target" -p restlessd -p restless
+  printf '\nBuilding the Cockpit…\n'
+  npm --prefix "${source}/web" ci --no-audit --no-fund
+  npm --prefix "${source}/web" run build
+  printf '\nInstalling the model broker…\n'
+  local tools
+  tools="$(dev_install_host_tools "$source" "$tools_root")"
+  printf '\nBuilding the company computer and document service…\n'
+  dev_build_company_image "$source" "restless-company-image:${short}" "$commit"
+  docker build --tag "restless-native-documents:${short}" \
+    "${source}/services/native-documents-collaboration"
+
+  local release_env="${build_root}/release.env"
+  cat >"$release_env" <<EOF_RELEASE
+RESTLESS_SOURCE_COMMIT=${commit}
+RESTLESS_COMPANY_IMAGE=restless-company-image:${short}
+RESTLESS_NATIVE_DOCUMENTS_IMAGE=restless-native-documents:${short}
+RESTLESS_OMP_BIN=${tools}/omp-source
+EOF_RELEASE
+
+  if [ "$build_only" = true ]; then
+    printf '\nBuilt %s; not activated (--build-only).\n' "$short"
+    return 0
+  fi
+  printf '\nActivating through the appliance…\n'
+  local installed="${HOME}/.local/lib/restless/current"
+  local verb=upgrade
+  [ -e "$installed" ] || verb=install
+  env -u RESTLESS_HOME -u RESTLESS_PORT_OFFSET -u RESTLESS_RESOURCE_NAMESPACE \
+    -u RESTLESS_COMPANY_IMAGE -u RESTLESS_NATIVE_DOCUMENTS_IMAGE -u RESTLESS_OWNER_URL \
+    RESTLESS_PROFILE=stable \
+    "${build_root}/target/release/restless" appliance "$verb" \
+      --daemon "${build_root}/target/release/restlessd" \
+      --cockpit "${source}/web/build" \
+      --release-environment "$release_env" \
+      "${appliance_args[@]}"
+  dev_prune_host_tools "$tools_root"
+}
+
+# Remove broker installs no retained release points at.
+dev_prune_host_tools() {
+  local tools_root="$1" dir referenced
+  [ -d "$tools_root" ] || return 0
+  referenced="$(cat "${HOME}"/.local/lib/restless/releases/*/release.env 2>/dev/null || true)"
+  for dir in "$tools_root"/*/; do
+    dir="${dir%/}"
+    case "$referenced" in
+      *"${dir}/"*) ;;
+      *) rm -rf -- "$dir" ;;
+    esac
+  done
+}
+
+reap_timer() {
+  local unit_dir="${HOME}/.config/systemd/user"
+  case "${1:-}" in
+    install)
+      if [ "$(uname -s)" = "Darwin" ]; then
+        printf 'On macOS use infra/launchd/io.restless.reap.plist (see infra/launchd/README.md).\n'
+        return 0
+      fi
+      mkdir -p "$unit_dir"
+      sed "s#@REAP@#${STACK_SCRIPT_DIR}/restless-reap-scheduled#" \
+        "${STACK_REPO_ROOT}/infra/systemd/restless-reap.service" >"${unit_dir}/restless-reap.service"
+      cp "${STACK_REPO_ROOT}/infra/systemd/restless-reap.timer" "${unit_dir}/restless-reap.timer"
+      systemctl --user daemon-reload
+      systemctl --user enable --now restless-reap.timer
+      printf 'Hourly resource check installed; latest report: ~/.restless/logs/reap-latest.log\n'
+      ;;
+    remove)
+      systemctl --user disable --now restless-reap.timer 2>/dev/null || true
+      rm -f "${unit_dir}/restless-reap.service" "${unit_dir}/restless-reap.timer"
+      systemctl --user daemon-reload
+      ;;
+    *) usage >&2; return 2 ;;
+  esac
+}
+
 case "$STACK_ACTION" in
+  worktree)
+    case "${STACK_ARGS[0]:-}" in
+      new) dev_worktree_new "${STACK_ARGS[1]:-}" ;;
+      stale) dev_worktree_stale ;;
+      prune) dev_worktree_prune ;;
+      *) usage >&2; exit 2 ;;
+    esac
+    ;;
+  promote) promote "${STACK_ARGS[@]}" ;;
+  reap-timer) reap_timer "${STACK_ARGS[0]:-}" ;;
   dev) dev ;;
   doctor)
     # Report debt even when doctor fails — a degraded stack is exactly when

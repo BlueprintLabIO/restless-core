@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# PATH entry for the owner CLI. Builds before every invocation and execs the
-# build output directly, so the command on PATH can never lag the working tree.
+# Development CLI for this checkout. Builds before every invocation and execs
+# the build output directly, so it can never lag the working tree. The owner's
+# installed CLI is ~/.local/bin/restless from `restless-dev promote`.
 # A failed build stops here rather than silently running the previous binary.
 set -euo pipefail
 
@@ -18,11 +19,12 @@ CLI_REPO_ROOT="$(cd "${CLI_SCRIPT_DIR}/.." && pwd)"
 CLI_TARGET_DIR="${CLI_REPO_ROOT}/target"
 
 # debug matches what restless-dev runs, so both paths exercise one binary.
-CLI_PROFILE="${RESTLESS_PROFILE:-debug}"
+# RESTLESS_PROFILE is the machine profile (stable|dev|test), not a build mode.
+CLI_PROFILE="${RESTLESS_CLI_BUILD:-debug}"
 case "$CLI_PROFILE" in
   debug) CLI_PROFILE_FLAG="" ;;
   release) CLI_PROFILE_FLAG="--release" ;;
-  *) printf 'RESTLESS_PROFILE must be debug or release, got %s\n' "$CLI_PROFILE" >&2; exit 2 ;;
+  *) printf 'RESTLESS_CLI_BUILD must be debug or release, got %s\n' "$CLI_PROFILE" >&2; exit 2 ;;
 esac
 
 if ! cargo build --quiet --manifest-path "${CLI_REPO_ROOT}/Cargo.toml" \
