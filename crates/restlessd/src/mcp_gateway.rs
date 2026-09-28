@@ -37,7 +37,7 @@ use rmcp::{
     },
     RoleClient, RoleServer, ServerHandler, ServiceExt,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use sqlx::PgPool;
 use tower::ServiceExt as _;
@@ -69,6 +69,8 @@ enum ReadRequest {
         limit: Option<u8>,
         #[serde(rename = "fastSearch")]
         fast_search: Option<bool>,
+        age: Option<MarketplaceSearchAge>,
+        sort: Option<MarketplaceSearchSort>,
     },
     MarketplaceDetails {
         urls: Vec<String>,
@@ -91,6 +93,23 @@ enum ReadRequest {
     },
 }
 
+#[derive(Deserialize, Serialize)]
+enum MarketplaceSearchAge {
+    #[serde(rename = "1d")]
+    OneDay,
+    #[serde(rename = "7d")]
+    SevenDays,
+    #[serde(rename = "any")]
+    Any,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum MarketplaceSearchSort {
+    Newest,
+    Relevance,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct MarketplaceSearchArgs {
@@ -98,6 +117,8 @@ struct MarketplaceSearchArgs {
     limit: Option<u8>,
     #[serde(rename = "fastSearch")]
     fast_search: Option<bool>,
+    age: Option<MarketplaceSearchAge>,
+    sort: Option<MarketplaceSearchSort>,
 }
 
 #[derive(Deserialize)]
@@ -286,6 +307,8 @@ fn read_request_params(request: ReadRequest) -> Result<CallToolRequestParams> {
             query,
             limit,
             fast_search,
+            age,
+            sort,
         } => {
             let query = query.trim();
             if query.is_empty()
@@ -298,6 +321,12 @@ fn read_request_params(request: ReadRequest) -> Result<CallToolRequestParams> {
             let mut arguments = serde_json::json!({"query":query,"limit":limit.unwrap_or(12)});
             if let Some(fast_search) = fast_search {
                 arguments["fastSearch"] = serde_json::json!(fast_search);
+            }
+            if let Some(age) = age {
+                arguments["age"] = serde_json::json!(age);
+            }
+            if let Some(sort) = sort {
+                arguments["sort"] = serde_json::json!(sort);
             }
             ("clapping_hands_marketplace_search", arguments)
         }
@@ -382,6 +411,8 @@ fn validated_clapping_hands_params(params: CallToolRequestParams) -> Result<Call
                 query: args.query,
                 limit: args.limit,
                 fast_search: args.fast_search,
+                age: args.age,
+                sort: args.sort,
             }
         }
         "clapping_hands_marketplace_details" => {
