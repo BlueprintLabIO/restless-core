@@ -107,6 +107,7 @@
 	class:continued
 	class:pending
 	class:embedded
+	tabindex="-1"
 	data-message-sender={sender}
 >
 	<header class="message-meta" class:sr-only={continued}>
@@ -245,6 +246,18 @@
 	 * row under every message. */
 	.conversation-message:not(.owner) :is(.message-body, .message-footer) {
 		padding-left: 31px;
+	}
+
+	/* Touch has no hover: a message's actions appear when it is tapped
+	 * (focused), instead of a Reply row under every message. */
+	@media (hover: none) {
+		.conversation-message:not(:focus-within) .message-footer {
+			display: none;
+		}
+	}
+
+	.conversation-message:focus {
+		outline: none;
 	}
 
 	@media (hover: hover) and (pointer: fine) {
