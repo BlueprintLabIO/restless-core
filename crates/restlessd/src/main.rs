@@ -1782,45 +1782,71 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             }
             Err(_) => None,
         };
-        if let (Some(work_id), Some(attempt_id)) = (grant.work_id, grant.attempt_id) {
-            let attempts = match org.as_ref().expect("Work-scoped sessions require OrgIntel")
-                .list_work_attempts(Some(work_id))
-                .await
-            {
-                Ok(attempts) => attempts,
-                Err(error) => return Response::err(format!("inspect Work Attempt: {error:#}")),
-            };
-            if !attempts.iter().any(|attempt| {
-                attempt.id == attempt_id
-                    && attempt.actor_id == grant.actor
-                    && attempt.state == restless_orgintel::WorkAttemptState::Running
-            }) {
-                return Response::err("browser attachment requires the exact signed Attempt to still be running");
+        // The hosted Runtime bridge gives coordination calls 30 seconds.
+        // Leave time for a final Docker observation and the response transport.
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(24);
+        loop {
+            if tokio::time::Instant::now() >= deadline {
+                return Response::err_kind(
+                    "browser_busy",
+                    "the shared company browser remained attached to another Work Attempt for 24 seconds; retry after it is released",
+                );
             }
-        }
-        if let Ok(Some(previous)) = runtime::read_browser_agent_session(company).await {
-            let previous_is_running = match (previous.work_id, previous.attempt_id, org.as_ref()) {
-                (Some(work_id), Some(attempt_id), Some(org)) => org
+            // A signed token or Attempt can expire while this request waits.
+            // Check both before each possible registration.
+            let Some(token) = request.session_capability.as_deref() else {
+                return Response::err_kind("authority", "browser session capability is missing");
+            };
+            if !matches!(
+                daemon.capabilities.verify_coordination(token),
+                Ok(ref current) if current == grant
+            ) {
+                return Response::err_kind("authority", "browser attachment session expired while waiting");
+            }
+            if let (Some(work_id), Some(attempt_id)) = (grant.work_id, grant.attempt_id) {
+                let attempts = match org.as_ref().expect("Work-scoped sessions require OrgIntel")
                     .list_work_attempts(Some(work_id))
                     .await
-                    .map(|attempts| attempts.iter().any(|attempt| {
-                        attempt.id == attempt_id
-                            && attempt.actor_id == previous.actor
-                            && attempt.state == restless_orgintel::WorkAttemptState::Running
-                    }))
-                    .unwrap_or(true),
-                _ => true,
-            };
-            if !previous_is_running {
-                if let Err(error) = runtime::clear_browser_agent_session(company, &previous.ticket).await {
-                    return Response::err(format!("clear stale browser registration: {error:#}"));
+                {
+                    Ok(attempts) => attempts,
+                    Err(error) => return Response::err(format!("inspect Work Attempt: {error:#}")),
+                };
+                if !attempts.iter().any(|attempt| {
+                    attempt.id == attempt_id
+                        && attempt.actor_id == grant.actor
+                        && attempt.state == restless_orgintel::WorkAttemptState::Running
+                }) {
+                    return Response::err_kind(
+                        "attempt_ended",
+                        "browser attachment requires the exact signed Attempt to still be running",
+                    );
                 }
             }
+            if let Ok(Some(previous)) = runtime::read_browser_agent_session(company).await {
+                let previous_is_running = match (previous.work_id, previous.attempt_id, org.as_ref()) {
+                    (Some(work_id), Some(attempt_id), Some(org)) => org
+                        .list_work_attempts(Some(work_id))
+                        .await
+                        .map(|attempts| attempts.iter().any(|attempt| {
+                            attempt.id == attempt_id
+                                && attempt.actor_id == previous.actor
+                                && attempt.state == restless_orgintel::WorkAttemptState::Running
+                        }))
+                        .unwrap_or(true),
+                    _ => true,
+                };
+                if !previous_is_running {
+                    if let Err(error) = runtime::clear_browser_agent_session(company, &previous.ticket).await {
+                        return Response::err(format!("clear stale browser registration: {error:#}"));
+                    }
+                }
+            }
+            match runtime::try_register_browser_agent_session(company, grant).await {
+                Ok(Some(endpoint)) => return Response::ok(endpoint),
+                Ok(None) => tokio::time::sleep(std::time::Duration::from_secs(1)).await,
+                Err(error) => return Response::err(format!("register browser session: {error:#}")),
+            }
         }
-        return match runtime::register_browser_agent_session(company, grant).await {
-            Ok(endpoint) => Response::ok(endpoint),
-            Err(error) => Response::err(format!("register browser session: {error:#}")),
-        };
     }
     // The company catalogue exists above any one company. Keep it explicit
     // instead of inventing a fake global company.

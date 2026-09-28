@@ -2659,10 +2659,12 @@ pub async fn read_browser_agent_session(company: &str) -> Result<Option<BrowserA
     Ok(Some(session))
 }
 
-pub async fn register_browser_agent_session(
+/// `None` means another actor currently owns the shared browser. A caller may
+/// wait and retry after revalidating its signed Work Attempt.
+pub async fn try_register_browser_agent_session(
     company: &str,
     grant: &crate::capability::CoordinationGrant,
-) -> Result<String> {
+) -> Result<Option<String>> {
     validate_company_name(company)?;
     if grant.company != company { bail!("browser registration company does not match the signed ActorSession"); }
     if grant.work_id.is_some() != grant.attempt_id.is_some() {
@@ -2677,9 +2679,9 @@ pub async fn register_browser_agent_session(
     if let Some(current) = read_browser_agent_session(company).await? {
         if current.session == grant.session && current.actor == grant.actor
             && current.work_id == grant.work_id && current.attempt_id == grant.attempt_id {
-            return Ok(current.websocket_url);
+            return Ok(Some(current.websocket_url));
         }
-        bail!("the shared company browser is attached to another live Work Attempt");
+        return Ok(None);
     }
     // Only Core reads Chrome's private endpoint. The opaque ticket is minted
     // after Core verified the signed capability and is stored atomically for
@@ -2704,7 +2706,7 @@ pub async fn register_browser_agent_session(
         websocket_url: websocket_url.clone(), expires_at: Utc::now() + chrono::Duration::minutes(45),
     };
     write_browser_agent_session(company, &registration).await?;
-    Ok(websocket_url)
+    Ok(Some(websocket_url))
 }
 
 pub async fn release_browser_agent_session(
