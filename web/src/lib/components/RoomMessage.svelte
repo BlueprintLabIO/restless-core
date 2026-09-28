@@ -24,6 +24,7 @@
 		focusKey = '',
 		mentions = [],
 		thread = false,
+		continued = false,
 		onthread = null,
 		canEdit = false,
 		canDelete = false,
@@ -48,6 +49,8 @@
 		focusKey?: string;
 		mentions?: RoomMention[];
 		thread?: boolean;
+		/** Follows a message from the same author moments earlier. */
+		continued?: boolean;
 		onthread?: (() => void) | null;
 		canEdit?: boolean;
 		canDelete?: boolean;
@@ -203,6 +206,7 @@
 	bind:this={messageElement}
 	class="room-message"
 	class:you={isYou}
+	class:continued
 	class:thread
 	class:targeted
 	tabindex="-1"
@@ -251,6 +255,7 @@
 			attachments={message.edited_at ? [] : (presentation?.attachments ?? [])}
 			intent={message.edited_at ? null : (presentation?.intent ?? null)}
 			{hrefFor}
+			{continued}
 			embedded
 		>
 			{#snippet headerExtra()}
@@ -351,21 +356,17 @@
 </article>
 
 <style>
+	/* The row is only a frame for the message's own shape (see
+	 * ConversationMessage): no rules, no band for the owner. */
 	.room-message {
 		position: relative;
 		min-width: 0;
-		padding: 13px 16px 11px;
-		border-bottom: 1px solid var(--border);
+		padding: 10px 16px 4px;
 		background: transparent;
 	}
 
-	.room-message:last-of-type {
-		border-bottom-color: transparent;
-	}
-
-	.room-message.you {
-		background: var(--chat-owner-bg);
-		box-shadow: inset 2px 0 0 var(--chat-owner-edge);
+	.room-message.continued {
+		padding-top: 0;
 	}
 
 	.room-message.targeted,

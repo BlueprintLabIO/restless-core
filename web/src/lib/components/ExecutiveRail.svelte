@@ -292,6 +292,19 @@
 		return Number.isFinite(value) ? value : 0;
 	}
 
+	/* One header for a run: same author, same day, within five minutes, and
+	 * no focus boundary between them. */
+	function continuesRun(index: number): boolean {
+		if (index === 0 || focusDividerBefore(index)) return false;
+		const previous = visibleMessages[index - 1];
+		const current = visibleMessages[index];
+		return (
+			previous.from === current.from &&
+			dayOf(previous.createdAt) === dayOf(current.createdAt) &&
+			new Date(current.createdAt).getTime() - new Date(previous.createdAt).getTime() < 5 * 60_000
+		);
+	}
+
 	function focusDividerBefore(index: number): boolean {
 		if (!focusActive) return false;
 		const current = visibleMessages[index];
@@ -535,6 +548,7 @@
 							</div>
 						{/if}
 						<ConversationMessage
+							continued={continuesRun(i)}
 							domId={messageDomId(message.id)}
 							sender={message.from === 'you' ? 'owner' : message.from}
 							author={message.from === 'you' ? 'You' : message.author || participantName}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { listIn } from '$lib/motion';
 	import { runStateLabel, workStatusLabel } from '$lib/work/status';
 	import {
 		layoutWorkGraph,
@@ -113,6 +114,7 @@
 			{#each layout.nodes as node (node.id)}
 				<a
 					class="work-flow-node status-{node.data.item.status}"
+					in:listIn
 					class:is-focus={node.data.isFocus}
 					href={node.data.href}
 					style={`left: ${node.x}px; top: ${node.y}px; width: ${WORK_NODE_WIDTH}px; height: ${WORK_NODE_HEIGHT}px;`}

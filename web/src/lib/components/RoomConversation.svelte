@@ -915,6 +915,16 @@
 		return date.toLocaleDateString(undefined, { month: 'long', day: 'numeric' });
 	}
 
+	/* One header for a run: same author, same day, within five minutes. */
+	function continuesRun(previous: RoomMessageRecord, current: RoomMessageRecord): boolean {
+		return (
+			previous.from_actor === current.from_actor &&
+			dayKey(previous.created_at) === dayKey(current.created_at) &&
+			new Date(current.created_at).getTime() - new Date(previous.created_at).getTime() <
+				5 * 60_000
+		);
+	}
+
 	function dayKey(value: string): string {
 		const date = new Date(value);
 		return Number.isNaN(date.getTime()) ? value : date.toDateString();
@@ -1138,6 +1148,13 @@
 						{/if}
 						<RoomMessage
 							{message}
+							continued={index > 0 &&
+								continuesRun(visibleRoots[index - 1], message) &&
+								!(
+									unreadFrom !== null &&
+									message.id > unreadFrom &&
+									visibleRoots[index - 1].id <= unreadFrom
+								)}
 							presentation={actorMessagesById.get(String(message.id))}
 							hrefFor={(attachment) =>
 								`/api/companies/${encodeURIComponent(companyId)}/attachments/${encodeURIComponent(attachment.uploadId)}`}

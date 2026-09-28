@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { formatMoment } from '$lib/time';
-	import { onDestroy } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
 	import type { Snippet } from 'svelte';
 	import Check from '@lucide/svelte/icons/check';
 	import Copy from '@lucide/svelte/icons/copy';
@@ -24,7 +24,8 @@
 		domId,
 		headerExtra,
 		actions,
-		embedded = false
+		embedded = false,
+		continued = false
 	}: {
 		sender: 'owner' | 'agent' | 'human' | 'system';
 		author: string;
@@ -40,6 +41,8 @@
 		headerExtra?: Snippet;
 		actions?: Snippet;
 		embedded?: boolean;
+		/** Follows a message from the same author moments earlier: no header. */
+		continued?: boolean;
 	} = $props();
 
 	let copyState = $state<'idle' | 'copied' | 'failed'>('idle');
@@ -49,13 +52,17 @@
 	function timeLabel(value: Date | string): string {
 		const date = value instanceof Date ? value : new Date(value);
 		if (Number.isNaN(date.getTime())) return '';
-		return date.toLocaleString(undefined, {
-			month: 'short',
-			day: 'numeric',
-			hour: 'numeric',
-			minute: '2-digit'
-		});
+		// Day separators carry the date; a message shows its time of day.
+		return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 	}
+	/* A room message that is seconds old when it first renders has just
+	 * arrived: it settles in. History loading on open and the owner's own
+	 * words (shown optimistically, then confirmed) stay still, as do Exec
+	 * replies, which already streamed in their live turn. */
+	const fresh = untrack(
+		() =>
+			embedded && sender !== 'owner' && Date.now() - new Date(createdAt).getTime() < 15_000
+	);
 	const timestamp = $derived(timeLabel(createdAt));
 	const messageDate = $derived(new Date(createdAt));
 	const validDate = $derived(!Number.isNaN(messageDate.getTime()));
@@ -97,11 +104,13 @@
 <article
 	id={domId}
 	class="conversation-message {sender}"
+	class:fresh
+	class:continued
 	class:pending
 	class:embedded
 	data-message-sender={sender}
 >
-	<header class="message-meta">
+	<header class="message-meta" class:sr-only={continued}>
 		<span class="message-avatar">
 			{#if personInitial}<span
 					class="message-initial"
@@ -203,40 +212,110 @@
 </article>
 
 <style>
+	.conversation-message.fresh {
+		animation: message-arrive var(--motion-disclosure) var(--ease-out) both;
+	}
+	@keyframes message-arrive {
+		from {
+			opacity: 0;
+			transform: translateY(6px);
+		}
+	}
+
+	/* After Svelte AI Elements: space separates turns, not rules. Others speak
+	 * as avatar, name and plain text; the owner's own words are a compact
+	 * bubble on the right, with no name to read. A run of messages from one
+	 * author shares a single header. */
 	.conversation-message {
 		position: relative;
 		width: 100%;
 		min-width: 0;
 		display: grid;
-		gap: 3px;
-		padding: 12px 14px 8px;
+		gap: 4px;
+		padding: 10px 14px 4px;
 		border: 0;
-		border-bottom: 1px solid var(--border);
 		background: transparent;
 	}
 
-	/* Rules separate turns; nothing trails the last one, so a short conversation
-	 * ends on the rail surface rather than on a box edge. */
-	.conversation-message:last-of-type {
-		border-bottom-color: transparent;
+	.conversation-message.continued {
+		padding-top: 0;
 	}
 
-	/* The left edge is a signal, not a frame: it marks the two senders that are
-	 * not the default one. An agent message carries no stripe, so its background
-	 * starts flush with the rail header instead of looking inset by 2px. */
+	/* Everyone else's text lines up under their name, and a run reads as one
+	 * block. Actions float at the top right on hover instead of reserving a
+	 * row under every message. */
+	.conversation-message:not(.owner) :is(.message-body, .message-footer) {
+		padding-left: 31px;
+	}
 
+	@media (hover: hover) and (pointer: fine) {
+		.conversation-message:not(.owner) .message-footer {
+			position: absolute;
+			z-index: 1;
+			top: 6px;
+			right: 10px;
+			min-height: 0;
+			margin: 0;
+			padding: 0;
+		}
+
+		.conversation-message:not(.owner) .message-actions {
+			padding: 2px;
+			border-radius: var(--radius-control);
+			background: var(--surface-raised);
+			box-shadow:
+				0 0 0 1px var(--border),
+				0 2px 8px rgba(43, 51, 66, 0.08);
+		}
+	}
+
+	/* The owner's bubble sits right; its copy action waits beside it rather
+	 * than reserving a row beneath, so a run of bubbles stays tight. */
 	.conversation-message.owner {
-		background: var(--chat-owner-bg);
-		box-shadow: inset 2px 0 0 var(--chat-owner-edge);
+		grid-template-columns: minmax(15%, 1fr) minmax(0, auto);
+		column-gap: 6px;
 	}
+
+	.conversation-message.owner .message-meta {
+		grid-row: 1;
+		grid-column: 1 / -1;
+		justify-self: end;
+	}
+
+	.conversation-message.owner .message-body {
+		grid-row: 2;
+		grid-column: 2;
+	}
+
+	.conversation-message.owner .message-footer {
+		grid-row: 2;
+		grid-column: 1;
+		align-self: center;
+		justify-self: end;
+		min-height: 0;
+		margin: 0;
+	}
+
+	.conversation-message.owner .message-meta :is(.message-avatar, strong) {
+		display: none;
+	}
+
+	.conversation-message.owner .message-body {
+		max-width: 72ch;
+		padding: 8px 12px;
+		border-radius: 12px;
+		background: var(--chat-owner-bg);
+		color: var(--ink);
+	}
+
 
 	.conversation-message.system {
 		background: var(--chat-context-bg);
 		box-shadow: inset 2px 0 0 color-mix(in srgb, var(--intent-feedback) 42%, transparent);
 	}
 
-	.conversation-message.pending {
-		border-top: 1px solid var(--border);
+	.conversation-message.pending .message-body {
+		opacity: 0.72;
 	}
 
 	.conversation-message.embedded {
