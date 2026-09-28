@@ -424,3 +424,30 @@
 		left: calc(50% + 6px);
 	}
 }
+
+/* Keyboard users reach the page before the navigation. Hidden until focused. */
+.bridge-root .skip-link {
+	position: absolute;
+	top: var(--space-2);
+	left: var(--space-2);
+	z-index: var(--z-palette);
+	padding: 6px 12px;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius-control);
+	background: var(--surface-raised);
+	box-shadow: var(--shadow-lift);
+	color: var(--ink);
+	font-size: var(--t-body);
+	font-weight: 600;
+	text-decoration: none;
+	transform: translateY(-160%);
+	transition: transform var(--motion-state) var(--ease-out);
+}
+
+.bridge-root .skip-link:focus-visible {
+	transform: none;
+}
+
+.bridge-root .bridge-content:focus {
+	outline: none;
+}

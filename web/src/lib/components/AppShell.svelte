@@ -237,6 +237,7 @@
 <svelte:window onkeydown={onKeydown} />
 
 <div class="bridge-root" class:immersive inert={blocked} use:tooltips use:selectMenu>
+	<a class="skip-link" href="#main-content">Skip to content</a>
 	<header class="bridge-topbar" aria-label="Global navigation">
 		<div class="tb-brand">
 			<a class="tb-brand-home" href={homeHref} aria-label={`${PRODUCT_NAME} company home`}>
@@ -415,7 +416,7 @@
 		}}
 	>
 		<div class="bridge-workspace">
-			<main class="bridge-content">{@render children()}</main>
+			<main class="bridge-content" id="main-content" tabindex="-1">{@render children()}</main>
 		</div>
 		{#if rail}{@render rail()}{/if}
 	</div>

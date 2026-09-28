@@ -6,7 +6,11 @@
 	grid-template-columns: minmax(0, 1fr);
 	grid-template-rows: var(--topbar-h) minmax(0, 1fr);
 	gap: 6px;
-	padding: var(--app-gutter);
+	/* viewport-fit=cover lets the app use the whole phone screen; the gutter
+	 * grows to clear the notch, rounded corners and home indicator. */
+	padding: max(var(--app-gutter), env(safe-area-inset-top))
+		max(var(--app-gutter), env(safe-area-inset-right)) var(--app-gutter)
+		max(var(--app-gutter), env(safe-area-inset-left));
 	isolation: isolate;
 }
 
