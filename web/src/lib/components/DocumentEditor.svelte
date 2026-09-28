@@ -134,6 +134,19 @@
 		);
 	});
 	const statusLabel = $derived(documentCollaborationStateLabel(collaborationState));
+	/* Opening a document settles a few sync messages within ~100 ms. Say
+	 * "Saving…" only when changes are still waiting after 400 ms, so opening
+	 * reads Connecting → Saved and a real save still shows. */
+	let savingShown = $state(false);
+	const pendingSave = $derived(unsyncedChanges > 0 || saving);
+	$effect(() => {
+		if (!pendingSave) {
+			savingShown = false;
+			return;
+		}
+		const timer = window.setTimeout(() => (savingShown = true), 400);
+		return () => window.clearTimeout(timer);
+	});
 
 	function canonical(value: unknown): string {
 		if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
@@ -575,7 +588,7 @@
 				<RefreshCw class="spinning" size={14} strokeWidth={1.8} aria-hidden="true" />
 			{/if}
 			<span
-				>{unsyncedChanges > 0 || saving
+				>{savingShown
 					? 'Saving…'
 					: titleDirty
 						? 'Unsaved title'
