@@ -37,7 +37,7 @@ use rmcp::{
     },
     RoleClient, RoleServer, ServerHandler, ServiceExt,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use sqlx::PgPool;
 use tower::ServiceExt as _;
@@ -69,6 +69,8 @@ enum ReadRequest {
         limit: Option<u8>,
         #[serde(rename = "fastSearch")]
         fast_search: Option<bool>,
+        age: Option<MarketplaceSearchAge>,
+        sort: Option<MarketplaceSearchSort>,
     },
     MarketplaceDetails {
         urls: Vec<String>,
@@ -91,6 +93,23 @@ enum ReadRequest {
     },
 }
 
+#[derive(Deserialize, Serialize)]
+enum MarketplaceSearchAge {
+    #[serde(rename = "1d")]
+    OneDay,
+    #[serde(rename = "7d")]
+    SevenDays,
+    #[serde(rename = "any")]
+    Any,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum MarketplaceSearchSort {
+    Newest,
+    Relevance,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct MarketplaceSearchArgs {
@@ -98,6 +117,8 @@ struct MarketplaceSearchArgs {
     limit: Option<u8>,
     #[serde(rename = "fastSearch")]
     fast_search: Option<bool>,
+    age: Option<MarketplaceSearchAge>,
+    sort: Option<MarketplaceSearchSort>,
 }
 
 #[derive(Deserialize)]
@@ -207,6 +228,8 @@ fn safe_clapping_hands_status(result: &CallToolResult) -> &'static str {
         "access-restricted" => "access-restricted",
         "owner-paused" => "owner-paused",
         "runtime-busy" => "runtime-busy",
+        "queue-timeout" => "queue-timeout",
+        "invalid-listing-url" => "invalid-listing-url",
         "runtime-closed" => "runtime-closed",
         "saved-plan-changed" => "saved-plan-changed",
         "search-unverified" => "search-unverified",
@@ -264,16 +287,27 @@ fn valid_listing_url(raw: &str, site: &str) -> bool {
     }
 }
 
-// This exact canonical path is also enforced inside CH. A photo read must
-// never accept a signed CDN URL, a different page, or an item redirect.
-fn valid_marketplace_photo_url(raw: &str) -> bool {
-    let Some(id) = raw
-        .strip_prefix("https://www.facebook.com/marketplace/item/")
-        .and_then(|tail| tail.strip_suffix('/'))
-    else {
-        return false;
+// Normalize common copied item links before they cross the broker. Query and
+// fragment data are discarded; the destination remains one exact item path.
+fn canonical_marketplace_item_url(raw: &str) -> Option<String> {
+    let url = url::Url::parse(raw).ok()?;
+    if url.scheme() != "https"
+        || url.host_str() != Some("www.facebook.com")
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.port().is_some()
+    {
+        return None;
+    }
+    let parts = url.path().split('/').collect::<Vec<_>>();
+    let id = match parts.as_slice() {
+        ["", "marketplace", "item", id] | ["", "marketplace", "item", id, ""] => id,
+        _ => return None,
     };
-    (8..=20).contains(&id.len()) && id.bytes().all(|byte| byte.is_ascii_digit())
+    if !(8..=20).contains(&id.len()) || !id.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    Some(format!("https://www.facebook.com/marketplace/item/{id}/"))
 }
 
 fn is_gumtree_tool(name: &str) -> bool {
@@ -286,12 +320,14 @@ fn read_request_params(request: ReadRequest) -> Result<CallToolRequestParams> {
             query,
             limit,
             fast_search,
+            age,
+            sort,
         } => {
             let query = query.trim();
             if query.is_empty()
                 || query.encode_utf16().count() > 100
                 || query.chars().any(char::is_control)
-                || !limit.is_none_or(|limit| (1..=24).contains(&limit))
+                || !limit.is_none_or(|limit| (1..=48).contains(&limit))
             {
                 bail!("invalid Marketplace search request");
             }
@@ -299,16 +335,25 @@ fn read_request_params(request: ReadRequest) -> Result<CallToolRequestParams> {
             if let Some(fast_search) = fast_search {
                 arguments["fastSearch"] = serde_json::json!(fast_search);
             }
+            if let Some(age) = age {
+                arguments["age"] = serde_json::json!(age);
+            }
+            if let Some(sort) = sort {
+                arguments["sort"] = serde_json::json!(sort);
+            }
             ("clapping_hands_marketplace_search", arguments)
         }
         ReadRequest::MarketplaceDetails {
             urls,
             stream_details,
         } => {
+            let urls = urls
+                .iter()
+                .map(|url| canonical_marketplace_item_url(url))
+                .collect::<Option<Vec<_>>>()
+                .context("invalid Marketplace detail request")?;
             if !(1..=8).contains(&urls.len())
-                || !urls.iter().all(|url| valid_listing_url(url, "facebook"))
-                || urls.iter().collect::<std::collections::HashSet<_>>().len() != urls.len()
-            {
+                || urls.iter().collect::<std::collections::HashSet<_>>().len() != urls.len() {
                 bail!("invalid Marketplace detail request");
             }
             let mut arguments = serde_json::json!({"urls":urls});
@@ -318,10 +363,10 @@ fn read_request_params(request: ReadRequest) -> Result<CallToolRequestParams> {
             ("clapping_hands_marketplace_details", arguments)
         }
         ReadRequest::MarketplacePhoto { url, position } => {
-            if !valid_marketplace_photo_url(&url)
-                || !(position == "last"
-                    || position.as_u64().is_some_and(|index| (1..=12).contains(&index)))
-            {
+            let url = canonical_marketplace_item_url(&url)
+                .context("invalid Marketplace photo request")?;
+            if !(position == "last"
+                || position.as_u64().is_some_and(|index| (1..=12).contains(&index))) {
                 bail!("invalid Marketplace photo request");
             }
             (
@@ -382,6 +427,8 @@ fn validated_clapping_hands_params(params: CallToolRequestParams) -> Result<Call
                 query: args.query,
                 limit: args.limit,
                 fast_search: args.fast_search,
+                age: args.age,
+                sort: args.sort,
             }
         }
         "clapping_hands_marketplace_details" => {
