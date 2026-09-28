@@ -409,8 +409,10 @@ pub(crate) async fn report(daemon: &Daemon, company: &str) -> Result<serde_json:
         ContainerStatus::Running if daemon.runtime_bridges.is_hosted() => ("awake", Vec::new()),
         ContainerStatus::Running => ("awake", running_demand(daemon, company).await?),
         ContainerStatus::Stopped if runtime::is_sleeping(company) => {
+            // Only waking demand is meaningful for a sleeping computer.
             let org = daemon.orgintel.get(company).await?;
-            ("asleep", owed_demand(daemon, company, &org).await?)
+            let owed = owed_demand(daemon, company, &org).await?;
+            ("asleep", owed.into_iter().filter(|kind| kind.wakes()).collect())
         }
         ContainerStatus::Stopped => ("stopped", Vec::new()),
         ContainerStatus::Absent => ("absent", Vec::new()),
