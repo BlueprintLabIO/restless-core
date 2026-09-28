@@ -358,11 +358,16 @@
 <style>
 	/* The row is only a frame for the message's own shape (see
 	 * ConversationMessage): no rules, no band for the owner. */
+	/* Long rooms render only what is on screen: the browser skips layout and
+	 * paint for offscreen messages and remembers each one's real height once
+	 * seen (auto), so scrolling stays anchored. */
 	.room-message {
 		position: relative;
 		min-width: 0;
 		padding: 10px 16px 4px;
 		background: transparent;
+		content-visibility: auto;
+		contain-intrinsic-size: auto 56px;
 	}
 
 	.room-message.continued {

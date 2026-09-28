@@ -241,6 +241,13 @@
 		padding-top: 0;
 	}
 
+	/* The Exec rail's history renders only what is on screen (rooms do the
+	 * same on their own row, see RoomMessage). */
+	.conversation-message:not(.embedded) {
+		content-visibility: auto;
+		contain-intrinsic-size: auto 64px;
+	}
+
 	/* Everyone else's text lines up under their name, and a run reads as one
 	 * block. Actions float at the top right on hover instead of reserving a
 	 * row under every message. */
