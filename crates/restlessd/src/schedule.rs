@@ -27,6 +27,10 @@ const REPAIR_SWEEP_INTERVAL: Duration = Duration::from_secs(300);
 /// every cell twenty times a second until that external condition changes.
 const OVERDUE_RETRY_INTERVAL: Duration = Duration::from_secs(5);
 
+/// Shared operating instruction for Exec and accountable leads on a scheduled wake.
+/// The schedule provides an objective and a deadline, not a prewritten workflow.
+pub(crate) const OPPORTUNITY_AUTONOMY_GUIDANCE: &str = "Own this responsibility through an evidenced outcome within its window and your current authority. Choose the next useful action from live state; research, drafts, and diagnostics are intermediate, so continue to preparation, approval, or execution when warranted. After linked Work completes, inspect its result and commission the next bounded step or repair recoverable failure; link repair Work and leave the Opportunity open while it runs. Do not ask the owner merely to consider research or choose routine next steps you can judge yourself. Use an active mandate only for an evidence-backed match and the required one-use permit; never widen its limits or replay an uncertain external effect. Ask for owner attention only for a specific decision outside current authority after doing the independent work. If no safe useful action is due, settle with current evidence and say why; never infer a send from a draft or a completed agent turn.";
+
 /// Free-form Exec conversation liveness. Work custody is the running Attempt.
 pub(crate) type InFlight = Arc<Mutex<WakeClaims>>;
 
@@ -1090,11 +1094,12 @@ async fn run_exec_turn_with_lease(
         .ok_or_else(|| anyhow::anyhow!("claimed responsibility version disappeared"));
         let version = try_or_defer_claims!(version);
         opportunity_context.push(format!(
-            "Opportunity {} is claimed at epoch {}. Objective: {}. Authority and limits: {}. Inspect current state. Link any Work with `restless schedule link-work -c {} --opportunity {} --work <WORK_UUID> --owner-epoch {}`. Once the business outcome is supported, record it with `restless schedule outcome -c {} --opportunity {} --owner-epoch {} --state <completed|needs_human|blocked> --reason <REASON> --evidence work:<LINKED_WORK_UUID>` (or a real handoff/artifact reference). If policy lists required_outcome_areas, a completed outcome also needs a distinct completed linked Work for each area, supplied as `--area-evidence AREA=work:<WORK_UUID>` for each. If repair Work is already underway for a recoverable command, protocol, or Runtime failure, link that Work and leave this Opportunity unsettled for the Runtime's bounded retry; do not make a temporary repair a terminal blocker. If an area cannot be completed after bounded repair, report the exact blocker or owner decision instead of marking the whole responsibility completed. A completed agent turn alone does not complete the Opportunity.",
+            "Opportunity {} is claimed at epoch {}. Objective: {}. Authority and limits: {}. {} Link any Work with `restless schedule link-work -c {} --opportunity {} --work <WORK_UUID> --owner-epoch {}`. Once the business outcome is supported, record it with `restless schedule outcome -c {} --opportunity {} --owner-epoch {} --state <completed|needs_human|blocked> --reason <REASON> --evidence work:<LINKED_WORK_UUID>` (or a real handoff/artifact reference). If policy lists required_outcome_areas, a completed outcome also needs a distinct completed linked Work for each area, supplied as `--area-evidence AREA=work:<WORK_UUID>` for each. If an area cannot be completed after bounded repair, report the exact blocker or owner decision instead of marking the whole responsibility completed. A completed agent turn alone does not complete the Opportunity.",
             claim.opportunity_id,
             claim.owner_epoch,
             version.objective,
             version.policy,
+            OPPORTUNITY_AUTONOMY_GUIDANCE,
             config.name,
             claim.opportunity_id,
             claim.owner_epoch,

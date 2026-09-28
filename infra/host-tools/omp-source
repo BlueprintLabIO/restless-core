@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+tools_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source "$tools_dir/resolve-bun.sh"
+bun_bin="$(host_tools_find_bun "$tools_dir")" || {
+  printf 'A working Bun runtime is required for the OMP model gateway.\n' >&2
+  exit 1
+}
+exec "$bun_bin" "$tools_dir/node_modules/@oh-my-pi/pi-coding-agent/src/cli.ts" "$@"

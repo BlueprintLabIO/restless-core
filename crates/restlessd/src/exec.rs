@@ -324,15 +324,18 @@ pub async fn wake(
             // sessions deliberately do not use the fuse.
             .unwrap_or_default();
         let metered = auth.billing == crate::model_gateway::ModelBilling::MeteredApi;
+        let harness = config.coordination_harness;
         let mcp_servers = crate::connected_tool::session_servers(
             authority.pool(),
+            org,
+            capabilities,
             &config.name,
             "exec",
             None,
             None,
+            matches!(harness, crate::runtime::AgentHarness::Codex),
         )
         .await?;
-        let harness = config.coordination_harness;
         let outcome = match harness {
             crate::runtime::AgentHarness::RestlessManaged
             | crate::runtime::AgentHarness::ClaudeAgent
@@ -1340,10 +1343,9 @@ async fn gather_snapshot(
         crate::legal::safe_projection(authority, &config.name),
         authority.records_of_kind(&config.name, "effect"),
     )?;
-    let effect_ledger =
-        crate::reconcile::effect_ledger(authority, &config.name, &effect_records)
-            .await?
-            .summary();
+    let effect_ledger = crate::reconcile::effect_ledger(authority, &config.name, &effect_records)
+        .await?
+        .summary();
     let org_signals = health::organisational(spent_usd, &work, &effect_records)
         .into_iter()
         .map(|signal| format!("[{}] {}", signal.kind, signal.detail))

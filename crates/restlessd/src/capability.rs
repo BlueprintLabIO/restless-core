@@ -40,6 +40,7 @@ enum CapabilityKind {
     HostedRuntimeBridge,
     ActorSession,
     ModelSession,
+    McpSession,
 }
 
 /// The intentionally fixed claim shape. It is internal to this module so a
@@ -56,6 +57,14 @@ struct Claims {
     provider: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    mcp_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    mcp_pin: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    mcp_recurring_schedule_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    mcp_recurring_policy_revision: Option<Uuid>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     billing: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -116,6 +125,18 @@ pub(crate) struct ModelGrant {
     pub(crate) responsibility: String,
     pub(crate) work_id: Option<Uuid>,
     pub(crate) attempt_id: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct McpGrant {
+    pub(crate) company: String,
+    pub(crate) actor: String,
+    pub(crate) name: String,
+    pub(crate) pin: String,
+    pub(crate) work_id: Uuid,
+    pub(crate) attempt_id: Uuid,
+    pub(crate) recurring_schedule_id: Option<Uuid>,
+    pub(crate) recurring_policy_revision: Option<Uuid>,
 }
 
 /// Exact deployment identity bound into the hosted Runtime bridge grant.
@@ -199,6 +220,10 @@ impl CapabilityIssuer {
             actor: None,
             provider: None,
             model: None,
+            mcp_name: None,
+            mcp_pin: None,
+            mcp_recurring_schedule_id: None,
+            mcp_recurring_policy_revision: None,
             billing: None,
             responsibility: None,
             work_id: None,
@@ -233,6 +258,10 @@ impl CapabilityIssuer {
             actor: None,
             provider: None,
             model: None,
+            mcp_name: None,
+            mcp_pin: None,
+            mcp_recurring_schedule_id: None,
+            mcp_recurring_policy_revision: None,
             billing: None,
             responsibility: None,
             work_id: None,
@@ -322,6 +351,10 @@ impl CapabilityIssuer {
             actor: Some(actor.to_string()),
             provider: None,
             model: None,
+            mcp_name: None,
+            mcp_pin: None,
+            mcp_recurring_schedule_id: None,
+            mcp_recurring_policy_revision: None,
             billing: None,
             responsibility: None,
             work_id,
@@ -339,6 +372,107 @@ impl CapabilityIssuer {
             model_credential_reference: None,
             session: session.to_string(),
             expires_at: Utc::now() + SESSION_TTL,
+        })
+    }
+
+    /// One host MCP name for one productive Attempt. The tool gateway checks
+    /// current Attempt and connection state on every request, so disabling a
+    /// connection or interrupting Work revokes an already-issued grant.
+    pub(crate) fn issue_mcp_session(
+        &self,
+        company: &str,
+        actor: &str,
+        name: &str,
+        pin: &str,
+        work_id: Uuid,
+        attempt_id: Uuid,
+    ) -> Result<String> {
+        self.issue_mcp_scoped_session(company, actor, name, pin, work_id, attempt_id, None)
+    }
+
+    pub(crate) fn issue_mcp_recurring_session(
+        &self,
+        company: &str,
+        actor: &str,
+        name: &str,
+        pin: &str,
+        work_id: Uuid,
+        attempt_id: Uuid,
+        schedule_id: Uuid,
+        policy_revision: Uuid,
+    ) -> Result<String> {
+        self.issue_mcp_scoped_session(
+            company,
+            actor,
+            name,
+            pin,
+            work_id,
+            attempt_id,
+            Some((schedule_id, policy_revision)),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn issue_mcp_scoped_session(
+        &self,
+        company: &str,
+        actor: &str,
+        name: &str,
+        pin: &str,
+        work_id: Uuid,
+        attempt_id: Uuid,
+        recurring: Option<(Uuid, Uuid)>,
+    ) -> Result<String> {
+        self.issue(Claims {
+            version: 1,
+            kind: CapabilityKind::McpSession,
+            company: company.to_string(),
+            actor: Some(actor.to_string()),
+            provider: None,
+            model: None,
+            mcp_name: Some(name.to_string()),
+            mcp_pin: Some(pin.to_string()),
+            mcp_recurring_schedule_id: recurring.map(|value| value.0),
+            mcp_recurring_policy_revision: recurring.map(|value| value.1),
+            billing: None,
+            responsibility: None,
+            work_id: Some(work_id),
+            attempt_id: Some(attempt_id),
+            owner_id: None,
+            plane_id: None,
+            company_id: None,
+            cell_id: None,
+            runtime_id: None,
+            runtime_generation: None,
+            credential_epoch: None,
+            runtime_image: None,
+            volume_name: None,
+            source_revision: None,
+            model_credential_reference: None,
+            session: format!("mcp-{}", Uuid::new_v4().simple()),
+            expires_at: Utc::now() + SESSION_TTL,
+        })
+    }
+
+    pub(crate) fn verify_mcp(&self, token: &str) -> Result<McpGrant> {
+        let claims = self.verify(token)?;
+        if claims.kind != CapabilityKind::McpSession {
+            bail!("a non-MCP capability cannot call the MCP gateway");
+        }
+        if claims.mcp_recurring_schedule_id.is_some()
+            != claims.mcp_recurring_policy_revision.is_some()
+        {
+            bail!("incomplete recurring MCP grant");
+        }
+        Ok(McpGrant {
+            company: claims.company,
+            actor: claims.actor.context("MCP grant has no actor")?,
+            name: claims.mcp_name.context("MCP grant has no name")?,
+            pin: claims.mcp_pin.context("MCP grant has no tool contract pin")?,
+            work_id: claims.work_id.context("MCP grant has no Work")?,
+            attempt_id: claims.attempt_id.context("MCP grant has no Attempt")?,
+            recurring_schedule_id: claims.mcp_recurring_schedule_id,
+            recurring_policy_revision: claims.mcp_recurring_policy_revision,
         })
     }
 
@@ -380,6 +514,10 @@ impl CapabilityIssuer {
             actor: Some(actor.to_string()),
             provider: Some(provider.to_string()),
             model: Some(model.to_string()),
+            mcp_name: None,
+            mcp_pin: None,
+            mcp_recurring_schedule_id: None,
+            mcp_recurring_policy_revision: None,
             billing: Some(billing.to_string()),
             responsibility: Some(responsibility.to_string()),
             work_id,
@@ -411,6 +549,7 @@ impl CapabilityIssuer {
                 .actor
                 .context("actor session capability is missing its actor")?,
             CapabilityKind::ModelSession => bail!("a model capability cannot call coordination"),
+            CapabilityKind::McpSession => bail!("an MCP capability cannot call coordination"),
         };
         Ok(CoordinationGrant {
             company: claims.company,
@@ -526,6 +665,9 @@ fn validate_claims(claims: &Claims) -> Result<()> {
             bail!("capability model is invalid");
         }
     }
+    if let Some(name) = &claims.mcp_name {
+        validate_identifier("mcp_name", name)?;
+    }
     if let Some(billing) = &claims.billing {
         if !matches!(billing.as_str(), "metered_api" | "subscription") {
             bail!("capability billing policy is invalid");
@@ -585,6 +727,7 @@ fn validate_claims(claims: &Claims) -> Result<()> {
             if claims.actor.is_some()
                 || claims.provider.is_some()
                 || claims.model.is_some()
+                || claims.mcp_name.is_some()
                 || claims.billing.is_some()
                 || claims.responsibility.is_some()
                 || claims.work_id.is_some()
@@ -598,6 +741,7 @@ fn validate_claims(claims: &Claims) -> Result<()> {
             if claims.actor.is_some()
                 || claims.provider.is_some()
                 || claims.model.is_some()
+                || claims.mcp_name.is_some()
                 || claims.billing.is_some()
                 || claims.responsibility.is_some()
                 || claims.work_id.is_some()
@@ -620,6 +764,7 @@ fn validate_claims(claims: &Claims) -> Result<()> {
             if claims.actor.is_none()
                 || claims.provider.is_some()
                 || claims.model.is_some()
+                || claims.mcp_name.is_some()
                 || claims.billing.is_some()
                 || claims.responsibility.is_some()
                 || any_hosted
@@ -634,6 +779,7 @@ fn validate_claims(claims: &Claims) -> Result<()> {
             if claims.actor.is_none()
                 || claims.provider.is_none()
                 || claims.model.is_none()
+                || claims.mcp_name.is_some()
                 || claims.billing.is_none()
                 || claims.responsibility.is_none()
                 || any_hosted
@@ -642,6 +788,21 @@ fn validate_claims(claims: &Claims) -> Result<()> {
             }
             if claims.attempt_id.is_some() != claims.work_id.is_some() {
                 bail!("model capability must pair Work and Attempt coordinates");
+            }
+        }
+        CapabilityKind::McpSession => {
+            if claims.actor.is_none()
+                || claims.mcp_name.is_none()
+                || claims.work_id.is_none()
+                || claims.attempt_id.is_none()
+                || claims.provider.is_some()
+                || claims.model.is_some()
+                || claims.billing.is_some()
+                || claims.responsibility.is_some()
+                || claims.model_credential_reference.is_some()
+                || any_hosted
+            {
+                bail!("MCP capability has an invalid scope");
             }
         }
     }
@@ -796,6 +957,10 @@ mod tests {
                 actor: Some("delivery-lead".into()),
                 provider: Some("moonshot".into()),
                 model: Some("moonshot/kimi-k3".into()),
+                mcp_name: None,
+                mcp_pin: None,
+                mcp_recurring_schedule_id: None,
+                mcp_recurring_policy_revision: None,
                 billing: Some("metered_api".into()),
                 responsibility: Some("work:delivery".into()),
                 work_id: None,

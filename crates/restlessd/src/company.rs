@@ -11,7 +11,9 @@ use chrono::{DateTime, Utc};
 use restless_orgintel::{ArtifactRefRow, ScheduleRow};
 use serde::Serialize;
 
-use crate::{airwallex, approval, credential, finance, legal, reconcile, runtime, Daemon};
+use crate::{
+    airwallex, approval, connected_tool, credential, finance, legal, reconcile, runtime, Daemon,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -281,6 +283,8 @@ struct AuthorityProjection {
     effect_receipts: Vec<crate::authority::AuthorityRecord>,
     effect_intents: Vec<crate::authority::AuthorityRecord>,
     reconciliations: Vec<crate::authority::AuthorityRecord>,
+    email_reservations: Vec<crate::authority::AuthorityRecord>,
+    email_statuses: Vec<crate::authority::AuthorityRecord>,
     legal_profile: Option<legal::LegalProfile>,
     provider: Option<airwallex::Connection>,
     envelopes: Vec<finance::MoneyEnvelope>,
@@ -458,12 +462,15 @@ pub(crate) async fn project(
             .unwrap_or_default(),
     };
 
+    let local_mcp = connected_tool::local_mcp_list(daemon.authority.pool(), &config.name).await;
     let resources = resources(
         config,
         authority.as_ref(),
         runtime_doctor.as_ref(),
         &artifacts,
         &schedules,
+        local_mcp.as_deref().unwrap_or_default(),
+        local_mcp.as_ref().err().map(|error| format!("{error:#}")),
         probe_credentials,
     )
     .await;
@@ -642,6 +649,8 @@ async fn read_authority(daemon: &Daemon, company: &str) -> Result<AuthorityProje
         effect_receipts,
         effect_intents,
         reconciliations,
+        email_reservations,
+        email_statuses,
         legal_profile,
         provider,
         envelopes,
@@ -655,6 +664,8 @@ async fn read_authority(daemon: &Daemon, company: &str) -> Result<AuthorityProje
         daemon
             .authority
             .records_of_kind(company, "effect_reconciled"),
+        daemon.authority.records_of_kind(company, "email_send_reserved"),
+        daemon.authority.records_of_kind(company, "email_send_status"),
         legal::get_profile(&daemon.authority, company),
         airwallex::connection(&daemon.authority, company),
         finance::envelopes(&daemon.authority, company),
@@ -667,6 +678,8 @@ async fn read_authority(daemon: &Daemon, company: &str) -> Result<AuthorityProje
         effect_receipts,
         effect_intents,
         reconciliations,
+        email_reservations,
+        email_statuses,
         legal_profile,
         provider,
         envelopes,
@@ -703,6 +716,8 @@ async fn resources(
     doctor: Option<&runtime::RuntimeDoctor>,
     artifacts: &[ArtifactRefRow],
     schedules: &[ScheduleRow],
+    local_mcp: &[connected_tool::LocalMcpServer],
+    local_mcp_error: Option<String>,
     probe_credentials: bool,
 ) -> Resources {
     let observed_at = Utc::now();
@@ -1120,10 +1135,100 @@ async fn resources(
         });
     }
 
+    for connection in local_mcp {
+        let public_read = connection.transport == "public_http";
+        let status = if !connection.enabled {
+            "disabled"
+        } else if connection.failure.is_some()
+            || matches!(
+                connection.last_read_status.as_deref(),
+                Some(
+                    "auth-required"
+                        | "authentication-required"
+                        | "blocked"
+                        | "access-restricted"
+                        | "profile-recovery-required"
+                        | "profile-in-use"
+                        | "search-unverified"
+                        | "task-failed"
+                        | "unavailable"
+                        | "tool_error"
+                )
+            )
+        {
+            "degraded"
+        } else if connection.last_observed_at.is_some() {
+            "ready"
+        } else {
+            "disconnected"
+        };
+        items.push(ResourceRow {
+            id: format!("mcp:{}", connection.name),
+            label: if connection.name == "clapping-hands" { "Clapping Hands".into() }
+                else if connection.name == "deepwiki" { "DeepWiki".into() }
+                else { connection.name.clone() },
+            kind: "mcp_connection",
+            source: "authority",
+            status: status.into(),
+            observed_at: connection.last_observed_at.unwrap_or(observed_at),
+            detail: Some(match status {
+                "ready" if public_read => "Public MCP tool discovered. A returned wiki structure is unverified provider content.",
+                "ready" if connection.transport == "broker_stdio" && connection.last_success_at.is_some() =>
+                    "Sandboxed filesystem MCP completed a live Staff read. Review Core receipts for the exact call.",
+                "ready" if connection.transport == "broker_stdio" => "Sandboxed filesystem MCP connected. A live Staff Attempt read is needed to verify this connection.",
+                "ready" if connection.last_success_at.is_some() =>
+                    "MCP tool discovery and a live read were observed. Review Core receipts for the exact site and outcome.",
+                "ready" => "MCP connection reached and tools discovered. Site login is only verified by a successful live read.",
+                "disabled" => "Owner disabled this MCP connection; new calls are rejected.",
+                "degraded" if public_read => "Public MCP connection or latest tool call needs attention.",
+                "degraded" if connection.transport == "broker_stdio" => "Sandboxed filesystem MCP or latest local file read needs attention. Review Core read receipts.",
+                "degraded" => "MCP connection or latest site read needs attention.",
+                _ => "MCP connection has not completed live tool discovery.",
+            }.into()),
+            metadata: Some(serde_json::json!({
+                "name": connection.name,
+                "browser_owner": if connection.name == "clapping-hands" { Some("CH") } else { None },
+                "transport": connection.transport,
+                "authentication": if public_read || connection.transport == "broker_stdio" { "none" } else if connection.transport == "host_http" { "host_bearer" } else { "local" },
+                "read_profile": connection.read_profile,
+                "target_repository": connection.target_repository,
+                "receipt_command": if public_read || connection.transport == "host_http" || connection.transport == "broker_stdio" {
+                    Some(format!("restless local-mcp -c {} receipts --name {}", config.name, connection.name))
+                } else { None },
+                "assigned_actor": connection.assigned_actor,
+                "work_id": connection.assigned_work_id,
+                "allowed_tools": connection.allowed_tools,
+                "max_calls_per_work": connection.max_calls_per_work,
+                "observed_tools": connection.observed_tools,
+                "tool_contract_digest": connection.tool_contract_digest,
+                "server_version": connection.server_version,
+                "last_observed_at": connection.last_observed_at,
+                "last_success_at": connection.last_success_at,
+                "last_read_status": connection.last_read_status,
+                "last_read_site": connection.last_read_site,
+                "last_read_tool": connection.last_read_tool,
+                "failure": connection.failure,
+            })),
+            launch: None,
+        });
+    }
+    if let Some(error) = local_mcp_error.as_ref() {
+        items.push(ResourceRow {
+            id: "mcp:unavailable".into(),
+            label: "MCP connections".into(),
+            kind: "mcp_connection",
+            source: "authority",
+            status: "degraded".into(),
+            observed_at,
+            detail: Some("Could not read MCP connection status.".into()),
+            metadata: Some(serde_json::json!({"failure": error})),
+            launch: None,
+        });
+    }
     Resources {
         status: if authority.is_none() && doctor.is_none() {
             "unavailable"
-        } else if authority.is_none() || doctor.is_none() {
+        } else if authority.is_none() || doctor.is_none() || local_mcp_error.is_some() {
             "partial"
         } else {
             "available"
@@ -1204,6 +1309,39 @@ fn actions(authority: Option<&AuthorityProjection>) -> ExternalActions {
                 observed_at: row.created_at,
             }),
     );
+    let mut latest_email_status = std::collections::BTreeMap::new();
+    for status in &authority.email_statuses {
+        if let Some(id) = status.body.get("permit_id").and_then(serde_json::Value::as_str) {
+            latest_email_status.insert(id.to_owned(), status);
+        }
+    }
+    items.extend(authority.email_reservations.iter().rev().take(50).filter_map(|reservation| {
+        let permit_id = reservation.body.get("permit_id")?.as_str()?;
+        let status = latest_email_status.get(permit_id);
+        let outcome = status
+            .and_then(|record| record.body.get("outcome"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown");
+        let (state, evidence, detail) = match outcome {
+            "confirmed_sent" => ("succeeded", "provider_confirmed", "Resend accepted the email; delivery is unconfirmed."),
+            "confirmed_not_sent" => ("failed", "provider_confirmed", "Resend did not accept the email."),
+            _ => ("unknown", "authority_recorded", "The email send outcome needs reconciliation; do not retry."),
+        };
+        Some(ExternalActionRow {
+            id: format!("email:{permit_id}"),
+            title: "Outbound email".into(),
+            effect_class: "customer-contact.email".into(),
+            source: "authority_provider",
+            state: state.into(),
+            evidence,
+            actor: Some("exec".into()),
+            party: reservation.body.get("recipient").and_then(serde_json::Value::as_str).map(str::to_owned),
+            receipt_ref: status.and_then(|record| record.body.get("provider_ref"))
+                .and_then(serde_json::Value::as_str).map(str::to_owned),
+            detail: Some(detail.into()),
+            observed_at: status.map(|record| record.created_at).unwrap_or(reservation.created_at),
+        })
+    }));
     items.extend(authority.payments.iter().map(|payment| {
         let confirmed =
             payment.provider_transfer_id.is_some() || payment.raw_provider_status.is_some();

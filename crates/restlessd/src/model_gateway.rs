@@ -42,6 +42,7 @@ const RELAY_RUNTIME_URL: &str = "http://host.docker.internal:7790";
 const MODEL_CAPABILITY_ENV: &str = "RESTLESS_MODEL_CAPABILITY";
 const DISABLED_LOCAL_DISCOVERY_URL: &str = "http://127.0.0.1:1/v1";
 pub(crate) const HOSTED_MODEL_GATEWAY_PREFIX: &str = "/internal/v1/model-gateway";
+pub(crate) const RUNTIME_RELAY_PORT: u16 = 7790;
 pub(crate) const RESPONSES_TARIFF_VERSION: &str = "openai-gpt-6-standard-2026-09-26";
 pub(crate) const ANTHROPIC_TARIFF_VERSION: &str = "anthropic-list-2026-05-12";
 
@@ -63,7 +64,7 @@ impl GatewayEndpoints {
         let offset = crate::port_offset()?;
         let broker_port = crate::port_with_offset(7789)?;
         let gateway_port = crate::port_with_offset(7796)?;
-        let relay_port = crate::port_with_offset(7790)?;
+        let relay_port = crate::port_with_offset(RUNTIME_RELAY_PORT)?;
         let profile_suffix = (offset != 0).then(|| format!("-{offset}"));
         Ok(Self {
             broker_profile: format!(
@@ -604,6 +605,7 @@ pub async fn start(
     root: &std::path::Path,
     capabilities: crate::capability::CapabilityIssuer,
     spend: crate::spend::SpendLedger,
+    local_mcp_daemon: Option<std::sync::Arc<crate::Daemon>>,
 ) -> Result<Option<Processes>> {
     sweep_orphaned_model_children(root)?;
     let endpoints = GatewayEndpoints::from_env()?;
@@ -852,7 +854,8 @@ pub async fn start(
             .build()
             .context("build Runtime model relay client")?,
     };
-    let relay = start_runtime_relay(relay_state.clone(), &endpoints.relay_bind).await?;
+    let relay = start_runtime_relay(relay_state.clone(), &endpoints.relay_bind, local_mcp_daemon)
+        .await?;
     match (CLIENT.write(), HOSTED_RELAY_STATE.write()) {
         (Ok(mut client), Ok(mut hosted)) => {
             *client = Some(ClientConfig {
@@ -1307,11 +1310,12 @@ fn direct_anthropic_routes(
 async fn start_runtime_relay(
     state: RelayState,
     relay_bind: &str,
+    local_mcp_daemon: Option<std::sync::Arc<crate::Daemon>>,
 ) -> Result<tokio::task::JoinHandle<()>> {
     let listener = tokio::net::TcpListener::bind(relay_bind)
         .await
         .with_context(|| format!("bind Runtime model relay {relay_bind}"))?;
-    let app = Router::new()
+    let model_app = Router::new()
         .route("/v1/models", get(relay_models))
         .route("/v1/pi/stream", post(relay_pi_stream))
         .route("/v1/responses", post(relay_responses))
@@ -1322,8 +1326,17 @@ async fn start_runtime_relay(
         )
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
         .with_state(state);
+    let app = match local_mcp_daemon {
+        Some(daemon) => model_app.merge(crate::mcp_gateway::router(daemon)),
+        None => model_app,
+    };
     Ok(tokio::spawn(async move {
-        if let Err(error) = axum::serve(listener, app).await {
+        if let Err(error) = axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
+        {
             tracing::error!("Runtime model relay stopped: {error}");
         }
     }))
@@ -1351,8 +1364,8 @@ async fn relay_models(State(state): State<RelayState>, headers: HeaderMap) -> Re
             );
         }
     };
-    if live_company_model_grant(&state.root, &grant).await.is_err() {
-        return relay_error(StatusCode::FORBIDDEN, "company model access was removed");
+    if let Err(error) = live_company_model_grant(&state.root, &grant).await {
+        return relay_model_grant_error(error);
     }
     let (_, model_id) = match split_model(&grant.model) {
         Ok(parts) => parts,
@@ -1420,7 +1433,7 @@ async fn relay_pi_stream(
     }
     let config = match live_company_model_grant(&state.root, &grant).await {
         Ok(config) => config,
-        Err(_) => return relay_error(StatusCode::FORBIDDEN, "company model access was removed"),
+        Err(error) => return relay_model_grant_error(error),
     };
     let billing = match grant.billing.as_str() {
         "metered_api" => ModelBilling::MeteredApi,
@@ -1560,6 +1573,61 @@ async fn relay_responses(
             "Runtime Responses requests must stream for terminal accounting",
         );
     }
+    // Tool names are safe operational metadata. This makes an MCP handshake
+    // distinguishable from tools actually advertised to the model, without
+    // recording prompts, schemas, arguments, capabilities, or response bodies.
+    if grant.work_id.is_some() {
+        let tools = request
+            .get("tools")
+            .and_then(serde_json::Value::as_array);
+        let names = tools
+            .into_iter()
+            .flatten()
+            .filter_map(|tool| tool.get("name").and_then(serde_json::Value::as_str))
+            .collect::<Vec<_>>();
+        let types = tools
+            .into_iter()
+            .flatten()
+            .filter_map(|tool| tool.get("type").and_then(serde_json::Value::as_str))
+            .collect::<Vec<_>>();
+        let mcp_names = names
+            .iter()
+            .copied()
+            .filter(|name| name.starts_with("mcp__"))
+            .collect::<Vec<_>>();
+        let mcp_child_names = tools
+            .into_iter()
+            .flatten()
+            .filter(|tool| {
+                tool.get("type").and_then(serde_json::Value::as_str) == Some("namespace")
+                    && tool
+                        .get("name")
+                        .and_then(serde_json::Value::as_str)
+                        .is_some_and(|name| name.starts_with("mcp__"))
+            })
+            .flat_map(|tool| {
+                tool.get("tools")
+                    .and_then(serde_json::Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|child| child.get("name").and_then(serde_json::Value::as_str))
+            })
+            .collect::<Vec<_>>();
+        tracing::info!(
+            company = %grant.company,
+            actor = %grant.actor,
+            work_id = ?grant.work_id,
+            attempt_id = ?grant.attempt_id,
+            tool_count = tools.map_or(0, Vec::len),
+            function_tool_count = types.iter().filter(|kind| **kind == "function").count(),
+            mcp_descriptor_count = types.iter().filter(|kind| **kind == "mcp").count(),
+            mcp_tool_names = ?mcp_names,
+            mcp_child_tool_names = ?mcp_child_names,
+            tool_search_present = types.contains(&"tool_search")
+                || names.iter().any(|name| name.contains("tool_search")),
+            "Runtime Responses tool catalogue"
+        );
+    }
     // The host gateway catalogue names custom routes by provider-qualified id;
     // Codex correctly uses the provider-local id on the OpenAI wire.
     request["model"] = serde_json::Value::String(grant.model.clone());
@@ -1576,7 +1644,7 @@ async fn relay_responses(
     }
     let config = match live_company_model_grant(&state.root, &grant).await {
         Ok(config) => config,
-        Err(_) => return relay_error(StatusCode::FORBIDDEN, "company model access was removed"),
+        Err(error) => return relay_model_grant_error(error),
     };
     let billing = match grant.billing.as_str() {
         "metered_api" => ModelBilling::MeteredApi,
@@ -1746,7 +1814,7 @@ async fn relay_anthropic_messages(
     }
     let config = match live_company_model_grant(&state.root, &grant).await {
         Ok(config) => config,
-        Err(_) => return relay_error(StatusCode::FORBIDDEN, "company model access was removed"),
+        Err(error) => return relay_model_grant_error(error),
     };
     if grant.billing == "metered_api" {
         let budget = state.spend.budget_state(&config);
@@ -1853,8 +1921,8 @@ async fn relay_anthropic_count_tokens(
             )
         }
     };
-    if live_company_model_grant(&state.root, &grant).await.is_err() {
-        return relay_error(StatusCode::FORBIDDEN, "company model access was removed");
+    if let Err(error) = live_company_model_grant(&state.root, &grant).await {
+        return relay_model_grant_error(error);
     }
     let (provider, model_id) = match split_model(&grant.model) {
         Ok(parts) => parts,
@@ -2105,6 +2173,17 @@ fn requested_model(request: &serde_json::Value) -> Option<&str> {
 /// A signed session proves who asked and which model it may use. The current
 /// company configuration decides whether that provider is still available.
 /// Checking here makes removal effective for an already-running session too.
+#[derive(Debug)]
+struct BrokerIdentityUnavailable;
+
+impl std::fmt::Display for BrokerIdentityUnavailable {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("host model account broker is temporarily unavailable")
+    }
+}
+
+impl std::error::Error for BrokerIdentityUnavailable {}
+
 async fn live_company_model_grant(
     root: &Path,
     grant: &crate::capability::ModelGrant,
@@ -2135,7 +2214,9 @@ async fn live_company_model_grant(
             if reference.starts_with("omp-oauth:") {
                 let expected = crate::owner::account_oauth_key(root, &grant.provider, reference)?
                     .context("account OAuth connection has no verified identity")?;
-                let actual = oauth_account_key(&grant.provider).await?
+                let actual = oauth_account_key(&grant.provider)
+                    .await
+                    .map_err(|_| BrokerIdentityUnavailable)?
                     .context("host broker has no unique provider account identity")?;
                 if actual != expected {
                     bail!("host provider account changed since this company was granted access");
@@ -2144,6 +2225,56 @@ async fn live_company_model_grant(
         }
     }
     Ok(config)
+}
+
+fn relay_model_grant_error(error: anyhow::Error) -> Response<Body> {
+    if error.downcast_ref::<BrokerIdentityUnavailable>().is_some() {
+        tracing::warn!(class = "host_model_broker_unavailable", "model grant probe unavailable");
+        relay_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "company model account broker is temporarily unavailable",
+        )
+    } else {
+        relay_error(StatusCode::FORBIDDEN, "company model access was removed")
+    }
+}
+
+/// Owner-only cooldown repair may proceed only after the currently configured
+/// OAuth account identity agrees with the durable owner registry. A matching
+/// identity does not assert that an upstream inference call will succeed; the
+/// cooldown deletion separately requires this relay's exact 403 marker.
+pub(crate) async fn verify_owner_model_account(
+    root: &Path,
+    company: &str,
+    model: &str,
+) -> Result<()> {
+    let config = CompanyConfig::load(root, company)?;
+    if config.model != model {
+        bail!("model cooldown repair requires the company's exact primary model");
+    }
+    let (provider, _) = split_model(model)?;
+    let scoped = format!("model.inference.{provider}");
+    let reference = config
+        .credentials
+        .get(&scoped)
+        .context("company has no scoped model connection")?;
+    if !reference.starts_with("omp-oauth:") {
+        bail!("model cooldown repair requires a registered OAuth account");
+    }
+    let grant = crate::capability::ModelGrant {
+        company: company.to_string(),
+        actor: "owner-model-probe".to_string(),
+        session: "owner-model-probe".to_string(),
+        provider: provider.to_string(),
+        credential_reference: Some(reference.clone()),
+        model: model.to_string(),
+        billing: "subscription".to_string(),
+        responsibility: "owner-model-probe".to_string(),
+        work_id: None,
+        attempt_id: None,
+    };
+    live_company_model_grant(root, &grant).await?;
+    Ok(())
 }
 
 fn relay_error(status: StatusCode, message: &str) -> Response<Body> {
@@ -2349,6 +2480,24 @@ impl MeteredStream {
                 }
             }
             MeteringProtocol::OpenAiResponses => {
+                if self.request.work_id.is_some()
+                    && event.get("type").and_then(serde_json::Value::as_str)
+                        == Some("response.output_item.done")
+                    && event.pointer("/item/type").and_then(serde_json::Value::as_str)
+                        == Some("function_call")
+                {
+                    tracing::info!(
+                        company = %self.request.company,
+                        actor = %self.request.actor,
+                        work_id = ?self.request.work_id,
+                        attempt_id = ?self.request.attempt_id,
+                        namespace = ?event.pointer("/item/namespace")
+                            .and_then(serde_json::Value::as_str),
+                        tool_name = ?event.pointer("/item/name")
+                            .and_then(serde_json::Value::as_str),
+                        "Runtime Responses function call"
+                    );
+                }
                 match event.get("type").and_then(serde_json::Value::as_str) {
                     Some("response.completed") => {
                         self.record_responses_terminal(event.pointer("/response/usage"));
@@ -2822,7 +2971,7 @@ pub(crate) async fn oauth_account_key(provider: &str) -> Result<Option<String>> 
         .map_err(|_| anyhow::anyhow!("host model broker state is unavailable"))?
         .clone()
         .context("host model broker is not running")?;
-    let http = reqwest::Client::builder().timeout(Duration::from_secs(2)).build()?;
+    let http = reqwest::Client::builder().timeout(Duration::from_secs(5)).build()?;
     let snapshot = broker_snapshot(&http, &access.token, &access.url).await?;
     let rows = snapshot.credentials.iter()
         .filter(|credential| credential.provider == provider && credential.is_oauth())

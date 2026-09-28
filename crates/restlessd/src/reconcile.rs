@@ -61,13 +61,18 @@ impl EffectLedger {
     #[must_use]
     pub fn summary(&self) -> String {
         if self.total == 0 {
+            let unknown = if self.unknown_outcomes > 0 {
+                format!(" · {} outcome(s) need reconciliation", self.unknown_outcomes)
+            } else {
+                String::new()
+            };
             return if self.legacy_unverified > 0 {
                 format!(
-                    "no governed external effects recorded yet · {} legacy unverified record(s) excluded",
-                    self.legacy_unverified
+                    "no governed external effects recorded yet{unknown} · {} legacy unverified record(s) excluded",
+                    self.legacy_unverified,
                 )
             } else {
-                "no governed external effects recorded yet".to_string()
+                format!("no governed external effects recorded yet{unknown}")
             };
         }
         let mut parts: Vec<String> = self
@@ -96,7 +101,7 @@ impl EffectLedger {
         }
         if self.unknown_outcomes > 0 {
             parts.push(format!(
-                "{} receipt(s) with an unrecognised status",
+                "{} outcome(s) needing reconciliation",
                 self.unknown_outcomes
             ));
         }
@@ -185,6 +190,41 @@ pub(crate) async fn effect_ledger(
                 }
                 None => ledger.unattributable_payments += 1,
             }
+        }
+    }
+    // Typed host-side email has its own Authority reservation and provider
+    // status. Count only provider-accepted sends as successes; an unobserved
+    // status remains uncertain, never inferred from the reservation.
+    let (email_reservations, email_statuses) = tokio::try_join!(
+        authority.records_of_kind(company, "email_send_reserved"),
+        authority.records_of_kind(company, "email_send_status"),
+    )?;
+    let mut latest_email_status = BTreeMap::new();
+    for event in email_statuses {
+        if let Some(id) = event.body.get("permit_id").and_then(serde_json::Value::as_str) {
+            latest_email_status.insert(id.to_owned(), event.body);
+        }
+    }
+    for reservation in email_reservations {
+        let Some(id) = reservation.body.get("permit_id").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        match latest_email_status
+            .get(id)
+            .and_then(|body| body.get("outcome"))
+            .and_then(serde_json::Value::as_str)
+        {
+            Some("confirmed_sent") => {
+                ledger.total += 1;
+                ledger.by_capability.entry("customer-contact.email".into()).or_default().total += 1;
+            }
+            Some("confirmed_not_sent") => {
+                ledger.total += 1;
+                let tally = ledger.by_capability.entry("customer-contact.email".into()).or_default();
+                tally.total += 1;
+                tally.failed += 1;
+            }
+            _ => ledger.unknown_outcomes += 1,
         }
     }
     let (intents, replays, party_repeats) = tokio::try_join!(

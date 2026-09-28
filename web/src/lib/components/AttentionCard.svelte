@@ -56,6 +56,9 @@
 	const base = $derived(`/${encodeURIComponent(companyId)}?item=${encodeURIComponent(item.id)}`);
 	const grant = $derived(item.actions.find((a) => a.id === 'grant'));
 	const decline = $derived(item.actions.find((a) => a.id === 'decline'));
+	const emailMandateProposal = $derived(item.source.kind === 'email_mandate_proposal');
+	const approveEmailMandate = $derived(item.actions.find((a) => a.id === 'approve-email-mandate'));
+	const declineEmailMandate = $derived(item.actions.find((a) => a.id === 'decline-email-mandate'));
 	const record = $derived(item.actions.find((a) => a.id === 'record-decision'));
 	const open = $derived(item.actions.find((a) => a.id === 'open-outcome'));
 	const review = $derived(item.actions.some((a) => a.id === 'accept-review'));
@@ -75,13 +78,41 @@
 			return undefined;
 		}
 	});
-	async function act(kind: 'grant' | 'decline' | 'decision') {
+	async function act(
+		kind: 'grant' | 'decline' | 'decision' | 'approve-email-mandate' | 'decline-email-mandate'
+	) {
 		if (acting) return;
 		acting = true;
-		actionStatus = kind === 'grant' ? 'Saving approval…' : 'Saving decision…';
+		actionStatus =
+			kind === 'grant' || kind === 'approve-email-mandate'
+				? 'Saving approval…'
+				: 'Saving decision…';
 		error = '';
 		try {
-			if (kind === 'decision')
+			if (kind === 'approve-email-mandate' || kind === 'decline-email-mandate') {
+				const response = await fetch(
+					`/api/companies/${encodeURIComponent(companyId)}/email-mandates/proposals/${encodeURIComponent(item.source.reference)}/decision`,
+					{
+						method: 'POST',
+						headers: { 'content-type': 'application/json' },
+						credentials: 'same-origin',
+						body: JSON.stringify({
+							decision: kind === 'approve-email-mandate' ? 'approve' : 'decline'
+						})
+					}
+				);
+				if (!response.ok) {
+					let message = 'The mandate decision was not recorded. Try again.';
+					try {
+						const body = await response.json();
+						message = body.message ?? message;
+					} catch {
+						// Keep the useful fallback when the server response is not JSON.
+					}
+					throw new Error(message);
+				}
+				await refreshAttention(client, companyId);
+			} else if (kind === 'decision')
 				await resolveHandoffDecision(companyId, item.source.reference, decision.trim());
 			else {
 				if (!item.source.party)
@@ -127,6 +158,12 @@
 			>
 		</header>{/if}
 	{#if !hasDocumentAction}<div class="request"><Markdown text={item.requestedAction} /></div>{/if}
+	{#if emailMandateProposal}<p class="mandate-judgement-warning">
+			Exec must judge whether each recipient and message fits this mandate, and can get that
+			judgment wrong. Approval gives Exec bounded sending authority under the limits below. The
+			system checks mechanical limits, but cannot guarantee that a particular send is appropriate.
+			Review the exact proposal before approving.
+		</p>{/if}
 	{#if item.preparing}
 		<p class="waiting" role="status">
 			Nothing to do yet. The team is preparing this step. Your instructions and any sign-in link
@@ -192,6 +229,24 @@
 				/>
 			{/key}
 		{/if}
+		{#if approveEmailMandate}
+			{#key `${item.id}:${attempt}`}
+				<HoldApprove
+					small
+					completeLabel="Saving approval…"
+					label={actionStatus || 'Hold to approve mandate'}
+					disabled={acting}
+					title={`${approveEmailMandate.consequence} ${approveEmailMandate.nextState}`}
+					onapprove={() => void act('approve-email-mandate')}
+				/>
+			{/key}
+		{/if}
+		{#if declineEmailMandate}<button
+				class="btn small"
+				disabled={acting}
+				title={`${declineEmailMandate.consequence} ${declineEmailMandate.nextState}`}
+				onclick={() => void act('decline-email-mandate')}>{declineEmailMandate.label}</button
+			>{/if}
 		{#if decline}<button
 				class="btn small"
 				disabled={acting}
@@ -285,6 +340,14 @@
 	}
 	.request {
 		font-size: var(--t-body);
+	}
+	.mandate-judgement-warning {
+		margin: 12px 0 0;
+		padding: 10px 12px;
+		border-left: 2px solid var(--intent-authority);
+		color: var(--text-muted);
+		font-size: var(--t-label);
+		line-height: 1.5;
 	}
 	.actions {
 		display: flex;

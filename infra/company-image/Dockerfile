@@ -235,6 +235,8 @@ COPY infra/company-image/release-health.mjs /usr/local/lib/restless/release-heal
 COPY tools/scenario/restless-scenario.mjs /usr/local/lib/restless/restless-scenario.mjs
 COPY tools/web-review/restless-web-review.mjs /usr/local/lib/restless/restless-web-review.mjs
 COPY tools/codex-runner/restless-codex-runner.mjs /usr/local/lib/restless/restless-codex-runner.mjs
+COPY tools/codex-runner/gpt-6-sol-0.156.1-model-catalog.json /usr/local/lib/restless/gpt-6-sol-0.156.1-model-catalog.json
+ENV RESTLESS_CODEX_GPT6_SOL_CATALOG=/usr/local/lib/restless/gpt-6-sol-0.156.1-model-catalog.json
 COPY tools/codex-runner/restless-codex-parity-preflight.mjs /usr/local/lib/restless/restless-codex-parity-preflight.mjs
 COPY tools/codex-runner/restless-codex-task-run.mjs /usr/local/lib/restless/restless-codex-task-run.mjs
 COPY tools/codex-runner/restless-codex-longitudinal-run.mjs /usr/local/lib/restless/restless-codex-longitudinal-run.mjs
@@ -256,6 +258,7 @@ RUN chmod 0555 /usr/local/bin/company-init /usr/local/bin/company-volume-init \
         /usr/local/lib/restless/restless-codex-parity-preflight.mjs \
         /usr/local/lib/restless/restless-codex-task-run.mjs \
         /usr/local/lib/restless/restless-codex-longitudinal-run.mjs \
+    && chmod 0444 /usr/local/lib/restless/gpt-6-sol-0.156.1-model-catalog.json \
     && chmod -R a=rX /opt/restless/skills \
     && chmod 0444 /usr/local/lib/restless/browser-broker.mjs \
         /usr/local/lib/restless/release-health.mjs /etc/supervisor/conf.d/restless.conf \
