@@ -314,7 +314,7 @@ fn read_request_params(request: ReadRequest) -> Result<CallToolRequestParams> {
             if query.is_empty()
                 || query.encode_utf16().count() > 100
                 || query.chars().any(char::is_control)
-                || !limit.is_none_or(|limit| (1..=24).contains(&limit))
+                || !limit.is_none_or(|limit| (1..=48).contains(&limit))
             {
                 bail!("invalid Marketplace search request");
             }
