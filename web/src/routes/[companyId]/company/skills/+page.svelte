@@ -102,7 +102,8 @@
 <CompanyTitle title="Skills" {companyId} />
 
 {#snippet skillRow(skill: SkillRow)}
-	<li class="skill-row" class:skill-off={offForEveryone(skill)}>
+	<!-- Focusable so a tap reveals a settled skill's controls on touch. -->
+	<li class="skill-row" class:skill-off={offForEveryone(skill)} tabindex="-1">
 		<div class="skill-identity">
 			<strong title={skill.name}>{skillLabel(skill.name)}</strong>
 			<span title={skill.description}>{skill.description || 'No description'}</span>
@@ -291,6 +292,15 @@
 	/* A settled skill's controls wait for the pointer or focus, so a long list
 	 * reads as skills rather than a wall of buttons. Candidates keep theirs:
 	 * they are asking for a decision. */
+	/* Touch has no hover: the controls appear for the skill that is tapped. */
+	@media (hover: none) {
+		.skill-row:not(:focus-within) .skill-actions.settled {
+			display: none;
+		}
+	}
+	.skill-row:focus {
+		outline: none;
+	}
 	@media (hover: hover) {
 		.skill-actions.settled {
 			opacity: 0;

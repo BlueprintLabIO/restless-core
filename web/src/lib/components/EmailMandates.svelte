@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import InfoTip from '$lib/components/InfoTip.svelte';
-	import { failureSentence, responseFailure } from '$lib/model/failure';
+	import { describeFailure, failureSentence, responseFailure } from '$lib/model/failure';
 	import { refreshAttention } from '$lib/model/queries.svelte';
 
 	let { companyId }: { companyId: string } = $props();
@@ -54,6 +54,7 @@
 	let mandates = $state<EmailMandate[]>([]);
 	let loading = $state(true);
 	let loadError = $state('');
+	let loadRetryable = $state(true);
 	let saving = $state(false);
 	let revoking = $state<string | null>(null);
 	let error = $state('');
@@ -111,6 +112,7 @@
 		} catch (cause) {
 			if (cause instanceof DOMException && cause.name === 'AbortError') return;
 			loadError = failureSentence(cause, 'Email authority couldn’t be loaded.');
+			loadRetryable = describeFailure(cause).retryable;
 		} finally {
 			if (!signal?.aborted) loading = false;
 		}
@@ -241,7 +243,9 @@
 	{#if notice}<p class="message" role="status">{notice}</p>{/if}
 	{#if loadError}
 		<p class="message failure" role="alert">{loadError}</p>
-		<button class="btn small" type="button" onclick={() => void loadMandates()}>Retry</button>
+		{#if loadRetryable}<button class="btn small" type="button" onclick={() => void loadMandates()}
+				>Retry</button
+			>{/if}
 	{:else if loading}
 		<p class="quiet-empty" aria-live="polite">Loading email mandates…</p>
 	{:else if mandates.length}
