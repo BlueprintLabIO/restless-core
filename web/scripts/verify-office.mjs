@@ -173,7 +173,7 @@ try {
 	if (!unicorn || unicorn.footprintW !== 4 || unicorn.footprintH !== 4)
 		throw new Error('The campus landmark is no longer the enlarged 4x4 unicorn.');
 	if (
-		campusModule.CAMPUS_BACKDROP_VERSION !== 5 ||
+		campusModule.CAMPUS_BACKDROP_VERSION !== 6 ||
 		campusModule.CAMPUS_MOTION_CHANNELS.join(',') !== 'water,leaves,wildlife'
 	)
 		throw new Error(

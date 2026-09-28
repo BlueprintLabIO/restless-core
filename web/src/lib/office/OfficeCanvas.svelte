@@ -30,7 +30,15 @@
 	} from './officePlan';
 	import type { OfficeMember } from './projection';
 	import { chooseBubblePlacement, type BubbleRect } from './bubblePlacement';
-	import { CAMPUS_MOTION_CHANNELS, campusWildlifeAt, drawCampusBackdrop } from './campusBackdrop';
+	import {
+		CAMPUS_MOTION_CHANNELS,
+		buildCampusWorld,
+		campusWildlifeAt,
+		drawCampusBackground,
+		drawCampusOverlay,
+		type CampusWorld
+	} from './campusBackdrop';
+	import { drawGroundMotion, paintOfficeGround, paintOfficeLight } from './officeGround';
 	import {
 		MAX_AMBIENT_VISITORS,
 		MAX_ANIMATED_ACTIVITY_SCENES,
@@ -183,6 +191,11 @@
 				if (destroyed) return;
 				assets = loadedAssets;
 				rebuildOffice(teams, members, preferences);
+				// Paint the campus while loading, not in the first animated frame.
+				if (plan) {
+					campusWorld = buildCampusWorld(plan.layout);
+					campusTiles = plan.layout.tiles;
+				}
 				sizeCanvas();
 				homeCamera();
 				stopLoop = startGameLoop(canvas, {
@@ -616,9 +629,19 @@
 
 	const MIN_PAINT_INTERVAL_MS = 1000 / 30 - 2;
 	let lastPaintAt = 0;
+	/* The campus is painted once per layout (see campusBackdrop.ts). */
+	let campusWorld: CampusWorld | null = null;
+	let campusTiles: readonly number[] | null = null;
 
 	function render(context: CanvasRenderingContext2D, now: number) {
 		if (!office || !plan || !canvas.width || !canvas.height) return;
+		const currentPlan = plan;
+		if (!campusWorld || campusTiles !== currentPlan.layout.tiles) {
+			campusWorld = buildCampusWorld(currentPlan.layout);
+			campusTiles = currentPlan.layout.tiles;
+		}
+		const world = campusWorld;
+		const motion = !reducedMotion && documentVisible;
 		const frameStartedAt = performance.now();
 		const hoveredMember = hoveredActorId
 			? (members.find((member) => member.actorId === hoveredActorId) ?? null)
@@ -658,21 +681,44 @@
 			office.layout.areaTiles,
 			false,
 			null,
-			office.pets
+			office.pets,
+			{
+				background: world
+					? (layer, offsetX, offsetY) =>
+							drawCampusBackground(layer, world, {
+								offsetX,
+								offsetY,
+								zoom: lastZoom,
+								canvasWidth: canvas.width,
+								canvasHeight: canvas.height,
+								now,
+								motion
+							})
+					: undefined,
+				ground: (layer) => paintOfficeGround(layer, currentPlan),
+				groundAbove: (layer) => paintOfficeLight(layer, currentPlan),
+				groundKey: currentPlan,
+				afterFloor: (layer, offsetX, offsetY) =>
+					drawGroundMotion(layer, currentPlan, { offsetX, offsetY, zoom: lastZoom, now, motion })
+			}
 		);
 		lastOffset = { x: frame.offsetX, y: frame.offsetY };
-		drawCampusBackdrop(context, {
-			canvasWidth: canvas.width,
-			canvasHeight: canvas.height,
-			officeLeft: frame.offsetX,
-			officeTop: frame.offsetY,
-			officeTiles: plan.layout.tiles,
-			officeCols: plan.layout.cols,
-			officeRows: plan.layout.rows,
-			tilePixelSize: TILE_SIZE * lastZoom,
-			now,
-			motion: !reducedMotion && documentVisible
-		});
+		if (world)
+			drawCampusOverlay(
+				context,
+				world,
+				{
+					offsetX: frame.offsetX,
+					offsetY: frame.offsetY,
+					zoom: lastZoom,
+					canvasWidth: canvas.width,
+					canvasHeight: canvas.height,
+					now,
+					motion
+				},
+				currentPlan.layout.cols,
+				currentPlan.layout.rows
+			);
 		drawFishingActivities(context, now);
 		drawZonePlaques(context);
 		drawChatBubble(context);
@@ -683,7 +729,6 @@
 		longestFrameMs = Math.max(longestFrameMs, frameMs);
 		if (frameMs > 32) longFrameCount += 1;
 		if (renderedFrameCount % 60 === 0 && shell) {
-			const currentPlan = plan;
 			const availableAtDesks = members.filter((member) => {
 				if (member.presence !== 'available') return false;
 				const character = office?.characters.get(member.numericId);

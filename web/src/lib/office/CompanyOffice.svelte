@@ -126,7 +126,7 @@
 		height: 100%;
 		min-height: 0;
 		overflow: hidden;
-		background: #94c78a;
+		background: #9ccb8c;
 	}
 
 	.office-stage {
@@ -135,6 +135,19 @@
 		height: 100%;
 		min-height: 0;
 		overflow: hidden;
+	}
+
+	/* The world continues past the pane: its edges fall into a soft shade
+	 * instead of stopping at a hard rectangle. */
+	.office-stage::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+		z-index: 4;
+		pointer-events: none;
+		box-shadow:
+			inset 0 0 0 1px rgba(40, 70, 52, 0.08),
+			inset 0 0 48px rgba(40, 70, 52, 0.16);
 	}
 
 	.office-signal {

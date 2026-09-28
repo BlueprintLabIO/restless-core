@@ -123,8 +123,17 @@ export interface OfficePlan {
 	areaMappings: Record<string, string[]>;
 	animatedAmenities: Array<{ type: string; col: number; row: number }>;
 	landmark: { type: string; col: number; row: number };
+	/** The zen court and its koi pond (pond tiles are open water, not floor). */
+	garden: { court: TileRect; pond: TileRect };
 	visibleMemberCount: number;
 	signature: string;
+}
+
+export interface TileRect {
+	col: number;
+	row: number;
+	width: number;
+	height: number;
 }
 
 export interface OfficePlanValidation {
@@ -401,7 +410,12 @@ export function createCompanyOfficePlan(
 	fill(12, 31, 47, 8, TileType.FLOOR_7, DAYLIGHT.deck);
 	fill(14, 19, 10, 14, TileType.FLOOR_4, DAYLIGHT.stone);
 	fill(22, 24, 24, 5, TileType.FLOOR_7, DAYLIGHT.deck);
-	fill(25, 20, 17, 12, TileType.FLOOR_6, DAYLIGHT.zen);
+	const court: TileRect = { col: 25, row: 20, width: 17, height: 12 };
+	fill(court.col, court.row, court.width, court.height, TileType.FLOOR_6, DAYLIGHT.zen);
+	// A koi pond sits in the court's quiet south-west corner. Its tiles are
+	// open water: people walk the stepping stones around it, never through it.
+	const pond: TileRect = { col: 26, row: 29, width: 4, height: 3 };
+	fill(pond.col, pond.row, pond.width, pond.height, TileType.VOID, DAYLIGHT.zen);
 	fill(43, 21, 26, 10, TileType.FLOOR_7, DAYLIGHT.deck);
 
 	// Open team neighbourhoods repeat only when real visible membership needs capacity.
@@ -466,7 +480,7 @@ export function createCompanyOfficePlan(
 	rug(4, 39, 13, 9, 2);
 
 	// West pavilion: quiet care spaces open directly onto the garden path.
-	rug(17, 19, 7, 13, 1);
+	rug(17, 24, 6, 7, 1);
 	addAmenity('garden-canopy', CANOPY_TREE_TYPE, 18, 20);
 	add('canopy-seat', 'SOFA_SIDE', 22, 21, DAYLIGHT.furniture);
 	add('library-shelf', 'DOUBLE_BOOKSHELF', 18, 25, DAYLIGHT.furniture);
@@ -519,7 +533,7 @@ export function createCompanyOfficePlan(
 	);
 
 	// East deck: a glasshouse and open project table face the lake and dock.
-	rug(43, 21, 26, 10, 0);
+	rug(43, 28, 11, 3, 0);
 	addAmenity('garden-greenhouse', GREENHOUSE_TYPE, 44, 22);
 	addAmenity('project-table', PROJECT_TABLE_TYPE, 50, 22);
 	addAmenity('care-aquarium', AQUARIUM_TYPE, 56, 22);
@@ -552,7 +566,7 @@ export function createCompanyOfficePlan(
 
 	// South terrace: play and making are visible, but the paired circulation
 	// lane below remains furniture-free for the pathfinder and for visual calm.
-	rug(17, 31, 30, 5, 2);
+	rug(17, 32, 11, 3, 2);
 	const poolCol = 18;
 	const poolRow = 32;
 	const gameCol = 24;
@@ -967,6 +981,7 @@ export function createCompanyOfficePlan(
 		areaMappings,
 		animatedAmenities,
 		landmark: unicorn,
+		garden: { court, pond },
 		visibleMemberCount: visibleMembers.length,
 		signature
 	};

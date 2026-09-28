@@ -39,13 +39,13 @@
 		height: 100%;
 		margin: 0;
 		overflow: hidden;
-		background: #94c78a;
+		background: #9ccb8c;
 	}
 
 	.office-demo {
 		position: fixed;
 		inset: 0;
 		overflow: hidden;
-		background: #94c78a;
+		background: #9ccb8c;
 	}
 </style>
