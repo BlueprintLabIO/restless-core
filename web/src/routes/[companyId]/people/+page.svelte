@@ -452,7 +452,7 @@
 				<p>Pick a lead or teammate on the left, or start with the Exec.</p>
 				{#if directoryExec}
 					<a class="btn primary" href={href(directoryExec.actor_id)}>
-						Message {directoryExec.display}
+						Message {directoryExec.display.replace(/^The /, 'the ')}
 					</a>
 				{/if}
 			</div>
@@ -460,7 +460,11 @@
 	</section>
 	{#if documentOpen}<ConversationDocument
 			{companyId}
-			companyUuid={collaboration.view?.company.company_id ?? null}
+			companyUuid={collaboration.view
+				? collaboration.view.company.company_id
+				: collaboration.failure
+					? null
+					: undefined}
 			actorId={principal.view?.actor_id ?? ''}
 			roomId={linkedRoomId}
 			onclose={toggleDocument}
@@ -493,15 +497,21 @@
 	.conversation-main {
 		container: conversation / inline-size;
 	}
-	.conversation-index > header {
-		flex-wrap: wrap;
-		gap: 9px;
-		padding: 12px;
-	}
+	/* One row, like every other pane head: the title and a quiet "+" whose
+	 * name lives in its tooltip. */
 	.conversation-index > header :global(.room-manage-trigger) {
-		width: 100%;
-		height: 32px;
+		width: 30px;
+		height: 30px;
+		padding: 0;
 		justify-content: center;
+	}
+	.conversation-index > header :global(.room-manage-trigger span) {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
 	}
 	.search {
 		display: flex;

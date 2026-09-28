@@ -920,8 +920,7 @@
 		return (
 			previous.from_actor === current.from_actor &&
 			dayKey(previous.created_at) === dayKey(current.created_at) &&
-			new Date(current.created_at).getTime() - new Date(previous.created_at).getTime() <
-				5 * 60_000
+			new Date(current.created_at).getTime() - new Date(previous.created_at).getTime() < 5 * 60_000
 		);
 	}
 

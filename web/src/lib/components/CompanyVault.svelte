@@ -1,4 +1,5 @@
 <script lang="ts">
+	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import { formatDay } from '$lib/time';
 	import { failureSentence } from '$lib/model/failure';
 	import { onMount } from 'svelte';
@@ -89,7 +90,7 @@
 	});
 </script>
 
-<svelte:head><title>Vault — Company</title></svelte:head>
+<CompanyTitle title="Vault" {companyId} />
 <div class="company-page vault-page">
 	<header class="company-page-head">
 		<h1>Vault</h1>
@@ -144,12 +145,12 @@
 					>
 				</form>
 			</section>{/if}
-		<label for="vault-search">Find a secret</label><input
-			id="vault-search"
-			type="search"
-			bind:value={search}
-			placeholder="Search names or folders"
-		/>
+		{#if view.secrets.length > 6}<label for="vault-search">Find a secret</label><input
+				id="vault-search"
+				type="search"
+				bind:value={search}
+				placeholder="Search names or folders"
+			/>{/if}
 		<section aria-label="Stored secrets">
 			{#each rows as secret (secret.reference)}<article>
 					<div>

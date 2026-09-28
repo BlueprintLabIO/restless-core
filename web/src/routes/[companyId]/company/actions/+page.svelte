@@ -74,9 +74,8 @@
 					</article>
 				{:else}
 					<p class="quiet-empty">
-						No external activity recorded yet. Sent messages, submitted forms and payments appear
-						here when they are made through Restless’s governed action path. Internal chats and
-						document edits stay with their work.
+						Nothing yet. Messages sent, forms submitted and payments made on the company’s behalf
+						appear here. Internal chats and document edits stay with their work.
 					</p>
 				{/each}
 			</div>

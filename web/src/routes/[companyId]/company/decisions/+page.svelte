@@ -48,7 +48,9 @@
 		</div>
 	</header>
 
-	<a class="btn small" href={`/${companyId}`}>Review pending decisions</a>
+	{#if view?.items.length}<a class="btn small" href={`/${companyId}`}
+			>Review {view.items.length} pending in Attention</a
+		>{/if}
 	{#if view}
 		{#if decisions.length}
 			<section class="company-decision-ledger" aria-label="Recorded owner decisions">

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import Skeleton from '$lib/primitives/Skeleton.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { page } from '$app/state';
@@ -98,7 +99,7 @@
 		);
 </script>
 
-<svelte:head><title>Skills — {companyId}</title></svelte:head>
+<CompanyTitle title="Skills" {companyId} />
 
 {#snippet skillRow(skill: SkillRow)}
 	<li class="skill-row" class:skill-off={offForEveryone(skill)}>
@@ -112,7 +113,7 @@
 					text="This skill ships executable scripts. They run with the actor's ordinary computer access and never with extra authority."
 				/>{/if}
 		</div>
-		<div class="skill-actions">
+		<div class="skill-actions" class:settled={skill.disposition !== 'candidate'}>
 			{#if skill.disposition === 'candidate'}
 				<button
 					class="btn small primary"
@@ -286,6 +287,19 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
+	}
+	/* A settled skill's controls wait for the pointer or focus, so a long list
+	 * reads as skills rather than a wall of buttons. Candidates keep theirs:
+	 * they are asking for a decision. */
+	@media (hover: hover) {
+		.skill-actions.settled {
+			opacity: 0;
+			transition: opacity var(--motion-state) var(--ease-standard);
+		}
+		.skill-row:hover .skill-actions.settled,
+		.skill-row:focus-within .skill-actions.settled {
+			opacity: 1;
+		}
 	}
 	.skill-source {
 		font-size: var(--t-label);

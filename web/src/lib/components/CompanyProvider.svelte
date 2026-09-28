@@ -530,7 +530,6 @@
 	});
 </script>
 
-<svelte:head><title>Intelligence provider — Company</title></svelte:head>
 <div class="company-page provider-page">
 	<header class="company-page-head">
 		<h1

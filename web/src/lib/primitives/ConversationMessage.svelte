@@ -60,8 +60,7 @@
 	 * words (shown optimistically, then confirmed) stay still, as do Exec
 	 * replies, which already streamed in their live turn. */
 	const fresh = untrack(
-		() =>
-			embedded && sender !== 'owner' && Date.now() - new Date(createdAt).getTime() < 15_000
+		() => embedded && sender !== 'owner' && Date.now() - new Date(createdAt).getTime() < 15_000
 	);
 	const timestamp = $derived(timeLabel(createdAt));
 	const messageDate = $derived(new Date(createdAt));
@@ -307,7 +306,6 @@
 		background: var(--chat-owner-bg);
 		color: var(--ink);
 	}
-
 
 	.conversation-message.system {
 		background: var(--chat-context-bg);

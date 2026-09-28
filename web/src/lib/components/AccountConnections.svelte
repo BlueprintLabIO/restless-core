@@ -785,7 +785,11 @@
 			>
 		</div>
 	{/if}
-	<section class="native-section" aria-label="Native sign-ins by company">
+	<!-- Legacy sign-ins are shown only when some exist: "None." is not news. -->
+	{#if nativeLoading || nativeError || nativeSignIns.length}<section
+		class="native-section"
+		aria-label="Native sign-ins by company"
+	>
 		<div class="section-head">
 			<h2>Older company-only sign-ins</h2>
 			<button
@@ -825,8 +829,8 @@
 					</div>
 				{/each}
 			</div>
-		{:else}<p>None.</p>{/if}
-	</section>
+		{/if}
+	</section>{/if}
 </main>
 
 <style>

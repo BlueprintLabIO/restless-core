@@ -111,14 +111,11 @@
 			<Monitor size={14} strokeWidth={1.8} /> Computer <ArrowUpRight size={13} strokeWidth={1.8} />
 		</a>
 	</header>
-	<p
-		role="status"
-		title="Doctor runs automatically when the local host starts and when a company is created."
-	>
-		{startup.ran_at
-			? `Checked at startup, ${when(startup.ran_at)}${startup.error || startup.setup_failed ? '. Some checks need attention.' : ''}`
-			: startupError || startup.error || 'Startup check pending.'}
-	</p>
+	<!-- The startup run is news only when it failed; otherwise its time is a
+	     hover on the overview below. -->
+	{#if startupError || startup.error || startup.setup_failed}<p role="status">
+			{startupError || startup.error || 'The startup check found something that needs attention.'}
+		</p>{/if}
 
 	{#if startupError}<button
 			class="btn small"
@@ -143,7 +140,11 @@
 				</div>
 				<p>{statusCopy(view.computer.doctor.status)}</p>
 			</div>
-			<time>{when(view.computer.doctor.observed_at)}</time>
+			<time
+				title={startup.ran_at
+					? `Doctor also ran when the host started, ${when(startup.ran_at)}.`
+					: undefined}>{when(view.computer.doctor.observed_at)}</time
+			>
 		</section>
 
 		<section class="doctor-diagnostics">

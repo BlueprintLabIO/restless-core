@@ -197,7 +197,9 @@
 
 <section class="setup-page" class:inline-name={section === 'name'}>
 	<header>
-		<h2>{section === 'provider' ? 'Model' : 'Company name'}</h2>
+		<!-- On the charter the name is the lead line itself; its heading is for
+		     screen readers only. -->
+		<h2 class:sr-only={section === 'name'}>{section === 'provider' ? 'Model' : 'Company name'}</h2>
 		<!-- Quiet until something happens: an untouched form is not news. -->
 		<span class:failed={!!error} role="status" aria-live="polite"
 			>{error
@@ -281,6 +283,13 @@
 	}
 	.setup-page.inline-name {
 		overflow: visible;
+	}
+	.setup-page.inline-name header {
+		min-height: 0;
+		margin-bottom: 0;
+	}
+	.setup-page.inline-name header span:empty {
+		display: none;
 	}
 	header {
 		display: flex;

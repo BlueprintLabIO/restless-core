@@ -1,4 +1,5 @@
 <script lang="ts">
+	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import Skeleton from '$lib/primitives/Skeleton.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { failureSentence } from '$lib/model/failure';
@@ -199,7 +200,7 @@
 	}
 </script>
 
-<svelte:head><title>Identity — {companyId}</title></svelte:head>
+<CompanyTitle title="Identity" {companyId} />
 
 <div class="company-page identity-page">
 	<header class="company-page-head">

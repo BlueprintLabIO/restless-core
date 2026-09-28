@@ -346,7 +346,11 @@
 			</header>
 			<DocumentEditor
 				{companyId}
-				companyUuid={collaboration.view?.company.company_id ?? null}
+				companyUuid={collaboration.view
+					? collaboration.view.company.company_id
+					: collaboration.failure
+						? null
+						: undefined}
 				view={documentView}
 				principalActorId={shellPrincipal.view?.actor_id ?? ''}
 				{online}
@@ -754,7 +758,8 @@
 			grid-column: 2;
 			display: flex;
 		}
-		.mobile-document-bar,
+		/* The editor's own toolbar already names the document and opens
+		 * comments; only the inspector, which replaces it here, needs a bar. */
 		.documents-screen.inspector-open .mobile-inspector-bar {
 			min-height: 44px;
 			display: grid;
@@ -764,10 +769,6 @@
 			padding: 7px 9px;
 			border-bottom: 1px solid var(--border);
 		}
-		.mobile-document-bar > button:first-child {
-			display: none;
-		}
-		.mobile-document-bar strong,
 		.mobile-inspector-bar strong {
 			overflow: hidden;
 			text-overflow: ellipsis;

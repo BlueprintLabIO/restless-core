@@ -1,8 +1,10 @@
 <script lang="ts">
+	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import { formatMoment } from '$lib/time';
 	import Skeleton from '$lib/primitives/Skeleton.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { page } from '$app/state';
+	import { createQuery } from '@tanstack/svelte-query';
 	import InfoTip from '$lib/components/InfoTip.svelte';
 	import {
 		monitorSchedules,
@@ -12,35 +14,36 @@
 	} from '$lib/model/skills';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
-	let schedules = $state<MonitoredSchedule[] | null>(null);
-	let failure = $state('');
+	/* A company query, so the change stream keeps it current: no Refresh. */
+	const query = createQuery(() => ({
+		queryKey: ['schedules', companyId],
+		queryFn: () => monitorSchedules(companyId)
+	}));
+	const schedules = $derived<MonitoredSchedule[] | null>(query.data ?? null);
+	let actionFailure = $state('');
+	const failure = $derived(
+		actionFailure ||
+			(query.error && !query.data
+				? failureSentence(query.error, 'Schedules could not be read.')
+				: '')
+	);
 	let busy = $state('');
 	let report = $state<ScheduleTestReport | null>(null);
 
 	async function load() {
-		failure = '';
-		try {
-			schedules = await monitorSchedules(companyId);
-		} catch (cause) {
-			failure = failureSentence(cause, 'Schedules could not be read.');
-		}
+		await query.refetch();
 	}
-
-	$effect(() => {
-		void companyId;
-		void load();
-	});
 
 	async function test(schedule: string) {
 		if (busy) return;
 		busy = schedule;
-		failure = '';
+		actionFailure = '';
 		report = null;
 		try {
 			report = await testScheduleTrigger(companyId, schedule);
 			await load();
 		} catch (cause) {
-			failure = failureSentence(cause, 'The schedule trigger could not be tested.');
+			actionFailure = failureSentence(cause, 'The schedule trigger could not be tested.');
 		} finally {
 			busy = '';
 		}
@@ -67,18 +70,12 @@
 	}
 </script>
 
-<svelte:head><title>Schedules — {companyId}</title></svelte:head>
+<CompanyTitle title="Schedules" {companyId} />
 
 <div class="company-page schedules-page">
 	<header class="company-page-head">
 		<h1>Schedules</h1>
 		<InfoTip text="Recurring Exec check-ins: when each runs next and how the last one went." />
-		<button
-			class="btn small refresh"
-			type="button"
-			onclick={() => void load()}
-			disabled={busy !== ''}>Refresh</button
-		>
 	</header>
 
 	{#if failure}<p class="schedule-message schedule-error" role="alert">{failure}</p>{/if}
@@ -192,9 +189,6 @@
 </div>
 
 <style>
-	.refresh {
-		margin-left: auto;
-	}
 	.schedule-list,
 	.recent ul {
 		list-style: none;

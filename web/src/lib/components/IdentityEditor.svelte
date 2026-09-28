@@ -94,10 +94,10 @@
 
 <section class="identity-editor" aria-label="Edit company identity">
 	<div class="editor-heading">
-		<h2>Your direction</h2>
+		<h2>{view.current_release ? 'Current version' : 'Not written yet'}</h2>
 		<InfoTip text="Saving creates a new version. Earlier work keeps the version it started with." />
 		{#if !editing}<button class="btn small" onclick={open}
-				>{view.current_release ? 'Edit identity' : 'Add identity'}</button
+				>{view.current_release ? 'Edit identity' : 'Write identity'}</button
 			>{/if}
 	</div>
 	{#if !view.current_release && !editing}

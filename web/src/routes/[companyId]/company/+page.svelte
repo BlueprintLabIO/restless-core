@@ -179,7 +179,7 @@
 	{#if notice}<p class="charter-save-message" role="status">{notice}</p>{/if}
 
 	{#if view}
-		<div style="margin-bottom: 24px">
+		<div style="margin-bottom: var(--space-2)">
 			{#key `${companyId}:${nameVersion}`}<CompanySettings {companyId} section="name" />{/key}
 			<CopyCompanySetting
 				{companyId}

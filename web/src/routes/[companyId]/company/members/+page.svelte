@@ -1,4 +1,5 @@
 <script lang="ts">
+	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import Skeleton from '$lib/primitives/Skeleton.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { page } from '$app/state';
@@ -145,7 +146,7 @@
 	}
 </script>
 
-<svelte:head><title>Members — {companyId}</title></svelte:head>
+<CompanyTitle title="Members" {companyId} />
 
 <div class="company-page members-page">
 	<header class="company-page-head">
