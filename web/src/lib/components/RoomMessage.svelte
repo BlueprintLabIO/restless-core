@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { formatMoment } from '$lib/time';
 	import { failureSentence } from '$lib/model/failure';
 	import Skeleton from '$lib/primitives/Skeleton.svelte';
 	import { tick } from 'svelte';
@@ -326,7 +327,7 @@
 						<header>
 							<strong>Edit {revision.revision_number}</strong>
 							<time datetime={revision.created_at}>
-								{new Date(revision.created_at).toLocaleString()}
+								{formatMoment(revision.created_at)}
 							</time>
 						</header>
 						<p>{revision.body}</p>

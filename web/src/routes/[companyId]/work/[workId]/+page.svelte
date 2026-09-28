@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { formatMoment } from '$lib/time';
 	import Skeleton from '$lib/primitives/Skeleton.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { runStateLabel, workStatusLabel } from '$lib/work/status';
@@ -277,13 +278,7 @@
 		if (!value) return 'Not recorded';
 		const date = new Date(value);
 		if (Number.isNaN(date.getTime())) return value;
-		return new Intl.DateTimeFormat(undefined, {
-			day: 'numeric',
-			month: 'short',
-			year: 'numeric',
-			hour: 'numeric',
-			minute: '2-digit'
-		}).format(date);
+		return formatMoment(date);
 	}
 </script>
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { formatDay } from '$lib/time';
 	import { failureSentence } from '$lib/model/failure';
 	import { onMount } from 'svelte';
 	let { companyId }: { companyId: string } = $props();
@@ -156,9 +157,7 @@
 							>{uses(secret.reference)}</small
 						>
 					</div>
-					<span title={secret.updated_at ?? ''}
-						>{secret.updated_at ? new Date(secret.updated_at).toLocaleDateString() : 'Stored'}</span
-					>
+					<span title={secret.updated_at ?? ''}>{formatDay(secret.updated_at, 'Stored')}</span>
 				</article>{:else}<p>
 					{search ? 'No matching secrets.' : 'No secrets stored for this company yet.'}
 				</p>{/each}

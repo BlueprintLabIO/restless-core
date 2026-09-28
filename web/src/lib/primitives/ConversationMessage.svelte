@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { formatMoment } from '$lib/time';
 	import { onDestroy } from 'svelte';
 	import type { Snippet } from 'svelte';
 	import Check from '@lucide/svelte/icons/check';
@@ -117,7 +118,7 @@
 		<strong>{displayAuthor}</strong>
 		{#if timestamp}<time
 				datetime={validDate ? messageDate.toISOString() : undefined}
-				title={validDate ? messageDate.toLocaleString() : undefined}>{timestamp}</time
+				title={validDate ? formatMoment(messageDate) : undefined}>{timestamp}</time
 			>{/if}
 		{@render headerExtra?.()}
 	</header>

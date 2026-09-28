@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { formatMoment } from '$lib/time';
 	import Skeleton from '$lib/primitives/Skeleton.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { page } from '$app/state';
@@ -47,10 +48,7 @@
 
 	function when(value: string | null | undefined): string {
 		if (!value) return 'Not yet';
-		return new Intl.DateTimeFormat(undefined, {
-			dateStyle: 'medium',
-			timeStyle: 'short'
-		}).format(new Date(value));
+		return formatMoment(value, 'Not yet');
 	}
 
 	function outcomeText(outcome: unknown, reason: string | null): string {
