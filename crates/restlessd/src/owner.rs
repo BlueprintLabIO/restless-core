@@ -20,7 +20,7 @@ mod documents_api;
 #[path = "owner_member_collaboration.rs"]
 mod member_collaboration_api;
 #[path = "owner_model_catalog.rs"]
-mod model_catalog_api;
+pub(crate) mod model_catalog_api;
 #[path = "owner_members.rs"]
 mod members_api;
 #[path = "owner_notifications.rs"]

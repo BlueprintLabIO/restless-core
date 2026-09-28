@@ -138,6 +138,9 @@ async fn fetch_catalog() -> Result<Bytes> {
                         "status": entry["status"],
                         "modalities": { "output": ["text"] },
                         "release_date": entry["release_date"],
+                        // List price per million tokens, for the Exec's
+                        // staffing economics (see prompts/run-the-business.md).
+                        "cost": { "input": entry["cost"]["input"], "output": entry["cost"]["output"] },
                     }),
                 );
             }
@@ -156,4 +159,15 @@ async fn fetch_catalog() -> Result<Bytes> {
         "catalog": providers,
     }))?;
     Ok(Bytes::from(body))
+}
+
+/// The catalog's list price for one `provider/model` route, in USD per
+/// million input and output tokens. `None` when the catalog has not loaded
+/// yet or does not price that model; never a guessed number.
+pub(crate) async fn list_price(model: &str) -> Option<(f64, f64)> {
+    let (provider, id) = model.split_once('/')?;
+    let body = CACHE.lock().await.response.clone()?;
+    let catalog: serde_json::Value = serde_json::from_slice(&body).ok()?;
+    let cost = &catalog["catalog"][provider]["models"][id]["cost"];
+    Some((cost["input"].as_f64()?, cost["output"].as_f64()?))
 }

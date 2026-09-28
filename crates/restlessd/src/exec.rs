@@ -1418,7 +1418,81 @@ async fn gather_snapshot(
         budget_ceiling_usd: config.spend_ceiling_usd.as_usd(),
         effect_ledger,
         org_signals,
+        staffing_routes: staffing_routes(org, config).await,
     })
+}
+
+/// The models this company can staff with, who uses each, how each is billed
+/// and its list price: the facts behind the Exec's labour-for-tokens choices.
+/// Built from the same resolution the Runtime uses to start an actor.
+async fn staffing_routes(org: &OrgIntel, config: &CompanyConfig) -> String {
+    use crate::model_gateway::{billing_for_model, ModelBilling};
+    let Ok(actors) = org.list_actors().await else {
+        return "(unavailable this wake; `restless people` shows each actor's model)".into();
+    };
+    let mut routes = std::collections::BTreeMap::<String, Vec<String>>::new();
+    for actor in actors
+        .iter()
+        .filter(|actor| actor.actor_class == "agent" && actor.retired_at.is_none())
+    {
+        let effective = config.for_agent(&actor.id);
+        let harness = if actor.id == "exec" {
+            effective.coordination_harness
+        } else {
+            effective.worker_harness
+        };
+        let model = effective.native_model(harness).unwrap_or_else(|| {
+            effective
+                .agent_preference(&actor.id, actor.model.as_deref())
+                .unwrap_or(&effective.model)
+                .to_string()
+        });
+        routes.entry(model).or_default().push(actor.display.clone());
+    }
+    let staff_default = {
+        let effective = config.for_agent("default");
+        effective
+            .native_model(effective.worker_harness)
+            .unwrap_or_else(|| effective.model.clone())
+    };
+    routes.entry(staff_default.clone()).or_default();
+    for failover in &config.model_failover {
+        routes.entry(failover.clone()).or_default();
+    }
+    routes.retain(|model, _| !model.trim().is_empty());
+    if routes.is_empty() {
+        return "(none connected yet; the owner connects intelligence in Company → Intelligence)"
+            .into();
+    }
+    let mut lines = Vec::new();
+    for (model, users) in routes {
+        let mut notes = Vec::new();
+        if model == staff_default {
+            notes.push("default for new Staff".to_string());
+        }
+        if !users.is_empty() {
+            notes.push(format!("used by {}", users.join(", ")));
+        }
+        let billing = match billing_for_model(&model) {
+            Ok(ModelBilling::Subscription) => {
+                "subscription: no per-turn charge, shares the account's rate limits".to_string()
+            }
+            Ok(ModelBilling::NativeApi) => {
+                "the provider bills its own API key outside this spend ceiling".to_string()
+            }
+            Ok(ModelBilling::MeteredApi) => {
+                match crate::owner::model_catalog_api::list_price(&model).await {
+                    Some((input, output)) => format!(
+                        "metered against the ceiling: ${input:.2} in / ${output:.2} out per million tokens"
+                    ),
+                    None => "metered against the ceiling; list price not published".to_string(),
+                }
+            }
+            Err(_) => "not connected right now; do not assign it".to_string(),
+        };
+        lines.push(format!("- {model} — {} — {billing}", if notes.is_empty() { "available".to_string() } else { notes.join("; ") }));
+    }
+    lines.join("\n")
 }
 
 /// Record the conversation wake. Work status changes only through an Attempt;

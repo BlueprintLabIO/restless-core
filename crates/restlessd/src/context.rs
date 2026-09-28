@@ -106,6 +106,10 @@ pub struct ContextSnapshot {
     /// Advisory: the Exec is the actor with enough context to tell "stuck"
     /// from "hard", so these are shown, never enforced.
     pub org_signals: Vec<String>,
+    /// The models this company can staff with right now: exact route, who
+    /// uses it, how it is billed and its list price. Rendered by the Exec
+    /// wake from company config, billing and the model catalog.
+    pub staffing_routes: String,
 }
 
 /// The assembled prompt pair and its content digest (sha256, hex). Standing
@@ -465,6 +469,10 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          # Sourcing a missing capability [company doctrine]\n{sourcing}\n\
          # Writing what the owner reads [company doctrine]\n{owner_readable}\n\
          # Presenting to the owner [company doctrine]\n{owner_briefing}\n\n\
+         # Running the business well [company doctrine]\n{run_business}\n\n\
+         # Intelligence you can staff with [internal decision]\n\
+         Exact routes for `--model`; the owner connects others in Company → Intelligence.\n\
+         {staffing_routes}\n\n\
          {skills_contract}\n\n\
          # Affecting the world [internal decision]\n\
          Use installed Linux tools directly for reversible work. Check restless mandate list \
@@ -558,6 +566,8 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
         owner_readable = crate::owner_brief::WRITING_WHAT_THE_OWNER_READS.trim(),
         sourcing = crate::capability_sourcing::SOURCE_CAPABILITY.trim(),
         skills_contract = crate::skills::contract_section(),
+        run_business = crate::owner_brief::RUN_THE_BUSINESS.trim(),
+        staffing_routes = snapshot.staffing_routes.trim(),
         conversation_style = crate::owner_brief::CONVERSE_WITH_OWNER.trim(),
         no_update = EXEC_NO_UPDATE,
         name = snapshot.company,
@@ -728,6 +738,7 @@ mod tests {
             budget_ceiling_usd: 10.0,
             effect_ledger: "customer-contact.email 3 · GBP 27.00 moved".into(),
             org_signals: vec!["\"ship the thing\" is blocked and waiting on someone".into()],
+            staffing_routes: "- openai/gpt-6-sol — used by Exec — metered".into(),
         }
     }
 
@@ -1174,6 +1185,29 @@ mod tests {
                 "The title and outcome you write are rendered to the owner exactly as written"
             ),
             "the rule must appear where `restless work add` is actually described"
+        );
+    }
+
+    #[test]
+    fn exec_proposes_major_changes_and_sees_what_staffing_costs() {
+        let package = assemble(&snapshot());
+        assert!(package
+            .system_prompt
+            .contains("# Running the business well [company doctrine]"));
+        assert!(
+            package
+                .system_prompt
+                .contains("Make a major operational change only after the owner agrees to it"),
+            "proactive proposals must never become silent operational changes"
+        );
+        assert!(package
+            .system_prompt
+            .contains("# Intelligence you can staff with [internal decision]"));
+        assert!(
+            package
+                .system_prompt
+                .contains("- openai/gpt-6-sol — used by Exec — metered"),
+            "the wake's exact staffing routes must reach the Exec"
         );
     }
 
