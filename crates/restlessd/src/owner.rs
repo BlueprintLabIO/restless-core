@@ -5156,27 +5156,41 @@ async fn appliance_status(State(state): State<OwnerState>) -> impl IntoResponse 
             }
         }
         restlessd::appliance::ProfileKind::Stable if cfg!(target_os = "linux") => {
-            let definition = std::env::var_os("HOME")
+            let definitions = std::env::var_os("HOME")
                 .map(PathBuf::from)
                 .map(|home| {
-                    home.join(".config/systemd/user")
-                        .join(restlessd::appliance::SYSTEMD_WAKE_TIMER)
+                    let service_dir = home.join(".config/systemd/user");
+                    service_dir
+                        .join(restlessd::appliance::SYSTEMD_WAKE_SERVICE)
                         .is_file()
+                        && service_dir
+                            .join(restlessd::appliance::SYSTEMD_WAKE_TIMER)
+                            .is_file()
                 })
                 .unwrap_or(false);
-            let active = std::process::Command::new("systemctl")
-                .args([
-                    "--user",
-                    "is-active",
-                    "--quiet",
-                    restlessd::appliance::SYSTEMD_WAKE_TIMER,
-                ])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status()
-                .is_ok_and(|status| status.success());
-            if definition && active {
+            let timer_state = |action: &str| {
+                std::process::Command::new("systemctl")
+                    .args([
+                        "--user",
+                        action,
+                        "--quiet",
+                        restlessd::appliance::SYSTEMD_WAKE_TIMER,
+                    ])
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status()
+                    .is_ok_and(|status| status.success())
+            };
+            let enabled = timer_state("is-enabled");
+            let active = timer_state("is-active");
+            if definitions && enabled && active {
                 ("ready", "systemd", None)
+            } else if !definitions || !enabled {
+                (
+                    "degraded",
+                    "unavailable",
+                    Some("Run `restless appliance install` to restore schedule wake delivery."),
+                )
             } else {
                 (
                     "degraded",
