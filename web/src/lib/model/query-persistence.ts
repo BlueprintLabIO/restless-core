@@ -635,7 +635,6 @@ export function startCompanyQueryPersistence(
 ): { stop(): void; verify(): Promise<void> } {
 	let disposed = false;
 	let verification = 0;
-	let abort: AbortController | null = null;
 	let unsubscribe: (() => void) | null = null;
 	let saveTimer: ReturnType<typeof setTimeout> | null = null;
 	let activeId: string | null = null;
@@ -703,11 +702,17 @@ export function startCompanyQueryPersistence(
 
 	const verify = async () => {
 		const token = ++verification;
-		abort?.abort();
-		abort = new AbortController();
 		let principal: CompanyPrincipal;
 		try {
-			principal = await getCompanyPrincipal(company, abort.signal);
+			/* Share the page's own principal request instead of sending a second
+			 * one: fetchQuery joins a request already in flight for this key and
+			 * otherwise asks the server afresh (staleTime 0), so verification
+			 * still never trusts a cached answer. */
+			principal = await client.fetchQuery({
+				queryKey: ['company-principal', company],
+				queryFn: ({ signal }) => getCompanyPrincipal(company, signal),
+				staleTime: 0
+			});
 		} catch (error) {
 			if (disposed || token !== verification || (error as Error).name === 'AbortError') return;
 			const status = (error as { status?: unknown }).status;
@@ -748,11 +753,12 @@ export function startCompanyQueryPersistence(
 					const current = client.getQueryState(entry.queryKey);
 					if (!shouldHydratePersistedEntry(current?.dataUpdatedAt, entry.dataUpdatedAt)) continue;
 					client.setQueryData(entry.queryKey, entry.data, { updatedAt: entry.dataUpdatedAt });
-					void client.invalidateQueries({
-						queryKey: entry.queryKey,
-						exact: true,
-						refetchType: 'active'
-					});
+					// Revalidate, but let a read already in flight finish rather
+					// than cancelling it and asking again.
+					void client.invalidateQueries(
+						{ queryKey: entry.queryKey, exact: true, refetchType: 'active' },
+						{ cancelRefetch: false }
+					);
 				}
 			}
 		} catch {
@@ -779,7 +785,6 @@ export function startCompanyQueryPersistence(
 			flushPersist();
 			disposed = true;
 			verification += 1;
-			abort?.abort();
 			unsubscribe?.();
 			if (typeof document !== 'undefined')
 				document.removeEventListener('visibilitychange', onVisibility);

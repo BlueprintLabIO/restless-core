@@ -63,7 +63,9 @@
 			if (affectsCompany(changed, companyId)) void intelligence.refresh();
 		})
 	);
-	const collaboration = $derived(collaborationBootstrapQuery(companyId, () => principal));
+	const collaboration = $derived(
+		collaborationBootstrapQuery(companyId, () => (ownerAccess ? null : principal))
+	);
 	const companyCatalog = companiesQuery(() => ownerAccess);
 	const companies = $derived(companyCatalog.view);
 	/* The rail keeps the owner's last choice per company, so a reload does not

@@ -74,7 +74,7 @@
 	const principalActorId = $derived(principalProjection.view?.actor_id ?? '');
 	const attention = $derived(attentionQuery(companyId, () => ownerAccess));
 	const collaboration = $derived(
-		collaborationBootstrapQuery(companyId, () => principalProjection.view)
+		collaborationBootstrapQuery(companyId, () => (ownerAccess ? null : principalProjection.view))
 	);
 	const roomList = $derived(roomsQuery(companyId));
 	const requestedRoomId = $derived(page.url.searchParams.get('room') ?? '');

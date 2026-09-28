@@ -31,7 +31,7 @@
 	const attentionProjection = $derived(attentionQuery(companyId, () => ownerAccess));
 	const cockpitProjection = $derived(cockpitQuery(companyId, () => ownerAccess));
 	const collaborationProjection = $derived(
-		collaborationBootstrapQuery(companyId, () => principalProjection.view)
+		collaborationBootstrapQuery(companyId, () => (ownerAccess ? null : principalProjection.view))
 	);
 	const attention = $derived(attentionProjection.view);
 	const cockpit = $derived(cockpitProjection.view);

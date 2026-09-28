@@ -31,7 +31,11 @@
 	const principal = $derived(companyPrincipalQuery(companyId));
 	const owner = $derived(principal.view?.membership_role === 'owner');
 	const cockpit = $derived(cockpitQuery(companyId, () => owner));
-	const collaboration = $derived(collaborationBootstrapQuery(companyId, () => principal.view));
+	const collaboration = $derived(
+		collaborationBootstrapQuery(companyId, () =>
+			owner && !page.url.searchParams.has('document') ? null : principal.view
+		)
+	);
 	const attention = $derived(attentionQuery(companyId, () => owner));
 	const people = $derived(
 		(owner ? cockpit.view?.people : collaboration.view?.people)?.filter(
