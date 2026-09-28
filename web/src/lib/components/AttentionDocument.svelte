@@ -160,7 +160,11 @@
 						{actions}
 						{moreActions}
 						{companyId}
-						companyUuid={collaboration.view?.company.company_id ?? null}
+						companyUuid={collaboration.view
+							? collaboration.view.company.company_id
+							: collaboration.failure
+								? null
+								: undefined}
 						view={detail.view}
 						principalActorId={shell.view?.actor_id ?? ''}
 						{online}

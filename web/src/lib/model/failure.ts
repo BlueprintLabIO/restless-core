@@ -60,6 +60,8 @@ export async function responseFailure(response: Response): Promise<OwnerFailure>
 		const said = typeof body.message === 'string' ? body.message : nested;
 		if (typeof said === 'string' && said.trim()) serverMessage = said;
 		if (typeof body.code === 'string') code = body.code;
+		// The daemon names its error family in a string `error` field.
+		else if (typeof body.error === 'string') code = body.error;
 	} catch {
 		// A proxy or intermediary answered. The status is still honest.
 	}
@@ -156,6 +158,16 @@ export function describeFailure(error: unknown, subject?: string): FailureView {
 				retryable: false
 			};
 		case 'missing':
+			// The daemon has no such route at all: this app is newer than the
+			// server it is talking to, which is not the owner's data missing.
+			if (failure?.code === 'api')
+				return {
+					kind: 'unavailable',
+					title: 'Not available yet',
+					detail: 'Restless needs a restart to finish updating before this can load.',
+					technical: said,
+					retryable: false
+				};
 			return {
 				kind,
 				title: subject ? `${capitalise(subject)} not found` : 'Not found',

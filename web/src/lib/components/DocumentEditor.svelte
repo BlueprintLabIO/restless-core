@@ -57,7 +57,8 @@
 
 	interface Props {
 		companyId: string;
-		companyUuid: string | null;
+		/** The company's collaboration identity; undefined while it is loading. */
+		companyUuid: string | null | undefined;
 		view: DocumentReadView;
 		principalActorId: string;
 		online?: boolean;
@@ -225,10 +226,15 @@
 			collaborationFailure = '';
 			documentRestored = false;
 			unsyncedChanges = 0;
+			// Not known yet is not "missing": keep saying Connecting.
+			if (companyUuid === undefined) {
+				collaborationState = 'connecting';
+				return;
+			}
 			if (!identity) {
 				collaborationState = 'degraded';
 				collaborationFailure =
-					'This company has no verified collaboration identity. The latest named version is read only.';
+					'Live editing isn’t set up for this company, so the latest named version is read only.';
 				return;
 			}
 

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import InfoTip from '$lib/components/InfoTip.svelte';
+	import { failureSentence, responseFailure } from '$lib/model/failure';
 	import { refreshAttention } from '$lib/model/queries.svelte';
 
 	let { companyId }: { companyId: string } = $props();
@@ -102,14 +103,14 @@
 		loadError = '';
 		try {
 			const response = await fetch(endpoint(), { signal });
+			if (!response.ok) throw await responseFailure(response);
 			const body = await responseBody(response);
-			if (!response.ok) throw new Error(messageFrom(body, 'Email mandates could not be loaded.'));
 			if (!Array.isArray(body.mandates))
 				throw new Error('The email mandate response was incomplete.');
 			mandates = body.mandates as EmailMandate[];
 		} catch (cause) {
 			if (cause instanceof DOMException && cause.name === 'AbortError') return;
-			loadError = cause instanceof Error ? cause.message : 'Email mandates could not be loaded.';
+			loadError = failureSentence(cause, 'Email authority couldn’t be loaded.');
 		} finally {
 			if (!signal?.aborted) loading = false;
 		}

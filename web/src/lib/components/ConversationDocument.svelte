@@ -23,7 +23,7 @@
 		onclose
 	}: {
 		companyId: string;
-		companyUuid: string | null;
+		companyUuid: string | null | undefined;
 		actorId: string;
 		roomId?: string;
 		onclose: () => void;

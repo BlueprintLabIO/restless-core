@@ -55,3 +55,18 @@ test('only failures a second attempt can fix are retried', async () => {
 	assert.equal(isRetryable(await responseFailure(json(429, { message: 'Slow down.' }))), true);
 	assert.equal(isRetryable(new TypeError('NetworkError when attempting to fetch resource.')), true);
 });
+
+test('a route this server does not have yet says to restart, not "not found"', async () => {
+	const stale = describeFailure(
+		await responseFailure(json(404, { error: 'api', message: 'unknown owner API route' }))
+	);
+	assert.doesNotMatch(`${stale.title} ${stale.detail}`, /unknown|route|not found/i);
+	assert.match(stale.detail, /restart/i);
+	assert.equal(stale.technical, 'unknown owner API route');
+
+	const gone = describeFailure(
+		await responseFailure(json(404, { error: 'work', message: 'That Work no longer exists.' })),
+		'Work'
+	);
+	assert.equal(gone.title, 'Work not found');
+});

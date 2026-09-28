@@ -12,7 +12,8 @@ export default defineConfig({
 		 * Keep that contract in development: a standalone Vite shell without these
 		 * proxies looks healthy while every source is actually a 404. */
 		proxy: {
-			'/api': { target: ownerGateway },
+			// Live documents open a WebSocket under /api.
+			'/api': { target: ownerGateway, ws: true },
 			'/desktop': { target: ownerGateway, ws: true }
 		}
 	}
