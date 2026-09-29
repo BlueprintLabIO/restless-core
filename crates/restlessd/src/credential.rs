@@ -21,10 +21,17 @@ use uuid::Uuid;
 use crate::runtime::CompanyConfig;
 
 const DEFAULT_INFISICAL_API_URL: &str = "https://us.infisical.com";
+/// The credential reference Cloud's deployment boundary gives every hosted company: the plane's
+/// own model-relay capability, so a company can think before its owner brings any provider.
+pub(crate) const HOSTED_MODEL_RELAY_REFERENCE: &str = "hosted-model-relay:v1";
+const HOSTED_MODEL_RELAY_TOKEN_ENV: &str = "RESTLESS_HOSTED_MODEL_RELAY_TOKEN";
 const DEFAULT_INFISICAL_ENVIRONMENT: &str = "prod";
 
 #[derive(Debug)]
 enum CredentialReference<'a> {
+    /// A Cloud-issued, per-plane capability for one fixed private model relay. It is not a
+    /// provider credential; the reference itself exposes no secret.
+    HostedModelRelay,
     Env(&'a str),
     Infisical(InfisicalLocator<'a>),
     /// A subscription OAuth credential held by OMP's host-side Restless
@@ -162,6 +169,7 @@ pub(crate) async fn resolve_reference(reference: &str) -> Result<String> {
         CredentialReference::OmpOauth(provider) => bail!(
             "omp-oauth:{provider} is broker-held model access and cannot be resolved as a raw credential"
         ),
+        CredentialReference::HostedModelRelay => hosted_model_relay_token(),
     }
 }
 
@@ -180,6 +188,9 @@ pub(crate) async fn store_reference(reference: &str, value: &str) -> Result<()> 
         }
         CredentialReference::OmpOauth(provider) => bail!(
             "omp-oauth:{provider} is created through the owner OAuth handover, not by storing a raw value"
+        ),
+        CredentialReference::HostedModelRelay => bail!(
+            "hosted-model-relay:v1 is injected by the Cloud deployment boundary and cannot be written through Core"
         ),
     }
 }
@@ -429,6 +440,16 @@ pub(crate) async fn probe_reference(reference: &str) -> Probe {
                 },
             }
         }
+        CredentialReference::HostedModelRelay => match hosted_model_relay_token() {
+            Ok(_) => Probe {
+                status: ProbeStatus::Present,
+                detail: None,
+            },
+            Err(error) => Probe {
+                status: ProbeStatus::Invalid,
+                detail: Some(format!("{error:#}")),
+            },
+        },
     }
 }
 
@@ -437,7 +458,9 @@ pub(crate) async fn probe_reference(reference: &str) -> Probe {
 pub(crate) fn omp_oauth_provider(reference: &str) -> Result<Option<&str>> {
     Ok(match parse_reference(reference)? {
         CredentialReference::OmpOauth(provider) => Some(provider),
-        CredentialReference::Env(_) | CredentialReference::Infisical(_) => None,
+        CredentialReference::Env(_)
+        | CredentialReference::Infisical(_)
+        | CredentialReference::HostedModelRelay => None,
     })
 }
 
@@ -469,8 +492,12 @@ fn parse_reference(reference: &str) -> Result<CredentialReference<'_>> {
             }
             Ok(CredentialReference::OmpOauth(provider))
         }
+        "hosted-model-relay" if locator == "v1" => Ok(CredentialReference::HostedModelRelay),
+        "hosted-model-relay" => {
+            bail!("hosted-model-relay: accepts only the fixed v1 Cloud capability reference")
+        }
         other => bail!(
-            "unknown credential scheme {other:?} in {reference:?}; supported schemes are env:, infisical:, and omp-oauth:"
+            "unknown credential scheme {other:?} in {reference:?}; supported schemes are env:, infisical:, omp-oauth:, and hosted-model-relay:v1"
         ),
     }
 }
@@ -563,6 +590,14 @@ impl InfisicalSettings {
                 .filter(|value| !value.trim().is_empty()),
         })
     }
+}
+
+fn hosted_model_relay_token() -> Result<String> {
+    let token = required_env(HOSTED_MODEL_RELAY_TOKEN_ENV)?;
+    if token.len() < 32 || token.len() > 256 || !token.bytes().all(|byte| byte.is_ascii_graphic()) {
+        bail!("{HOSTED_MODEL_RELAY_TOKEN_ENV} must contain 32-256 printable non-whitespace bytes");
+    }
+    Ok(token)
 }
 
 fn required_env(name: &str) -> Result<String> {
@@ -1178,5 +1213,25 @@ mod vault_inventory_tests {
             "infisical:/companies/one_test/nested/KEY"
         );
         assert!(super::vault_metadata("/companies/one", &body).is_err());
+    }
+}
+
+#[cfg(test)]
+mod hosted_relay_reference_tests {
+    use super::*;
+
+    #[test]
+    fn only_the_fixed_v1_cloud_capability_is_a_hosted_relay_reference() {
+        assert!(parse_reference(HOSTED_MODEL_RELAY_REFERENCE).is_ok());
+        assert!(parse_reference("hosted-model-relay:v2").is_err());
+        assert!(parse_reference("hosted-model-relay:").is_err());
+        assert_eq!(omp_oauth_provider(HOSTED_MODEL_RELAY_REFERENCE).unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn a_company_can_never_write_the_cloud_capability_through_core() {
+        assert!(store_reference(HOSTED_MODEL_RELAY_REFERENCE, "x".repeat(40).as_str())
+            .await
+            .is_err());
     }
 }
