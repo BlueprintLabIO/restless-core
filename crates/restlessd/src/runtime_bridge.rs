@@ -1426,7 +1426,7 @@ impl RuntimeBridgeBootstrapService {
         if owner_id != request.owner_id
             || plane_id != request.plane_id
             || status != "ready"
-            || company != format!("c{}", request.company_id.simple())
+            || company != crate::company_bootstrap::company_handle(request.company_id)
         {
             return Err(BootstrapFailure::IdentityMismatch);
         }

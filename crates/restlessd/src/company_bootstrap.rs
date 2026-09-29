@@ -815,7 +815,9 @@ fn canonical_company_config(config: &runtime::CompanyConfig) -> BootstrapResult<
     toml::to_string_pretty(config).map_err(unavailable)
 }
 
-fn company_handle(company_id: Uuid) -> String {
+/// The one derivation of a hosted company's Core handle: bootstrap stores it and the Runtime
+/// bridge must recognise the same value.
+pub(crate) fn company_handle(company_id: Uuid) -> String {
     format!("company_{}", company_id.simple())
 }
 
