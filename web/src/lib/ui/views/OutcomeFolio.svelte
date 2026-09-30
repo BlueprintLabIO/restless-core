@@ -11,6 +11,7 @@
 		whyItMatters,
 		uncertainty,
 		category = 'decision',
+		headingLevel = 1,
 		context,
 		recommendation,
 		decision,
@@ -22,6 +23,8 @@
 		whyItMatters: string;
 		uncertainty?: string;
 		category?: string;
+		/** The folio is the page's h1 in the cockpit; on a page with its own h1 it is an h3. */
+		headingLevel?: 1 | 2 | 3;
 		/** Sits beside the title: an info tip, a deadline. */
 		context?: Snippet;
 		/** Recommendation body. Omit when it would repeat the text above. */
@@ -37,7 +40,7 @@
 <article class="owner-folio category-{category}">
 	<header class="folio-opening">
 		<div class="folio-heading">
-			<h1>{title}</h1>
+			<svelte:element this={`h${headingLevel}`}>{title}</svelte:element>
 			{#if context}<div class="folio-context">{@render context()}</div>{/if}
 		</div>
 		<div class="folio-context-copy">
@@ -98,7 +101,7 @@
 	.folio-context :global(time) {
 		max-width: 18ch;
 	}
-	.folio-heading h1 {
+	.folio-heading > :global(:is(h1, h2, h3)) {
 		max-width: 760px;
 		margin: 0;
 		font-size: var(--t-title);

@@ -184,6 +184,23 @@
 
 	/* The z-index ladder lives on :root in layout.css — see the comment there. */
 
+	color: var(--ink);
+	font-family: var(--font-ui);
+	/* explicit, so nothing in the tree silently inherits the 16px document
+	 * default and reintroduces a size that is not on the ramp */
+	font-size: var(--t-body);
+	line-height: 1.5;
+	/* Titles carry model- and operator-supplied text, which can be one
+	 * unbroken 200-character run. break-word inherits everywhere and only
+	 * fires when a word genuinely cannot fit a line by itself, so ordinary
+	 * prose still wraps on spaces. The wrap belongs at the root: any surface
+	 * that renders a name is one bad string away from the same overflow. */
+	overflow-wrap: break-word;
+}
+
+/* The application frame: the cockpit is a fixed viewport with its own background. Public pages
+ * use .bridge-tokens, which carries the tokens and type above but none of this. */
+.bridge-root {
 	width: 100%;
 	height: 100vh;
 	min-height: 0;
@@ -199,18 +216,6 @@
 		auto,
 		auto,
 		14px 14px;
-	color: var(--ink);
-	font-family: var(--font-ui);
-	/* explicit, so nothing in the tree silently inherits the 16px document
-	 * default and reintroduces a size that is not on the ramp */
-	font-size: var(--t-body);
-	line-height: 1.5;
-	/* Titles carry model- and operator-supplied text, which can be one
-	 * unbroken 200-character run. break-word inherits everywhere and only
-	 * fires when a word genuinely cannot fit a line by itself, so ordinary
-	 * prose still wraps on spaces. The wrap belongs at the root: any surface
-	 * that renders a name is one bad string away from the same overflow. */
-	overflow-wrap: break-word;
 }
 
 :is(.bridge-root, .bridge-tokens) *,

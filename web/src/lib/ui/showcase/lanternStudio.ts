@@ -21,7 +21,7 @@ export const STUDIO_BOARD: BoardColumn[] = [
 				status: 'proposed',
 				ownerName: 'Marlow',
 				revision: 1,
-				href: '#invite'
+				href: '#'
 			}
 		]
 	},
@@ -36,7 +36,7 @@ export const STUDIO_BOARD: BoardColumn[] = [
 				status: 'active',
 				ownerName: 'Ines',
 				revision: 2,
-				href: '#build'
+				href: '#'
 			},
 			{
 				id: 'w-audience',
@@ -45,7 +45,7 @@ export const STUDIO_BOARD: BoardColumn[] = [
 				status: 'active',
 				ownerName: 'Theo',
 				revision: 1,
-				href: '#audience'
+				href: '#'
 			}
 		]
 	},
@@ -60,7 +60,7 @@ export const STUDIO_BOARD: BoardColumn[] = [
 				status: 'blocked',
 				ownerName: 'Marlow',
 				revision: 1,
-				href: '#press'
+				href: '#'
 			}
 		]
 	},
@@ -75,7 +75,7 @@ export const STUDIO_BOARD: BoardColumn[] = [
 				status: 'completed',
 				ownerName: 'Ines',
 				revision: 1,
-				href: '#brief'
+				href: '#'
 			},
 			{
 				id: 'w-proto',
@@ -84,7 +84,7 @@ export const STUDIO_BOARD: BoardColumn[] = [
 				status: 'completed',
 				ownerName: 'Ines',
 				revision: 3,
-				href: '#proto'
+				href: '#'
 			}
 		]
 	}

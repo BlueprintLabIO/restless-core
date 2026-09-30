@@ -53,7 +53,9 @@
 		preferences,
 		selectedActorId = $bindable(null),
 		onopen,
-		onpreferenceschange
+		onpreferenceschange,
+		explorable = true,
+		onready
 	}: {
 		members: OfficeMember[];
 		teams: CockpitTeam[];
@@ -61,7 +63,47 @@
 		selectedActorId?: string | null;
 		onopen?: (member: OfficeMember) => void;
 		onpreferenceschange?: (preferences: OfficePreferences) => void;
+		/** False renders the office as a scene: no drag, wheel, keyboard, selection or editing
+		 * chrome, so a page can scroll over it and drive the camera with setCamera(). */
+		explorable?: boolean;
+		/** Called once the assets have loaded and the floor is painted. */
+		onready?: () => void;
 	} = $props();
+
+	/** The layout a caller needs to aim the camera. Null until the floor is ready. */
+	export function getWorld() {
+		if (!plan) return null;
+		return {
+			cols: plan.layout.cols,
+			rows: plan.layout.rows,
+			zones: plan.zones,
+			landmark: plan.landmark,
+			garden: plan.garden,
+			home: plan.home
+		};
+	}
+
+	/** Centre the camera on a tile. `zoom` runs from 0 (whole campus in view) to 1 (closest). */
+	export function setCamera(view: { col: number; row: number; zoom: number }) {
+		if (!plan || !canvas || !shell) return;
+		updateZoomBounds(false);
+		const amount = Math.max(0, Math.min(1, view.zoom));
+		zoomCss = minZoomCss + (maxZoomCss - minZoomCss) * amount;
+		const zoomPx = Math.max(1, Math.round(zoomCss * devicePixelRatio));
+		const centered = mapOffset(
+			canvas.width,
+			canvas.height,
+			plan.layout.cols,
+			plan.layout.rows,
+			zoomPx,
+			0,
+			0
+		);
+		cameraPan = {
+			x: canvas.width / 2 - (view.col + 0.5) * TILE_SIZE * zoomPx - centered.offsetX,
+			y: canvas.height / 2 - (view.row + 0.5) * TILE_SIZE * zoomPx - centered.offsetY
+		};
+	}
 
 	const decorationOptions: Array<{
 		type: DecorationType;
@@ -220,6 +262,7 @@
 					}
 				});
 				ready = true;
+				onready?.();
 			})
 			.catch((cause) => {
 				if (destroyed) return;
@@ -1168,7 +1211,7 @@
 	}
 
 	function handlePointerDown(event: PointerEvent) {
-		if (!office) return;
+		if (!office || !explorable) return;
 		canvas.focus({ preventScroll: true });
 		canvas.setPointerCapture(event.pointerId);
 		pointer = {
@@ -1182,7 +1225,7 @@
 	}
 
 	function handlePointerMove(event: PointerEvent) {
-		if (!office) return;
+		if (!office || !explorable) return;
 		if (pointer?.id === event.pointerId) {
 			const dx = event.clientX - pointer.lastX;
 			const dy = event.clientY - pointer.lastY;
@@ -1243,7 +1286,7 @@
 	}
 
 	function handleWheel(event: WheelEvent) {
-		if (!office || !plan) return;
+		if (!office || !plan || !explorable) return;
 		event.preventDefault();
 		const next = clampZoom(zoomCss + (event.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP));
 		if (Math.abs(next - zoomCss) < ZOOM_EPSILON) return;
@@ -1396,6 +1439,7 @@
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
+		if (!explorable) return;
 		if (event.key === 'Escape') {
 			event.preventDefault();
 			if (selectedActorId) selectedActorId = null;
@@ -1454,8 +1498,11 @@
 >
 	<canvas
 		bind:this={canvas}
-		tabindex="0"
-		aria-label="Explorable company office. Drag to move, scroll to zoom, use arrow keys to choose a colleague, Shift plus arrow keys to move the camera, and Enter to inspect Work."
+		tabindex={explorable ? 0 : -1}
+		role={explorable ? undefined : 'img'}
+		aria-label={explorable
+			? 'Explorable company office. Drag to move, scroll to zoom, use arrow keys to choose a colleague, Shift plus arrow keys to move the camera, and Enter to inspect Work.'
+			: 'A pixel-art company office where colleagues work, rest and meet.'}
 		onpointerdown={handlePointerDown}
 		onpointermove={handlePointerMove}
 		onpointerup={handlePointerUp}
@@ -1464,7 +1511,7 @@
 		onkeydown={handleKeydown}
 	></canvas>
 
-	{#if selectedMember}
+	{#if explorable && selectedMember}
 		<aside
 			class="person-detail"
 			aria-label={`${selectedMember.display} office detail`}
@@ -1505,108 +1552,110 @@
 		</aside>
 	{/if}
 
-	<div class="office-camera-controls" aria-label="Office camera">
-		<button
-			type="button"
-			title={canZoomOut ? 'Zoom out' : 'The whole office is already in view'}
-			aria-label={canZoomOut ? 'Zoom out' : 'Zoom out unavailable; the whole office is in view'}
-			disabled={!canZoomOut}
-			onclick={() => changeZoom(-ZOOM_STEP)}
-		>
-			<Minus size={14} strokeWidth={2.25} />
-		</button>
-		<button
-			type="button"
-			title="Centre the office"
-			aria-label="Centre the office"
-			onclick={homeCamera}
-		>
-			<Focus size={14} strokeWidth={2.25} />
-		</button>
-		<button
-			type="button"
-			title={canZoomIn ? 'Zoom in' : 'Maximum detail reached'}
-			aria-label={canZoomIn ? 'Zoom in' : 'Zoom in unavailable; maximum detail reached'}
-			disabled={!canZoomIn}
-			onclick={() => changeZoom(ZOOM_STEP)}
-		>
-			<Plus size={14} strokeWidth={2.25} />
-		</button>
-	</div>
-
-	<div class="office-decorate">
-		{#if decorating}
-			<div class="decor-tray" aria-label="Decorate the office">
-				<div class="decor-section decor-props" aria-label="Furniture">
-					{#each decorationOptions as decoration (decoration.type)}
-						<button
-							type="button"
-							class:active={selectedDecoration === decoration.type}
-							title={decoration.label}
-							aria-label={decoration.label}
-							aria-pressed={selectedDecoration === decoration.type}
-							onclick={() => (selectedDecoration = decoration.type)}
-							><img src={decoration.src} alt="" /></button
-						>
-					{/each}
-					<button
-						type="button"
-						class:active={selectedDecoration === 'erase'}
-						title="Remove a decoration"
-						aria-label="Remove a decoration"
-						aria-pressed={selectedDecoration === 'erase'}
-						onclick={() => (selectedDecoration = 'erase')}><Eraser size={15} /></button
-					>
-				</div>
-				<div class="decor-rule"></div>
-				<div class="decor-section">
-					<button
-						type="button"
-						class:active={preferences.decorDensity === 'lush'}
-						title="More plants around the campus"
-						aria-label="More plants around the campus"
-						aria-pressed={preferences.decorDensity === 'lush'}
-						onclick={() =>
-							updatePreferences({
-								decorDensity: preferences.decorDensity === 'lush' ? 'calm' : 'lush'
-							})}><Sparkles size={15} /></button
-					>
-					<button
-						type="button"
-						class:active={preferences.pets}
-						title="Office pets"
-						aria-label="Office pets"
-						aria-pressed={preferences.pets}
-						onclick={() => updatePreferences({ pets: !preferences.pets })}
-						><PawPrint size={15} /></button
-					>
-					<button
-						type="button"
-						title="Undo the last decoration"
-						aria-label="Undo the last decoration"
-						disabled={!preferences.decorations.length}
-						onclick={undoDecoration}><Undo2 size={15} /></button
-					>
-					<button
-						type="button"
-						class="done"
-						title="Finish decorating"
-						aria-label="Finish decorating"
-						onclick={() => (decorating = false)}><Check size={15} /></button
-					>
-				</div>
-			</div>
-		{:else}
+	{#if explorable}
+		<div class="office-camera-controls" aria-label="Office camera">
 			<button
 				type="button"
-				class="decorate-trigger"
-				title="Decorate the office"
-				aria-label="Decorate the office"
-				onclick={() => (decorating = true)}><Paintbrush size={15} strokeWidth={2.2} /></button
+				title={canZoomOut ? 'Zoom out' : 'The whole office is already in view'}
+				aria-label={canZoomOut ? 'Zoom out' : 'Zoom out unavailable; the whole office is in view'}
+				disabled={!canZoomOut}
+				onclick={() => changeZoom(-ZOOM_STEP)}
 			>
-		{/if}
-		<span class="decor-message" aria-live="polite">{decorationMessage}</span>
-	</div>
+				<Minus size={14} strokeWidth={2.25} />
+			</button>
+			<button
+				type="button"
+				title="Centre the office"
+				aria-label="Centre the office"
+				onclick={homeCamera}
+			>
+				<Focus size={14} strokeWidth={2.25} />
+			</button>
+			<button
+				type="button"
+				title={canZoomIn ? 'Zoom in' : 'Maximum detail reached'}
+				aria-label={canZoomIn ? 'Zoom in' : 'Zoom in unavailable; maximum detail reached'}
+				disabled={!canZoomIn}
+				onclick={() => changeZoom(ZOOM_STEP)}
+			>
+				<Plus size={14} strokeWidth={2.25} />
+			</button>
+		</div>
+
+		<div class="office-decorate">
+			{#if decorating}
+				<div class="decor-tray" aria-label="Decorate the office">
+					<div class="decor-section decor-props" aria-label="Furniture">
+						{#each decorationOptions as decoration (decoration.type)}
+							<button
+								type="button"
+								class:active={selectedDecoration === decoration.type}
+								title={decoration.label}
+								aria-label={decoration.label}
+								aria-pressed={selectedDecoration === decoration.type}
+								onclick={() => (selectedDecoration = decoration.type)}
+								><img src={decoration.src} alt="" /></button
+							>
+						{/each}
+						<button
+							type="button"
+							class:active={selectedDecoration === 'erase'}
+							title="Remove a decoration"
+							aria-label="Remove a decoration"
+							aria-pressed={selectedDecoration === 'erase'}
+							onclick={() => (selectedDecoration = 'erase')}><Eraser size={15} /></button
+						>
+					</div>
+					<div class="decor-rule"></div>
+					<div class="decor-section">
+						<button
+							type="button"
+							class:active={preferences.decorDensity === 'lush'}
+							title="More plants around the campus"
+							aria-label="More plants around the campus"
+							aria-pressed={preferences.decorDensity === 'lush'}
+							onclick={() =>
+								updatePreferences({
+									decorDensity: preferences.decorDensity === 'lush' ? 'calm' : 'lush'
+								})}><Sparkles size={15} /></button
+						>
+						<button
+							type="button"
+							class:active={preferences.pets}
+							title="Office pets"
+							aria-label="Office pets"
+							aria-pressed={preferences.pets}
+							onclick={() => updatePreferences({ pets: !preferences.pets })}
+							><PawPrint size={15} /></button
+						>
+						<button
+							type="button"
+							title="Undo the last decoration"
+							aria-label="Undo the last decoration"
+							disabled={!preferences.decorations.length}
+							onclick={undoDecoration}><Undo2 size={15} /></button
+						>
+						<button
+							type="button"
+							class="done"
+							title="Finish decorating"
+							aria-label="Finish decorating"
+							onclick={() => (decorating = false)}><Check size={15} /></button
+						>
+					</div>
+				</div>
+			{:else}
+				<button
+					type="button"
+					class="decorate-trigger"
+					title="Decorate the office"
+					aria-label="Decorate the office"
+					onclick={() => (decorating = true)}><Paintbrush size={15} strokeWidth={2.2} /></button
+				>
+			{/if}
+			<span class="decor-message" aria-live="polite">{decorationMessage}</span>
+		</div>
+	{/if}
 
 	{#if !ready && !error}
 		<div class="office-loading" role="status">
