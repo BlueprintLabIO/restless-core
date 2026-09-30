@@ -29,10 +29,18 @@ chmod 0700 /run/restless /run/restless/trusted-supervisor
 
 mkdir -p /tmp/.X11-unix
 chmod 1777 /tmp/.X11-unix
+# Kubernetes keeps an emptyDir across container restarts (Docker's tmpfs starts empty), so this
+# must be safe to run again: once `effect` owns the directory, init holds CHOWN but not FOWNER
+# and can no longer chmod it. Fix it up only while it is still ours, then require the final state.
 mkdir -p /tmp/restless-effect
-# chmod first: after chown the directory belongs to `effect`, and init holds CHOWN but not FOWNER.
-chmod 0700 /tmp/restless-effect
-chown effect:company /tmp/restless-effect
+if [ "$(stat -c '%U' /tmp/restless-effect)" = root ]; then
+	chmod 0700 /tmp/restless-effect
+	chown effect:company /tmp/restless-effect
+fi
+if [ "$(stat -c '%U:%G:%a' /tmp/restless-effect)" != "effect:company:700" ]; then
+	printf 'company Runtime effect directory is not effect:company 0700\n' >&2
+	exit 1
+fi
 
 # `/company` is created as uid/gid 2000 in the immutable image. Docker must
 # preserve that ownership when it initializes an empty named volume, and every
