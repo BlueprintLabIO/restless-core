@@ -1,0 +1,11 @@
+/* The design language a consumer needs to render ui components, in cascade order.
+ *
+ * Fonts are the consumer's choice and are not bundled: the product sets type in Inter (variable, opsz),
+ * IBM Plex Mono and, for the wordmark only, Silkscreen. Put the class `bridge-tokens` on an ancestor
+ * of anything you render; it carries the tokens and type without the cockpit's fixed application frame. */
+
+@import './base.css';
+@import './tokens.css';
+@import './motion.css';
+@import './type.css';
+@import './primitives.css';
