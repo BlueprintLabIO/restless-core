@@ -37,7 +37,7 @@
 	--track-label: 0.07em;
 }
 
-.bridge-root {
+:is(.bridge-root, .bridge-tokens) {
 	--bg-app: #eff1f6;
 	--surface: rgba(255, 255, 255, 0.9);
 	--surface-alt: #f1f3f8;
@@ -213,9 +213,9 @@
 	overflow-wrap: break-word;
 }
 
-.bridge-root *,
-.bridge-root *::before,
-.bridge-root *::after {
+:is(.bridge-root, .bridge-tokens) *,
+:is(.bridge-root, .bridge-tokens) *::before,
+:is(.bridge-root, .bridge-tokens) *::after {
 	box-sizing: border-box;
 }
 
@@ -225,7 +225,7 @@
  * shadows deepen and the lit top edge dims to a hairline. Intent colours
  * shift lighter and less saturated so they keep their meaning on dark
  * without glowing. Resolved on <html data-theme> before first paint. */
-:root[data-theme='dark'] .bridge-root {
+:root[data-theme='dark'] :is(.bridge-root, .bridge-tokens) {
 	--bg-app: #0e1014;
 	--surface: rgba(24, 27, 33, 0.92);
 	--surface-alt: #1a1d23;

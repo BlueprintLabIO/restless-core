@@ -62,8 +62,10 @@ These are product soul, not legacy mechanics. They survive the rebuild.
   back as instructions, and never ask the CEO to report completion when the system can observe and
   resume it. Human participation and approval are separate authority boundaries.
 - **Primary experience:** a calm main work surface plus a right-hand executive chat that can focus,
-  explain, and act on the main surface. Never a sidebar-heavy agent/task administration dashboard.
-  Show outcomes, decisions, risk, and next actions first; reveal roles, prompts, skills, permissions,
+  explain, and act on the main surface. A left navigation rail is allowed and expected (company
+  switcher, the four surfaces, an attention badge, ⌘K); it carries navigation only. The rule that
+  remains is that the product must never become an agent/task administration dashboard: no
+  roster-of-agents panels, no status walls. Show outcomes, decisions, risk, and next actions first; reveal roles, prompts, skills, permissions,
   spend detail, workflow IDs, and logs only on request.
 - **Do not use eyebrow labels as habitual decoration.** Small uppercase or kicker text above a title
   is not the default way to create hierarchy. Use it only when it communicates information the title

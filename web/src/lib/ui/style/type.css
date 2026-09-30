@@ -11,17 +11,17 @@
  *   case    uppercase mono means one thing only — a data label
  */
 
-.bridge-root .mono {
+:is(.bridge-root, .bridge-tokens) .mono {
 	font-family: var(--font-mono);
 }
 
-.bridge-root .display {
+:is(.bridge-root, .bridge-tokens) .display {
 	font-family: var(--font-ui);
 	font-weight: 600;
 	letter-spacing: -0.01em;
 }
 
-.bridge-root .caption {
+:is(.bridge-root, .bridge-tokens) .caption {
 	font-size: var(--t-body);
 	color: var(--text-secondary);
 	line-height: 1.6;
@@ -29,9 +29,9 @@
 
 /* Headings default to the ramp by level, so a bare <h1> on a new surface is
  * already correct and does not have to invent a size. */
-.bridge-root h1,
-.bridge-root h2,
-.bridge-root h3 {
+:is(.bridge-root, .bridge-tokens) h1,
+:is(.bridge-root, .bridge-tokens) h2,
+:is(.bridge-root, .bridge-tokens) h3 {
 	font-family: var(--font-ui);
 	font-weight: 600;
 	letter-spacing: -0.01em;
@@ -39,26 +39,26 @@
 }
 
 /* Titles set in Inter's display cut read best a touch tighter. */
-.bridge-root h1 {
+:is(.bridge-root, .bridge-tokens) h1 {
 	letter-spacing: -0.02em;
 }
 
-.bridge-root h1 {
+:is(.bridge-root, .bridge-tokens) h1 {
 	font-size: var(--t-title);
 	line-height: 1.14;
 	letter-spacing: -0.025em;
 }
 
-.bridge-root h2 {
+:is(.bridge-root, .bridge-tokens) h2 {
 	font-size: var(--t-head);
 	line-height: 1.25;
 }
 
-.bridge-root h3 {
+:is(.bridge-root, .bridge-tokens) h3 {
 	font-size: var(--t-body);
 	line-height: 1.4;
 }
 
-.bridge-root a {
+:is(.bridge-root, .bridge-tokens) a {
 	color: inherit;
 }

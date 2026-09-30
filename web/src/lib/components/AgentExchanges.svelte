@@ -1,5 +1,5 @@
 <script lang="ts">
-	import Skeleton from '$lib/primitives/Skeleton.svelte';
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { createInfiniteQuery } from '@tanstack/svelte-query';
 	import Markdown from '$lib/primitives/Markdown.svelte';
 	let { companyId, actorId }: { companyId: string; actorId: string } = $props();

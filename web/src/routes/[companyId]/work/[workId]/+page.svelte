@@ -1,13 +1,13 @@
 <script lang="ts">
-	import { formatMoment } from '$lib/time';
-	import Skeleton from '$lib/primitives/Skeleton.svelte';
+	import { formatMoment } from '$lib/ui/time';
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { runStateLabel, workStatusLabel } from '$lib/work/status';
 	import { resizePane } from '$lib/actions/resize-pane';
 	import { page } from '$app/state';
 	import Markdown from '$lib/primitives/Markdown.svelte';
 	import ConversationTurnDock from '$lib/primitives/ConversationTurnDock.svelte';
-	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
+	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
 	import type { CollaborationArtifact, CollaborationWork } from '$lib/model/collaboration';
 	import {
 		attentionQuery,

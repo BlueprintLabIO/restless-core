@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { failureSentence } from '$lib/model/failure';
-	import Skeleton from '$lib/primitives/Skeleton.svelte';
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { onMount, tick } from 'svelte';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
 	const catalog = modelCatalog();

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import Skeleton from '$lib/primitives/Skeleton.svelte';
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { page } from '$app/state';
 	import InfoTip from '$lib/components/InfoTip.svelte';

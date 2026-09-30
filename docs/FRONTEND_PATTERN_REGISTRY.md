@@ -21,8 +21,8 @@ authoritative. External libraries never supply palette, type, geometry or produc
 
 | ID | Status | Product source | Semantic job | Public use |
 | --- | --- | --- | --- | --- |
-| `matrix-glyph` | Native | `web/src/lib/primitives/MatrixGlyph.svelte` | In-house 5×7 marks for identity and state | Wordmark, route/state marks and diagram nodes; never sentences |
-| `machine-field` | Native | `web/src/lib/design/tokens.css` | Establishes the observable-company substrate | Pale blue-grey field, faint semantic radials and 14px dot matrix |
+| `matrix-glyph` | Native | `web/src/lib/ui/glyph/MatrixGlyph.svelte` | In-house 5×7 marks for identity and state | Wordmark, route/state marks and diagram nodes; never sentences |
+| `machine-field` | Native | `web/src/lib/ui/style/tokens.css` | Establishes the observable-company substrate | Pale blue-grey field, faint semantic radials and 14px dot matrix |
 | `pane-machine` | Native | `tokens.css`, `cockpit.css` | Composes one instrument from bounded work regions | Large product encounters with 4px seams, top-left bevel and restrained lift |
 | `physical-control` | Native | `primitives.css` | Makes a bounded action feel pressable and consequential | CTAs, tabs and replay controls with 110ms press and 180ms state response |
 | `surface-indicator` | Native | `chrome.css`, `AppShell.svelte` | Shows where the owner moved between surfaces | One indicator slides to the selected tab (320ms spring); phones use a bottom dock. Replaced the per-tab `tab-arrive` sweep |

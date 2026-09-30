@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { formatMoment } from '$lib/time';
+	import { formatMoment } from '$lib/ui/time';
 	import { failureSentence } from '$lib/model/failure';
-	import Skeleton from '$lib/primitives/Skeleton.svelte';
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { tick } from 'svelte';
 	import MessageCircle from '@lucide/svelte/icons/message-circle';
 	import ConversationMessage from '$lib/primitives/ConversationMessage.svelte';
-	import SemanticMark from '$lib/primitives/SemanticMark.svelte';
+	import SemanticMark from '$lib/ui/glyph/SemanticMark.svelte';
 	import type { MessageAttachment, ThreadMessage } from '$lib/model/view';
 	import type {
 		RoomMention,

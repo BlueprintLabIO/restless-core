@@ -1,5 +1,5 @@
 /* Shared bounded actions. Surfaces and panes live in cockpit.css. */
-.bridge-root
+:is(.bridge-root, .bridge-tokens)
 	:where(
 		a,
 		button,
@@ -13,8 +13,8 @@
 	outline-offset: 2px;
 }
 
-.bridge-root .btn,
-.bridge-root .hold-approve {
+:is(.bridge-root, .bridge-tokens) .btn,
+:is(.bridge-root, .bridge-tokens) .hold-approve {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
@@ -42,23 +42,23 @@
 		color var(--motion-state) var(--ease-standard);
 }
 
-.bridge-root .btn:hover:not(:disabled),
-.bridge-root .hold-approve:hover:not(:disabled) {
+:is(.bridge-root, .bridge-tokens) .btn:hover:not(:disabled),
+:is(.bridge-root, .bridge-tokens) .hold-approve:hover:not(:disabled) {
 	border-color: var(--edge-control-hover);
 	background: var(--surface-hover);
 }
 
 /* A press is felt, not watched: the control settles by a hair and its light
  * edge sinks. */
-.bridge-root .btn:active:not(:disabled),
-.bridge-root .hold-approve:active:not(:disabled) {
+:is(.bridge-root, .bridge-tokens) .btn:active:not(:disabled),
+:is(.bridge-root, .bridge-tokens) .hold-approve:active:not(:disabled) {
 	transform: scale(0.985);
 	background: var(--surface-press);
 	box-shadow: var(--control-depth-pressed);
 }
 
-.bridge-root .btn:disabled,
-.bridge-root .hold-approve:disabled {
+:is(.bridge-root, .bridge-tokens) .btn:disabled,
+:is(.bridge-root, .bridge-tokens) .hold-approve:disabled {
 	opacity: 0.45;
 	cursor: not-allowed;
 	box-shadow: none;
@@ -66,7 +66,7 @@
 
 /* One primary per surface: solid ink, a lit top edge and a crisp contact
  * shadow. Pale tints read as disabled at a glance; this reads as the way on. */
-.bridge-root .btn.primary {
+:is(.bridge-root, .bridge-tokens) .btn.primary {
 	border-color: var(--primary-edge);
 	background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 88%, #fff), var(--primary));
 	box-shadow:
@@ -75,7 +75,7 @@
 	color: var(--on-primary);
 }
 
-.bridge-root .btn.primary:hover:not(:disabled) {
+:is(.bridge-root, .bridge-tokens) .btn.primary:hover:not(:disabled) {
 	border-color: var(--primary-edge);
 	background: linear-gradient(
 		180deg,
@@ -84,30 +84,30 @@
 	);
 }
 
-.bridge-root .btn.primary:active:not(:disabled) {
+:is(.bridge-root, .bridge-tokens) .btn.primary:active:not(:disabled) {
 	background: color-mix(in srgb, var(--primary) 92%, #000);
 	box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
-.bridge-root .btn.danger {
+:is(.bridge-root, .bridge-tokens) .btn.danger {
 	border-color: color-mix(in srgb, var(--state-danger) 38%, var(--border));
 	background: var(--state-danger-soft);
 	color: var(--state-danger);
 }
 
-.bridge-root .btn.danger:hover:not(:disabled) {
+:is(.bridge-root, .bridge-tokens) .btn.danger:hover:not(:disabled) {
 	border-color: color-mix(in srgb, var(--state-danger) 55%, var(--border));
 	background: color-mix(in srgb, var(--state-danger) 14%, var(--surface-raised));
 }
 
-.bridge-root .btn.small,
-.bridge-root .hold-approve.small {
+:is(.bridge-root, .bridge-tokens) .btn.small,
+:is(.bridge-root, .bridge-tokens) .hold-approve.small {
 	min-height: 28px;
 	padding: 0 10px;
 	font-size: var(--t-body);
 }
 
-.bridge-root .hold-approve {
+:is(.bridge-root, .bridge-tokens) .hold-approve {
 	position: relative;
 	overflow: hidden;
 	background:
@@ -120,14 +120,14 @@
 	box-shadow: var(--control-depth);
 }
 
-.bridge-root .hold-approve.done {
+:is(.bridge-root, .bridge-tokens) .hold-approve.done {
 	border-color: var(--intent-authority);
 	background: var(--intent-authority);
 	color: var(--text-inverse);
 	animation: bridge-acknowledge var(--motion-punctuation) var(--ease-out) both;
 }
 
-.bridge-root
+:is(.bridge-root, .bridge-tokens)
 	:is(.btn, .hold-approve, .flat-control, .history-control, .board-history-toggle):focus-visible {
 	outline: 2px solid var(--intent-conversation);
 	outline-offset: 2px;
@@ -139,7 +139,7 @@
 	/* :is() takes its strongest argument's weight, so listing .btn.small lifts
 	 * this above component sizing (small buttons, fixed icon buttons) without
 	 * !important. Controls may look larger on a phone, as native ones do. */
-	.bridge-root
+	:is(.bridge-root, .bridge-tokens)
 		:is(
 			.btn.small,
 			.btn,
@@ -153,11 +153,11 @@
 		) {
 		min-height: 44px;
 	}
-	.bridge-root :is(.btn.small, button:not(.tb-exec, .info-tip)) {
+	:is(.bridge-root, .bridge-tokens) :is(.btn.small, button:not(.tb-exec, .info-tip)) {
 		min-width: 44px;
 	}
 	/* Standalone links: the same reach, text links inside sentences excepted. */
-	.bridge-root
+	:is(.bridge-root, .bridge-tokens)
 		:is(
 			.btn.small,
 			.back-link,
@@ -175,19 +175,19 @@
 		min-height: 44px;
 		align-items: center;
 	}
-	.bridge-root :is(.work-crumbs a, .back-link, .account-link, .vault-provider-link, dd > a) {
+	:is(.bridge-root, .bridge-tokens) :is(.work-crumbs a, .back-link, .account-link, .vault-provider-link, dd > a) {
 		display: inline-flex;
 	}
-	.bridge-root :is(.tb-brand, .document-index-head a, .work-crumbs a) {
+	:is(.bridge-root, .bridge-tokens) :is(.tb-brand, .document-index-head a, .work-crumbs a) {
 		min-width: 44px;
 		justify-content: center;
 	}
 	/* The Exec control sits in a 46px bar, so its pill keeps its size and only
 	 * the invisible target grows to 44px. */
-	.bridge-root .tb-exec {
+	:is(.bridge-root, .bridge-tokens) .tb-exec {
 		position: relative;
 	}
-	.bridge-root .tb-exec::after {
+	:is(.bridge-root, .bridge-tokens) .tb-exec::after {
 		position: absolute;
 		inset: -7px -4px;
 		content: '';
@@ -197,15 +197,15 @@
 /* Fingers need a 44px target. Disclosures and compact header controls keep
  * their look and grow only their hit area on touch screens. */
 @media (pointer: coarse) {
-	.bridge-root details > summary {
+	:is(.bridge-root, .bridge-tokens) details > summary {
 		box-sizing: border-box;
 		min-height: 44px;
 		padding-block: 12px;
 	}
-	.bridge-root :is(.tb-brand-home, .exr-who) {
+	:is(.bridge-root, .bridge-tokens) :is(.tb-brand-home, .exr-who) {
 		min-height: 44px;
 	}
-	.bridge-root .tb-brand-home {
+	:is(.bridge-root, .bridge-tokens) .tb-brand-home {
 		min-width: 44px;
 		justify-content: center;
 		margin-inline: -8px;
@@ -220,7 +220,7 @@
 	}
 }
 
-.bridge-root .skeleton-line {
+:is(.bridge-root, .bridge-tokens) .skeleton-line {
 	display: block;
 	height: 0.8em;
 	max-width: 100%;
@@ -230,7 +230,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.bridge-root .skeleton-line {
+	:is(.bridge-root, .bridge-tokens) .skeleton-line {
 		animation: none;
 	}
 }
@@ -238,7 +238,7 @@
 /* The cockpit's one tooltip (see actions/tooltips.ts). Ink on the page's
  * lightest plane would vanish; a dark chip reads instantly and says "this is
  * about the thing under the pointer", not "this is content". */
-.bridge-root .bridge-tooltip {
+:is(.bridge-root, .bridge-tokens) .bridge-tooltip {
 	position: fixed;
 	inset: auto;
 	margin: 0;
@@ -261,17 +261,17 @@
 		transform 120ms var(--ease-out);
 }
 
-.bridge-root .bridge-tooltip[data-side='above'] {
+:is(.bridge-root, .bridge-tokens) .bridge-tooltip[data-side='above'] {
 	transform: translateY(-2px) scale(0.97);
 }
 
-.bridge-root .bridge-tooltip[data-open] {
+:is(.bridge-root, .bridge-tokens) .bridge-tooltip[data-open] {
 	opacity: 1;
 	transform: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.bridge-root .bridge-tooltip {
+	:is(.bridge-root, .bridge-tokens) .bridge-tooltip {
 		transition: none;
 	}
 }
@@ -280,16 +280,16 @@
  * quarter when it opens, in place of the browser's black triangle. Summaries
  * that are really menus or carry their own marker opt out by name. All of it
  * is zero-specificity so any component can restyle its own. */
-:where(.bridge-root) :where(summary) {
+:where(:is(.bridge-root, .bridge-tokens)) :where(summary) {
 	list-style: none;
 	cursor: pointer;
 }
 
-:where(.bridge-root) :where(summary)::-webkit-details-marker {
+:where(:is(.bridge-root, .bridge-tokens)) :where(summary)::-webkit-details-marker {
 	display: none;
 }
 
-:where(.bridge-root)
+:where(:is(.bridge-root, .bridge-tokens))
 	:where(
 		summary:not(
 				.company-switcher > summary,
@@ -312,17 +312,17 @@
 	vertical-align: middle;
 }
 
-:where(.bridge-root) :where(details[open] > summary)::before {
+:where(:is(.bridge-root, .bridge-tokens)) :where(details[open] > summary)::before {
 	transform: rotate(45deg) translate(-1px, -1px);
 }
 
 /* Where the browser can animate to an intrinsic height, disclosures unfold
  * instead of snapping. Menus built on details keep their own popover motion. */
 @supports selector(::details-content) {
-	.bridge-root {
+	:is(.bridge-root, .bridge-tokens) {
 		interpolate-size: allow-keywords;
 	}
-	:where(.bridge-root) :where(details:not(.company-switcher, .owner-menu))::details-content {
+	:where(:is(.bridge-root, .bridge-tokens)) :where(details:not(.company-switcher, .owner-menu))::details-content {
 		block-size: 0;
 		overflow: clip;
 		opacity: 0;
@@ -331,7 +331,7 @@
 			opacity var(--motion-state) var(--ease-out),
 			content-visibility var(--motion-disclosure) allow-discrete;
 	}
-	:where(.bridge-root) :where(details[open]:not(.company-switcher, .owner-menu))::details-content {
+	:where(:is(.bridge-root, .bridge-tokens)) :where(details[open]:not(.company-switcher, .owner-menu))::details-content {
 		block-size: auto;
 		opacity: 1;
 	}
@@ -341,7 +341,7 @@
  * the cockpit's chevron. The chevron is painted with !important because many
  * components set a `background` shorthand on their fields, which would
  * otherwise erase it; nothing else here overrides component geometry. */
-:where(.bridge-root) :where(select:not([multiple])) {
+:where(:is(.bridge-root, .bridge-tokens)) :where(select:not([multiple])) {
 	appearance: none;
 	-webkit-appearance: none;
 	cursor: pointer;
@@ -350,7 +350,7 @@
 		box-shadow var(--motion-state) var(--ease-standard);
 }
 
-.bridge-root select:not([multiple]) {
+:is(.bridge-root, .bridge-tokens) select:not([multiple]) {
 	padding-inline-end: 32px !important;
 	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235b6478' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E") !important;
 	background-repeat: no-repeat !important;
@@ -358,27 +358,27 @@
 	background-size: 12px !important;
 }
 
-:where(.bridge-root) :where(select:not([multiple]):hover:not(:disabled)) {
+:where(:is(.bridge-root, .bridge-tokens)) :where(select:not([multiple]):hover:not(:disabled)) {
 	border-color: var(--edge-control-hover);
 }
 
 /* Where the browser lets a select be styled end to end, its list becomes a
  * lifted cockpit menu instead of the operating system's. */
 @supports (appearance: base-select) {
-	.bridge-root select:not([multiple]),
-	.bridge-root select:not([multiple])::picker(select) {
+	:is(.bridge-root, .bridge-tokens) select:not([multiple]),
+	:is(.bridge-root, .bridge-tokens) select:not([multiple])::picker(select) {
 		appearance: base-select;
 	}
-	.bridge-root select:not([multiple]) {
+	:is(.bridge-root, .bridge-tokens) select:not([multiple]) {
 		display: inline-flex;
 		align-items: center;
 	}
-	.bridge-root select:not([multiple])::picker-icon {
+	:is(.bridge-root, .bridge-tokens) select:not([multiple])::picker-icon {
 		display: none;
 	}
 	/* Chromium opens the list on whichever side has more room; like every other
 	 * menu here it should open below and flip only when it does not fit. */
-	.bridge-root select:not([multiple])::picker(select) {
+	:is(.bridge-root, .bridge-tokens) select:not([multiple])::picker(select) {
 		margin-block: 4px;
 		position-try-order: normal;
 		padding: 4px;
@@ -394,38 +394,38 @@
 			overlay var(--motion-state) allow-discrete,
 			display var(--motion-state) allow-discrete;
 	}
-	.bridge-root select:not([multiple]):open::picker(select) {
+	:is(.bridge-root, .bridge-tokens) select:not([multiple]):open::picker(select) {
 		opacity: 1;
 		transform: none;
 	}
 	@starting-style {
-		.bridge-root select:not([multiple]):open::picker(select) {
+		:is(.bridge-root, .bridge-tokens) select:not([multiple]):open::picker(select) {
 			opacity: 0;
 			transform: translateY(-4px) scale(0.98);
 		}
 	}
-	.bridge-root select:not([multiple]) option {
+	:is(.bridge-root, .bridge-tokens) select:not([multiple]) option {
 		padding: 7px 10px;
 		border-radius: var(--radius-sm);
 		font-size: var(--t-body);
 		cursor: pointer;
 	}
-	.bridge-root select:not([multiple]) option:hover,
-	.bridge-root select:not([multiple]) option:focus-visible {
+	:is(.bridge-root, .bridge-tokens) select:not([multiple]) option:hover,
+	:is(.bridge-root, .bridge-tokens) select:not([multiple]) option:focus-visible {
 		background: var(--surface-alt);
 		outline: none;
 	}
-	.bridge-root select:not([multiple]) option:checked {
+	:is(.bridge-root, .bridge-tokens) select:not([multiple]) option:checked {
 		font-weight: 500;
 	}
-	.bridge-root select:not([multiple]) option::checkmark {
+	:is(.bridge-root, .bridge-tokens) select:not([multiple]) option::checkmark {
 		color: var(--intent-conversation);
 	}
 }
 
 /* The quiet action: no box until the pointer arrives, then a soft wash.
  * Used for secondary verbs that sit beside content (Refresh, Cancel, Remove). */
-.bridge-root .text-button {
+:is(.bridge-root, .bridge-tokens) .text-button {
 	display: inline-flex;
 	align-items: center;
 	gap: 4px;
@@ -444,73 +444,73 @@
 		color var(--motion-state) var(--ease-standard);
 }
 
-.bridge-root .text-button:hover:not(:disabled) {
+:is(.bridge-root, .bridge-tokens) .text-button:hover:not(:disabled) {
 	background: var(--wash-hover);
 	color: var(--ink);
 }
 
-.bridge-root .text-button:active:not(:disabled) {
+:is(.bridge-root, .bridge-tokens) .text-button:active:not(:disabled) {
 	background: var(--wash-press);
 }
 
-.bridge-root .text-button.danger {
+:is(.bridge-root, .bridge-tokens) .text-button.danger {
 	color: var(--state-danger);
 }
 
-.bridge-root .text-button.danger:hover:not(:disabled) {
+:is(.bridge-root, .bridge-tokens) .text-button.danger:hover:not(:disabled) {
 	background: var(--state-danger-soft);
 	color: var(--state-danger);
 }
 
-.bridge-root .text-button:disabled {
+:is(.bridge-root, .bridge-tokens) .text-button:disabled {
 	opacity: 0.45;
 	cursor: not-allowed;
 }
 
 /* Hover is the promise that something is clickable. The few controls that
  * had none: the wordmark, the Exec identity trigger, plain disclosures. */
-:where(.bridge-root) :where(summary) {
+:where(:is(.bridge-root, .bridge-tokens)) :where(summary) {
 	transition: color var(--motion-state) var(--ease-standard);
 }
-:where(.bridge-root) :where(summary:hover) {
+:where(:is(.bridge-root, .bridge-tokens)) :where(summary:hover) {
 	color: var(--ink);
 }
-.bridge-root :is(.tb-brand-home, .portfolio-brand) {
+:is(.bridge-root, .bridge-tokens) :is(.tb-brand-home, .portfolio-brand) {
 	transition: opacity var(--motion-state) var(--ease-standard);
 }
-.bridge-root :is(.tb-brand-home, .portfolio-brand):hover {
+:is(.bridge-root, .bridge-tokens) :is(.tb-brand-home, .portfolio-brand):hover {
 	opacity: 0.72;
 }
-.bridge-root button.exr-who {
+:is(.bridge-root, .bridge-tokens) button.exr-who {
 	margin: -4px -6px;
 	padding: 4px 6px;
 	border-radius: var(--radius-control);
 	transition: background-color var(--motion-state) var(--ease-standard);
 }
-.bridge-root button.exr-who:hover {
+:is(.bridge-root, .bridge-tokens) button.exr-who:hover {
 	background: var(--wash-hover);
 }
 
 /* Scrollbars stay out of the way: a thin thumb in the ink of the theme on
  * no track, instead of the platform's grey gutter. */
-:where(.bridge-root),
-:where(.bridge-root) * {
+:where(:is(.bridge-root, .bridge-tokens)),
+:where(:is(.bridge-root, .bridge-tokens)) * {
 	scrollbar-width: thin;
 	scrollbar-color: var(--scroll-thumb) transparent;
 }
 
 /* Typographic finish: headings balance their lines and prose avoids a lone
  * last word, where the browser supports it. */
-:where(.bridge-root) :where(h1, h2, h3) {
+:where(:is(.bridge-root, .bridge-tokens)) :where(h1, h2, h3) {
 	text-wrap: balance;
 }
-:where(.bridge-root) :where(p, dd, li) {
+:where(:is(.bridge-root, .bridge-tokens)) :where(p, dd, li) {
 	text-wrap: pretty;
 }
 
 /* The cockpit's own select list (actions/select-menu.ts) for browsers that
  * cannot style the native one: the same lifted menu as ::picker(select). */
-.bridge-root .bridge-select-menu {
+:is(.bridge-root, .bridge-tokens) .bridge-select-menu {
 	position: fixed;
 	z-index: var(--z-palette);
 	max-height: min(320px, calc(100vh - 16px));
@@ -525,10 +525,10 @@
 	transform-origin: top left;
 	animation: bridge-popover-in var(--motion-state) var(--ease-out) both;
 }
-.bridge-root .bridge-select-menu[data-side='above'] {
+:is(.bridge-root, .bridge-tokens) .bridge-select-menu[data-side='above'] {
 	transform-origin: bottom left;
 }
-.bridge-root .bridge-select-menu [role='option'] {
+:is(.bridge-root, .bridge-tokens) .bridge-select-menu [role='option'] {
 	display: flex;
 	align-items: center;
 	min-height: 30px;
@@ -543,14 +543,14 @@
 	cursor: pointer;
 	position: relative;
 }
-.bridge-root .bridge-select-menu [role='option']:is(:hover, :focus-visible) {
+:is(.bridge-root, .bridge-tokens) .bridge-select-menu [role='option']:is(:hover, :focus-visible) {
 	background: var(--wash-hover);
 	outline: none;
 }
-.bridge-root .bridge-select-menu [role='option'][aria-selected='true'] {
+:is(.bridge-root, .bridge-tokens) .bridge-select-menu [role='option'][aria-selected='true'] {
 	font-weight: 500;
 }
-.bridge-root .bridge-select-menu [role='option'][aria-selected='true']::before {
+:is(.bridge-root, .bridge-tokens) .bridge-select-menu [role='option'][aria-selected='true']::before {
 	content: '';
 	position: absolute;
 	left: 11px;
@@ -561,11 +561,11 @@
 	border-bottom: 1.6px solid var(--intent-conversation);
 	transform: translateY(-70%) rotate(-45deg);
 }
-.bridge-root .bridge-select-menu [role='option']:disabled {
+:is(.bridge-root, .bridge-tokens) .bridge-select-menu [role='option']:disabled {
 	opacity: 0.45;
 	cursor: not-allowed;
 }
-.bridge-root .bridge-select-group {
+:is(.bridge-root, .bridge-tokens) .bridge-select-group {
 	padding: 6px 10px 2px;
 	color: var(--text-tertiary);
 	font-size: var(--t-label);

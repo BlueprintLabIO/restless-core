@@ -10,7 +10,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const DESIGN = 'src/lib/design';
+const DESIGN_DIRS = ['src/lib/design', 'src/lib/ui/style'];
 const TOKENS = 'tokens.css';
 
 /* An absolute size in `font-size:` or the `font:` shorthand.
@@ -33,9 +33,11 @@ function scan(file, source) {
 	}
 }
 
-for (const entry of readdirSync(DESIGN)) {
-	if (!entry.endsWith('.css') || entry === TOKENS) continue;
-	scan(join(DESIGN, entry), readFileSync(join(DESIGN, entry), 'utf8'));
+for (const dir of DESIGN_DIRS) {
+	for (const entry of readdirSync(dir)) {
+		if (!entry.endsWith('.css') || entry === TOKENS) continue;
+		scan(join(dir, entry), readFileSync(join(dir, entry), 'utf8'));
+	}
 }
 
 /* Components must not hand-roll type either. */
@@ -51,7 +53,7 @@ walk('src/routes');
 
 if (offences.length) {
 	console.error(
-		`\n${offences.length} raw font size(s) outside ${DESIGN}/${TOKENS}.\n` +
+		`\n${offences.length} raw font size(s) outside src/lib/ui/style/${TOKENS}.\n` +
 			`Use a step — --t-label, --t-body, --t-head, --t-title, --t-hero — or add one there\n` +
 			`with a reason. A size one pixel from its neighbour is a weight or an ink change.\n`
 	);

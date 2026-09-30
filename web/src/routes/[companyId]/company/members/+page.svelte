@@ -1,6 +1,6 @@
 <script lang="ts">
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
-	import Skeleton from '$lib/primitives/Skeleton.svelte';
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { page } from '$app/state';
 	import InfoTip from '$lib/components/InfoTip.svelte';

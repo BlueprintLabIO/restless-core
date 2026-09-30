@@ -1,10 +1,10 @@
 <script lang="ts">
-	import Skeleton from '$lib/primitives/Skeleton.svelte';
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { page } from '$app/state';
 	import InfoTip from '$lib/components/InfoTip.svelte';
 	import { attentionQuery } from '$lib/model/queries.svelte';
-	import SemanticMark from '$lib/primitives/SemanticMark.svelte';
+	import SemanticMark from '$lib/ui/glyph/SemanticMark.svelte';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	const source = $derived(attentionQuery(companyId));

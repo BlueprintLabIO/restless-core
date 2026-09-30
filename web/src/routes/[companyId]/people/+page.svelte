@@ -13,7 +13,7 @@
 	import Bell from '@lucide/svelte/icons/bell';
 	import RoomConversation from '$lib/components/RoomConversation.svelte';
 	import RoomManager from '$lib/components/RoomManager.svelte';
-	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
+	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
 	import {
 		companyPrincipalQuery,
 		cockpitQuery,

@@ -17,7 +17,7 @@
 	import Mic from '@lucide/svelte/icons/mic';
 	import Square from '@lucide/svelte/icons/square';
 	import AttachmentPicker from '$lib/primitives/AttachmentPicker.svelte';
-	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
+	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
 	import { composerKeyAction, nextComposerHeight } from '$lib/primitives/composer-keys';
 	import { sendButtonLabel, sendState } from '$lib/primitives/composer-layout';
 	import X from '@lucide/svelte/icons/x';

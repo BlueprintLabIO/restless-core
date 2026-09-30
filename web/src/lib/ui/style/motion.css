@@ -65,15 +65,15 @@
 	}
 }
 
-.bridge-root:not(.immersive) .bridge-exrail.open .exr-inner {
+:is(.bridge-root, .bridge-tokens):not(.immersive) .bridge-exrail.open .exr-inner {
 	animation: bridge-rail-in var(--motion-disclosure) var(--ease-spring) backwards;
 }
 
 @media (max-width: 980px) {
-	.bridge-root:not(.immersive) .bridge-exrail.open {
+	:is(.bridge-root, .bridge-tokens):not(.immersive) .bridge-exrail.open {
 		animation: bridge-rail-in var(--motion-disclosure) var(--ease-spring) backwards;
 	}
-	.bridge-root:not(.immersive) .bridge-exrail.open .exr-inner {
+	:is(.bridge-root, .bridge-tokens):not(.immersive) .bridge-exrail.open .exr-inner {
 		animation: none;
 	}
 }
@@ -82,13 +82,13 @@
  * holds still; the rest of the page crossfades with a 4px settle. A Work
  * title carries the same name on the board and on its own page, so opening
  * it moves the title into place instead of cutting to it. */
-.bridge-root .bridge-topbar {
+:is(.bridge-root, .bridge-tokens) .bridge-topbar {
 	view-transition-name: bridge-topbar;
 }
-.bridge-root .bridge-dock {
+:is(.bridge-root, .bridge-tokens) .bridge-dock {
 	view-transition-name: bridge-dock;
 }
-.bridge-root .bridge-exrail.open {
+:is(.bridge-root, .bridge-tokens) .bridge-exrail.open {
 	view-transition-name: bridge-exrail;
 }
 
@@ -139,16 +139,16 @@ html:active-view-transition-type(in-place)::view-transition-old(bridge-exrail) {
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.bridge-root {
+	:is(.bridge-root, .bridge-tokens) {
 		--motion-press: 1ms;
 		--motion-state: 1ms;
 		--motion-disclosure: 1ms;
 		--motion-punctuation: 1ms;
 	}
 
-	.bridge-root *,
-	.bridge-root *::before,
-	.bridge-root *::after {
+	:is(.bridge-root, .bridge-tokens) *,
+	:is(.bridge-root, .bridge-tokens) *::before,
+	:is(.bridge-root, .bridge-tokens) *::after {
 		scroll-behavior: auto !important;
 	}
 }
