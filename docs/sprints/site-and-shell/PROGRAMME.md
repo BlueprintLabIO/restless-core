@@ -1,6 +1,6 @@
 # Site and shell programme
 
-**Status:** Working plan, started 1 October 2026
+**Status:** Sprints 1–5 delivered on local branches (1 October 2026); Sprint 6 deliberately not built. See *Outcome* at the end.
 **Owner intent:** two public pages with distinct personalities, one shared design system, and a
 mature Cloud shell and cockpit.
 
@@ -82,3 +82,24 @@ Goal: the left-rail cockpit chrome in Core `web`.
 - Nothing is reported as working unless it ran and the output was observed.
 - No push, no pull request, no outbound message. Work is committed locally on a branch.
 - Anything started is stopped in the same turn.
+
+## Outcome (1 October 2026)
+
+| Sprint | Result | Evidence |
+| --- | --- | --- |
+| 1 Foundations | Done, with two carry-overs. `src/lib/ui` boundary, `check:ui`, pure `WorkBoard` and `OutcomeFolio`, `Wordmark`, fixtures, `/gallery`. The sidebar rule is withdrawn. | `npm run check`, 65 unit tests, production build, gallery rendered |
+| 2 Core page | Done. `landing/`: the company floor as a scroll-driven night shift, local-time hero, spotlight, hold-to-approve climax, static mode. | svelte-check, static build (98 KB gzipped JS), five beats rendered at 1440 and 375, axe: 0 violations in four states |
+| 3 UI artifact | Done. `@restless/ui` 0.1.1, checksum, manifest with the Core revision, clean-project smoke test. | `npm run smoke:ui` (7 of 7) |
+| 4 Cloud page | Re-scoped, done. The current site is on Cloud `dev`, not `main`; it is an approved design, so the change is targeted: the real decision surface and a private-beta waitlist. | `npm run verify`, 11 tests, Pages Function run under wrangler, full docker build, axe: 0 violations |
+| 5 Cloud shell | Re-scoped, done in part. Fleet Web now consumes the artifact instead of copies; ADRs 0004 and 0005. | svelte-check, build, docker build of the Fleet Web image |
+| 6 Cockpit shell | **Not built on purpose.** | The cockpit already has a top nav with a sliding indicator, a company switcher, ⌘K, G-then-letter shortcuts and a theme system. A left rail is a stylistic choice that cannot be reviewed without a running company. |
+
+### Carry-overs and open items
+
+- Extract pure views for Authority and for the attention card (its container keeps the query client).
+- Retire the duplicated token block in Fleet Web's `bridge-cloud.css` (needs a visual pass on a running stack and moves its type from Plex to Inter).
+- Decide how `@restless/ui` is published (npm or OCI) — Cloud ADR 0004.
+- Decide the company projection contract — Cloud ADR 0005.
+- Pixel sprite provenance: the furniture, floor and wall art upstream (Pixel Agents) is undocumented. Confirm before using it as brand art beyond the landing page.
+- The waitlist needs `RESEND_API_KEY` and `WAITLIST_FROM` as Pages secrets; add Turnstile before opening the beta widely.
+- The privacy notice was updated for the waitlist and needs the owner's review.

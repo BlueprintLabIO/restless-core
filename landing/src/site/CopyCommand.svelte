@@ -27,7 +27,9 @@
 </script>
 
 <div class="command">
-	<code>{command}</code>
+	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+	<!-- The line scrolls sideways on a phone, so a keyboard user must be able to focus it. -->
+	<code tabindex="0" aria-label={label ? `Command: ${label}` : undefined}>{command}</code>
 	<button type="button" onclick={copy} aria-label={label ? `Copy: ${label}` : 'Copy command'}>
 		{#if copied}<Check size={14} strokeWidth={2.4} />{:else}<Copy size={14} strokeWidth={2.2} />{/if}
 		<span aria-live="polite">{copied ? 'Copied' : 'Copy'}</span>
@@ -57,6 +59,10 @@
 	}
 	code::-webkit-scrollbar {
 		display: none;
+	}
+	code:focus-visible {
+		outline: 2px solid var(--intent-conversation);
+		outline-offset: 3px;
 	}
 	button {
 		display: inline-flex;
