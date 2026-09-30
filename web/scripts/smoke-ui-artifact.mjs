@@ -88,7 +88,8 @@ export default {
 		[html, 'Approve and publish', 'hold-to-approve'],
 		[html, 'class="bridge-tokens"', 'token scope'],
 		[css, '--intent-direction', 'tokens stylesheet'],
-		[String(imports.length), '5', 'all five stylesheets imported']
+		[String(imports.length), '4', 'the four design stylesheets, and not the document reset'],
+		[String(imports.includes('./base.css')), 'false', 'style.css leaves the host document alone']
 	];
 	for (const [haystack, needle, what] of expect) {
 		const ok = haystack.includes(needle);

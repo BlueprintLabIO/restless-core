@@ -1,11 +1,32 @@
 /* The design language a consumer needs to render ui components, in cascade order.
  *
+ * This deliberately leaves out base.css. That file is the application frame's document reset: it sets
+ * the page font, colour, background and box model on :root, body and *, which a host site must never
+ * inherit from a component library. An app that wants it imports '@restless/ui/style/base.css'.
+ *
  * Fonts are the consumer's choice and are not bundled: the product sets type in Inter (variable, opsz),
  * IBM Plex Mono and, for the wordmark only, Silkscreen. Put the class `bridge-tokens` on an ancestor
  * of anything you render; it carries the tokens and type without the cockpit's fixed application frame. */
 
-@import './base.css';
 @import './tokens.css';
 @import './motion.css';
 @import './type.css';
 @import './primitives.css';
+
+:is(.bridge-root, .bridge-tokens) {
+	--z-palette: 95;
+}
+
+/* Text for assistive technology only, scoped so a host site's own utility is left alone. */
+:is(.bridge-root, .bridge-tokens) .sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	padding: 0;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+	clip-path: inset(50%);
+	white-space: nowrap;
+	border: 0;
+}
