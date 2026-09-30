@@ -30,8 +30,9 @@ chmod 0700 /run/restless /run/restless/trusted-supervisor
 mkdir -p /tmp/.X11-unix
 chmod 1777 /tmp/.X11-unix
 mkdir -p /tmp/restless-effect
-chown effect:company /tmp/restless-effect
+# chmod first: after chown the directory belongs to `effect`, and init holds CHOWN but not FOWNER.
 chmod 0700 /tmp/restless-effect
+chown effect:company /tmp/restless-effect
 
 # `/company` is created as uid/gid 2000 in the immutable image. Docker must
 # preserve that ownership when it initializes an empty named volume, and every

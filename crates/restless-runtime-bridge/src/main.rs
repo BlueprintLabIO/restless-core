@@ -1747,6 +1747,9 @@ fn path_text(path: &Path) -> Result<String> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Both rustls providers are compiled in through dependencies, so rustls cannot choose one
+    // and panics at the first TLS use; select ring explicitly before anything connects.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let config = Config::from_environment()?;
     let workspace_operations = WorkspaceOperations::default();
     let (outbound_tx, mut outbound_rx) = mpsc::channel(OUTBOUND_DEPTH);
