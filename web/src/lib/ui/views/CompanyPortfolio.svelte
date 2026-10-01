@@ -30,6 +30,26 @@
 		rowActions?: Snippet<[CompanyPortfolioEntry]> | null;
 	} = $props();
 
+	/* Fleet observes setup, never a company's private Work or attention (Cloud ADR 0005), so on that
+	 * surface "Current focus" and "Needs you" would read "unavailable" on every row. A column no row
+	 * can fill is left out and the room goes to what each row does say. */
+	const hasFocus = $derived(companies.some((company) => !!company.focus));
+	const hasAttention = $derived(
+		companies.some(
+			(company) => company.attentionCount != null || !!company.needsYou || !!company.issue
+		)
+	);
+	const columns = $derived(
+		[
+			'minmax(0, 1.1fr)',
+			hasFocus && 'minmax(0, 1.2fr)',
+			'minmax(0, 1.8fr)',
+			hasAttention && 'minmax(0, 0.8fr)'
+		]
+			.filter(Boolean)
+			.join(' ')
+	);
+
 	function entryLabel(company: CompanyPortfolioEntry): string {
 		if (company.entry?.label) return company.entry.label;
 		if (company.issue) return 'Fix ' + company.name + ' setup. ' + company.issue;
@@ -64,13 +84,14 @@
 		<main class="portfolio-main">
 			{#if before}{@render before()}{/if}
 			<header class="portfolio-head"><h1>Companies</h1></header>
-			{#if feedback}{@render feedback()}{/if}
+			{#if feedback}<div class="portfolio-feedback">{@render feedback()}</div>{/if}
 			<section class="portfolio-table" aria-label="Companies">
 				{#if companies.length}
 					<div class="portfolio-table-scroll">
-						<div class="portfolio-grid">
+						<div class="portfolio-grid" style:--portfolio-cols={columns}>
 							<div class="portfolio-grid-head" aria-hidden="true">
-								<span>Name</span><span>Current focus</span><span>Next</span><span>Needs you</span>
+								<span>Name</span>{#if hasFocus}<span>Current focus</span>{/if}<span>Next</span
+								>{#if hasAttention}<span>Needs you</span>{/if}
 							</div>
 							{#each companies as company (company.id)}
 								<div
@@ -106,10 +127,15 @@
 										</form>
 									{/if}
 									<span class="portfolio-company-cell">
-										<SemanticMark
-											meaning={company.tone ?? 'waiting'}
-											label={company.name + ': ' + company.status}
-										/>
+										<span
+											class="portfolio-mark"
+											class:working={(company.tone ?? 'waiting') === 'waiting'}
+										>
+											<SemanticMark
+												meaning={company.tone ?? 'waiting'}
+												label={company.name + ': ' + company.status}
+											/>
+										</span>
 										<span class="portfolio-company-copy">
 											<strong>{company.name}</strong>
 											<small
@@ -118,32 +144,35 @@
 											>
 										</span>
 									</span>
-									<span class="portfolio-metric portfolio-focus" title={company.focus || undefined}>
-										<small class="portfolio-mobile-label">Current focus</small><strong
-											>{company.focus || 'Focus unavailable'}</strong
+									{#if hasFocus}<span
+											class="portfolio-metric portfolio-focus"
+											title={company.focus || undefined}
 										>
-									</span>
+											<small class="portfolio-mobile-label">Current focus</small><strong
+												>{company.focus || 'Focus unavailable'}</strong
+											>
+										</span>{/if}
 									<span class="portfolio-metric portfolio-proof">
 										<small class="portfolio-mobile-label">Next</small><strong
 											title={company.nextHint || company.issue || undefined}
 											>{company.issue || company.next || 'Unavailable'}</strong
 										>
 									</span>
-									<span class="portfolio-metric portfolio-attention">
-										<small class="portfolio-mobile-label">Needs you</small>
-										<strong class:urgent={!!company.issue || !!company.attentionCount}
-											>{company.needsYou ??
-												(company.issue
-													? 'Fix setup'
-													: company.attentionCount == null
-														? 'Unavailable'
-														: company.attentionCount === 0
-															? 'Nothing now'
-															: company.attentionCount +
-																' item' +
-																(company.attentionCount === 1 ? '' : 's'))}</strong
-										>
-									</span>
+									{#if hasAttention}<span class="portfolio-metric portfolio-attention">
+											<small class="portfolio-mobile-label">Needs you</small>
+											<strong class:urgent={!!company.issue || !!company.attentionCount}
+												>{company.needsYou ??
+													(company.issue
+														? 'Fix setup'
+														: company.attentionCount == null
+															? '—'
+															: company.attentionCount === 0
+																? 'Nothing now'
+																: company.attentionCount +
+																	' item' +
+																	(company.attentionCount === 1 ? '' : 's'))}</strong
+											>
+										</span>{/if}
 									{#if rowActions}<div class="portfolio-row-actions">
 											{@render rowActions(company)}
 										</div>{/if}
@@ -168,6 +197,23 @@
 		min-height: 0;
 		overflow: auto;
 		padding: clamp(24px, 3vw, 42px) clamp(18px, 6vw, 86px) 56px;
+	}
+
+	.portfolio-feedback {
+		width: min(1320px, 100%);
+		margin: 18px auto 0;
+	}
+
+	.portfolio-mark {
+		display: inline-flex;
+		flex: none;
+	}
+
+	/* A company being set up is alive, not idle: its mark breathes until it is ready. */
+	@media (prefers-reduced-motion: no-preference) {
+		.portfolio-mark.working {
+			animation: bridge-working 1.8s ease-in-out infinite;
+		}
 	}
 
 	.portfolio-head,
@@ -199,7 +245,7 @@
 	.portfolio-grid-head,
 	.portfolio-company-row {
 		display: grid;
-		grid-template-columns: 24% 27% 34% 15%;
+		grid-template-columns: var(--portfolio-cols, 24% 27% 34% 15%);
 	}
 
 	.portfolio-grid-head > span {

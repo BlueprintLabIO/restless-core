@@ -14,6 +14,7 @@
 		"pack:ui": "node scripts/pack-ui.mjs",
 		"smoke:ui": "node scripts/smoke-ui-artifact.mjs",
 		"verify:office": "node scripts/verify-office.mjs",
+		"verify:overlays": "node scripts/verify-overlays.mjs",
 		"verify:reader": "node scripts/verify-reader-corpus.mjs",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"format": "prettier --write .",

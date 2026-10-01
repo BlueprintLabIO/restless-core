@@ -104,6 +104,8 @@
 	<span aria-hidden="true" class:concealed={done || pct <= 2}>hold… {Math.round(pct)}%</span>
 	<span aria-hidden="true" class:concealed={!done}>{completeLabel}</span>
 </button>
+<!-- The label swap above is silent to a screen reader; this says the hold completed. -->
+<span class="sr-only" role="status" aria-live="polite">{done ? completeLabel : ''}</span>
 
 <style>
 	.hold-approve {

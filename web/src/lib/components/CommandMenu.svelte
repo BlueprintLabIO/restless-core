@@ -39,6 +39,8 @@
 	let returnFocus: HTMLElement | null = null;
 
 	const PER_GROUP = 8;
+	/* The exit plays before the dialog closes. */
+	let leaving = $state(false);
 
 	const results = $derived.by(() => {
 		const words = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
@@ -57,13 +59,18 @@
 						Number(!b.label.toLocaleLowerCase().startsWith(first))
 				)
 			: matches;
-		const groups = new Map<string, Command[]>();
+		const groups = new Map<string, { items: Command[]; total: number }>();
 		for (const command of ranked) {
-			const group = groups.get(command.group) ?? [];
-			if (group.length < PER_GROUP) group.push(command);
+			const group = groups.get(command.group) ?? { items: [], total: 0 };
+			if (group.items.length < PER_GROUP) group.items.push(command);
+			group.total += 1;
 			groups.set(command.group, group);
 		}
-		return [...groups].map(([group, items]) => ({ group, items }));
+		return [...groups].map(([group, { items, total }]) => ({
+			group,
+			items,
+			more: total - items.length
+		}));
 	});
 	const flat = $derived(results.flatMap((group) => group.items));
 
@@ -81,9 +88,27 @@
 			dialog.showModal();
 			void tick().then(() => input?.focus());
 		} else if (!open && dialog.open) {
-			dialog.close();
+			leave();
 		}
 	});
+
+	/* Close with the panel's exit animation rather than cutting it. Under reduced motion the duration
+	 * tokens are 1ms, so the same path settles at once; the media check just skips the wait. */
+	function leave() {
+		if (!dialog || leaving) return;
+		const panel = dialog.querySelector<HTMLElement>('.command-panel');
+		if (!panel || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+			dialog.close();
+			return;
+		}
+		leaving = true;
+		const finish = () => {
+			leaving = false;
+			if (dialog?.open) dialog.close();
+		};
+		panel.addEventListener('animationend', finish, { once: true });
+		window.setTimeout(finish, 400);
+	}
 
 	function close() {
 		open = false;
@@ -122,8 +147,14 @@
 <dialog
 	bind:this={dialog}
 	class="command-menu"
+	data-closing={leaving ? '' : undefined}
 	aria-label="Search and jump"
 	onclose={() => (open = false)}
+	oncancel={(event) => {
+		// Escape takes the animated exit instead of the browser's instant close.
+		event.preventDefault();
+		close();
+	}}
 	onclick={(event) => {
 		if (event.target === dialog) close();
 	}}
@@ -148,6 +179,9 @@
 			<kbd>esc</kbd>
 			<button type="button" class="command-cancel" onclick={close}>Cancel</button>
 		</label>
+		<p class="sr-only" role="status" aria-live="polite">
+			{flat.length ? `${flat.length} ${flat.length === 1 ? 'result' : 'results'}` : 'No results'}
+		</p>
 		<div class="command-results" id="command-results" role="listbox" bind:this={list}>
 			{#each results as section (section.group)}
 				<div class="command-group" role="group" aria-label={section.group}>
@@ -173,6 +207,11 @@
 							<CornerDownLeft class="command-enter" size={13} aria-hidden="true" />
 						</button>
 					{/each}
+					{#if section.more > 0}
+						<p class="command-more" aria-hidden="true">
+							{section.more} more in {section.group}. Keep typing to narrow.
+						</p>
+					{/if}
 				</div>
 			{:else}
 				<p class="command-empty">No match for “{query.trim()}”.</p>
@@ -206,6 +245,14 @@
 
 	.command-menu[open] .command-panel {
 		animation: bridge-popover-in var(--motion-disclosure) var(--ease-spring) both;
+	}
+
+	.command-menu[data-closing] .command-panel {
+		animation: bridge-popover-out var(--motion-state) var(--ease-standard) both;
+	}
+
+	.command-menu[data-closing]::backdrop {
+		animation: command-fade-out var(--motion-state) var(--ease-standard) both;
 	}
 
 	.command-panel {
@@ -357,6 +404,19 @@
 		from {
 			opacity: 0;
 		}
+	}
+
+	@keyframes command-fade-out {
+		to {
+			opacity: 0;
+		}
+	}
+
+	.command-more {
+		margin: 0;
+		padding: 4px 10px 8px;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
 	}
 
 	@media (max-width: 760px) {
