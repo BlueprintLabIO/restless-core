@@ -1,13 +1,12 @@
 <script lang="ts">
-	import Skeleton from '$lib/primitives/Skeleton.svelte';
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
-	import { listFlip, listIn, listOut } from '$lib/motion';
 	import { WORK_STATUS_LABEL, runStateLabel, workStatusLabel } from '$lib/work/status';
 	import { resizePane } from '$lib/actions/resize-pane';
 	import { page } from '$app/state';
 	import { untrack } from 'svelte';
 	import { replaceState } from '$app/navigation';
-	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
+	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
 	import {
 		attentionQuery,
 		cockpitQuery,
@@ -18,6 +17,7 @@
 	import type { WorkRow } from '$lib/model/generated/orgintel';
 	import type { WorkGraphItem } from '$lib/work/layout';
 	import WorkGraph from '$lib/work/WorkGraph.svelte';
+	import WorkBoard from '$lib/ui/views/WorkBoard.svelte';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	const principalProjection = $derived(companyPrincipalQuery(companyId));
@@ -236,6 +236,24 @@
 		}
 	]);
 
+	const boardViewColumns = $derived(
+		boardColumns.map((column) => ({
+			key: column.key,
+			label: column.label,
+			emptyNote:
+				column.key === 'completed' && completedWork.length ? 'Nothing accepted yet.' : undefined,
+			items: column.rows.map((row) => ({
+				id: row.id,
+				title: row.title,
+				signal: boardSignal(row),
+				status: row.status,
+				ownerName: ownerName(row.owner_id),
+				revision: row.revision,
+				href: workHref(row.id)
+			}))
+		}))
+	);
+
 	function goalProgress(goalId: string): string {
 		const rows = (graph?.work ?? []).filter((item) => item.goal_id === goalId);
 		if (!rows.length) return 'No Work';
@@ -432,45 +450,19 @@
 				{/if}
 			</div>
 		{:else}
-			<div class="work-board" aria-label="Work board">
-				{#each boardColumns as column (column.key)}
-					<section class="board-column">
-						<header><span>{column.label}</span><b>{column.rows.length}</b></header>
-						{#each column.rows.map( (row) => ({ ...row, signal: boardSignal(row) }) ) as item (item.id)}
-							<a
-								class="board-item status-{item.status}"
-								animate:listFlip
-								in:listIn
-								out:listOut
-								href={workHref(item.id)}
-								aria-label={`Open Work: ${item.title}`}
-							>
-								<strong style:view-transition-name={`work-title-${item.id}`}>{item.title}</strong>
-								{#if item.signal}<p>{item.signal}</p>{/if}
-								<footer>
-									<span>{ownerName(item.owner_id)}</span>
-									{#if item.revision > 1}<span title="Revision">R{item.revision}</span>{/if}
-								</footer>
-							</a>
-						{:else}
-							<p class="column-empty">
-								{#if column.key === 'completed' && completedWork.length}Nothing accepted yet.{:else}<span
-										class="sr-only">No work here</span
-									>{/if}
-							</p>
-						{/each}
-						{#if column.key === 'completed' && completedWork.length > recentlyLanded.length}
-							<button
-								class="board-history-toggle"
-								type="button"
-								onclick={() => (showHistory = !showHistory)}
-							>
-								{showHistory ? 'Show recent only' : `View all ${completedWork.length} completed`}
-							</button>
-						{/if}
-					</section>
-				{/each}
-			</div>
+			<WorkBoard columns={boardViewColumns}>
+				{#snippet footer(column)}
+					{#if column.key === 'completed' && completedWork.length > recentlyLanded.length}
+						<button
+							class="board-history-toggle"
+							type="button"
+							onclick={() => (showHistory = !showHistory)}
+						>
+							{showHistory ? 'Show recent only' : `View all ${completedWork.length} completed`}
+						</button>
+					{/if}
+				{/snippet}
+			</WorkBoard>
 		{/if}
 		<nav class="mobile-work-links" aria-label="Work resources">
 			{#if loaded && graph && !noWorkYet}

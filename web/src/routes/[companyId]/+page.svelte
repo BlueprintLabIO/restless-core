@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { failureSentence } from '$lib/model/failure';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
-	import { listFlip, listIn, listOut } from '$lib/motion';
+	import { listFlip, listIn, listOut } from '$lib/ui/motion';
 	import { resizePane } from '$lib/actions/resize-pane';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
@@ -13,7 +13,8 @@
 	import ConversationMessage from '$lib/primitives/ConversationMessage.svelte';
 	import AttentionCard from '$lib/components/AttentionCard.svelte';
 	import Markdown from '$lib/primitives/Markdown.svelte';
-	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
+	import OutcomeFolio from '$lib/ui/views/OutcomeFolio.svelte';
+	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
 	import ConversationTurnDock from '$lib/primitives/ConversationTurnDock.svelte';
 	import CompanyOffice, { preloadOffice } from '$lib/office/LazyCompanyOffice.svelte';
 	import type { AttentionItem } from '$lib/model/view';
@@ -894,89 +895,76 @@
 			>
 		</article>
 	{:else}
+		{@const showRecommendation =
+			item.recommendation.trim() !== item.whatHappened.trim() &&
+			item.recommendation.trim() !== item.whyItMatters.trim()}
+		{#snippet recommendationBody()}
+			<Markdown text={item.recommendation} />
+		{/snippet}
 		<div class="inbox-pane">
-			<article class="owner-folio category-{item.category}">
-				<header class="folio-opening">
-					<div class="folio-heading">
-						<h1>{item.title}</h1>
-						<div class="folio-context">
-							<InfoTip
-								text={`${attentionKind(item.category)} from ${item.source.plane.replaceAll('_', ' ')}. Supporting source detail is available below.`}
-							/>
-							{#if item.deadline}<time>Decision needed by {item.deadline}</time>{/if}
-						</div>
-					</div>
-					<div class="folio-context-copy">
-						<p>{item.whatHappened}</p>
-						<p>{item.whyItMatters}</p>
-					</div>
-					{#if item.uncertainty}
-						<p class="folio-uncertainty"><strong>Uncertain:</strong> {item.uncertainty}</p>
-					{/if}
-				</header>
+			<OutcomeFolio
+				title={item.title}
+				whatHappened={item.whatHappened}
+				whyItMatters={item.whyItMatters}
+				uncertainty={item.uncertainty || undefined}
+				category={item.category}
+				recommendation={showRecommendation ? recommendationBody : undefined}
+				detailsCount={item.evidence.length}
+			>
+				{#snippet context()}
+					<InfoTip
+						text={`${attentionKind(item.category)} from ${item.source.plane.replaceAll('_', ' ')}. Supporting source detail is available below.`}
+					/>
+					{#if item.deadline}<time>Decision needed by {item.deadline}</time>{/if}
+				{/snippet}
 
-				{#if item.recommendation.trim() !== item.whatHappened.trim() && item.recommendation.trim() !== item.whyItMatters.trim()}
-					<section class="folio-recommendation" aria-label="Recommendation">
-						<strong>Recommended</strong>
-						<Markdown text={item.recommendation} />
-					</section>
-				{/if}
 
-				{#key `${companyId}:${item.id}`}<AttentionCard
-						{companyId}
-						{item}
-						showTitle={false}
-						embedded={true}
-						onopenDocument={async () => {
-							const result = await source.reload();
-							if (result.error) throw result.error;
-						}}
-					/>{/key}
+				{#snippet decision()}
+					{#key `${companyId}:${item.id}`}<AttentionCard
+							{companyId}
+							{item}
+							showTitle={false}
+							embedded={true}
+							onopenDocument={async () => {
+								const result = await source.reload();
+								if (result.error) throw result.error;
+							}}
+						/>{/key}
+				{/snippet}
 
-				<details class="folio-details">
-					<summary title="Prepared by, supporting evidence, and source references">
-						<span class="evidence-chevron" aria-hidden="true">›</span>
-						<span>Details</span>
-						{#if item.evidence.length}<small
-								>· {item.evidence.length} item{item.evidence.length === 1 ? '' : 's'}</small
-							>{/if}
-					</summary>
-					<div class="folio-evidence-body">
-						<div class="folio-credit">
-							<span>Prepared by</span>
-							<strong
-								>{item.briefAuthor?.display ??
-									item.responsibleActor?.display ??
-									'Source record'}</strong
-							>
-							{#if item.briefedAt}
-								<span class="folio-credit-separator" aria-hidden="true">·</span>
-								<time>{when(item.briefedAt)}</time>
-							{/if}
-						</div>
-						<InfoTip
-							text={`Brief status: ${item.briefStatus.replaceAll('-', ' ')}. The wording was prepared by the named accountable actor.`}
-						/>
-						{#each item.evidence as evidence, evidenceIndex (`${evidence.kind}:${evidence.label}:${evidenceIndex}`)}
-							{#if evidence.content}
-								<div class="evidence-entry">
-									<div class="evidence-label mono">{evidence.label}</div>
-									<blockquote class="ib-quote">{evidence.content}</blockquote>
-								</div>
-							{:else if evidence.uri}
-								<a class="evidence-link" href={evidence.uri} target="_blank" rel="noreferrer">
-									{evidence.label} <span aria-hidden="true">↗</span>
-								</a>
-							{/if}
-						{/each}
-						<div class="source-ref mono">
-							SOURCE {item.source.kind} / {item.source.reference} · {item.canContinue
-								? 'work may continue'
-								: 'blocking'}
-						</div>
+				{#snippet details()}
+					<div class="folio-credit">
+						<span>Prepared by</span>
+						<strong
+							>{item.briefAuthor?.display ?? item.responsibleActor?.display ?? 'Source record'}</strong
+						>
+						{#if item.briefedAt}
+							<span class="folio-credit-separator" aria-hidden="true">·</span>
+							<time>{when(item.briefedAt)}</time>
+						{/if}
 					</div>
-				</details>
-			</article>
+					<InfoTip
+						text={`Brief status: ${item.briefStatus.replaceAll('-', ' ')}. The wording was prepared by the named accountable actor.`}
+					/>
+					{#each item.evidence as evidence, evidenceIndex (`${evidence.kind}:${evidence.label}:${evidenceIndex}`)}
+						{#if evidence.content}
+							<div class="evidence-entry">
+								<div class="evidence-label mono">{evidence.label}</div>
+								<blockquote class="ib-quote">{evidence.content}</blockquote>
+							</div>
+						{:else if evidence.uri}
+							<a class="evidence-link" href={evidence.uri} target="_blank" rel="noreferrer">
+								{evidence.label} <span aria-hidden="true">↗</span>
+							</a>
+						{/if}
+					{/each}
+					<div class="source-ref mono">
+						SOURCE {item.source.kind} / {item.source.reference} · {item.canContinue
+							? 'work may continue'
+							: 'blocking'}
+					</div>
+				{/snippet}
+			</OutcomeFolio>
 		</div>
 	{/if}
 {/snippet}
@@ -1240,75 +1228,6 @@
 		border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--border));
 		background: color-mix(in srgb, var(--danger) 7%, var(--surface));
 	}
-	.owner-folio {
-		container-type: inline-size;
-		width: min(760px, calc(100% - 40px));
-		margin: 20px auto;
-		padding: clamp(20px, 3vw, 32px);
-		background: var(--surface-pane);
-	}
-	.folio-opening {
-		padding: 0;
-	}
-	.folio-heading {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto;
-		align-items: center;
-		gap: var(--space-4);
-	}
-	.folio-context {
-		display: flex;
-		align-items: center;
-		justify-content: flex-start;
-		gap: var(--space-2);
-		color: var(--text-secondary);
-		font-size: var(--t-body);
-	}
-	.folio-context time {
-		max-width: 18ch;
-	}
-	.folio-heading h1 {
-		max-width: 760px;
-		margin: 0;
-		font-size: var(--t-title);
-		font-weight: 600;
-		line-height: 1.16;
-		letter-spacing: -0.03em;
-		text-wrap: balance;
-	}
-	.folio-context-copy {
-		max-width: 72ch;
-		margin-top: var(--space-4);
-		color: var(--text-secondary);
-		font-size: var(--t-head);
-		line-height: 1.5;
-	}
-	.folio-context-copy p {
-		margin: 0;
-	}
-	.folio-context-copy p + p {
-		margin-top: var(--space-2);
-	}
-	.folio-uncertainty {
-		margin: var(--space-3) 0 0;
-		font-size: var(--t-body);
-		line-height: 1.45;
-		color: var(--text-secondary);
-	}
-	.folio-uncertainty strong {
-		color: var(--intent-authority);
-		font-weight: 600;
-	}
-	.folio-recommendation {
-		margin: var(--space-4) 0;
-		padding: var(--space-3) 0;
-		border-block: 1px solid var(--border);
-		color: var(--ink);
-	}
-	.folio-recommendation > strong {
-		color: var(--intent-feedback);
-		font-size: var(--t-body);
-	}
 	.folio-credit {
 		min-width: 0;
 		display: flex;
@@ -1330,50 +1249,6 @@
 	}
 	.folio-credit-separator {
 		color: var(--border-strong);
-	}
-	.folio-details {
-		margin-top: var(--space-3);
-		border-top: 1px solid var(--border);
-	}
-	.folio-details summary {
-		display: flex;
-		align-items: center;
-		gap: var(--space-1);
-		padding: 10px 0;
-		cursor: pointer;
-		list-style: none;
-		font: 500 var(--t-body) var(--font-ui);
-		color: var(--text-secondary);
-	}
-	.folio-details summary::-webkit-details-marker {
-		display: none;
-	}
-	.folio-details summary:hover {
-		color: var(--ink);
-	}
-	.folio-details summary:focus-visible {
-		outline: 2px solid var(--intent-feedback);
-		outline-offset: 2px;
-	}
-	.folio-details summary small {
-		font: inherit;
-		font-weight: 400;
-		color: var(--text-tertiary);
-	}
-	.evidence-chevron {
-		width: var(--space-3);
-		flex: 0 0 var(--space-3);
-		font-size: var(--t-head);
-		line-height: 1;
-		color: var(--text-tertiary);
-		transform-origin: center;
-		transition: transform 120ms ease;
-	}
-	.folio-details[open] .evidence-chevron {
-		transform: rotate(90deg);
-	}
-	.folio-evidence-body {
-		padding: 2px 0 12px;
 	}
 	.evidence-entry {
 		margin-top: 15px;
@@ -1628,15 +1503,8 @@
 			border-top: 1px solid var(--border-strong);
 			border-left: 0;
 		}
-		.owner-folio {
-			width: calc(100% - 24px);
-			margin-block: 12px;
-		}
 	}
 	@media (prefers-reduced-motion: reduce) {
-		.evidence-chevron {
-			transition: none;
-		}
 		.live-mark.owner {
 			box-shadow: none;
 		}

@@ -35,3 +35,4 @@ experiment/**/node_modules/
 experiment/**/target/
 experiment/**/workdir/
 experiment/**/codex-home/
+/web/dist

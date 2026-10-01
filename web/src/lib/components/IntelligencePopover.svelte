@@ -1,5 +1,5 @@
 <script lang="ts">
-	import Skeleton from '$lib/primitives/Skeleton.svelte';
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import type { Snippet } from 'svelte';
 	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
 	import { connectionLabel, effortLabel, modelLabel } from '$lib/model/intelligence-labels';

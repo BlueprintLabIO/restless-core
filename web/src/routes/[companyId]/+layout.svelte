@@ -3,7 +3,7 @@
 	import { prefetchOnIntent } from '$lib/model/prefetch';
 	import { describeFailure, failureSentence } from '$lib/model/failure';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
-	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
+	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
 	import { page } from '$app/state';
 	import { setContext } from 'svelte';
 	const setupDraft = $state<{ name: string | null }>({ name: null });

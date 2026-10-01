@@ -1,4 +1,4 @@
-import { springEase } from '$lib/motion';
+import { springEase } from '$lib/ui/motion';
 /** Resize one existing pane without introducing a second layout tree. */
 export type PaneResize = {
 	key: string;

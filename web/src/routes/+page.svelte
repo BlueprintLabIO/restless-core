@@ -1,7 +1,7 @@
 <script lang="ts">
-	import Skeleton from '$lib/primitives/Skeleton.svelte';
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
-	import { plainText } from '$lib/text';
+	import { plainText } from '$lib/ui/text';
 	import { tooltips } from '$lib/actions/tooltips';
 	import { selectMenu } from '$lib/actions/select-menu';
 	import { goto } from '$app/navigation';
@@ -10,8 +10,8 @@
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import CreateCompany from '$lib/components/CreateCompany.svelte';
 	import { getApplianceStatus, type ApplianceStatus } from '$lib/model/appliance';
-	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
-	import SemanticMark from '$lib/primitives/SemanticMark.svelte';
+	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
+	import SemanticMark from '$lib/ui/glyph/SemanticMark.svelte';
 	import {
 		companiesQuery,
 		portfolioQuery,

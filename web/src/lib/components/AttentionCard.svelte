@@ -8,7 +8,7 @@
 		resolveHandoffDecision
 	} from '$lib/model/attention';
 	import { refreshAttention, removeConfirmedAttention } from '$lib/model/queries.svelte';
-	import HoldApprove from '$lib/primitives/HoldApprove.svelte';
+	import HoldApprove from '$lib/ui/controls/HoldApprove.svelte';
 	import Markdown from '$lib/primitives/Markdown.svelte';
 
 	let {

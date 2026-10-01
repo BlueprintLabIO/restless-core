@@ -1,6 +1,6 @@
 <script lang="ts">
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
-	import { formatDay } from '$lib/time';
+	import { formatDay } from '$lib/ui/time';
 	import { failureSentence } from '$lib/model/failure';
 	import { onMount } from 'svelte';
 	let { companyId }: { companyId: string } = $props();

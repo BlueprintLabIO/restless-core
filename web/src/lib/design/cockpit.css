@@ -1312,65 +1312,9 @@
 	background: var(--surface-pane);
 }
 
-.bridge-root .board-item {
-	position: relative;
-	display: block;
-	width: 100%;
-	padding: 12px 13px;
-	border: 1px solid var(--border-strong);
-	border-radius: var(--radius-control);
-	background: color-mix(in srgb, var(--highlight) 82%, transparent);
-	box-shadow:
-		var(--bevel-subtle),
-		0 1px 2px rgba(43, 51, 66, 0.07),
-		0 5px 14px rgba(43, 51, 66, 0.045);
-	color: var(--ink);
-	text-align: left;
-	text-decoration: none;
-	cursor: pointer;
-}
-
-.bridge-root .board-item {
-	transition:
-		background-color var(--motion-state) var(--ease-standard),
-		border-color var(--motion-state) var(--ease-standard),
-		box-shadow var(--motion-state) var(--ease-standard),
-		transform var(--motion-press) var(--ease-standard);
-}
-
-.bridge-root .board-item:hover {
-	border-color: color-mix(in srgb, var(--ink) 24%, transparent);
-	background-color: var(--surface-raised);
-	box-shadow:
-		var(--bevel),
-		0 10px 26px rgba(43, 51, 66, 0.09);
-}
-
-.bridge-root .board-item:active {
-	transform: translateY(1px);
-}
-
-.bridge-root .board-item:focus-visible,
 .bridge-root .work-relations-section a:focus-visible {
 	outline: 2px solid var(--intent-conversation);
 	outline-offset: 2px;
-}
-
-.bridge-root .board-item > span {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-	font: 500 var(--t-label) var(--font-ui);
-	font-variant-numeric: tabular-nums;
-	letter-spacing: normal;
-	text-transform: none;
-	color: var(--text-tertiary);
-}
-
-.bridge-root .board-item > span i {
-	width: 6px;
-	height: 6px;
-	border: 1px solid currentColor;
 }
 
 .bridge-root .status-active > span i {
@@ -1402,90 +1346,6 @@
 
 .bridge-root .status-blocked > span {
 	color: var(--intent-authority);
-}
-
-.bridge-root .board-item strong {
-	display: block;
-	font-size: var(--t-body);
-	line-height: 1.35;
-}
-
-.bridge-root .work-board {
-	min-width: 0;
-	min-height: 0;
-	display: grid;
-	grid-template-columns: repeat(4, minmax(190px, 1fr));
-	overflow: auto;
-}
-
-.bridge-root .board-column {
-	--column-tone: var(--intent-direction);
-	min-width: 0;
-	padding: 12px;
-	border-right: 1px solid var(--border);
-	background: color-mix(in srgb, var(--highlight) 46%, transparent);
-}
-
-.bridge-root .board-column:nth-child(2) {
-	--column-tone: var(--intent-conversation);
-}
-.bridge-root .board-column:nth-child(3) {
-	--column-tone: var(--intent-authority);
-}
-.bridge-root .board-column:nth-child(4) {
-	--column-tone: var(--state-success);
-}
-
-.bridge-root .board-column::before {
-	content: '';
-	display: block;
-	height: 2px;
-	margin: -12px -12px 11px;
-	background: color-mix(in srgb, var(--column-tone) 62%, transparent);
-}
-
-.bridge-root .board-column > header {
-	display: flex;
-	align-items: baseline;
-	gap: 8px;
-	margin-bottom: 10px;
-	color: var(--ink);
-	font-weight: 600;
-}
-
-.bridge-root .board-column > header b {
-	color: var(--text-tertiary);
-	font: 500 var(--t-label) var(--font-ui);
-	font-variant-numeric: tabular-nums;
-}
-
-.bridge-root .board-item {
-	margin-bottom: 9px;
-}
-
-.bridge-root .board-item p {
-	display: -webkit-box;
-	-webkit-line-clamp: 3;
-	-webkit-box-orient: vertical;
-	overflow: hidden;
-	margin: 6px 0 9px;
-	font-size: var(--t-body);
-	line-height: 1.45;
-	color: var(--text-secondary);
-}
-
-.bridge-root .board-item footer {
-	display: flex;
-	justify-content: space-between;
-	gap: 8px;
-	margin-top: 10px;
-	color: var(--text-tertiary);
-	font-size: var(--t-label);
-}
-
-.bridge-root .column-empty {
-	padding: 4px 2px 8px;
-	color: var(--text-tertiary);
 }
 
 .bridge-root .board-history-toggle {
@@ -2890,31 +2750,8 @@
 	.bridge-root .talk-composer {
 		padding: 9px 10px 11px;
 	}
-	.bridge-root .work-board {
-		grid-template-columns: 1fr;
-		align-content: start;
-	}
-	.bridge-root .board-column {
-		border-right: 0;
-		border-bottom: 1px solid var(--border);
-	}
 	/* Stacked, a full-width tone bar reads as a stray rule; the tone moves to a
 	 * status dot beside the column name, like the dots on cards. */
-	.bridge-root .board-column::before {
-		display: none;
-	}
-	.bridge-root .board-column > header::before {
-		width: 6px;
-		height: 6px;
-		align-self: center;
-		flex: none;
-		border-radius: 50%;
-		background: var(--column-tone);
-		content: '';
-	}
-	.bridge-root .board-column:has(.column-empty) {
-		padding-block: 12px 4px;
-	}
 	.bridge-root .bounded-confirm {
 		grid-column: 2;
 	}

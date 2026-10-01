@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { formatMoment } from '$lib/time';
+	import { formatMoment } from '$lib/ui/time';
 	import { onDestroy, untrack } from 'svelte';
 	import type { Snippet } from 'svelte';
 	import Check from '@lucide/svelte/icons/check';
 	import Copy from '@lucide/svelte/icons/copy';
 	import AttachmentList from './AttachmentList.svelte';
 	import Markdown from './Markdown.svelte';
-	import SemanticMark from './SemanticMark.svelte';
+	import SemanticMark from '$lib/ui/glyph/SemanticMark.svelte';
 	import type { MessageAttachment, MessageIntentReceipt } from '$lib/model/view';
 	import { initials } from '$lib/model/initials';
 

@@ -4,7 +4,7 @@
 	 * opens, so Attention and People do not pay for it on every visit. */
 	import type { ComponentProps } from 'svelte';
 	import type DocumentEditor from './DocumentEditor.svelte';
-	import Skeleton from '$lib/primitives/Skeleton.svelte';
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 
 	let props: ComponentProps<typeof DocumentEditor> = $props();
 	const editor = import('./DocumentEditor.svelte');

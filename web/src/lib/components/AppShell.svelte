@@ -28,7 +28,7 @@
 	import CommandMenu, { type Command } from '$lib/components/CommandMenu.svelte';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import type { CompanyCatalogEntry } from '$lib/model/cockpit';
-	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
+	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
 
 	let {
 		companyId,

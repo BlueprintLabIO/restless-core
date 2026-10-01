@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { listIn } from '$lib/motion';
+	import { listIn } from '$lib/ui/motion';
 	import { runStateLabel, workStatusLabel } from '$lib/work/status';
 	import { untrack } from 'svelte';
 	import { fade } from 'svelte/transition';
-	import { springEase } from '$lib/motion';
+	import { springEase } from '$lib/ui/motion';
 	import {
 		blendLayouts,
 		layoutWorkGraph,

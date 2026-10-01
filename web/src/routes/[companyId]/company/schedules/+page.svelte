@@ -1,7 +1,7 @@
 <script lang="ts">
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
-	import { formatMoment } from '$lib/time';
-	import Skeleton from '$lib/primitives/Skeleton.svelte';
+	import { formatMoment } from '$lib/ui/time';
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { page } from '$app/state';
 	import { createQuery } from '@tanstack/svelte-query';

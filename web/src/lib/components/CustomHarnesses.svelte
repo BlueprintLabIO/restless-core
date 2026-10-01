@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { failureSentence } from '$lib/model/failure';
-	import Skeleton from '$lib/primitives/Skeleton.svelte';
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { onMount } from 'svelte';
 	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
 	import { announceIntelligenceChange } from '$lib/model/intelligence-events';

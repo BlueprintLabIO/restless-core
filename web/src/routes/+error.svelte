@@ -3,7 +3,7 @@
 	 * own frame rather than the framework's bare status text. The way back goes
 	 * to the company the address named when there is one. */
 	import { page } from '$app/state';
-	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
+	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
 
 	const missing = $derived(page.status === 404);
 	const companyId = $derived(page.params.companyId);

@@ -15,7 +15,7 @@
 	--z-rail: 60; /* the executive rail when narrow screens make it float over the page */
 	--z-overlay: 90; /* modal scrim */
 	--z-palette: 95; /* command palette, above the scrim it may open over */
-	--z-app: 1000; /* the app shell outside .bridge-root: offline banner, loading bar */
+	--z-app: 1000; /* the app shell outside :is(.bridge-root, .bridge-tokens): offline banner, loading bar */
 }
 
 /* Until Inter arrives, text is set in a local Arial scaled to Inter's

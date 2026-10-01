@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { failureSentence } from '$lib/model/failure';
-	import Skeleton from '$lib/primitives/Skeleton.svelte';
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	/* One contextual conversation rail. It normally belongs to the Exec; while
 	 * the owner focuses a review it belongs to that Work's accountable lead.
 	 * The rail stays mounted and takes real space rather than nesting another
@@ -15,9 +15,9 @@
 	import ConversationHistoryTools from '$lib/primitives/ConversationHistoryTools.svelte';
 	import ConversationMessage from '$lib/primitives/ConversationMessage.svelte';
 	import ConversationTurnDock from '$lib/primitives/ConversationTurnDock.svelte';
-	import HoldApprove from '$lib/primitives/HoldApprove.svelte';
-	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
-	import SemanticMark from '$lib/primitives/SemanticMark.svelte';
+	import HoldApprove from '$lib/ui/controls/HoldApprove.svelte';
+	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
+	import SemanticMark from '$lib/ui/glyph/SemanticMark.svelte';
 	import type { ActiveAgentTurn, QuerySourceStatus } from '$lib/model/queries.svelte';
 	import type { OutcomeStandard } from '$lib/model/company';
 	import type { ThreadMessage } from '$lib/model/view';

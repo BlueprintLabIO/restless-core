@@ -3,7 +3,7 @@
 	import { selectMenu } from '$lib/actions/select-menu';
 	import { page } from '$app/state';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
-	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
+	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
 	let { children } = $props();
 	const section = $derived(page.url.pathname.split('/').at(-1));
 </script>

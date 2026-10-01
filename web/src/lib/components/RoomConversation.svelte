@@ -1,7 +1,7 @@
 <script lang="ts">
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { failureSentence } from '$lib/model/failure';
-	import Skeleton from '$lib/primitives/Skeleton.svelte';
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { onDestroy, tick, untrack, type Snippet } from 'svelte';
 	let { actions }: { actions?: Snippet } = $props();
 	import { goto } from '$app/navigation';
