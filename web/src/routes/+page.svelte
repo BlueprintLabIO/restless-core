@@ -1,7 +1,7 @@
 <script lang="ts">
-	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
+	import CompanyPortfolio from '$lib/ui/views/CompanyPortfolio.svelte';
+	import type { CompanyPortfolioEntry } from '$lib/ui/portfolio';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
-	import { plainText } from '$lib/ui/text';
 	import { tooltips } from '$lib/actions/tooltips';
 	import { selectMenu } from '$lib/actions/select-menu';
 	import { goto } from '$app/navigation';
@@ -10,15 +10,13 @@
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import CreateCompany from '$lib/components/CreateCompany.svelte';
 	import { getApplianceStatus, type ApplianceStatus } from '$lib/model/appliance';
-	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
-	import SemanticMark from '$lib/ui/glyph/SemanticMark.svelte';
 	import {
 		companiesQuery,
 		portfolioQuery,
 		type PortfolioProjection
 	} from '$lib/model/queries.svelte';
-	import type { CompanyCatalogEntry } from '$lib/model/cockpit';
 	import { startFixHref, startGuidance } from '$lib/model/company-start';
+	import { plainText } from '$lib/ui/text';
 
 	const companyCatalog = companiesQuery();
 	const portfolio = portfolioQuery();
@@ -57,29 +55,54 @@
 		return value?.startsWith('/') && !value.startsWith('//') ? value : '';
 	}
 
-	function attentionLabel(company: CompanyCatalogEntry, projection?: PortfolioProjection): string {
-		// A company that cannot start is the one fact worth stating before
-		// attention counts: nothing will happen in it until it is resolved.
-		if (company.unstartable_reason) {
-			return `Fix ${company.name} setup. It cannot start: ${startGuidance(company.unstartable_reason)}`;
-		}
-		const next = projection?.nextProof ? ` Next item of value: ${projection.nextProof}.` : '';
-		const count = projection?.attentionCount;
-		if (count === null || count === undefined) return `Open ${company.name}.${next}`;
-		if (count === 0) return `Open ${company.name}.${next} No owner attention is waiting.`;
-		return `Open ${company.name}.${next} ${count} item${count === 1 ? '' : 's'} need owner attention.`;
-	}
+	const rows = $derived(
+		activeCompanies.map((company): CompanyPortfolioEntry => {
+			const projection = projections[company.id];
+			const issue = company.unstartable_reason ? startGuidance(company.unstartable_reason) : '';
+			return {
+				id: company.id,
+				name: company.name,
+				status: issue ? 'Can’t start' : company.runtime_status,
+				tone:
+					issue || company.runtime_status === 'unavailable'
+						? 'unavailable'
+						: company.runtime_status === 'running'
+							? 'presence'
+							: 'waiting',
+				focus: plainText(company.mission, { dropTitle: true }) || 'Focus not set',
+				next: projection?.nextProof || 'Checking work…',
+				nextHint: projection?.nextProofDetail,
+				attentionCount: projection?.attentionCount,
+				needsYou: projection?.attentionCount == null && !issue ? 'Checking…' : undefined,
+				issue,
+				entry: { href: issue ? startFixHref(company.id) : `/${company.id}` }
+			};
+		})
+	);
 </script>
 
 <svelte:head><title>Companies — {PRODUCT_NAME}</title></svelte:head>
 
-<div class="bridge-root portfolio-root" use:tooltips use:selectMenu>
-	<header class="bridge-topbar" aria-label="Portfolio navigation">
-		<a class="tb-brand portfolio-brand" href="/" aria-label={`${PRODUCT_NAME} companies`}>
-			<span class="tb-mark"><MatrixGlyph rows={GLYPHS.r} size={13} glow /></span>
-			<span class="tb-name">{PRODUCT_NAME}</span>
-		</a>
-		<div class="tb-right">
+{#snippet failures()}
+	{#if companyCatalog.failure}
+		<FailureNotice
+			error={companyCatalog.failure}
+			subject="your companies"
+			stale={loaded}
+			variant={loaded ? 'inline' : 'page'}
+			onretry={companyCatalog.refresh}
+		/>
+	{/if}
+{/snippet}
+
+<div use:tooltips use:selectMenu>
+	<CompanyPortfolio
+		companies={rows}
+		{loaded}
+		brandName={PRODUCT_NAME}
+		feedback={companyCatalog.failure ? failures : null}
+	>
+		{#snippet headerActions()}
 			{#if loaded}<CreateCompany />{/if}
 			<a
 				class="btn settings-link"
@@ -87,23 +110,10 @@
 				aria-label="Account settings"
 				title="Account settings"
 			>
-				<Settings2 size={17} strokeWidth={1.8} aria-hidden="true" />
-				<span>Settings</span>
+				<Settings2 size={17} strokeWidth={1.8} aria-hidden="true" /><span>Settings</span>
 			</a>
-		</div>
-	</header>
-
-	{#if companyCatalog.failure && !loaded}
-		<main class="portfolio-main">
-			<FailureNotice
-				error={companyCatalog.failure}
-				subject="your companies"
-				variant="page"
-				onretry={companyCatalog.refresh}
-			/>
-		</main>
-	{:else if loaded}
-		<main class="portfolio-main">
+		{/snippet}
+		{#snippet before()}
 			{#if appliance?.state === 'recovering'}
 				<div class="appliance-notice" role="status">
 					<span>Restoring runtime safety.</span>
@@ -120,113 +130,17 @@
 					<p>{appliance.repair}</p>
 				</div>
 			{/if}
-			<header class="portfolio-head">
-				<h1>Companies</h1>
-			</header>
+		{/snippet}
 
-			{#if companyCatalog.failure}
-				<FailureNotice
-					error={companyCatalog.failure}
-					subject="your companies"
-					stale
-					onretry={companyCatalog.refresh}
-				/>
-			{/if}
-			<section class="portfolio-table" aria-label="Companies">
-				{#if activeCompanies.length}
-					<div class="portfolio-table-scroll">
-						<div class="portfolio-grid">
-							<div class="portfolio-grid-head" aria-hidden="true">
-								<span>Name</span>
-								<span>Current focus</span>
-								<span>Next</span>
-								<span>Needs you</span>
-							</div>
-							{#each activeCompanies as company (company.id)}
-								{@const projection = projections[company.id]}
-								{@const startIssue = company.unstartable_reason
-									? startGuidance(company.unstartable_reason)
-									: ''}
-								<!-- A company that cannot start opens on the page that fixes it. -->
-								<a
-									class="portfolio-company-row runtime-{company.runtime_status}"
-									href={startIssue ? startFixHref(company.id) : `/${company.id}`}
-									aria-label={attentionLabel(company, projection)}
-								>
-									<span class="portfolio-company-cell">
-										<SemanticMark
-											meaning={company.unstartable_reason
-												? 'unavailable'
-												: company.runtime_status === 'running'
-													? 'presence'
-													: company.runtime_status === 'unavailable'
-														? 'unavailable'
-														: 'waiting'}
-											label={company.unstartable_reason
-												? `${company.name} cannot start: ${startIssue}`
-												: `${company.name} runtime: ${company.runtime_status}`}
-										/>
-										<span class="portfolio-company-copy">
-											<strong>{company.name}</strong>
-											{#if company.unstartable_reason}
-												<small class="portfolio-company-unstartable" title={startIssue}
-													>Can’t start</small
-												>
-											{:else}
-												<small>{company.runtime_status}</small>
-											{/if}
-										</span>
-									</span>
-									<span
-										class="portfolio-metric portfolio-focus"
-										title={plainText(company.mission, { dropTitle: true }) || undefined}
-									>
-										<small class="portfolio-mobile-label">Current focus</small>
-										<strong
-											>{plainText(company.mission, { dropTitle: true }) || 'Focus not set'}</strong
-										>
-									</span>
-									<span class="portfolio-metric portfolio-proof">
-										<small class="portfolio-mobile-label">Next</small>
-										<strong title={startIssue || undefined}
-											>{startIssue || projection?.nextProof || 'Checking work…'}</strong
-										>
-									</span>
-									<span class="portfolio-metric portfolio-attention">
-										<small class="portfolio-mobile-label">Needs you</small>
-										<strong
-											class:urgent={!!company.unstartable_reason || !!projection?.attentionCount}
-											>{company.unstartable_reason
-												? 'Fix setup'
-												: projection?.attentionCount == null
-													? 'Checking…'
-													: projection.attentionCount === 0
-														? 'Nothing now'
-														: `${projection.attentionCount} item${projection.attentionCount === 1 ? '' : 's'}`}</strong
-										>
-									</span>
-								</a>
-							{/each}
-						</div>
-					</div>
-				{:else}
-					<div class="portfolio-empty">
-						<MatrixGlyph rows={GLYPHS.ring} size={14} />
-						<h2>No companies yet</h2>
-						<p>
-							{archivedCompanies.length
-								? 'Use + to start a company.'
-								: 'Use + to start your first company.'}
-						</p>
-					</div>
-				{/if}
-			</section>
-		</main>
-	{:else}
-		<main class="portfolio-loading">
-			<Skeleton label="Loading companies" variant="list" count={3} />
-		</main>
-	{/if}
+		{#snippet empty()}
+			<h2>No companies yet</h2>
+			<p>
+				{archivedCompanies.length
+					? 'Use + to start a company.'
+					: 'Use + to start your first company.'}
+			</p>
+		{/snippet}
+	</CompanyPortfolio>
 </div>
 
 <style>

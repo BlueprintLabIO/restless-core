@@ -39,8 +39,14 @@ try {
 	writeFileSync(
 		join(dir, 'Page.svelte'),
 		`<script>
-	import { Wordmark, WorkBoard, OutcomeFolio, HoldApprove, SemanticMark, STUDIO_BOARD, STUDIO_FOLIO } from '@restless/ui';
+	import { Wordmark, WorkBoard, OutcomeFolio, HoldApprove, SemanticMark, CompanyPortfolio, STUDIO_BOARD, STUDIO_FOLIO } from '@restless/ui';
+const companies = [
+	{ id: 'local-ready', name: 'Local Company', status: 'running', tone: 'presence', focus: 'A real company focus', next: 'Review a prepared result', attentionCount: 0, entry: { href: '/local-ready' } },
+	{ id: 'cloud-ready', name: 'Hosted Company', status: 'Ready', tone: 'presence', attentionCount: null, entry: { formAction: '?/enterCockpit', fields: { organization_id: 'cloud-ready' } } },
+	{ id: 'pending-company', name: 'Pending Company', status: 'Setting up', next: 'Preparing its private workspace', attentionCount: null }
+];
 </script>
+<CompanyPortfolio {companies} />
 <div class="bridge-tokens">
 	<Wordmark />
 	<SemanticMark meaning="attention" />
@@ -78,19 +84,41 @@ export default {
 	const imports = [...readFileSync(entryCss, 'utf8').matchAll(/@import '(\.\/[^']+)'/g)].map(
 		(match) => match[1]
 	);
-	const css = imports
-		.map((file) => readFileSync(join(dirname(entryCss), file), 'utf8'))
-		.join('\n');
+	const css = imports.map((file) => readFileSync(join(dirname(entryCss), file), 'utf8')).join('\n');
 
 	const expect = [
 		[html, 'Recently landed', 'work board column'],
 		[html, 'Approve the playable demo', 'outcome folio title'],
 		[html, 'Approve and publish', 'hold-to-approve'],
 		[html, 'class="bridge-tokens"', 'token scope'],
+		[html, 'aria-label="Account navigation"', 'shared account header'],
+		[html, 'href="/local-ready"', 'self-hosted adapter navigation'],
+		[html, 'action="?/enterCockpit"', 'hosted native POST entry'],
+		[html, 'name="organization_id" value="cloud-ready"', 'entry identity supplied by the adapter'],
+		[html, 'Focus unavailable', 'unknown focus remains unknown'],
+		[html, 'Nothing now', 'observed zero attention'],
+		[html, 'Unavailable', 'unknown attention is not zero'],
 		[css, '--intent-direction', 'tokens stylesheet'],
 		[String(imports.length), '4', 'the four design stylesheets, and not the document reset'],
 		[String(imports.includes('./base.css')), 'false', 'style.css leaves the host document alone']
 	];
+	const hosted =
+		html.split('data-company-id="cloud-ready"')[1]?.split('data-company-id="pending-company"')[0] ??
+		'';
+	const pending = html.split('data-company-id="pending-company"')[1]?.split('</section>')[0] ?? '';
+	expect.push(
+		[String(hosted.includes('Nothing now')), 'false', 'hosted unknown attention never claims zero'],
+		[
+			String(pending.includes('class="portfolio-entry ')),
+			'false',
+			'pending company has no invented entry'
+		],
+		[
+			String(pending.includes('portfolio-entry-form')),
+			'false',
+			'pending company cannot submit entry'
+		]
+	);
 	for (const [haystack, needle, what] of expect) {
 		const ok = haystack.includes(needle);
 		console.log(`${ok ? 'ok  ' : 'FAIL'} ${what}`);
