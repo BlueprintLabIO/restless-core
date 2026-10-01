@@ -116,14 +116,17 @@
 	let reviewName = $state('Accepted review');
 	let reviewBusy = $state(false);
 	let reviewFailure = $state('');
+	let reviewNotice = $state('');
 	let resolutionSummary = $state('');
 	let proposalVersionName = $state('Accepted agent revision');
 	let proposalBusy = $state(false);
 	let proposalFailure = $state('');
+	let proposalNotice = $state('');
 	let restoringVersionId = $state('');
 	let restoreCommand = $state<PendingDocumentCommand | null>(null);
 	let selectedVersionId = $state('');
 	let versionFailure = $state('');
+	let versionNotice = $state('');
 	let commentAttempt = $state<PendingDocumentMutation<CommentMutationInput> | null>(null);
 	let resolveAttempt = $state<PendingDocumentMutation<ResolveMutationInput> | null>(null);
 	let reviewRequestAttempt = $state<PendingDocumentMutation<ReviewRequestInput> | null>(null);
@@ -221,8 +224,11 @@
 		restoringVersionId = '';
 		commentFailure = '';
 		reviewFailure = '';
+		reviewNotice = '';
 		proposalFailure = '';
+		proposalNotice = '';
 		versionFailure = '';
+		versionNotice = '';
 		composingThread = false;
 		oncommenttargetchange(null);
 	});
@@ -407,6 +413,8 @@
 		reviewRequestAttempt = attempt;
 		reviewBusy = true;
 		reviewFailure = '';
+		reviewNotice = '';
+		let mutationSucceeded = false;
 		try {
 			const review = await requestDocumentReview(
 				attempt.input.target.companyId,
@@ -416,16 +424,24 @@
 				attempt.input.summary,
 				attempt.command.id
 			);
+			mutationSucceeded = true;
 			reviews.accept(attempt.input.target, review);
-			if (isCurrentTarget(target)) reviewRequestAttempt = null;
+			if (isCurrentTarget(target)) {
+				reviewRequestAttempt = null;
+				reviewSummary = '';
+			}
 			await refreshDocument(attempt.input.target);
 			if (!isCurrentTarget(target)) return;
-			reviewSummary = '';
 		} catch (cause) {
 			failClosedDocumentRead(client, cause, target.companyId, target.documentId);
 			if (!isCurrentTarget(target)) return;
-			reviewFailure = failureSentence(cause, 'Review could not be requested.');
-			if (!isRetryableDocumentFailure(cause)) reviewRequestAttempt = null;
+			if (mutationSucceeded) {
+				reviewNotice =
+					'Review requested, but this view could not fully refresh. Reload to see the latest state.';
+			} else {
+				reviewFailure = failureSentence(cause, 'Review could not be requested.');
+				if (!isRetryableDocumentFailure(cause)) reviewRequestAttempt = null;
+			}
 		} finally {
 			if (isCurrentTarget(target)) reviewBusy = false;
 		}
@@ -450,6 +466,8 @@
 		reviewAcceptAttempt = attempt;
 		reviewBusy = true;
 		reviewFailure = '';
+		reviewNotice = '';
+		let mutationSucceeded = false;
 		try {
 			const result = await acceptDocumentReview(
 				attempt.input.target.companyId,
@@ -460,14 +478,20 @@
 				attempt.input.acceptedVersionName,
 				attempt.command.id
 			);
+			mutationSucceeded = true;
 			reviews.acceptResolution(attempt.input.target, result);
 			if (isCurrentTarget(target)) reviewAcceptAttempt = null;
 			await refreshDocument(attempt.input.target);
 		} catch (cause) {
 			failClosedDocumentRead(client, cause, target.companyId, target.documentId);
 			if (!isCurrentTarget(target)) return;
-			reviewFailure = failureSentence(cause, 'The review was not accepted.');
-			if (!isRetryableDocumentFailure(cause)) reviewAcceptAttempt = null;
+			if (mutationSucceeded) {
+				reviewNotice =
+					'Review accepted, but this view could not fully refresh. Reload to see the latest state.';
+			} else {
+				reviewFailure = failureSentence(cause, 'The review was not accepted.');
+				if (!isRetryableDocumentFailure(cause)) reviewAcceptAttempt = null;
+			}
 		} finally {
 			if (isCurrentTarget(target)) reviewBusy = false;
 		}
@@ -491,6 +515,8 @@
 		proposalAttempt = attempt;
 		proposalBusy = true;
 		proposalFailure = '';
+		proposalNotice = '';
+		let mutationSucceeded = false;
 		try {
 			const result =
 				attempt.input.decision === 'accept'
@@ -511,8 +537,12 @@
 							attempt.input.resolutionSummary,
 							attempt.command.id
 						);
+			mutationSucceeded = true;
 			proposals.acceptResolution(attempt.input.target, result);
-			if (isCurrentTarget(target)) proposalAttempt = null;
+			if (isCurrentTarget(target)) {
+				proposalAttempt = null;
+				resolutionSummary = '';
+			}
 			if (attempt.input.decision === 'accept') await refreshDocument(attempt.input.target);
 			else {
 				await client.invalidateQueries({
@@ -523,12 +553,15 @@
 				});
 			}
 			if (!isCurrentTarget(target)) return;
-			resolutionSummary = '';
 		} catch (cause) {
 			failClosedDocumentRead(client, cause, target.companyId, target.documentId);
 			if (!isCurrentTarget(target)) return;
-			proposalFailure = failureSentence(cause, 'The proposal was not resolved.');
-			if (!isRetryableDocumentFailure(cause)) proposalAttempt = null;
+			if (mutationSucceeded) {
+				proposalNotice = `Proposal ${attempt.input.decision === 'accept' ? 'accepted' : 'rejected'}, but this view could not fully refresh. Reload to see the latest state.`;
+			} else {
+				proposalFailure = failureSentence(cause, 'The proposal was not resolved.');
+				if (!isRetryableDocumentFailure(cause)) proposalAttempt = null;
+			}
 		} finally {
 			if (isCurrentTarget(target)) proposalBusy = false;
 		}
@@ -539,11 +572,13 @@
 		if (versionDetail.version?.version.id !== versionId) {
 			selectedVersionId = versionId;
 			versionFailure = 'Load this version preview before restoring it.';
+			versionNotice = '';
 			return;
 		}
 		const target = { companyId, documentId };
 		restoringVersionId = versionId;
 		versionFailure = '';
+		versionNotice = '';
 		const restoreInput = {
 			target,
 			version_id: versionId,
@@ -552,6 +587,7 @@
 		};
 		const command = pendingDocumentCommand(restoreCommand, JSON.stringify(restoreInput));
 		restoreCommand = command;
+		let mutationSucceeded = false;
 		try {
 			const receipt = await restoreDocumentVersion(
 				restoreInput.target.companyId,
@@ -561,6 +597,7 @@
 				restoreInput.reason,
 				command.id
 			);
+			mutationSucceeded = true;
 			const restored = await getDocument(target.companyId, receipt.document_id);
 			if (restored.current_version.version.id !== receipt.result_id) {
 				if (isCurrentTarget(target)) {
@@ -578,8 +615,13 @@
 		} catch (cause) {
 			failClosedDocumentRead(client, cause, target.companyId, target.documentId);
 			if (!isCurrentTarget(target)) return;
-			versionFailure = failureSentence(cause, 'The version was not restored.');
-			if (!isRetryableDocumentFailure(cause)) restoreCommand = null;
+			if (mutationSucceeded) {
+				versionNotice =
+					'Version restored, but this view could not fully refresh. Reload to see the latest state.';
+			} else {
+				versionFailure = failureSentence(cause, 'The version was not restored.');
+				if (!isRetryableDocumentFailure(cause)) restoreCommand = null;
+			}
 		} finally {
 			if (isCurrentTarget(target)) restoringVersionId = '';
 		}
@@ -855,6 +897,7 @@
 				<p class="quiet-state">No active review.</p>
 			{/if}
 			{#if reviewFailure}<p class="inline-error" role="alert">{reviewFailure}</p>{/if}
+			{#if reviewNotice}<p class="inline-notice" role="status">{reviewNotice}</p>{/if}
 
 			<section class="proposal-section">
 				<header>
@@ -874,6 +917,7 @@
 									selectedProposalId = proposal.id;
 									proposalAttempt = null;
 									proposalFailure = '';
+									proposalNotice = '';
 								}}
 								><span
 									><strong>{proposal.summary}</strong><small
@@ -935,6 +979,7 @@
 					<p class="quiet-state">No agent revisions are waiting.</p>
 				{/if}
 				{#if proposalFailure}<p class="inline-error" role="alert">{proposalFailure}</p>{/if}
+				{#if proposalNotice}<p class="inline-notice" role="status">{proposalNotice}</p>{/if}
 			</section>
 		</div>
 	{:else}
@@ -947,6 +992,7 @@
 			</header>
 			{#if editing && canJudge}<p class="pending-draft">Waiting for edits to finish saving.</p>{/if}
 			{#if versionFailure}<p class="inline-error" role="alert">{versionFailure}</p>{/if}
+			{#if versionNotice}<p class="inline-notice" role="status">{versionNotice}</p>{/if}
 			<div class="version-line" aria-label="Document version history">
 				{#each versions.versions as item (item.id)}
 					<article
@@ -975,6 +1021,7 @@
 								selectedVersionId = item.id;
 								restoreCommand = null;
 								versionFailure = '';
+								versionNotice = '';
 							}}>Preview</button
 						>
 					</article>
@@ -1281,6 +1328,12 @@
 		padding: 8px 12px;
 		background: var(--state-danger-soft);
 		color: var(--state-danger);
+	}
+	.inline-notice {
+		margin: 0;
+		padding: 8px 12px;
+		background: color-mix(in srgb, var(--surface-work) 6%, var(--surface));
+		color: var(--text-secondary);
 	}
 	.pending-draft {
 		margin: 0;
