@@ -55,6 +55,7 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 9px;
+		min-height: 40px;
 		color: inherit;
 		text-decoration: none;
 		flex: none;
