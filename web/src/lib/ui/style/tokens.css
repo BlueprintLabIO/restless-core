@@ -1,0 +1,336 @@
+/* Bridge Light: quiet operational glass over the dot-matrix machine. Colour is
+ * semantic, never decorative: it identifies intent, authority and outcome. */
+
+/* ---------- type ----------
+ * Five steps. Before this there were 24 distinct sizes across these files, 13 of
+ * them fractional and 64 declarations below 10px, plus four rival clamp() curves
+ * so that "the title of this page" rendered at 30px on Work, 34px on Attention
+ * and 43px on the portfolio.
+ *
+ * Two zones, because perceived difference is a ratio and not a delta. The UI
+ * zone is tight (11 -> 13, x1.18); the display zone jumps (13 -> 16 -> title ->
+ * hero, x1.2 to x1.6). Deliberately absent is any step one pixel from its
+ * neighbour: 13px next to 14px is not a level anyone perceives, so a heading
+ * that wants to feel smaller than 16 is body at weight 600, and a line that
+ * wants to feel quieter than body is body in --text-tertiary.
+ *
+ * These live on :root rather than on .bridge-root because the app-level chrome
+ * — the offline banner, the loading bar, the document default in base.css —
+ * renders OUTSIDE the design scope and still has to be set in the company's
+ * typeface. Everything below the token layer stays scoped.
+ *
+ * Sizes are chosen here and only here. A raw px font-size anywhere else is out
+ * of band, and `npm run check:type` fails on one. */
+:root {
+	--font-ui: 'Inter Variable', 'Inter Fallback', system-ui, sans-serif;
+	--font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+	/* Silkscreen is bitmap-derived: it only resolves cleanly on integer multiples
+	 * of its 8px design size, which is why the wordmark is 16px and never 15. */
+	--font-mark: 'Silkscreen', 'IBM Plex Mono', monospace;
+
+	--t-label: 11px; /* uppercase mono data labels, timestamps, badges */
+	--t-body: 13px; /* everything prose: paragraphs, controls, list rows */
+	--t-head: 16px; /* pane and section headings */
+	--t-title: clamp(22px, 2vw, 26px); /* the title of a surface — one curve */
+	--t-hero: clamp(26px, 2.6vw, 34px); /* zero states, the door, the portfolio */
+	--t-mark: 16px; /* the wordmark: a brand asset, not a ramp step */
+	--track-label: 0.07em;
+}
+
+:is(.bridge-root, .bridge-tokens) {
+	--bg-app: #eff1f6;
+	--surface: rgba(255, 255, 255, 0.9);
+	--surface-alt: #f1f3f8;
+	/* Opaque paint for the two surfaces that carry prose. These are the colours
+	 * the old translucent panes resolved to over --bg-app, so the look holds
+	 * while the text stops compositing through a blur layer. */
+	--surface-pane: #fafbfe;
+	--surface-rail: #f7f9fc;
+	--r4: #e5e8f0;
+	--sidebar-bg: rgba(248, 250, 252, 0.62);
+	--glass: rgba(250, 251, 253, 0.74);
+	--glass-strong: rgba(255, 255, 255, 0.9);
+	--glass-pane: rgba(255, 255, 255, 0.78);
+	--glass-pane-strong: rgba(255, 255, 255, 0.92);
+	--accent: #48546c;
+	--accent-soft: #e9edf5;
+	--accent-strong: #37435b;
+	/* ---------- ink ----------
+	 * Three levels, and they are a hierarchy lever in their own right: a line is
+	 * "less important" because it is lighter, not because it is smaller.
+	 *
+	 * The values are higher than they look like they should be. macOS has drawn
+	 * text with grayscale antialiasing only since Mojave, and the owner's main
+	 * display is a 2560x1440 panel at devicePixelRatio 1 — at that density a
+	 * stroke set at 52% opacity is light grey with even lighter grey edges, and
+	 * there is barely any ink left to antialias. Most of what read as "blurry
+	 * type" in this app was never blur; it was absence of ink. */
+	--ink: #293244;
+	--text-secondary: rgba(23, 27, 36, 0.84);
+	--text-tertiary: rgba(23, 27, 36, 0.66);
+	--text-inverse: #f8fafc;
+	--border: rgba(76, 88, 117, 0.1);
+	--border-strong: rgba(76, 88, 117, 0.18);
+	--status-offline: #aab1bd;
+	--intent-conversation: #456687;
+	--intent-conversation-soft: #e8eff8;
+	/* Conversation rows stay full-width and calm, but speaker ownership must be
+	 * legible before reading the author line. These are sender surfaces, not
+	 * intent colours: every chat presentation consumes the same pair. */
+	--chat-owner-bg: #eaf0f8;
+	--chat-context-bg: #eaf3ef;
+	--chat-owner-edge: #a7bcd3;
+	--intent-feedback: #466f63;
+	--intent-feedback-soft: #e7f1ec;
+	--intent-direction: #6a588e;
+	--intent-direction-soft: #eee9f7;
+	--intent-authority: #836536;
+	--intent-authority-soft: #f5edde;
+	--state-success: #486f58;
+	--state-success-soft: #e8f1e9;
+	--state-danger: #9b545b;
+	--state-danger-soft: #f7e9eb;
+	--surface-attention: var(--intent-direction);
+	--surface-attention-soft: var(--intent-direction-soft);
+	--surface-work: var(--intent-feedback);
+	--surface-people: var(--intent-conversation);
+	--surface-authority: var(--intent-authority);
+	--danger: var(--state-danger);
+	--radius-sm: 4px;
+	--radius-md: 6px;
+	--radius-lg: 8px;
+	/* A compact geometry scale. Product surfaces use pane radius; controls use
+	 * control radius. Keeping these semantic avoids every new surface inventing
+	 * its own almost-identical corner and spacing values. */
+	--radius-control: var(--radius-sm);
+	--radius-pane: var(--radius-md);
+	--space-1: 4px;
+	--space-2: 8px;
+	--space-3: 12px;
+	--space-4: 16px;
+	--space-5: 20px;
+	--space-6: 24px;
+	/* Motion is a hierarchy, just like type. Press is tactile, state is local,
+	 * disclosure preserves object continuity, and punctuation is the one
+	 * memorable acknowledgement. Components choose a role instead of inventing
+	 * another nearly-identical duration or easing curve. */
+	--motion-press: 110ms;
+	--motion-state: 180ms;
+	--motion-disclosure: 320ms;
+	--motion-punctuation: 650ms;
+	--motion-working: 1400ms;
+	--ease-standard: cubic-bezier(0.2, 0, 0, 1);
+	--ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+	/* Arrivals use a real spring (damping 0.8: a fast rise, ~1.5% overshoot,
+	 * settled well before the end). The same curve drives JS motion as
+	 * springEase in lib/motion.ts; browsers without linear() get a close
+	 * cubic fallback. */
+	--ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
+	/* The seam between panes. Wide enough to read as a channel, thin enough
+	 * that the panes still read as one divided surface rather than as cards
+	 * scattered on a page. */
+	--pane-gap: 4px;
+	--app-gutter: 8px;
+	--pane-head-h: 58px;
+	--exec-rail-w: 382px;
+	--glass-blur: 22px;
+	/* Elevation: four planes, each a tight contact shadow plus a soft ambient
+	 * one, never a single blurry smear. Panes sit on the canvas (--shadow-soft),
+	 * menus and popovers float over panes (--shadow-lift), dialogs and the
+	 * command menu float over everything (--shadow-float). The bevel is the
+	 * light catching a surface's top edge; it is what makes a white pane read
+	 * as a physical sheet rather than a drawn rectangle. */
+	--shadow-soft: 0 1px 2px rgba(31, 41, 64, 0.04), 0 2px 8px -2px rgba(31, 41, 64, 0.05);
+	--shadow-lift:
+		0 0 0 1px rgba(31, 41, 64, 0.05), 0 4px 10px -4px rgba(31, 41, 64, 0.1),
+		0 14px 32px -10px rgba(31, 41, 64, 0.16);
+	--shadow-float:
+		0 0 0 1px rgba(31, 41, 64, 0.06), 0 8px 20px -8px rgba(31, 41, 64, 0.14),
+		0 28px 64px -16px rgba(31, 41, 64, 0.28);
+	--bevel: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+	--bevel-subtle: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+	--control-edge: #cdd5e2;
+	/* Theme-neutral names for what used to be literal whites and ink washes,
+	 * so a dark theme can re-point them in one place. */
+	--surface-raised: #fff;
+	--segment-thumb: #fff;
+	--scroll-thumb: rgba(31, 41, 64, 0.2);
+	--highlight: #fff;
+	--surface-menu: #fcfdfe;
+	--surface-hover: #f8f9fb;
+	--surface-press: #f2f4f7;
+	--wash-hover: rgba(31, 41, 64, 0.06);
+	--wash-press: rgba(31, 41, 64, 0.1);
+	--edge-control: rgba(31, 41, 64, 0.14);
+	--edge-control-hover: rgba(31, 41, 64, 0.22);
+	--primary: var(--intent-conversation);
+	--primary-edge: color-mix(in srgb, var(--intent-conversation) 70%, #0d1626);
+	--on-primary: #fff;
+	--tooltip-bg: rgba(24, 30, 43, 0.94);
+	--tooltip-ink: #f4f6fa;
+	--canvas-glow: rgba(156, 149, 203, 0.07);
+	--canvas-glow-2: rgba(142, 183, 164, 0.06);
+	--canvas-glow-3: rgba(216, 190, 154, 0.025);
+	--control-depth: 0 1px 1px rgba(31, 41, 64, 0.06), 0 0 0 transparent;
+	--control-depth-pressed: inset 0 1px 2px rgba(31, 41, 64, 0.1);
+	--dot: rgba(76, 88, 117, 0.03);
+	--topbar-h: 46px;
+	/* the seam under the chrome — same channel as the pane gutter, so the bar
+	 * reads as separate from the surface below it rather than welded to it */
+	--topbar-seam: var(--pane-gap);
+	--topbar-total: calc(var(--topbar-h) + var(--topbar-seam));
+	/* the phone surface dock: a 48px target plus its own padding and seam */
+	--dock-h: 57px;
+
+	/* The z-index ladder lives on :root in layout.css — see the comment there. */
+
+	color: var(--ink);
+	font-family: var(--font-ui);
+	/* explicit, so nothing in the tree silently inherits the 16px document
+	 * default and reintroduces a size that is not on the ramp */
+	font-size: var(--t-body);
+	line-height: 1.5;
+	/* Titles carry model- and operator-supplied text, which can be one
+	 * unbroken 200-character run. break-word inherits everywhere and only
+	 * fires when a word genuinely cannot fit a line by itself, so ordinary
+	 * prose still wraps on spaces. The wrap belongs at the root: any surface
+	 * that renders a name is one bad string away from the same overflow. */
+	overflow-wrap: break-word;
+}
+
+/* The application frame: the cockpit is a fixed viewport with its own background. Public pages
+ * use .bridge-tokens, which carries the tokens and type above but none of this. */
+.bridge-root {
+	width: 100%;
+	height: 100vh;
+	min-height: 0;
+	overflow: hidden;
+	background-color: var(--bg-app);
+	background-image:
+		radial-gradient(circle at 78% 12%, var(--canvas-glow), transparent 40%),
+		radial-gradient(circle at 16% 90%, var(--canvas-glow-2), transparent 38%),
+		radial-gradient(circle at 48% 58%, var(--canvas-glow-3), transparent 34%),
+		radial-gradient(var(--dot) 1px, transparent 1.3px);
+	background-size:
+		auto,
+		auto,
+		auto,
+		14px 14px;
+}
+
+:is(.bridge-root, .bridge-tokens) *,
+:is(.bridge-root, .bridge-tokens) *::before,
+:is(.bridge-root, .bridge-tokens) *::after {
+	box-sizing: border-box;
+}
+
+/* ---------- dark ----------
+ * The same language at night: surfaces step up in lightness as they rise
+ * (canvas < pane < raised < menu), borders become light at low alpha,
+ * shadows deepen and the lit top edge dims to a hairline. Intent colours
+ * shift lighter and less saturated so they keep their meaning on dark
+ * without glowing. Resolved on <html data-theme> before first paint. */
+:root[data-theme='dark'] :is(.bridge-root, .bridge-tokens) {
+	--bg-app: #0e1014;
+	--surface: rgba(24, 27, 33, 0.92);
+	--surface-alt: #1a1d23;
+	--surface-pane: #15171c;
+	--surface-rail: #131519;
+	--r4: #262a32;
+	--sidebar-bg: rgba(20, 22, 27, 0.62);
+	--glass: rgba(17, 19, 24, 0.8);
+	--glass-strong: rgba(22, 24, 30, 0.92);
+	--glass-pane: rgba(22, 24, 30, 0.8);
+	--glass-pane-strong: rgba(24, 27, 33, 0.94);
+	--accent: #aab4c8;
+	--accent-soft: #232833;
+	--accent-strong: #d3d9e6;
+	--ink: #e4e7ee;
+	--text-secondary: rgba(228, 231, 238, 0.76);
+	--text-tertiary: rgba(228, 231, 238, 0.6); /* 4.5:1 on the raised and selected dark surfaces */
+	--text-inverse: #0f1115;
+	--border: rgba(255, 255, 255, 0.07);
+	--border-strong: rgba(255, 255, 255, 0.11);
+	--status-offline: #5d6573;
+	--intent-conversation: #93b2d8;
+	--intent-conversation-soft: #1c2533;
+	--chat-owner-bg: #1b2330;
+	--chat-context-bg: #17221d;
+	--chat-owner-edge: #34506f;
+	--intent-feedback: #82bba8;
+	--intent-feedback-soft: #172420;
+	--intent-direction: #b6a6e0;
+	--intent-direction-soft: #221e30;
+	--intent-authority: #d6b67f;
+	--intent-authority-soft: #29231a;
+	--state-success: #86bf9b;
+	--state-success-soft: #17231c;
+	--state-danger: #e3979e;
+	--state-danger-soft: #2c1b1e;
+	--shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.3), 0 2px 8px -2px rgba(0, 0, 0, 0.3);
+	--shadow-lift:
+		0 0 0 1px rgba(255, 255, 255, 0.06), 0 4px 10px -4px rgba(0, 0, 0, 0.45),
+		0 14px 32px -10px rgba(0, 0, 0, 0.55);
+	--shadow-float:
+		0 0 0 1px rgba(255, 255, 255, 0.07), 0 8px 20px -8px rgba(0, 0, 0, 0.55),
+		0 28px 64px -16px rgba(0, 0, 0, 0.65);
+	--bevel: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+	--bevel-subtle: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+	--control-edge: #323743;
+	--control-depth: 0 1px 1px rgba(0, 0, 0, 0.35), 0 0 0 transparent;
+	--control-depth-pressed: inset 0 1px 2px rgba(0, 0, 0, 0.45);
+	--dot: rgba(255, 255, 255, 0.022);
+	--surface-raised: #1d2027;
+	--segment-thumb: #2c3039;
+	--scroll-thumb: rgba(255, 255, 255, 0.16);
+	--highlight: rgba(255, 255, 255, 0.08);
+	--surface-menu: #1b1e25;
+	--surface-hover: #23262e;
+	--surface-press: #292d36;
+	--wash-hover: rgba(255, 255, 255, 0.06);
+	--wash-press: rgba(255, 255, 255, 0.1);
+	--edge-control: rgba(255, 255, 255, 0.1);
+	--edge-control-hover: rgba(255, 255, 255, 0.18);
+	--primary: #4b6f9b;
+	--primary-edge: #5b80ad;
+	--on-primary: #fff;
+	--tooltip-bg: rgba(238, 241, 246, 0.96);
+	--tooltip-ink: #14171d;
+	--canvas-glow: rgba(120, 110, 190, 0.07);
+	--canvas-glow-2: rgba(90, 150, 125, 0.05);
+	--canvas-glow-3: rgba(200, 170, 120, 0.02);
+}
+
+@supports (transition-timing-function: linear(0, 1)) {
+	:root {
+		--ease-spring: linear(
+			0,
+			0.0544,
+			0.1785,
+			0.3294,
+			0.4802,
+			0.616,
+			0.73,
+			0.8204,
+			0.8888,
+			0.9381,
+			0.9717,
+			0.9933,
+			1.0061,
+			1.0126,
+			1.015,
+			1.0148,
+			1.0133,
+			1.0111,
+			1.0088,
+			1.0066,
+			1.0047,
+			1.0032,
+			1.0021,
+			1.0012,
+			1.0006,
+			1.0002,
+			1
+		);
+	}
+}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { describeFailure } from '$lib/model/failure';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { cockpitQuery } from '$lib/model/queries.svelte';
@@ -15,16 +16,21 @@
 	let {
 		companyId,
 		graph,
-		sourceHealth
+		sourceHealth,
+		quietSignal = false
 	}: {
 		companyId: string;
 		graph: WorkGraphSnapshot | null;
 		sourceHealth: Record<string, string>;
+		/** The surface already explains why the floor is not live (a start blocker). */
+		quietSignal?: boolean;
 	} = $props();
 
 	const cockpitProjection = $derived(cockpitQuery(companyId));
 	const cockpit = $derived(cockpitProjection.view);
-	const error = $derived(cockpitProjection.failure?.message ?? '');
+	const error = $derived(
+		cockpitProjection.failure ? describeFailure(cockpitProjection.failure).title + '.' : ''
+	);
 	let selectedActorId = $state<string | null>(null);
 	let preferences = $state<OfficePreferences>({ ...DEFAULT_OFFICE_PREFERENCES });
 
@@ -51,7 +57,7 @@
 			(!orgintelAvailable
 				? 'Company coordination is unavailable.'
 				: !runtimeAvailable
-					? 'Company runtime observation is unavailable.'
+					? 'The company computer is not running, so this floor shows the last known team and Work rather than live activity.'
 					: '')
 	);
 
@@ -105,9 +111,9 @@
 			onpreferenceschange={updatePreferences}
 		/>
 
-		{#if signalUnavailable}
+		{#if signalUnavailable && !quietSignal}
 			<div class="office-signal unavailable" role="status" title={signalTitle || undefined}>
-				<i></i>Source signal unavailable
+				<i></i>{!orgintelAvailable ? 'Coordination offline' : 'Live view offline'}
 			</div>
 		{/if}
 	</div>
@@ -120,7 +126,7 @@
 		height: 100%;
 		min-height: 0;
 		overflow: hidden;
-		background: #94c78a;
+		background: #9ccb8c;
 	}
 
 	.office-stage {
@@ -129,6 +135,19 @@
 		height: 100%;
 		min-height: 0;
 		overflow: hidden;
+	}
+
+	/* The world continues past the pane: its edges fall into a soft shade
+	 * instead of stopping at a hard rectangle. */
+	.office-stage::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+		z-index: 4;
+		pointer-events: none;
+		box-shadow:
+			inset 0 0 0 1px rgba(40, 70, 52, 0.08),
+			inset 0 0 48px rgba(40, 70, 52, 0.16);
 	}
 
 	.office-signal {
@@ -144,7 +163,8 @@
 		background: rgba(239, 248, 244, 0.92);
 		box-shadow: 0 2px 0 rgba(23, 36, 51, 0.28);
 		color: #172433;
-		font: 600 var(--t-label) var(--font-mono);
+		font: 600 var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 		backdrop-filter: blur(4px);
 		z-index: 5;
 	}

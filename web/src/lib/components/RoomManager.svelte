@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { failureSentence } from '$lib/model/failure';
 	import Plus from '@lucide/svelte/icons/plus';
 	import Users from '@lucide/svelte/icons/users';
 	import X from '@lucide/svelte/icons/x';
@@ -162,7 +163,7 @@
 			createdCallback(created);
 		} catch (error) {
 			if (isCurrentScope(requestedScope) && actorId === requestedActorId) {
-				failure = error instanceof Error ? error.message : 'Conversation could not be created.';
+				failure = failureSentence(error, 'Conversation could not be created.');
 			}
 		} finally {
 			if (busyFor === requestedScope) busyFor = '';
@@ -188,7 +189,7 @@
 				actorId === requestedActorId &&
 				room?.id === requestedRoomId
 			) {
-				failure = error instanceof Error ? error.message : 'Membership could not be updated.';
+				failure = failureSentence(error, 'Membership could not be updated.');
 			}
 		} finally {
 			if (busyFor === requestedScope) busyFor = '';
@@ -197,7 +198,7 @@
 </script>
 
 <button
-	class="room-manage-trigger"
+	class="btn small room-manage-trigger"
 	type="button"
 	onclick={open}
 	title={label ?? (room ? 'Participants' : 'New conversation')}
@@ -327,19 +328,7 @@
 		font-size: var(--t-body);
 	}
 	.room-manage-trigger {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
 		gap: 5px;
-		padding: 0 8px;
-		font-size: var(--t-label);
-		height: 30px;
-		border: 1px solid var(--border);
-		border-radius: 6px;
-		background: var(--surface);
-		color: var(--text-secondary);
-		cursor: pointer;
-		white-space: nowrap;
 	}
 	dialog {
 		width: min(420px, calc(100vw - 32px));
@@ -349,7 +338,7 @@
 		border: 1px solid var(--border);
 		border-radius: 10px;
 		background: var(--surface);
-		color: var(--text-primary);
+		color: var(--ink);
 	}
 	dialog::backdrop {
 		background: color-mix(in srgb, var(--ink) 28%, transparent);

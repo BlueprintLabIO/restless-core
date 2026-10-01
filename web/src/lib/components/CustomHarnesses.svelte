@@ -1,6 +1,9 @@
 <script lang="ts">
+	import { failureSentence } from '$lib/model/failure';
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { onMount } from 'svelte';
 	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
+	import { announceIntelligenceChange } from '$lib/model/intelligence-events';
 	let { companyId }: { companyId: string } = $props();
 	type Config = {
 		name: string;
@@ -55,8 +58,7 @@
 				if (changed) void intelligence.refresh();
 			}
 		} catch (cause) {
-			if (scope === companyId)
-				error = cause instanceof Error ? cause.message : 'Could not load harnesses.';
+			if (scope === companyId) error = failureSentence(cause, 'Could not load harnesses.');
 		}
 	}
 	$effect(() => {
@@ -97,6 +99,7 @@
 		if (!response.ok) throw new Error(result.message ?? 'Could not complete this action.');
 		await refresh();
 		await intelligence.refresh();
+		announceIntelligenceChange(companyId);
 		return result;
 	}
 	async function operate(row: Row, operation: string) {
@@ -114,7 +117,7 @@
 				setTimeout(() => void refresh(), 1000);
 			}
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Could not complete this action.';
+			error = failureSentence(cause, 'Could not complete this action.');
 		} finally {
 			busy = '';
 		}
@@ -164,7 +167,7 @@
 			notice = `Installing ${config.name}…`;
 			setTimeout(() => void refresh(), 1000);
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Could not add harness.';
+			error = failureSentence(cause, 'Could not add harness.');
 		} finally {
 			busy = '';
 		}
@@ -180,7 +183,7 @@
 			keyFor = '';
 			notice = 'Harness key saved in Vault.';
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Could not save key.';
+			error = failureSentence(cause, 'Could not save key.');
 		} finally {
 			busy = '';
 		}
@@ -231,7 +234,7 @@
 			>
 		</p>{/if}
 	{#if notice}<p class="hint" role="status">{notice}</p>{/if}
-	{#if !view && !error}<p class="hint" role="status">Loading harnesses…</p>{/if}
+	{#if !view && !error}<Skeleton label="Loading harnesses" count={2} />{/if}
 	{#if adding && view}
 		<form
 			class="editor"

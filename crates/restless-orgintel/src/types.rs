@@ -284,6 +284,16 @@ pub struct NewWork<'a> {
     pub attempt_limit: Option<i32>,
 }
 
+/// A currently leased Opportunity and exact recurring schedule that a
+/// commissioner intends to turn into primary Work. OrgIntel resolves and
+/// stores the admitted occurrence inside the Work creation transaction.
+#[derive(Debug, Clone, Copy)]
+pub struct OpportunityWorkSource {
+    pub opportunity_id: Uuid,
+    pub owner_epoch: i64,
+    pub schedule_id: Uuid,
+}
+
 /// One deterministic check declared in the same transaction as its Work.
 /// It runs from the current Attempt workspace, so a revision cannot silently
 /// keep checking the prior revision's generated worktree.
@@ -1011,8 +1021,6 @@ pub struct ScheduleRow {
     pub interval_seconds: Option<i32>,
     pub responsibility_id: Option<Uuid>,
     pub responsibility_version: Option<i32>,
-    /// Explicit owner opt-in for waking a sleeping Runtime when this is due.
-    pub wake_runtime: bool,
 }
 
 /// Durable objective admitted by a schedule occurrence. `owner_epoch` fences
@@ -1093,6 +1101,20 @@ pub struct OpportunityWorkLink {
     pub work_id: Uuid,
     pub linked_at: DateTime<Utc>,
     pub relation: String,
+    pub source_schedule_id: Option<Uuid>,
+    pub source_scheduled_for: Option<DateTime<Utc>>,
+}
+
+/// Live provenance for one Work commissioned atomically from a recurring
+/// Opportunity. Authority must still separately check its own owner policy
+/// and the running Attempt before granting any external read.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct RecurringWorkLineage {
+    pub opportunity_id: Uuid,
+    pub schedule_id: Uuid,
+    pub scheduled_for: DateTime<Utc>,
+    pub responsibility_id: Uuid,
+    pub responsibility_version: i32,
 }
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]

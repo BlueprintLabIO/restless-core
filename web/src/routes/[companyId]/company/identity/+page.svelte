@@ -1,4 +1,8 @@
 <script lang="ts">
+	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
+	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
+	import { failureSentence } from '$lib/model/failure';
 	import IdentityEditor from '$lib/components/IdentityEditor.svelte';
 	import { page } from '$app/state';
 	import InfoTip from '$lib/components/InfoTip.svelte';
@@ -89,7 +93,7 @@
 			decisionText = '';
 			await source.refresh();
 		} catch (cause) {
-			failure = cause instanceof Error ? cause.message : 'The identity decision was not recorded.';
+			failure = failureSentence(cause, 'The identity decision was not recorded.');
 		} finally {
 			saving = false;
 		}
@@ -112,7 +116,7 @@
 			migrationRationale = '';
 			await source.refresh();
 		} catch (cause) {
-			failure = cause instanceof Error ? cause.message : 'The migration decision was not recorded.';
+			failure = failureSentence(cause, 'The migration decision was not recorded.');
 		} finally {
 			saving = false;
 		}
@@ -127,7 +131,7 @@
 			month: 'short',
 			day: 'numeric',
 			year: 'numeric',
-			hour: '2-digit',
+			hour: 'numeric',
 			minute: '2-digit'
 		});
 	}
@@ -196,23 +200,19 @@
 	}
 </script>
 
-<svelte:head><title>Identity — {companyId}</title></svelte:head>
+<CompanyTitle title="Identity" {companyId} />
 
 <div class="company-page identity-page">
 	<header class="company-page-head">
 		<div class="identity-title">
 			<h1>Identity</h1>
 			<InfoTip
-				text="The owner-released truth and expression evidence Restless uses when producing company work. Drafts can propose changes; they cannot make themselves authoritative."
+				text="What the company is and how it sounds. Agents use it in all company work. Drafts can suggest changes; only you approve them."
 			/>
 		</div>
 		<div class="company-page-freshness">
 			<span class="source-lamp status-{source.status}" aria-hidden="true"></span>
-			{source.status === 'live'
-				? 'Live source'
-				: source.status === 'stale'
-					? 'Last observation'
-					: 'Reading source'}
+			{source.status === 'live' ? 'Live' : source.status === 'stale' ? 'Out of date' : 'Checking…'}
 		</div>
 	</header>
 
@@ -233,7 +233,7 @@
 						<div class="section-heading">
 							<h2 id="effective-release">Current release</h2>
 							<InfoTip
-								text="This immutable release is the exact identity new Work binds to. A later release never rewrites old outcomes."
+								text="New work uses this version. A later version never changes finished work."
 							/>
 						</div>
 						<p>{view.current_release.change_account}</p>
@@ -252,7 +252,7 @@
 							</div>
 							<div>
 								<dt>Evidence</dt>
-								<dd>{currentEvidence.length} source-owned statements</dd>
+								<dd>{currentEvidence.length} sourced statements</dd>
 							</div>
 						</dl>
 					</div>
@@ -264,14 +264,6 @@
 					</div>
 				</section>
 			</details>
-		{:else}
-			<section class="identity-empty">
-				<h2>Define how your company shows up</h2>
-				<p>
-					Add your direction above: what is true about the company, how it sounds, how it looks, and
-					how it works. You can revise it at any time.
-				</p>
-			</section>
 		{/if}
 
 		{#if consequentialDrift.length || view.constitution_learning_proposals.length}
@@ -581,7 +573,7 @@
 				<div class="section-heading">
 					<h2>Company identity</h2>
 					<InfoTip
-						text="Facts, beliefs, guidance, observations, examples and exceptions keep their distinct meaning. Open the locator to inspect the exact source when it is available in the company computer."
+						text="Each statement keeps its kind (fact, belief, guidance or example) and links to its source."
 					/>
 				</div>
 				<div class="pillar-grid">
@@ -702,12 +694,14 @@
 			</section>
 		{/if}
 	{:else if source.failure}
-		<div class="company-source-error" role="alert">
-			{source.failure.message}
-			<button class="btn small" onclick={() => source.refresh()}>Retry</button>
-		</div>
+		<FailureNotice
+			error={source.failure}
+			subject="identity"
+			variant="block"
+			onretry={source.refresh}
+		/>
 	{:else}
-		<div class="company-page-wait" aria-label="Reading company identity"></div>
+		<Skeleton label="Reading company identity…" variant="page" count={4} />
 	{/if}
 </div>
 
@@ -779,8 +773,9 @@
 		font-size: var(--t-label);
 	}
 	.release-mark strong {
-		font: 600 var(--t-body) var(--font-mono);
-		letter-spacing: 0.04em;
+		font: 600 var(--t-body) var(--font-ui);
+		font-variant-numeric: tabular-nums;
+		letter-spacing: normal;
 	}
 	.release-account > p {
 		max-width: 68ch;
@@ -827,16 +822,6 @@
 		color: var(--warning, #9a6500);
 		font-size: var(--t-label);
 		font-style: normal;
-	}
-	.identity-empty {
-		padding: 36px;
-		border: 1px dashed var(--border-strong);
-		border-radius: var(--radius-pane);
-		background: var(--surface-alt);
-	}
-	.identity-empty p {
-		max-width: 65ch;
-		color: var(--text-secondary);
 	}
 	.proposal-section,
 	.voice-in-use,
@@ -1076,7 +1061,8 @@
 	}
 	.pillar > header span {
 		color: var(--text-tertiary);
-		font: var(--t-label) var(--font-mono);
+		font: var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 	}
 	.pillar article {
 		display: grid;

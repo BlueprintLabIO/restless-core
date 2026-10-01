@@ -15,9 +15,10 @@
 }
 
 .bridge-root .day-sep span {
-	font: 600 var(--t-label) var(--font-mono);
-	letter-spacing: 0.1em;
-	text-transform: uppercase;
+	font: 600 var(--t-label) var(--font-ui);
+	font-variant-numeric: tabular-nums;
+	letter-spacing: normal;
+	text-transform: none;
 	color: var(--text-tertiary);
 }
 
@@ -32,9 +33,10 @@
 
 .bridge-root .needs-card .nc-kicker {
 	margin-bottom: 5px;
-	font: 600 var(--t-label) var(--font-mono);
-	letter-spacing: 0.1em;
-	text-transform: uppercase;
+	font: 600 var(--t-label) var(--font-ui);
+	font-variant-numeric: tabular-nums;
+	letter-spacing: normal;
+	text-transform: none;
 	color: var(--intent-authority);
 }
 
@@ -220,17 +222,20 @@
 	gap: 6px;
 }
 
+/* One raised writing surface, after Svelte AI Elements' prompt input
+ * (MIT, svelte-ai-elements.vercel.app/r/prompt-input.json): a single bordered
+ * shell with a small shadow, a borderless textarea with generous padding, and a
+ * compact toolbar of 28px actions. Geometry and colour stay Restless tokens. */
 .bridge-root .hc-field {
 	position: relative;
 	isolation: isolate;
 	min-width: 0;
 	display: flex;
 	flex-direction: column;
-	gap: 4px;
-	padding: 7px;
 	border: 1px solid var(--border-strong);
-	border-radius: var(--radius-pane);
-	background: var(--surface-alt);
+	border-radius: var(--radius-lg);
+	background: var(--surface-raised);
+	box-shadow: var(--bevel-subtle), var(--shadow-soft);
 	overflow: clip;
 	transition:
 		border-color var(--motion-state) var(--ease-standard),
@@ -239,9 +244,10 @@
 }
 
 .bridge-root .hc-field:focus-within {
-	border-color: var(--intent-conversation);
-	background: color-mix(in srgb, var(--intent-conversation-soft) 36%, white);
-	box-shadow: 0 0 0 2px color-mix(in srgb, var(--intent-conversation) 15%, transparent);
+	border-color: color-mix(in srgb, var(--intent-conversation) 70%, var(--border-strong));
+	box-shadow:
+		0 0 0 3px color-mix(in srgb, var(--intent-conversation) 12%, transparent),
+		var(--shadow-soft);
 }
 
 .bridge-root .hc-field > :not(.hc-flare) {
@@ -272,9 +278,9 @@
 .bridge-root .hc-input {
 	width: 100%;
 	min-width: 0;
-	min-height: 30px;
-	max-height: 160px;
-	padding: 7px 6px 3px;
+	min-height: 44px;
+	max-height: 200px;
+	padding: 12px 12px 4px;
 	overflow-y: auto;
 	border: 0;
 	background: transparent;
@@ -299,7 +305,8 @@
 	display: grid;
 	grid-template-columns: 28px minmax(0, 1fr) 28px 28px;
 	align-items: center;
-	gap: 6px;
+	gap: 4px;
+	padding: 4px;
 }
 
 .bridge-root .hc-toolbar .attachment-picker {
@@ -333,15 +340,21 @@
 	display: none;
 }
 
+/* Without an attach button the slot takes its column too, rather than
+ * starting after an empty gap. */
+.bridge-root .hc-toolbar:not(:has(.attach-btn)) .hc-slot {
+	grid-column: 1 / 3;
+	padding-left: 4px;
+}
+
 .bridge-root .hc-voice-state {
 	min-width: 0;
 	min-height: 31px;
-	width: calc(100% + 14px);
+	width: 100%;
 	display: flex;
 	align-items: center;
 	gap: 7px;
-	margin: -7px -7px 2px;
-	padding: 5px 8px;
+	padding: 5px 12px;
 	border-bottom: 1px solid var(--border);
 	background: color-mix(in srgb, var(--intent-conversation-soft) 48%, var(--surface));
 	color: var(--text-secondary);
@@ -434,9 +447,12 @@
 	flex: 0 0 auto;
 	display: grid;
 	place-items: center;
-	border: 1px solid var(--ink);
+	border: 1px solid #2d4569;
 	border-radius: var(--radius-control);
-	background: var(--ink);
+	background: linear-gradient(180deg, #42628f, #2c4569);
+	box-shadow:
+		inset 0 1px 0 color-mix(in srgb, var(--highlight) 22%, transparent),
+		0 2px 6px rgba(44, 69, 105, 0.16);
 	color: var(--text-inverse);
 	cursor: pointer;
 	transform: translateY(0);
@@ -445,6 +461,11 @@
 		box-shadow var(--motion-state) var(--ease-standard),
 		opacity var(--motion-state) var(--ease-standard),
 		filter var(--motion-state) var(--ease-standard);
+}
+
+.bridge-root .hc-send:active:not(:disabled) {
+	transform: translateY(1px);
+	box-shadow: inset 0 1px 0 color-mix(in srgb, var(--highlight) 24%, transparent);
 }
 
 .bridge-root .hc-send:disabled {
@@ -551,7 +572,7 @@
 	display: flex;
 	flex-wrap: wrap;
 	gap: 5px;
-	padding: 2px 4px 0;
+	padding: 10px 12px 0;
 }
 
 .bridge-root .hc-skill {
@@ -592,4 +613,19 @@
 .bridge-root .hc-skill button:hover:not(:disabled) {
 	background: color-mix(in srgb, var(--intent-conversation) 14%, transparent);
 	color: var(--ink);
+}
+
+/* Composer controls are 28px marks on a desk; on touch they need a finger's
+ * worth of target. */
+@media (pointer: coarse) {
+	.bridge-root .hc-toolbar {
+		grid-template-columns: 44px minmax(0, 1fr) 44px 44px;
+		gap: 2px;
+	}
+	.bridge-root .hc-field .attach-btn,
+	.bridge-root .hc-voice,
+	.bridge-root .hc-send {
+		width: 44px;
+		height: 44px;
+	}
 }

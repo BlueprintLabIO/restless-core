@@ -218,7 +218,10 @@ async fn conversation_requests(
             let Some((body, need)) = crate::owner::conversation_owner_need(message) else {
                 return Ok(None);
             };
-            let href = format!("/{company}/people?person={}&message={message_id}", actor.id);
+            // The request comes from the latest direct message. Point Reply at
+            // that message so the owner lands on the actual question, even if
+            // the conversation has a longer history.
+            let href = format!("/{company}/people?person={}&focus={message_id}", actor.id);
             Ok(Some(AttentionItem {
                 id: format!("conversation:{}:{message_id}", actor.id),
                 work_id: None,
@@ -248,7 +251,7 @@ async fn conversation_requests(
                 native_document: None,
                 actions: vec![AttentionAction {
                     id: "continue-conversation".into(),
-                    label: "Continue conversation".into(),
+                    label: "Reply".into(),
                     role: "conversation",
                     consequence: "Return to the message asking for your input.".into(),
                     next_state: "Your reply clears this request.".into(),
@@ -284,6 +287,7 @@ pub async fn project(
     let declines = authority
         .records_of_kind(&config.name, "approval_declined")
         .await?;
+    let mandate_proposals = authority.pending_email_mandate_proposals(&config.name).await?;
 
     let mut resolved_after: HashMap<String, i64> = HashMap::new();
     for event in grants.iter().chain(declines.iter()) {
@@ -1346,6 +1350,32 @@ pub async fn project(
         }
     }
 
+    for record in mandate_proposals {
+        let Some(id) = record.body["id"].as_str() else { continue };
+        let Ok(proposal_id) = uuid::Uuid::parse_str(id) else { continue };
+        let Ok(proposal) = serde_json::from_value::<crate::authority::NewEmailMandate>(record.body["proposal"].clone()) else { continue };
+        let note = record.body["judgement_note"].as_str().unwrap_or("");
+        let limits = format!("Purpose: {}\nAudience: {}\nSender: {}{}\nDaily cap: {}\nTotal cap: {}\nTimezone: {}\nExpires: {}", proposal.purpose, proposal.audience_guidance, proposal.sender, proposal.sender_name.as_deref().map(|name| format!(" ({name})")).unwrap_or_default(), proposal.max_per_day, proposal.max_total, proposal.timezone, proposal.expires_at.to_rfc3339());
+        let proposer = record.actor_id.as_deref().unwrap_or("a company actor");
+        items.push(AttentionItem {
+            id: format!("authority:email_mandate_proposal:{proposal_id}"), work_id: None,
+            source: AttentionSource { plane: "authority", kind: "email_mandate_proposal".into(), reference: proposal_id.to_string(), party: None },
+            category: "approval".into(), title: "Review proposed email mandate".into(),
+            what_happened: format!("{proposer} proposed permission to send email within the exact limits below."),
+            why_it_matters: "Approving grants a real sending mandate to the company.".into(),
+            recommendation: "Approve only if you accept this mandate's purpose, audience and limits. For each proposed send, Exec must judge whether the recipient and message fit; its judgment can be wrong. The host enforces the daily cap, total cap and expiry.".into(),
+            requested_action: format!("Review purpose “{}”, sender {}, {} per day, {} total, expires {}. Approve or decline.", proposal.purpose, proposal.sender, proposal.max_per_day, proposal.max_total, proposal.expires_at.format("%Y-%m-%d")),
+            if_no_action: "No email mandate is granted while this proposal remains pending.".into(),
+            uncertainty: Some("Exec makes a judgment on each proposed send against this mandate. It can make mistakes; approval of this mandate is not a guarantee that every send will be appropriate.".into()),
+            deadline: Some(proposal.expires_at.to_rfc3339()), brief_status: "source-observed", brief_author: None, briefed_at: None,
+            evidence: vec![AttentionEvidence { label: "Exact proposed email mandate".into(), uri: None, content: Some(limits), kind: "authority-email-mandate-proposal" }, AttentionEvidence { label: "Exec judgement".into(), uri: None, content: Some(if note.is_empty() { "No additional rationale supplied.".into() } else { note.into() }), kind: "exec-judgement" }],
+            review_sources: Vec::new(), responsible_actor: None, runtime_attach: None, review_target: None, native_document: None,
+            actions: vec![
+                AttentionAction { id: "approve-email-mandate".into(), label: "Approve mandate".into(), role: "decision", consequence: "Grants the exact reviewed email mandate and its limits.".into(), next_state: "The pending proposal is resolved and the mandate becomes active.".into(), href: None },
+                AttentionAction { id: "decline-email-mandate".into(), label: "Decline mandate".into(), role: "decision", consequence: "Declines this exact email mandate proposal.".into(), next_state: "The proposal is resolved without granting email authority.".into(), href: None },
+            ], can_continue: false, preparing: false, created_at: record.created_at,
+        });
+    }
     items.sort_by_key(|item| {
         let priority = match item.category.as_str() {
             "review" => 0,
@@ -1506,10 +1536,11 @@ pub async fn project(
     let dispatch_blocked = !config.has_configured_model_route()
         || (local_runtime
             && health.as_ref().is_some_and(|(container, _)| {
-                matches!(
-                    container,
-                    ContainerStatus::Stopped | ContainerStatus::Absent
-                )
+                // A sleeping computer wakes for due work, so only a
+                // stopped or missing one leaves it undispatched.
+                *container == ContainerStatus::Absent
+                    || (*container == ContainerStatus::Stopped
+                        && !runtime::is_sleeping(&config.name))
             }));
     if !test_company && dispatch_blocked {
         if let Some(org) = org {
@@ -1598,7 +1629,7 @@ pub async fn project(
             name: config
                 .display_name
                 .clone()
-                .unwrap_or_else(|| title_case(&config.name)),
+                .unwrap_or_else(|| crate::company::display_name(&config.name)),
             mission: config.mission.clone(),
             model: config.model.clone(),
         },
@@ -1863,7 +1894,7 @@ mod tests {
             .href
             .as_ref()
             .unwrap()
-            .ends_with(&format!("person=hosting-engineering&message={id}")));
+            .ends_with(&format!("person=hosting-engineering&focus={id}")));
         org.mark_read(id).await.unwrap();
         assert_eq!(read().await.unwrap().len(), 1, "reading is not answering");
         org.send_owner_conversation_message("exec", "Unrelated question", false)

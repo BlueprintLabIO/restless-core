@@ -167,7 +167,7 @@ pub(super) async fn save_runtime_policy(
     }
     if input
         .auto_sleep_after_minutes
-        .is_some_and(|minutes| !(1..=1440).contains(&minutes))
+        .is_some_and(|minutes| minutes > runtime::MAX_SLEEP_AFTER_MINUTES)
         || input
             .monthly_runtime_cap_hours
             .is_some_and(|hours| !(1..=744).contains(&hours))
@@ -175,7 +175,7 @@ pub(super) async fn save_runtime_policy(
         return api_error(
             StatusCode::BAD_REQUEST,
             "runtime_policy",
-            "Sleep must be 1–1440 minutes and monthly runtime limit must be 1–744 hours.",
+            "Sleep must be never or 1–1440 minutes, and the monthly runtime limit must be 1–744 hours.",
         );
     }
     let _write = state.charter_writes.lock().await;

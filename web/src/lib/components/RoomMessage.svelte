@@ -1,8 +1,11 @@
 <script lang="ts">
+	import { formatMoment } from '$lib/ui/time';
+	import { failureSentence } from '$lib/model/failure';
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { tick } from 'svelte';
 	import MessageCircle from '@lucide/svelte/icons/message-circle';
 	import ConversationMessage from '$lib/primitives/ConversationMessage.svelte';
-	import SemanticMark from '$lib/primitives/SemanticMark.svelte';
+	import SemanticMark from '$lib/ui/glyph/SemanticMark.svelte';
 	import type { MessageAttachment, ThreadMessage } from '$lib/model/view';
 	import type {
 		RoomMention,
@@ -21,6 +24,7 @@
 		focusKey = '',
 		mentions = [],
 		thread = false,
+		continued = false,
 		onthread = null,
 		canEdit = false,
 		canDelete = false,
@@ -45,6 +49,8 @@
 		focusKey?: string;
 		mentions?: RoomMention[];
 		thread?: boolean;
+		/** Follows a message from the same author moments earlier. */
+		continued?: boolean;
 		onthread?: (() => void) | null;
 		canEdit?: boolean;
 		canDelete?: boolean;
@@ -168,7 +174,7 @@
 				editCommandId = null;
 				editCommandBody = '';
 			}
-			editError = cause instanceof Error ? cause.message : 'The edit was not saved.';
+			editError = failureSentence(cause, 'The edit was not saved.');
 		} finally {
 			saving = false;
 		}
@@ -189,7 +195,7 @@
 				return;
 			}
 			deleteCommandId = retryable(cause) ? commandId : null;
-			deleteError = cause instanceof Error ? cause.message : 'The message was not deleted.';
+			deleteError = failureSentence(cause, 'The message was not deleted.');
 		} finally {
 			deleting = false;
 		}
@@ -200,6 +206,7 @@
 	bind:this={messageElement}
 	class="room-message"
 	class:you={isYou}
+	class:continued
 	class:thread
 	class:targeted
 	tabindex="-1"
@@ -248,6 +255,7 @@
 			attachments={message.edited_at ? [] : (presentation?.attachments ?? [])}
 			intent={message.edited_at ? null : (presentation?.intent ?? null)}
 			{hrefFor}
+			{continued}
 			embedded
 		>
 			{#snippet headerExtra()}
@@ -315,7 +323,7 @@
 	{#if historyOpen && !message.deleted_at}
 		<section class="revision-history" aria-label="Message edits">
 			{#if historyStatus === 'unknown'}
-				<p class="history-state">Loading edits…</p>
+				<Skeleton label="Loading edits" count={2} />
 			{:else if historyFailure}
 				<p class="action-error" role="alert">{historyFailure}</p>
 			{:else if revisions.length}
@@ -324,7 +332,7 @@
 						<header>
 							<strong>Edit {revision.revision_number}</strong>
 							<time datetime={revision.created_at}>
-								{new Date(revision.created_at).toLocaleString()}
+								{formatMoment(revision.created_at)}
 							</time>
 						</header>
 						<p>{revision.body}</p>
@@ -348,17 +356,22 @@
 </article>
 
 <style>
+	/* The row is only a frame for the message's own shape (see
+	 * ConversationMessage): no rules, no band for the owner. */
+	/* Long rooms render only what is on screen: the browser skips layout and
+	 * paint for offscreen messages and remembers each one's real height once
+	 * seen (auto), so scrolling stays anchored. */
 	.room-message {
 		position: relative;
 		min-width: 0;
-		padding: 13px 16px 11px;
-		border-bottom: 1px solid var(--border);
-		background: var(--chat-agent-bg);
+		padding: 10px 16px 4px;
+		background: transparent;
+		content-visibility: auto;
+		contain-intrinsic-size: auto 56px;
 	}
 
-	.room-message.you {
-		background: var(--chat-owner-bg);
-		box-shadow: inset 2px 0 0 var(--chat-owner-edge);
+	.room-message.continued {
+		padding-top: 0;
 	}
 
 	.room-message.targeted,
@@ -399,7 +412,8 @@
 	.mention-receipt,
 	.lifecycle {
 		flex: 0 0 auto;
-		font: 500 var(--t-label) var(--font-mono);
+		font: 500 var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 		color: var(--text-tertiary);
 	}
 
@@ -492,7 +506,13 @@
 		outline-offset: 2px;
 	}
 
-	.inline-actions .delete-action,
+	.inline-actions .delete-action {
+		color: var(--text-tertiary);
+	}
+
+	.inline-actions .delete-action:hover,
+	.inline-actions .delete-action:focus-visible,
+	.inline-actions .delete-action[aria-expanded='true'],
 	.delete-confirm .danger-action {
 		color: var(--state-danger);
 	}

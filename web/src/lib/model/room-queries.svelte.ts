@@ -1,4 +1,5 @@
 import { createInfiniteQuery, createQuery, useQueryClient } from '@tanstack/svelte-query';
+import { pollEvery } from './connection.svelte';
 import type { InfiniteData } from '@tanstack/svelte-query';
 import {
 	locateRoomMessageTarget,
@@ -58,8 +59,7 @@ export function recentDirectConversationsQuery(companyId: string, enabled: () =>
 		enabled: enabled(),
 		staleTime: ROOM_STALE_MS,
 		gcTime: ROOM_RETAIN_MS,
-		refetchInterval: ROOM_REFRESH_MS,
-		retry: 1
+		refetchInterval: pollEvery(ROOM_REFRESH_MS, 60_000)
 	}));
 	return {
 		get conversations() {
@@ -70,7 +70,8 @@ export function recentDirectConversationsQuery(companyId: string, enabled: () =>
 		},
 		get failure() {
 			return (query.error as (Error & { status?: number }) | null) ?? null;
-		}
+		},
+		refresh: () => query.refetch()
 	};
 }
 
@@ -100,8 +101,7 @@ export function roomsQuery(companyId: string) {
 		initialPageParam: null as RoomListCursor | null,
 		getNextPageParam: roomListCursor,
 		staleTime: ROOM_STALE_MS,
-		gcTime: ROOM_RETAIN_MS,
-		retry: 1
+		gcTime: ROOM_RETAIN_MS
 	}));
 	return {
 		get rooms() {
@@ -134,8 +134,7 @@ export function roomTitleSearchQuery(companyId: string, search: string) {
 		getNextPageParam: roomListCursor,
 		enabled: normalized.length > 0,
 		staleTime: ROOM_STALE_MS,
-		gcTime: ROOM_RETAIN_MS,
-		retry: 1
+		gcTime: ROOM_RETAIN_MS
 	}));
 	return {
 		get rooms() {
@@ -173,8 +172,7 @@ export function roomMessageSearchQuery(companyId: string, search: string) {
 		getNextPageParam: olderSearchCursor,
 		enabled: normalized.length > 0,
 		staleTime: ROOM_STALE_MS,
-		gcTime: ROOM_RETAIN_MS,
-		retry: 1
+		gcTime: ROOM_RETAIN_MS
 	}));
 	return {
 		get messages() {
@@ -192,7 +190,8 @@ export function roomMessageSearchQuery(companyId: string, search: string) {
 		get loadingMore() {
 			return query.isFetchingNextPage;
 		},
-		loadMore: () => query.fetchNextPage()
+		loadMore: () => query.fetchNextPage(),
+		refresh: () => query.refetch()
 	};
 }
 
@@ -219,18 +218,43 @@ function uniqueMentions(pages: RoomMessagePage[]) {
 	return [...byId.values()];
 }
 
-export function roomMessagesQuery(companyId: string, roomId: string) {
-	const client = useQueryClient();
-	const query = createInfiniteQuery(() => ({
+/* Shared by the page and by hover prefetch, so a prefetched room is the
+ * exact cache entry the page then reads. */
+export function roomMessagesOptions(companyId: string, roomId: string) {
+	return {
 		queryKey: roomQueryKeys.messages(companyId, roomId),
 		queryFn: ({ pageParam }: { pageParam: number | null }) =>
 			getRoomMessages(companyId, roomId, pageParam),
 		initialPageParam: null as number | null,
 		getNextPageParam: olderMessageCursor,
 		staleTime: ROOM_STALE_MS,
-		gcTime: ROOM_RETAIN_MS,
-		refetchInterval: ROOM_REFRESH_MS,
-		retry: 1
+		gcTime: ROOM_RETAIN_MS
+	};
+}
+
+export function roomParticipantsOptions(companyId: string, roomId: string) {
+	return {
+		queryKey: roomQueryKeys.participants(companyId, roomId),
+		queryFn: () => getRoomParticipants(companyId, roomId),
+		staleTime: ROOM_STALE_MS,
+		gcTime: ROOM_RETAIN_MS
+	};
+}
+
+export function roomReadCursorOptions(companyId: string, roomId: string) {
+	return {
+		queryKey: roomQueryKeys.readCursor(companyId, roomId),
+		queryFn: () => getRoomReadCursor(companyId, roomId),
+		staleTime: ROOM_STALE_MS,
+		gcTime: ROOM_RETAIN_MS
+	};
+}
+
+export function roomMessagesQuery(companyId: string, roomId: string) {
+	const client = useQueryClient();
+	const query = createInfiniteQuery(() => ({
+		...roomMessagesOptions(companyId, roomId),
+		refetchInterval: pollEvery(ROOM_REFRESH_MS, 60_000)
 	}));
 	return {
 		get messages() {
@@ -378,8 +402,7 @@ export function roomThreadQuery(companyId: string, roomId: string, rootMessageId
 		getNextPageParam: olderMessageCursor,
 		staleTime: ROOM_STALE_MS,
 		gcTime: ROOM_RETAIN_MS,
-		refetchInterval: ROOM_REFRESH_MS,
-		retry: 1
+		refetchInterval: pollEvery(ROOM_REFRESH_MS, 60_000)
 	}));
 	return {
 		get messages() {
@@ -447,8 +470,7 @@ export function roomMessageRevisionsQuery(
 		getNextPageParam: olderRevisionCursor,
 		enabled: enabled && messageId > 0,
 		staleTime: ROOM_STALE_MS,
-		gcTime: ROOM_RETAIN_MS,
-		retry: 1
+		gcTime: ROOM_RETAIN_MS
 	}));
 	return {
 		get revisions() {
@@ -472,13 +494,7 @@ export function roomMessageRevisionsQuery(
 }
 
 export function roomParticipantsQuery(companyId: string, roomId: string) {
-	const query = createQuery(() => ({
-		queryKey: roomQueryKeys.participants(companyId, roomId),
-		queryFn: () => getRoomParticipants(companyId, roomId),
-		staleTime: ROOM_STALE_MS,
-		gcTime: ROOM_RETAIN_MS,
-		retry: 1
-	}));
+	const query = createQuery(() => roomParticipantsOptions(companyId, roomId));
 	return {
 		get participants() {
 			return query.data ?? [];
@@ -494,13 +510,7 @@ export function roomParticipantsQuery(companyId: string, roomId: string) {
 
 export function roomReadCursorQuery(companyId: string, roomId: string) {
 	const client = useQueryClient();
-	const query = createQuery(() => ({
-		queryKey: roomQueryKeys.readCursor(companyId, roomId),
-		queryFn: () => getRoomReadCursor(companyId, roomId),
-		staleTime: ROOM_STALE_MS,
-		gcTime: ROOM_RETAIN_MS,
-		retry: 1
-	}));
+	const query = createQuery(() => roomReadCursorOptions(companyId, roomId));
 	return {
 		get cursor() {
 			return query.data?.cursor ?? null;
@@ -566,19 +576,27 @@ export function roomActivityStream(companyId: string, roomId: string) {
 		client.removeQueries({ queryKey: roomQueryKeys.revisions(companyId, roomId, messageId) });
 	};
 
+	/* Independent projections refetch together; one slow list must not hold
+	 * back the messages the owner is looking at. */
 	const invalidate = async (event?: RoomEvent): Promise<void> => {
-		await client.invalidateQueries({ queryKey: roomQueryKeys.messages(companyId, roomId) });
-		await client.invalidateQueries({ queryKey: roomQueryKeys.recentDirect(companyId) });
-		if (event?.message_id) {
-			await client.invalidateQueries({
-				/* A reply event carries the reply id, not its root. Revalidate every
-				 * cached Thread under this Room instead of guessing that relation. */
-				queryKey: ['room-thread', companyId, roomId]
-			});
-		}
-		if (event?.kind === 'room.message.edited.v1' || event?.kind === 'room.message.deleted.v1') {
-			await client.invalidateQueries({ queryKey: ['room-message-search', companyId] });
-		}
+		// Someone reading changes unread counts, not the messages themselves.
+		const readOnly = event?.kind === 'room.read_cursor.advanced.v1';
+		await Promise.all([
+			readOnly
+				? client.invalidateQueries({ queryKey: roomQueryKeys.readCursor(companyId, roomId) })
+				: client.invalidateQueries({ queryKey: roomQueryKeys.messages(companyId, roomId) }),
+			client.invalidateQueries({ queryKey: roomQueryKeys.recentDirect(companyId) }),
+			event?.message_id
+				? client.invalidateQueries({
+						/* A reply event carries the reply id, not its root. Revalidate
+						 * every cached Thread under this Room instead of guessing. */
+						queryKey: ['room-thread', companyId, roomId]
+					})
+				: undefined,
+			event?.kind === 'room.message.edited.v1' || event?.kind === 'room.message.deleted.v1'
+				? client.invalidateQueries({ queryKey: ['room-message-search', companyId] })
+				: undefined
+		]);
 	};
 
 	return {
@@ -629,10 +647,12 @@ export function roomActivityStream(companyId: string, roomId: string) {
 				try {
 					const snapshot = await getRoomEventSnapshot(companyId, roomId);
 					if (currentGeneration !== generation) return;
-					await invalidate();
-					if (currentGeneration !== generation) return;
+					/* Listen from the snapshot at once and refetch alongside: any
+					 * event after the cursor still revalidates, so nothing is
+					 * missed, and a slow refetch no longer delays live messages. */
 					latestEventId = snapshot.snapshot_cursor;
 					subscribe(latestEventId);
+					void invalidate();
 				} catch {
 					scheduleSnapshot();
 				}

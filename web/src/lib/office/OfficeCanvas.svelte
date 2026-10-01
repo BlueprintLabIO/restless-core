@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { failureSentence } from '$lib/model/failure';
 	import { onMount } from 'svelte';
 	import Check from '@lucide/svelte/icons/check';
 	import Eraser from '@lucide/svelte/icons/eraser';
@@ -29,7 +30,16 @@
 	} from './officePlan';
 	import type { OfficeMember } from './projection';
 	import { chooseBubblePlacement, type BubbleRect } from './bubblePlacement';
-	import { CAMPUS_MOTION_CHANNELS, campusWildlifeAt, drawCampusBackdrop } from './campusBackdrop';
+	import {
+		CAMPUS_MOTION_CHANNELS,
+		campusWildlifeAt,
+		campusWorldFor,
+		drawCampusBackground,
+		drawCampusOverlay,
+		layoutKey,
+		type CampusWorld
+	} from './campusBackdrop';
+	import { drawGroundMotion, paintOfficeGround, paintOfficeLight } from './officeGround';
 	import {
 		MAX_AMBIENT_VISITORS,
 		MAX_ANIMATED_ACTIVITY_SCENES,
@@ -43,7 +53,9 @@
 		preferences,
 		selectedActorId = $bindable(null),
 		onopen,
-		onpreferenceschange
+		onpreferenceschange,
+		explorable = true,
+		onready
 	}: {
 		members: OfficeMember[];
 		teams: CockpitTeam[];
@@ -51,7 +63,47 @@
 		selectedActorId?: string | null;
 		onopen?: (member: OfficeMember) => void;
 		onpreferenceschange?: (preferences: OfficePreferences) => void;
+		/** False renders the office as a scene: no drag, wheel, keyboard, selection or editing
+		 * chrome, so a page can scroll over it and drive the camera with setCamera(). */
+		explorable?: boolean;
+		/** Called once the assets have loaded and the floor is painted. */
+		onready?: () => void;
 	} = $props();
+
+	/** The layout a caller needs to aim the camera. Null until the floor is ready. */
+	export function getWorld() {
+		if (!plan) return null;
+		return {
+			cols: plan.layout.cols,
+			rows: plan.layout.rows,
+			zones: plan.zones,
+			landmark: plan.landmark,
+			garden: plan.garden,
+			home: plan.home
+		};
+	}
+
+	/** Centre the camera on a tile. `zoom` runs from 0 (whole campus in view) to 1 (closest). */
+	export function setCamera(view: { col: number; row: number; zoom: number }) {
+		if (!plan || !canvas || !shell) return;
+		updateZoomBounds(false);
+		const amount = Math.max(0, Math.min(1, view.zoom));
+		zoomCss = minZoomCss + (maxZoomCss - minZoomCss) * amount;
+		const zoomPx = Math.max(1, Math.round(zoomCss * devicePixelRatio));
+		const centered = mapOffset(
+			canvas.width,
+			canvas.height,
+			plan.layout.cols,
+			plan.layout.rows,
+			zoomPx,
+			0,
+			0
+		);
+		cameraPan = {
+			x: canvas.width / 2 - (view.col + 0.5) * TILE_SIZE * zoomPx - centered.offsetX,
+			y: canvas.height / 2 - (view.row + 0.5) * TILE_SIZE * zoomPx - centered.offsetY
+		};
+	}
 
 	const decorationOptions: Array<{
 		type: DecorationType;
@@ -100,7 +152,7 @@
 	let decorationMessage = $state('');
 	let documentVisible = $state(true);
 	let reducedMotion = $state(false);
-	let devicePixelRatio = 2;
+	let devicePixelRatio = 1;
 	let zoomCss = $state(2.5);
 	let minZoomCss = $state(0.5);
 	let maxZoomCss = $state(1);
@@ -160,6 +212,7 @@
 				chatBubbleUntil = 0;
 			}
 			if (shell) shell.dataset.motion = reducedMotion ? 'reduced' : 'full';
+			if (reducedMotion && office) settleMatrixEffects(office);
 			if (reducedMotion && office && plan) synchronizeMembers(office, members, plan);
 		};
 		const readVisibility = () => {
@@ -181,19 +234,39 @@
 				if (destroyed) return;
 				assets = loadedAssets;
 				rebuildOffice(teams, members, preferences);
+				// Paint the campus while loading, not in the first animated frame.
+				if (plan) {
+					campusWorld = campusWorldFor(plan);
+					campusTiles = plan.layout.tiles;
+				}
 				sizeCanvas();
 				homeCamera();
 				stopLoop = startGameLoop(canvas, {
 					update: (delta) => {
 						if (documentVisible && !reducedMotion) updateOffice(delta);
 					},
-					render: (context) => render(context, performance.now())
+					render: (context) => {
+						/* Pixel art reads the same at 30 frames a second, and a
+						 * 60Hz repaint of a full-pane canvas is the office's main
+						 * cost; the canvas keeps its last frame in between. */
+						const now = performance.now();
+						/* While someone is typing, keystrokes come first: the
+						 * floor slows to 12 frames a second. */
+						const typing = document.activeElement?.matches(
+							'input, textarea, [contenteditable="true"]'
+						);
+						const interval = typing ? TYPING_PAINT_INTERVAL_MS : MIN_PAINT_INTERVAL_MS;
+						if (now - lastPaintAt < interval) return;
+						lastPaintAt = now;
+						render(context, now);
+					}
 				});
 				ready = true;
+				onready?.();
 			})
 			.catch((cause) => {
 				if (destroyed) return;
-				error = cause instanceof Error ? cause.message : 'The company floor could not be opened.';
+				error = failureSentence(cause, 'The company floor could not be opened.');
 			});
 
 		return () => {
@@ -206,13 +279,33 @@
 		};
 	});
 
+	let planInputs = '';
+	function officeInputsKey(
+		nextTeams: CockpitTeam[],
+		nextMembers: OfficeMember[],
+		nextPreferences: OfficePreferences
+	): string {
+		return JSON.stringify([
+			nextTeams.map((team) => [team.id, team.name]),
+			nextMembers.map((member) => [member.actorId, member.teamId]),
+			nextPreferences
+		]);
+	}
+
 	function rebuildOffice(
 		nextTeams: CockpitTeam[],
 		nextMembers: OfficeMember[],
 		nextPreferences: OfficePreferences
 	) {
 		if (!assets) return;
+		/* Polls and change hints deliver fresh member objects constantly; the
+		 * plan depends only on who is where, so regenerate it only then. */
+		if (office && plan && officeInputsKey(nextTeams, nextMembers, nextPreferences) === planInputs) {
+			synchronizeMembers(office, nextMembers, plan);
+			return;
+		}
 		const nextPlan = createCompanyOfficePlan(nextTeams, nextMembers, nextPreferences);
+		planInputs = officeInputsKey(nextTeams, nextMembers, nextPreferences);
 		if (nextPlan.signature === planSignature && office) {
 			synchronizeMembers(office, nextMembers, nextPlan);
 			return;
@@ -328,6 +421,19 @@
 			sendToRestingSpot(office, member, members, plan);
 	}
 
+	/* Spawn and despawn effects only advance in the update loop, which reduced
+	 * motion skips: finish them now so nobody is left half-drawn. */
+	function settleMatrixEffects(state: OfficeState) {
+		for (const character of [...state.characters.values()]) {
+			if (character.matrixEffect === 'despawn') state.characters.delete(character.id);
+			else if (character.matrixEffect === 'spawn') {
+				character.matrixEffect = null;
+				character.matrixEffectTimer = 0;
+				character.matrixEffectSeeds = [];
+			}
+		}
+	}
+
 	function sendToRestingSpot(
 		state: OfficeState,
 		member: OfficeMember,
@@ -389,7 +495,8 @@
 		if (character.tileCol !== col || character.tileRow !== row) {
 			snapCharacter(character, col, row, spot.facing, state);
 		} else {
-			character.dir = spot.facing;
+			// A standing glance turns back to this facing on its own.
+			if (!character.glance || state !== CharacterState.IDLE) character.dir = spot.facing;
 			if (character.state !== state) {
 				character.state = state;
 				character.frame = 0;
@@ -489,11 +596,24 @@
 	function sizeCanvas() {
 		if (!canvas || !shell) return;
 		const rectangle = shell.getBoundingClientRect();
-		devicePixelRatio = Math.max(2, Math.min(window.devicePixelRatio || 1, 2));
-		canvas.width = Math.max(1, Math.round(rectangle.width * devicePixelRatio));
-		canvas.height = Math.max(1, Math.round(rectangle.height * devicePixelRatio));
+		/* The display's real ratio: a 1x screen paints a quarter of the pixels a
+		 * forced 2x did, and pixel art stays exactly one canvas pixel per screen
+		 * pixel. */
+		devicePixelRatio = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
+		const width = Math.max(1, Math.round(rectangle.width * devicePixelRatio));
+		const height = Math.max(1, Math.round(rectangle.height * devicePixelRatio));
 		updateZoomBounds();
 		lastZoom = Math.max(1, Math.round(zoomCss * devicePixelRatio));
+		// Resizing clears the canvas. Only do it when the size really changed,
+		// and repaint at once so no blank frame is ever shown.
+		if (canvas.width === width && canvas.height === height) return;
+		canvas.width = width;
+		canvas.height = height;
+		const context = canvas.getContext('2d');
+		if (context && office && plan) {
+			lastPaintAt = performance.now();
+			render(context, lastPaintAt);
+		}
 	}
 
 	function synchronizeMembers(
@@ -508,13 +628,17 @@
 				const member = members.find((candidate) => candidate.numericId === character.id);
 				if (member) releaseAmbient(member.actorId, false);
 				state.removeAgent(character.id);
+				/* Without the update loop the despawn effect never finishes. */
+				if (reducedMotion) state.characters.delete(character.id);
 			}
 		}
 
 		for (const member of nextMembers) {
 			const areaKey = member.actorId === 'exec' ? '__exec__' : (member.teamId ?? '__company__');
 			if (!state.characters.has(member.numericId)) {
-				state.addAgent(member.numericId, member.palette, 0, undefined, false, areaKey);
+				/* The spawn effect only advances in the update loop, which reduced
+				 * motion skips, so it would leave colleagues invisible. Appear in place. */
+				state.addAgent(member.numericId, member.palette, 0, undefined, reducedMotion, areaKey);
 			}
 		}
 
@@ -586,8 +710,22 @@
 			selectedActorId = null;
 	}
 
+	const MIN_PAINT_INTERVAL_MS = 1000 / 30 - 2;
+	const TYPING_PAINT_INTERVAL_MS = 1000 / 12 - 2;
+	let lastPaintAt = 0;
+	/* The campus is painted once per layout (see campusBackdrop.ts). */
+	let campusWorld: CampusWorld | null = null;
+	let campusTiles: readonly number[] | null = null;
+
 	function render(context: CanvasRenderingContext2D, now: number) {
 		if (!office || !plan || !canvas.width || !canvas.height) return;
+		const currentPlan = plan;
+		if (!campusWorld || campusTiles !== currentPlan.layout.tiles) {
+			campusWorld = campusWorldFor(currentPlan);
+			campusTiles = currentPlan.layout.tiles;
+		}
+		const world = campusWorld;
+		const motion = !reducedMotion && documentVisible;
 		const frameStartedAt = performance.now();
 		const hoveredMember = hoveredActorId
 			? (members.find((member) => member.actorId === hoveredActorId) ?? null)
@@ -627,21 +765,44 @@
 			office.layout.areaTiles,
 			false,
 			null,
-			office.pets
+			office.pets,
+			{
+				background: world
+					? (layer, offsetX, offsetY) =>
+							drawCampusBackground(layer, world, {
+								offsetX,
+								offsetY,
+								zoom: lastZoom,
+								canvasWidth: canvas.width,
+								canvasHeight: canvas.height,
+								now,
+								motion
+							})
+					: undefined,
+				ground: (layer) => paintOfficeGround(layer, currentPlan),
+				groundAbove: (layer) => paintOfficeLight(layer, currentPlan),
+				groundKey: layoutKey(currentPlan),
+				afterFloor: (layer, offsetX, offsetY) =>
+					drawGroundMotion(layer, currentPlan, { offsetX, offsetY, zoom: lastZoom, now, motion })
+			}
 		);
 		lastOffset = { x: frame.offsetX, y: frame.offsetY };
-		drawCampusBackdrop(context, {
-			canvasWidth: canvas.width,
-			canvasHeight: canvas.height,
-			officeLeft: frame.offsetX,
-			officeTop: frame.offsetY,
-			officeTiles: plan.layout.tiles,
-			officeCols: plan.layout.cols,
-			officeRows: plan.layout.rows,
-			tilePixelSize: TILE_SIZE * lastZoom,
-			now,
-			motion: !reducedMotion && documentVisible
-		});
+		if (world)
+			drawCampusOverlay(
+				context,
+				world,
+				{
+					offsetX: frame.offsetX,
+					offsetY: frame.offsetY,
+					zoom: lastZoom,
+					canvasWidth: canvas.width,
+					canvasHeight: canvas.height,
+					now,
+					motion
+				},
+				currentPlan.layout.cols,
+				currentPlan.layout.rows
+			);
 		drawFishingActivities(context, now);
 		drawZonePlaques(context);
 		drawChatBubble(context);
@@ -652,7 +813,6 @@
 		longestFrameMs = Math.max(longestFrameMs, frameMs);
 		if (frameMs > 32) longFrameCount += 1;
 		if (renderedFrameCount % 60 === 0 && shell) {
-			const currentPlan = plan;
 			const availableAtDesks = members.filter((member) => {
 				if (member.presence !== 'available') return false;
 				const character = office?.characters.get(member.numericId);
@@ -1051,7 +1211,7 @@
 	}
 
 	function handlePointerDown(event: PointerEvent) {
-		if (!office) return;
+		if (!office || !explorable) return;
 		canvas.focus({ preventScroll: true });
 		canvas.setPointerCapture(event.pointerId);
 		pointer = {
@@ -1065,7 +1225,7 @@
 	}
 
 	function handlePointerMove(event: PointerEvent) {
-		if (!office) return;
+		if (!office || !explorable) return;
 		if (pointer?.id === event.pointerId) {
 			const dx = event.clientX - pointer.lastX;
 			const dy = event.clientY - pointer.lastY;
@@ -1126,7 +1286,7 @@
 	}
 
 	function handleWheel(event: WheelEvent) {
-		if (!office || !plan) return;
+		if (!office || !plan || !explorable) return;
 		event.preventDefault();
 		const next = clampZoom(zoomCss + (event.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP));
 		if (Math.abs(next - zoomCss) < ZOOM_EPSILON) return;
@@ -1279,6 +1439,7 @@
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
+		if (!explorable) return;
 		if (event.key === 'Escape') {
 			event.preventDefault();
 			if (selectedActorId) selectedActorId = null;
@@ -1337,8 +1498,11 @@
 >
 	<canvas
 		bind:this={canvas}
-		tabindex="0"
-		aria-label="Explorable company office. Drag to move, scroll to zoom, use arrow keys to choose a colleague, Shift plus arrow keys to move the camera, and Enter to inspect Work."
+		tabindex={explorable ? 0 : -1}
+		role={explorable ? undefined : 'img'}
+		aria-label={explorable
+			? 'Explorable company office. Drag to move, scroll to zoom, use arrow keys to choose a colleague, Shift plus arrow keys to move the camera, and Enter to inspect Work.'
+			: 'A pixel-art company office where colleagues work, rest and meet.'}
 		onpointerdown={handlePointerDown}
 		onpointermove={handlePointerMove}
 		onpointerup={handlePointerUp}
@@ -1347,7 +1511,7 @@
 		onkeydown={handleKeydown}
 	></canvas>
 
-	{#if selectedMember}
+	{#if explorable && selectedMember}
 		<aside
 			class="person-detail"
 			aria-label={`${selectedMember.display} office detail`}
@@ -1388,108 +1552,110 @@
 		</aside>
 	{/if}
 
-	<div class="office-camera-controls" aria-label="Office camera">
-		<button
-			type="button"
-			title={canZoomOut ? 'Zoom out' : 'The whole office is already in view'}
-			aria-label={canZoomOut ? 'Zoom out' : 'Zoom out unavailable; the whole office is in view'}
-			disabled={!canZoomOut}
-			onclick={() => changeZoom(-ZOOM_STEP)}
-		>
-			<Minus size={14} strokeWidth={2.25} />
-		</button>
-		<button
-			type="button"
-			title="Centre the office"
-			aria-label="Centre the office"
-			onclick={homeCamera}
-		>
-			<Focus size={14} strokeWidth={2.25} />
-		</button>
-		<button
-			type="button"
-			title={canZoomIn ? 'Zoom in' : 'Maximum detail reached'}
-			aria-label={canZoomIn ? 'Zoom in' : 'Zoom in unavailable; maximum detail reached'}
-			disabled={!canZoomIn}
-			onclick={() => changeZoom(ZOOM_STEP)}
-		>
-			<Plus size={14} strokeWidth={2.25} />
-		</button>
-	</div>
-
-	<div class="office-decorate">
-		{#if decorating}
-			<div class="decor-tray" aria-label="Decorate the office">
-				<div class="decor-section decor-props" aria-label="Furniture">
-					{#each decorationOptions as decoration (decoration.type)}
-						<button
-							type="button"
-							class:active={selectedDecoration === decoration.type}
-							title={decoration.label}
-							aria-label={decoration.label}
-							aria-pressed={selectedDecoration === decoration.type}
-							onclick={() => (selectedDecoration = decoration.type)}
-							><img src={decoration.src} alt="" /></button
-						>
-					{/each}
-					<button
-						type="button"
-						class:active={selectedDecoration === 'erase'}
-						title="Remove a decoration"
-						aria-label="Remove a decoration"
-						aria-pressed={selectedDecoration === 'erase'}
-						onclick={() => (selectedDecoration = 'erase')}><Eraser size={15} /></button
-					>
-				</div>
-				<div class="decor-rule"></div>
-				<div class="decor-section">
-					<button
-						type="button"
-						class:active={preferences.decorDensity === 'lush'}
-						title="More plants around the campus"
-						aria-label="More plants around the campus"
-						aria-pressed={preferences.decorDensity === 'lush'}
-						onclick={() =>
-							updatePreferences({
-								decorDensity: preferences.decorDensity === 'lush' ? 'calm' : 'lush'
-							})}><Sparkles size={15} /></button
-					>
-					<button
-						type="button"
-						class:active={preferences.pets}
-						title="Office pets"
-						aria-label="Office pets"
-						aria-pressed={preferences.pets}
-						onclick={() => updatePreferences({ pets: !preferences.pets })}
-						><PawPrint size={15} /></button
-					>
-					<button
-						type="button"
-						title="Undo the last decoration"
-						aria-label="Undo the last decoration"
-						disabled={!preferences.decorations.length}
-						onclick={undoDecoration}><Undo2 size={15} /></button
-					>
-					<button
-						type="button"
-						class="done"
-						title="Finish decorating"
-						aria-label="Finish decorating"
-						onclick={() => (decorating = false)}><Check size={15} /></button
-					>
-				</div>
-			</div>
-		{:else}
+	{#if explorable}
+		<div class="office-camera-controls" aria-label="Office camera">
 			<button
 				type="button"
-				class="decorate-trigger"
-				title="Decorate the office"
-				aria-label="Decorate the office"
-				onclick={() => (decorating = true)}><Paintbrush size={15} strokeWidth={2.2} /></button
+				title={canZoomOut ? 'Zoom out' : 'The whole office is already in view'}
+				aria-label={canZoomOut ? 'Zoom out' : 'Zoom out unavailable; the whole office is in view'}
+				disabled={!canZoomOut}
+				onclick={() => changeZoom(-ZOOM_STEP)}
 			>
-		{/if}
-		<span class="decor-message" aria-live="polite">{decorationMessage}</span>
-	</div>
+				<Minus size={14} strokeWidth={2.25} />
+			</button>
+			<button
+				type="button"
+				title="Centre the office"
+				aria-label="Centre the office"
+				onclick={homeCamera}
+			>
+				<Focus size={14} strokeWidth={2.25} />
+			</button>
+			<button
+				type="button"
+				title={canZoomIn ? 'Zoom in' : 'Maximum detail reached'}
+				aria-label={canZoomIn ? 'Zoom in' : 'Zoom in unavailable; maximum detail reached'}
+				disabled={!canZoomIn}
+				onclick={() => changeZoom(ZOOM_STEP)}
+			>
+				<Plus size={14} strokeWidth={2.25} />
+			</button>
+		</div>
+
+		<div class="office-decorate">
+			{#if decorating}
+				<div class="decor-tray" aria-label="Decorate the office">
+					<div class="decor-section decor-props" aria-label="Furniture">
+						{#each decorationOptions as decoration (decoration.type)}
+							<button
+								type="button"
+								class:active={selectedDecoration === decoration.type}
+								title={decoration.label}
+								aria-label={decoration.label}
+								aria-pressed={selectedDecoration === decoration.type}
+								onclick={() => (selectedDecoration = decoration.type)}
+								><img src={decoration.src} alt="" /></button
+							>
+						{/each}
+						<button
+							type="button"
+							class:active={selectedDecoration === 'erase'}
+							title="Remove a decoration"
+							aria-label="Remove a decoration"
+							aria-pressed={selectedDecoration === 'erase'}
+							onclick={() => (selectedDecoration = 'erase')}><Eraser size={15} /></button
+						>
+					</div>
+					<div class="decor-rule"></div>
+					<div class="decor-section">
+						<button
+							type="button"
+							class:active={preferences.decorDensity === 'lush'}
+							title="More plants around the campus"
+							aria-label="More plants around the campus"
+							aria-pressed={preferences.decorDensity === 'lush'}
+							onclick={() =>
+								updatePreferences({
+									decorDensity: preferences.decorDensity === 'lush' ? 'calm' : 'lush'
+								})}><Sparkles size={15} /></button
+						>
+						<button
+							type="button"
+							class:active={preferences.pets}
+							title="Office pets"
+							aria-label="Office pets"
+							aria-pressed={preferences.pets}
+							onclick={() => updatePreferences({ pets: !preferences.pets })}
+							><PawPrint size={15} /></button
+						>
+						<button
+							type="button"
+							title="Undo the last decoration"
+							aria-label="Undo the last decoration"
+							disabled={!preferences.decorations.length}
+							onclick={undoDecoration}><Undo2 size={15} /></button
+						>
+						<button
+							type="button"
+							class="done"
+							title="Finish decorating"
+							aria-label="Finish decorating"
+							onclick={() => (decorating = false)}><Check size={15} /></button
+						>
+					</div>
+				</div>
+			{:else}
+				<button
+					type="button"
+					class="decorate-trigger"
+					title="Decorate the office"
+					aria-label="Decorate the office"
+					onclick={() => (decorating = true)}><Paintbrush size={15} strokeWidth={2.2} /></button
+				>
+			{/if}
+			<span class="decor-message" aria-live="polite">{decorationMessage}</span>
+		</div>
+	{/if}
 
 	{#if !ready && !error}
 		<div class="office-loading" role="status">
@@ -1526,6 +1692,43 @@
 		cursor: grab;
 		touch-action: none;
 		user-select: none;
+	}
+
+	/* At night the campus dims to dusk instead of glaring beside a dark
+	 * cockpit. One filter on the finished frame: no per-pixel work. */
+	:global(:root[data-theme='dark']) .office-canvas-shell {
+		background: #5c7a57;
+	}
+	:global(:root[data-theme='dark']) canvas {
+		filter: brightness(0.68) saturate(0.82) contrast(1.06) hue-rotate(-6deg);
+	}
+	/* The office's pixel chrome keeps its hard edge and drop at night, in
+	 * slate instead of mint. */
+	:global(:root[data-theme='dark'])
+		:is(.office-camera-controls, .decorate-trigger, .decor-tray, .person-detail) {
+		border-color: rgba(196, 226, 214, 0.28);
+		background: rgba(20, 27, 33, 0.94);
+		box-shadow:
+			0 3px 0 rgba(0, 0, 0, 0.5),
+			inset 0 1px rgba(255, 255, 255, 0.05);
+		color: #e3ece9;
+	}
+	:global(:root[data-theme='dark'])
+		:is(.office-camera-controls button, .decor-tray button, .decorate-trigger) {
+		border-color: rgba(196, 226, 214, 0.14);
+		color: #e3ece9;
+	}
+	:global(:root[data-theme='dark'])
+		:is(.office-camera-controls button, .decor-tray button, .decorate-trigger):not(
+			:disabled
+		):hover {
+		background: rgba(196, 226, 214, 0.1);
+	}
+	:global(:root[data-theme='dark']) .person-detail :is(span, time, p) {
+		color: rgba(227, 236, 233, 0.72);
+	}
+	:global(:root[data-theme='dark']) .person-detail strong {
+		color: #eef5f2;
 	}
 
 	canvas:focus-visible {
@@ -1581,20 +1784,22 @@
 	}
 
 	.person-detail-heading strong {
-		font: 700 var(--t-head)/1.2 var(--font-sans);
+		font: 600 var(--t-head)/1.2 var(--font-sans);
 	}
 
 	.person-detail-heading span,
 	.person-detail-state time {
 		color: #69747a;
-		font: 500 var(--t-label)/1.35 var(--font-mono);
+		font: 500 var(--t-label)/1.35 var(--font-ui);
+		font-variant-numeric: tabular-nums;
 	}
 
 	.person-detail-state {
 		display: flex;
 		align-items: center;
 		gap: 7px;
-		font: 600 var(--t-label)/1.2 var(--font-mono);
+		font: 600 var(--t-label)/1.2 var(--font-ui);
+		font-variant-numeric: tabular-nums;
 	}
 
 	.person-detail-state i {
@@ -1624,7 +1829,7 @@
 	}
 
 	.person-detail-outcome {
-		font: 650 var(--t-body)/1.35 var(--font-sans);
+		font: 600 var(--t-body)/1.35 var(--font-sans);
 	}
 
 	.person-detail-step {
@@ -1641,7 +1846,7 @@
 		border: 1px solid rgba(23, 36, 51, 0.5);
 		background: #173d3b;
 		color: #eff8f4;
-		font: 650 var(--t-body)/1 var(--font-sans);
+		font: 600 var(--t-body)/1 var(--font-sans);
 		cursor: pointer;
 	}
 
@@ -1686,6 +1891,15 @@
 
 	.office-camera-controls button:last-child {
 		border-right: 0;
+	}
+
+	@media (pointer: coarse) {
+		.office-camera-controls button,
+		.decor-tray button,
+		.decorate-trigger {
+			width: 44px;
+			height: 44px;
+		}
 	}
 
 	.office-camera-controls button:not(:disabled):hover,
@@ -1770,7 +1984,8 @@
 		color: rgba(239, 248, 244, 0.9);
 		font:
 			400 var(--t-label)/1.35 Silkscreen,
-			var(--font-mono);
+			var(--font-ui);
+		font-variant-numeric: tabular-nums;
 		text-shadow: 1px 1px #172433;
 	}
 

@@ -882,6 +882,80 @@ export interface SelectionRenderState {
 	characters: Map<number, Character>;
 }
 
+/* Restless: the floor (tiles, the host's ground painting, carpets) is painted
+ * once in world space at 1 art pixel per canvas pixel and blitted at the
+ * camera's integer zoom with nearest-neighbour scaling. That is pixel-identical
+ * to painting at zoom, and panning or zooming never repaints it; only a layout
+ * change (the source arrays, by identity) does. */
+let floorCache: {
+	canvas: HTMLCanvasElement;
+	sources: readonly unknown[];
+} | null = null;
+
+function drawFloorLayer(
+	ctx: CanvasRenderingContext2D,
+	cols: number,
+	rows: number,
+	offsetX: number,
+	offsetY: number,
+	zoom: number,
+	paint: (layer: CanvasRenderingContext2D) => void,
+	sources: readonly unknown[]
+): void {
+	const width = cols * TILE_SIZE;
+	const height = rows * TILE_SIZE;
+	const stale =
+		!floorCache ||
+		floorCache.canvas.width !== width ||
+		floorCache.canvas.height !== height ||
+		floorCache.sources.length !== sources.length ||
+		floorCache.sources.some((source, index) => source !== sources[index]);
+	if (stale) {
+		const canvas = floorCache?.canvas ?? document.createElement('canvas');
+		canvas.width = width;
+		canvas.height = height;
+		const layer = canvas.getContext('2d')!;
+		layer.clearRect(0, 0, width, height);
+		layer.imageSmoothingEnabled = false;
+		floorCache = { canvas, sources };
+		paint(layer);
+	}
+	const smoothing = ctx.imageSmoothingEnabled;
+	ctx.imageSmoothingEnabled = false;
+	blitVisible(ctx, floorCache!.canvas, offsetX, offsetY, zoom);
+	ctx.imageSmoothingEnabled = smoothing;
+}
+
+/** Scale-blit only the part of a world-space layer that lands on screen. */
+export function blitVisible(
+	ctx: CanvasRenderingContext2D,
+	source: HTMLCanvasElement,
+	left: number,
+	top: number,
+	zoom: number
+): void {
+	const sx = Math.max(0, Math.floor(-left / zoom));
+	const sy = Math.max(0, Math.floor(-top / zoom));
+	const sw = Math.min(source.width, Math.ceil((ctx.canvas.width - left) / zoom) + 1) - sx;
+	const sh = Math.min(source.height, Math.ceil((ctx.canvas.height - top) / zoom) + 1) - sy;
+	if (sw <= 0 || sh <= 0) return;
+	ctx.drawImage(source, sx, sy, sw, sh, left + sx * zoom, top + sy * zoom, sw * zoom, sh * zoom);
+}
+
+/** Restless host layers around the vendored scene. */
+export interface FrameLayers {
+	/** Paints under everything instead of clearing (the campus world). */
+	background?: (ctx: CanvasRenderingContext2D, offsetX: number, offsetY: number) => void;
+	/** Paints into the cached zoom-1 floor after tiles and before carpets. */
+	ground?: (layer: CanvasRenderingContext2D) => void;
+	/** Paints into the cached zoom-1 floor after carpets (light, shadow). */
+	groundAbove?: (layer: CanvasRenderingContext2D) => void;
+	/** Identity that invalidates the cached floor when the ground changes. */
+	groundKey?: unknown;
+	/** Paints over the floor and under furniture and people (living ground). */
+	afterFloor?: (ctx: CanvasRenderingContext2D, offsetX: number, offsetY: number) => void;
+}
+
 export function renderFrame(
 	ctx: CanvasRenderingContext2D,
 	canvasWidth: number,
@@ -902,11 +976,9 @@ export function renderFrame(
 	areaTiles?: Array<string | null>,
 	showAreas?: boolean,
 	activeAreaLabel?: string | null,
-	pets?: Pet[]
+	pets?: Pet[],
+	layers?: FrameLayers
 ): { offsetX: number; offsetY: number } {
-	// Clear
-	ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-
 	// Use layout dimensions (fallback to tileMap size)
 	const cols = layoutCols ?? (tileMap.length > 0 ? tileMap[0].length : 0);
 	const rows = layoutRows ?? tileMap.length;
@@ -915,13 +987,33 @@ export function renderFrame(
 	// the DOM overlays so a label lands exactly on the sprite it belongs to.
 	const { offsetX, offsetY } = mapOffset(canvasWidth, canvasHeight, cols, rows, zoom, panX, panY);
 
-	// Draw tiles (floor + wall base color)
-	renderTileGrid(ctx, tileMap, offsetX, offsetY, zoom, tileColors, layoutCols);
+	// Clear, or let the host paint the world beneath the office.
+	if (layers?.background) layers.background(ctx, offsetX, offsetY);
+	else ctx.clearRect(0, 0, canvasWidth, canvasHeight);
 
-	// Carpet layer (above floor, below seat indicators / furniture / characters)
-	if (carpetTiles && carpetTiles.length > 0) {
-		renderCarpetLayer(ctx, carpetTiles, cols, rows, offsetX, offsetY, zoom);
-	}
+	// Floor, wall base, host ground and carpet: one cached world layer.
+	drawFloorLayer(
+		ctx,
+		cols,
+		rows,
+		offsetX,
+		offsetY,
+		zoom,
+		(layer) => {
+			// Draw tiles (floor + wall base color)
+			renderTileGrid(layer, tileMap, 0, 0, 1, tileColors, layoutCols);
+			layers?.ground?.(layer);
+			// Carpet layer (above floor, below seat indicators / furniture / characters)
+			if (carpetTiles && carpetTiles.length > 0) {
+				renderCarpetLayer(layer, carpetTiles, cols, rows, 0, 0, 1);
+			}
+			layers?.groundAbove?.(layer);
+		},
+		// A host key describes the whole floor by content, so the cache also
+		// survives a remount that rebuilds identical arrays.
+		layers?.groundKey !== undefined ? [layers.groundKey] : [tileMap, tileColors, carpetTiles]
+	);
+	layers?.afterFloor?.(ctx, offsetX, offsetY);
 
 	// Area overlay (translucent color wash) — above carpets, below seat indicators
 	if (showAreas) {

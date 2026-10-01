@@ -1,4 +1,5 @@
 import { browserTabClientId } from './browserTab';
+import { responseFailure } from './failure.ts';
 
 type BrowserIntent = { url: string };
 
@@ -12,7 +13,9 @@ const destinationKey = (company: string) => `restless.company-browser-destinatio
 export function prepareCompanyBrowser(company: string, url: string): void {
 	const intent = { url } satisfies BrowserIntent;
 	sessionStorage.setItem(intentKey(company), JSON.stringify(intent));
-	window.dispatchEvent(new CustomEvent<BrowserIntent>(COMPANY_BROWSER_OPEN_EVENT, { detail: intent }));
+	window.dispatchEvent(
+		new CustomEvent<BrowserIntent>(COMPANY_BROWSER_OPEN_EVENT, { detail: intent })
+	);
 }
 
 export function consumeCompanyBrowserIntent(company: string): BrowserIntent | null {
@@ -68,15 +71,10 @@ export function companyBrowserLabel(url: string): string {
 }
 
 async function browserOpenError(response: Response): Promise<Error & { status: number }> {
-	let message = `${response.status} ${response.statusText}`;
-	try {
-		const body = (await response.json()) as { message?: unknown };
-		if (typeof body.message === 'string') message = body.message;
-	} catch {
-		// Keep the HTTP result useful if a proxy supplied a non-JSON response.
-	}
+	const failure = await responseFailure(response);
 	if (response.status === 409) {
-		message = 'The Company computer is under control. Return control before opening this link here.';
+		failure.message = failure.serverMessage =
+			'You have control of the company computer. Return it before opening this link here.';
 	}
-	return Object.assign(new Error(message), { status: response.status });
+	return failure as Error & { status: number };
 }

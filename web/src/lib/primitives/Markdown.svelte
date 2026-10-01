@@ -97,7 +97,7 @@
 	.markdown :global(h5),
 	.markdown :global(h6) {
 		margin: 1em 0 0.4em;
-		font-weight: 650;
+		font-weight: 600;
 		line-height: 1.3;
 	}
 	.markdown :global(h1),

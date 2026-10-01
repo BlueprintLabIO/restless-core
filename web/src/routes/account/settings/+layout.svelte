@@ -1,20 +1,22 @@
 <script lang="ts">
+	import { tooltips } from '$lib/actions/tooltips';
+	import { selectMenu } from '$lib/actions/select-menu';
 	import { page } from '$app/state';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
-	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
+	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
 	let { children } = $props();
-	const active = $derived(page.url.pathname.endsWith('/connections'));
+	const section = $derived(page.url.pathname.split('/').at(-1));
 </script>
 
 <svelte:head><title>Account settings — {PRODUCT_NAME}</title></svelte:head>
 
-<div class="bridge-root portfolio-root settings-root">
+<div class="bridge-root portfolio-root settings-root" use:tooltips use:selectMenu>
 	<header class="bridge-topbar" aria-label="Account navigation">
-		<a class="tb-brand portfolio-brand" href="/" aria-label={`${PRODUCT_NAME} projects`}>
+		<a class="tb-brand portfolio-brand" href="/" aria-label={`${PRODUCT_NAME} companies`}>
 			<span class="tb-mark"><MatrixGlyph rows={GLYPHS.r} size={13} glow /></span>
 			<span class="tb-name">{PRODUCT_NAME}</span>
 		</a>
-		<a class="back-link" href="/">Back to projects</a>
+		<a class="back-link" href="/">Back to companies</a>
 	</header>
 	<div class="settings-frame">
 		<aside class="settings-sidebar" aria-label="Account settings">
@@ -22,8 +24,13 @@
 			<nav>
 				<a
 					href="/account/settings/connections"
-					class:active
-					aria-current={active ? 'page' : undefined}>Connections</a
+					class:active={section === 'connections'}
+					aria-current={section === 'connections' ? 'page' : undefined}>Connections</a
+				>
+				<a
+					href="/account/settings/appearance"
+					class:active={section === 'appearance'}
+					aria-current={section === 'appearance' ? 'page' : undefined}>Appearance</a
 				>
 			</nav>
 		</aside>
@@ -38,7 +45,7 @@
 	.back-link {
 		margin-left: auto;
 		color: var(--text-secondary);
-		font-size: var(--t-label);
+		font-size: var(--t-body);
 		text-decoration: none;
 	}
 	.back-link:hover {
@@ -66,15 +73,18 @@
 		padding: 10px 12px;
 		border-radius: var(--radius-control);
 		color: var(--text-secondary);
-		font-size: var(--t-label);
+		font-size: var(--t-body);
 		text-decoration: none;
+		transition:
+			background-color var(--motion-state) var(--ease-standard),
+			color var(--motion-state) var(--ease-standard);
 	}
 	.settings-sidebar nav a:hover {
-		color: var(--text-primary);
+		color: var(--ink);
 		background: var(--surface-alt);
 	}
 	.settings-sidebar nav a.active {
-		color: var(--text-primary);
+		color: var(--ink);
 		background: var(--surface-alt);
 		box-shadow: inset 2px 0 var(--intent-conversation);
 	}

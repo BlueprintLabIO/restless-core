@@ -1,4 +1,7 @@
 <script lang="ts">
+	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
+	import { formatDay } from '$lib/ui/time';
+	import { failureSentence } from '$lib/model/failure';
 	import { onMount } from 'svelte';
 	let { companyId }: { companyId: string } = $props();
 	type Secret = { name: string; path: string; reference: string; updated_at: string | null };
@@ -44,11 +47,14 @@
 		busy = true;
 		error = '';
 		try {
-			const r = await fetch(`/api/companies/${companyId}/vault`, { cache: 'no-store', credentials: 'same-origin' });
+			const r = await fetch(`/api/companies/${companyId}/vault`, {
+				cache: 'no-store',
+				credentials: 'same-origin'
+			});
 			if (!r.ok) throw new Error('Could not read the company vault.');
 			view = await r.json();
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Could not read the vault.';
+			error = failureSentence(e, 'Could not read the vault.');
 		} finally {
 			busy = false;
 		}
@@ -73,7 +79,7 @@
 			binding = '';
 			await refresh();
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Could not save the secret.';
+			error = failureSentence(e, 'Could not save the secret.');
 		} finally {
 			secret = '';
 			busy = false;
@@ -84,9 +90,9 @@
 	});
 </script>
 
-<svelte:head><title>Vault — Company</title></svelte:head>
-<div class="vault-page">
-	<header>
+<CompanyTitle title="Vault" {companyId} />
+<div class="company-page vault-page">
+	<header class="company-page-head">
 		<h1>Vault</h1>
 		<button class="btn small" onclick={refresh} disabled={busy}
 			>{busy ? 'Checking…' : 'Refresh'}</button
@@ -94,56 +100,57 @@
 	</header>
 	<p
 		class="status"
+		title="Secrets are kept in the company’s secure vault. You see their names, never their values."
 		class:connected={!error && view?.status === 'connected'}
 		class:unavailable={!!error || view?.status === 'unavailable'}
 		role="status"
 	>
-		● {error
+		{error
 			? 'Vault status unavailable'
 			: view?.status === 'connected'
-				? 'Infisical connected'
+				? 'Secure storage connected'
 				: view?.status === 'unavailable'
-					? 'Infisical unavailable'
+					? 'Secure storage unavailable'
 					: busy
-						? 'Checking Infisical…'
-						: 'Infisical is not configured'}
+						? 'Checking secure storage…'
+						: 'Secure storage is not set up'}
 	</p>
 	<p class="scope">Secrets stored for this company. Values remain hidden.</p>
 	{#if error}<p role="alert">{error}</p>{/if}
 	{#if notice}<p class="notice" role="status">{notice}</p>{/if}
 	{#if view?.status === 'unavailable'}<p role="alert">{view.message}</p>{:else if view?.secrets}
 		{#if writable.length}<section aria-label="Add or replace a secret">
-			<h2>Add or replace a secret</h2>
-			<form onsubmit={saveSecret}>
-				<label for="vault-binding">Connection</label><select
-					id="vault-binding"
-					bind:value={binding}
-					required
-					disabled={busy}
-				>
-					<option value="" disabled>Choose a connection…</option>
-					{#each writable as ref}<option value={ref.name}>{ref.name}</option>{/each}
-				</select>
-				<label for="vault-secret">API key</label><input
-					id="vault-secret"
-					type="password"
-					bind:value={secret}
-					autocomplete="new-password"
-					placeholder="Paste API key"
-					required
-					disabled={busy}
-				/>
-				<button class="btn primary small" type="submit" disabled={busy}
-					>{busy ? 'Saving…' : 'Save in Infisical'}</button
-				>
-			</form>
-		</section>{/if}
-		<label for="vault-search">Find a secret</label><input
-			id="vault-search"
-			type="search"
-			bind:value={search}
-			placeholder="Search names or folders"
-		/>
+				<h2>Add or replace a secret</h2>
+				<form onsubmit={saveSecret}>
+					<label for="vault-binding">Connection</label><select
+						id="vault-binding"
+						bind:value={binding}
+						required
+						disabled={busy}
+					>
+						<option value="" disabled>Choose a connection…</option>
+						{#each writable as ref}<option value={ref.name}>{ref.name}</option>{/each}
+					</select>
+					<label for="vault-secret">API key</label><input
+						id="vault-secret"
+						type="password"
+						bind:value={secret}
+						autocomplete="new-password"
+						placeholder="Paste API key"
+						required
+						disabled={busy}
+					/>
+					<button class="btn primary small" type="submit" disabled={busy}
+						>{busy ? 'Saving…' : 'Save in Infisical'}</button
+					>
+				</form>
+			</section>{/if}
+		{#if view.secrets.length > 6}<label for="vault-search">Find a secret</label><input
+				id="vault-search"
+				type="search"
+				bind:value={search}
+				placeholder="Search names or folders"
+			/>{/if}
 		<section aria-label="Stored secrets">
 			{#each rows as secret (secret.reference)}<article>
 					<div>
@@ -151,9 +158,7 @@
 							>{uses(secret.reference)}</small
 						>
 					</div>
-					<span title={secret.updated_at ?? ''}
-						>{secret.updated_at ? new Date(secret.updated_at).toLocaleDateString() : 'Stored'}</span
-					>
+					<span title={secret.updated_at ?? ''}>{formatDay(secret.updated_at, 'Stored')}</span>
 				</article>{:else}<p>
 					{search ? 'No matching secrets.' : 'No secrets stored for this company yet.'}
 				</p>{/each}
@@ -164,35 +169,18 @@
 					<div><strong>{ref.name}</strong><code>{ref.reference}</code></div>
 				</article>{/each}
 		</details>{/if}
-	<a href={`/${companyId}/company/provider`}>Manage intelligence connections →</a>
+	<a class="vault-provider-link" href={`/${companyId}/company/provider`}
+		>Manage intelligence connections →</a
+	>
 </div>
 
 <style>
 	.vault-page {
-		width: 100%;
-		max-width: 880px;
-		min-width: 0;
-		min-height: 0;
-		box-sizing: border-box;
-		padding: var(--space-6);
-		margin: 0 auto;
-		overflow-y: auto;
 		overflow-wrap: anywhere;
-	}
-	header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		gap: var(--space-3);
-		flex-wrap: wrap;
-	}
-	h1 {
-		margin: 0;
-		font-size: var(--t-title);
 	}
 	.status {
 		color: var(--text-tertiary);
-		margin-block: var(--space-5);
+		margin-block: 0 var(--space-3);
 	}
 	.connected {
 		color: var(--state-success);
@@ -275,5 +263,22 @@
 		article {
 			flex-direction: column;
 		}
+	}
+	.status::before {
+		content: '';
+		display: inline-block;
+		width: 7px;
+		height: 7px;
+		margin-right: 7px;
+		border-radius: 50%;
+		background: var(--status-offline);
+		vertical-align: 1px;
+	}
+	.status.connected::before {
+		background: var(--state-success);
+		box-shadow: 0 0 0 3px color-mix(in srgb, var(--state-success) 16%, transparent);
+	}
+	.status.unavailable::before {
+		background: var(--state-danger);
 	}
 </style>

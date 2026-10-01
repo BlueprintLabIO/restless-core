@@ -587,6 +587,8 @@ workflow gap and show the resulting output or behaviour.
 | `infra/company-image/` | Persistent company computer |
 | `services/native-documents-collaboration/` | Document collaboration service |
 | `web/` | Owner workspace |
+| `web/src/lib/ui/` | The design system: tokens, pixel marks, pure views. Packed as `@restless/ui` (`npm run pack:ui`); `/gallery` renders all of it from fixtures |
+| `landing/` | The public Core page, built from the product's own components |
 | `experiment/` | Experiment designs and recorded results |
 
 The hosted control plane and public website live in a separate private repository.

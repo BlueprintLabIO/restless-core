@@ -6,7 +6,11 @@
 	grid-template-columns: minmax(0, 1fr);
 	grid-template-rows: var(--topbar-h) minmax(0, 1fr);
 	gap: 6px;
-	padding: var(--app-gutter);
+	/* viewport-fit=cover lets the app use the whole phone screen; the gutter
+	 * grows to clear the notch, rounded corners and home indicator. */
+	padding: max(var(--app-gutter), env(safe-area-inset-top))
+		max(var(--app-gutter), env(safe-area-inset-right)) var(--app-gutter)
+		max(var(--app-gutter), env(safe-area-inset-left));
 	isolation: isolate;
 }
 
@@ -44,16 +48,17 @@
 	align-items: center;
 	gap: 6px;
 	padding: 5px 10px;
-	border: 1px solid rgba(255, 255, 255, 0.18);
+	border: 1px solid color-mix(in srgb, var(--highlight) 18%, transparent);
 	border-radius: var(--radius-control);
 	background: rgba(24, 29, 38, 0.9);
 	box-shadow:
-		inset 0 1px 0 rgba(255, 255, 255, 0.08),
+		inset 0 1px 0 color-mix(in srgb, var(--highlight) 8%, transparent),
 		0 8px 24px rgba(0, 0, 0, 0.2);
 	backdrop-filter: blur(16px) saturate(1.1);
 	-webkit-backdrop-filter: blur(16px) saturate(1.1);
-	color: rgba(248, 250, 252, 0.82);
-	font: 600 var(--t-label) var(--font-mono);
+	color: color-mix(in srgb, var(--highlight) 82%, transparent);
+	font: 600 var(--t-label) var(--font-ui);
+	font-variant-numeric: tabular-nums;
 	cursor: pointer;
 }
 
@@ -66,7 +71,7 @@
 .bridge-root .immersive-exec:focus-visible,
 .bridge-root .immersive-exec.on {
 	background: rgba(39, 48, 62, 0.96);
-	border-color: rgba(255, 255, 255, 0.3);
+	border-color: color-mix(in srgb, var(--highlight) 30%, transparent);
 }
 
 .bridge-root.immersive .bridge-exrail.open {
@@ -89,7 +94,7 @@
 .bridge-root .bridge-topbar {
 	position: relative;
 	top: auto;
-	background: rgba(250, 251, 253, 0.74);
+	background: color-mix(in srgb, var(--highlight) 74%, transparent);
 	border: 1px solid rgba(57, 66, 84, 0.14);
 	border-radius: var(--radius-pane);
 	box-shadow: var(--shadow-soft);
@@ -97,84 +102,6 @@
 
 .bridge-root .tb-mark {
 	color: var(--intent-direction);
-}
-
-.bridge-root .tb-tab {
-	--tab-tone: var(--surface-attention);
-	height: 31px;
-	align-self: center;
-	margin: 0 2px;
-	border: 1px solid color-mix(in srgb, var(--tab-tone) 15%, var(--control-edge));
-	border-radius: var(--radius-control);
-	background: color-mix(in srgb, var(--tab-tone) 3%, rgba(255, 255, 255, 0.84));
-	box-shadow: var(--control-depth);
-	overflow: hidden;
-	transition:
-		transform var(--motion-press) var(--ease-standard),
-		box-shadow var(--motion-state) var(--ease-standard),
-		border-color var(--motion-state) var(--ease-standard),
-		background-color var(--motion-state) var(--ease-standard),
-		color var(--motion-state) var(--ease-standard);
-}
-
-.bridge-root .tb-tab > * {
-	position: relative;
-	z-index: 1;
-}
-
-.bridge-root .tb-tab[data-surface='work'] {
-	--tab-tone: var(--surface-work);
-}
-.bridge-root .tb-tab[data-surface='people'] {
-	--tab-tone: var(--surface-people);
-}
-.bridge-root .tb-tab[data-surface='company'] {
-	--tab-tone: var(--surface-authority);
-}
-
-.bridge-root .tb-tab-mark {
-	display: inline-flex;
-	width: 14px;
-	align-items: center;
-	justify-content: center;
-	flex: 0 0 14px;
-	color: var(--tab-tone);
-}
-
-.bridge-root .tb-tab:hover {
-	transform: none;
-	border-color: color-mix(in srgb, var(--tab-tone) 32%, var(--control-edge));
-	background: color-mix(in srgb, var(--tab-tone) 6%, rgba(255, 255, 255, 0.9));
-}
-
-.bridge-root .tb-tab.on {
-	border-color: color-mix(in srgb, var(--tab-tone) 42%, var(--control-edge));
-	background: color-mix(in srgb, var(--tab-tone) 10%, rgba(255, 255, 255, 0.92));
-	box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--tab-tone) 55%, transparent);
-	color: color-mix(in srgb, var(--tab-tone) 80%, var(--ink));
-}
-
-.bridge-root .tb-tab.on::after {
-	content: '';
-	position: absolute;
-	inset: 0;
-	pointer-events: none;
-	background: linear-gradient(
-		105deg,
-		transparent 16%,
-		color-mix(in srgb, var(--tab-tone) 17%, white) 48%,
-		transparent 82%
-	);
-	animation: bridge-tab-arrive var(--motion-punctuation) var(--ease-out) both;
-}
-
-.bridge-root .tb-tab:active {
-	transform: translateY(0.5px);
-	box-shadow: var(--bevel-subtle), var(--control-depth-pressed);
-}
-
-.bridge-root .tb-badge {
-	background: var(--intent-authority);
 }
 
 .bridge-root .tb-brand-home {
@@ -212,12 +139,12 @@
 
 .bridge-root .company-switcher summary:hover,
 .bridge-root .company-switcher[open] summary {
-	background: rgba(255, 255, 255, 0.62);
+	background: color-mix(in srgb, var(--highlight) 62%, transparent);
 	color: var(--ink);
 }
 
 .bridge-root .company-switcher summary:focus-visible {
-	outline: 3px solid color-mix(in srgb, var(--intent-conversation) 28%, transparent);
+	outline: 2px solid var(--intent-conversation);
 	outline-offset: 1px;
 }
 
@@ -240,10 +167,10 @@
 	padding: 6px;
 	border: 1px solid var(--border-strong);
 	border-radius: var(--radius-pane);
-	background: rgba(251, 252, 254, 0.94);
+	/* Opaque: the topbar is already a backdrop root, so a nested blur here
+	 * would sample nothing and let the page read through the menu. */
+	background: var(--surface-menu);
 	box-shadow: var(--bevel), var(--shadow-lift);
-	backdrop-filter: blur(24px) saturate(1.18);
-	-webkit-backdrop-filter: blur(24px) saturate(1.18);
 	transform-origin: top left;
 	animation: bridge-popover-in var(--motion-disclosure) var(--ease-spring) both;
 }
@@ -268,12 +195,8 @@
 	background: var(--intent-feedback-soft);
 }
 
-.bridge-root .company-switcher-menu a:hover {
-	transform: translateX(2px);
-}
-
 .bridge-root .company-switcher-menu a:focus-visible {
-	outline: 3px solid color-mix(in srgb, var(--intent-conversation) 28%, transparent);
+	outline: 2px solid var(--intent-conversation);
 	outline-offset: -1px;
 }
 
@@ -281,6 +204,7 @@
 	width: 7px;
 	height: 7px;
 	border: 1px solid var(--text-tertiary);
+	border-radius: 50%;
 	font-style: normal;
 }
 
@@ -295,6 +219,11 @@
 	color: var(--intent-authority);
 }
 
+.bridge-root .company-switcher-menu a > i.runtime-blocked {
+	border-color: var(--state-danger);
+	background: var(--state-danger-soft);
+}
+
 .bridge-root .company-switcher-menu a strong,
 .bridge-root .company-switcher-menu a small {
 	display: block;
@@ -304,14 +233,12 @@
 	font-size: var(--t-body);
 }
 
-.bridge-root .company-switcher-menu a small,
-.bridge-root .switcher-current {
-	font: var(--t-label) var(--font-mono);
-	text-transform: uppercase;
+.bridge-root .company-switcher-menu a small {
+	font-size: var(--t-label);
 	color: var(--text-tertiary);
 }
 
-.bridge-root .switcher-current {
+.bridge-root .company-switcher-menu .switcher-current {
 	color: var(--intent-feedback);
 }
 
@@ -374,20 +301,12 @@
 
 .bridge-root .portfolio-grid-head > span {
 	display: flex;
-	min-height: 42px;
+	min-height: 40px;
 	align-items: center;
 	padding: 0 15px;
-	border-right: 1px solid var(--border);
 	border-bottom: 1px solid var(--border);
-	font: 600 var(--t-label) var(--font-mono);
-	letter-spacing: 0.07em;
-	text-transform: uppercase;
+	font-weight: 500;
 	color: var(--text-tertiary);
-}
-
-.bridge-root .portfolio-grid-head > span:last-child,
-.bridge-root .portfolio-company-row > span:last-child {
-	border-right: 0;
 }
 
 .bridge-root .portfolio-company-row {
@@ -398,12 +317,12 @@
 }
 
 .bridge-root .portfolio-company-row:hover {
-	background: rgba(63, 120, 182, 0.045);
+	background: var(--wash-hover);
 }
 
 .bridge-root .portfolio-company-row:focus-visible {
 	z-index: 2;
-	outline: 3px solid color-mix(in srgb, var(--intent-conversation) 28%, transparent);
+	outline: 2px solid var(--intent-conversation);
 	outline-offset: -2px;
 }
 
@@ -411,7 +330,6 @@
 .bridge-root .portfolio-metric {
 	min-width: 0;
 	min-height: 72px;
-	border-right: 1px solid var(--border);
 	border-bottom: 1px solid var(--border);
 }
 
@@ -443,8 +361,11 @@
 .bridge-root .portfolio-company-copy small {
 	margin-top: 2px;
 	font-size: var(--t-label);
-	text-transform: capitalize;
 	color: var(--text-tertiary);
+}
+
+.bridge-root .portfolio-company-copy small::first-letter {
+	text-transform: uppercase;
 }
 
 /* A company that cannot start is not merely idle: nothing will happen in it
@@ -468,8 +389,15 @@
 	display: block;
 }
 
+/* What needs the owner is the one column that should catch the eye. */
+.bridge-root .portfolio-attention strong.urgent {
+	color: var(--intent-authority);
+	font-weight: 600;
+}
+
 .bridge-root .portfolio-metric strong {
 	font-size: var(--t-body);
+	font-weight: 400;
 	color: var(--ink);
 }
 
@@ -488,7 +416,7 @@
 	overflow: hidden;
 	-webkit-box-orient: vertical;
 	-webkit-line-clamp: 2;
-	font-weight: 500;
+	color: var(--text-secondary);
 }
 
 .bridge-root .portfolio-loading {
@@ -496,11 +424,6 @@
 	display: grid;
 	place-items: center;
 	padding: 24px;
-}
-
-.bridge-root .portfolio-error {
-	color: var(--state-danger);
-	font-size: var(--t-body);
 }
 
 .bridge-root .portfolio-empty {
@@ -520,55 +443,16 @@
 	font-size: var(--t-body);
 }
 
-/* One control for the executive: the lamp reads presence, the button opens and
- * closes the rail. Its box never changes size, so the topbar stays still. */
-.bridge-root .tb-exec {
-	display: inline-flex;
-	align-items: center;
-	gap: 7px;
-	padding: 5px 9px;
-	border: 1px solid var(--control-edge);
-	border-radius: var(--radius-control);
-	background: rgba(255, 255, 255, 0.48);
-	box-shadow: var(--bevel-subtle), var(--control-depth);
-	font: 600 var(--t-label) var(--font-mono);
-	letter-spacing: var(--track-label);
-	text-transform: uppercase;
-	white-space: nowrap;
-	color: var(--text-tertiary);
-	cursor: pointer;
-}
-
-.bridge-root .tb-exec.live {
-	color: var(--intent-conversation);
-	border-color: color-mix(in srgb, var(--intent-conversation) 22%, var(--control-edge));
-}
-
-.bridge-root .tb-exec.on {
-	background: var(--intent-conversation-soft);
-	border-color: color-mix(in srgb, var(--intent-conversation) 32%, var(--control-edge));
-}
-
-.bridge-root .tb-exec:hover {
-	border-color: color-mix(in srgb, var(--intent-conversation) 40%, var(--control-edge));
-	background: color-mix(in srgb, var(--intent-conversation-soft) 72%, white);
-}
-
-.bridge-root .tb-exec:focus-visible {
-	outline: 3px solid color-mix(in srgb, var(--intent-conversation) 28%, transparent);
-	outline-offset: 2px;
-}
-
 .bridge-root .exr-new-focus {
 	flex: none;
 	min-height: 29px;
 	padding: 5px 9px;
 	border: 1px solid color-mix(in srgb, var(--intent-conversation) 14%, var(--control-edge));
 	border-radius: var(--radius-control);
-	background: rgba(255, 255, 255, 0.34);
+	background: color-mix(in srgb, var(--highlight) 34%, transparent);
 	box-shadow: var(--bevel-subtle);
 	color: var(--text-secondary);
-	font: 550 var(--t-label) var(--font-ui);
+	font: 500 var(--t-label) var(--font-ui);
 	white-space: nowrap;
 	cursor: pointer;
 	transition:
@@ -581,7 +465,7 @@
 .bridge-root .exr-new-focus:hover:not(:disabled) {
 	transform: translateY(-1px);
 	border-color: color-mix(in srgb, var(--intent-conversation) 30%, var(--control-edge));
-	background: color-mix(in srgb, var(--intent-conversation-soft) 42%, white);
+	background: color-mix(in srgb, var(--intent-conversation-soft) 42%, var(--surface-raised));
 	color: var(--ink);
 }
 
@@ -595,7 +479,7 @@
 }
 
 .bridge-root .exr-new-focus:focus-visible {
-	outline: 3px solid color-mix(in srgb, var(--intent-conversation) 28%, transparent);
+	outline: 2px solid var(--intent-conversation);
 	outline-offset: 2px;
 }
 
@@ -667,7 +551,7 @@
 .bridge-root .cockpit-pane-head h2 {
 	margin: 2px 0 0;
 	font-size: var(--t-head);
-	font-weight: 650;
+	font-weight: 600;
 	line-height: 1.25;
 }
 
@@ -677,7 +561,8 @@
 	display: grid;
 	place-items: center;
 	border: 1px solid var(--border);
-	font: 600 var(--t-body) var(--font-mono);
+	font: 600 var(--t-body) var(--font-ui);
+	font-variant-numeric: tabular-nums;
 	color: var(--text-secondary);
 }
 
@@ -690,10 +575,32 @@
 	max-width: min(560px, calc(100% - 24px));
 	padding: 8px 12px;
 	border: 1px solid color-mix(in srgb, var(--state-danger) 35%, var(--border));
-	background: color-mix(in srgb, var(--state-danger-soft) 65%, white);
+	background: color-mix(in srgb, var(--state-danger-soft) 65%, var(--surface-raised));
 	box-shadow: var(--shadow-lift);
+	border-radius: var(--radius-control);
 	color: var(--state-danger);
 	font-size: var(--t-body);
+}
+
+/* A notice that stays quiet (the app banner speaks for an outage) leaves its
+ * floating wrapper empty; an empty wrapper must not draw a frame. */
+.bridge-root .cockpit-error:empty {
+	display: none;
+}
+
+/* A floating source failure brings its own FailureNotice surface. */
+.bridge-root .cockpit-error:has(> .failure-notice) {
+	/* Below the content it qualifies, clear of every pane heading. */
+	top: auto;
+	bottom: 16px;
+	width: min(480px, calc(100% - 24px));
+	padding: 0;
+	border: 0;
+	background: none;
+}
+
+.bridge-root .cockpit-error > .failure-notice {
+	box-shadow: var(--shadow-lift);
 }
 
 .bridge-root .empty-state {
@@ -716,6 +623,17 @@
 	display: grid;
 	grid-template-columns: minmax(0, var(--attention-index-w, 336px)) minmax(0, 1fr);
 	gap: var(--pane-gap);
+}
+
+/* Until the source answers, neither the queue layout nor the clear layout is
+ * known to be true. Showing one and then swapping to the other is a layout
+ * shift, so both panes stay invisible (still laid out) for that round trip. */
+.bridge-root .attention-screen.awaiting > * {
+	visibility: hidden;
+}
+
+/* Only a change after the first known layout moves (see `settled`). */
+.bridge-root .attention-screen.settled {
 	transition:
 		grid-template-columns 360ms cubic-bezier(0.22, 1, 0.36, 1),
 		grid-template-rows 360ms cubic-bezier(0.22, 1, 0.36, 1),
@@ -739,17 +657,63 @@
 	overflow: auto;
 }
 
+/* An edge with more queue beyond it fades instead of slicing a row in half.
+ * The fade follows the scroll position, so a queue that fits, or one scrolled
+ * to its end, shows no fade on that edge. */
+@property --edge-fade-top {
+	syntax: '<length>';
+	inherits: false;
+	initial-value: 0px;
+}
+@property --edge-fade-bottom {
+	syntax: '<length>';
+	inherits: false;
+	initial-value: 0px;
+}
+@keyframes edge-fade {
+	from {
+		--edge-fade-top: 0px;
+		--edge-fade-bottom: 32px;
+	}
+	10% {
+		--edge-fade-top: 32px;
+	}
+	90% {
+		--edge-fade-bottom: 32px;
+	}
+	to {
+		--edge-fade-top: 32px;
+		--edge-fade-bottom: 0px;
+	}
+}
+@supports (animation-timeline: scroll()) {
+	.bridge-root .attention-index-scroll {
+		mask-image: linear-gradient(
+			to bottom,
+			transparent,
+			#000 var(--edge-fade-top),
+			#000 calc(100% - var(--edge-fade-bottom)),
+			transparent
+		);
+		animation: edge-fade linear both;
+		animation-timeline: scroll(self);
+	}
+}
+
 .bridge-root .attention-index {
 	display: grid;
 	grid-template-rows: minmax(0, 1fr);
 	opacity: 1;
 	transform: translateX(0) scaleX(1);
 	transform-origin: left center;
+	will-change: transform, opacity;
+}
+
+.bridge-root .attention-screen.settled .attention-index {
 	transition:
 		opacity 180ms ease-out,
 		transform 360ms cubic-bezier(0.22, 1, 0.36, 1),
 		visibility 0s;
-	will-change: transform, opacity;
 }
 
 .bridge-root .attention-screen.queue-clear .attention-index {
@@ -757,6 +721,9 @@
 	opacity: 0;
 	transform: translateX(-16px) scaleX(0.96);
 	pointer-events: none;
+}
+
+.bridge-root .attention-screen.settled.queue-clear .attention-index {
 	transition:
 		opacity 140ms ease-out,
 		transform 360ms cubic-bezier(0.22, 1, 0.36, 1),
@@ -806,10 +773,14 @@
 }
 
 .bridge-root .attention-item.selected {
-	background: color-mix(in srgb, var(--item-tone) 9%, rgba(255, 255, 255, 0.7));
+	background: color-mix(
+		in srgb,
+		var(--item-tone) 9%,
+		color-mix(in srgb, var(--highlight) 70%, transparent)
+	);
 	box-shadow:
 		inset 3px 0 0 var(--item-tone),
-		inset 0 1px 0 rgba(255, 255, 255, 0.8);
+		inset 0 1px 0 color-mix(in srgb, var(--highlight) 80%, transparent);
 }
 
 .bridge-root .attention-item-meta,
@@ -822,7 +793,8 @@
 	min-width: 0;
 	justify-content: space-between;
 	gap: 10px;
-	font: 500 var(--t-label) var(--font-mono);
+	font: 500 var(--t-label) var(--font-ui);
+	font-variant-numeric: tabular-nums;
 	color: var(--item-tone);
 }
 
@@ -853,12 +825,13 @@
 }
 
 .bridge-root .attention-item-action > span:first-child {
-	font-weight: 650;
+	font-weight: 600;
 	color: var(--ink);
 }
 
 .bridge-root .attention-item time {
-	font: var(--t-label) var(--font-mono);
+	font: var(--t-label) var(--font-ui);
+	font-variant-numeric: tabular-nums;
 	color: var(--text-tertiary);
 	white-space: nowrap;
 }
@@ -930,17 +903,27 @@
 	align-items: center;
 	gap: 7px;
 	padding: 5px 10px 5px 6px;
-	border: 1px solid color-mix(in srgb, var(--state-success) 25%, rgba(255, 255, 255, 0.72));
+	border: 1px solid
+		color-mix(
+			in srgb,
+			var(--state-success) 25%,
+			color-mix(in srgb, var(--highlight) 72%, transparent)
+		);
 	border-radius: var(--radius-control);
-	background: color-mix(in srgb, var(--state-success-soft) 72%, rgba(255, 255, 255, 0.9));
+	background: color-mix(
+		in srgb,
+		var(--state-success-soft) 72%,
+		color-mix(in srgb, var(--highlight) 90%, transparent)
+	);
 	box-shadow:
-		inset 0 1px 0 rgba(255, 255, 255, 0.72),
+		inset 0 1px 0 color-mix(in srgb, var(--highlight) 72%, transparent),
 		0 2px 0 rgba(35, 91, 65, 0.12),
 		0 6px 18px rgba(35, 91, 65, 0.07);
 	backdrop-filter: blur(7px);
 	color: color-mix(in srgb, var(--state-success) 82%, var(--ink));
-	font: 600 var(--t-label) var(--font-mono);
-	letter-spacing: -0.01em;
+	font: 600 var(--t-label) var(--font-ui);
+	font-variant-numeric: tabular-nums;
+	letter-spacing: normal;
 	opacity: 0;
 	transform: translateX(-14px) scale(0.92);
 	transform-origin: left center;
@@ -955,6 +938,88 @@
 	will-change: transform, opacity;
 }
 
+.bridge-root .attention-start-blocker {
+	position: absolute;
+	z-index: 6;
+	top: 12px;
+	left: 12px;
+	max-width: min(420px, calc(100% - 24px));
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 10px;
+	padding: 9px 12px 9px 9px;
+	border: 1px solid
+		color-mix(
+			in srgb,
+			var(--intent-authority) 28%,
+			color-mix(in srgb, var(--highlight) 72%, transparent)
+		);
+	border-radius: var(--radius-pane);
+	background: color-mix(
+		in srgb,
+		var(--intent-authority-soft) 82%,
+		color-mix(in srgb, var(--highlight) 92%, transparent)
+	);
+	box-shadow: var(--shadow-lift);
+	backdrop-filter: blur(7px);
+	color: var(--ink);
+	text-decoration: none;
+	animation: bridge-popover-in var(--motion-disclosure) var(--ease-spring) both;
+	transition:
+		transform var(--motion-press) var(--ease-standard),
+		border-color var(--motion-state) var(--ease-standard);
+}
+
+.bridge-root .attention-start-blocker.inline {
+	position: static;
+	max-width: none;
+	margin: 8px;
+	box-shadow: none;
+	animation: none;
+}
+
+.bridge-root .attention-start-blocker:hover {
+	border-color: color-mix(
+		in srgb,
+		var(--intent-authority) 48%,
+		color-mix(in srgb, var(--highlight) 72%, transparent)
+	);
+}
+
+.bridge-root .attention-start-blocker:hover .attention-start-go {
+	transform: translateX(2px);
+}
+
+.bridge-root .attention-start-glyph {
+	width: 26px;
+	height: 26px;
+	display: grid;
+	place-items: center;
+	border-radius: var(--radius-control);
+	background: color-mix(in srgb, var(--intent-authority) 14%, transparent);
+	color: var(--intent-authority);
+}
+
+.bridge-root .attention-start-copy {
+	min-width: 0;
+	display: grid;
+	gap: 1px;
+}
+
+.bridge-root .attention-start-copy strong {
+	font-weight: 600;
+}
+
+.bridge-root .attention-start-copy span {
+	color: var(--text-secondary);
+}
+
+.bridge-root .attention-start-go {
+	color: var(--intent-authority);
+	transition: transform var(--motion-state) var(--ease-standard);
+}
+
 .bridge-root .attention-clear-control.visible {
 	opacity: 1;
 	transform: translateX(0) scale(1);
@@ -964,10 +1029,18 @@
 
 .bridge-root .attention-clear-control.visible:hover {
 	transform: translateY(-1px);
-	border-color: color-mix(in srgb, var(--state-success) 38%, rgba(255, 255, 255, 0.72));
-	background: color-mix(in srgb, var(--state-success-soft) 82%, rgba(255, 255, 255, 0.94));
+	border-color: color-mix(
+		in srgb,
+		var(--state-success) 38%,
+		color-mix(in srgb, var(--highlight) 72%, transparent)
+	);
+	background: color-mix(
+		in srgb,
+		var(--state-success-soft) 82%,
+		color-mix(in srgb, var(--highlight) 94%, transparent)
+	);
 	box-shadow:
-		inset 0 1px 0 rgba(255, 255, 255, 0.78),
+		inset 0 1px 0 color-mix(in srgb, var(--highlight) 78%, transparent),
 		0 3px 0 rgba(35, 91, 65, 0.12),
 		0 8px 22px rgba(35, 91, 65, 0.1);
 }
@@ -975,7 +1048,7 @@
 .bridge-root .attention-clear-control.visible:active {
 	transform: translateY(1px);
 	box-shadow:
-		inset 0 1px 0 rgba(255, 255, 255, 0.7),
+		inset 0 1px 0 color-mix(in srgb, var(--highlight) 70%, transparent),
 		0 1px 0 rgba(35, 91, 65, 0.14);
 }
 
@@ -1020,69 +1093,78 @@
 	backdrop-filter: blur(var(--glass-blur));
 }
 
+.bridge-root .goal-list {
+	display: grid;
+	gap: 1px;
+	padding: 6px;
+}
+
 .bridge-root .goal-spine button {
 	position: relative;
 	width: 100%;
 	min-width: 0;
-	padding: 16px 14px;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: baseline;
+	gap: 4px 10px;
+	padding: 9px 10px;
 	border: 0;
-	border-bottom: 1px solid var(--border);
+	border-radius: var(--radius-control);
 	background: transparent;
 	color: var(--text-secondary);
 	text-align: left;
 	cursor: pointer;
 	transition:
-		background var(--motion-state) var(--ease-standard),
-		color var(--motion-state) var(--ease-standard),
-		transform var(--motion-press) var(--ease-out),
-		box-shadow var(--motion-state) var(--ease-standard);
+		background-color var(--motion-state) var(--ease-standard),
+		color var(--motion-state) var(--ease-standard);
 }
 
-.bridge-root .goal-spine button:hover,
-.bridge-root .goal-spine button.current {
-	background: rgba(255, 255, 255, 0.54);
+.bridge-root .goal-spine button:hover {
+	background: color-mix(in srgb, var(--highlight) 62%, transparent);
 	color: var(--ink);
 }
 
 .bridge-root .goal-spine button.current {
-	box-shadow: inset 2px 0 0 var(--intent-direction);
 	background: var(--intent-direction-soft);
+	color: var(--ink);
 }
 
-.bridge-root .goal-spine button:hover:not(.current) {
-	transform: translateX(2px);
-}
-
-.bridge-root .goal-index {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	margin-bottom: 8px;
-	font: 500 var(--t-label) var(--font-mono);
-	color: var(--text-tertiary);
-}
-
-.bridge-root .goal-index em {
-	font-style: normal;
-	color: var(--intent-direction);
-}
-
-.bridge-root .goal-index b {
-	font-weight: 500;
+.bridge-root .goal-spine button:nth-child(2) {
+	margin-bottom: 7px;
 }
 
 .bridge-root .goal-spine strong {
-	display: block;
-	overflow: hidden;
-	white-space: nowrap;
-	text-overflow: ellipsis;
-}
-
-.bridge-root .goal-spine strong {
+	min-width: 0;
 	font-size: var(--t-body);
-	font-weight: 600;
-	white-space: normal;
+	font-weight: 500;
 	line-height: 1.4;
+}
+
+.bridge-root .goal-spine button.current strong {
+	font-weight: 600;
+}
+
+.bridge-root .goal-count {
+	color: var(--text-tertiary);
+	font: 500 var(--t-label) var(--font-ui);
+	font-variant-numeric: tabular-nums;
+}
+
+.bridge-root .goal-progress {
+	grid-column: 1 / -1;
+	height: 2px;
+	overflow: hidden;
+	border-radius: 2px;
+	background: color-mix(in srgb, var(--intent-direction) 10%, transparent);
+}
+
+.bridge-root .goal-progress::after {
+	content: '';
+	display: block;
+	width: calc(var(--goal-done, 0) * 100%);
+	height: 100%;
+	background: var(--state-success);
+	transition: width var(--motion-disclosure) var(--ease-out);
 }
 
 .bridge-root .work-stage {
@@ -1096,13 +1178,15 @@
 	position: relative;
 	display: flex;
 	padding: 2px;
-	border: 1px solid var(--border);
-	background: rgba(229, 233, 239, 0.8);
-	border-radius: var(--radius-control);
-	box-shadow: inset 0 1px 3px rgba(43, 51, 66, 0.09);
+	border: 0;
+	background: var(--wash-hover);
+	border-radius: var(--radius-md);
+	box-shadow: inset 0 0 0 1px rgba(31, 41, 64, 0.04);
 	isolation: isolate;
 }
 
+/* The thumb is the one lifted thing in the track; it slides, the labels
+ * never change weight, so nothing reflows when the choice changes. */
 .bridge-root .lens-switch::before {
 	position: absolute;
 	z-index: 0;
@@ -1110,17 +1194,12 @@
 	bottom: 2px;
 	left: 2px;
 	width: calc(50% - 2px);
-	border: 1px solid color-mix(in srgb, var(--intent-feedback) 24%, var(--control-edge));
-	border-radius: calc(var(--radius-control) - 1px);
-	background: linear-gradient(
-		180deg,
-		#fff,
-		color-mix(in srgb, var(--intent-feedback-soft) 64%, #edf0f4)
-	);
+	border-radius: calc(var(--radius-md) - 2px);
+	background: var(--segment-thumb);
 	box-shadow:
-		var(--bevel),
-		0 1px 2px rgba(35, 117, 99, 0.12),
-		0 3px 7px rgba(35, 117, 99, 0.06);
+		0 0 0 1px rgba(31, 41, 64, 0.06),
+		0 1px 2px rgba(31, 41, 64, 0.1),
+		0 2px 6px -2px rgba(31, 41, 64, 0.08);
 	content: '';
 	pointer-events: none;
 	transition: transform var(--motion-disclosure) var(--ease-spring);
@@ -1140,9 +1219,10 @@
 	padding: 5px 9px;
 	border: 1px solid var(--control-edge);
 	border-radius: var(--radius-control);
-	background: linear-gradient(180deg, #fff, #edf0f4);
+	background: linear-gradient(180deg, var(--surface-raised), var(--surface-alt));
 	box-shadow: var(--bevel-subtle), var(--control-depth);
-	font: 500 var(--t-label) var(--font-mono);
+	font: 500 var(--t-label) var(--font-ui);
+	font-variant-numeric: tabular-nums;
 	color: var(--text-secondary);
 	cursor: pointer;
 }
@@ -1151,8 +1231,8 @@
 	border-color: color-mix(in srgb, var(--state-success) 35%, var(--control-edge));
 	background: linear-gradient(
 		180deg,
-		#fff,
-		color-mix(in srgb, var(--state-success-soft) 75%, #edf0f4)
+		var(--surface-raised),
+		color-mix(in srgb, var(--state-success-soft) 75%, var(--surface-alt))
 	);
 	color: var(--state-success);
 }
@@ -1167,9 +1247,10 @@
 	align-items: center;
 	gap: 12px;
 	margin-left: auto;
-	font: 500 var(--t-label) var(--font-mono);
-	letter-spacing: 0.06em;
-	text-transform: uppercase;
+	font: 500 var(--t-label) var(--font-ui);
+	font-variant-numeric: tabular-nums;
+	letter-spacing: normal;
+	text-transform: none;
 	color: var(--text-tertiary);
 }
 
@@ -1205,13 +1286,22 @@
 		transform var(--motion-press) var(--ease-out);
 }
 
+.bridge-root .lens-switch button {
+	flex: 1;
+	font-weight: 500;
+	white-space: nowrap;
+}
+
+.bridge-root .lens-switch button:hover {
+	color: var(--ink);
+}
+
 .bridge-root .lens-switch button[aria-pressed='true'] {
-	color: var(--intent-feedback);
-	font-weight: 600;
+	color: var(--ink);
 }
 
 .bridge-root .lens-switch button:active {
-	transform: translateY(1px);
+	transform: scale(0.97);
 }
 
 .bridge-root .work-map {
@@ -1222,52 +1312,9 @@
 	background: var(--surface-pane);
 }
 
-.bridge-root .board-item {
-	position: relative;
-	display: block;
-	width: 100%;
-	padding: 12px 13px;
-	border: 1px solid var(--border-strong);
-	border-radius: var(--radius-control);
-	background: rgba(255, 255, 255, 0.82);
-	box-shadow:
-		var(--bevel-subtle),
-		0 1px 2px rgba(43, 51, 66, 0.07),
-		0 5px 14px rgba(43, 51, 66, 0.045);
-	color: var(--ink);
-	text-align: left;
-	text-decoration: none;
-	cursor: pointer;
-}
-
-.bridge-root .board-item:hover {
-	border-color: color-mix(in srgb, var(--intent-feedback) 46%, var(--border));
-	box-shadow:
-		var(--bevel),
-		0 10px 26px rgba(43, 51, 66, 0.09);
-}
-
-.bridge-root .board-item:focus-visible,
-.bridge-root .work-back:focus-visible,
-.bridge-root .relation-groups a:focus-visible {
-	outline: 3px solid color-mix(in srgb, var(--intent-conversation) 30%, transparent);
+.bridge-root .work-relations-section a:focus-visible {
+	outline: 2px solid var(--intent-conversation);
 	outline-offset: 2px;
-}
-
-.bridge-root .board-item > span {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-	font: 500 var(--t-label) var(--font-mono);
-	letter-spacing: 0.06em;
-	text-transform: uppercase;
-	color: var(--text-tertiary);
-}
-
-.bridge-root .board-item > span i {
-	width: 6px;
-	height: 6px;
-	border: 1px solid currentColor;
 }
 
 .bridge-root .status-active > span i {
@@ -1301,92 +1348,6 @@
 	color: var(--intent-authority);
 }
 
-.bridge-root .board-item strong {
-	display: block;
-	margin-top: 7px;
-	font-size: var(--t-body);
-	line-height: 1.35;
-}
-
-.bridge-root .work-board {
-	min-width: 0;
-	min-height: 0;
-	display: grid;
-	grid-template-columns: repeat(4, minmax(190px, 1fr));
-	overflow: auto;
-}
-
-.bridge-root .board-column {
-	--column-tone: var(--intent-direction);
-	min-width: 0;
-	padding: 12px;
-	border-right: 1px solid var(--border);
-	background: rgba(247, 249, 252, 0.46);
-}
-
-.bridge-root .board-column:nth-child(2) {
-	--column-tone: var(--intent-conversation);
-}
-.bridge-root .board-column:nth-child(3) {
-	--column-tone: var(--intent-authority);
-}
-.bridge-root .board-column:nth-child(4) {
-	--column-tone: var(--state-success);
-}
-
-.bridge-root .board-column::before {
-	content: '';
-	display: block;
-	height: 2px;
-	margin: -12px -12px 11px;
-	background: color-mix(in srgb, var(--column-tone) 62%, transparent);
-}
-
-.bridge-root .board-column > header {
-	display: flex;
-	justify-content: space-between;
-	margin-bottom: 10px;
-	font: 600 var(--t-label) var(--font-mono);
-	letter-spacing: 0.08em;
-	text-transform: uppercase;
-	color: var(--text-secondary);
-}
-
-.bridge-root .board-column > header b {
-	color: var(--text-tertiary);
-}
-
-.bridge-root .board-item {
-	margin-bottom: 9px;
-}
-
-.bridge-root .board-item p {
-	display: -webkit-box;
-	-webkit-line-clamp: 3;
-	-webkit-box-orient: vertical;
-	overflow: hidden;
-	margin: 6px 0 9px;
-	font-size: var(--t-body);
-	line-height: 1.45;
-	color: var(--text-secondary);
-}
-
-.bridge-root .board-item footer {
-	display: flex;
-	justify-content: space-between;
-	gap: 8px;
-	padding-top: 7px;
-	border-top: 1px solid var(--border);
-	font: var(--t-label) var(--font-mono);
-	color: var(--text-tertiary);
-}
-
-.bridge-root .column-empty {
-	padding: 8px 2px;
-	font: var(--t-label) var(--font-mono);
-	color: var(--text-tertiary);
-}
-
 .bridge-root .board-history-toggle {
 	width: 100%;
 	margin-top: 4px;
@@ -1401,99 +1362,107 @@
 	display: grid;
 	grid-template-rows: auto auto minmax(0, 1fr);
 	overflow: hidden;
-	background:
-		radial-gradient(circle at 100% 0, var(--intent-feedback-soft), transparent 32%),
-		var(--glass-pane);
+	background: var(--glass-pane);
 }
 
 .bridge-root .work-detail-head {
-	display: flex;
-	align-items: flex-end;
-	justify-content: space-between;
-	gap: 24px;
-	padding: 15px 20px 17px;
-	border-bottom: 1px solid var(--border-strong);
-	background: rgba(255, 255, 255, 0.48);
-	box-shadow: var(--bevel-subtle);
+	display: grid;
+	gap: 8px;
+	padding: 16px 24px 18px;
+	border-bottom: 1px solid var(--border);
+	background: color-mix(in srgb, var(--highlight) 48%, transparent);
 }
 
-.bridge-root .work-detail-heading {
+.bridge-root .work-crumbs {
 	min-width: 0;
-}
-
-.bridge-root .work-back {
-	display: inline-flex;
-	align-items: center;
-	gap: 6px;
-	font: 600 var(--t-label) var(--font-mono);
-	letter-spacing: 0.07em;
-	text-decoration: none;
-	text-transform: uppercase;
-	color: var(--intent-feedback);
-}
-
-.bridge-root .work-back:hover {
-	color: var(--ink);
-}
-
-.bridge-root .work-breadcrumb {
 	display: flex;
 	align-items: center;
 	gap: 7px;
-	margin-top: 9px;
-	font: 500 var(--t-label) var(--font-mono);
-	letter-spacing: 0.06em;
-	text-transform: uppercase;
 	color: var(--text-tertiary);
 }
 
-.bridge-root .work-breadcrumb span {
-	max-width: 44ch;
+.bridge-root .work-crumbs a {
+	flex: none;
+	color: var(--text-secondary);
+	text-decoration: none;
+	border-radius: var(--radius-control);
+	transition: color var(--motion-state) var(--ease-standard);
+}
+
+.bridge-root .work-crumbs a:hover {
+	color: var(--ink);
+}
+
+.bridge-root .work-crumbs i {
+	font-style: normal;
+	color: var(--border-strong);
+}
+
+.bridge-root .work-crumbs span {
+	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 
-.bridge-root .work-breadcrumb i {
-	font-style: normal;
-	color: var(--border-strong);
-}
-
-.bridge-root .work-breadcrumb b {
-	color: var(--text-secondary);
+.bridge-root .work-title-row {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 20px;
 }
 
 .bridge-root .work-detail-head h1 {
-	margin: 5px 0 0;
+	margin: 0;
 	font-size: var(--t-title);
-	line-height: 1.14;
-	letter-spacing: -0.025em;
+	line-height: 1.18;
+	letter-spacing: -0.02em;
+}
+
+/* Status is one quiet pill in sentence case: the dot carries the colour, the
+ * word carries the meaning, and the same word appears on the map and board. */
+.bridge-root .work-detail-status {
+	--status-tone: var(--intent-direction);
+	flex: 0 0 auto;
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
+	color: var(--ink);
+	font-weight: 500;
+	white-space: nowrap;
 }
 
 .bridge-root .work-detail-status {
-	flex: 0 0 auto;
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	padding: 8px 10px;
-	border: 1px solid color-mix(in srgb, currentColor 18%, var(--border));
-	border-radius: var(--radius-control);
-	background: var(--intent-conversation-soft);
-	font: 600 var(--t-label) var(--font-mono);
-	letter-spacing: 0.055em;
-	text-transform: uppercase;
-	color: var(--intent-conversation);
+	margin-top: 3px;
+	padding: 4px 10px 4px 8px;
+	border: 1px solid color-mix(in srgb, var(--status-tone) 22%, var(--border));
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--status-tone) 7%, var(--surface));
 }
 
-.bridge-root .work-detail-status.status-completed {
-	background: var(--state-success-soft);
-	color: var(--state-success);
+.bridge-root .work-detail-status > i,
+.bridge-root .relation-dot {
+	width: 7px;
+	height: 7px;
+	flex: none;
+	border-radius: 50%;
+	background: var(--status-tone, var(--intent-direction));
 }
 
-.bridge-root .work-detail-status.status-blocked,
-.bridge-root .work-detail-status.unverified {
-	background: var(--intent-authority-soft);
-	color: var(--intent-authority);
+.bridge-root :is(.work-detail-status, .relation-dot).status-active {
+	--status-tone: var(--intent-conversation);
+}
+
+.bridge-root :is(.work-detail-status, .relation-dot).status-completed {
+	--status-tone: var(--state-success);
+}
+
+.bridge-root :is(.work-detail-status, .relation-dot):is(.status-blocked, .unverified) {
+	--status-tone: var(--intent-authority);
+}
+
+.bridge-root :is(.work-detail-status, .relation-dot).status-abandoned {
+	--status-tone: var(--status-offline);
 }
 
 /* A recovery is not an incident dashboard state. This narrow seam keeps the
@@ -1589,8 +1558,9 @@
 	padding: 6px 8px;
 	border: 1px solid color-mix(in srgb, var(--intent-authority) 40%, var(--border));
 	border-radius: var(--radius-control);
-	font: 600 var(--t-label) var(--font-mono);
-	letter-spacing: 0.03em;
+	font: 600 var(--t-label) var(--font-ui);
+	font-variant-numeric: tabular-nums;
+	letter-spacing: normal;
 	text-decoration: none;
 	color: var(--intent-authority);
 	transition:
@@ -1653,7 +1623,7 @@
 	grid-row: 3;
 	min-height: 0;
 	overflow: auto;
-	padding: 18px 20px 28px;
+	padding: 20px 24px 32px;
 }
 
 /* The reading column is capped by the grid, not by a `max-width` inside a
@@ -1673,33 +1643,23 @@
 	min-width: 0;
 }
 
-.bridge-root .work-reader-summary {
-	margin-bottom: 22px;
-	padding: 18px 20px 20px;
-	border: 1px solid color-mix(in srgb, var(--intent-feedback) 24%, var(--border));
-	border-radius: var(--radius-lg);
-	background:
-		linear-gradient(
-			120deg,
-			color-mix(in srgb, var(--intent-feedback-soft) 72%, white),
-			transparent
-		),
-		var(--surface);
-	box-shadow: var(--bevel);
+.bridge-root .work-description {
+	max-width: 72ch;
+	margin-bottom: 28px;
 }
 
-.bridge-root .work-reader-summary .md {
-	margin-top: 8px;
+.bridge-root .work-description .md {
 	font-size: var(--t-head);
-	line-height: 1.55;
+	line-height: 1.6;
 	color: var(--ink);
+	overflow-wrap: anywhere;
 }
 
-.bridge-root .work-reader-summary .md > :first-child {
+.bridge-root .work-description .md > :first-child {
 	margin-top: 0;
 }
 
-.bridge-root .work-reader-summary .md > :last-child {
+.bridge-root .work-description .md > :last-child {
 	margin-bottom: 0;
 }
 
@@ -1711,11 +1671,37 @@
 }
 
 .bridge-root .work-technical-details > summary {
-	padding: 13px 15px;
-	font: 600 var(--t-label) var(--font-mono);
-	letter-spacing: 0.05em;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	list-style: none;
+	padding: 11px 14px;
 	color: var(--text-secondary);
+	font-weight: 500;
 	cursor: pointer;
+	transition: color var(--motion-state) var(--ease-standard);
+}
+
+.bridge-root .work-technical-details > summary::-webkit-details-marker {
+	display: none;
+}
+
+.bridge-root .work-technical-details > summary::before {
+	content: '';
+	width: 6px;
+	height: 6px;
+	border-right: 1.5px solid currentColor;
+	border-bottom: 1.5px solid currentColor;
+	transform: rotate(-45deg);
+	transition: transform var(--motion-state) var(--ease-standard);
+}
+
+.bridge-root .work-technical-details[open] > summary::before {
+	transform: rotate(45deg);
+}
+
+.bridge-root .work-technical-details > summary:hover {
+	color: var(--ink);
 }
 
 .bridge-root .work-technical-details[open] > summary {
@@ -1730,10 +1716,52 @@
 .bridge-root .work-detail-rail {
 	display: grid;
 	align-content: start;
-	gap: 22px;
+	gap: 24px;
 	min-width: 0;
-	padding-left: 22px;
+	padding-left: 24px;
 	border-left: 1px solid var(--border);
+}
+
+/* Properties read like a form, not a stack of kickers: label left, value
+ * right, one line each. */
+.bridge-root .work-properties {
+	display: grid;
+	grid-template-columns: minmax(72px, auto) minmax(0, 1fr);
+	align-items: baseline;
+	gap: 12px 16px;
+	margin: 0;
+}
+
+.bridge-root .work-properties dt {
+	color: var(--text-tertiary);
+}
+
+.bridge-root .work-properties dd {
+	min-width: 0;
+	margin: 0;
+	color: var(--ink);
+	overflow-wrap: anywhere;
+}
+
+.bridge-root .work-properties dd a {
+	color: inherit;
+	text-decoration: underline;
+	text-decoration-color: var(--border-strong);
+	text-underline-offset: 3px;
+	transition: text-decoration-color var(--motion-state) var(--ease-standard);
+}
+
+.bridge-root .work-properties dd a:hover {
+	text-decoration-color: currentColor;
+}
+
+.bridge-root .work-properties .muted {
+	color: var(--text-tertiary);
+}
+
+.bridge-root .work-properties .mono {
+	font-family: var(--font-mono);
+	font-size: var(--t-label);
 }
 
 /* One outcome contract is often thousands of characters of imperative
@@ -1746,14 +1774,12 @@
 }
 
 .bridge-root .outcome-toggle {
-	margin-top: 11px;
+	margin-top: 10px;
 	padding: 0;
 	border: 0;
 	background: none;
-	font: 600 var(--t-label) var(--font-mono);
-	letter-spacing: 0.06em;
-	text-transform: uppercase;
 	color: var(--intent-conversation);
+	font-weight: 500;
 	cursor: pointer;
 }
 
@@ -1787,15 +1813,14 @@
 .bridge-root .detail-label,
 .bridge-root .detail-sublabel {
 	display: block;
-	font: 600 var(--t-label) var(--font-mono);
-	letter-spacing: 0.09em;
-	text-transform: uppercase;
+	margin: 0;
 	color: var(--text-tertiary);
+	font-size: var(--t-body);
+	font-weight: 500;
 }
 
 .bridge-root .detail-sublabel {
-	margin-bottom: 9px;
-	font-size: var(--t-label);
+	margin-bottom: 8px;
 }
 
 .bridge-root .work-detail-section .md,
@@ -1822,16 +1847,18 @@
 
 .bridge-root .detail-section-head small,
 .bridge-root .attempt-meta {
-	font: var(--t-label) var(--font-mono);
+	font: var(--t-label) var(--font-ui);
+	font-variant-numeric: tabular-nums;
 	color: var(--text-tertiary);
 }
 
 .bridge-root .attempt-state {
 	display: inline-block;
 	margin-top: 9px;
-	font: 600 var(--t-label) var(--font-mono);
-	letter-spacing: 0.06em;
-	text-transform: uppercase;
+	font: 600 var(--t-label) var(--font-ui);
+	font-variant-numeric: tabular-nums;
+	letter-spacing: normal;
+	text-transform: none;
 	color: var(--intent-conversation);
 }
 
@@ -1852,58 +1879,31 @@
 	margin-top: 10px;
 }
 
-.bridge-root .work-detail-aside section {
-	padding: 0 0 15px;
-	margin-bottom: 15px;
-	border-bottom: 1px solid var(--border);
-}
-
-.bridge-root .work-detail-aside section:last-child {
-	margin-bottom: 0;
-}
-
-.bridge-root .work-detail-aside strong,
-.bridge-root .work-detail-aside small {
-	display: block;
-	overflow-wrap: anywhere;
-}
-
-.bridge-root .work-detail-aside strong {
-	margin-top: 7px;
-	font-size: var(--t-body);
-	line-height: 1.45;
-}
-
-.bridge-root .work-detail-aside small {
-	margin-top: 4px;
-	font-size: var(--t-label);
-	line-height: 1.45;
-	color: var(--text-tertiary);
-}
-
 .bridge-root .work-evidence-section,
 .bridge-root .work-relations-section {
-	padding-top: 18px;
-	border-top: 1px solid var(--border-strong);
+	display: grid;
+	gap: 14px;
 }
 
-.bridge-root .work-evidence-section > header,
-.bridge-root .work-relations-section > header {
+.bridge-root .work-evidence-section {
+	margin-bottom: 8px;
+	padding-top: 20px;
+	border-top: 1px solid var(--border);
+}
+
+.bridge-root .work-evidence-section > header {
 	display: flex;
-	align-items: flex-end;
+	align-items: baseline;
 	justify-content: space-between;
 	gap: 16px;
 }
 
-.bridge-root .work-evidence-section h2,
-.bridge-root .work-relations-section h2 {
-	margin: 5px 0 0;
+.bridge-root .work-evidence-section h2 {
+	margin: 0;
 	font-size: var(--t-head);
-	line-height: 1.3;
 }
 
 .bridge-root .evidence-score {
-	font: 500 var(--t-label) var(--font-mono);
 	color: var(--text-tertiary);
 }
 
@@ -1920,31 +1920,14 @@
 
 .bridge-root .expected-artifact span {
 	margin-right: 8px;
-	font: 600 var(--t-label) var(--font-mono);
-	letter-spacing: 0.06em;
-	text-transform: uppercase;
 	color: var(--intent-feedback);
+	font-weight: 600;
 }
 
 .bridge-root .evidence-columns {
 	display: grid;
 	gap: 18px;
 	margin-top: 16px;
-}
-
-/* In the rail the evidence and graph carry the width the reading column does
- * not need, so their own inner splits stack rather than shrinking twice. */
-.bridge-root .work-detail-rail .work-evidence-section,
-.bridge-root .work-detail-rail .work-relations-section {
-	padding-top: 0;
-	border-top: 0;
-}
-
-.bridge-root .work-detail-rail .work-evidence-section > header,
-.bridge-root .work-detail-rail .work-relations-section > header {
-	align-items: flex-start;
-	flex-direction: column;
-	gap: 6px;
 }
 
 .bridge-root .detail-artifact,
@@ -1956,7 +1939,11 @@
 	padding: 9px 10px;
 	border: 1px solid color-mix(in srgb, var(--intent-feedback) 17%, var(--border));
 	border-radius: var(--radius-control);
-	background: color-mix(in srgb, var(--intent-feedback-soft) 55%, rgba(255, 255, 255, 0.6));
+	background: color-mix(
+		in srgb,
+		var(--intent-feedback-soft) 55%,
+		color-mix(in srgb, var(--highlight) 60%, transparent)
+	);
 	color: var(--intent-feedback);
 }
 
@@ -1967,7 +1954,7 @@
 .bridge-root .detail-gate {
 	grid-template-columns: 14px minmax(0, 1fr);
 	border-color: var(--border);
-	background: rgba(255, 255, 255, 0.48);
+	background: color-mix(in srgb, var(--highlight) 48%, transparent);
 	color: var(--text-tertiary);
 }
 
@@ -2010,7 +1997,7 @@
 
 .bridge-root .artifact-actions a {
 	font-size: var(--t-label);
-	font-weight: 650;
+	font-weight: 600;
 	text-decoration: none;
 	color: var(--intent-feedback);
 }
@@ -2021,9 +2008,10 @@
 }
 
 .bridge-root .detail-artifact em {
-	font: 600 var(--t-label) var(--font-mono);
+	font: 600 var(--t-label) var(--font-ui);
+	font-variant-numeric: tabular-nums;
 	font-style: normal;
-	text-transform: uppercase;
+	text-transform: none;
 	color: var(--text-tertiary);
 }
 
@@ -2044,49 +2032,36 @@
 	color: var(--text-tertiary);
 }
 
-.bridge-root .work-relations-section {
-	margin-top: 22px;
-}
-
-.bridge-root .relation-groups {
+.bridge-root .relation-group {
 	display: grid;
-	grid-template-columns: repeat(3, minmax(0, 1fr));
-	gap: 18px;
-	margin-top: 15px;
+	gap: 2px;
 }
 
-.bridge-root .work-detail-rail .relation-groups {
-	grid-template-columns: 1fr;
-	gap: 14px;
-}
-
-.bridge-root .relation-groups a {
-	display: block;
-	margin-bottom: 7px;
-	padding: 9px 10px;
-	border-left: 2px solid var(--intent-conversation);
-	background: var(--intent-conversation-soft);
-	font-size: var(--t-body);
+.bridge-root .work-relations-section a {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 9px;
+	margin: 0 -8px;
+	padding: 7px 8px;
+	border-radius: var(--radius-control);
+	color: var(--ink);
 	line-height: 1.4;
 	text-decoration: none;
-	color: var(--ink);
+	transition: background-color var(--motion-state) var(--ease-standard);
 }
 
-.bridge-root .relation-groups a.revision {
-	border-left-color: var(--intent-feedback);
-	background: var(--intent-feedback-soft);
+.bridge-root .work-relations-section a:hover {
+	background: color-mix(in srgb, var(--intent-conversation-soft) 70%, transparent);
 }
 
-.bridge-root .relation-groups a:hover {
-	background: rgba(255, 255, 255, 0.78);
+.bridge-root .work-relations-section a.revision:hover {
+	background: color-mix(in srgb, var(--intent-feedback-soft) 80%, transparent);
 }
 
-.bridge-root .relation-groups a small {
-	display: block;
-	margin-top: 3px;
-	font: var(--t-label) var(--font-mono);
-	text-transform: uppercase;
+.bridge-root .work-relations-section a small {
 	color: var(--text-tertiary);
+	white-space: nowrap;
 }
 
 .bridge-root .work-detail-missing,
@@ -2152,7 +2127,7 @@
 	gap: 11px;
 	padding: 12px 16px;
 	border-bottom: 1px solid var(--border);
-	background: rgba(255, 255, 255, 0.42);
+	background: color-mix(in srgb, var(--highlight) 42%, transparent);
 	box-shadow: var(--bevel-subtle);
 }
 
@@ -2171,7 +2146,7 @@
 
 .bridge-root .talk-who strong {
 	font-size: var(--t-head);
-	font-weight: 650;
+	font-weight: 600;
 	letter-spacing: -0.01em;
 }
 
@@ -2188,7 +2163,7 @@
 
 .bridge-root .talk-composer {
 	padding: 10px 24px 14px;
-	background: rgba(255, 255, 255, 0.58);
+	background: color-mix(in srgb, var(--highlight) 58%, transparent);
 	box-shadow: 0 -10px 30px rgba(43, 51, 66, 0.035);
 }
 
@@ -2198,29 +2173,30 @@
 	display: grid;
 	place-items: center;
 	border: 1px solid var(--border-strong);
-	background: #e7ebf1;
-	font: 600 var(--t-body) var(--font-mono);
+	background: var(--accent-soft);
+	font: 600 var(--t-body) var(--font-ui);
+	font-variant-numeric: tabular-nums;
 	color: var(--ink);
 }
 
 .bridge-root .person-avatar.tone-0 {
-	background: #e7edf5;
+	background: var(--intent-conversation-soft);
 	color: #2f5f8e;
 }
 .bridge-root .person-avatar.tone-1 {
-	background: #e7f1ee;
+	background: var(--intent-feedback-soft);
 	color: #286a5b;
 }
 .bridge-root .person-avatar.tone-2 {
-	background: #efeaf7;
+	background: var(--intent-direction-soft);
 	color: #624996;
 }
 .bridge-root .person-avatar.tone-3 {
-	background: #f5eee3;
+	background: var(--intent-authority-soft);
 	color: #87591c;
 }
 .bridge-root .person-avatar.tone-4 {
-	background: #f3e9e8;
+	background: var(--state-danger-soft);
 	color: #944a46;
 }
 
@@ -2241,9 +2217,10 @@
 	display: flex;
 	align-items: center;
 	gap: 6px;
-	font: 500 var(--t-label) var(--font-mono);
-	letter-spacing: 0.06em;
-	text-transform: uppercase;
+	font: 500 var(--t-label) var(--font-ui);
+	font-variant-numeric: tabular-nums;
+	letter-spacing: normal;
+	text-transform: none;
 	color: var(--text-tertiary);
 }
 
@@ -2296,7 +2273,7 @@
 	align-items: center;
 	gap: 6px;
 	font-size: var(--t-body);
-	font-weight: 650;
+	font-weight: 600;
 	letter-spacing: -0.01em;
 }
 
@@ -2343,7 +2320,8 @@
 	color: var(--text-tertiary);
 }
 .bridge-root .authority-value {
-	font: 500 var(--t-label) var(--font-mono);
+	font: 500 var(--t-label) var(--font-ui);
+	font-variant-numeric: tabular-nums;
 	color: var(--text-secondary);
 	white-space: nowrap;
 }
@@ -2363,9 +2341,10 @@
 	display: flex;
 	justify-content: space-between;
 	padding: 15px 14px 7px;
-	font: 600 var(--t-label) var(--font-mono);
-	letter-spacing: 0.08em;
-	text-transform: uppercase;
+	font: 600 var(--t-label) var(--font-ui);
+	font-variant-numeric: tabular-nums;
+	letter-spacing: normal;
+	text-transform: none;
 	color: var(--text-secondary);
 }
 .bridge-root .authority-group-head b {
@@ -2380,9 +2359,10 @@
 .bridge-root .authority-group-action button {
 	padding: 3px 6px;
 	border: 1px solid var(--border);
-	background: rgba(255, 255, 255, 0.55);
-	font: 500 var(--t-label) var(--font-mono);
-	text-transform: uppercase;
+	background: color-mix(in srgb, var(--highlight) 55%, transparent);
+	font: 500 var(--t-label) var(--font-ui);
+	font-variant-numeric: tabular-nums;
+	text-transform: none;
 	color: var(--intent-authority);
 	cursor: pointer;
 }
@@ -2391,7 +2371,7 @@
 .bridge-root .bounded-confirm button {
 	padding: 5px 8px;
 	border: 1px solid var(--border-strong);
-	background: rgba(255, 255, 255, 0.65);
+	background: color-mix(in srgb, var(--highlight) 65%, transparent);
 	font-size: var(--t-label);
 	cursor: pointer;
 }
@@ -2456,7 +2436,8 @@
 	display: flex;
 	justify-content: space-between;
 	gap: 8px;
-	font: var(--t-label) var(--font-mono);
+	font: var(--t-label) var(--font-ui);
+	font-variant-numeric: tabular-nums;
 	color: var(--text-tertiary);
 }
 
@@ -2488,7 +2469,7 @@
 
 .bridge-root .exr-head {
 	justify-content: space-between;
-	background: rgba(255, 255, 255, 0.42);
+	background: color-mix(in srgb, var(--highlight) 42%, transparent);
 	box-shadow: var(--bevel-subtle);
 }
 
@@ -2517,12 +2498,12 @@
 	padding: 24px 18px;
 }
 .bridge-root .exr-empty-h {
-	color: var(--intent-conversation);
+	color: var(--ink);
 }
 
 .bridge-root .exr-composer {
 	padding: 10px;
-	background: rgba(255, 255, 255, 0.58);
+	background: color-mix(in srgb, var(--highlight) 58%, transparent);
 	box-shadow: 0 -10px 30px rgba(43, 51, 66, 0.035);
 }
 
@@ -2545,7 +2526,8 @@
 	background: transparent;
 	box-shadow: none;
 	color: var(--intent-feedback);
-	font: 500 var(--t-label) var(--font-mono);
+	font: 500 var(--t-label) var(--font-ui);
+	font-variant-numeric: tabular-nums;
 	cursor: pointer;
 	transition:
 		border-color var(--motion-state) var(--ease-standard),
@@ -2564,37 +2546,13 @@
 .bridge-root .exec-context-chip:hover {
 	transform: translateY(-1px);
 	border-color: var(--border-strong);
-	background: rgba(255, 255, 255, 0.62);
+	background: color-mix(in srgb, var(--highlight) 62%, transparent);
 }
 
 .bridge-root .exec-context-chip.off {
 	border-color: var(--border);
 	background: transparent;
 	color: var(--text-tertiary);
-}
-
-.bridge-root .hc-field {
-	background: rgba(255, 255, 255, 0.76);
-	box-shadow:
-		var(--bevel),
-		0 7px 22px rgba(43, 51, 66, 0.07),
-		0 0 0 1px rgba(255, 255, 255, 0.32);
-}
-
-.bridge-root .hc-send {
-	border-color: #2d4569;
-	background: linear-gradient(180deg, #42628f, #2c4569);
-	box-shadow:
-		inset 0 1px 0 rgba(255, 255, 255, 0.22),
-		0 4px 12px rgba(44, 69, 105, 0.16);
-	color: var(--text-inverse);
-}
-
-.bridge-root .hc-send:active:not(:disabled) {
-	transform: translateY(1px);
-	box-shadow:
-		inset 0 1px 0 rgba(255, 255, 255, 0.24),
-		0 1px 0 #204e7d;
 }
 
 .bridge-root .attach-btn {
@@ -2673,7 +2631,10 @@
 	}
 	.bridge-root .company-switcher .tb-co {
 		display: block;
-		max-width: 72px;
+		max-width: min(52vw, 220px);
+		color: var(--ink);
+		font-family: var(--font-ui);
+		font-weight: 600;
 	}
 	.bridge-root .company-switcher-menu {
 		left: 0;
@@ -2699,7 +2660,6 @@
 	.bridge-root .portfolio-company-cell,
 	.bridge-root .portfolio-metric {
 		min-height: 0;
-		border-right: 0;
 	}
 	.bridge-root .portfolio-company-cell {
 		padding-block: 14px;
@@ -2710,10 +2670,8 @@
 	}
 	.bridge-root .portfolio-metric .portfolio-mobile-label {
 		display: block;
-		margin: 0 0 3px;
-		font: 600 var(--t-label) var(--font-mono);
-		letter-spacing: 0.07em;
-		text-transform: uppercase;
+		margin: 0 0 2px;
+		font-weight: 500;
 	}
 	.bridge-root .attention-screen {
 		grid-template-columns: 1fr;
@@ -2744,13 +2702,17 @@
 		margin: 0;
 	}
 	.bridge-root .work-detail-head {
-		align-items: flex-start;
-		flex-direction: column;
-		gap: 12px;
 		padding: 14px 15px;
+	}
+	.bridge-root .work-title-row {
+		flex-direction: column;
+		gap: 10px;
 	}
 	.bridge-root .work-detail-scroll {
 		padding: 16px 15px 24px;
+	}
+	.bridge-root .work-detail-head {
+		padding-inline: 15px;
 	}
 	.bridge-root .recovery-brief {
 		grid-template-columns: 22px minmax(0, 1fr);
@@ -2765,8 +2727,7 @@
 		gap: 2px;
 	}
 	.bridge-root .work-detail-layout,
-	.bridge-root .evidence-columns,
-	.bridge-root .relation-groups {
+	.bridge-root .evidence-columns {
 		grid-template-columns: 1fr;
 	}
 	.bridge-root .work-detail-layout {
@@ -2774,23 +2735,9 @@
 	}
 	.bridge-root .work-detail-rail {
 		gap: 18px;
-		padding-left: 0;
+		padding: 18px 0 0;
 		border-left: 0;
-	}
-	.bridge-root .work-detail-aside {
-		display: grid;
-		grid-template-columns: repeat(2, minmax(0, 1fr));
 		border-top: 1px solid var(--border);
-	}
-	.bridge-root .work-detail-aside section {
-		padding: 13px 13px 13px 0;
-		margin: 0;
-	}
-	.bridge-root .work-evidence-section > header,
-	.bridge-root .work-relations-section > header {
-		align-items: flex-start;
-		flex-direction: column;
-		gap: 7px;
 	}
 	.bridge-root .people-screen {
 		grid-template-columns: 1fr;
@@ -2803,9 +2750,8 @@
 	.bridge-root .talk-composer {
 		padding: 9px 10px 11px;
 	}
-	.bridge-root .work-board {
-		grid-template-columns: repeat(4, 220px);
-	}
+	/* Stacked, a full-width tone bar reads as a stray rule; the tone moves to a
+	 * status dot beside the column name, like the dots on cards. */
 	.bridge-root .bounded-confirm {
 		grid-column: 2;
 	}

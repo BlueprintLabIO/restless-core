@@ -1,6 +1,8 @@
 <script lang="ts">
+	import { failureSentence } from '$lib/model/failure';
 	import { onMount } from 'svelte';
 	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
+	import { announceIntelligenceChange } from '$lib/model/intelligence-events';
 	let { companyId }: { companyId: string } = $props();
 	const intelligence = $derived(intelligenceQuery(companyId));
 	type Connection = {
@@ -33,7 +35,10 @@
 		readError = '';
 		const before = connections.map((c) => c.auth.state).join();
 		connections = data.connections;
-		if (before !== connections.map((c) => c.auth.state).join()) await intelligence.refresh();
+		if (before !== connections.map((c) => c.auth.state).join()) {
+			await intelligence.refresh();
+			announceIntelligenceChange(companyId);
+		}
 	}
 	onMount(() => {
 		let stopped = false;
@@ -46,7 +51,7 @@
 			try {
 				if (!busy && document.visibilityState === 'visible') await refresh();
 			} catch (cause) {
-				if (!stopped) readError = cause instanceof Error ? cause.message : String(cause);
+				if (!stopped) readError = failureSentence(cause);
 			} finally {
 				polling = false;
 				if (!stopped) timer = setTimeout(poll, 5000);
@@ -84,8 +89,9 @@
 			if (action === 'api_key') keys[c.harness] = '';
 			connections = connections.map((row) => (row.harness === c.harness ? data : row));
 			await intelligence.refresh();
+			announceIntelligenceChange(companyId);
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Harness settings could not be saved.';
+			error = failureSentence(cause, 'Harness settings could not be saved.');
 		} finally {
 			busy = '';
 		}
@@ -107,19 +113,35 @@
 			)[state] ?? state
 		);
 	}
+	function isInUse(harness: string) {
+		return (
+			intelligence.view?.agents.some((agent) =>
+				agent.effective_model.startsWith(harness === 'codex' ? 'native-codex-' : 'native-claude-')
+			) ?? false
+		);
+	}
 </script>
 
 <section class="native-connections" aria-label="Harness connections">
 	{#if error}<p role="alert">{error}</p>{/if}
 	{#if readError}<p role="alert">{readError} Retrying…</p>{:else if !connections.length}<p
+			class="sr-only"
 			role="status"
 		>
-			Checking native harness authentication…
-		</p>{/if}
+			Checking sign-ins…
+		</p>
+		{#each [0, 1] as card (card)}<article aria-hidden="true">
+				<header><span class="skeleton-line" style:width="8em" style:height="1.1em"></span></header>
+				<div class="row actions">
+					<span class="skeleton-line" style:width="11em" style:height="40px"></span>
+				</div>
+				<span class="skeleton-line" style:width="7em"></span>
+				<span class="skeleton-line" style:width="12em"></span>
+			</article>{/each}{/if}
 	{#each connections as c (c.harness)}
 		<article>
 			<header>
-				<h2>{c.harness === 'codex' ? 'ChatGPT / Codex' : 'Claude Code'}</h2>
+				<h2>{c.harness === 'codex' ? 'Company-only Codex' : 'Company-only Claude'}</h2>
 				<span
 					class:connected={c.auth.state === 'connected' || c.auth.state === 'key_saved'}
 					class:failed={['failed', 'unavailable', 'expired'].includes(c.auth.state)}
@@ -127,6 +149,7 @@
 					role="status">{status(c.auth.state)}</span
 				>
 			</header>
+			{#if !isInUse(c.harness)}<p>This profile is not used by a current agent route.</p>{/if}
 			{#if c.auth.account?.email}<p>{c.auth.account.email}</p>{/if}
 			<div class="row actions">
 				<button class="btn primary small" disabled={!!busy} onclick={() => act(c, 'login')}
@@ -213,6 +236,9 @@
 		background: var(--surface-pane);
 		border: 1px solid var(--control-edge);
 		border-radius: var(--radius-pane);
+	}
+	article > .skeleton-line {
+		margin-top: var(--space-4);
 	}
 	header,
 	.row {

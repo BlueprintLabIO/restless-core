@@ -168,6 +168,44 @@ else
   note 'docker unavailable — skipped'
 fi
 
+# --- 2a. Documents sidecars from removed test installations ---------------
+# Sidecar names end in a cell UUID, not `_test`, so the ordinary container
+# sections miss them. The installation-root label and company label together
+# identify only our disposable sidecars. A running one is reported, never
+# stopped automatically; an exited one has no live process to preserve.
+printf '\norphaned test Documents sidecars\n'
+if have_docker; then
+  ORPHAN_DOCS=0
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    case "$name" in restless-local-docs-*) ;; *) continue ;; esac
+    company="$(docker inspect -f '{{index .Config.Labels "com.restless.company"}}' "$name" 2>/dev/null || true)"
+    case "$company" in *_test) ;; *) continue ;; esac
+    root="$(docker inspect -f '{{index .Config.Labels "com.restless.local-documents-root"}}' "$name" 2>/dev/null || true)"
+    [ -n "$root" ] && [ "$root" != '<no value>' ] || continue
+    [ -d "$root" ] && continue
+    running="$(docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null || true)"
+    ORPHAN_DOCS=$((ORPHAN_DOCS + 1))
+    if [ "$running" = true ]; then
+      note "$name ($company; installation root missing; running — inspect before stopping)"
+    else
+      note "$name ($company; installation root missing; stopped)"
+      if [ "$MODE" = purge ]; then
+        docker rm "$name" >/dev/null 2>&1 && note "  removed $name"
+      fi
+    fi
+  done <<EOF
+$(docker ps -a --filter 'label=com.restless.local-documents-root' --format '{{.Names}}' 2>/dev/null)
+EOF
+  if [ "$ORPHAN_DOCS" -eq 0 ]; then
+    note 'none'
+  else
+    debt "$ORPHAN_DOCS"
+  fi
+else
+  note 'docker unavailable — skipped'
+fi
+
 # --- 3. Long-running test containers (reported only) ----------------------
 # Age is computed, not word-matched. The previous check grepped RunningFor for
 # 'days|weeks|months', so a container at 24h reads "24 hours ago", matched
@@ -466,11 +504,18 @@ fi
 
 # --- 13. Disk headroom ------------------------------------------------------
 printf '\ndisk headroom\n'
-AVAIL_GIB="$(df -g /System/Volumes/Data 2>/dev/null | awk 'END {print $4}')"
-if [ -n "$AVAIL_GIB" ] && [ "$AVAIL_GIB" -ge "$REAP_DISK_MIN_GIB" ]; then
-  note "${AVAIL_GIB} GiB free (>= ${REAP_DISK_MIN_GIB} GiB floor)"
+DISK_PATH="${RESTLESS_REAP_DISK_PATH:-${STACK_REPO_ROOT:-$(cd -- "$(dirname -- "$0")/.." && pwd)}}"
+if AVAIL_KIB="$(df -Pk "$DISK_PATH" 2>/dev/null | awk 'NR == 2 { print $4 }')" \
+  && [[ "$AVAIL_KIB" =~ ^[0-9]+$ ]]; then
+  AVAIL_GIB=$((AVAIL_KIB / 1048576))
+  if [ "$AVAIL_GIB" -ge "$REAP_DISK_MIN_GIB" ]; then
+    note "${AVAIL_GIB} GiB free (>= ${REAP_DISK_MIN_GIB} GiB floor)"
+  else
+    note "${AVAIL_GIB} GiB free — BELOW the ${REAP_DISK_MIN_GIB} GiB build floor"
+    debt 1
+  fi
 else
-  note "${AVAIL_GIB:-?} GiB free — BELOW the ${REAP_DISK_MIN_GIB} GiB build floor"
+  note "unknown free space at ${DISK_PATH} — cannot verify the ${REAP_DISK_MIN_GIB} GiB build floor"
   debt 1
 fi
 

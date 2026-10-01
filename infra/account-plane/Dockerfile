@@ -17,7 +17,7 @@ FROM rust:1-bookworm AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
-COPY tools/codex-runner/restless-codex-runner.mjs ./tools/codex-runner/restless-codex-runner.mjs
+COPY tools/codex-runner/restless-codex-runner.mjs tools/codex-runner/restless-ch-read.mjs tools/codex-runner/gpt-6-sol-0.156.1-model-catalog.json ./tools/codex-runner/
 COPY tools/custom-harness/manage.mjs tools/custom-harness/presets.json tools/custom-harness/hermes.py tools/custom-harness/run.mjs tools/custom-harness/legacy-models.mjs tools/custom-harness/openclaw.mjs tools/custom-harness/setup.mjs ./tools/custom-harness/
 COPY tools/harness-auth/auth.mjs ./tools/harness-auth/auth.mjs
 COPY tools/schedule-test-proxy.py ./tools/schedule-test-proxy.py
@@ -31,7 +31,14 @@ COPY docs/COMPANY_OPERATING_RULES.md ./docs/COMPANY_OPERATING_RULES.md
 # an honest answer but not a pinnable one.
 ARG SOURCE_REVISION=""
 ENV RESTLESS_SOURCE_REVISION=${SOURCE_REVISION}
-RUN cargo build --release -p restlessd
+ARG TARGETARCH
+# Keep compiled dependencies between source revisions on the workstation's
+# persistent BuildKit builder. Copy the finished binary out of the cache mount
+# so the image layer still contains the exact result of this build.
+RUN --mount=type=cache,id=restless-cargo-registry-v1,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=restless-cargo-target-${TARGETARCH}-v1,target=/src/target,sharing=locked \
+    cargo build --release -p restlessd \
+    && install -Dm755 /src/target/release/restlessd /out/restlessd
 
 FROM node:24-bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive
@@ -51,7 +58,7 @@ RUN apt-get update \
 # a configured company has a model route. Keep that host-side dependency here,
 # not in the credential-free Runtime. Its profile lives below the plane's
 # persistent state mount so OAuth and broker identity survive plane restarts.
-ARG OMP_VERSION=18.0.10
+ARG OMP_VERSION=18.3.2
 ENV BUN_INSTALL=/usr/local/bun \
     HOME=/state/authority-home
 RUN npm install -g bun@1.3.14 \
@@ -61,7 +68,7 @@ RUN npm install -g bun@1.3.14 \
     && npm cache clean --force \
     && omp --version
 
-COPY --from=build /src/target/release/restlessd /usr/local/bin/restlessd
+COPY --from=build /out/restlessd /usr/local/bin/restlessd
 
 # The owner cockpit's built SPA. The plane serves it directly to the browser
 # (CELL_ARCHITECTURE.md §5), so a plane image without it can start but cannot

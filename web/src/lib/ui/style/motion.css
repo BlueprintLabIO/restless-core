@@ -1,0 +1,154 @@
+/* Bridge motion: physical continuity, not ambient entertainment. The cockpit
+ * is quiet at rest; motion only explains a press, a disclosure, or a recorded
+ * change. Component files own their geometry and select from this vocabulary. */
+
+@keyframes bridge-popover-in {
+	from {
+		opacity: 0;
+		transform: translateY(-5px) scale(0.985);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
+}
+
+@keyframes bridge-disclosure-in {
+	from {
+		opacity: 0;
+		transform: translateY(-3px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+@keyframes bridge-acknowledge {
+	0% {
+		box-shadow: var(--control-depth);
+	}
+	36% {
+		box-shadow:
+			var(--bevel),
+			0 0 0 3px color-mix(in srgb, var(--state-success) 17%, transparent),
+			0 7px 18px color-mix(in srgb, var(--state-success) 13%, transparent);
+	}
+	100% {
+		box-shadow: var(--control-depth);
+	}
+}
+
+@keyframes bridge-working {
+	0%,
+	100% {
+		opacity: 0.58;
+		transform: scale(0.94);
+	}
+	50% {
+		opacity: 1;
+		transform: scale(1);
+	}
+}
+
+/* The Exec rail arrives from the edge it lives on. On desktop the column
+ * opens at once so the work surface resizes a single time; only the rail's
+ * contents travel. As an overlay the whole rail travels. */
+@keyframes bridge-rail-in {
+	from {
+		opacity: 0;
+		transform: translateX(16px);
+	}
+	to {
+		opacity: 1;
+		transform: translateX(0);
+	}
+}
+
+:is(.bridge-root, .bridge-tokens):not(.immersive) .bridge-exrail.open .exr-inner {
+	animation: bridge-rail-in var(--motion-disclosure) var(--ease-spring) backwards;
+}
+
+@media (max-width: 980px) {
+	:is(.bridge-root, .bridge-tokens):not(.immersive) .bridge-exrail.open {
+		animation: bridge-rail-in var(--motion-disclosure) var(--ease-spring) backwards;
+	}
+	:is(.bridge-root, .bridge-tokens):not(.immersive) .bridge-exrail.open .exr-inner {
+		animation: none;
+	}
+}
+
+/* Surface changes (see routes/+layout.svelte). The chrome is named so it
+ * holds still; the rest of the page crossfades with a 4px settle. A Work
+ * title carries the same name on the board and on its own page, so opening
+ * it moves the title into place instead of cutting to it. */
+:is(.bridge-root, .bridge-tokens) .bridge-topbar {
+	view-transition-name: bridge-topbar;
+}
+:is(.bridge-root, .bridge-tokens) .bridge-dock {
+	view-transition-name: bridge-dock;
+}
+:is(.bridge-root, .bridge-tokens) .bridge-exrail.open {
+	view-transition-name: bridge-exrail;
+}
+
+@keyframes bridge-vt-out {
+	to {
+		opacity: 0;
+	}
+}
+
+@keyframes bridge-vt-in {
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+}
+
+::view-transition-old(root) {
+	animation: bridge-vt-out 120ms var(--ease-out, ease-out) both;
+}
+::view-transition-new(root) {
+	animation: bridge-vt-in 220ms var(--ease-out, ease-out) 40ms both;
+}
+/* In-place changes (theme, Exec rail; see lib/transition.ts) crossfade
+ * without the navigation settle, and a closing rail slides away. */
+@keyframes bridge-vt-fade-in {
+	from {
+		opacity: 0;
+	}
+}
+@keyframes bridge-rail-out {
+	to {
+		opacity: 0;
+		transform: translateX(16px);
+	}
+}
+html:active-view-transition-type(in-place)::view-transition-old(root) {
+	animation: bridge-vt-out 180ms var(--ease-out, ease-out) both;
+}
+html:active-view-transition-type(in-place)::view-transition-new(root) {
+	animation: bridge-vt-fade-in 180ms var(--ease-out, ease-out) both;
+}
+html:active-view-transition-type(in-place)::view-transition-old(bridge-exrail) {
+	animation: bridge-rail-out 200ms var(--ease-out, ease-out) both;
+}
+::view-transition-group(*) {
+	animation-duration: 260ms;
+	animation-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	:is(.bridge-root, .bridge-tokens) {
+		--motion-press: 1ms;
+		--motion-state: 1ms;
+		--motion-disclosure: 1ms;
+		--motion-punctuation: 1ms;
+	}
+
+	:is(.bridge-root, .bridge-tokens) *,
+	:is(.bridge-root, .bridge-tokens) *::before,
+	:is(.bridge-root, .bridge-tokens) *::after {
+		scroll-behavior: auto !important;
+	}
+}

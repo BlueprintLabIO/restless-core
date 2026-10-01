@@ -1,9 +1,11 @@
 <script lang="ts">
+	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
+	import { failureSentence } from '$lib/model/failure';
 	import { beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import X from '@lucide/svelte/icons/x';
 	import MessageSquare from '@lucide/svelte/icons/message-square';
-	import DocumentEditor from './DocumentEditor.svelte';
+	import DocumentEditor from './LazyDocumentEditor.svelte';
 	import DocumentInspector, { type DocumentInspectorPanel } from './DocumentInspector.svelte';
 	import { sameDocumentTarget, type DocumentTarget } from '$lib/model/document-cache';
 	import { documentQuery, documentsQuery } from '$lib/model/document-queries.svelte';
@@ -21,7 +23,7 @@
 		onclose
 	}: {
 		companyId: string;
-		companyUuid: string | null;
+		companyUuid: string | null | undefined;
 		actorId: string;
 		roomId?: string;
 		onclose: () => void;
@@ -88,7 +90,7 @@
 			}
 		} catch (cause) {
 			if (sameDocumentTarget(target, companyId, id) && command?.id === attempt.id)
-				failure = cause instanceof Error ? cause.message : 'Could not link document.';
+				failure = failureSentence(cause, 'Could not link document.');
 		} finally {
 			busy = false;
 		}
@@ -169,10 +171,15 @@
 					/>
 				</div>{/if}
 		</div>
+	{:else if detail.failure || list.failure}
+		<FailureNotice
+			error={detail.failure ?? list.failure}
+			subject="the document"
+			variant="block"
+			onretry={() => (detail.failure ? detail.refresh() : list.refresh())}
+		/>
 	{:else}<p class="empty">
-			{detail.failure?.message ??
-				list.failure?.message ??
-				(id ? 'Loading document…' : 'Choose a document to work on beside the conversation.')}
+			{id ? 'Loading document…' : 'Choose a document to work on beside the conversation.'}
 		</p>{/if}
 	{#if failure}<p class="empty" role="alert">{failure}</p>{/if}
 	{#if !ready}<p class="saving" role="status">Saving changes before closing…</p>{/if}

@@ -1,4 +1,7 @@
 <script lang="ts">
+	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
+	import { failureSentence } from '$lib/model/failure';
 	import { page } from '$app/state';
 	import InfoTip from '$lib/components/InfoTip.svelte';
 	import {
@@ -31,7 +34,7 @@
 		try {
 			library = await fetchSkillLibrary(companyId);
 		} catch (cause) {
-			failure = cause instanceof Error ? cause.message : 'Company skills could not be read.';
+			failure = failureSentence(cause, 'Company skills could not be read.');
 		}
 	}
 
@@ -69,7 +72,7 @@
 			notice = done;
 			await load();
 		} catch (cause) {
-			failure = cause instanceof Error ? cause.message : 'That change was not made.';
+			failure = failureSentence(cause, 'That change was not made.');
 		} finally {
 			busy = '';
 		}
@@ -96,10 +99,11 @@
 		);
 </script>
 
-<svelte:head><title>Skills — {companyId}</title></svelte:head>
+<CompanyTitle title="Skills" {companyId} />
 
 {#snippet skillRow(skill: SkillRow)}
-	<li class="skill-row" class:skill-off={offForEveryone(skill)}>
+	<!-- Focusable so a tap reveals a settled skill's controls on touch. -->
+	<li class="skill-row" class:skill-off={offForEveryone(skill)} tabindex="-1">
 		<div class="skill-identity">
 			<strong title={skill.name}>{skillLabel(skill.name)}</strong>
 			<span title={skill.description}>{skill.description || 'No description'}</span>
@@ -110,7 +114,7 @@
 					text="This skill ships executable scripts. They run with the actor's ordinary computer access and never with extra authority."
 				/>{/if}
 		</div>
-		<div class="skill-actions">
+		<div class="skill-actions" class:settled={skill.disposition !== 'candidate'}>
 			{#if skill.disposition === 'candidate'}
 				<button
 					class="btn small primary"
@@ -162,7 +166,7 @@
 	<header class="company-page-head">
 		<h1>Skills</h1>
 		<InfoTip
-			text="Reusable methods your agents apply, in the open SKILL.md format. They stay with the company when you change a model or harness. A skill never grants spending, credentials or approvals. Type $ in a message to ask for one."
+			text="Reusable methods your agents follow, in the open SKILL.md format. They stay when you change models. Skills never grant spending, credentials or approvals. Type $ in a message to use one."
 		/>
 	</header>
 
@@ -170,12 +174,12 @@
 	{#if notice}<p class="skills-message" role="status">{notice}</p>{/if}
 
 	{#if !library}
-		{#if !failure}<div class="company-page-wait" aria-label="Reading company skills"></div>{/if}
+		{#if !failure}<Skeleton label="Reading company skills…" variant="page" count={4} />{/if}
 	{:else}
 		{#if library.scan.state === 'unavailable'}
 			<p class="source-unavailable">
-				The company computer is not answering, so this list is the last one recorded.
-				<InfoTip text={library.scan.message} />
+				The company computer is not answering, so this is the last list recorded.
+				<InfoTip text="Start the company computer to refresh it." />
 			</p>
 		{/if}
 
@@ -284,6 +288,28 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
+	}
+	/* A settled skill's controls wait for the pointer or focus, so a long list
+	 * reads as skills rather than a wall of buttons. Candidates keep theirs:
+	 * they are asking for a decision. */
+	/* Touch has no hover: the controls appear for the skill that is tapped. */
+	@media (hover: none) {
+		.skill-row:not(:focus-within) .skill-actions.settled {
+			display: none;
+		}
+	}
+	.skill-row:focus {
+		outline: none;
+	}
+	@media (hover: hover) {
+		.skill-actions.settled {
+			opacity: 0;
+			transition: opacity var(--motion-state) var(--ease-standard);
+		}
+		.skill-row:hover .skill-actions.settled,
+		.skill-row:focus-within .skill-actions.settled {
+			opacity: 1;
+		}
 	}
 	.skill-source {
 		font-size: var(--t-label);

@@ -1,9 +1,13 @@
 <script lang="ts">
+	import { formatMoment } from '$lib/ui/time';
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
+	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
+	import { runStateLabel, workStatusLabel } from '$lib/work/status';
 	import { resizePane } from '$lib/actions/resize-pane';
 	import { page } from '$app/state';
 	import Markdown from '$lib/primitives/Markdown.svelte';
 	import ConversationTurnDock from '$lib/primitives/ConversationTurnDock.svelte';
-	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
+	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
 	import type { CollaborationArtifact, CollaborationWork } from '$lib/model/collaboration';
 	import {
 		attentionQuery,
@@ -27,7 +31,7 @@
 	const attentionProjection = $derived(attentionQuery(companyId, () => ownerAccess));
 	const cockpitProjection = $derived(cockpitQuery(companyId, () => ownerAccess));
 	const collaborationProjection = $derived(
-		collaborationBootstrapQuery(companyId, () => principalProjection.view)
+		collaborationBootstrapQuery(companyId, () => (ownerAccess ? null : principalProjection.view))
 	);
 	const attention = $derived(attentionProjection.view);
 	const cockpit = $derived(cockpitProjection.view);
@@ -35,16 +39,26 @@
 	const loaded = $derived(
 		principalProjection.status !== 'unknown' &&
 			(ownerAccess
-				? attentionProjection.status !== 'unknown' || cockpitProjection.status !== 'unknown'
+				? attentionProjection.status !== 'unknown' && cockpitProjection.status !== 'unknown'
 				: collaborationProjection.status !== 'unknown')
 	);
-	const error = $derived(
-		principalProjection.failure?.message ??
+	/* The first projection that failed, and whether this page still holds data
+	 * from before the failure. FailureNotice turns that into owner copy. */
+	const failure = $derived(
+		principalProjection.failure ??
 			(ownerAccess
-				? (attentionProjection.failure?.message ?? cockpitProjection.failure?.message)
-				: collaborationProjection.failure?.message) ??
-			''
+				? (attentionProjection.failure ?? cockpitProjection.failure)
+				: collaborationProjection.failure) ??
+			null
 	);
+	const error = $derived(Boolean(failure));
+	function retryWork() {
+		void principalProjection.refresh();
+		if (ownerAccess) {
+			void attentionProjection.reload();
+			void cockpitProjection.refresh();
+		} else void collaborationProjection.refresh();
+	}
 	type WorkItem = WorkRow | CollaborationWork;
 	type Artifact = ArtifactRefRow | CollaborationArtifact;
 
@@ -247,18 +261,6 @@
 		return typeof latestAttempt.model === 'string' ? latestAttempt.model : null;
 	}
 
-	function workStatusLabel(status: WorkRow['status']): string {
-		return (
-			{
-				proposed: 'Not started',
-				active: 'In progress',
-				blocked: 'Waiting on a blocker',
-				completed: 'Complete',
-				abandoned: 'Stopped'
-			}[status] ?? status
-		);
-	}
-
 	function canOpenOutsideCompany(uri: string): boolean {
 		try {
 			const parsed = new URL(uri);
@@ -276,46 +278,38 @@
 		if (!value) return 'Not recorded';
 		const date = new Date(value);
 		if (Number.isNaN(date.getTime())) return value;
-		return new Intl.DateTimeFormat(undefined, {
-			day: 'numeric',
-			month: 'short',
-			year: 'numeric',
-			hour: 'numeric',
-			minute: '2-digit'
-		}).format(date);
+		return formatMoment(date);
 	}
 </script>
 
 <svelte:head><title>{work?.title ?? 'Work detail'} — {companyName}</title></svelte:head>
 
 <article class="work-detail-screen cockpit-pane">
-	{#if error}<div class="cockpit-error">{error}</div>{/if}
+	{#if failure && work}
+		<div class="cockpit-error">
+			<FailureNotice error={failure} subject="Work" stale={Boolean(work)} onretry={retryWork} />
+		</div>
+	{/if}
 
 	{#if work}
 		<header class="work-detail-head">
-			<div class="work-detail-heading">
-				<a class="work-back" href={backHref()} aria-label="Back to Work">
-					<span aria-hidden="true">←</span> Work
-				</a>
-				<div class="work-breadcrumb">
-					<span>{goal?.title ?? 'Company work'}</span><i aria-hidden="true">/</i><b>Details</b>
+			<nav class="work-crumbs" aria-label="Breadcrumb">
+				<a href={backHref()}>Work</a>
+				<i aria-hidden="true">/</i>
+				<span title={goal?.body || undefined}>{goal?.title ?? 'Unassigned'}</span>
+			</nav>
+			<div class="work-title-row">
+				<h1 style:view-transition-name={`work-title-${work.id}`}>{work.title}</h1>
+				<div
+					class="work-detail-status status-{work.status}"
+					class:unverified={unverifiedCompletion}
+					title={unverifiedCompletion
+						? 'Completion was recorded, but no output or passing check supports it yet.'
+						: undefined}
+				>
+					<i aria-hidden="true"></i>
+					<span>{unverifiedCompletion ? 'Done · unverified' : workStatusLabel(work.status)}</span>
 				</div>
-				<h1>{work.title}</h1>
-			</div>
-			<div class="work-detail-status status-{work.status}" class:unverified={unverifiedCompletion}>
-				<MatrixGlyph
-					rows={work.status === 'completed'
-						? GLYPHS.check
-						: work.status === 'blocked'
-							? GLYPHS.ring
-							: GLYPHS.dots}
-					size={9}
-				/>
-				<span>
-					{unverifiedCompletion
-						? 'Completion recorded · evidence unavailable'
-						: workStatusLabel(work.status)}
-				</span>
 			</div>
 		</header>
 
@@ -398,36 +392,122 @@
 				}}
 			>
 				<main class="work-detail-main">
-					{#if readerSummary}
-						<section class="work-reader-summary" aria-label={readerSummaryLabel}>
-							<span class="detail-label">{readerSummaryLabel}</span>
-							<Markdown text={readerSummary} />
-						</section>
-					{/if}
-					<details class="work-technical-details">
-						<summary>Technical execution details</summary>
-						<div class="work-technical-body">
-							<section class="work-detail-section outcome-contract">
-								<span
-									class="detail-label"
-									title="The exact instructions the accountable actor executes. Shown verbatim; Restless never rewrites them."
-								>
-									Exact execution contract
-								</span>
-								<div class="outcome-body" class:clamped={outcomeIsLong && !outcomeExpanded}>
-									<Markdown text={executionContract} />
-								</div>
-								{#if outcomeIsLong}
-									<button
-										type="button"
-										class="outcome-toggle"
-										onclick={() => (outcomeExpanded = !outcomeExpanded)}
-										aria-expanded={outcomeExpanded}
-									>
-										{outcomeExpanded ? 'Show less' : 'Read the full contract'}
-									</button>
+					<section class="work-description" aria-label={readerSummaryLabel}>
+						<div
+							class="outcome-body"
+							class:clamped={!readerSummary && outcomeIsLong && !outcomeExpanded}
+						>
+							<Markdown text={readerSummary || executionContract} />
+						</div>
+						{#if !readerSummary && outcomeIsLong}
+							<button
+								type="button"
+								class="outcome-toggle"
+								onclick={() => (outcomeExpanded = !outcomeExpanded)}
+								aria-expanded={outcomeExpanded}
+							>
+								{outcomeExpanded ? 'Show less' : 'Read the full brief'}
+							</button>
+						{/if}
+					</section>
+
+					<section class="work-evidence-section" aria-labelledby="work-evidence-heading">
+						<header>
+							<h2 id="work-evidence-heading">Evidence</h2>
+							<!-- An empty count repeats the sentence below it. -->
+							{#if artifacts.length || gates.length}<span class="evidence-score"
+									>{artifacts.length} output{artifacts.length === 1 ? '' : 's'} · {ownerAccess
+										? gates.length
+											? `${passedGates}/${gates.length} checks passed`
+											: 'no checks'
+										: 'checks owner-visible'}</span
+								>{/if}
+						</header>
+						{#if work.expected_artifact}
+							<p class="expected-artifact" title="The output the accountable lead asked for">
+								<span>Expected</span>{work.expected_artifact}
+							</p>
+						{/if}
+						{#if artifacts.length || gates.length || !ownerAccess}
+							<div class="evidence-columns">
+								{#if artifacts.length}
+									<div class="artifact-list">
+										<h3 class="detail-sublabel">Outputs</h3>
+										{#each artifacts as artifact (artifact.id)}
+											<div class="detail-artifact">
+												<MatrixGlyph rows={GLYPHS.work} size={7} />
+												<span>
+													<strong>{artifactLabel(artifact)}</strong>
+													<small>{artifactNote(artifact)}</small>
+												</span>
+												<div class="artifact-actions">
+													<em class:available={artifact.state === 'available'}
+														>{artifactState(artifact)}</em
+													>
+													{#if artifactLocator(artifact) && canOpenOutsideCompany(artifactLocator(artifact)!)}
+														<a href={artifactLocator(artifact)!} target="_blank" rel="noreferrer"
+															>Open ↗</a
+														>
+													{/if}
+												</div>
+											</div>
+										{/each}
+									</div>
 								{/if}
-							</section>
+								{#if ownerAccess && gates.length}
+									<div class="gate-list">
+										<h3 class="detail-sublabel">Automated checks</h3>
+										{#each gates as gate (gate.id)}
+											<div class:passed={gatePassed(gate)} class="detail-gate">
+												<MatrixGlyph
+													rows={gatePassed(gate) ? GLYPHS.check : GLYPHS.ring}
+													size={7}
+												/>
+												<span
+													><strong>{gate.name}</strong><small
+														>{gatePassed(gate) ? 'Passed' : 'Not passed'}</small
+													></span
+												>
+											</div>
+										{/each}
+									</div>
+								{:else if !ownerAccess}
+									<p class="detail-empty">
+										Check definitions and raw run output stay in the owner surface.
+									</p>
+								{/if}
+							</div>
+						{:else}
+							<p class="detail-empty">
+								Nothing is linked yet. Outputs and automated checks appear here as the Work runs.
+							</p>
+						{/if}
+					</section>
+
+					<details class="work-technical-details">
+						<summary>Run details</summary>
+						<div class="work-technical-body">
+							{#if readerSummary}<section class="work-detail-section outcome-contract">
+									<span
+										class="detail-label"
+										title="The exact instructions the accountable actor executes. Shown verbatim; Restless never rewrites them."
+									>
+										Exact execution contract
+									</span>
+									<div class="outcome-body" class:clamped={outcomeIsLong && !outcomeExpanded}>
+										<Markdown text={executionContract} />
+									</div>
+									{#if outcomeIsLong}
+										<button
+											type="button"
+											class="outcome-toggle"
+											onclick={() => (outcomeExpanded = !outcomeExpanded)}
+											aria-expanded={outcomeExpanded}
+										>
+											{outcomeExpanded ? 'Show less' : 'Read the full contract'}
+										</button>
+									{/if}
+								</section>{/if}
 
 							<section class="work-detail-section">
 								<div class="detail-section-head">
@@ -453,19 +533,17 @@
 							</section>
 
 							<section class="contribution-trace">
-								<h2>{workIsLeadOwned ? 'Accountability record' : 'Contribution record'}</h2>
+								<h2>{workIsLeadOwned ? 'Who decides' : 'Who does what'}</h2>
 								{#if workIsLeadOwned}
 									<p>
-										{accountableLead?.display ?? ownerName(accountableLeadId ?? work.owner_id)} owns the
-										final judgement for this outcome. Accepted, revised or stopped contributions retain
-										their own execution and observed-output records.
+										{accountableLead?.display ?? ownerName(accountableLeadId ?? work.owner_id)} makes
+										the final call on this outcome. Each contribution keeps its own record.
 									</p>
 								{:else}
 									<p>
-										{ownerName(work.owner_id)} owns this bounded contribution for
-										{accountableLead?.display ?? ownerName(accountableLeadId ?? work.owner_id)}. Its
-										run and outputs are evidence of the contribution, not proof that the whole
-										outcome was accepted.
+										{ownerName(work.owner_id)} does this part for
+										{accountableLead?.display ?? ownerName(accountableLeadId ?? work.owner_id)}, who
+										accepts the whole outcome.
 									</p>
 								{/if}
 								{#if work.status === 'abandoned'}
@@ -473,9 +551,7 @@
 										This Work was stopped and is not presented as accepted output.
 									</p>
 								{:else if revisions.length}
-									<p class="contribution-status">
-										A source-observed revision route is shown in the Work graph below.
-									</p>
+									<p class="contribution-status">Revisions are shown in the Work graph below.</p>
 								{/if}
 							</section>
 						</div>
@@ -483,148 +559,63 @@
 				</main>
 
 				<div class="work-detail-rail">
-					<aside class="work-detail-aside" aria-label="Work facts">
-						<section>
-							<span
-								class="detail-label"
-								title="The lead accountable for integrating the whole outcome"
-							>
-								Accountable lead
-							</span>
-							<strong
-								>{accountableLead?.display ?? ownerName(accountableLeadId ?? work.owner_id)}</strong
-							>
-							{#if !workIsLeadOwned}
-								<small
-									title="This bounded Work is performed by a Staff member under the accountable lead."
-									>Staff responsibility: {ownerName(work.owner_id)}</small
-								>
-							{/if}
-						</section>
-						<section>
-							<span class="detail-label">Evidence</span>
-							<strong>{artifacts.length} linked output{artifacts.length === 1 ? '' : 's'}</strong>
-							<small
-								>{ownerAccess
-									? gates.length
-										? `${passedGates}/${gates.length} automated checks passed`
-										: 'No automated checks recorded'
-									: 'Check detail is owner-visible'}</small
-							>
-						</section>
-						<section>
-							<span class="detail-label">Updated</span>
-							<strong>{displayDate(work.updated_at)}</strong>
-						</section>
+					<dl class="work-properties" aria-label="Work properties">
+						<dt title="The lead accountable for integrating the whole outcome">Lead</dt>
+						<dd>{accountableLead?.display ?? ownerName(accountableLeadId ?? work.owner_id)}</dd>
+						{#if !workIsLeadOwned}
+							<dt title="The Staff member doing this work under the lead">Staff</dt>
+							<dd>{ownerName(work.owner_id)}</dd>
+						{/if}
+						<dt>Goal</dt>
+						<dd>
+							{#if goal}<a
+									href={`/${encodeURIComponent(companyId)}/work?goal=${encodeURIComponent(goal.id)}`}
+									>{goal.title}</a
+								>{:else}<span class="muted">Unassigned</span>{/if}
+						</dd>
+						{#if latestAttempt}
+							<dt>Latest run</dt>
+							<dd>
+								Attempt {latestAttempt.attempt_no} · {runStateLabel(latestAttempt.state)}
+							</dd>
+						{/if}
+						<dt>Updated</dt>
+						<dd>{displayDate(work.updated_at)}</dd>
 						{#if workspace?.location}
-							<section>
-								<span class="detail-label">Workspace</span>
-								<strong>{workspace.location}</strong>
-								{#if workspace.integrationBranch}<small>{workspace.integrationBranch}</small>{/if}
-							</section>
+							<dt>Workspace</dt>
+							<dd class="mono" title={workspace.integrationBranch || undefined}>
+								{workspace.location}
+							</dd>
 						{/if}
-					</aside>
-
-					<section class="work-evidence-section">
-						<header>
-							<div>
-								<span class="detail-label">Evidence</span>
-								<h2>What supports this outcome</h2>
-							</div>
-							<span class="evidence-score"
-								>{artifacts.length} linked output{artifacts.length === 1 ? '' : 's'} · {ownerAccess
-									? gates.length
-										? `${passedGates}/${gates.length} checks passed`
-										: 'no automated checks'
-									: 'checks owner-visible'}</span
-							>
-						</header>
-						{#if work.expected_artifact}
-							<p class="expected-artifact"><span>Expected output</span>{work.expected_artifact}</p>
-						{/if}
-
-						<div class="evidence-columns">
-							<div class="artifact-list">
-								<span class="detail-sublabel">Linked outputs</span>
-								{#each artifacts as artifact (artifact.id)}
-									<div class="detail-artifact">
-										<MatrixGlyph rows={GLYPHS.work} size={7} />
-										<span>
-											<strong>{artifactLabel(artifact)}</strong>
-											<small>{artifactNote(artifact)}</small>
-										</span>
-										<div class="artifact-actions">
-											<em class:available={artifact.state === 'available'}
-												>{artifactState(artifact)}</em
-											>
-											{#if artifactLocator(artifact) && canOpenOutsideCompany(artifactLocator(artifact)!)}
-												<a href={artifactLocator(artifact)!} target="_blank" rel="noreferrer"
-													>Open ↗</a
-												>
-											{/if}
-										</div>
-									</div>
-								{:else}
-									<p class="detail-empty">No linked outputs are recorded.</p>
-								{/each}
-							</div>
-
-							<div class="gate-list">
-								<span class="detail-sublabel">Automated checks</span>
-								{#if ownerAccess}
-									{#each gates as gate (gate.id)}
-										<div class:passed={gatePassed(gate)} class="detail-gate">
-											<MatrixGlyph rows={gatePassed(gate) ? GLYPHS.check : GLYPHS.ring} size={7} />
-											<span
-												><strong>{gate.name}</strong><small
-													>{gatePassed(gate) ? 'Passed' : 'Not passed'}</small
-												></span
-											>
-										</div>
-									{:else}
-										<p class="detail-empty">No automated checks are recorded.</p>
-									{/each}
-								{:else}
-									<p class="detail-empty">
-										Check definitions and raw run output stay in the owner surface.
-									</p>
-								{/if}
-							</div>
-						</div>
-					</section>
+					</dl>
 
 					{#if prerequisites.length || dependents.length || revisions.length}
-						<section class="work-relations-section">
-							<header>
-								<span class="detail-label">Work graph</span>
-								<h2>Handovers and review loops</h2>
-							</header>
-							<div class="relation-groups">
-								{#if prerequisites.length}
-									<div>
-										<span class="detail-sublabel">Requires</span
-										>{#each prerequisites as item (item.id)}<a href={relatedHref(item)}
-												>{item.title}<small>R{item.revision} · {item.status}</small></a
-											>{/each}
-									</div>
-								{/if}
-								{#if dependents.length}
-									<div>
-										<span class="detail-sublabel">Hands over to</span
-										>{#each dependents as item (item.id)}<a href={relatedHref(item)}
-												>{item.title}<small>R{item.revision} · {item.status}</small></a
-											>{/each}
-									</div>
-								{/if}
-								{#if revisions.length}
-									<div>
-										<span class="detail-sublabel">Revision loop</span
-										>{#each revisions as item (item.id)}<a class="revision" href={relatedHref(item)}
-												>{item.title}<small>R{item.revision} · {item.status}</small></a
-											>{/each}
-									</div>
-								{/if}
-							</div>
+						<section class="work-relations-section" aria-label="Related Work">
+							{#snippet relation(item: WorkItem, revision = false)}
+								<a class:revision href={relatedHref(item)}>
+									<i class="relation-dot status-{item.status}" aria-hidden="true"></i>
+									<span>{item.title}</span>
+									<small>{workStatusLabel(item.status)}</small>
+								</a>
+							{/snippet}
+							{#if prerequisites.length}
+								<div class="relation-group">
+									<h3 class="detail-sublabel">Requires</h3>
+									{#each prerequisites as item (item.id)}{@render relation(item)}{/each}
+								</div>
+							{/if}
+							{#if dependents.length}
+								<div class="relation-group">
+									<h3 class="detail-sublabel">Hands over to</h3>
+									{#each dependents as item (item.id)}{@render relation(item)}{/each}
+								</div>
+							{/if}
+							{#if revisions.length}
+								<div class="relation-group">
+									<h3 class="detail-sublabel">Revision loop</h3>
+									{#each revisions as item (item.id)}{@render relation(item, true)}{/each}
+								</div>
+							{/if}
 						</section>
 					{/if}
 				</div>
@@ -634,10 +625,14 @@
 		<div class="work-detail-missing">
 			<MatrixGlyph rows={GLYPHS.ring} size={14} />
 			<h1>Work not found</h1>
-			<p>This Work is no longer present in the current company projection.</p>
-			<a class="work-back" href={backHref()}><span aria-hidden="true">←</span> Return to Work</a>
+			<p>This Work no longer exists in this company.</p>
+			<a class="btn small" href={backHref()}>Back to Work</a>
 		</div>
 	{:else if !error}
-		<div class="work-detail-loading">Loading Work…</div>
+		<div class="work-detail-loading">
+			<Skeleton label="Loading Work" variant="page" count={5} />
+		</div>
+	{:else}
+		<FailureNotice error={failure} subject="this Work" variant="page" onretry={retryWork} />
 	{/if}
 </article>

@@ -5,6 +5,9 @@ pub(crate) const PRESENT_TO_OWNER: &str = include_str!("../prompts/present-to-ow
 /// Ordinary conversation is a different surface from Attention: the owner
 /// should receive the answer, not the actor's operating transcript.
 pub(crate) const CONVERSE_WITH_OWNER: &str = include_str!("../prompts/converse-with-owner.md");
+/// How the Exec proposes improvements, what it may change without asking,
+/// and how it weighs labour against model spend.
+pub(crate) const RUN_THE_BUSINESS: &str = include_str!("../prompts/run-the-business.md");
 
 /// What the owner actually reads. Work titles, outcomes, resolutions, Attempt
 /// summaries, artifact labels and gate names are rendered to the owner exactly

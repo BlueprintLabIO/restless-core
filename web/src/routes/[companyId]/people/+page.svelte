@@ -1,4 +1,6 @@
 <script lang="ts">
+	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
+	import { initials } from '$lib/model/initials';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import FileText from '@lucide/svelte/icons/file-text';
@@ -11,6 +13,7 @@
 	import Bell from '@lucide/svelte/icons/bell';
 	import RoomConversation from '$lib/components/RoomConversation.svelte';
 	import RoomManager from '$lib/components/RoomManager.svelte';
+	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
 	import {
 		companyPrincipalQuery,
 		cockpitQuery,
@@ -28,7 +31,11 @@
 	const principal = $derived(companyPrincipalQuery(companyId));
 	const owner = $derived(principal.view?.membership_role === 'owner');
 	const cockpit = $derived(cockpitQuery(companyId, () => owner));
-	const collaboration = $derived(collaborationBootstrapQuery(companyId, () => principal.view));
+	const collaboration = $derived(
+		collaborationBootstrapQuery(companyId, () =>
+			owner && !page.url.searchParams.has('document') ? null : principal.view
+		)
+	);
 	const attention = $derived(attentionQuery(companyId, () => owner));
 	const people = $derived(
 		(owner ? cockpit.view?.people : collaboration.view?.people)?.filter(
@@ -260,7 +267,7 @@
 >
 	<aside class="conversation-index cockpit-pane" aria-label="Conversations">
 		<header class="cockpit-pane-head">
-			<h1>Conversations</h1>
+			<h1>People</h1>
 			<RoomManager
 				{companyId}
 				actorId={principal.view?.actor_id ?? ''}
@@ -279,14 +286,16 @@
 			/></label
 		>
 		<nav class="tabs" aria-label="Conversation list">
-			<button class:active={directory} aria-pressed={directory} onclick={() => setDirectory(true)}
-				>People</button
-			>
-			<button
-				class:active={!directory}
-				aria-pressed={!directory}
-				onclick={() => setDirectory(false)}>Conversations</button
-			>
+			<div class="lens-switch" class:board={!directory}>
+				<button class:active={directory} aria-pressed={directory} onclick={() => setDirectory(true)}
+					>People</button
+				>
+				<button
+					class:active={!directory}
+					aria-pressed={!directory}
+					onclick={() => setDirectory(false)}>Conversations</button
+				>
+			</div>
 		</nav>
 		<div class="entries">
 			{#snippet personStatuses(actorId: string, name: string)}
@@ -320,13 +329,7 @@
 						? 'page'
 						: undefined}
 				>
-					<span class="avatar"
-						>{person.display
-							.split(/\s+/)
-							.slice(0, 2)
-							.map((part) => part[0])
-							.join('')}</span
-					>
+					<span class="avatar">{initials(person.display)}</span>
 					<span class="directory-person-copy"
 						><span class="name">{person.display}</span>{@render personStatuses(
 							person.actor_id,
@@ -393,16 +396,8 @@
 								: undefined}
 							title={row.hint}
 						>
-							<span class="avatar"
-								>{row.name
-									.split(/\s+/)
-									.slice(0, 2)
-									.map((s) => s[0])
-									.join('')}</span
-							><span class="name">{row.name}</span>{#if row.person}{@render personStatuses(
-									row.person,
-									row.name
-								)}{/if}
+							<span class="avatar">{initials(row.name)}</span><span class="name">{row.name}</span
+							>{#if row.person}{@render personStatuses(row.person, row.name)}{/if}
 						</a>
 					</div>
 				{:else}<p class="empty">
@@ -428,9 +423,13 @@
 						>More messages</button
 					>{/if}
 			{/if}
-			{#if recent.failure || messageSearch.failure}<p class="empty" role="status">
-					{recent.failure?.message ?? messageSearch.failure?.message}
-				</p>{/if}
+			{#if recent.failure || messageSearch.failure}
+				<FailureNotice
+					error={recent.failure ?? messageSearch.failure}
+					subject="conversations"
+					onretry={() => (recent.failure ? recent.refresh() : messageSearch.refresh())}
+				/>
+			{/if}
 		</div>
 	</aside>
 	<section class="conversation-main" aria-label="Selected conversation">
@@ -448,11 +447,28 @@
 					>
 				{/snippet}
 			</RoomConversation>
-		{:else}<div class="empty">Choose a conversation or start a new one.</div>{/if}
+		{:else}
+			<div class="conversation-empty cockpit-pane">
+				<span class="conversation-empty-mark" aria-hidden="true">
+					<MatrixGlyph rows={GLYPHS.group} size={10} />
+				</span>
+				<h2>Talk to anyone in the company</h2>
+				<p>Pick a lead or teammate on the left, or start with the Exec.</p>
+				{#if directoryExec}
+					<a class="btn primary" href={href(directoryExec.actor_id)}>
+						Message {directoryExec.display.replace(/^The /, 'the ')}
+					</a>
+				{/if}
+			</div>
+		{/if}
 	</section>
 	{#if documentOpen}<ConversationDocument
 			{companyId}
-			companyUuid={collaboration.view?.company.company_id ?? null}
+			companyUuid={collaboration.view
+				? collaboration.view.company.company_id
+				: collaboration.failure
+					? null
+					: undefined}
 			actorId={principal.view?.actor_id ?? ''}
 			roomId={linkedRoomId}
 			onclose={toggleDocument}
@@ -485,15 +501,21 @@
 	.conversation-main {
 		container: conversation / inline-size;
 	}
-	.conversation-index > header {
-		flex-wrap: wrap;
-		gap: 9px;
-		padding: 12px;
-	}
+	/* One row, like every other pane head: the title and a quiet "+" whose
+	 * name lives in its tooltip. */
 	.conversation-index > header :global(.room-manage-trigger) {
-		width: 100%;
-		height: 32px;
+		width: 30px;
+		height: 30px;
+		padding: 0;
 		justify-content: center;
+	}
+	.conversation-index > header :global(.room-manage-trigger span) {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
 	}
 	.search {
 		display: flex;
@@ -511,27 +533,14 @@
 		outline-offset: 3px;
 		color: var(--ink);
 	}
+	.tabs .lens-switch {
+		flex: 1;
+	}
 	.tabs {
 		display: flex;
 		gap: 4px;
 		padding: 0 8px 8px;
 		border-bottom: 1px solid var(--border);
-	}
-	.tabs button {
-		flex: 1;
-		padding: 7px 4px;
-		border: 0;
-		background: transparent;
-		border-radius: var(--radius-control);
-		color: var(--text-secondary);
-		cursor: pointer;
-		font: inherit;
-		font-size: var(--t-label);
-	}
-	.tabs button.active {
-		background: var(--intent-conversation-soft);
-		color: var(--intent-conversation);
-		font-weight: 600;
 	}
 	.entries {
 		overflow-y: auto;
@@ -539,24 +548,22 @@
 		min-height: 0;
 		padding: 6px;
 	}
+	/* One quiet list grouped by team: a label and spacing say "new group"; no
+	 * boxes or header bands compete with the people in it. */
 	.directory-section {
-		margin-bottom: 8px;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-control);
-		overflow: hidden;
-	}
-	.executive-section {
-		border-color: color-mix(in srgb, var(--intent-conversation) 28%, var(--border));
+		display: grid;
+		gap: 1px;
+		margin-bottom: 10px;
 	}
 	.team-directory-head {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 		gap: 8px;
-		padding: 7px 8px;
-		background: var(--surface-alt);
-		color: var(--text-secondary);
+		padding: 8px 8px 4px;
+		color: var(--text-tertiary);
 		font-size: var(--t-label);
+		font-weight: 500;
 	}
 	.team-directory-head > span {
 		display: inline-flex;
@@ -571,25 +578,38 @@
 		display: flex;
 		align-items: center;
 		box-sizing: border-box;
-		height: 42px;
-		gap: 8px;
-		padding: 8px;
+		height: 38px;
+		gap: 9px;
+		padding: 6px 8px;
 		overflow: hidden;
+		border-radius: var(--radius-control);
 		color: var(--ink);
 		text-decoration: none;
+		transition: background-color var(--motion-state) var(--ease-standard);
 	}
-	.directory-person:hover,
+	.directory-person:hover {
+		background: color-mix(in srgb, var(--highlight) 66%, transparent);
+	}
 	.directory-person:focus-visible,
 	.directory-person[aria-current='page'] {
 		background: var(--intent-conversation-soft);
 	}
+	.directory-person[aria-current='page'] .name {
+		font-weight: 600;
+	}
 	.directory-person.member {
-		padding-left: 28px;
+		padding-left: 24px;
 	}
 	.directory-person .avatar {
-		width: 25px;
-		height: 25px;
-		border-radius: 7px;
+		width: 22px;
+		height: 22px;
+		border-radius: 6px;
+	}
+	.directory-person.executive .avatar,
+	.directory-person.lead .avatar {
+		border-color: color-mix(in srgb, var(--intent-conversation) 26%, var(--border));
+		background: var(--intent-conversation-soft);
+		color: var(--intent-conversation);
 	}
 	.directory-person-copy {
 		display: flex;
@@ -682,6 +702,36 @@
 		.row-status.working :global(svg) {
 			animation: none;
 		}
+	}
+	.conversation-empty {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: var(--space-2);
+		padding: var(--space-6);
+		text-align: center;
+		animation: bridge-disclosure-in var(--motion-disclosure) var(--ease-out) both;
+	}
+	.conversation-empty-mark {
+		display: grid;
+		place-items: center;
+		width: 44px;
+		height: 44px;
+		margin-bottom: var(--space-2);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-pane);
+		background: var(--intent-conversation-soft);
+		color: var(--intent-conversation);
+	}
+	.conversation-empty h2 {
+		font-size: var(--t-head);
+	}
+	.conversation-empty p {
+		max-width: 320px;
+		margin: 0 0 var(--space-3);
+		color: var(--text-secondary);
 	}
 	.empty {
 		padding: 12px;

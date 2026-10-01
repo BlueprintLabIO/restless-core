@@ -27,6 +27,10 @@ const REPAIR_SWEEP_INTERVAL: Duration = Duration::from_secs(300);
 /// every cell twenty times a second until that external condition changes.
 const OVERDUE_RETRY_INTERVAL: Duration = Duration::from_secs(5);
 
+/// Shared operating instruction for Exec and accountable leads on a scheduled wake.
+/// The schedule provides an objective and a deadline, not a prewritten workflow.
+pub(crate) const OPPORTUNITY_AUTONOMY_GUIDANCE: &str = "Own this responsibility through an evidenced outcome within its window and your current authority. Choose the next useful action from live state; research, drafts, and diagnostics are intermediate, so continue to preparation, approval, or execution when warranted. After linked Work completes, inspect its result and commission the next bounded step or repair recoverable failure; link repair Work and leave the Opportunity open while it runs. Do not ask the owner merely to consider research or choose routine next steps you can judge yourself. Use an active mandate only for an evidence-backed match and the required one-use permit; never widen its limits or replay an uncertain external effect. Ask for owner attention only for a specific decision outside current authority after doing the independent work. If no safe useful action is due, settle with current evidence and say why; never infer a send from a draft or a completed agent turn.";
+
 /// Free-form Exec conversation liveness. Work custody is the running Attempt.
 pub(crate) type InFlight = Arc<Mutex<WakeClaims>>;
 
@@ -136,13 +140,13 @@ impl WakeClaims {
         self.backoff.remove(company);
     }
 
-    fn is_runtime_start_backing_off(&self, company: &str) -> bool {
+    pub(crate) fn is_runtime_start_backing_off(&self, company: &str) -> bool {
         self.runtime_start_backoff
             .get(company)
             .is_some_and(|(until, _)| std::time::Instant::now() < *until)
     }
 
-    fn record_runtime_start_failure(&mut self, company: &str) {
+    pub(crate) fn record_runtime_start_failure(&mut self, company: &str) {
         let failures = self
             .runtime_start_backoff
             .get(company)
@@ -156,7 +160,7 @@ impl WakeClaims {
         );
     }
 
-    fn clear_runtime_start_backoff(&mut self, company: &str) {
+    pub(crate) fn clear_runtime_start_backoff(&mut self, company: &str) {
         self.runtime_start_backoff.remove(company);
     }
 
@@ -394,13 +398,11 @@ async fn next_due_delay(daemon: &Arc<Daemon>) -> Duration {
                 runtime::status(&company).await,
                 Ok(ContainerStatus::Running)
             );
-        let schedule_due = if runtime_running {
+        // A sleeping computer is woken by the same due facts that a running
+        // one would act on; a stopped one is not timed at all.
+        let runtime_sleeping = !runtime_running && runtime::is_sleeping(&company);
+        let schedule_due = if runtime_running || runtime_sleeping {
             org.next_schedule_due_at().await
-        } else if matches!(
-            runtime::status(&company).await,
-            Ok(ContainerStatus::Stopped)
-        ) {
-            org.next_runtime_wake_schedule_due_at().await
         } else {
             Ok(None)
         };
@@ -411,7 +413,7 @@ async fn next_due_delay(daemon: &Arc<Daemon>) -> Duration {
                 }),
             );
         }
-        if runtime_running {
+        if runtime_running || runtime_sleeping {
             if let Ok(Some(next)) = org.next_opportunity_due_at().await {
                 earliest = Some(
                     earliest.map_or(next, |current: chrono::DateTime<chrono::Utc>| {
@@ -474,70 +476,10 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
     } else {
         match runtime::status(company).await {
             Ok(ContainerStatus::Running) => {}
+            // A sleeping computer wakes for owed demand. One the owner
+            // stopped stays stopped until the owner starts it again.
             Ok(ContainerStatus::Stopped) => {
-                let due = match org.has_due_runtime_wake_schedule(Utc::now()).await {
-                    Ok(due) => due,
-                    Err(error) => {
-                        tracing::warn!(
-                            company,
-                            "could not inspect schedule Runtime opt-in: {error:#}"
-                        );
-                        return;
-                    }
-                };
-                if !due
-                    || in_flight
-                        .lock()
-                        .is_ok_and(|guard| guard.is_runtime_start_backing_off(company))
-                {
-                    return;
-                }
-                // A spent/incomplete company start allowance leaves this
-                // occurrence due. Reuse ordinary automatic-wake backoff so a
-                // capped company does not hammer its start path every scan.
-                if runtime::CompanyConfig::load_archived(&daemon.root, company).is_ok()
-                    || CompanyConfig::load(&daemon.root, company).is_err()
-                {
-                    return;
-                }
-                match runtime::up(&config, false).await {
-                    Ok(outcome) => {
-                        tracing::info!(company, %outcome, "starting Runtime for opted-in due schedule")
-                    }
-                    Err(error) => {
-                        if let Ok(mut guard) = in_flight.lock() {
-                            guard.record_runtime_start_failure(company);
-                        }
-                        tracing::warn!(
-                            company,
-                            "could not start Runtime for opted-in due schedule: {error:#}"
-                        );
-                        return;
-                    }
-                }
-                if !matches!(runtime::status(company).await, Ok(ContainerStatus::Running)) {
-                    if let Ok(mut guard) = in_flight.lock() {
-                        guard.record_runtime_start_failure(company);
-                    }
-                    tracing::warn!(
-                        company,
-                        "Runtime did not become running after opted-in schedule wake"
-                    );
-                    return;
-                }
-                if let Ok(mut guard) = in_flight.lock() {
-                    guard.clear_runtime_start_backoff(company);
-                }
-                if let Err(error) = crate::materialize_runtime_bridge(daemon, company).await {
-                    if let Ok(mut guard) = in_flight.lock() {
-                        guard.record_runtime_start_failure(company);
-                    }
-                    let stop = runtime::down(company).await;
-                    tracing::warn!(
-                        company,
-                        stop = ?stop,
-                        "could not prepare Runtime bridge for opted-in schedule; stopped the newly started Runtime: {error:#}"
-                    );
+                if !crate::runtime_sleep::wake_if_owed(daemon, &config).await {
                     return;
                 }
             }
@@ -1090,11 +1032,12 @@ async fn run_exec_turn_with_lease(
         .ok_or_else(|| anyhow::anyhow!("claimed responsibility version disappeared"));
         let version = try_or_defer_claims!(version);
         opportunity_context.push(format!(
-            "Opportunity {} is claimed at epoch {}. Objective: {}. Authority and limits: {}. Inspect current state. Link any Work with `restless schedule link-work -c {} --opportunity {} --work <WORK_UUID> --owner-epoch {}`. Once the business outcome is supported, record it with `restless schedule outcome -c {} --opportunity {} --owner-epoch {} --state <completed|needs_human|blocked> --reason <REASON> --evidence work:<LINKED_WORK_UUID>` (or a real handoff/artifact reference). If policy lists required_outcome_areas, a completed outcome also needs a distinct completed linked Work for each area, supplied as `--area-evidence AREA=work:<WORK_UUID>` for each. If repair Work is already underway for a recoverable command, protocol, or Runtime failure, link that Work and leave this Opportunity unsettled for the Runtime's bounded retry; do not make a temporary repair a terminal blocker. If an area cannot be completed after bounded repair, report the exact blocker or owner decision instead of marking the whole responsibility completed. A completed agent turn alone does not complete the Opportunity.",
+            "Opportunity {} is claimed at epoch {}. Objective: {}. Authority and limits: {}. {} Link any Work with `restless schedule link-work -c {} --opportunity {} --work <WORK_UUID> --owner-epoch {}`. Once the business outcome is supported, record it with `restless schedule outcome -c {} --opportunity {} --owner-epoch {} --state <completed|needs_human|blocked> --reason <REASON> --evidence work:<LINKED_WORK_UUID>` (or a real handoff/artifact reference). If policy lists required_outcome_areas, a completed outcome also needs a distinct completed linked Work for each area, supplied as `--area-evidence AREA=work:<WORK_UUID>` for each. If an area cannot be completed after bounded repair, report the exact blocker or owner decision instead of marking the whole responsibility completed. A completed agent turn alone does not complete the Opportunity.",
             claim.opportunity_id,
             claim.owner_epoch,
             version.objective,
             version.policy,
+            OPPORTUNITY_AUTONOMY_GUIDANCE,
             config.name,
             claim.opportunity_id,
             claim.owner_epoch,
@@ -1440,6 +1383,9 @@ async fn fire_exec(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str, re
     let reason = reason.to_string();
     tokio::spawn(async move {
         let _guard = WakeGuard::new(&company, &in_flight);
+        // The Exec is owed this turn, so a sleeping computer wakes for it. A
+        // stopped one is left to the Exec preflight, which tells the owner.
+        crate::runtime_sleep::wake_for(&daemon, &company, &reason).await;
         let outcome = async {
             let config = CompanyConfig::load(&daemon.root, &company)?;
             let org = daemon.orgintel.get(&company).await?;

@@ -21,3 +21,7 @@ The final message is what the owner reads. Write from their side of the screen:
   outcome, next owner/action or exact owner need, add that short meaning to the marker's optional
   `outcome`, `nextStep` or `ownerNeed` field. Omit fields that are not genuinely present. These fields
   help the cockpit create an at-a-glance reading aid; they never complete Work or grant authority.
+- Whenever the reply asks the owner a question, or the work cannot continue without their input,
+  put that exact question in `ownerNeed`, phrased so it can be answered without rereading the
+  thread. The cockpit lists it in the owner's Attention until they reply; a question asked only in
+  prose is easy to miss. Leave `ownerNeed` out for rhetorical questions and optional offers.

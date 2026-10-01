@@ -92,7 +92,7 @@ try {
 	await card.getByRole('alert').waitFor();
 	mode = 'empty';
 	await card.getByRole('button', { name: 'Retry' }).click();
-	await card.getByText('No internal messages recorded for this person yet.').waitFor();
+	await card.getByText('No messages between agents yet.').waitFor();
 	mode = 'history';
 	await page.reload();
 	await card.locator('> summary').click();

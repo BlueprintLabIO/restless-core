@@ -40,6 +40,8 @@ const CLIENT = {
 const ALLOWED_OPS = new Set(['launch', 'turn', 'steer', 'interrupt', 'ping', 'shutdown']);
 const ALLOWED_EFFORTS = new Set(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
 const MODEL_CAPABILITY_ENV = 'RESTLESS_MODEL_CAPABILITY';
+const SOL_MODEL_CATALOG_ENV = 'RESTLESS_CODEX_GPT6_SOL_CATALOG';
+const SOL_MODEL_CATALOG_SHA256 = '04187020317177396a94b9a9e599a29118257bd93ff4e802ee5c7a2616972d23';
 const DISABLED_CODEX_FEATURES = [
   'multi_agent',
   'plugins',
@@ -178,6 +180,18 @@ function request(method, params) {
   const promise = new Promise((resolve, reject) => pending.set(id, { resolve, reject, method }));
   appInput.write(`${JSON.stringify({ id, method, params })}\n`);
   return promise;
+}
+
+function missingSavedRollout(error, threadId) {
+  const prefix = 'thread/resume: ';
+  if (!(error instanceof Error) || !error.message.startsWith(prefix)) return false;
+  try {
+    const response = JSON.parse(error.message.slice(prefix.length));
+    return response.code === -32600
+      && response.message === `no rollout found for thread id ${threadId}`;
+  } catch {
+    return false;
+  }
 }
 
 function notify(method, params = {}) {
@@ -389,6 +403,15 @@ async function launch(operation) {
     throw new Error(`missing scoped ${MODEL_CAPABILITY_ENV}`);
   }
   const codexHome = requireString(process.env.CODEX_HOME, 'CODEX_HOME');
+  // Codex 0.155.1 predates gpt-6-sol. The company image supplies the exact
+  // upstream model descriptor so code-mode exec includes apply_patch.
+  const solCatalogPath = exactModel === 'openai-codex/gpt-6-sol'
+    ? process.env[SOL_MODEL_CATALOG_ENV] : null;
+  const solCatalogSha256 = solCatalogPath
+    ? createHash('sha256').update(readFileSync(solCatalogPath)).digest('hex') : null;
+  if (solCatalogPath && solCatalogSha256 !== SOL_MODEL_CATALOG_SHA256) {
+    throw new Error('reviewed gpt-6-sol model catalog differs from the company image');
+  }
   const mcp = mcpConfigArgs(operation.mcp_servers);
   const disabledFeatureArgs = DISABLED_CODEX_FEATURES.flatMap((feature) => ['--disable', feature]);
   const args = [
@@ -403,6 +426,7 @@ async function launch(operation) {
     '-c', 'model_providers.restless.stream_max_retries=0',
     '-c', 'model_providers.restless.stream_idle_timeout_ms=900000',
     ]),
+    ...(solCatalogPath ? ['-c', `model_catalog_json=${JSON.stringify(solCatalogPath)}`] : []),
     '-c', `model_reasoning_effort=${JSON.stringify(effort)}`,
     ...mcp.args,
   ];
@@ -411,9 +435,13 @@ async function launch(operation) {
   // that exact route for the app-server; ordinary native turns keep the
   // denied task proxy and their direct provider exception.
   const isolatedModelProxy = native && process.env.HTTPS_PROXY === ISOLATED_MODEL_PROXY;
+  // The hosted relay has a private account-plane hostname. Core's Runtime
+  // Bridge validates that exact origin before launch; keep every other task
+  // destination behind the denied proxy.
+  const relayNoProxy = [...new Set([...MODEL_RELAY_NO_PROXY.split(','), new URL(baseUrl).hostname])].join(',');
   const nativeNoProxy = isolatedModelProxy
-    ? MODEL_RELAY_NO_PROXY
-    : MODEL_RELAY_NO_PROXY + ',api.openai.com,chatgpt.com,auth.openai.com';
+    ? relayNoProxy
+    : relayNoProxy + ',api.openai.com,chatgpt.com,auth.openai.com';
   const appServerEnv = {
     ...process.env,
     HTTP_PROXY: DENIED_TASK_PROXY,
@@ -422,8 +450,8 @@ async function launch(operation) {
     http_proxy: DENIED_TASK_PROXY,
     https_proxy: isolatedModelProxy ? ISOLATED_MODEL_PROXY : DENIED_TASK_PROXY,
     all_proxy: DENIED_TASK_PROXY,
-    NO_PROXY: native ? nativeNoProxy : MODEL_RELAY_NO_PROXY,
-    no_proxy: native ? nativeNoProxy : MODEL_RELAY_NO_PROXY,
+    NO_PROXY: native ? nativeNoProxy : relayNoProxy,
+    no_proxy: native ? nativeNoProxy : relayNoProxy,
   };
   attachAppServer(spawn(operation.codex_bin || 'codex', args, {
     cwd,
@@ -444,9 +472,24 @@ async function launch(operation) {
     ephemeral: false,
   };
   const prior = typeof operation.thread_id === 'string' && operation.thread_id ? operation.thread_id : null;
-  const result = prior
-    ? await request('thread/resume', { threadId: prior, ...common })
-    : await request('thread/start', common);
+  let result;
+  let resumed = false;
+  let reconstructionReason = null;
+  if (prior) {
+    try {
+      result = await request('thread/resume', { threadId: prior, ...common });
+      resumed = true;
+    } catch (error) {
+      // A supervisor restart can leave a valid durable locator whose Codex
+      // rollout is gone. Only this exact missing-rollout response permits a
+      // fresh session; other resume errors still fail visibly.
+      if (!missingSavedRollout(error, prior)) throw error;
+      result = await request('thread/start', common);
+      reconstructionReason = 'saved Codex rollout missing; fresh session started from durable actor context';
+    }
+  } else {
+    result = await request('thread/start', common);
+  }
   threadId = result.thread?.id;
   if (!threadId) throw new Error('Codex did not return a thread id');
   observed = {
@@ -455,6 +498,7 @@ async function launch(operation) {
     protocol_version: PROTOCOL_VERSION,
     model_requested: exactModel,
     model_observed: result.model ?? null,
+    model_catalog_sha256: solCatalogSha256,
     provider_observed: result.modelProvider ?? null,
     effort_requested: effort,
     effort_observed: result.reasoningEffort ?? null,
@@ -473,7 +517,7 @@ async function launch(operation) {
     throw new Error(`exact effort admission failed: ${JSON.stringify(observed)}`);
   }
   ready = true;
-  emit({ type: 'session_ready', thread_id: threadId, resumed: Boolean(prior), observed });
+  emit({ type: 'session_ready', thread_id: threadId, resumed, reconstruction_reason: reconstructionReason, observed });
 }
 
 function textInput(text) {

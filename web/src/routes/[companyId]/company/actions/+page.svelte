@@ -1,4 +1,6 @@
 <script lang="ts">
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
+	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { page } from '$app/state';
 	import InfoTip from '$lib/components/InfoTip.svelte';
 	import { companyQuery } from '$lib/model/queries.svelte';
@@ -12,7 +14,7 @@
 		return new Date(value).toLocaleString(undefined, {
 			month: 'short',
 			day: 'numeric',
-			hour: '2-digit',
+			hour: 'numeric',
 			minute: '2-digit'
 		});
 	}
@@ -72,14 +74,18 @@
 					</article>
 				{:else}
 					<p class="quiet-empty">
-						No external activity recorded yet. Sent messages, submitted forms and payments appear
-						here when they are made through Restless’s governed action path. Internal chats and
-						document edits stay with their work.
+						Nothing yet. Messages sent, forms submitted and payments made on the company’s behalf
+						appear here. Internal chats and document edits stay with their work.
 					</p>
 				{/each}
 			</div>
 		{/if}
-	{:else if source.failure}<div class="company-source-error" role="alert">
-			{source.failure.message}
-		</div>{:else}<div class="company-page-wait" aria-label="Reading external actions"></div>{/if}
+	{:else if source.failure}
+		<FailureNotice
+			error={source.failure}
+			subject="external actions"
+			variant="block"
+			onretry={source.refresh}
+		/>
+	{:else}<Skeleton label="Reading external actions…" variant="page" count={4} />{/if}
 </div>

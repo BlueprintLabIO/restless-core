@@ -1,10 +1,18 @@
 <script lang="ts">
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
+	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
+	import { failureSentence } from '$lib/model/failure';
 	import { beforeNavigate } from '$app/navigation';
 	import { page } from '$app/state';
 	import { tick } from 'svelte';
 	import CompanySettings from '$lib/components/CompanySettings.svelte';
+	import CopyCompanySetting from '$lib/components/CopyCompanySetting.svelte';
 	import InfoTip from '$lib/components/InfoTip.svelte';
-	import { reviseCompanyCharter } from '$lib/model/company';
+	import {
+		reviseCompanyCharter,
+		setCompanyOutcomeStandard,
+		type OutcomeStandard
+	} from '$lib/model/company';
 	import Markdown from '$lib/primitives/Markdown.svelte';
 	import { companyQuery } from '$lib/model/queries.svelte';
 
@@ -24,6 +32,8 @@
 	let editor = $state<HTMLTextAreaElement>();
 	let notice = $state('');
 	let failure = $state('');
+	let qualitySaving = $state(false);
+	let qualityError = $state('');
 	const changed = $derived(editing && draft !== openedMarkdown);
 
 	beforeNavigate((navigation) => {
@@ -72,12 +82,25 @@
 			openedMarkdown = '';
 			baseRevision = '';
 		} catch (cause) {
-			failure = cause instanceof Error ? cause.message : 'The charter was not saved.';
+			failure = failureSentence(cause, 'The charter was not saved.');
 			if ((cause as Error & { status?: number })?.status === 409) {
 				await source.refresh();
 			}
 		} finally {
 			saving = false;
+		}
+	}
+
+	async function saveQuality(standard: OutcomeStandard) {
+		if (qualitySaving || !view) return;
+		qualitySaving = true;
+		qualityError = '';
+		try {
+			source.accept(await setCompanyOutcomeStandard(companyId, standard));
+		} catch (cause) {
+			qualityError = failureSentence(cause, 'Could not change the quality bar.');
+		} finally {
+			qualitySaving = false;
 		}
 	}
 
@@ -104,7 +127,7 @@
 			month: 'short',
 			day: 'numeric',
 			year: 'numeric',
-			hour: '2-digit',
+			hour: 'numeric',
 			minute: '2-digit'
 		});
 	}
@@ -117,7 +140,7 @@
 		<div class="charter-heading">
 			<h1>Charter</h1>
 			<InfoTip
-				text="The durable purpose, business model, strategic intent and operating principles that guide this company. This is not its legal constitution or current Work plan."
+				text="Why the company exists and how it operates. Not its legal constitution or its current plan."
 			/>
 		</div>
 		<div class="charter-head-actions">
@@ -135,13 +158,16 @@
 					onclick={saveCharter}>{saving ? 'Saving…' : 'Save charter'}</button
 				>
 			{:else}
-				<div class="company-page-freshness">
+				<div
+					class="company-page-freshness"
+					title={view?.refreshed_at ? `Checked ${when(view.refreshed_at)}` : undefined}
+				>
 					<span class="source-lamp status-{source.status}" aria-hidden="true"></span>
 					{source.status === 'live'
-						? when(view?.refreshed_at)
+						? 'Live'
 						: source.status === 'stale'
-							? 'Last live observation'
-							: 'Reading source'}
+							? 'Out of date'
+							: 'Checking…'}
 				</div>
 				{#if view}
 					<button class="btn small" type="button" onclick={beginEditing}>Edit charter</button>
@@ -153,8 +179,17 @@
 	{#if notice}<p class="charter-save-message" role="status">{notice}</p>{/if}
 
 	{#if view}
-		<div style="margin-bottom: 24px">
+		<div style="margin-bottom: var(--space-2)">
 			{#key `${companyId}:${nameVersion}`}<CompanySettings {companyId} section="name" />{/key}
+			<CopyCompanySetting
+				{companyId}
+				setting="name"
+				label="Company name"
+				oncopied={async () => {
+					nameVersion += 1;
+					await source.refresh();
+				}}
+			/>
 		</div>
 		<div class="charter-layout">
 			<article class="charter-document">
@@ -181,21 +216,54 @@
 							<button class="btn primary" onclick={beginEditing}>Write company charter</button>{/if}
 					</div>
 				{/if}
+				<CopyCompanySetting
+					{companyId}
+					setting="purpose"
+					label="Purpose"
+					oncopied={() => source.refresh()}
+				/>
 				<footer>
 					<span>Effective {when(view.charter.effective_at)}</span>
 					<span>Owner authorised</span>
-					<InfoTip
-						text="This charter comes from the owner-authorised company configuration. Only an explicit version-checked owner save can revise it; current Work and ordinary chat cannot."
-					/>
+					<InfoTip text="Only you can change the charter. Work and chat never do." />
 				</footer>
 			</article>
 
 			<aside class="charter-context" aria-label="Charter context">
+				<section class="charter-profile-card">
+					<div class="section-heading">
+						<h2>Quality bar</h2>
+						<InfoTip
+							text="How ambitious new work should be. Each lead decides what proof a piece of work needs."
+						/>
+					</div>
+					<label class="quality-choice"
+						>New work should be
+						<select
+							value={view.company.outcome_standard}
+							disabled={qualitySaving}
+							onchange={(event) => void saveQuality(event.currentTarget.value as OutcomeStandard)}
+						>
+							<option value="fast">Fast</option><option value="thorough">Thorough</option><option
+								value="exceptional">Exceptional</option
+							><option value="frontier">Frontier</option>
+						</select>
+					</label>
+					<CopyCompanySetting
+						{companyId}
+						setting="outcome_standard"
+						label="Quality bar"
+						oncopied={() => source.refresh()}
+					/>
+					{#if qualityError}<p role="alert" class="charter-save-message failure">
+							{qualityError}
+						</p>{/if}
+				</section>
 				<section class="charter-direction-card">
 					<div class="section-heading">
 						<h2>Current direction</h2>
 						<InfoTip
-							text="Current direction comes from OrgIntel and can change with Work. It is linked here but never folded into the durable charter."
+							text="What the company is working toward now. It changes as work moves; the charter does not."
 						/>
 					</div>
 					{#if view.charter.current_direction}
@@ -217,7 +285,7 @@
 					<div class="section-heading">
 						<h2>Company profile</h2>
 						<InfoTip
-							text="Only legal-identity details approved for ordinary company output appear here. Evidence and provider verification remain protected."
+							text="Legal details approved for use in company output. Supporting evidence stays private."
 						/>
 					</div>
 					{#if view.sources.authority.status !== 'available'}
@@ -244,14 +312,37 @@
 							</div>
 						</dl>
 					{:else}
-						<p class="quiet-empty">No safe legal identity has been recorded.</p>
+						<p class="quiet-empty">No legal details yet.</p>
 					{/if}
 				</section>
 			</aside>
 		</div>
 	{:else if source.failure}
-		<div class="company-source-error" role="alert">{source.failure.message}</div>
+		<FailureNotice
+			error={source.failure}
+			subject="the charter"
+			variant="block"
+			onretry={source.refresh}
+		/>
 	{:else}
-		<div class="company-page-wait" aria-label="Reading Company charter"></div>
+		<Skeleton label="Reading Company charter…" variant="page" count={4} />
 	{/if}
 </div>
+
+<style>
+	.quality-choice {
+		display: grid;
+		gap: var(--space-2);
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+	}
+	.quality-choice select {
+		width: 100%;
+		min-height: 36px;
+		padding: var(--space-2);
+		border: 1px solid var(--control-edge);
+		border-radius: var(--radius-control);
+		color: var(--ink);
+		background: var(--surface-pane);
+	}
+</style>

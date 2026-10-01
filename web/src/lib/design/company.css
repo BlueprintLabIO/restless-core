@@ -83,79 +83,52 @@
 
 .bridge-root .company-spine nav {
 	display: grid;
-	gap: 5px;
+	gap: 1px;
 }
 
+/* Settings navigation in the Linear manner: a plain icon, a label and one
+ * soft fill for the current page. No tiles, borders or edge bars competing
+ * with the page they open. */
 .bridge-root .company-spine nav a {
 	position: relative;
 	min-width: 0;
 	display: grid;
-	grid-template-columns: 34px minmax(0, 1fr);
+	grid-template-columns: 18px minmax(0, 1fr);
 	align-items: center;
-	gap: 8px;
-	min-height: 43px;
-	padding: 5px 11px 5px 5px;
-	border: 1px solid transparent;
+	gap: 10px;
+	min-height: 32px;
+	padding: 5px 10px;
 	border-radius: var(--radius-control);
 	color: var(--text-secondary);
 	font-weight: 500;
 	text-decoration: none;
 	transition:
-		transform var(--motion-press) var(--ease-standard),
-		border-color var(--motion-state) var(--ease-standard),
 		background-color var(--motion-state) var(--ease-standard),
-		box-shadow var(--motion-state) var(--ease-standard),
 		color var(--motion-state) var(--ease-standard);
 }
 
-.bridge-root .company-spine nav a:hover,
-.bridge-root .company-spine nav a:focus-visible {
-	border-color: color-mix(in srgb, var(--company-blue) 13%, var(--company-edge-soft));
-	background: rgba(255, 255, 255, 0.58);
-	box-shadow: var(--bevel-subtle);
+.bridge-root .company-spine nav a:hover {
+	background: color-mix(in srgb, var(--highlight) 62%, transparent);
 	color: var(--ink);
-}
-
-.bridge-root .company-spine nav a:active {
-	transform: translateY(1px);
 }
 
 .bridge-root .company-spine nav a.active {
-	border-color: color-mix(in srgb, var(--company-blue) 24%, var(--company-edge-soft));
 	background: var(--intent-conversation-soft);
-	box-shadow: none;
 	color: var(--ink);
-	font-weight: 600;
-}
-
-.bridge-root .company-spine nav a.active::after {
-	content: '';
-	position: absolute;
-	right: -1px;
-	top: 10px;
-	bottom: 10px;
-	width: 2px;
-	border-radius: 2px 0 0 2px;
-	background: var(--company-blue);
-	box-shadow: 0 0 8px color-mix(in srgb, var(--company-blue) 22%, transparent);
 }
 
 .bridge-root .company-spine nav i {
-	width: 30px;
-	height: 30px;
 	display: grid;
 	place-items: center;
-	border: 1px solid var(--company-edge-soft);
-	border-radius: var(--radius-control);
-	background: var(--surface-pane);
-	box-shadow: none;
 	color: var(--text-tertiary);
+	transition: color var(--motion-state) var(--ease-standard);
+}
+
+.bridge-root .company-spine nav a:hover i {
+	color: var(--text-secondary);
 }
 
 .bridge-root .company-spine nav a.active i {
-	border-color: color-mix(in srgb, var(--company-blue) 34%, var(--company-edge-soft));
-	background: var(--intent-conversation-soft);
-	box-shadow: none;
 	color: var(--intent-conversation);
 }
 
@@ -192,6 +165,13 @@
 	border-bottom: 1px solid var(--company-edge-soft);
 }
 
+/* A title's explanation sits beside the title on every page, whatever else
+ * the header holds, instead of being pushed to the far edge. */
+.bridge-root .company-page-head > h1 + .info-tip {
+	margin-right: auto;
+	margin-left: calc(8px - var(--space-5));
+}
+
 .bridge-root .company-page-freshness,
 .bridge-root .attention-crosslink,
 .bridge-root .doctor-computer-link {
@@ -199,7 +179,8 @@
 	align-items: center;
 	gap: 7px;
 	color: var(--text-tertiary);
-	font: var(--t-label) var(--font-mono);
+	font: var(--t-label) var(--font-ui);
+	font-variant-numeric: tabular-nums;
 	text-decoration: none;
 }
 
@@ -208,7 +189,7 @@
 	padding: 7px 10px;
 	border: 1px solid var(--company-edge-soft);
 	border-radius: var(--radius-control);
-	background: linear-gradient(180deg, #fff, #f0f3f7);
+	background: linear-gradient(180deg, var(--surface-raised), var(--surface-alt));
 	box-shadow: var(--control-depth);
 	color: var(--company-blue);
 	font-family: var(--font-ui);
@@ -242,21 +223,21 @@
 	border-radius: 50%;
 	background: var(--status-offline);
 	box-shadow:
-		inset 0 1px 1px rgba(255, 255, 255, 0.54),
+		inset 0 1px 1px color-mix(in srgb, var(--highlight) 54%, transparent),
 		0 0 0 2px rgba(170, 177, 189, 0.12);
 }
 
 .bridge-root :is(.status-live, .status-available, .doctor-healthy i, .check-healthy) {
 	background: var(--state-success);
 	box-shadow:
-		inset 0 1px 1px rgba(255, 255, 255, 0.42),
+		inset 0 1px 1px color-mix(in srgb, var(--highlight) 42%, transparent),
 		0 0 0 2px var(--state-success-soft);
 }
 
 .bridge-root :is(.status-stale, .doctor-degraded i, .check-degraded) {
 	background: var(--intent-authority);
 	box-shadow:
-		inset 0 1px 1px rgba(255, 255, 255, 0.42),
+		inset 0 1px 1px color-mix(in srgb, var(--highlight) 42%, transparent),
 		0 0 0 2px var(--intent-authority-soft);
 }
 
@@ -277,6 +258,8 @@
 	z-index: 4;
 	width: 24px;
 	height: 24px;
+	/* A 44px touch target around a 24px mark, without moving the layout. */
+	--tip-reach: 10px;
 	display: inline-grid;
 	place-items: center;
 	flex: 0 0 auto;
@@ -288,14 +271,24 @@
 	cursor: help;
 }
 
+@media (pointer: coarse) {
+	.bridge-root .info-tip::after {
+		content: '';
+		position: absolute;
+		inset: calc(var(--tip-reach) * -1);
+	}
+}
+
 .bridge-root .info-tip:hover,
 .bridge-root .info-tip:focus-visible {
 	border-color: var(--company-edge-soft);
-	background: linear-gradient(180deg, #fff, #eef2f6);
+	background: linear-gradient(180deg, var(--surface-raised), var(--surface-alt));
 	box-shadow: var(--bevel-subtle);
 	color: var(--ink);
 }
 
+/* Explanations use the same inverse bubble as hover tips in both themes, and
+ * rise into place like the other popovers rather than appearing at once. */
 .bridge-root .info-tip-content {
 	position: fixed;
 	inset: auto;
@@ -306,21 +299,49 @@
 	overflow: auto;
 	box-sizing: border-box;
 	padding: 10px 12px;
-	border: 1px solid rgba(255, 255, 255, 0.12);
+	border: 1px solid color-mix(in srgb, var(--highlight) 12%, transparent);
 	border-radius: var(--radius-control);
-	background: #202631;
+	background: var(--tooltip-bg);
 	box-shadow: var(--shadow-lift);
-	color: var(--text-inverse);
+	color: var(--tooltip-ink);
 	font: var(--t-body) var(--font-ui);
 	line-height: 1.5;
 	text-align: left;
 	overflow-wrap: anywhere;
 }
 
+.bridge-root .info-tip-content:popover-open {
+	opacity: 1;
+	transform: none;
+}
+
+.bridge-root .info-tip-content {
+	opacity: 0;
+	transform: translateY(-3px) scale(0.985);
+	transition:
+		opacity var(--motion-state) var(--ease-out),
+		transform var(--motion-state) var(--ease-out),
+		overlay var(--motion-state) allow-discrete,
+		display var(--motion-state) allow-discrete;
+}
+
+@starting-style {
+	.bridge-root .info-tip-content:popover-open {
+		opacity: 0;
+		transform: translateY(-3px) scale(0.985);
+	}
+}
+
 .bridge-root .section-heading {
 	justify-content: space-between;
 	gap: var(--space-2);
 	margin-bottom: 15px;
+}
+
+/* A new section after the limits starts at the same distance the page uses
+ * between its other sections. */
+.bridge-root .authority-settings + .section-heading {
+	margin-top: 36px;
 }
 
 /* ---------- source, error and empty states ---------- */
@@ -335,19 +356,26 @@
 	border-radius: var(--radius-control);
 	background: linear-gradient(
 		180deg,
-		#fff,
-		color-mix(in srgb, var(--state-danger-soft) 72%, #f3f5f8)
+		var(--surface-raised),
+		color-mix(in srgb, var(--state-danger-soft) 72%, var(--surface-alt))
 	);
 	box-shadow: var(--bevel-subtle);
 	color: var(--text-secondary);
+}
+
+/* Stale is not broken: the last recorded list is still true, so it reads as
+ * a caution, not an error. */
+.bridge-root .source-unavailable {
+	border-color: color-mix(in srgb, var(--intent-authority) 26%, var(--company-edge-soft));
+	background: color-mix(in srgb, var(--intent-authority-soft) 55%, var(--surface));
 }
 
 .bridge-root .computer-notice {
 	border-color: color-mix(in srgb, var(--state-success) 28%, var(--company-edge-soft));
 	background: linear-gradient(
 		180deg,
-		#fff,
-		color-mix(in srgb, var(--state-success-soft) 72%, #f3f5f8)
+		var(--surface-raised),
+		color-mix(in srgb, var(--state-success-soft) 72%, var(--surface-alt))
 	);
 }
 
@@ -356,18 +384,21 @@
 	color: var(--text-tertiary);
 }
 
-.bridge-root .company-page-wait {
-	width: 100%;
-	height: 3px;
-	border: 1px solid var(--company-edge-soft);
-	border-radius: 999px;
-	background:
-		linear-gradient(90deg, transparent, var(--company-blue), transparent), var(--company-inset);
-	background-size:
-		34% 100%,
-		auto;
-	box-shadow: var(--company-inset-shadow);
-	animation: company-reading var(--motion-working) linear infinite;
+/* When a whole page section has nothing to show, the empty line becomes a
+ * quiet placeholder panel instead of a stray sentence under the title. */
+.bridge-root .company-page > .quiet-empty,
+.bridge-root .company-page > section > .quiet-empty:only-child {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	margin-top: var(--space-5);
+	padding: var(--space-6);
+	border-radius: var(--radius-pane);
+	background: color-mix(in srgb, var(--ink) 3%, transparent);
+	text-align: center;
+	text-wrap: balance;
 }
 
 @keyframes company-reading {
@@ -414,7 +445,8 @@
 	gap: 7px;
 	margin-right: 4px;
 	color: var(--text-tertiary);
-	font: var(--t-label) var(--font-mono);
+	font: var(--t-label) var(--font-ui);
+	font-variant-numeric: tabular-nums;
 }
 
 .bridge-root .charter-edit-state i {
@@ -472,7 +504,8 @@
 	gap: 3px;
 	margin-bottom: 13px;
 	color: var(--text-tertiary);
-	font: var(--t-label) var(--font-mono);
+	font: var(--t-label) var(--font-ui);
+	font-variant-numeric: tabular-nums;
 }
 
 .bridge-root .charter-editor textarea {
@@ -485,7 +518,8 @@
 	box-shadow: inset 2px 0 transparent;
 	color: var(--ink);
 	caret-color: var(--company-amber);
-	font: var(--t-body) var(--font-mono);
+	font: var(--t-body) var(--font-ui);
+	font-variant-numeric: tabular-nums;
 	line-height: 1.72;
 	resize: vertical;
 }
@@ -582,7 +616,8 @@
 	padding-top: 15px;
 	border-top: 1px solid var(--company-edge-soft);
 	color: var(--text-tertiary);
-	font: var(--t-label) var(--font-mono);
+	font: var(--t-label) var(--font-ui);
+	font-variant-numeric: tabular-nums;
 }
 
 .bridge-root .charter-context {
@@ -669,7 +704,8 @@
 }
 
 .bridge-root .company-decision > summary time {
-	font: var(--t-label) var(--font-mono);
+	font: var(--t-label) var(--font-ui);
+	font-variant-numeric: tabular-nums;
 	color: var(--text-tertiary);
 	white-space: nowrap;
 }
@@ -713,7 +749,8 @@
 
 .bridge-root .company-decision-body dt,
 .bridge-root .company-decision-body footer span {
-	font: 500 var(--t-label) var(--font-mono);
+	font: 500 var(--t-label) var(--font-ui);
+	font-variant-numeric: tabular-nums;
 	color: var(--text-tertiary);
 }
 
@@ -740,23 +777,15 @@
 .bridge-root .limits-lower {
 	display: grid;
 	grid-template-columns: repeat(2, minmax(0, 1fr));
-	gap: var(--pane-gap);
-	padding: var(--pane-gap);
-	border: 1px solid var(--company-edge);
-	border-radius: var(--radius-pane);
-	background: var(--company-deck);
-	box-shadow: var(--company-inset-shadow);
+	gap: var(--space-4);
 }
 
 .bridge-root .limits-lower > section {
 	min-width: 0;
-	padding: 23px;
+	padding: 20px 22px;
 	border: 1px solid var(--company-edge-soft);
-	border-radius: var(--radius-control);
+	border-radius: var(--radius-pane);
 	background: var(--company-panel);
-	box-shadow:
-		var(--bevel-subtle),
-		0 2px 8px rgba(43, 51, 66, 0.04);
 }
 
 .bridge-root .company-facts,
@@ -887,31 +916,31 @@
 	box-shadow: var(--company-surface-shadow);
 }
 
+/* Three figures read as one line of numbers, separated by hairlines rather
+ * than set in tiles inside a tray inside the card. */
 .bridge-root .spend-line {
 	display: grid;
 	grid-template-columns: repeat(3, minmax(0, 1fr));
-	gap: var(--pane-gap);
-	margin-bottom: 13px;
-	padding: var(--pane-gap);
-	border: 1px solid var(--company-edge-soft);
-	border-radius: var(--radius-control);
-	background: var(--company-inset);
-	box-shadow: var(--company-inset-shadow);
+	margin: 4px 0 14px;
 }
 
 .bridge-root .spend-line > div {
 	min-width: 0;
 	display: grid;
 	gap: 2px;
-	padding: 12px 14px;
-	border: 1px solid rgba(255, 255, 255, 0.68);
-	border-radius: calc(var(--radius-control) - 1px);
-	background: rgba(255, 255, 255, 0.58);
+	padding: 4px 16px;
+	border-left: 1px solid var(--company-edge-soft);
+}
+
+.bridge-root .spend-line > div:first-child {
+	padding-left: 0;
+	border-left: 0;
 }
 
 .bridge-root .spend-line strong {
-	font-family: var(--font-mono);
+	font-family: var(--font-ui);
 	font-size: var(--t-head);
+	font-variant-numeric: tabular-nums;
 }
 
 .bridge-root .spend-line span {
@@ -919,20 +948,18 @@
 }
 
 .bridge-root .spend-track {
-	height: 8px;
+	height: 6px;
 	overflow: hidden;
-	border: 1px solid var(--company-edge-soft);
 	border-radius: 999px;
-	background: var(--company-inset);
-	box-shadow: var(--company-inset-shadow);
+	background: color-mix(in srgb, var(--ink) 9%, transparent);
 }
 
 .bridge-root .spend-track i {
 	display: block;
 	height: 100%;
 	border-radius: inherit;
-	background: linear-gradient(90deg, #a86e20, #d19a4b);
-	box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.32);
+	background: var(--intent-authority);
+	box-shadow: inset 0 1px 0 color-mix(in srgb, var(--highlight) 32%, transparent);
 }
 
 .bridge-root .party-list {
@@ -947,15 +974,14 @@
 .bridge-root .evidence-chip {
 	display: inline-flex;
 	align-items: center;
-	min-height: 25px;
-	padding: 3px 9px;
+	flex: none;
+	width: fit-content;
+	min-height: 22px;
+	padding: 2px 9px;
 	border: 1px solid var(--company-edge-soft);
 	border-radius: 999px;
-	background: linear-gradient(180deg, #fff, #edf1f5);
-	box-shadow:
-		var(--bevel-subtle),
-		0 1px 2px rgba(43, 51, 66, 0.05);
-	font: var(--t-label) var(--font-mono);
+	background: var(--surface-alt);
+	font: 500 var(--t-label) var(--font-ui);
 	white-space: nowrap;
 }
 
@@ -973,7 +999,8 @@
 }
 
 .bridge-root .money-envelope strong {
-	font-family: var(--font-mono);
+	font-family: var(--font-ui);
+	font-variant-numeric: tabular-nums;
 }
 
 .bridge-root .money-envelope span {
@@ -993,7 +1020,7 @@
 /* ---------- Resources ---------- */
 
 .bridge-root .resource-table {
-	padding: var(--pane-gap);
+	padding: 0;
 	border: 1px solid var(--company-edge);
 	border-radius: var(--radius-pane);
 	background: var(--company-deck);
@@ -1011,37 +1038,25 @@
 
 .bridge-root .resource-head {
 	padding: 10px 15px;
-	border: 1px solid var(--company-edge-soft);
-	border-radius: var(--radius-control) var(--radius-control) 0 0;
-	background: var(--company-inset);
-	box-shadow: var(--company-inset-shadow);
+	border-bottom: 1px solid var(--company-edge-soft);
 	color: var(--text-tertiary);
-	font: var(--t-label) var(--font-mono);
-	text-transform: uppercase;
-	letter-spacing: var(--track-label);
+	font-weight: 500;
 }
 
+/* One frame, ruled rows: a table inside a card, not cards inside a card. */
 .bridge-root .resource-row {
 	position: relative;
-	margin-top: var(--pane-gap);
 	padding: 14px 15px;
-	border: 1px solid var(--company-edge-soft);
-	border-radius: var(--radius-control);
 	background: var(--company-panel);
-	box-shadow:
-		var(--bevel-subtle),
-		0 2px 7px rgba(43, 51, 66, 0.035);
-	transition:
-		border-color var(--motion-state) var(--ease-standard),
-		box-shadow var(--motion-state) var(--ease-standard),
-		transform var(--motion-press) var(--ease-standard);
+	transition: background var(--motion-state) var(--ease-standard);
+}
+
+.bridge-root .resource-row + .resource-row {
+	border-top: 1px solid var(--company-edge-soft);
 }
 
 .bridge-root .resource-row:hover {
-	border-color: color-mix(in srgb, var(--company-blue) 18%, var(--company-edge-soft));
-	box-shadow:
-		var(--bevel),
-		0 5px 13px rgba(43, 51, 66, 0.06);
+	background: color-mix(in srgb, var(--company-panel), var(--ink) 2.5%);
 }
 
 .bridge-root .resource-row > div {
@@ -1049,7 +1064,7 @@
 }
 
 .bridge-root .resource-row > div:first-child,
-.bridge-root .resource-row > div:last-of-type {
+.bridge-root .resource-row > div:nth-of-type(3) {
 	display: grid;
 	gap: 3px;
 }
@@ -1062,15 +1077,18 @@
 
 .bridge-root .resource-row > div:first-child span,
 .bridge-root .resource-row time,
-.bridge-root .resource-row > div:last-of-type span {
+.bridge-root .resource-row > div:nth-of-type(3) span {
 	overflow: hidden;
 	color: var(--text-tertiary);
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 
-.bridge-root .resource-row details {
+.bridge-root .resource-detail-cell {
 	grid-column: 1 / -1;
+}
+
+.bridge-root .resource-row details {
 	margin-top: 3px;
 	border-top: 1px solid var(--company-edge-soft);
 }
@@ -1103,8 +1121,8 @@
 	border-color: color-mix(in srgb, var(--state-success) 26%, var(--company-edge-soft));
 	background: linear-gradient(
 		180deg,
-		#fff,
-		color-mix(in srgb, var(--state-success-soft) 80%, #edf1f5)
+		var(--surface-raised),
+		color-mix(in srgb, var(--state-success-soft) 80%, var(--surface-alt))
 	);
 	color: var(--state-success);
 }
@@ -1113,8 +1131,8 @@
 	border-color: color-mix(in srgb, var(--company-amber) 24%, var(--company-edge-soft));
 	background: linear-gradient(
 		180deg,
-		#fff,
-		color-mix(in srgb, var(--intent-authority-soft) 80%, #edf1f5)
+		var(--surface-raised),
+		color-mix(in srgb, var(--intent-authority-soft) 80%, var(--surface-alt))
 	);
 	color: var(--company-amber);
 }
@@ -1123,8 +1141,8 @@
 	border-color: color-mix(in srgb, var(--state-danger) 24%, var(--company-edge-soft));
 	background: linear-gradient(
 		180deg,
-		#fff,
-		color-mix(in srgb, var(--state-danger-soft) 80%, #edf1f5)
+		var(--surface-raised),
+		color-mix(in srgb, var(--state-danger-soft) 80%, var(--surface-alt))
 	);
 	color: var(--state-danger);
 }
@@ -1137,12 +1155,11 @@
 
 .bridge-root .action-ledger {
 	display: grid;
-	gap: var(--pane-gap);
-	padding: var(--pane-gap);
-	border: 1px solid var(--company-edge);
-	border-radius: var(--radius-pane);
-	background: var(--company-deck);
-	box-shadow: var(--company-inset-shadow);
+	border-top: 1px solid var(--company-edge-soft);
+}
+
+.bridge-root .action-ledger:has(> .quiet-empty) {
+	border-top: 0;
 }
 
 .bridge-root .action-ledger article {
@@ -1152,13 +1169,8 @@
 	align-items: center;
 	gap: 18px;
 	min-width: 0;
-	padding: 15px;
-	border: 1px solid var(--company-edge-soft);
-	border-radius: var(--radius-control);
-	background: var(--company-panel);
-	box-shadow:
-		var(--bevel-subtle),
-		0 2px 7px rgba(43, 51, 66, 0.035);
+	padding: 15px 4px 15px 14px;
+	border-bottom: 1px solid var(--company-edge-soft);
 }
 
 .bridge-root .action-ledger article::before {
@@ -1199,7 +1211,8 @@
 .bridge-root .action-provenance {
 	justify-content: flex-end;
 	gap: 9px;
-	font-family: var(--font-mono);
+	font-family: var(--font-ui);
+	font-variant-numeric: tabular-nums;
 	font-size: var(--t-label);
 	text-align: right;
 }
@@ -1238,20 +1251,32 @@
 	border: 1px solid var(--company-edge);
 	border-radius: var(--radius-pane);
 	background:
-		linear-gradient(120deg, color-mix(in srgb, var(--state-success) 5%, #fff), transparent 50%),
+		linear-gradient(
+			120deg,
+			color-mix(in srgb, var(--state-success) 5%, var(--surface-raised)),
+			transparent 50%
+		),
 		var(--company-panel);
 	box-shadow: var(--company-surface-shadow);
 }
 
 .bridge-root .doctor-overview.doctor-degraded {
 	background:
-		linear-gradient(120deg, color-mix(in srgb, var(--company-amber) 7%, #fff), transparent 50%),
+		linear-gradient(
+			120deg,
+			color-mix(in srgb, var(--company-amber) 7%, var(--surface-raised)),
+			transparent 50%
+		),
 		var(--company-panel);
 }
 
 .bridge-root .doctor-overview.doctor-unavailable {
 	background:
-		linear-gradient(120deg, color-mix(in srgb, var(--state-danger) 6%, #fff), transparent 50%),
+		linear-gradient(
+			120deg,
+			color-mix(in srgb, var(--state-danger) 6%, var(--surface-raised)),
+			transparent 50%
+		),
 		var(--company-panel);
 }
 
@@ -1262,7 +1287,7 @@
 	place-items: center;
 	border: 1px solid var(--company-edge-soft);
 	border-radius: var(--radius-pane);
-	background: linear-gradient(180deg, #fff, #edf1f5);
+	background: linear-gradient(180deg, var(--surface-raised), var(--surface-alt));
 	box-shadow: var(--control-depth);
 	color: var(--company-blue);
 }
@@ -1281,12 +1306,14 @@
 	align-items: center;
 	gap: 6px;
 	color: var(--text-tertiary);
-	font: var(--t-label) var(--font-mono);
+	font: var(--t-label) var(--font-ui);
+	font-variant-numeric: tabular-nums;
 }
 
 .bridge-root .doctor-overview > time {
 	color: var(--text-tertiary);
-	font: var(--t-label) var(--font-mono);
+	font: var(--t-label) var(--font-ui);
+	font-variant-numeric: tabular-nums;
 	white-space: nowrap;
 }
 
@@ -1300,39 +1327,28 @@
 	box-shadow: var(--company-surface-shadow);
 }
 
+/* One flat list of checks: rows and dividers, not cards inside a tray
+ * inside a card. */
 .bridge-root .doctor-checks {
 	display: grid;
 	grid-template-columns: repeat(2, minmax(0, 1fr));
-	gap: var(--pane-gap);
-	padding: var(--pane-gap);
-	border: 1px solid var(--company-edge-soft);
-	border-radius: var(--radius-control);
-	background: var(--company-deck);
-	box-shadow: var(--company-inset-shadow);
+	column-gap: var(--space-6);
+	border-top: 1px solid var(--company-edge-soft);
 }
 
 .bridge-root .doctor-checks article {
+	position: relative;
 	min-width: 0;
 	display: grid;
-	grid-template-columns: 10px minmax(0, 1fr) auto auto;
+	grid-template-columns: 10px minmax(0, 1fr) auto;
 	align-items: start;
 	gap: 11px;
-	padding: 14px;
-	border: 1px solid var(--company-edge-soft);
-	border-radius: var(--radius-control);
-	background: var(--company-panel);
-	box-shadow:
-		var(--bevel-subtle),
-		0 2px 7px rgba(43, 51, 66, 0.035);
+	padding: 14px 2px;
+	border-bottom: 1px solid var(--company-edge-soft);
 }
 
 .bridge-root .doctor-checks .check-state {
 	margin-top: 5px;
-}
-
-.bridge-root .doctor-checks article > span {
-	color: var(--text-tertiary);
-	font: var(--t-label) var(--font-mono);
 }
 
 .bridge-root .doctor-actions {
@@ -1350,8 +1366,8 @@
 	border-radius: var(--radius-control);
 	background: linear-gradient(
 		180deg,
-		#fff,
-		color-mix(in srgb, var(--intent-authority-soft) 60%, #eef2f6)
+		var(--surface-raised),
+		color-mix(in srgb, var(--intent-authority-soft) 60%, var(--surface-alt))
 	);
 	box-shadow: var(--bevel-subtle);
 }
@@ -1367,7 +1383,7 @@
 	padding: 14px;
 	border: 1px solid color-mix(in srgb, var(--state-success) 25%, var(--company-edge-soft));
 	border-radius: var(--radius-control);
-	background: color-mix(in srgb, var(--state-success-soft) 60%, #fff);
+	background: color-mix(in srgb, var(--state-success-soft) 60%, var(--surface-raised));
 	box-shadow: var(--bevel-subtle);
 }
 
@@ -1407,7 +1423,8 @@
 	overflow: hidden;
 	border-radius: inherit;
 	background:
-		radial-gradient(var(--dot) 1px, transparent 1.3px), linear-gradient(145deg, #f6f8fb, #e8edf3);
+		radial-gradient(var(--dot) 1px, transparent 1.3px),
+		linear-gradient(145deg, var(--surface-raised), var(--surface-alt));
 	background-size:
 		14px 14px,
 		auto;
@@ -1417,7 +1434,7 @@
 	content: '';
 	position: absolute;
 	inset: 7px;
-	border: 1px solid rgba(255, 255, 255, 0.66);
+	border: 1px solid color-mix(in srgb, var(--highlight) 66%, transparent);
 	border-radius: calc(var(--radius-pane) - 1px);
 	pointer-events: none;
 }
@@ -1435,7 +1452,7 @@
 
 .bridge-root .computer-portal-nav {
 	border-bottom: 1px solid var(--company-edge-soft);
-	background: rgba(250, 252, 254, 0.74);
+	background: color-mix(in srgb, var(--highlight) 74%, transparent);
 	box-shadow: var(--bevel-subtle);
 }
 
@@ -1447,7 +1464,7 @@
 	padding: 6px 10px;
 	border: 1px solid var(--company-edge-soft);
 	border-radius: var(--radius-control);
-	background: linear-gradient(180deg, #fff, #edf1f5);
+	background: linear-gradient(180deg, var(--surface-raised), var(--surface-alt));
 	box-shadow: var(--control-depth);
 	font-weight: 600;
 	text-decoration: none;
@@ -1495,11 +1512,11 @@
 	display: grid;
 	place-items: center;
 	padding: 12px;
-	border: 1px solid #afb8c5;
+	border: 1px solid var(--control-edge);
 	border-radius: 18px;
-	background: linear-gradient(145deg, #f9fbfd, #dfe5ec);
+	background: linear-gradient(145deg, var(--surface-raised), var(--surface-alt));
 	box-shadow:
-		inset 0 2px 0 rgba(255, 255, 255, 0.92),
+		inset 0 2px 0 color-mix(in srgb, var(--highlight) 92%, transparent),
 		inset 0 -2px 0 rgba(75, 85, 99, 0.09),
 		0 2px 4px rgba(43, 51, 66, 0.08),
 		0 24px 60px rgba(43, 51, 66, 0.15);
@@ -1509,30 +1526,10 @@
 		filter var(--motion-state) var(--ease-standard);
 }
 
-/* Cult UI's cutout-card idea, translated into the Bridge chassis: the corner
- * reveals the dotted deck underneath instead of adding ornamental content. */
-.bridge-root .computer-portal-machine::after {
-	content: '';
-	position: absolute;
-	top: -1px;
-	right: -1px;
-	width: 48px;
-	height: 48px;
-	border-left: 1px solid #afb8c5;
-	border-bottom: 1px solid #afb8c5;
-	border-bottom-left-radius: 18px;
-	background:
-		radial-gradient(var(--dot) 1px, transparent 1.3px), linear-gradient(145deg, #eef2f6, #e9edf3);
-	background-size:
-		14px 14px,
-		auto;
-	box-shadow: -4px 4px 10px rgba(43, 51, 66, 0.07);
-}
-
 .bridge-root .computer-portal-machine:hover:not(.unavailable) {
 	transform: translateY(-2px);
 	box-shadow:
-		inset 0 2px 0 rgba(255, 255, 255, 0.94),
+		inset 0 2px 0 color-mix(in srgb, var(--highlight) 94%, transparent),
 		inset 0 -2px 0 rgba(75, 85, 99, 0.09),
 		0 4px 8px rgba(43, 51, 66, 0.09),
 		0 30px 70px rgba(43, 51, 66, 0.17);
@@ -1551,15 +1548,15 @@
 	justify-content: center;
 	flex-direction: column;
 	padding: 34px;
-	border: 1px solid #bac3cf;
+	border: 1px solid var(--control-edge);
 	border-radius: 11px;
 	background:
 		radial-gradient(circle at 50% 30%, rgba(47, 108, 168, 0.08), transparent 31%),
-		linear-gradient(160deg, #eef3f7, #e3e9f0);
+		linear-gradient(160deg, var(--surface-alt), var(--surface-alt));
 	box-shadow:
 		inset 0 2px 5px rgba(43, 51, 66, 0.12),
-		inset 0 -1px 0 rgba(255, 255, 255, 0.78),
-		0 1px 0 rgba(255, 255, 255, 0.8);
+		inset 0 -1px 0 color-mix(in srgb, var(--highlight) 78%, transparent),
+		0 1px 0 color-mix(in srgb, var(--highlight) 80%, transparent);
 	text-align: center;
 }
 
@@ -1569,11 +1566,11 @@
 	display: grid;
 	place-items: center;
 	margin-bottom: 18px;
-	border: 1px solid #b8c2cf;
+	border: 1px solid var(--control-edge);
 	border-radius: 15px;
-	background: linear-gradient(145deg, #fff, #dfe6ee);
+	background: linear-gradient(145deg, var(--surface-raised), var(--surface-alt));
 	box-shadow:
-		inset 0 2px 0 rgba(255, 255, 255, 0.9),
+		inset 0 2px 0 color-mix(in srgb, var(--highlight) 90%, transparent),
 		0 2px 4px rgba(43, 51, 66, 0.08),
 		0 10px 22px rgba(43, 51, 66, 0.08);
 	color: var(--company-blue);
@@ -1589,7 +1586,8 @@
 	gap: 7px;
 	margin: 11px 0 22px;
 	color: var(--text-tertiary);
-	font: var(--t-label) var(--font-mono);
+	font: var(--t-label) var(--font-ui);
+	font-variant-numeric: tabular-nums;
 }
 
 .bridge-root .computer-enter {
@@ -1604,7 +1602,7 @@
 	border-radius: 999px;
 	background: linear-gradient(180deg, #467faf, #2d679e);
 	box-shadow:
-		inset 0 1px 0 rgba(255, 255, 255, 0.3),
+		inset 0 1px 0 color-mix(in srgb, var(--highlight) 30%, transparent),
 		inset 0 -1px 0 rgba(19, 54, 88, 0.16),
 		0 2px 4px rgba(32, 78, 125, 0.22),
 		0 10px 24px rgba(47, 108, 168, 0.18);
@@ -1620,7 +1618,7 @@
 .bridge-root .computer-enter:hover:not(:disabled) {
 	transform: translateY(-1px);
 	box-shadow:
-		inset 0 1px 0 rgba(255, 255, 255, 0.32),
+		inset 0 1px 0 color-mix(in srgb, var(--highlight) 32%, transparent),
 		inset 0 -1px 0 rgba(19, 54, 88, 0.16),
 		0 3px 6px rgba(32, 78, 125, 0.24),
 		0 14px 30px rgba(47, 108, 168, 0.22);
@@ -1639,6 +1637,11 @@
 	cursor: not-allowed;
 }
 
+.bridge-root .computer-portal-bezel > p.computer-unavailable-copy {
+	margin: 0 0 16px;
+	color: var(--text-secondary);
+}
+
 .bridge-root .computer-portal-bezel > p {
 	max-width: 370px;
 	margin: 17px 0 0;
@@ -1648,10 +1651,11 @@
 
 .bridge-root .computer-portal-footer {
 	border-top: 1px solid var(--company-edge-soft);
-	background: rgba(250, 252, 254, 0.74);
-	box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+	background: color-mix(in srgb, var(--highlight) 74%, transparent);
+	box-shadow: inset 0 1px 0 color-mix(in srgb, var(--highlight) 70%, transparent);
 	color: var(--text-tertiary);
-	font: var(--t-label) var(--font-mono);
+	font: var(--t-label) var(--font-ui);
+	font-variant-numeric: tabular-nums;
 }
 
 .bridge-root .computer-portal-footer > div {
@@ -1822,7 +1826,7 @@
 	min-height: 0;
 	border: 0;
 	border-radius: 0;
-	box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.025);
+	box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--highlight) 2.5%, transparent);
 }
 
 /* In computer focus, Exec is the last item in the desktop utility bar rather
@@ -1871,6 +1875,7 @@
 @container company-canvas (max-width: 940px) {
 	.bridge-root .charter-layout {
 		grid-template-columns: 1fr;
+		row-gap: var(--space-6);
 	}
 
 	.bridge-root .charter-context {
@@ -1909,10 +1914,15 @@
 		padding: 24px;
 	}
 
+	/* A narrow header wraps rather than stacks: the title and its explanation
+	 * stay together, and actions follow on the right or on the next line. */
 	.bridge-root .company-page-head {
-		align-items: flex-start;
-		flex-direction: column;
-		gap: 11px;
+		flex-wrap: wrap;
+		gap: 11px var(--space-3);
+	}
+
+	.bridge-root .company-page-head > h1 + .info-tip {
+		margin-left: calc(8px - var(--space-3));
 	}
 
 	.bridge-root .charter-head-actions {
@@ -1967,7 +1977,7 @@
 		gap: 12px;
 	}
 
-	.bridge-root .resource-row > div:last-of-type {
+	.bridge-root .resource-row > div:nth-of-type(3) {
 		grid-column: 1 / -1;
 		display: flex;
 		gap: 8px;
@@ -1975,7 +1985,7 @@
 		border-top: 1px solid var(--company-edge-soft);
 	}
 
-	.bridge-root .resource-row > div:last-of-type span,
+	.bridge-root .resource-row > div:nth-of-type(3) span,
 	.bridge-root .resource-row time {
 		white-space: normal;
 	}
@@ -2009,16 +2019,6 @@
 		min-width: 196px;
 	}
 
-	.bridge-root .company-spine nav a {
-		grid-template-columns: 32px minmax(0, 1fr);
-		padding-right: 7px;
-	}
-
-	.bridge-root .company-spine nav i {
-		width: 28px;
-		height: 28px;
-	}
-
 	.bridge-root .company-desktop-focus {
 		padding: 0;
 	}
@@ -2050,21 +2050,8 @@
 
 	.bridge-root .company-spine nav a {
 		flex: 0 0 auto;
-		grid-template-columns: 28px auto;
+		grid-template-columns: 18px auto;
 		min-height: 38px;
-		padding: 4px 9px 4px 4px;
-	}
-
-	.bridge-root .company-spine nav i {
-		width: 27px;
-		height: 27px;
-	}
-
-	.bridge-root .company-spine nav a.active::after {
-		inset: auto 8px -1px;
-		width: auto;
-		height: 2px;
-		border-radius: 2px 2px 0 0;
 	}
 
 	.bridge-root .company-canvas {
@@ -2153,8 +2140,7 @@
 	}
 
 	.bridge-root .company-spine nav a {
-		grid-template-columns: 28px;
-		padding-right: 4px;
+		grid-template-columns: 18px;
 	}
 
 	.bridge-root .company-page-head {
@@ -2171,17 +2157,8 @@
 		grid-template-columns: 1fr;
 	}
 
-	.bridge-root .resource-row > div:nth-child(2) {
-		justify-content: space-between;
-	}
-
 	.bridge-root .doctor-checks article {
 		grid-template-columns: 10px minmax(0, 1fr) auto;
-	}
-
-	.bridge-root .doctor-checks article > .info-tip {
-		grid-column: 3;
-		grid-row: 2;
 	}
 
 	.bridge-root .computer-portal-nav a {
@@ -2199,11 +2176,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.bridge-root .company-page-wait {
-		animation: none;
-		background: var(--company-blue);
-	}
-
 	.bridge-root .company-spine nav a,
 	.bridge-root .direction-link,
 	.bridge-root .resource-row,

@@ -1,6 +1,8 @@
 // Company access (ADR 0012). Core supplies the verified read side and names
 // the issuer; every change is made at that issuer with the account session.
 
+import { ownerJson } from './failure.ts';
+
 export type MembershipRole = 'owner' | 'admin' | 'member';
 export type MembershipStatus = 'active' | 'suspended' | 'removed';
 
@@ -68,19 +70,7 @@ export interface MemberRow extends IssuerMember {
 
 export class IssuerSessionMissing extends Error {}
 
-async function read<T>(response: Response): Promise<T> {
-	if (!response.ok) {
-		let message = `${response.status} ${response.statusText}`;
-		try {
-			const body = (await response.json()) as { message?: string; error?: { message?: string } };
-			message = body.message ?? body.error?.message ?? message;
-		} catch {
-			// Keep the transport status when the body is not JSON.
-		}
-		throw Object.assign(new Error(message), { status: response.status });
-	}
-	return response.json() as Promise<T>;
-}
+const read = ownerJson;
 
 export async function getCoreMembers(company: string): Promise<CoreMembersView> {
 	return read(

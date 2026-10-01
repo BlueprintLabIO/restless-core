@@ -1,6 +1,11 @@
 <script lang="ts">
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
+	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
+	import { failureSentence } from '$lib/model/failure';
 	import { page } from '$app/state';
+	import EmailMandates from '$lib/components/EmailMandates.svelte';
 	import InfoTip from '$lib/components/InfoTip.svelte';
+	import CopyCompanySetting from '$lib/components/CopyCompanySetting.svelte';
 	import { companyQuery } from '$lib/model/queries.svelte';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
@@ -48,7 +53,7 @@
 			editingRuntime = false;
 			runtimeNotice = 'Runtime limits saved.';
 		} catch (error) {
-			runtimeError = error instanceof Error ? error.message : 'Runtime limits could not be saved.';
+			runtimeError = failureSentence(error, 'Runtime limits could not be saved.');
 		} finally {
 			runtimeSaving = false;
 		}
@@ -70,7 +75,7 @@
 			editingLimit = false;
 			limitNotice = 'Spend limit saved.';
 		} catch (e) {
-			limitError = e instanceof Error ? e.message : 'The limit could not be saved.';
+			limitError = failureSentence(e, 'The limit could not be saved.');
 		} finally {
 			limitSaving = false;
 		}
@@ -100,9 +105,15 @@
 				<div class="section-heading">
 					<h2>Model spend</h2>
 					<InfoTip
-						text="The total model budget for this company, not a monthly allowance. Lowering it does not undo existing spend or cancel already admitted requests."
+						text="The total model budget, not a monthly one. Lowering it does not undo past spend."
 					/>
 				</div>
+				<CopyCompanySetting
+					{companyId}
+					setting="spend"
+					label="Model spend limit"
+					oncopied={() => source.refresh()}
+				/>
 				{#if editingLimit}
 					<form
 						class="limit-form"
@@ -171,7 +182,12 @@
 				</div>
 				<div
 					class="spend-track"
-					aria-label={`${money(view.limits.spend.accounted_usd)} of ${money(view.limits.spend.ceiling_usd)} accounted`}
+					role="meter"
+					aria-label="Model spend"
+					aria-valuemin={0}
+					aria-valuemax={view.limits.spend.ceiling_usd}
+					aria-valuenow={Math.min(view.limits.spend.accounted_usd, view.limits.spend.ceiling_usd)}
+					aria-valuetext={`${money(view.limits.spend.accounted_usd)} of ${money(view.limits.spend.ceiling_usd)} accounted`}
 				>
 					<i
 						style={`width: ${Math.min(100, (view.limits.spend.accounted_usd / Math.max(view.limits.spend.ceiling_usd, 0.01)) * 100)}%`}
@@ -179,13 +195,23 @@
 				</div>
 			</section>
 
+			<div class="limits-ledger">
+				<EmailMandates {companyId} />
+			</div>
+
 			<section class="limits-ledger">
 				<div class="section-heading">
 					<h2>Company computer</h2>
 					<InfoTip
-						text="Idle sleep stops the company computer while keeping its files and records. Scheduled wake is set separately for each schedule. The monthly hours threshold blocks a stopped computer from starting again after it is reached; an already running computer may use more time."
+						text="The computer sleeps when nothing needs it and wakes by itself for messages, ready work and due schedules; its files are kept. Once the monthly hours limit is reached, it will not start again that month."
 					/>
 				</div>
+				<CopyCompanySetting
+					{companyId}
+					setting="runtime"
+					label="Computer limits"
+					oncopied={() => source.refresh()}
+				/>
 				{#if editingRuntime}
 					<form
 						class="limit-form"
@@ -194,14 +220,15 @@
 							void saveRuntimePolicy();
 						}}
 					>
-						<label for="auto-sleep-minutes">Sleep after inactivity</label>
+						<label for="auto-sleep-minutes">Sleep when quiet for</label>
 						<select id="auto-sleep-minutes" bind:value={autoSleepMinutes} disabled={runtimeSaving}>
-							<option value="">Off</option>
+							<option value="">Default (30 minutes)</option>
 							<option value="15">15 minutes</option>
 							<option value="30">30 minutes</option>
 							<option value="60">1 hour</option>
 							<option value="120">2 hours</option>
-							{#if autoSleepMinutes !== '' && !['15', '30', '60', '120'].includes(autoSleepMinutes)}
+							<option value="0">Never</option>
+							{#if autoSleepMinutes !== '' && !['0', '15', '30', '60', '120'].includes(autoSleepMinutes)}
 								<option value={autoSleepMinutes}>{autoSleepMinutes} minutes</option>
 							{/if}
 						</select>
@@ -231,9 +258,9 @@
 					</form>
 				{:else}
 					<p>
-						Idle sleep: {view.limits.runtime.auto_sleep_after_minutes == null
-							? 'Off'
-							: `${view.limits.runtime.auto_sleep_after_minutes} minutes`}
+						Sleeps when quiet for: {view.limits.runtime.sleep_after_minutes == null
+							? 'Never'
+							: `${view.limits.runtime.sleep_after_minutes} minutes`}
 						· Monthly computer hours limit: {view.limits.runtime.monthly_runtime_cap_hours == null
 							? 'None'
 							: `${view.limits.runtime.monthly_runtime_cap_hours} hours`}
@@ -242,7 +269,14 @@
 						<p>
 							{view.limits.runtime.usage.complete ? '' : 'At least '}{(
 								view.limits.runtime.usage.used_seconds / 3600
-							).toFixed(1)} hours running this UTC month · {view.limits.runtime.usage.status}
+							).toFixed(1)} hours running this month (UTC) · {view.limits.runtime.usage.status ===
+								'stopped' && view.limits.runtime.asleep
+								? 'Asleep'
+								: ({
+										running: 'Awake',
+										stopped: 'Stopped',
+										absent: 'Not created yet'
+									}[view.limits.runtime.usage.status] ?? view.limits.runtime.usage.status)}
 						</p>
 					{:else}
 						<p class="source-unavailable">Runtime usage is temporarily unavailable.</p>
@@ -274,7 +308,7 @@
 						<div class="section-heading">
 							<h2>May do independently</h2>
 							<InfoTip
-								text="These are the outer classes of work allowed without a new owner decision. Each real effect still passes its source-owned checks."
+								text="What the company may do without asking you. Each action is still checked before it runs."
 							/>
 						</div>
 						{#each view.limits.independently as item (item.title)}<article>
@@ -285,9 +319,7 @@
 					<section>
 						<div class="section-heading">
 							<h2>Asks you</h2>
-							<InfoTip
-								text="Company shows the boundary; Attention remains the only place that resolves a pending owner decision."
-							/>
+							<InfoTip text="You approve these in Attention." />
 						</div>
 						{#each view.limits.asks_owner as item (item.title)}<article>
 								<strong>{item.title}</strong>
@@ -297,9 +329,7 @@
 					<section>
 						<div class="section-heading">
 							<h2>Cannot do</h2>
-							<InfoTip
-								text="These are authority and custody boundaries, not a speculative catalogue of every harmful act."
-							/>
+							<InfoTip text="The hard limits on what the company can do." />
 						</div>
 						{#each view.limits.cannot as item (item.title)}<article>
 								<strong>{item.title}</strong>
@@ -314,9 +344,7 @@
 				<section>
 					<div class="section-heading">
 						<h2>Approved external parties</h2>
-						<InfoTip
-							text="Standing first-contact grants are recorded when you approve a prepared external action in Attention."
-						/>
+						<InfoTip text="Added when you approve a first contact in Attention." />
 					</div>
 					{#if view.limits.approved_parties.length}<div class="party-list">
 							{#each view.limits.approved_parties as party}<span>{party}</span>{/each}
@@ -327,9 +355,7 @@
 				<section>
 					<div class="section-heading">
 						<h2>Payment allowances</h2>
-						<InfoTip
-							text="Payment allowances come from explicit owner authorizations. They are separate from the model spend limit above."
-						/>
+						<InfoTip text="Payments you have authorized. Separate from the model spend limit." />
 					</div>
 					{#if view.limits.money_envelopes.length}
 						{#each view.limits.money_envelopes as envelope (envelope.currency)}
@@ -346,9 +372,14 @@
 				</section>
 			</div>
 		{/if}
-	{:else if source.failure}<div class="company-source-error" role="alert">
-			{source.failure.message}
-		</div>{:else}<div class="company-page-wait" aria-label="Reading Authority"></div>{/if}
+	{:else if source.failure}
+		<FailureNotice
+			error={source.failure}
+			subject="limits"
+			variant="block"
+			onretry={source.refresh}
+		/>
+	{:else}<Skeleton label="Reading Authority…" variant="page" count={4} />{/if}
 </div>
 
 <style>
@@ -394,6 +425,10 @@
 		display: grid;
 		gap: var(--space-6);
 		min-width: 0;
+	}
+	/* The grid gap spaces the panels; their own margins would double it. */
+	.authority-settings > :global(.limits-ledger) {
+		margin: 0;
 	}
 
 	.standard-setting-message {

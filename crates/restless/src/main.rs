@@ -60,6 +60,13 @@ enum Command {
         #[command(subcommand)]
         command: ConnectedToolCommand,
     },
+    /// Install company-local stdio MCPs into an explicit actor launch contract.
+    LocalMcp {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
+        company: Option<String>,
+        #[command(subcommand)]
+        command: LocalMcpCommand,
+    },
     /// Authority-owned legal identity safe for ordinary company use.
     Legal {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
@@ -119,7 +126,13 @@ enum Command {
         #[arg(long)]
         destroy: bool,
     },
-    /// Company environment lifecycle status.
+    /// Put a quiet company computer to sleep now. Owed demand (messages,
+    /// ready Work, due schedules) wakes it; `down` stops it until you start it.
+    Sleep {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+    },
+    /// Whether the company computer is awake, asleep or stopped, and why.
     Status {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
@@ -277,6 +290,20 @@ enum Command {
         #[command(subcommand)]
         command: Option<GoalCommand>,
     },
+    /// Inspect the standing outbound-email mandate or ask Exec to issue a permit.
+    Mandate {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
+        company: Option<String>,
+        #[command(subcommand)]
+        command: MandateCommand,
+    },
+    /// Prepare or send one exact email under an Exec-issued permit.
+    Email {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
+        company: Option<String>,
+        #[command(subcommand)]
+        command: EmailCommand,
+    },
     /// Company skills: list, read, apply and import `SKILL.md` packages.
     Skill {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
@@ -381,6 +408,47 @@ enum Command {
 }
 
 #[derive(Subcommand)]
+enum MandateCommand {
+    /// List active owner-granted outbound email mandates.
+    List,
+    /// Issue a one-use permit for a specific sender, recipient and payload.
+    Permit {
+        /// The exact root mandate UUID.
+        #[arg(long)]
+        mandate: String,
+        /// JSON file containing sender, recipient, payload_sha256, effect_key,
+        /// rationale, evidence_refs and expires_at.
+        #[arg(long)]
+        proposal_file: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+enum EmailCommand {
+    /// Observe recent inbound and outbound Resend message metadata without sending.
+    Observe {
+        /// Inspect only one collection; use with --after to continue that list.
+        #[arg(long, value_parser = ["inbound", "outbound", "suppressions"])]
+        list: Option<String>,
+        /// Provider cursor returned as next_after by a prior observation.
+        #[arg(long)]
+        after: Option<String>,
+    },
+    /// Validate and show the canonical payload digest without reserving or sending.
+    Preview {
+        /// JSON file containing the typed email request.
+        #[arg(long)]
+        request_file: PathBuf,
+    },
+    /// Reserve the matching permit and send the exact prepared payload once.
+    Send {
+        /// JSON file containing the typed email request.
+        #[arg(long)]
+        request_file: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
 enum ApplianceCommand {
     /// Stage this CLI, its sibling daemon and built Cockpit, then install the user service.
     Install {
@@ -388,6 +456,10 @@ enum ApplianceCommand {
         daemon: Option<PathBuf>,
         #[arg(long)]
         cockpit: Option<PathBuf>,
+        /// Non-secret release settings (`KEY=value`): source commit, Runtime
+        /// and Documents image tags, host-tools paths. Staged as `release.env`.
+        #[arg(long)]
+        release_environment: Option<PathBuf>,
         /// Import only company-referenced environment credentials and provider
         /// endpoints into the stable appliance's private credential file.
         #[arg(long)]
@@ -402,6 +474,10 @@ enum ApplianceCommand {
         daemon: Option<PathBuf>,
         #[arg(long)]
         cockpit: Option<PathBuf>,
+        /// Non-secret release settings (`KEY=value`): source commit, Runtime
+        /// and Documents image tags, host-tools paths. Staged as `release.env`.
+        #[arg(long)]
+        release_environment: Option<PathBuf>,
         /// Refresh the private, filtered stable environment from this dotenv file.
         #[arg(long)]
         environment: Option<PathBuf>,
@@ -1435,6 +1511,16 @@ enum WorkCommand {
         /// atomically so redelivery cannot commission duplicate Work.
         #[arg(long)]
         source_message: Option<i64>,
+        /// Lease-held Opportunity whose primary Work and exact recurring
+        /// source occurrence must be committed with this Work.
+        #[arg(long, requires_all = ["owner_epoch", "schedule"])]
+        opportunity: Option<String>,
+        /// Current Opportunity lease epoch, paired with --opportunity.
+        #[arg(long, requires_all = ["opportunity", "schedule"])]
+        owner_epoch: Option<i64>,
+        /// Recurring schedule whose admitted occurrence sourced this Work.
+        #[arg(long, requires_all = ["opportunity", "owner_epoch"])]
+        schedule: Option<String>,
         /// Existing Work this node requires. Repeat for more than one. These
         /// edges are committed atomically with the node so it cannot start
         /// against a half-built graph.
@@ -1784,6 +1870,16 @@ enum CredentialCommand {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
     },
+    /// Verify the owner's current OAuth account and, if requested, clear only
+    /// an old Core-relay 403 cooldown for this exact primary model.
+    VerifyModel {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[arg(long)]
+        model: String,
+        #[arg(long)]
+        clear_relay_cooldown: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1808,6 +1904,7 @@ enum ConnectedToolCommand {
         /// The only durable actor whose fresh sessions receive this MCP.
         #[arg(long)]
         actor: String,
+        /// Blocked Work that owns this grant. It applies only to fresh Attempts.
         #[arg(long)]
         work: String,
         #[arg(long)]
@@ -1843,6 +1940,135 @@ enum ConnectedToolCommand {
         tools: Vec<String>,
     },
     /// Stop attaching this connection to all future sessions.
+    Disable {
+        #[arg(long)]
+        name: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum LocalMcpCommand {
+    /// List company-local descriptors. No environment or credential values are stored.
+    List,
+    /// Show the latest 100 Core-owned MCP read receipt events, optionally for one connection.
+    Receipts {
+        #[arg(long)]
+        name: Option<String>,
+    },
+    /// Inspect owner-approved recurring CH policies and the current fixed Work pin.
+    Recurring {
+        #[arg(long)]
+        name: Option<String>,
+    },
+    /// Approve one recurring responsibility for the exact reviewed CH actor and pin.
+    ApproveRecurring {
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        schedule: String,
+        #[arg(long)]
+        responsibility: String,
+        #[arg(long)]
+        version: i32,
+        #[arg(long)]
+        actor: String,
+    },
+    /// Revoke one schedule's future and in-flight recurring CH grants.
+    RevokeRecurring {
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        schedule: String,
+    },
+    /// Install a server command from the company Runtime volume for one actor's future sessions.
+    Install {
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        command: String,
+        /// Durable actor id that receives the server in its ACP launch contract.
+        #[arg(long)]
+        actor: String,
+        /// Blocked Work that owns this grant. It applies only to fresh Attempts.
+        #[arg(long)]
+        work: String,
+        /// Non-secret argument. Repeat to preserve order.
+        #[arg(long = "arg")]
+        args: Vec<String>,
+        /// Forward the signed actor coordination environment to a trusted broker-aware MCP.
+        #[arg(long)]
+        broker_aware: bool,
+    },
+    /// Connect a host-owned, loopback HTTP MCP through the Attempt-scoped gateway.
+    InstallHost {
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        endpoint: String,
+        /// Owner-only bearer file shared with the host MCP service.
+        #[arg(long)]
+        token_file: String,
+        #[arg(long)]
+        actor: String,
+        #[arg(long)]
+        work: String,
+        /// Exact permitted MCP tool name. Repeat for each tool.
+        #[arg(long = "tool", required = true)]
+        tools: Vec<String>,
+        /// Hard limit on started reads across Attempts; omission preserves an existing limit.
+        #[arg(long)]
+        max_calls_per_work: Option<i32>,
+        /// Explicitly clear an existing fixed-Work read-call limit.
+        #[arg(long, conflicts_with = "max_calls_per_work")]
+        unlimited_read_calls: bool,
+    },
+    /// Connect one reviewed public Streamable HTTP read profile through Core.
+    InstallPublicRead {
+        #[arg(long)]
+        profile: String,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        endpoint: String,
+        /// Exact public owner/repo this Work may inspect.
+        #[arg(long)]
+        repository: String,
+        #[arg(long)]
+        actor: String,
+        #[arg(long)]
+        work: String,
+        /// Exact permitted MCP tool name. Repeat only if the profile permits it.
+        #[arg(long = "tool", required = true)]
+        tools: Vec<String>,
+        /// Hard limit on started reads across Attempts; omission preserves an existing limit.
+        #[arg(long)]
+        max_calls_per_work: Option<i32>,
+        /// Explicitly clear an existing fixed-Work read-call limit.
+        #[arg(long, conflicts_with = "max_calls_per_work")]
+        unlimited_read_calls: bool,
+    },
+    /// Broker one filesystem MCP read tool through an isolated host stdio worker.
+    InstallStdioRead {
+        #[arg(long)]
+        name: String,
+        /// Owner-staged bundle containing node and the filesystem MCP package.
+        #[arg(long)]
+        bundle: String,
+        /// Host directory mounted read-only as /data inside the worker.
+        #[arg(long)]
+        read_root: String,
+        #[arg(long)]
+        actor: String,
+        #[arg(long)]
+        work: String,
+        /// Hard limit on started reads across Attempts; omission preserves an existing limit.
+        #[arg(long)]
+        max_calls_per_work: Option<i32>,
+        /// Explicitly clear an existing fixed-Work read-call limit.
+        #[arg(long, conflicts_with = "max_calls_per_work")]
+        unlimited_read_calls: bool,
+    },
+    /// Stop attaching this server to future actor sessions.
     Disable {
         #[arg(long)]
         name: String,
@@ -2070,6 +2296,7 @@ fn main() -> Result<()> {
             ApplianceCommand::Install {
                 daemon,
                 cockpit,
+                release_environment,
                 environment,
                 force,
             } => {
@@ -2078,6 +2305,7 @@ fn main() -> Result<()> {
                     serde_json::to_string_pretty(&appliance::install(
                         daemon,
                         cockpit,
+                        release_environment,
                         environment,
                         false,
                         force,
@@ -2088,6 +2316,7 @@ fn main() -> Result<()> {
             ApplianceCommand::Upgrade {
                 daemon,
                 cockpit,
+                release_environment,
                 environment,
                 force,
             } => {
@@ -2096,6 +2325,7 @@ fn main() -> Result<()> {
                     serde_json::to_string_pretty(&appliance::install(
                         daemon,
                         cockpit,
+                        release_environment,
                         environment,
                         true,
                         force,
@@ -2269,6 +2499,56 @@ fn stamp(mut request: serde_json::Value) -> serde_json::Value {
 /// One request/response pair; `watch` and `attach` handle their own I/O.
 fn request_json(command: Command) -> Result<serde_json::Value> {
     Ok(match command {
+        Command::Mandate { company, command } => match command {
+            MandateCommand::List => serde_json::json!({
+                "cmd": "mandate-list",
+                "company": company,
+            }),
+            MandateCommand::Permit {
+                mandate,
+                proposal_file,
+            } => {
+                let actor = acting_actor();
+                if principal() != "company/exec" || actor != "exec" {
+                    bail!("mandate permit must run as the authenticated Exec actor in the company Runtime");
+                }
+                serde_json::json!({
+                    "cmd": "mandate-permit",
+                    "company": company,
+                    "mandate_id": mandate,
+                    "mandate_proposal": read_json_file(&proposal_file)?,
+                    "actor": actor,
+                })
+            }
+        },
+        Command::Email { company, command } => {
+            if let EmailCommand::Observe { list, after } = &command {
+                return Ok(serde_json::json!({
+                    "cmd": "email-observe",
+                    "company": company,
+                    "actor": acting_actor(),
+                    "email_observe_list": list,
+                    "email_observe_after": after,
+                }));
+            }
+            let (cmd, request_file) = match command {
+                EmailCommand::Observe { .. } => unreachable!("handled above"),
+                EmailCommand::Preview { request_file } => ("email-preview", request_file),
+                EmailCommand::Send { request_file } => {
+                    let actor = acting_actor();
+                    if principal() != "company/exec" || actor != "exec" {
+                        bail!("email send must run as the authenticated Exec actor in the company Runtime");
+                    }
+                    ("email-send", request_file)
+                }
+            };
+            serde_json::json!({
+                "cmd": cmd,
+                "company": company,
+                "email_request": read_json_file(&request_file)?,
+                "actor": acting_actor(),
+            })
+        }
         Command::Room { company, command } => {
             let operation = match command {
                 RoomCommand::List {
@@ -2481,6 +2761,14 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             CredentialCommand::Check { company } => {
                 serde_json::json!({ "cmd": "credential-check", "company": company })
             }
+            CredentialCommand::VerifyModel {
+                company,
+                model,
+                clear_relay_cooldown,
+            } => serde_json::json!({
+                "cmd": "credential-verify-model", "company": company,
+                "model": model, "apply": clear_relay_cooldown,
+            }),
         },
         Command::ConnectedTool { company, command } => match command {
             ConnectedToolCommand::List => serde_json::json!({
@@ -2530,6 +2818,78 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             ConnectedToolCommand::Disable { name } => serde_json::json!({
                 "cmd": "connected-tool-disable", "company": company,
                 "tool_name": name, "actor": acting_actor(),
+            }),
+        },
+        Command::LocalMcp { company, command } => match command {
+            LocalMcpCommand::List => serde_json::json!({
+                "cmd": "local-mcp-list", "company": company,
+            }),
+            LocalMcpCommand::Receipts { name } => serde_json::json!({
+                "cmd": "local-mcp-receipts", "company": company, "tool_name": name,
+            }),
+            LocalMcpCommand::Recurring { name } => serde_json::json!({
+                "cmd": "local-mcp-recurring", "company": company, "tool_name": name,
+            }),
+            LocalMcpCommand::ApproveRecurring {
+                name, schedule, responsibility, version, actor,
+            } => serde_json::json!({
+                "cmd": "local-mcp-approve-recurring", "company": company,
+                "tool_name": name, "schedule_id": schedule,
+                "responsibility_id": responsibility, "version": version,
+                "assigned_actor": actor,
+            }),
+            LocalMcpCommand::RevokeRecurring { name, schedule } => serde_json::json!({
+                "cmd": "local-mcp-revoke-recurring", "company": company,
+                "tool_name": name, "schedule_id": schedule,
+            }),
+            LocalMcpCommand::Install {
+                name,
+                command,
+                actor,
+                work,
+                args,
+                broker_aware,
+            } => serde_json::json!({
+                "cmd": "local-mcp-install", "company": company,
+                "tool_name": name, "command": command, "assigned_actor": actor,
+                "work_id": work, "args": args, "broker_aware": broker_aware,
+            }),
+            LocalMcpCommand::InstallHost {
+                name,
+                endpoint,
+                token_file,
+                actor,
+                work,
+                tools,
+                max_calls_per_work,
+                unlimited_read_calls,
+            } => serde_json::json!({
+                "cmd": "local-mcp-install-host", "company": company,
+                "tool_name": name, "endpoint": endpoint, "token_file": token_file,
+                "assigned_actor": actor, "work_id": work, "allowed_tools": tools,
+                "max_calls_per_work": max_calls_per_work,
+                "unlimited_read_calls": unlimited_read_calls,
+            }),
+            LocalMcpCommand::InstallPublicRead {
+                profile, name, endpoint, repository, actor, work, tools,
+                max_calls_per_work, unlimited_read_calls,
+            } => serde_json::json!({
+                "cmd": "local-mcp-install-public-read", "company": company,
+                "read_profile": profile, "tool_name": name, "endpoint": endpoint,
+                "target_repository": repository, "assigned_actor": actor,
+                "work_id": work, "allowed_tools": tools,
+                "max_calls_per_work": max_calls_per_work,
+                "unlimited_read_calls": unlimited_read_calls,
+            }),
+            LocalMcpCommand::InstallStdioRead { name, bundle, read_root, actor, work, max_calls_per_work, unlimited_read_calls } => serde_json::json!({
+                "cmd": "local-mcp-install-stdio-read", "company": company,
+                "tool_name": name, "command": bundle, "args": [read_root],
+                "assigned_actor": actor, "work_id": work,
+                "max_calls_per_work": max_calls_per_work,
+                "unlimited_read_calls": unlimited_read_calls,
+            }),
+            LocalMcpCommand::Disable { name } => serde_json::json!({
+                "cmd": "local-mcp-disable", "company": company, "tool_name": name,
             }),
         },
         Command::Legal { company, command } => match command {
@@ -2668,6 +3028,9 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             destroy,
         } => {
             serde_json::json!({ "cmd": "down", "company": c, "destroy": destroy })
+        }
+        Command::Sleep { company: c } => {
+            serde_json::json!({ "cmd": "sleep", "company": c })
         }
         Command::Status { company: c } => {
             serde_json::json!({ "cmd": "status", "company": c })
@@ -3162,6 +3525,9 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 owner_review,
                 goal,
                 source_message,
+                opportunity,
+                owner_epoch,
+                schedule,
                 requires,
                 revises,
                 gate,
@@ -3190,6 +3556,8 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                     "integration_branch": integration_branch, "worktree": worktree,
                     "attempt_limit": attempt_limit, "owner_review": owner_review, "goal": goal,
                     "source_message_id": source_message,
+                    "opportunity_id": opportunity, "owner_epoch": owner_epoch,
+                    "schedule_id": schedule,
                     "requires": requires, "revises": revises, "gates": gates,
                     "constitution_contracts": constitution_contracts,
                     "skills": skill,
@@ -3720,6 +4088,13 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             unreachable!("handled above")
         }
     })
+}
+
+fn read_json_file(path: &PathBuf) -> Result<serde_json::Value> {
+    let text = std::fs::read_to_string(path)
+        .with_context(|| format!("read JSON input from {}", path.display()))?;
+    serde_json::from_str(&text)
+        .with_context(|| format!("parse JSON input from {}", path.display()))
 }
 
 fn read_secret_source(source: &str) -> Result<String> {

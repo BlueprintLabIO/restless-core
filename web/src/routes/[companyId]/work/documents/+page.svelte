@@ -1,4 +1,6 @@
 <script lang="ts">
+	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
+	import { failureSentence } from '$lib/model/failure';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
@@ -80,9 +82,7 @@
 		});
 	});
 
-	const sourceFailure = $derived(
-		shellPrincipal.failure?.message ?? list.failure?.message ?? detail.failure?.message ?? ''
-	);
+	const sourceFailure = $derived(shellPrincipal.failure ?? list.failure ?? detail.failure ?? null);
 
 	function documentHref(documentId: string): string {
 		return `/${encodeURIComponent(companyId)}/work/documents?document=${encodeURIComponent(documentId)}`;
@@ -165,7 +165,7 @@
 		} catch (cause) {
 			failClosedDocumentRead(client, cause, targetCompanyId, createdDocumentId);
 			if (companyId !== targetCompanyId) return;
-			createFailure = cause instanceof Error ? cause.message : 'The document was not created.';
+			createFailure = failureSentence(cause, 'The document was not created.');
 			if (!isRetryableDocumentFailure(cause)) createAttempt = null;
 		} finally {
 			createBusy = false;
@@ -201,7 +201,20 @@
 	class:document-requested={requestedDocumentId !== ''}
 	class:inspector-open={inspectorOpen}
 >
-	{#if sourceFailure}<div class="cockpit-error" role="alert">{sourceFailure}</div>{/if}
+	{#if sourceFailure}
+		<div class="cockpit-error">
+			<FailureNotice
+				error={sourceFailure}
+				subject="documents"
+				stale={list.status === 'stale'}
+				onretry={() => {
+					void shellPrincipal.refresh();
+					void list.refresh();
+					void detail.refresh();
+				}}
+			/>
+		</div>
+	{/if}
 
 	<aside class="document-index cockpit-pane" aria-label="Company documents">
 		<header class="cockpit-pane-head document-index-head">
@@ -246,6 +259,7 @@
 						bind:value={createTitle}
 						maxlength="200"
 						placeholder="Name the document"
+						{@attach (input) => input.focus()}
 						disabled={!online || createBusy}
 						oninput={() => (createAttempt = null)}
 					/></label
@@ -293,7 +307,7 @@
 				{:else if search}
 					<p class="document-list-empty">No documents match “{search}”.</p>
 				{:else}
-					<div class="document-list-empty">
+					<div class="document-list-empty unwritten">
 						<Files size={19} strokeWidth={1.5} aria-hidden="true" /><strong
 							>No documents yet.</strong
 						>
@@ -332,7 +346,11 @@
 			</header>
 			<DocumentEditor
 				{companyId}
-				companyUuid={collaboration.view?.company.company_id ?? null}
+				companyUuid={collaboration.view
+					? collaboration.view.company.company_id
+					: collaboration.failure
+						? null
+						: undefined}
 				view={documentView}
 				principalActorId={shellPrincipal.view?.actor_id ?? ''}
 				{online}
@@ -341,7 +359,11 @@
 				ondirtychange={(value) => (documentDirty = value)}
 			>
 				{#snippet actions()}
-                    <a class="btn small" href={`/${encodeURIComponent(companyId)}/people?${documentView.document.linked_room_id ? `room=${encodeURIComponent(documentView.document.linked_room_id)}` : 'person=exec'}&document=${encodeURIComponent(documentView.document.id)}`}>Discuss alongside</a>
+					<a
+						class="btn small"
+						href={`/${encodeURIComponent(companyId)}/people?${documentView.document.linked_room_id ? `room=${encodeURIComponent(documentView.document.linked_room_id)}` : 'person=exec'}&document=${encodeURIComponent(documentView.document.id)}`}
+						>Discuss alongside</a
+					>
 					<button
 						type="button"
 						class="btn small"
@@ -372,11 +394,8 @@
 		{:else}
 			<div class="document-stage-empty">
 				<FilePlus2 class="stage-empty-icon" size={25} strokeWidth={1.4} aria-hidden="true" />
-				<h2>Start the company notebook.</h2>
-				<p>
-					Briefs, plans, decisions, reports, and reviews stay readable while the Company Runtime
-					sleeps.
-				</p>
+				<h2>Start the company notebook</h2>
+				<p>Briefs, plans, decisions and reports you write with the team, readable any time.</p>
 				<button type="button" class="btn primary" onclick={() => (creating = true)}
 					>Create the first document</button
 				>
@@ -485,7 +504,7 @@
 	}
 	.create-document {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) 108px;
+		grid-template-columns: minmax(0, 1fr);
 		gap: 8px;
 		padding: 11px;
 		border-bottom: 1px solid var(--border);
@@ -504,11 +523,11 @@
 	.create-document input {
 		min-width: 0;
 		width: 100%;
-		height: 32px;
+		height: 36px;
 		padding: 5px 7px;
 		border: 1px solid var(--control-edge);
 		border-radius: var(--radius-control);
-		background: #fff;
+		background: var(--surface-raised);
 		color: var(--ink);
 		font: var(--t-body) var(--font-ui);
 	}
@@ -540,7 +559,7 @@
 		padding: 5px 8px 5px 29px;
 		border: 1px solid var(--border);
 		border-radius: var(--radius-control);
-		background: rgba(255, 255, 255, 0.72);
+		background: color-mix(in srgb, var(--highlight) 72%, transparent);
 		color: var(--ink);
 		font: var(--t-body) var(--font-ui);
 	}
@@ -618,6 +637,12 @@
 	.document-list-empty p {
 		margin: 0;
 	}
+	/* Beside the stage, the notebook prompt already says there is nothing yet. */
+	@media (min-width: 821px) {
+		.document-list-empty.unwritten {
+			display: none;
+		}
+	}
 	.document-list-loading,
 	.document-stage-loading {
 		display: grid;
@@ -684,6 +709,9 @@
 	.document-stage-empty p {
 		margin: 0;
 	}
+	.document-stage-empty .btn {
+		margin-top: var(--space-2);
+	}
 	.document-stage-empty p {
 		color: var(--text-secondary);
 		line-height: 1.6;
@@ -706,17 +734,6 @@
 	.mobile-document-bar,
 	.mobile-inspector-bar {
 		display: none;
-	}
-	.sr-only {
-		position: absolute;
-		width: 1px;
-		height: 1px;
-		padding: 0;
-		margin: -1px;
-		overflow: hidden;
-		clip: rect(0, 0, 0, 0);
-		white-space: nowrap;
-		border: 0;
 	}
 	@keyframes document-loading {
 		0% {
@@ -741,7 +758,8 @@
 			grid-column: 2;
 			display: flex;
 		}
-		.mobile-document-bar,
+		/* The editor's own toolbar already names the document and opens
+		 * comments; only the inspector, which replaces it here, needs a bar. */
 		.documents-screen.inspector-open .mobile-inspector-bar {
 			min-height: 44px;
 			display: grid;
@@ -751,10 +769,6 @@
 			padding: 7px 9px;
 			border-bottom: 1px solid var(--border);
 		}
-		.mobile-document-bar > button:first-child {
-			display: none;
-		}
-		.mobile-document-bar strong,
 		.mobile-inspector-bar strong {
 			overflow: hidden;
 			text-overflow: ellipsis;

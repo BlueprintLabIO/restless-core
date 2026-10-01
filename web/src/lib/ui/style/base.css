@@ -1,0 +1,108 @@
+/* ---------- the z-index ladder ----------
+ * One place, in order, so the next value is chosen rather than guessed.
+ *
+ * It lives on :root rather than on `.bridge-root`, because the app-level chrome
+ * (offline banner, loading bar) renders OUTSIDE the design scope — a token defined
+ * on `.bridge-root` would not inherit to them.
+ *
+ * Deliberately absent: hints. A hint bubble renders in the browser's TOP LAYER via the
+ * Popover API, which paints above the whole document regardless of z-index — so it needs
+ * no rung here, and adding one would imply it competes with these when it does not. */
+:root {
+	--z-raised: 2; /* in-flow lift: the rail's gate over the conversation */
+	--z-sticky: 40; /* the glass topbar */
+	--z-docked: 50; /* fixed notices docked to a window edge */
+	--z-rail: 60; /* the executive rail when narrow screens make it float over the page */
+	--z-overlay: 90; /* modal scrim */
+	--z-palette: 95; /* command palette, above the scrim it may open over */
+	--z-app: 1000; /* the app shell outside :is(.bridge-root, .bridge-tokens): offline banner, loading bar */
+}
+
+/* Until Inter arrives, text is set in a local Arial scaled to Inter's
+ * metrics, so the swap changes the letterforms and not the layout. */
+@font-face {
+	font-family: 'Inter Fallback';
+	src: local('Arial'), local('Liberation Sans'), local('Helvetica');
+	size-adjust: 107.4%;
+	ascent-override: 90.2%;
+	descent-override: 22.48%;
+	line-gap-override: 0%;
+}
+
+:root {
+	font-family: var(--font-ui);
+	color: #17181c;
+	background: #eef1f5;
+	color-scheme: light;
+	font-synthesis: none;
+}
+
+:root[data-theme='dark'] {
+	color: #e6e8ee;
+	background: #0e1014;
+	color-scheme: dark;
+}
+
+/* The app frame outside .bridge-root (loading bar, offline banner, stalled
+ * navigation) cannot see the scoped tokens, so it gets its own small set. */
+:root {
+	--app-ink: #293244;
+	--app-muted: rgba(23, 27, 36, 0.66);
+	--app-surface: #fafbfe;
+	--app-edge: rgba(76, 88, 117, 0.18);
+	--app-accent: #456687;
+	--app-accent-soft: #e8eff8;
+	--app-danger: #9b545b;
+	--app-danger-soft: #f7e9eb;
+	--highlight: #fff;
+	--surface-pane: #fafbfe;
+}
+
+:root[data-theme='dark'] {
+	--app-ink: #e4e7ee;
+	--app-muted: rgba(228, 231, 238, 0.6);
+	--app-surface: #1b1e25;
+	--app-edge: rgba(255, 255, 255, 0.1);
+	--app-accent: #93b2d8;
+	--app-accent-soft: #1c2533;
+	--app-danger: #e3979e;
+	--app-danger-soft: #2c1b1e;
+	--highlight: rgba(255, 255, 255, 0.08);
+	--surface-pane: #15171c;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	min-width: 320px;
+	min-height: 100vh;
+}
+
+button,
+textarea,
+input,
+select {
+	font: inherit;
+}
+
+button {
+	color: inherit;
+}
+
+/* Text for assistive technology only. Several components rely on this; it
+ * was only ever defined locally in one route, so the rest rendered visibly. */
+.sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	padding: 0;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+	clip-path: inset(50%);
+	white-space: nowrap;
+	border: 0;
+}

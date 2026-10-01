@@ -601,7 +601,7 @@ impl OrgIntel {
         .bind(created_by)
         .bind(lead_actor_id)
         .bind(format!(
-            "You have been commissioned to lead team `{id}` ({name}). Read the current team charter, commission Staff production for the first useful outcome, and report only material results or blockers.",
+            "You now lead {name}. Read the current team charter, commission Staff production for the first useful outcome, and report only material results or blockers.",
             name = name.trim()
         ))
         .execute(&mut *tx)

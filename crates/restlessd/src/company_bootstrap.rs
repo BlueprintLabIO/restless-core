@@ -806,16 +806,35 @@ fn desired_company_config(
         worker_harness: runtime::AgentHarness::RestlessManaged,
         reasoning_effort: request.reasoning_effort.clone(),
         model_failover: Vec::new(),
-        credentials: Default::default(),
+        credentials: hosted_model_credentials(&request.model),
         approved_parties: Vec::new(),
     }
+}
+
+/// A hosted company starts with its plane's model-relay capability for the provider it was
+/// bootstrapped on, so it can think immediately. The owner may later connect their own
+/// provider (bring your own credentials); those references sit beside this one.
+fn hosted_model_credentials(model: &str) -> std::collections::BTreeMap<String, String> {
+    let mut credentials = std::collections::BTreeMap::new();
+    let hosted = std::env::var("RESTLESS_HOSTED_MODEL_CREDENTIAL_REFERENCE").ok();
+    if hosted.as_deref() == Some(crate::credential::HOSTED_MODEL_RELAY_REFERENCE) {
+        if let Some((provider, _)) = model.split_once('/') {
+            credentials.insert(
+                format!("model.inference.{provider}"),
+                crate::credential::HOSTED_MODEL_RELAY_REFERENCE.to_string(),
+            );
+        }
+    }
+    credentials
 }
 
 fn canonical_company_config(config: &runtime::CompanyConfig) -> BootstrapResult<String> {
     toml::to_string_pretty(config).map_err(unavailable)
 }
 
-fn company_handle(company_id: Uuid) -> String {
+/// The one derivation of a hosted company's Core handle: bootstrap stores it and the Runtime
+/// bridge must recognise the same value.
+pub(crate) fn company_handle(company_id: Uuid) -> String {
     format!("company_{}", company_id.simple())
 }
 

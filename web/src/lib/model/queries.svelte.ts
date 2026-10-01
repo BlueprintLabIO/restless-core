@@ -29,6 +29,7 @@ import { getBrowserStatus, getCompany, type BrowserStatus, type CompanyView } fr
 import { getCompanyIdentity, type CompanyIdentitySnapshot } from './identity';
 import { getCompanyPrincipal, type CompanyPrincipal } from './query-persistence';
 import type { ThreadMessage } from './view';
+import { changes, pollEvery } from './connection.svelte';
 
 export type QuerySourceStatus = 'unknown' | 'live' | 'stale';
 export type ActivityTransport = 'idle' | 'connecting' | 'live' | 'reconnecting';
@@ -71,19 +72,8 @@ export function companyPrincipalQuery(companyId: string) {
 		enabled: Boolean(companyId),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
-		refetchInterval: REFRESH_MS,
-		refetchIntervalInBackground: false,
-		retry: (failureCount, error) => {
-			const status = (error as { status?: unknown }).status;
-			const code = (error as { code?: unknown }).code;
-			return (
-				status !== 401 &&
-				status !== 403 &&
-				status !== 404 &&
-				code !== 'invalid_principal' &&
-				failureCount < 1
-			);
-		}
+		refetchInterval: pollEvery(REFRESH_MS, 60_000),
+		refetchIntervalInBackground: false
 	}));
 	return {
 		get view() {
@@ -123,20 +113,8 @@ export function collaborationBootstrapQuery(
 		enabled: Boolean(companyId) && Boolean(principal()),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
-		refetchInterval: REFRESH_MS,
-		refetchIntervalInBackground: false,
-		retry: (failureCount, error) => {
-			const status = (error as { status?: unknown }).status;
-			const code = (error as { code?: unknown }).code;
-			return (
-				status !== 401 &&
-				status !== 403 &&
-				status !== 404 &&
-				code !== 'invalid_collaboration' &&
-				code !== 'collaboration_principal_changed' &&
-				failureCount < 1
-			);
-		}
+		refetchInterval: pollEvery(REFRESH_MS, 60_000),
+		refetchIntervalInBackground: false
 	}));
 	return {
 		get view() {
@@ -166,7 +144,7 @@ function refresh<T>(query: { refetch: () => Promise<T> }): Promise<T> {
 }
 
 export function attentionQuery(companyId: string | (() => string), enabled: QueryEnabled = true) {
-	const currentCompany = () => typeof companyId === 'function' ? companyId() : companyId;
+	const currentCompany = () => (typeof companyId === 'function' ? companyId() : companyId);
 	const client = useQueryClient();
 	onMount(() => {
 		if (typeof BroadcastChannel === 'undefined') return;
@@ -184,9 +162,8 @@ export function attentionQuery(companyId: string | (() => string), enabled: Quer
 		enabled: queryEnabled(enabled),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
-		refetchInterval: REFRESH_MS,
-		refetchIntervalInBackground: false,
-		retry: 1
+		refetchInterval: pollEvery(REFRESH_MS, 30_000),
+		refetchIntervalInBackground: false
 	}));
 	return {
 		get view() {
@@ -223,10 +200,14 @@ export async function removeConfirmedAttention(
 	const queryKey = queryKeys.attention(companyId);
 	// An older in-flight read must not put the decided card back into the queue.
 	await client.cancelQueries({ queryKey });
-	client.setQueryData<AttentionView>(queryKey, (view) => view && ({
-		...view,
-		items: view.items.filter((item) => item.id !== itemId)
-	}));
+	client.setQueryData<AttentionView>(
+		queryKey,
+		(view) =>
+			view && {
+				...view,
+				items: view.items.filter((item) => item.id !== itemId)
+			}
+	);
 	void refreshAttention(client, companyId);
 }
 
@@ -238,8 +219,7 @@ export function companiesQuery(enabled: QueryEnabled = true) {
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
 		refetchInterval: 60_000,
-		refetchIntervalInBackground: false,
-		retry: 1
+		refetchIntervalInBackground: false
 	}));
 	return {
 		get view() {
@@ -317,8 +297,7 @@ export function portfolioQuery() {
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
 		refetchInterval: 30_000,
-		refetchIntervalInBackground: false,
-		retry: 1
+		refetchIntervalInBackground: false
 	}));
 	return {
 		get view() {
@@ -335,16 +314,15 @@ export function portfolioQuery() {
 }
 
 export function cockpitQuery(companyId: string | (() => string), enabled: QueryEnabled = true) {
-	const currentCompany = () => typeof companyId === 'function' ? companyId() : companyId;
+	const currentCompany = () => (typeof companyId === 'function' ? companyId() : companyId);
 	const query = createQuery(() => ({
 		queryKey: queryKeys.cockpit(currentCompany()),
 		queryFn: ({ queryKey }) => getCockpit(queryKey[1]),
 		enabled: queryEnabled(enabled),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
-		refetchInterval: REFRESH_MS,
-		refetchIntervalInBackground: false,
-		retry: 1
+		refetchInterval: pollEvery(REFRESH_MS, 30_000),
+		refetchIntervalInBackground: false
 	}));
 	return {
 		get view() {
@@ -363,29 +341,35 @@ export function cockpitQuery(companyId: string | (() => string), enabled: QueryE
 export function companyQuery(companyId: string, enabled: QueryEnabled = true) {
 	const client = useQueryClient();
 	let probeCredentials = $state(false);
-	const query = createQuery(() => ({
-		queryKey: queryKeys.company(companyId, probeCredentials),
-		queryFn: () => getCompany(companyId, probeCredentials),
-		enabled: queryEnabled(enabled),
+	const options = (probe: boolean, on: () => boolean) => ({
+		queryKey: queryKeys.company(companyId, probe),
+		queryFn: () => getCompany(companyId, probe),
+		enabled: queryEnabled(enabled) && on(),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
 		refetchInterval: 60_000,
-		refetchIntervalInBackground: false,
-		retry: 1
-	}));
+		refetchIntervalInBackground: false
+	});
+	/* The ordinary read always runs. A page that asks for a live credential
+	 * probe (which can take seconds) shows the ordinary read — where every
+	 * reference says it is unprobed — until the probe answers. */
+	const plain = createQuery(() => options(false, () => true));
+	const probed = createQuery(() => options(true, () => probeCredentials));
+	const current = () => (probeCredentials && (probed.data || probed.error) ? probed : plain);
 	return {
 		get view() {
-			return (query.data as CompanyView | undefined) ?? null;
+			return ((probed.data ?? plain.data) as CompanyView | undefined) ?? null;
 		},
 		get status() {
-			return statusOf(query);
+			if (probeCredentials && !probed.data && !probed.error) return 'unknown';
+			return statusOf(current());
 		},
 		get failure() {
-			return (query.error as (Error & { status?: number }) | null) ?? null;
+			return (current().error as (Error & { status?: number }) | null) ?? null;
 		},
-		refresh: () => refresh(query),
+		refresh: () => refresh(current()),
 		accept(view: CompanyView): void {
-			client.setQueryData(queryKeys.company(companyId, probeCredentials), view);
+			if (probeCredentials) client.setQueryData(queryKeys.company(companyId, true), view);
 			client.setQueryData(queryKeys.company(companyId, false), view);
 		},
 		attach(probe = false): () => void {
@@ -402,8 +386,7 @@ export function identityQuery(companyId: string) {
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
 		refetchInterval: REFRESH_MS,
-		refetchIntervalInBackground: false,
-		retry: 1
+		refetchIntervalInBackground: false
 	}));
 	return {
 		get view() {
@@ -426,8 +409,7 @@ export function browserStatusQuery(companyId: string) {
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
 		refetchInterval: REFRESH_MS,
-		refetchIntervalInBackground: false,
-		retry: 1
+		refetchIntervalInBackground: false
 	}));
 	return {
 		get view() {
@@ -494,9 +476,8 @@ export function conversationQuery(
 		enabled: queryEnabled(enabled),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
-		refetchInterval: REFRESH_MS,
-		refetchIntervalInBackground: false,
-		retry: 1
+		refetchInterval: pollEvery(REFRESH_MS, 60_000),
+		refetchIntervalInBackground: false
 	}));
 
 	let live = $state<AgentActivityState | null>(null);
@@ -756,4 +737,41 @@ export function invalidateCompany(client: QueryClient, companyId: string): Promi
 		client.invalidateQueries({ queryKey: ['company-collaboration', companyId] }),
 		client.invalidateQueries({ queryKey: queryKeys.company(companyId, false) })
 	]).then(() => undefined);
+}
+
+/* An open Room has its own exact event stream (room-queries.svelte.ts) with
+ * snapshot and replay; refetching its messages here as well only doubles the
+ * same request and cancels one of them. */
+const ROOM_STREAM_OWNED = new Set(['room-messages', 'room-thread']);
+
+/**
+ * One change stream per open company. Each hint refetches the company's
+ * queries that are on screen — a single rule, cheap because hints are
+ * coalesced server-side and only active queries refetch. EventSource
+ * reconnects by itself; while it is down, polling returns to its ordinary pace.
+ */
+export function companyChangeStream(companyId: () => string, enabled: QueryEnabled = true) {
+	const client = useQueryClient();
+	$effect(() => {
+		const company = companyId();
+		if (!company || !queryEnabled(enabled) || typeof EventSource === 'undefined') return;
+		const source = new EventSource(`/api/companies/${encodeURIComponent(company)}/changes`);
+		source.onopen = () => (changes.live = true);
+		source.onerror = () => (changes.live = false);
+		source.addEventListener('change', () => {
+			/* Every kind refreshes every active query for the company, except
+			 * an open Room's messages, which the Room's own stream owns. A
+			 * bare `room_event` is not "only rooms": a message to the Exec is
+			 * one too, and the Exec rail must see it. */
+			void client.invalidateQueries({
+				predicate: (query) =>
+					query.queryKey.includes(company) && !ROOM_STREAM_OWNED.has(String(query.queryKey[0])),
+				refetchType: 'active'
+			});
+		});
+		return () => {
+			source.close();
+			changes.live = false;
+		};
+	});
 }

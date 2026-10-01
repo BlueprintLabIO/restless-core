@@ -1,4 +1,5 @@
 import type { QueryClient } from '@tanstack/query-core';
+import { responseFailure } from './failure.ts';
 
 export const QUERY_CACHE_SCHEMA = 2;
 export const QUERY_CACHE_MAX_AGE_MS = 12 * 60 * 60_000;
@@ -483,13 +484,12 @@ export async function getCompanyPrincipal(
 		signal
 	});
 	if (!response.ok) {
-		const message =
-			response.status === 401
-				? 'Your company session has ended. Sign in again. If your access was removed, ask the company owner for an invitation.'
-				: `${response.status} ${response.statusText}`;
-		throw Object.assign(new Error(message), {
-			status: response.status
-		});
+		const failure = await responseFailure(response);
+		if (response.status === 401) {
+			failure.message = failure.serverMessage =
+				'Your session has ended. Sign in again, or ask the owner for a new invitation.';
+		}
+		throw failure;
 	}
 	const value = record(await response.json());
 	const actorId = string(value?.actor_id, 256);
@@ -635,7 +635,6 @@ export function startCompanyQueryPersistence(
 ): { stop(): void; verify(): Promise<void> } {
 	let disposed = false;
 	let verification = 0;
-	let abort: AbortController | null = null;
 	let unsubscribe: (() => void) | null = null;
 	let saveTimer: ReturnType<typeof setTimeout> | null = null;
 	let activeId: string | null = null;
@@ -703,11 +702,17 @@ export function startCompanyQueryPersistence(
 
 	const verify = async () => {
 		const token = ++verification;
-		abort?.abort();
-		abort = new AbortController();
 		let principal: CompanyPrincipal;
 		try {
-			principal = await getCompanyPrincipal(company, abort.signal);
+			/* Share the page's own principal request instead of sending a second
+			 * one: fetchQuery joins a request already in flight for this key and
+			 * otherwise asks the server afresh (staleTime 0), so verification
+			 * still never trusts a cached answer. */
+			principal = await client.fetchQuery({
+				queryKey: ['company-principal', company],
+				queryFn: ({ signal }) => getCompanyPrincipal(company, signal),
+				staleTime: 0
+			});
 		} catch (error) {
 			if (disposed || token !== verification || (error as Error).name === 'AbortError') return;
 			const status = (error as { status?: unknown }).status;
@@ -748,11 +753,12 @@ export function startCompanyQueryPersistence(
 					const current = client.getQueryState(entry.queryKey);
 					if (!shouldHydratePersistedEntry(current?.dataUpdatedAt, entry.dataUpdatedAt)) continue;
 					client.setQueryData(entry.queryKey, entry.data, { updatedAt: entry.dataUpdatedAt });
-					void client.invalidateQueries({
-						queryKey: entry.queryKey,
-						exact: true,
-						refetchType: 'active'
-					});
+					// Revalidate, but let a read already in flight finish rather
+					// than cancelling it and asking again.
+					void client.invalidateQueries(
+						{ queryKey: entry.queryKey, exact: true, refetchType: 'active' },
+						{ cancelRefetch: false }
+					);
 				}
 			}
 		} catch {
@@ -779,7 +785,6 @@ export function startCompanyQueryPersistence(
 			flushPersist();
 			disposed = true;
 			verification += 1;
-			abort?.abort();
 			unsubscribe?.();
 			if (typeof document !== 'undefined')
 				document.removeEventListener('visibilitychange', onVisibility);

@@ -1,5 +1,11 @@
 <script lang="ts">
+	import { listIn } from '$lib/ui/motion';
+	import { runStateLabel, workStatusLabel } from '$lib/work/status';
+	import { untrack } from 'svelte';
+	import { fade } from 'svelte/transition';
+	import { springEase } from '$lib/ui/motion';
 	import {
+		blendLayouts,
 		layoutWorkGraph,
 		WORK_NODE_HEIGHT,
 		WORK_NODE_WIDTH,
@@ -32,6 +38,7 @@
 			.filter((item) => item.status === 'blocked' || item.status === 'active')
 			.toSorted((a, b) => b.priority - a.priority)[0]?.id ?? null
 	);
+	const GLIDE_MS = 700;
 	const layout = $derived.by(() =>
 		layoutWorkGraph(work, edges, (item) => ({
 			item,
@@ -43,18 +50,39 @@
 			isFocus: item.id === focusId
 		}))
 	);
+	/* When Work is added, finished or rewired, the map glides to its new
+	 * layout: nodes move and their lines bend with them, instead of the
+	 * whole graph jumping. The first layout and reduced motion apply at once. */
+	let shown = $state<typeof layout | null>(null);
+	$effect(() => {
+		const target = layout;
+		const from = untrack(() => shown);
+		const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+		if (!from || reduced) {
+			shown = target;
+			return;
+		}
+		const start = performance.now();
+		const origin = from;
+		let frame = requestAnimationFrame(function step(now) {
+			const t = Math.min(1, (now - start) / GLIDE_MS);
+			shown = blendLayouts(origin, target, springEase(t, 0.7));
+			if (t < 1) frame = requestAnimationFrame(step);
+		});
+		return () => cancelAnimationFrame(frame);
+	});
+	const view = $derived(shown ?? layout);
+	/* A path a little wider than the stage shrinks to fit (never below 85%,
+	 * where titles stay legible) instead of hiding its last column behind a
+	 * horizontal scroll. Larger graphs still scroll. */
+	let flowWidth = $state(0);
+	const scale = $derived(
+		flowWidth && layout.width > flowWidth ? Math.max(0.85, flowWidth / layout.width) : 1
+	);
 	const scopeLabel = $derived(edges.length ? 'Current path' : 'Current Work');
 
 	function stateLabel(item: WorkGraphItem): string {
-		return item.status === 'proposed'
-			? 'Next'
-			: item.status === 'active'
-				? 'In motion'
-				: item.status === 'blocked'
-					? 'Waiting'
-					: item.status === 'completed'
-						? 'Landed'
-						: 'Stopped';
+		return workStatusLabel(item.status);
 	}
 
 	function signal(node: (typeof layout.nodes)[number]): string {
@@ -64,86 +92,98 @@
 		if (node.data.artifactCount) {
 			return `${node.data.artifactCount} ${node.data.artifactCount === 1 ? 'output' : 'outputs'}`;
 		}
-		return node.data.attemptState.replaceAll('_', ' ');
+		return runStateLabel(node.data.attemptState);
 	}
 </script>
 
-<div class="work-flow">
+<div class="work-flow" bind:clientWidth={flowWidth}>
 	{#if layout.nodes.length}
 		<div
 			class="work-canvas"
-			style={`width: max(100%, ${layout.width}px); height: max(100%, ${layout.height}px);`}
+			style={`width: max(100%, ${layout.width * scale}px); height: max(100%, ${layout.height * scale}px);`}
 		>
-			<svg
-				class="work-edges"
-				width={layout.width}
-				height={layout.height}
-				viewBox={`0 0 ${layout.width} ${layout.height}`}
-				aria-label="Work dependencies. Solid arrows mean requires; dashed return arrows mean revises."
+			<div
+				class="work-scaled"
+				style={`width: ${layout.width}px; height: ${layout.height}px; transform: scale(${scale});`}
 			>
-				<defs>
-					<marker
-						id="work-requires-arrow"
-						viewBox="0 0 10 10"
-						refX="8"
-						refY="5"
-						markerWidth="7"
-						markerHeight="7"
-						orient="auto-start-reverse"
-					>
-						<path d="M 0 0 L 10 5 L 0 10 z" fill="var(--intent-conversation)"></path>
-					</marker>
-					<marker
-						id="work-revises-arrow"
-						viewBox="0 0 10 10"
-						refX="8"
-						refY="5"
-						markerWidth="7"
-						markerHeight="7"
-						orient="auto-start-reverse"
-					>
-						<path d="M 0 0 L 10 5 L 0 10 z" fill="var(--intent-feedback)"></path>
-					</marker>
-				</defs>
-				{#each layout.edges as edge (edge.id)}
-					<g class:revises={edge.kind === 'revises'}>
-						<title>{edge.kind === 'revises' ? 'Revision return' : 'Required handover'}</title>
-						<path class="edge-underlay" d={edge.path}></path>
-						<path class="edge-line" d={edge.path} marker-end={`url(#work-${edge.kind}-arrow)`}
-						></path>
-						{#if edge.kind === 'revises'}
-							<text x={edge.labelX} y={edge.labelY - 7} text-anchor="middle">revision return</text>
-						{/if}
-					</g>
-				{/each}
-			</svg>
-			{#each layout.nodes as node (node.id)}
-				<a
-					class="work-flow-node status-{node.data.item.status}"
-					class:is-focus={node.data.isFocus}
-					href={node.data.href}
-					style={`left: ${node.x}px; top: ${node.y}px; width: ${WORK_NODE_WIDTH}px; height: ${WORK_NODE_HEIGHT}px;`}
-					aria-label={`Open Work: ${node.data.item.title}`}
+				<svg
+					class="work-edges"
+					width={layout.width}
+					height={layout.height}
+					viewBox={`0 0 ${layout.width} ${layout.height}`}
+					aria-label="Work dependencies. Solid arrows mean requires; dashed return arrows mean revises."
 				>
-					<header>
-						<span class="node-state"><i></i>{stateLabel(node.data.item)}</span>
-						<span class="node-revision">R{node.data.item.revision}</span>
-					</header>
-					<strong>{node.data.item.title}</strong>
-					<footer>
-						<span>{node.data.owner}</span>
-						<small>{signal(node)}</small>
-					</footer>
-				</a>
-			{/each}
+					<defs>
+						<marker
+							id="work-requires-arrow"
+							viewBox="0 0 10 10"
+							refX="8"
+							refY="5"
+							markerWidth="7"
+							markerHeight="7"
+							orient="auto-start-reverse"
+						>
+							<path d="M 0 0 L 10 5 L 0 10 z" fill="var(--intent-conversation)"></path>
+						</marker>
+						<marker
+							id="work-revises-arrow"
+							viewBox="0 0 10 10"
+							refX="8"
+							refY="5"
+							markerWidth="7"
+							markerHeight="7"
+							orient="auto-start-reverse"
+						>
+							<path d="M 0 0 L 10 5 L 0 10 z" fill="var(--intent-feedback)"></path>
+						</marker>
+					</defs>
+					{#each view.edges as edge (edge.id)}
+						<g class:revises={edge.kind === 'revises'} in:fade={{ duration: 200, delay: 160 }}>
+							<title>{edge.kind === 'revises' ? 'Revision return' : 'Required handover'}</title>
+							<path class="edge-underlay" d={edge.path}></path>
+							<path class="edge-line" d={edge.path} marker-end={`url(#work-${edge.kind}-arrow)`}
+							></path>
+							{#if edge.kind === 'revises'}
+								<text x={edge.labelX} y={edge.labelY - 7} text-anchor="middle">revision return</text
+								>
+							{/if}
+						</g>
+					{/each}
+				</svg>
+				{#each view.nodes as node (node.id)}
+					<a
+						class="work-flow-node status-{node.data.item.status}"
+						in:listIn
+						class:is-focus={node.data.isFocus}
+						href={node.data.href}
+						style={`left: ${node.x}px; top: ${node.y}px; width: ${WORK_NODE_WIDTH}px; height: ${WORK_NODE_HEIGHT}px;`}
+						aria-label={`Open Work: ${node.data.item.title}`}
+					>
+						<header>
+							<span class="node-state"><i></i>{stateLabel(node.data.item)}</span>
+							{#if node.data.item.revision > 1}<span class="node-revision" title="Revision"
+									>R{node.data.item.revision}</span
+								>{/if}
+						</header>
+						<strong style:view-transition-name={`work-title-${node.data.item.id}`}
+							>{node.data.item.title}</strong
+						>
+						<footer>
+							<span>{node.data.owner}</span>
+							<small>{signal(node)}</small>
+						</footer>
+					</a>
+				{/each}
+			</div>
 		</div>
 	{:else}
 		<p class="empty-graph">No current Work is available for this scope.</p>
 	{/if}
-	<div class="work-flow-scope">
-		<strong>{scopeLabel}</strong>
-		<span>{work.length} of {totalCount} Work items</span>
-	</div>
+	<!-- Only worth saying when the map is showing part of the Work. -->
+	{#if work.length < totalCount}<div class="work-flow-scope">
+			<strong>{scopeLabel}</strong>
+			<span>{work.length} of {totalCount} Work items</span>
+		</div>{/if}
 </div>
 
 <style>
@@ -162,6 +202,12 @@
 		position: relative;
 		min-width: 100%;
 		min-height: 100%;
+	}
+	.work-scaled {
+		position: absolute;
+		top: 0;
+		left: 0;
+		transform-origin: 0 0;
 	}
 	.work-edges {
 		position: absolute;
@@ -189,7 +235,8 @@
 	}
 	.work-edges text {
 		fill: var(--intent-feedback);
-		font: 500 var(--t-label) var(--font-mono);
+		font: 500 var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 		paint-order: stroke;
 		stroke: var(--surface-pane);
 		stroke-width: 5px;
@@ -201,7 +248,7 @@
 		padding: 12px 13px 11px;
 		border: 1px solid var(--border-strong);
 		border-radius: var(--radius-control);
-		background: rgba(255, 255, 255, 0.96);
+		background: color-mix(in srgb, var(--highlight) 96%, transparent);
 		box-shadow:
 			var(--bevel-subtle),
 			0 1px 2px rgba(43, 51, 66, 0.06),
@@ -232,7 +279,7 @@
 		transform: translateY(-1px);
 	}
 	.work-flow-node:focus-visible {
-		outline: 3px solid color-mix(in srgb, var(--intent-conversation) 30%, transparent);
+		outline: 2px solid var(--intent-conversation);
 		outline-offset: 3px;
 	}
 	.work-flow-node.is-focus {
@@ -265,8 +312,12 @@
 	.node-state,
 	.node-revision,
 	.work-flow-node footer {
-		font: 500 var(--t-label) var(--font-mono);
+		font: 500 var(--t-label) var(--font-ui);
 		color: var(--text-tertiary);
+	}
+	.node-revision {
+		font-family: var(--font-ui);
+		font-variant-numeric: tabular-nums;
 	}
 	.node-state {
 		display: inline-flex;
@@ -318,11 +369,12 @@
 		padding: 6px 8px;
 		border: 1px solid var(--border);
 		border-radius: var(--radius-control);
-		background: rgba(255, 255, 255, 0.9);
+		background: color-mix(in srgb, var(--highlight) 90%, transparent);
 		box-shadow:
 			var(--bevel-subtle),
 			0 4px 12px rgba(43, 51, 66, 0.05);
-		font: var(--t-label) var(--font-mono);
+		font: var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 		color: var(--text-tertiary);
 		pointer-events: none;
 		backdrop-filter: blur(10px);

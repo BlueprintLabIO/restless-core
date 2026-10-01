@@ -25,6 +25,7 @@ mod credential;
 mod custom_harness;
 mod document_collaboration_token;
 mod document_commands;
+mod email;
 mod effect;
 mod entry;
 mod exec;
@@ -35,6 +36,9 @@ mod ingress;
 mod launch;
 mod legal;
 mod local_documents;
+use crate::authority as mandate;
+mod mcp_gateway;
+mod stdio_mcp;
 mod mentions;
 mod model_gateway;
 mod native_harness;
@@ -48,7 +52,7 @@ mod release;
 mod room_commands;
 mod runtime;
 mod runtime_bridge;
-mod runtime_idle;
+mod runtime_sleep;
 mod runtime_mode;
 mod runtime_usage;
 mod schedule;
@@ -663,6 +667,7 @@ async fn run() -> Result<()> {
         Err(dotenvy::Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(error).context("load local .env"),
     }
+    restlessd::appliance::load_release_environment()?;
     restlessd::appliance::load_profile_environment(&machine_profile)?;
     if matches!(std::env::args().nth(1).as_deref(), Some("--help" | "-h")) {
         println!(
@@ -850,6 +855,8 @@ async fn run() -> Result<()> {
 
     let model_capabilities = daemon.capabilities.clone();
     let model_spend = daemon.spend.clone();
+    let local_mcp_daemon = (!daemon.runtime_bridges.is_hosted())
+        .then(|| std::sync::Arc::clone(&daemon));
     let schedule_daemon = std::sync::Arc::clone(&daemon);
     let idle_daemon = std::sync::Arc::clone(&daemon);
     let mut idle_recovery_ready_rx = recovery_ready_rx.clone();
@@ -859,7 +866,7 @@ async fn run() -> Result<()> {
                 return;
             }
         }
-        runtime_idle::run(idle_daemon).await;
+        runtime_sleep::run(idle_daemon).await;
     });
 
     tokio::spawn(async move {
@@ -876,23 +883,24 @@ async fn run() -> Result<()> {
                 &model_root,
                 model_capabilities.clone(),
                 model_spend.clone(),
+                local_mcp_daemon.clone(),
             )
             .await
             {
                 Ok(processes) => {
-                    if processes.is_some() {
+                    if model_gateway::is_ready() {
                         tracing::info!("model gateway ready");
                     } else {
-                        tracing::info!("no direct model gateway needed; native harness routes remain available");
+                        tracing::info!("account model broker ready; no direct model route is admitted yet");
                     }
                     // Providers load only when the gateway starts, so restart it
                     // when a company's model route or credential references
                     // change instead of asking the owner to restart Restless.
-                    let started_from = model_gateway::provider_fingerprint(&model_configs);
+                    let started_from = format!("{}|{:?}", model_gateway::provider_fingerprint(&model_configs), owner::account_oauth_providers(&model_root));
                     loop {
                         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                         if let Ok(current) = load_configs(&model_root) {
-                            if model_gateway::provider_fingerprint(&current) != started_from {
+                            if format!("{}|{:?}", model_gateway::provider_fingerprint(&current), owner::account_oauth_providers(&model_root)) != started_from {
                                 model_configs = current;
                                 break;
                             }
@@ -1056,7 +1064,6 @@ async fn run() -> Result<()> {
             tracing::error!("owner gateway stopped: {error:#}");
         }
     });
-
     // T6: the scheduler is what makes the company act without the owner
     // typing — time triggers (exec-set schedules + periodic tick) and
     // OrgIntel LISTEN/NOTIFY events share one loop. Product integration tests
@@ -1290,9 +1297,11 @@ where
             watch_events(&mut write, daemon, request.company.as_deref()).await?;
             continue;
         }
+        // Read-only status must not hold a work lease: it would report its
+        // own request as lifecycle activity and be refused during recovery.
         let _lifecycle_lease = if matches!(
             request.cmd.as_str(),
-            "appliance-drain" | "appliance-resume"
+            "appliance-drain" | "appliance-resume" | "status"
         ) {
             None
         } else {
@@ -1430,6 +1439,10 @@ fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Result
         | "work-handoff"
         | "effect"
         | "effect-reconcile"
+        | "mandate-permit"
+        | "email-preview"
+        | "email-send"
+        | "email-observe"
         | "connected-tool-attach"
         | "connected-tool-install"
         | "connected-tool-reconnect"
@@ -1649,6 +1662,85 @@ fn parse_culture_case(
         Some("hiring") => Ok(Some(restless_orgintel::CultureCase::Hiring)),
         Some(other) => Err(format!("bad culture case {other}; expected disagreement|uncertain_incident|customer_recovery|quality_tradeoff|hiring")),
     }
+}
+
+async fn send_mandated_email(
+    daemon: &Daemon,
+    company: &str,
+    prepared: email::PreparedEmail,
+) -> Result<serde_json::Value> {
+    // Resolve host-held credentials before reserving an irreversible send.
+    // A missing binding must not consume a permit or daily allowance.
+    let config = runtime::CompanyConfig::load(&daemon.root, company)?;
+    let key = credential::resolve(&config, "resend.production").await?;
+    daemon
+        .authority
+        .reserve_email_send(
+            company,
+            prepared.permit_id(),
+            prepared.sender(),
+            prepared.sender_name(),
+            prepared.recipient(),
+            prepared.payload_sha256(),
+            prepared.effect_key(),
+        )
+        .await?;
+
+    let outcome = match prepared.send(&key).await {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            // PreparedEmail::send can fail here only before starting a request.
+            daemon
+                .authority
+                .record_email_send_status(
+                    company,
+                    prepared.permit_id(),
+                    prepared.effect_key(),
+                    mandate::ProviderOutcome::ConfirmedNotSent,
+                    None,
+                    Some("Request preparation failed before contacting Resend"),
+                )
+                .await?;
+            return Err(error);
+        }
+    };
+    let (status, provider_ref, provider_detail) = match &outcome {
+        email::EmailSendOutcome::Accepted { provider_id } => {
+            (mandate::ProviderOutcome::ConfirmedSent, Some(provider_id.as_str()), None)
+        }
+        email::EmailSendOutcome::Rejected { status } => {
+            (mandate::ProviderOutcome::ConfirmedNotSent, None, Some(format!("Resend HTTP {status}")))
+        }
+        email::EmailSendOutcome::Unknown { reason } => {
+            (mandate::ProviderOutcome::Unknown, None, Some(reason.clone()))
+        }
+    };
+    if let Err(error) = daemon
+        .authority
+        .record_email_send_status(
+            company,
+            prepared.permit_id(),
+            prepared.effect_key(),
+            status,
+            provider_ref,
+            provider_detail.as_deref(),
+        )
+        .await
+    {
+        tracing::error!(company, permit_id = %prepared.permit_id(), provider_ref, %error,
+            "could not persist mandated email provider outcome");
+        anyhow::bail!(
+            "email provider outcome needs reconciliation for permit {} (provider reference: {}): {error:#}",
+            prepared.permit_id(),
+            provider_ref.unwrap_or("unknown")
+        );
+    }
+    Ok(serde_json::json!({
+        "permit_id": prepared.permit_id(),
+        "effect_key": prepared.effect_key(),
+        "recipient": prepared.recipient(),
+        "outcome": outcome,
+    }))
 }
 
 async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Response {
@@ -2310,8 +2402,12 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             Ok(message) => Response::ok(message),
             Err(error) => Response::err(format!("{error:#}")),
         },
-        "status" => match runtime::status(company).await {
-            Ok(status) => Response::ok(format!("{company}: {status:?}")),
+        "sleep" => match runtime_sleep::sleep_now(daemon, company).await {
+            Ok(message) => Response::ok(message),
+            Err(error) => Response::err_kind("conflict", format!("{error:#}")),
+        },
+        "status" => match runtime_sleep::report(daemon, company).await {
+            Ok(report) => Response::ok(runtime_sleep::describe(&report)),
             Err(error) => Response::err(format!("{error:#}")),
         },
         "doctor-collaboration" => match collaboration_doctor::run(daemon).await {
@@ -2537,6 +2633,31 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             }
             Err(error) => Response::err(format!("{error:#}")),
         },
+        "credential-verify-model" => {
+            let result = async {
+                let model = request.orgintel.model.as_deref()
+                    .context("model account verification needs an exact model")?;
+                model_gateway::verify_owner_model_account(&daemon.root, company, model).await?;
+                let cleared = if request.authority.apply {
+                    let cleared = daemon.authority
+                        .clear_verified_relay_cooldown(company, model).await?;
+                    if !cleared {
+                        anyhow::bail!("no active credential cooldown from the Core relay 403 exists for this exact company and model");
+                    }
+                    true
+                } else {
+                    false
+                };
+                Ok::<_, anyhow::Error>(serde_json::json!({
+                    "company":company,"model":model,"account_identity_verified":true,
+                    "relay_cooldown_cleared":cleared,
+                }))
+            }.await;
+            match result {
+                Ok(receipt) => Response::ok(receipt),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
         "connected-tools" => match connected_tool::list(daemon.authority.pool(), company).await {
             Ok(connections) => Response::ok_serialized(connections),
             Err(error) => Response::err(format!("{error:#}")),
@@ -2675,6 +2796,239 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             }
             _ => Response::err("connected-tool disable needs name and actor"),
         },
+        "local-mcp-list" => {
+            match connected_tool::local_mcp_list(daemon.authority.pool(), company).await {
+                Ok(servers) => Response::ok_serialized(servers),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "local-mcp-receipts" => {
+            match connected_tool::list_mcp_read_receipts(
+                daemon.authority.pool(), company, request.connected_tool.tool_name.as_deref(),
+            ).await {
+                Ok(receipts) => Response::ok_serialized(receipts),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "local-mcp-recurring" => {
+            let result = async {
+                let name = request.connected_tool.tool_name.as_deref();
+                let mut connections = connected_tool::local_mcp_list(daemon.authority.pool(), company).await?;
+                if let Some(name) = name {
+                    connected_tool::validate_name(name)?;
+                    connections.retain(|connection| connection.name == name);
+                }
+                let policies = connected_tool::recurring_mcp_policies(
+                    daemon.authority.pool(), company, name,
+                ).await?;
+                Ok::<_, anyhow::Error>(serde_json::json!({
+                    "connections": connections,
+                    "policies": policies,
+                }))
+            }.await;
+            match result {
+                Ok(value) => Response::ok(value),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "local-mcp-approve-recurring" => {
+            let result = async {
+                let name = request.connected_tool.tool_name.as_deref()
+                    .context("recurring CH approval needs connection name")?;
+                let schedule_id = request.orgintel.schedule_id.as_deref()
+                    .context("recurring CH approval needs schedule UUID")?
+                    .parse::<uuid::Uuid>()?;
+                let responsibility_id = request.common.responsibility_id.as_deref()
+                    .context("recurring CH approval needs responsibility UUID")?
+                    .parse::<uuid::Uuid>()?;
+                let version = request.common.version
+                    .context("recurring CH approval needs responsibility version")?;
+                let actor = request.connected_tool.assigned_actor.as_deref()
+                    .context("recurring CH approval needs Staff actor")?;
+                let org = daemon.orgintel.get(company).await?;
+                connected_tool::approve_recurring_ch_policy(
+                    daemon.authority.pool(), &org, company, name,
+                    schedule_id, responsibility_id, version, actor,
+                ).await
+            }.await;
+            match result {
+                Ok(policy) => Response::ok_serialized(policy),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "local-mcp-revoke-recurring" => {
+            let result = async {
+                let name = request.connected_tool.tool_name.as_deref()
+                    .context("recurring CH revoke needs connection name")?;
+                let schedule_id = request.orgintel.schedule_id.as_deref()
+                    .context("recurring CH revoke needs schedule UUID")?
+                    .parse::<uuid::Uuid>()?;
+                connected_tool::revoke_recurring_ch_policy(
+                    daemon.authority.pool(), company, name, schedule_id,
+                ).await
+            }.await;
+            match result {
+                Ok(policy) => Response::ok_serialized(policy),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "local-mcp-install" => {
+            let result = async {
+                let name = request.connected_tool.tool_name.as_deref()
+                    .context("local MCP install needs name")?;
+                let command = request.local_mcp.command.as_deref()
+                    .context("local MCP install needs command")?;
+                let actor = request.connected_tool.assigned_actor.as_deref()
+                    .context("local MCP install needs actor")?;
+                let work_id = request.connected_tool.work_id.as_deref()
+                    .context("local MCP install needs Work")?.parse::<uuid::Uuid>()?;
+                let org = daemon.orgintel.get(company).await?;
+                connected_tool::validate_assignable_mcp_work(&org, actor, work_id).await?;
+                let server = connected_tool::install_local_mcp(
+                    daemon.authority.pool(),
+                    company,
+                    name,
+                    command,
+                    &request.local_mcp.args,
+                    actor,
+                    work_id,
+                    request.local_mcp.broker_aware,
+                )
+                .await?;
+                org.emit_event("local_mcp_installed", Some("owner"), serde_json::json!({
+                    "name": server.name, "command": server.command,
+                    "assigned_actor": server.assigned_actor, "work_id": work_id,
+                    "broker_aware": server.broker_aware,
+                })).await?;
+                Ok::<_, anyhow::Error>(server)
+            }.await;
+            match result {
+                Ok(server) => Response::ok_serialized(server),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "local-mcp-install-host" => {
+            let result = async {
+                let name = request.connected_tool.tool_name.as_deref()
+                    .context("host MCP install needs name")?;
+                let endpoint = request.connected_tool.endpoint.as_deref()
+                    .context("host MCP install needs endpoint")?;
+                let token_file = request.local_mcp.token_file.as_deref()
+                    .context("host MCP install needs token file")?;
+                let actor = request.connected_tool.assigned_actor.as_deref()
+                    .context("host MCP install needs actor")?;
+                let work_id = request.connected_tool.work_id.as_deref()
+                    .context("host MCP install needs Work")?.parse::<uuid::Uuid>()?;
+                let org = daemon.orgintel.get(company).await?;
+                connected_tool::validate_assignable_mcp_work(&org, actor, work_id).await?;
+                let server = connected_tool::install_host_mcp(
+                    daemon.authority.pool(), company, name, endpoint, token_file,
+                    actor, work_id, &request.local_mcp.allowed_tools,
+                    request.local_mcp.max_calls_per_work,
+                    request.local_mcp.unlimited_read_calls, None,
+                ).await?;
+                org.emit_event("local_mcp_installed", Some("owner"), serde_json::json!({
+                    "name": server.name, "transport": "host_http", "assigned_actor": actor,
+                    "work_id": work_id, "allowed_tools": server.allowed_tools,
+                    "max_calls_per_work": server.max_calls_per_work,
+                    "tool_contract_digest": server.tool_contract_digest,
+                })).await?;
+                Ok::<_, anyhow::Error>(server)
+            }.await;
+            match result {
+                Ok(server) => Response::ok_serialized(server),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "local-mcp-install-public-read" => {
+            let result = async {
+                let name = request.connected_tool.tool_name.as_deref()
+                    .context("public MCP install needs name")?;
+                let endpoint = request.connected_tool.endpoint.as_deref()
+                    .context("public MCP install needs endpoint")?;
+                let profile = request.local_mcp.read_profile.as_deref()
+                    .context("public MCP install needs reviewed profile")?;
+                let repository = request.local_mcp.target_repository.as_deref()
+                    .context("public MCP install needs exact repository")?;
+                let actor = request.connected_tool.assigned_actor.as_deref()
+                    .context("public MCP install needs actor")?;
+                let work_id = request.connected_tool.work_id.as_deref()
+                    .context("public MCP install needs Work")?.parse::<uuid::Uuid>()?;
+                let org = daemon.orgintel.get(company).await?;
+                connected_tool::validate_assignable_mcp_work(&org, actor, work_id).await?;
+                let server = connected_tool::install_public_http_read(
+                    daemon.authority.pool(), company, profile, name, endpoint,
+                    repository, actor, work_id, &request.local_mcp.allowed_tools,
+                    request.local_mcp.max_calls_per_work,
+                    request.local_mcp.unlimited_read_calls,
+                ).await?;
+                org.emit_event("local_mcp_installed", Some("owner"), serde_json::json!({
+                    "name": server.name, "transport": "public_http", "read_profile": server.read_profile,
+                    "endpoint": server.endpoint, "target_repository": server.target_repository,
+                    "assigned_actor": actor, "work_id": work_id,
+                    "allowed_tools": server.allowed_tools,
+                    "max_calls_per_work": server.max_calls_per_work,
+                    "tool_contract_digest": server.tool_contract_digest,
+                })).await?;
+                Ok::<_, anyhow::Error>(server)
+            }.await;
+            match result {
+                Ok(server) => Response::ok_serialized(server),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "local-mcp-install-stdio-read" => {
+            let result = async {
+                let name = request.connected_tool.tool_name.as_deref()
+                    .context("stdio MCP install needs name")?;
+                let bundle = request.local_mcp.command.as_deref()
+                    .context("stdio MCP install needs provider bundle")?;
+                let [read_root] = request.local_mcp.args.as_slice() else {
+                    anyhow::bail!("stdio MCP install needs exactly one read root");
+                };
+                let actor = request.connected_tool.assigned_actor.as_deref()
+                    .context("stdio MCP install needs actor")?;
+                let work_id = request.connected_tool.work_id.as_deref()
+                    .context("stdio MCP install needs Work")?.parse::<uuid::Uuid>()?;
+                let org = daemon.orgintel.get(company).await?;
+                connected_tool::validate_assignable_mcp_work(&org, actor, work_id).await?;
+                let server = connected_tool::install_brokered_stdio_mcp(
+                    daemon.authority.pool(), company, name, bundle, read_root, actor, work_id,
+                    request.local_mcp.max_calls_per_work,
+                    request.local_mcp.unlimited_read_calls,
+                ).await?;
+                org.emit_event("local_mcp_installed", Some("owner"), serde_json::json!({
+                    "name": server.name, "transport": "broker_stdio", "assigned_actor": actor,
+                    "work_id": work_id, "allowed_tools": server.allowed_tools,
+                    "max_calls_per_work": server.max_calls_per_work,
+                    "tool_contract_digest": server.tool_contract_digest,
+                })).await?;
+                Ok::<_, anyhow::Error>(server)
+            }.await;
+            match result {
+                Ok(server) => Response::ok_serialized(server),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "local-mcp-disable" => {
+            let result = async {
+                let name = request.connected_tool.tool_name.as_deref()
+                    .context("local MCP disable needs name")?;
+                let org = daemon.orgintel.get(company).await?;
+                let server = connected_tool::disable_local_mcp(
+                    daemon.authority.pool(), company, name,
+                )
+                .await?;
+                org.emit_event("local_mcp_disabled", Some("owner"), serde_json::json!({
+                    "name": server.name, "assigned_actor": server.assigned_actor,
+                })).await?;
+                Ok::<_, anyhow::Error>(server)
+            }.await;
+            match result {
+                Ok(server) => Response::ok_serialized(server),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
         "legal-show" => match legal::get_profile(&daemon.authority, company).await {
             Ok(profile) => Response::ok(serde_json::json!({
                 "profile": profile,
@@ -3694,6 +4048,37 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                             },
                             None => None,
                         };
+                        let opportunity_source = match (
+                            request.orgintel.opportunity_id.as_deref(),
+                            request.common.owner_epoch,
+                            request.orgintel.schedule_id.as_deref(),
+                        ) {
+                            (None, None, None) => None,
+                            (Some(opportunity_id), Some(owner_epoch), Some(schedule_id))
+                                if owner_epoch > 0 =>
+                            {
+                                let opportunity_id = match uuid::Uuid::parse_str(opportunity_id) {
+                                    Ok(id) => id,
+                                    Err(error) => return Response::err(format!(
+                                        "bad Opportunity id: {error}"
+                                    )),
+                                };
+                                let schedule_id = match uuid::Uuid::parse_str(schedule_id) {
+                                    Ok(id) => id,
+                                    Err(error) => return Response::err(format!(
+                                        "bad schedule id: {error}"
+                                    )),
+                                };
+                                Some(restless_orgintel::OpportunityWorkSource {
+                                    opportunity_id,
+                                    owner_epoch,
+                                    schedule_id,
+                                })
+                            }
+                            _ => return Response::err(
+                                "scheduled Work needs --opportunity, positive --owner-epoch and --schedule together",
+                            ),
+                        };
                         let work = restless_orgintel::NewWork {
                             owner_id: owner,
                             title,
@@ -3740,7 +4125,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                             })
                             .collect::<Vec<_>>();
                         let added = org
-                            .add_commissioned_work(
+                            .add_commissioned_work_with_opportunity(
                                 work,
                                 &requires,
                                 &revises,
@@ -3751,6 +4136,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                                 producing_topology,
                                 request.orgintel.constitution_contracts.as_ref(),
                                 &request.orgintel.skills,
+                                opportunity_source,
                             )
                             .await;
                         match added {
@@ -3761,6 +4147,8 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                                 "commissioned_by": commissioned_by,
                                 "producing_topology": producing_topology,
                                 "skills": &request.orgintel.skills,
+                                "opportunity_id": opportunity_source.map(|source| source.opportunity_id),
+                                "source_schedule_id": opportunity_source.map(|source| source.schedule_id),
                             })),
                             Err(error) => Response::err(format!("{error:#}")),
                         }
@@ -5557,6 +5945,95 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             "unsupported",
             "browser control belongs to the owner cockpit; use the prepared owner handoff or send the accountable actor a Work message instead",
         ),
+        "mandate-list" => {
+            match daemon.authority.list_email_mandates(company).await {
+                Ok(mandates) => Response::ok_serialized(mandates),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "email-observe" => {
+            let actor = request.orgintel.actor.as_deref().unwrap_or_default();
+            if actor.trim().is_empty() {
+                return Response::err("email observation needs an authenticated acting actor");
+            }
+            let config = match runtime::CompanyConfig::load(&daemon.root, company) {
+                Ok(config) => config,
+                Err(error) => return Response::err(format!("{error:#}")),
+            };
+            let key = match credential::resolve(&config, "resend.production").await {
+                Ok(key) => key,
+                Err(error) => return Response::err(format!("resolve host-held Resend credential: {error:#}")),
+            };
+            let mut observation = match email::observe(
+                &key,
+                request.authority.email_observe_list.as_deref(),
+                request.authority.email_observe_after.as_deref(),
+            ).await {
+                Ok(observation) => observation,
+                Err(error) => return Response::err(format!("observe Resend metadata: {error:#}")),
+            };
+            match daemon.authority.record_email_observation(company, actor, observation.clone()).await {
+                Ok(receipt_id) => {
+                    if let Some(object) = observation.as_object_mut() {
+                        object.insert("receipt_id".into(), serde_json::json!(receipt_id));
+                    }
+                    Response::ok(observation)
+                }
+                Err(error) => Response::err(format!("record Resend observation: {error:#}")),
+            }
+        }
+        "mandate-permit" => {
+            let Some(mandate_id) = request.authority.mandate_id.as_deref() else {
+                return Response::err("mandate permit needs a mandate id");
+            };
+            let Ok(mandate_id) = uuid::Uuid::parse_str(mandate_id) else {
+                return Response::err("mandate permit id is invalid");
+            };
+            let Some(value) = request.authority.mandate_proposal else {
+                return Response::err("mandate permit needs a proposal");
+            };
+            let proposal: mandate::EmailPermitProposal = match serde_json::from_value(value) {
+                Ok(proposal) => proposal,
+                Err(error) => return Response::err(format!("invalid permit proposal: {error}")),
+            };
+            let actor = request.orgintel.actor.as_deref().unwrap_or_default();
+            match daemon
+                .authority
+                .issue_email_permit(company, actor, mandate_id, proposal)
+                .await
+            {
+                Ok(permit) => Response::ok_serialized(permit),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "email-preview" | "email-send" => {
+            let Some(value) = request.authority.email_request else {
+                return Response::err("email operation needs an email request");
+            };
+            let input: email::EmailSendRequest = match serde_json::from_value(value) {
+                Ok(input) => input,
+                Err(error) => return Response::err(format!("invalid email request: {error}")),
+            };
+            let prepared = match email::prepare_from_company(company, input).await {
+                Ok(prepared) => prepared,
+                Err(error) => return Response::err(format!("prepare email: {error:#}")),
+            };
+            if request.cmd == "email-preview" {
+                Response::ok(serde_json::json!({
+                    "sender": prepared.sender(),
+                    "sender_name": prepared.sender_name(),
+                    "recipient": prepared.recipient(),
+                    "payload_sha256": prepared.payload_sha256(),
+                    "effect_key": prepared.effect_key(),
+                    "note": "Preview only; no email was sent or reserved",
+                }))
+            } else {
+                match send_mandated_email(daemon, company, prepared).await {
+                    Ok(outcome) => Response::ok(outcome),
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+        }
         "effect" => match (
             request.authority.effect_class,
             request.authority.purpose,

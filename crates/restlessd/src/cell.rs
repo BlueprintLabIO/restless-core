@@ -17,7 +17,8 @@
 //! create its own credential, or it could create a better one.
 
 use anyhow::{bail, Context, Result};
-use sqlx::{Connection, Executor, PgConnection};
+use sqlx::postgres::PgConnectOptions;
+use sqlx::{ConnectOptions, Connection, Executor, PgConnection};
 
 /// Postgres identifiers are injected into DDL that cannot be parameterised, so
 /// the company name is validated before it reaches any statement. Deliberately
@@ -239,7 +240,14 @@ pub async fn ensure_database(
     }
 
     let object = cell_object_name(company);
-    let mut admin = PgConnection::connect(admin_url)
+    // Role DDL below embeds a generated password because PostgreSQL cannot
+    // bind it as a DDL parameter. SQLx otherwise logs the full statement at
+    // WARN when it is slow, so disable statement logging on this connection.
+    let mut admin = admin_url
+        .parse::<PgConnectOptions>()
+        .context("parse OrgIntel admin connection options")?
+        .disable_statement_logging()
+        .connect()
         .await
         .context("connect to the OrgIntel admin database to provision a cell")?;
 
@@ -338,7 +346,13 @@ pub(crate) async fn ensure_native_documents_store(
     // effect, so serialize them with a session advisory lock. A crashed caller
     // releases the lock with its connection; the next call repairs grants and
     // either reuses the installed secret or rotates an incomplete role.
-    let mut admin = PgConnection::connect(admin_url)
+    // This admin connection executes CREATE/ALTER ROLE with the sidecar
+    // password inline. Keep SQLx from writing those statements to the journal.
+    let mut admin = admin_url
+        .parse::<PgConnectOptions>()
+        .context("parse OrgIntel admin connection options")?
+        .disable_statement_logging()
+        .connect()
         .await
         .context("connect to the OrgIntel admin database to provision native Documents")?;
     let lock_name = format!("restless-native-documents:{sidecar_role}");

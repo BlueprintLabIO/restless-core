@@ -1,5 +1,8 @@
 <script lang="ts">
+	import { connectionLabel, modelLabel } from '$lib/model/intelligence-labels';
+	import { failureSentence } from '$lib/model/failure';
 	import { intelligenceQuery, type IntelligenceAgent } from '$lib/model/intelligence.svelte';
+	import { announceIntelligenceChange } from '$lib/model/intelligence-events';
 	import { MODEL_PRESETS } from '$lib/model/model-presets';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
 	const catalog = modelCatalog();
@@ -16,11 +19,13 @@
 	const presets = $derived(
 		selected?.models ??
 			catalog.models(
-				selected?.kind === 'harness'
-					? selected.provider === 'codex'
-						? 'openai'
-						: 'anthropic'
-					: (selected?.provider ?? '')
+				selected?.account_provider ??
+					(selected?.kind === 'harness'
+						? selected.provider === 'codex'
+							? 'openai'
+							: 'anthropic'
+						: (selected?.provider ?? '')),
+				selected?.account_kind ?? 'api_key'
 			)
 	);
 	const rows = $derived(
@@ -31,7 +36,9 @@
 						name: 'Company default',
 						role: 'Used by agents without an override',
 						assignment: source.view.default,
-						effective_model: source.view.default?.model ?? 'Choose a connection',
+						effective_model:
+							source.view.default?.model ??
+							(source.view.connections.length ? 'Choose a connection' : 'Connect a provider below'),
 						harness: ''
 					},
 					...source.view.agents
@@ -39,15 +46,21 @@
 			: []
 	);
 
+	/* Agents on the company default all say the same thing; list the default,
+	 * the Exec and anyone with their own choice, and fold the rest. */
+	let showAll = $state(false);
+	const shownRows = $derived(
+		showAll
+			? rows
+			: rows.filter(
+					(row) =>
+						row.id === 'default' || row.id === 'exec' || !!row.assignment || row.id === editing
+				)
+	);
+	const foldedCount = $derived(rows.length - shownRows.length);
+
 	function label(id: string) {
-		const c = source.view?.connections.find((c) => c.id === id);
-		if (!c) return id.replace('direct:', '').replace('harness:', '');
-		if (c.id.startsWith('harness:custom:')) return c.provider;
-		return c.kind === 'harness'
-			? c.provider === 'codex'
-				? 'ChatGPT / Codex'
-				: 'Claude Code'
-			: (MODEL_PRESETS.find((p) => p.id === c.provider)?.name ?? c.provider);
+		return connectionLabel(id, source.view?.connections ?? []);
 	}
 	function choose() {
 		model =
@@ -97,10 +110,11 @@
 			const body = await response.json();
 			if (!response.ok) throw new Error(body.message ?? 'Could not save assignment.');
 			await source.refresh();
+			announceIntelligenceChange(companyId);
 			editing = '';
 			notice = 'Intelligence saved. Applies to the next session.';
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Could not save assignment.';
+			error = failureSentence(cause, 'Could not save assignment.');
 			await source.refresh();
 		} finally {
 			busy = false;
@@ -110,26 +124,35 @@
 
 <section class="assignments" aria-labelledby="agent-assignments-title">
 	<header>
-		<h2 id="agent-assignments-title">Agent intelligence</h2>
-		<span
-			title="Each assignment selects the connection and model used for this agent’s next conversation or work session. Running sessions keep their current connection."
-			>ⓘ</span
+		<h2
+			id="agent-assignments-title"
+			title="What powers each agent. Agents without their own choice use the company default. Changes apply to the next session; removing access stops the next model request."
 		>
+			In use
+		</h2>
 	</header>
 	{#if source.error}<p role="alert">
 			Could not load agents. <button class="btn small" onclick={() => source.refresh()}
 				>Retry</button
 			>
 		</p>
-	{:else if !source.view}<p role="status">Loading agents…</p>
+	{:else if !source.view}<p class="sr-only" role="status">Loading agents…</p>
+		{#each [0, 1] as row (row)}<div class="agent-row" aria-hidden="true">
+				<div class="identity">
+					<span class="skeleton-line" style:width="7em"></span><span
+						class="skeleton-line"
+						style:width="11em"
+					></span>
+				</div>
+				<div class="route"><span class="skeleton-line" style:width="9em"></span></div>
+				<span class="skeleton-line" style:width="4.5em" style:height="40px"></span>
+			</div>{/each}
 	{:else}
-		{#if !source.view.connections.length}<p class="hint">
-				Add a connection above to choose what powers each agent.
-			</p>{/if}
-		{#each rows as agent (agent.id)}
+		{#each shownRows as agent (agent.id)}
 			<div class="agent-row">
 				<div class="identity">
-					<strong>{agent.id === 'exec' ? 'Exec' : agent.name}</strong><small>{agent.role}</small>
+					<strong>{agent.id === 'exec' ? 'Exec' : agent.name}</strong
+					>{#if agent.role.toLowerCase() !== agent.id}<small class="role">{agent.role}</small>{/if}
 				</div>
 				<div class="route">
 					<span
@@ -138,18 +161,17 @@
 							: agent.id === 'default'
 								? 'No default selected'
 								: 'Use company default'}</span
-					><small
-						>{agent.assignment?.model ??
-							agent.effective_model.slice(agent.effective_model.indexOf('/') + 1)}</small
-					>
+					><small>{agent.assignment?.model ?? modelLabel(agent.effective_model)}</small>
 				</div>
-				<button
-					class="btn small"
-					disabled={busy || !source.view.connections.length}
-					onclick={() => edit(agent)}
-					aria-label={`Change intelligence for ${agent.id === 'exec' ? 'Exec' : agent.name}`}
-					>Change</button
-				>
+				<!-- With nothing connected there is nothing to change to; the row
+				     already points to the connection that comes first. -->
+				{#if source.view.connections.length}<button
+						class="btn small"
+						disabled={busy}
+						onclick={() => edit(agent)}
+						aria-label={`Change intelligence for ${agent.id === 'exec' ? 'Exec' : agent.name}`}
+						>Change</button
+					>{/if}
 			</div>
 			{#if editing === agent.id}
 				<form
@@ -217,15 +239,20 @@
 				</form>
 			{/if}
 		{/each}
+		{#if foldedCount > 0 || showAll}
+			<button class="text-button fold-toggle" type="button" onclick={() => (showAll = !showAll)}>
+				{showAll
+					? 'Show fewer'
+					: `${foldedCount} more ${foldedCount === 1 ? 'agent uses' : 'agents use'} the company default`}
+			</button>
+		{/if}
 	{/if}
 	{#if error}<p role="alert">{error}</p>{/if}{#if notice}<p role="status">{notice}</p>{/if}
 </section>
 
 <style>
 	.assignments {
-		margin-top: var(--space-6);
-		border-top: 1px solid var(--control-edge);
-		padding-top: var(--space-5);
+		margin-top: var(--space-5);
 	}
 	header {
 		display: flex;
@@ -236,7 +263,6 @@
 		font-size: var(--t-head);
 		margin: 0;
 	}
-	.hint,
 	small {
 		color: var(--text-tertiary);
 	}
@@ -312,5 +338,11 @@
 			grid-column: 2;
 			grid-row: 1 / 3;
 		}
+	}
+	.role::first-letter {
+		text-transform: uppercase;
+	}
+	.fold-toggle {
+		margin: var(--space-2) 0 0 -7px;
 	}
 </style>

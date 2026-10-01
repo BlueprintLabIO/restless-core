@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { failureSentence } from '$lib/model/failure';
+	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
+	import { listFlip, listIn, listOut } from '$lib/ui/motion';
 	import { resizePane } from '$lib/actions/resize-pane';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
@@ -10,11 +13,13 @@
 	import ConversationMessage from '$lib/primitives/ConversationMessage.svelte';
 	import AttentionCard from '$lib/components/AttentionCard.svelte';
 	import Markdown from '$lib/primitives/Markdown.svelte';
-	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
+	import OutcomeFolio from '$lib/ui/views/OutcomeFolio.svelte';
+	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
 	import ConversationTurnDock from '$lib/primitives/ConversationTurnDock.svelte';
-	import CompanyOffice from '$lib/office/CompanyOffice.svelte';
+	import CompanyOffice, { preloadOffice } from '$lib/office/LazyCompanyOffice.svelte';
 	import type { AttentionItem } from '$lib/model/view';
-	import { attentionQuery, conversationQuery } from '$lib/model/queries.svelte';
+	import { attentionQuery, companiesQuery, conversationQuery } from '$lib/model/queries.svelte';
+	import { startFixHref, startLinkLabel } from '$lib/model/company-start';
 	import { browserTabClientId } from '$lib/model/browserTab';
 	import { getBrowserStatus } from '$lib/model/company';
 	import { browserControl, issueDesktopTicket, issueReviewTicket } from '$lib/model/attention';
@@ -55,7 +60,47 @@
 	const items = $derived(view?.items ?? []);
 	const graph = $derived(view?.workGraph ?? null);
 	const selectedItemId = $derived(page.url.searchParams.get('item'));
+	const companyCatalog = companiesQuery();
+	/* A company that cannot start is not clear, whatever the queue says: say
+	 * the blocker in the portfolio's words and link straight to its fix. */
+	const startBlocker = $derived.by(() => {
+		const reason = companyCatalog.view.find(
+			(company) => company.id === companyId
+		)?.unstartable_reason;
+		return reason ? startLinkLabel(reason) : '';
+	});
 	const queueClear = $derived(loaded && items.length === 0);
+	/* Phones never mount the office canvas (see the clear state below). */
+	let compactScreen = $state(false);
+	$effect(() => {
+		const query = window.matchMedia('(max-width: 760px)');
+		compactScreen = query.matches;
+		const change = () => (compactScreen = query.matches);
+		query.addEventListener('change', change);
+		return () => query.removeEventListener('change', change);
+	});
+	/* The office is the likely answer on a desktop; fetch its code and art
+	 * alongside Attention rather than after it. */
+	$effect(() => {
+		if (!compactScreen && !(loaded && items.length > 0)) void preloadOffice();
+	});
+	/* The queue opening or clearing while the owner watches is animated; the
+	 * page arriving in its first known layout is not. Two frames after the
+	 * first answer, later changes may move. */
+	let settled = $state(false);
+	$effect(() => {
+		if (!loaded || settled) return;
+		const frame = requestAnimationFrame(() =>
+			requestAnimationFrame(() => {
+				settled = true;
+			})
+		);
+		return () => cancelAnimationFrame(frame);
+	});
+	const showClear = $derived(queueClear && !startBlocker);
+	/* The queue starts collapsed until its source answers, so an idle
+	 * company's office is never squeezed and released; when items do arrive,
+	 * the queue opens with the same motion as any later change. */
 	const selectedItem = $derived(
 		items.find((item) => item.id === selectedItemId) ?? (selectedItemId ? null : (items[0] ?? null))
 	);
@@ -201,7 +246,7 @@
 			})
 			.catch((cause) => {
 				if (reviewRequestKey === key) {
-					reviewError = cause instanceof Error ? cause.message : 'The live website is unavailable.';
+					reviewError = failureSentence(cause, 'The live website is unavailable.');
 				}
 			});
 	});
@@ -226,8 +271,29 @@
 	 * the only path. The source coalesces this with any poll already running. */
 	async function refresh() {
 		await source.refresh();
-		error =
-			source.status === 'stale' ? (source.failure?.message ?? 'Attention is unavailable.') : '';
+	}
+
+	/* J/K and the arrow keys walk the queue, as in any triage list. Typing,
+	 * modifiers and open dialogs keep their own meaning for those keys. */
+	function stepQueue(event: KeyboardEvent) {
+		if (event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
+		const step = { j: 1, ArrowDown: 1, k: -1, ArrowUp: -1 }[event.key];
+		if (!step || items.length < 2) return;
+		const target = event.target as HTMLElement | null;
+		if (
+			target?.closest('input, textarea, select, [contenteditable], dialog, #bridge-exrail') ||
+			document.querySelector('dialog[open]')
+		)
+			return;
+		const index = items.findIndex((item) => item.id === selectedItem?.id);
+		const next = items[Math.max(0, Math.min(items.length - 1, index + step))];
+		if (!next || next.id === selectedItem?.id) return;
+		event.preventDefault();
+		void goto(itemHref(next.id), { keepFocus: true, noScroll: true }).then(() =>
+			document
+				.querySelector('.attention-item.selected')
+				?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+		);
 	}
 
 	function itemHref(id: string): string {
@@ -239,7 +305,7 @@
 		return date.toLocaleString(undefined, {
 			month: 'short',
 			day: 'numeric',
-			hour: '2-digit',
+			hour: 'numeric',
 			minute: '2-digit'
 		});
 	}
@@ -255,7 +321,7 @@
 				contradiction: 'Conflicting evidence',
 				human_step: 'Your participation',
 				collaboration: 'Work together',
-				conversation: 'Needs you'
+				conversation: 'Question'
 			}[category] ?? category.replaceAll('_', ' ')
 		);
 	}
@@ -285,7 +351,7 @@
 				await takeControl(true);
 			}
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Browser control state is unavailable.';
+			error = failureSentence(cause, 'Browser control state is unavailable.');
 		}
 	}
 
@@ -305,7 +371,7 @@
 			desktopUrl = await issueDesktopTicket(companyId, item.id, clientId);
 			autoClaimPending = true;
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'The live browser is unavailable.';
+			error = failureSentence(cause, 'The live browser is unavailable.');
 		}
 	}
 
@@ -320,7 +386,7 @@
 			lastDesktopActivity = Date.now();
 			lastLeaseRenewal = Date.now();
 		} catch (cause) {
-			if (!silent) error = cause instanceof Error ? cause.message : 'Control is held elsewhere.';
+			if (!silent) error = failureSentence(cause, 'Control is held elsewhere.');
 		}
 	}
 
@@ -334,8 +400,7 @@
 			desktopUrl = observedDesktopUrl();
 			lastDesktopActivity = 0;
 		} catch (cause) {
-			if (!automatic)
-				error = cause instanceof Error ? cause.message : 'Control could not be returned.';
+			if (!automatic) error = failureSentence(cause, 'Control could not be returned.');
 		}
 	}
 
@@ -353,7 +418,7 @@
 			.catch((cause) => {
 				controller = 'observer';
 				desktopUrl = observedDesktopUrl();
-				error = cause instanceof Error ? cause.message : 'Desktop control expired.';
+				error = failureSentence(cause, 'Desktop control expired.');
 			})
 			.finally(() => (activityRenewing = false));
 	}
@@ -380,14 +445,14 @@
 			messageFiles = [];
 		} catch (cause) {
 			messageDraft = sent;
-			conversationError =
-				cause instanceof Error ? cause.message : 'Your message was not delivered.';
+			conversationError = failureSentence(cause, 'Your message was not delivered.');
 		} finally {
 			sendingMessage = false;
 		}
 	}
 </script>
 
+<svelte:window onkeydown={stepQueue} />
 <svelte:head><title>Attention — {view?.company.name ?? companyId}</title></svelte:head>
 
 {#if focusedReview}
@@ -456,7 +521,8 @@
 						</div>
 						<h1>{focusedReview.reviewTarget?.label ?? focusedReview.title}</h1>
 						<p>
-							This Office file is ready to download. Open it in Word, Excel or PowerPoint to review it.
+							This Office file is ready to download. Open it in Word, Excel or PowerPoint to review
+							it.
 						</p>
 						<a href={reviewUrl} target="_blank" rel="noopener noreferrer">Download file</a>
 						<small>Restless can’t preview or edit Office files in this review.</small>
@@ -665,6 +731,9 @@
 	<div
 		class="cockpit-screen attention-screen"
 		class:queue-clear={queueClear}
+		class:settled
+		class:awaiting={!loaded && !source.failure}
+		aria-busy={!loaded && !source.failure}
 		use:resizePane={{
 			key: `${companyId}:attention`,
 			label: 'Resize attention panes',
@@ -676,13 +745,34 @@
 			enabled: !queueClear
 		}}
 	>
-		{#if error}<div class="cockpit-error attention-error">{error}</div>{/if}
+		{#if error}
+			<div class="cockpit-error attention-error" role="alert">{error}</div>
+		{:else if source.failure && loaded}
+			<div class="cockpit-error">
+				<FailureNotice error={source.failure} subject="Attention" stale onretry={source.reload} />
+			</div>
+		{/if}
 		<aside class="cockpit-pane attention-index" aria-hidden={queueClear} inert={queueClear}>
 			<div class="attention-index-scroll">
+				{#if startBlocker && !queueClear}
+					<a class="attention-start-blocker inline" href={startFixHref(companyId)}>
+						<span class="attention-start-glyph" aria-hidden="true">
+							<MatrixGlyph rows={GLYPHS.alert} size={7} />
+						</span>
+						<span class="attention-start-copy">
+							<strong>Can’t start yet</strong>
+							<span>{startBlocker}</span>
+						</span>
+						<span class="attention-start-go" aria-hidden="true">→</span>
+					</a>
+				{/if}
 				<div class="attention-list">
 					{#each items as item (item.id)}
 						<a
 							class="attention-item category-{item.category}"
+							animate:listFlip
+							in:listIn
+							out:listOut
 							class:selected={selectedItem?.id === item.id}
 							href={itemHref(item.id)}
 							aria-current={selectedItem?.id === item.id ? 'true' : undefined}
@@ -696,7 +786,7 @@
 							</span>
 							<strong class="attention-item-title">{item.title}</strong>
 							<span class="attention-item-action">
-								<span>{item.preparing ? 'Preparing:' : 'Needs you:'}</span>
+								{#if item.preparing}<span>Preparing:</span>{/if}
 								{item.requestedAction} <span aria-hidden="true">→</span>
 							</span>
 						</a>
@@ -716,13 +806,25 @@
 		</aside>
 
 		<section class="cockpit-pane attention-focus" class:office-focus={!selectedItem && loaded}>
+			{#if queueClear && startBlocker}
+				<a class="attention-start-blocker" href={startFixHref(companyId)}>
+					<span class="attention-start-glyph" aria-hidden="true">
+						<MatrixGlyph rows={GLYPHS.alert} size={7} />
+					</span>
+					<span class="attention-start-copy">
+						<strong>Can’t start yet</strong>
+						<span>{startBlocker}</span>
+					</span>
+					<span class="attention-start-go" aria-hidden="true">→</span>
+				</a>
+			{/if}
 			<button
 				class="attention-clear-control"
-				class:visible={queueClear}
+				class:visible={showClear}
 				type="button"
-				aria-hidden={!queueClear}
-				tabindex={queueClear ? 0 : -1}
-				title="No owner action is required. Check again now."
+				aria-hidden={!showClear}
+				tabindex={showClear ? 0 : -1}
+				title={showClear ? 'No owner action is required. Check again now.' : undefined}
 				onclick={() => void refresh()}
 			>
 				<span class="attention-clear-glyph" aria-hidden="true">
@@ -740,14 +842,39 @@
 						/>
 					{/key}
 				{:else}
-					{@render attentionDetail(selectedItem)}
+					{#key `${companyId}:${selectedItem.id}`}
+						{@render attentionDetail(selectedItem)}
+					{/key}
 				{/if}
+			{:else if !loaded && source.failure}
+				<FailureNotice
+					error={source.failure}
+					subject="Attention"
+					variant="page"
+					onretry={source.reload}
+				/>
 			{:else if !loaded}
 				<!-- Deliberately nothing until the source answers. An empty pane for
 				     one round trip reads as loading; the zero-state hero reads as a
 				     verdict, and it was the wrong one about half a second later. -->
+			{:else if compactScreen}
+				<!-- A phone gets the verdict, not the company floor: the pixel
+				     campus is a large canvas that costs battery for little use at
+				     this size. -->
+				<div class="attention-clear-compact" role="status">
+					<span class="attention-clear-compact-mark" aria-hidden="true">
+						<MatrixGlyph rows={GLYPHS.check} size={10} />
+					</span>
+					<p>Nothing needs you right now.</p>
+					<a class="btn small" href={`/${companyId}/work`}>Open Work</a>
+				</div>
 			{:else}
-				<CompanyOffice {companyId} {graph} sourceHealth={view?.sourceHealth ?? {}} />
+				<CompanyOffice
+					{companyId}
+					{graph}
+					sourceHealth={view?.sourceHealth ?? {}}
+					quietSignal={!!startBlocker}
+				/>
 			{/if}
 		</section>
 	</div>
@@ -758,96 +885,86 @@
 		<article class="conversation-request cockpit-pane">
 			<h1>{item.title}</h1>
 			<div class="request-message"><Markdown text={item.whatHappened} /></div>
-			<p class="request-need"><strong>{item.preparing ? 'Preparing' : 'Needs you'}</strong> {item.requestedAction}</p>
+			<p class="request-need">
+				<strong>{item.preparing ? 'Preparing' : 'Needs you'}</strong>
+				{item.requestedAction}
+			</p>
 			<a
 				class="btn small primary"
-				href={item.actions.find((action) => action.id === 'continue-conversation')?.href}
-				>Continue conversation →</a
+				href={item.actions.find((action) => action.id === 'continue-conversation')?.href}>Reply →</a
 			>
 		</article>
 	{:else}
+		{@const showRecommendation =
+			item.recommendation.trim() !== item.whatHappened.trim() &&
+			item.recommendation.trim() !== item.whyItMatters.trim()}
+		{#snippet recommendationBody()}
+			<Markdown text={item.recommendation} />
+		{/snippet}
 		<div class="inbox-pane">
-			<article class="owner-folio category-{item.category}">
-				<header class="folio-opening">
-					<div class="folio-heading">
-						<h1>{item.title}</h1>
-						<div class="folio-context">
-							<InfoTip
-								text={`${attentionKind(item.category)} from ${item.source.plane.replaceAll('_', ' ')}. Supporting source detail is available below.`}
-							/>
-							{#if item.deadline}<time>Decision needed by {item.deadline}</time>{/if}
-						</div>
-					</div>
-					<div class="folio-context-copy">
-						<p>{item.whatHappened}</p>
-						<p>{item.whyItMatters}</p>
-					</div>
-					{#if item.uncertainty}
-						<p class="folio-uncertainty"><strong>Uncertain:</strong> {item.uncertainty}</p>
-					{/if}
-				</header>
+			<OutcomeFolio
+				title={item.title}
+				whatHappened={item.whatHappened}
+				whyItMatters={item.whyItMatters}
+				uncertainty={item.uncertainty || undefined}
+				category={item.category}
+				recommendation={showRecommendation ? recommendationBody : undefined}
+				detailsCount={item.evidence.length}
+			>
+				{#snippet context()}
+					<InfoTip
+						text={`${attentionKind(item.category)} from ${item.source.plane.replaceAll('_', ' ')}. Supporting source detail is available below.`}
+					/>
+					{#if item.deadline}<time>Decision needed by {item.deadline}</time>{/if}
+				{/snippet}
 
-				{#if item.recommendation.trim() !== item.whatHappened.trim() &&
-					item.recommendation.trim() !== item.whyItMatters.trim()}
-					<section class="folio-recommendation" aria-label="Recommendation">
-						<strong>Recommended</strong>
-						<Markdown text={item.recommendation} />
-					</section>
-				{/if}
 
-				{#key `${companyId}:${item.id}`}<AttentionCard
-						{companyId}
-						{item}
-						showTitle={false}
-						embedded={true}
-						onopenDocument={async () => {
-							const result = await source.reload();
-							if (result.error) throw result.error;
-						}}
-					/>{/key}
+				{#snippet decision()}
+					{#key `${companyId}:${item.id}`}<AttentionCard
+							{companyId}
+							{item}
+							showTitle={false}
+							embedded={true}
+							onopenDocument={async () => {
+								const result = await source.reload();
+								if (result.error) throw result.error;
+							}}
+						/>{/key}
+				{/snippet}
 
-				<details class="folio-details">
-					<summary title="Prepared by, supporting evidence, and source references">
-						<span class="evidence-chevron" aria-hidden="true">›</span>
-						<span>Details</span>
-						{#if item.evidence.length}<small>· {item.evidence.length} item{item.evidence.length === 1 ? '' : 's'}</small>{/if}
-					</summary>
-					<div class="folio-evidence-body">
-						<div class="folio-credit">
-							<span>Prepared by</span>
-							<strong
-								>{item.briefAuthor?.display ??
-									item.responsibleActor?.display ??
-									'Source record'}</strong
-							>
-							{#if item.briefedAt}
-								<span class="folio-credit-separator" aria-hidden="true">·</span>
-								<time>{when(item.briefedAt)}</time>
-							{/if}
-						</div>
-						<InfoTip
-							text={`Brief status: ${item.briefStatus.replaceAll('-', ' ')}. The wording was prepared by the named accountable actor.`}
-						/>
-						{#each item.evidence as evidence, evidenceIndex (`${evidence.kind}:${evidence.label}:${evidenceIndex}`)}
-							{#if evidence.content}
-								<div class="evidence-entry">
-									<div class="evidence-label mono">{evidence.label}</div>
-									<blockquote class="ib-quote">{evidence.content}</blockquote>
-								</div>
-							{:else if evidence.uri}
-								<a class="evidence-link" href={evidence.uri} target="_blank" rel="noreferrer">
-									{evidence.label} <span aria-hidden="true">↗</span>
-								</a>
-							{/if}
-						{/each}
-						<div class="source-ref mono">
-							SOURCE {item.source.kind} / {item.source.reference} · {item.canContinue
-								? 'work may continue'
-								: 'blocking'}
-						</div>
+				{#snippet details()}
+					<div class="folio-credit">
+						<span>Prepared by</span>
+						<strong
+							>{item.briefAuthor?.display ?? item.responsibleActor?.display ?? 'Source record'}</strong
+						>
+						{#if item.briefedAt}
+							<span class="folio-credit-separator" aria-hidden="true">·</span>
+							<time>{when(item.briefedAt)}</time>
+						{/if}
 					</div>
-				</details>
-			</article>
+					<InfoTip
+						text={`Brief status: ${item.briefStatus.replaceAll('-', ' ')}. The wording was prepared by the named accountable actor.`}
+					/>
+					{#each item.evidence as evidence, evidenceIndex (`${evidence.kind}:${evidence.label}:${evidenceIndex}`)}
+						{#if evidence.content}
+							<div class="evidence-entry">
+								<div class="evidence-label mono">{evidence.label}</div>
+								<blockquote class="ib-quote">{evidence.content}</blockquote>
+							</div>
+						{:else if evidence.uri}
+							<a class="evidence-link" href={evidence.uri} target="_blank" rel="noreferrer">
+								{evidence.label} <span aria-hidden="true">↗</span>
+							</a>
+						{/if}
+					{/each}
+					<div class="source-ref mono">
+						SOURCE {item.source.kind} / {item.source.reference} · {item.canContinue
+							? 'work may continue'
+							: 'blocking'}
+					</div>
+				{/snippet}
+			</OutcomeFolio>
 		</div>
 	{/if}
 {/snippet}
@@ -899,7 +1016,7 @@
 	}
 	.review-source {
 		border-right: 1px solid var(--border-strong);
-		background: color-mix(in srgb, var(--surface-alt) 82%, white);
+		background: color-mix(in srgb, var(--surface-alt) 82%, var(--surface-raised));
 	}
 	.review-source-head,
 	.review-outcome-head {
@@ -956,7 +1073,8 @@
 	}
 	.review-source-card time {
 		flex: none;
-		font: var(--t-label) var(--font-mono);
+		font: var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 		color: var(--text-tertiary);
 	}
 	.review-source-meta {
@@ -991,13 +1109,13 @@
 		background: var(--surface-alt);
 	}
 	.review-outcome {
-		background: #fff;
+		background: var(--surface-raised);
 	}
 	.review-outcome-stage iframe {
 		width: 100%;
 		height: 100%;
 		border: 0;
-		background: #fff;
+		background: var(--surface-raised);
 	}
 	.review-document {
 		width: min(820px, calc(100% - 48px));
@@ -1006,8 +1124,8 @@
 		padding: clamp(28px, 5vw, 58px);
 		border: 1px solid var(--border);
 		border-radius: var(--radius-lg);
-		background: white;
-		box-shadow: 0 18px 48px rgba(43, 51, 66, 0.11);
+		background: var(--surface-raised);
+		box-shadow: var(--shadow-lift);
 	}
 	.review-document :global(.md) {
 		font-size: var(--t-head);
@@ -1021,7 +1139,7 @@
 		place-content: center;
 		gap: 8px;
 		padding: 40px;
-		background: #fff;
+		background: var(--surface-raised);
 		color: var(--ink);
 	}
 	.review-download {
@@ -1036,7 +1154,8 @@
 	.review-download-kind {
 		margin-bottom: 20px;
 		color: var(--text-tertiary);
-		font: var(--t-label) var(--font-mono);
+		font: var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 	}
 	.review-download h1 {
 		margin: 0;
@@ -1073,6 +1192,31 @@
 		letter-spacing: 0.09em;
 		color: var(--text-tertiary);
 	}
+	.attention-clear-compact {
+		display: grid;
+		justify-items: center;
+		align-content: center;
+		gap: var(--space-3);
+		height: 100%;
+		padding: var(--space-6);
+		text-align: center;
+	}
+	.attention-clear-compact p {
+		margin: 0;
+		color: var(--text-secondary);
+		font-size: var(--t-head);
+		font-weight: 600;
+	}
+	.attention-clear-compact-mark {
+		display: grid;
+		place-items: center;
+		width: 40px;
+		height: 40px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-md);
+		background: var(--surface-raised);
+		color: var(--state-success);
+	}
 	.attention-error,
 	.focus-error {
 		color: var(--danger);
@@ -1083,75 +1227,6 @@
 		padding: 9px 14px;
 		border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--border));
 		background: color-mix(in srgb, var(--danger) 7%, var(--surface));
-	}
-	.owner-folio {
-		container-type: inline-size;
-		width: min(760px, calc(100% - 40px));
-		margin: 20px auto;
-		padding: clamp(20px, 3vw, 32px);
-		background: var(--surface-pane);
-	}
-	.folio-opening {
-		padding: 0;
-	}
-	.folio-heading {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto;
-		align-items: center;
-		gap: var(--space-4);
-	}
-	.folio-context {
-		display: flex;
-		align-items: center;
-		justify-content: flex-start;
-		gap: var(--space-2);
-		color: var(--text-secondary);
-		font-size: var(--t-body);
-	}
-	.folio-context time {
-		max-width: 18ch;
-	}
-	.folio-heading h1 {
-		max-width: 760px;
-		margin: 0;
-		font-size: var(--t-title);
-		font-weight: 600;
-		line-height: 1.16;
-		letter-spacing: -0.03em;
-		text-wrap: balance;
-	}
-	.folio-context-copy {
-		max-width: 72ch;
-		margin-top: var(--space-4);
-		color: var(--text-secondary);
-		font-size: var(--t-head);
-		line-height: 1.5;
-	}
-	.folio-context-copy p {
-		margin: 0;
-	}
-	.folio-context-copy p + p {
-		margin-top: var(--space-2);
-	}
-	.folio-uncertainty {
-		margin: var(--space-3) 0 0;
-		font-size: var(--t-body);
-		line-height: 1.45;
-		color: var(--text-secondary);
-	}
-	.folio-uncertainty strong {
-		color: var(--intent-authority);
-		font-weight: 600;
-	}
-	.folio-recommendation {
-		margin: var(--space-4) 0;
-		padding: var(--space-3) 0;
-		border-block: 1px solid var(--border);
-		color: var(--ink);
-	}
-	.folio-recommendation > strong {
-		color: var(--intent-feedback);
-		font-size: var(--t-body);
 	}
 	.folio-credit {
 		min-width: 0;
@@ -1174,50 +1249,6 @@
 	}
 	.folio-credit-separator {
 		color: var(--border-strong);
-	}
-	.folio-details {
-		margin-top: var(--space-3);
-		border-top: 1px solid var(--border);
-	}
-	.folio-details summary {
-		display: flex;
-		align-items: center;
-		gap: var(--space-1);
-		padding: 10px 0;
-		cursor: pointer;
-		list-style: none;
-		font: 500 var(--t-body) var(--font-ui);
-		color: var(--text-secondary);
-	}
-	.folio-details summary::-webkit-details-marker {
-		display: none;
-	}
-	.folio-details summary:hover {
-		color: var(--ink);
-	}
-	.folio-details summary:focus-visible {
-		outline: 2px solid var(--intent-feedback);
-		outline-offset: 2px;
-	}
-	.folio-details summary small {
-		font: inherit;
-		font-weight: 400;
-		color: var(--text-tertiary);
-	}
-	.evidence-chevron {
-		width: var(--space-3);
-		flex: 0 0 var(--space-3);
-		font-size: var(--t-head);
-		line-height: 1;
-		color: var(--text-tertiary);
-		transform-origin: center;
-		transition: transform 120ms ease;
-	}
-	.folio-details[open] .evidence-chevron {
-		transform: rotate(90deg);
-	}
-	.folio-evidence-body {
-		padding: 2px 0 12px;
 	}
 	.evidence-entry {
 		margin-top: 15px;
@@ -1344,7 +1375,8 @@
 		flex: none;
 		padding: 4px 6px;
 		border: 1px solid var(--border-strong);
-		font: var(--t-label) var(--font-mono);
+		font: var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 		color: var(--text-tertiary);
 	}
 	.controller-badge.owner {
@@ -1387,7 +1419,7 @@
 		height: 100%;
 		border: 1px solid var(--border-strong);
 		border-radius: var(--radius-control);
-		background: white;
+		background: var(--surface-raised);
 	}
 	.outcome-offline {
 		height: 100%;
@@ -1471,17 +1503,28 @@
 			border-top: 1px solid var(--border-strong);
 			border-left: 0;
 		}
-		.owner-folio {
-			width: calc(100% - 24px);
-			margin-block: 12px;
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.live-mark.owner {
+			box-shadow: none;
+		}
+	}
+	/* Choosing another item settles its detail in place (a short fade and
+	 * 4px rise after the selection lands) instead of swapping the pane. */
+	.conversation-request,
+	.inbox-pane {
+		animation: attention-detail-in 260ms var(--ease-out) 30ms backwards;
+	}
+	@keyframes attention-detail-in {
+		from {
+			opacity: 0;
+			transform: translateY(4px);
 		}
 	}
 	@media (prefers-reduced-motion: reduce) {
-		.evidence-chevron {
-			transition: none;
-		}
-		.live-mark.owner {
-			box-shadow: none;
+		.conversation-request,
+		.inbox-pane {
+			animation: none;
 		}
 	}
 </style>

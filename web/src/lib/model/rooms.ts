@@ -1,3 +1,4 @@
+import { responseFailure } from './failure.ts';
 export type RoomKind = 'company' | 'group' | 'direct';
 
 export interface Room {
@@ -237,16 +238,7 @@ const roomPath = (company: string, room?: string): string => {
 	return room ? `${base}/${encodeURIComponent(room)}` : base;
 };
 
-async function roomError(response: Response): Promise<Error & { status: number }> {
-	let message = `${response.status} ${response.statusText}`;
-	try {
-		const body = (await response.json()) as { message?: string };
-		message = body.message ?? message;
-	} catch {
-		// An intermediary may return plain text. Keep the transport status.
-	}
-	return Object.assign(new Error(message), { status: response.status });
-}
+const roomError = responseFailure;
 
 async function roomJson<T>(url: string, init?: RequestInit): Promise<T> {
 	const response = await fetch(url, {
@@ -271,9 +263,7 @@ export function getRooms(
 	return roomJson(`${roomPath(company)}?${query}`);
 }
 
-export function getRecentDirectConversations(
-	company: string
-): Promise<RecentDirectConversation[]> {
+export function getRecentDirectConversations(company: string): Promise<RecentDirectConversation[]> {
 	return roomJson(`/api/companies/${encodeURIComponent(company)}/direct-conversations`);
 }
 

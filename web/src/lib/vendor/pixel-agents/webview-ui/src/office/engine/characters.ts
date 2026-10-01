@@ -99,6 +99,7 @@ export function updateCharacter(
 	blockedTiles: Set<string>
 ): void {
 	ch.frameTimer += dt;
+	if (ch.state !== CharacterState.IDLE) ch.glance = null;
 
 	switch (ch.state) {
 		case CharacterState.TYPE: {
@@ -124,8 +125,10 @@ export function updateCharacter(
 		}
 
 		case CharacterState.IDLE: {
-			// No idle animation — static pose
+			// Standing still is a static pose; an occasional glance aside keeps
+			// a quiet office alive without claiming any activity.
 			ch.frame = 0;
+			glance(ch, dt);
 			if (ch.seatTimer < 0) ch.seatTimer = 0; // clear turn-end sentinel
 			// If became active, pathfind to seat
 			if (ch.isActive) {
@@ -333,6 +336,31 @@ export function getCharacterSprite(ch: Character, sprites: CharacterSprites): Sp
 		default:
 			return sprites.walk[ch.dir][1];
 	}
+}
+
+const GLANCE_ASIDE: Record<Direction, Direction[]> = {
+	[Direction.DOWN]: [Direction.LEFT, Direction.RIGHT],
+	[Direction.UP]: [Direction.LEFT, Direction.RIGHT],
+	[Direction.LEFT]: [Direction.DOWN],
+	[Direction.RIGHT]: [Direction.DOWN]
+};
+
+function glance(ch: Character, dt: number): void {
+	// Whoever turned the character since (a pose, a walk) owns its facing now.
+	if (ch.glance && ch.dir !== ch.glance.to) ch.glance = null;
+	ch.glanceTimer = (ch.glanceTimer ?? randomRange(4, 10)) - dt;
+	if (ch.glanceTimer > 0) return;
+	if (ch.glance) {
+		ch.dir = ch.glance.home;
+		ch.glance = null;
+		ch.glanceTimer = randomRange(6, 14);
+		return;
+	}
+	const options = GLANCE_ASIDE[ch.dir];
+	const to = options[Math.floor(Math.random() * options.length)];
+	ch.glance = { home: ch.dir, to };
+	ch.dir = to;
+	ch.glanceTimer = randomRange(0.9, 1.8);
 }
 
 function randomRange(min: number, max: number): number {

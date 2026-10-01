@@ -1,8 +1,10 @@
 <script lang="ts">
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
+	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { page } from '$app/state';
 	import InfoTip from '$lib/components/InfoTip.svelte';
 	import { attentionQuery } from '$lib/model/queries.svelte';
-	import SemanticMark from '$lib/primitives/SemanticMark.svelte';
+	import SemanticMark from '$lib/ui/glyph/SemanticMark.svelte';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	const source = $derived(attentionQuery(companyId));
@@ -20,7 +22,7 @@
 			month: 'short',
 			day: 'numeric',
 			year: 'numeric',
-			hour: '2-digit',
+			hour: 'numeric',
 			minute: '2-digit'
 		});
 	}
@@ -32,21 +34,23 @@
 	<header class="company-page-head">
 		<div class="decision-history-heading">
 			<h1>Decision history</h1>
-			<InfoTip
-				text="Past approvals and decisions stay in history. Open the related work to give new direction; pending decisions are in Attention."
-			/>
+			<InfoTip text="Your past approvals and decisions. Pending ones are in Attention." />
 		</div>
 		<div class="company-page-freshness">
 			<span class="source-lamp status-{source.status}" aria-hidden="true"></span>
 			{source.status === 'live'
-				? `${decisions.length} recorded`
+				? decisions.length
+					? `${decisions.length} recorded`
+					: 'Live'
 				: source.status === 'stale'
-					? 'Last observation'
-					: 'Reading decisions'}
+					? 'Out of date'
+					: 'Checking…'}
 		</div>
 	</header>
 
-	<a class="btn small" href={`/${companyId}`}>Review pending decisions</a>
+	{#if view?.items.length}<a class="btn small" href={`/${companyId}`}
+			>Review {view.items.length} pending in Attention</a
+		>{/if}
 	{#if view}
 		{#if decisions.length}
 			<section class="company-decision-ledger" aria-label="Recorded owner decisions">
@@ -96,11 +100,13 @@
 			<p class="quiet-empty">No owner decisions have been recorded yet.</p>
 		{/if}
 	{:else if source.failure}
-		<div class="company-source-error" role="alert">
-			{source.failure.message}
-			<button class="btn small" onclick={() => source.refresh()}>Retry</button>
-		</div>
+		<FailureNotice
+			error={source.failure}
+			subject="decision history"
+			variant="block"
+			onretry={source.refresh}
+		/>
 	{:else}
-		<div class="company-page-wait" aria-label="Reading decision history"></div>
+		<Skeleton label="Reading decision history…" variant="page" count={4} />
 	{/if}
 </div>

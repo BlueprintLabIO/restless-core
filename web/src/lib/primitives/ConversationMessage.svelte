@@ -1,12 +1,14 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import { formatMoment } from '$lib/ui/time';
+	import { onDestroy, untrack } from 'svelte';
 	import type { Snippet } from 'svelte';
 	import Check from '@lucide/svelte/icons/check';
 	import Copy from '@lucide/svelte/icons/copy';
 	import AttachmentList from './AttachmentList.svelte';
 	import Markdown from './Markdown.svelte';
-	import SemanticMark from './SemanticMark.svelte';
+	import SemanticMark from '$lib/ui/glyph/SemanticMark.svelte';
 	import type { MessageAttachment, MessageIntentReceipt } from '$lib/model/view';
+	import { initials } from '$lib/model/initials';
 
 	let {
 		sender,
@@ -22,7 +24,8 @@
 		domId,
 		headerExtra,
 		actions,
-		embedded = false
+		embedded = false,
+		continued = false
 	}: {
 		sender: 'owner' | 'agent' | 'human' | 'system';
 		author: string;
@@ -38,6 +41,8 @@
 		headerExtra?: Snippet;
 		actions?: Snippet;
 		embedded?: boolean;
+		/** Follows a message from the same author moments earlier: no header. */
+		continued?: boolean;
 	} = $props();
 
 	let copyState = $state<'idle' | 'copied' | 'failed'>('idle');
@@ -47,22 +52,36 @@
 	function timeLabel(value: Date | string): string {
 		const date = value instanceof Date ? value : new Date(value);
 		if (Number.isNaN(date.getTime())) return '';
-		return date.toLocaleString(undefined, {
-			month: 'short',
-			day: 'numeric',
-			hour: 'numeric',
-			minute: '2-digit'
-		});
+		// Day separators carry the date; a message shows its time of day.
+		return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 	}
+	/* A room message that is seconds old when it first renders has just
+	 * arrived: it settles in. History loading on open and the owner's own
+	 * words (shown optimistically, then confirmed) stay still, as do Exec
+	 * replies, which already streamed in their live turn. */
+	const fresh = untrack(
+		() => embedded && sender !== 'owner' && Date.now() - new Date(createdAt).getTime() < 15_000
+	);
 	const timestamp = $derived(timeLabel(createdAt));
 	const messageDate = $derived(new Date(createdAt));
 	const validDate = $derived(!Number.isNaN(messageDate.getTime()));
 	const displayAuthor = $derived(author === 'The Exec' ? 'Exec' : author);
+	/* The Exec keeps its mark; every other person or agent is the same initial
+	 * avatar the directory shows, so a message is attributable at a glance. */
+	const personInitial = $derived(
+		(sender === 'agent' || sender === 'human') && displayAuthor !== 'Exec'
+			? initials(displayAuthor)
+			: ''
+	);
 	const longOwnerMessage = $derived(
 		sender === 'owner' && (text.length > 700 || (text.match(/\n/g)?.length ?? 0) >= 12)
 	);
 	const messagePreview = $derived(
-		text.replace(/\s+/g, ' ').trim().slice(0, 200).concat(text.trim().length > 200 ? '…' : '')
+		text
+			.replace(/\s+/g, ' ')
+			.trim()
+			.slice(0, 200)
+			.concat(text.trim().length > 200 ? '…' : '')
 	);
 
 	async function copyMessage() {
@@ -84,28 +103,31 @@
 <article
 	id={domId}
 	class="conversation-message {sender}"
+	class:fresh
+	class:continued
 	class:pending
 	class:embedded
+	tabindex="-1"
 	data-message-sender={sender}
 >
-	<header class="message-meta">
+	<header class="message-meta" class:sr-only={continued}>
 		<span class="message-avatar">
-			<SemanticMark
-				meaning={sender === 'agent'
-					? 'executive'
-					: sender === 'owner'
-						? 'direction'
-						: sender === 'human'
-							? 'people'
-							: 'work'}
-				size="small"
-				label={sender === 'owner' ? 'Your message' : `${displayAuthor} message`}
-			/>
+			{#if personInitial}<span
+					class="message-initial"
+					role="img"
+					aria-label={`${displayAuthor} message`}>{personInitial}</span
+				>{:else}
+				<SemanticMark
+					meaning={sender === 'agent' ? 'executive' : sender === 'owner' ? 'direction' : 'work'}
+					size="small"
+					label={sender === 'owner' ? 'Your message' : `${displayAuthor} message`}
+				/>
+			{/if}
 		</span>
 		<strong>{displayAuthor}</strong>
 		{#if timestamp}<time
 				datetime={validDate ? messageDate.toISOString() : undefined}
-				title={validDate ? messageDate.toLocaleString() : undefined}>{timestamp}</time
+				title={validDate ? formatMoment(messageDate) : undefined}>{timestamp}</time
 			>{/if}
 		{@render headerExtra?.()}
 	</header>
@@ -190,25 +212,119 @@
 </article>
 
 <style>
+	.conversation-message.fresh {
+		animation: message-arrive var(--motion-disclosure) var(--ease-out) both;
+	}
+	@keyframes message-arrive {
+		from {
+			opacity: 0;
+			transform: translateY(6px);
+		}
+	}
+
+	/* After Svelte AI Elements: space separates turns, not rules. Others speak
+	 * as avatar, name and plain text; the owner's own words are a compact
+	 * bubble on the right, with no name to read. A run of messages from one
+	 * author shares a single header. */
 	.conversation-message {
 		position: relative;
 		width: 100%;
 		min-width: 0;
 		display: grid;
-		gap: 3px;
-		padding: 12px 14px 8px;
+		gap: 4px;
+		padding: 10px 14px 4px;
 		border: 0;
-		border-bottom: 1px solid var(--border);
-		background: var(--chat-agent-bg);
+		background: transparent;
 	}
 
-	/* The left edge is a signal, not a frame: it marks the two senders that are
-	 * not the default one. An agent message carries no stripe, so its background
-	 * starts flush with the rail header instead of looking inset by 2px. */
+	.conversation-message.continued {
+		padding-top: 0;
+	}
 
+	/* The Exec rail's history renders only what is on screen (rooms do the
+	 * same on their own row, see RoomMessage). */
+	.conversation-message:not(.embedded) {
+		content-visibility: auto;
+		contain-intrinsic-size: auto 64px;
+	}
+
+	/* Everyone else's text lines up under their name, and a run reads as one
+	 * block. Actions float at the top right on hover instead of reserving a
+	 * row under every message. */
+	.conversation-message:not(.owner) :is(.message-body, .message-footer) {
+		padding-left: 31px;
+	}
+
+	/* Touch has no hover: a message's actions appear when it is tapped
+	 * (focused), instead of a Reply row under every message. */
+	@media (hover: none) {
+		.conversation-message:not(:focus-within) .message-footer {
+			display: none;
+		}
+	}
+
+	.conversation-message:focus {
+		outline: none;
+	}
+
+	@media (hover: hover) and (pointer: fine) {
+		.conversation-message:not(.owner) .message-footer {
+			position: absolute;
+			z-index: 1;
+			top: 6px;
+			right: 10px;
+			min-height: 0;
+			margin: 0;
+			padding: 0;
+		}
+
+		.conversation-message:not(.owner) .message-actions {
+			padding: 2px;
+			border-radius: var(--radius-control);
+			background: var(--surface-raised);
+			box-shadow:
+				0 0 0 1px var(--border),
+				0 2px 8px rgba(43, 51, 66, 0.08);
+		}
+	}
+
+	/* The owner's bubble sits right; its copy action waits beside it rather
+	 * than reserving a row beneath, so a run of bubbles stays tight. */
 	.conversation-message.owner {
+		grid-template-columns: minmax(15%, 1fr) minmax(0, auto);
+		column-gap: 6px;
+	}
+
+	.conversation-message.owner .message-meta {
+		grid-row: 1;
+		grid-column: 1 / -1;
+		justify-self: end;
+	}
+
+	.conversation-message.owner .message-body {
+		grid-row: 2;
+		grid-column: 2;
+	}
+
+	.conversation-message.owner .message-footer {
+		grid-row: 2;
+		grid-column: 1;
+		align-self: center;
+		justify-self: end;
+		min-height: 0;
+		margin: 0;
+	}
+
+	.conversation-message.owner .message-meta :is(.message-avatar, strong) {
+		display: none;
+	}
+
+	.conversation-message.owner .message-body {
+		max-width: 72ch;
+		padding: 8px 12px;
+		border-radius: 12px;
 		background: var(--chat-owner-bg);
-		box-shadow: inset 2px 0 0 var(--chat-owner-edge);
+		color: var(--ink);
 	}
 
 	.conversation-message.system {
@@ -216,8 +332,8 @@
 		box-shadow: inset 2px 0 0 color-mix(in srgb, var(--intent-feedback) 42%, transparent);
 	}
 
-	.conversation-message.pending {
-		border-top: 1px solid var(--border);
+	.conversation-message.pending .message-body {
+		opacity: 0.72;
 	}
 
 	.conversation-message.embedded {
@@ -231,6 +347,18 @@
 	.message-avatar {
 		display: inline-flex;
 		flex: none;
+	}
+
+	.message-initial {
+		display: grid;
+		width: 24px;
+		height: 24px;
+		place-items: center;
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		background: var(--surface-alt);
+		color: var(--text-secondary);
+		font: 600 var(--t-label) var(--font-ui);
 	}
 
 	.message-meta {
@@ -252,7 +380,8 @@
 	.message-meta time {
 		flex: none;
 		color: var(--text-tertiary);
-		font: 500 var(--t-label) var(--font-mono);
+		font: 500 var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 	}
 
 	.message-footer {
@@ -268,6 +397,20 @@
 		display: flex;
 		align-items: center;
 		gap: 2px;
+	}
+
+	/* With a mouse, actions wait for the message you are pointing at; their
+	 * space stays reserved so nothing moves. Touch keeps them visible. */
+	@media (hover: hover) and (pointer: fine) {
+		.message-actions {
+			opacity: 0;
+			transition: opacity var(--motion-state) var(--ease-standard);
+		}
+
+		.conversation-message:hover .message-actions,
+		.conversation-message:focus-within .message-actions {
+			opacity: 1;
+		}
 	}
 
 	.copy-message {
@@ -311,6 +454,13 @@
 		font-size: var(--t-body);
 		line-height: 1.5;
 		overflow-wrap: anywhere;
+	}
+
+	/* Prose keeps a readable measure in a wide pane; tables and code still use
+	 * the full width they need. */
+	.message-body :global(.md > :is(p, ul, ol, blockquote, h1, h2, h3, h4, h5, h6)),
+	.message-body :global(.message-preview) {
+		max-width: 80ch;
 	}
 
 	.message-body :global(.md > :first-child) {
@@ -371,6 +521,7 @@
 
 	.message-glance {
 		display: grid;
+		grid-template-columns: max-content minmax(0, 1fr);
 		gap: 0;
 		margin: 10px 0 2px;
 		border-block: 1px solid var(--border-strong);
@@ -378,8 +529,10 @@
 
 	.message-glance > div {
 		display: grid;
-		grid-template-columns: 62px minmax(0, 1fr);
-		gap: 8px;
+		grid-column: 1 / -1;
+		/* One label column for every row, as wide as its longest label. */
+		grid-template-columns: subgrid;
+		column-gap: 12px;
 		padding: 7px 0;
 	}
 

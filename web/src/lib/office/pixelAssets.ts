@@ -248,6 +248,10 @@ async function initializePixelAssets(): Promise<PixelOfficeAssets> {
 
 /** Decode and register the upstream pack once per browser session. */
 export function loadPixelOfficeAssets(): Promise<PixelOfficeAssets> {
-	assetLoad ??= initializePixelAssets();
+	// A failed load is forgotten so the next open can try again.
+	assetLoad ??= initializePixelAssets().catch((cause) => {
+		assetLoad = null;
+		throw cause;
+	});
 	return assetLoad;
 }

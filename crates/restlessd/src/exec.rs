@@ -324,15 +324,18 @@ pub async fn wake(
             // sessions deliberately do not use the fuse.
             .unwrap_or_default();
         let metered = auth.billing == crate::model_gateway::ModelBilling::MeteredApi;
+        let harness = config.coordination_harness;
         let mcp_servers = crate::connected_tool::session_servers(
             authority.pool(),
+            org,
+            capabilities,
             &config.name,
             "exec",
             None,
             None,
+            matches!(harness, crate::runtime::AgentHarness::Codex),
         )
         .await?;
-        let harness = config.coordination_harness;
         let outcome = match harness {
             crate::runtime::AgentHarness::RestlessManaged
             | crate::runtime::AgentHarness::ClaudeAgent
@@ -432,47 +435,64 @@ pub async fn wake(
                 }
             }
             crate::runtime::AgentHarness::Codex => {
-                if hosted_identity.is_some() {
-                    anyhow::bail!("hosted Runtime Exec requires the restless-managed ACP harness");
-                }
-                let complete_reply_hook = complete_reply_hook.clone();
-                crate::codex::with_agent_outcome(
-                    &container,
-                    &auth,
-                    "/company",
-                    "exec",
-                    &responsibility,
-                    &package.system_prompt,
-                    mcp_servers,
-                    observer.clone(),
-                    {
-                        let company = config.name.clone();
-                        let model = model.clone();
-                        let cancellation = cancellation.clone();
-                        let session_org = org.clone();
-                        let turn_context = turn_context.clone();
-                        let session_responsibility = responsibility.clone();
-                        move |session| {
-                            Box::pin(async move {
+                if let Some(identity) = hosted_identity.as_ref() {
+                    crate::codex::with_remote_agent_outcome(
+                        runtime_bridges,
+                        identity,
+                        &auth,
+                        "/company",
+                        "exec",
+                        &responsibility,
+                        &package.system_prompt,
+                        mcp_servers,
+                        observer.clone(),
+                        {
+                            let company = config.name.clone();
+                            let model = model.clone();
+                            let cancellation = cancellation.clone();
+                            let session_org = org.clone();
+                            let turn_context = turn_context.clone();
+                            let session_responsibility = responsibility.clone();
+                            let complete_reply_hook = complete_reply_hook.clone();
+                            move |session| Box::pin(async move {
                                 run_ready_exec_session(
-                                    session,
-                                    &session_org,
-                                    &turn_context,
-                                    &company,
-                                    &model,
-                                    &session_responsibility,
-                                    remaining,
-                                    metered,
-                                    focused_mention,
-                                    complete_reply_hook,
-                                    &cancellation,
-                                )
-                                .await
+                                    session, &session_org, &turn_context, &company, &model,
+                                    &session_responsibility, remaining, metered,
+                                    focused_mention, complete_reply_hook, &cancellation,
+                                ).await
                             })
-                        }
-                    },
-                )
-                .await
+                        },
+                    )
+                    .await
+                } else {
+                    crate::codex::with_agent_outcome(
+                        &container,
+                        &auth,
+                        "/company",
+                        "exec",
+                        &responsibility,
+                        &package.system_prompt,
+                        mcp_servers,
+                        observer.clone(),
+                        {
+                            let company = config.name.clone();
+                            let model = model.clone();
+                            let cancellation = cancellation.clone();
+                            let session_org = org.clone();
+                            let turn_context = turn_context.clone();
+                            let session_responsibility = responsibility.clone();
+                            let complete_reply_hook = complete_reply_hook.clone();
+                            move |session| Box::pin(async move {
+                                run_ready_exec_session(
+                                    session, &session_org, &turn_context, &company, &model,
+                                    &session_responsibility, remaining, metered,
+                                    focused_mention, complete_reply_hook, &cancellation,
+                                ).await
+                            })
+                        },
+                    )
+                    .await
+                }
             }
         };
 
@@ -549,6 +569,12 @@ pub async fn wake(
                         .await?;
                     }
                 }
+            } else if harness == crate::runtime::AgentHarness::Codex {
+                crate::codex::discard_hosted_session_locator(
+                    &config.name,
+                    "exec",
+                    &responsibility,
+                )?;
             }
             org.emit_event(
                 "model_context_reconstruction_scheduled",
@@ -652,6 +678,19 @@ pub(crate) async fn agent_auth_for_model(
     attempt_id: Option<uuid::Uuid>,
 ) -> Result<acp::AgentAuth> {
     let session_id = uuid::Uuid::new_v4().simple().to_string();
+    let root = restlessd::appliance::MachineProfile::from_env()?.state_root;
+    let company_config = CompanyConfig::load(&root, company)?;
+    if let Some(route) = company_config.agent_intelligence.get(actor)
+        .or_else(|| company_config.agent_intelligence.get("default"))
+    {
+        if let Some((provider, id, _)) = runtime::account_intelligence_route(&route.connection) {
+            if model != company_config.for_agent(actor).model
+                || !crate::owner::account_assignment_is_granted(&root, &company_config, provider, id)?
+            {
+                anyhow::bail!("This agent's account connection is no longer granted to the company");
+            }
+        }
+    }
     let access = if model.starts_with("native-custom-") {
         crate::custom_harness::session_access(company, actor, model).await?
     } else if model.starts_with("native-") {
@@ -1304,10 +1343,9 @@ async fn gather_snapshot(
         crate::legal::safe_projection(authority, &config.name),
         authority.records_of_kind(&config.name, "effect"),
     )?;
-    let effect_ledger =
-        crate::reconcile::effect_ledger(authority, &config.name, &effect_records)
-            .await?
-            .summary();
+    let effect_ledger = crate::reconcile::effect_ledger(authority, &config.name, &effect_records)
+        .await?
+        .summary();
     let org_signals = health::organisational(spent_usd, &work, &effect_records)
         .into_iter()
         .map(|signal| format!("[{}] {}", signal.kind, signal.detail))
@@ -1380,7 +1418,81 @@ async fn gather_snapshot(
         budget_ceiling_usd: config.spend_ceiling_usd.as_usd(),
         effect_ledger,
         org_signals,
+        staffing_routes: staffing_routes(org, config).await,
     })
+}
+
+/// The models this company can staff with, who uses each, how each is billed
+/// and its list price: the facts behind the Exec's labour-for-tokens choices.
+/// Built from the same resolution the Runtime uses to start an actor.
+async fn staffing_routes(org: &OrgIntel, config: &CompanyConfig) -> String {
+    use crate::model_gateway::{billing_for_model, ModelBilling};
+    let Ok(actors) = org.list_actors().await else {
+        return "(unavailable this wake; `restless people` shows each actor's model)".into();
+    };
+    let mut routes = std::collections::BTreeMap::<String, Vec<String>>::new();
+    for actor in actors
+        .iter()
+        .filter(|actor| actor.actor_class == "agent" && actor.retired_at.is_none())
+    {
+        let effective = config.for_agent(&actor.id);
+        let harness = if actor.id == "exec" {
+            effective.coordination_harness
+        } else {
+            effective.worker_harness
+        };
+        let model = effective.native_model(harness).unwrap_or_else(|| {
+            effective
+                .agent_preference(&actor.id, actor.model.as_deref())
+                .unwrap_or(&effective.model)
+                .to_string()
+        });
+        routes.entry(model).or_default().push(actor.display.clone());
+    }
+    let staff_default = {
+        let effective = config.for_agent("default");
+        effective
+            .native_model(effective.worker_harness)
+            .unwrap_or_else(|| effective.model.clone())
+    };
+    routes.entry(staff_default.clone()).or_default();
+    for failover in &config.model_failover {
+        routes.entry(failover.clone()).or_default();
+    }
+    routes.retain(|model, _| !model.trim().is_empty());
+    if routes.is_empty() {
+        return "(none connected yet; the owner connects intelligence in Company → Intelligence)"
+            .into();
+    }
+    let mut lines = Vec::new();
+    for (model, users) in routes {
+        let mut notes = Vec::new();
+        if model == staff_default {
+            notes.push("default for new Staff".to_string());
+        }
+        if !users.is_empty() {
+            notes.push(format!("used by {}", users.join(", ")));
+        }
+        let billing = match billing_for_model(&model) {
+            Ok(ModelBilling::Subscription) => {
+                "subscription: no per-turn charge, shares the account's rate limits".to_string()
+            }
+            Ok(ModelBilling::NativeApi) => {
+                "the provider bills its own API key outside this spend ceiling".to_string()
+            }
+            Ok(ModelBilling::MeteredApi) => {
+                match crate::owner::model_catalog_api::list_price(&model).await {
+                    Some((input, output)) => format!(
+                        "metered against the ceiling: ${input:.2} in / ${output:.2} out per million tokens"
+                    ),
+                    None => "metered against the ceiling; list price not published".to_string(),
+                }
+            }
+            Err(_) => "not connected right now; do not assign it".to_string(),
+        };
+        lines.push(format!("- {model} — {} — {billing}", if notes.is_empty() { "available".to_string() } else { notes.join("; ") }));
+    }
+    lines.join("\n")
 }
 
 /// Record the conversation wake. Work status changes only through an Attempt;

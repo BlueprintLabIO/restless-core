@@ -73,9 +73,9 @@ impl ArtifactLaunchDescriptor {
             shape: LaunchShape::CompanyComputer,
             availability: if ready { "ready" } else { "unavailable" }.into(),
             detail: if ready {
-                "Open the private Company Computer stream.".into()
+                "Open the company computer’s desktop.".into()
             } else {
-                "Start the Company computer before opening its streamed desktop.".into()
+                "Start the company computer to open its desktop.".into()
             },
             open_endpoint: format!("/api/companies/{company}/resources/company-computer/open"),
             artifact_digest: None,

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { createInfiniteQuery } from '@tanstack/svelte-query';
 	import Markdown from '$lib/primitives/Markdown.svelte';
 	let { companyId, actorId }: { companyId: string; actorId: string } = $props();
@@ -30,8 +31,7 @@
 		},
 		getNextPageParam: (lastPage) => lastPage.next_before ?? undefined,
 		refetchInterval: open ? 10000 : 30000,
-		staleTime: 5000,
-		retry: 1
+		staleTime: 5000
 	}));
 	const messages = $derived(query.data?.pages.flatMap((p) => p.messages) ?? []);
 	const names = $derived(
@@ -63,9 +63,9 @@
 			>
 		</p>
 	{:else if query.isPending}
-		<p role="status">Loading exchanges…</p>
+		<Skeleton label="Loading exchanges" count={2} />
 	{:else if !messages.length}
-		<p>No internal messages recorded for this person yet.</p>
+		<p>No messages between agents yet.</p>
 	{/if}
 	{#each messages as message (message.id)}
 		<details

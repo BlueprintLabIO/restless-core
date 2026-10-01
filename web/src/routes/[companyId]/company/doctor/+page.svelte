@@ -1,4 +1,7 @@
 <script lang="ts">
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
+	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
+	import { failureSentence } from '$lib/model/failure';
 	import { page } from '$app/state';
 	import Activity from '@lucide/svelte/icons/activity';
 	import ArrowUpRight from '@lucide/svelte/icons/arrow-up-right';
@@ -11,6 +14,13 @@
 	const source = $derived(companyQuery(companyId));
 	$effect(() => source.attach());
 	const view = $derived(source.view);
+	/* Checks report the service that ran them; the owner reads what it covers. */
+	const CHECKERS: Record<string, string> = {
+		authority: 'your account controls',
+		orgintel: 'company records',
+		runtime: 'the company computer'
+	};
+	const checker = (source: string) => CHECKERS[source] ?? source;
 
 	let startupError = $state('');
 	let startupRetry = $state(0);
@@ -29,8 +39,7 @@
 					startupError = '';
 				}
 			} catch (cause) {
-				if (!stopped)
-					startupError = cause instanceof Error ? cause.message : 'Startup check is unavailable.';
+				if (!stopped) startupError = failureSentence(cause, 'Startup check is unavailable.');
 			} finally {
 				if (!stopped && !startup.ran_at && !startup.error && !startupError)
 					timer = setTimeout(read, 5000);
@@ -56,7 +65,7 @@
 			notice = outcome.message;
 			await source.refresh();
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Recovery did not complete.';
+			error = failureSentence(cause, 'Recovery did not complete.');
 		} finally {
 			working = '';
 		}
@@ -67,7 +76,7 @@
 		return new Date(value).toLocaleString(undefined, {
 			month: 'short',
 			day: 'numeric',
-			hour: '2-digit',
+			hour: 'numeric',
 			minute: '2-digit'
 		});
 	}
@@ -75,12 +84,11 @@
 	function statusCopy(status: string): string {
 		return (
 			{
-				healthy: 'Every current source and Company-computer check answered healthy.',
-				degraded: 'The company is reachable, but at least one check needs a bounded repair.',
-				unknown: 'A source answered without enough evidence to call the company healthy.',
-				unavailable:
-					'A primary source could not be observed. Unavailable is not treated as empty or healthy.'
-			}[status] ?? 'The company state is still being observed.'
+				healthy: 'Every check passed.',
+				degraded: 'At least one check needs attention.',
+				unknown: 'Some checks were unclear, so health cannot be confirmed.',
+				unavailable: 'A core check could not be reached.'
+			}[status] ?? 'Checking the company…'
 		);
 	}
 	async function recheck() {
@@ -103,14 +111,11 @@
 			<Monitor size={14} strokeWidth={1.8} /> Computer <ArrowUpRight size={13} strokeWidth={1.8} />
 		</a>
 	</header>
-	<p
-		role="status"
-		title="Doctor runs automatically when the local host starts and when a company is created."
-	>
-		{startup.ran_at
-			? `Automatic startup check: ${when(startup.ran_at)}${startup.error || startup.setup_failed ? ' · Setup needs attention; see diagnostics below.' : ''}`
-			: startupError || startup.error || 'Automatic startup check is pending.'}
-	</p>
+	<!-- The startup run is news only when it failed; otherwise its time is a
+	     hover on the overview below. -->
+	{#if startupError || startup.error || startup.setup_failed}<p role="status">
+			{startupError || startup.error || 'The startup check found something that needs attention.'}
+		</p>{/if}
 
 	{#if startupError}<button
 			class="btn small"
@@ -122,9 +127,9 @@
 	{#if error}<div class="computer-error" role="alert">{error}</div>{/if}
 	{#if notice}<div class="computer-notice" role="status">{notice}</div>{/if}
 
-	{#if view && source.failure}<p class="company-source-error" role="alert">
-			Could not refresh diagnostics. Showing the last observation. {source.failure.message}
-		</p>{/if}
+	{#if view && source.failure}
+		<FailureNotice error={source.failure} subject="diagnostics" stale onretry={source.refresh} />
+	{/if}
 	{#if view}
 		<section class="doctor-overview doctor-{view.computer.doctor.status}">
 			<div class="doctor-overview-mark"><Activity size={22} strokeWidth={1.7} /></div>
@@ -135,7 +140,11 @@
 				</div>
 				<p>{statusCopy(view.computer.doctor.status)}</p>
 			</div>
-			<time>{when(view.computer.doctor.observed_at)}</time>
+			<time
+				title={startup.ran_at
+					? `Doctor also ran when the host started, ${when(startup.ran_at)}.`
+					: undefined}>{when(view.computer.doctor.observed_at)}</time
+			>
 		</section>
 
 		<section class="doctor-diagnostics">
@@ -147,13 +156,14 @@
 			</div>
 			<div class="doctor-checks">
 				{#each view.computer.doctor.checks as check (check.id)}
-					<article>
+					<!-- The owning plane is diagnostic detail: a hover, not a column. -->
+					<article title={`Checked by ${checker(check.source)}`}>
 						<i class="check-state check-{check.status}" aria-hidden="true"></i>
 						<div>
 							<strong>{check.label}</strong>
 							<p>{check.summary}</p>
 						</div>
-						<span>{check.source}</span>
+						<span class="sr-only">Checked by {checker(check.source)}</span>
 						{#if check.detail}<InfoTip text={check.detail} />{/if}
 					</article>
 				{/each}
@@ -163,9 +173,7 @@
 		<section class="doctor-recovery">
 			<div class="section-heading">
 				<h2>Recovery</h2>
-				<InfoTip
-					text="A repair appears only when it is the smallest current doctor recommendation. Every request and observed result is recorded by Authority."
-				/>
+				<InfoTip text="The smallest repair that would help. Every repair is recorded." />
 			</div>
 			{#if view.computer.doctor.actions.length}
 				<div class="doctor-actions">
@@ -189,8 +197,8 @@
 				</div>
 			{:else}
 				<p class="quiet-empty">
-					Doctor has no safe automatic repair for the current observation. Exec can inspect the
-					source without turning uncertainty into a destructive action.
+					Doctor has no safe automatic fix for this problem. Exec can inspect the source without
+					turning uncertainty into a destructive action.
 				</p>
 			{/if}
 		</section>
@@ -202,9 +210,9 @@
 					>{working === 'recheck' ? 'Checking…' : 'Recheck'}</button
 				>
 			</div>
-			<p class="company-source-error" role="alert">{source.failure.message}</p>
+			<FailureNotice error={source.failure} subject="diagnostics" onretry={source.refresh} />
 		</section>
 	{:else}
-		<div class="company-page-wait" aria-label="Running company doctor"></div>
+		<Skeleton label="Running company doctor…" variant="page" count={4} />
 	{/if}
 </div>

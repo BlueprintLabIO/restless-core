@@ -1,4 +1,5 @@
 import type { MoneyEnvelope } from './cockpit';
+import { ownerJson } from './failure.ts';
 
 export type CompanySourceStatus = 'available' | 'unavailable' | 'stale' | 'absent';
 
@@ -49,7 +50,12 @@ export interface CompanyView {
 			status: 'available' | 'exhausted' | 'metering_unknown';
 		};
 		runtime: {
+			/** Stored setting: null follows the default, 0 never sleeps. */
 			auto_sleep_after_minutes: number | null;
+			/** The timeout the company actually sleeps after; null never sleeps. */
+			sleep_after_minutes: number | null;
+			/** Stopped by the sleep policy, so owed work wakes it. */
+			asleep: boolean;
 			monthly_runtime_cap_hours: number | null;
 			usage_status: 'available' | 'unavailable';
 			usage: {
@@ -114,6 +120,35 @@ export interface CompanyResource {
 	detail?: string;
 	metadata?: Record<string, unknown>;
 	launch?: ArtifactLaunchDescriptor;
+}
+
+export interface McpReadReceipt {
+	call_id: string;
+	phase: 'started' | 'terminal';
+	actor: string;
+	work_id: string;
+	attempt_id: string;
+	connection_name: string;
+	tool_name: string;
+	tool_contract_digest: string;
+	policy_revision: string;
+	request_digest: string;
+	result_digest: string | null;
+	subject: { kind?: string; site?: string; repository?: string } | null;
+	status: string;
+	provider_status: string | null;
+	observed_at: string;
+	wall_ms: number | null;
+	error_class: string | null;
+}
+
+export interface McpRepinOutcome {
+	name: string;
+	assigned_actor: string;
+	work_id: string;
+	tool_contract_digest: string;
+	policy_revision: string;
+	last_observed_at: string;
 }
 
 export type ArtifactLaunchShape = 'embedded_web' | 'native_client' | 'company_computer';
@@ -240,19 +275,7 @@ export interface CharterRevisionOutcome {
 	evidence_status: 'recorded' | 'incomplete' | 'unchanged';
 }
 
-async function ownerResponse<T>(response: Response): Promise<T> {
-	if (!response.ok) {
-		let message = `${response.status} ${response.statusText}`;
-		try {
-			const body = await response.json();
-			message = body.message ?? message;
-		} catch {
-			// Preserve the transport status when an intermediary returns non-JSON.
-		}
-		throw Object.assign(new Error(message), { status: response.status });
-	}
-	return response.json() as Promise<T>;
-}
+const ownerResponse = ownerJson;
 
 export async function getCompany(company: string, probeCredentials = false): Promise<CompanyView> {
 	const query = probeCredentials ? '?probe_credentials=true' : '';
@@ -276,6 +299,42 @@ export async function openCompanyResource(
 			method: 'POST',
 			credentials: 'same-origin'
 		})
+	);
+}
+
+export async function disableCompanyMcp(company: string, name: string): Promise<void> {
+	await ownerResponse<unknown>(
+		await fetch(
+			`/api/companies/${encodeURIComponent(company)}/company/mcp/${encodeURIComponent(name)}/disable`,
+			{ method: 'POST', credentials: 'same-origin' }
+		)
+	);
+}
+
+export async function getCompanyMcpReceipts(company: string, name: string): Promise<McpReadReceipt[]> {
+	return ownerResponse<McpReadReceipt[]>(
+		await fetch(
+			`/api/companies/${encodeURIComponent(company)}/company/mcp/${encodeURIComponent(name)}/receipts`,
+			{ credentials: 'same-origin', cache: 'no-store' }
+		)
+	);
+}
+
+export async function repinCompanyMcp(
+	company: string,
+	name: string,
+	workId: string
+): Promise<McpRepinOutcome> {
+	return ownerResponse<McpRepinOutcome>(
+		await fetch(
+			`/api/companies/${encodeURIComponent(company)}/company/mcp/${encodeURIComponent(name)}/repin`,
+			{
+				method: 'POST',
+				credentials: 'same-origin',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ work_id: workId })
+			}
+		)
 	);
 }
 

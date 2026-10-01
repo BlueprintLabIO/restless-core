@@ -1,4 +1,7 @@
 <script lang="ts">
+	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
+	import { failureSentence } from '$lib/model/failure';
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { onDestroy, tick, untrack, type Snippet } from 'svelte';
 	let { actions }: { actions?: Snippet } = $props();
 	import { goto } from '$app/navigation';
@@ -10,6 +13,7 @@
 	import WifiOff from '@lucide/svelte/icons/wifi-off';
 	import X from '@lucide/svelte/icons/x';
 	import AttentionCard from '$lib/components/AttentionCard.svelte';
+	import { initials } from '$lib/model/initials';
 	import AgentExchanges from '$lib/components/AgentExchanges.svelte';
 	import IntelligencePopover from '$lib/components/IntelligencePopover.svelte';
 	import ConversationTurnDock from '$lib/primitives/ConversationTurnDock.svelte';
@@ -70,7 +74,7 @@
 	const principalActorId = $derived(principalProjection.view?.actor_id ?? '');
 	const attention = $derived(attentionQuery(companyId, () => ownerAccess));
 	const collaboration = $derived(
-		collaborationBootstrapQuery(companyId, () => principalProjection.view)
+		collaborationBootstrapQuery(companyId, () => (ownerAccess ? null : principalProjection.view))
 	);
 	const roomList = $derived(roomsQuery(companyId));
 	const requestedRoomId = $derived(page.url.searchParams.get('room') ?? '');
@@ -293,8 +297,7 @@
 				})
 				.catch((cause) => {
 					if (key === `${companyId}:${principalActorId}:${requestedPersonId}`)
-						personResolutionFailure =
-							cause instanceof Error ? cause.message : 'Could not open this conversation.';
+						personResolutionFailure = failureSentence(cause, 'Could not open this conversation.');
 				})
 				.finally(() => {
 					if (resolvingPersonKey === key) resolvingPersonKey = '';
@@ -547,14 +550,6 @@
 			: []
 	);
 	const actorNameForHeader = $derived(directPerson?.display ?? directPartner ?? '');
-	function initials(name: string): string {
-		return name
-			.split(/\s+/)
-			.filter(Boolean)
-			.slice(0, 2)
-			.map((part) => part[0]?.toUpperCase() ?? '')
-			.join('');
-	}
 	const actorDisplay = $derived(directPerson?.display ?? directPartner ?? '');
 	function isOwnerTeam(team: CockpitTeam | CollaborationTeam | null): team is CockpitTeam {
 		return !!team && 'outcome_standard_source' in team;
@@ -580,7 +575,7 @@
 			}
 		} catch (cause) {
 			control.value = team.outcome_standard;
-			standardError = cause instanceof Error ? cause.message : 'Could not save the quality target.';
+			standardError = failureSentence(cause, 'Could not save the quality target.');
 		} finally {
 			try {
 				await cockpitProjection.refresh();
@@ -902,7 +897,7 @@
 			retryCommandId = retryable ? commandId : null;
 			retryBody = retryable ? body : '';
 			pendingMessage = null;
-			sendError = cause instanceof Error ? cause.message : 'This message was not delivered.';
+			sendError = failureSentence(cause, 'This message was not delivered.');
 			if (files.length) volatileFileDrafts.set(targetDraft, files);
 		} finally {
 			sending = false;
@@ -918,6 +913,15 @@
 		yesterday.setDate(today.getDate() - 1);
 		if (date.toDateString() === yesterday.toDateString()) return 'Yesterday';
 		return date.toLocaleDateString(undefined, { month: 'long', day: 'numeric' });
+	}
+
+	/* One header for a run: same author, same day, within five minutes. */
+	function continuesRun(previous: RoomMessageRecord, current: RoomMessageRecord): boolean {
+		return (
+			previous.from_actor === current.from_actor &&
+			dayKey(previous.created_at) === dayKey(current.created_at) &&
+			new Date(current.created_at).getTime() - new Date(previous.created_at).getTime() < 5 * 60_000
+		);
 	}
 
 	function dayKey(value: string): string {
@@ -958,7 +962,7 @@
 									class="room-contact"
 									aria-label={`${directPerson.display} intelligence settings`}
 									aria-describedby={tooltipId}
-									title={directPerson.actor_id}
+									title={`Model settings for ${directPerson.display}`}
 								>
 									<span class="person-avatar">{initials(directPerson.display)}</span><strong
 										>{directPerson.display}</strong
@@ -972,7 +976,7 @@
 					<select
 						class="team-standard"
 						aria-label="Team quality target"
-						title="Quality target for future team coordination and new work. This is separate from model thinking effort."
+						title="How ambitious this team’s new work should be. Separate from model thinking effort."
 						value={directTeam.outcome_standard}
 						disabled={standardSaving}
 						onchange={(event) => void changeStandard(event.currentTarget)}
@@ -1029,20 +1033,28 @@
 						{participants}
 					/>
 				{/if}
-				<div
-					class="room-transport"
-					class:degraded={!online || activity?.transport === 'reconnecting'}
-					role="status"
-					aria-live="polite"
-				>
-					{#if online && activity?.transport === 'live'}
-						<Wifi size={13} strokeWidth={2} aria-hidden="true" /> Live
-					{:else if online}
-						<WifiOff size={13} strokeWidth={2} aria-hidden="true" /> Reconnecting
-					{:else}
-						<WifiOff size={13} strokeWidth={2} aria-hidden="true" /> Offline
-					{/if}
-				</div>
+				<!-- Quiet while live: the stream only earns a chip when it is not. -->
+				{#if !online || activity?.transport !== 'live'}
+					<div
+						class="room-transport"
+						class:degraded={!online || activity?.transport === 'reconnecting'}
+						role="status"
+						aria-live="polite"
+						title={!online
+							? 'This device is offline. Messages will send when it reconnects.'
+							: 'New messages appear when the live connection is restored; nothing is lost.'}
+					>
+						{#if !online}
+							<WifiOff size={13} strokeWidth={2} aria-hidden="true" /> Offline
+						{:else if activity?.transport === 'reconnecting'}
+							<WifiOff size={13} strokeWidth={2} aria-hidden="true" /> Reconnecting
+						{:else}
+							<Wifi size={13} strokeWidth={2} aria-hidden="true" /> Connecting
+						{/if}
+					</div>
+				{:else}
+					<span class="sr-only" role="status">Live</span>
+				{/if}
 				{@render actions?.()}
 			</header>
 			{#if ownerAccess && directPartner && actorIsAgent(directPartner)}
@@ -1082,9 +1094,11 @@
 						{#if messageSearchPending || messageSearchProjection.status === 'unknown'}
 							<p class="room-empty">Searching messages…</p>
 						{:else if messageSearchProjection.failure}
-							<p class="room-source-error" role="alert">
-								{messageSearchProjection.failure.message}
-							</p>
+							<FailureNotice
+								error={messageSearchProjection.failure}
+								subject="search results"
+								onretry={messageSearchProjection.refresh}
+							/>
 						{:else}
 							{#each messageSearchProjection.messages as result (result.id)}
 								<button
@@ -1133,6 +1147,13 @@
 						{/if}
 						<RoomMessage
 							{message}
+							continued={index > 0 &&
+								continuesRun(visibleRoots[index - 1], message) &&
+								!(
+									unreadFrom !== null &&
+									message.id > unreadFrom &&
+									visibleRoots[index - 1].id <= unreadFrom
+								)}
 							presentation={actorMessagesById.get(String(message.id))}
 							hrefFor={(attachment) =>
 								`/api/companies/${encodeURIComponent(companyId)}/attachments/${encodeURIComponent(attachment.uploadId)}`}
@@ -1159,7 +1180,9 @@
 								? (revisionProjection?.status ?? 'unknown')
 								: 'live'}
 							historyFailure={historyMessageId === message.id
-								? (revisionProjection?.failure?.message ?? '')
+								? revisionProjection?.failure
+									? failureSentence(revisionProjection.failure, 'Edit history couldn’t load.')
+									: ''
 								: ''}
 							historyHasMore={historyMessageId === message.id &&
 								Boolean(revisionProjection?.hasMore)}
@@ -1174,15 +1197,14 @@
 						/>
 					{:else}
 						{#if roomProjection?.failure && !roomMessages.length}
-							<div class="conversation-empty failure">
-								<strong>Conversation unavailable.</strong>
-								<p>{roomProjection.failure.message}</p>
-								<button type="button" onclick={() => void roomProjection?.refresh()}
-									>Try again</button
-								>
-							</div>
+							<FailureNotice
+								error={roomProjection.failure}
+								subject="this conversation"
+								variant="page"
+								onretry={() => roomProjection?.refresh()}
+							/>
 						{:else if roomProjection?.status === 'unknown'}
-							<div class="conversation-empty">Loading conversation…</div>
+							<Skeleton label="Loading conversation" variant="messages" count={3} />
 						{:else}
 							<div class="conversation-empty">
 								<strong>Nothing said yet.</strong>
@@ -1259,9 +1281,11 @@
 					key: `${selectedRoomId}:${threadRootId ?? ''}`,
 					enabled:
 						!focusedMessageId &&
-						!(exactMessageTarget &&
+						!(
+							exactMessageTarget &&
 							exactMessageTarget.roomId === selectedRoomId.toLowerCase() &&
-							exactMessageTarget.threadRootMessageId === threadRootId)
+							exactMessageTarget.threadRootMessageId === threadRootId
+						)
 				}}
 			>
 				{#if threadProjection?.hasMore}
@@ -1299,7 +1323,9 @@
 							? (revisionProjection?.status ?? 'unknown')
 							: 'live'}
 						historyFailure={historyMessageId === message.id
-							? (revisionProjection?.failure?.message ?? '')
+							? revisionProjection?.failure
+								? failureSentence(revisionProjection.failure, 'Edit history couldn’t load.')
+								: ''
 							: ''}
 						historyHasMore={historyMessageId === message.id && Boolean(revisionProjection?.hasMore)}
 						historyLoadingMore={historyMessageId === message.id &&
@@ -1311,12 +1337,14 @@
 					/>
 				{:else}
 					{#if threadProjection?.status === 'unknown'}
-						<div class="conversation-empty">Loading Thread…</div>
+						<Skeleton label="Loading thread" variant="messages" count={2} />
 					{:else}
-						<div class="conversation-empty failure">
-							<strong>Thread unavailable.</strong>
-							<p>{threadProjection?.failure?.message ?? 'This Thread could not be loaded.'}</p>
-						</div>
+						<FailureNotice
+							error={threadProjection?.failure ?? new Error('This thread couldn’t be loaded.')}
+							subject="this thread"
+							variant="block"
+							onretry={threadProjection ? () => threadProjection?.refresh() : undefined}
+						/>
 					{/if}
 				{/each}
 			</div>
@@ -1449,6 +1477,9 @@
 		max-width: 200px;
 		min-width: 0;
 		padding: 4px;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 		border: 1px solid var(--border);
 		border-radius: var(--radius-control);
 		font: inherit;
@@ -1556,17 +1587,11 @@
 		border-bottom: 1px solid var(--border);
 	}
 
-	.room-empty,
-	.room-source-error {
+	.room-empty {
 		margin: 0;
 		padding: 14px 12px;
 		font-size: var(--t-body);
 		color: var(--text-secondary);
-	}
-
-	.room-source-error {
-		border-top: 1px solid color-mix(in srgb, var(--state-danger) 24%, var(--border));
-		color: var(--state-danger);
 	}
 
 	.room-head,
@@ -1575,7 +1600,7 @@
 		gap: 9px;
 		padding: 9px 14px;
 		border-bottom: 1px solid var(--border);
-		background: rgba(255, 255, 255, 0.48);
+		background: color-mix(in srgb, var(--highlight) 48%, transparent);
 		box-shadow: var(--bevel-subtle);
 	}
 
@@ -1625,7 +1650,7 @@
 	.room-head-copy strong,
 	.thread-head strong {
 		font-size: var(--t-head);
-		font-weight: 650;
+		font-weight: 600;
 	}
 
 	.room-head-copy small,
@@ -1641,11 +1666,12 @@
 		gap: 5px;
 		flex: 0 0 auto;
 		padding: 3px 7px;
-		border: 1px solid color-mix(in srgb, var(--state-success) 24%, var(--border));
+		border: 1px solid var(--border);
 		border-radius: var(--radius-control);
-		background: var(--state-success-soft);
-		font: 500 var(--t-label) var(--font-mono);
-		color: var(--state-success);
+		background: var(--surface-alt);
+		font: 500 var(--t-label) var(--font-ui);
+		color: var(--text-tertiary);
+		animation: bridge-disclosure-in var(--motion-disclosure) var(--ease-out) both;
 	}
 
 	.room-transport.degraded {
@@ -1757,7 +1783,8 @@
 		align-items: center;
 		gap: 10px;
 		padding: 9px 14px 5px;
-		font: 500 var(--t-label) var(--font-mono);
+		font: 500 var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 		color: var(--text-tertiary);
 	}
 
@@ -1811,15 +1838,10 @@
 		cursor: pointer;
 	}
 
-	.conversation-empty.failure strong,
-	.conversation-empty.failure p {
-		color: var(--state-danger);
-	}
-
 	.room-composer {
 		flex: 0 0 auto;
 		padding: 9px 16px max(11px, env(safe-area-inset-bottom));
-		background: rgba(255, 255, 255, 0.66);
+		background: color-mix(in srgb, var(--highlight) 66%, transparent);
 		box-shadow: 0 -10px 30px rgba(43, 51, 66, 0.035);
 	}
 
@@ -1852,6 +1874,9 @@
 		.room-head {
 			flex-wrap: wrap;
 		}
+		.room-head :global(.room-manage-trigger span) {
+			display: none;
+		}
 		.room-head-copy {
 			flex: 1 0 100%;
 		}
@@ -1862,7 +1887,7 @@
 			margin-left: auto;
 		}
 		.reply-picker {
-			max-width: 150px;
+			max-width: 100%;
 		}
 
 		.rooms-screen.thread-selected {

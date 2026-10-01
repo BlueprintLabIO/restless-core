@@ -1,4 +1,7 @@
 <script lang="ts">
+	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
+	import { failureSentence } from '$lib/model/failure';
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import Check from '@lucide/svelte/icons/check';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import History from '@lucide/svelte/icons/history';
@@ -347,7 +350,7 @@
 		} catch (cause) {
 			failClosedDocumentRead(client, cause, target.companyId, target.documentId);
 			if (!isCurrentTarget(target)) return;
-			commentFailure = cause instanceof Error ? cause.message : 'The comment was not saved.';
+			commentFailure = failureSentence(cause, 'The comment was not saved.');
 			if (!isRetryableDocumentFailure(cause)) commentAttempt = null;
 		} finally {
 			if (isCurrentTarget(target)) commentBusy = false;
@@ -378,7 +381,7 @@
 		} catch (cause) {
 			failClosedDocumentRead(client, cause, target.companyId, target.documentId);
 			if (!isCurrentTarget(target)) return;
-			commentFailure = cause instanceof Error ? cause.message : 'The thread was not resolved.';
+			commentFailure = failureSentence(cause, 'The thread was not resolved.');
 			if (!isRetryableDocumentFailure(cause)) resolveAttempt = null;
 		} finally {
 			if (isCurrentTarget(target)) commentBusy = false;
@@ -436,7 +439,7 @@
 				reviewNotice =
 					'Review requested, but this view could not fully refresh. Reload to see the latest state.';
 			} else {
-				reviewFailure = cause instanceof Error ? cause.message : 'Review could not be requested.';
+				reviewFailure = failureSentence(cause, 'Review could not be requested.');
 				if (!isRetryableDocumentFailure(cause)) reviewRequestAttempt = null;
 			}
 		} finally {
@@ -486,7 +489,7 @@
 				reviewNotice =
 					'Review accepted, but this view could not fully refresh. Reload to see the latest state.';
 			} else {
-				reviewFailure = cause instanceof Error ? cause.message : 'The review was not accepted.';
+				reviewFailure = failureSentence(cause, 'The review was not accepted.');
 				if (!isRetryableDocumentFailure(cause)) reviewAcceptAttempt = null;
 			}
 		} finally {
@@ -556,7 +559,7 @@
 			if (mutationSucceeded) {
 				proposalNotice = `Proposal ${attempt.input.decision === 'accept' ? 'accepted' : 'rejected'}, but this view could not fully refresh. Reload to see the latest state.`;
 			} else {
-				proposalFailure = cause instanceof Error ? cause.message : 'The proposal was not resolved.';
+				proposalFailure = failureSentence(cause, 'The proposal was not resolved.');
 				if (!isRetryableDocumentFailure(cause)) proposalAttempt = null;
 			}
 		} finally {
@@ -616,7 +619,7 @@
 				versionNotice =
 					'Version restored, but this view could not fully refresh. Reload to see the latest state.';
 			} else {
-				versionFailure = cause instanceof Error ? cause.message : 'The version was not restored.';
+				versionFailure = failureSentence(cause, 'The version was not restored.');
 				if (!isRetryableDocumentFailure(cause)) restoreCommand = null;
 			}
 		} finally {
@@ -692,7 +695,9 @@
 				{/if}
 			</header>
 
-			{#if threads.failure}<p class="inline-error" role="alert">{threads.failure.message}</p>{/if}
+			{#if threads.failure}
+				<FailureNotice error={threads.failure} subject="comments" onretry={threads.refresh} />
+			{/if}
 
 			{#if composingThread}
 				<div class="comment-target">
@@ -737,7 +742,7 @@
 						</button>
 					{:else}
 						{#if threads.status === 'unknown'}
-							<p class="quiet-state">Loading comments…</p>
+							<Skeleton label="Loading comments" variant="messages" count={2} />
 						{:else}
 							<div class="quiet-state">
 								<MessagesSquare size={18} strokeWidth={1.5} /><strong>No comments yet.</strong><span
@@ -797,7 +802,7 @@
 						</article>
 					{:else}
 						{#if threadMessages?.status === 'unknown'}
-							<p class="quiet-state">Loading the thread…</p>
+							<Skeleton label="Loading the thread" variant="messages" count={2} />
 						{/if}
 					{/each}
 				</div>
@@ -969,7 +974,7 @@
 						{/if}
 					{/if}
 				{:else if proposals.status === 'unknown'}
-					<p class="quiet-state">Loading proposals…</p>
+					<Skeleton label="Loading proposals" count={3} />
 				{:else}
 					<p class="quiet-state">No agent revisions are waiting.</p>
 				{/if}
@@ -1002,9 +1007,11 @@
 						</header>
 						<p>{item.reason}</p>
 						<footer>
-							<span>{item.created_by_actor_id === 'daemon' ? 'Restless' : actorName(item.created_by_actor_id)}</span><time datetime={item.created_at}
-								>{shortDate(item.created_at)}</time
-							>
+							<span
+								>{item.created_by_actor_id === 'daemon'
+									? 'Restless'
+									: actorName(item.created_by_actor_id)}</span
+							><time datetime={item.created_at}>{shortDate(item.created_at)}</time>
 						</footer>
 						<button
 							type="button"
@@ -1019,11 +1026,11 @@
 						>
 					</article>
 				{:else}
-					{#if versions.status === 'unknown'}<p class="quiet-state">Loading versions…</p>{:else}<p
-							class="quiet-state"
-						>
-							No version history is available.
-						</p>{/if}
+					{#if versions.status === 'unknown'}<Skeleton
+							label="Loading versions"
+							variant="list"
+							count={3}
+						/>{:else}<p class="quiet-state">No version history is available.</p>{/if}
 				{/each}
 			</div>
 			{#if selectedVersionId}
@@ -1044,9 +1051,13 @@
 						</header>
 						<pre>{versionDetail.version.version.plain_text || 'This version is empty.'}</pre>
 					{:else if versionDetail.failure}
-						<p class="inline-error" role="alert">{versionDetail.failure.message}</p>
+						<FailureNotice
+							error={versionDetail.failure}
+							subject="this version"
+							onretry={versionDetail.refresh}
+						/>
 					{:else}
-						<p class="quiet-state">Loading version preview…</p>
+						<Skeleton label="Loading version preview" count={4} />
 					{/if}
 				</section>
 			{/if}
@@ -1112,7 +1123,8 @@
 		padding: 1px 4px;
 		border-radius: 999px;
 		background: var(--surface-attention-soft);
-		font: 600 var(--t-label) var(--font-mono);
+		font: 600 var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 	}
 	.inspector-body {
 		flex: 1;
@@ -1198,7 +1210,8 @@
 	}
 	.thread-index em {
 		color: var(--intent-authority);
-		font: 500 var(--t-label) var(--font-mono);
+		font: 500 var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 		font-style: normal;
 	}
 	.thread-state {
@@ -1261,7 +1274,8 @@
 	}
 	.comment-row time {
 		color: var(--text-tertiary);
-		font: var(--t-label) var(--font-mono);
+		font: var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 	}
 	.comment-row p {
 		margin: 5px 0 0;
@@ -1300,7 +1314,7 @@
 		padding: 8px 9px;
 		border: 1px solid var(--control-edge);
 		border-radius: var(--radius-control);
-		background: #fff;
+		background: var(--surface-raised);
 		color: var(--ink);
 		font: var(--t-body) / 1.5 var(--font-ui);
 		resize: vertical;
@@ -1349,7 +1363,8 @@
 	.review-request.current > header time {
 		margin-left: auto;
 		color: var(--text-tertiary);
-		font: var(--t-label) var(--font-mono);
+		font: var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 	}
 	.review-request.current > p {
 		margin: 4px 0;

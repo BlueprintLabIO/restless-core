@@ -196,6 +196,10 @@ export interface Character {
 	wanderCount: number;
 	/** Max wander moves before returning to seat for rest */
 	wanderLimit: number;
+	/** Seconds until a standing character next glances aside (or back). */
+	glanceTimer?: number;
+	/** The facing a glance returns to, and the facing it turned to. */
+	glance?: { home: Direction; to: Direction } | null;
 	/** Whether the agent is actively working */
 	isActive: boolean;
 	/** Host policy: whether an inactive character may choose autonomous wander targets. */

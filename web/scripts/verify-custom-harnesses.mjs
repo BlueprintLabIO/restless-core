@@ -105,7 +105,7 @@ try {
 		assert.equal(req.method(), 'GET', 'all non-fixture API requests must be read-only');
 		return route.continue();
 	});
-	await page.goto(`${base}/${company}/company/provider`);
+	await page.goto(`${base}/${company}/company/provider#harnesses`);
 	const closeRail = async () => {
 		const toggle = page
 			.locator('button[aria-controls="bridge-exrail"][aria-expanded="true"]')

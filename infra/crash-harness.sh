@@ -135,8 +135,8 @@ sleep 2
 cd "$REPO_ROOT"
 nohup ./target/debug/restlessd >> /tmp/restlessd.log 2>&1 &
 sleep 5
-[ "$("$CLI" status -c "$COMPANY" 2>/dev/null)" = "${COMPANY}: Running" ] \
-  && pass "daemon restarted; company reports Running; coordination state intact" \
+case "$("$CLI" status -c "$COMPANY" 2>/dev/null)" in "${COMPANY}: awake"*) true ;; *) false ;; esac \
+  && pass "daemon restarted; company reports awake; coordination state intact" \
   || fail "daemon did not resume cleanly"
 
 # ------------------------------------------------------- cleanup proof

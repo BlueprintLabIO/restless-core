@@ -42,7 +42,8 @@ const RELAY_RUNTIME_URL: &str = "http://host.docker.internal:7790";
 const MODEL_CAPABILITY_ENV: &str = "RESTLESS_MODEL_CAPABILITY";
 const DISABLED_LOCAL_DISCOVERY_URL: &str = "http://127.0.0.1:1/v1";
 pub(crate) const HOSTED_MODEL_GATEWAY_PREFIX: &str = "/internal/v1/model-gateway";
-pub(crate) const RESPONSES_TARIFF_VERSION: &str = "omp-18.0.10-gpt-5.6-2026-08-30";
+pub(crate) const RUNTIME_RELAY_PORT: u16 = 7790;
+pub(crate) const RESPONSES_TARIFF_VERSION: &str = "openai-gpt-6-standard-2026-09-26";
 pub(crate) const ANTHROPIC_TARIFF_VERSION: &str = "anthropic-list-2026-05-12";
 
 #[derive(Debug, Clone)]
@@ -63,7 +64,7 @@ impl GatewayEndpoints {
         let offset = crate::port_offset()?;
         let broker_port = crate::port_with_offset(7789)?;
         let gateway_port = crate::port_with_offset(7796)?;
-        let relay_port = crate::port_with_offset(7790)?;
+        let relay_port = crate::port_with_offset(RUNTIME_RELAY_PORT)?;
         let profile_suffix = (offset != 0).then(|| format!("-{offset}"));
         Ok(Self {
             broker_profile: format!(
@@ -447,15 +448,15 @@ pub async fn record_cooldown(
 /// credential vault remains host-side in OMP's Restless-only profile.
 pub struct Processes {
     broker: Child,
-    gateway: Child,
-    relay: tokio::task::JoinHandle<()>,
+    gateway: Option<Child>,
+    relay: Option<tokio::task::JoinHandle<()>>,
     marker: PathBuf,
 }
 
 impl Drop for Processes {
     fn drop(&mut self) {
-        self.relay.abort();
-        let _ = self.gateway.start_kill();
+        if let Some(relay) = self.relay.as_ref() { relay.abort(); }
+        if let Some(gateway) = self.gateway.as_mut() { let _ = gateway.start_kill(); }
         let _ = self.broker.start_kill();
         let _ = std::fs::remove_file(&self.marker);
     }
@@ -487,6 +488,12 @@ fn resolved_program(program: &str) -> Result<PathBuf> {
         }
     }
     bail!("model child program {program:?} is not on PATH")
+}
+
+pub(crate) fn oauth_login_command() -> Result<(PathBuf, String)> {
+    let profile = GatewayEndpoints::from_env()?.broker_profile;
+    let program = resolved_program(&std::env::var("RESTLESS_OMP_BIN").unwrap_or_else(|_| "omp".to_owned()))?;
+    Ok((program, profile))
 }
 
 fn read_model_children(path: &Path) -> Vec<ManagedModelChild> {
@@ -598,11 +605,22 @@ pub async fn start(
     root: &std::path::Path,
     capabilities: crate::capability::CapabilityIssuer,
     spend: crate::spend::SpendLedger,
+    local_mcp_daemon: Option<std::sync::Arc<crate::Daemon>>,
 ) -> Result<Option<Processes>> {
     sweep_orphaned_model_children(root)?;
     let endpoints = GatewayEndpoints::from_env()?;
     let mut provider_credentials = provider_credentials(configs).await?;
-    if provider_credentials.is_empty() {
+    for provider in crate::owner::account_oauth_providers(root)? {
+        match provider_credentials.get(&provider) {
+            Some(ProviderCredential::ApiKey(_)) => bail!(
+                "account OAuth connection for {provider} conflicts with a company API key; choose one credential before starting the gateway"
+            ),
+            Some(ProviderCredential::OmpOauth) => {},
+            None => { provider_credentials.insert(provider, ProviderCredential::OmpOauth); },
+        }
+    }
+    let broker_only = provider_credentials.is_empty();
+    if broker_only {
         // The account plane is not a company. It serves the cockpit, holds the
         // owner's credentials and routes surfaces; it performs no company work,
         // so it must start with zero startable companies and report them
@@ -624,10 +642,14 @@ pub async fn start(
             "no company model provider is available; the plane will serve the cockpit \
              and every company will report its own unstartable reason"
         );
-        return Ok(None);
+        // Continue into broker startup. OAuth login and verified identity must
+        // work before the first company has a model grant. The gateway and
+        // Runtime relay remain absent until a provider is configured.
     }
 
-    preflight_runtime_relay_port(&endpoints.relay_loopback_probe)?;
+    if !broker_only {
+        preflight_runtime_relay_port(&endpoints.relay_loopback_probe)?;
+    }
 
     let omp =
         resolved_program(&std::env::var("RESTLESS_OMP_BIN").unwrap_or_else(|_| "omp".to_string()))?;
@@ -663,6 +685,20 @@ pub async fn start(
         .context("start OMP model credential broker")?;
     record_model_child(root, &broker, &omp, &broker_args)?;
     wait_for_broker(&mut broker, &broker_token, &endpoints.broker_url).await?;
+
+    if broker_only {
+        if let Ok(mut access) = BROKER_ACCESS.write() {
+            *access = Some(BrokerAccess { url: endpoints.broker_url, token: broker_token });
+        } else {
+            bail!("model broker state lock is poisoned");
+        }
+        return Ok(Some(Processes {
+            broker,
+            gateway: None,
+            relay: None,
+            marker: model_children_path(root),
+        }));
+    }
 
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
@@ -707,7 +743,21 @@ pub async fn start(
     .await?;
     provider_credentials.retain(|provider, _| !unadmitted.contains(provider));
     if provider_credentials.is_empty() {
-        bail!("no configured company model provider could be admitted by the host model broker");
+        let admission = admit(configs, &provider_credentials)?;
+        set_unstartable(admission.unstartable);
+        uninstall();
+        NO_DIRECT_PROVIDER.store(true, Ordering::Release);
+        if let Ok(mut access) = BROKER_ACCESS.write() {
+            *access = Some(BrokerAccess { url: endpoints.broker_url, token: broker_token });
+        } else {
+            bail!("model broker state lock is poisoned");
+        }
+        return Ok(Some(Processes {
+            broker,
+            gateway: None,
+            relay: None,
+            marker: model_children_path(root),
+        }));
     }
     let admission = admit(configs, &provider_credentials)?;
     for (company, reason) in &admission.unstartable {
@@ -772,8 +822,16 @@ pub async fn start(
         &required_models,
     )
     .await?;
-    let responses_routes = direct_responses_routes(&provider_credentials)?;
-    let anthropic_routes = direct_anthropic_routes(&provider_credentials)?;
+    let responses_routes = direct_responses_routes(
+        &provider_credentials,
+        &endpoints.gateway_host_url,
+        &gateway_token,
+    )?;
+    let anthropic_routes = direct_anthropic_routes(
+        &provider_credentials,
+        &endpoints.gateway_host_url,
+        &gateway_token,
+    )?;
     let providers = provider_credentials
         .into_iter()
         .map(|(provider, credential)| (provider, credential.billing()))
@@ -787,12 +845,17 @@ pub async fn start(
         upstream_url: endpoints.gateway_host_url,
         responses_routes,
         anthropic_routes,
+        broker_access: BrokerAccess {
+            url: endpoints.broker_url.clone(),
+            token: broker_token.clone(),
+        },
         http: reqwest::Client::builder()
             .timeout(Duration::from_secs(15 * 60))
             .build()
             .context("build Runtime model relay client")?,
     };
-    let relay = start_runtime_relay(relay_state.clone(), &endpoints.relay_bind).await?;
+    let relay = start_runtime_relay(relay_state.clone(), &endpoints.relay_bind, local_mcp_daemon)
+        .await?;
     match (CLIENT.write(), HOSTED_RELAY_STATE.write()) {
         (Ok(mut client), Ok(mut hosted)) => {
             *client = Some(ClientConfig {
@@ -815,8 +878,8 @@ pub async fn start(
     }
     Ok(Some(Processes {
         broker,
-        gateway,
-        relay,
+        gateway: Some(gateway),
+        relay: Some(relay),
         marker: model_children_path(root),
     }))
 }
@@ -1066,6 +1129,7 @@ struct RelayState {
     upstream_url: String,
     responses_routes: BTreeMap<String, DirectResponsesRoute>,
     anthropic_routes: BTreeMap<String, DirectAnthropicRoute>,
+    broker_access: BrokerAccess,
     http: reqwest::Client,
 }
 
@@ -1078,7 +1142,13 @@ struct DirectResponsesRoute {
 #[derive(Clone)]
 struct DirectAnthropicRoute {
     base_url: String,
-    api_key: String,
+    credential: AnthropicRouteCredential,
+}
+
+#[derive(Clone)]
+enum AnthropicRouteCredential {
+    ApiKey(String),
+    AccountOauth(String),
 }
 
 pub(crate) fn hosted_routes<S>() -> Router<S>
@@ -1158,8 +1228,19 @@ async fn hosted_relay_anthropic_count_tokens(headers: HeaderMap, body: Bytes) ->
 
 fn direct_responses_routes(
     credentials: &BTreeMap<String, ProviderCredential>,
+    gateway_url: &str,
+    gateway_token: &str,
 ) -> Result<BTreeMap<String, DirectResponsesRoute>> {
     let mut routes = BTreeMap::new();
+    if matches!(credentials.get("openai-codex"), Some(ProviderCredential::OmpOauth)) {
+        routes.insert(
+            "openai-codex".to_string(),
+            DirectResponsesRoute {
+                base_url: format!("{gateway_url}/v1"),
+                api_key: gateway_token.to_owned(),
+            },
+        );
+    }
     if let Some(ProviderCredential::ApiKey(api_key)) = credentials.get("litellm") {
         let mut url = reqwest::Url::parse(
             &std::env::var("GPT_BASE_URL").context("litellm Responses route needs GPT_BASE_URL")?,
@@ -1189,9 +1270,16 @@ fn direct_responses_routes(
 
 fn direct_anthropic_routes(
     credentials: &BTreeMap<String, ProviderCredential>,
+    gateway_url: &str,
+    gateway_token: &str,
 ) -> Result<BTreeMap<String, DirectAnthropicRoute>> {
     let mut routes = BTreeMap::new();
-    if let Some(ProviderCredential::ApiKey(api_key)) = credentials.get("anthropic") {
+    if let Some(ProviderCredential::OmpOauth) = credentials.get("anthropic") {
+        routes.insert("anthropic".to_string(), DirectAnthropicRoute {
+            base_url: format!("{}/v1", gateway_url.trim_end_matches('/')),
+            credential: AnthropicRouteCredential::AccountOauth(gateway_token.to_owned()),
+        });
+    } else if let Some(ProviderCredential::ApiKey(api_key)) = credentials.get("anthropic") {
         let mut url = reqwest::Url::parse(
             &std::env::var("RESTLESS_ANTHROPIC_BASE_URL")
                 .unwrap_or_else(|_| "https://api.anthropic.com/v1".to_string()),
@@ -1212,7 +1300,7 @@ fn direct_anthropic_routes(
             "anthropic".to_string(),
             DirectAnthropicRoute {
                 base_url: url.as_str().trim_end_matches('/').to_string(),
-                api_key: api_key.clone(),
+                credential: AnthropicRouteCredential::ApiKey(api_key.clone()),
             },
         );
     }
@@ -1222,11 +1310,12 @@ fn direct_anthropic_routes(
 async fn start_runtime_relay(
     state: RelayState,
     relay_bind: &str,
+    local_mcp_daemon: Option<std::sync::Arc<crate::Daemon>>,
 ) -> Result<tokio::task::JoinHandle<()>> {
     let listener = tokio::net::TcpListener::bind(relay_bind)
         .await
         .with_context(|| format!("bind Runtime model relay {relay_bind}"))?;
-    let app = Router::new()
+    let model_app = Router::new()
         .route("/v1/models", get(relay_models))
         .route("/v1/pi/stream", post(relay_pi_stream))
         .route("/v1/responses", post(relay_responses))
@@ -1237,8 +1326,17 @@ async fn start_runtime_relay(
         )
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
         .with_state(state);
+    let app = match local_mcp_daemon {
+        Some(daemon) => model_app.merge(crate::mcp_gateway::router(daemon)),
+        None => model_app,
+    };
     Ok(tokio::spawn(async move {
-        if let Err(error) = axum::serve(listener, app).await {
+        if let Err(error) = axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
+        {
             tracing::error!("Runtime model relay stopped: {error}");
         }
     }))
@@ -1266,6 +1364,9 @@ async fn relay_models(State(state): State<RelayState>, headers: HeaderMap) -> Re
             );
         }
     };
+    if let Err(error) = live_company_model_grant(&state.root, &grant).await {
+        return relay_model_grant_error(error);
+    }
     let (_, model_id) = match split_model(&grant.model) {
         Ok(parts) => parts,
         Err(error) => return relay_error(StatusCode::UNAUTHORIZED, &format!("{error:#}")),
@@ -1330,14 +1431,9 @@ async fn relay_pi_stream(
             "model capability does not permit this exact model",
         );
     }
-    let config = match CompanyConfig::load(&state.root, &grant.company) {
+    let config = match live_company_model_grant(&state.root, &grant).await {
         Ok(config) => config,
-        Err(_) => {
-            return relay_error(
-                StatusCode::FORBIDDEN,
-                "model capability company is unavailable",
-            )
-        }
+        Err(error) => return relay_model_grant_error(error),
     };
     let billing = match grant.billing.as_str() {
         "metered_api" => ModelBilling::MeteredApi,
@@ -1477,17 +1573,78 @@ async fn relay_responses(
             "Runtime Responses requests must stream for terminal accounting",
         );
     }
+    // Tool names are safe operational metadata. This makes an MCP handshake
+    // distinguishable from tools actually advertised to the model, without
+    // recording prompts, schemas, arguments, capabilities, or response bodies.
+    if grant.work_id.is_some() {
+        let tools = request
+            .get("tools")
+            .and_then(serde_json::Value::as_array);
+        let names = tools
+            .into_iter()
+            .flatten()
+            .filter_map(|tool| tool.get("name").and_then(serde_json::Value::as_str))
+            .collect::<Vec<_>>();
+        let types = tools
+            .into_iter()
+            .flatten()
+            .filter_map(|tool| tool.get("type").and_then(serde_json::Value::as_str))
+            .collect::<Vec<_>>();
+        let mcp_names = names
+            .iter()
+            .copied()
+            .filter(|name| name.starts_with("mcp__"))
+            .collect::<Vec<_>>();
+        let mcp_child_names = tools
+            .into_iter()
+            .flatten()
+            .filter(|tool| {
+                tool.get("type").and_then(serde_json::Value::as_str) == Some("namespace")
+                    && tool
+                        .get("name")
+                        .and_then(serde_json::Value::as_str)
+                        .is_some_and(|name| name.starts_with("mcp__"))
+            })
+            .flat_map(|tool| {
+                tool.get("tools")
+                    .and_then(serde_json::Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|child| child.get("name").and_then(serde_json::Value::as_str))
+            })
+            .collect::<Vec<_>>();
+        tracing::info!(
+            company = %grant.company,
+            actor = %grant.actor,
+            work_id = ?grant.work_id,
+            attempt_id = ?grant.attempt_id,
+            tool_count = tools.map_or(0, Vec::len),
+            function_tool_count = types.iter().filter(|kind| **kind == "function").count(),
+            mcp_descriptor_count = types.iter().filter(|kind| **kind == "mcp").count(),
+            mcp_tool_names = ?mcp_names,
+            mcp_child_tool_names = ?mcp_child_names,
+            tool_search_present = types.contains(&"tool_search")
+                || names.iter().any(|name| name.contains("tool_search")),
+            "Runtime Responses tool catalogue"
+        );
+    }
     // The host gateway catalogue names custom routes by provider-qualified id;
     // Codex correctly uses the provider-local id on the OpenAI wire.
     request["model"] = serde_json::Value::String(grant.model.clone());
-    let config = match CompanyConfig::load(&state.root, &grant.company) {
-        Ok(config) => config,
-        Err(_) => {
-            return relay_error(
-                StatusCode::FORBIDDEN,
-                "model capability company is unavailable",
-            )
+    // Codex can replay empty message and reasoning content as `null` on a
+    // later turn. OpenAI accepts those Responses shapes, while the pinned OMP
+    // gateway's parser requires arrays. Preserve each item and its other
+    // fields, changing only the empty content representation.
+    if let Some(input) = request.get_mut("input").and_then(serde_json::Value::as_array_mut) {
+        for item in input {
+            if item.get("content").is_some_and(serde_json::Value::is_null) {
+                item["content"] = serde_json::Value::Array(Vec::new());
+            }
         }
+    }
+    let config = match live_company_model_grant(&state.root, &grant).await {
+        Ok(config) => config,
+        Err(error) => return relay_model_grant_error(error),
     };
     let billing = match grant.billing.as_str() {
         "metered_api" => ModelBilling::MeteredApi,
@@ -1643,33 +1800,27 @@ async fn relay_anthropic_messages(
         );
     }
     request["model"] = serde_json::Value::String(model_id.to_string());
-    if anthropic_tariff_micro_usd(model_id, 0, 0, 0, 0).is_none() {
+    if grant.billing == "metered_api" && anthropic_tariff_micro_usd(model_id, 0, 0, 0, 0).is_none() {
         return relay_error(
             StatusCode::BAD_REQUEST,
             "exact Anthropic tariff is not pinned for this model",
         );
     }
-    if grant.billing != "metered_api" {
+    if !matches!(grant.billing.as_str(), "metered_api" | "subscription") {
         return relay_error(
             StatusCode::UNAUTHORIZED,
-            "Claude Agent requires an API-key-backed metered Anthropic route",
+            "Claude Agent has an invalid Anthropic billing policy",
         );
     }
-    let config = match CompanyConfig::load(&state.root, &grant.company) {
+    let config = match live_company_model_grant(&state.root, &grant).await {
         Ok(config) => config,
-        Err(_) => {
-            return relay_error(
-                StatusCode::FORBIDDEN,
-                "model capability company is unavailable",
-            )
-        }
+        Err(error) => return relay_model_grant_error(error),
     };
-    let budget = state.spend.budget_state(&config);
-    if !budget.is_available() {
-        return relay_error(
-            StatusCode::PAYMENT_REQUIRED,
-            &budget.owner_message(&config.name),
-        );
+    if grant.billing == "metered_api" {
+        let budget = state.spend.budget_state(&config);
+        if !budget.is_available() {
+            return relay_error(StatusCode::PAYMENT_REQUIRED, &budget.owner_message(&config.name));
+        }
     }
     let Some(route) = state.anthropic_routes.get(provider) else {
         return relay_error(
@@ -1681,12 +1832,15 @@ async fn relay_anthropic_messages(
         Ok(encoded) => encoded,
         Err(_) => return relay_error(StatusCode::BAD_REQUEST, "could not encode model request"),
     };
-    let mut upstream_request = state
-        .http
+    let mut upstream_request = state.http
         .post(format!("{}/messages", route.base_url))
-        .header("x-api-key", &route.api_key)
         .header(CONTENT_TYPE, "application/json")
         .body(encoded);
+    upstream_request = match &route.credential {
+        AnthropicRouteCredential::ApiKey(key) if grant.billing == "metered_api" => upstream_request.header("x-api-key", key),
+        AnthropicRouteCredential::AccountOauth(token) if grant.billing == "subscription" => upstream_request.bearer_auth(token),
+        _ => return relay_error(StatusCode::FORBIDDEN, "model billing does not match the admitted Anthropic connection"),
+    };
     for name in ["anthropic-version", "anthropic-beta", "accept"] {
         if let Some(value) = headers.get(name) {
             upstream_request = upstream_request.header(name, value);
@@ -1728,7 +1882,7 @@ async fn relay_anthropic_messages(
             work_id: grant.work_id,
             attempt_id: grant.attempt_id,
             model: grant.model,
-            billing: ModelBilling::MeteredApi,
+            billing: if grant.billing == "subscription" { ModelBilling::Subscription } else { ModelBilling::MeteredApi },
         },
     );
     let (stream, _drain) = detach_metered_stream(stream);
@@ -1767,6 +1921,9 @@ async fn relay_anthropic_count_tokens(
             )
         }
     };
+    if let Err(error) = live_company_model_grant(&state.root, &grant).await {
+        return relay_model_grant_error(error);
+    }
     let (provider, model_id) = match split_model(&grant.model) {
         Ok(parts) => parts,
         Err(error) => return relay_error(StatusCode::UNAUTHORIZED, &format!("{error:#}")),
@@ -1777,10 +1934,10 @@ async fn relay_anthropic_count_tokens(
             "Anthropic token counting requires an anthropic model capability",
         );
     }
-    if grant.billing != "metered_api" {
+    if !matches!(grant.billing.as_str(), "metered_api" | "subscription") {
         return relay_error(
             StatusCode::UNAUTHORIZED,
-            "Claude Agent requires an API-key-backed metered Anthropic route",
+            "Claude Agent has an invalid Anthropic billing policy",
         );
     }
     let mut request = match serde_json::from_slice::<serde_json::Value>(&body) {
@@ -1797,7 +1954,7 @@ async fn relay_anthropic_count_tokens(
             "model capability does not permit this exact model",
         );
     }
-    if anthropic_tariff_micro_usd(model_id, 0, 0, 0, 0).is_none() {
+    if grant.billing == "metered_api" && anthropic_tariff_micro_usd(model_id, 0, 0, 0, 0).is_none() {
         return relay_error(
             StatusCode::BAD_REQUEST,
             "exact Anthropic tariff is not pinned for this model",
@@ -1814,15 +1971,51 @@ async fn relay_anthropic_count_tokens(
         Ok(encoded) => encoded,
         Err(_) => return relay_error(StatusCode::BAD_REQUEST, "could not encode token count"),
     };
-    let mut upstream_request = state
-        .http
-        .post(format!("{}/messages/count_tokens", route.base_url))
-        .header("x-api-key", &route.api_key)
+    let mut upstream_request = state.http
+        .post(match &route.credential {
+            AnthropicRouteCredential::ApiKey(_) => format!("{}/messages/count_tokens", route.base_url),
+            // OMP's translated Messages gateway does not expose token counting.
+            // This host-only request uses the broker's current access token.
+            AnthropicRouteCredential::AccountOauth(_) => "https://api.anthropic.com/v1/messages/count_tokens".to_owned(),
+        })
         .header(CONTENT_TYPE, "application/json")
         .body(encoded);
-    for name in ["anthropic-version", "anthropic-beta", "accept"] {
+    upstream_request = match &route.credential {
+        AnthropicRouteCredential::ApiKey(key) if grant.billing == "metered_api" => upstream_request.header("x-api-key", key),
+        AnthropicRouteCredential::AccountOauth(_) if grant.billing == "subscription" => {
+            let expected_account = grant.credential_reference.as_deref()
+                .and_then(|reference| crate::owner::account_oauth_key(&state.root, provider, reference).ok().flatten());
+            let token = match expected_account {
+                Some(expected) => current_anthropic_oauth_token(&state, &expected).await,
+                None => Err(anyhow::anyhow!("account identity is unavailable")),
+            };
+            let token = match token {
+                Ok(token) => token,
+                Err(_) => return relay_error(StatusCode::BAD_GATEWAY, "account Claude sign-in is unavailable"),
+            };
+            let beta = headers.get("anthropic-beta").and_then(|value| value.to_str().ok())
+                .filter(|value| !value.is_empty())
+                .map(|value| format!("claude-code-20250219,oauth-2025-04-20,{value}"))
+                .unwrap_or_else(|| "claude-code-20250219,oauth-2025-04-20".to_owned());
+            let user_agent = headers.get("user-agent").and_then(|value| value.to_str().ok())
+                .filter(|value| value.starts_with("claude-cli/") && value.len() <= 160)
+                .unwrap_or("claude-cli/2.1.257");
+            upstream_request.bearer_auth(token)
+                .header("anthropic-beta", beta)
+                .header("anthropic-version", "2023-06-01")
+                .header("user-agent", user_agent)
+                .header("x-app", "cli")
+        }
+        _ => return relay_error(StatusCode::FORBIDDEN, "model billing does not match the admitted Anthropic connection"),
+    };
+    for name in ["anthropic-version", "accept"] {
         if let Some(value) = headers.get(name) {
             upstream_request = upstream_request.header(name, value);
+        }
+    }
+    if matches!(&route.credential, AnthropicRouteCredential::ApiKey(_)) {
+        if let Some(value) = headers.get("anthropic-beta") {
+            upstream_request = upstream_request.header("anthropic-beta", value);
         }
     }
     let upstream = match upstream_request.send().await {
@@ -1859,6 +2052,36 @@ async fn relay_anthropic_count_tokens(
     response
         .body(Body::from(bytes))
         .unwrap_or_else(|_| relay_error(StatusCode::BAD_GATEWAY, "could not relay token count"))
+}
+
+/// The count-tokens endpoint is not implemented by OMP's protocol gateway.
+/// Read only the active Anthropic access token from the host broker, refreshing
+/// it there when near expiry. It is never returned to the company or browser.
+async fn current_anthropic_oauth_token(state: &RelayState, expected_account: &str) -> Result<String> {
+    let access = &state.broker_access;
+    let mut snapshot = broker_snapshot(&state.http, &access.token, &access.url).await?;
+    let row = snapshot.credentials.iter().filter(|row| row.provider == "anthropic" && row.is_oauth()).collect::<Vec<_>>();
+    if row.len() != 1 { bail!("account has no unique Anthropic OAuth credential") }
+    let actual_account = row[0].credential.get("accountId").or_else(|| row[0].credential.get("email"))
+        .and_then(serde_json::Value::as_str).context("Anthropic OAuth identity is unavailable")?;
+    if actual_account != expected_account { bail!("Anthropic OAuth account changed") }
+    let expires = row[0].credential.get("expires").and_then(serde_json::Value::as_u64).context("Anthropic OAuth expiry is unavailable")?;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_millis() as u64;
+    if expires <= now.saturating_add(60_000) {
+        let response = state.http.post(format!("{}/v1/credential/{}/refresh", access.url, row[0].id))
+            .bearer_auth(&access.token).send().await?;
+        if !response.status().is_success() { bail!("host broker could not refresh Anthropic OAuth") }
+        snapshot = broker_snapshot(&state.http, &access.token, &access.url).await?;
+    }
+    let row = snapshot.credentials.iter().filter(|row| row.provider == "anthropic" && row.is_oauth()).collect::<Vec<_>>();
+    if row.len() != 1 { bail!("account has no unique Anthropic OAuth credential") }
+    let current_account = row[0].credential.get("accountId").or_else(|| row[0].credential.get("email"))
+        .and_then(serde_json::Value::as_str).context("Anthropic OAuth identity is unavailable")?;
+    if current_account != expected_account { bail!("Anthropic OAuth account changed") }
+    row[0].credential.get("access").and_then(serde_json::Value::as_str)
+        .filter(|token| !token.is_empty())
+        .map(str::to_owned)
+        .context("Anthropic OAuth access is unavailable")
 }
 
 fn detach_metered_stream(
@@ -1945,6 +2168,113 @@ fn requested_model(request: &serde_json::Value) -> Option<&str> {
                 .and_then(serde_json::Value::as_str)
                 .filter(|model| !model.is_empty())
         })
+}
+
+/// A signed session proves who asked and which model it may use. The current
+/// company configuration decides whether that provider is still available.
+/// Checking here makes removal effective for an already-running session too.
+#[derive(Debug)]
+struct BrokerIdentityUnavailable;
+
+impl std::fmt::Display for BrokerIdentityUnavailable {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("host model account broker is temporarily unavailable")
+    }
+}
+
+impl std::error::Error for BrokerIdentityUnavailable {}
+
+async fn live_company_model_grant(
+    root: &Path,
+    grant: &crate::capability::ModelGrant,
+) -> Result<CompanyConfig> {
+    let config = CompanyConfig::load(root, &grant.company)?;
+    let scoped = format!("model.inference.{}", grant.provider);
+    let has_scoped = config.credentials.contains_key(&scoped);
+    let has_legacy_primary = config.model.split('/').next() == Some(grant.provider.as_str())
+        && config.credentials.contains_key("model.inference");
+    if !has_scoped && !has_legacy_primary {
+        bail!("company no longer has access to this model provider");
+    }
+    let current_reference = config.credentials.get(&scoped).or_else(|| {
+        has_legacy_primary
+            .then(|| config.credentials.get("model.inference"))
+            .flatten()
+    });
+    if current_reference.map(String::as_str) != grant.credential_reference.as_deref() {
+        bail!("company model connection changed since this session started");
+    }
+    if let Some(reference) = current_reference {
+        if (reference.starts_with("omp-oauth:") && reference.contains('@'))
+            || reference.starts_with("infisical:/owner/model-connections/")
+        {
+            if !crate::owner::account_connection_matches(root, &grant.provider, reference)? {
+                bail!("account model connection is no longer registered");
+            }
+            if reference.starts_with("omp-oauth:") {
+                let expected = crate::owner::account_oauth_key(root, &grant.provider, reference)?
+                    .context("account OAuth connection has no verified identity")?;
+                let actual = oauth_account_key(&grant.provider)
+                    .await
+                    .map_err(|_| BrokerIdentityUnavailable)?
+                    .context("host broker has no unique provider account identity")?;
+                if actual != expected {
+                    bail!("host provider account changed since this company was granted access");
+                }
+            }
+        }
+    }
+    Ok(config)
+}
+
+fn relay_model_grant_error(error: anyhow::Error) -> Response<Body> {
+    if error.downcast_ref::<BrokerIdentityUnavailable>().is_some() {
+        tracing::warn!(class = "host_model_broker_unavailable", "model grant probe unavailable");
+        relay_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "company model account broker is temporarily unavailable",
+        )
+    } else {
+        relay_error(StatusCode::FORBIDDEN, "company model access was removed")
+    }
+}
+
+/// Owner-only cooldown repair may proceed only after the currently configured
+/// OAuth account identity agrees with the durable owner registry. A matching
+/// identity does not assert that an upstream inference call will succeed; the
+/// cooldown deletion separately requires this relay's exact 403 marker.
+pub(crate) async fn verify_owner_model_account(
+    root: &Path,
+    company: &str,
+    model: &str,
+) -> Result<()> {
+    let config = CompanyConfig::load(root, company)?;
+    if config.model != model {
+        bail!("model cooldown repair requires the company's exact primary model");
+    }
+    let (provider, _) = split_model(model)?;
+    let scoped = format!("model.inference.{provider}");
+    let reference = config
+        .credentials
+        .get(&scoped)
+        .context("company has no scoped model connection")?;
+    if !reference.starts_with("omp-oauth:") {
+        bail!("model cooldown repair requires a registered OAuth account");
+    }
+    let grant = crate::capability::ModelGrant {
+        company: company.to_string(),
+        actor: "owner-model-probe".to_string(),
+        session: "owner-model-probe".to_string(),
+        provider: provider.to_string(),
+        credential_reference: Some(reference.clone()),
+        model: model.to_string(),
+        billing: "subscription".to_string(),
+        responsibility: "owner-model-probe".to_string(),
+        work_id: None,
+        attempt_id: None,
+    };
+    live_company_model_grant(root, &grant).await?;
+    Ok(())
 }
 
 fn relay_error(status: StatusCode, message: &str) -> Response<Body> {
@@ -2150,6 +2480,24 @@ impl MeteredStream {
                 }
             }
             MeteringProtocol::OpenAiResponses => {
+                if self.request.work_id.is_some()
+                    && event.get("type").and_then(serde_json::Value::as_str)
+                        == Some("response.output_item.done")
+                    && event.pointer("/item/type").and_then(serde_json::Value::as_str)
+                        == Some("function_call")
+                {
+                    tracing::info!(
+                        company = %self.request.company,
+                        actor = %self.request.actor,
+                        work_id = ?self.request.work_id,
+                        attempt_id = ?self.request.attempt_id,
+                        namespace = ?event.pointer("/item/namespace")
+                            .and_then(serde_json::Value::as_str),
+                        tool_name = ?event.pointer("/item/name")
+                            .and_then(serde_json::Value::as_str),
+                        "Runtime Responses function call"
+                    );
+                }
                 match event.get("type").and_then(serde_json::Value::as_str) {
                     Some("response.completed") => {
                         self.record_responses_terminal(event.pointer("/response/usage"));
@@ -2207,17 +2555,21 @@ impl MeteredStream {
             return;
         }
         let usage = &self.anthropic_usage;
-        let Some(micro_usd) = split_model(&self.request.model)
-            .ok()
-            .and_then(|(_, model)| {
-                anthropic_tariff_micro_usd(
-                    model,
-                    usage.input_tokens,
-                    usage.output_tokens,
-                    usage.cache_creation_input_tokens,
-                    usage.cache_read_input_tokens,
-                )
-            })
+        let Some(micro_usd) = (match self.request.billing {
+            ModelBilling::Subscription => Some(0),
+            ModelBilling::MeteredApi => split_model(&self.request.model)
+                .ok()
+                .and_then(|(_, model)| {
+                    anthropic_tariff_micro_usd(
+                        model,
+                        usage.input_tokens,
+                        usage.output_tokens,
+                        usage.cache_creation_input_tokens,
+                        usage.cache_read_input_tokens,
+                    )
+                }),
+            ModelBilling::NativeApi => None,
+        })
         else {
             self.failed = true;
             return;
@@ -2484,8 +2836,8 @@ fn ceiling_micro_usd(value: &serde_json::Value) -> Option<u64> {
 }
 
 /// Pinned tariff used only for the first-party Responses relay. Values are
-/// hundredths of a micro-USD per token and match the GPT-5.6 entries shipped
-/// in the pinned OMP 18.0.10 catalogue in the Company image. Integer math and
+/// hundredths of a micro-USD per token and match the published standard API
+/// rates for GPT-6 and GPT-5.6. Integer math and
 /// upward rounding preserve the existing hard-spend invariant.
 fn response_tariff_micro_usd(
     model: &str,
@@ -2495,6 +2847,12 @@ fn response_tariff_micro_usd(
 ) -> Option<u64> {
     let long_context = input_tokens > 272_000;
     let (input_rate, output_rate, cached_rate): (u64, u64, u64) = match (model, long_context) {
+        ("gpt-6-astra", false) => (1_000, 5_000, 100),
+        ("gpt-6-astra", true) => (2_000, 7_500, 200),
+        ("gpt-6-sol", false) => (200, 1_000, 20),
+        ("gpt-6-sol", true) => (400, 1_500, 40),
+        ("gpt-6-luna", false) => (10, 50, 1),
+        ("gpt-6-luna", true) => (20, 75, 2),
         ("gpt-5.6-sol", false) => (500, 3_000, 50),
         ("gpt-5.6-sol", true) => (1_000, 4_500, 100),
         ("gpt-5.6-terra", false) => (200, 1_200, 20),
@@ -2530,6 +2888,9 @@ fn anthropic_tariff_micro_usd(
 ) -> Option<u64> {
     let (input_rate, output_rate, cache_write_rate, cache_read_rate): (u64, u64, u64, u64) =
         match model {
+            "claude-fable-5-1" => (1_000, 5_000, 1_250, 25),
+            "claude-opus-5-5" => (400, 2_000, 500, 20),
+            "claude-sonnet-5" => (200, 1_000, 250, 20),
             "claude-opus-4-6" => (500, 2_500, 625, 50),
             "claude-sonnet-4-6" | "claude-sonnet-4-5-20250929" => (300, 1_500, 375, 30),
             "claude-haiku-4-5" | "claude-haiku-4-5-20251001" => (100, 500, 125, 10),
@@ -2579,6 +2940,93 @@ pub async fn oauth_is_loaded(provider: &str) -> Result<bool> {
         bail!("host model broker has conflicting credential modes for {provider}");
     }
     Ok(true)
+}
+
+/// Only provider-supplied account metadata leaves the host broker. Never
+/// serialize its snapshot credential: it contains a live access token.
+pub(crate) async fn oauth_account_identity(provider: &str) -> Result<Option<String>> {
+    let access = BROKER_ACCESS
+        .read()
+        .map_err(|_| anyhow::anyhow!("host model broker state is unavailable"))?
+        .clone()
+        .context("host model broker is not running")?;
+    let http = reqwest::Client::builder().timeout(Duration::from_secs(2)).build()?;
+    let snapshot = broker_snapshot(&http, &access.token, &access.url).await?;
+    let rows = snapshot.credentials.iter()
+        .filter(|credential| credential.provider == provider && credential.is_oauth())
+        .collect::<Vec<_>>();
+    if rows.len() != 1 { return Ok(None); }
+    Ok(rows[0].credential.get("email")
+        .or_else(|| rows[0].credential.get("accountId"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|identity| !identity.is_empty() && identity.len() <= 200 && !identity.chars().any(char::is_control))
+        .map(str::to_owned))
+}
+
+/// A stable comparison key for reconnecting the same provider account. An
+/// email is used only when the provider did not supply an account ID.
+pub(crate) async fn oauth_account_key(provider: &str) -> Result<Option<String>> {
+    let access = BROKER_ACCESS
+        .read()
+        .map_err(|_| anyhow::anyhow!("host model broker state is unavailable"))?
+        .clone()
+        .context("host model broker is not running")?;
+    let http = reqwest::Client::builder().timeout(Duration::from_secs(5)).build()?;
+    let snapshot = broker_snapshot(&http, &access.token, &access.url).await?;
+    let rows = snapshot.credentials.iter()
+        .filter(|credential| credential.provider == provider && credential.is_oauth())
+        .collect::<Vec<_>>();
+    if rows.len() != 1 { return Ok(None); }
+    Ok(rows[0].credential.get("accountId")
+        .or_else(|| rows[0].credential.get("email"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|identity| !identity.is_empty() && identity.len() <= 200 && !identity.chars().any(char::is_control))
+        .map(str::to_owned))
+}
+
+/// Import a legacy company Codex sign-in into the account broker. The caller
+/// validates the source profile and holds the account connection write lock.
+/// No provider credential is ever returned to the browser or written to a
+/// second company volume.
+pub(crate) async fn import_codex_oauth(
+    access_token: &str,
+    refresh_token: &str,
+    expires_ms: u64,
+    account_id: &str,
+) -> Result<()> {
+    let access = BROKER_ACCESS
+        .read()
+        .map_err(|_| anyhow::anyhow!("host model broker state is unavailable"))?
+        .clone()
+        .context("host model broker is not running")?;
+    let http = reqwest::Client::builder().timeout(Duration::from_secs(10)).build()?;
+    if broker_snapshot(&http, &access.token, &access.url)
+        .await?
+        .credentials
+        .iter()
+        .any(|row| row.provider == "openai-codex")
+    {
+        bail!("the account broker already has a Codex credential");
+    }
+    let response = http
+        .post(format!("{}/v1/credential", access.url))
+        .bearer_auth(&access.token)
+        .json(&serde_json::json!({
+            "provider": "openai-codex",
+            "credential": {
+                "type": "oauth",
+                "access": access_token,
+                "refresh": refresh_token,
+                "expires": expires_ms,
+                "accountId": account_id,
+            }
+        }))
+        .send()
+        .await?;
+    if !response.status().is_success() {
+        bail!("the account broker refused the Codex credential (HTTP {})", response.status());
+    }
+    Ok(())
 }
 
 pub fn models_config(model: &str, runtime_url: &str, token_env: &str) -> Result<String> {
@@ -2804,14 +3252,11 @@ fn admit(
         }
         if [config.coordination_harness, config.worker_harness]
             .contains(&crate::runtime::AgentHarness::ClaudeAgent)
-            && !matches!(
-                credentials.get("anthropic"),
-                Some(ProviderCredential::ApiKey(_))
-            )
+            && !credentials.contains_key("anthropic")
         {
             unstartable.insert(
                 config.name.clone(),
-                "Claude Agent requires an API-key-backed credentials.model.inference.anthropic route; subscription OAuth is not imported into the Runtime"
+                "Claude Agent needs an admitted Anthropic account sign-in or API key"
                     .to_string(),
             );
             continue;
@@ -3134,7 +3579,16 @@ mission = "Choose native intelligence"
                 worker_harness: crate::runtime::AgentHarness::RestlessManaged,
                 reasoning_effort: crate::acp::DEFAULT_REASONING_EFFORT.into(),
                 model_failover: Vec::new(),
-                credentials: BTreeMap::new(),
+                // Live relay requests re-check that the company still holds a
+                // connection for the granted provider (see
+                // live_company_model_grant), so the fixture must hold one.
+                credentials: BTreeMap::from([
+                    ("model.inference".into(), "env:MOONSHOT_API_KEY".into()),
+                    (
+                        "model.inference.litellm".into(),
+                        "env:LITELLM_API_KEY".into(),
+                    ),
+                ]),
                 approved_parties: Vec::new(),
             },
         )
@@ -3159,6 +3613,7 @@ mission = "Choose native intelligence"
             upstream_url: OMP_GATEWAY_HOST_URL.into(),
             responses_routes: BTreeMap::new(),
             anthropic_routes: BTreeMap::new(),
+            broker_access: BrokerAccess { url: "http://127.0.0.1:1".into(), token: "host-only-broker-bearer".into() },
             http: reqwest::Client::new(),
         };
         (capabilities, spend, state)
@@ -3503,7 +3958,7 @@ mission = "Choose native intelligence"
     }
 
     #[test]
-    fn claude_agent_admission_requires_a_host_api_key_not_subscription_oauth() {
+    fn claude_agent_admission_accepts_an_account_sign_in_or_api_key() {
         let config = CompanyConfig {
             agent_intelligence: Default::default(),
             native_harnesses: Default::default(),
@@ -3524,8 +3979,7 @@ mission = "Choose native intelligence"
             approved_parties: Vec::new(),
         };
         let oauth = BTreeMap::from([("anthropic".into(), ProviderCredential::OmpOauth)]);
-        let rejected = admit(std::slice::from_ref(&config), &oauth).unwrap();
-        assert!(rejected.unstartable["claude_test"].contains("API-key-backed"));
+        assert!(admit(std::slice::from_ref(&config), &oauth).unwrap().unstartable.is_empty());
 
         let api_key = BTreeMap::from([(
             "anthropic".into(),
@@ -3565,6 +4019,7 @@ mission = "Choose native intelligence"
                 actor: "delivery-lead".into(),
                 session: "session_123".into(),
                 provider: "moonshot".into(),
+                credential_reference: Some("env:MOONSHOT_API_KEY".into()),
                 model: "moonshot/kimi-k3".into(),
                 billing: "metered_api".into(),
                 responsibility: "work:delivery".into(),
@@ -4055,7 +4510,7 @@ mission = "Choose native intelligence"
             Some(1),
             "a positive sub-micro-dollar cache-read charge rounds upward"
         );
-        assert!(anthropic_tariff_micro_usd("claude-sonnet-5", 1, 1, 0, 0).is_none());
+        assert!(anthropic_tariff_micro_usd("unknown", 1, 1, 0, 0).is_none());
     }
 
     #[test]

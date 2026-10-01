@@ -1,62 +1,49 @@
 <script lang="ts">
+	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
+	import { formatMoment } from '$lib/ui/time';
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
+	import { failureSentence } from '$lib/model/failure';
 	import { page } from '$app/state';
+	import { createQuery } from '@tanstack/svelte-query';
 	import InfoTip from '$lib/components/InfoTip.svelte';
 	import {
 		monitorSchedules,
-		setScheduleRuntimeWake,
 		testScheduleTrigger,
 		type MonitoredSchedule,
 		type ScheduleTestReport
 	} from '$lib/model/skills';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
-	let schedules = $state<MonitoredSchedule[] | null>(null);
-	let failure = $state('');
+	/* A company query, so the change stream keeps it current: no Refresh. */
+	const query = createQuery(() => ({
+		queryKey: ['schedules', companyId],
+		queryFn: () => monitorSchedules(companyId)
+	}));
+	const schedules = $derived<MonitoredSchedule[] | null>(query.data ?? null);
+	let actionFailure = $state('');
+	const failure = $derived(
+		actionFailure ||
+			(query.error && !query.data
+				? failureSentence(query.error, 'Schedules could not be read.')
+				: '')
+	);
 	let busy = $state('');
 	let report = $state<ScheduleTestReport | null>(null);
 
 	async function load() {
-		failure = '';
-		try {
-			schedules = await monitorSchedules(companyId);
-		} catch (cause) {
-			failure = cause instanceof Error ? cause.message : 'Schedules could not be read.';
-		}
-	}
-
-	$effect(() => {
-		void companyId;
-		void load();
-	});
-
-	async function setRuntimeWake(schedule: string, enabled: boolean) {
-		if (busy) return;
-		busy = schedule;
-		failure = '';
-		try {
-			await setScheduleRuntimeWake(companyId, schedule, enabled);
-			await load();
-		} catch (cause) {
-			const message =
-				cause instanceof Error ? cause.message : 'The schedule wake setting could not be saved.';
-			await load();
-			failure = message;
-		} finally {
-			busy = '';
-		}
+		await query.refetch();
 	}
 
 	async function test(schedule: string) {
 		if (busy) return;
 		busy = schedule;
-		failure = '';
+		actionFailure = '';
 		report = null;
 		try {
 			report = await testScheduleTrigger(companyId, schedule);
 			await load();
 		} catch (cause) {
-			failure =
-				cause instanceof Error ? cause.message : 'The schedule trigger could not be tested.';
+			actionFailure = failureSentence(cause, 'The schedule trigger could not be tested.');
 		} finally {
 			busy = '';
 		}
@@ -64,10 +51,7 @@
 
 	function when(value: string | null | undefined): string {
 		if (!value) return 'Not yet';
-		return new Intl.DateTimeFormat(undefined, {
-			dateStyle: 'medium',
-			timeStyle: 'short'
-		}).format(new Date(value));
+		return formatMoment(value, 'Not yet');
 	}
 
 	function outcomeText(outcome: unknown, reason: string | null): string {
@@ -86,25 +70,20 @@
 	}
 </script>
 
-<svelte:head><title>Schedules — {companyId}</title></svelte:head>
+<CompanyTitle title="Schedules" {companyId} />
 
 <div class="company-page schedules-page">
 	<header class="company-page-head">
 		<h1>Schedules</h1>
-		<InfoTip
-			text="Recurring Exec checks, their next fire time and latest outcomes. Test trigger checks durable schedule admission in a disposable company without starting Runtime or an actor."
-		/>
-		<button class="refresh" type="button" onclick={() => void load()} disabled={busy !== ''}
-			>Refresh</button
-		>
+		<InfoTip text="Recurring Exec check-ins: when each runs next and how the last one went." />
 	</header>
 
 	{#if failure}<p class="schedule-message schedule-error" role="alert">{failure}</p>{/if}
 
 	{#if schedules === null}
-		{#if !failure}<div class="company-page-wait" aria-label="Reading schedules"></div>{/if}
+		{#if !failure}<Skeleton label="Reading schedules…" variant="page" count={4} />{/if}
 	{:else if schedules.length === 0}
-		<p class="quiet-empty">No active recurring Exec schedules.</p>
+		<p class="quiet-empty">No recurring check-ins yet.</p>
 	{:else}
 		<ul class="schedule-list">
 			{#each schedules as item (item.schedule.id)}
@@ -117,22 +96,6 @@
 						<p>
 							Next fire <time datetime={item.schedule.fire_at}>{when(item.schedule.fire_at)}</time>
 						</p>
-						{#if item.schedule.machine_requirement === 'local_mac'}
-							<label class="runtime-wake">
-								<input
-									type="checkbox"
-									checked={item.schedule.wake_runtime}
-									disabled={busy !== ''}
-									onchange={(event) =>
-										void setRuntimeWake(item.schedule.id, event.currentTarget.checked)}
-								/>
-								<span>Wake the company computer when this schedule is due</span>
-							</label>
-							<p class="runtime-wake-note">
-								When enabled, a due schedule can start this company’s computer and run its check,
-								which uses compute time and may incur model charges.
-							</p>
-						{/if}
 						{#if item.schedule.last_fired_at}
 							<p>
 								Last fired <time datetime={item.schedule.last_fired_at}
@@ -226,12 +189,6 @@
 </div>
 
 <style>
-	.schedules-page {
-		max-width: 900px;
-	}
-	.refresh {
-		margin-left: auto;
-	}
 	.schedule-list,
 	.recent ul {
 		list-style: none;
@@ -248,7 +205,7 @@
 	.schedule-main h2 {
 		margin: 0;
 		font-size: var(--t-head);
-		font-weight: 550;
+		font-weight: 500;
 	}
 	.schedule-heading {
 		display: flex;
@@ -262,23 +219,6 @@
 		font-size: var(--t-label);
 		margin: var(--space-2) 0 0;
 	}
-	.runtime-wake {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		margin-top: var(--space-3);
-		font-size: var(--t-label);
-		color: var(--text-primary);
-	}
-	.runtime-wake input {
-		accent-color: var(--accent);
-	}
-	.runtime-wake-note {
-		max-width: 52ch;
-		color: var(--text-secondary);
-		font-size: var(--t-label);
-		margin: var(--space-1) 0 0 1.5rem;
-	}
 	.schedule-action {
 		display: flex;
 		flex-direction: column;
@@ -291,7 +231,8 @@
 	}
 	.recent h3 {
 		margin: 0 0 var(--space-2);
-		font: var(--t-label) var(--font-mono);
+		font: var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 		font-weight: 600;
 	}
 	.recent li {

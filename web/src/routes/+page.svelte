@@ -1,18 +1,24 @@
 <script lang="ts">
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
+	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
+	import { plainText } from '$lib/ui/text';
+	import { tooltips } from '$lib/actions/tooltips';
+	import { selectMenu } from '$lib/actions/select-menu';
 	import { goto } from '$app/navigation';
 	import { Settings2 } from '@lucide/svelte';
 	import { page } from '$app/state';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import CreateCompany from '$lib/components/CreateCompany.svelte';
 	import { getApplianceStatus, type ApplianceStatus } from '$lib/model/appliance';
-	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
-	import SemanticMark from '$lib/primitives/SemanticMark.svelte';
+	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
+	import SemanticMark from '$lib/ui/glyph/SemanticMark.svelte';
 	import {
 		companiesQuery,
 		portfolioQuery,
 		type PortfolioProjection
 	} from '$lib/model/queries.svelte';
 	import type { CompanyCatalogEntry } from '$lib/model/cockpit';
+	import { startFixHref, startGuidance } from '$lib/model/company-start';
 
 	const companyCatalog = companiesQuery();
 	const portfolio = portfolioQuery();
@@ -21,7 +27,6 @@
 		portfolio.view?.projections ?? ({} as Record<string, PortfolioProjection>)
 	);
 	const loaded = $derived(companyCatalog.status !== 'unknown');
-	const error = $derived(companyCatalog.failure?.message ?? '');
 	let redirected = $state(false);
 	let appliance = $state<ApplianceStatus | null>(null);
 	const activeCompanies = $derived(
@@ -52,25 +57,11 @@
 		return value?.startsWith('/') && !value.startsWith('//') ? value : '';
 	}
 
-	function startGuidance(reason: string): string {
-		if (reason.startsWith('Choose an intelligence provider')) return reason;
-		if (reason.startsWith('no usable host credential for model native-codex-oauth/')) {
-			return 'Check Codex sign-in and select Codex in Company → Intelligence provider.';
-		}
-		if (
-			reason.startsWith('no usable host credential') ||
-			reason.startsWith('Claude Agent requires')
-		) {
-			return 'Connect the selected intelligence provider in Company → Intelligence provider.';
-		}
-		return 'Check the intelligence provider setup in Company → Intelligence provider.';
-	}
-
 	function attentionLabel(company: CompanyCatalogEntry, projection?: PortfolioProjection): string {
 		// A company that cannot start is the one fact worth stating before
 		// attention counts: nothing will happen in it until it is resolved.
 		if (company.unstartable_reason) {
-			return `Open ${company.name}. It cannot start: ${startGuidance(company.unstartable_reason)}`;
+			return `Fix ${company.name} setup. It cannot start: ${startGuidance(company.unstartable_reason)}`;
 		}
 		const next = projection?.nextProof ? ` Next item of value: ${projection.nextProof}.` : '';
 		const count = projection?.attentionCount;
@@ -80,18 +71,18 @@
 	}
 </script>
 
-<svelte:head><title>Projects — {PRODUCT_NAME}</title></svelte:head>
+<svelte:head><title>Companies — {PRODUCT_NAME}</title></svelte:head>
 
-<div class="bridge-root portfolio-root">
+<div class="bridge-root portfolio-root" use:tooltips use:selectMenu>
 	<header class="bridge-topbar" aria-label="Portfolio navigation">
-		<a class="tb-brand portfolio-brand" href="/" aria-label={`${PRODUCT_NAME} projects`}>
+		<a class="tb-brand portfolio-brand" href="/" aria-label={`${PRODUCT_NAME} companies`}>
 			<span class="tb-mark"><MatrixGlyph rows={GLYPHS.r} size={13} glow /></span>
 			<span class="tb-name">{PRODUCT_NAME}</span>
 		</a>
 		<div class="tb-right">
 			{#if loaded}<CreateCompany />{/if}
 			<a
-				class="settings-link"
+				class="btn settings-link"
 				href="/account/settings"
 				aria-label="Account settings"
 				title="Account settings"
@@ -102,12 +93,14 @@
 		</div>
 	</header>
 
-	{#if error && !loaded}
+	{#if companyCatalog.failure && !loaded}
 		<main class="portfolio-main">
-			<div class="portfolio-error" role="alert">{error}</div>
-			<button class="btn small" type="button" onclick={() => void companyCatalog.refresh()}
-				>Try again</button
-			>
+			<FailureNotice
+				error={companyCatalog.failure}
+				subject="your companies"
+				variant="page"
+				onretry={companyCatalog.refresh}
+			/>
 		</main>
 	{:else if loaded}
 		<main class="portfolio-main">
@@ -128,18 +121,25 @@
 				</div>
 			{/if}
 			<header class="portfolio-head">
-				<h1>Projects</h1>
+				<h1>Companies</h1>
 			</header>
 
-			{#if error}<div class="portfolio-error">{error}</div>{/if}
-			<section class="portfolio-table" aria-label="Projects">
+			{#if companyCatalog.failure}
+				<FailureNotice
+					error={companyCatalog.failure}
+					subject="your companies"
+					stale
+					onretry={companyCatalog.refresh}
+				/>
+			{/if}
+			<section class="portfolio-table" aria-label="Companies">
 				{#if activeCompanies.length}
 					<div class="portfolio-table-scroll">
 						<div class="portfolio-grid">
 							<div class="portfolio-grid-head" aria-hidden="true">
-								<span></span>
+								<span>Name</span>
 								<span>Current focus</span>
-								<span>Next item of value</span>
+								<span>Next</span>
 								<span>Needs you</span>
 							</div>
 							{#each activeCompanies as company (company.id)}
@@ -147,9 +147,10 @@
 								{@const startIssue = company.unstartable_reason
 									? startGuidance(company.unstartable_reason)
 									: ''}
+								<!-- A company that cannot start opens on the page that fixes it. -->
 								<a
 									class="portfolio-company-row runtime-{company.runtime_status}"
-									href={`/${company.id}`}
+									href={startIssue ? startFixHref(company.id) : `/${company.id}`}
 									aria-label={attentionLabel(company, projection)}
 								>
 									<span class="portfolio-company-cell">
@@ -169,7 +170,7 @@
 											<strong>{company.name}</strong>
 											{#if company.unstartable_reason}
 												<small class="portfolio-company-unstartable" title={startIssue}
-													>cannot start</small
+													>Can’t start</small
 												>
 											{:else}
 												<small>{company.runtime_status}</small>
@@ -178,13 +179,15 @@
 									</span>
 									<span
 										class="portfolio-metric portfolio-focus"
-										title={company.mission || undefined}
+										title={plainText(company.mission, { dropTitle: true }) || undefined}
 									>
 										<small class="portfolio-mobile-label">Current focus</small>
-										<strong>{company.mission || 'Focus not set'}</strong>
+										<strong
+											>{plainText(company.mission, { dropTitle: true }) || 'Focus not set'}</strong
+										>
 									</span>
 									<span class="portfolio-metric portfolio-proof">
-										<small class="portfolio-mobile-label">Next item of value</small>
+										<small class="portfolio-mobile-label">Next</small>
 										<strong title={startIssue || undefined}
 											>{startIssue || projection?.nextProof || 'Checking work…'}</strong
 										>
@@ -192,8 +195,9 @@
 									<span class="portfolio-metric portfolio-attention">
 										<small class="portfolio-mobile-label">Needs you</small>
 										<strong
+											class:urgent={!!company.unstartable_reason || !!projection?.attentionCount}
 											>{company.unstartable_reason
-												? 'Start blocked'
+												? 'Fix setup'
 												: projection?.attentionCount == null
 													? 'Checking…'
 													: projection.attentionCount === 0
@@ -208,42 +212,26 @@
 				{:else}
 					<div class="portfolio-empty">
 						<MatrixGlyph rows={GLYPHS.ring} size={14} />
-						<h2>No projects yet</h2>
+						<h2>No companies yet</h2>
 						<p>
 							{archivedCompanies.length
-								? 'Use + to create a project.'
-								: 'Use + to create your first project.'}
+								? 'Use + to start a company.'
+								: 'Use + to start your first company.'}
 						</p>
 					</div>
 				{/if}
 			</section>
 		</main>
 	{:else}
-		<main class="portfolio-loading">Loading projects…</main>
+		<main class="portfolio-loading">
+			<Skeleton label="Loading companies" variant="list" count={3} />
+		</main>
 	{/if}
 </div>
 
 <style>
 	.settings-link {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
 		gap: var(--space-2);
-		min-height: 38px;
-		padding: var(--space-2) var(--space-3);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-control);
-		color: var(--text-secondary);
-		font-size: var(--t-label);
-		text-decoration: none;
-	}
-	.settings-link:hover {
-		border-color: var(--intent-conversation);
-		color: var(--intent-conversation);
-	}
-	.settings-link:focus-visible {
-		outline: 2px solid var(--intent-conversation);
-		outline-offset: 2px;
 	}
 
 	.appliance-notice {
@@ -258,7 +246,7 @@
 	}
 
 	.appliance-notice span {
-		font-weight: 650;
+		font-weight: 600;
 	}
 
 	.appliance-notice p {

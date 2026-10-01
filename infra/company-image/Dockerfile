@@ -15,7 +15,12 @@ FROM rust:1-bookworm AS cli
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
-RUN cargo build --release -p restless -p restless-runtime-bridge
+ARG TARGETARCH
+RUN --mount=type=cache,id=restless-cargo-registry-v1,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=restless-cargo-target-${TARGETARCH}-v1,target=/src/target,sharing=locked \
+    cargo build --release -p restless -p restless-runtime-bridge \
+    && install -Dm755 /src/target/release/restless /out/restless \
+    && install -Dm755 /src/target/release/restless-runtime-bridge /out/restless-runtime-bridge
 
 FROM node:24-bookworm-slim AS runtime-harnesses
 
@@ -96,7 +101,7 @@ RUN test -f /usr/share/themes/Breeze-ob/openbox-3/themerc \
 # user can execute what root installed.
 ENV BUN_INSTALL=/usr/local/bun
 RUN npm install -g bun@1.3.14 \
-    && bun install -g @oh-my-pi/pi-coding-agent@18.0.10 \
+    && bun install -g @oh-my-pi/pi-coding-agent@18.3.2 \
     && ln -sf ${BUN_INSTALL}/bin/omp /usr/local/bin/omp \
     && chmod -R a+rX ${BUN_INSTALL} \
     && npm cache clean --force
@@ -230,6 +235,8 @@ COPY infra/company-image/release-health.mjs /usr/local/lib/restless/release-heal
 COPY tools/scenario/restless-scenario.mjs /usr/local/lib/restless/restless-scenario.mjs
 COPY tools/web-review/restless-web-review.mjs /usr/local/lib/restless/restless-web-review.mjs
 COPY tools/codex-runner/restless-codex-runner.mjs /usr/local/lib/restless/restless-codex-runner.mjs
+COPY tools/codex-runner/gpt-6-sol-0.156.1-model-catalog.json /usr/local/lib/restless/gpt-6-sol-0.156.1-model-catalog.json
+ENV RESTLESS_CODEX_GPT6_SOL_CATALOG=/usr/local/lib/restless/gpt-6-sol-0.156.1-model-catalog.json
 COPY tools/codex-runner/restless-codex-parity-preflight.mjs /usr/local/lib/restless/restless-codex-parity-preflight.mjs
 COPY tools/codex-runner/restless-codex-task-run.mjs /usr/local/lib/restless/restless-codex-task-run.mjs
 COPY tools/codex-runner/restless-codex-longitudinal-run.mjs /usr/local/lib/restless/restless-codex-longitudinal-run.mjs
@@ -251,6 +258,7 @@ RUN chmod 0555 /usr/local/bin/company-init /usr/local/bin/company-volume-init \
         /usr/local/lib/restless/restless-codex-parity-preflight.mjs \
         /usr/local/lib/restless/restless-codex-task-run.mjs \
         /usr/local/lib/restless/restless-codex-longitudinal-run.mjs \
+    && chmod 0444 /usr/local/lib/restless/gpt-6-sol-0.156.1-model-catalog.json \
     && chmod -R a=rX /opt/restless/skills \
     && chmod 0444 /usr/local/lib/restless/browser-broker.mjs \
         /usr/local/lib/restless/release-health.mjs /etc/supervisor/conf.d/restless.conf \
@@ -265,8 +273,8 @@ RUN ln -s /usr/local/lib/restless/restless-codex-runner.mjs /usr/local/bin/restl
 # The coordination CLI, and where it finds the daemon from inside the
 # container (TCP: unix sockets do not cross the Docker Desktop file share —
 # probed in T10). RESTLESS_COMPANY is set per container at `docker run`.
-COPY --from=cli /src/target/release/restless /usr/local/bin/restless
-COPY --from=cli /src/target/release/restless-runtime-bridge /usr/local/bin/restless-runtime-bridge
+COPY --from=cli /out/restless /usr/local/bin/restless
+COPY --from=cli /out/restless-runtime-bridge /usr/local/bin/restless-runtime-bridge
 ENV RESTLESS_COORDINATOR=host.docker.internal:7791
 RUN npm install -g ws@8.18.3 && npm cache clean --force
 

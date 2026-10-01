@@ -183,9 +183,10 @@ try {
 			`People overflow at ${width}`
 		);
 		await people.screenshot({ path: `${out}/people-${width}.png` });
-		await people.goto(`${origin}/${company}/work`);
+		// Phones open on the stacked board; the map key belongs to the map lens.
+		await people.goto(`${origin}/${company}/work?lens=map`);
 		await people.getByRole('heading', { name: 'Company work', exact: true }).waitFor();
-		assert.equal(await people.locator('.work-stage-head a').count(), 0);
+		assert.equal(await people.locator('.work-stage-head a').count(), 1);
 		assert.equal(await people.locator('.work-stage-head button').count(), 2);
 		await people.getByText('Map key', { exact: true }).click();
 		if (width <= 760)

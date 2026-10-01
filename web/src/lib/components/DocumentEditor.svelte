@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { failureSentence } from '$lib/model/failure';
 	import { browser } from '$app/environment';
 	import { tick, untrack, type Snippet } from 'svelte';
 	import DocumentActions from './DocumentActions.svelte';
@@ -56,7 +57,8 @@
 
 	interface Props {
 		companyId: string;
-		companyUuid: string | null;
+		/** The company's collaboration identity; undefined while it is loading. */
+		companyUuid: string | null | undefined;
 		view: DocumentReadView;
 		principalActorId: string;
 		online?: boolean;
@@ -132,6 +134,19 @@
 		);
 	});
 	const statusLabel = $derived(documentCollaborationStateLabel(collaborationState));
+	/* Opening a document settles a few sync messages within ~100 ms. Say
+	 * "Saving…" only when changes are still waiting after 400 ms, so opening
+	 * reads Connecting → Saved and a real save still shows. */
+	let savingShown = $state(false);
+	const pendingSave = $derived(unsyncedChanges > 0 || saving);
+	$effect(() => {
+		if (!pendingSave) {
+			savingShown = false;
+			return;
+		}
+		const timer = window.setTimeout(() => (savingShown = true), 400);
+		return () => window.clearTimeout(timer);
+	});
 
 	function canonical(value: unknown): string {
 		if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
@@ -224,10 +239,15 @@
 			collaborationFailure = '';
 			documentRestored = false;
 			unsyncedChanges = 0;
+			// Not known yet is not "missing": keep saying Connecting.
+			if (companyUuid === undefined) {
+				collaborationState = 'connecting';
+				return;
+			}
 			if (!identity) {
 				collaborationState = 'degraded';
 				collaborationFailure =
-					'This company has no verified collaboration identity. The latest named version is read only.';
+					'Live editing isn’t set up for this company, so the latest named version is read only.';
 				return;
 			}
 
@@ -238,8 +258,7 @@
 				name = documentCollaborationName(identity, documentId);
 			} catch (cause) {
 				collaborationState = 'degraded';
-				collaborationFailure =
-					cause instanceof Error ? cause.message : 'The collaboration target is invalid.';
+				collaborationFailure = failureSentence(cause, 'The collaboration target is invalid.');
 				return;
 			}
 
@@ -271,10 +290,10 @@
 								collaborationState,
 								'failed'
 							);
-							collaborationFailure =
-								cause instanceof Error
-									? cause.message
-									: 'A collaboration token could not be issued.';
+							collaborationFailure = failureSentence(
+								cause,
+								'A collaboration token could not be issued.'
+							);
 						}
 						throw new Error('A fresh collaboration token could not be issued.');
 					}
@@ -505,7 +524,7 @@
 				} catch {
 					saveFailure = 'Could not reload the document title.';
 				}
-			} else saveFailure = cause instanceof Error ? cause.message : 'The title was not saved.';
+			} else saveFailure = failureSentence(cause, 'The title was not saved.');
 		} finally {
 			if (sameDocumentTarget(target, companyId, view.document.id)) saving = false;
 		}
@@ -569,7 +588,7 @@
 				<RefreshCw class="spinning" size={14} strokeWidth={1.8} aria-hidden="true" />
 			{/if}
 			<span
-				>{unsyncedChanges > 0 || saving
+				>{savingShown
 					? 'Saving…'
 					: titleDirty
 						? 'Unsaved title'
@@ -765,7 +784,8 @@
 				type="button"
 				class="btn small"
 				disabled={!online}
-				onclick={() => (retryGeneration += 1)}>{documentRestored ? 'Load restored version' : 'Retry'}</button
+				onclick={() => (retryGeneration += 1)}
+				>{documentRestored ? 'Load restored version' : 'Retry'}</button
 			>
 		</div>
 	{/if}
@@ -860,7 +880,8 @@
 		align-items: center;
 		gap: 6px;
 		color: var(--text-tertiary);
-		font: 500 var(--t-label) var(--font-mono);
+		font: 500 var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 		white-space: nowrap;
 	}
 	.collaboration-state > span {
@@ -957,7 +978,7 @@
 		min-width: 0;
 		padding: var(--space-3);
 		border-left: 2px solid var(--intent-authority);
-		background: rgba(255, 255, 255, 0.64);
+		background: color-mix(in srgb, var(--highlight) 64%, transparent);
 	}
 	.conflict-compare pre {
 		max-height: 120px;
@@ -999,7 +1020,7 @@
 				rgba(35, 117, 99, 0.08) 54px 55px,
 				transparent 55px
 			),
-			#fff;
+			var(--surface-raised);
 	}
 	.paper-rule {
 		position: absolute;
@@ -1021,7 +1042,8 @@
 		padding-bottom: var(--space-2);
 		border-bottom: 1px solid var(--border);
 		color: var(--text-tertiary);
-		font: var(--t-label) var(--font-mono);
+		font: var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 	}
 	.projection-note strong {
 		color: var(--text-secondary);
@@ -1146,7 +1168,7 @@
 		}
 		.paper {
 			padding: 28px 18px 96px;
-			background: #fff;
+			background: var(--surface-raised);
 		}
 		.paper-rule {
 			display: none;

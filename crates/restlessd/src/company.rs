@@ -11,7 +11,9 @@ use chrono::{DateTime, Utc};
 use restless_orgintel::{ArtifactRefRow, ScheduleRow};
 use serde::Serialize;
 
-use crate::{airwallex, approval, credential, finance, legal, reconcile, runtime, Daemon};
+use crate::{
+    airwallex, approval, connected_tool, credential, finance, legal, reconcile, runtime, Daemon,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -148,7 +150,12 @@ struct Limits {
 
 #[derive(Debug, Serialize)]
 struct RuntimeLimit {
+    /// The stored setting: `None` follows the default, `Some(0)` is never.
     auto_sleep_after_minutes: Option<u16>,
+    /// The timeout this company actually sleeps after; `None` is never.
+    sleep_after_minutes: Option<u64>,
+    /// Stopped by the sleep policy, so owed demand will wake it.
+    asleep: bool,
     monthly_runtime_cap_hours: Option<u32>,
     usage: Option<crate::runtime_usage::RuntimeUsage>,
     usage_status: &'static str,
@@ -281,6 +288,8 @@ struct AuthorityProjection {
     effect_receipts: Vec<crate::authority::AuthorityRecord>,
     effect_intents: Vec<crate::authority::AuthorityRecord>,
     reconciliations: Vec<crate::authority::AuthorityRecord>,
+    email_reservations: Vec<crate::authority::AuthorityRecord>,
+    email_statuses: Vec<crate::authority::AuthorityRecord>,
     legal_profile: Option<legal::LegalProfile>,
     provider: Option<airwallex::Connection>,
     envelopes: Vec<finance::MoneyEnvelope>,
@@ -448,6 +457,8 @@ pub(crate) async fn project(
         spend,
         runtime: RuntimeLimit {
             auto_sleep_after_minutes: config.auto_sleep_after_minutes,
+            sleep_after_minutes: config.sleep_after().map(|after| after.as_secs() / 60),
+            asleep: runtime::is_sleeping(&config.name),
             monthly_runtime_cap_hours: config.monthly_runtime_cap_hours,
             usage: runtime_usage,
             usage_status: runtime_usage_status,
@@ -458,12 +469,15 @@ pub(crate) async fn project(
             .unwrap_or_default(),
     };
 
+    let local_mcp = connected_tool::local_mcp_list(daemon.authority.pool(), &config.name).await;
     let resources = resources(
         config,
         authority.as_ref(),
         runtime_doctor.as_ref(),
         &artifacts,
         &schedules,
+        local_mcp.as_deref().unwrap_or_default(),
+        local_mcp.as_ref().err().map(|error| format!("{error:#}")),
         probe_credentials,
     )
     .await;
@@ -642,6 +656,8 @@ async fn read_authority(daemon: &Daemon, company: &str) -> Result<AuthorityProje
         effect_receipts,
         effect_intents,
         reconciliations,
+        email_reservations,
+        email_statuses,
         legal_profile,
         provider,
         envelopes,
@@ -655,6 +671,8 @@ async fn read_authority(daemon: &Daemon, company: &str) -> Result<AuthorityProje
         daemon
             .authority
             .records_of_kind(company, "effect_reconciled"),
+        daemon.authority.records_of_kind(company, "email_send_reserved"),
+        daemon.authority.records_of_kind(company, "email_send_status"),
         legal::get_profile(&daemon.authority, company),
         airwallex::connection(&daemon.authority, company),
         finance::envelopes(&daemon.authority, company),
@@ -667,6 +685,8 @@ async fn read_authority(daemon: &Daemon, company: &str) -> Result<AuthorityProje
         effect_receipts,
         effect_intents,
         reconciliations,
+        email_reservations,
+        email_statuses,
         legal_profile,
         provider,
         envelopes,
@@ -703,6 +723,8 @@ async fn resources(
     doctor: Option<&runtime::RuntimeDoctor>,
     artifacts: &[ArtifactRefRow],
     schedules: &[ScheduleRow],
+    local_mcp: &[connected_tool::LocalMcpServer],
+    local_mcp_error: Option<String>,
     probe_credentials: bool,
 ) -> Resources {
     let observed_at = Utc::now();
@@ -1120,10 +1142,100 @@ async fn resources(
         });
     }
 
+    for connection in local_mcp {
+        let public_read = connection.transport == "public_http";
+        let status = if !connection.enabled {
+            "disabled"
+        } else if connection.failure.is_some()
+            || matches!(
+                connection.last_read_status.as_deref(),
+                Some(
+                    "auth-required"
+                        | "authentication-required"
+                        | "blocked"
+                        | "access-restricted"
+                        | "profile-recovery-required"
+                        | "profile-in-use"
+                        | "search-unverified"
+                        | "task-failed"
+                        | "unavailable"
+                        | "tool_error"
+                )
+            )
+        {
+            "degraded"
+        } else if connection.last_observed_at.is_some() {
+            "ready"
+        } else {
+            "disconnected"
+        };
+        items.push(ResourceRow {
+            id: format!("mcp:{}", connection.name),
+            label: if connection.name == "clapping-hands" { "Clapping Hands".into() }
+                else if connection.name == "deepwiki" { "DeepWiki".into() }
+                else { connection.name.clone() },
+            kind: "mcp_connection",
+            source: "authority",
+            status: status.into(),
+            observed_at: connection.last_observed_at.unwrap_or(observed_at),
+            detail: Some(match status {
+                "ready" if public_read => "Public MCP tool discovered. A returned wiki structure is unverified provider content.",
+                "ready" if connection.transport == "broker_stdio" && connection.last_success_at.is_some() =>
+                    "Sandboxed filesystem MCP completed a live Staff read. Review Core receipts for the exact call.",
+                "ready" if connection.transport == "broker_stdio" => "Sandboxed filesystem MCP connected. A live Staff Attempt read is needed to verify this connection.",
+                "ready" if connection.last_success_at.is_some() =>
+                    "MCP tool discovery and a live read were observed. Review Core receipts for the exact site and outcome.",
+                "ready" => "MCP connection reached and tools discovered. Site login is only verified by a successful live read.",
+                "disabled" => "Owner disabled this MCP connection; new calls are rejected.",
+                "degraded" if public_read => "Public MCP connection or latest tool call needs attention.",
+                "degraded" if connection.transport == "broker_stdio" => "Sandboxed filesystem MCP or latest local file read needs attention. Review Core read receipts.",
+                "degraded" => "MCP connection or latest site read needs attention.",
+                _ => "MCP connection has not completed live tool discovery.",
+            }.into()),
+            metadata: Some(serde_json::json!({
+                "name": connection.name,
+                "browser_owner": if connection.name == "clapping-hands" { Some("CH") } else { None },
+                "transport": connection.transport,
+                "authentication": if public_read || connection.transport == "broker_stdio" { "none" } else if connection.transport == "host_http" { "host_bearer" } else { "local" },
+                "read_profile": connection.read_profile,
+                "target_repository": connection.target_repository,
+                "receipt_command": if public_read || connection.transport == "host_http" || connection.transport == "broker_stdio" {
+                    Some(format!("restless local-mcp -c {} receipts --name {}", config.name, connection.name))
+                } else { None },
+                "assigned_actor": connection.assigned_actor,
+                "work_id": connection.assigned_work_id,
+                "allowed_tools": connection.allowed_tools,
+                "max_calls_per_work": connection.max_calls_per_work,
+                "observed_tools": connection.observed_tools,
+                "tool_contract_digest": connection.tool_contract_digest,
+                "server_version": connection.server_version,
+                "last_observed_at": connection.last_observed_at,
+                "last_success_at": connection.last_success_at,
+                "last_read_status": connection.last_read_status,
+                "last_read_site": connection.last_read_site,
+                "last_read_tool": connection.last_read_tool,
+                "failure": connection.failure,
+            })),
+            launch: None,
+        });
+    }
+    if let Some(error) = local_mcp_error.as_ref() {
+        items.push(ResourceRow {
+            id: "mcp:unavailable".into(),
+            label: "MCP connections".into(),
+            kind: "mcp_connection",
+            source: "authority",
+            status: "degraded".into(),
+            observed_at,
+            detail: Some("Could not read MCP connection status.".into()),
+            metadata: Some(serde_json::json!({"failure": error})),
+            launch: None,
+        });
+    }
     Resources {
         status: if authority.is_none() && doctor.is_none() {
             "unavailable"
-        } else if authority.is_none() || doctor.is_none() {
+        } else if authority.is_none() || doctor.is_none() || local_mcp_error.is_some() {
             "partial"
         } else {
             "available"
@@ -1204,6 +1316,39 @@ fn actions(authority: Option<&AuthorityProjection>) -> ExternalActions {
                 observed_at: row.created_at,
             }),
     );
+    let mut latest_email_status = std::collections::BTreeMap::new();
+    for status in &authority.email_statuses {
+        if let Some(id) = status.body.get("permit_id").and_then(serde_json::Value::as_str) {
+            latest_email_status.insert(id.to_owned(), status);
+        }
+    }
+    items.extend(authority.email_reservations.iter().rev().take(50).filter_map(|reservation| {
+        let permit_id = reservation.body.get("permit_id")?.as_str()?;
+        let status = latest_email_status.get(permit_id);
+        let outcome = status
+            .and_then(|record| record.body.get("outcome"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown");
+        let (state, evidence, detail) = match outcome {
+            "confirmed_sent" => ("succeeded", "provider_confirmed", "Resend accepted the email; delivery is unconfirmed."),
+            "confirmed_not_sent" => ("failed", "provider_confirmed", "Resend did not accept the email."),
+            _ => ("unknown", "authority_recorded", "The email send outcome needs reconciliation; do not retry."),
+        };
+        Some(ExternalActionRow {
+            id: format!("email:{permit_id}"),
+            title: "Outbound email".into(),
+            effect_class: "customer-contact.email".into(),
+            source: "authority_provider",
+            state: state.into(),
+            evidence,
+            actor: Some("exec".into()),
+            party: reservation.body.get("recipient").and_then(serde_json::Value::as_str).map(str::to_owned),
+            receipt_ref: status.and_then(|record| record.body.get("provider_ref"))
+                .and_then(serde_json::Value::as_str).map(str::to_owned),
+            detail: Some(detail.into()),
+            observed_at: status.map(|record| record.created_at).unwrap_or(reservation.created_at),
+        })
+    }));
     items.extend(authority.payments.iter().map(|payment| {
         let confirmed =
             payment.provider_transfer_id.is_some() || payment.raw_provider_status.is_some();
@@ -1325,32 +1470,35 @@ fn company_doctor(
     let mut checks = vec![
         DoctorCheck {
             id: "authority",
-            label: "Authority",
+            label: "Controls and limits",
             source: "authority",
             status: source_check_status(&authority),
             summary: if authority.status == "available" {
-                "Mandate, limits and governance records are readable.".into()
+                "Limits and approvals are readable.".into()
             } else {
-                "Lifecycle changes and new external consequences must pause.".into()
+                "Unreadable, so starting, stopping and outside actions are paused.".into()
             },
             detail: authority.detail,
         },
         DoctorCheck {
             id: "orgintel",
-            label: "Organisation",
+            label: "Company records",
             source: "orgintel",
             status: source_check_status(&orgintel),
             summary: if orgintel.status == "available" {
-                "Current direction and organisational state are readable.".into()
+                "Goals, work and teams are readable.".into()
             } else {
-                "Coordination may be stale; Authority and Runtime are checked independently.".into()
+                "Unreadable, so work and team views may be out of date.".into()
             },
             detail: orgintel.detail,
         },
     ];
     if let Some(doctor) = doctor {
+        let asleep = doctor.container == runtime::ContainerStatus::Stopped
+            && runtime::is_sleeping(&doctor.company);
         let container_status = match doctor.container {
             runtime::ContainerStatus::Running => "healthy",
+            runtime::ContainerStatus::Stopped if asleep => "healthy",
             runtime::ContainerStatus::Stopped | runtime::ContainerStatus::Absent => "degraded",
         };
         checks.push(DoctorCheck {
@@ -1358,12 +1506,16 @@ fn company_doctor(
             label: "Company computer",
             source: "runtime",
             status: container_status,
-            summary: format!("Container is {}.", container_name(doctor.container)),
+            summary: if asleep {
+                "Asleep. It wakes for messages, ready work and due schedules.".into()
+            } else {
+                container_summary(doctor.container).into()
+            },
             detail: None,
         });
         checks.push(DoctorCheck {
             id: "persistence",
-            label: "Persistent company files",
+            label: "Company files",
             source: "runtime",
             status: if doctor.volume_exists {
                 "healthy"
@@ -1372,24 +1524,21 @@ fn company_doctor(
             },
             summary: if doctor.volume_exists {
                 if doctor.container == runtime::ContainerStatus::Absent || doctor.volume_mounted {
-                    "The named company volume is present.".into()
+                    "Company files are safe.".into()
                 } else {
-                    "The company volume exists but is not mounted by the current container.".into()
+                    "Company files exist but are not attached to the running computer.".into()
                 }
             } else {
-                "The persistent company volume does not exist yet.".into()
+                "Company files have not been created yet.".into()
             },
             detail: (!doctor.volume_exists
                 || (doctor.container != runtime::ContainerStatus::Absent
                     && !doctor.volume_mounted))
-                .then(|| {
-                    "Reconcile before assuming the current container holds durable company work."
-                        .into()
-                }),
+                .then(|| "Rebuild the company computer before relying on its files.".into()),
         });
         checks.push(DoctorCheck {
             id: "image",
-            label: "Runtime image",
+            label: "Computer version",
             source: "runtime",
             status: match doctor.reconciliation {
                 runtime::ReconciliationStatus::Current => "healthy",
@@ -1397,14 +1546,12 @@ fn company_doctor(
                 runtime::ReconciliationStatus::Unknown => "unknown",
             },
             summary: match doctor.reconciliation {
-                runtime::ReconciliationStatus::Current => {
-                    "The running shell matches the current Restless source."
-                }
+                runtime::ReconciliationStatus::Current => "Up to date.",
                 runtime::ReconciliationStatus::Required => {
-                    "The replaceable shell needs reconciliation; the company volume is preserved."
+                    "Needs a rebuild. Company files are safe."
                 }
                 runtime::ReconciliationStatus::Unknown => {
-                    "The current image relationship could not be proved."
+                    "Could not confirm the installed version."
                 }
             }
             .into(),
@@ -1423,8 +1570,8 @@ fn company_doctor(
                 .any(|probe| probe.tool == tool && probe.installed);
             checks.push(DoctorCheck {
                 id, label, source: "runtime", status: if installed { "available" } else { "unavailable" },
-                summary: if installed { "Installed command help responds." } else { "The installed command surface could not be verified." }.into(),
-                detail: Some("This installation check does not verify actor permissions, document editing, message delivery or model replies. End-to-end probes must run in a disposable test company.".into()),
+                summary: if installed { "Installed." } else { "Could not be checked." }.into(),
+                detail: Some("Checks the installation only, not agent permissions, editing, delivery or model replies.".into()),
             });
         }
     } else {
@@ -1478,7 +1625,7 @@ fn service_check(doctor: &runtime::RuntimeDoctor) -> DoctorCheck {
             label: "Company services",
             source: "runtime",
             status: "unavailable",
-            summary: "Services are not observable while the Company computer is stopped.".into(),
+            summary: "Cannot be checked while the company computer is stopped.".into(),
             detail: None,
         },
     }
@@ -1513,8 +1660,7 @@ fn browser_check(doctor: &runtime::RuntimeDoctor) -> DoctorCheck {
             label: "Browser and desktop",
             source: "runtime",
             status: "unavailable",
-            summary: "Browser state is not observable while the Company computer is stopped."
-                .into(),
+            summary: "Cannot be checked while the company computer is stopped.".into(),
             detail: None,
         },
     }
@@ -1524,7 +1670,7 @@ fn coordination_check(doctor: &runtime::RuntimeDoctor) -> DoctorCheck {
     match doctor.coordination.as_ref() {
         Some(coordination) => DoctorCheck {
             id: "coordination",
-            label: "Runtime coordination",
+            label: "Agent connection",
             source: "runtime",
             status: if coordination.status == "available" {
                 "healthy"
@@ -1532,20 +1678,18 @@ fn coordination_check(doctor: &runtime::RuntimeDoctor) -> DoctorCheck {
                 "degraded"
             },
             summary: if coordination.status == "available" {
-                "The Runtime completed an authenticated coordination status request.".into()
+                "Agents can reach company coordination.".into()
             } else {
-                "The Runtime cannot currently use its bounded coordination path; files and already-running local work remain available.".into()
+                "Agents can't reach company coordination right now. Files and work already running are unaffected.".into()
             },
             detail: coordination.detail.clone(),
         },
         None => DoctorCheck {
             id: "coordination",
-            label: "Runtime coordination",
+            label: "Agent connection",
             source: "runtime",
             status: "unavailable",
-            summary:
-                "Runtime coordination is not observable while the Company computer is stopped."
-                    .into(),
+            summary: "Cannot be checked while the company computer is stopped.".into(),
             detail: None,
         },
     }
@@ -1612,20 +1756,22 @@ fn action_copy(action: RecoveryAction) -> DoctorAction {
         RecoveryAction::Start => DoctorAction {
             id: action,
             label: "Start company computer",
-            consequence: "Starts the existing company shell and preserves its volume and browser profile.",
+            consequence:
+                "Starts the existing company shell and preserves its volume and browser profile.",
             confirmation: "Start the Company computer now?",
         },
         RecoveryAction::Restart => DoctorAction {
             id: action,
             label: "Restart company computer",
-            consequence: "Stops and starts the replaceable shell. Company files and the persistent browser profile remain on the named volume.",
-            confirmation: "Restart the Company computer and briefly interrupt its processes?",
+            consequence:
+                "Stops and starts the company computer. Files and the browser profile are kept.",
+            confirmation: "Restart the company computer? Running work pauses briefly.",
         },
         RecoveryAction::Reconcile => DoctorAction {
             id: action,
-            label: "Reconcile company computer",
-            consequence: "Rebuilds the current shell and restores its Runtime coordination grant while preserving the named company volume.",
-            confirmation: "Reconcile the Company computer with the current Restless source?",
+            label: "Rebuild company computer",
+            consequence: "Rebuilds the company computer from the current release. Files are kept.",
+            confirmation: "Rebuild the company computer from the current release?",
         },
     }
 }
@@ -1739,15 +1885,15 @@ fn execution_no(body: &serde_json::Value) -> i64 {
         .unwrap_or(1)
 }
 
-fn container_name(status: runtime::ContainerStatus) -> &'static str {
+fn container_summary(status: runtime::ContainerStatus) -> &'static str {
     match status {
-        runtime::ContainerStatus::Running => "running",
-        runtime::ContainerStatus::Stopped => "stopped",
-        runtime::ContainerStatus::Absent => "absent",
+        runtime::ContainerStatus::Running => "Running.",
+        runtime::ContainerStatus::Stopped => "Stopped.",
+        runtime::ContainerStatus::Absent => "Not created yet.",
     }
 }
 
-fn display_name(name: &str) -> String {
+pub(crate) fn display_name(name: &str) -> String {
     name.split('_')
         .filter(|part| !part.is_empty())
         .map(|part| {
@@ -1900,7 +2046,7 @@ model = "moonshot/kimi-k3"
             assertion_contract_version: 1,
             schema_version: crate::release::SCHEMA_VERSION,
             harnesses: [
-                ("restless-managed".into(), "omp-18.0.10".into()),
+                ("restless-managed".into(), "omp-18.3.2".into()),
                 ("codex".into(), "codex-cli-0.155.1".into()),
                 ("claude-agent".into(), "claude-agent-acp-0.73.0".into()),
             ]
@@ -1926,7 +2072,7 @@ model = "moonshot/kimi-k3"
             .find(|option| option.id == runtime::AgentHarness::RestlessManaged)
             .unwrap();
         assert_eq!(managed.status, "ready");
-        assert_eq!(managed.observed_build.as_deref(), Some("omp-18.0.10"));
+        assert_eq!(managed.observed_build.as_deref(), Some("omp-18.3.2"));
         for harness in [
             runtime::AgentHarness::Codex,
             runtime::AgentHarness::ClaudeAgent,
@@ -1997,7 +2143,8 @@ model = "moonshot/kimi-k3"
             .unwrap();
         assert_eq!(documents.status, "unavailable");
         assert_eq!(rooms.status, "available");
-        assert!(rooms.detail.as_deref().unwrap().contains("does not verify"));
+        // An installed command is not proof that agents can use it.
+        assert!(rooms.detail.as_deref().unwrap().contains("installation only"));
         assert_ne!(report.status, "healthy");
     }
 

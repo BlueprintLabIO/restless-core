@@ -62,8 +62,10 @@ These are product soul, not legacy mechanics. They survive the rebuild.
   back as instructions, and never ask the CEO to report completion when the system can observe and
   resume it. Human participation and approval are separate authority boundaries.
 - **Primary experience:** a calm main work surface plus a right-hand executive chat that can focus,
-  explain, and act on the main surface. Never a sidebar-heavy agent/task administration dashboard.
-  Show outcomes, decisions, risk, and next actions first; reveal roles, prompts, skills, permissions,
+  explain, and act on the main surface. A left navigation rail is allowed and expected (company
+  switcher, the four surfaces, an attention badge, ⌘K); it carries navigation only. The rule that
+  remains is that the product must never become an agent/task administration dashboard: no
+  roster-of-agents panels, no status walls. Show outcomes, decisions, risk, and next actions first; reveal roles, prompts, skills, permissions,
   spend detail, workflow IDs, and logs only on request.
 - **Do not use eyebrow labels as habitual decoration.** Small uppercase or kicker text above a title
   is not the default way to create hierarchy. Use it only when it communicates information the title
@@ -257,9 +259,22 @@ This repo is built in sprints by two founders collaborating on the `dev` branch.
   Founders integrate on `dev`. Short-lived `feat/*` / `fix/*` branches PR into `dev`. Do not long-run
   feature branches. `main` is reserved for what is releaseable.
 - **Checkpoints.** After each coherent, verified slice, make a narrow commit that states the exact
-  observed check. When the owner has explicitly authorised pushing for the active task, push each
-  checkpoint to `dev` promptly; never force-push or sweep unrelated dirty work into a checkpoint.
-  A checkpoint saves recovery progress, but does not turn an unrun claim into evidence.
+  observed check, rebase it on `origin/dev`, and push it to `dev` promptly — that standing
+  permission covers verified work only. Never force-push, never push to `main`, and never sweep
+  unrelated dirty work into a checkpoint. A checkpoint saves recovery progress, but does not turn an
+  unrun claim into evidence.
+- **Worktrees are short-lived and start from `origin/dev`.** Begin every task with
+  `restless-dev worktree new <name>`; never edit the shared main checkout in place — another agent's
+  uncommitted work may live there. Rebase on `origin/dev` before verifying and before landing, land
+  within about a day, then `restless-dev worktree prune`. `restless-dev worktree stale` shows what
+  has drifted. Work that is not on `dev` does not exist for the owner.
+- **The owner's live stack runs only `origin/dev`.** The founder's singleton is the stable appliance
+  (`~/.restless`, cockpit on 7788, `systemd --user` / launchd). Change it only with
+  `restless-dev promote` (builds a clean `origin/dev` commit and runs `restless appliance upgrade`,
+  which drains work and rolls back on failure) or `restless appliance rollback`. Never run a daemon,
+  binary or image built from a worktree against it, never hand-edit its service definitions, and
+  never touch `~/.restless` or its company containers and volumes. Develop and test only with
+  `restless-dev <company>` and `_test` companies, which are isolated by profile.
 - **Slices before layers.** During the walking skeleton, one small cross-functional effort owns all
   three layers end to end (§16.9). Avoid separate kernel/runtime ownership until contracts are proven.
 - **Observe before modelling.** Let behaviour occur through files, messages, and processes first.
@@ -293,7 +308,8 @@ This repo is built in sprints by two founders collaborating on the `dev` branch.
   `web/src/lib/model/` are the owner-surface contracts — read them before designing anything
   owner-facing. **Brand config is not in this repo yet** (cofounder ports branding manually). Keep
   code and protocols brand-neutral so a configured name is applied in one place.
-- **Pushing** is owner-only; never `git push` without being asked.
+- **Pushing** verified work to `dev` is standing-authorised (see Checkpoints). Any other push —
+  `main`, a force-push, another repository, a release tag — needs the owner's explicit request.
 - **Testing style** (carried forward): add automated tests only for key product invariants and
   security/data-integrity boundaries. Do not add tests for implementation details, trivial wiring,
   styling, snapshots, or every branch merely to increase coverage. Layer-appropriate testing (§16.8):
@@ -303,7 +319,7 @@ This repo is built in sprints by two founders collaborating on the `dev` branch.
   inputs and expected outcome. Manual visual inspection supplements, it does not replace, a feasible
   headless check.
 - **Local cockpit stack.** Use `restless-dev <company>` rather than starting Vite alone; use
-  `restless doctor -c <company>` to probe the browser-to-runtime path before reporting it live. A
+  `restless-dev doctor <company>` to probe the browser-to-runtime path before reporting it live. A
   rendered SPA shell is not evidence that its owner APIs are connected.
 - **Local GPT provider fallback.** If the selected company model route is unavailable because of
   quota, cooldown, credential failure, or missing modality, first probe the locally provisioned

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { failureSentence } from '$lib/model/failure';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { onMount, untrack } from 'svelte';
@@ -94,7 +95,7 @@
 				if (focusMode === 'browser') void openRequestedBrowser();
 			})
 			.catch((cause) => {
-				error = cause instanceof Error ? cause.message : 'The desktop session could not be opened.';
+				error = failureSentence(cause, 'The desktop session could not be opened.');
 			});
 		const idleRelease = window.setInterval(() => {
 			if (
@@ -154,8 +155,7 @@
 			if (navigate) await morphTo(`/${companyId}/company/computer?focus=desktop`);
 			await browserProjection.refresh();
 		} catch (cause) {
-			error =
-				cause instanceof Error ? cause.message : 'The Company computer could not be attached.';
+			error = failureSentence(cause, 'The Company computer could not be attached.');
 		} finally {
 			working = '';
 		}
@@ -178,8 +178,7 @@
 			controller = 'observer';
 			await browserProjection.refresh();
 		} catch (cause) {
-			error =
-				cause instanceof Error ? cause.message : 'The Company browser could not open this page.';
+			error = failureSentence(cause, 'The Company browser could not open this page.');
 		} finally {
 			working = '';
 		}
@@ -202,7 +201,7 @@
 			void refreshWindows();
 			return true;
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Control is held elsewhere.';
+			error = failureSentence(cause, 'Control is held elsewhere.');
 			void browserProjection.refresh();
 			return false;
 		} finally {
@@ -223,8 +222,7 @@
 			lastDesktopActivity = 0;
 			await browserProjection.refresh();
 		} catch (cause) {
-			if (!automatic)
-				error = cause instanceof Error ? cause.message : 'Control could not be returned.';
+			if (!automatic) error = failureSentence(cause, 'Control could not be returned.');
 		} finally {
 			working = '';
 		}
@@ -261,7 +259,8 @@
 					displaySizePending = undefined;
 					if (document.visibilityState === 'visible') {
 						if (attachmentRecoveryAttempted && !attachmentRecoveryInFlight) {
-							error = 'The computer session is still unavailable. Reopen the computer to reconnect.';
+							error =
+								'The computer session is still unavailable. Reopen the computer to reconnect.';
 						} else {
 							await recoverExpiredAttachment();
 						}
@@ -279,7 +278,7 @@
 		} catch (cause) {
 			canResize = false;
 			if (document.visibilityState === 'visible')
-				error = cause instanceof Error ? cause.message : 'Computer sizing could not be updated.';
+				error = failureSentence(cause, 'Computer sizing could not be updated.');
 		} finally {
 			displaySizeRenewing = false;
 		}
@@ -300,9 +299,7 @@
 			error = '';
 			void browserProjection.refresh();
 		} catch (cause) {
-			error = cause instanceof Error
-				? `The computer session expired and could not be restored: ${cause.message}`
-				: 'The computer session expired. Reopen the computer to reconnect.';
+			error = failureSentence(cause, 'The computer session expired and couldn’t be restored.');
 		} finally {
 			attachmentRecoveryInFlight = false;
 		}
@@ -329,7 +326,7 @@
 			windowsError = '';
 		} catch (cause) {
 			if (requestedCompany === companyId)
-				windowsError = cause instanceof Error ? cause.message : 'Applications are unavailable.';
+				windowsError = failureSentence(cause, 'Applications are unavailable.');
 		} finally {
 			windowsLoading = false;
 			lastWindowRefresh = Date.now();
@@ -345,8 +342,7 @@
 			desktopActivity();
 			await refreshWindows();
 		} catch (cause) {
-			error =
-				cause instanceof Error ? cause.message : 'The application could not be brought forward.';
+			error = failureSentence(cause, 'The application could not be brought forward.');
 		} finally {
 			working = '';
 		}
@@ -367,7 +363,7 @@
 				controlRequested = false;
 				controlLeaseId = '';
 				canResize = false;
-				error = cause instanceof Error ? cause.message : 'Desktop control expired.';
+				error = failureSentence(cause, 'Desktop control expired.');
 			})
 			.finally(() => (activityRenewing = false));
 	}
@@ -377,7 +373,7 @@
 		return new Date(value).toLocaleString(undefined, {
 			month: 'short',
 			day: 'numeric',
-			hour: '2-digit',
+			hour: 'numeric',
 			minute: '2-digit'
 		});
 	}
@@ -408,21 +404,21 @@
 					class="computer-app-switcher"
 					title={windowsError || 'Bring an open application to the front'}
 				>
-				<select
-					aria-label="Switch application"
-					value={activeWindow}
-					disabled={!!working}
-					onfocus={() => void refreshWindows()}
-					onpointerdown={() => void refreshWindows()}
-					onchange={(event) => void selectWindow(event.currentTarget.value)}
-				>
-					<option value="" disabled
-						>{windowsError ? 'Applications unavailable' : 'Open applications'}</option
+					<select
+						aria-label="Switch application"
+						value={activeWindow}
+						disabled={!!working}
+						onfocus={() => void refreshWindows()}
+						onpointerdown={() => void refreshWindows()}
+						onchange={(event) => void selectWindow(event.currentTarget.value)}
 					>
-					{#each windowCompany === companyId ? windows : [] as window (window.id)}
-						<option value={window.id}>{window.title || window.app}</option>
-					{/each}
-				</select>
+						<option value="" disabled
+							>{windowsError ? 'Applications unavailable' : 'Open applications'}</option
+						>
+						{#each windowCompany === companyId ? windows : [] as window (window.id)}
+							<option value={window.id}>{window.title || window.app}</option>
+						{/each}
+					</select>
 				</div>
 			{/if}
 			<div class="desktop-focus-actions">
@@ -495,20 +491,28 @@
 						></span>
 						{controllerLabel}
 					</div>
-					<button
-						class="computer-enter"
-						type="button"
-						disabled={!canAttach || !!working || !clientId}
-						onclick={() => attachDesktop()}
-					>
-						<span>{working === 'attach' ? 'Connecting…' : 'Enter computer'}</span>
-						<ArrowUpRight size={16} strokeWidth={2} aria-hidden="true" />
-					</button>
-					<p>
-						{canAttach
-							? 'Your team’s shared browser, files and applications. Click or type on the desktop to join in.'
-							: 'The desktop has not passed its live probe. Open Doctor for the smallest available repair.'}
-					</p>
+					{#if canAttach}
+						<button
+							class="computer-enter"
+							type="button"
+							disabled={!!working || !clientId}
+							onclick={() => attachDesktop()}
+						>
+							<span>{working === 'attach' ? 'Connecting…' : 'Enter computer'}</span>
+							<ArrowUpRight size={16} strokeWidth={2} aria-hidden="true" />
+						</button>
+						<p>
+							Your team’s shared browser, files and applications. Click or type on the desktop to
+							join in.
+						</p>
+					{:else}
+						<p class="computer-unavailable-copy">
+							The desktop hasn’t passed its live check yet, so it can’t be opened.
+						</p>
+						<a class="btn primary" href={`/${companyId}/company/doctor`}>
+							<Activity size={14} strokeWidth={1.8} aria-hidden="true" /> See what needs fixing
+						</a>
+					{/if}
 				</div>
 			</section>
 		</main>
@@ -516,7 +520,7 @@
 		<footer class="computer-portal-footer">
 			<div>
 				<span class="source-lamp status-{source.status}" aria-hidden="true"></span>
-				<span>{source.status === 'live' ? 'Live observation' : 'Last observation'}</span>
+				<span>{source.status === 'live' ? 'Live' : 'Out of date'}</span>
 				<time>{when(view?.computer.doctor.observed_at)}</time>
 			</div>
 			{#if preparedHandoffs.length}

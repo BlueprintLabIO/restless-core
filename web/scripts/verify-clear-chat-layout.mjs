@@ -8,6 +8,10 @@ const company = 'clear_chat_layout_test';
 const browser = await chromium.launch({ executablePath: process.env.RESTLESS_BROWSER_EXECUTABLE });
 try {
 	const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+	// The rail is under test; open it as the owner would, whatever the source company's setup.
+	await context.addInitScript(() => {
+		localStorage.setItem(`restless:exec-rail:${location.pathname.split('/')[1]}`, 'open');
+	});
 	const original = await (
 		await context.request.get(`${origin}/api/companies/${source}/attention`)
 	).json();

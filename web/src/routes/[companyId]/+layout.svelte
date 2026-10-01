@@ -1,10 +1,18 @@
 <script lang="ts">
+	import { useQueryClient } from '@tanstack/svelte-query';
+	import { prefetchOnIntent } from '$lib/model/prefetch';
+	import { describeFailure, failureSentence } from '$lib/model/failure';
+	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
+	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
 	import { page } from '$app/state';
 	import { setContext } from 'svelte';
 	const setupDraft = $state<{ name: string | null }>({ name: null });
 	setContext('company-setup-draft', setupDraft);
 	import { goto } from '$app/navigation';
 	import AppShell, { type ShellTab } from '$lib/components/AppShell.svelte';
+	import type { Command } from '$lib/components/CommandMenu.svelte';
+	import { COMPANY_PAGES, companyPageHref } from '$lib/model/company-pages';
+	import { workStatusLabel } from '$lib/work/status';
 	import { companyBrowserLinks } from '$lib/actions/company-browser-links';
 	import CompanyQueryPersistence from '$lib/components/CompanyQueryPersistence.svelte';
 	import ExecutiveRail from '$lib/components/ExecutiveRail.svelte';
@@ -21,12 +29,16 @@
 		cockpitQuery,
 		collaborationBootstrapQuery,
 		companiesQuery,
+		companyChangeStream,
 		companyPrincipalQuery,
 		conversationQuery
 	} from '$lib/model/queries.svelte';
-	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
+	import { agentRouteState, intelligenceQuery } from '$lib/model/intelligence.svelte';
+	import { affectsCompany, watchIntelligenceChanges } from '$lib/model/intelligence-events';
+	import { onMount } from 'svelte';
 	import { actorCanReceive } from '$lib/model/cockpit';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
+	import { inPlace } from '$lib/transition';
 
 	let { children } = $props();
 
@@ -48,10 +60,43 @@
 		);
 	});
 	const intelligence = $derived(intelligenceQuery(companyId, () => railVisible));
-	const collaboration = $derived(collaborationBootstrapQuery(companyId, () => principal));
+	onMount(() =>
+		watchIntelligenceChanges((changed) => {
+			if (affectsCompany(changed, companyId)) void intelligence.refresh();
+		})
+	);
+	const queryClient = useQueryClient();
+	const collaboration = $derived(
+		collaborationBootstrapQuery(companyId, () => (ownerAccess ? null : principal))
+	);
 	const companyCatalog = companiesQuery(() => ownerAccess);
 	const companies = $derived(companyCatalog.view);
-	let execRailOpen = $state(true);
+	/* The rail keeps the owner's last choice per company, so a reload does not
+	 * open it only to close it again. Phones always start with the overlay
+	 * closed. "setup" marks a rail closed because intelligence was missing;
+	 * it reopens once when intelligence is connected. */
+	const railKey = (id: string) => `restless:exec-rail:${id}`;
+	function readRail(id: string): string | null {
+		try {
+			return localStorage.getItem(railKey(id));
+		} catch {
+			return null;
+		}
+	}
+	function writeRail(id: string, value: 'open' | 'closed' | 'setup') {
+		try {
+			localStorage.setItem(railKey(id), value);
+		} catch {
+			/* Storage is a convenience; the rail still works without it. */
+		}
+	}
+	function initialRail(id: string): boolean {
+		if (window.matchMedia('(max-width: 980px)').matches) return false;
+		const stored = readRail(id);
+		return stored === null || stored === 'open';
+	}
+	let execRailOpen = $state(initialRail(page.params.companyId ?? ''));
+	let railCompany = page.params.companyId ?? '';
 	let focusRailRestore = $state<boolean | null>(null);
 	let startupStalled = $state(false);
 	let retryingStartup = $state(false);
@@ -60,6 +105,10 @@
 	/* The shell and the Attention surface read one source rather than polling the
 	 * same endpoint on two clocks. The badge can no longer disagree with the
 	 * queue it is counting. */
+	companyChangeStream(
+		() => companyId,
+		() => ownerAccess
+	);
 	const attention = $derived(attentionQuery(companyId, () => ownerAccess));
 	const cockpitProjection = cockpitQuery(
 		() => companyId,
@@ -92,9 +141,29 @@
 	const companyName = $derived(
 		setupDraft.name ??
 			(ownerAccess
-				? (attention.view?.company.name ?? '')
+				? (attention.view?.company.name ??
+					companies.find((company) => company.id === companyId)?.name ??
+					'')
 				: (collaboration.view?.company.name ?? ''))
 	);
+	/* The last name this browser saw for the company stands in until the source
+	 * answers, so the topbar does not re-flow from an id-shaped placeholder. */
+	const nameKey = (id: string) => `restless:company-name:${id}`;
+	function rememberedName(id: string): string {
+		try {
+			return localStorage.getItem(nameKey(id)) ?? '';
+		} catch {
+			return '';
+		}
+	}
+	$effect(() => {
+		if (!companyName) return;
+		try {
+			localStorage.setItem(nameKey(companyId), companyName);
+		} catch {
+			/* A convenience only. */
+		}
+	});
 	const liveNeedsYou = $derived(attention.view?.items ?? []);
 	const focusedReviewId = $derived(page.url.searchParams.get('review'));
 	const focusedReview = $derived(
@@ -124,12 +193,16 @@
 					railActorId)
 	);
 	const railActorRole = $derived(focusedAttention ? 'Responsible lead' : 'Executive');
+	const railRouteState = $derived(agentRouteState(intelligence.view, railActorId));
 	const railConnectionStatus = $derived.by(() => {
 		if (!cockpit) return cockpitProjection.failure ? 'error' : 'unknown';
 		if (cockpit.source_health.orgintel !== 'available') return 'error';
 		const actorAvailable = actorCanReceive(cockpit, railActorId);
 		if (cockpitProjection.status === 'stale' && !actorAvailable) return 'error';
-		return actorAvailable ? 'available' : 'unavailable';
+		if (!actorAvailable) return 'unavailable';
+		if (intelligence.error) return 'error';
+		if (railRouteState === 'checking' || railRouteState === 'starting') return 'unknown';
+		return railRouteState === 'ready' ? 'available' : 'unavailable';
 	});
 	const railConnected = $derived(railConnectionStatus === 'available');
 	const companyComputerSurface = $derived(page.url.pathname === `/${companyId}/company/computer`);
@@ -145,6 +218,43 @@
 	});
 	$effect(() => {
 		if (focusedAttention) execRailOpen = true;
+	});
+	/* Until intelligence is connected the rail can only say so, and the start
+	 * blocker already says it on Attention. Start it closed once so the work
+	 * surface keeps the width; the owner can still open it. */
+	let railClosedForSetup = '';
+	$effect(() => {
+		if (railClosedForSetup === companyId || focusedAttention) return;
+		const route = agentRouteState(intelligence.view, 'exec');
+		if (route === 'needs_connection' || route === 'unavailable') {
+			railClosedForSetup = companyId;
+			// Only the default gives way to setup; an owner's own choice stands.
+			if (readRail(companyId) === null) {
+				execRailOpen = false;
+				writeRail(companyId, 'setup');
+			}
+		} else if (route === 'ready' && readRail(companyId) === 'setup') {
+			railClosedForSetup = companyId;
+			execRailOpen = true;
+		}
+	});
+	$effect(() => {
+		if (companyId === railCompany) return;
+		railCompany = companyId;
+		execRailOpen = initialRail(companyId);
+	});
+	$effect(() => {
+		// Remember deliberate desktop choices only, not temporary closes.
+		const open = execRailOpen;
+		if (
+			focusRailRestore !== null ||
+			focusedAttention ||
+			companyId !== railCompany ||
+			window.matchMedia('(max-width: 980px)').matches
+		)
+			return;
+		if (open) writeRail(companyId, 'open');
+		else if (readRail(companyId) !== 'setup') writeRail(companyId, 'closed');
 	});
 	$effect(() => {
 		if (companyComputerSurface && focusRailRestore === null) {
@@ -205,11 +315,12 @@
 			// The conversation query retains this exact send's command ID for a safe retry.
 			if (typeof status !== 'number' || status >= 500 || [408, 425, 429].includes(status)) {
 				return {
-					error: 'We could not confirm that your message was sent. Your draft is still here. Try sending it again.'
+					error:
+						'We could not confirm that your message was sent. Your draft is still here. Try sending it again.'
 				};
 			}
 			return {
-				error: cause instanceof Error ? cause.message : 'Your message was not delivered.'
+				error: failureSentence(cause, 'Your message was not delivered.')
 			};
 		}
 	}
@@ -225,7 +336,7 @@
 			await goto(`/${companyId}`);
 			return null;
 		} catch (cause) {
-			return cause instanceof Error ? cause.message : 'The review decision was not recorded.';
+			return failureSentence(cause, 'The review decision was not recorded.');
 		}
 	}
 
@@ -259,6 +370,71 @@
 			principal,
 			attention.status === 'unknown' ? undefined : liveNeedsYou.length
 		);
+	});
+
+	/* Owner-only destinations for the command menu. Collaborators keep the
+	 * surface moves the shell adds for everyone. */
+	const commands = $derived.by((): Command[] => {
+		if (!ownerAccess) return [];
+		const root = `/${encodeURIComponent(companyId)}`;
+		const work = attention.view?.workGraph?.work ?? [];
+		const goalTitle = new Map((cockpit?.goals ?? []).map((goal) => [goal.id, goal.title]));
+		return [
+			...(attention.view?.items ?? []).map((item) => ({
+				id: `attention:${item.id}`,
+				group: 'Needs you',
+				label: item.title,
+				hint: item.requestedAction,
+				href: `${root}?item=${encodeURIComponent(item.id)}`
+			})),
+			...work
+				.filter((item) => item.status !== 'abandoned')
+				.map((item) => ({
+					id: `work:${item.id}`,
+					group: 'Work',
+					label: item.title,
+					hint: `${workStatusLabel(item.status)}${item.goal_id && goalTitle.has(item.goal_id) ? ` · ${goalTitle.get(item.goal_id)}` : ''}`,
+					href: `${root}/work/${encodeURIComponent(item.id)}`
+				})),
+			...(cockpit?.goals ?? [])
+				.filter((goal) => !goal.closed_at)
+				.map((goal) => ({
+					id: `goal:${goal.id}`,
+					group: 'Goals',
+					label: goal.title,
+					href: `${root}/work?goal=${encodeURIComponent(goal.id)}`
+				})),
+			...(cockpit?.people ?? [])
+				.filter((person) => !['system', 'owner'].includes(person.kind))
+				.map((person) => ({
+					id: `person:${person.actor_id}`,
+					group: 'People',
+					label: person.display,
+					hint:
+						person.kind === 'exec'
+							? 'Executive'
+							: person.role.charAt(0).toUpperCase() + person.role.slice(1),
+					keywords: 'message talk chat',
+					href: `${root}/people?person=${encodeURIComponent(person.actor_id)}`
+				})),
+			...COMPANY_PAGES.map((companyPage) => ({
+				id: `company:${companyPage.key}`,
+				group: 'Company',
+				label: companyPage.label,
+				hint: companyPage.section,
+				keywords: `settings ${companyPage.keywords ?? ''}`,
+				href: companyPageHref(encodeURIComponent(companyId), companyPage)
+			})),
+			...companies
+				.filter((company) => company.lifecycle_status === 'active' && company.id !== companyId)
+				.map((company) => ({
+					id: `switch:${company.id}`,
+					group: 'Switch company',
+					label: company.name,
+					href: `/${encodeURIComponent(company.id)}`
+				})),
+			{ id: 'portfolio', group: 'Switch company', label: 'All companies', href: '/' }
+		];
 	});
 
 	const childAllowed = $derived(mayOpenCompanyRoute(companyId, page.url.pathname, principal));
@@ -300,11 +476,11 @@
 		conversationStatus={railConversation.status}
 		conversationFailed={Boolean(railConversation.failure)}
 		onrefreshConversation={() => void railConversation.refresh()}
-		needsProvider={intelligence.view?.has_connections === false}
+		needsProvider={railRouteState === 'needs_connection' || railRouteState === 'unavailable'}
 		contextLabel={currentContext}
 		focusAfterMessageId={railConversation.focusAfterMessageId}
 		focusStartedAt={railConversation.focusStartedAt}
-		newFocusAvailable={railActorId === 'exec' && !focusedAttention}
+		newFocusAvailable={railActorId === 'exec' && !focusedAttention && railConnected}
 		open={execRailOpen}
 		onask={askRail}
 		review={focusedReview
@@ -317,12 +493,19 @@
 	/>
 {/snippet}
 
-<div class="company-browser-link-capture" use:companyBrowserLinks={{ open: openInCompanyBrowser }}>
+<div
+	class="company-browser-link-capture"
+	use:companyBrowserLinks={{ open: openInCompanyBrowser }}
+	use:prefetchOnIntent={{ client: queryClient, company: () => companyId }}
+>
 	<AppShell
 		{companyId}
-		companyName={companyName || companyId.charAt(0).toUpperCase() + companyId.slice(1)}
+		companyName={companyName ||
+			rememberedName(companyId) ||
+			companyId.charAt(0).toUpperCase() + companyId.slice(1)}
 		{companies}
 		{tabs}
+		{commands}
 		homeHref={ownerAccess ? '/' : collaboratorHome(companyId)}
 		canSwitchCompanies={ownerAccess}
 		execHref={ownerAccess &&
@@ -336,22 +519,29 @@
 		expandExec={page.url.pathname === `/${companyId}` &&
 			attention.status === 'live' &&
 			liveNeedsYou.length === 0 &&
+			railConnected &&
 			!page.url.searchParams.has('computer') &&
 			!focusedAttention}
 		immersive={immersiveComputer}
 		blocked={startupBlocking}
-		onexectoggle={() => (execRailOpen = !execRailOpen)}
+		onexectoggle={() => inPlace(() => (execRailOpen = !execRailOpen))}
 		rail={railVisible ? executiveRail : null}
 	>
 		{#if childAllowed}
 			{@render children()}
 		{:else if principalProjection.failure}
-			<section class="company-access-state cockpit-pane" role="alert">
-				<h1>Company unavailable</h1>
-				<p>{principalProjection.failure.message}</p>
+			<section class="company-access-state cockpit-pane">
+				<FailureNotice
+					error={principalProjection.failure}
+					subject="this company"
+					variant="page"
+					onretry={principalProjection.refresh}
+				/>
 			</section>
 		{:else}
 			<section class="company-access-state cockpit-pane" role="status" aria-live="polite">
+				<span class="access-mark" aria-hidden="true"><MatrixGlyph rows={GLYPHS.r} size={11} /></span
+				>
 				<p>{principal ? 'Opening your company workspace…' : 'Verifying company access…'}</p>
 			</section>
 		{/if}
@@ -371,8 +561,8 @@
 				<h1 id="startup-error-title">We couldn’t open this company</h1>
 				<p id="startup-error-copy">
 					{startupFailure
-						? 'We couldn’t complete the company check. Try again to continue.'
-						: 'This is taking longer than expected. The page is still here, and you can try reconnecting.'}
+						? describeFailure(startupFailure).detail
+						: 'This is taking longer than expected. Your page is still here; try reconnecting.'}
 				</p>
 				<button
 					bind:this={startupRetryButton}
@@ -418,11 +608,11 @@
 		justify-items: center;
 		gap: 12px;
 		padding: clamp(24px, 5vw, 40px);
-		border: 1px solid rgba(76, 88, 117, 0.18);
+		border: 1px solid var(--border-strong);
 		border-radius: 6px;
-		background: #fafbfe;
-		box-shadow: 0 8px 28px rgba(65, 76, 104, 0.12);
-		color: #293244;
+		background: var(--surface-pane);
+		box-shadow: var(--shadow-lift);
+		color: var(--ink);
 		font: var(--t-body) / 1.55 var(--font-ui);
 		text-align: center;
 	}
@@ -433,8 +623,8 @@
 		place-items: center;
 		border: 1px solid rgba(155, 84, 91, 0.25);
 		border-radius: 4px;
-		background: #f7e9eb;
-		color: #9b545b;
+		background: var(--state-danger-soft);
+		color: var(--state-danger);
 	}
 	.startup-error h1,
 	.startup-error p {
@@ -446,17 +636,17 @@
 	}
 	.startup-error p {
 		max-width: 34ch;
-		color: #687487;
+		color: var(--text-tertiary);
 		line-height: 1.55;
 	}
 	.startup-error .btn {
 		min-width: 140px;
 		margin-top: 4px;
 		padding: 9px 18px;
-		border: 1px solid #cdd5e2;
+		border: 1px solid var(--control-edge);
 		border-radius: 4px;
-		background: #e8eff8;
-		color: #456687;
+		background: var(--intent-conversation-soft);
+		color: var(--intent-conversation);
 		font: 600 var(--t-body) var(--font-ui);
 		cursor: pointer;
 	}
@@ -465,24 +655,35 @@
 		cursor: wait;
 	}
 	.startup-error .btn:focus-visible {
-		outline: 2px solid #456687;
+		outline: 2px solid var(--intent-conversation);
 		outline-offset: 2px;
 	}
 	.startup-error-note {
-		color: #687487;
+		color: var(--text-tertiary);
 		font-size: var(--t-body);
 	}
 
-	.company-access-state h1,
 	.company-access-state p {
 		margin: 0;
-	}
-
-	.company-access-state h1 {
-		font-size: var(--t-head);
-	}
-
-	.company-access-state p {
 		color: var(--text-tertiary);
+		/* A quick check shows only the calm mark; words appear if it lingers. */
+		animation: access-words-in var(--motion-disclosure) var(--ease-out) 600ms backwards;
+	}
+	.access-mark {
+		justify-self: center;
+		margin-bottom: var(--space-2);
+		color: var(--intent-direction);
+		animation: bridge-skeleton-breathe var(--motion-working) ease-in-out infinite;
+	}
+	@keyframes access-words-in {
+		from {
+			opacity: 0;
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.company-access-state p,
+		.access-mark {
+			animation: none;
+		}
 	}
 </style>

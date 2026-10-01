@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-// @ts-expect-error Node's strip-only test runner needs the explicit TypeScript suffix.
 import * as access from './company-access.ts';
 import type { CompanyPrincipal } from './query-persistence';
 

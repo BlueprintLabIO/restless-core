@@ -61,6 +61,8 @@
 			event.preventDefault();
 			jump(event.shiftKey ? -1 : 1);
 		} else if (event.key === 'Escape') {
+			// Consumed here: Escape closes the search, not the pane around it.
+			event.preventDefault();
 			open = false;
 		}
 	}
@@ -235,7 +237,8 @@
 		gap: 8px;
 		padding: 7px 2px 0 6px;
 		color: var(--text-tertiary);
-		font: 500 var(--t-label) var(--font-mono);
+		font: 500 var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 	}
 
 	.history-nav {

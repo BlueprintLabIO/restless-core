@@ -1,0 +1,572 @@
+/* Shared bounded actions. Surfaces and panes live in cockpit.css. */
+:is(.bridge-root, .bridge-tokens)
+	:where(
+		a,
+		button,
+		input,
+		textarea,
+		select,
+		summary,
+		[tabindex]:not([tabindex='-1'])
+	):focus-visible {
+	outline: 2px solid var(--intent-conversation);
+	outline-offset: 2px;
+}
+
+:is(.bridge-root, .bridge-tokens) .btn,
+:is(.bridge-root, .bridge-tokens) .hold-approve {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	min-height: 32px;
+	padding: 0 14px;
+	text-decoration: none;
+	border: 1px solid var(--edge-control);
+	border-radius: var(--radius-control);
+	background: var(--surface-raised);
+	box-shadow: var(--bevel), var(--control-depth);
+	color: var(--ink);
+	font: inherit;
+	font-size: var(--t-body);
+	font-weight: 500;
+	line-height: 1;
+	white-space: nowrap;
+	cursor: pointer;
+	user-select: none;
+	transition:
+		transform var(--motion-press) var(--ease-standard),
+		border-color var(--motion-state) var(--ease-standard),
+		background-color var(--motion-state) var(--ease-standard),
+		box-shadow var(--motion-state) var(--ease-standard),
+		color var(--motion-state) var(--ease-standard);
+}
+
+:is(.bridge-root, .bridge-tokens) .btn:hover:not(:disabled),
+:is(.bridge-root, .bridge-tokens) .hold-approve:hover:not(:disabled) {
+	border-color: var(--edge-control-hover);
+	background: var(--surface-hover);
+}
+
+/* A press is felt, not watched: the control settles by a hair and its light
+ * edge sinks. */
+:is(.bridge-root, .bridge-tokens) .btn:active:not(:disabled),
+:is(.bridge-root, .bridge-tokens) .hold-approve:active:not(:disabled) {
+	transform: scale(0.985);
+	background: var(--surface-press);
+	box-shadow: var(--control-depth-pressed);
+}
+
+:is(.bridge-root, .bridge-tokens) .btn:disabled,
+:is(.bridge-root, .bridge-tokens) .hold-approve:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+	box-shadow: none;
+}
+
+/* One primary per surface: solid ink, a lit top edge and a crisp contact
+ * shadow. Pale tints read as disabled at a glance; this reads as the way on. */
+:is(.bridge-root, .bridge-tokens) .btn.primary {
+	border-color: var(--primary-edge);
+	background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 88%, #fff), var(--primary));
+	box-shadow:
+		inset 0 1px 0 color-mix(in srgb, var(--highlight) 20%, transparent),
+		0 1px 2px rgba(20, 32, 52, 0.22);
+	color: var(--on-primary);
+}
+
+:is(.bridge-root, .bridge-tokens) .btn.primary:hover:not(:disabled) {
+	border-color: var(--primary-edge);
+	background: linear-gradient(
+		180deg,
+		color-mix(in srgb, var(--primary) 80%, #fff),
+		color-mix(in srgb, var(--primary) 94%, #fff)
+	);
+}
+
+:is(.bridge-root, .bridge-tokens) .btn.primary:active:not(:disabled) {
+	background: color-mix(in srgb, var(--primary) 92%, #000);
+	box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+:is(.bridge-root, .bridge-tokens) .btn.danger {
+	border-color: color-mix(in srgb, var(--state-danger) 38%, var(--border));
+	background: var(--state-danger-soft);
+	color: var(--state-danger);
+}
+
+:is(.bridge-root, .bridge-tokens) .btn.danger:hover:not(:disabled) {
+	border-color: color-mix(in srgb, var(--state-danger) 55%, var(--border));
+	background: color-mix(in srgb, var(--state-danger) 14%, var(--surface-raised));
+}
+
+:is(.bridge-root, .bridge-tokens) .btn.small,
+:is(.bridge-root, .bridge-tokens) .hold-approve.small {
+	min-height: 28px;
+	padding: 0 10px;
+	font-size: var(--t-body);
+}
+
+:is(.bridge-root, .bridge-tokens) .hold-approve {
+	position: relative;
+	overflow: hidden;
+	background:
+		linear-gradient(
+			to right,
+			var(--intent-authority-soft) var(--pct, 0%),
+			transparent var(--pct, 0%)
+		),
+		var(--surface-pane);
+	box-shadow: var(--control-depth);
+}
+
+:is(.bridge-root, .bridge-tokens) .hold-approve.done {
+	border-color: var(--intent-authority);
+	background: var(--intent-authority);
+	color: var(--text-inverse);
+	animation: bridge-acknowledge var(--motion-punctuation) var(--ease-out) both;
+}
+
+:is(.bridge-root, .bridge-tokens)
+	:is(.btn, .hold-approve, .flat-control, .history-control, .board-history-toggle):focus-visible {
+	outline: 2px solid var(--intent-conversation);
+	outline-offset: 2px;
+}
+
+/* Fingers are not pointers. On phones and touch screens every bounded action
+ * gets a 44px target without changing how it looks on a desk. */
+@media (max-width: 760px), (pointer: coarse) {
+	/* :is() takes its strongest argument's weight, so listing .btn.small lifts
+	 * this above component sizing (small buttons, fixed icon buttons) without
+	 * !important. Controls may look larger on a phone, as native ones do. */
+	:is(.bridge-root, .bridge-tokens)
+		:is(
+			.btn.small,
+			.btn,
+			.hold-approve,
+			button:not(.tb-exec, .info-tip),
+			summary,
+			select,
+			textarea,
+			input:not([type='checkbox'], [type='radio'], [type='range']),
+			[role='tab']
+		) {
+		min-height: 44px;
+	}
+	:is(.bridge-root, .bridge-tokens) :is(.btn.small, button:not(.tb-exec, .info-tip)) {
+		min-width: 44px;
+	}
+	/* Standalone links: the same reach, text links inside sentences excepted. */
+	:is(.bridge-root, .bridge-tokens)
+		:is(
+			.btn.small,
+			.back-link,
+			.account-link,
+			.doctor-computer-link,
+			.directory-person,
+			.work-crumbs a,
+			nav a,
+			a.back,
+			.tb-brand,
+			.document-index-head a,
+			.vault-provider-link,
+			dd > a
+		) {
+		min-height: 44px;
+		align-items: center;
+	}
+	:is(.bridge-root, .bridge-tokens) :is(.work-crumbs a, .back-link, .account-link, .vault-provider-link, dd > a) {
+		display: inline-flex;
+	}
+	:is(.bridge-root, .bridge-tokens) :is(.tb-brand, .document-index-head a, .work-crumbs a) {
+		min-width: 44px;
+		justify-content: center;
+	}
+	/* The Exec control sits in a 46px bar, so its pill keeps its size and only
+	 * the invisible target grows to 44px. */
+	:is(.bridge-root, .bridge-tokens) .tb-exec {
+		position: relative;
+	}
+	:is(.bridge-root, .bridge-tokens) .tb-exec::after {
+		position: absolute;
+		inset: -7px -4px;
+		content: '';
+	}
+}
+
+/* Fingers need a 44px target. Disclosures and compact header controls keep
+ * their look and grow only their hit area on touch screens. */
+@media (pointer: coarse) {
+	:is(.bridge-root, .bridge-tokens) details > summary {
+		box-sizing: border-box;
+		min-height: 44px;
+		padding-block: 12px;
+	}
+	:is(.bridge-root, .bridge-tokens) :is(.tb-brand-home, .exr-who) {
+		min-height: 44px;
+	}
+	:is(.bridge-root, .bridge-tokens) .tb-brand-home {
+		min-width: 44px;
+		justify-content: center;
+		margin-inline: -8px;
+	}
+}
+
+/* A placeholder that holds the space its content will take, so a page does
+ * not jump when data lands. It breathes slowly; it never pretends progress. */
+@keyframes bridge-skeleton-breathe {
+	50% {
+		opacity: 0.55;
+	}
+}
+
+:is(.bridge-root, .bridge-tokens) .skeleton-line {
+	display: block;
+	height: 0.8em;
+	max-width: 100%;
+	border-radius: 4px;
+	background: color-mix(in srgb, var(--ink) 8%, transparent);
+	animation: bridge-skeleton-breathe var(--motion-working) ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	:is(.bridge-root, .bridge-tokens) .skeleton-line {
+		animation: none;
+	}
+}
+
+/* The cockpit's one tooltip (see actions/tooltips.ts). Ink on the page's
+ * lightest plane would vanish; a dark chip reads instantly and says "this is
+ * about the thing under the pointer", not "this is content". */
+:is(.bridge-root, .bridge-tokens) .bridge-tooltip {
+	position: fixed;
+	inset: auto;
+	margin: 0;
+	max-width: min(280px, calc(100vw - 16px));
+	padding: 5px 8px;
+	border: 0;
+	border-radius: var(--radius-md);
+	background: var(--tooltip-bg);
+	box-shadow:
+		0 0 0 1px color-mix(in srgb, var(--highlight) 6%, transparent) inset,
+		0 6px 16px -6px rgba(15, 20, 30, 0.35);
+	color: var(--tooltip-ink);
+	font: 500 var(--t-label) / 1.4 var(--font-ui);
+	letter-spacing: 0.01em;
+	pointer-events: none;
+	opacity: 0;
+	transform: translateY(2px) scale(0.97);
+	transition:
+		opacity 120ms var(--ease-out),
+		transform 120ms var(--ease-out);
+}
+
+:is(.bridge-root, .bridge-tokens) .bridge-tooltip[data-side='above'] {
+	transform: translateY(-2px) scale(0.97);
+}
+
+:is(.bridge-root, .bridge-tokens) .bridge-tooltip[data-open] {
+	opacity: 1;
+	transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	:is(.bridge-root, .bridge-tokens) .bridge-tooltip {
+		transition: none;
+	}
+}
+
+/* Disclosures. Every plain summary gets the same quiet chevron that turns a
+ * quarter when it opens, in place of the browser's black triangle. Summaries
+ * that are really menus or carry their own marker opt out by name. All of it
+ * is zero-specificity so any component can restyle its own. */
+:where(:is(.bridge-root, .bridge-tokens)) :where(summary) {
+	list-style: none;
+	cursor: pointer;
+}
+
+:where(:is(.bridge-root, .bridge-tokens)) :where(summary)::-webkit-details-marker {
+	display: none;
+}
+
+:where(:is(.bridge-root, .bridge-tokens))
+	:where(
+		summary:not(
+				.company-switcher > summary,
+				.owner-menu > summary,
+				.message-fold > summary,
+				.folio-details > summary,
+				.company-decision > summary
+			)
+	)::before {
+	content: '';
+	display: inline-block;
+	width: 6px;
+	height: 6px;
+	margin: 0 9px 2px 1px;
+	border-right: 1.5px solid currentColor;
+	border-bottom: 1.5px solid currentColor;
+	opacity: 0.7;
+	transform: rotate(-45deg);
+	transition: transform var(--motion-state) var(--ease-out);
+	vertical-align: middle;
+}
+
+:where(:is(.bridge-root, .bridge-tokens)) :where(details[open] > summary)::before {
+	transform: rotate(45deg) translate(-1px, -1px);
+}
+
+/* Where the browser can animate to an intrinsic height, disclosures unfold
+ * instead of snapping. Menus built on details keep their own popover motion. */
+@supports selector(::details-content) {
+	:is(.bridge-root, .bridge-tokens) {
+		interpolate-size: allow-keywords;
+	}
+	:where(:is(.bridge-root, .bridge-tokens)) :where(details:not(.company-switcher, .owner-menu))::details-content {
+		block-size: 0;
+		overflow: clip;
+		opacity: 0;
+		transition:
+			block-size var(--motion-disclosure) var(--ease-out),
+			opacity var(--motion-state) var(--ease-out),
+			content-visibility var(--motion-disclosure) allow-discrete;
+	}
+	:where(:is(.bridge-root, .bridge-tokens)) :where(details[open]:not(.company-switcher, .owner-menu))::details-content {
+		block-size: auto;
+		opacity: 1;
+	}
+}
+
+/* Selects. One control shape everywhere: the platform arrow is replaced with
+ * the cockpit's chevron. The chevron is painted with !important because many
+ * components set a `background` shorthand on their fields, which would
+ * otherwise erase it; nothing else here overrides component geometry. */
+:where(:is(.bridge-root, .bridge-tokens)) :where(select:not([multiple])) {
+	appearance: none;
+	-webkit-appearance: none;
+	cursor: pointer;
+	transition:
+		border-color var(--motion-state) var(--ease-standard),
+		box-shadow var(--motion-state) var(--ease-standard);
+}
+
+:is(.bridge-root, .bridge-tokens) select:not([multiple]) {
+	padding-inline-end: 32px !important;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235b6478' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E") !important;
+	background-repeat: no-repeat !important;
+	background-position: right 11px center !important;
+	background-size: 12px !important;
+}
+
+:where(:is(.bridge-root, .bridge-tokens)) :where(select:not([multiple]):hover:not(:disabled)) {
+	border-color: var(--edge-control-hover);
+}
+
+/* Where the browser lets a select be styled end to end, its list becomes a
+ * lifted cockpit menu instead of the operating system's. */
+@supports (appearance: base-select) {
+	:is(.bridge-root, .bridge-tokens) select:not([multiple]),
+	:is(.bridge-root, .bridge-tokens) select:not([multiple])::picker(select) {
+		appearance: base-select;
+	}
+	:is(.bridge-root, .bridge-tokens) select:not([multiple]) {
+		display: inline-flex;
+		align-items: center;
+	}
+	:is(.bridge-root, .bridge-tokens) select:not([multiple])::picker-icon {
+		display: none;
+	}
+	/* Chromium opens the list on whichever side has more room; like every other
+	 * menu here it should open below and flip only when it does not fit. */
+	:is(.bridge-root, .bridge-tokens) select:not([multiple])::picker(select) {
+		margin-block: 4px;
+		position-try-order: normal;
+		padding: 4px;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-md);
+		background: var(--surface-menu);
+		box-shadow: var(--shadow-lift);
+		opacity: 0;
+		transform: translateY(-4px) scale(0.98);
+		transition:
+			opacity var(--motion-state) var(--ease-out),
+			transform var(--motion-state) var(--ease-out),
+			overlay var(--motion-state) allow-discrete,
+			display var(--motion-state) allow-discrete;
+	}
+	:is(.bridge-root, .bridge-tokens) select:not([multiple]):open::picker(select) {
+		opacity: 1;
+		transform: none;
+	}
+	@starting-style {
+		:is(.bridge-root, .bridge-tokens) select:not([multiple]):open::picker(select) {
+			opacity: 0;
+			transform: translateY(-4px) scale(0.98);
+		}
+	}
+	:is(.bridge-root, .bridge-tokens) select:not([multiple]) option {
+		padding: 7px 10px;
+		border-radius: var(--radius-sm);
+		font-size: var(--t-body);
+		cursor: pointer;
+	}
+	:is(.bridge-root, .bridge-tokens) select:not([multiple]) option:hover,
+	:is(.bridge-root, .bridge-tokens) select:not([multiple]) option:focus-visible {
+		background: var(--surface-alt);
+		outline: none;
+	}
+	:is(.bridge-root, .bridge-tokens) select:not([multiple]) option:checked {
+		font-weight: 500;
+	}
+	:is(.bridge-root, .bridge-tokens) select:not([multiple]) option::checkmark {
+		color: var(--intent-conversation);
+	}
+}
+
+/* The quiet action: no box until the pointer arrives, then a soft wash.
+ * Used for secondary verbs that sit beside content (Refresh, Cancel, Remove). */
+:is(.bridge-root, .bridge-tokens) .text-button {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	min-height: 28px;
+	padding: 0 7px;
+	border: 0;
+	border-radius: var(--radius-control);
+	background: transparent;
+	color: var(--text-secondary);
+	font: inherit;
+	font-size: var(--t-body);
+	font-weight: 500;
+	cursor: pointer;
+	transition:
+		background-color var(--motion-state) var(--ease-standard),
+		color var(--motion-state) var(--ease-standard);
+}
+
+:is(.bridge-root, .bridge-tokens) .text-button:hover:not(:disabled) {
+	background: var(--wash-hover);
+	color: var(--ink);
+}
+
+:is(.bridge-root, .bridge-tokens) .text-button:active:not(:disabled) {
+	background: var(--wash-press);
+}
+
+:is(.bridge-root, .bridge-tokens) .text-button.danger {
+	color: var(--state-danger);
+}
+
+:is(.bridge-root, .bridge-tokens) .text-button.danger:hover:not(:disabled) {
+	background: var(--state-danger-soft);
+	color: var(--state-danger);
+}
+
+:is(.bridge-root, .bridge-tokens) .text-button:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+
+/* Hover is the promise that something is clickable. The few controls that
+ * had none: the wordmark, the Exec identity trigger, plain disclosures. */
+:where(:is(.bridge-root, .bridge-tokens)) :where(summary) {
+	transition: color var(--motion-state) var(--ease-standard);
+}
+:where(:is(.bridge-root, .bridge-tokens)) :where(summary:hover) {
+	color: var(--ink);
+}
+:is(.bridge-root, .bridge-tokens) :is(.tb-brand-home, .portfolio-brand) {
+	transition: opacity var(--motion-state) var(--ease-standard);
+}
+:is(.bridge-root, .bridge-tokens) :is(.tb-brand-home, .portfolio-brand):hover {
+	opacity: 0.72;
+}
+:is(.bridge-root, .bridge-tokens) button.exr-who {
+	margin: -4px -6px;
+	padding: 4px 6px;
+	border-radius: var(--radius-control);
+	transition: background-color var(--motion-state) var(--ease-standard);
+}
+:is(.bridge-root, .bridge-tokens) button.exr-who:hover {
+	background: var(--wash-hover);
+}
+
+/* Scrollbars stay out of the way: a thin thumb in the ink of the theme on
+ * no track, instead of the platform's grey gutter. */
+:where(:is(.bridge-root, .bridge-tokens)),
+:where(:is(.bridge-root, .bridge-tokens)) * {
+	scrollbar-width: thin;
+	scrollbar-color: var(--scroll-thumb) transparent;
+}
+
+/* Typographic finish: headings balance their lines and prose avoids a lone
+ * last word, where the browser supports it. */
+:where(:is(.bridge-root, .bridge-tokens)) :where(h1, h2, h3) {
+	text-wrap: balance;
+}
+:where(:is(.bridge-root, .bridge-tokens)) :where(p, dd, li) {
+	text-wrap: pretty;
+}
+
+/* The cockpit's own select list (actions/select-menu.ts) for browsers that
+ * cannot style the native one: the same lifted menu as ::picker(select). */
+:is(.bridge-root, .bridge-tokens) .bridge-select-menu {
+	position: fixed;
+	z-index: var(--z-palette);
+	max-height: min(320px, calc(100vh - 16px));
+	overflow: auto;
+	display: grid;
+	gap: 1px;
+	padding: 4px;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius-md);
+	background: var(--surface-menu);
+	box-shadow: var(--shadow-lift);
+	transform-origin: top left;
+	animation: bridge-popover-in var(--motion-state) var(--ease-out) both;
+}
+:is(.bridge-root, .bridge-tokens) .bridge-select-menu[data-side='above'] {
+	transform-origin: bottom left;
+}
+:is(.bridge-root, .bridge-tokens) .bridge-select-menu [role='option'] {
+	display: flex;
+	align-items: center;
+	min-height: 30px;
+	padding: 0 10px 0 28px;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: var(--ink);
+	font: 400 var(--t-body) var(--font-ui);
+	text-align: left;
+	white-space: nowrap;
+	cursor: pointer;
+	position: relative;
+}
+:is(.bridge-root, .bridge-tokens) .bridge-select-menu [role='option']:is(:hover, :focus-visible) {
+	background: var(--wash-hover);
+	outline: none;
+}
+:is(.bridge-root, .bridge-tokens) .bridge-select-menu [role='option'][aria-selected='true'] {
+	font-weight: 500;
+}
+:is(.bridge-root, .bridge-tokens) .bridge-select-menu [role='option'][aria-selected='true']::before {
+	content: '';
+	position: absolute;
+	left: 11px;
+	top: 50%;
+	width: 8px;
+	height: 4px;
+	border-left: 1.6px solid var(--intent-conversation);
+	border-bottom: 1.6px solid var(--intent-conversation);
+	transform: translateY(-70%) rotate(-45deg);
+}
+:is(.bridge-root, .bridge-tokens) .bridge-select-menu [role='option']:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+:is(.bridge-root, .bridge-tokens) .bridge-select-group {
+	padding: 6px 10px 2px;
+	color: var(--text-tertiary);
+	font-size: var(--t-label);
+}

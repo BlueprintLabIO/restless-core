@@ -48,7 +48,41 @@ pub(crate) async fn scan_container(company: &str) -> Result<Vec<ObservedSkill>> 
 
 /// Refresh the library from the live Runtime. Candidates are registered by
 /// `skill-candidate-add` with their origin, so the scan leaves them alone.
+/// How long one live scan of the company computer answers for. Every page
+/// reads the library (the composer's `$` menu) and re-reads it on each company
+/// change, and a scan is a `docker exec`, so without this each change cost a
+/// container exec. Accepted risk: a skill newly written inside the company
+/// computer appears up to this long after it lands. The library itself is
+/// still read fresh from OrgIntel on every request.
+const SCAN_FRESH_FOR: std::time::Duration = std::time::Duration::from_secs(30);
+
+type RecentScans = std::collections::HashMap<String, (std::time::Instant, Option<String>)>;
+static RECENT_SCANS: std::sync::LazyLock<std::sync::Mutex<RecentScans>> =
+    std::sync::LazyLock::new(Default::default);
+
 pub(crate) async fn refresh_library(org: &OrgIntel, company: &str) -> Result<()> {
+    let recent = RECENT_SCANS
+        .lock()
+        .ok()
+        .and_then(|scans| scans.get(company).cloned())
+        .filter(|(at, _)| at.elapsed() < SCAN_FRESH_FOR);
+    if let Some((_, failure)) = recent {
+        return failure.map_or(Ok(()), |message| Err(anyhow::anyhow!(message)));
+    }
+    let outcome = scan_and_observe(org, company).await;
+    if let Ok(mut scans) = RECENT_SCANS.lock() {
+        scans.insert(
+            company.to_string(),
+            (
+                std::time::Instant::now(),
+                outcome.as_ref().err().map(|error| format!("{error:#}")),
+            ),
+        );
+    }
+    outcome
+}
+
+async fn scan_and_observe(org: &OrgIntel, company: &str) -> Result<()> {
     let observed = scan_container(company)
         .await?
         .into_iter()

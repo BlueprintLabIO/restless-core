@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { failureSentence } from '$lib/model/failure';
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	/* One contextual conversation rail. It normally belongs to the Exec; while
 	 * the owner focuses a review it belongs to that Work's accountable lead.
 	 * The rail stays mounted and takes real space rather than nesting another
@@ -8,15 +10,14 @@
 	import IntelligencePopover from './IntelligencePopover.svelte';
 	import { SvelteDate } from 'svelte/reactivity';
 	import Plus from '@lucide/svelte/icons/plus';
-	import ArrowUpRight from '@lucide/svelte/icons/arrow-up-right';
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 	import Composer from '$lib/primitives/Composer.svelte';
 	import ConversationHistoryTools from '$lib/primitives/ConversationHistoryTools.svelte';
 	import ConversationMessage from '$lib/primitives/ConversationMessage.svelte';
 	import ConversationTurnDock from '$lib/primitives/ConversationTurnDock.svelte';
-	import HoldApprove from '$lib/primitives/HoldApprove.svelte';
-	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
-	import SemanticMark from '$lib/primitives/SemanticMark.svelte';
+	import HoldApprove from '$lib/ui/controls/HoldApprove.svelte';
+	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
+	import SemanticMark from '$lib/ui/glyph/SemanticMark.svelte';
 	import type { ActiveAgentTurn, QuerySourceStatus } from '$lib/model/queries.svelte';
 	import type { OutcomeStandard } from '$lib/model/company';
 	import type { ThreadMessage } from '$lib/model/view';
@@ -259,6 +260,15 @@
 	const focusActive = $derived(newFocusPending || focusStartedAt !== null);
 	// Each durable reply keeps its own timestamp, intent, and navigation target.
 	const visibleMessages = $derived(messages);
+	/* Mirrors the transcript's empty-state branch: only there does the
+	 * connect action appear beside its explanation. */
+	const providerPromptInline = $derived(
+		visibleMessages.length === 0 &&
+			conversationStatus !== 'unknown' &&
+			!focusActive &&
+			!review &&
+			!workContext
+	);
 	const hasMessagesAfterFocus = $derived(
 		focusActive &&
 			messages.some((message) => messageNumericId(message.id) > activeFocusAfterMessageId)
@@ -280,6 +290,19 @@
 	function firstMessageNumericId(messageId: string): number {
 		const value = Number(messageId.split(':')[0]);
 		return Number.isFinite(value) ? value : 0;
+	}
+
+	/* One header for a run: same author, same day, within five minutes, and
+	 * no focus boundary between them. */
+	function continuesRun(index: number): boolean {
+		if (index === 0 || focusDividerBefore(index)) return false;
+		const previous = visibleMessages[index - 1];
+		const current = visibleMessages[index];
+		return (
+			previous.from === current.from &&
+			dayOf(previous.createdAt) === dayOf(current.createdAt) &&
+			new Date(current.createdAt).getTime() - new Date(previous.createdAt).getTime() < 5 * 60_000
+		);
 	}
 
 	function focusDividerBefore(index: number): boolean {
@@ -356,7 +379,7 @@
 			}
 		} catch (cause) {
 			composer = sent;
-			askError = cause instanceof Error ? cause.message : 'Your message was not delivered.';
+			askError = failureSentence(cause, 'Your message was not delivered.');
 		} finally {
 			sending = false;
 		}
@@ -487,9 +510,9 @@
 
 		<div class="exr-panel">
 			{#if !needsProvider && connectionStatus === 'unknown'}
-				<p class="exr-connection-notice" role="status">
-					Checking {participantName}'s conversation status…
-				</p>
+				<!-- Unknown is the ordinary first moment; the transcript skeleton below
+				     already says so without a sentence about it. -->
+				<p class="sr-only" role="status">Checking {participantName}'s conversation status…</p>
 			{:else if !needsProvider && connectionStatus === 'error'}
 				<p class="exr-connection-notice" role="status">
 					Connection status could not be refreshed. Try again shortly.
@@ -502,7 +525,9 @@
 			{#if conversationFailed && conversationStatus === 'stale'}
 				<p class="exr-connection-notice" role="status">
 					Recent messages could not be refreshed. Showing the last loaded conversation.
-					<button type="button" class="exr-retry" onclick={() => onrefreshConversation?.()}>Try again</button>
+					<button type="button" class="exr-retry" onclick={() => onrefreshConversation?.()}
+						>Try again</button
+					>
 				</p>
 			{/if}
 			<div class="exr-chat">
@@ -523,6 +548,7 @@
 							</div>
 						{/if}
 						<ConversationMessage
+							continued={continuesRun(i)}
 							domId={messageDomId(message.id)}
 							sender={message.from === 'you' ? 'owner' : message.from}
 							author={message.from === 'you' ? 'You' : message.author || participantName}
@@ -538,10 +564,14 @@
 							<div class="exr-empty" role="alert">
 								<p class="exr-empty-h">Conversation unavailable</p>
 								<p class="exr-empty-p">Recent messages could not be loaded.</p>
-								<button type="button" class="exr-retry" onclick={() => onrefreshConversation?.()}>Try again</button>
+								<button type="button" class="exr-retry" onclick={() => onrefreshConversation?.()}
+									>Try again</button
+								>
 							</div>
-						{:else if conversationStatus === 'unknown'}
-							<div class="exr-empty" role="status">Loading conversation…</div>
+						{:else if conversationStatus === 'unknown' || (!needsProvider && connectionStatus === 'unknown')}
+							<!-- Whether intelligence is connected is not known yet: neither
+							     "Ask anything" nor "Connect intelligence" would be true. -->
+							<Skeleton label="Loading conversation" variant="messages" count={3} />
 						{:else if focusActive}
 							<!-- The focus boundary below is the empty transcript state. -->
 						{:else if review || workContext}
@@ -566,6 +596,15 @@
 										? `Add a connection to start talking with ${participantName}.`
 										: capabilityHint}
 								</p>
+								{#if needsProvider}
+									<a
+										class="btn primary small provider-connect"
+										href={`/${companyId}/company/provider`}
+										><Plus size={14} strokeWidth={2} aria-hidden="true" /><span
+											>Add intelligence provider</span
+										></a
+									>
+								{/if}
 							</div>
 						{/if}
 					{/each}
@@ -577,15 +616,25 @@
 							<p class="conversation-capability-hint">{capabilityHint}</p>
 						{/if}
 					{/if}
-					{#if turn}<ConversationTurnDock {participantName} {turn} />{/if}
+					{#if turn && needsProvider && (turn.live?.phase ?? 'queued') === 'queued'}
+						<p class="exr-setup-pending" role="status">
+							Message saved. {participantName} can reply after you add an intelligence provider.
+						</p>
+					{:else if turn}<ConversationTurnDock {participantName} {turn} />{/if}
 				</div>
 
 				{#if needsProvider}
-					<a class="provider-connect" href={`/${companyId}/company/provider`}
-						><Plus size={15} strokeWidth={1.8} aria-hidden="true" /><span
-							>Add intelligence provider</span
-						><ArrowUpRight size={14} strokeWidth={1.8} aria-hidden="true" /></a
-					>
+					<!-- In the empty state the connect action sits with its explanation
+					     above; otherwise it takes the composer's place. -->
+					{#if !providerPromptInline}
+						<a
+							class="btn primary small provider-connect-slot"
+							href={`/${companyId}/company/provider`}
+							><Plus size={14} strokeWidth={2} aria-hidden="true" /><span
+								>Add intelligence provider</span
+							></a
+						>
+					{/if}
 				{:else}
 					<form class="exr-composer" onsubmit={submitAsk}>
 						<Composer
@@ -654,33 +703,11 @@
 		border-radius: var(--radius-control);
 	}
 
-	.provider-connect {
-		display: flex;
-		align-items: center;
-		justify-content: flex-start;
-		gap: var(--space-3);
-		min-height: 44px;
+	.provider-connect-slot {
 		margin: var(--space-3);
-		padding: var(--space-3);
-		border: 1px solid var(--control-edge);
-		border-radius: var(--radius-control);
-		background: var(--surface-pane);
-		color: var(--intent-conversation);
-		box-shadow: var(--bevel);
-		font-size: var(--t-label);
-		font-weight: 500;
-		text-decoration: none;
 	}
-	.provider-connect span {
-		flex: 1;
-	}
-	.provider-connect:hover {
-		background: var(--surface-alt);
-		border-color: var(--intent-conversation);
-	}
-	.provider-connect:focus-visible {
-		outline: 2px solid var(--intent-conversation);
-		outline-offset: 3px;
+	.provider-connect {
+		margin-top: var(--space-4);
 	}
 
 	.exr-head-primary {
@@ -719,7 +746,8 @@
 		gap: 8px;
 		margin: 18px 14px 8px;
 		color: color-mix(in srgb, var(--intent-conversation) 58%, var(--text-tertiary));
-		font: 500 var(--t-label) var(--font-mono);
+		font: 500 var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
 		animation: focus-arrive var(--motion-disclosure) var(--ease-spring) both;
 	}
 	.conversation-focus-boundary i {
@@ -739,6 +767,16 @@
 		line-height: 1.55;
 		text-align: center;
 		animation: focus-arrive var(--motion-disclosure) var(--ease-standard) both;
+	}
+	.exr-setup-pending {
+		margin: var(--space-3);
+		padding: var(--space-3);
+		border: 1px solid var(--border-soft);
+		border-radius: var(--radius-control);
+		background: var(--surface-pane);
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+		line-height: 1.5;
 	}
 	@keyframes focus-arrive {
 		from {
@@ -785,12 +823,12 @@
 		padding: 0;
 		border: 1px solid var(--control-edge);
 		border-radius: var(--radius-control);
-		background: rgba(255, 255, 255, 0.58);
+		background: color-mix(in srgb, var(--highlight) 58%, transparent);
 		color: var(--text-secondary);
 		cursor: pointer;
 	}
 	.rail-back:focus-visible {
-		outline: 3px solid color-mix(in srgb, var(--intent-conversation) 30%, transparent);
+		outline: 2px solid var(--intent-conversation);
 		outline-offset: 2px;
 	}
 	.review-controls {
@@ -841,7 +879,7 @@
 		margin: 0;
 		padding: 9px 14px;
 		border-bottom: 1px solid color-mix(in srgb, var(--danger) 28%, var(--border));
-		background: color-mix(in srgb, var(--danger) 6%, white);
+		background: color-mix(in srgb, var(--danger) 6%, var(--surface-raised));
 		font-size: var(--t-label);
 		line-height: 1.4;
 		color: var(--danger);
@@ -863,7 +901,7 @@
 		border-radius: var(--radius-pane);
 		background: linear-gradient(
 			145deg,
-			color-mix(in srgb, var(--intent-feedback-soft) 82%, white),
+			color-mix(in srgb, var(--intent-feedback-soft) 82%, var(--surface-raised)),
 			color-mix(in srgb, var(--intent-feedback-soft) 58%, var(--surface-alt))
 		);
 		box-shadow: var(--shadow-soft);
@@ -875,7 +913,7 @@
 		place-items: center;
 		border: 1px solid color-mix(in srgb, var(--intent-feedback) 28%, var(--border));
 		border-radius: var(--radius-control);
-		background: color-mix(in srgb, var(--intent-feedback-soft) 76%, white);
+		background: color-mix(in srgb, var(--intent-feedback-soft) 76%, var(--surface-raised));
 		box-shadow: var(--control-depth);
 		color: var(--intent-feedback);
 	}

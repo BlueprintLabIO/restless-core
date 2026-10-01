@@ -54,7 +54,7 @@ function navigationErrorResponse(): Response {
 		<meta name="theme-color" content="#eef1f5">
 		<title>Page unavailable · Restless</title>
 		<style>
-			:root { color-scheme: light; font: 13px/1.5 'IBM Plex Sans', system-ui, sans-serif; }
+			:root { color-scheme: light; font: 13px/1.5 'Inter Variable', system-ui, sans-serif; }
 			* { box-sizing: border-box; }
 			body { min-height: 100svh; margin: 0; display: grid; place-items: center; padding: 24px;
 				color: #17181c; background: #eef1f5; position: relative; isolation: isolate; }
@@ -91,7 +91,10 @@ async function boundedNavigationFetch(request: Request): Promise<Response> {
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), NAVIGATION_TIMEOUT_MS);
 	try {
-		const response = await fetch(new Request(request, { signal: controller.signal }));
+		// A previous shell response can remain in the browser's HTTP cache even
+		// after the server begins sending no-store. Ask the network on every
+		// navigation so a deployed cockpit is visible on the next reload.
+		const response = await fetch(new Request(request, { signal: controller.signal, cache: 'no-store' }));
 		// Fetch resolves at the headers. Read a clone so a response whose body stalls is
 		// bounded too, while leaving the original available to the browser and cache.
 		if (response.body) await response.clone().arrayBuffer();

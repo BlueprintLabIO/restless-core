@@ -1,33 +1,211 @@
 <script lang="ts">
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
+	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
+	import { failureSentence } from '$lib/model/failure';
 	import CompanyLimits from '$lib/components/CompanyLimits.svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import InfoTip from '$lib/components/InfoTip.svelte';
-	import { openCompanyResource, type CompanyResource } from '$lib/model/company';
+	import {
+		disableCompanyMcp,
+		getCompanyMcpReceipts,
+		openCompanyResource,
+		repinCompanyMcp,
+		type CompanyResource,
+		type McpReadReceipt
+	} from '$lib/model/company';
+	import { getCollaborationBootstrap, type CollaborationWork } from '$lib/model/collaboration';
 	import { companyQuery } from '$lib/model/queries.svelte';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	const source = $derived(companyQuery(companyId));
 	$effect(() => source.attach(true));
 	const view = $derived(source.view);
+	const mcpConnections = $derived(
+		view?.resources.items.filter((item) => item.kind === 'mcp_connection') ?? []
+	);
 	const launchable = $derived(view?.resources.items.filter((item) => item.launch) ?? []);
-	const supporting = $derived(view?.resources.items.filter((item) => !item.launch) ?? []);
+	const supporting = $derived(
+		view?.resources.items.filter((item) => !item.launch && item.kind !== 'mcp_connection') ?? []
+	);
 	let opening = $state<string | null>(null);
 	let launchError = $state<string | null>(null);
 	let embedded = $state<{ href: string; label: string } | null>(null);
 	let nativeNotice = $state<string | null>(null);
+	let disableTarget = $state<string | null>(null);
+	let disabling = $state<string | null>(null);
+	let disableError = $state<string | null>(null);
+	let disableNotice = $state<string | null>(null);
+	let receiptsFor = $state<string | null>(null);
+	let receipts = $state<McpReadReceipt[]>([]);
+	let receiptsLoading = $state(false);
+	let receiptsError = $state<string | null>(null);
+	let repinFor = $state<string | null>(null);
+	let repinWorks = $state<CollaborationWork[]>([]);
+	let repinWorkId = $state('');
+	let repinLoading = $state(false);
+	let repinning = $state(false);
+	let repinError = $state<string | null>(null);
+	let repinNotice = $state<string | null>(null);
 
 	function when(value: string): string {
 		return new Date(value).toLocaleString(undefined, {
 			month: 'short',
 			day: 'numeric',
-			hour: '2-digit',
+			hour: 'numeric',
 			minute: '2-digit'
 		});
 	}
 
 	function words(value: string): string {
 		return value.replaceAll('_', ' ');
+	}
+
+	function connectionState(item: CompanyResource): string {
+		const read = metadataText(item, 'last_read_status');
+		const site = metadataText(item, 'last_read_site');
+		if (item.status === 'ready' && site === 'deepwiki' && read === 'response_observed_unverified') {
+			return 'Public read returned';
+		}
+		const failure = metadataText(item, 'failure');
+		if (item.status === 'ready' && site === 'facebook-marketplace' && read === 'complete') {
+			return 'Facebook read worked';
+		}
+		if (item.status === 'ready' && site === 'gumtree' && read === 'complete') {
+			return 'Gumtree read worked';
+		}
+		if (item.status === 'ready' && metadataText(item, 'transport') === 'broker_stdio'
+			&& metadataText(item, 'last_success_at') && read === 'complete') {
+			return 'Local file read worked';
+		}
+		if (
+			failure === 'authentication-required' ||
+			read === 'auth-required' ||
+			read === 'authentication-required'
+		) return 'Login needed';
+		if (
+			failure === 'profile-in-use' ||
+			failure === 'profile-recovery-required' ||
+			read === 'profile-in-use' ||
+			read === 'profile-recovery-required'
+		) return 'Browser needs attention';
+		switch (item.status) {
+			case 'ready': return 'MCP reachable';
+			case 'degraded': return 'Needs attention';
+			case 'disabled': return 'Disabled';
+			case 'disconnected': return 'Not connected';
+			default: return words(item.status);
+		}
+	}
+
+	async function confirmDisable(item: CompanyResource) {
+		const name = metadataText(item, 'name');
+		if (!name || disabling) return;
+		if (disableTarget !== item.id) {
+			disableTarget = item.id;
+			disableError = null;
+			return;
+		}
+		disabling = item.id;
+		disableError = null;
+		disableNotice = null;
+		try {
+			await disableCompanyMcp(companyId, name);
+			disableNotice = `${item.label} is disabled. Active agent access has been revoked.`;
+			await source.refresh();
+		} catch (error) {
+			disableError = error instanceof Error ? error.message : 'Could not disable this connection.';
+		} finally {
+			disabling = null;
+			disableTarget = null;
+		}
+	}
+
+	async function toggleReceipts(item: CompanyResource) {
+		const name = metadataText(item, 'name');
+		if (!name) return;
+		if (receiptsFor === name) {
+			receiptsFor = null;
+			return;
+		}
+		receiptsFor = name;
+		receipts = [];
+		receiptsError = null;
+		receiptsLoading = true;
+		try {
+			const rows = await getCompanyMcpReceipts(companyId, name);
+			if (receiptsFor === name) receipts = rows;
+		} catch (error) {
+			if (receiptsFor === name) receiptsError = error instanceof Error ? error.message : 'Core receipts are unavailable.';
+		} finally {
+			if (receiptsFor === name) receiptsLoading = false;
+		}
+	}
+
+	async function toggleRepin(item: CompanyResource) {
+		const name = metadataText(item, 'name');
+		if (!name || repinning) return;
+		if (repinFor === name) {
+			repinFor = null;
+			return;
+		}
+		repinFor = name;
+		repinWorks = [];
+		repinWorkId = '';
+		repinError = null;
+		repinLoading = true;
+		try {
+			const company = await getCollaborationBootstrap(companyId);
+			const running = new Set(company.work_graph.attempts
+				.filter((attempt) => attempt.state === 'running')
+				.map((attempt) => attempt.work_id));
+			if (repinFor === name) repinWorks = company.work_graph.work.filter((work) =>
+				(work.status === 'proposed' || work.status === 'blocked') && !running.has(work.id)
+			);
+		} catch (error) {
+			if (repinFor === name) repinError = error instanceof Error ? error.message : 'Work is unavailable.';
+		} finally {
+			if (repinFor === name) repinLoading = false;
+		}
+	}
+
+	async function confirmRepin() {
+		if (repinFor !== 'clapping-hands' || !repinWorkId || repinning) return;
+		repinning = true;
+		repinError = null;
+		repinNotice = null;
+		try {
+			const outcome = await repinCompanyMcp(companyId, repinFor, repinWorkId);
+			repinNotice = `Clapping Hands was re-probed and assigned to ${outcome.assigned_actor}'s selected Work. A fresh Attempt will receive the new pin.`;
+			repinFor = null;
+			await source.refresh();
+		} catch (error) {
+			repinError = error instanceof Error ? error.message : 'Clapping Hands could not be re-probed.';
+		} finally {
+			repinning = false;
+		}
+	}
+
+	function metadataText(item: CompanyResource, key: string): string | null {
+		const value = item.metadata?.[key];
+		return typeof value === 'string' && value.trim() ? value : null;
+	}
+
+	function metadataList(item: CompanyResource, key: string): string[] {
+		const value = item.metadata?.[key];
+		return Array.isArray(value) ? value.filter((part): part is string => typeof part === 'string') : [];
+	}
+
+	function fixedWorkReadLimit(item: CompanyResource): string {
+		const limit = item.metadata?.max_calls_per_work;
+		return typeof limit === 'number' && Number.isInteger(limit) && limit > 0
+			? `${limit} total across Attempts`
+			: 'Unlimited';
+	}
+
+	function observedTime(value: string | null): string {
+		if (!value || Number.isNaN(new Date(value).getTime())) return 'No successful call observed';
+		return when(value);
 	}
 
 	function openLabel(item: CompanyResource): string {
@@ -55,7 +233,7 @@
 					: `${item.label} launched on this computer.`;
 			}
 		} catch (error) {
-			launchError = error instanceof Error ? error.message : 'The resource could not be opened.';
+			launchError = failureSentence(error, 'The resource could not be opened.');
 		} finally {
 			opening = null;
 		}
@@ -70,18 +248,141 @@
 		<div class="company-page-freshness">
 			<span class="source-lamp status-{source.status}" aria-hidden="true"></span>{source.status ===
 			'live'
-				? 'Live sources'
+				? 'Live'
 				: source.status === 'stale'
-					? 'Last observation'
-					: 'Reading sources'}
+					? 'Out of date'
+					: 'Checking…'}
 		</div>
 	</header>
 	{#if view}
 		<CompanyLimits />
+		<section class="mcp-connections" aria-labelledby="mcp-connections-title">
+			<div class="section-heading">
+				<h2 id="mcp-connections-title">MCP connections</h2>
+				<InfoTip text="An MCP connection lets an assigned company agent call approved tools. Discovery alone does not prove a successful read; returned public content is unverified." />
+			</div>
+			{#if mcpConnections.length}
+				<div class="mcp-list">
+					{#each mcpConnections as item (item.id)}
+						<article class="mcp-card" aria-label={item.label}>
+							<div class="mcp-card-head">
+								<h3>{item.label}</h3>
+								<span class="state-chip state-{item.status}">{connectionState(item)}</span>
+							</div>
+							{#if item.detail}<p>{item.detail}</p>{/if}
+							<dl class="mcp-facts">
+								{#if metadataText(item, 'browser_owner')}
+									<div><dt>Browser owned by</dt><dd>{metadataText(item, 'browser_owner')}</dd></div>
+								{/if}
+								<div><dt>Assigned to</dt><dd>{metadataText(item, 'assigned_actor') ?? 'No agent assigned'}</dd></div>
+								{#if ['host_http', 'public_http', 'broker_stdio'].includes(metadataText(item, 'transport') ?? '')}
+									<div><dt>Fixed Work read calls</dt><dd>{fixedWorkReadLimit(item)}</dd></div>
+								{/if}
+								<div><dt>Last successful tool call</dt><dd>{observedTime(metadataText(item, 'last_success_at'))}</dd></div>
+								{#if metadataText(item, 'target_repository')}<div><dt>Public repository</dt><dd>{metadataText(item, 'target_repository')}</dd></div>{/if}
+							</dl>
+							{#if metadataText(item, 'last_read_status')}
+								{#if metadataText(item, 'last_read_status') === 'response_observed_unverified' && metadataText(item, 'last_read_site') === 'deepwiki'}
+									<p class="mcp-read-state">DeepWiki returned wiki content. Its accuracy is unverified.</p>
+								{:else}
+									<p class="mcp-read-state">Last read: {words(metadataText(item, 'last_read_status') ?? '')}{#if metadataText(item, 'last_read_site')} on {words(metadataText(item, 'last_read_site') ?? '')}{/if}.</p>
+								{/if}
+							{/if}
+							{#if metadataText(item, 'name')}
+								<div class="mcp-actions">
+									{#if ['host_http', 'public_http', 'broker_stdio'].includes(metadataText(item, 'transport') ?? '')}
+										<button type="button" class="btn small" aria-expanded={receiptsFor === metadataText(item, 'name')}
+											onclick={() => toggleReceipts(item)}>
+											{receiptsFor === metadataText(item, 'name') ? 'Hide Core receipts' : 'View Core receipts'}
+										</button>
+									{/if}
+									{#if item.status !== 'disabled' && metadataText(item, 'name') === 'clapping-hands' && metadataText(item, 'transport') === 'host_http'}
+										<button type="button" class="btn small" aria-expanded={repinFor === 'clapping-hands'}
+											onclick={() => toggleRepin(item)}>
+											{repinFor === 'clapping-hands' ? 'Close Work selection' : 'Re-probe and assign Work'}
+										</button>
+									{/if}
+									{#if item.status !== 'disabled'}
+										{#if disableTarget === item.id}<span>Stop agent access to this connection now?</span>{/if}
+										<button type="button" class="btn small" disabled={disabling !== null}
+											onclick={() => confirmDisable(item)}>
+											{disabling === item.id ? 'Disabling…' : disableTarget === item.id ? 'Confirm disable' : 'Disable connection'}
+										</button>
+										{#if disableTarget === item.id}<button type="button" class="btn small" onclick={() => (disableTarget = null)}>Cancel</button>{/if}
+									{/if}
+								</div>
+							{/if}
+							{#if receiptsFor === metadataText(item, 'name')}
+								<section class="mcp-subpanel" aria-label={`${item.label} Core read receipts`}>
+									<h4>Core read receipts</h4>
+									<p>These records show what Core observed and recorded. Returned provider content remains unverified.</p>
+									{#if receiptsLoading}<p role="status">Reading receipts…</p>
+									{:else if receiptsError}<p class="launch-message-error" role="alert">{receiptsError}</p>
+									{:else if receipts.length === 0}<p>No Core tool calls recorded for this connection.</p>
+									{:else}
+										<div class="mcp-receipt-list">
+											{#each receipts as receipt (`${receipt.call_id}:${receipt.phase}`)}
+												<article class="mcp-receipt">
+													<div class="mcp-receipt-head"><strong>{words(receipt.tool_name)}</strong><time>{when(receipt.observed_at)}</time></div>
+															<p>{receipt.phase === 'started' ? 'Started' : `Terminal: ${words(receipt.status)}`}{#if receipt.subject?.site} · {words(receipt.subject.site)}{/if}{#if receipt.provider_status} · Provider reported {words(receipt.provider_status)}{/if}</p>
+													<small>Call {receipt.call_id} · {receipt.actor} · <a href={`/${companyId}/work/${receipt.work_id}`}>Work</a> · Attempt {receipt.attempt_id}</small>
+													{#if receipt.phase === 'terminal' && receipt.result_digest}<small>Result fingerprint: <code>{receipt.result_digest}</code></small>{/if}
+												</article>
+											{/each}
+										</div>
+									{/if}
+								</section>
+							{/if}
+							{#if repinFor === metadataText(item, 'name')}
+								<section class="mcp-subpanel" aria-label="Re-probe Clapping Hands for Work">
+									<h4>Assign Clapping Hands to Work</h4>
+									<p>Core will check the saved host connection again and issue a new pin. Choose proposed or blocked Work with no running Attempt; a fresh Attempt is needed to use it.</p>
+									{#if repinLoading}<p role="status">Reading eligible Work…</p>
+									{:else if repinWorks.length === 0}<p>No proposed or blocked Work is available. The current assignment stays as it is.</p>
+									{:else}
+										<label for="mcp-repin-work">Work to assign</label>
+										<select id="mcp-repin-work" bind:value={repinWorkId} disabled={repinning}>
+											<option value="">Choose Work</option>
+											{#each repinWorks as work (work.id)}<option value={work.id}>{work.title} · {work.owner_id} · {words(work.status)}</option>{/each}
+										</select>
+										<button type="button" class="btn small" disabled={!repinWorkId || repinning}
+											onclick={confirmRepin}>{repinning ? 'Re-probing…' : 'Confirm re-probe and assign'}</button>
+									{/if}
+									{#if repinError}<p class="launch-message-error" role="alert">{repinError}</p>{/if}
+								</section>
+							{/if}
+							<details class="mcp-details">
+								<summary>Connection details</summary>
+								<dl>
+									<div><dt>Transport</dt><dd>{words(metadataText(item, 'transport') ?? 'unknown')}</dd></div>
+									{#if metadataText(item, 'authentication')}<div><dt>Authentication</dt><dd>{words(metadataText(item, 'authentication') ?? '')}</dd></div>{/if}
+									{#if metadataText(item, 'read_profile')}<div><dt>Read profile</dt><dd>{metadataText(item, 'read_profile')}</dd></div>{/if}
+									<div><dt>Work</dt><dd>{metadataText(item, 'work_id') ?? 'Not Work-bound'}</dd></div>
+									<div><dt>Permitted tools</dt><dd>{metadataList(item, 'allowed_tools').join(', ') || 'None'}</dd></div>
+									<div><dt>Observed tools</dt><dd>{metadataList(item, 'observed_tools').join(', ') || 'None yet'}</dd></div>
+									{#if metadataText(item, 'server_version')}<div><dt>Server version</dt><dd>{metadataText(item, 'server_version')}</dd></div>{/if}
+									<div><dt>Tool contract</dt><dd>{metadataText(item, 'tool_contract_digest') ?? 'Unverified'}</dd></div>
+									{#if metadataText(item, 'last_read_tool')}<div><dt>Last tool</dt><dd>{metadataText(item, 'last_read_tool')}</dd></div>{/if}
+									{#if metadataText(item, 'failure')}
+										<div><dt>Current error</dt><dd>{metadataText(item, 'failure')}</dd></div>
+									{/if}
+									{#if metadataText(item, 'receipt_command')}<div><dt>Owner receipts</dt><dd><code>{metadataText(item, 'receipt_command')}</code></dd></div>{/if}
+								</dl>
+							</details>
+						</article>
+							{/each}
+						</div>
+						{#if disableError}<p class="launch-message launch-message-error" role="alert">{disableError}</p>{/if}
+						{#if disableNotice}<p class="launch-message" role="status">{disableNotice}</p>{/if}
+						{#if repinNotice}<p class="launch-message" role="status">{repinNotice}</p>{/if}
+			{:else if view.resources.status === 'available'}
+				<p class="quiet-empty">No local MCP connection has been observed for this company.</p>
+			{/if}
+		</section>
 		<div class="section-heading">
 			<h2>Resources &amp; access</h2>
 			<InfoTip
-				text="Connected tools and available company resources. Manage model credentials in Intelligence provider and Vault."
+				text="Tools and resources the company can use. Model credentials live in Intelligence and Vault."
 			/>
 		</div>
 		{#if view.resources.status === 'unavailable'}
@@ -94,10 +395,10 @@
 				<div class="launch-heading">
 					<div>
 						<h2 id="launch-title">Usable now</h2>
-						<p>Open an exact released outcome without reconstructing ports or access material.</p>
+						<p>Open finished work directly.</p>
 					</div>
 					{#if embedded}
-						<button class="launch-close" type="button" onclick={() => (embedded = null)}>
+						<button class="btn launch-close" type="button" onclick={() => (embedded = null)}>
 							Close viewer
 						</button>
 					{/if}
@@ -116,7 +417,7 @@
 								<p>{item.launch?.detail}</p>
 							</div>
 							<button
-								class="launch-control"
+								class="btn primary launch-control"
 								type="button"
 								disabled={item.launch?.availability !== 'ready' || opening !== null}
 								onclick={() => openResource(item)}
@@ -134,7 +435,7 @@
 				{#if nativeNotice}<p class="launch-message" role="status">{nativeNotice}</p>{/if}
 				{#if embedded}
 					<div class="launch-viewport">
-						<div><strong>{embedded.label}</strong><span>Bounded owner session</span></div>
+						<div><strong>{embedded.label}</strong><span>Your session</span></div>
 						<iframe
 							src={embedded.href}
 							title={embedded.label}
@@ -161,15 +462,17 @@
 						<span>{words(item.source)}</span><time>{when(item.observed_at)}</time>
 					</div>
 					{#if item.metadata && Object.keys(item.metadata).length}
-						<details>
-							<summary>Source detail</summary>
-							<dl>
-								{#each Object.entries(item.metadata) as [key, value]}<div>
-										<dt>{words(key)}</dt>
-										<dd>{Array.isArray(value) ? value.join(', ') || 'none' : String(value)}</dd>
-									</div>{/each}
-							</dl>
-						</details>
+						<div class="resource-detail-cell" role="cell">
+							<details>
+								<summary>Source detail</summary>
+								<dl>
+									{#each Object.entries(item.metadata) as [key, value]}<div>
+											<dt>{words(key)}</dt>
+											<dd>{Array.isArray(value) ? value.join(', ') || 'none' : String(value)}</dd>
+										</div>{/each}
+								</dl>
+							</details>
+						</div>
 					{/if}
 				</div>
 			{:else}
@@ -178,12 +481,150 @@
 					</p>{/if}
 			{/each}
 		</div>
-	{:else if source.failure}<div class="company-source-error" role="alert">
-			{source.failure.message}
-		</div>{:else}<div class="company-page-wait" aria-label="Probing resources"></div>{/if}
+	{:else if source.failure}
+		<FailureNotice
+			error={source.failure}
+			subject="resources"
+			variant="block"
+			onretry={source.refresh}
+		/>
+	{:else}<Skeleton label="Probing resources…" variant="page" count={4} />{/if}
 </div>
 
 <style>
+	.mcp-connections {
+		margin-block: var(--space-6);
+	}
+
+	.mcp-list {
+		display: grid;
+		gap: var(--space-3);
+	}
+
+	.mcp-card {
+		padding: var(--space-5) var(--space-6);
+		border: 1px solid var(--company-edge-soft);
+		border-radius: var(--radius-pane);
+		background: var(--surface-pane);
+		box-shadow: var(--company-surface-shadow);
+	}
+
+	.mcp-card-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-3);
+	}
+
+	.mcp-card-head h3 {
+		margin: 0;
+		font-size: var(--t-head);
+	}
+
+	.mcp-card > p {
+		margin: var(--space-2) 0 var(--space-4);
+		color: var(--text-secondary);
+	}
+
+	.mcp-facts,
+	.mcp-details dl {
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: var(--space-3) var(--space-5);
+		margin: var(--space-4) 0 0;
+	}
+
+	.mcp-facts > div,
+	.mcp-details dl > div {
+		min-width: 0;
+	}
+
+	.mcp-facts dt,
+	.mcp-details dt {
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+
+	.mcp-facts dd,
+	.mcp-details dd {
+		margin: var(--space-1) 0 0;
+		overflow-wrap: anywhere;
+	}
+
+	.mcp-details {
+		margin-top: var(--space-4);
+		border-top: 1px solid var(--company-edge-soft);
+		padding-top: var(--space-3);
+	}
+
+	.mcp-read-state {
+		margin: var(--space-3) 0 0;
+		color: var(--text-secondary);
+	}
+
+	.mcp-actions {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: var(--space-2);
+		margin-top: var(--space-4);
+	}
+
+	.mcp-subpanel {
+		display: grid;
+		gap: var(--space-2);
+		margin-top: var(--space-4);
+		padding: var(--space-4);
+		border: 1px solid var(--company-edge-soft);
+		border-radius: var(--radius-control);
+		background: var(--company-inset);
+	}
+
+	.mcp-subpanel h4,
+	.mcp-subpanel p { margin: 0; }
+	.mcp-subpanel p,
+	.mcp-receipt small { color: var(--text-secondary); }
+	.mcp-subpanel label { font-weight: 600; }
+	.mcp-subpanel select {
+		width: min(100%, 36rem);
+		padding: var(--space-2);
+		border: 1px solid var(--company-edge);
+		border-radius: var(--radius-control);
+		background: var(--surface-pane);
+		color: var(--text-primary);
+	}
+	.mcp-subpanel select:focus-visible { outline: 2px solid var(--company-blue); outline-offset: 2px; }
+	.mcp-subpanel > .btn { justify-self: start; }
+	.mcp-receipt-list { display: grid; gap: var(--space-2); max-height: 24rem; overflow: auto; }
+	.mcp-receipt {
+		display: grid;
+		gap: var(--space-1);
+		padding: var(--space-3);
+		border: 1px solid var(--company-edge-soft);
+		border-radius: var(--radius-control);
+		background: var(--surface-pane);
+	}
+	.mcp-receipt-head { display: flex; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2); }
+	.mcp-receipt small,
+	.mcp-receipt code { overflow-wrap: anywhere; }
+
+	.mcp-details summary {
+		width: fit-content;
+		cursor: pointer;
+		color: var(--text-secondary);
+	}
+
+	.mcp-details summary:focus-visible {
+		outline: 2px solid var(--company-blue);
+		outline-offset: 3px;
+	}
+
+	@media (max-width: 820px) {
+		.mcp-card { padding: var(--space-4); }
+		.mcp-facts,
+		.mcp-details dl { grid-template-columns: 1fr; }
+	}
+
 	.launch-surface {
 		margin-block: var(--space-6) calc(var(--space-6) * 1.5);
 		background: var(--surface-pane);
@@ -240,49 +681,7 @@
 
 	.launch-identity span {
 		color: var(--text-tertiary);
-		font-family: var(--font-mono);
 		font-size: var(--t-label);
-		text-transform: uppercase;
-		letter-spacing: var(--track-label);
-	}
-
-	.launch-control,
-	.launch-close {
-		min-height: 36px;
-		border: 1px solid var(--control-edge);
-		border-radius: var(--radius-control);
-		background: var(--ink);
-		box-shadow: var(--control-depth);
-		color: var(--text-inverse);
-		font: 600 var(--t-body) / 1 var(--font-ui);
-		padding: 0 var(--space-4);
-		transition:
-			transform var(--motion-press) var(--ease-standard),
-			box-shadow var(--motion-press) var(--ease-standard);
-	}
-
-	.launch-control:active:not(:disabled),
-	.launch-close:active {
-		transform: translateY(1px);
-		box-shadow: var(--control-depth-pressed);
-	}
-
-	.launch-control:focus-visible,
-	.launch-close:focus-visible {
-		outline: 2px solid var(--company-blue);
-		outline-offset: 2px;
-	}
-
-	.launch-control:disabled {
-		background: var(--surface-alt);
-		box-shadow: none;
-		color: var(--text-tertiary);
-		cursor: not-allowed;
-	}
-
-	.launch-close {
-		background: var(--surface-alt);
-		color: var(--ink);
 	}
 
 	.launch-message {
@@ -320,7 +719,7 @@
 		width: 100%;
 		min-height: min(62vh, 720px);
 		border: 1px solid var(--company-edge-soft);
-		background: #fff;
+		background: var(--surface-raised);
 	}
 
 	@media (max-width: 820px) {
@@ -337,13 +736,6 @@
 		.launch-state {
 			grid-column: 1 / -1;
 			grid-row: 2;
-		}
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.launch-control,
-		.launch-close {
-			transition: none;
 		}
 	}
 </style>

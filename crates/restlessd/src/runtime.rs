@@ -401,7 +401,7 @@ impl AgentHarness {
 
     pub(crate) const fn build(self) -> &'static str {
         match self {
-            Self::RestlessManaged => "omp-18.0.10",
+            Self::RestlessManaged => "omp-18.3.2",
             Self::Codex => "codex-cli-0.155.1",
             Self::ClaudeAgent => "claude-agent-acp-0.73.0",
             Self::CustomAcp => "custom-acp-v1",
@@ -428,6 +428,32 @@ pub struct NativeHarnessConfig {
 pub struct AgentIntelligence {
     pub connection: String,
     pub model: String,
+}
+
+/// Account assignments name the exact connection. The provider is repeated so
+/// a saved company config can resolve its model without reading account state;
+/// the owner API and model relay verify the ID against the current grant.
+pub(crate) fn account_intelligence_route(connection: &str) -> Option<(&str, &str, AgentHarness)> {
+    let (route, harness) = if let Some(route) = connection.strip_prefix("account:") {
+        (route, AgentHarness::RestlessManaged)
+    } else if let Some(route) = connection.strip_prefix("account-harness:codex:") {
+        (route, AgentHarness::Codex)
+    } else if let Some(route) = connection.strip_prefix("account-harness:claude-agent:") {
+        (route, AgentHarness::ClaudeAgent)
+    } else {
+        return None;
+    };
+    let (provider, id) = route.split_once('@')?;
+    if provider.is_empty()
+        || id.len() != 32
+        || !id.bytes().all(|byte| byte.is_ascii_hexdigit())
+        || !provider
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"-_.".contains(&byte))
+    {
+        return None;
+    }
+    Some((provider, id, harness))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -457,8 +483,8 @@ pub struct CompanyConfig {
     /// representation of the provider's invoice.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub monthly_runtime_cap_hours: Option<u32>,
-    /// Opt-in sleep after this many idle minutes. `None` preserves the
-    /// persistent Runtime's existing always-on behaviour.
+    /// Sleep after this many minutes without company demand. `None` uses
+    /// [`DEFAULT_SLEEP_AFTER_MINUTES`]; `Some(0)` keeps the computer always on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_sleep_after_minutes: Option<u16>,
     /// Standing owner promise for newly commissioned outcomes. This selects
@@ -573,9 +599,26 @@ impl CompanyConfig {
         {
             config.model_failover.clear();
             if let Some(provider) = route.connection.strip_prefix("direct:") {
-                config.model = format!("{provider}/{}", route.model);
+                config.model = if route.model.starts_with(&format!("{provider}/")) {
+                    route.model.clone()
+                } else {
+                    format!("{provider}/{}", route.model)
+                };
                 config.coordination_harness = AgentHarness::RestlessManaged;
                 config.worker_harness = AgentHarness::RestlessManaged;
+            } else if let Some((provider, _, harness)) =
+                account_intelligence_route(&route.connection)
+            {
+                config.model = if route.model.starts_with(&format!("{provider}/")) {
+                    route.model.clone()
+                } else {
+                    format!("{provider}/{}", route.model)
+                };
+                config.coordination_harness = harness;
+                config.worker_harness = harness;
+                // The same company may retain an older CLI sign-in for an
+                // explicit rollback. This assignment uses the account relay.
+                config.native_harnesses.remove(harness.as_str());
             } else if let Some(id) = route.connection.strip_prefix("harness:custom:") {
                 config.model = format!("native-custom-{id}/{}", route.model);
                 config.coordination_harness = AgentHarness::CustomAcp;
@@ -695,6 +738,17 @@ impl CompanyConfig {
         Ok(())
     }
 
+    /// The sleep timeout this company actually runs with; `None` is always on.
+    pub fn sleep_after(&self) -> Option<std::time::Duration> {
+        match self
+            .auto_sleep_after_minutes
+            .unwrap_or(DEFAULT_SLEEP_AFTER_MINUTES)
+        {
+            0 => None,
+            minutes => Some(std::time::Duration::from_secs(u64::from(minutes) * 60)),
+        }
+    }
+
     fn validate_resource_policies(&self) -> Result<()> {
         if self
             .monthly_runtime_cap_hours
@@ -704,9 +758,9 @@ impl CompanyConfig {
         }
         if self
             .auto_sleep_after_minutes
-            .is_some_and(|minutes| !(1..=1440).contains(&minutes))
+            .is_some_and(|minutes| minutes > MAX_SLEEP_AFTER_MINUTES)
         {
-            bail!("auto_sleep_after_minutes must be between 1 and 1440 minutes");
+            bail!("auto_sleep_after_minutes must be 0 (never) or 1 to 1440 minutes");
         }
         Ok(())
     }
@@ -753,12 +807,17 @@ impl CompanyConfig {
             }
             let required_provider = match harness {
                 AgentHarness::RestlessManaged | AgentHarness::CustomAcp => continue,
-                AgentHarness::Codex => "litellm",
+                AgentHarness::Codex => "litellm or openai-codex",
                 AgentHarness::ClaudeAgent => "anthropic",
             };
             if let Some(model) = models
                 .iter()
-                .find(|model| !model.starts_with(&format!("{required_provider}/")))
+                .find(|model| match harness {
+                    AgentHarness::Codex => {
+                        !model.starts_with("litellm/") && !model.starts_with("openai-codex/")
+                    }
+                    _ => !model.starts_with(&format!("{required_provider}/")),
+                })
             {
                 bail!(
                     "{} harness requires every configured model to use provider {required_provider}; got {model}",
@@ -767,7 +826,8 @@ impl CompanyConfig {
             }
             if let Some(model) = models.iter().find(|model| match harness {
                 AgentHarness::Codex => {
-                    !crate::model_gateway::responses_model_has_pinned_tariff(model)
+                    !model.starts_with("openai-codex/")
+                        && !crate::model_gateway::responses_model_has_pinned_tariff(model)
                 }
                 AgentHarness::ClaudeAgent => {
                     !crate::model_gateway::anthropic_model_has_pinned_tariff(model)
@@ -910,6 +970,11 @@ pub fn volume_name(company: &str) -> String {
         _ => format!("restless-vol-{company}"),
     }
 }
+
+/// A company computer with no demand sleeps after this long unless its owner
+/// chose another timeout. Sleep keeps the volume; demand wakes it.
+pub const DEFAULT_SLEEP_AFTER_MINUTES: u16 = 30;
+pub const MAX_SLEEP_AFTER_MINUTES: u16 = 1440;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum ContainerStatus {
@@ -1170,6 +1235,14 @@ fn running_company_names(configs: &[CompanyConfig], docker_names: &str) -> Vec<S
 /// keeping its named volume. Building and publishing that image belongs to the
 /// release/Fleet path, not to the credential-holding account plane.
 pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
+    let outcome = up_locked(config, reconcile).await;
+    if outcome.is_ok() {
+        clear_sleeping(&config.name);
+    }
+    outcome
+}
+
+async fn up_locked(config: &CompanyConfig, reconcile: bool) -> Result<String> {
     let company = &config.name;
     let _start = company_start_guard(company).await;
     let internal_network = if config.internal_network {
@@ -2903,16 +2976,21 @@ fn collect_files(path: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
 }
 
 /// Stop the container. The volume — files, Git history, browser profile —
-/// survives (§5, §17 step 2: the persistent company computer).
+/// survives (§5, §17 step 2: the persistent company computer). An explicit
+/// stop is owner intent, so it also clears any sleep marker: demand must not
+/// restart a computer somebody deliberately turned off.
 pub async fn down(company: &str) -> Result<String> {
     let _start = company_start_guard(company).await;
-    down_locked(company).await
+    let result = down_locked(company).await;
+    clear_sleeping(company);
+    result
 }
 
 /// Stop a Runtime only if an async activity check still considers it idle.
 /// The predicate runs under the same per-company lifecycle lock as `up`, so a
 /// concurrent explicit start cannot be stopped after it has completed.
-pub async fn down_if_idle<F, Fut>(company: &str, is_idle: F) -> Result<bool>
+/// `sleep` marks the stop as policy sleep, which any owed demand may undo.
+pub async fn down_if_idle<F, Fut>(company: &str, sleep: bool, is_idle: F) -> Result<bool>
 where
     F: FnOnce() -> Fut,
     Fut: std::future::Future<Output = Result<bool>>,
@@ -2922,8 +3000,47 @@ where
         return Ok(false);
     }
     down_running_locked(company).await?;
+    if sleep {
+        mark_sleeping(company)?;
+    } else {
+        clear_sleeping(company);
+    }
     invalidate_cockpit_health(company).await;
     Ok(true)
+}
+
+fn sleep_marker(company: &str) -> PathBuf {
+    state_root().join("runtime-sleep").join(company)
+}
+
+/// Whether the company computer is stopped because the sleep policy put it
+/// to sleep, rather than because the owner stopped it or it never started.
+/// Only a sleeping computer is woken by demand.
+pub fn is_sleeping(company: &str) -> bool {
+    sleep_marker(company).is_file()
+}
+
+fn mark_sleeping(company: &str) -> Result<()> {
+    let marker = sleep_marker(company);
+    if let Some(parent) = marker.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("create {}", parent.display()))?;
+    }
+    std::fs::write(&marker, chrono::Utc::now().to_rfc3339())
+        .with_context(|| format!("write {}", marker.display()))
+}
+
+fn clear_sleeping(company: &str) {
+    let _ = std::fs::remove_file(sleep_marker(company));
+}
+
+/// When the current sleep began, if the computer is asleep.
+pub fn sleeping_since(company: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    std::fs::read_to_string(sleep_marker(company))
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
 }
 
 async fn down_locked(company: &str) -> Result<String> {
@@ -2965,6 +3082,7 @@ pub async fn destroy(
     spend: &crate::spend::SpendLedger,
 ) -> Result<String> {
     let mut removed = Vec::new();
+    clear_sleeping(company);
     crate::local_documents::remove(root, org)
         .await
         .context("remove local Documents service before dropping its cell")?;

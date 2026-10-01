@@ -176,8 +176,8 @@ try {
 		.getByText('Anthropic', { exact: true })
 		.waitFor();
 	await page.locator('.connection-row .badge.success').first().waitFor();
-	await page.getByText('ChatGPT / Codex', { exact: true }).waitFor();
-	await page.getByText('Claude Code', { exact: true }).waitFor();
+	await page.getByText('Company-only Codex', { exact: true }).waitFor();
+	await page.getByText('Company-only Claude', { exact: true }).waitFor();
 	await page.getByText('Continue Claude sign-in in company desktop', { exact: false }).waitFor();
 	const assignments = page.locator('.assignments');
 	await assignments
@@ -192,8 +192,16 @@ try {
 	assert.match(await execRow.locator('.route').innerText(), /Anthropic[\s\S]*claude-sonnet-4-6/);
 	assert.match(await dariaRow.locator('.route').innerText(), /OpenAI[\s\S]*gpt-5\.6-terra/);
 	connections = [];
-	agents = [];
+	// A company always lists its Exec; with no connection its route has nowhere to go.
+	agents = [{ ...agents[0], assignment: null, effective_model: 'openai/gpt-5.6-terra' }];
 	await page.goto(`${origin}/${company}`);
+	// With no connection the rail closes for setup unless the owner already
+	// chose to keep it open in this browser (it was open earlier in this run).
+	const closedRail = page
+		.locator('button[aria-controls="bridge-exrail"][aria-expanded="false"]')
+		.first();
+	await page.locator('button[aria-controls="bridge-exrail"]').first().waitFor();
+	if (await closedRail.count()) await closedRail.click();
 	const cta = page.getByRole('link', { name: /Add intelligence provider/i });
 	await cta.waitFor();
 	assert.match(await cta.getAttribute('href'), new RegExp(`/${company}/company/provider$`));

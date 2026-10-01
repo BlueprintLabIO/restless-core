@@ -7,6 +7,7 @@ import type {
 	ConversationSendResponse,
 	ConversationView
 } from './generated/conversation';
+import { responseFailure } from './failure.ts';
 
 export type {
 	AgentActivityPhase,
@@ -310,10 +311,7 @@ export async function resolveHandoffDecision(
 	if (!response.ok) throw await ownerError(response);
 }
 
-export async function completeHandoffHumanStep(
-	company: string,
-	handoff: string
-): Promise<void> {
+export async function completeHandoffHumanStep(company: string, handoff: string): Promise<void> {
 	const response = await fetch(
 		`/api/companies/${encodeURIComponent(company)}/handoffs/${encodeURIComponent(handoff)}/complete`,
 		{
@@ -478,13 +476,4 @@ export async function browserControl(
 	return response.json();
 }
 
-async function ownerError(response: Response): Promise<Error & { status: number }> {
-	let message = `${response.status} ${response.statusText}`;
-	try {
-		const body = await response.json();
-		message = body.message ?? message;
-	} catch {
-		// The status remains honest when an intermediary supplied a non-JSON body.
-	}
-	return Object.assign(new Error(message), { status: response.status });
-}
+const ownerError = responseFailure;

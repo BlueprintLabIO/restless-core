@@ -1,8 +1,8 @@
 <script lang="ts">
+	import { failureSentence } from '$lib/model/failure';
 	import { beforeNavigate } from '$app/navigation';
 	import { getContext, onMount } from 'svelte';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
-	const models = modelCatalog();
 	import { attentionQuery, companiesQuery, companyQuery } from '$lib/model/queries.svelte';
 
 	type Settings = { display_name: string; mission: string; model: string; revision: string };
@@ -11,6 +11,8 @@
 		section = 'provider',
 		onsaved
 	}: { companyId: string; section?: 'provider' | 'name'; onsaved?: () => void } = $props();
+	// The name section never shows model choices, so it skips the catalog.
+	const models = modelCatalog(() => section === 'provider');
 	const header = getContext<{ name: string | null }>('company-setup-draft');
 	const attention = $derived(attentionQuery(companyId));
 	const company = $derived(companyQuery(companyId));
@@ -25,6 +27,7 @@
 	let saved = '';
 	let ready = $state(false);
 	let saving = $state(false);
+	let savedOnce = $state(false);
 	let dirty = $state(false);
 	let error = $state('');
 	let timer: ReturnType<typeof setTimeout>;
@@ -36,8 +39,16 @@
 	const draftKey = $derived(`restless-settings:${section}:${companyId}`);
 	const endpoint = $derived(`/api/companies/${encodeURIComponent(companyId)}/setup`);
 
+	/* The model as the server holds it. The name section sends it back
+	 * unchanged: re-deriving it from the picker would turn an unset model into
+	 * "/" and block every name edit on the custom-model check. */
+	let storedModel = '';
 	function values() {
-		return { display_name: name.trim(), mission, model };
+		return {
+			display_name: name.trim(),
+			mission,
+			model: section === 'provider' ? model : storedModel
+		};
 	}
 	function selectModel(value: string) {
 		const slash = value.indexOf('/');
@@ -67,6 +78,7 @@
 				revision = settings.revision;
 				name = settings.display_name;
 				mission = settings.mission;
+				storedModel = settings.model;
 				selectModel(settings.model);
 				saved = JSON.stringify(values());
 				const draft = sessionStorage.getItem(draftKey);
@@ -118,7 +130,7 @@
 			ready = true;
 			sessionStorage.removeItem(draftKey);
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Could not reload settings.';
+			error = failureSentence(cause, 'Could not reload settings.');
 		}
 	}
 
@@ -135,8 +147,9 @@
 		if (!dirty) return Promise.resolve(true);
 		if (
 			!name.trim() ||
-			(provider === 'custom' && !customProvider.trim()) ||
-			(modelChoice === 'custom' && !customModel.trim())
+			(section === 'provider' &&
+				((provider === 'custom' && !customProvider.trim()) ||
+					(modelChoice === 'custom' && !customModel.trim())))
 		)
 			return Promise.resolve(false);
 		const snapshot = JSON.stringify(values());
@@ -152,8 +165,10 @@
 				if (!response.ok)
 					throw new Error(body.message ?? 'Could not save settings. Your edits are preserved.');
 				error = '';
+				savedOnce = true;
 				revision = body.revision;
 				saved = snapshot;
+				storedModel = JSON.parse(snapshot).model;
 				dirty = JSON.stringify(values()) !== saved;
 				if (dirty) sessionStorage.setItem(draftKey, JSON.stringify({ ...values(), revision }));
 				else sessionStorage.removeItem(draftKey);
@@ -163,7 +178,7 @@
 				onsaved?.();
 				return true;
 			} catch (cause) {
-				error = cause instanceof Error ? cause.message : 'Could not save settings.';
+				error = failureSentence(cause, 'Could not save settings.');
 				return false;
 			} finally {
 				saving = false;
@@ -180,9 +195,12 @@
 	});
 </script>
 
-<section class="setup-page">
+<section class="setup-page" class:inline-name={section === 'name'}>
 	<header>
-		<h2>{section === 'provider' ? 'Model' : 'Company name'}</h2>
+		<!-- On the charter the name is the lead line itself; its heading is for
+		     screen readers only. -->
+		<h2 class:sr-only={section === 'name'}>{section === 'provider' ? 'Model' : 'Company name'}</h2>
+		<!-- Quiet until something happens: an untouched form is not news. -->
 		<span class:failed={!!error} role="status" aria-live="polite"
 			>{error
 				? 'Not saved'
@@ -190,9 +208,9 @@
 					? 'Saving…'
 					: dirty
 						? 'Unsaved changes'
-						: ready
+						: savedOnce
 							? 'Saved'
-							: 'Loading…'}</span
+							: ''}</span
 		>
 	</header>
 	{#if error}<div class="error" role="alert">
@@ -263,6 +281,16 @@
 		margin: 0 auto;
 		overflow-y: auto;
 	}
+	.setup-page.inline-name {
+		overflow: visible;
+	}
+	.setup-page.inline-name header {
+		min-height: 0;
+		margin-bottom: 0;
+	}
+	.setup-page.inline-name header span:empty {
+		display: none;
+	}
 	header {
 		display: flex;
 		align-items: center;
@@ -304,6 +332,27 @@
 		color: var(--ink);
 		font: inherit;
 		font-size: var(--t-body);
+	}
+	/* The name reads as the page text it is and shows field chrome only when
+	 * pointed at or edited, so the charter is not a form until you act on it. */
+	input#setup-name {
+		margin-inline: -10px;
+		width: calc(100% + 20px);
+		padding: 8px 10px;
+		border-color: transparent;
+		background: transparent;
+		font-size: var(--t-head);
+		font-weight: 500;
+		transition:
+			background var(--motion-state) var(--ease-standard),
+			border-color var(--motion-state) var(--ease-standard);
+	}
+	input#setup-name:hover {
+		background: var(--wash-hover);
+	}
+	input#setup-name:focus {
+		border-color: var(--edge-control);
+		background: var(--surface-raised);
 	}
 	input:focus-visible,
 	select:focus-visible {

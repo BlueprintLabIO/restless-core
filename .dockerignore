@@ -31,7 +31,9 @@ tools/*
 !tools/web-review/
 !tools/web-review/restless-web-review.mjs
 !tools/codex-runner/
+!tools/codex-runner/**
 !tools/codex-runner/restless-codex-runner.mjs
+!tools/codex-runner/gpt-6-sol-0.156.1-model-catalog.json
 !tools/codex-runner/restless-codex-parity-preflight.mjs
 !tools/codex-runner/restless-codex-task-run.mjs
 !tools/codex-runner/restless-codex-longitudinal-run.mjs

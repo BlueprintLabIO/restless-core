@@ -1,8 +1,14 @@
 <script lang="ts">
+	import { failureSentence } from '$lib/model/failure';
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { onMount } from 'svelte';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import { getCompanies, type CompanyCatalogEntry } from '$lib/model/cockpit';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
+	import {
+		announceIntelligenceChange,
+		watchIntelligenceChanges
+	} from '$lib/model/intelligence-events';
 	const catalog = modelCatalog();
 	type CompanyUse = { id: string; name: string; in_use?: boolean };
 	type AccountConnection = {
@@ -10,7 +16,8 @@
 		label: string;
 		provider: string;
 		kind?: 'api_key' | 'oauth';
-		status?: 'present' | 'absent' | 'invalid';
+		account_identity?: string;
+		status?: 'present' | 'absent' | 'invalid' | 'checking';
 		detail?: string | null;
 		companies: CompanyUse[];
 	};
@@ -34,6 +41,50 @@
 		['litellm', 'OpenAI-compatible gateway']
 	];
 	let connections = $state<AccountConnection[]>([]);
+	let codexSaved = $derived(
+		connections.some(
+			(connection) => connection.kind === 'oauth' && connection.provider === 'openai-codex'
+		)
+	);
+	let claudeSaved = $derived(
+		connections.some(
+			(connection) => connection.kind === 'oauth' && connection.provider === 'anthropic'
+		)
+	);
+	let codexConnected = $derived(
+		connections.some(
+			(connection) =>
+				connection.kind === 'oauth' &&
+				connection.provider === 'openai-codex' &&
+				connection.status === 'present'
+		)
+	);
+	let claudeConnected = $derived(
+		connections.some(
+			(connection) =>
+				connection.kind === 'oauth' &&
+				connection.provider === 'anthropic' &&
+				connection.status === 'present'
+		)
+	);
+	let codexChecking = $derived(
+		connections.some(
+			(connection) =>
+				connection.kind === 'oauth' &&
+				connection.provider === 'openai-codex' &&
+				connection.status === 'checking'
+		)
+	);
+	let claudeChecking = $derived(
+		connections.some(
+			(connection) =>
+				connection.kind === 'oauth' &&
+				connection.provider === 'anthropic' &&
+				connection.status === 'checking'
+		)
+	);
+	let accountScope = $state<'account' | 'company'>('account');
+	let manageUrl = $state('/account/settings/connections');
 	let loading = $state(true);
 	let error = $state('');
 	let addOpen = $state(false);
@@ -41,31 +92,74 @@
 	let label = $state('');
 	let provider = $state('anthropic');
 	let secret = $state('');
-	let kind = $state<'api_key' | 'oauth'>('api_key');
+	let oauthJob = $state('');
+	let oauthProvider = $state<'codex' | 'claude'>('codex');
+	let oauthUrl = $state('');
+	let oauthCode = $state('');
+	let oauthCallback = $state('');
+	let callbackBusy = $state(false);
+	let oauthState = $state('');
+	let oauthMessage = $state('');
 	let companies = $state<CompanyCatalogEntry[]>([]);
 	let companyError = $state('');
 	let nativeSignIns = $state<NativeSignIn[]>([]);
 	let nativeLoading = $state(true);
 	let nativeError = $state('');
+	let importingCompany = $state('');
 	let managingId = $state('');
 	let companyRevisions = $state<Record<string, string>>({});
 	let selectedCompany = $state('');
 	let selectedModel = $state('');
+	let selectedCustomModel = $state(false);
+	let modelTouched = $state(false);
+	let selectedMakeDefault = $state(false);
 	let replaceRequired = $state(false);
 	let busyCompany = $state(false);
+	let confirmRevocation = $state('');
+	let statusRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+	let statusRefreshAttempts = 0;
+	let refreshSequence = 0;
 
 	async function refresh() {
+		const sequence = ++refreshSequence;
 		loading = true;
 		error = '';
 		try {
 			const response = await fetch('/api/connections', { cache: 'no-store' });
 			const body = await response.json();
+			if (sequence !== refreshSequence) return;
 			if (!response.ok) throw new Error(body.message ?? 'Could not load account connections.');
+			const previouslySignedIn = new Set(
+				connections
+					.filter((item) => item.kind === 'oauth' && item.status === 'present')
+					.map((item) => item.provider)
+			);
 			connections = body.connections ?? [];
+			if (
+				connections.some(
+					(item) =>
+						item.kind === 'oauth' &&
+						item.status === 'present' &&
+						!previouslySignedIn.has(item.provider)
+				)
+			)
+				void catalog.refreshConnected();
+			accountScope = body.scope === 'company' ? 'company' : 'account';
+			manageUrl = body.manage_url ?? '/account/settings/connections';
+			if (statusRefreshTimer) clearTimeout(statusRefreshTimer);
+			if (connections.some((connection) => connection.status === 'checking')) {
+				statusRefreshAttempts = Math.min(statusRefreshAttempts + 1, 12);
+				const delay = Math.min(2500 * 2 ** Math.floor(statusRefreshAttempts / 3), 30_000);
+				statusRefreshTimer = setTimeout(() => void refresh(), delay);
+			} else {
+				statusRefreshAttempts = 0;
+				statusRefreshTimer = undefined;
+			}
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Could not load account connections.';
+			if (sequence === refreshSequence)
+				error = failureSentence(cause, 'Could not load account connections.');
 		} finally {
-			loading = false;
+			if (sequence === refreshSequence) loading = false;
 		}
 	}
 	async function refreshNativeSignIns(rows: CompanyCatalogEntry[]) {
@@ -98,15 +192,38 @@
 	}
 	function nativeStatus(state: string) {
 		return (
-			{
-				connected: 'Signed in',
-				expired: 'Expired',
-				unavailable: 'Unable to check',
-				failed: 'Sign-in failed',
-				waiting: 'Waiting for sign-in',
-				starting: 'Starting sign-in'
-			} as Record<string, string>
-		)[state] ?? state;
+			(
+				{
+					connected: 'Signed in',
+					expired: 'Expired',
+					unavailable: 'Unable to check',
+					failed: 'Sign-in failed',
+					waiting: 'Waiting for sign-in',
+					starting: 'Starting sign-in'
+				} as Record<string, string>
+			)[state] ?? state
+		);
+	}
+	async function importCompanyCodex(companyId: string) {
+		if (importingCompany) return;
+		importingCompany = companyId;
+		error = '';
+		try {
+			const response = await fetch('/api/connections/import/company-codex', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ company: companyId })
+			});
+			const body = await response.json();
+			if (!response.ok)
+				throw new Error(body.message ?? 'Could not use this sign-in for the account.');
+			await refresh();
+			announceIntelligenceChange();
+		} catch (cause) {
+			error = failureSentence(cause, 'Could not use this sign-in for the account.');
+		} finally {
+			importingCompany = '';
+		}
 	}
 	async function create(event: SubmitEvent) {
 		event.preventDefault();
@@ -117,11 +234,7 @@
 			const response = await fetch('/api/connections', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify(
-					kind === 'oauth'
-						? { label: label.trim(), provider, kind: 'oauth' }
-						: { label: label.trim(), provider, secret }
-				)
+				body: JSON.stringify({ label: label.trim(), provider, secret })
 			});
 			const body = await response.json();
 			if (!response.ok) throw new Error(body.message ?? 'Could not save this connection.');
@@ -129,41 +242,132 @@
 			secret = '';
 			addOpen = false;
 			await refresh();
+			announceIntelligenceChange();
 		} catch (cause) {
 			secret = '';
-			error = cause instanceof Error ? cause.message : 'Could not save this connection.';
+			error = failureSentence(cause, 'Could not save this connection.');
 		} finally {
 			busy = false;
 		}
 	}
+	async function startSignIn(provider: 'codex' | 'claude') {
+		if (oauthJob) return;
+		oauthProvider = provider;
+		oauthMessage = '';
+		oauthUrl = '';
+		oauthCode = '';
+		oauthCallback = '';
+		oauthState = '';
+		try {
+			const response = await fetch(`/api/connections/oauth/${provider}`, { method: 'POST' });
+			const body = await response.json();
+			if (!response.ok) throw new Error(body.message ?? 'Could not start sign-in.');
+			oauthJob = body.job;
+			oauthState = 'starting';
+			void pollSignIn(body.job);
+		} catch (cause) {
+			oauthMessage = failureSentence(cause, 'Could not start sign-in.');
+		}
+	}
+	async function completeClaudeSignIn() {
+		if (!oauthJob || !oauthCallback.trim() || callbackBusy) return;
+		callbackBusy = true;
+		oauthMessage = '';
+		try {
+			const response = await fetch(
+				`/api/connections/oauth/jobs/${encodeURIComponent(oauthJob)}/callback`,
+				{
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ callback_url: oauthCallback.trim() })
+				}
+			);
+			const body = await response.json();
+			if (!response.ok) throw new Error(body.message ?? 'Could not finish Claude sign-in.');
+			oauthCallback = '';
+			oauthState = 'completing';
+		} catch (cause) {
+			oauthMessage = failureSentence(cause, 'Could not finish Claude sign-in.');
+		} finally {
+			callbackBusy = false;
+		}
+	}
+	async function pollSignIn(job: string) {
+		for (let attempt = 0; attempt < 300 && oauthJob === job; attempt++) {
+			try {
+				const response = await fetch(`/api/connections/oauth/jobs/${encodeURIComponent(job)}`, {
+					cache: 'no-store'
+				});
+				const body = await response.json();
+				if (!response.ok) throw new Error(body.message ?? 'Could not check sign-in.');
+				oauthState = body.state;
+				oauthUrl = body.url ?? '';
+				oauthCode = body.code ?? '';
+				oauthMessage = body.message ?? '';
+				if (body.state === 'connected' || body.state === 'failed') {
+					oauthJob = '';
+					if (body.state === 'connected') {
+						await refresh();
+						announceIntelligenceChange();
+					}
+					return;
+				}
+			} catch (cause) {
+				oauthMessage = failureSentence(cause, 'Could not check sign-in.');
+				oauthJob = '';
+				return;
+			}
+			await new Promise((resolve) => setTimeout(resolve, 1000));
+		}
+		oauthJob = '';
+		oauthMessage = 'Sign-in timed out. Start again.';
+	}
 	function statusText(item: AccountConnection) {
 		const credential = item.kind === 'oauth' ? 'Sign-in' : 'Key';
 		if (item.status === 'present') return item.kind === 'oauth' ? 'Signed in' : 'Key stored';
+		if (item.status === 'checking') return 'Checking sign-in';
 		if (item.status === 'invalid') return `${credential} unavailable`;
 		return `${credential} missing`;
 	}
 	function providerName(id: string) {
+		if (id === 'openai-codex') return 'ChatGPT / Codex';
 		return providerOptions.find(([key]) => key === id)?.[1] ?? id;
 	}
-	function modelChoices(providerId: string) {
-		return catalog.models(providerId);
+	function modelChoices(providerId: string, kind: 'api_key' | 'oauth' = 'api_key') {
+		return catalog.models(providerId, kind);
 	}
 	function routeModel(providerId: string, model: string) {
 		return model.startsWith(`${providerId}/`) ? model : `${providerId}/${model}`;
 	}
-	function defaultModel(providerId: string) {
-		const models = modelChoices(providerId);
+	function validModel(providerId: string, model: string) {
+		return (
+			model.startsWith(`${providerId}/`) &&
+			model.length > providerId.length + 1 &&
+			model.length <= 200 &&
+			!/\s/.test(model)
+		);
+	}
+	function defaultModel(providerId: string, kind: 'api_key' | 'oauth' = 'api_key') {
+		const models = modelChoices(providerId, kind);
 		const model = models.find((item) => 'default' in item && item.default)?.id ?? models[0]?.id;
 		return model ? routeModel(providerId, model) : '';
 	}
 	function toggleManage(item: AccountConnection) {
 		managingId = managingId === item.id ? '' : item.id;
 		selectedCompany = '';
-		selectedModel = defaultModel(item.provider);
+		selectedModel = defaultModel(item.provider, item.kind);
+		selectedCustomModel = false;
+		modelTouched = false;
+		selectedMakeDefault = false;
 		replaceRequired = false;
 	}
+	$effect(() => {
+		if (!managingId || !selectedCompany || modelTouched) return;
+		const item = connections.find((row) => row.id === managingId);
+		if (item) selectedModel = defaultModel(item.provider, item.kind);
+	});
 	async function grant(item: AccountConnection, companyId: string, replace = false) {
-		if (busyCompany) return;
+		if (busyCompany || !validModel(item.provider, selectedModel)) return;
 		busyCompany = true;
 		error = '';
 		try {
@@ -175,7 +379,7 @@
 				);
 				const state = await stateResponse.json();
 				if (!stateResponse.ok)
-					throw new Error(state.message ?? 'Could not load this project’s connection settings.');
+					throw new Error(state.message ?? 'Could not load this company’s connection settings.');
 				revision = state.revision;
 				companyRevisions = { ...companyRevisions, [companyId]: revision };
 			}
@@ -185,8 +389,8 @@
 					method: 'POST',
 					headers: { 'content-type': 'application/json' },
 					body: JSON.stringify({
-						model: selectedModel || defaultModel(item.provider),
-						make_default: false,
+						model: selectedModel,
+						make_default: selectedMakeDefault,
 						revision,
 						...(replace ? { replace_existing: true } : {})
 					})
@@ -202,19 +406,20 @@
 				selectedCompany = companyId;
 				return;
 			}
-			if (!response.ok) throw new Error(body.message ?? 'Could not grant this project access.');
+			if (!response.ok) throw new Error(body.message ?? 'Could not grant this company access.');
 			companyRevisions = { ...companyRevisions, [companyId]: body.provider?.revision ?? revision };
 			await refresh();
+			announceIntelligenceChange(companyId);
 			selectedCompany = '';
 			replaceRequired = false;
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Could not grant this project access.';
+			error = failureSentence(cause, 'Could not grant this company access.');
 		} finally {
 			busyCompany = false;
 		}
 	}
 	async function revoke(item: AccountConnection, company: CompanyUse) {
-		if (busyCompany || company.in_use) return;
+		if (busyCompany) return;
 		busyCompany = true;
 		error = '';
 		try {
@@ -226,7 +431,7 @@
 				);
 				const state = await stateResponse.json();
 				if (!stateResponse.ok)
-					throw new Error(state.message ?? 'Could not load this project’s connection settings.');
+					throw new Error(state.message ?? 'Could not load this company’s connection settings.');
 				revision = state.revision;
 			}
 			const response = await fetch(
@@ -238,11 +443,13 @@
 				}
 			);
 			const body = await response.json();
-			if (!response.ok) throw new Error(body.message ?? 'Could not remove this project’s access.');
+			if (!response.ok) throw new Error(body.message ?? 'Could not remove this company’s access.');
 			companyRevisions = { ...companyRevisions, [company.id]: body.provider?.revision ?? revision };
+			confirmRevocation = '';
 			await refresh();
+			announceIntelligenceChange(company.id);
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Could not remove this project’s access.';
+			error = failureSentence(cause, 'Could not remove this company’s access.');
 		} finally {
 			busyCompany = false;
 		}
@@ -250,16 +457,21 @@
 
 	onMount(() => {
 		void refresh();
+		const stopWatching = watchIntelligenceChanges(() => void refresh(), true);
 		void getCompanies()
 			.then((rows) => {
 				companies = rows.filter((company) => company.lifecycle_status === 'active');
 				void refreshNativeSignIns(companies);
 			})
 			.catch(() => {
-				companyError = 'Projects could not be loaded. Reload to manage access.';
+				companyError = 'Companies could not be loaded. Reload to manage access.';
 				nativeError = 'Company sign-ins could not be loaded.';
 				nativeLoading = false;
 			});
+		return () => {
+			if (statusRefreshTimer) clearTimeout(statusRefreshTimer);
+			stopWatching();
+		};
 	});
 </script>
 
@@ -267,54 +479,115 @@
 <main class="account-connections">
 	<header class="page-head">
 		<div class="page-intro">
-			<h1
-				title="Save API keys or register an existing host-broker sign-in. Grant each active project access here, and choose its model."
-			>
-				Connections
-			</h1>
+			<h1 title="Connect an account once, then grant individual companies access.">Connections</h1>
 		</div>
-		<button class="btn primary" onclick={() => (addOpen = !addOpen)}
-			>{addOpen ? 'Close' : 'Add connection'}</button
-		>
+		<!-- The empty state carries the one first action; the header takes over
+		     once there is a list to add to. -->
+		{#if accountScope === 'account'}{#if addOpen || connections.length}<button
+					class="btn primary"
+					onclick={() => (addOpen = !addOpen)}>{addOpen ? 'Close' : 'Add connection'}</button
+				>{/if}{:else if connections.length}<a class="btn primary" href={manageUrl}>Open account ↗</a
+			>{/if}
 	</header>
-	<section class="native-section" aria-label="Native sign-ins by company">
-		<div class="section-head">
-			<h2>Company sign-ins</h2>
-			<button class="text-button" disabled={nativeLoading} onclick={() => void refreshNativeSignIns(companies)}
-				>Refresh status</button
-			>
-		</div>
-		<p>Codex and Claude sign-ins belong to the company shown here. They cannot yet be granted to another company.</p>
-		{#if nativeError}<p class="native-error" role="alert">{nativeError}</p>{/if}
-		{#if nativeLoading}<p role="status">Checking company sign-ins…</p>
-		{:else if nativeSignIns.length}
-			<div class="native-list">
-				{#each nativeSignIns as signIn (`${signIn.companyId}:${signIn.harness}`)}
-					<div class="native-row">
-						<strong>{signIn.harness === 'codex' ? 'ChatGPT / Codex' : 'Claude Code'}</strong>
-						<span>{signIn.companyName}</span>
-						<span class="native-status" class:connected={signIn.state === 'connected'}>{nativeStatus(signIn.state)}</span>
-						<a href={`/${encodeURIComponent(signIn.companyId)}/company/provider`}>Manage in company ↗</a>
-					</div>
-				{/each}
+	{#if accountScope === 'account'}<section
+			class="native-section"
+			aria-label="Account Codex sign-in"
+		>
+			<div class="section-head">
+				<h2>ChatGPT / Codex</h2>
+				<button
+					class="btn"
+					disabled={!!oauthJob || codexChecking}
+					onclick={() => void startSignIn('codex')}
+					>{oauthJob && oauthProvider === 'codex'
+						? 'Signing in…'
+						: codexSaved
+							? 'Reconnect Codex'
+							: 'Connect Codex'}</button
+				>
 			</div>
-		{:else}<p>No company OAuth sign-ins are configured.</p>{/if}
-	</section>
+			<p>
+				{codexConnected
+					? 'Connected to this account. Grant company access below, or reconnect the same account if its sign-in stops working.'
+					: codexChecking
+						? 'Checking this sign-in after a company settings change…'
+						: codexSaved
+							? 'The saved Codex sign-in is unavailable. Reconnect the same account to restore company access.'
+							: 'Sign in once, then choose which companies can use it.'}
+			</p>
+			{#if oauthProvider === 'codex'}
+				{#if oauthUrl}<p>
+						<a href={oauthUrl} target="_blank" rel="noreferrer">Open Codex sign-in ↗</a
+						>{#if oauthCode}
+							· Enter code <strong>{oauthCode}</strong>{/if}
+					</p>{/if}
+				{#if oauthMessage}<p role="status">{oauthMessage}</p>{:else if oauthState === 'connected'}<p
+						role="status"
+					>
+						Codex connected. Choose company access below.
+					</p>{/if}
+			{/if}
+		</section>
+		<section class="native-section" aria-label="Account Claude sign-in">
+			<div class="section-head">
+				<h2>Claude</h2>
+				<button
+					class="btn"
+					disabled={!!oauthJob || claudeChecking}
+					onclick={() => void startSignIn('claude')}
+					>{oauthJob && oauthProvider === 'claude'
+						? 'Signing in…'
+						: claudeSaved
+							? 'Reconnect Claude'
+							: 'Connect Claude'}</button
+				>
+			</div>
+			<p>
+				{claudeConnected
+					? 'Connected to this account. Grant Claude Agent access below, or reconnect the same account if its sign-in stops working.'
+					: claudeChecking
+						? 'Checking this sign-in after a company settings change…'
+						: claudeSaved
+							? 'The saved Claude sign-in is unavailable. Reconnect the same account to restore company access.'
+							: 'Sign in once, then choose which companies can use it.'}
+			</p>
+			{#if oauthProvider === 'claude'}
+				{#if oauthUrl}<p>
+						<a href={oauthUrl} target="_blank" rel="noreferrer">Open Claude sign-in ↗</a>
+					</p>
+					{#if oauthState === 'waiting'}<label class="callback-label"
+							>If your browser cannot reach the callback on this computer, copy its final localhost
+							URL and paste it here.<input
+								type="url"
+								bind:value={oauthCallback}
+								placeholder="http://localhost:54545/callback?code=…"
+								autocomplete="off"
+							/></label
+						><button
+							class="btn primary small"
+							disabled={!oauthCallback.trim() || callbackBusy}
+							onclick={() => void completeClaudeSignIn()}
+							>{callbackBusy ? 'Finishing…' : 'Finish sign-in'}</button
+						>{/if}
+				{/if}
+				{#if oauthMessage}<p role="status">
+						{oauthMessage}
+					</p>{:else if oauthState === 'completing'}<p role="status">
+						Finishing Claude sign-in…
+					</p>{:else if oauthState === 'connected'}<p role="status">
+						Claude connected. Choose company access below.
+					</p>{/if}
+			{/if}
+		</section>{/if}
 	{#if error}<div class="error" role="alert">
 			{error}<button class="btn small" onclick={() => void refresh()}>Try again</button>
 		</div>{/if}
-	{#if addOpen}
+	{#if addOpen && accountScope === 'account'}
 		<form class="add-form" onsubmit={create}>
 			<h2>New provider connection</h2>
-			<p>Register an API key or a provider sign-in already available in the host broker.</p>
+			<p>Save an API key at account level, then grant individual companies access.</p>
 			<div class="form-grid">
 				<label
-					>Connection type<select bind:value={kind}
-						><option value="api_key">API key</option><option value="oauth"
-							>Existing host broker sign-in</option
-						></select
-					></label
-				><label
 					>Provider<select bind:value={provider}
 						>{#each providerOptions as [id, name]}<option value={id}>{name}</option>{/each}</select
 					></label
@@ -323,24 +596,20 @@
 						bind:value={label}
 						required
 						maxlength="80"
-						placeholder={kind === 'oauth' ? 'e.g. OpenAI host sign-in' : 'e.g. Anthropic team key'}
+						placeholder="e.g. Anthropic team key"
 					/></label
-				>{#if kind === 'api_key'}<label class="full"
-						>API key<input
-							bind:value={secret}
-							type="password"
-							required
-							autocomplete="new-password"
-							placeholder="Paste API key"
-						/></label
-					>{:else}<p class="fine-print full">
-						This only registers a provider sign-in that already exists in the host broker. It does
-						not start a new sign-in. Native Codex and Claude CLI sign-ins remain project-local.
-					</p>{/if}
+				><label class="full"
+					>API key<input
+						bind:value={secret}
+						type="password"
+						required
+						autocomplete="new-password"
+						placeholder="Paste API key"
+					/></label
+				>
 			</div>
 			<div class="actions">
-				<button class="btn primary" disabled={busy}
-					>{busy ? 'Saving…' : kind === 'oauth' ? 'Add broker connection' : 'Save API key'}</button
+				<button class="btn primary" disabled={busy}>{busy ? 'Saving…' : 'Save API key'}</button
 				><button
 					class="btn"
 					type="button"
@@ -353,7 +622,7 @@
 			</div>
 		</form>
 	{/if}
-	{#if loading}<p class="loading" role="status">Loading connections…</p>
+	{#if loading}<Skeleton label="Loading connections" variant="list" count={2} />
 	{:else if connections.length}
 		<section class="connection-list" aria-label="Account connections">
 			{#each connections as item (item.id)}
@@ -362,6 +631,9 @@
 						<div>
 							<h2>{item.label}</h2>
 							<span>{providerName(item.provider)}</span>
+							{#if item.account_identity}<small class="account-identity"
+									>{item.account_identity}</small
+								>{/if}
 						</div>
 						<span class="status" class:connected={item.status === 'present'}
 							>{statusText(item)}</span
@@ -374,17 +646,19 @@
 										href={`/${encodeURIComponent(company.id)}/company/provider`}
 										>{company.name}<span aria-hidden="true">↗</span></a
 									>{/each}
-							</div>{:else}<span class="unused">No project access yet</span>{/if}
+							</div>{:else}<span class="unused">No company access yet</span>{/if}
 					</div>
 					<div class="connection-controls">
 						<span class="connection-kind"
-							>{item.kind === 'oauth' ? 'Host broker sign-in' : 'API key'}</span
-						><button class="text-button" onclick={() => toggleManage(item)}
-							>{managingId === item.id ? 'Close access' : 'Manage project access'}</button
-						>
+							>{item.kind === 'oauth' ? 'Account sign-in' : 'API key'}</span
+						>{#if accountScope === 'account'}<button
+								class="text-button"
+								onclick={() => toggleManage(item)}
+								>{managingId === item.id ? 'Close access' : 'Manage company access'}</button
+							>{/if}
 					</div>
 					{#if managingId === item.id}
-						<div class="access-manager" aria-label={`Project access for ${item.label}`}>
+						<div class="access-manager" aria-label={`Company access for ${item.label}`}>
 							{#if companyError}<span class="replace-warning" role="alert">{companyError}</span
 								>{/if}
 							{#each companies as company (company.id)}
@@ -393,31 +667,66 @@
 									<strong>{company.name}</strong>
 									{#if granted}<span class="access-state"
 											>Available{granted.in_use ? ' · in use' : ''}</span
-										><button
-											class="text-button danger"
-											disabled={busyCompany || granted.in_use}
-											title={granted.in_use
-												? 'Choose another model for this provider before removing access.'
-												: 'Remove this project’s access'}
-											onclick={() => void revoke(item, granted)}>Remove access</button
-										>
+										>{#if granted.in_use && confirmRevocation === `${item.id}:${company.id}`}
+											<span class="replace-warning" role="alert"
+												>AI work using this connection will stop until another is selected.</span
+											>
+											<button
+												class="text-button danger"
+												disabled={busyCompany}
+												onclick={() => void revoke(item, granted)}>Remove access now</button
+											>
+											<button
+												class="text-button"
+												disabled={busyCompany}
+												onclick={() => (confirmRevocation = '')}>Keep access</button
+											>
+										{:else}<button
+												class="text-button danger"
+												disabled={busyCompany}
+												onclick={() => {
+													if (granted.in_use) confirmRevocation = `${item.id}:${company.id}`;
+													else void revoke(item, granted);
+												}}>Remove access</button
+											>{/if}
 									{:else if selectedCompany === company.id}
 										<label class="model-picker"
 											><span>Model</span><select
-												bind:value={selectedModel}
+												value={selectedCustomModel ? '__custom' : selectedModel}
+												onchange={(event) => {
+													modelTouched = true;
+													selectedCustomModel = event.currentTarget.value === '__custom';
+													selectedModel = selectedCustomModel ? '' : event.currentTarget.value;
+												}}
 												aria-label={`Model for ${item.label} in ${company.name}`}
 												><option value="">Choose a model…</option
-												>{#each modelChoices(item.provider) as model}<option
+												>{#each modelChoices(item.provider, item.kind) as model}<option
 														value={routeModel(item.provider, model.id)}
 														>{model.name ?? model.id}</option
-													>{/each}</select
+													>{/each}<option value="__custom">Custom model ID…</option></select
 											></label
+										>
+										{#if selectedCustomModel}<label class="model-picker"
+												><span>Full model ID</span><input
+													aria-label="Full model ID"
+													placeholder={`${item.provider}/model-id`}
+													bind:value={selectedModel}
+												/></label
+											>{/if}
+										<small class="model-source"
+											>{catalog.source(item.provider, item.kind) === 'connected'
+												? 'Models from this account’s connected runtime'
+												: 'Model suggestions; availability depends on this connection'}</small
+										>
+										<label class="model-picker"
+											><input type="checkbox" bind:checked={selectedMakeDefault} /> Use as this company’s
+											default model</label
 										>
 										{#if replaceRequired}<span class="replace-warning" role="alert"
 												>This replaces the current {providerName(item.provider)} connection for {company.name}.</span
 											><button
 												class="btn primary small"
-												disabled={busyCompany || !selectedModel}
+												disabled={busyCompany || !validModel(item.provider, selectedModel)}
 												onclick={() => void grant(item, company.id, true)}
 												>{busyCompany ? 'Replacing…' : 'Confirm replacement'}</button
 											><button
@@ -430,7 +739,9 @@
 											>
 										{:else}<button
 												class="btn primary small"
-												disabled={busyCompany || !selectedModel || item.status !== 'present'}
+												disabled={busyCompany ||
+													!validModel(item.provider, selectedModel) ||
+													item.status !== 'present'}
 												onclick={() => void grant(item, company.id)}
 												>{busyCompany ? 'Granting…' : 'Grant access'}</button
 											><button
@@ -443,26 +754,83 @@
 											disabled={busyCompany || item.status !== 'present'}
 											onclick={() => {
 												selectedCompany = company.id;
-												selectedModel = defaultModel(item.provider);
+												selectedModel = defaultModel(item.provider, item.kind);
+												selectedCustomModel = false;
+												modelTouched = false;
+												selectedMakeDefault = false;
 												replaceRequired = false;
 											}}>Choose model and grant</button
 										>{/if}
 								</div>
 							{/each}
-							{#if !companies.length}<span class="unused">No active projects available.</span>{/if}
+							{#if !companies.length}<span class="unused">No active companies available.</span>{/if}
 						</div>
 					{/if}
 				</article>
 			{/each}
 		</section>
+	{:else if accountScope === 'company'}
+		<div class="empty">
+			<h2>No account connection is granted here yet</h2>
+			<p>Open your account, then choose Account settings to connect a provider and grant access.</p>
+			<a class="btn primary" href={manageUrl}>Open account ↗</a>
+		</div>
 	{:else if !addOpen}
 		<div class="empty">
 			<h2>No reusable connections yet</h2>
-			<p>Save an API key or register a sign-in already held by the host model broker, then choose which companies can use it.</p>
+			<p>
+				Save an API key or connect Codex or Claude above, then choose which companies can use it.
+			</p>
 			<button class="btn primary" onclick={() => (addOpen = true)}>Add your first connection</button
 			>
 		</div>
 	{/if}
+	<!-- Legacy sign-ins are shown only when some exist: "None." is not news. -->
+	{#if nativeLoading || nativeError || nativeSignIns.length}<section
+		class="native-section"
+		aria-label="Native sign-ins by company"
+	>
+		<div class="section-head">
+			<h2>Older company-only sign-ins</h2>
+			<button
+				class="text-button"
+				disabled={nativeLoading}
+				onclick={() => void refreshNativeSignIns(companies)}>Refresh status</button
+			>
+		</div>
+		<p>
+			Sign-ins saved inside individual company computers. They do not affect the account connections
+			above.
+		</p>
+		{#if nativeError}<p class="native-error" role="alert">{nativeError}</p>{/if}
+		{#if nativeLoading}<p role="status">Checking company sign-ins…</p>
+		{:else if nativeSignIns.length}
+			<div class="native-list">
+				{#each nativeSignIns as signIn (`${signIn.companyId}:${signIn.harness}`)}
+					<div class="native-row">
+						<strong>{signIn.harness === 'codex' ? 'ChatGPT / Codex' : 'Claude Code'}</strong>
+						<span>{signIn.companyName}</span>
+						<span class="native-status" class:connected={signIn.state === 'connected'}
+							>{nativeStatus(signIn.state)}</span
+						>
+						<div class="native-actions">
+							{#if accountScope === 'account' && signIn.harness === 'codex' && signIn.state === 'connected' && !codexSaved}
+								<button
+									class="btn small"
+									disabled={!!importingCompany}
+									onclick={() => void importCompanyCodex(signIn.companyId)}
+									>{importingCompany === signIn.companyId ? 'Adding…' : 'Add to account'}</button
+								>
+							{/if}
+							<a href={`/${encodeURIComponent(signIn.companyId)}/company/provider`}
+								>Manage in company ↗</a
+							>
+						</div>
+					</div>
+				{/each}
+			</div>
+		{/if}
+	</section>{/if}
 </main>
 
 <style>
@@ -517,6 +885,23 @@
 	.native-section .native-error {
 		color: var(--state-danger);
 	}
+	.callback-label {
+		display: grid;
+		gap: var(--space-2);
+		max-width: 720px;
+		margin: 16px 0 12px;
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+	}
+	.callback-label input {
+		width: 100%;
+		padding: 10px 12px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-control);
+		background: var(--surface-pane);
+		color: var(--ink);
+		font: inherit;
+	}
 	.native-list {
 		margin-top: 16px;
 		border-top: 1px solid var(--border);
@@ -543,6 +928,13 @@
 	.native-status.connected {
 		color: var(--state-success);
 	}
+	.native-actions {
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: var(--space-3);
+		white-space: nowrap;
+	}
 	.native-row a {
 		justify-self: end;
 		color: var(--intent-conversation);
@@ -558,15 +950,14 @@
 	.add-form p,
 	.connection-head span,
 	.connection-detail,
-	.unused,
-	.fine-print {
+	.unused {
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 		line-height: 1.5;
 	}
 	.connection-list {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr));
+		grid-template-columns: minmax(0, 1fr);
 		gap: 14px;
 		margin-top: 30px;
 	}
@@ -591,6 +982,11 @@
 	.connection-head > div {
 		display: grid;
 		gap: 2px;
+	}
+	.account-identity {
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+		overflow-wrap: anywhere;
 	}
 	.status {
 		flex: none;
@@ -623,7 +1019,7 @@
 		padding: 5px 8px;
 		border: 1px solid var(--border);
 		border-radius: var(--radius-control);
-		color: var(--text-primary);
+		color: var(--ink);
 		text-decoration: none;
 	}
 	.company-list a:hover {
@@ -639,25 +1035,6 @@
 	.connection-kind {
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
-	}
-	.text-button {
-		padding: 4px 0;
-		border: 0;
-		color: var(--intent-conversation);
-		background: transparent;
-		font: inherit;
-		font-size: var(--t-label);
-		cursor: pointer;
-	}
-	.text-button:hover {
-		text-decoration: underline;
-	}
-	.text-button:focus-visible {
-		outline: 2px solid var(--intent-conversation);
-		outline-offset: 3px;
-	}
-	.text-button.danger {
-		color: var(--state-danger);
 	}
 	.access-manager {
 		display: grid;
@@ -688,7 +1065,8 @@
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 	}
-	.model-picker select {
+	.model-picker select,
+	.model-picker input {
 		min-height: 36px;
 		padding: 4px 8px;
 		border: 1px solid var(--control-edge);
@@ -696,6 +1074,11 @@
 		color: var(--ink);
 		background: var(--surface-pane);
 		font: inherit;
+	}
+	.model-source {
+		flex-basis: 100%;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
 	}
 	.replace-warning {
 		flex-basis: 100%;
@@ -741,9 +1124,6 @@
 		gap: var(--space-2);
 		margin-top: var(--space-4);
 	}
-	.fine-print {
-		margin: var(--space-3) 0 0 !important;
-	}
 	.error {
 		display: flex;
 		align-items: center;
@@ -755,9 +1135,7 @@
 		background: color-mix(in srgb, var(--state-danger) 7%, var(--surface-pane));
 		border-radius: var(--radius-control);
 	}
-	.loading,
 	.empty {
-		max-width: 900px;
 		margin-top: 30px;
 		color: var(--text-secondary);
 	}
@@ -766,7 +1144,7 @@
 		color: var(--text-tertiary);
 		line-height: 1.5;
 	}
-	@media (max-width: 620px) {
+	@media (max-width: 860px) {
 		.native-row {
 			grid-template-columns: 1fr auto;
 		}
@@ -778,10 +1156,14 @@
 			grid-column: 2;
 			grid-row: 1;
 		}
-		.native-row a {
-			grid-column: 2;
-			grid-row: 2;
+		.native-actions {
+			grid-column: 1 / -1;
+			grid-row: 3;
+			justify-content: flex-start;
+			flex-wrap: wrap;
 		}
+	}
+	@media (max-width: 620px) {
 		.account-connections {
 			min-height: auto;
 			padding: 26px 20px 36px;

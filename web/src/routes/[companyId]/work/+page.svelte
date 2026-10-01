@@ -1,7 +1,12 @@
 <script lang="ts">
+	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
+	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
+	import { WORK_STATUS_LABEL, runStateLabel, workStatusLabel } from '$lib/work/status';
 	import { resizePane } from '$lib/actions/resize-pane';
 	import { page } from '$app/state';
-	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
+	import { untrack } from 'svelte';
+	import { replaceState } from '$app/navigation';
+	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
 	import {
 		attentionQuery,
 		cockpitQuery,
@@ -12,6 +17,7 @@
 	import type { WorkRow } from '$lib/model/generated/orgintel';
 	import type { WorkGraphItem } from '$lib/work/layout';
 	import WorkGraph from '$lib/work/WorkGraph.svelte';
+	import WorkBoard from '$lib/ui/views/WorkBoard.svelte';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	const principalProjection = $derived(companyPrincipalQuery(companyId));
@@ -19,40 +25,109 @@
 	const attentionProjection = $derived(attentionQuery(companyId, () => ownerAccess));
 	const cockpitProjection = $derived(cockpitQuery(companyId, () => ownerAccess));
 	const collaborationProjection = $derived(
-		collaborationBootstrapQuery(companyId, () => principalProjection.view)
+		collaborationBootstrapQuery(companyId, () => (ownerAccess ? null : principalProjection.view))
 	);
 	const attention = $derived(attentionProjection.view);
 	const cockpit = $derived(cockpitProjection.view);
 	const collaboration = $derived(collaborationProjection.view);
-	const error = $derived(
-		principalProjection.failure?.message ??
+	/* The first projection that failed, and whether this page still holds data
+	 * from before the failure. FailureNotice turns that into owner copy. */
+	const failure = $derived(
+		principalProjection.failure ??
 			(ownerAccess
-				? (attentionProjection.failure?.message ?? cockpitProjection.failure?.message)
-				: collaborationProjection.failure?.message) ??
-			''
+				? (attentionProjection.failure ?? cockpitProjection.failure)
+				: collaborationProjection.failure) ??
+			null
 	);
+	const error = $derived(Boolean(failure));
+	function retryWork() {
+		void principalProjection.refresh();
+		if (ownerAccess) {
+			void attentionProjection.reload();
+			void cockpitProjection.refresh();
+		} else void collaborationProjection.refresh();
+	}
+	/* Goals come from the cockpit and the map from Attention: the page has
+	 * answered only when both have, or it says "unavailable" while loading. */
 	const loaded = $derived(
 		principalProjection.status !== 'unknown' &&
 			(ownerAccess
-				? attentionProjection.status !== 'unknown' || cockpitProjection.status !== 'unknown'
+				? attentionProjection.status !== 'unknown' && cockpitProjection.status !== 'unknown'
 				: collaborationProjection.status !== 'unknown')
 	);
 	type WorkItem = WorkRow | CollaborationWork;
-	let lens = $state<'map' | 'board'>(
-		page.url.searchParams.get('lens') === 'board' ? 'board' : 'map'
-	);
+	/* A dependency map needs width to be legible; on a phone the board, stacked
+	 * as one list, is the useful first view. An explicit lens always wins, and
+	 * only an explicit choice is written into the address, so a shared link
+	 * still opens on the right default for the other person's screen. */
+	/* The measure is the stage itself, not the window: with goals and the
+	 * Exec rail open, a laptop's stage can be as narrow as a phone. */
+	let stageWidth = $state(0);
+	const MAP_MIN_WIDTH = 600;
+	function defaultLens(): 'map' | 'board' {
+		if (stageWidth) return stageWidth < MAP_MIN_WIDTH ? 'board' : 'map';
+		return typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches
+			? 'board'
+			: 'map';
+	}
+	$effect(() => {
+		if (!stageWidth) return;
+		const narrow = stageWidth < MAP_MIN_WIDTH;
+		untrack(() => {
+			if (goalSelectionInitialized && !lensExplicit) lens = narrow ? 'board' : 'map';
+		});
+	});
+	let lens = $state<'map' | 'board'>('map');
+	let lensExplicit = $state(false);
+	function chooseLens(value: 'map' | 'board') {
+		lens = value;
+		lensExplicit = true;
+	}
 	const ALL_WORK_QUERY = 'all';
 	const UNASSIGNED_QUERY = 'unassigned';
 	let selectedGoal = $state<string>('');
 	let goalSelectionInitialized = $state(false);
 	let showHistory = $state(false);
+	/* The search string this page last wrote. Any other change to the address
+	 * (a command-menu jump, the Work tab, Back) is read as a new request. */
+	let writtenSearch = '';
 
 	$effect(() => {
-		if (!loaded || goalSelectionInitialized) return;
+		const search = page.url.search;
+		if (!loaded || (goalSelectionInitialized && search === writtenSearch)) return;
 		const requestedGoal = page.url.searchParams.get('goal');
-		selectedGoal = goals.find((goal) => goal.id === requestedGoal)?.id ?? '';
-		if (!selectedGoal && requestedGoal === UNASSIGNED_QUERY) selectedGoal = UNASSIGNED_QUERY;
-		goalSelectionInitialized = true;
+		/* A named goal can only be matched once the goals themselves arrive. */
+		const goalsLoaded = ownerAccess ? !!cockpit : !!collaboration;
+		if (
+			requestedGoal &&
+			requestedGoal !== UNASSIGNED_QUERY &&
+			requestedGoal !== ALL_WORK_QUERY &&
+			!goalsLoaded
+		)
+			return;
+		const requestedLens = page.url.searchParams.get('lens');
+		untrack(() => {
+			selectedGoal = goals.find((goal) => goal.id === requestedGoal)?.id ?? '';
+			if (!selectedGoal && requestedGoal === UNASSIGNED_QUERY) selectedGoal = UNASSIGNED_QUERY;
+			lensExplicit = requestedLens === 'board' || requestedLens === 'map';
+			lens = lensExplicit ? (requestedLens as 'map' | 'board') : defaultLens();
+			showHistory = false;
+			writtenSearch = search;
+			goalSelectionInitialized = true;
+		});
+	});
+
+	/* The view is part of the address: a filtered board can be reloaded,
+	 * shared or reached again with Back. Shallow, so nothing reloads. */
+	$effect(() => {
+		if (!goalSelectionInitialized) return;
+		const url = new URL(page.url);
+		if (selectedGoal) url.searchParams.set('goal', selectedGoal);
+		else url.searchParams.delete('goal');
+		if (lensExplicit) url.searchParams.set('lens', lens);
+		else url.searchParams.delete('lens');
+		writtenSearch = url.search;
+		if (url.search !== page.url.search) replaceState(url, page.state);
 	});
 
 	const graph = $derived(
@@ -64,6 +139,8 @@
 		ownerAccess ? (cockpit?.company.name ?? companyId) : (collaboration?.company.name ?? companyId)
 	);
 	const unassignedWork = $derived((graph?.work ?? []).filter((item) => item.goal_id === null));
+	/* No Work anywhere yet: neither lens, key nor filter has anything to say. */
+	const noWorkYet = $derived(!!graph && graph.work.length === 0 && goals.length === 0);
 	const goalWork = $derived(
 		(graph?.work ?? []).filter(
 			(item) =>
@@ -133,38 +210,62 @@
 	}
 
 	function attemptState(work: WorkGraphItem): string {
-		return attemptOf(work)?.state ?? 'Not started';
+		return attemptOf(work)?.state ?? '';
 	}
 
 	const boardColumns = $derived([
 		{
 			key: 'proposed',
-			label: 'Next',
+			label: WORK_STATUS_LABEL.proposed,
 			rows: visibleWork.filter((item) => item.status === 'proposed')
 		},
 		{
 			key: 'active',
-			label: 'In motion',
+			label: WORK_STATUS_LABEL.active,
 			rows: visibleWork.filter((item) => item.status === 'active')
 		},
 		{
 			key: 'blocked',
-			label: 'Waiting',
+			label: WORK_STATUS_LABEL.blocked,
 			rows: visibleWork.filter((item) => item.status === 'blocked')
 		},
 		{
 			key: 'completed',
-			label: 'Done',
+			label: WORK_STATUS_LABEL.completed,
 			rows: visibleWork.filter((item) => item.status === 'completed')
 		}
 	]);
 
+	const boardViewColumns = $derived(
+		boardColumns.map((column) => ({
+			key: column.key,
+			label: column.label,
+			emptyNote:
+				column.key === 'completed' && completedWork.length ? 'Nothing accepted yet.' : undefined,
+			items: column.rows.map((row) => ({
+				id: row.id,
+				title: row.title,
+				signal: boardSignal(row),
+				status: row.status,
+				ownerName: ownerName(row.owner_id),
+				revision: row.revision,
+				href: workHref(row.id)
+			}))
+		}))
+	);
+
 	function goalProgress(goalId: string): string {
 		const rows = (graph?.work ?? []).filter((item) => item.goal_id === goalId);
 		if (!rows.length) return 'No Work';
-		const landed = rows.filter((item) => item.status === 'completed').length;
-		const inMotion = rows.filter((item) => item.status === 'active').length;
-		return `${landed} landed · ${inMotion} in motion`;
+		const done = rows.filter((item) => item.status === 'completed').length;
+		return `${done}/${rows.length}`;
+	}
+
+	function goalShare(goalId: string): number {
+		const rows = (graph?.work ?? []).filter((item) => item.goal_id === goalId);
+		return rows.length
+			? rows.filter((item) => item.status === 'completed').length / rows.length
+			: 0;
 	}
 
 	function ownerName(actorId: string): string {
@@ -181,12 +282,12 @@
 
 	function toggleHistory() {
 		showHistory = !showHistory;
-		if (showHistory) lens = 'board';
+		if (showHistory) chooseLens('board');
 	}
 
 	function showMap() {
 		showHistory = false;
-		lens = 'map';
+		chooseLens('map');
 	}
 
 	function workHref(workId: string): string {
@@ -198,11 +299,15 @@
 	}
 
 	function boardSignal(work: WorkItem): string {
-		const attempt = attemptState(work).replaceAll('_', ' ');
 		const gates = gateCount(work);
-		if (gates.total) return `${attempt} · ${gates.passed}/${gates.total} gates`;
 		const outputs = artifactCount(work);
-		return outputs ? `${attempt} · ${outputs} ${outputs === 1 ? 'output' : 'outputs'}` : attempt;
+		return [
+			runStateLabel(attemptState(work)),
+			gates.total ? `${gates.passed}/${gates.total} gates` : '',
+			outputs ? `${outputs} ${outputs === 1 ? 'output' : 'outputs'}` : ''
+		]
+			.filter(Boolean)
+			.join(' · ');
 	}
 </script>
 
@@ -221,68 +326,64 @@
 		enabled: true
 	}}
 >
-	{#if error}<div class="cockpit-error">{error}</div>{/if}
+	{#if failure && graph}
+		<div class="cockpit-error">
+			<FailureNotice error={failure} subject="Work" stale onretry={retryWork} />
+		</div>
+	{/if}
 	<aside class="goal-spine cockpit-pane" aria-label="Company goals">
 		<header class="cockpit-pane-head compact">
 			<div>
 				<h2>Goals</h2>
 			</div>
-			<span class="pane-count">{goals.length}</span>
+			{#if loaded}<span class="pane-count">{goals.length}</span>{/if}
 		</header>
-		<a class="documents-entry" href={`/${encodeURIComponent(companyId)}/work/documents`}>
-			<MatrixGlyph rows={GLYPHS.rules} size={7} /> Documents
-		</a>
-		{#if completedWork.length}
-			<button type="button" aria-pressed={showHistory} onclick={toggleHistory}
-				>Completed <span>{completedWork.length}</span></button
-			>
-		{/if}
-
-		{#if loaded && graph}
-			<button
-				class:current={!selectedGoal}
-				type="button"
-				aria-pressed={!selectedGoal}
-				title="Every Work item across the company"
-				onclick={() => selectGoal('')}
-			>
-				<span class="goal-index"><em>ALL</em><b>{graph?.work.length ?? 0}</b></span>
-				<strong>All work</strong>
-			</button>
-			<button
-				class:current={selectedGoal === UNASSIGNED_QUERY}
-				type="button"
-				aria-pressed={selectedGoal === UNASSIGNED_QUERY}
-				title="Work not linked to a company goal"
-				onclick={() => selectGoal(UNASSIGNED_QUERY)}
-			>
-				<span class="goal-index"><em>—</em><b>{unassignedWork.length}</b></span>
-				<strong>Unassigned</strong>
-			</button>
-			{#each goals as goal, index (goal.id)}
+		<div class="goal-list">
+			{#if loaded && graph}
 				<button
-					class:current={selectedGoal === goal.id}
+					class:current={!selectedGoal}
 					type="button"
-					aria-pressed={selectedGoal === goal.id}
-					title={goal.body || `${goal.closed_at ? 'Closed' : 'Open'} company goal`}
-					onclick={() => selectGoal(goal.id)}
+					aria-pressed={!selectedGoal}
+					title="Every Work item across the company"
+					onclick={() => selectGoal('')}
 				>
-					<span class="goal-index">
-						<em>G–{String(index + 1).padStart(2, '0')}</em><b>{goalProgress(goal.id)}</b>
-					</span>
-					<strong>{goal.title}</strong>
+					<strong>All work</strong>
+					<b class="goal-count">{graph?.work.length ?? 0}</b>
 				</button>
+				<button
+					class:current={selectedGoal === UNASSIGNED_QUERY}
+					type="button"
+					aria-pressed={selectedGoal === UNASSIGNED_QUERY}
+					title="Work not linked to a company goal"
+					onclick={() => selectGoal(UNASSIGNED_QUERY)}
+				>
+					<strong>Unassigned</strong>
+					<b class="goal-count">{unassignedWork.length}</b>
+				</button>
+				{#each goals as goal (goal.id)}
+					<button
+						class:current={selectedGoal === goal.id}
+						type="button"
+						aria-pressed={selectedGoal === goal.id}
+						title={goal.body || `${goal.closed_at ? 'Closed' : 'Open'} company goal`}
+						onclick={() => selectGoal(goal.id)}
+					>
+						<strong>{goal.title}</strong>
+						<b class="goal-count" title="Done of total Work">{goalProgress(goal.id)}</b>
+						<i class="goal-progress" style:--goal-done={goalShare(goal.id)} aria-hidden="true"></i>
+					</button>
+				{:else}
+					<p class="empty-state">No company goals are recorded.</p>
+				{/each}
+			{:else if !loaded && !failure}
+				<Skeleton label="Loading goals" variant="list" count={4} />
 			{:else}
-				<p class="empty-state">No company goals are recorded.</p>
-			{/each}
-		{:else if !loaded}
-			<p class="empty-state">Loading goals…</p>
-		{:else}
-			<p class="empty-state">Goals are unavailable.</p>
-		{/if}
+				<p class="empty-state">Goals are unavailable.</p>
+			{/if}
+		</div>
 	</aside>
 
-	<section class="work-stage cockpit-pane">
+	<section class="work-stage cockpit-pane" bind:clientWidth={stageWidth}>
 		<header class="cockpit-pane-head work-stage-head">
 			<div class="work-heading">
 				<h1>
@@ -292,19 +393,32 @@
 				</h1>
 			</div>
 			<div class="work-utilities">
+				<a class="work-documents-link" href={`/${encodeURIComponent(companyId)}/work/documents`}>
+					<MatrixGlyph rows={GLYPHS.rules} size={7} /> Documents
+				</a>
 				<div class="lens-switch" class:board={lens === 'board'} role="group" aria-label="Work view">
 					<button type="button" aria-pressed={lens === 'map'} onclick={showMap}>Map</button>
-					<button type="button" aria-pressed={lens === 'board'} onclick={() => (lens = 'board')}
+					<button type="button" aria-pressed={lens === 'board'} onclick={() => chooseLens('board')}
 						>Board</button
 					>
 				</div>
 			</div>
 		</header>
 
-		{#if !loaded}
-			<p class="empty-state">Loading the current Work projection…</p>
+		{#if !graph && failure}
+			<FailureNotice error={failure} subject="Work" variant="page" onretry={retryWork} />
+		{:else if !loaded}
+			<Skeleton label="Loading Work" variant="cards" count={6} />
 		{:else if !graph}
-			<p class="empty-state">Work is unavailable. No empty state is being inferred.</p>
+			<p class="empty-state">Work isn’t available yet.</p>
+		{:else if noWorkYet}
+			<div class="work-empty">
+				<span class="work-empty-mark" aria-hidden="true">
+					<MatrixGlyph rows={GLYPHS.work} size={10} />
+				</span>
+				<h2>No work yet</h2>
+				<p>Work appears here as the Exec turns what you want into outcomes.</p>
+			</div>
 		{:else if lens === 'map'}
 			<div class="work-map" aria-label="Work dependency map">
 				<details class="map-legend">
@@ -336,44 +450,34 @@
 				{/if}
 			</div>
 		{:else}
-			<div class="work-board" aria-label="Work board">
-				{#each boardColumns as column (column.key)}
-					<section class="board-column">
-						<header><span>{column.label}</span><b>{column.rows.length}</b></header>
-						{#each column.rows as item (item.id)}
-							<a
-								class="board-item status-{item.status}"
-								href={workHref(item.id)}
-								aria-label={`Open Work: ${item.title}`}
-							>
-								<span><i></i>R{item.revision} · {item.status}</span>
-								<strong>{item.title}</strong>
-								<p>{boardSignal(item)}</p>
-								<footer>
-									<span>{ownerName(item.owner_id)}</span><span>{artifactCount(item)} outputs</span>
-								</footer>
-							</a>
-						{:else}
-							<p class="column-empty">
-								{column.key === 'completed' && completedWork.length
-									? 'No evidence-backed completion yet.'
-									: 'Clear'}
-							</p>
-						{/each}
-						{#if column.key === 'completed' && completedWork.length > recentlyLanded.length}
-							<button
-								class="board-history-toggle"
-								type="button"
-								onclick={() => (showHistory = !showHistory)}
-							>
-								{showHistory ? 'Show recent only' : `View all ${completedWork.length} completed`}
-							</button>
-						{/if}
-					</section>
-				{/each}
-			</div>
+			<WorkBoard columns={boardViewColumns}>
+				{#snippet footer(column)}
+					{#if column.key === 'completed' && completedWork.length > recentlyLanded.length}
+						<button
+							class="board-history-toggle"
+							type="button"
+							onclick={() => (showHistory = !showHistory)}
+						>
+							{showHistory ? 'Show recent only' : `View all ${completedWork.length} completed`}
+						</button>
+					{/if}
+				{/snippet}
+			</WorkBoard>
 		{/if}
 		<nav class="mobile-work-links" aria-label="Work resources">
+			{#if loaded && graph && !noWorkYet}
+				<!-- Phones hide the Goals list; the same filter lives here. -->
+				<select
+					class="mobile-goal"
+					aria-label="Goal"
+					value={selectedGoal}
+					onchange={(event) => selectGoal(event.currentTarget.value)}
+				>
+					<option value="">All work</option>
+					<option value={UNASSIGNED_QUERY}>Unassigned</option>
+					{#each goals as goal (goal.id)}<option value={goal.id}>{goal.title}</option>{/each}
+				</select>
+			{/if}
 			<a href={`/${encodeURIComponent(companyId)}/work/documents`}>Documents</a>
 			{#if completedWork.length}<button
 					type="button"
@@ -395,22 +499,37 @@
 		.mobile-work-links {
 			display: flex;
 			align-items: center;
-			justify-content: space-between;
-			gap: 12px;
-			padding: 10px 12px;
+			gap: 8px;
+			padding: 8px 10px;
 			border-top: 1px solid var(--border);
-			font-size: var(--t-label);
 		}
-		.mobile-work-links a {
+		.mobile-goal {
+			flex: 1;
+			min-width: 0;
+			min-height: 44px;
+			padding: 0 10px;
+			border: 1px solid var(--border-strong);
+			border-radius: var(--radius-control);
+			background: var(--surface);
 			color: var(--ink);
+			font: 500 var(--t-body) var(--font-ui);
 		}
+		.mobile-work-links a,
 		.mobile-work-links button {
-			padding: 0;
+			min-height: 44px;
+			display: inline-flex;
+			align-items: center;
+			padding: 0 10px;
+			border: 0;
+			border-radius: var(--radius-control);
 			background: none;
-			border: none;
 			color: var(--ink);
-			font: inherit;
+			font: 500 var(--t-body) var(--font-ui);
+			text-decoration: none;
 			cursor: pointer;
+		}
+		.work-utilities .lens-switch button {
+			min-height: 44px;
 		}
 		.map-legend {
 			bottom: 50px !important;
@@ -431,6 +550,12 @@
 	.map-legend summary {
 		cursor: pointer;
 	}
+	@media (pointer: coarse) {
+		/* The summary carries the 44px target; the chip itself stays compact. */
+		.map-legend {
+			padding: 0 10px;
+		}
+	}
 	.map-legend .map-key {
 		display: flex;
 		margin-top: 8px;
@@ -438,9 +563,22 @@
 	.work-map {
 		position: relative;
 	}
-	.goal-spine > .documents-entry {
-		justify-content: flex-start;
-		margin: 8px;
+	.work-documents-link {
+		display: inline-flex;
+		align-items: center;
+		gap: 7px;
+		padding: 6px 10px;
+		border-radius: var(--radius-control);
+		color: var(--text-secondary);
+		font-weight: 500;
+		text-decoration: none;
+		transition:
+			color var(--motion-state) var(--ease-standard),
+			background-color var(--motion-state) var(--ease-standard);
+	}
+	.work-documents-link:hover {
+		background: var(--accent-soft);
+		color: var(--ink);
 	}
 	.work-heading {
 		min-width: 0;
@@ -461,50 +599,6 @@
 		margin-left: auto;
 	}
 
-	.documents-entry {
-		display: inline-flex;
-		min-height: 30px;
-		align-items: center;
-		justify-content: center;
-		gap: 7px;
-		padding: 5px 10px;
-		border: 1px solid color-mix(in srgb, var(--surface-work) 32%, var(--control-edge));
-		border-radius: var(--radius-control);
-		background: color-mix(in srgb, var(--surface-work) 7%, var(--surface));
-		box-shadow: var(--bevel-subtle), var(--control-depth);
-		font: 600 var(--t-label) var(--font-sans);
-		color: var(--ink);
-		text-decoration: none;
-		white-space: nowrap;
-		transition:
-			border-color var(--motion-state) var(--ease-standard),
-			background var(--motion-state) var(--ease-standard),
-			transform var(--motion-press) var(--ease-out),
-			box-shadow var(--motion-state) var(--ease-standard);
-	}
-
-	.documents-entry :global(.matrix-glyph) {
-		color: var(--surface-work);
-	}
-
-	.documents-entry:hover {
-		border-color: color-mix(in srgb, var(--surface-work) 52%, var(--control-edge));
-		background: color-mix(in srgb, var(--surface-work) 12%, var(--surface));
-		box-shadow:
-			var(--bevel-subtle),
-			0 2px 7px color-mix(in srgb, var(--surface-work) 14%, transparent);
-	}
-
-	.documents-entry:active {
-		transform: translateY(1px);
-		box-shadow: var(--bevel-subtle), var(--control-depth-pressed);
-	}
-
-	.documents-entry:focus-visible {
-		outline: 3px solid color-mix(in srgb, var(--intent-conversation) 30%, transparent);
-		outline-offset: 2px;
-	}
-
 	@media (max-width: 760px) {
 		:global(.bridge-root) .work-stage {
 			grid-template-rows: auto minmax(0, 1fr);
@@ -521,25 +615,49 @@
 		}
 
 		.work-utilities {
-			flex: 1 1 auto;
-			flex-wrap: wrap;
+			flex: 0 0 auto;
+		}
+
+		.work-documents-link {
+			display: none;
 		}
 	}
 
 	@media (max-width: 520px) {
-		.documents-entry {
-			padding-inline: 8px;
-		}
-
 		.work-utilities :global(.lens-switch button) {
 			min-width: 52px;
 			padding-inline: 8px;
 		}
 	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.documents-entry {
-			transition: none;
-		}
+	.work-empty {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: var(--space-2);
+		padding: var(--space-6);
+		text-align: center;
+		animation: bridge-disclosure-in var(--motion-disclosure) var(--ease-out) both;
+	}
+	.work-empty-mark {
+		display: grid;
+		place-items: center;
+		width: 44px;
+		height: 44px;
+		margin-bottom: var(--space-2);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-pane);
+		background: var(--intent-feedback-soft);
+		color: var(--intent-feedback);
+	}
+	.work-empty h2 {
+		margin: 0;
+		font-size: var(--t-head);
+	}
+	.work-empty p {
+		max-width: 320px;
+		margin: 0;
+		color: var(--text-secondary);
 	}
 </style>
