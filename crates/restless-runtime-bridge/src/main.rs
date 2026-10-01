@@ -2153,7 +2153,8 @@ async fn launch_agent(
             let profile = session_root.join("omp-profile");
             std::fs::create_dir_all(&profile)?;
             let provider = model.split_once('/').map(|pair| pair.0).context("model must include provider")?;
-            let models = format!("providers:\n  {provider}:\n    baseUrl: {model_url}\n    apiKey: RESTLESS_MODEL_CAPABILITY\n    transport: pi-native\n    api: openai-responses\n");
+            // omp discovers models at `{baseUrl}/v1/models` etc.; the relay serves `/v1/*` under the model-gateway prefix.
+            let models = format!("providers:\n  {provider}:\n    baseUrl: {model_url}/v1\n    apiKey: RESTLESS_MODEL_CAPABILITY\n    transport: pi-native\n    api: openai-responses\n");
             write_private(&profile.join("models.yml"), models.as_bytes())?;
             let runtime_config = profile.join("restless-runtime.yml");
             write_private(&runtime_config, OMP_CONFIG.as_bytes())?;
