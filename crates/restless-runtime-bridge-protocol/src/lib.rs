@@ -748,7 +748,7 @@ fn validate_message(message: &Message) -> Result<(), ProtocolError> {
                 && bounded(model, 300)
                 && identifier(reasoning_effort)
                 && bounded(workdir, 1_024)
-                && bounded(prompt, MAX_TEXT_BYTES)
+                && valid_prompt(prompt)
                 && bounded(coordination_capability, 16_384)
                 && bounded(model_capability, 16_384)
                 && bounded(model_url, 2_048)
@@ -1154,6 +1154,17 @@ fn valid_mcp_environment(values: &BTreeMap<String, String>) -> bool {
         })
 }
 
+/// An agent's system prompt is multi-line Markdown. `bounded` forbids every control character, which
+/// includes the newline, so no real prompt could ever cross the bridge and every hosted agent launch
+/// failed frame validation (found live on the first hosted Exec turn). Allow line breaks and tabs only.
+fn valid_prompt(value: &str) -> bool {
+    !value.trim().is_empty()
+        && value.len() <= MAX_TEXT_BYTES
+        && !value
+            .chars()
+            .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
+}
+
 fn bounded(value: &str, max: usize) -> bool {
     !value.is_empty()
         && value.len() <= max
@@ -1210,6 +1221,40 @@ mod tests {
             repo: "game".into(),
             worktree: "work-123-r2".into(),
         }
+    }
+
+    #[test]
+    fn a_multi_line_markdown_system_prompt_can_launch_an_agent_but_control_bytes_cannot() {
+        let launch = |prompt: &str| Frame {
+            protocol_version: PROTOCOL_VERSION,
+            sequence: 1,
+            identity: identity(),
+            message: Message::LaunchAgent {
+                operation_id: Uuid::new_v4(),
+                session_id: Uuid::new_v4().to_string(),
+                actor: "exec".into(),
+                responsibility: "conversation".into(),
+                harness: "restless-managed".into(),
+                model: "litellm/gpt-5.6-terra".into(),
+                reasoning_effort: "high".into(),
+                workdir: "/company".into(),
+                prompt: prompt.into(),
+                coordination_capability: "c".repeat(40),
+                model_capability: "m".repeat(40),
+                model_url: "https://owner.example.test/internal/v1/model-gateway".into(),
+                mcp_environment: BTreeMap::new(),
+                deadline_ms: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as i64
+                    + 60_000,
+            },
+        };
+        let accepted = launch("# Operating rules\n\n- be honest\n\treport evidence\r\n");
+        assert_eq!(Frame::decode(&accepted.encode().unwrap()).unwrap(), accepted);
+        assert_eq!(launch("bell\u{7}").validate(), Err(ProtocolError::Invalid));
+        assert_eq!(launch("nul\0byte").validate(), Err(ProtocolError::Invalid));
+        assert_eq!(launch("  \n ").validate(), Err(ProtocolError::Invalid));
     }
 
     #[test]
