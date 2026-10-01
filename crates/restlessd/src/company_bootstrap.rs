@@ -489,7 +489,27 @@ impl CompanyBootstrapService {
             None
         };
 
-        ensure_company_config(&self.root, &desired_config, &rendered_config).await?;
+        // Only a prior durable ready handoff makes the saved configuration
+        // owner state. This attempt's provisioning reservation cannot adopt an
+        // unrelated or partially written file as the company's configuration.
+        let already_admitted: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM restless_authority.company_bootstrap_operations \
+             WHERE company_id=$1 AND cell_id=$2 AND company_handle=$3 \
+               AND status='ready' AND receipt_bytes IS NOT NULL)",
+        )
+        .bind(request.company_id)
+        .bind(request.cell_id)
+        .bind(&company_handle)
+        .fetch_one(&mut *completion)
+        .await
+        .map_err(unavailable)?;
+        ensure_company_config(
+            &self.root,
+            &desired_config,
+            &rendered_config,
+            already_admitted,
+        )
+        .await?;
         AuthorityStore::initialise_company_in_transaction(&mut completion, &company_handle, &[])
             .await
             .map_err(unavailable)?;
@@ -506,17 +526,24 @@ impl CompanyBootstrapService {
         };
         match org.company_access_identity().await.map_err(unavailable)? {
             Some(bound) if bound != expected_access => return Err(BootstrapFailure::Conflict),
-            _ => org
+            Some(_) => {}
+            None if already_admitted => return Err(BootstrapFailure::Conflict),
+            None => org
                 .ensure_company_access_identity(expected_access)
                 .await
                 .map_err(company_substrate_error)?,
         }
-        org.ensure_actor("owner", "owner", "owner", "The Owner")
-            .await
-            .map_err(company_substrate_error)?;
-        org.ensure_actor_with_model("exec", "exec", "exec", "The Exec", Some(&request.model))
-            .await
-            .map_err(company_substrate_error)?;
+        if !already_admitted {
+            org.ensure_actor("owner", "owner", "owner", "The Owner")
+                .await
+                .map_err(company_substrate_error)?;
+            org.ensure_actor_with_model("exec", "exec", "exec", "The Exec", Some(&request.model))
+                .await
+                .map_err(company_substrate_error)?;
+        }
+        // Existing actors' model preferences belong to their owner. Check
+        // identity/roles without seeding or rewriting even an empty preference.
+        verify_company_substrate(&org, &request, already_admitted).await?;
         let native_documents_credential =
             cell::ensure_native_documents_store(&self.root, &self.database_url, &company_handle)
                 .await
@@ -529,7 +556,6 @@ impl CompanyBootstrapService {
             )
             .await
             .map_err(unavailable)?;
-        verify_company_substrate(&org, &request).await?;
         drop(org);
 
         // A durable ready receipt proves a past handoff, not present
@@ -882,6 +908,7 @@ async fn ensure_company_config(
     root: &Path,
     desired: &runtime::CompanyConfig,
     rendered: &str,
+    already_admitted: bool,
 ) -> BootstrapResult<()> {
     let root = root.to_path_buf();
     let desired = desired.clone();
@@ -902,14 +929,20 @@ async fn ensure_company_config(
         if path.exists() {
             let existing =
                 runtime::CompanyConfig::load(&root, &desired.name).map_err(unavailable)?;
-            if canonical_company_config(&existing)? != rendered {
+            // Loading validates the same durable handle and current schema,
+            // model/harness choices, reasoning and resource policies. A ready
+            // company's current settings may differ from its bootstrap baseline.
+            if !already_admitted && canonical_company_config(&existing)? != rendered {
                 return Err(BootstrapFailure::Conflict);
             }
+        } else if already_admitted {
+            // Restoring signup defaults would silently discard owned settings.
+            return Err(BootstrapFailure::Conflict);
         } else {
             runtime::CompanyConfig::save(&root, &desired).map_err(unavailable)?;
         }
         let persisted = runtime::CompanyConfig::load(&root, &desired.name).map_err(unavailable)?;
-        if canonical_company_config(&persisted)? != rendered {
+        if !already_admitted && canonical_company_config(&persisted)? != rendered {
             return Err(BootstrapFailure::Conflict);
         }
         Ok(())
@@ -921,6 +954,7 @@ async fn ensure_company_config(
 async fn verify_company_substrate(
     org: &restless_orgintel::OrgIntel,
     request: &CompanyBootstrapRequest,
+    already_admitted: bool,
 ) -> BootstrapResult<()> {
     if !org.is_live().await.map_err(unavailable)?
         || !org
@@ -945,7 +979,7 @@ async fn verify_company_substrate(
         actor.kind != "exec"
             || actor.actor_class != "agent"
             || actor.role != "exec"
-            || actor.model.as_deref() != Some(request.model.as_str())
+            || (!already_admitted && actor.model.as_deref() != Some(request.model.as_str()))
     }) {
         return Err(BootstrapFailure::Conflict);
     }
@@ -1374,7 +1408,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn readmission_preserves_company_and_receipts_and_fences_old_deployments() {
+    async fn readmission_preserves_owner_edits_and_receipts_and_fences_old_deployments() {
         let Ok(database_url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
             eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping company-bootstrap re-admission");
             return;
@@ -1427,9 +1461,80 @@ mod tests {
             )
         };
         let original_service = service_for(&original);
-        let original_receipt = original_service.execute(original.clone()).await.unwrap();
         let config_path = root.join("companies").join(format!("{handle}.toml"));
-        let original_config = fs::read(&config_path).unwrap();
+        let mut unbound_config = desired_company_config(&original, &handle);
+        unbound_config.mission = "Unbound file must not be adopted".into();
+        fs::create_dir_all(root.join("companies")).unwrap();
+        runtime::CompanyConfig::save(&root, &unbound_config).unwrap();
+        let unbound_bytes = fs::read(&config_path).unwrap();
+        assert!(matches!(
+            original_service.execute(original.clone()).await,
+            Err(BootstrapFailure::Conflict)
+        ));
+        assert!(fs::read(&config_path).unwrap() == unbound_bytes);
+        assert_eq!(
+            selected(&original).await.unwrap().unwrap().status,
+            "provisioning",
+            "a reservation alone cannot turn an unbound file into owner settings"
+        );
+        assert!(published.lock().unwrap().is_empty());
+        fs::remove_file(&config_path).unwrap();
+
+        // A partial initial bootstrap cannot accept an unrelated existing Exec
+        // preference merely because its durable actor shape is otherwise valid.
+        let partial_cell_url = cell::ensure_database(&root, &database_url, &handle)
+            .await
+            .unwrap();
+        let partial_org = restless_orgintel::OrgIntel::ensure(&partial_cell_url, &handle)
+            .await
+            .unwrap();
+        partial_org
+            .ensure_company_access_identity(restless_orgintel::CompanyAccessIdentity {
+                company_id: original.company_id,
+                cell_id: original.cell_id,
+            })
+            .await
+            .unwrap();
+        partial_org
+            .ensure_actor("owner", "owner", "owner", "The Owner")
+            .await
+            .unwrap();
+        partial_org
+            .ensure_actor_with_model(
+                "exec",
+                "exec",
+                "exec",
+                "The Exec",
+                Some("anthropic/claude-sonnet-4-6"),
+            )
+            .await
+            .unwrap();
+        assert!(matches!(
+            original_service.execute(original.clone()).await,
+            Err(BootstrapFailure::Conflict)
+        ));
+        assert!(published.lock().unwrap().is_empty());
+        assert_eq!(
+            selected(&original).await.unwrap().unwrap().status,
+            "provisioning"
+        );
+        assert_eq!(
+            partial_org
+                .active_actor("exec")
+                .await
+                .unwrap()
+                .unwrap()
+                .model
+                .as_deref(),
+            Some("anthropic/claude-sonnet-4-6"),
+            "initial refusal must not rewrite the conflicting actor"
+        );
+        partial_org
+            .update_actor_model("exec", &original.model)
+            .await
+            .unwrap();
+        partial_org.close().await;
+        let original_receipt = original_service.execute(original.clone()).await.unwrap();
         let credential_path = cell::native_documents_store_credential_path(&root, &handle);
         let original_credential = fs::read(&credential_path).unwrap();
         let runtime_file = root
@@ -1470,7 +1575,104 @@ mod tests {
         let document_before =
             serde_json::to_value(org.get_document_for_actor(document, "owner").await.unwrap())
                 .unwrap();
-        let exec_before = org.active_actor("exec").await.unwrap().unwrap();
+        // These are ordinary owner changes after the original ready receipt,
+        // while Fleet still sends its immutable original signup baseline.
+        let mut owned_config = runtime::CompanyConfig::load(&root, &handle).unwrap();
+        owned_config.display_name = Some("Owner's edited company".into());
+        owned_config.mission = "Keep the owner's current mission and budget".into();
+        owned_config.model = "anthropic/claude-sonnet-4-6".into();
+        owned_config.reasoning_effort = "low".into();
+        owned_config.spend_ceiling_usd = runtime::SpendCeiling::from_micro_usd(37_250_000);
+        owned_config.monthly_runtime_cap_hours = Some(17);
+        owned_config.auto_sleep_after_minutes = Some(23);
+        owned_config.credentials.insert(
+            "resend.production".into(),
+            format!("infisical:/companies/{handle}/RESEND_API_KEY"),
+        );
+        runtime::CompanyConfig::save(&root, &owned_config).unwrap();
+        // Preserve the file itself, including owner comments, rather than
+        // re-rendering a semantically equivalent config.
+        let mut owned_config_bytes = fs::read(&config_path).unwrap();
+        owned_config_bytes.extend_from_slice(b"\n# owner-authored configuration comment\n");
+        fs::write(&config_path, &owned_config_bytes).unwrap();
+        org.change_actor_model(
+            "exec",
+            "anthropic/claude-sonnet-4-6",
+            "owner",
+            "Use the owner's chosen intelligence",
+        )
+        .await
+        .unwrap();
+        let exec_before =
+            serde_json::to_value(org.active_actor("exec").await.unwrap().unwrap()).unwrap();
+        let owner_before =
+            serde_json::to_value(org.active_actor("owner").await.unwrap().unwrap()).unwrap();
+        assert_eq!(
+            original_service.execute(original.clone()).await.unwrap(),
+            original_receipt,
+            "exact retries retain the original receipt after settings changes"
+        );
+        assert!(fs::read(&config_path).unwrap() == owned_config_bytes);
+        assert_eq!(
+            serde_json::to_value(org.active_actor("exec").await.unwrap().unwrap()).unwrap(),
+            exec_before
+        );
+
+        // A missing direct model preference is owned state too. Re-admission
+        // must not seed it from the obsolete Fleet template.
+        let actor_pool = sqlx::PgPool::connect(&cell_url).await.unwrap();
+        sqlx::query(&format!(
+            "UPDATE {handle}.actors SET model=NULL WHERE id='exec'"
+        ))
+        .execute(&actor_pool)
+        .await
+        .unwrap();
+        original_service.execute(original.clone()).await.unwrap();
+        assert!(org
+            .active_actor("exec")
+            .await
+            .unwrap()
+            .unwrap()
+            .model
+            .is_none());
+        org.update_actor_model("exec", "anthropic/claude-sonnet-4-6")
+            .await
+            .unwrap();
+
+        // Current actor custody still matters; a retired standing Exec must
+        // be refused before any external credential publication.
+        sqlx::query(&format!(
+            "UPDATE {handle}.actors SET retired_at=now() WHERE id='exec'"
+        ))
+        .execute(&actor_pool)
+        .await
+        .unwrap();
+        let publishes_before = published.lock().unwrap().len();
+        assert!(matches!(
+            original_service.execute(original.clone()).await,
+            Err(BootstrapFailure::Conflict)
+        ));
+        assert_eq!(published.lock().unwrap().len(), publishes_before);
+        sqlx::query(&format!(
+            "UPDATE {handle}.actors SET retired_at=NULL WHERE id='exec'"
+        ))
+        .execute(&actor_pool)
+        .await
+        .unwrap();
+        actor_pool.close().await;
+
+        // An admitted company with missing settings must fail without creating
+        // signup defaults or publishing a new credential.
+        let config_backup = config_path.with_extension("toml.owner-test");
+        fs::rename(&config_path, &config_backup).unwrap();
+        let publishes_before = published.lock().unwrap().len();
+        assert!(matches!(
+            original_service.execute(original.clone()).await,
+            Err(BootstrapFailure::Conflict)
+        ));
+        assert!(!config_path.exists());
+        assert_eq!(published.lock().unwrap().len(), publishes_before);
+        fs::rename(&config_backup, &config_path).unwrap();
 
         // Recreate the old Authority uniqueness constraints over a real ready
         // receipt, then run the actual startup migration without dropping data.
@@ -1734,7 +1936,10 @@ mod tests {
                 .1,
             "provisioning"
         );
-        assert_eq!(fs::read(&config_path).unwrap(), original_config);
+        assert!(
+            fs::read(&config_path).unwrap() == owned_config_bytes,
+            "owner settings bytes must survive same-deployment and release re-admission"
+        );
         assert!(
             fs::read(&credential_path).unwrap() == original_credential,
             "Documents credential must remain unchanged"
@@ -1748,8 +1953,12 @@ mod tests {
             })
         );
         assert_eq!(
-            org.active_actor("exec").await.unwrap().unwrap().created_at,
-            exec_before.created_at
+            serde_json::to_value(org.active_actor("exec").await.unwrap().unwrap()).unwrap(),
+            exec_before
+        );
+        assert_eq!(
+            serde_json::to_value(org.active_actor("owner").await.unwrap().unwrap()).unwrap(),
+            owner_before
         );
         assert_eq!(
             serde_json::to_value(org.get_document_for_actor(document, "owner").await.unwrap())
