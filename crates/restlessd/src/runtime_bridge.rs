@@ -1335,6 +1335,7 @@ struct RuntimeBridgeDeployment {
     plane_hostname: String,
     runtime_image: String,
     source_revision: String,
+    bootstrap_deployment: crate::company_bootstrap::CompanyAdmissionDeployment,
     secret: RuntimeBootstrapSecret,
 }
 
@@ -1358,6 +1359,7 @@ impl RuntimeBridgeDeployment {
             plane_hostname: plane_hostname.to_string(),
             runtime_image: required_environment(COMPANY_IMAGE_ENV)?,
             source_revision: release::SOURCE_REVISION.to_string(),
+            bootstrap_deployment: crate::company_bootstrap::CompanyAdmissionDeployment::from_environment(owner_id, plane_id, plane_hostname)?,
             secret: RuntimeBootstrapSecret::read(Path::new(&path))?,
         };
         if deployment.owner_id.is_nil()
@@ -1411,22 +1413,22 @@ impl RuntimeBridgeBootstrapService {
         request: RuntimeBridgeBootstrapRequest,
     ) -> BootstrapResult<RuntimeBridgeBootstrapResponse> {
         self.deployment.validate_request(&request)?;
-        let stored = sqlx::query_as::<_, (Uuid, Uuid, String, String)>(
-            "SELECT owner_id,plane_id,company_handle,status \
-             FROM restless_authority.company_bootstrap_operations \
-             WHERE company_id=$1 AND cell_id=$2 LIMIT 1",
-        )
-        .bind(request.company_id)
-        .bind(request.cell_id)
-        .fetch_optional(self.daemon.authority.pool())
-        .await
-        .map_err(unavailable)?
-        .ok_or(BootstrapFailure::IdentityMismatch)?;
-        let (owner_id, plane_id, company, status) = stored;
-        if owner_id != request.owner_id
-            || plane_id != request.plane_id
-            || status != "ready"
-            || company != crate::company_bootstrap::company_handle(request.company_id)
+        // Hold the same company/cell custody locks through generation
+        // reservation and capability issuance. A newer bootstrap cannot fence
+        // this deployment between its admission check and credential handoff.
+        let mut admission_fence = self.daemon.authority.pool().begin().await.map_err(unavailable)?;
+        crate::company_bootstrap::lock_company_admission(
+            &mut admission_fence, request.company_id, request.cell_id,
+        ).await.map_err(unavailable)?;
+        let company = crate::company_bootstrap::company_handle(request.company_id);
+        let admission = crate::company_bootstrap::current_company_admission(
+            &mut *admission_fence, Some(request.company_id), Some(request.cell_id), &company,
+        ).await.map_err(unavailable)?.ok_or(BootstrapFailure::IdentityMismatch)?;
+        if admission.company_id != request.company_id
+            || admission.cell_id != request.cell_id
+            || admission.company_handle != company
+            || admission.status != "ready"
+            || !admission.matches_deployment(&self.deployment.bootstrap_deployment)
         {
             return Err(BootstrapFailure::IdentityMismatch);
         }
@@ -1457,13 +1459,8 @@ impl RuntimeBridgeBootstrapService {
             source_revision: request.source_revision,
         };
         let credential =
-            reserve_runtime_generation(self.daemon.authority.pool(), &scope, request.operation_id)
+            reserve_runtime_generation(&mut admission_fence, &scope, request.operation_id)
                 .await?;
-        self.daemon.runtime_bridges.retire_if_not_authorized(
-            &protocol_identity(&scope),
-            credential.credential_id,
-            credential.credential_epoch,
-        );
         let capability = self
             .daemon
             .capabilities
@@ -1474,6 +1471,12 @@ impl RuntimeBridgeBootstrapService {
                 credential.expires_at,
             )
             .map_err(unavailable)?;
+        admission_fence.commit().await.map_err(unavailable)?;
+        self.daemon.runtime_bridges.retire_if_not_authorized(
+            &protocol_identity(&scope),
+            credential.credential_id,
+            credential.credential_epoch,
+        );
         Ok(RuntimeBridgeBootstrapResponse {
             contract_version: RUNTIME_BRIDGE_CONTRACT_VERSION,
             company_id: scope.company_id,
@@ -1495,14 +1498,13 @@ struct RuntimeBridgeCredentialLease {
 }
 
 async fn reserve_runtime_generation(
-    pool: &sqlx::PgPool,
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     scope: &HostedRuntimeBridgeScope,
     operation_id: Uuid,
 ) -> BootstrapResult<RuntimeBridgeCredentialLease> {
-    let mut transaction = pool.begin().await.map_err(unavailable)?;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))")
         .bind(format!("runtime-bridge:cell:{}", scope.cell_id))
-        .execute(&mut *transaction)
+        .execute(&mut **transaction)
         .await
         .map_err(unavailable)?;
     let current = sqlx::query_as::<
@@ -1529,7 +1531,7 @@ async fn reserve_runtime_generation(
          FROM restless_authority.runtime_bridge_generations WHERE cell_id=$1 FOR UPDATE",
     )
     .bind(scope.cell_id)
-    .fetch_optional(&mut *transaction)
+    .fetch_optional(&mut **transaction)
     .await
     .map_err(unavailable)?;
     let new_expires_at = chrono::DateTime::<chrono::Utc>::from_timestamp(
@@ -1561,7 +1563,7 @@ async fn reserve_runtime_generation(
             .bind(operation_id)
             .bind(credential_id)
             .bind(new_expires_at)
-            .execute(&mut *transaction)
+            .execute(&mut **transaction)
             .await
             .map_err(unavailable)?;
             RuntimeBridgeCredentialLease {
@@ -1645,7 +1647,7 @@ async fn reserve_runtime_generation(
             .bind(credential_id)
             .bind(credential_epoch)
             .bind(new_expires_at)
-            .execute(&mut *transaction)
+            .execute(&mut **transaction)
             .await
             .map_err(unavailable)?;
             RuntimeBridgeCredentialLease {
@@ -1656,7 +1658,6 @@ async fn reserve_runtime_generation(
         }
         _ => return Err(BootstrapFailure::IdentityMismatch),
     };
-    transaction.commit().await.map_err(unavailable)?;
     Ok(credential)
 }
 
@@ -2229,6 +2230,74 @@ fn bootstrap_error(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn admission_and_runtime_generation_share_one_bounded_pool_transaction() {
+        let Ok(database_url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping admission/generation concurrency");
+            return;
+        };
+        let authority = crate::authority::AuthorityStore::connect(&database_url).await.unwrap();
+        let company_id = Uuid::new_v4();
+        let cell_id = Uuid::new_v4();
+        let operation = Uuid::new_v4();
+        let scope = HostedRuntimeBridgeScope {
+            company: crate::company_bootstrap::company_handle(company_id),
+            owner_id: Uuid::new_v4(),
+            plane_id: Uuid::new_v4(),
+            company_id,
+            cell_id,
+            runtime_id: format!("restless-cell-{cell_id}"),
+            runtime_generation: 1,
+            runtime_image: format!("ghcr.io/blueprintlabio/restless-company-runtime@sha256:{}", "b".repeat(64)),
+            volume_name: format!("restless-cell-{cell_id}-data"),
+            source_revision: "c".repeat(40),
+        };
+        let mut tasks = Vec::new();
+        // Twice the Authority pool's capacity, all sharing one custody lock.
+        // Nested pool.begin() while holding that lock would exhaust the pool.
+        for _ in 0..8 {
+            let authority = authority.clone();
+            let scope = scope.clone();
+            tasks.push(tokio::spawn(async move {
+                let mut transaction = authority.pool().begin().await.unwrap();
+                crate::company_bootstrap::lock_company_admission(
+                    &mut transaction, scope.company_id, scope.cell_id,
+                ).await.unwrap();
+                let credential = reserve_runtime_generation(&mut transaction, &scope, operation)
+                    .await.unwrap();
+                transaction.commit().await.unwrap();
+                credential
+            }));
+        }
+        let leases = tokio::time::timeout(Duration::from_secs(10), async {
+            let mut leases = Vec::new();
+            for task in tasks { leases.push(task.await.unwrap()); }
+            leases
+        }).await.expect("bounded admission pool must make progress");
+        assert!(leases.iter().all(|lease| lease.credential_id == leases[0].credential_id
+            && lease.credential_epoch == 1));
+        let count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM restless_authority.runtime_bridge_generations WHERE cell_id=$1 AND runtime_generation=1"
+        ).bind(cell_id).fetch_one(authority.pool()).await.unwrap();
+        assert_eq!(count, 1);
+        // Generation reservation rolls back with its encompassing admission
+        // transaction, so a failed handoff does not commit half a generation.
+        let mut replacement = scope.clone();
+        replacement.runtime_generation = 2;
+        let mut transaction = authority.pool().begin().await.unwrap();
+        crate::company_bootstrap::lock_company_admission(
+            &mut transaction, company_id, cell_id,
+        ).await.unwrap();
+        reserve_runtime_generation(&mut transaction, &replacement, Uuid::new_v4()).await.unwrap();
+        transaction.rollback().await.unwrap();
+        let generation: i64 = sqlx::query_scalar(
+            "SELECT runtime_generation FROM restless_authority.runtime_bridge_generations WHERE cell_id=$1"
+        ).bind(cell_id).fetch_one(authority.pool()).await.unwrap();
+        assert_eq!(generation, 1);
+        sqlx::query("DELETE FROM restless_authority.runtime_bridge_generations WHERE cell_id=$1")
+            .bind(cell_id).execute(authority.pool()).await.unwrap();
+    }
 
     fn identity(generation: i64) -> RuntimeIdentity {
         RuntimeIdentity {

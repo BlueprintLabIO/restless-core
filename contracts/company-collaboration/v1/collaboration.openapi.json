@@ -9,7 +9,7 @@
     "/internal/v1/companies/bootstrap": {
       "post": {
         "operationId": "bootstrapCompany",
-        "description": "Provision the durable company substrate on the exact account plane. This operation never starts a Company Runtime or issues a Runtime Bridge capability.",
+        "description": "Provision or re-admit the same durable company substrate on the exact account plane. Each operation_id has an immutable request and receipt. A fresh operation may revalidate the unchanged owner/plane/company/cell/handle and configuration under an identical deployment tuple or a newer plane revision; stale or conflicting bindings are refused. Prior receipts and company data are preserved. This operation never starts a Company Runtime or issues a Runtime Bridge capability.",
         "parameters": [
           {
             "$ref": "#/components/parameters/ExactPlaneHost"

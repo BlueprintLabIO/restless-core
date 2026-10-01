@@ -582,7 +582,17 @@ The scaffold is a starting point, not a required schema.
 
 ## 6.6 Idempotent bootstrap
 
-Bootstrap uses one `operation_id`. Retrying after partial failure must not create duplicate companies, Exec actors, or runtime volumes.
+Each bootstrap admission uses one immutable `operation_id`. Retrying that operation after partial
+failure must not create duplicate companies, Exec actors, or runtime volumes, and a lost successful
+response returns the original receipt bytes.
+
+An admitted deployment may re-admit the same durable company with a fresh operation ID to restore
+external credential custody or validate an upgrade. Core retains prior operation receipts and
+preserves the owner, plane, company, cell, derived handle, configuration, actors, databases, documents,
+and Runtime storage. An identical deployment tuple or a newer plane revision may be admitted; a
+stale revision or conflicting identity/configuration/deployment is refused. A newer reservation
+fences old deployment retries before they can republish credentials. The signed company-collaboration
+contract set advertises this behavior as `company-bootstrap.readmission.v1`.
 
 Partial completion remains visible:
 

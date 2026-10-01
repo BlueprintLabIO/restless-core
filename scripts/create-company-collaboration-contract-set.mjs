@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 export const CONTRACT_SET_FORMAT = 'restless.core.contract-set.v1';
 export const CONTRACT_SET_NAME = 'company-collaboration';
 export const NATIVE_DOCUMENTS_CAPABILITY = 'native-documents-collaboration.v1';
+export const COMPANY_BOOTSTRAP_READMISSION_CAPABILITY = 'company-bootstrap.readmission.v1';
 export const NATIVE_DOCUMENTS_DESCRIPTOR_ARTIFACT =
   'restless.core.native-documents-collaboration.deployment';
 export const NATIVE_DOCUMENTS_HEALTH_ARTIFACT =
@@ -23,6 +24,7 @@ const OCI_DIGEST = /^(?:[a-z0-9.-]+(?::[0-9]+)?\/)[a-z0-9._/-]+@sha256:[0-9a-f]{
 const scriptRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 const capabilities = Object.freeze([
+  COMPANY_BOOTSTRAP_READMISSION_CAPABILITY,
   'mentions.commands.v1',
   'mentions.events.v1',
   'mentions.queries.v1',
