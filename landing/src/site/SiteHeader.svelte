@@ -30,6 +30,9 @@
 		color: #fff;
 	}
 	.brand {
+		display: inline-flex;
+		align-items: center;
+		min-height: 40px;
 		color: #fff;
 		text-decoration: none;
 	}

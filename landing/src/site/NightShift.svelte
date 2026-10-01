@@ -2,6 +2,8 @@
 	import { onMount } from 'svelte';
 	import Star from '@lucide/svelte/icons/star';
 	import ArrowDown from '@lucide/svelte/icons/arrow-down';
+	import Pause from '@lucide/svelte/icons/pause';
+	import Play from '@lucide/svelte/icons/play';
 	import HoldApprove from '$lib/ui/controls/HoldApprove.svelte';
 	import OutcomeFolio from '$lib/ui/views/OutcomeFolio.svelte';
 	import WorkBoard from '$lib/ui/views/WorkBoard.svelte';
@@ -36,11 +38,11 @@
 	let office = $state<{ setCamera: (view: View) => void; getWorld: () => World | null } | undefined>();
 	let world: World | null = null;
 	let approved = $state(false);
+	/* Ambient motion can be stopped by anyone who finds it a lot (WCAG 2.2.2); the choice is remembered. */
+	let paused = $state(false);
 	let burst = $state(0);
-	let hello = $state<{ phase: string; line: string }>({
-		phase: 'night',
-		line: 'Your company is still working.'
-	});
+	/* Empty until the visitor's clock is read, and the chip reserves its space, so nothing moves when it arrives. */
+	let hello = $state<{ phase: string; line: string }>({ phase: 'night', line: '' });
 	let hour = $state(23);
 	let raf = 0;
 
@@ -159,6 +161,20 @@
 		if ((event.target as Element).closest('a')) event.preventDefault();
 	}
 
+	/* The whole page follows, not only the canvas: the wordmark and the scroll hint stop too. */
+	$effect(() => {
+		document.documentElement.dataset.motion = paused ? 'paused' : 'full';
+	});
+
+	function toggleMotion() {
+		paused = !paused;
+		try {
+			localStorage.setItem('restless:motion', paused ? 'paused' : 'playing');
+		} catch {
+			/* ignore */
+		}
+	}
+
 	function approve() {
 		approved = true;
 		burst += 1;
@@ -172,6 +188,11 @@
 		syncMotion();
 		media.addEventListener('change', syncMotion);
 
+		try {
+			paused = localStorage.getItem('restless:motion') === 'paused';
+		} catch {
+			/* Storage can be blocked; the control still works for this visit. */
+		}
 		const now = new Date();
 		/* ?hour=23 previews another time of day, for sharing and review. */
 		const preview = new URLSearchParams(location.search).get('hour');
@@ -179,7 +200,11 @@
 		hour = now.getHours();
 		hello = greeting(now);
 
-		void import('$lib/office/OfficeCanvas.svelte').then((module) => (OfficeScene = module.default));
+		/* The hero text is already on screen; the heavy scene starts a moment after the first paint. */
+		const idle = window.setTimeout(
+			() => void import('$lib/office/OfficeCanvas.svelte').then((module) => (OfficeScene = module.default)),
+			250
+		);
 
 		update();
 		window.addEventListener('scroll', onScroll, { passive: true });
@@ -188,6 +213,7 @@
 			media.removeEventListener('change', syncMotion);
 			window.removeEventListener('scroll', onScroll);
 			window.removeEventListener('resize', onScroll);
+			window.clearTimeout(idle);
 			if (raf) cancelAnimationFrame(raf);
 		};
 	});
@@ -203,6 +229,12 @@
 	aria-label="A night on the company floor"
 >
 	<div class="stage" bind:this={stage}>
+		{#if !reduced}
+			<button class="motion" type="button" aria-pressed={paused} onclick={toggleMotion}>
+				{#if paused}<Play size={13} strokeWidth={2.4} />{:else}<Pause size={13} strokeWidth={2.4} />{/if}
+				{paused ? 'Play motion' : 'Pause motion'}
+			</button>
+		{/if}
 		<div class="floor" aria-hidden="false">
 			{#if OfficeScene && inView}
 				<OfficeScene
@@ -211,6 +243,7 @@
 					teams={OFFICE_DEMO_TEAMS}
 					preferences={OFFICE_DEMO_PREFERENCES}
 					explorable={false}
+					{paused}
 					onready={ready}
 				/>
 			{/if}
@@ -219,7 +252,7 @@
 		<div class="scrim" style:opacity={reduced ? 1 : Math.max(heroOpacity, cardOpacity * 0.7)} aria-hidden="true"></div>
 
 		<div class="hero" style:opacity={reduced ? 1 : heroOpacity} inert={!reduced && heroOpacity < 0.3}>
-			<p class="hello">{hello.line}</p>
+			<p class="hello" class:ready={hello.line !== ''}>{hello.line}</p>
 			<h1>Run your business with AI.</h1>
 			<p class="lede">
 				Spend your attention on the work that needs you. Restless is an open-source, multiplayer AI
@@ -363,6 +396,31 @@
 		display: none;
 	}
 	/* Static mode reads on the page's own light ground, not over the art. */
+	.motion {
+		position: absolute;
+		z-index: 3;
+		left: clamp(16px, 4vw, 56px);
+		bottom: 16px;
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		min-height: 36px;
+		padding: 0 12px;
+		border: 1px solid rgba(255, 255, 255, 0.4);
+		border-radius: var(--radius-control);
+		background: rgba(20, 24, 44, 0.62);
+		backdrop-filter: blur(8px);
+		color: #fff;
+		font: 500 var(--t-label) var(--font-mono);
+		cursor: pointer;
+	}
+	.motion:hover {
+		background: rgba(20, 24, 44, 0.8);
+	}
+	.motion:focus-visible {
+		outline: 2px solid #fff;
+		outline-offset: 2px;
+	}
 	.flow .hero h1,
 	.flow .lede,
 	.flow .facts,
@@ -407,6 +465,9 @@
 	}
 	.hello {
 		margin: 0 0 18px;
+		min-height: 30px;
+		opacity: 0;
+		transition: opacity 240ms var(--ease-standard);
 		width: fit-content;
 		padding: 6px 10px;
 		border: 1px solid var(--border-strong);
@@ -415,6 +476,9 @@
 		backdrop-filter: blur(8px);
 		font: 500 var(--t-label) var(--font-mono);
 		color: var(--text-secondary);
+	}
+	.hello.ready {
+		opacity: 1;
 	}
 	.hero h1 {
 		margin: 0;
@@ -494,7 +558,8 @@
 		align-items: center;
 		gap: 8px;
 		width: fit-content;
-		margin-top: 28px;
+		min-height: 44px;
+		margin-top: 12px;
 		font: 500 var(--t-label) var(--font-mono);
 		color: #fff;
 		text-decoration: none;
@@ -581,6 +646,17 @@
 		font-weight: 600;
 	}
 
+	@media (max-width: 520px) {
+		.hello {
+			min-height: 34px;
+		}
+		/* Plex Mono wraps these onto a third line once it loads; hold the room it will take. */
+		.facts {
+			min-height: 84px;
+			align-content: start;
+		}
+	}
+
 	@media (max-width: 820px) {
 		.beat {
 			grid-template-columns: 1fr;
@@ -611,6 +687,9 @@
 	@media (prefers-reduced-motion: reduce) {
 		.scroll :global(svg) {
 			animation: none;
+		}
+		.hello {
+			transition: none;
 		}
 		.shade {
 			transition: none;

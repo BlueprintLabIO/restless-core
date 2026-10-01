@@ -68,6 +68,7 @@
 	})}</script>`}
 </svelte:head>
 
+<a class="skip" href="#inside">Skip the tour</a>
 <SiteHeader />
 
 <main id="main">
@@ -169,6 +170,23 @@
 <style>
 	main {
 		display: block;
+	}
+	.skip {
+		position: fixed;
+		z-index: calc(var(--z-sticky, 40) + 1);
+		left: 16px;
+		top: 12px;
+		padding: 10px 14px;
+		transform: translateY(-200%);
+		border-radius: var(--radius-control);
+		background: #fff;
+		color: #171b2c;
+		font: 600 13px var(--font-ui);
+		text-decoration: none;
+		box-shadow: 0 8px 24px rgba(14, 18, 40, 0.35);
+	}
+	.skip:focus {
+		transform: translateY(0);
 	}
 	section:not(.story) {
 		padding: clamp(64px, 10vw, 128px) clamp(16px, 6vw, 96px);

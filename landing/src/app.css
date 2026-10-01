@@ -1,38 +1,48 @@
 /* Self-hosted type, the same faces the product uses. */
-@import '@fontsource-variable/inter/opsz.css';
-@import '@fontsource/ibm-plex-mono/latin-400.css';
-@import '@fontsource/ibm-plex-mono/latin-500.css';
-@import '@fontsource/silkscreen/latin-400.css';
+@import "@fontsource-variable/inter/opsz.css";
+@import "@fontsource/ibm-plex-mono/latin-400.css";
+@import "@fontsource/ibm-plex-mono/latin-500.css";
+@import "@fontsource/silkscreen/latin-400.css";
 
 /* The product's own tokens, type, motion and controls. */
-@import '../../web/src/lib/ui/style/base.css';
-@import '../../web/src/lib/ui/style/tokens.css';
-@import '../../web/src/lib/ui/style/motion.css';
-@import '../../web/src/lib/ui/style/type.css';
-@import '../../web/src/lib/ui/style/primitives.css';
+@import "../../web/src/lib/ui/style/base.css";
+@import "../../web/src/lib/ui/style/tokens.css";
+@import "../../web/src/lib/ui/style/motion.css";
+@import "../../web/src/lib/ui/style/type.css";
+@import "../../web/src/lib/ui/style/primitives.css";
+
+/* Paused means paused everywhere: the wordmark and the scroll hint as well as the office. */
+html[data-motion="paused"] .wm-letter,
+html[data-motion="paused"] .scroll svg {
+  animation: none !important;
+}
 
 html {
-	scroll-behavior: smooth;
-	background: var(--bg-app, #eff1f6);
+  scroll-behavior: smooth;
+  background: var(--bg-app, #eff1f6);
 }
 
 @media (prefers-reduced-motion: reduce) {
-	html {
-		scroll-behavior: auto;
-	}
+  html {
+    scroll-behavior: auto;
+  }
 }
 
 body {
-	background: var(--bg-app, #eff1f6);
-	color: var(--ink, #293244);
-	font: 400 var(--t-body, 13px) var(--font-ui);
-	-webkit-font-smoothing: antialiased;
+  background: var(--bg-app, #eff1f6);
+  color: var(--ink, #293244);
+  font: 400 var(--t-body, 13px) var(--font-ui);
+  -webkit-font-smoothing: antialiased;
 }
 
 a {
-	color: inherit;
+  color: inherit;
 }
 
 ::selection {
-	background: color-mix(in srgb, var(--intent-direction, #6a588e) 24%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--intent-direction, #6a588e) 24%,
+    transparent
+  );
 }

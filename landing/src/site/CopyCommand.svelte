@@ -53,6 +53,10 @@
 		min-width: 0;
 		overflow-x: auto;
 		white-space: nowrap;
+		display: flex;
+		align-items: center;
+		align-self: stretch;
+		min-height: 32px;
 		font: 500 var(--t-body) var(--font-mono);
 		color: var(--ink);
 		scrollbar-width: none;

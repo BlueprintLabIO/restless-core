@@ -55,6 +55,7 @@
 		onopen,
 		onpreferenceschange,
 		explorable = true,
+		paused = false,
 		onready
 	}: {
 		members: OfficeMember[];
@@ -66,6 +67,8 @@
 		/** False renders the office as a scene: no drag, wheel, keyboard, selection or editing
 		 * chrome, so a page can scroll over it and drive the camera with setCamera(). */
 		explorable?: boolean;
+		/** Freezes the scene on its current frame. Ambient motion that cannot be stopped fails WCAG 2.2.2. */
+		paused?: boolean;
 		/** Called once the assets have loaded and the floor is painted. */
 		onready?: () => void;
 	} = $props();
@@ -150,7 +153,8 @@
 	let decorating = $state(false);
 	let selectedDecoration = $state<DecorationType | 'erase'>('PLANT_2');
 	let decorationMessage = $state('');
-	let documentVisible = $state(true);
+	let tabVisible = $state(true);
+	const documentVisible = $derived(tabVisible && !paused);
 	let reducedMotion = $state(false);
 	let devicePixelRatio = 1;
 	let zoomCss = $state(2.5);
@@ -216,8 +220,8 @@
 			if (reducedMotion && office && plan) synchronizeMembers(office, members, plan);
 		};
 		const readVisibility = () => {
-			documentVisible = document.visibilityState === 'visible';
-			if (shell) shell.dataset.documentVisible = documentVisible ? 'true' : 'false';
+			tabVisible = document.visibilityState === 'visible';
+			if (shell) shell.dataset.documentVisible = tabVisible ? 'true' : 'false';
 		};
 		const wheel = (event: WheelEvent) => handleWheel(event);
 		readMotion();
