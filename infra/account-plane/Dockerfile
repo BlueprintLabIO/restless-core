@@ -13,7 +13,30 @@
 # computer with a desktop, browser and toolchain; this one runs a single
 # credential-holding service and should stay as small as its job.
 
-FROM rust:1-bookworm AS build
+FROM --platform=$BUILDPLATFORM rust:1-bookworm AS build
+# Compile on the builder CPU; only the final image executes target binaries.
+# Debian's target GNU compiler/sysroot also serves Rust dependencies that build C.
+ARG BUILDARCH
+ARG TARGETARCH
+ARG CARGO_BUILD_JOBS=2
+ENV CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS} \
+    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
+    CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc \
+    CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc \
+    CC_x86_64_unknown_linux_gnu=x86_64-linux-gnu-gcc
+RUN set -eu; \
+    case "${TARGETARCH}" in \
+        amd64) compiler=gcc-x86-64-linux-gnu; sysroot=libc6-dev-amd64-cross; target=x86_64-unknown-linux-gnu ;; \
+        arm64) compiler=gcc-aarch64-linux-gnu; sysroot=libc6-dev-arm64-cross; target=aarch64-unknown-linux-gnu ;; \
+        *) echo "unsupported Rust image architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    if [ "${BUILDARCH}" = "${TARGETARCH}" ]; then compiler=gcc; sysroot=libc6-dev; fi; \
+    apt-get update; \
+    apt-get install --yes --no-install-recommends "$compiler" "$sysroot"; \
+    rm -rf /var/lib/apt/lists/*; \
+    rustup target add "$target"; \
+    printf '%s' "$target" > /rust-target
+
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
@@ -31,14 +54,14 @@ COPY docs/COMPANY_OPERATING_RULES.md ./docs/COMPANY_OPERATING_RULES.md
 # an honest answer but not a pinnable one.
 ARG SOURCE_REVISION=""
 ENV RESTLESS_SOURCE_REVISION=${SOURCE_REVISION}
-ARG TARGETARCH
 # Keep compiled dependencies between source revisions on the workstation's
 # persistent BuildKit builder. Copy the finished binary out of the cache mount
 # so the image layer still contains the exact result of this build.
 RUN --mount=type=cache,id=restless-cargo-registry-v1,target=/usr/local/cargo/registry,sharing=locked \
-    --mount=type=cache,id=restless-cargo-target-${TARGETARCH}-v1,target=/src/target,sharing=locked \
-    cargo build --release -p restlessd \
-    && install -Dm755 /src/target/release/restlessd /out/restlessd
+    --mount=type=cache,id=restless-cargo-native-${BUILDARCH}-${TARGETARCH}-v2,target=/src/target,sharing=locked \
+    target="$(cat /rust-target)" \
+    && cargo build --release --locked --target "$target" -p restlessd \
+    && install -Dm755 /src/target/$target/release/restlessd /out/restlessd
 
 FROM node:24-bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive
