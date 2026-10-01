@@ -1033,11 +1033,14 @@ where
         mcp_contract_digest: mcp_contract_digest.clone(),
         credential_reference: None,
     };
-    persist_locator(container, &locator_path, &locator).await?;
     let tool_contract_digest = probe_coordination_contract(
         container, auth, actor, &runner_digest, model_catalog_digest,
     )
     .await?;
+    // Do not make a newly started thread resumable until every pre-prompt
+    // readiness gate has passed. A failed coordination probe otherwise leaves
+    // a locator for a thread that never received a turn and has no rollout.
+    persist_locator(container, &locator_path, &locator).await?;
     let session = CodexSession {
         stdin: Arc::clone(&stdin),
         events,
