@@ -10,6 +10,7 @@ import test from 'node:test';
 import {
   CONTRACT_SET_FORMAT,
   CONTRACT_SET_NAME,
+  COMPANY_BOOTSTRAP_READMISSION_CAPABILITY,
   NATIVE_DOCUMENTS_CAPABILITY,
   NATIVE_DOCUMENTS_DESCRIPTOR_ARTIFACT,
   NATIVE_DOCUMENTS_HEALTH_ARTIFACT,
@@ -64,6 +65,7 @@ test('the Core contract set is canonical, immutable and release-complete', async
   assert.equal(manifest.release.images.native_documents, nativeDocumentsImage);
   assert.deepEqual(manifest.capabilities, [...manifest.capabilities].sort());
   assert.ok(manifest.capabilities.includes(NATIVE_DOCUMENTS_CAPABILITY));
+  assert.ok(manifest.capabilities.includes(COMPANY_BOOTSTRAP_READMISSION_CAPABILITY));
   assert.deepEqual(
     manifest.artifacts.map((artifact) => artifact.id),
     [
@@ -345,9 +347,9 @@ test('the release workflow preserves one branch-neutral, signed digest handoff',
   assert.equal(workflow.match(/provenance: mode=max/g)?.length, 3);
   assert.equal(workflow.match(/sbom: true/g)?.length, 3);
   for (const required of [
-    'cosign sign --yes "$ACCOUNT_PLANE_IMAGE"',
-    'cosign sign --yes "$COMPANY_RUNTIME_IMAGE"',
-    'cosign sign --yes "$NATIVE_DOCUMENTS_IMAGE"',
+    'cosign sign --yes "${REGISTRY}/${NAMESPACE}/restless-account-plane@${DIGEST}"',
+    'cosign sign --yes "${REGISTRY}/${NAMESPACE}/restless-company-runtime@${DIGEST}"',
+    'cosign sign --yes "${REGISTRY}/${NAMESPACE}/restless-native-documents-collaboration@${DIGEST}"',
     'release-manifest.sigstore.json',
     'contract-set.sigstore.json',
     'core-release-bundle.sigstore.json',

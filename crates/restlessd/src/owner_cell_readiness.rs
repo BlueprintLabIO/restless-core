@@ -125,6 +125,7 @@ struct CellReadinessService {
     plane_id: Uuid,
     core_release: String,
     release_manifest_digest: String,
+    bootstrap_deployment: crate::company_bootstrap::CompanyAdmissionDeployment,
     daemon: Arc<Daemon>,
 }
 
@@ -233,6 +234,7 @@ impl CellReadinessService {
             plane_id,
             core_release: release::CORE_VERSION.to_string(),
             release_manifest_digest,
+            bootstrap_deployment: crate::company_bootstrap::CompanyAdmissionDeployment::from_environment(owner_id, plane_id, hostname)?,
             daemon: Arc::clone(daemon),
         })))
     }
@@ -454,42 +456,29 @@ async fn probe_authority_record(
     service: &CellReadinessService,
     identity: &RuntimeIdentity,
 ) -> CheckStatus {
-    let rows = match sqlx::query_as::<_, (Uuid, Uuid, Uuid, String, String, String, String)>(
-        "SELECT owner_id,plane_id,company_id,company_handle,core_release,\
-                release_manifest_digest,status \
-         FROM restless_authority.company_bootstrap_operations \
-         WHERE company_id=$1 OR cell_id=$2 OR company_handle=$3 LIMIT 2",
+    let admission = match crate::company_bootstrap::current_company_admission(
+        service.daemon.authority.pool(),
+        Some(identity.company_id),
+        Some(identity.cell_id),
+        &identity.company,
     )
-    .bind(identity.company_id)
-    .bind(identity.cell_id)
-    .bind(&identity.company)
-    .fetch_all(service.daemon.authority.pool())
     .await
     {
-        Ok(rows) => rows,
+        Ok(Some(admission)) => admission,
+        Ok(None) => return CheckStatus::Pending,
         Err(error) => {
             tracing::warn!(%error, "cell-readiness Authority probe unavailable");
             return CheckStatus::Pending;
         }
     };
-    if rows.len() != 1 {
-        return if rows.is_empty() {
-            CheckStatus::Pending
-        } else {
-            CheckStatus::Failed
-        };
-    }
-    let row = &rows[0];
-    if row.0 != identity.owner_id
-        || row.1 != identity.plane_id
-        || row.2 != identity.company_id
-        || row.3 != identity.company
-        || row.4 != service.core_release
-        || row.5 != service.release_manifest_digest
+    if admission.company_id != identity.company_id
+        || admission.cell_id != identity.cell_id
+        || admission.company_handle != identity.company
+        || !admission.matches_deployment(&service.bootstrap_deployment)
     {
         return CheckStatus::Failed;
     }
-    match row.6.as_str() {
+    match admission.status.as_str() {
         "ready" => CheckStatus::Ready,
         "provisioning" => CheckStatus::Pending,
         _ => CheckStatus::Failed,

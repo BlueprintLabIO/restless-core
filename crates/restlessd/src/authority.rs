@@ -302,9 +302,9 @@ impl AuthorityStore {
                account_plane_image TEXT NOT NULL CHECK (octet_length(account_plane_image) BETWEEN 1 AND 512), \
                core_release TEXT NOT NULL CHECK (octet_length(core_release) BETWEEN 1 AND 64), \
                release_manifest_digest TEXT NOT NULL CHECK (octet_length(release_manifest_digest)=71), \
-               company_id UUID NOT NULL UNIQUE, \
-               cell_id UUID NOT NULL UNIQUE, \
-               company_handle TEXT NOT NULL UNIQUE CHECK (octet_length(company_handle) BETWEEN 1 AND 63), \
+               company_id UUID NOT NULL, \
+               cell_id UUID NOT NULL, \
+               company_handle TEXT NOT NULL CHECK (octet_length(company_handle) BETWEEN 1 AND 63), \
                model TEXT NOT NULL CHECK (octet_length(model) BETWEEN 1 AND 160), \
                reasoning_effort TEXT NOT NULL CHECK (reasoning_effort IN ('none','low','medium','high','xhigh','max','ultra')), \
                config_fingerprint BYTEA NOT NULL CHECK (octet_length(config_fingerprint)=32), \
@@ -333,6 +333,46 @@ impl AuthorityStore {
         .execute(&mut *bootstrap)
         .await
         .context("index company-bootstrap operations")?;
+        // A later admitted deployment may repeat the same company bootstrap
+        // with a fresh Fleet operation id. Keep every original receipt; the
+        // canonical company/cell advisory locks and lineage checks retain
+        // custody, rather than a unique index preventing all re-admission.
+        sqlx::query(
+            "ALTER TABLE restless_authority.company_bootstrap_operations \
+             DROP CONSTRAINT IF EXISTS company_bootstrap_operations_company_id_key, \
+             DROP CONSTRAINT IF EXISTS company_bootstrap_operations_cell_id_key, \
+             DROP CONSTRAINT IF EXISTS company_bootstrap_operations_company_handle_key",
+        )
+        .execute(&mut *bootstrap)
+        .await
+        .context("retain company-bootstrap operation history across deployments")?;
+        sqlx::query(
+            "ALTER TABLE restless_authority.company_bootstrap_operations \
+             ADD COLUMN IF NOT EXISTS admission_order BIGINT GENERATED ALWAYS AS IDENTITY",
+        )
+        .execute(&mut *bootstrap)
+        .await
+        .context("order admitted company-bootstrap operations")?;
+        sqlx::query(
+            "CREATE UNIQUE INDEX IF NOT EXISTS company_bootstrap_admission_order \
+             ON restless_authority.company_bootstrap_operations (admission_order)",
+        )
+        .execute(&mut *bootstrap)
+        .await
+        .context("index company-bootstrap admission order")?;
+        for (name, column) in [
+            ("company_bootstrap_company", "company_id"),
+            ("company_bootstrap_cell", "cell_id"),
+            ("company_bootstrap_handle", "company_handle"),
+        ] {
+            sqlx::query(&format!(
+                "CREATE INDEX IF NOT EXISTS {name} \
+                 ON restless_authority.company_bootstrap_operations ({column})"
+            ))
+            .execute(&mut *bootstrap)
+            .await
+            .context("index company-bootstrap custody lineage")?;
+        }
         // Fleet's Runtime bootstrap advances one exact immutable generation
         // at a time. This survives Core restarts, so a stopped or compromised
         // old container cannot regain readiness by replaying a still-live

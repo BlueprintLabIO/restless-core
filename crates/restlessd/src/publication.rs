@@ -197,15 +197,21 @@ impl PublicationManager {
             bail!("candidate build source is not bound to the clean terminal Attempt observation");
         }
 
-        let bootstrap = sqlx::query_as::<_, (Uuid, Uuid, Uuid)>(
-            "SELECT owner_id,company_id,cell_id \
-             FROM restless_authority.company_bootstrap_operations \
-             WHERE company_handle=$1 AND status='ready'",
-        )
-        .bind(company)
-        .fetch_optional(self.authority.pool())
-        .await?
-        .context("company has no ready Cloud Runtime cell for candidate building")?;
+        let owner_id = std::env::var("RESTLESS_ENTRY_OWNER_ID")
+            .context("hosted candidate build requires owner identity")?.parse::<Uuid>()?;
+        let plane_id = std::env::var("RESTLESS_ENTRY_PLANE_ID")
+            .context("hosted candidate build requires plane identity")?.parse::<Uuid>()?;
+        let hostname = std::env::var("RESTLESS_ENTRY_HOST")
+            .context("hosted candidate build requires plane hostname")?.to_ascii_lowercase();
+        let deployment = crate::company_bootstrap::CompanyAdmissionDeployment::from_environment(
+            owner_id, plane_id, &hostname,
+        )?;
+        let bootstrap = crate::company_bootstrap::current_company_admission(
+            self.authority.pool(), None, None, company,
+        ).await?.context("company has no admitted Cloud Runtime cell for candidate building")?;
+        if bootstrap.status != "ready" || !bootstrap.matches_deployment(&deployment) {
+            bail!("company has no ready current-deployment Cloud Runtime cell for candidate building");
+        }
         let context_path = match context_subpath {
             Some(path) => format!("reviews/git/{source_commit}/{path}"),
             None => format!("reviews/git/{source_commit}"),
@@ -221,9 +227,9 @@ impl PublicationManager {
         let request = CandidateBuildRequest {
             contract_version: BUILD_CONTRACT_VERSION.into(),
             operation_id: format!("build-{}", &operation_digest[..24]),
-            owner_id: bootstrap.0,
-            company_id: bootstrap.1,
-            cell_id: bootstrap.2,
+            owner_id: bootstrap.owner_id,
+            company_id: bootstrap.company_id,
+            cell_id: bootstrap.cell_id,
             company_handle: company.to_string(),
             work_id,
             attempt_id,

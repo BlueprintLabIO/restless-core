@@ -177,6 +177,136 @@ impl BootstrapSecret {
     }
 }
 
+/// Non-secret deployment coordinates used by consumers of bootstrap
+/// admission. Readers never select a historic ready operation while a newer
+/// deployment is still provisioning.
+#[derive(Clone)]
+pub(crate) struct CompanyAdmissionDeployment {
+    pub owner_id: Uuid,
+    pub plane_id: Uuid,
+    pub plane_hostname: String,
+    pub plane_desired_revision: i64,
+    pub account_plane_image: String,
+    pub core_release: String,
+    pub release_manifest_digest: String,
+}
+
+impl CompanyAdmissionDeployment {
+    pub(crate) fn from_environment(owner_id: Uuid, plane_id: Uuid, hostname: &str) -> Result<Self> {
+        let identity = Self {
+            owner_id,
+            plane_id,
+            plane_hostname: hostname.to_string(),
+            plane_desired_revision: required_environment(DESIRED_REVISION_ENV)?.parse()?,
+            account_plane_image: required_environment(ACCOUNT_PLANE_IMAGE_ENV)?,
+            core_release: release::CORE_VERSION.to_string(),
+            release_manifest_digest: required_environment(RELEASE_MANIFEST_DIGEST_ENV)?,
+        };
+        if identity.plane_desired_revision < 1
+            || !valid_immutable_image(&identity.account_plane_image)
+            || !valid_sha256_digest(&identity.release_manifest_digest)
+        {
+            anyhow::bail!("company admission deployment is incomplete or mutable");
+        }
+        Ok(identity)
+    }
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub(crate) struct CurrentCompanyAdmission {
+    pub operation_id: Uuid,
+    pub owner_id: Uuid,
+    pub plane_id: Uuid,
+    pub plane_hostname: String,
+    pub plane_desired_revision: i64,
+    pub account_plane_image: String,
+    pub core_release: String,
+    pub release_manifest_digest: String,
+    pub company_id: Uuid,
+    pub cell_id: Uuid,
+    pub company_handle: String,
+    pub status: String,
+    pub custody_conflict: bool,
+}
+
+impl CurrentCompanyAdmission {
+    pub(crate) fn matches_deployment(&self, expected: &CompanyAdmissionDeployment) -> bool {
+        !self.custody_conflict
+            && !self.operation_id.is_nil()
+            && self.owner_id == expected.owner_id
+            && self.plane_id == expected.plane_id
+            && self.plane_hostname == expected.plane_hostname
+            && self.plane_desired_revision == expected.plane_desired_revision
+            && self.account_plane_image == expected.account_plane_image
+            && self.core_release == expected.core_release
+            && self.release_manifest_digest == expected.release_manifest_digest
+    }
+}
+
+/// One statement observes both newest admission and all-history custody under
+/// one PostgreSQL snapshot. Never filter status before selecting newest:
+/// provisioning is an authoritative fence, including equal-revision repairs.
+pub(crate) async fn current_company_admission<'c, E>(
+    executor: E,
+    company_id: Option<Uuid>,
+    cell_id: Option<Uuid>,
+    handle: &str,
+) -> std::result::Result<Option<CurrentCompanyAdmission>, sqlx::Error>
+where
+    E: sqlx::Executor<'c, Database = Postgres>,
+{
+    sqlx::query_as(
+        "WITH latest AS (SELECT * FROM restless_authority.company_bootstrap_operations \
+          WHERE company_id=$1 OR cell_id=$2 OR company_handle=$3 \
+          ORDER BY plane_desired_revision DESC,admission_order DESC LIMIT 1) \
+         SELECT latest.operation_id,latest.owner_id,latest.plane_id,latest.plane_hostname, \
+           latest.plane_desired_revision,latest.account_plane_image,latest.core_release, \
+           latest.release_manifest_digest,latest.company_id,latest.cell_id,latest.company_handle, \
+           latest.status, EXISTS (SELECT 1 FROM restless_authority.company_bootstrap_operations history \
+             WHERE (history.company_id=latest.company_id OR history.cell_id=latest.cell_id \
+               OR history.company_handle=latest.company_handle) AND ( \
+               history.company_id IS DISTINCT FROM latest.company_id \
+               OR history.cell_id IS DISTINCT FROM latest.cell_id \
+               OR history.company_handle IS DISTINCT FROM latest.company_handle \
+               OR history.owner_id IS DISTINCT FROM latest.owner_id \
+               OR history.plane_id IS DISTINCT FROM latest.plane_id \
+               OR history.plane_hostname IS DISTINCT FROM latest.plane_hostname \
+               OR history.config_fingerprint IS DISTINCT FROM latest.config_fingerprint \
+               OR history.model IS DISTINCT FROM latest.model \
+               OR history.reasoning_effort IS DISTINCT FROM latest.reasoning_effort \
+               OR (history.plane_desired_revision=latest.plane_desired_revision AND ( \
+                 history.account_plane_image IS DISTINCT FROM latest.account_plane_image \
+                 OR history.core_release IS DISTINCT FROM latest.core_release \
+                 OR history.release_manifest_digest IS DISTINCT FROM latest.release_manifest_digest)))) \
+           AS custody_conflict FROM latest",
+    )
+    .bind(company_id)
+    .bind(cell_id)
+    .bind(handle)
+    .fetch_optional(executor)
+    .await
+}
+
+pub(crate) async fn lock_company_admission(
+    tx: &mut Transaction<'_, Postgres>,
+    company_id: Uuid,
+    cell_id: Uuid,
+) -> std::result::Result<(), sqlx::Error> {
+    let mut keys = [
+        format!("company-bootstrap:company:{company_id}"),
+        format!("company-bootstrap:cell:{cell_id}"),
+        format!("company-bootstrap:handle:{}", company_handle(company_id)),
+    ];
+    keys.sort();
+    for key in keys {
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))")
+            .bind(key)
+            .execute(&mut **tx)
+            .await?;
+    }
+    Ok(())
+}
+
 #[derive(Clone)]
 struct BootstrapDeployment {
     owner_id: Uuid,
@@ -331,6 +461,13 @@ impl CompanyBootstrapService {
         // readiness before this attempt finishes verification.
         let mut completion = self.authority.pool().begin().await.map_err(unavailable)?;
         lock_operation(&mut completion, &request).await?;
+        validate_company_lineage(
+            &mut completion,
+            &request,
+            &company_handle,
+            &config_fingerprint,
+        )
+        .await?;
         let stored = stored_operation(&mut completion, request.operation_id)
             .await?
             .ok_or_else(|| {
@@ -599,6 +736,7 @@ async fn reserve_operation(
 ) -> BootstrapResult<Reservation> {
     let mut tx = authority.pool().begin().await.map_err(unavailable)?;
     lock_operation(&mut tx, request).await?;
+    validate_company_lineage(&mut tx, request, company_handle, config_fingerprint).await?;
     if let Some(stored) = stored_operation(&mut tx, request.operation_id).await? {
         if stored.request_fingerprint != request_fingerprint
             || stored.config_fingerprint != config_fingerprint
@@ -623,19 +761,6 @@ async fn reserve_operation(
         };
         tx.commit().await.map_err(unavailable)?;
         return Ok(reservation);
-    }
-    let conflict = sqlx::query_scalar::<_, Uuid>(
-        "SELECT operation_id FROM restless_authority.company_bootstrap_operations \
-         WHERE company_id=$1 OR cell_id=$2 OR company_handle=$3 LIMIT 1",
-    )
-    .bind(request.company_id)
-    .bind(request.cell_id)
-    .bind(company_handle)
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(unavailable)?;
-    if conflict.is_some() {
-        return Err(BootstrapFailure::Conflict);
     }
     sqlx::query(
         "INSERT INTO restless_authority.company_bootstrap_operations \
@@ -664,6 +789,49 @@ async fn reserve_operation(
     .map_err(unavailable)?;
     tx.commit().await.map_err(unavailable)?;
     Ok(Reservation::Provisioning)
+}
+
+/// Re-admission may replace a deployment or repair external custody, never
+/// replace a company's identity or configuration. Even a provisioning newer
+/// reservation fences an old daemon before it can republish credentials.
+/// Both reservation and completion call this under the canonical locks.
+async fn validate_company_lineage(
+    tx: &mut Transaction<'_, Postgres>,
+    request: &CompanyBootstrapRequest,
+    company_handle: &str,
+    config_fingerprint: &[u8],
+) -> BootstrapResult<()> {
+    let conflict: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM restless_authority.company_bootstrap_operations \
+         WHERE (company_id=$1 OR cell_id=$2 OR company_handle=$3) AND ( \
+           company_id IS DISTINCT FROM $1 OR cell_id IS DISTINCT FROM $2 \
+           OR company_handle IS DISTINCT FROM $3 OR owner_id IS DISTINCT FROM $4 \
+           OR plane_id IS DISTINCT FROM $5 OR plane_hostname IS DISTINCT FROM $6 \
+           OR config_fingerprint IS DISTINCT FROM $7 OR model IS DISTINCT FROM $8 \
+           OR reasoning_effort IS DISTINCT FROM $9 OR plane_desired_revision > $10 \
+           OR (plane_desired_revision = $10 AND (account_plane_image IS DISTINCT FROM $11 \
+             OR core_release IS DISTINCT FROM $12 OR release_manifest_digest IS DISTINCT FROM $13))))",
+    )
+    .bind(request.company_id)
+    .bind(request.cell_id)
+    .bind(company_handle)
+    .bind(request.owner_id)
+    .bind(request.plane_id)
+    .bind(&request.plane_hostname)
+    .bind(config_fingerprint)
+    .bind(&request.model)
+    .bind(&request.reasoning_effort)
+    .bind(request.plane_desired_revision)
+    .bind(&request.account_plane_image)
+    .bind(&request.core_release)
+    .bind(&request.release_manifest_digest)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(unavailable)?;
+    if conflict {
+        return Err(BootstrapFailure::Conflict);
+    }
+    Ok(())
 }
 
 async fn stored_operation(
@@ -696,19 +864,17 @@ async fn lock_operation(
     // Every path takes the same sorted lock set. The operation lock fences
     // semantic drift; company/cell locks fence two different operation ids
     // racing for one durable identity.
-    let mut keys = [
-        format!("company-bootstrap:operation:{}", request.operation_id),
-        format!("company-bootstrap:company:{}", request.company_id),
-        format!("company-bootstrap:cell:{}", request.cell_id),
-    ];
-    keys.sort();
-    for key in keys {
-        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))")
-            .bind(key)
-            .execute(&mut **tx)
-            .await
-            .map_err(unavailable)?;
-    }
+    lock_company_admission(tx, request.company_id, request.cell_id)
+        .await
+        .map_err(unavailable)?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))")
+        .bind(format!(
+            "company-bootstrap:operation:{}",
+            request.operation_id
+        ))
+        .execute(&mut **tx)
+        .await
+        .map_err(unavailable)?;
     Ok(())
 }
 
@@ -1205,6 +1371,414 @@ mod tests {
                 Err(BootstrapFailure::Invalid)
             ));
         }
+    }
+
+    #[tokio::test]
+    async fn readmission_preserves_company_and_receipts_and_fences_old_deployments() {
+        let Ok(database_url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping company-bootstrap re-admission");
+            return;
+        };
+        let authority = AuthorityStore::connect(&database_url).await.unwrap();
+        let mut original = request();
+        original.operation_id = Uuid::new_v4();
+        original.company_id = Uuid::new_v4();
+        original.cell_id = Uuid::new_v4();
+        let handle = company_handle(original.company_id);
+        let root = std::env::temp_dir().join(format!(
+            "restless-company-bootstrap-readmission-{}",
+            original.operation_id
+        ));
+        let published = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let service_for = |request: &CompanyBootstrapRequest| {
+            let mut deployment = deployment();
+            deployment.owner_id = request.owner_id;
+            deployment.plane_id = request.plane_id;
+            deployment.plane_hostname = request.plane_hostname.clone();
+            deployment.plane_desired_revision = request.plane_desired_revision;
+            deployment.account_plane_image = request.account_plane_image.clone();
+            deployment.core_release = request.core_release.clone();
+            deployment.release_manifest_digest = request.release_manifest_digest.clone();
+            Arc::new(CompanyBootstrapService {
+                deployment,
+                root: root.clone(),
+                database_url: database_url.clone(),
+                authority: authority.clone(),
+                native_documents_credential_publisher: NativeDocumentsCredentialPublisher::Recorded(
+                    Arc::clone(&published),
+                ),
+            })
+        };
+        let admission_deployment = |request: &CompanyBootstrapRequest| CompanyAdmissionDeployment {
+            owner_id: request.owner_id,
+            plane_id: request.plane_id,
+            plane_hostname: request.plane_hostname.clone(),
+            plane_desired_revision: request.plane_desired_revision,
+            account_plane_image: request.account_plane_image.clone(),
+            core_release: request.core_release.clone(),
+            release_manifest_digest: request.release_manifest_digest.clone(),
+        };
+        let selected = |request: &CompanyBootstrapRequest| {
+            current_company_admission(
+                authority.pool(),
+                Some(request.company_id),
+                Some(request.cell_id),
+                &handle,
+            )
+        };
+        let original_service = service_for(&original);
+        let original_receipt = original_service.execute(original.clone()).await.unwrap();
+        let config_path = root.join("companies").join(format!("{handle}.toml"));
+        let original_config = fs::read(&config_path).unwrap();
+        let credential_path = cell::native_documents_store_credential_path(&root, &handle);
+        let original_credential = fs::read(&credential_path).unwrap();
+        let runtime_file = root
+            .join("cells")
+            .join(&handle)
+            .join("runtime-owner-work.txt");
+        fs::write(&runtime_file, b"owner work must survive").unwrap();
+        let cell_url = cell::ensure_database(&root, &database_url, &handle)
+            .await
+            .unwrap();
+        let org = restless_orgintel::OrgIntel::ensure(&cell_url, &handle)
+            .await
+            .unwrap();
+        let document_content = serde_json::json!({
+            "type": "doc",
+            "content": [{
+                "type": "paragraph",
+                "attrs": {"block_id": "preserved"},
+                "content": [{"type": "text", "text": "Owner document must survive"}],
+            }],
+        });
+        let document = org
+            .create_document(restless_orgintel::NewDocument {
+                command_id: Uuid::new_v4(),
+                title: "Owner document",
+                kind: restless_orgintel::DocumentKind::Brief,
+                visibility: restless_orgintel::DocumentVisibility::Company,
+                linked_room_id: None,
+                inherit_room_visibility: false,
+                owner_actor_id: "owner",
+                created_by_actor_id: "owner",
+                content_json: &document_content,
+                reason: "re-admission preservation test",
+            })
+            .await
+            .unwrap()
+            .document_id;
+        let document_before =
+            serde_json::to_value(org.get_document_for_actor(document, "owner").await.unwrap())
+                .unwrap();
+        let exec_before = org.active_actor("exec").await.unwrap().unwrap();
+
+        // Recreate the old Authority uniqueness constraints over a real ready
+        // receipt, then run the actual startup migration without dropping data.
+        for (name, column) in [
+            ("company_bootstrap_operations_company_id_key", "company_id"),
+            ("company_bootstrap_operations_cell_id_key", "cell_id"),
+            (
+                "company_bootstrap_operations_company_handle_key",
+                "company_handle",
+            ),
+        ] {
+            sqlx::query(&format!(
+                "ALTER TABLE restless_authority.company_bootstrap_operations \
+                 ADD CONSTRAINT {name} UNIQUE ({column})"
+            ))
+            .execute(authority.pool())
+            .await
+            .unwrap();
+        }
+        sqlx::query("ALTER TABLE restless_authority.company_bootstrap_operations DROP COLUMN admission_order")
+            .execute(authority.pool()).await.unwrap();
+        AuthorityStore::connect(&database_url).await.unwrap();
+        let current = selected(&original).await.unwrap().unwrap();
+        assert_eq!(current.operation_id, original.operation_id);
+        assert_eq!(current.status, "ready");
+        assert!(current.matches_deployment(&admission_deployment(&original)));
+
+        let mut same = original.clone();
+        same.operation_id = Uuid::new_v4();
+        let mut concurrent_same = same.clone();
+        concurrent_same.operation_id = Uuid::new_v4();
+        let rendered =
+            canonical_company_config(&desired_company_config(&original, &handle)).unwrap();
+        let config_fingerprint = digest(rendered.as_bytes());
+        reserve_operation(
+            &authority,
+            &same,
+            &handle,
+            &digest(&serde_json::to_vec(&same).unwrap()),
+            &config_fingerprint,
+        )
+        .await
+        .unwrap();
+        let current = selected(&same).await.unwrap().unwrap();
+        assert_eq!(current.operation_id, same.operation_id);
+        assert_eq!(
+            current.status, "provisioning",
+            "new repair must fence the historic ready receipt"
+        );
+        assert!(current.matches_deployment(&admission_deployment(&same)));
+        // Publication's handle-only lookup observes the same current fence.
+        assert_eq!(
+            current_company_admission(authority.pool(), None, None, &handle)
+                .await
+                .unwrap()
+                .unwrap()
+                .operation_id,
+            same.operation_id
+        );
+        let (first, second) = tokio::join!(
+            original_service.execute(same.clone()),
+            original_service.execute(concurrent_same.clone()),
+        );
+        let same_receipt = first.unwrap();
+        let concurrent_receipt = second.unwrap();
+        assert_eq!(
+            serde_json::from_slice::<CompanyBootstrapReceipt>(&same_receipt)
+                .unwrap()
+                .operation_id,
+            same.operation_id
+        );
+        assert_eq!(
+            serde_json::from_slice::<CompanyBootstrapReceipt>(&concurrent_receipt)
+                .unwrap()
+                .operation_id,
+            concurrent_same.operation_id
+        );
+        assert_eq!(
+            original_service.execute(original.clone()).await.unwrap(),
+            original_receipt
+        );
+
+        // Matching a different daemon's environment must not change custody,
+        // configuration, or the already bound deployment at the same revision.
+        let mutations: Vec<RequestMutation> = vec![
+            Box::new(|value| value.owner_id = Uuid::new_v4()),
+            Box::new(|value| value.plane_id = Uuid::new_v4()),
+            Box::new(|value| value.plane_hostname = "other.restless.test".into()),
+            Box::new(|value| value.company_id = Uuid::new_v4()),
+            Box::new(|value| value.cell_id = Uuid::new_v4()),
+            Box::new(|value| value.model = "anthropic/claude-sonnet-4-6".into()),
+            Box::new(|value| value.reasoning_effort = "low".into()),
+            Box::new(|value| {
+                value.account_plane_image = format!(
+                    "ghcr.io/blueprintlabio/restless-account-plane@sha256:{}",
+                    "e".repeat(64)
+                )
+            }),
+            Box::new(|value| value.core_release = "0.2.0".into()),
+            Box::new(|value| value.release_manifest_digest = format!("sha256:{}", "d".repeat(64))),
+            Box::new(|value| value.plane_desired_revision -= 1),
+        ];
+        for mutate in mutations {
+            let mut candidate = original.clone();
+            candidate.operation_id = Uuid::new_v4();
+            mutate(&mut candidate);
+            assert!(matches!(
+                service_for(&candidate).execute(candidate).await,
+                Err(BootstrapFailure::Conflict)
+            ));
+        }
+        let rendered =
+            canonical_company_config(&desired_company_config(&original, &handle)).unwrap();
+        let config_fingerprint = digest(rendered.as_bytes());
+        let mut wrong_handle = original.clone();
+        wrong_handle.operation_id = Uuid::new_v4();
+        assert!(matches!(
+            reserve_operation(
+                &authority,
+                &wrong_handle,
+                "different_handle_test",
+                &digest(&serde_json::to_vec(&wrong_handle).unwrap()),
+                &config_fingerprint
+            )
+            .await,
+            Err(BootstrapFailure::Conflict)
+        ));
+
+        let mut upgraded = original.clone();
+        upgraded.operation_id = Uuid::new_v4();
+        upgraded.plane_desired_revision += 1;
+        upgraded.account_plane_image = format!(
+            "ghcr.io/blueprintlabio/restless-account-plane@sha256:{}",
+            "e".repeat(64)
+        );
+        upgraded.release_manifest_digest = format!("sha256:{}", "f".repeat(64));
+        let upgraded_service = service_for(&upgraded);
+
+        // A lost final DB commit leaves a retryable reservation, never a
+        // fabricated ready receipt; existing external custody and data survive.
+        sqlx::query(&format!(
+            "CREATE FUNCTION restless_authority.readmission_fault_test() RETURNS trigger LANGUAGE plpgsql AS $$ \
+             BEGIN IF NEW.operation_id='{}'::uuid AND NEW.status='ready' THEN \
+               RAISE EXCEPTION 'injected ready commit failure'; END IF; RETURN NEW; END $$",
+            upgraded.operation_id,
+        )).execute(authority.pool()).await.unwrap();
+        sqlx::query(
+            "CREATE TRIGGER readmission_fault_test BEFORE UPDATE \
+             ON restless_authority.company_bootstrap_operations FOR EACH ROW \
+             EXECUTE FUNCTION restless_authority.readmission_fault_test()",
+        )
+        .execute(authority.pool())
+        .await
+        .unwrap();
+        assert!(matches!(
+            upgraded_service.execute(upgraded.clone()).await,
+            Err(BootstrapFailure::Unavailable(_))
+        ));
+        let failed: (String, Option<Vec<u8>>) = sqlx::query_as(
+            "SELECT status,receipt_bytes FROM restless_authority.company_bootstrap_operations WHERE operation_id=$1"
+        ).bind(upgraded.operation_id).fetch_one(authority.pool()).await.unwrap();
+        assert_eq!(failed, ("provisioning".into(), None));
+        let current = selected(&upgraded).await.unwrap().unwrap();
+        assert_eq!(current.operation_id, upgraded.operation_id);
+        assert_eq!(current.status, "provisioning");
+        assert!(current.matches_deployment(&admission_deployment(&upgraded)));
+        assert!(!current.matches_deployment(&admission_deployment(&original)));
+        let before_old_replay = published.lock().unwrap().len();
+        assert!(
+            matches!(
+                original_service.execute(original.clone()).await,
+                Err(BootstrapFailure::Conflict)
+            ),
+            "an old daemon must not replay its exact historical operation after newer reservation"
+        );
+        assert_eq!(published.lock().unwrap().len(), before_old_replay);
+
+        sqlx::query(
+            "DROP TRIGGER readmission_fault_test ON restless_authority.company_bootstrap_operations"
+        ).execute(authority.pool()).await.unwrap();
+        sqlx::query("DROP FUNCTION restless_authority.readmission_fault_test()")
+            .execute(authority.pool())
+            .await
+            .unwrap();
+        let upgraded_receipt = upgraded_service.execute(upgraded.clone()).await.unwrap();
+        let current = selected(&upgraded).await.unwrap().unwrap();
+        assert_eq!(current.operation_id, upgraded.operation_id);
+        assert_eq!(current.status, "ready");
+        assert!(current.matches_deployment(&admission_deployment(&upgraded)));
+        assert_eq!(
+            upgraded_service.execute(upgraded.clone()).await.unwrap(),
+            upgraded_receipt
+        );
+
+        // Simulate reservation/completion interleaving: a newer provisioning
+        // row must fence the old completion before any external credential handoff.
+        let mut newer = upgraded.clone();
+        newer.operation_id = Uuid::new_v4();
+        newer.plane_desired_revision += 1;
+        reserve_operation(
+            &authority,
+            &newer,
+            &handle,
+            &digest(&serde_json::to_vec(&newer).unwrap()),
+            &config_fingerprint,
+        )
+        .await
+        .unwrap();
+        let mut old_completion = authority.pool().begin().await.unwrap();
+        lock_operation(&mut old_completion, &upgraded)
+            .await
+            .unwrap();
+        assert!(matches!(
+            validate_company_lineage(&mut old_completion, &upgraded, &handle, &config_fingerprint)
+                .await,
+            Err(BootstrapFailure::Conflict)
+        ));
+        old_completion.rollback().await.unwrap();
+        let current = selected(&newer).await.unwrap().unwrap();
+        assert_eq!(current.operation_id, newer.operation_id);
+        assert_eq!(current.status, "provisioning");
+        assert!(!current.matches_deployment(&admission_deployment(&upgraded)));
+        // A corrupt historical identity cannot be hidden by a newer ready row.
+        let mut conflicting_history = authority.pool().begin().await.unwrap();
+        sqlx::query("UPDATE restless_authority.company_bootstrap_operations SET owner_id=$2 WHERE operation_id=$1")
+            .bind(original.operation_id).bind(Uuid::new_v4())
+            .execute(&mut *conflicting_history).await.unwrap();
+        let current = current_company_admission(
+            &mut *conflicting_history,
+            Some(original.company_id),
+            Some(original.cell_id),
+            &handle,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(current.custody_conflict);
+        assert!(!current.matches_deployment(&admission_deployment(&newer)));
+        conflicting_history.rollback().await.unwrap();
+
+        let history: Vec<(Uuid, String, Option<Vec<u8>>)> = sqlx::query_as(
+            "SELECT operation_id,status,receipt_bytes FROM restless_authority.company_bootstrap_operations \
+             WHERE company_id=$1 ORDER BY plane_desired_revision,created_at"
+        ).bind(original.company_id).fetch_all(authority.pool()).await.unwrap();
+        assert_eq!(history.len(), 5);
+        for (operation, expected) in [
+            (original.operation_id, original_receipt),
+            (same.operation_id, same_receipt),
+            (concurrent_same.operation_id, concurrent_receipt),
+            (upgraded.operation_id, upgraded_receipt),
+        ] {
+            let entry = history.iter().find(|entry| entry.0 == operation).unwrap();
+            assert_eq!(entry.1, "ready");
+            assert_eq!(entry.2.as_ref(), Some(&expected));
+        }
+        assert_eq!(
+            history
+                .iter()
+                .find(|entry| entry.0 == newer.operation_id)
+                .unwrap()
+                .1,
+            "provisioning"
+        );
+        assert_eq!(fs::read(&config_path).unwrap(), original_config);
+        assert!(
+            fs::read(&credential_path).unwrap() == original_credential,
+            "Documents credential must remain unchanged"
+        );
+        assert_eq!(fs::read(&runtime_file).unwrap(), b"owner work must survive");
+        assert_eq!(
+            org.company_access_identity().await.unwrap(),
+            Some(restless_orgintel::CompanyAccessIdentity {
+                company_id: original.company_id,
+                cell_id: original.cell_id
+            })
+        );
+        assert_eq!(
+            org.active_actor("exec").await.unwrap().unwrap().created_at,
+            exec_before.created_at
+        );
+        assert_eq!(
+            serde_json::to_value(org.get_document_for_actor(document, "owner").await.unwrap())
+                .unwrap(),
+            document_before
+        );
+        assert!(published
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|identity| identity == &(original.plane_id, original.cell_id)));
+
+        org.close().await;
+        cell::destroy_database(&root, &database_url, &handle)
+            .await
+            .unwrap();
+        sqlx::query(
+            "DELETE FROM restless_authority.company_bootstrap_operations WHERE company_id=$1",
+        )
+        .bind(original.company_id)
+        .execute(authority.pool())
+        .await
+        .unwrap();
+        sqlx::query("DELETE FROM restless_authority.company_migrations WHERE company=$1")
+            .bind(&handle)
+            .execute(authority.pool())
+            .await
+            .unwrap();
+        fs::remove_dir_all(&root).unwrap();
     }
 
     #[tokio::test]
