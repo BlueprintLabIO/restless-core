@@ -594,6 +594,13 @@ stale revision or conflicting identity/configuration/deployment is refused. A ne
 fences old deployment retries before they can republish credentials. The signed company-collaboration
 contract set advertises this behavior as `company-bootstrap.readmission.v1`.
 
+The request/configuration fingerprints bind the immutable initial bootstrap baseline, including
+its model and reasoning choices. They do not describe the owner's current settings. After a durable
+ready handoff, re-admission validates the saved same-handle configuration and existing company/cell
+access and actor roles without rewriting owner changes to mission, model, reasoning, budget,
+credentials, or actor preferences. Missing, archived, or invalid saved configuration is refused;
+an initial provisioning reservation alone cannot adopt an unrelated configuration file.
+
 Partial completion remains visible:
 
 ```text
