@@ -16,3 +16,7 @@ export type { BoardColumn, BoardItem } from './views/WorkBoard.svelte';
 export { default as OutcomeFolio } from './views/OutcomeFolio.svelte';
 export { STUDIO, STUDIO_BOARD, STUDIO_FOLIO } from './showcase/lanternStudio';
 export { listFlip, listIn, listOut } from './motion';
+
+export { default as AccountShell } from './views/AccountShell.svelte';
+export { default as CompanyPortfolio } from './views/CompanyPortfolio.svelte';
+export type { CompanyPortfolioEntry, PortfolioAction } from './portfolio';
