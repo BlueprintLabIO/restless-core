@@ -11,16 +11,39 @@
 
 # The coordination CLI (T10): the agents' channel to layer 2, built from this
 # workspace so the binary in the image always matches the source in the tree.
-FROM rust:1-bookworm AS cli
+FROM --platform=$BUILDPLATFORM rust:1-bookworm AS cli
+# Compile on the builder CPU; only the final image executes target binaries.
+# Debian's target GNU compiler/sysroot also serves Rust dependencies that build C.
+ARG BUILDARCH
+ARG TARGETARCH
+ARG CARGO_BUILD_JOBS=2
+ENV CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS} \
+    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
+    CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc \
+    CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc \
+    CC_x86_64_unknown_linux_gnu=x86_64-linux-gnu-gcc
+RUN set -eu; \
+    case "${TARGETARCH}" in \
+        amd64) compiler=gcc-x86-64-linux-gnu; sysroot=libc6-dev-amd64-cross; target=x86_64-unknown-linux-gnu ;; \
+        arm64) compiler=gcc-aarch64-linux-gnu; sysroot=libc6-dev-arm64-cross; target=aarch64-unknown-linux-gnu ;; \
+        *) echo "unsupported Rust image architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    if [ "${BUILDARCH}" = "${TARGETARCH}" ]; then compiler=gcc; sysroot=libc6-dev; fi; \
+    apt-get update; \
+    apt-get install --yes --no-install-recommends "$compiler" "$sysroot"; \
+    rm -rf /var/lib/apt/lists/*; \
+    rustup target add "$target"; \
+    printf '%s' "$target" > /rust-target
+
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
-ARG TARGETARCH
 RUN --mount=type=cache,id=restless-cargo-registry-v1,target=/usr/local/cargo/registry,sharing=locked \
-    --mount=type=cache,id=restless-cargo-target-${TARGETARCH}-v1,target=/src/target,sharing=locked \
-    cargo build --release -p restless -p restless-runtime-bridge \
-    && install -Dm755 /src/target/release/restless /out/restless \
-    && install -Dm755 /src/target/release/restless-runtime-bridge /out/restless-runtime-bridge
+    --mount=type=cache,id=restless-cargo-native-${BUILDARCH}-${TARGETARCH}-v2,target=/src/target,sharing=locked \
+    target="$(cat /rust-target)" \
+    && cargo build --release --locked --target "$target" -p restless -p restless-runtime-bridge \
+    && install -Dm755 /src/target/$target/release/restless /out/restless \
+    && install -Dm755 /src/target/$target/release/restless-runtime-bridge /out/restless-runtime-bridge
 
 FROM node:24-bookworm-slim AS runtime-harnesses
 
