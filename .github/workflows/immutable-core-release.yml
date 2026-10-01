@@ -60,6 +60,11 @@ jobs:
     # Three sequential multi-arch (amd64+arm64, QEMU-emulated) Rust builds
     # run on the owner's machine. No GitHub-hosted runner or Actions cache.
     timeout-minutes: 360
+    env:
+      # Registry OAuth must use the trusted builder's scoped resolver, rather
+      # than the runner host's systemd-resolved stub. Credentials still travel
+      # through the standard authenticated BuildKit session; TLS is unchanged.
+      BUILDKIT_NO_CLIENT_TOKEN: "true"
     outputs:
       account_plane: ${{ steps.refs.outputs.account_plane }}
       company_runtime: ${{ steps.refs.outputs.company_runtime }}
@@ -104,6 +109,7 @@ jobs:
       - uses: docker/setup-qemu-action@v3
 
       - uses: docker/setup-buildx-action@v3
+        id: release_builder
         with:
           # The fixed name reuses the 26 Sep interrupted build's 16.6 GB
           # BuildKit state volume and keeps later releases warm.
@@ -121,6 +127,11 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare the release builder registry resolver
+        env:
+          RELEASE_BUILDER: ${{ steps.release_builder.outputs.name }}
+        run: bash scripts/release/prepare-builder-dns.sh "$RELEASE_BUILDER"
 
       - uses: sigstore/cosign-installer@v3.10.0
 
