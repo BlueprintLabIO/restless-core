@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { packageProvenance } from '../../web/scripts/package-provenance.mjs';
+import { normalizePackageModes, packageProvenance } from '../../web/scripts/package-provenance.mjs';
 
 const [kind, revision, epoch, destination] = process.argv.slice(2);
 if (!['ui', 'office', 'issuer'].includes(kind)) throw new Error('choose ui, office or issuer');
@@ -28,6 +28,7 @@ if (kind !== 'issuer') {
   const pkg = JSON.parse(readFileSync(join(stage, 'package.json')));
   pkg.restless = { ...provenance, packedAt };
   writeFileSync(join(stage, 'package.json'), JSON.stringify(pkg, null, 2) + '\n');
+  normalizePackageModes(stage);
   const packed = JSON.parse(execFileSync('npm', ['pack', '--pack-destination', out, '--json'], {
     cwd: stage, encoding: 'utf8',
   }))[0];

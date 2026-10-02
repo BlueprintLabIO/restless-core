@@ -15,7 +15,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, normalize, relative, resolve } from 'node:path';
-import { packageProvenance } from './package-provenance.mjs';
+import { normalizePackageModes, packageProvenance } from './package-provenance.mjs';
 
 const args = process.argv.slice(2);
 const option = (name, fallback) => {
@@ -128,6 +128,7 @@ The Restless company floor, as the owner workspace renders it.
 `
 );
 
+normalizePackageModes(stage);
 const listed = [];
 (function walk(dir) {
 	for (const entry of readdirSync(dir, { withFileTypes: true })) {

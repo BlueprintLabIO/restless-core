@@ -1,4 +1,18 @@
 import { execFileSync } from 'node:child_process';
+import { chmodSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+
+// These source libraries contain no executable programs. Git does not preserve
+// read/write bits, so filesystem modes must not change their release bytes.
+export function normalizePackageModes(directory) {
+	chmodSync(directory, 0o755);
+	for (const entry of readdirSync(directory, { withFileTypes: true })) {
+		const path = join(directory, entry.name);
+		if (entry.isSymbolicLink()) throw new Error(`package cannot contain a symlink: ${entry.name}`);
+		if (entry.isDirectory()) normalizePackageModes(path);
+		else chmodSync(path, 0o644);
+	}
+}
 
 // The release workflow proves its checkout SHA before supplying source-only
 // Dagger inputs. Ordinary local packing reads the same metadata from Git.

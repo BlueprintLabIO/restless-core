@@ -14,7 +14,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { packageProvenance } from './package-provenance.mjs';
+import { normalizePackageModes, packageProvenance } from './package-provenance.mjs';
 
 const args = process.argv.slice(2);
 const qualificationOnly = args.includes('--qualification');
@@ -79,6 +79,7 @@ Everything renders from props; nothing reaches the network or a company.
 `
 );
 
+normalizePackageModes(stage);
 const files = [];
 (function walk(dir) {
 	for (const entry of readdirSync(dir, { withFileTypes: true })) {
