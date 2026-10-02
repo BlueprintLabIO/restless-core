@@ -132,6 +132,7 @@ export class RestlessCore {
         .withExec(['cargo', 'test', '--locked', '-p', 'restlessd', 'public_jwks_routes_are_method_and_path_exact']).sync(),
       cockpit(source).sync(),
       this.verifyOverlays(source).sync(),
+      this.verifyUiArtifact(source).sync(),
       project(source, 'services/native-documents-collaboration')
         .withExec(['npm', 'run', 'check']).withExec(['npm', 'run', 'build']).sync(),
       project(source, 'services/native-sheets').withExec(['npm', 'test']).sync(),
@@ -139,7 +140,7 @@ export class RestlessCore {
       this.issuer(source).sync(),
       this.verifyRelease(source),
     ]);
-    return 'Core qualification passed: Rust workspace, projection contract and public-key boundary tests, cockpit check/build and browser overlays, native Documents check/build, pinned native Sheets engine, issuer artifact imports, workflow lint and versioned release contracts';
+    return 'Core qualification passed: Rust workspace, projection contract and public-key boundary tests, cockpit check/build and browser overlays, clean-project UI artifact consumer, native Documents check/build, pinned native Sheets engine, issuer artifact imports, workflow lint and versioned release contracts';
   }
 
   /** Check workflow wiring with the same pinned tool used by Cloud. */
@@ -156,6 +157,12 @@ export class RestlessCore {
   @func()
   cockpit(source: Directory): Directory {
     return cockpit(source).directory('/project/build');
+  }
+
+  /** Install and render the real packed UI in an empty project, without pretending it is a release. */
+  @func()
+  verifyUiArtifact(source: Directory): Container {
+    return project(source, 'web').withExec(['node', 'scripts/smoke-ui-artifact.mjs', '--qualification']);
   }
 
   /** Run the real chrome's browser checks on example data in the isolated builder. */

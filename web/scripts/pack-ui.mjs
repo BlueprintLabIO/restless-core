@@ -5,6 +5,8 @@
  * manifest that records which source revision it came from.
  *
  *   node scripts/pack-ui.mjs [--version 0.1.0] [--out dist]
+ *   --qualification allows a source-only consumer check without Git metadata. Its artifact is
+ *   explicitly unversioned and must never be published.
  *
  * The boundary check runs first, because an artifact that still reaches into the app cannot work. */
 
@@ -14,6 +16,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, write
 import { join, resolve } from 'node:path';
 
 const args = process.argv.slice(2);
+const qualificationOnly = args.includes('--qualification');
 const option = (name, fallback) => {
 	const at = args.indexOf(`--${name}`);
 	return at >= 0 ? args[at + 1] : fallback;
@@ -29,14 +32,18 @@ const stage = join(outDir, 'ui');
 execFileSync('node', ['scripts/check-ui-boundary.mjs'], { stdio: 'inherit' });
 
 function git(...gitArgs) {
-	try {
-		return execFileSync('git', gitArgs, { cwd: root, encoding: 'utf8' }).trim();
-	} catch {
-		return 'unknown';
-	}
+	return execFileSync('git', gitArgs, { cwd: root, encoding: 'utf8' }).trim();
 }
-const revision = git('rev-parse', 'HEAD');
-const dirty = git('status', '--porcelain', '--', 'src/lib/ui') !== '';
+const revision = qualificationOnly ? null : git('rev-parse', 'HEAD');
+const dirty = qualificationOnly
+	? null
+	: git('status', '--porcelain', '--', 'src/lib/ui', 'scripts/ui-package.json',
+		'scripts/pack-ui.mjs', 'scripts/check-ui-boundary.mjs', '../LICENSE') !== '';
+const provenance = {
+	sourceRevision: revision,
+	sourceDirty: dirty,
+	...(qualificationOnly ? { qualificationOnly: true } : {})
+};
 
 rmSync(stage, { recursive: true, force: true });
 mkdirSync(stage, { recursive: true });
@@ -48,7 +55,7 @@ cpSync(source, stage, {
 const pkg = {
 	...template,
 	version,
-	restless: { sourceRevision: revision, sourceDirty: dirty, packedAt: new Date().toISOString() }
+	restless: { ...provenance, packedAt: new Date().toISOString() }
 };
 writeFileSync(join(stage, 'package.json'), JSON.stringify(pkg, null, '\t') + '\n');
 
@@ -75,7 +82,7 @@ Everything renders from props; nothing reaches the network or a company.
 
 - Needs Svelte 5. Fonts are yours to load: Inter (variable, opsz), IBM Plex Mono and Silkscreen.
 - Put \`bridge-tokens\` on an ancestor. It carries tokens and type without the cockpit's fixed frame.
-- Source revision: ${revision}${dirty ? ' (uncommitted changes in src/lib/ui)' : ''}.
+- ${qualificationOnly ? 'Unversioned qualification artifact. Do not publish.' : `Source revision: ${revision}${dirty ? ' (uncommitted packaging inputs)' : ''}.`}
 - Apache 2.0. The Restless name, marks and visual identity are not licensed.
 `
 );
@@ -99,7 +106,7 @@ const sha256 = createHash('sha256').update(readFileSync(tarballPath)).digest('he
 writeFileSync(`${tarballPath}.sha256`, `${sha256}  ${tarball}\n`);
 writeFileSync(
 	join(outDir, 'ui-manifest.json'),
-	JSON.stringify({ name: pkg.name, version, tarball, sha256, sourceRevision: revision, sourceDirty: dirty, files }, null, '\t') + '\n'
+	JSON.stringify({ name: pkg.name, version, tarball, sha256, ...provenance, files }, null, '\t') + '\n'
 );
 
-console.log(`packed ${tarball} (${files.length} files) sha256 ${sha256.slice(0, 12)}…${dirty ? '  [uncommitted changes in src/lib/ui]' : ''}`);
+console.log(`packed ${tarball} (${files.length} files) sha256 ${sha256.slice(0, 12)}…${qualificationOnly ? '  [qualification only; do not publish]' : dirty ? '  [uncommitted packaging inputs]' : ''}`);
