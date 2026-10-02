@@ -53,6 +53,11 @@ jobs:
           npm --prefix services/native-documents-collaboration run check
           npm --prefix services/native-documents-collaboration run build
 
+      - name: Check pinned native Sheets engine
+        run: |
+          npm --prefix services/native-sheets ci --no-audit --no-fund
+          npm --prefix services/native-sheets test
+
   publish:
     name: Publish immutable artifacts
     needs: qualify
