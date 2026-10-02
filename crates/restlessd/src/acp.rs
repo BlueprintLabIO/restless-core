@@ -1292,7 +1292,10 @@ where
         Box<dyn std::future::Future<Output = Result<T>> + Send + 'a>,
     >,
 {
-    if !matches!(harness, crate::runtime::AgentHarness::RestlessManaged | crate::runtime::AgentHarness::ClaudeAgent) {
+    if !matches!(
+        harness,
+        crate::runtime::AgentHarness::RestlessManaged | crate::runtime::AgentHarness::ClaudeAgent
+    ) {
         anyhow::bail!("hosted ACP transport requires a supported harness");
     }
     if controls.completion_only {

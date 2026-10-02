@@ -360,7 +360,8 @@ pub fn load_release_environment() -> Result<()> {
     if !path.is_file() {
         return Ok(());
     }
-    let text = std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let text =
+        std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
     for (name, value) in parse_release_environment(&text)? {
         if std::env::var_os(&name).is_none() {
             std::env::set_var(name, value);

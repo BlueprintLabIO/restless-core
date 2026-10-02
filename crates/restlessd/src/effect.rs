@@ -232,9 +232,8 @@ pub async fn request_effect(
         let resend_reference = config.credentials.get("resend.production");
         let exposes_resend = secret_bindings.values().any(|binding| {
             binding == "resend.production"
-                || resend_reference.is_some_and(|reference| {
-                    config.credentials.get(binding) == Some(reference)
-                })
+                || resend_reference
+                    .is_some_and(|reference| config.credentials.get(binding) == Some(reference))
         });
         if exposes_resend
             && authority
@@ -896,11 +895,9 @@ mod tests {
         let error = reconcile_unknown("outbound-first-contact:maya")
             .expect_err("generic evidence must fail closed");
         assert!(error.to_string().contains("remains unresolved"));
-        assert!(
-            error
-                .to_string()
-                .contains("cannot authenticate provider state")
-        );
+        assert!(error
+            .to_string()
+            .contains("cannot authenticate provider state"));
         assert!(error.to_string().contains("outbound-first-contact:maya"));
     }
 

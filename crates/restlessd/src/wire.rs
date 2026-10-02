@@ -781,7 +781,13 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         | "publish-list" => &[],
         "local-mcp-receipts" => &["tool_name"],
         "local-mcp-recurring" => &["tool_name"],
-        "local-mcp-approve-recurring" => &["tool_name", "schedule_id", "responsibility_id", "version", "assigned_actor"],
+        "local-mcp-approve-recurring" => &[
+            "tool_name",
+            "schedule_id",
+            "responsibility_id",
+            "version",
+            "assigned_actor",
+        ],
         "local-mcp-revoke-recurring" => &["tool_name", "schedule_id"],
         "schedule-wake" => &["adapter"],
         "publish-build" => &[

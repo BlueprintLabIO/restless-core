@@ -214,14 +214,25 @@ pub async fn announce_decisions(
             let Some(party) = record.body.get("party").and_then(|value| value.as_str()) else {
                 continue;
             };
-            pending.push((record.id, kind, DecisionSubject::Party(normalize_party(party))));
+            pending.push((
+                record.id,
+                kind,
+                DecisionSubject::Party(normalize_party(party)),
+            ));
         }
     }
-    let Ok(records) = authority.records_of_kind(company, EMAIL_MANDATE_DECISION_KIND).await else {
+    let Ok(records) = authority
+        .records_of_kind(company, EMAIL_MANDATE_DECISION_KIND)
+        .await
+    else {
         return 0;
     };
     for record in records {
-        let Some(proposal_id) = record.body.get("proposal_id").and_then(|value| value.as_str()) else {
+        let Some(proposal_id) = record
+            .body
+            .get("proposal_id")
+            .and_then(|value| value.as_str())
+        else {
             continue;
         };
         let Some(decision) = record.body.get("decision").and_then(|value| value.as_str()) else {
@@ -235,7 +246,11 @@ pub async fn announce_decisions(
             EMAIL_MANDATE_DECISION_KIND,
             DecisionSubject::EmailMandate {
                 proposal_id: proposal_id.to_owned(),
-                mandate_id: record.body.get("mandate_id").and_then(|value| value.as_str()).map(str::to_owned),
+                mandate_id: record
+                    .body
+                    .get("mandate_id")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_owned),
                 decision: decision.to_owned(),
             },
         ));
@@ -268,13 +283,20 @@ pub async fn announce_decisions(
                 };
                 (body, serde_json::json!({ "party": party }))
             }
-            DecisionSubject::EmailMandate { proposal_id, mandate_id, decision } => {
+            DecisionSubject::EmailMandate {
+                proposal_id,
+                mandate_id,
+                decision,
+            } => {
                 let body = if decision == "approve" {
                     format!("The owner approved email mandate {} from proposal {proposal_id}. Revisit work and scheduled responsibilities waiting on this authority. Judge each candidate against the exact active mandate and current provider state; only a matching one-use permit can authorize a send. Continue useful independent work and do not replay uncertain effects.", mandate_id.as_deref().unwrap_or("unknown"))
                 } else {
                     format!("The owner declined email mandate proposal {proposal_id}. Revisit work waiting on it, find an authorized route if possible, or identify the precise owner decision still needed. Do not send under the declined proposal.")
                 };
-                (body, serde_json::json!({ "proposal_id": proposal_id, "mandate_id": mandate_id, "mandate_decision": decision }))
+                (
+                    body,
+                    serde_json::json!({ "proposal_id": proposal_id, "mandate_id": mandate_id, "mandate_decision": decision }),
+                )
             }
         };
         // Record the announcement first. A duplicate message to the Exec is a
@@ -286,15 +308,13 @@ pub async fn announce_decisions(
             "authority_record_id": record_id.to_string(),
             "decision": kind,
         });
-        if let (Some(event), Some(subject)) = (event_body.as_object_mut(), event_subject.as_object()) {
+        if let (Some(event), Some(subject)) =
+            (event_body.as_object_mut(), event_subject.as_object())
+        {
             event.extend(subject.clone());
         }
         if let Err(error) = org
-            .emit_event(
-                ANNOUNCED_EVENT,
-                Some("owner"),
-                event_body,
-            )
+            .emit_event(ANNOUNCED_EVENT, Some("owner"), event_body)
             .await
         {
             tracing::warn!(

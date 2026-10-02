@@ -810,15 +810,12 @@ impl CompanyConfig {
                 AgentHarness::Codex => "litellm or openai-codex",
                 AgentHarness::ClaudeAgent => "anthropic",
             };
-            if let Some(model) = models
-                .iter()
-                .find(|model| match harness {
-                    AgentHarness::Codex => {
-                        !model.starts_with("litellm/") && !model.starts_with("openai-codex/")
-                    }
-                    _ => !model.starts_with(&format!("{required_provider}/")),
-                })
-            {
+            if let Some(model) = models.iter().find(|model| match harness {
+                AgentHarness::Codex => {
+                    !model.starts_with("litellm/") && !model.starts_with("openai-codex/")
+                }
+                _ => !model.starts_with(&format!("{required_provider}/")),
+            }) {
                 bail!(
                     "{} harness requires every configured model to use provider {required_provider}; got {model}",
                     harness.as_str()
@@ -1179,7 +1176,10 @@ pub async fn configured_company_statuses(
 pub async fn cockpit_company_statuses(
     configs: &[CompanyConfig],
 ) -> Result<std::collections::BTreeMap<String, ContainerStatus>> {
-    let mut companies = configs.iter().map(|config| config.name.clone()).collect::<Vec<_>>();
+    let mut companies = configs
+        .iter()
+        .map(|config| config.name.clone())
+        .collect::<Vec<_>>();
     companies.sort();
     let slot = COMPANY_STATUSES_CACHE
         .lock()
@@ -2652,10 +2652,14 @@ pub async fn read_browser_agent_session(company: &str) -> Result<Option<BrowserA
         "exec", &container_name(company), "sh", "-c",
         "test -f /company/run/browser-agent-session.json && cat /company/run/browser-agent-session.json",
     ]).await?;
-    if !output.status.success() || output.stdout.is_empty() { return Ok(None); }
+    if !output.status.success() || output.stdout.is_empty() {
+        return Ok(None);
+    }
     let session: BrowserAgentSession = serde_json::from_slice(&output.stdout)
         .context("parse authenticated browser registration")?;
-    if session.expires_at <= Utc::now() { return Ok(None); }
+    if session.expires_at <= Utc::now() {
+        return Ok(None);
+    }
     Ok(Some(session))
 }
 
@@ -2664,7 +2668,9 @@ pub async fn register_browser_agent_session(
     grant: &crate::capability::CoordinationGrant,
 ) -> Result<String> {
     validate_company_name(company)?;
-    if grant.company != company { bail!("browser registration company does not match the signed ActorSession"); }
+    if grant.company != company {
+        bail!("browser registration company does not match the signed ActorSession");
+    }
     if grant.work_id.is_some() != grant.attempt_id.is_some() {
         bail!("browser attachment needs both Work and Attempt coordinates, or neither");
     }
@@ -2675,8 +2681,11 @@ pub async fn register_browser_agent_session(
         bail!("the owner currently controls the company browser");
     }
     if let Some(current) = read_browser_agent_session(company).await? {
-        if current.session == grant.session && current.actor == grant.actor
-            && current.work_id == grant.work_id && current.attempt_id == grant.attempt_id {
+        if current.session == grant.session
+            && current.actor == grant.actor
+            && current.work_id == grant.work_id
+            && current.attempt_id == grant.attempt_id
+        {
             return Ok(current.websocket_url);
         }
         bail!("the shared company browser is attached to another live Work Attempt");
@@ -2685,13 +2694,24 @@ pub async fn register_browser_agent_session(
     // after Core verified the signed capability and is stored atomically for
     // the broker; the issuer key never enters the company container.
     let output = docker_observe(&[
-        "exec", &container_name(company), "curl", "--fail", "--silent", "--show-error",
-        "--max-time", "5", "http://127.0.0.1:9222/json/version",
-    ]).await?;
-    if !output.status.success() { bail!("could not inspect the company browser endpoint"); }
-    let discovery: serde_json::Value = serde_json::from_slice(&output.stdout)
-        .context("decode the company browser endpoint")?;
-    let path = discovery["webSocketDebuggerUrl"].as_str()
+        "exec",
+        &container_name(company),
+        "curl",
+        "--fail",
+        "--silent",
+        "--show-error",
+        "--max-time",
+        "5",
+        "http://127.0.0.1:9222/json/version",
+    ])
+    .await?;
+    if !output.status.success() {
+        bail!("could not inspect the company browser endpoint");
+    }
+    let discovery: serde_json::Value =
+        serde_json::from_slice(&output.stdout).context("decode the company browser endpoint")?;
+    let path = discovery["webSocketDebuggerUrl"]
+        .as_str()
         .and_then(|value| url::Url::parse(value).ok())
         .map(|value| value.path().to_string())
         .filter(|value| value.starts_with("/devtools/browser/"))
@@ -2699,9 +2719,14 @@ pub async fn register_browser_agent_session(
     let ticket = Uuid::new_v4().simple().to_string();
     let websocket_url = format!("ws://127.0.0.1:9223/session/{ticket}{path}");
     let registration = BrowserAgentSession {
-        ticket, company: company.to_string(), actor: grant.actor.clone(),
-        session: grant.session.clone(), work_id: grant.work_id, attempt_id: grant.attempt_id,
-        websocket_url: websocket_url.clone(), expires_at: Utc::now() + chrono::Duration::minutes(45),
+        ticket,
+        company: company.to_string(),
+        actor: grant.actor.clone(),
+        session: grant.session.clone(),
+        work_id: grant.work_id,
+        attempt_id: grant.attempt_id,
+        websocket_url: websocket_url.clone(),
+        expires_at: Utc::now() + chrono::Duration::minutes(45),
     };
     write_browser_agent_session(company, &registration).await?;
     Ok(websocket_url)
@@ -2711,10 +2736,15 @@ pub async fn release_browser_agent_session(
     company: &str,
     grant: &crate::capability::CoordinationGrant,
 ) -> Result<()> {
-    let Some(current) = read_browser_agent_session(company).await? else { return Ok(()); };
-    if current.company != grant.company || current.actor != grant.actor
-        || current.session != grant.session || current.work_id != grant.work_id
-        || current.attempt_id != grant.attempt_id {
+    let Some(current) = read_browser_agent_session(company).await? else {
+        return Ok(());
+    };
+    if current.company != grant.company
+        || current.actor != grant.actor
+        || current.session != grant.session
+        || current.work_id != grant.work_id
+        || current.attempt_id != grant.attempt_id
+    {
         bail!("browser registration does not belong to this signed ActorSession");
     }
     clear_browser_agent_session(company, &current.ticket).await
@@ -2723,12 +2753,26 @@ pub async fn release_browser_agent_session(
 pub async fn clear_browser_agent_session(company: &str, ticket: &str) -> Result<()> {
     validate_company_name(company)?;
     let _control_guard = browser_control_guard(company).await;
-    let Some(current) = read_browser_agent_session(company).await? else { return Ok(()); };
-    if current.ticket != ticket { bail!("browser registration changed before it could be cleared"); }
-    let output = tokio::process::Command::new("docker").args([
-        "exec", &container_name(company), "rm", "-f", "/company/run/browser-agent-session.json",
-    ]).output().await.context("release company browser registration")?;
-    if !output.status.success() { bail!("could not release company browser registration"); }
+    let Some(current) = read_browser_agent_session(company).await? else {
+        return Ok(());
+    };
+    if current.ticket != ticket {
+        bail!("browser registration changed before it could be cleared");
+    }
+    let output = tokio::process::Command::new("docker")
+        .args([
+            "exec",
+            &container_name(company),
+            "rm",
+            "-f",
+            "/company/run/browser-agent-session.json",
+        ])
+        .output()
+        .await
+        .context("release company browser registration")?;
+    if !output.status.success() {
+        bail!("could not release company browser registration");
+    }
     Ok(())
 }
 
@@ -2742,7 +2786,9 @@ async fn write_browser_agent_session(company: &str, session: &BrowserAgentSessio
     stdin.write_all(&serde_json::to_vec(session)?).await?;
     drop(stdin);
     let output = child.wait_with_output().await?;
-    if !output.status.success() { bail!("could not write authenticated company browser registration"); }
+    if !output.status.success() {
+        bail!("could not write authenticated company browser registration");
+    }
     Ok(())
 }
 
@@ -3023,8 +3069,7 @@ pub fn is_sleeping(company: &str) -> bool {
 fn mark_sleeping(company: &str) -> Result<()> {
     let marker = sleep_marker(company);
     if let Some(parent) = marker.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("create {}", parent.display()))?;
+        std::fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     }
     std::fs::write(&marker, chrono::Utc::now().to_rfc3339())
         .with_context(|| format!("write {}", marker.display()))

@@ -19,14 +19,15 @@ mod codex;
 mod collaboration_doctor;
 mod company;
 mod company_bootstrap;
+mod company_projection;
 mod connected_tool;
 mod context;
 mod credential;
 mod custom_harness;
 mod document_collaboration_token;
 mod document_commands;
-mod email;
 mod effect;
+mod email;
 mod entry;
 mod exec;
 mod finance;
@@ -38,7 +39,6 @@ mod legal;
 mod local_documents;
 use crate::authority as mandate;
 mod mcp_gateway;
-mod stdio_mcp;
 mod mentions;
 mod model_gateway;
 mod native_harness;
@@ -52,8 +52,8 @@ mod release;
 mod room_commands;
 mod runtime;
 mod runtime_bridge;
-mod runtime_sleep;
 mod runtime_mode;
+mod runtime_sleep;
 mod runtime_usage;
 mod schedule;
 mod schedule_test;
@@ -61,6 +61,7 @@ mod schedule_test_proxy;
 mod skills;
 mod spend;
 mod staff;
+mod stdio_mcp;
 mod telemetry;
 mod wire;
 
@@ -855,8 +856,8 @@ async fn run() -> Result<()> {
 
     let model_capabilities = daemon.capabilities.clone();
     let model_spend = daemon.spend.clone();
-    let local_mcp_daemon = (!daemon.runtime_bridges.is_hosted())
-        .then(|| std::sync::Arc::clone(&daemon));
+    let local_mcp_daemon =
+        (!daemon.runtime_bridges.is_hosted()).then(|| std::sync::Arc::clone(&daemon));
     let schedule_daemon = std::sync::Arc::clone(&daemon);
     let idle_daemon = std::sync::Arc::clone(&daemon);
     let mut idle_recovery_ready_rx = recovery_ready_rx.clone();
@@ -891,16 +892,27 @@ async fn run() -> Result<()> {
                     if model_gateway::is_ready() {
                         tracing::info!("model gateway ready");
                     } else {
-                        tracing::info!("account model broker ready; no direct model route is admitted yet");
+                        tracing::info!(
+                            "account model broker ready; no direct model route is admitted yet"
+                        );
                     }
                     // Providers load only when the gateway starts, so restart it
                     // when a company's model route or credential references
                     // change instead of asking the owner to restart Restless.
-                    let started_from = format!("{}|{:?}", model_gateway::provider_fingerprint(&model_configs), owner::account_oauth_providers(&model_root));
+                    let started_from = format!(
+                        "{}|{:?}",
+                        model_gateway::provider_fingerprint(&model_configs),
+                        owner::account_oauth_providers(&model_root)
+                    );
                     loop {
                         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                         if let Ok(current) = load_configs(&model_root) {
-                            if format!("{}|{:?}", model_gateway::provider_fingerprint(&current), owner::account_oauth_providers(&model_root)) != started_from {
+                            if format!(
+                                "{}|{:?}",
+                                model_gateway::provider_fingerprint(&current),
+                                owner::account_oauth_providers(&model_root)
+                            ) != started_from
+                            {
                                 model_configs = current;
                                 break;
                             }
@@ -1705,15 +1717,21 @@ async fn send_mandated_email(
         }
     };
     let (status, provider_ref, provider_detail) = match &outcome {
-        email::EmailSendOutcome::Accepted { provider_id } => {
-            (mandate::ProviderOutcome::ConfirmedSent, Some(provider_id.as_str()), None)
-        }
-        email::EmailSendOutcome::Rejected { status } => {
-            (mandate::ProviderOutcome::ConfirmedNotSent, None, Some(format!("Resend HTTP {status}")))
-        }
-        email::EmailSendOutcome::Unknown { reason } => {
-            (mandate::ProviderOutcome::Unknown, None, Some(reason.clone()))
-        }
+        email::EmailSendOutcome::Accepted { provider_id } => (
+            mandate::ProviderOutcome::ConfirmedSent,
+            Some(provider_id.as_str()),
+            None,
+        ),
+        email::EmailSendOutcome::Rejected { status } => (
+            mandate::ProviderOutcome::ConfirmedNotSent,
+            None,
+            Some(format!("Resend HTTP {status}")),
+        ),
+        email::EmailSendOutcome::Unknown { reason } => (
+            mandate::ProviderOutcome::Unknown,
+            None,
+            Some(reason.clone()),
+        ),
     };
     if let Err(error) = daemon
         .authority
@@ -1759,12 +1777,18 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
         daemon.lifecycle.resume();
         return Response::ok_serialized(appliance_drain_status(daemon));
     }
-    if matches!(request.cmd.as_str(), "browser-session-register" | "browser-session-release") {
+    if matches!(
+        request.cmd.as_str(),
+        "browser-session-register" | "browser-session-release"
+    ) {
         let Some(company) = request.company.as_deref() else {
             return Response::err("browser session request needs a company");
         };
         let Some(grant) = request.verified_coordination.as_ref() else {
-            return Response::err_kind("forbidden", "browser sessions require a signed ActorSession");
+            return Response::err_kind(
+                "forbidden",
+                "browser sessions require a signed ActorSession",
+            );
         };
         if grant.work_id.is_some() != grant.attempt_id.is_some() {
             return Response::err("browser sessions need both Work and Attempt scope, or neither");
@@ -1783,7 +1807,9 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             Err(_) => None,
         };
         if let (Some(work_id), Some(attempt_id)) = (grant.work_id, grant.attempt_id) {
-            let attempts = match org.as_ref().expect("Work-scoped sessions require OrgIntel")
+            let attempts = match org
+                .as_ref()
+                .expect("Work-scoped sessions require OrgIntel")
                 .list_work_attempts(Some(work_id))
                 .await
             {
@@ -1795,7 +1821,9 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                     && attempt.actor_id == grant.actor
                     && attempt.state == restless_orgintel::WorkAttemptState::Running
             }) {
-                return Response::err("browser attachment requires the exact signed Attempt to still be running");
+                return Response::err(
+                    "browser attachment requires the exact signed Attempt to still be running",
+                );
             }
         }
         if let Ok(Some(previous)) = runtime::read_browser_agent_session(company).await {
@@ -1803,16 +1831,20 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 (Some(work_id), Some(attempt_id), Some(org)) => org
                     .list_work_attempts(Some(work_id))
                     .await
-                    .map(|attempts| attempts.iter().any(|attempt| {
-                        attempt.id == attempt_id
-                            && attempt.actor_id == previous.actor
-                            && attempt.state == restless_orgintel::WorkAttemptState::Running
-                    }))
+                    .map(|attempts| {
+                        attempts.iter().any(|attempt| {
+                            attempt.id == attempt_id
+                                && attempt.actor_id == previous.actor
+                                && attempt.state == restless_orgintel::WorkAttemptState::Running
+                        })
+                    })
                     .unwrap_or(true),
                 _ => true,
             };
             if !previous_is_running {
-                if let Err(error) = runtime::clear_browser_agent_session(company, &previous.ticket).await {
+                if let Err(error) =
+                    runtime::clear_browser_agent_session(company, &previous.ticket).await
+                {
                     return Response::err(format!("clear stale browser registration: {error:#}"));
                 }
             }

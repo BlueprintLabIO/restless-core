@@ -512,18 +512,39 @@ impl NetworkEntry {
             .map_err(|_| Refusal::BadSignature)?;
         let claims = parsed.claims;
         if claims.assertion_version != ASSERTION_CONTRACT_VERSION {
-            return Err(Refusal::UnsupportedVersion { got: claims.assertion_version, supported: ASSERTION_CONTRACT_VERSION });
+            return Err(Refusal::UnsupportedVersion {
+                got: claims.assertion_version,
+                supported: ASSERTION_CONTRACT_VERSION,
+            });
         }
-        if claims.iss.trim_end_matches('/') != self.issuer { return Err(Refusal::UnknownIssuer); }
-        if claims.aud != ACCOUNT_HANDOFF_AUDIENCE { return Err(Refusal::WrongAudience); }
-        if claims.owner_id != self.owner_id { return Err(Refusal::WrongOwner); }
-        if claims.plane_id != self.plane_id { return Err(Refusal::WrongPlane); }
-        if claims.kid != parsed.header.kid || claims.sub.trim().is_empty() || claims.sub.len() > 512 || claims.jti.is_nil() {
+        if claims.iss.trim_end_matches('/') != self.issuer {
+            return Err(Refusal::UnknownIssuer);
+        }
+        if claims.aud != ACCOUNT_HANDOFF_AUDIENCE {
+            return Err(Refusal::WrongAudience);
+        }
+        if claims.owner_id != self.owner_id {
+            return Err(Refusal::WrongOwner);
+        }
+        if claims.plane_id != self.plane_id {
+            return Err(Refusal::WrongPlane);
+        }
+        if claims.kid != parsed.header.kid
+            || claims.sub.trim().is_empty()
+            || claims.sub.len() > 512
+            || claims.jti.is_nil()
+        {
             return Err(Refusal::InvalidAccount);
         }
-        if claims.iat > now.timestamp() + MAX_CLOCK_SKEW_SECONDS { return Err(Refusal::NotYetValid); }
-        if claims.exp <= now.timestamp() { return Err(Refusal::Expired); }
-        if claims.exp <= claims.iat || claims.exp.saturating_sub(claims.iat) > MAX_ASSERTION_LIFETIME_SECONDS {
+        if claims.iat > now.timestamp() + MAX_CLOCK_SKEW_SECONDS {
+            return Err(Refusal::NotYetValid);
+        }
+        if claims.exp <= now.timestamp() {
+            return Err(Refusal::Expired);
+        }
+        if claims.exp <= claims.iat
+            || claims.exp.saturating_sub(claims.iat) > MAX_ASSERTION_LIFETIME_SECONDS
+        {
             return Err(Refusal::TooLongLived);
         }
         Ok(VerifiedAccountAccess {
@@ -674,7 +695,11 @@ fn parse_account_assertion(token: &str) -> Result<ParsedAccountAssertion, Refusa
     let header_b64 = parts.next().ok_or(Refusal::Malformed("no header"))?;
     let payload_b64 = parts.next().ok_or(Refusal::Malformed("no payload"))?;
     let signature_b64 = parts.next().ok_or(Refusal::Malformed("no signature"))?;
-    if parts.next().is_some() || header_b64.is_empty() || payload_b64.is_empty() || signature_b64.is_empty() {
+    if parts.next().is_some()
+        || header_b64.is_empty()
+        || payload_b64.is_empty()
+        || signature_b64.is_empty()
+    {
         return Err(Refusal::Malformed("invalid token segments"));
     }
     let header: AssertionHeader = decode_segment(header_b64, "header")?;
@@ -682,11 +707,18 @@ fn parse_account_assertion(token: &str) -> Result<ParsedAccountAssertion, Refusa
         return Err(Refusal::Malformed("unexpected account token header"));
     }
     let claims: AccountAssertionClaims = decode_segment(payload_b64, "payload")?;
-    if claims.kid != header.kid { return Err(Refusal::Malformed("header and payload key ids differ")); }
+    if claims.kid != header.kid {
+        return Err(Refusal::Malformed("header and payload key ids differ"));
+    }
     let signature = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(signature_b64)
         .map_err(|_| Refusal::Malformed("signature is not base64url"))?;
-    Ok(ParsedAccountAssertion { header, claims, signing_input: format!("{header_b64}.{payload_b64}"), signature })
+    Ok(ParsedAccountAssertion {
+        header,
+        claims,
+        signing_input: format!("{header_b64}.{payload_b64}"),
+        signature,
+    })
 }
 
 struct ParsedMembershipControl {

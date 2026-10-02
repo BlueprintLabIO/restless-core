@@ -312,11 +312,9 @@ pub async fn ensure_database(
     let dir = path.parent().expect("cell url path has a parent");
     std::fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
     let temporary = path.with_extension("url.tmp");
-    std::fs::write(&temporary, &url)
-        .with_context(|| format!("write {}", temporary.display()))?;
+    std::fs::write(&temporary, &url).with_context(|| format!("write {}", temporary.display()))?;
     restrict_to_owner(&temporary)?;
-    std::fs::rename(&temporary, &path)
-        .with_context(|| format!("install {}", path.display()))?;
+    std::fs::rename(&temporary, &path).with_context(|| format!("install {}", path.display()))?;
     admin.close().await.ok();
     Ok(url)
 }

@@ -110,7 +110,10 @@ pub(crate) async fn owed_demand(
         demand.push(Demand::ReadyWork);
     }
     let now = Utc::now();
-    let schedule_due = org.next_schedule_due_at().await?.is_some_and(|at| at <= now);
+    let schedule_due = org
+        .next_schedule_due_at()
+        .await?
+        .is_some_and(|at| at <= now);
     let opportunity_due = org
         .next_opportunity_due_at()
         .await?
@@ -170,7 +173,10 @@ pub(crate) async fn run(daemon: Arc<Daemon>) {
                 Ok(config) => configs.push(config),
                 Err(error) => {
                     quiet_since.remove(&company);
-                    tracing::warn!(company, "sleep config unavailable; keeping awake: {error:#}");
+                    tracing::warn!(
+                        company,
+                        "sleep config unavailable; keeping awake: {error:#}"
+                    );
                 }
             }
         }
@@ -223,7 +229,10 @@ pub(crate) async fn run(daemon: Arc<Daemon>) {
                 }
                 Err(error) => {
                     quiet_since.insert(company.to_string(), Instant::now());
-                    tracing::warn!(company, "demand observation failed; keeping awake: {error:#}");
+                    tracing::warn!(
+                        company,
+                        "demand observation failed; keeping awake: {error:#}"
+                    );
                     continue;
                 }
             }
@@ -272,7 +281,9 @@ pub(crate) async fn run(daemon: Arc<Daemon>) {
 pub(crate) async fn sleep_now(daemon: &Daemon, company: &str) -> Result<String> {
     let _browser_control = runtime::browser_control_guard(company).await;
     if runtime::down_if_idle(company, true, || is_quiet(daemon, company)).await? {
-        return Ok(format!("{company}: asleep (volume kept; owed demand wakes it)"));
+        return Ok(format!(
+            "{company}: asleep (volume kept; owed demand wakes it)"
+        ));
     }
     match runtime::status(company).await? {
         ContainerStatus::Running => {
@@ -300,9 +311,15 @@ pub(crate) async fn wake_if_owed(daemon: &Daemon, config: &CompanyConfig) -> boo
         Err(error) => Err(error.into()),
     };
     let owed = match owed {
-        Ok(demand) => demand.into_iter().filter(|kind| kind.wakes()).collect::<Vec<_>>(),
+        Ok(demand) => demand
+            .into_iter()
+            .filter(|kind| kind.wakes())
+            .collect::<Vec<_>>(),
         Err(error) => {
-            tracing::warn!(company, "could not observe demand for a sleeping computer: {error:#}");
+            tracing::warn!(
+                company,
+                "could not observe demand for a sleeping computer: {error:#}"
+            );
             return false;
         }
     };
@@ -412,7 +429,10 @@ pub(crate) async fn report(daemon: &Daemon, company: &str) -> Result<serde_json:
             // Only waking demand is meaningful for a sleeping computer.
             let org = daemon.orgintel.get(company).await?;
             let owed = owed_demand(daemon, company, &org).await?;
-            ("asleep", owed.into_iter().filter(|kind| kind.wakes()).collect())
+            (
+                "asleep",
+                owed.into_iter().filter(|kind| kind.wakes()).collect(),
+            )
         }
         ContainerStatus::Stopped => ("stopped", Vec::new()),
         ContainerStatus::Absent => ("absent", Vec::new()),

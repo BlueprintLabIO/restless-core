@@ -287,7 +287,9 @@ pub async fn project(
     let declines = authority
         .records_of_kind(&config.name, "approval_declined")
         .await?;
-    let mandate_proposals = authority.pending_email_mandate_proposals(&config.name).await?;
+    let mandate_proposals = authority
+        .pending_email_mandate_proposals(&config.name)
+        .await?;
 
     let mut resolved_after: HashMap<String, i64> = HashMap::new();
     for event in grants.iter().chain(declines.iter()) {
@@ -382,23 +384,20 @@ pub async fn project(
         ),
     };
     let generation = runtime::generation(&config.name).await.ok().flatten();
-    let attach_for = |
-        actor: Option<&str>,
-        work_id: Option<uuid::Uuid>,
-        attempt_id: Option<uuid::Uuid>,
-    | {
-        generation.as_ref().map(|generation| RuntimeAttachRef {
-            company: config.name.clone(),
-            generation: generation.clone(),
-            work_id,
-            attempt_id,
-            requesting_actor: actor.map(str::to_string),
-            requesting_actor_display: actor
-                .and_then(|actor| actors.get(actor))
-                .map(|actor| actor.display.clone()),
-            kind: "persistent-browser",
-        })
-    };
+    let attach_for =
+        |actor: Option<&str>, work_id: Option<uuid::Uuid>, attempt_id: Option<uuid::Uuid>| {
+            generation.as_ref().map(|generation| RuntimeAttachRef {
+                company: config.name.clone(),
+                generation: generation.clone(),
+                work_id,
+                attempt_id,
+                requesting_actor: actor.map(str::to_string),
+                requesting_actor_display: actor
+                    .and_then(|actor| actors.get(actor))
+                    .map(|actor| actor.display.clone()),
+                kind: "persistent-browser",
+            })
+        };
 
     let mut items = Vec::new();
     for ((capability, party), event) in latest {
@@ -1351,9 +1350,17 @@ pub async fn project(
     }
 
     for record in mandate_proposals {
-        let Some(id) = record.body["id"].as_str() else { continue };
-        let Ok(proposal_id) = uuid::Uuid::parse_str(id) else { continue };
-        let Ok(proposal) = serde_json::from_value::<crate::authority::NewEmailMandate>(record.body["proposal"].clone()) else { continue };
+        let Some(id) = record.body["id"].as_str() else {
+            continue;
+        };
+        let Ok(proposal_id) = uuid::Uuid::parse_str(id) else {
+            continue;
+        };
+        let Ok(proposal) = serde_json::from_value::<crate::authority::NewEmailMandate>(
+            record.body["proposal"].clone(),
+        ) else {
+            continue;
+        };
         let note = record.body["judgement_note"].as_str().unwrap_or("");
         let limits = format!("Purpose: {}\nAudience: {}\nSender: {}{}\nDaily cap: {}\nTotal cap: {}\nTimezone: {}\nExpires: {}", proposal.purpose, proposal.audience_guidance, proposal.sender, proposal.sender_name.as_deref().map(|name| format!(" ({name})")).unwrap_or_default(), proposal.max_per_day, proposal.max_total, proposal.timezone, proposal.expires_at.to_rfc3339());
         let proposer = record.actor_id.as_deref().unwrap_or("a company actor");

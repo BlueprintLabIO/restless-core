@@ -468,7 +468,9 @@ impl CapabilityIssuer {
             company: claims.company,
             actor: claims.actor.context("MCP grant has no actor")?,
             name: claims.mcp_name.context("MCP grant has no name")?,
-            pin: claims.mcp_pin.context("MCP grant has no tool contract pin")?,
+            pin: claims
+                .mcp_pin
+                .context("MCP grant has no tool contract pin")?,
             work_id: claims.work_id.context("MCP grant has no Work")?,
             attempt_id: claims.attempt_id.context("MCP grant has no Attempt")?,
             recurring_schedule_id: claims.mcp_recurring_schedule_id,

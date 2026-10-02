@@ -198,19 +198,29 @@ impl PublicationManager {
         }
 
         let owner_id = std::env::var("RESTLESS_ENTRY_OWNER_ID")
-            .context("hosted candidate build requires owner identity")?.parse::<Uuid>()?;
+            .context("hosted candidate build requires owner identity")?
+            .parse::<Uuid>()?;
         let plane_id = std::env::var("RESTLESS_ENTRY_PLANE_ID")
-            .context("hosted candidate build requires plane identity")?.parse::<Uuid>()?;
+            .context("hosted candidate build requires plane identity")?
+            .parse::<Uuid>()?;
         let hostname = std::env::var("RESTLESS_ENTRY_HOST")
-            .context("hosted candidate build requires plane hostname")?.to_ascii_lowercase();
+            .context("hosted candidate build requires plane hostname")?
+            .to_ascii_lowercase();
         let deployment = crate::company_bootstrap::CompanyAdmissionDeployment::from_environment(
             owner_id, plane_id, &hostname,
         )?;
         let bootstrap = crate::company_bootstrap::current_company_admission(
-            self.authority.pool(), None, None, company,
-        ).await?.context("company has no admitted Cloud Runtime cell for candidate building")?;
+            self.authority.pool(),
+            None,
+            None,
+            company,
+        )
+        .await?
+        .context("company has no admitted Cloud Runtime cell for candidate building")?;
         if bootstrap.status != "ready" || !bootstrap.matches_deployment(&deployment) {
-            bail!("company has no ready current-deployment Cloud Runtime cell for candidate building");
+            bail!(
+                "company has no ready current-deployment Cloud Runtime cell for candidate building"
+            );
         }
         let context_path = match context_subpath {
             Some(path) => format!("reviews/git/{source_commit}/{path}"),

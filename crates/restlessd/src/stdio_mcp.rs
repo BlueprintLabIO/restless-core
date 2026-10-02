@@ -113,9 +113,12 @@ fn canonical_directory(raw: &str, label: &str) -> Result<PathBuf> {
     if !meta.file_type().is_dir() {
         bail!("{label} must be a directory, not a symlink");
     }
-    let canonical = path.canonicalize()
+    let canonical = path
+        .canonicalize()
         .with_context(|| format!("canonicalize {label}"))?;
-    let docker_mount_path = canonical.to_str().context("Docker mount path must be UTF-8")?;
+    let docker_mount_path = canonical
+        .to_str()
+        .context("Docker mount path must be UTF-8")?;
     if docker_mount_path.contains(',') || docker_mount_path.contains('\n') {
         bail!("{label} contains a Docker mount separator");
     }
@@ -125,7 +128,9 @@ fn canonical_directory(raw: &str, label: &str) -> Result<PathBuf> {
 fn worker_image_id() -> Result<String> {
     let image = std::env::var(WORKER_IMAGE_ENV)
         .with_context(|| format!("{WORKER_IMAGE_ENV} must pin a local Docker image ID"))?;
-    let digest = image.strip_prefix("sha256:").context("stdio MCP worker image must be a sha256 image ID")?;
+    let digest = image
+        .strip_prefix("sha256:")
+        .context("stdio MCP worker image must be a sha256 image ID")?;
     if digest.len() != 64 || !digest.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         bail!("stdio MCP worker image must be a sha256 image ID");
     }
@@ -144,14 +149,42 @@ fn worker_command(bundle: &str, read_root: &str) -> Result<(tokio::process::Comm
     command.env_clear();
     command.env("HOME", "/tmp").env("PATH", "/usr/bin:/bin");
     command.args([
-        "run", "--rm", "-i", "--pull=never", "--network", "none",
-        "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
-        "--pids-limit", "64", "--memory", "512m", "--ipc", "none",
-        "--name", &name, "--label", "io.restless.stdio-worker=true",
-        "--user", &user, "--tmpfs", "/tmp:rw,nosuid,nodev,size=16m",
-        "--env", "HOME=/tmp", "--env", "TMPDIR=/tmp",
-        "--mount", &bundle_mount, "--mount", &data_mount,
-        "--entrypoint", "/usr/bin/timeout", &image,
+        "run",
+        "--rm",
+        "-i",
+        "--pull=never",
+        "--network",
+        "none",
+        "--read-only",
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges",
+        "--pids-limit",
+        "64",
+        "--memory",
+        "512m",
+        "--ipc",
+        "none",
+        "--name",
+        &name,
+        "--label",
+        "io.restless.stdio-worker=true",
+        "--user",
+        &user,
+        "--tmpfs",
+        "/tmp:rw,nosuid,nodev,size=16m",
+        "--env",
+        "HOME=/tmp",
+        "--env",
+        "TMPDIR=/tmp",
+        "--mount",
+        &bundle_mount,
+        "--mount",
+        &data_mount,
+        "--entrypoint",
+        "/usr/bin/timeout",
+        &image,
     ]);
     command.args([
         "120s",
@@ -167,28 +200,45 @@ fn worker_command(bundle: &str, read_root: &str) -> Result<(tokio::process::Comm
 /// A failed startup needs a longer watch: its create request may reach the
 /// daemon after the CLI has exited and an initial removal found nothing.
 async fn cleanup_worker(name: &str, watch_late_create: bool) {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(
-        if watch_late_create { WORKER_LIFETIME_SECONDS + 10 } else { 5 },
-    );
+    let deadline = tokio::time::Instant::now()
+        + Duration::from_secs(if watch_late_create {
+            WORKER_LIFETIME_SECONDS + 10
+        } else {
+            5
+        });
     let observed_absent = loop {
         let mut command = tokio::process::Command::new("/usr/bin/docker");
-        command.env_clear().env("HOME", "/tmp").env("PATH", "/usr/bin:/bin");
+        command
+            .env_clear()
+            .env("HOME", "/tmp")
+            .env("PATH", "/usr/bin:/bin");
         let removal = tokio::time::timeout(
-            Duration::from_secs(8), command.args(["rm", "-f", name]).output(),
-        ).await;
+            Duration::from_secs(8),
+            command.args(["rm", "-f", name]).output(),
+        )
+        .await;
         let absent = match removal {
             Ok(Ok(output)) if output.status.success() => return,
-            Ok(Ok(output)) if String::from_utf8_lossy(&output.stderr).contains("No such container") => {
-                if !watch_late_create { return; }
+            Ok(Ok(output))
+                if String::from_utf8_lossy(&output.stderr).contains("No such container") =>
+            {
+                if !watch_late_create {
+                    return;
+                }
                 true
             }
             _ => false,
         };
-        if tokio::time::Instant::now() >= deadline { break absent; }
+        if tokio::time::Instant::now() >= deadline {
+            break absent;
+        }
         tokio::time::sleep(Duration::from_secs(if watch_late_create { 5 } else { 1 })).await;
     };
     if !observed_absent {
-        tracing::warn!(worker = name, "exact stdio worker cleanup could not be confirmed");
+        tracing::warn!(
+            worker = name,
+            "exact stdio worker cleanup could not be confirmed"
+        );
     }
 }
 
@@ -202,7 +252,9 @@ async fn read_stderr(mut stderr: tokio::process::ChildStderr) -> StderrDiagnosti
     let mut bytes = 0u64;
     let mut chunk = [0u8; 1024];
     while let Ok(count) = stderr.read(&mut chunk).await {
-        if count == 0 { break; }
+        if count == 0 {
+            break;
+        }
         bytes = bytes.saturating_add(count as u64);
         let room = STDERR_DIAGNOSTIC_BYTES.saturating_sub(first.len());
         first.extend_from_slice(&chunk[..count.min(room)]);
@@ -230,24 +282,45 @@ async fn read_stderr(mut stderr: tokio::process::ChildStderr) -> StderrDiagnosti
 /// minutes. The image ID is immutable and must already exist on this host.
 /// rmcp still owns the JSON-RPC stream; Core keeps the child handle to report
 /// exit status on a failed handshake and reap it after calls.
-pub(crate) async fn connect(bundle: &str, read_root: &str) -> Result<RunningService<RoleClient, ()>> {
+pub(crate) async fn connect(
+    bundle: &str,
+    read_root: &str,
+) -> Result<RunningService<RoleClient, ()>> {
     let (mut command, name) = worker_command(bundle, read_root)?;
-    let mut child = command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
-        .spawn().context("start isolated filesystem MCP worker")?;
-    let stdout = child.stdout.take().context("stdio MCP worker has no stdout")?;
-    let stdin = child.stdin.take().context("stdio MCP worker has no stdin")?;
-    let stderr = child.stderr.take().context("stdio MCP worker has no stderr")?;
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("start isolated filesystem MCP worker")?;
+    let stdout = child
+        .stdout
+        .take()
+        .context("stdio MCP worker has no stdout")?;
+    let stdin = child
+        .stdin
+        .take()
+        .context("stdio MCP worker has no stdin")?;
+    let stderr = child
+        .stderr
+        .take()
+        .context("stdio MCP worker has no stderr")?;
     let stderr_task = tokio::spawn(read_stderr(stderr));
     let handshake = tokio::time::timeout(
         PROBE_TIMEOUT,
         ().serve(AsyncRwTransport::<RoleClient, _, _>::new(stdout, stdin)),
-    ).await;
+    )
+    .await;
     match handshake {
         Ok(Ok(client)) => {
             tokio::spawn(async move {
                 if tokio::time::timeout(
-                    Duration::from_secs(WORKER_LIFETIME_SECONDS + 10), child.wait(),
-                ).await.is_err() {
+                    Duration::from_secs(WORKER_LIFETIME_SECONDS + 10),
+                    child.wait(),
+                )
+                .await
+                .is_err()
+                {
                     let _ = child.kill().await;
                 }
                 cleanup_worker(&name, false).await;
@@ -257,19 +330,28 @@ pub(crate) async fn connect(bundle: &str, read_root: &str) -> Result<RunningServ
             Ok(client)
         }
         failed => {
-            let status = match tokio::time::timeout(Duration::from_millis(300), child.wait()).await {
-                Ok(Ok(status)) => status.code().map_or("signalled".to_string(), |code| code.to_string()),
+            let status = match tokio::time::timeout(Duration::from_millis(300), child.wait()).await
+            {
+                Ok(Ok(status)) => status
+                    .code()
+                    .map_or("signalled".to_string(), |code| code.to_string()),
                 _ => {
                     let _ = child.kill().await;
                     "still_running_terminated".to_string()
                 }
             };
-            let diagnostic = tokio::time::timeout(Duration::from_millis(300), stderr_task).await
-                .ok().and_then(|result| result.ok());
+            let diagnostic = tokio::time::timeout(Duration::from_millis(300), stderr_task)
+                .await
+                .ok()
+                .and_then(|result| result.ok());
             // Keep watching after returning the error: a Docker create request
             // can complete after the attached CLI has been killed.
-            tokio::spawn(async move { cleanup_worker(&name, true).await; });
-            let class = diagnostic.as_ref().map_or("unavailable", |value| value.class);
+            tokio::spawn(async move {
+                cleanup_worker(&name, true).await;
+            });
+            let class = diagnostic
+                .as_ref()
+                .map_or("unavailable", |value| value.class);
             let bytes = diagnostic.as_ref().map_or(0, |value| value.bytes);
             let reason = match failed {
                 Ok(Err(_)) => "protocol_or_connection_error",

@@ -246,7 +246,9 @@ pub async fn observe(
     after: Option<&str>,
 ) -> Result<serde_json::Value> {
     if resend_production_key.trim().is_empty()
-        || resend_production_key.chars().any(|c| c == '\r' || c == '\n')
+        || resend_production_key
+            .chars()
+            .any(|c| c == '\r' || c == '\n')
     {
         bail!("Resend production credential is missing or malformed");
     }
@@ -261,14 +263,44 @@ pub async fn observe(
         Uuid::parse_str(after).context("email observation cursor must be a provider UUID")?;
     }
     let inbound = if list.is_none() || list == Some("inbound") {
-        Some(observe_list(&client, RESEND_RECEIVING_URL, resend_production_key, (list == Some("inbound")).then_some(after).flatten()).await?)
-    } else { None };
+        Some(
+            observe_list(
+                &client,
+                RESEND_RECEIVING_URL,
+                resend_production_key,
+                (list == Some("inbound")).then_some(after).flatten(),
+            )
+            .await?,
+        )
+    } else {
+        None
+    };
     let outbound = if list.is_none() || list == Some("outbound") {
-        Some(observe_list(&client, RESEND_EMAILS_URL, resend_production_key, (list == Some("outbound")).then_some(after).flatten()).await?)
-    } else { None };
+        Some(
+            observe_list(
+                &client,
+                RESEND_EMAILS_URL,
+                resend_production_key,
+                (list == Some("outbound")).then_some(after).flatten(),
+            )
+            .await?,
+        )
+    } else {
+        None
+    };
     let suppressions = if list.is_none() || list == Some("suppressions") {
-        Some(observe_list(&client, RESEND_SUPPRESSIONS_URL, resend_production_key, (list == Some("suppressions")).then_some(after).flatten()).await?)
-    } else { None };
+        Some(
+            observe_list(
+                &client,
+                RESEND_SUPPRESSIONS_URL,
+                resend_production_key,
+                (list == Some("suppressions")).then_some(after).flatten(),
+            )
+            .await?,
+        )
+    } else {
+        None
+    };
     Ok(serde_json::json!({
         "observed_at": chrono::Utc::now(),
         "provider": "resend",
@@ -297,29 +329,56 @@ async fn observe_list(
         .bearer_auth(key)
         .send()
         .await
-        .with_context(|| format!("request Resend list {}", endpoint.rsplit('/').next().unwrap_or("list")))?;
+        .with_context(|| {
+            format!(
+                "request Resend list {}",
+                endpoint.rsplit('/').next().unwrap_or("list")
+            )
+        })?;
     let status = response.status();
     if !status.is_success() {
         bail!("Resend list request returned HTTP {}", status.as_u16());
     }
-    let value: serde_json::Value = response.json().await.context("decode Resend list response")?;
-    let data = value.get("data").and_then(serde_json::Value::as_array)
+    let value: serde_json::Value = response
+        .json()
+        .await
+        .context("decode Resend list response")?;
+    let data = value
+        .get("data")
+        .and_then(serde_json::Value::as_array)
         .context("Resend list response has no data array")?;
-    let messages: Vec<serde_json::Value> = data.iter().map(|item| {
-        let mut summary = serde_json::Map::new();
-        for field in ["id", "created_at", "from", "to", "subject", "last_event", "received_at"] {
-            if let Some(value) = item.get(field) {
-                summary.insert(field.to_owned(), value.clone());
+    let messages: Vec<serde_json::Value> = data
+        .iter()
+        .map(|item| {
+            let mut summary = serde_json::Map::new();
+            for field in [
+                "id",
+                "created_at",
+                "from",
+                "to",
+                "subject",
+                "last_event",
+                "received_at",
+            ] {
+                if let Some(value) = item.get(field) {
+                    summary.insert(field.to_owned(), value.clone());
+                }
             }
-        }
-        serde_json::Value::Object(summary)
-    }).collect();
-    let has_more = value.get("has_more").and_then(serde_json::Value::as_bool)
+            serde_json::Value::Object(summary)
+        })
+        .collect();
+    let has_more = value
+        .get("has_more")
+        .and_then(serde_json::Value::as_bool)
         .context("Resend list response has no boolean has_more field")?;
     let next_after = if has_more {
-        Some(data.last().and_then(|item| item.get("id")).and_then(serde_json::Value::as_str)
-            .filter(|id| !id.trim().is_empty())
-            .context("Resend list reports has_more but has no last-item ID cursor")?)
+        Some(
+            data.last()
+                .and_then(|item| item.get("id"))
+                .and_then(serde_json::Value::as_str)
+                .filter(|id| !id.trim().is_empty())
+                .context("Resend list reports has_more but has no last-item ID cursor")?,
+        )
     } else {
         None
     };

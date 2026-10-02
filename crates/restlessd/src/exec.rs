@@ -454,13 +454,24 @@ pub async fn wake(
                             let turn_context = turn_context.clone();
                             let session_responsibility = responsibility.clone();
                             let complete_reply_hook = complete_reply_hook.clone();
-                            move |session| Box::pin(async move {
-                                run_ready_exec_session(
-                                    session, &session_org, &turn_context, &company, &model,
-                                    &session_responsibility, remaining, metered,
-                                    focused_mention, complete_reply_hook, &cancellation,
-                                ).await
-                            })
+                            move |session| {
+                                Box::pin(async move {
+                                    run_ready_exec_session(
+                                        session,
+                                        &session_org,
+                                        &turn_context,
+                                        &company,
+                                        &model,
+                                        &session_responsibility,
+                                        remaining,
+                                        metered,
+                                        focused_mention,
+                                        complete_reply_hook,
+                                        &cancellation,
+                                    )
+                                    .await
+                                })
+                            }
                         },
                     )
                     .await
@@ -482,13 +493,24 @@ pub async fn wake(
                             let turn_context = turn_context.clone();
                             let session_responsibility = responsibility.clone();
                             let complete_reply_hook = complete_reply_hook.clone();
-                            move |session| Box::pin(async move {
-                                run_ready_exec_session(
-                                    session, &session_org, &turn_context, &company, &model,
-                                    &session_responsibility, remaining, metered,
-                                    focused_mention, complete_reply_hook, &cancellation,
-                                ).await
-                            })
+                            move |session| {
+                                Box::pin(async move {
+                                    run_ready_exec_session(
+                                        session,
+                                        &session_org,
+                                        &turn_context,
+                                        &company,
+                                        &model,
+                                        &session_responsibility,
+                                        remaining,
+                                        metered,
+                                        focused_mention,
+                                        complete_reply_hook,
+                                        &cancellation,
+                                    )
+                                    .await
+                                })
+                            }
                         },
                     )
                     .await
@@ -680,14 +702,23 @@ pub(crate) async fn agent_auth_for_model(
     let session_id = uuid::Uuid::new_v4().simple().to_string();
     let root = restlessd::appliance::MachineProfile::from_env()?.state_root;
     let company_config = CompanyConfig::load(&root, company)?;
-    if let Some(route) = company_config.agent_intelligence.get(actor)
+    if let Some(route) = company_config
+        .agent_intelligence
+        .get(actor)
         .or_else(|| company_config.agent_intelligence.get("default"))
     {
         if let Some((provider, id, _)) = runtime::account_intelligence_route(&route.connection) {
             if model != company_config.for_agent(actor).model
-                || !crate::owner::account_assignment_is_granted(&root, &company_config, provider, id)?
+                || !crate::owner::account_assignment_is_granted(
+                    &root,
+                    &company_config,
+                    provider,
+                    id,
+                )?
             {
-                anyhow::bail!("This agent's account connection is no longer granted to the company");
+                anyhow::bail!(
+                    "This agent's account connection is no longer granted to the company"
+                );
             }
         }
     }
@@ -1490,7 +1521,14 @@ async fn staffing_routes(org: &OrgIntel, config: &CompanyConfig) -> String {
             }
             Err(_) => "not connected right now; do not assign it".to_string(),
         };
-        lines.push(format!("- {model} — {} — {billing}", if notes.is_empty() { "available".to_string() } else { notes.join("; ") }));
+        lines.push(format!(
+            "- {model} — {} — {billing}",
+            if notes.is_empty() {
+                "available".to_string()
+            } else {
+                notes.join("; ")
+            }
+        ));
     }
     lines.join("\n")
 }
