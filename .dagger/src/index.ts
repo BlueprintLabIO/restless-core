@@ -2,7 +2,7 @@
 import { dag, Container, Directory, Platform, Secret, argument, object, func } from '@dagger.io/dagger';
 
 import { verifyRuntimeToolsImage, verifyCompanyRuntimeImage, verifyNativeDocumentsImage, verifyAccountPlaneImage } from './verify.js';
-import { publishImage, node, verifyBuildInputs } from './publish.js';
+import { publishImage, node, verifyBuildInputs, verifyImageInspection } from './publish.js';
 import { sealRelease } from './release.js';
 
 const NODE_IMAGE = 'node:24.18.1-alpine3.23@sha256:c2cc26d8f991c2db236ad51a61efee843c482372d6d22570787309d511694110';
@@ -157,8 +157,9 @@ export class RestlessCore {
   @func()
   async verifyRelease(source: Directory): Promise<string> {
     await verifyBuildInputs();
+    await verifyImageInspection();
     await node(source).withExec(['node', '--test', 'scripts/company-collaboration-contract.test.mjs']).sync();
-    return 'Core release contracts passed: timestamp-independent publication inputs, legacy and platform-scoped manifests and signed bundle indexes';
+    return 'Core release contracts passed: real OCI image/config inspection, timestamp-independent inputs, legacy and platform-scoped manifests and signed bundle indexes';
   }
 
   /** Publish and qualify exact platform images, including a reusable tool base. */

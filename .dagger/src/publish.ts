@@ -10,6 +10,39 @@ export const CORE_WORKFLOW = 'BlueprintLabIO/restless-core/.github/workflows/imm
 export const EXCLUDES = ['**/.git/**', '**/node_modules/**', '**/target/**', '**/build/**', '**/.svelte-kit/**', '**/dist/**', '**/.env', '**/.env.*', '**/__pycache__/**'];
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 
+async function inspectPlatform(reference: string, platform: string, oras: Container, flags: string[] = []): Promise<void> {
+  const manifest = JSON.parse(await oras.withExec(['manifest', 'fetch', ...flags, reference], { useEntrypoint: true }).stdout());
+  if (!manifest.config?.digest || manifest.manifests) throw new Error('expected one platform-scoped image manifest');
+  const repository = reference.split('@')[0];
+  const inspected = oras.withExec(['blob', 'fetch', ...flags, '--output', '/image-config.json', `${repository}@${manifest.config.digest}`],
+    { useEntrypoint: true });
+  const config = JSON.parse(await inspected.file('/image-config.json').contents());
+  if (`${config.os}/${config.architecture}` !== platform) throw new Error(`registry image is not ${platform}`);
+}
+
+/** Exercise the pinned ORAS commands against a real isolated image registry. */
+export async function verifyImageInspection(): Promise<void> {
+  const registry = dag.container().from('registry:3.0.0@sha256:6c5666b861f3505b116bb9aa9b25175e71210414bd010d92035ff64018f9457e')
+    .withExposedPort(5000).asService();
+  try {
+    const image = dag.container().from(NODE_IMAGE);
+    // Loopback discovery permits HTTP for this isolated test service. Clients
+    // use its service binding; production keeps the canonical TLS GHCR origin.
+    const published = await image.publish('localhost:5000/core-image-check:qualified', { registryService: registry });
+    const reference = published.replace(/^localhost:5000\//, 'registry:5000/');
+    const oras = dag.container().from(ORAS_IMAGE).withServiceBinding('registry', registry);
+    await inspectPlatform(reference, await image.platform(), oras, ['--plain-http']);
+    let rejected = false;
+    try { await inspectPlatform(reference, 'linux/invalid', oras, ['--plain-http']); }
+    catch (error) {
+      if (!String(error).includes('registry image is not linux/invalid')) throw error;
+      rejected = true;
+    }
+    if (!rejected) throw new Error('image inspection accepted a mismatched platform');
+    console.log('Actual registry image/config inspection passed; mismatched platform rejected');
+  } finally { await registry.stop(); }
+}
+
 async function inputIdentity(context: Directory, platform: string): Promise<string> {
   return hash(JSON.stringify({ recipe: 'restless-core-dagger-0.21.10-v1', platform,
     source: await context.withTimestamps(0).digest() }));
@@ -79,12 +112,7 @@ export async function publishImage(component: string, revision: string, platform
   await verify(image);
   const config = await registryConfig(username, password);
   // Inspect actual registry config, not a requested SDK platform hint.
-  const inspected = tool(ORAS_IMAGE, config).withExec(['manifest', 'fetch', reference], { useEntrypoint: true });
-  const manifest = JSON.parse(await inspected.stdout());
-  if (!manifest.config?.digest || manifest.manifests) throw new Error(`${component}: expected one platform-scoped image manifest`);
-  const imageConfig = JSON.parse(await tool(ORAS_IMAGE, config)
-    .withExec(['blob', 'fetch', `${repository}@${manifest.config.digest}`], { useEntrypoint: true }).stdout());
-  if (`${imageConfig.os}/${imageConfig.architecture}` !== platform) throw new Error(`${component}: registry image is not ${platform}`);
+  await inspectPlatform(reference, platform, tool(ORAS_IMAGE, config));
   const scan = scanner(GRYPE_IMAGE, 'GRYPE', username, password)
     .withMountedCache('/cache', dag.cacheVolume('restless-core-grype-v0.119.0'))
     .withEnvVariable('GRYPE_DB_CACHE_DIR', '/cache').withEnvVariable('GRYPE_CHECK_FOR_APP_UPDATE', 'false')
