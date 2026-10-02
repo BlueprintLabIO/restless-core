@@ -15,6 +15,16 @@ struct Worker {
     output: BufReader<tokio::process::ChildStdout>,
 }
 
+// These integration tests use separate Tokio runtimes. A process/pipe belongs
+// to the runtime that spawned it, so tests own and release it before that
+// runtime shuts down, while production keeps its one long-lived runtime.
+#[cfg(test)]
+pub(crate) static SHEET_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+#[cfg(test)]
+pub(crate) async fn reset_test_worker() {
+    *WORKER.lock().await = None;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -27,6 +37,8 @@ mod tests {
             eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Sheets database integration");
             return;
         };
+        let _owned_worker = SHEET_TEST_LOCK.lock().await;
+        reset_test_worker().await;
         assert!(
             url::Url::parse(&url).unwrap().path().ends_with("_test"),
             "requires a disposable test database"
@@ -115,6 +127,7 @@ mod tests {
                 .unwrap();
         }
         cleanup.close().await;
+        reset_test_worker().await;
         if let Err(panic) = outcome {
             std::panic::resume_unwind(panic);
         }

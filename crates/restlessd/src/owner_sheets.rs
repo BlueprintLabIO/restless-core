@@ -463,6 +463,8 @@ mod tests {
         let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
             return;
         };
+        let _owned_worker = sheet_commands::SHEET_TEST_LOCK.lock().await;
+        sheet_commands::reset_test_worker().await;
         assert!(url::Url::parse(&url).unwrap().path().ends_with("_test"));
         let company = format!(
             "sheet_member_{}_test",
@@ -653,6 +655,7 @@ mod tests {
             .await
             .unwrap();
         cleanup.close().await;
+        sheet_commands::reset_test_worker().await;
         if let Err(panic) = outcome {
             std::panic::resume_unwind(panic);
         }
