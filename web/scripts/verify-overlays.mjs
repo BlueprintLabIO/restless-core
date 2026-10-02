@@ -224,6 +224,32 @@ try {
 		)
 	);
 
+	/* A short press arms the button; a second press confirms, for people who cannot hold */
+	await page.reload();
+	await page.waitForTimeout(600);
+	const tap = page.locator('.hold-approve').first();
+	const tapBox = await tap.boundingBox();
+	await page.mouse.move(tapBox.x + 10, tapBox.y + 10);
+	await page.mouse.down();
+	await page.waitForTimeout(150);
+	await page.mouse.up();
+	check(
+		'a short press arms instead of approving',
+		await page.evaluate(() => {
+			const status = document.querySelector('.hold-approve + [role=status]');
+			return /again/i.test(status?.textContent ?? '');
+		})
+	);
+	await page.mouse.down();
+	await page.waitForTimeout(150);
+	await page.mouse.up();
+	check(
+		'…and a second press approves',
+		await page.evaluate(() =>
+			[...document.querySelectorAll('.hold-approve')].some((el) => el.classList.contains('done'))
+		)
+	);
+
 	/* Reduced motion: nothing waits on an animation that will not run */
 	const reduced = await browser.newContext({
 		viewport: { width: 1440, height: 900 },
