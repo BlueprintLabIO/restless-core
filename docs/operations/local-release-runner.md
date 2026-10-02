@@ -51,6 +51,28 @@ bundle assembly still use the existing publisher below. Qualification and UI
 construction have moved first; do not describe this as a fully migrated release
 or promote an unsigned local check image.
 
+### Observed migration evidence
+
+- Core `78dfd5ce` passed [Actions run 36974008003](https://github.com/BlueprintLabIO/restless-core/actions/runs/36974008003)
+  on `restless-core-dagger-drive`. The complete qualification job took 19 seconds
+  with warm caches. Its output was `Core qualification passed: Rust workspace,
+  cockpit check/build, native Documents check/build, pinned native Sheets engine,
+  issuer artifact imports, workflow lint`. Publication was deliberately skipped
+  with `publish=false`.
+- Local qualification of the updated `76df714e` base passed, including its new
+  Docs/Sheets navigation checks. An earlier cold qualification of `0f27a7c5` took
+  228 seconds before the issuer/lint checks were added.
+- The account-image check on `0f27a7c5` executed the image's supported help
+  command, found the bundled cockpit and imported the actual Odoo Sheets engine.
+  Before pre-call filtering, an unrelated documentation edit took 170 seconds
+  to reconstruct the graph even though compilation was cached. With filtering,
+  the first call took 221 seconds, an exact repeat took 2 seconds and an unrelated
+  documentation edit took 3 seconds. These are image-check timings, not full
+  release or company-readiness timings.
+- The offline `restless-core-local` registration (id 21) was removed after the
+  replacement runner passed that workflow. Only the replacement Core runner
+  remained registered and online.
+
 ## Existing immutable publisher
 
 `Immutable Core release` and `Identity image` are manually dispatched GitHub Actions workflows. Their jobs run on a repository-scoped Linux x64 runner labelled `restless-core` on the owner machine. They still publish signed immutable images and the signed Core release bundle to GHCR with the existing GitHub OIDC workflow identity. The bundle format and Cloud trust policy stay the same.

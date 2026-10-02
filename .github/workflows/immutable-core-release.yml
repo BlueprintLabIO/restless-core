@@ -25,6 +25,8 @@ permissions:
 jobs:
   qualify:
     name: Qualify source
+    permissions:
+      contents: read
     runs-on: [self-hosted, linux, x64, restless-core]
     timeout-minutes: 45
     steps:
