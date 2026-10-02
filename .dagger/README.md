@@ -37,6 +37,23 @@ company path before promotion. Source qualification and a registry upload alone
 do not establish a deployable release; complete signed publication and admission
 must be observed.
 
+## Desktop and tool-base qualification
+
+`dagger call verify-runtime-tools --source=. stdout` checks the actual tool image
+as UID 2000, including offline package use and a Chromium connection to TigerVNC
+through the existing noVNC URL. The desktop probe waits for a connected, rendered
+framebuffer and rejects browser errors. Both direct qualification and publication
+use `infra/company-image/verify-desktop.mjs`.
+
+The image uses checksum-pinned upstream noVNC 1.6.0 assets rather than Debian's
+`novnc` package, which installed an additional Node 20 dependency tree. Supervised
+Node services use `/usr/local/bin/node` from the pinned Node 24 base. The tool and
+desktop qualification passed in 219 seconds on the current workstation. A fresh
+raw Grype scan reduced Debian High/Critical package-advisory pairs from 215 to
+188, with no npm High/Critical findings. The remaining Debian findings still
+fail the unchanged release gate; this qualification does not admit or deploy
+the full Core release.
+
 ## Independent product libraries
 
 `Core product artifacts` runs on relevant pushes to `dev`. It delivers the UI
