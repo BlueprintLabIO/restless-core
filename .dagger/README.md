@@ -36,3 +36,43 @@ It does not prove PostgreSQL integration. Cloud staging probes cover the complet
 company path before promotion. Source qualification and a registry upload alone
 do not establish a deployable release; complete signed publication and admission
 must be observed.
+
+## Independent product libraries
+
+`Core product artifacts` runs on relevant pushes to `dev`. It delivers the UI
+kit, Office and issuer as small OCI packages in the existing
+`ghcr.io/blueprintlabio/restless-core-release` repository. This path builds no
+Rust or Runtime image. The whole cockpit's asset delivery is a separate migration.
+
+The publisher first computes the actual package inputs, including resolved
+Office imports, dependency locks and build/check recipes. A signed
+`<kind>-inputs-<input SHA>-<UTC scan day>` marker can reuse an exact qualified
+payload. Registry observations are fresh; authentication/network failures are
+not treated as missing artifacts. A marker is created only after qualification
+and sealing finish, so an interrupted earlier release cannot suppress a build.
+Existing input markers and source discovery tags are never overwritten.
+
+Reuse verifies the exact dev library workflow identity, source, input hash,
+archive and evidence. It retains the artifact's original Core revision; the
+current integration commit may include unrelated changes. A new scan day or
+changed source/recipe inputs requires qualification. The standard signature and
+receipt remain independently verifiable.
+
+To force package qualification without consulting published input markers:
+
+```sh
+dagger call library --source=. --kind=ui --revision="$(git rev-parse HEAD)" \
+  --epoch="$(git show -s --format=%ct HEAD)" --scan-period="$(date -u +%F)" \
+  export --path=/tmp/core-ui-qualification
+dagger call verify-library-inputs --source=. stdout
+```
+
+The canonical input-boundary checks modify owned snapshots of actual sources.
+They cover UI-only, imported Office helper, issuer, shared dependency and recipe
+changes, plus removed files, unrelated changes and symlink rejection. No company,
+model provider or live appliance participates.
+
+Cloud imports these signed OCI packages with `scripts/fetch-core-library.mjs`,
+tracks their exact archives and qualification evidence, and verifies admission
+before release. Fleet Web consumes the issuer archive directly. Git release
+tags and issuer extraction from the account-plane image are retired.
