@@ -483,13 +483,31 @@ pub(crate) async fn project(
     .await;
     let harnesses = harness_settings(config, runtime_doctor.as_ref());
     let external_actions = actions(authority.as_ref());
-    let company_doctor = company_doctor(
+    let mut company_doctor = company_doctor(
         authority_source.clone(),
         orgintel_source.clone(),
         runtime_source.clone(),
         runtime_doctor.as_ref(),
         observed_at,
     );
+    let model_issue = crate::owner::observed_company_model_issue(config).await;
+    company_doctor.checks.insert(
+        0,
+        DoctorCheck {
+            id: "intelligence",
+            label: "Intelligence provider",
+            source: "authority",
+            status: if model_issue.is_some() {
+                "degraded"
+            } else {
+                "healthy"
+            },
+            summary: model_issue
+                .unwrap_or_else(|| "No provider setup problem is currently reported.".into()),
+            detail: None,
+        },
+    );
+    company_doctor.status = overall_doctor_status(&company_doctor.checks);
     let generation = runtime::generation(&config.name).await.ok().flatten();
     let runtime_json = runtime_doctor
         .as_ref()
@@ -671,12 +689,8 @@ async fn read_authority(daemon: &Daemon, company: &str) -> Result<AuthorityProje
         daemon
             .authority
             .records_of_kind(company, "effect_reconciled"),
-        daemon
-            .authority
-            .records_of_kind(company, "email_send_reserved"),
-        daemon
-            .authority
-            .records_of_kind(company, "email_send_status"),
+        daemon.authority.records_of_kind(company, "email_send_reserved"),
+        daemon.authority.records_of_kind(company, "email_send_status"),
         legal::get_profile(&daemon.authority, company),
         airwallex::connection(&daemon.authority, company),
         finance::envelopes(&daemon.authority, company),
@@ -1322,68 +1336,37 @@ fn actions(authority: Option<&AuthorityProjection>) -> ExternalActions {
     );
     let mut latest_email_status = std::collections::BTreeMap::new();
     for status in &authority.email_statuses {
-        if let Some(id) = status
-            .body
-            .get("permit_id")
-            .and_then(serde_json::Value::as_str)
-        {
+        if let Some(id) = status.body.get("permit_id").and_then(serde_json::Value::as_str) {
             latest_email_status.insert(id.to_owned(), status);
         }
     }
-    items.extend(
-        authority
-            .email_reservations
-            .iter()
-            .rev()
-            .take(50)
-            .filter_map(|reservation| {
-                let permit_id = reservation.body.get("permit_id")?.as_str()?;
-                let status = latest_email_status.get(permit_id);
-                let outcome = status
-                    .and_then(|record| record.body.get("outcome"))
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("unknown");
-                let (state, evidence, detail) = match outcome {
-                    "confirmed_sent" => (
-                        "succeeded",
-                        "provider_confirmed",
-                        "Resend accepted the email; delivery is unconfirmed.",
-                    ),
-                    "confirmed_not_sent" => (
-                        "failed",
-                        "provider_confirmed",
-                        "Resend did not accept the email.",
-                    ),
-                    _ => (
-                        "unknown",
-                        "authority_recorded",
-                        "The email send outcome needs reconciliation; do not retry.",
-                    ),
-                };
-                Some(ExternalActionRow {
-                    id: format!("email:{permit_id}"),
-                    title: "Outbound email".into(),
-                    effect_class: "customer-contact.email".into(),
-                    source: "authority_provider",
-                    state: state.into(),
-                    evidence,
-                    actor: Some("exec".into()),
-                    party: reservation
-                        .body
-                        .get("recipient")
-                        .and_then(serde_json::Value::as_str)
-                        .map(str::to_owned),
-                    receipt_ref: status
-                        .and_then(|record| record.body.get("provider_ref"))
-                        .and_then(serde_json::Value::as_str)
-                        .map(str::to_owned),
-                    detail: Some(detail.into()),
-                    observed_at: status
-                        .map(|record| record.created_at)
-                        .unwrap_or(reservation.created_at),
-                })
-            }),
-    );
+    items.extend(authority.email_reservations.iter().rev().take(50).filter_map(|reservation| {
+        let permit_id = reservation.body.get("permit_id")?.as_str()?;
+        let status = latest_email_status.get(permit_id);
+        let outcome = status
+            .and_then(|record| record.body.get("outcome"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown");
+        let (state, evidence, detail) = match outcome {
+            "confirmed_sent" => ("succeeded", "provider_confirmed", "Resend accepted the email; delivery is unconfirmed."),
+            "confirmed_not_sent" => ("failed", "provider_confirmed", "Resend did not accept the email."),
+            _ => ("unknown", "authority_recorded", "The email send outcome needs reconciliation; do not retry."),
+        };
+        Some(ExternalActionRow {
+            id: format!("email:{permit_id}"),
+            title: "Outbound email".into(),
+            effect_class: "customer-contact.email".into(),
+            source: "authority_provider",
+            state: state.into(),
+            evidence,
+            actor: Some("exec".into()),
+            party: reservation.body.get("recipient").and_then(serde_json::Value::as_str).map(str::to_owned),
+            receipt_ref: status.and_then(|record| record.body.get("provider_ref"))
+                .and_then(serde_json::Value::as_str).map(str::to_owned),
+            detail: Some(detail.into()),
+            observed_at: status.map(|record| record.created_at).unwrap_or(reservation.created_at),
+        })
+    }));
     items.extend(authority.payments.iter().map(|payment| {
         let confirmed =
             payment.provider_transfer_id.is_some() || payment.raw_provider_status.is_some();
@@ -2179,11 +2162,7 @@ model = "moonshot/kimi-k3"
         assert_eq!(documents.status, "unavailable");
         assert_eq!(rooms.status, "available");
         // An installed command is not proof that agents can use it.
-        assert!(rooms
-            .detail
-            .as_deref()
-            .unwrap()
-            .contains("installation only"));
+        assert!(rooms.detail.as_deref().unwrap().contains("installation only"));
         assert_ne!(report.status, "healthy");
     }
 

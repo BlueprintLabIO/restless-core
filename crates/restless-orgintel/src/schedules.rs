@@ -4,7 +4,7 @@ use super::*;
 use chrono::{Datelike as _, Days, LocalResult, NaiveDateTime, NaiveTime, TimeZone as _, Weekday};
 use chrono_tz::Tz;
 
-const SCHEDULE_COLUMNS: &str = "id, actor_id, work_id, reason, fire_at, fired_at, cancelled_at, recurrence, timezone, local_time, last_fired_at, missed_policy, catch_up_grace_seconds, last_missed_at, last_considered_at, machine_requirement, created_at, interval_seconds, responsibility_id, responsibility_version";
+const SCHEDULE_COLUMNS: &str = "id, actor_id, work_id, reason, fire_at, fired_at, cancelled_at, paused_at, recurrence, timezone, local_time, last_fired_at, missed_policy, catch_up_grace_seconds, last_missed_at, last_considered_at, machine_requirement, created_at, interval_seconds, responsibility_id, responsibility_version";
 const MISSED_TOLERANCE_SECONDS: i64 = 30;
 const DEFAULT_OPPORTUNITY_WINDOW_SECONDS: i64 = 2 * 60 * 60;
 const DEFAULT_OPPORTUNITY_DELIVERY_BUDGET: i32 = 4;
@@ -1554,6 +1554,69 @@ impl OrgIntel {
         Ok(cancelled)
     }
 
+    /// Owner changes share the scheduler's row lock. A stale screen cannot
+    /// overwrite a newer firing; resuming never replays the paused backlog.
+    pub async fn update_recurring_schedule(
+        &self,
+        schedule_id: Uuid,
+        expected_fire_at: DateTime<Utc>,
+        expected_paused: bool,
+        paused: bool,
+        interval_seconds: Option<i32>,
+    ) -> Result<Option<ScheduleRow>> {
+        let mut tx = self.pool.begin().await?;
+        let Some(row) = sqlx::query_as::<_, ScheduleRow>(&format!(
+            "SELECT {SCHEDULE_COLUMNS} FROM schedules WHERE id=$1 AND actor_id='exec' \
+             AND recurrence IS NOT NULL AND fired_at IS NULL AND cancelled_at IS NULL FOR UPDATE"
+        ))
+        .bind(schedule_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        else {
+            return Ok(None);
+        };
+        if row.fire_at != expected_fire_at || row.paused_at.is_some() != expected_paused {
+            return Ok(None);
+        }
+        if let Some(seconds) = interval_seconds {
+            if row.recurrence.as_deref() != Some("interval")
+                || !(MIN_INTERVAL_SECONDS..=MAX_INTERVAL_SECONDS).contains(&seconds)
+            {
+                return Err(OrgIntelError::InvalidWork("Choose a cadence between five minutes and thirty days for an interval schedule".into()));
+            }
+        }
+        let now = Utc::now();
+        let interval = interval_seconds.or(row.interval_seconds);
+        let fire_at = if interval_seconds.is_some() {
+            now + chrono::Duration::seconds(i64::from(interval.expect("validated interval")))
+        } else if !paused && row.paused_at.is_some() && row.fire_at <= now {
+            match row.recurrence.as_deref() {
+                Some("interval") => next_interval_fire(row.fire_at, now, interval)?,
+                Some("weekdays") => next_weekday_fire(
+                    now,
+                    row.local_time
+                        .ok_or_else(|| OrgIntelError::InvalidWork("Missing local time".into()))?,
+                    row.timezone
+                        .as_deref()
+                        .ok_or_else(|| OrgIntelError::InvalidWork("Missing timezone".into()))?,
+                )?,
+                _ => {
+                    return Err(OrgIntelError::InvalidWork(
+                        "This recurrence cannot be resumed".into(),
+                    ))
+                }
+            }
+        } else {
+            row.fire_at
+        };
+        let updated = sqlx::query_as::<_, ScheduleRow>(&format!(
+            "UPDATE schedules SET paused_at=CASE WHEN $2 THEN COALESCE(paused_at,now()) ELSE NULL END, \
+             interval_seconds=$3, fire_at=$4 WHERE id=$1 RETURNING {SCHEDULE_COLUMNS}"
+        )).bind(schedule_id).bind(paused).bind(interval).bind(fire_at).fetch_one(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(Some(updated))
+    }
+
     pub async fn claim_due_schedules(&self) -> Result<Vec<ScheduleRow>> {
         self.claim_due_schedules_at(Utc::now()).await
     }
@@ -1565,7 +1628,7 @@ impl OrgIntel {
         Ok(sqlx::query_scalar::<_, Option<DateTime<Utc>>>(
             "SELECT min(fire_at) FROM schedules \
              WHERE fired_at IS NULL AND cancelled_at IS NULL \
-               AND machine_requirement='local_mac'",
+               AND machine_requirement='local_mac' AND paused_at IS NULL",
         )
         .fetch_one(&self.pool)
         .await?)
@@ -1591,7 +1654,7 @@ impl OrgIntel {
         let rows = sqlx::query_as::<_, ScheduleRow>(&format!(
             "SELECT {SCHEDULE_COLUMNS} \
              FROM schedules WHERE fire_at <= $1 AND fired_at IS NULL AND cancelled_at IS NULL \
-               AND machine_requirement='local_mac' \
+               AND machine_requirement='local_mac' AND paused_at IS NULL \
              ORDER BY fire_at FOR UPDATE SKIP LOCKED"
         ))
         .bind(now)

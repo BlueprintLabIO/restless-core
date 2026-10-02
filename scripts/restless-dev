@@ -446,10 +446,14 @@ promote() {
     --target-dir "${build_root}/target" -p restlessd -p restless
   printf '\nBuilding the Cockpit…\n'
   npm --prefix "${source}/web" ci --no-audit --no-fund
+  npm --prefix "${source}/services/native-sheets" ci --no-audit --no-fund
+  npm --prefix "${source}/services/native-sheets" test
   npm --prefix "${source}/web" run build
   printf '\nInstalling the model broker…\n'
   local tools
   tools="$(dev_install_host_tools "$source" "$tools_root")"
+  local sheets
+  sheets="$(dev_install_sheets "$source" "$tools_root")"
   printf '\nBuilding the company computer and document service…\n'
   dev_build_company_image "$source" "restless-company-image:${short}" "$commit"
   docker build --tag "restless-native-documents:${short}" \
@@ -461,6 +465,8 @@ RESTLESS_SOURCE_COMMIT=${commit}
 RESTLESS_COMPANY_IMAGE=restless-company-image:${short}
 RESTLESS_NATIVE_DOCUMENTS_IMAGE=restless-native-documents:${short}
 RESTLESS_OMP_BIN=${tools}/omp-source
+RESTLESS_SHEETS_WORKER=${sheets}/src/worker.mjs
+RESTLESS_NODE_BIN=${sheets}/bin/node
 EOF_RELEASE
 
   if [ "$build_only" = true ]; then

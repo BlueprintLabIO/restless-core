@@ -455,12 +455,8 @@ pub struct Processes {
 
 impl Drop for Processes {
     fn drop(&mut self) {
-        if let Some(relay) = self.relay.as_ref() {
-            relay.abort();
-        }
-        if let Some(gateway) = self.gateway.as_mut() {
-            let _ = gateway.start_kill();
-        }
+        if let Some(relay) = self.relay.as_ref() { relay.abort(); }
+        if let Some(gateway) = self.gateway.as_mut() { let _ = gateway.start_kill(); }
         let _ = self.broker.start_kill();
         let _ = std::fs::remove_file(&self.marker);
     }
@@ -496,8 +492,7 @@ fn resolved_program(program: &str) -> Result<PathBuf> {
 
 pub(crate) fn oauth_login_command() -> Result<(PathBuf, String)> {
     let profile = GatewayEndpoints::from_env()?.broker_profile;
-    let program =
-        resolved_program(&std::env::var("RESTLESS_OMP_BIN").unwrap_or_else(|_| "omp".to_owned()))?;
+    let program = resolved_program(&std::env::var("RESTLESS_OMP_BIN").unwrap_or_else(|_| "omp".to_owned()))?;
     Ok((program, profile))
 }
 
@@ -693,10 +688,7 @@ pub async fn start(
 
     if broker_only {
         if let Ok(mut access) = BROKER_ACCESS.write() {
-            *access = Some(BrokerAccess {
-                url: endpoints.broker_url,
-                token: broker_token,
-            });
+            *access = Some(BrokerAccess { url: endpoints.broker_url, token: broker_token });
         } else {
             bail!("model broker state lock is poisoned");
         }
@@ -756,10 +748,7 @@ pub async fn start(
         uninstall();
         NO_DIRECT_PROVIDER.store(true, Ordering::Release);
         if let Ok(mut access) = BROKER_ACCESS.write() {
-            *access = Some(BrokerAccess {
-                url: endpoints.broker_url,
-                token: broker_token,
-            });
+            *access = Some(BrokerAccess { url: endpoints.broker_url, token: broker_token });
         } else {
             bail!("model broker state lock is poisoned");
         }
@@ -865,8 +854,8 @@ pub async fn start(
             .build()
             .context("build Runtime model relay client")?,
     };
-    let relay =
-        start_runtime_relay(relay_state.clone(), &endpoints.relay_bind, local_mcp_daemon).await?;
+    let relay = start_runtime_relay(relay_state.clone(), &endpoints.relay_bind, local_mcp_daemon)
+        .await?;
     match (CLIENT.write(), HOSTED_RELAY_STATE.write()) {
         (Ok(mut client), Ok(mut hosted)) => {
             *client = Some(ClientConfig {
@@ -1243,10 +1232,7 @@ fn direct_responses_routes(
     gateway_token: &str,
 ) -> Result<BTreeMap<String, DirectResponsesRoute>> {
     let mut routes = BTreeMap::new();
-    if matches!(
-        credentials.get("openai-codex"),
-        Some(ProviderCredential::OmpOauth)
-    ) {
+    if matches!(credentials.get("openai-codex"), Some(ProviderCredential::OmpOauth)) {
         routes.insert(
             "openai-codex".to_string(),
             DirectResponsesRoute {
@@ -1289,13 +1275,10 @@ fn direct_anthropic_routes(
 ) -> Result<BTreeMap<String, DirectAnthropicRoute>> {
     let mut routes = BTreeMap::new();
     if let Some(ProviderCredential::OmpOauth) = credentials.get("anthropic") {
-        routes.insert(
-            "anthropic".to_string(),
-            DirectAnthropicRoute {
-                base_url: format!("{}/v1", gateway_url.trim_end_matches('/')),
-                credential: AnthropicRouteCredential::AccountOauth(gateway_token.to_owned()),
-            },
-        );
+        routes.insert("anthropic".to_string(), DirectAnthropicRoute {
+            base_url: format!("{}/v1", gateway_url.trim_end_matches('/')),
+            credential: AnthropicRouteCredential::AccountOauth(gateway_token.to_owned()),
+        });
     } else if let Some(ProviderCredential::ApiKey(api_key)) = credentials.get("anthropic") {
         let mut url = reqwest::Url::parse(
             &std::env::var("RESTLESS_ANTHROPIC_BASE_URL")
@@ -1594,7 +1577,9 @@ async fn relay_responses(
     // distinguishable from tools actually advertised to the model, without
     // recording prompts, schemas, arguments, capabilities, or response bodies.
     if grant.work_id.is_some() {
-        let tools = request.get("tools").and_then(serde_json::Value::as_array);
+        let tools = request
+            .get("tools")
+            .and_then(serde_json::Value::as_array);
         let names = tools
             .into_iter()
             .flatten()
@@ -1650,10 +1635,7 @@ async fn relay_responses(
     // later turn. OpenAI accepts those Responses shapes, while the pinned OMP
     // gateway's parser requires arrays. Preserve each item and its other
     // fields, changing only the empty content representation.
-    if let Some(input) = request
-        .get_mut("input")
-        .and_then(serde_json::Value::as_array_mut)
-    {
+    if let Some(input) = request.get_mut("input").and_then(serde_json::Value::as_array_mut) {
         for item in input {
             if item.get("content").is_some_and(serde_json::Value::is_null) {
                 item["content"] = serde_json::Value::Array(Vec::new());
@@ -1818,8 +1800,7 @@ async fn relay_anthropic_messages(
         );
     }
     request["model"] = serde_json::Value::String(model_id.to_string());
-    if grant.billing == "metered_api" && anthropic_tariff_micro_usd(model_id, 0, 0, 0, 0).is_none()
-    {
+    if grant.billing == "metered_api" && anthropic_tariff_micro_usd(model_id, 0, 0, 0, 0).is_none() {
         return relay_error(
             StatusCode::BAD_REQUEST,
             "exact Anthropic tariff is not pinned for this model",
@@ -1838,10 +1819,7 @@ async fn relay_anthropic_messages(
     if grant.billing == "metered_api" {
         let budget = state.spend.budget_state(&config);
         if !budget.is_available() {
-            return relay_error(
-                StatusCode::PAYMENT_REQUIRED,
-                &budget.owner_message(&config.name),
-            );
+            return relay_error(StatusCode::PAYMENT_REQUIRED, &budget.owner_message(&config.name));
         }
     }
     let Some(route) = state.anthropic_routes.get(provider) else {
@@ -1854,24 +1832,14 @@ async fn relay_anthropic_messages(
         Ok(encoded) => encoded,
         Err(_) => return relay_error(StatusCode::BAD_REQUEST, "could not encode model request"),
     };
-    let mut upstream_request = state
-        .http
+    let mut upstream_request = state.http
         .post(format!("{}/messages", route.base_url))
         .header(CONTENT_TYPE, "application/json")
         .body(encoded);
     upstream_request = match &route.credential {
-        AnthropicRouteCredential::ApiKey(key) if grant.billing == "metered_api" => {
-            upstream_request.header("x-api-key", key)
-        }
-        AnthropicRouteCredential::AccountOauth(token) if grant.billing == "subscription" => {
-            upstream_request.bearer_auth(token)
-        }
-        _ => {
-            return relay_error(
-                StatusCode::FORBIDDEN,
-                "model billing does not match the admitted Anthropic connection",
-            )
-        }
+        AnthropicRouteCredential::ApiKey(key) if grant.billing == "metered_api" => upstream_request.header("x-api-key", key),
+        AnthropicRouteCredential::AccountOauth(token) if grant.billing == "subscription" => upstream_request.bearer_auth(token),
+        _ => return relay_error(StatusCode::FORBIDDEN, "model billing does not match the admitted Anthropic connection"),
     };
     for name in ["anthropic-version", "anthropic-beta", "accept"] {
         if let Some(value) = headers.get(name) {
@@ -1914,11 +1882,7 @@ async fn relay_anthropic_messages(
             work_id: grant.work_id,
             attempt_id: grant.attempt_id,
             model: grant.model,
-            billing: if grant.billing == "subscription" {
-                ModelBilling::Subscription
-            } else {
-                ModelBilling::MeteredApi
-            },
+            billing: if grant.billing == "subscription" { ModelBilling::Subscription } else { ModelBilling::MeteredApi },
         },
     );
     let (stream, _drain) = detach_metered_stream(stream);
@@ -1990,8 +1954,7 @@ async fn relay_anthropic_count_tokens(
             "model capability does not permit this exact model",
         );
     }
-    if grant.billing == "metered_api" && anthropic_tariff_micro_usd(model_id, 0, 0, 0, 0).is_none()
-    {
+    if grant.billing == "metered_api" && anthropic_tariff_micro_usd(model_id, 0, 0, 0, 0).is_none() {
         return relay_error(
             StatusCode::BAD_REQUEST,
             "exact Anthropic tariff is not pinned for this model",
@@ -2008,67 +1971,42 @@ async fn relay_anthropic_count_tokens(
         Ok(encoded) => encoded,
         Err(_) => return relay_error(StatusCode::BAD_REQUEST, "could not encode token count"),
     };
-    let mut upstream_request = state
-        .http
+    let mut upstream_request = state.http
         .post(match &route.credential {
-            AnthropicRouteCredential::ApiKey(_) => {
-                format!("{}/messages/count_tokens", route.base_url)
-            }
+            AnthropicRouteCredential::ApiKey(_) => format!("{}/messages/count_tokens", route.base_url),
             // OMP's translated Messages gateway does not expose token counting.
             // This host-only request uses the broker's current access token.
-            AnthropicRouteCredential::AccountOauth(_) => {
-                "https://api.anthropic.com/v1/messages/count_tokens".to_owned()
-            }
+            AnthropicRouteCredential::AccountOauth(_) => "https://api.anthropic.com/v1/messages/count_tokens".to_owned(),
         })
         .header(CONTENT_TYPE, "application/json")
         .body(encoded);
     upstream_request = match &route.credential {
-        AnthropicRouteCredential::ApiKey(key) if grant.billing == "metered_api" => {
-            upstream_request.header("x-api-key", key)
-        }
+        AnthropicRouteCredential::ApiKey(key) if grant.billing == "metered_api" => upstream_request.header("x-api-key", key),
         AnthropicRouteCredential::AccountOauth(_) if grant.billing == "subscription" => {
-            let expected_account = grant.credential_reference.as_deref().and_then(|reference| {
-                crate::owner::account_oauth_key(&state.root, provider, reference)
-                    .ok()
-                    .flatten()
-            });
+            let expected_account = grant.credential_reference.as_deref()
+                .and_then(|reference| crate::owner::account_oauth_key(&state.root, provider, reference).ok().flatten());
             let token = match expected_account {
                 Some(expected) => current_anthropic_oauth_token(&state, &expected).await,
                 None => Err(anyhow::anyhow!("account identity is unavailable")),
             };
             let token = match token {
                 Ok(token) => token,
-                Err(_) => {
-                    return relay_error(
-                        StatusCode::BAD_GATEWAY,
-                        "account Claude sign-in is unavailable",
-                    )
-                }
+                Err(_) => return relay_error(StatusCode::BAD_GATEWAY, "account Claude sign-in is unavailable"),
             };
-            let beta = headers
-                .get("anthropic-beta")
-                .and_then(|value| value.to_str().ok())
+            let beta = headers.get("anthropic-beta").and_then(|value| value.to_str().ok())
                 .filter(|value| !value.is_empty())
                 .map(|value| format!("claude-code-20250219,oauth-2025-04-20,{value}"))
                 .unwrap_or_else(|| "claude-code-20250219,oauth-2025-04-20".to_owned());
-            let user_agent = headers
-                .get("user-agent")
-                .and_then(|value| value.to_str().ok())
+            let user_agent = headers.get("user-agent").and_then(|value| value.to_str().ok())
                 .filter(|value| value.starts_with("claude-cli/") && value.len() <= 160)
                 .unwrap_or("claude-cli/2.1.257");
-            upstream_request
-                .bearer_auth(token)
+            upstream_request.bearer_auth(token)
                 .header("anthropic-beta", beta)
                 .header("anthropic-version", "2023-06-01")
                 .header("user-agent", user_agent)
                 .header("x-app", "cli")
         }
-        _ => {
-            return relay_error(
-                StatusCode::FORBIDDEN,
-                "model billing does not match the admitted Anthropic connection",
-            )
-        }
+        _ => return relay_error(StatusCode::FORBIDDEN, "model billing does not match the admitted Anthropic connection"),
     };
     for name in ["anthropic-version", "accept"] {
         if let Some(value) = headers.get(name) {
@@ -2119,73 +2057,28 @@ async fn relay_anthropic_count_tokens(
 /// The count-tokens endpoint is not implemented by OMP's protocol gateway.
 /// Read only the active Anthropic access token from the host broker, refreshing
 /// it there when near expiry. It is never returned to the company or browser.
-async fn current_anthropic_oauth_token(
-    state: &RelayState,
-    expected_account: &str,
-) -> Result<String> {
+async fn current_anthropic_oauth_token(state: &RelayState, expected_account: &str) -> Result<String> {
     let access = &state.broker_access;
     let mut snapshot = broker_snapshot(&state.http, &access.token, &access.url).await?;
-    let row = snapshot
-        .credentials
-        .iter()
-        .filter(|row| row.provider == "anthropic" && row.is_oauth())
-        .collect::<Vec<_>>();
-    if row.len() != 1 {
-        bail!("account has no unique Anthropic OAuth credential")
-    }
-    let actual_account = row[0]
-        .credential
-        .get("accountId")
-        .or_else(|| row[0].credential.get("email"))
-        .and_then(serde_json::Value::as_str)
-        .context("Anthropic OAuth identity is unavailable")?;
-    if actual_account != expected_account {
-        bail!("Anthropic OAuth account changed")
-    }
-    let expires = row[0]
-        .credential
-        .get("expires")
-        .and_then(serde_json::Value::as_u64)
-        .context("Anthropic OAuth expiry is unavailable")?;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)?
-        .as_millis() as u64;
+    let row = snapshot.credentials.iter().filter(|row| row.provider == "anthropic" && row.is_oauth()).collect::<Vec<_>>();
+    if row.len() != 1 { bail!("account has no unique Anthropic OAuth credential") }
+    let actual_account = row[0].credential.get("accountId").or_else(|| row[0].credential.get("email"))
+        .and_then(serde_json::Value::as_str).context("Anthropic OAuth identity is unavailable")?;
+    if actual_account != expected_account { bail!("Anthropic OAuth account changed") }
+    let expires = row[0].credential.get("expires").and_then(serde_json::Value::as_u64).context("Anthropic OAuth expiry is unavailable")?;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_millis() as u64;
     if expires <= now.saturating_add(60_000) {
-        let response = state
-            .http
-            .post(format!(
-                "{}/v1/credential/{}/refresh",
-                access.url, row[0].id
-            ))
-            .bearer_auth(&access.token)
-            .send()
-            .await?;
-        if !response.status().is_success() {
-            bail!("host broker could not refresh Anthropic OAuth")
-        }
+        let response = state.http.post(format!("{}/v1/credential/{}/refresh", access.url, row[0].id))
+            .bearer_auth(&access.token).send().await?;
+        if !response.status().is_success() { bail!("host broker could not refresh Anthropic OAuth") }
         snapshot = broker_snapshot(&state.http, &access.token, &access.url).await?;
     }
-    let row = snapshot
-        .credentials
-        .iter()
-        .filter(|row| row.provider == "anthropic" && row.is_oauth())
-        .collect::<Vec<_>>();
-    if row.len() != 1 {
-        bail!("account has no unique Anthropic OAuth credential")
-    }
-    let current_account = row[0]
-        .credential
-        .get("accountId")
-        .or_else(|| row[0].credential.get("email"))
-        .and_then(serde_json::Value::as_str)
-        .context("Anthropic OAuth identity is unavailable")?;
-    if current_account != expected_account {
-        bail!("Anthropic OAuth account changed")
-    }
-    row[0]
-        .credential
-        .get("access")
-        .and_then(serde_json::Value::as_str)
+    let row = snapshot.credentials.iter().filter(|row| row.provider == "anthropic" && row.is_oauth()).collect::<Vec<_>>();
+    if row.len() != 1 { bail!("account has no unique Anthropic OAuth credential") }
+    let current_account = row[0].credential.get("accountId").or_else(|| row[0].credential.get("email"))
+        .and_then(serde_json::Value::as_str).context("Anthropic OAuth identity is unavailable")?;
+    if current_account != expected_account { bail!("Anthropic OAuth account changed") }
+    row[0].credential.get("access").and_then(serde_json::Value::as_str)
         .filter(|token| !token.is_empty())
         .map(str::to_owned)
         .context("Anthropic OAuth access is unavailable")
@@ -2336,10 +2229,7 @@ async fn live_company_model_grant(
 
 fn relay_model_grant_error(error: anyhow::Error) -> Response<Body> {
     if error.downcast_ref::<BrokerIdentityUnavailable>().is_some() {
-        tracing::warn!(
-            class = "host_model_broker_unavailable",
-            "model grant probe unavailable"
-        );
+        tracing::warn!(class = "host_model_broker_unavailable", "model grant probe unavailable");
         relay_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "company model account broker is temporarily unavailable",
@@ -2593,9 +2483,7 @@ impl MeteredStream {
                 if self.request.work_id.is_some()
                     && event.get("type").and_then(serde_json::Value::as_str)
                         == Some("response.output_item.done")
-                    && event
-                        .pointer("/item/type")
-                        .and_then(serde_json::Value::as_str)
+                    && event.pointer("/item/type").and_then(serde_json::Value::as_str)
                         == Some("function_call")
                 {
                     tracing::info!(
@@ -2669,21 +2557,20 @@ impl MeteredStream {
         let usage = &self.anthropic_usage;
         let Some(micro_usd) = (match self.request.billing {
             ModelBilling::Subscription => Some(0),
-            ModelBilling::MeteredApi => {
-                split_model(&self.request.model)
-                    .ok()
-                    .and_then(|(_, model)| {
-                        anthropic_tariff_micro_usd(
-                            model,
-                            usage.input_tokens,
-                            usage.output_tokens,
-                            usage.cache_creation_input_tokens,
-                            usage.cache_read_input_tokens,
-                        )
-                    })
-            }
+            ModelBilling::MeteredApi => split_model(&self.request.model)
+                .ok()
+                .and_then(|(_, model)| {
+                    anthropic_tariff_micro_usd(
+                        model,
+                        usage.input_tokens,
+                        usage.output_tokens,
+                        usage.cache_creation_input_tokens,
+                        usage.cache_read_input_tokens,
+                    )
+                }),
             ModelBilling::NativeApi => None,
-        }) else {
+        })
+        else {
             self.failed = true;
             return;
         };
@@ -3063,26 +2950,16 @@ pub(crate) async fn oauth_account_identity(provider: &str) -> Result<Option<Stri
         .map_err(|_| anyhow::anyhow!("host model broker state is unavailable"))?
         .clone()
         .context("host model broker is not running")?;
-    let http = reqwest::Client::builder()
-        .timeout(Duration::from_secs(2))
-        .build()?;
+    let http = reqwest::Client::builder().timeout(Duration::from_secs(2)).build()?;
     let snapshot = broker_snapshot(&http, &access.token, &access.url).await?;
-    let rows = snapshot
-        .credentials
-        .iter()
+    let rows = snapshot.credentials.iter()
         .filter(|credential| credential.provider == provider && credential.is_oauth())
         .collect::<Vec<_>>();
-    if rows.len() != 1 {
-        return Ok(None);
-    }
-    Ok(rows[0]
-        .credential
-        .get("email")
+    if rows.len() != 1 { return Ok(None); }
+    Ok(rows[0].credential.get("email")
         .or_else(|| rows[0].credential.get("accountId"))
         .and_then(serde_json::Value::as_str)
-        .filter(|identity| {
-            !identity.is_empty() && identity.len() <= 200 && !identity.chars().any(char::is_control)
-        })
+        .filter(|identity| !identity.is_empty() && identity.len() <= 200 && !identity.chars().any(char::is_control))
         .map(str::to_owned))
 }
 
@@ -3094,26 +2971,16 @@ pub(crate) async fn oauth_account_key(provider: &str) -> Result<Option<String>> 
         .map_err(|_| anyhow::anyhow!("host model broker state is unavailable"))?
         .clone()
         .context("host model broker is not running")?;
-    let http = reqwest::Client::builder()
-        .timeout(Duration::from_secs(5))
-        .build()?;
+    let http = reqwest::Client::builder().timeout(Duration::from_secs(5)).build()?;
     let snapshot = broker_snapshot(&http, &access.token, &access.url).await?;
-    let rows = snapshot
-        .credentials
-        .iter()
+    let rows = snapshot.credentials.iter()
         .filter(|credential| credential.provider == provider && credential.is_oauth())
         .collect::<Vec<_>>();
-    if rows.len() != 1 {
-        return Ok(None);
-    }
-    Ok(rows[0]
-        .credential
-        .get("accountId")
+    if rows.len() != 1 { return Ok(None); }
+    Ok(rows[0].credential.get("accountId")
         .or_else(|| rows[0].credential.get("email"))
         .and_then(serde_json::Value::as_str)
-        .filter(|identity| {
-            !identity.is_empty() && identity.len() <= 200 && !identity.chars().any(char::is_control)
-        })
+        .filter(|identity| !identity.is_empty() && identity.len() <= 200 && !identity.chars().any(char::is_control))
         .map(str::to_owned))
 }
 
@@ -3132,9 +2999,7 @@ pub(crate) async fn import_codex_oauth(
         .map_err(|_| anyhow::anyhow!("host model broker state is unavailable"))?
         .clone()
         .context("host model broker is not running")?;
-    let http = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build()?;
+    let http = reqwest::Client::builder().timeout(Duration::from_secs(10)).build()?;
     if broker_snapshot(&http, &access.token, &access.url)
         .await?
         .credentials
@@ -3159,10 +3024,7 @@ pub(crate) async fn import_codex_oauth(
         .send()
         .await?;
     if !response.status().is_success() {
-        bail!(
-            "the account broker refused the Codex credential (HTTP {})",
-            response.status()
-        );
+        bail!("the account broker refused the Codex credential (HTTP {})", response.status());
     }
     Ok(())
 }
@@ -3394,7 +3256,8 @@ fn admit(
         {
             unstartable.insert(
                 config.name.clone(),
-                "Claude Agent needs an admitted Anthropic account sign-in or API key".to_string(),
+                "Claude Agent needs an admitted Anthropic account sign-in or API key"
+                    .to_string(),
             );
             continue;
         }
@@ -3750,10 +3613,7 @@ mission = "Choose native intelligence"
             upstream_url: OMP_GATEWAY_HOST_URL.into(),
             responses_routes: BTreeMap::new(),
             anthropic_routes: BTreeMap::new(),
-            broker_access: BrokerAccess {
-                url: "http://127.0.0.1:1".into(),
-                token: "host-only-broker-bearer".into(),
-            },
+            broker_access: BrokerAccess { url: "http://127.0.0.1:1".into(), token: "host-only-broker-bearer".into() },
             http: reqwest::Client::new(),
         };
         (capabilities, spend, state)
@@ -4119,10 +3979,7 @@ mission = "Choose native intelligence"
             approved_parties: Vec::new(),
         };
         let oauth = BTreeMap::from([("anthropic".into(), ProviderCredential::OmpOauth)]);
-        assert!(admit(std::slice::from_ref(&config), &oauth)
-            .unwrap()
-            .unstartable
-            .is_empty());
+        assert!(admit(std::slice::from_ref(&config), &oauth).unwrap().unstartable.is_empty());
 
         let api_key = BTreeMap::from([(
             "anthropic".into(),

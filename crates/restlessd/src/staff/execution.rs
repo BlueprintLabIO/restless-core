@@ -78,12 +78,7 @@ pub(super) struct StaffOutcome {
 
 pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcome> {
     let hosted_identity = if run.runtime_bridges.is_hosted() {
-        if !matches!(
-            run.worker_harness,
-            crate::runtime::AgentHarness::RestlessManaged
-                | crate::runtime::AgentHarness::ClaudeAgent
-                | crate::runtime::AgentHarness::Codex
-        ) {
+        if !matches!(run.worker_harness, crate::runtime::AgentHarness::RestlessManaged | crate::runtime::AgentHarness::ClaudeAgent | crate::runtime::AgentHarness::Codex) {
             bail!("hosted Staff Work requires a supported agent harness");
         }
         let durable =

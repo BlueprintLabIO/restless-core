@@ -21,6 +21,7 @@ import {
 } from './create-company-collaboration-contract-set.mjs';
 import { createCoreReleaseManifest } from './create-core-release-manifest.mjs';
 import { createCoreReleaseBundle } from './create-core-release-bundle.mjs';
+import { releasePlatforms } from './release/platforms.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const sourceRevision = '1'.repeat(40);
@@ -152,11 +153,26 @@ test('the release manifest can only bind an existing verified contract set', asy
   assert.deepEqual(replay, created);
 });
 
-test('the signed bundle index binds exact release, contract and native Documents bytes', async (t) => {
+test('platform-scoped releases bind only explicitly qualified architectures', async (t) => {
+  const fixture = await generatedFixture(t);
+  const amd64 = await createCoreReleaseManifest({ contractSetManifestPath: fixture.contractSet.manifestPath,
+    outputRoot: fixture.outputRoot, platforms: ['linux/amd64'] });
+  const arm64 = await createCoreReleaseManifest({ contractSetManifestPath: fixture.contractSet.manifestPath,
+    outputRoot: fixture.outputRoot, platforms: ['linux/arm64'] });
+  assert.notEqual(amd64.manifestDigest, arm64.manifestDigest);
+  assert.deepEqual(releasePlatforms(JSON.parse(await readFile(amd64.manifestPath))), ['linux/amd64']);
+  for (const platforms of [[], ['linux/amd64', 'linux/amd64'], ['linux/arm64', 'linux/amd64'], ['linux/386']]) {
+    await assert.rejects(createCoreReleaseManifest({ contractSetManifestPath: fixture.contractSet.manifestPath,
+      outputRoot: fixture.outputRoot, platforms }), /nonempty sorted set/);
+  }
+});
+
+for (const platforms of [undefined, ['linux/amd64']]) test(`the signed v${platforms ? 2 : 1} bundle index binds exact release, contract and native Documents bytes`, async (t) => {
   const fixture = await generatedFixture(t);
   const release = await createCoreReleaseManifest({
     contractSetManifestPath: fixture.contractSet.manifestPath,
     outputRoot: fixture.outputRoot,
+    platforms,
   });
   const releaseSignature = join(fixture.outputRoot, 'release-manifest.sigstore.json');
   const contractSignature = join(fixture.outputRoot, 'contract-set.sigstore.json');
@@ -337,31 +353,4 @@ test('mutable image references are not accepted as release inputs', async () => 
     }),
     /account-plane image is invalid/,
   );
-});
-
-test('the release workflow preserves one branch-neutral, signed digest handoff', async () => {
-  const workflow = await readFile(join(root, '.github/workflows/immutable-core-release.yml'), 'utf8');
-  assert.match(workflow, /on:\n  workflow_dispatch:/);
-  assert.doesNotMatch(workflow, /branches:/);
-  assert.equal(workflow.match(/ref: \$\{\{ github\.sha \}\}/g)?.length, 2);
-  assert.equal(workflow.match(/provenance: mode=max/g)?.length, 3);
-  assert.equal(workflow.match(/sbom: true/g)?.length, 3);
-  for (const required of [
-    'cosign sign --yes "${REGISTRY}/${NAMESPACE}/restless-account-plane@${DIGEST}"',
-    'cosign sign --yes "${REGISTRY}/${NAMESPACE}/restless-company-runtime@${DIGEST}"',
-    'cosign sign --yes "${REGISTRY}/${NAMESPACE}/restless-native-documents-collaboration@${DIGEST}"',
-    'release-manifest.sigstore.json',
-    'contract-set.sigstore.json',
-    'core-release-bundle.sigstore.json',
-    'node scripts/create-core-release-bundle.mjs',
-    'docker buildx imagetools inspect --raw "$image"',
-    'oras push "${RELEASE_REPOSITORY}:${GITHUB_SHA}"',
-    'reference="${RELEASE_REPOSITORY}@${digest}"',
-    'format:"restless.core.release-handoff.v1"',
-    'core-release-handoff.sigstore.json',
-  ]) assert.ok(workflow.includes(required), `release workflow is missing ${required}`);
-  assert.ok(workflow.indexOf('node scripts/create-core-release-bundle.mjs')
-    < workflow.indexOf('tar --sort=name'));
-  assert.ok(workflow.indexOf('cosign sign --yes "$reference"')
-    < workflow.indexOf('format:"restless.core.release-handoff.v1"'));
 });

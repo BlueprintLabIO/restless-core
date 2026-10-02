@@ -1,6 +1,8 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:24-bookworm-slim AS build
+FROM node:24-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe AS build
+
+RUN npm install -g npm@11.21.0 && npm cache clean --force
 
 WORKDIR /build
 COPY package.json package-lock.json ./
@@ -12,7 +14,12 @@ RUN npm run build \
     && npm prune --omit=dev --ignore-scripts \
     && npm cache clean --force
 
-FROM node:24-bookworm-slim AS runtime
+FROM node:24-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe AS runtime
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends libpcre2-8-0 \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 ENV NODE_ENV=production \
     HOME=/tmp

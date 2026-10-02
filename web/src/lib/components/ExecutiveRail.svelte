@@ -10,6 +10,7 @@
 	import IntelligencePopover from './IntelligencePopover.svelte';
 	import { SvelteDate } from 'svelte/reactivity';
 	import Plus from '@lucide/svelte/icons/plus';
+	import RotateCw from '@lucide/svelte/icons/rotate-cw';
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 	import Composer from '$lib/primitives/Composer.svelte';
 	import ConversationHistoryTools from '$lib/primitives/ConversationHistoryTools.svelte';
@@ -50,6 +51,7 @@
 		conversationFailed = false,
 		onrefreshConversation = null,
 		needsProvider = false,
+		providerLabel = 'Connect intelligence',
 		contextLabel = 'Current screen',
 		focusAfterMessageId = 0,
 		focusStartedAt = null,
@@ -74,6 +76,7 @@
 		conversationFailed?: boolean;
 		onrefreshConversation?: (() => void) | null;
 		needsProvider?: boolean;
+		providerLabel?: string;
 		contextLabel?: string;
 		focusAfterMessageId?: number;
 		focusStartedAt?: string | null;
@@ -589,11 +592,11 @@
 						{:else}
 							<div class="exr-empty">
 								<p class="exr-empty-h">
-									{needsProvider ? 'Connect intelligence' : 'Ask anything.'}
+									{needsProvider ? providerLabel : 'Ask anything.'}
 								</p>
 								<p class="exr-empty-p">
 									{needsProvider
-										? `Add a connection to start talking with ${participantName}.`
+										? `Restore intelligence access so ${participantName} can reply.`
 										: capabilityHint}
 								</p>
 								{#if needsProvider}
@@ -601,7 +604,7 @@
 										class="btn primary small provider-connect"
 										href={`/${companyId}/company/provider`}
 										><Plus size={14} strokeWidth={2} aria-hidden="true" /><span
-											>Add intelligence provider</span
+											>{providerLabel}</span
 										></a
 									>
 								{/if}
@@ -618,7 +621,7 @@
 					{/if}
 					{#if turn && needsProvider && (turn.live?.phase ?? 'queued') === 'queued'}
 						<p class="exr-setup-pending" role="status">
-							Message saved. {participantName} can reply after you add an intelligence provider.
+							Message saved. {participantName} can reply after intelligence access is restored.
 						</p>
 					{:else if turn}<ConversationTurnDock {participantName} {turn} />{/if}
 				</div>
@@ -630,8 +633,12 @@
 						<a
 							class="btn primary small provider-connect-slot"
 							href={`/${companyId}/company/provider`}
-							><Plus size={14} strokeWidth={2} aria-hidden="true" /><span
-								>Add intelligence provider</span
+							>{#if providerLabel.startsWith('Reconnect')}<RotateCw
+									size={14}
+									strokeWidth={2}
+									aria-hidden="true"
+								/>{:else}<Plus size={14} strokeWidth={2} aria-hidden="true" />{/if}<span
+								>{providerLabel}</span
 							></a
 						>
 					{/if}

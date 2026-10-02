@@ -237,10 +237,7 @@ fn home_path(company: &str, actor: &str, responsibility: &str) -> String {
 fn hosted_locator_path(company: &str, actor: &str, responsibility: &str) -> PathBuf {
     crate::runtime::state_root()
         .join("hosted-codex-sessions")
-        .join(format!(
-            "{}.json",
-            scope_digest(company, actor, responsibility)
-        ))
+        .join(format!("{}.json", scope_digest(company, actor, responsibility)))
 }
 
 fn hosted_credential_reference(company: &str) -> Result<String> {
@@ -254,9 +251,7 @@ fn hosted_credential_reference(company: &str) -> Result<String> {
 
 fn read_hosted_locator(path: &std::path::Path) -> Result<Option<SessionLocator>> {
     match std::fs::read_to_string(path) {
-        Ok(body) => Ok(Some(
-            serde_json::from_str(&body).context("parse hosted Codex locator")?,
-        )),
+        Ok(body) => Ok(Some(serde_json::from_str(&body).context("parse hosted Codex locator")?)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error).context("read hosted Codex locator"),
     }
@@ -722,9 +717,9 @@ where
             // before reaching its ordinary post-turn cleanup.
             match cleanup_failed_codex_launch(container, &auth.session_id).await {
                 Ok(()) => Err(error),
-                Err(cleanup) => {
-                    Err(error.context(format!("Codex failed launch cleanup: {cleanup:#}")))
-                }
+                Err(cleanup) => Err(error.context(format!(
+                    "Codex failed launch cleanup: {cleanup:#}"
+                ))),
             }
         }
     }
@@ -734,13 +729,14 @@ async fn cleanup_failed_codex_launch(container: &str, launch_id: &str) -> Result
     uuid::Uuid::parse_str(launch_id).context("Codex failed launch ID is not a UUID")?;
     let session_marker = format!("/tmp/restless-agent-{launch_id}.sid");
     let session_runtime = format!("/company/run/agent-sessions/{launch_id}");
-    let process_cleanup =
-        if let Some(session_id) = crate::acp::read_session_id(container, &session_marker).await {
-            let _ = crate::acp::reap_session(container, &session_id).await;
-            crate::acp::verify_session_reaped(container, &session_id).await
-        } else {
-            Ok(())
-        };
+    let process_cleanup = if let Some(session_id) =
+        crate::acp::read_session_id(container, &session_marker).await
+    {
+        let _ = crate::acp::reap_session(container, &session_id).await;
+        crate::acp::verify_session_reaped(container, &session_id).await
+    } else {
+        Ok(())
+    };
     let artifact_cleanup = crate::acp::remove_and_verify_session_artifacts(
         container,
         &[&session_marker, &session_runtime],
@@ -995,10 +991,7 @@ where
     let missing_rollout_reconstruction = prior_thread.is_some() && !resumed;
     let reconstructed = reconstructed || missing_rollout_reconstruction;
     let reconstruction_reason = if missing_rollout_reconstruction {
-        Some(
-            "saved Codex rollout missing; fresh session started from durable actor context"
-                .to_string(),
-        )
+        Some("saved Codex rollout missing; fresh session started from durable actor context".to_string())
     } else {
         reconstruction_reason
     };
@@ -1013,9 +1006,7 @@ where
     if auth.model == "openai-codex/gpt-6-sol" {
         let expected_runner = format!(
             "{:x}",
-            Sha256::digest(include_bytes!(
-                "../../../tools/codex-runner/restless-codex-runner.mjs"
-            ))
+            Sha256::digest(include_bytes!("../../../tools/codex-runner/restless-codex-runner.mjs"))
         );
         let expected_catalog = format!(
             "{:x}",
@@ -1042,10 +1033,14 @@ where
         mcp_contract_digest: mcp_contract_digest.clone(),
         credential_reference: None,
     };
+    let tool_contract_digest = probe_coordination_contract(
+        container, auth, actor, &runner_digest, model_catalog_digest,
+    )
+    .await?;
+    // Do not make a newly started thread resumable until every pre-prompt
+    // readiness gate has passed. A failed coordination probe otherwise leaves
+    // a locator for a thread that never received a turn and has no rollout.
     persist_locator(container, &locator_path, &locator).await?;
-    let tool_contract_digest =
-        probe_coordination_contract(container, auth, actor, &runner_digest, model_catalog_digest)
-            .await?;
     let session = CodexSession {
         stdin: Arc::clone(&stdin),
         events,
@@ -1112,10 +1107,7 @@ where
 /// Run the same pinned JSONL agent through the hosted Runtime's supervised
 /// stream. The company receives only short-lived capabilities; the account
 /// connection and its reusable credential remain on Core.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the hosted Codex boundary keeps its authority and observation explicit"
-)]
+#[expect(clippy::too_many_arguments, reason = "the hosted Codex boundary keeps its authority and observation explicit")]
 pub(crate) async fn with_remote_agent_outcome<F, T>(
     registry: &crate::runtime_bridge::RuntimeBridgeRegistry,
     identity: &restless_runtime_bridge_protocol::RuntimeIdentity,
@@ -1131,9 +1123,7 @@ pub(crate) async fn with_remote_agent_outcome<F, T>(
 where
     F: for<'a> FnOnce(
         &'a CodexSession,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<T>> + Send + 'a>,
-    >,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<T>> + Send + 'a>>,
 {
     if responsibility.trim().is_empty() || system_prompt.trim().is_empty() {
         bail!("hosted Codex needs responsibility and developer instructions");
@@ -1143,12 +1133,9 @@ where
     }
     let credential_reference = hosted_credential_reference(&auth.company)?;
     let (mcp_contract, mcp_runtime_env, mcp_contract_digest) = codex_mcp_contract(&mcp_servers)?;
-    let expected_runner_digest = format!(
-        "{:x}",
-        Sha256::digest(include_bytes!(
-            "../../../tools/codex-runner/restless-codex-runner.mjs"
-        ))
-    );
+    let expected_runner_digest = format!("{:x}", Sha256::digest(
+        include_bytes!("../../../tools/codex-runner/restless-codex-runner.mjs")
+    ));
     let path = hosted_locator_path(&auth.company, actor, responsibility);
     let prior = read_hosted_locator(&path)?;
     if let Some(locator) = &prior {
@@ -1175,14 +1162,7 @@ where
         None
     };
     let (transport, completion) = crate::runtime_bridge::open_codex_transport(
-        registry,
-        identity,
-        auth,
-        workdir,
-        actor,
-        responsibility,
-        system_prompt,
-        mcp_runtime_env,
+        registry, identity, auth, workdir, actor, responsibility, system_prompt, mcp_runtime_env,
     )
     .await?;
     let (read, write) = tokio::io::split(transport);
@@ -1220,10 +1200,7 @@ where
     .await?;
     let mut receiver = events.lock().await;
     let ready = loop {
-        let event = receiver
-            .recv()
-            .await
-            .context("hosted Codex closed before readiness")?;
+        let event = receiver.recv().await.context("hosted Codex closed before readiness")?;
         match event_type(&event) {
             "session_ready" => break event,
             "runner_error" | "app_server_exited" | "runner_process_closed" => {
@@ -1257,12 +1234,9 @@ where
         credential_reference: Some(credential_reference),
     };
     persist_hosted_locator(&path, &locator)?;
-    let tool_contract_digest = format!(
-        "{:x}",
-        Sha256::digest(format!(
-            "hosted-runtime-bridge\0harness:codex\0actor:{actor}\0responsibility:{responsibility}"
-        ))
-    );
+    let tool_contract_digest = format!("{:x}", Sha256::digest(format!(
+        "hosted-runtime-bridge\0harness:codex\0actor:{actor}\0responsibility:{responsibility}"
+    )));
     let session = CodexSession {
         stdin: Arc::clone(&stdin),
         events,
@@ -1294,10 +1268,7 @@ where
     match result {
         Ok(value) => match cleanup {
             Ok(()) => Ok(crate::acp::SessionOutcome::Completed(value)),
-            Err(error) => Ok(crate::acp::SessionOutcome::CleanupFailed {
-                outcome: value,
-                error,
-            }),
+            Err(error) => Ok(crate::acp::SessionOutcome::CleanupFailed { outcome: value, error }),
         },
         Err(error) => {
             if let Err(cleanup) = cleanup {

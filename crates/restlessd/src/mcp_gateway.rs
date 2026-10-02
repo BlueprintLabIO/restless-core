@@ -43,11 +43,7 @@ use sqlx::PgPool;
 use tower::ServiceExt as _;
 use uuid::Uuid;
 
-use crate::{
-    capability::McpGrant,
-    connected_tool::{self, LocalMcpServer, RecurringMcpPolicy, ReviewedHttpReadProfile},
-    Daemon,
-};
+use crate::{capability::McpGrant, connected_tool::{self, LocalMcpServer, RecurringMcpPolicy, ReviewedHttpReadProfile}, Daemon};
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(12);
 const CALL_TIMEOUT: Duration = Duration::from_secs(90);
@@ -254,9 +250,7 @@ fn safe_clapping_hands_status(result: &CallToolResult) -> &'static str {
 
 fn filesystem_read_complete(result: &CallToolResult) -> bool {
     result.is_error != Some(true)
-        && result
-            .structured_content
-            .as_ref()
+        && result.structured_content.as_ref()
             .and_then(|body| body.get("content"))
             .and_then(|value| value.as_str())
             .is_some()
@@ -317,10 +311,7 @@ fn canonical_marketplace_item_url(raw: &str) -> Option<String> {
 }
 
 fn is_gumtree_tool(name: &str) -> bool {
-    matches!(
-        name,
-        "clapping_hands_gumtree_public_listing" | "clapping_hands_gumtree_public_listings"
-    )
+    matches!(name, "clapping_hands_gumtree_public_listing" | "clapping_hands_gumtree_public_listings")
 }
 
 fn read_request_params(request: ReadRequest) -> Result<CallToolRequestParams> {
@@ -362,8 +353,7 @@ fn read_request_params(request: ReadRequest) -> Result<CallToolRequestParams> {
                 .collect::<Option<Vec<_>>>()
                 .context("invalid Marketplace detail request")?;
             if !(1..=8).contains(&urls.len())
-                || urls.iter().collect::<std::collections::HashSet<_>>().len() != urls.len()
-            {
+                || urls.iter().collect::<std::collections::HashSet<_>>().len() != urls.len() {
                 bail!("invalid Marketplace detail request");
             }
             let mut arguments = serde_json::json!({"urls":urls});
@@ -376,10 +366,7 @@ fn read_request_params(request: ReadRequest) -> Result<CallToolRequestParams> {
             let url = canonical_marketplace_item_url(&url)
                 .context("invalid Marketplace photo request")?;
             if !(position == "last"
-                || position
-                    .as_u64()
-                    .is_some_and(|index| (1..=12).contains(&index)))
-            {
+                || position.as_u64().is_some_and(|index| (1..=12).contains(&index))) {
                 bail!("invalid Marketplace photo request");
             }
             (
@@ -410,10 +397,7 @@ fn read_request_params(request: ReadRequest) -> Result<CallToolRequestParams> {
         }
         ReadRequest::DeepWikiStructure { repo_name } => {
             connected_tool::validate_public_repository(&repo_name)?;
-            (
-                "read_wiki_structure",
-                serde_json::json!({"repoName":repo_name}),
-            )
+            ("read_wiki_structure", serde_json::json!({"repoName":repo_name}))
         }
     };
     Ok(CallToolRequestParams::new(name).with_arguments(
@@ -489,21 +473,15 @@ fn validated_profile_params(
                 bail!("MCP tool is outside the reviewed public read profile");
             }
             let args: DeepWikiStructureArgs = serde_json::from_value(serde_json::Value::Object(
-                params
-                    .arguments
-                    .context("DeepWiki read arguments are required")?,
+                params.arguments.context("DeepWiki read arguments are required")?,
             ))?;
             if args.repo_name != *repository {
                 bail!("DeepWiki read is outside the owner-selected repository");
             }
-            Ok(
-                CallToolRequestParams::new("read_wiki_structure").with_arguments(
-                    serde_json::json!({"repoName":repository})
-                        .as_object()
-                        .context("DeepWiki arguments are not an object")?
-                        .clone(),
-                ),
-            )
+            Ok(CallToolRequestParams::new("read_wiki_structure").with_arguments(
+                serde_json::json!({"repoName":repository}).as_object()
+                    .context("DeepWiki arguments are not an object")?.clone(),
+            ))
         }
     }
 }
@@ -528,11 +506,7 @@ pub(crate) fn read_host_token(token_file: &str) -> Result<String> {
     Ok(token.to_string())
 }
 
-fn transport(
-    endpoint: &str,
-    token: Option<String>,
-    max_event_bytes: usize,
-) -> StreamableHttpClientTransport<reqwest_mcp::Client> {
+fn transport(endpoint: &str, token: Option<String>, max_event_bytes: usize) -> StreamableHttpClientTransport<reqwest_mcp::Client> {
     let client = reqwest_mcp::Client::builder()
         .connect_timeout(Duration::from_secs(5))
         .no_proxy()
@@ -548,20 +522,12 @@ fn transport(
     StreamableHttpClientTransport::with_client(client, config)
 }
 
-fn selected_contract(
-    tools: Vec<Tool>,
-    allowed: &[String],
-    server_version: String,
-) -> Result<(Vec<Tool>, McpProbe)> {
-    let mut selected = tools
-        .into_iter()
+fn selected_contract(tools: Vec<Tool>, allowed: &[String], server_version: String) -> Result<(Vec<Tool>, McpProbe)> {
+    let mut selected = tools.into_iter()
         .filter(|tool| allowed.iter().any(|name| name == tool.name.as_ref()))
         .collect::<Vec<_>>();
     selected.sort_by(|a, b| a.name.cmp(&b.name));
-    let observed_names = selected
-        .iter()
-        .map(|tool| tool.name.to_string())
-        .collect::<Vec<_>>();
+    let observed_names = selected.iter().map(|tool| tool.name.to_string()).collect::<Vec<_>>();
     let mut expected_names = allowed.to_vec();
     expected_names.sort();
     if observed_names != expected_names {
@@ -578,21 +544,14 @@ fn selected_contract(
 
 fn require_deepwiki_structure_schema(tool: &Tool) -> Result<()> {
     let schema = &tool.input_schema;
-    let properties = schema
-        .get("properties")
-        .and_then(|value| value.as_object())
+    let properties = schema.get("properties").and_then(|value| value.as_object())
         .context("DeepWiki tool has no input properties")?;
-    let required = schema
-        .get("required")
-        .and_then(|value| value.as_array())
+    let required = schema.get("required").and_then(|value| value.as_array())
         .context("DeepWiki tool has no required input list")?;
     if tool.name.as_ref() != "read_wiki_structure"
         || properties.len() != 1
-        || properties
-            .get("repoName")
-            .and_then(|value| value.get("type"))
-            .and_then(|value| value.as_str())
-            != Some("string")
+        || properties.get("repoName").and_then(|value| value.get("type"))
+            .and_then(|value| value.as_str()) != Some("string")
         || required.len() != 1
         || required[0].as_str() != Some("repoName")
     {
@@ -610,13 +569,10 @@ pub(crate) async fn probe_upstream(
     allowed: &[String],
 ) -> Result<McpProbe> {
     let token = read_host_token(token_file)?;
-    let client = tokio::time::timeout(
-        PROBE_TIMEOUT,
-        ().serve(transport(endpoint, Some(token), MAX_RESULT_BYTES)),
-    )
-    .await
-    .context("host MCP handshake timed out")?
-    .context("host MCP handshake failed")?;
+    let client = tokio::time::timeout(PROBE_TIMEOUT, ().serve(transport(endpoint, Some(token), MAX_RESULT_BYTES)))
+        .await
+        .context("host MCP handshake timed out")?
+        .context("host MCP handshake failed")?;
     let server_version = client
         .peer_info()
         .as_ref()
@@ -642,47 +598,30 @@ pub(crate) async fn probe_public_upstream(
     let ReviewedHttpReadProfile::DeepWikiStructure { repository } = profile else {
         bail!("public MCP probe requires a reviewed public profile");
     };
-    let client = tokio::time::timeout(
-        PROBE_TIMEOUT,
-        ().serve(transport(endpoint, None, MAX_PUBLIC_RESULT_BYTES)),
-    )
-    .await
-    .context("public MCP handshake timed out")?
-    .context("public MCP handshake failed")?;
+    let client = tokio::time::timeout(PROBE_TIMEOUT, ().serve(transport(endpoint, None, MAX_PUBLIC_RESULT_BYTES)))
+        .await.context("public MCP handshake timed out")?
+        .context("public MCP handshake failed")?;
     let result = async {
-        let server_version = client
-            .peer_info()
-            .as_ref()
-            .and_then(|info| {
-                info.server_info
-                    .as_ref()
-                    .map(|server| server.version.clone())
-            })
+        let server_version = client.peer_info().as_ref()
+            .and_then(|info| info.server_info.as_ref().map(|server| server.version.clone()))
             .context("public MCP did not provide a server version")?;
         let tools = tokio::time::timeout(PROBE_TIMEOUT, client.list_all_tools())
-            .await
-            .context("public MCP discovery timed out")?
+            .await.context("public MCP discovery timed out")?
             .context("public MCP discovery failed")?;
         let (selected, probe) = selected_contract(tools, allowed, server_version)?;
         require_deepwiki_structure_schema(&selected[0])?;
         let params = CallToolRequestParams::new("read_wiki_structure").with_arguments(
-            serde_json::json!({"repoName":repository})
-                .as_object()
-                .context("public probe arguments are not an object")?
-                .clone(),
+            serde_json::json!({"repoName":repository}).as_object()
+                .context("public probe arguments are not an object")?.clone(),
         );
         let observed = tokio::time::timeout(PUBLIC_CALL_TIMEOUT, client.call_tool(params))
-            .await
-            .context("public repository read timed out")?
+            .await.context("public repository read timed out")?
             .context("public repository read failed")?;
-        if observed.is_error == Some(true)
-            || serde_json::to_vec(&observed)?.len() > MAX_PUBLIC_RESULT_BYTES
-        {
+        if observed.is_error == Some(true) || serde_json::to_vec(&observed)?.len() > MAX_PUBLIC_RESULT_BYTES {
             bail!("selected public repository did not return a bounded DeepWiki structure");
         }
         Ok::<_, anyhow::Error>(probe)
-    }
-    .await;
+    }.await;
     let _ = tokio::time::timeout(Duration::from_secs(3), client.cancel()).await;
     result
 }
@@ -714,17 +653,10 @@ impl ScopedMcp {
     async fn connect_upstream(&self) -> Result<RunningService<RoleClient, ()>> {
         match &self.profile {
             BrokerReadProfile::Http(profile) => {
-                let endpoint = self
-                    .connection
-                    .endpoint
-                    .as_deref()
-                    .context("HTTP MCP endpoint missing")?;
+                let endpoint = self.connection.endpoint.as_deref().context("HTTP MCP endpoint missing")?;
                 let token = match profile {
                     ReviewedHttpReadProfile::ClappingHands => Some(read_host_token(
-                        self.connection
-                            .token_file
-                            .as_deref()
-                            .context("host MCP token missing")?,
+                        self.connection.token_file.as_deref().context("host MCP token missing")?,
                     )?),
                     ReviewedHttpReadProfile::DeepWikiStructure { .. } => None,
                 };
@@ -732,13 +664,9 @@ impl ScopedMcp {
                     ReviewedHttpReadProfile::ClappingHands => MAX_RESULT_BYTES,
                     ReviewedHttpReadProfile::DeepWikiStructure { .. } => MAX_PUBLIC_RESULT_BYTES,
                 };
-                tokio::time::timeout(
-                    PROBE_TIMEOUT,
-                    ().serve(transport(endpoint, token, max_event_bytes)),
-                )
-                .await
-                .context("MCP handshake timed out")?
-                .context("MCP handshake failed")
+                tokio::time::timeout(PROBE_TIMEOUT, ().serve(transport(endpoint, token, max_event_bytes)))
+                    .await.context("MCP handshake timed out")?
+                    .context("MCP handshake failed")
             }
             BrokerReadProfile::Filesystem => {
                 let read_root = connected_tool::require_reviewed_stdio_profile(&self.connection)?;
@@ -759,25 +687,19 @@ impl ScopedMcp {
               AND max_calls_per_work IS NOT DISTINCT FROM $16 \
              FROM restless_authority.local_mcp_servers WHERE company=$1 AND name=$2",
         )
-        .bind(&self.company)
-        .bind(&self.connection.name)
-        .bind(&self.grant.actor)
-        .bind(self.connection.assigned_work_id)
-        .bind(&self.connection.endpoint)
-        .bind(&self.connection.read_profile)
-        .bind(&self.connection.target_repository)
-        .bind(&self.connection.tool_contract_digest)
-        .bind(&self.connection.server_version)
-        .bind(&self.connection.transport)
-        .bind(serde_json::json!(self.connection.allowed_tools))
+        .bind(&self.company).bind(&self.connection.name).bind(&self.grant.actor)
+        .bind(self.connection.assigned_work_id).bind(&self.connection.endpoint)
+        .bind(&self.connection.read_profile).bind(&self.connection.target_repository)
+        .bind(&self.connection.tool_contract_digest).bind(&self.connection.server_version)
+        .bind(&self.connection.transport).bind(serde_json::json!(self.connection.allowed_tools))
         .bind(&self.connection.token_file)
         .bind(self.connection.policy_revision)
-        .bind(&self.connection.command)
-        .bind(serde_json::json!(self.connection.args))
+        .bind(&self.connection.command).bind(serde_json::json!(self.connection.args))
         .bind(self.connection.max_calls_per_work)
-        .fetch_optional(&self.pool)
-        .await;
-        if !matches!(enabled, Ok(Some(true))) || !running_attempt(&self.daemon, &self.grant).await {
+        .fetch_optional(&self.pool).await;
+        if !matches!(enabled, Ok(Some(true)))
+            || !running_attempt(&self.daemon, &self.grant).await
+        {
             return false;
         }
         let Some(policy) = &self.recurring_policy else {
@@ -790,12 +712,8 @@ impl ScopedMcp {
             return false;
         }
         let Ok(current) = connected_tool::recurring_mcp_policies(
-            &self.pool,
-            &self.company,
-            Some(&self.connection.name),
-        )
-        .await
-        else {
+            &self.pool, &self.company, Some(&self.connection.name),
+        ).await else {
             return false;
         };
         if !current.iter().any(|candidate| {
@@ -819,34 +737,19 @@ impl ScopedMcp {
         )
     }
 
-    async fn observed_contract(
-        &self,
-        client: &RunningService<RoleClient, ()>,
-    ) -> Result<Vec<Tool>> {
-        let server_version = client
-            .peer_info()
-            .as_ref()
-            .and_then(|info| {
-                info.server_info
-                    .as_ref()
-                    .map(|server| server.version.clone())
-            })
+    async fn observed_contract(&self, client: &RunningService<RoleClient, ()>) -> Result<Vec<Tool>> {
+        let server_version = client.peer_info().as_ref()
+            .and_then(|info| info.server_info.as_ref().map(|server| server.version.clone()))
             .context("MCP server version missing")?;
         let tools = tokio::time::timeout(PROBE_TIMEOUT, client.list_all_tools())
-            .await
-            .context("MCP discovery timeout")?
+            .await.context("MCP discovery timeout")?
             .context("MCP discovery failed")?;
-        let (selected, probe) =
-            selected_contract(tools, &self.connection.allowed_tools, server_version)?;
+        let (selected, probe) = selected_contract(tools, &self.connection.allowed_tools, server_version)?;
         if self.connection.tool_contract_digest.as_deref() != Some(probe.digest.as_str())
-            || self.connection.server_version.as_deref() != Some(probe.server_version.as_str())
-        {
+            || self.connection.server_version.as_deref() != Some(probe.server_version.as_str()) {
             bail!("MCP tool contract changed; owner must review and reinstall");
         }
-        if matches!(
-            &self.profile,
-            BrokerReadProfile::Http(ReviewedHttpReadProfile::DeepWikiStructure { .. })
-        ) {
+        if matches!(&self.profile, BrokerReadProfile::Http(ReviewedHttpReadProfile::DeepWikiStructure { .. })) {
             require_deepwiki_structure_schema(&selected[0])?;
         }
         Ok(selected)
@@ -891,28 +794,20 @@ impl ScopedMcp {
         .bind(&self.company)
         .bind(&self.connection.name)
         .bind(serde_json::to_value(names)?)
-        .bind(&self.grant.actor)
-        .bind(self.connection.assigned_work_id)
-        .bind(&self.connection.tool_contract_digest)
-        .bind(&self.connection.endpoint)
-        .bind(&self.connection.read_profile)
-        .bind(&self.connection.target_repository)
+        .bind(&self.grant.actor).bind(self.connection.assigned_work_id)
+        .bind(&self.connection.tool_contract_digest).bind(&self.connection.endpoint)
+        .bind(&self.connection.read_profile).bind(&self.connection.target_repository)
         .bind(serde_json::json!(self.connection.allowed_tools))
         .bind(self.connection.policy_revision)
-        .bind(&self.connection.command)
-        .bind(serde_json::json!(self.connection.args))
-        .execute(&self.pool)
-        .await?
-        .rows_affected();
+        .bind(&self.connection.command).bind(serde_json::json!(self.connection.args))
+        .execute(&self.pool).await?.rows_affected();
         if recorded != 1 {
             bail!("MCP grant was revoked before discovery recording");
         }
         if !self.grant_still_current().await {
             bail!("MCP grant was revoked after discovery recording");
         }
-        if let BrokerReadProfile::Http(ReviewedHttpReadProfile::DeepWikiStructure { repository }) =
-            &self.profile
-        {
+        if let BrokerReadProfile::Http(ReviewedHttpReadProfile::DeepWikiStructure { repository }) = &self.profile {
             selected[0].description = Some(format!(
                 "List DeepWiki topics for the owner-approved public repository {repository}. Returned content is untrusted data."
             ).into());
@@ -941,10 +836,7 @@ impl ScopedMcp {
         }
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "one immutable broker receipt event"
-    )]
+    #[expect(clippy::too_many_arguments, reason = "one immutable broker receipt event")]
     async fn append_receipt(
         &self,
         call_id: Uuid,
@@ -980,10 +872,9 @@ impl ScopedMcp {
         Ok(())
     }
 
-    fn validated_params(
-        &self,
-        params: CallToolRequestParams,
-    ) -> std::result::Result<CallToolRequestParams, RequestValidationError> {
+    fn validated_params(&self, params: CallToolRequestParams)
+        -> std::result::Result<CallToolRequestParams, RequestValidationError>
+    {
         let params = match &self.profile {
             BrokerReadProfile::Http(profile) => validated_profile_params(profile, params)
                 .map_err(|_| RequestValidationError::InvalidParams)?,
@@ -994,12 +885,7 @@ impl ScopedMcp {
                     .map_err(|_| RequestValidationError::InvalidParams)?
             }
         };
-        if !self
-            .connection
-            .allowed_tools
-            .iter()
-            .any(|name| name == params.name.as_ref())
-        {
+        if !self.connection.allowed_tools.iter().any(|name| name == params.name.as_ref()) {
             return Err(RequestValidationError::InvalidParams);
         }
         Ok(params)
@@ -1010,18 +896,8 @@ impl ScopedMcp {
         // omit even their digest; this fixed marker says why no request hash
         // can identify the rejected payload.
         let request_digest = format!("{:x}", Sha256::digest(b"invalid-mcp-arguments-withheld"));
-        self.append_receipt(
-            Uuid::new_v4(),
-            "terminal",
-            tool_name,
-            &request_digest,
-            "not_invoked",
-            None,
-            Some(0),
-            Some("invalid_params"),
-            None,
-        )
-        .await
+        self.append_receipt(Uuid::new_v4(), "terminal", tool_name, &request_digest,
+            "not_invoked", None, Some(0), Some("invalid_params"), None).await
     }
 
     /// Lock the reviewed connection while counting this Work's prior started
@@ -1034,23 +910,9 @@ impl ScopedMcp {
         tool_name: &str,
         request_digest: &str,
     ) -> Result<bool> {
-        let Some(limit) = self
-            .connection
-            .max_calls_per_work
-            .filter(|_| self.recurring_policy.is_none())
-        else {
-            self.append_receipt(
-                call_id,
-                "started",
-                tool_name,
-                request_digest,
-                "started",
-                None,
-                None,
-                None,
-                None,
-            )
-            .await?;
+        let Some(limit) = self.connection.max_calls_per_work.filter(|_| self.recurring_policy.is_none()) else {
+            self.append_receipt(call_id, "started", tool_name, request_digest,
+                "started", None, None, None, None).await?;
             return Ok(true);
         };
         let mut tx = self.pool.begin().await?;
@@ -1062,14 +924,9 @@ impl ScopedMcp {
                AND policy_revision=$5 AND max_calls_per_work=$6 \
              FOR UPDATE",
         )
-        .bind(&self.company)
-        .bind(&self.connection.name)
-        .bind(&self.grant.actor)
-        .bind(self.grant.work_id)
-        .bind(self.connection.policy_revision)
-        .bind(limit)
-        .fetch_optional(&mut *tx)
-        .await?;
+        .bind(&self.company).bind(&self.connection.name).bind(&self.grant.actor)
+        .bind(self.grant.work_id).bind(self.connection.policy_revision).bind(limit)
+        .fetch_optional(&mut *tx).await?;
         if pinned != Some(limit) {
             bail!("MCP Work read-call budget pin changed before reservation");
         }
@@ -1077,11 +934,8 @@ impl ScopedMcp {
             "SELECT COUNT(*) FROM restless_authority.mcp_read_receipts \
              WHERE company=$1 AND connection_name=$2 AND work_id=$3 AND phase='started'",
         )
-        .bind(&self.company)
-        .bind(&self.connection.name)
-        .bind(self.grant.work_id)
-        .fetch_one(&mut *tx)
-        .await?;
+        .bind(&self.company).bind(&self.connection.name).bind(self.grant.work_id)
+        .fetch_one(&mut *tx).await?;
         if used >= i64::from(limit) {
             tx.commit().await?;
             return Ok(false);
@@ -1110,36 +964,18 @@ impl ScopedMcp {
     }
 
     async fn invoke_validated(&self, params: CallToolRequestParams) -> Result<CallToolResult> {
-        let contract_digest = self
-            .connection
-            .tool_contract_digest
-            .as_deref()
+        let contract_digest = self.connection.tool_contract_digest.as_deref()
             .context("MCP contract pin missing")?;
         let tool_name = params.name.to_string();
         let request_digest = format!("{:x}", Sha256::digest(serde_json::to_vec(&params)?));
         let call_id = Uuid::new_v4();
         let started = Instant::now();
-        match self
-            .reserve_started_receipt(call_id, &tool_name, &request_digest)
-            .await
-        {
+        match self.reserve_started_receipt(call_id, &tool_name, &request_digest).await {
             Ok(true) => {}
             Ok(false) => {
-                if self
-                    .append_receipt(
-                        call_id,
-                        "terminal",
-                        &tool_name,
-                        &request_digest,
-                        "not_invoked",
-                        None,
-                        Some(started.elapsed().as_millis() as i64),
-                        Some("work_call_budget_exhausted"),
-                        None,
-                    )
-                    .await
-                    .is_err()
-                {
+                if self.append_receipt(call_id, "terminal", &tool_name, &request_digest,
+                    "not_invoked", None, Some(started.elapsed().as_millis() as i64),
+                    Some("work_call_budget_exhausted"), None).await.is_err() {
                     tracing::warn!(company=%self.company, name=%self.connection.name,
                         "Core MCP budget denial could not be recorded");
                 }
@@ -1152,21 +988,9 @@ impl ScopedMcp {
                 // Reservation fails closed before connect_upstream/call_tool.
                 // A transaction may have committed its started receipt even if
                 // confirmation was lost, so keep that conservative reservation.
-                if self
-                    .append_receipt(
-                        call_id,
-                        "terminal",
-                        &tool_name,
-                        &request_digest,
-                        "not_invoked",
-                        None,
-                        Some(started.elapsed().as_millis() as i64),
-                        Some("broker_reservation_failed"),
-                        None,
-                    )
-                    .await
-                    .is_err()
-                {
+                if self.append_receipt(call_id, "terminal", &tool_name, &request_digest,
+                    "not_invoked", None, Some(started.elapsed().as_millis() as i64),
+                    Some("broker_reservation_failed"), None).await.is_err() {
                     tracing::warn!(company=%self.company, name=%self.connection.name,
                         "Core MCP pre-call failure could not be recorded");
                 }
@@ -1177,68 +1001,41 @@ impl ScopedMcp {
             }
         }
         let mut call_started = false;
-        let observed = self
-            .invoke_inner(params, &tool_name, &mut call_started)
-            .await;
+        let observed = self.invoke_inner(params, &tool_name, &mut call_started).await;
         // A provider may have executed even if the grant disappears before
         // delivery. Suppress its result and record that uncertainty once.
         let revoked_after_result = observed.is_ok() && !self.grant_still_current().await;
         let outcome = if revoked_after_result {
-            Err(anyhow::anyhow!(
-                "MCP grant was revoked before returning the read"
-            ))
+            Err(anyhow::anyhow!("MCP grant was revoked before returning the read"))
         } else {
             observed
         };
         let (status, result_digest, error_class, provider_status) = match &outcome {
             Ok(result) => {
                 let provider_status = match &self.profile {
-                    BrokerReadProfile::Http(ReviewedHttpReadProfile::ClappingHands) => {
-                        Some(safe_clapping_hands_status(result))
-                    }
+                    BrokerReadProfile::Http(ReviewedHttpReadProfile::ClappingHands) =>
+                        Some(safe_clapping_hands_status(result)),
                     _ => None,
                 };
                 let status = if result.is_error == Some(true) {
                     "tool_error"
-                } else if matches!(
-                    &self.profile,
-                    BrokerReadProfile::Http(ReviewedHttpReadProfile::ClappingHands)
-                ) && provider_status == Some("complete")
+                } else if matches!(&self.profile, BrokerReadProfile::Http(ReviewedHttpReadProfile::ClappingHands))
+                    && provider_status == Some("complete")
                     || matches!(&self.profile, BrokerReadProfile::Filesystem)
-                        && filesystem_read_complete(result)
-                {
+                        && filesystem_read_complete(result) {
                     "complete"
                 } else {
                     "response_observed_unverified"
                 };
-                (
-                    status,
-                    Some(format!("{:x}", Sha256::digest(serde_json::to_vec(result)?))),
-                    None,
-                    provider_status,
-                )
+                (status, Some(format!("{:x}", Sha256::digest(serde_json::to_vec(result)?))), None, provider_status)
             }
-            Err(_) if revoked_after_result => (
-                "outcome_unknown",
-                None,
-                Some("grant_revoked_after_result"),
-                None,
-            ),
+            Err(_) if revoked_after_result => ("outcome_unknown", None, Some("grant_revoked_after_result"), None),
             Err(_) if call_started => ("outcome_unknown", None, Some("broker_call_failed"), None),
             Err(_) => ("not_invoked", None, Some("broker_pre_call_failed"), None),
         };
-        self.append_receipt(
-            call_id,
-            "terminal",
-            &tool_name,
-            &request_digest,
-            status,
-            result_digest.as_deref(),
-            Some(started.elapsed().as_millis() as i64),
-            error_class,
-            provider_status,
-        )
-        .await?;
+        self.append_receipt(call_id, "terminal", &tool_name, &request_digest,
+            status, result_digest.as_deref(), Some(started.elapsed().as_millis() as i64),
+            error_class, provider_status).await?;
         if status == "not_invoked" {
             // Handshake or contract checks failed before client.call_tool.
             // The terminal receipt is durable, so report this known outcome.
@@ -1283,26 +1080,19 @@ impl ScopedMcp {
                 bail!("MCP grant was revoked before invocation");
             }
             let timeout = match &self.profile {
-                BrokerReadProfile::Http(ReviewedHttpReadProfile::ClappingHands)
-                | BrokerReadProfile::Filesystem => CALL_TIMEOUT,
-                BrokerReadProfile::Http(ReviewedHttpReadProfile::DeepWikiStructure { .. }) => {
-                    PUBLIC_CALL_TIMEOUT
-                }
+                BrokerReadProfile::Http(ReviewedHttpReadProfile::ClappingHands) | BrokerReadProfile::Filesystem => CALL_TIMEOUT,
+                BrokerReadProfile::Http(ReviewedHttpReadProfile::DeepWikiStructure { .. }) => PUBLIC_CALL_TIMEOUT,
             };
             *call_started = true;
             let result = tokio::select! {
                 result = tokio::time::timeout(timeout, client.call_tool(params)) => Some(result),
                 _ = self.await_revocation() => None,
             };
-            let result = result
-                .context("MCP grant revoked during call")?
+            let result = result.context("MCP grant revoked during call")?
                 .context("MCP call timed out")??;
             let max_result = match &self.profile {
-                BrokerReadProfile::Http(ReviewedHttpReadProfile::ClappingHands)
-                | BrokerReadProfile::Filesystem => MAX_RESULT_BYTES,
-                BrokerReadProfile::Http(ReviewedHttpReadProfile::DeepWikiStructure { .. }) => {
-                    MAX_PUBLIC_RESULT_BYTES
-                }
+                BrokerReadProfile::Http(ReviewedHttpReadProfile::ClappingHands) | BrokerReadProfile::Filesystem => MAX_RESULT_BYTES,
+                BrokerReadProfile::Http(ReviewedHttpReadProfile::DeepWikiStructure { .. }) => MAX_PUBLIC_RESULT_BYTES,
             };
             if serde_json::to_vec(&result)?.len() > max_result {
                 bail!("MCP result exceeds its bound");
@@ -1310,42 +1100,21 @@ impl ScopedMcp {
             if !self.grant_still_current().await {
                 bail!("MCP grant was revoked before the read result was returned");
             }
-            let read_status: String =
-                match &self.profile {
-                    BrokerReadProfile::Http(ReviewedHttpReadProfile::ClappingHands) => {
-                        safe_clapping_hands_status(&result).into()
-                    }
-                    BrokerReadProfile::Http(ReviewedHttpReadProfile::DeepWikiStructure {
-                        ..
-                    }) if result.is_error == Some(true) => "tool_error".into(),
-                    BrokerReadProfile::Http(ReviewedHttpReadProfile::DeepWikiStructure {
-                        ..
-                    }) => "response_observed_unverified".into(),
-                    BrokerReadProfile::Filesystem if result.is_error == Some(true) => {
-                        "tool_error".into()
-                    }
-                    BrokerReadProfile::Filesystem if filesystem_read_complete(&result) => {
-                        "complete".into()
-                    }
-                    BrokerReadProfile::Filesystem => "response_observed_unverified".into(),
-                };
+            let read_status: String = match &self.profile {
+                BrokerReadProfile::Http(ReviewedHttpReadProfile::ClappingHands) => safe_clapping_hands_status(&result).into(),
+                BrokerReadProfile::Http(ReviewedHttpReadProfile::DeepWikiStructure { .. }) if result.is_error == Some(true) => "tool_error".into(),
+                BrokerReadProfile::Http(ReviewedHttpReadProfile::DeepWikiStructure { .. }) => "response_observed_unverified".into(),
+                BrokerReadProfile::Filesystem if result.is_error == Some(true) => "tool_error".into(),
+                BrokerReadProfile::Filesystem if filesystem_read_complete(&result) => "complete".into(),
+                BrokerReadProfile::Filesystem => "response_observed_unverified".into(),
+            };
             let observed_success = result.is_error != Some(true)
-                && (matches!(
-                    &self.profile,
-                    BrokerReadProfile::Http(ReviewedHttpReadProfile::DeepWikiStructure { .. })
-                ) || read_status == "complete");
+                && (matches!(&self.profile, BrokerReadProfile::Http(ReviewedHttpReadProfile::DeepWikiStructure { .. }))
+                    || read_status == "complete");
             let read_site = match &self.profile {
-                BrokerReadProfile::Http(ReviewedHttpReadProfile::ClappingHands)
-                    if is_gumtree_tool(tool_name) =>
-                {
-                    "gumtree"
-                }
-                BrokerReadProfile::Http(ReviewedHttpReadProfile::ClappingHands) => {
-                    "facebook-marketplace"
-                }
-                BrokerReadProfile::Http(ReviewedHttpReadProfile::DeepWikiStructure { .. }) => {
-                    "deepwiki"
-                }
+                BrokerReadProfile::Http(ReviewedHttpReadProfile::ClappingHands) if is_gumtree_tool(tool_name) => "gumtree",
+                BrokerReadProfile::Http(ReviewedHttpReadProfile::ClappingHands) => "facebook-marketplace",
+                BrokerReadProfile::Http(ReviewedHttpReadProfile::DeepWikiStructure { .. }) => "deepwiki",
                 BrokerReadProfile::Filesystem => "local-filesystem",
             };
             let recorded = sqlx::query(
@@ -1359,34 +1128,23 @@ impl ScopedMcp {
                    AND target_repository IS NOT DISTINCT FROM $13 AND allowed_tools=$14 \
                    AND policy_revision=$15 AND command=$16 AND args=$17",
             )
-            .bind(&self.company)
-            .bind(&self.connection.name)
-            .bind(observed_success)
-            .bind(&read_status)
-            .bind(result.is_error == Some(true))
-            .bind(read_site)
-            .bind(tool_name)
-            .bind(&self.grant.actor)
-            .bind(self.connection.assigned_work_id)
+            .bind(&self.company).bind(&self.connection.name).bind(observed_success)
+            .bind(&read_status).bind(result.is_error == Some(true)).bind(read_site)
+            .bind(tool_name).bind(&self.grant.actor).bind(self.connection.assigned_work_id)
             .bind(&self.connection.tool_contract_digest)
-            .bind(&self.connection.endpoint)
-            .bind(&self.connection.read_profile)
+            .bind(&self.connection.endpoint).bind(&self.connection.read_profile)
             .bind(&self.connection.target_repository)
             .bind(serde_json::json!(self.connection.allowed_tools))
             .bind(self.connection.policy_revision)
-            .bind(&self.connection.command)
-            .bind(serde_json::json!(self.connection.args))
-            .execute(&self.pool)
-            .await?
-            .rows_affected();
+            .bind(&self.connection.command).bind(serde_json::json!(self.connection.args))
+            .execute(&self.pool).await?.rows_affected();
             if recorded != 1 {
                 bail!("MCP grant was revoked before result recording");
             }
             tracing::info!(company=%self.company, name=%self.connection.name, status=read_status,
                 "Core MCP read observed");
             Ok(result)
-        }
-        .await;
+        }.await;
         let _ = tokio::time::timeout(Duration::from_secs(3), client.cancel()).await;
         result
     }
@@ -1458,27 +1216,16 @@ impl ServerHandler for ScopedMcp {
         let request = match self.validated_params(request) {
             Ok(request) => request,
             Err(RequestValidationError::InvalidParams) => {
-                if self
-                    .append_rejected_params_receipt(&tool_name)
-                    .await
-                    .is_err()
-                {
-                    return Err(ErrorData::internal_error(
-                        "MCP read receipt unavailable",
-                        None,
-                    ));
+                if self.append_rejected_params_receipt(&tool_name).await.is_err() {
+                    return Err(ErrorData::internal_error("MCP read receipt unavailable", None));
                 }
-                return Err(ErrorData::invalid_params(
-                    "MCP read arguments are invalid",
-                    None,
-                ));
+                return Err(ErrorData::invalid_params("MCP read arguments are invalid", None));
             }
             Err(RequestValidationError::Connection) => {
                 self.record_failure("connection_profile_failed").await;
                 return Ok(CallToolResult::error(vec![ContentBlock::text(
                     "Connected MCP read profile is unavailable; inspect the connection status.",
-                )])
-                .into());
+                )]).into());
             }
         };
         match self.invoke_validated(request).await {
@@ -1574,24 +1321,15 @@ async fn handle_read(
     let params = match scope.validated_params(params) {
         Ok(params) => params,
         Err(RequestValidationError::InvalidParams) => {
-            if scope
-                .connection
-                .allowed_tools
-                .iter()
-                .any(|name| name == &tool_name)
-                && scope
-                    .append_rejected_params_receipt(&tool_name)
-                    .await
-                    .is_err()
+            if scope.connection.allowed_tools.iter().any(|name| name == &tool_name)
+                && scope.append_rejected_params_receipt(&tool_name).await.is_err()
             {
                 return StatusCode::BAD_GATEWAY.into_response();
             }
             return StatusCode::BAD_REQUEST.into_response();
         }
         Err(RequestValidationError::Connection) => {
-            scope
-                .record_failure("facade_connection_profile_failed")
-                .await;
+            scope.record_failure("facade_connection_profile_failed").await;
             return StatusCode::BAD_GATEWAY.into_response();
         }
     };
@@ -1638,16 +1376,15 @@ async fn scoped_connection(
         return Err(StatusCode::NOT_FOUND);
     };
     if !connection.enabled
-        || !matches!(
-            connection.transport.as_str(),
-            "host_http" | "public_http" | "broker_stdio"
-        )
+        || !matches!(connection.transport.as_str(), "host_http" | "public_http" | "broker_stdio")
         || connection.assigned_actor != grant.actor
         || connection.policy_revision.to_string() != grant.pin
     {
         return Err(StatusCode::FORBIDDEN);
     }
-    if grant.recurring_schedule_id.is_none() && connection.assigned_work_id != Some(grant.work_id) {
+    if grant.recurring_schedule_id.is_none()
+        && connection.assigned_work_id != Some(grant.work_id)
+    {
         return Err(StatusCode::FORBIDDEN);
     }
     let profile = if connection.transport == "broker_stdio" {
@@ -1660,48 +1397,37 @@ async fn scoped_connection(
                 .map_err(|_| StatusCode::FORBIDDEN)?,
         )
     };
-    let (recurring_policy, recurring_lineage) = if let (Some(schedule_id), Some(policy_revision)) =
-        (grant.recurring_schedule_id, grant.recurring_policy_revision)
-    {
-        if !matches!(
-            &profile,
-            BrokerReadProfile::Http(ReviewedHttpReadProfile::ClappingHands)
-        ) || connected_tool::reviewed_recurring_ch_connection(&connection).is_err()
-        {
-            return Err(StatusCode::FORBIDDEN);
-        }
-        let policies =
-            connected_tool::recurring_mcp_policies(daemon.authority.pool(), &company, Some(&name))
-                .await
-                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        let policy = policies
-            .into_iter()
-            .find(|policy| {
+    let (recurring_policy, recurring_lineage) =
+        if let (Some(schedule_id), Some(policy_revision)) = (
+            grant.recurring_schedule_id,
+            grant.recurring_policy_revision,
+        ) {
+            if !matches!(&profile, BrokerReadProfile::Http(ReviewedHttpReadProfile::ClappingHands))
+                || connected_tool::reviewed_recurring_ch_connection(&connection).is_err()
+            {
+                return Err(StatusCode::FORBIDDEN);
+            }
+            let policies = connected_tool::recurring_mcp_policies(
+                daemon.authority.pool(), &company, Some(&name),
+            )
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+            let policy = policies.into_iter().find(|policy| {
                 policy.schedule_id == schedule_id
                     && policy.policy_revision == policy_revision
                     && connected_tool::recurring_policy_matches_connection(policy, &connection)
-            })
-            .ok_or(StatusCode::FORBIDDEN)?;
-        let org = daemon
-            .orgintel
-            .get(&company)
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        let lineage = org
-            .recurring_work_lineage(
-                grant.work_id,
-                &grant.actor,
-                policy.schedule_id,
-                policy.responsibility_id,
-                policy.responsibility_version,
-            )
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
-            .ok_or(StatusCode::FORBIDDEN)?;
-        (Some(policy), Some(lineage))
-    } else {
-        (None, None)
-    };
+            }).ok_or(StatusCode::FORBIDDEN)?;
+            let org = daemon.orgintel.get(&company).await
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+            let lineage = org.recurring_work_lineage(
+                grant.work_id, &grant.actor, policy.schedule_id,
+                policy.responsibility_id, policy.responsibility_version,
+            ).await.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+                .ok_or(StatusCode::FORBIDDEN)?;
+            (Some(policy), Some(lineage))
+        } else {
+            (None, None)
+        };
     if !running_attempt(&daemon, &grant).await {
         return Err(StatusCode::FORBIDDEN);
     }

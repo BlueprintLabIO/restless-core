@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { formatRelative, formatMoment } from '$lib/ui/time';
+	import SettingsHeader from '$lib/ui/views/SettingsHeader.svelte';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
@@ -126,15 +128,7 @@
 		return id.slice(0, 8);
 	}
 
-	function when(value: string): string {
-		return new Date(value).toLocaleString(undefined, {
-			month: 'short',
-			day: 'numeric',
-			year: 'numeric',
-			hour: 'numeric',
-			minute: '2-digit'
-		});
-	}
+	const when = (value?: Date | string) => formatRelative(value, 'Not yet');
 
 	function words(value: string): string {
 		return value.replaceAll('_', ' ');
@@ -203,18 +197,20 @@
 <CompanyTitle title="Identity" {companyId} />
 
 <div class="company-page identity-page">
-	<header class="company-page-head">
-		<div class="identity-title">
-			<h1>Identity</h1>
-			<InfoTip
-				text="What the company is and how it sounds. Agents use it in all company work. Drafts can suggest changes; only you approve them."
-			/>
-		</div>
-		<div class="company-page-freshness">
-			<span class="source-lamp status-{source.status}" aria-hidden="true"></span>
-			{source.status === 'live' ? 'Live' : source.status === 'stale' ? 'Out of date' : 'Checking…'}
-		</div>
-	</header>
+	<SettingsHeader
+		title="Identity"
+		explanation="What the company is and how it sounds. Agents use it in all company work. Drafts can suggest changes; only you approve them."
+		>{#snippet actions()}
+			<div class="company-page-freshness">
+				<span class="source-lamp status-{source.status}" aria-hidden="true"></span>
+				{source.status === 'live'
+					? 'Live'
+					: source.status === 'stale'
+						? 'Out of date'
+						: 'Checking…'}
+			</div>
+		{/snippet}</SettingsHeader
+	>
 
 	{#if failure}<p class="identity-message failure" role="alert">{failure}</p>{/if}
 	{#if notice}<p class="identity-message" role="status">{notice}</p>{/if}

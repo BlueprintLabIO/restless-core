@@ -504,32 +504,19 @@ impl AuthorityStore {
         Ok(sqlx::Row::try_get(&row, "id")?)
     }
 
-    pub async fn pending_email_mandate_proposals(
-        &self,
-        company: &str,
-    ) -> Result<Vec<AuthorityRecord>> {
+    pub async fn pending_email_mandate_proposals(&self, company: &str) -> Result<Vec<AuthorityRecord>> {
         Ok(sqlx::query_as("SELECT p.id,p.actor_id,p.body,p.created_at FROM restless_authority.records p WHERE p.company=$1 AND p.kind='email_mandate_proposal' AND NOT EXISTS (SELECT 1 FROM restless_authority.records d WHERE d.company=p.company AND d.kind='email_mandate_proposal_decision' AND d.body->>'proposal_id'=p.body->>'id') ORDER BY p.id")
             .bind(company).fetch_all(&self.pool).await?)
     }
 
-    pub async fn decide_email_mandate_proposal(
-        &self,
-        company: &str,
-        owner: &str,
-        proposal_id: Uuid,
-        approve: bool,
-        owner_note: Option<&str>,
-    ) -> Result<Option<EmailMandate>> {
+    pub async fn decide_email_mandate_proposal(&self, company: &str, owner: &str, proposal_id: Uuid, approve: bool, owner_note: Option<&str>) -> Result<Option<EmailMandate>> {
         let mut tx = self.pool.begin().await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
             .bind(format!("email-mandate:{company}:{proposal_id}"))
-            .execute(&mut *tx)
-            .await?;
+            .execute(&mut *tx).await?;
         let proposal_row = sqlx::query("SELECT body FROM restless_authority.records WHERE company=$1 AND kind='email_mandate_proposal' AND body->>'id'=$2 ORDER BY id DESC LIMIT 1 FOR UPDATE")
             .bind(company).bind(proposal_id.to_string()).fetch_optional(&mut *tx).await?;
-        let Some(row) = proposal_row else {
-            anyhow::bail!("email mandate proposal not found")
-        };
+        let Some(row) = proposal_row else { anyhow::bail!("email mandate proposal not found") };
         let body: serde_json::Value = sqlx::Row::try_get(&row, "body")?;
         if let Some(decision) = sqlx::query("SELECT body FROM restless_authority.records WHERE company=$1 AND kind='email_mandate_proposal_decision' AND body->>'proposal_id'=$2 ORDER BY id LIMIT 1")
             .bind(company).bind(proposal_id.to_string()).fetch_optional(&mut *tx).await? {
@@ -555,9 +542,7 @@ impl AuthorityStore {
         let mandate = if approve {
             mandate::lock_company(&mut tx, company).await?;
             Some(mandate::grant_in_transaction(&mut tx, company, owner, proposal).await?)
-        } else {
-            None
-        };
+        } else { None };
         let decision_body = serde_json::json!({"proposal_id":proposal_id,"decision":if approve {"approve"} else {"decline"},"mandate_id":mandate.as_ref().map(|m|m.id),"owner_note":owner_note});
         sqlx::query("INSERT INTO restless_authority.records (company,kind,actor_id,body) VALUES ($1,'email_mandate_proposal_decision',$2,$3)")
             .bind(company).bind(owner).bind(decision_body).execute(&mut *tx).await?;

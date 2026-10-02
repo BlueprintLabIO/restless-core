@@ -24,3 +24,4 @@ toml = "0.8"
 unicode-segmentation = "1"
 unicode-width = "0.2"
 url = "2"
+uuid = { version = "1", features = ["v4"] }

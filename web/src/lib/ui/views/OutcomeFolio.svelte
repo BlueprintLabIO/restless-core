@@ -11,6 +11,7 @@
 		whyItMatters,
 		uncertainty,
 		category = 'decision',
+		compact = false,
 		headingLevel = 1,
 		context,
 		recommendation,
@@ -23,6 +24,7 @@
 		whyItMatters: string;
 		uncertainty?: string;
 		category?: string;
+		compact?: boolean;
 		/** The folio is the page's h1 in the cockpit; on a page with its own h1 it is an h3. */
 		headingLevel?: 1 | 2 | 3;
 		/** Sits beside the title: an info tip, a deadline. */
@@ -37,22 +39,23 @@
 	} = $props();
 </script>
 
-<article class="owner-folio category-{category}">
+<article class="owner-folio category-{category}" class:compact>
 	<header class="folio-opening">
 		<div class="folio-heading">
 			<svelte:element this={`h${headingLevel}`}>{title}</svelte:element>
 			{#if context}<div class="folio-context">{@render context()}</div>{/if}
 		</div>
-		<div class="folio-context-copy">
-			<p>{whatHappened}</p>
-			<p>{whyItMatters}</p>
-		</div>
-		{#if uncertainty}
-			<p class="folio-uncertainty"><strong>Uncertain:</strong> {uncertainty}</p>
+		{#if !compact}<div class="folio-context-copy">
+				<p>{whatHappened}</p>
+				<p>{whyItMatters}</p>
+			</div>
+			{#if uncertainty}
+				<p class="folio-uncertainty"><strong>Uncertain:</strong> {uncertainty}</p>
+			{/if}
 		{/if}
 	</header>
 
-	{#if recommendation}
+	{#if recommendation && !compact}
 		<section class="folio-recommendation" aria-label="Recommendation">
 			<strong>Recommended</strong>
 			{@render recommendation()}
@@ -60,6 +63,17 @@
 	{/if}
 
 	{@render decision?.()}
+	{#if compact}
+		{#if uncertainty}<p class="folio-uncertainty">{uncertainty}</p>{/if}
+		<details class="folio-details">
+			<summary><span class="evidence-chevron" aria-hidden="true">›</span>Context</summary>
+			<div class="folio-evidence-body folio-context-copy">
+				<p>{whatHappened}</p>
+				<p>{whyItMatters}</p>
+				{@render recommendation?.()}
+			</div>
+		</details>
+	{/if}
 
 	{#if details}
 		<details class="folio-details">
@@ -74,6 +88,36 @@
 </article>
 
 <style>
+	.owner-folio.compact {
+		width: min(720px, 100%);
+		padding: 28px 32px;
+		margin: 0 auto;
+		background: transparent;
+	}
+	.compact .folio-heading > :global(:is(h1, h2, h3)) {
+		font-size: var(--t-title);
+		line-height: 1.3;
+		letter-spacing: -0.025em;
+	}
+	.compact .folio-heading {
+		grid-template-columns: 1fr;
+		gap: 8px;
+		margin-bottom: 24px;
+	}
+	.compact .folio-context-copy {
+		margin-top: 0;
+		font-size: var(--t-body);
+		line-height: 1.6;
+	}
+	@media (max-width: 760px) {
+		.owner-folio.compact {
+			padding: 20px 16px;
+		}
+		.compact .folio-heading > :global(:is(h1, h2, h3)) {
+			font-size: var(--t-title);
+		}
+	}
+
 	.owner-folio {
 		container-type: inline-size;
 		width: min(760px, calc(100% - 40px));

@@ -128,7 +128,7 @@
 			id="agent-assignments-title"
 			title="What powers each agent. Agents without their own choice use the company default. Changes apply to the next session; removing access stops the next model request."
 		>
-			In use
+			Model assignments
 		</h2>
 	</header>
 	{#if source.error}<p role="alert">
@@ -161,7 +161,7 @@
 							: agent.id === 'default'
 								? 'No default selected'
 								: 'Use company default'}</span
-					><small>{agent.assignment?.model ?? modelLabel(agent.effective_model)}</small>
+					><small>{modelLabel(agent.assignment?.model ?? agent.effective_model)}</small>
 				</div>
 				<!-- With nothing connected there is nothing to change to; the row
 				     already points to the connection that comes first. -->
@@ -240,7 +240,13 @@
 			{/if}
 		{/each}
 		{#if foldedCount > 0 || showAll}
-			<button class="text-button fold-toggle" type="button" onclick={() => (showAll = !showAll)}>
+			<button
+				class="text-button fold-toggle"
+				type="button"
+				aria-expanded={showAll}
+				onclick={() => (showAll = !showAll)}
+			>
+				<span aria-hidden="true">{showAll ? '↑' : '↓'}</span>
 				{showAll
 					? 'Show fewer'
 					: `${foldedCount} more ${foldedCount === 1 ? 'agent uses' : 'agents use'} the company default`}

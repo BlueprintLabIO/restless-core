@@ -1,5 +1,134 @@
 # Local Core release runner
 
+## Shared qualification path (2 October 2026)
+
+The pinned Dagger `0.21.10` module in `.dagger/` runs the same source qualification
+locally and in `Immutable Core release`: Rust workspace checking, cockpit
+checking/building, native Documents checking/building, the pinned native Sheets
+engine, issuer package imports and workflow lint. The publishing job exports
+the cockpit from that same Dagger graph instead of installing and building it
+again. Dagger's persistent engine holds the compiler and npm caches.
+
+```sh
+scripts/release/install-dagger.sh
+export DAGGER_NO_NAG=1 NODE_OPTIONS=--no-network-family-autoselection
+"$HOME/.local/bin/dagger" --progress=plain call qualify --source=.
+"$HOME/.local/bin/dagger" --progress=plain call cockpit --source=. export --path=web/build
+"$HOME/.local/bin/dagger" --progress=plain call issuer --source=. export --path=/tmp/core-issuer-output
+```
+
+The issuer export includes its Core-owned package metadata, declarations and
+three implementation files, without `node_modules` or an entire identity image.
+Its actual package exports are imported during qualification. This is packaging
+evidence; signed issuer publication and Cloud consumption are later migration
+work.
+
+`verify-account-plane --source=. --revision="$(git rev-parse HEAD)"` builds the
+canonical account-plane Dockerfile, executes its supported help command and
+loads the bundled Sheets engine. It does not connect to an owner appliance or
+prove company readiness. Account-image inputs are filtered before upload and
+again when constructing the Docker context; keep both lists aligned with the
+canonical Dockerfile's actual `COPY` inputs and the cockpit source.
+
+### Runtime construction and tool-base reuse
+
+The canonical company Dockerfile now exposes `runtime-tools` separately from
+`company-runtime`. The base contains the pinned OS/Node image, agent/browser
+tools, Godot export templates and fixed Unix accounts. Startup scripts, skills,
+Core CLI/Bridge binaries and release metadata belong to the thin final image.
+Local Docker builds still use the in-file base stage. A release can select an
+already-admitted `restless-runtime-tools@sha256:...` through
+`RUNTIME_TOOLS_IMAGE`; registry publication and admission of that separate base
+have not yet been exercised.
+
+```sh
+"$HOME/.local/bin/dagger" --progress=plain call verify-runtime-tools --source=.
+"$HOME/.local/bin/dagger" --progress=plain call verify-company-runtime --source=. --revision="$(git rev-parse HEAD)"
+```
+
+Dagger imports only the Dockerfile and GTK settings for the base. The final
+image adds its actual Rust/runtime inputs, excluding Python test/cache output.
+Composition metadata is applied after Dockerfile construction, so changing a
+release revision does not replay image construction. Asset copies are grouped
+in the canonical recipe; their existing paths and permissions are preserved.
+
+The Runtime check executes CLI help, checks Bridge linkage and exact revision,
+then exercises the immutable company-supervisor launcher. A small supervisor
+fixture runs the production privilege assertion in an actual child: uid/gid
+2000, no supplementary groups or capabilities, and `NoNewPrivs`. The fixture
+replaces the company supervisor configuration only in the isolated checking
+container and stops its exact supervisor process before exit. It never starts
+an owner appliance or a hosted company. The previous Python contract check
+still expected Supervisord's uid-only drop; it now follows the immutable
+launcher introduced by `8c63e3dc`.
+
+Observed Linux AMD64 results on 2 October 2026:
+
+- Base/tool execution: 224 seconds cold, 3 seconds repeated, 2 seconds after an
+  unrelated Rust input changed. Node, Codex, OMP, pnpm, Godot, Chromium, WebSocket
+  imports, Unix accounts and export templates were exercised.
+- The grouped final image first built and passed binary/metadata checks in 861
+  seconds. The updated metadata/privilege check first took 1,051 seconds, then
+  3 seconds repeated and 9 seconds with a different revision. The latter reran
+  the metadata and actual privilege checks without replaying Dockerfile
+  construction. This demonstrates that boundary, not a full-release speedup.
+- Shared qualification passed in 43 seconds; the focused supervision and
+  release-contract checks passed 5/5 and 10/10.
+
+Logs are in the operator's `qualification/core-runtime-tools-20261002`,
+`core-runtime-grouped-20261002` and `core-runtime-metadata-20261002` directories.
+The first final-image attempt was deliberately interrupted after exposing
+expensive per-file Dockerfile translation; its exit status remains recorded as
+a failure. Cold construction is still expensive. ARM, separate base publication,
+full signed release publication and hosted company behaviour remain unproved.
+
+### Runner pilot
+
+The replacement pilot is `restless-core-dagger-drive`, installed at
+`~/.local/share/restless-runners/core-dagger` and supervised by
+`restless-core-dagger-runner.service`. It uses Node 24 on PATH, the required
+`NODE_OPTIONS`, a separate Docker configuration directory and mode 0600 runner
+credentials. The service has `UMask=0022` so checked-out public source can be read
+by non-root checking containers. Credentials retain their explicit 0600 mode.
+This WSL pilot still depends on the workstation; the independent Linux builder
+in the target architecture remains migration work.
+
+Dispatch just the shared checks with:
+
+```sh
+gh workflow run immutable-core-release.yml --repo BlueprintLabIO/restless-core --ref dev -f publish=false
+```
+
+Normal immutable publication uses `publish=true`, which remains the default.
+Its image construction, multi-architecture attestations, signatures and v1
+bundle assembly still use the existing publisher below. Qualification and UI
+construction have moved first; do not describe this as a fully migrated release
+or promote an unsigned local check image.
+
+### Observed migration evidence
+
+- Core `78dfd5ce` passed [Actions run 36974008003](https://github.com/BlueprintLabIO/restless-core/actions/runs/36974008003)
+  on `restless-core-dagger-drive`. The complete qualification job took 19 seconds
+  with warm caches. Its output was `Core qualification passed: Rust workspace,
+  cockpit check/build, native Documents check/build, pinned native Sheets engine,
+  issuer artifact imports, workflow lint`. Publication was deliberately skipped
+  with `publish=false`.
+- Local qualification of the updated `76df714e` base passed, including its new
+  Docs/Sheets navigation checks. An earlier cold qualification of `0f27a7c5` took
+  228 seconds before the issuer/lint checks were added.
+- The account-image check on `0f27a7c5` executed the image's supported help
+  command, found the bundled cockpit and imported the actual Odoo Sheets engine.
+  Before pre-call filtering, an unrelated documentation edit took 170 seconds
+  to reconstruct the graph even though compilation was cached. With filtering,
+  the first call took 221 seconds, an exact repeat took 2 seconds and an unrelated
+  documentation edit took 3 seconds. These are image-check timings, not full
+  release or company-readiness timings.
+- The offline `restless-core-local` registration (id 21) was removed after the
+  replacement runner passed that workflow. Only the replacement Core runner
+  remained registered and online.
+
+## Existing immutable publisher
+
 `Immutable Core release` and `Identity image` are manually dispatched GitHub Actions workflows. Their jobs run on a repository-scoped Linux x64 runner labelled `restless-core` on the owner machine. They still publish signed immutable images and the signed Core release bundle to GHCR with the existing GitHub OIDC workflow identity. The bundle format and Cloud trust policy stay the same.
 
 The pilot runner is installed at `~/.local/share/restless-runners/core` and runs as the enabled user service `restless-core-actions-runner.service`. Docker, Docker Compose, and Docker Buildx are installed; the Compose and Buildx CLI plugins are in `~/.docker/cli-plugins`. The service uses a separate `DOCKER_CONFIG` directory under the runner installation so its Buildx builder cannot collide with Cloud's. Check `systemctl --user status restless-core-actions-runner.service`, `docker buildx version`, and repository Settings → Actions → Runners before dispatching. Keep the host online throughout the release. The service has linger enabled to survive logout.

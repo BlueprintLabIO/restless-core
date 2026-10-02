@@ -8,9 +8,10 @@
 		"dev": "vite dev",
 		"build": "vite build",
 		"preview": "vite preview",
-		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && npm run check:type && npm run check:ui",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && npm run check:type && npm run check:ui && npm run check:document-search",
 		"check:type": "node scripts/check-type.mjs",
 		"check:ui": "node scripts/check-ui-boundary.mjs",
+		"check:document-search": "node scripts/check-document-search.mjs",
 		"pack:ui": "node scripts/pack-ui.mjs",
 		"smoke:ui": "node scripts/smoke-ui-artifact.mjs",
 		"verify:office": "node scripts/verify-office.mjs",
@@ -20,7 +21,8 @@
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"format": "prettier --write .",
 		"lint": "prettier --check .",
-		"verify:markdown": "node scripts/verify-streaming-markdown.mjs"
+		"verify:markdown": "node scripts/verify-streaming-markdown.mjs",
+		"pack:office": "node scripts/pack-office.mjs"
 	},
 	"devDependencies": {
 		"@hocuspocus/server": "^4.6.0",
@@ -43,6 +45,8 @@
 		"@fontsource/silkscreen": "^5.3.0",
 		"@hocuspocus/provider": "^4.6.0",
 		"@lucide/svelte": "^1.31.0",
+		"@odoo/o-spreadsheet": "19.0.51",
+		"@odoo/owl": "2.8.2",
 		"@tanstack/svelte-query": "^6.1.41",
 		"@tiptap/core": "^3.31.3",
 		"@tiptap/extension-collaboration": "^3.31.3",

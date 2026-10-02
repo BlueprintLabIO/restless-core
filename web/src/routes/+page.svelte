@@ -1,4 +1,7 @@
 <script lang="ts">
+	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
+	import { archiveCompany, restoreCompany } from '$lib/model/cockpit';
+	import { failureSentence } from '$lib/model/failure';
 	import CompanyPortfolio from '$lib/ui/views/CompanyPortfolio.svelte';
 	import type { CompanyPortfolioEntry } from '$lib/ui/portfolio';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
@@ -15,7 +18,7 @@
 		portfolioQuery,
 		type PortfolioProjection
 	} from '$lib/model/queries.svelte';
-	import { startFixHref, startGuidance } from '$lib/model/company-start';
+	import { startFixHref, startLinkLabel } from '$lib/model/company-start';
 	import { plainText } from '$lib/ui/text';
 
 	const companyCatalog = companiesQuery();
@@ -55,10 +58,43 @@
 		return value?.startsWith('/') && !value.startsWith('//') ? value : '';
 	}
 
+	let notice = $state(''),
+		actionError = $state(''),
+		archivedId = $state(''),
+		busy = $state('');
+	async function archive(id: string) {
+		if (busy) return;
+		busy = id;
+		actionError = '';
+		try {
+			await archiveCompany(id);
+			await companyCatalog.refresh();
+			archivedId = id;
+			notice = 'Company archived';
+		} catch (cause) {
+			actionError = failureSentence(cause, 'Company could not be archived.');
+		} finally {
+			busy = '';
+		}
+	}
+	async function undoArchive() {
+		if (busy || !archivedId) return;
+		busy = archivedId;
+		try {
+			await restoreCompany(archivedId);
+			await companyCatalog.refresh();
+			notice = 'Company restored';
+			archivedId = '';
+		} catch (cause) {
+			actionError = failureSentence(cause, 'Company could not be restored.');
+		} finally {
+			busy = '';
+		}
+	}
 	const rows = $derived(
 		activeCompanies.map((company): CompanyPortfolioEntry => {
 			const projection = projections[company.id];
-			const issue = company.unstartable_reason ? startGuidance(company.unstartable_reason) : '';
+			const issue = company.unstartable_reason ? startLinkLabel(company.unstartable_reason) : '';
 			return {
 				id: company.id,
 				name: company.name,
@@ -113,7 +149,19 @@
 				<Settings2 size={17} strokeWidth={1.8} aria-hidden="true" /><span>Settings</span>
 			</a>
 		{/snippet}
+		{#snippet rowActions(company)}<ActionMenu label={`${company.name} options`}
+				><a href={`/${company.id}/company`}>Rename</a><button
+					disabled={!!busy}
+					onclick={() => archive(company.id)}>Archive company</button
+				></ActionMenu
+			>{/snippet}
 		{#snippet before()}
+			{#if actionError}<p role="alert">{actionError}</p>{/if}
+			{#if notice}<p role="status">
+					{notice}{#if archivedId}<button class="btn small" disabled={!!busy} onclick={undoArchive}
+							>Undo</button
+						>{/if}
+				</p>{/if}
 			{#if appliance?.state === 'recovering'}
 				<div class="appliance-notice" role="status">
 					<span>Restoring runtime safety.</span>

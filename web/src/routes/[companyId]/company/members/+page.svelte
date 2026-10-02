@@ -1,4 +1,5 @@
 <script lang="ts">
+	import SettingsHeader from '$lib/ui/views/SettingsHeader.svelte';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { failureSentence } from '$lib/model/failure';
@@ -149,12 +150,10 @@
 <CompanyTitle title="Members" {companyId} />
 
 <div class="company-page members-page">
-	<header class="company-page-head">
-		<h1>Members</h1>
-		<InfoTip
-			text="Members can enter the company and collaborate. Membership never grants spending, policy or computer access."
-		/>
-	</header>
+	<SettingsHeader
+		title="Members"
+		explanation="Members can enter the company and collaborate. Membership never grants spending, policy or computer access."
+	></SettingsHeader>
 
 	{#if failure}<p class="members-message members-error" role="alert">{failure}</p>{/if}
 	{#if notice}<p class="members-message" role="status">{notice}</p>{/if}
@@ -164,15 +163,16 @@
 	{:else if core.mode === 'local'}
 		<ul class="member-list">
 			<li class="member-row">
+				<span class="member-avatar" aria-hidden="true">Y</span>
 				<div class="member-identity"><strong>You</strong><span>Owner</span></div>
+				<button
+					class="btn small"
+					disabled
+					title="Invites require a connected account service. This company uses local access."
+					>Invite</button
+				>
 			</li>
 		</ul>
-		<p class="quiet-empty">
-			This company is local-only, so nobody else can be invited yet.
-			<InfoTip
-				text="Invites need an account service. Restless Cloud includes one; to self-host, see services/identity/README.md."
-			/>
-		</p>
 	{:else if core.issuer_unavailable}
 		<p class="source-unavailable">
 			The account service is not answering, so access can’t be changed right now. People who already
@@ -339,6 +339,21 @@
 </div>
 
 <style>
+	.member-avatar {
+		width: 32px;
+		height: 32px;
+		display: grid;
+		place-items: center;
+		border: 1px solid var(--border);
+		background: var(--surface-alt);
+		border-radius: 50%;
+		color: var(--text-secondary);
+		font-size: var(--t-body);
+	}
+	.member-row .member-identity {
+		flex: 1;
+	}
+
 	.members-page {
 		display: flex;
 		flex-direction: column;

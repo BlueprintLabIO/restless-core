@@ -321,6 +321,8 @@ pub const RELEASE_ENVIRONMENT_KEYS: &[&str] = &[
     "RESTLESS_COMPANY_IMAGE",
     "RESTLESS_NATIVE_DOCUMENTS_IMAGE",
     "RESTLESS_OMP_BIN",
+    "RESTLESS_SHEETS_WORKER",
+    "RESTLESS_NODE_BIN",
     "RESTLESS_BUN_BIN",
 ];
 
@@ -360,8 +362,7 @@ pub fn load_release_environment() -> Result<()> {
     if !path.is_file() {
         return Ok(());
     }
-    let text =
-        std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let text = std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
     for (name, value) in parse_release_environment(&text)? {
         if std::env::var_os(&name).is_none() {
             std::env::set_var(name, value);

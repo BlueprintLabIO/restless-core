@@ -32,6 +32,7 @@ mod notifications;
 mod review;
 mod rooms;
 mod schedules;
+mod sheets;
 mod skills;
 mod substrate;
 mod types;
@@ -47,6 +48,7 @@ pub use events::EventReplayPage;
 pub use invocations::*;
 pub use notifications::*;
 pub use schedules::{MAX_INTERVAL_SECONDS, MIN_INTERVAL_SECONDS};
+pub use sheets::*;
 pub use skills::*;
 pub use types::*;
 

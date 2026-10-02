@@ -31,6 +31,7 @@ authoritative. External libraries never supply palette, type, geometry or produc
 | `inhabited-office` | Native | `web/src/lib/office/` | Makes the company and active responsibility visible | One large pixel-world brand moment or route-specific organisation figure |
 | `conversation-band` | Native | conversation primitives, `chat.css` | Distinguishes owner, agent and context before reading | Product explanation, annotated transcript or role handoff |
 | `outcome-folio` | Native | Attention folio in `[companyId]/+page.svelte` | Returns evidence and one bounded judgement | Faithful ReviewTarget demonstration and final conversion boundary |
+| `artifact-navigation` | Native | `web/src/lib/ui/navigation/ArtifactSidebar.svelte` | Finds and opens company Docs/Sheets with calm icon/title rows | Company work navigation; data and permissions remain page/model-owned |
 | `evidence-chain` | Public-ready | Sprint 23 dossier | Separates source, observation, accepted fact and decision | Interactive or static strip using semantic state colours and source locators |
 | `company-pulse` | Public-ready | Sprint 23 homepage | Explains intent → responsibility → evidence → judgement | The one orchestrated public signature; complete static reduced-motion state |
 
@@ -150,3 +151,64 @@ and Origin UI Svelte's ordinary compact controls were consulted; no upstream cod
 copied. One title and sync state replace stacked request/editor headers; type selectors and the
 recovery subtitle are removed. Required actions remain keyboard/touch accessible, Escape and
 outside click dismiss the popover, and it stays within the desktop/mobile viewport without animation.
+
+## Shared Docs/Sheets navigation — 2 October 2026
+
+`artifact-navigation` combines native `physical-control` and `pane-machine`: one compact artifact
+switcher, creation action, search, recent/name ordering and a scrollable icon/title list. Rows remain
+native links with modifier-click and full-title tooltips. Arrow keys enter and move within the list;
+Home/End move between rows while retaining native search-input caret behavior. Enter opens, Escape
+clears search then restores focus, and `/` focuses search only from within navigation. Editors and
+the global company command menu retain their own shortcuts. Mobile opens a full-width browser list
+and transfers focus to the visible editor/back control.
+
+Beautiful UI's Sidebar Nav/Search informed density and alignment; Cult UI's Side Panel informed calm
+inset surfaces; Origin UI Svelte's compact input/navigation controls informed keyboard-visible
+chrome. Linear's official search interaction documentation informed clear temporary filtering and
+keyboard escape behavior. No external source, runtime or visual theme was copied. Restless tokens
+own type, color and spacing; no ornamental animation was added.
+
+The component owns transient presentation only. Page scope keys reset search/order/focus on company
+or verified-principal changes. Docs search belongs to `lib/model`, uses the existing permission-aware
+named-version search endpoint, and cancels/discards stale completions across query, company,
+principal and access changes. Its titles/snippets stay in memory. Sheets keeps its existing accepted
+revision and access-epoch boundary. Search pagination and ordering refer to the loaded results.
+
+## Cockpit inbox and Company settings — 2 October 2026
+
+`AttentionInbox` replaces the old multi-line navigation cards with 52px native links, grouped by
+Decide, Approve, Review and Fix setup. Neutral selection, icon-only category color, relative time,
+unread state, filtering, ordering and one row action menu carry the hierarchy. Right click opens
+that same menu; J/K, arrows, C, H, Cmd/Ctrl+period and `?` stay scoped away from text inputs.
+Mobile pushes from a full-height inbox to a detail page with a Back link. Device-local snoozing
+has Undo; authoritative decisions keep their existing revision and approval boundaries.
+
+`SettingsHeader`, `EmptyState`, `RelativeTime` and `ActionMenu` consolidate Company page chrome.
+The menu uses the browser top layer to escape scroll clipping, remains within the viewport,
+closes on selection/outside click/Escape, supports arrow/Home/End focus, and has 44px touch actions.
+Company uses one grouped spine, a compact mobile picker and existing type tokens. Secondary detail
+stays behind disclosure. No ambient animation was added; existing motion respects reduced motion.
+
+Polish references inspected: [Beautiful UI](https://www.beautifului.dev/) for compact task/sidebar
+hierarchy; [Cult UI Expandable Screen](https://www.cult-ui.com/docs/components/expandable-screen)
+for a single explicit reveal; and
+[Origin UI Svelte dropdown-08 source](https://github.com/max-got/originui-svelte/blob/main/src/lib/components/dropdowns/dropdown-08.svelte)
+for grouped native actions and shortcut alignment. Only those qualities were reimplemented.
+No upstream source, theme, React runtime or dependency was copied. The full-screen morph,
+hover-only behavior and decorative surfaces were rejected.
+
+Verification: 16 cockpit routes at 1440, 390 and 320px, plus mobile detail and Doctor disclosure
+(50 captures), with no horizontal overflow or browser page errors. Browser-only fixtures use
+read-only GETs with writes rejected; they verify presentation, not live provider availability.
+Keyboard navigation, snooze/Undo, stale-link feedback and mobile Back were exercised. Real isolated
+`cockpit_ux_test` API checks separately verified schedule create/pause/resume/cadence and stale-write
+refusal, Vault creation without returning secret values, charter A/B/A history and stale revision
+refusal, and agreement between catalog and Doctor on missing intelligence. Schedule controls and
+schedule appliance integration tests passed, as did the declared-schema/migration invariant.
+The web check reports zero errors/warnings; the production web and daemon builds passed.
+
+Additional interaction acceptance passed: desktop context-menu focus/Escape; unchanged rail DOM
+and scroll across Company navigation; skill search and agent disclosure; touch menu placement and
+44px actions; mobile picker; fresh loading/error/retry and blocked empty states. The real test
+company rendered all three charter revisions (one current), the E edit shortcut, and Doctor's
+missing-provider action. Browser page errors remained empty.

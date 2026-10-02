@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { formatRelative, formatMoment } from '$lib/ui/time';
 	import { failureSentence } from '$lib/model/failure';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
@@ -368,15 +369,7 @@
 			.finally(() => (activityRenewing = false));
 	}
 
-	function when(value?: string): string {
-		if (!value) return 'Observation time unavailable';
-		return new Date(value).toLocaleString(undefined, {
-			month: 'short',
-			day: 'numeric',
-			hour: 'numeric',
-			minute: '2-digit'
-		});
-	}
+	const when = (value?: Date | string) => formatRelative(value, 'Not yet');
 </script>
 
 <svelte:head><title>Computer — {view?.company.name ?? companyId}</title></svelte:head>
@@ -521,7 +514,9 @@
 			<div>
 				<span class="source-lamp status-{source.status}" aria-hidden="true"></span>
 				<span>{source.status === 'live' ? 'Live' : 'Out of date'}</span>
-				<time>{when(view?.computer.doctor.observed_at)}</time>
+				<time title={formatMoment(view?.computer.doctor.observed_at)}
+					>{when(view?.computer.doctor.observed_at)}</time
+				>
 			</div>
 			{#if preparedHandoffs.length}
 				<a href={`/${companyId}`}

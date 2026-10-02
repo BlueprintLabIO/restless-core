@@ -287,9 +287,7 @@ pub async fn project(
     let declines = authority
         .records_of_kind(&config.name, "approval_declined")
         .await?;
-    let mandate_proposals = authority
-        .pending_email_mandate_proposals(&config.name)
-        .await?;
+    let mandate_proposals = authority.pending_email_mandate_proposals(&config.name).await?;
 
     let mut resolved_after: HashMap<String, i64> = HashMap::new();
     for event in grants.iter().chain(declines.iter()) {
@@ -384,20 +382,23 @@ pub async fn project(
         ),
     };
     let generation = runtime::generation(&config.name).await.ok().flatten();
-    let attach_for =
-        |actor: Option<&str>, work_id: Option<uuid::Uuid>, attempt_id: Option<uuid::Uuid>| {
-            generation.as_ref().map(|generation| RuntimeAttachRef {
-                company: config.name.clone(),
-                generation: generation.clone(),
-                work_id,
-                attempt_id,
-                requesting_actor: actor.map(str::to_string),
-                requesting_actor_display: actor
-                    .and_then(|actor| actors.get(actor))
-                    .map(|actor| actor.display.clone()),
-                kind: "persistent-browser",
-            })
-        };
+    let attach_for = |
+        actor: Option<&str>,
+        work_id: Option<uuid::Uuid>,
+        attempt_id: Option<uuid::Uuid>,
+    | {
+        generation.as_ref().map(|generation| RuntimeAttachRef {
+            company: config.name.clone(),
+            generation: generation.clone(),
+            work_id,
+            attempt_id,
+            requesting_actor: actor.map(str::to_string),
+            requesting_actor_display: actor
+                .and_then(|actor| actors.get(actor))
+                .map(|actor| actor.display.clone()),
+            kind: "persistent-browser",
+        })
+    };
 
     let mut items = Vec::new();
     for ((capability, party), event) in latest {
@@ -1143,116 +1144,8 @@ pub async fn project(
             }
         }
 
-        // Opportunity outcomes are durable business facts. Keep only the
-        // newest outcome for each responsibility so a later successful run
-        // clears an older block, then cap owner attention to the three most
-        // recent blocked responsibilities.
-        match org.list_opportunities(None, 500).await {
-            Ok(opportunities) => {
-                let mut latest_by_responsibility = HashMap::new();
-                for opportunity in opportunities {
-                    latest_by_responsibility
-                        .entry(opportunity.responsibility_id)
-                        .or_insert(opportunity);
-                }
-                let mut blocked = latest_by_responsibility
-                    .into_values()
-                    .filter(|opportunity| opportunity.state == "blocked")
-                    .collect::<Vec<_>>();
-                blocked.sort_by_key(|opportunity| {
-                    Reverse(opportunity.settled_at.unwrap_or(opportunity.created_at))
-                });
-                for opportunity in blocked.into_iter().take(3) {
-                    let responsibility = org
-                        .get_responsibility_version(
-                            opportunity.responsibility_id,
-                            opportunity.responsibility_version,
-                        )
-                        .await?;
-                    let objective = responsibility
-                        .map(|version| version.objective)
-                        .unwrap_or_else(|| "Business opportunity".into());
-                    let objective_heading = objective.split(". ").next().unwrap_or(&objective);
-                    let title = if objective_heading.chars().count() > 80 {
-                        format!(
-                            "Blocked: {}…",
-                            objective_heading
-                                .chars()
-                                .take(80)
-                                .collect::<String>()
-                                .trim_end()
-                        )
-                    } else {
-                        format!("Blocked: {objective_heading}")
-                    };
-                    let linked_work = org
-                        .list_opportunity_work(opportunity.id)
-                        .await?
-                        .into_iter()
-                        .max_by_key(|link| link.linked_at);
-                    let reason = opportunity
-                        .outcome_reason
-                        .clone()
-                        .or_else(|| opportunity.outcome.as_ref().map(ToString::to_string))
-                        .unwrap_or_else(|| "The opportunity was marked blocked.".into());
-                    let opened_at = opportunity.settled_at.unwrap_or(opportunity.created_at);
-                    let source_href = linked_work.as_ref().map_or_else(
-                        || Some(format!("/{}/company/schedules", config.name)),
-                        |link| Some(format!("/{}/work/{}?lens=map", config.name, link.work_id)),
-                    );
-                    items.push(AttentionItem {
-                        id: format!("orgintel:opportunity-blocked:{}", opportunity.id),
-                        work_id: linked_work.map(|link| link.work_id),
-                        source: AttentionSource {
-                            plane: "orgintel",
-                            kind: "blocked_opportunity".into(),
-                            reference: opportunity.id.to_string(),
-                            party: None,
-                        },
-                        category: "blocker".into(),
-                        title,
-                        what_happened: reason.clone(),
-                        why_it_matters:
-                            "The latest outcome for this responsibility is blocked.".into(),
-                        recommendation: "Review the blocker and decide whether the company should retry, change direction, or stop this responsibility.".into(),
-                        requested_action: "Review the blocked opportunity.".into(),
-                        if_no_action:
-                            "This responsibility remains blocked until the company records a new outcome.".into(),
-                        uncertainty: None,
-                        deadline: None,
-                        brief_status: "source-authored",
-                        brief_author: actors.get(&opportunity.actor_id).cloned(),
-                        briefed_at: Some(opened_at),
-                        evidence: vec![AttentionEvidence {
-                            label: "Opportunity outcome".into(),
-                            uri: Some(format!("orgintel://opportunities/{}", opportunity.id)),
-                            content: Some(reason),
-                            kind: "orgintel-opportunity",
-                        }],
-                        review_sources: Vec::new(),
-                        responsible_actor: actors.get(&opportunity.actor_id).cloned(),
-                        runtime_attach: None,
-                        review_target: None,
-                        native_document: None,
-                        actions: vec![AttentionAction {
-                            id: "inspect-blocked-opportunity".into(),
-                            label: "Review opportunity".into(),
-                            role: "inspect",
-                            consequence: "Opens the linked Work when one exists.".into(),
-                            next_state: "A later opportunity outcome replaces this projection.".into(),
-                            href: source_href,
-                        }],
-                        can_continue: false,
-                        preparing: false,
-                        created_at: opened_at,
-                    });
-                }
-            }
-            Err(error) => {
-                tracing::warn!(%error, "blocked opportunity attention unavailable");
-                orgintel_health = "unavailable".into();
-            }
-        }
+        // Scheduled opportunity failures are shown in Schedules. Only an explicit
+        // owner handoff enters this queue; inspection alone is not owner action.
 
         // A configured model is not proof that the Exec can start. Project the
         // latest closed substrate failure directly from its durable terminal
@@ -1277,90 +1170,69 @@ pub async fn project(
                 .and_then(serde_json::Value::as_u64)
                 == Some(0);
             if event.actor_id.as_deref() == Some("exec") && blocked && no_tools {
-                if let Some(provider_route) = exec_startup_failure(reason) {
-                    let action = provider_route.then(|| AttentionAction {
-                        id: "open-intelligence-provider".into(),
-                        label: "Open Intelligence provider".into(),
-                        role: "inspect",
-                        consequence:
-                            "Opens the configured model and provider connections for this company."
-                                .into(),
-                        next_state:
-                            "After the route is repaired, a successful Exec wake clears this issue."
-                                .into(),
-                        href: Some(format!("/{}/company/provider", config.name)),
-                    });
-                    items.push(AttentionItem {
-                        id: "orgintel:exec-startup-blocked".into(),
-                        work_id: None,
-                        source: AttentionSource {
-                            plane: "orgintel",
-                            kind: "exec_startup_blocked".into(),
-                            reference: event.id.to_string(),
-                            party: None,
-                        },
-                        category: "blocker".into(),
-                        title: "Exec needs a runtime repair".into(),
-                        what_happened: reason.to_string(),
-                        why_it_matters:
-                            "The latest Exec turn ended blocked without recorded tool use. Its outcome has not been verified."
-                                .into(),
-                        recommendation: if provider_route {
-                            "Repair the configured intelligence route, then resume the existing owed work."
-                                .into()
-                        } else {
-                            "Inspect the Runtime or transport failure, repair it, then resume the existing owed work."
-                                .into()
-                        },
-                        requested_action: if provider_route {
-                            "Check the model and provider connection for this company.".into()
-                        } else {
-                            "Check the company Runtime and agent transport.".into()
-                        },
-                        if_no_action:
-                            "Future Exec opportunities may continue to stop before productive work begins."
-                                .into(),
-                        uncertainty: Some(
-                            "The wake event does not identify which business opportunity triggered it."
-                                .into(),
-                        ),
-                        deadline: None,
-                        brief_status: "source-authored",
-                        brief_author: None,
-                        briefed_at: Some(event.created_at),
-                        evidence: vec![AttentionEvidence {
-                            label: "Exec terminal reason".into(),
-                            uri: None,
-                            content: Some(reason.to_string()),
-                            kind: "runtime-observation",
-                        }],
-                        review_sources: Vec::new(),
-                        responsible_actor: actors.get("exec").cloned(),
-                        runtime_attach: None,
-                        review_target: None,
-                        native_document: None,
-                        actions: action.into_iter().collect(),
-                        can_continue: false,
-                        preparing: false,
-                        created_at: event.created_at,
-                    });
+                if let Some(true) = exec_startup_failure(reason) {
+                    if let Some(provider_issue) = crate::owner::observed_company_model_issue(config).await {
+                        let action = AttentionAction {
+                            id: "open-intelligence-provider".into(),
+                            label: "Fix intelligence connection".into(),
+                            role: "inspect",
+                            consequence:
+                                "Opens the configured model and provider connections for this company.".into(),
+                            next_state:
+                                "After the route is repaired, a successful Exec wake clears this issue.".into(),
+                            href: Some(format!("/{}/company/provider", config.name)),
+                        };
+                        items.push(AttentionItem {
+                                    id: "orgintel:exec-startup-blocked".into(),
+                                    work_id: None,
+                                    source: AttentionSource {
+                                        plane: "orgintel",
+                                        kind: "exec_startup_blocked".into(),
+                                        reference: event.id.to_string(),
+                                        party: None,
+                                    },
+                                    category: "blocker".into(),
+                                    title: provider_issue.split(". ").next().unwrap_or(&provider_issue).into(),
+                                    what_happened: reason.to_string(),
+                                    why_it_matters:
+                                        "The latest Exec turn ended blocked without recorded tool use. Its outcome has not been verified."
+                                            .into(),
+                                    recommendation: "Reconnect the selected intelligence connection so Exec can resume the existing work.".into(),
+                                    requested_action: provider_issue,
+                                    if_no_action:
+                                        "Future Exec opportunities may continue to stop before productive work begins."
+                                            .into(),
+                                    uncertainty: None,
+                                    deadline: None,
+                                    brief_status: "source-authored",
+                                    brief_author: None,
+                                    briefed_at: Some(event.created_at),
+                                    evidence: vec![AttentionEvidence {
+                                        label: "Exec terminal reason".into(),
+                                        uri: None,
+                                        content: Some(reason.to_string()),
+                                        kind: "runtime-observation",
+                                    }],
+                                    review_sources: Vec::new(),
+                                    responsible_actor: actors.get("exec").cloned(),
+                                    runtime_attach: None,
+                                    review_target: None,
+                                    native_document: None,
+                                    actions: vec![action],
+                                    can_continue: false,
+                                    preparing: false,
+                                    created_at: event.created_at,
+                                });
+                    }
                 }
             }
         }
     }
 
     for record in mandate_proposals {
-        let Some(id) = record.body["id"].as_str() else {
-            continue;
-        };
-        let Ok(proposal_id) = uuid::Uuid::parse_str(id) else {
-            continue;
-        };
-        let Ok(proposal) = serde_json::from_value::<crate::authority::NewEmailMandate>(
-            record.body["proposal"].clone(),
-        ) else {
-            continue;
-        };
+        let Some(id) = record.body["id"].as_str() else { continue };
+        let Ok(proposal_id) = uuid::Uuid::parse_str(id) else { continue };
+        let Ok(proposal) = serde_json::from_value::<crate::authority::NewEmailMandate>(record.body["proposal"].clone()) else { continue };
         let note = record.body["judgement_note"].as_str().unwrap_or("");
         let limits = format!("Purpose: {}\nAudience: {}\nSender: {}{}\nDaily cap: {}\nTotal cap: {}\nTimezone: {}\nExpires: {}", proposal.purpose, proposal.audience_guidance, proposal.sender, proposal.sender_name.as_deref().map(|name| format!(" ({name})")).unwrap_or_default(), proposal.max_per_day, proposal.max_total, proposal.timezone, proposal.expires_at.to_rfc3339());
         let proposer = record.actor_id.as_deref().unwrap_or("a company actor");
@@ -1615,13 +1487,13 @@ pub async fn project(
                     review_target: None,
                     native_document: None,
                     actions: vec![AttentionAction {
-                        id: "inspect-schedules".into(),
-                        label: "Review schedules".into(),
+                        id: if route_missing { "open-intelligence-provider".into() } else { "open-company-computer".into() },
+                        label: if route_missing { "Choose intelligence".into() } else { "Open computer".into() },
                         role: "inspect",
-                        consequence: "Opens the company schedule list.".into(),
+                        consequence: "Opens the company setting that is preventing scheduled work from running.".into(),
                         next_state: "The projection clears after dispatch or when no active due work remains."
                             .into(),
-                        href: Some(format!("/{}/company/schedules", config.name)),
+                        href: Some(format!("/{}/company/{}", config.name, if route_missing { "provider" } else { "computer" })),
                     }],
                     can_continue: false,
                     preparing: false,
@@ -1629,6 +1501,20 @@ pub async fn project(
                 });
             }
         }
+    }
+    let mut seen_sources = HashSet::new();
+    items.retain(|item| {
+        seen_sources.insert((
+            item.source.plane,
+            item.source.kind.clone(),
+            item.source.reference.clone(),
+        ))
+    });
+    if items
+        .iter()
+        .any(|item| item.source.kind == "exec_startup_blocked")
+    {
+        items.retain(|item| item.source.kind != "overdue_dispatch_blocked");
     }
     Ok(AttentionView {
         company: CompanySummary {

@@ -1,0 +1,33 @@
+import assert from 'node:assert/strict';
+import { chromium } from 'playwright';
+import { mkdir, readFile } from 'node:fs/promises';
+const origin=process.env.RESTLESS_SMOKE_ORIGIN, company=process.env.RESTLESS_SMOKE_COMPANY;
+const sheet=process.env.RESTLESS_SMOKE_SHEET;
+assert(origin && company?.endsWith('_test') && sheet,'requires an explicit *_test company, web origin and fixture sheet');
+const browser=await chromium.launch({executablePath:process.env.RESTLESS_BROWSER_EXECUTABLE});
+const output=process.env.RESTLESS_SMOKE_OUTPUT ?? '/tmp/restless-native-sheets-smoke';await mkdir(output,{recursive:true});
+const errors=[];
+try {
+  const context=await browser.newContext({viewport:{width:1440,height:960}});
+  const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
+  await page.goto(`${origin}/${company}/work/sheets?sheet=${sheet}`);
+  await page.locator('.o-spreadsheet').waitFor({timeout:90000});
+  await page.getByRole('button',{name:'Export CSV',exact:true}).waitFor();
+  const canvas=page.locator('.o-spreadsheet canvas').first(), box=await canvas.boundingBox();assert(box);
+  await page.mouse.click(box.x+192,box.y+60);await page.keyboard.type('Inspection ready');await page.keyboard.press('Enter');
+  await page.getByRole('button',{name:'Export CSV',exact:true}).waitFor({state:'visible'});
+  await page.waitForFunction(()=>document.querySelector('.save-state')?.textContent==='Saved');
+  const downloadEvent=page.waitForEvent('download');await page.getByRole('button',{name:'Export CSV',exact:true}).click();
+  const download=await downloadEvent;await download.saveAs(`${output}/export.csv`);
+  assert.match(await readFile(`${output}/export.csv`,'utf8'),/Inspection ready/,'typed browser edit was persisted into CSV');
+  await page.getByRole('button',{name:'Save version',exact:true}).click();
+  await page.getByRole('button',{name:'History',exact:true}).click();await page.getByRole('button',{name:'Recover copy',exact:true}).first().waitFor();
+  await page.getByRole('button',{name:'History',exact:true}).click();
+  await page.screenshot({path:`${output}/desktop.png`,fullPage:true});
+  console.log(JSON.stringify({body:(await page.locator('body').innerText()).slice(-5000),inputs:await page.locator('.o-spreadsheet input').evaluateAll(nodes=>nodes.map(n=>({class:n.className,placeholder:n.placeholder,value:n.value}))),errors}));
+  assert.equal(errors.length,0);
+  await page.setViewportSize({width:390,height:844});await page.getByRole('button',{name:'Exec',exact:true}).click();await page.waitForTimeout(300);await page.screenshot({path:`${output}/mobile.png`,fullPage:true,animations:'disabled'});
+  const overflow=await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth);
+  assert(!overflow,'mobile cockpit overflows horizontally');
+  console.log(JSON.stringify({ok:true,output,checks:['embedded Owl grid mounted','human cell edit accepted','native CSV download','named history visible','no browser errors','desktop/mobile layout']}));
+} finally {await browser.close();}

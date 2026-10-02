@@ -35,7 +35,7 @@ export function formatMoment(
 	}).format(date);
 }
 
-/** "Just now", "5 min ago", "3 hours ago", "Yesterday", then the day. */
+/** Compact relative time, including scheduled times in the future. */
 export function formatRelative(
 	value: Date | string | number | null | undefined,
 	fallback = '',
@@ -44,11 +44,19 @@ export function formatRelative(
 	const date = asDate(value);
 	if (!date) return fallback;
 	const seconds = Math.round((now - date.getTime()) / 1000);
-	if (seconds < 45) return 'Just now';
-	const minutes = Math.round(seconds / 60);
-	if (minutes < 60) return `${minutes} min ago`;
-	const hours = Math.round(minutes / 60);
-	if (hours < 24) return `${hours} ${hours === 1 ? 'hour' : 'hours'} ago`;
-	if (hours < 48) return 'Yesterday';
-	return formatDay(date);
+	const distance = Math.abs(seconds);
+	if (distance < 60) return seconds < 0 ? 'Soon' : 'Just now';
+	const label =
+		distance < 3600
+			? `${Math.floor(distance / 60)}m`
+			: distance < 86400
+				? `${Math.floor(distance / 3600)}h`
+				: distance < 604800
+					? `${Math.floor(distance / 86400)}d`
+					: distance < 2592000
+						? `${Math.floor(distance / 604800)}w`
+						: distance < 31536000
+							? `${Math.floor(distance / 2592000)}mo`
+							: `${Math.floor(distance / 31536000)}y`;
+	return seconds < 0 ? `in ${label}` : label;
 }

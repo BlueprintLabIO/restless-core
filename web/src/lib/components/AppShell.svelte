@@ -40,6 +40,7 @@
 		execName = 'Exec',
 		execHref = null,
 		execLive = false,
+		execUnavailable = false,
 		blocked = false,
 		expandExec = false,
 		railOpen = true,
@@ -60,6 +61,7 @@
 		execName?: string;
 		execHref?: string | null;
 		execLive?: boolean;
+		execUnavailable?: boolean;
 		/** Temporarily removes the underlying page from interaction while a blocking recovery prompt is open. */
 		blocked?: boolean;
 		expandExec?: boolean;
@@ -334,13 +336,19 @@
 				<kbd aria-hidden="true">{menuShortcut}</kbd>
 			</button>
 			{#if execHref}
-				<a class="tb-exec" class:live={execLive} href={execHref}>
+				<a
+					class="tb-exec"
+					class:live={execLive}
+					class:unavailable={execUnavailable}
+					href={execHref}
+				>
 					<span class="tb-exec-lamp" aria-hidden="true"></span>{execName}
 				</a>
 			{:else if rail}
 				<button
 					class="tb-exec"
 					class:live={execLive}
+					class:unavailable={execUnavailable}
 					class:on={railOpen}
 					type="button"
 					aria-controls="bridge-exrail"
@@ -389,6 +397,7 @@
 		<button
 			class="immersive-exec"
 			class:live={execLive}
+			class:unavailable={execUnavailable}
 			class:on={railOpen}
 			type="button"
 			aria-controls="bridge-exrail"

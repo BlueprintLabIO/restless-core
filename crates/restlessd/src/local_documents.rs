@@ -82,6 +82,35 @@ async fn run(args: &[&str]) -> Result<()> {
     Ok(())
 }
 
+async fn stop_gracefully(name: &str) -> Result<()> {
+    run(&["stop", "--time", "20", name]).await?;
+    let stopped = inspect(name).await?.context("Documents container disappeared while stopping")?;
+    anyhow::ensure!(
+        stopped["State"]["Running"].as_bool() == Some(false)
+            && stopped["State"]["ExitCode"].as_i64() == Some(0),
+        "Documents container did not exit cleanly; inspect its durable state before rotating"
+    );
+    Ok(())
+}
+
+/// Called by the offline, singleton-locked credential rotation command. No
+/// old password may remain in a running Docs pool when PostgreSQL changes it.
+pub(crate) async fn stop_for_credential_rotation(
+    root: &Path,
+    cell_id: Uuid,
+) -> Result<()> {
+    let _guard = LIFECYCLE.lock().await;
+    let root = root.canonicalize()?;
+    let name = container_name(cell_id);
+    if let Some(container) = inspect(&name).await? {
+        owned(&container, &root)?;
+        if container["State"]["Running"].as_bool() == Some(true) {
+            stop_gracefully(&name).await?;
+        }
+    }
+    Ok(())
+}
+
 async fn inspect(name: &str) -> Result<Option<serde_json::Value>> {
     // Distinguish an absent container from an unavailable Docker daemon.
     run(&["info", "--format", "{{.ServerVersion}}"]).await?;
@@ -172,24 +201,33 @@ pub(crate) async fn ensure(root: &Path, company: &str, org: &OrgIntel, issuer: &
     }
     let image_id = String::from_utf8(image_info.stdout)?.trim().to_owned();
     let name = container_name(identity.cell_id);
+    let restart_marker = crate::cell::native_documents_rotation_marker_path(&root, company);
+    let restart_required = restart_marker.is_file();
     let mut port = None;
     if let Some(container) = inspect(&name).await? {
         owned(&container, &root)?;
-        let matches = container["Image"].as_str() == Some(image_id.as_str())
-            && env_value(&container, "RESTLESS_NATIVE_DOCUMENTS_TOKEN_ISSUER") == Some(issuer)
-            && env_value(&container, "RESTLESS_NATIVE_DOCUMENTS_JWKS_URL")
-                == Some(jwks_url.as_str())
-            && env_value(&container, "RESTLESS_NATIVE_DOCUMENTS_COMPANY_ID")
-                == Some(identity.company_id.to_string().as_str());
-        if matches {
-            port = env_value(&container, "RESTLESS_NATIVE_DOCUMENTS_LISTEN_PORT")
-                .and_then(|p| p.parse::<u16>().ok())
-                .filter(|p| *p > 0);
-        }
-        if port.is_none() {
-            run(&["rm", "-f", &name]).await?;
-        } else if container["State"]["Running"].as_bool() != Some(true) {
-            run(&["start", &name]).await?;
+        if restart_required {
+            if container["State"]["Running"].as_bool() == Some(true) {
+                stop_gracefully(&name).await?;
+            }
+            run(&["rm", &name]).await?;
+        } else {
+            let matches = container["Image"].as_str() == Some(image_id.as_str())
+                && env_value(&container, "RESTLESS_NATIVE_DOCUMENTS_TOKEN_ISSUER") == Some(issuer)
+                && env_value(&container, "RESTLESS_NATIVE_DOCUMENTS_JWKS_URL")
+                    == Some(jwks_url.as_str())
+                && env_value(&container, "RESTLESS_NATIVE_DOCUMENTS_COMPANY_ID")
+                    == Some(identity.company_id.to_string().as_str());
+            if matches {
+                port = env_value(&container, "RESTLESS_NATIVE_DOCUMENTS_LISTEN_PORT")
+                    .and_then(|p| p.parse::<u16>().ok())
+                    .filter(|p| *p > 0);
+            }
+            if port.is_none() {
+                run(&["rm", "-f", &name]).await?;
+            } else if container["State"]["Running"].as_bool() != Some(true) {
+                run(&["start", &name]).await?;
+            }
         }
     }
     let port = match port {
@@ -270,6 +308,11 @@ pub(crate) async fn ensure(root: &Path, company: &str, org: &OrgIntel, issuer: &
         .build()?;
     for _ in 0..30 {
         if ready(&client, port).await {
+            if restart_required {
+                std::fs::remove_file(&restart_marker).with_context(|| {
+                    format!("clear Documents credential rotation marker for {company}")
+                })?;
+            }
             return Ok(());
         }
         tokio::time::sleep(Duration::from_millis(500)).await;

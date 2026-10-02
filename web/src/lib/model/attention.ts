@@ -1,4 +1,5 @@
 import type { AttentionItem, DecisionContinuation } from './view';
+import { ownerAttention } from './attention-presentation';
 import type { WorkGraphSnapshot } from './generated/orgintel';
 import type { OutcomeStandard } from './company';
 import type {
@@ -62,6 +63,7 @@ type WireItem = {
 	why_it_matters: string;
 	recommendation: string;
 	requested_action: string;
+	request_fields?: AttentionItem['requestFields'];
 	if_no_action: string;
 	uncertainty?: string;
 	deadline?: string;
@@ -145,75 +147,78 @@ export async function getAttention(company: string): Promise<AttentionView> {
 			browser: wire.source_health.browser
 		},
 		workGraph: (wire.work_graph as WorkGraphSnapshot | undefined) ?? null,
-		items: (wire.items as WireItem[]).map((item) => ({
-			id: item.id,
-			workId: item.work_id,
-			source: item.source,
-			category: item.category,
-			title: item.preparing ? 'Preparing your next step' : item.title,
-			whatHappened: item.preparing ? item.requested_action : item.what_happened,
-			whyItMatters: item.why_it_matters,
-			recommendation: item.preparing
-				? 'Nothing to do yet. Your instructions will appear here when the team has prepared this step.'
-				: item.recommendation,
-			requestedAction: item.requested_action,
-			preparing: item.preparing,
-			ifNoAction: item.if_no_action,
-			uncertainty: item.uncertainty,
-			deadline: item.preparing ? undefined : item.deadline,
-			briefStatus: item.brief_status,
-			briefAuthor: item.brief_author,
-			briefedAt: item.briefed_at,
-			evidence: item.evidence,
-			reviewSources: (item.review_sources ?? []).map((source) => ({
-				label: source.label,
-				provider: source.provider,
-				reference: source.reference,
-				verification: source.verification,
-				uri: source.uri,
-				content: source.content,
-				observedAt: source.observed_at
-			})),
-			responsibleActor: item.responsible_actor
-				? {
-						id: item.responsible_actor.id,
-						display: item.responsible_actor.display,
-						role: item.responsible_actor.role
-					}
-				: undefined,
-			runtimeAttach: item.runtime_attach
-				? {
-						company: item.runtime_attach.company,
-						generation: item.runtime_attach.generation,
-						requestingActor: item.runtime_attach.requesting_actor,
-						requestingActorDisplay: item.runtime_attach.requesting_actor_display,
-						kind: item.runtime_attach.kind
-					}
-				: undefined,
-			nativeDocument: item.native_document,
-			reviewTarget: item.review_target
-				? {
-						company: item.review_target.company,
-						generation: item.review_target.generation,
-						uri: item.review_target.uri,
-						status: item.review_target.status,
-						kind: item.review_target.kind,
-						label: item.review_target.label,
-						content: item.review_target.content,
-						unavailableReason: item.review_target.unavailable_reason
-					}
-				: undefined,
-			actions: item.actions.map((action) => ({
-				id: action.id,
-				label: action.label,
-				role: action.role,
-				consequence: action.consequence,
-				nextState: action.next_state,
-				href: action.href
-			})),
-			canContinue: item.can_continue,
-			createdAt: item.created_at
-		})),
+		items: ownerAttention(
+			(wire.items as WireItem[]).map((item) => ({
+				id: item.id,
+				workId: item.work_id,
+				source: item.source,
+				category: item.category,
+				title: item.preparing ? 'Preparing your next step' : item.title,
+				whatHappened: item.preparing ? item.requested_action : item.what_happened,
+				whyItMatters: item.why_it_matters,
+				recommendation: item.preparing
+					? 'Nothing to do yet. Your instructions will appear here when the team has prepared this step.'
+					: item.recommendation,
+				requestedAction: item.requested_action,
+				requestFields: item.request_fields,
+				preparing: item.preparing,
+				ifNoAction: item.if_no_action,
+				uncertainty: item.uncertainty,
+				deadline: item.preparing ? undefined : item.deadline,
+				briefStatus: item.brief_status,
+				briefAuthor: item.brief_author,
+				briefedAt: item.briefed_at,
+				evidence: item.evidence,
+				reviewSources: (item.review_sources ?? []).map((source) => ({
+					label: source.label,
+					provider: source.provider,
+					reference: source.reference,
+					verification: source.verification,
+					uri: source.uri,
+					content: source.content,
+					observedAt: source.observed_at
+				})),
+				responsibleActor: item.responsible_actor
+					? {
+							id: item.responsible_actor.id,
+							display: item.responsible_actor.display,
+							role: item.responsible_actor.role
+						}
+					: undefined,
+				runtimeAttach: item.runtime_attach
+					? {
+							company: item.runtime_attach.company,
+							generation: item.runtime_attach.generation,
+							requestingActor: item.runtime_attach.requesting_actor,
+							requestingActorDisplay: item.runtime_attach.requesting_actor_display,
+							kind: item.runtime_attach.kind
+						}
+					: undefined,
+				nativeDocument: item.native_document,
+				reviewTarget: item.review_target
+					? {
+							company: item.review_target.company,
+							generation: item.review_target.generation,
+							uri: item.review_target.uri,
+							status: item.review_target.status,
+							kind: item.review_target.kind,
+							label: item.review_target.label,
+							content: item.review_target.content,
+							unavailableReason: item.review_target.unavailable_reason
+						}
+					: undefined,
+				actions: item.actions.map((action) => ({
+					id: action.id,
+					label: action.label,
+					role: action.role,
+					consequence: action.consequence,
+					nextState: action.next_state,
+					href: action.href
+				})),
+				canContinue: item.can_continue,
+				createdAt: item.created_at
+			}))
+		),
 		continuations: ((wire.continuations as WireContinuation[] | undefined) ?? []).map(
 			(continuation) => ({
 				id: continuation.id,

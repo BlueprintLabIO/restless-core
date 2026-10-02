@@ -29,6 +29,13 @@ export interface AttentionItem {
 	whyItMatters: string;
 	recommendation: string;
 	requestedAction: string;
+	requestFields?: Array<{
+		id: string;
+		label: string;
+		type: 'text' | 'amount' | 'date' | 'boolean' | 'choice';
+		required?: boolean;
+		options?: string[];
+	}>;
 	ifNoAction: string;
 	uncertainty?: string;
 	deadline?: string;

@@ -10,6 +10,8 @@
 	import { refreshAttention, removeConfirmedAttention } from '$lib/model/queries.svelte';
 	import HoldApprove from '$lib/ui/controls/HoldApprove.svelte';
 	import Markdown from '$lib/primitives/Markdown.svelte';
+	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
+	import InfoTip from './InfoTip.svelte';
 
 	let {
 		companyId,
@@ -78,6 +80,52 @@
 			return undefined;
 		}
 	});
+	const navigationActions = $derived(
+		item.actions.filter((action) => action.href && action.role !== 'conversation')
+	);
+	// The source's first action remains its preferred route; authority and a
+	// decision form take precedence over supporting navigation.
+	const primaryId = $derived(
+		grant
+			? 'grant'
+			: approveEmailMandate
+				? 'approve-email-mandate'
+				: record
+					? 'record-decision'
+					: documentRequest
+						? 'document'
+						: instructionLink
+							? 'instructions'
+							: (navigationActions[0]?.id ??
+								(open
+									? 'open-outcome'
+									: review
+										? 'review'
+										: completeHumanStep
+											? 'complete-human-step'
+											: item.nativeDocument
+												? 'document'
+												: ''))
+	);
+	let fieldValues = $state<Record<string, string>>({});
+	const fields = $derived(item.requestFields ?? []);
+	function fieldOptions(field: { type: string; options?: string[] }) {
+		return field.type === 'boolean' ? ['Yes', 'No'] : (field.options ?? []);
+	}
+	const decisionReady = $derived(
+		fields.length
+			? fields.every((field) => !field.required || (fieldValues[field.id] ?? '').trim())
+			: Boolean(decision.trim())
+	);
+	const resolution = () =>
+		fields.length
+			? fields.map((field) => `${field.label}: ${fieldValues[field.id] ?? ''}`).join('\n')
+			: decision.trim();
+	function grow(event: Event) {
+		const input = event.currentTarget as HTMLTextAreaElement;
+		input.style.height = 'auto';
+		input.style.height = `${input.scrollHeight}px`;
+	}
 	async function act(
 		kind: 'grant' | 'decline' | 'decision' | 'approve-email-mandate' | 'decline-email-mandate'
 	) {
@@ -113,13 +161,14 @@
 				}
 				await refreshAttention(client, companyId);
 			} else if (kind === 'decision')
-				await resolveHandoffDecision(companyId, item.source.reference, decision.trim());
+				await resolveHandoffDecision(companyId, item.source.reference, resolution());
 			else {
 				if (!item.source.party)
 					throw new Error('This request has no approval target. Refresh and try again.');
 				await approvalAction(companyId, kind, item.source.party);
 			}
 			decision = '';
+			fieldValues = {};
 			if (kind === 'decision') await refreshAttention(client, companyId);
 			else await removeConfirmedAttention(client, companyId, item.id);
 		} catch (cause) {
@@ -159,10 +208,9 @@
 		</header>{/if}
 	{#if !hasDocumentAction}<div class="request"><Markdown text={item.requestedAction} /></div>{/if}
 	{#if emailMandateProposal}<p class="mandate-judgement-warning">
-			Exec must judge whether each recipient and message fits this mandate, and can get that
-			judgment wrong. Approval gives Exec bounded sending authority under the limits below. The
-			system checks mechanical limits, but cannot guarantee that a particular send is appropriate.
-			Review the exact proposal before approving.
+			Approval grants bounded sending authority.<InfoTip
+				text="Exec judges whether each recipient and message fits the mandate. The system enforces mechanical limits; review the exact proposal before approving."
+			/>
 		</p>{/if}
 	{#if item.preparing}
 		<p class="waiting" role="status">
@@ -190,10 +238,13 @@
 	<div class="actions">
 		{#if documentRequest}
 			{#if item.nativeDocument}
-				<a class="btn primary" href={base} title={item.ifNoAction}>{documentLabel}</a>
+				<a class="btn" class:primary={primaryId === 'document'} href={base} title={item.ifNoAction}
+					>{documentLabel}</a
+				>
 			{:else if onopenDocument}
 				<button
-					class="btn primary"
+					class="btn"
+					class:primary={primaryId === 'document'}
 					disabled={acting}
 					onclick={openDocument}
 					title="Load the current document and access permissions"
@@ -202,21 +253,33 @@
 			{/if}
 		{/if}
 		{#if instructionLink}
-			<a class="btn small primary" href={instructionLink.href} target="_blank" rel="noreferrer"
-				>{instructionLink.label}</a
+			<a
+				class="btn small"
+				class:primary={primaryId === 'instructions'}
+				href={instructionLink.href}
+				target="_blank"
+				rel="noreferrer">{instructionLink.label}</a
 			>
 		{/if}
-		{#each item.actions.filter((a) => a.href && !(inChat && a.id === 'continue-conversation')) as action (action.id)}
+		{#if navigationActions[0]}
+			{@const action = navigationActions[0]}
 			<a
-				class="btn small primary"
+				class="btn small"
+				class:primary={primaryId === action.id}
 				href={action.href}
 				target={action.href?.startsWith('/') ? undefined : '_blank'}
 				rel="noreferrer"
-				title={action.role === 'human_step'
-					? action.nextState
-					: `${action.consequence} ${action.nextState}`}>{action.label}</a
+				title={`${action.consequence} ${action.nextState} ${item.ifNoAction}`}>{action.label}</a
 			>
-		{/each}
+		{/if}
+		{#if navigationActions.length > 1}<ActionMenu label="More ways to inspect this item"
+				>{#each navigationActions.slice(1) as action (action.id)}<a
+						href={action.href}
+						target={action.href?.startsWith('/') ? undefined : '_blank'}
+						rel="noreferrer"
+						title={`${action.consequence} ${action.nextState}`}>{action.label}</a
+					>{/each}</ActionMenu
+			>{/if}
 		{#if grant}
 			{#key `${item.id}:${attempt}`}
 				<HoldApprove
@@ -254,25 +317,31 @@
 				onclick={() => void act('decline')}>{decline.label}</button
 			>{/if}
 		{#if completeHumanStep}<button
-				class="btn small primary"
+				class="btn small"
+				class:primary={primaryId === 'complete-human-step'}
 				disabled={acting}
 				title={`${completeHumanStep.consequence} ${completeHumanStep.nextState}`}
 				onclick={() => void complete()}>{acting ? 'Recording…' : completeHumanStep.label}</button
 			>{/if}
 		{#if open && !open.href}
 			<a
-				class="btn small primary"
+				class="btn small"
+				class:primary={primaryId === 'open-outcome'}
 				href={`${base}&${item.category === 'review' ? 'review' : 'computer'}=${encodeURIComponent(item.id)}`}
 				title={`${open.consequence} ${open.nextState}`}>{open.label}</a
 			>
 		{/if}
-		{#if review && !inChat}
-			<a class="btn small primary" href={`${base}&review=${encodeURIComponent(item.id)}`}
-				>Review outcome</a
+		{#if review && !inChat && !open && !navigationActions.length}
+			<a
+				class="btn small"
+				class:primary={primaryId === 'review'}
+				title={item.ifNoAction}
+				href={`${base}&review=${encodeURIComponent(item.id)}`}>Review outcome</a
 			>
 		{/if}
 		{#if item.nativeDocument && !documentRequest && !item.actions.some((action) => action.href)}<a
-				class="btn small primary"
+				class="btn small"
+				class:primary={primaryId === 'document'}
 				href={base}>Open document</a
 			>{/if}
 		{#if !inChat && item.actions.some((a) => a.id === 'chat-lead')}
@@ -283,32 +352,107 @@
 		<form
 			onsubmit={(event) => {
 				event.preventDefault();
-				if (decision.trim()) void act('decision');
+				if (decisionReady) void act('decision');
 			}}
 		>
-			<label
-				>Your decision<textarea
-					bind:value={decision}
-					rows="2"
-					placeholder="Tell the team how to proceed…"
-					disabled={acting}></textarea></label
-			>
+			{#if fields.length}
+				<div class="decision-fields">
+					{#each fields as field (field.id)}<label
+							>{field.label}{#if field.type === 'choice' || field.type === 'boolean'}<select
+									bind:value={fieldValues[field.id]}
+									required={field.required}
+									disabled={acting}
+									><option value="">Choose…</option>{#each fieldOptions(field) as option}<option
+											value={option}>{option}</option
+										>{/each}</select
+								>{:else}<input
+									type={field.type === 'date'
+										? 'date'
+										: field.type === 'amount'
+											? 'number'
+											: 'text'}
+									step={field.type === 'amount' ? '0.01' : undefined}
+									bind:value={fieldValues[field.id]}
+									required={field.required}
+									disabled={acting}
+								/>{/if}</label
+						>{/each}
+				</div>
+			{:else}
+				<label
+					>Your decision<textarea
+						bind:value={decision}
+						rows="3"
+						placeholder={item.requestedAction || 'Tell the team how to proceed…'}
+						disabled={acting}
+						oninput={grow}
+						onkeydown={(event) => {
+							if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && decisionReady) {
+								event.preventDefault();
+								void act('decision');
+							}
+						}}></textarea></label
+				>
+			{/if}
 			<button
 				class="btn small primary"
-				disabled={acting || !decision.trim()}
-				title={`${record.consequence} ${record.nextState}`}
-				>{acting ? 'Recording…' : record.label}</button
+				disabled={acting || !decisionReady}
+				title={!decisionReady
+					? 'Enter your decision to continue'
+					: `${record.consequence} ${record.nextState} ${item.ifNoAction}`}
+				aria-keyshortcuts="Meta+Enter Control+Enter">{acting ? 'Recording…' : record.label}</button
 			>
+			<span class="submit-hint">⌘ / Ctrl ↵</span>
 		</form>
 	{/if}
-	{#if item.category === 'review'}<p class="quiet">
-			Review the outcome to accept it or request changes.
-		</p>{/if}
 	{#if error}<p class="error" role="alert">{error}</p>{/if}
-	{#if !inChat && !hasDocumentAction}<p class="quiet">{item.ifNoAction}</p>{/if}
 </section>
 
 <style>
+	.request {
+		font-weight: 500;
+		line-height: 1.6;
+		margin-bottom: 20px;
+	}
+	.request :global(.md > :first-child) {
+		margin-top: 0;
+	}
+	.request :global(.md > :last-child) {
+		margin-bottom: 0;
+	}
+	.submit-hint {
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+		justify-self: end;
+		margin-top: -30px;
+		pointer-events: none;
+	}
+	.decision-fields {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 14px;
+	}
+	.decision-fields :is(input, select) {
+		width: 100%;
+		min-height: 36px;
+		padding: 8px;
+		background: var(--surface);
+		border: 1px solid var(--control-edge);
+		border-radius: var(--radius-control);
+		color: var(--ink);
+		font: inherit;
+	}
+	textarea:focus-visible,
+	.decision-fields :is(input, select):focus-visible {
+		outline: 2px solid var(--intent-feedback);
+		outline-offset: 2px;
+	}
+	@media (max-width: 520px) {
+		.decision-fields {
+			grid-template-columns: 1fr;
+		}
+	}
+
 	.attention-card {
 		min-width: 0;
 		padding: 14px 16px;
@@ -340,6 +484,7 @@
 	}
 	.request {
 		font-size: var(--t-body);
+		font-weight: 600;
 	}
 	.mandate-judgement-warning {
 		margin: 12px 0 0;
@@ -367,8 +512,8 @@
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		min-height: 42px;
-		padding: 10px 18px;
+		min-height: 34px;
+		padding: 7px 14px;
 		border-color: var(--intent-conversation);
 		background: var(--intent-conversation);
 		color: var(--text-inverse);
@@ -392,7 +537,8 @@
 		box-sizing: border-box;
 		width: 100%;
 		min-width: 0;
-		resize: vertical;
+		resize: none;
+		field-sizing: content;
 		padding: 8px 10px;
 		border: 1px solid var(--control-edge);
 		border-radius: var(--radius-control);

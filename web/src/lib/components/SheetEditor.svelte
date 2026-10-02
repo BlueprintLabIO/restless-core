@@ -1,0 +1,33 @@
+<script lang="ts">
+	import type { EditorStatus } from '$lib/model/sheet-editor';
+	let { company, sheet, onstatus }: { company: string; sheet: string; onstatus?: (value: EditorStatus) => void } = $props();
+	let host: HTMLDivElement;
+	let editorState = $state<EditorStatus>({ state: 'connecting', access: 'read' });
+	let retry = $state(0);
+	$effect(() => {
+		const targetCompany = company, targetSheet = sheet; retry;
+		let disposed = false, editor: { destroy(): void } | undefined;
+		if (!host) return;
+		void import('$lib/model/sheet-editor').then(module => {
+			if (disposed) return;
+			editor = module.mountSheet(host, targetCompany, targetSheet, (value: EditorStatus) => { if (!disposed) { editorState = value; onstatus?.(value); } });
+		}).catch(error => { if (!disposed) editorState = { state: 'error', access: 'read', message: error.message }; });
+		return () => { disposed = true; editor?.destroy(); };
+	});
+</script>
+
+<div class="sheet-editor-shell">
+	{#if editorState.state === 'error'}
+		<div class="sheet-notice" role="alert">{editorState.message} <button onclick={() => retry++}>Reload sheet</button></div>
+	{:else if editorState.state === 'offline'}
+		<div class="sheet-notice" role="status">{editorState.message}</div>
+	{/if}
+	<div class="native-sheet-surface" bind:this={host} aria-label="Spreadsheet editor"></div>
+</div>
+
+<style>
+	.sheet-editor-shell { display:flex;flex-direction:column;min-height:0;height:100%;width:100%; }
+	.native-sheet-surface { height:100%;min-height:320px;flex:1;background:white;color:#252525; }
+	.sheet-notice { padding:12px 16px;background:var(--surface-raised);font-size:var(--t-body); }
+	.sheet-notice button { margin-left:12px;text-decoration:underline; }
+</style>

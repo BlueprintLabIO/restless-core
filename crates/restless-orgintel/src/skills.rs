@@ -179,6 +179,12 @@ async fn usable_skill_digest(
 }
 
 impl OrgIntel {
+    pub async fn skill_work_usage(&self) -> Result<std::collections::HashMap<String, i64>> {
+        let rows: Vec<(String, i64)> = sqlx::query_as("SELECT skill_name, count(DISTINCT work_id)::bigint FROM work_skill_selections GROUP BY skill_name")
+            .fetch_all(&self.pool).await?;
+        Ok(rows.into_iter().collect())
+    }
+
     /// Record what the Runtime currently holds. New built-in and company skills
     /// are accepted: they are already company-owned files. New project skills
     /// (for example `npx skills add` into `.agents/skills`) become candidates.

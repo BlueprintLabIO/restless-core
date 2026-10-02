@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { onMount } from 'svelte';
 	import { getCompanies, type CompanyCatalogEntry } from '$lib/model/cockpit';
@@ -109,20 +110,22 @@
 
 {#if companies.length}
 	<div class="copy-setting">
-		<button
-			class="btn small copy-toggle"
-			type="button"
-			aria-expanded={open}
-			disabled={busy}
-			onclick={() => {
-				open = !open;
-				preview = null;
-				error = '';
-				notice = '';
-			}}
+		<ActionMenu label={`${label} options`}
+			><button
+				class="copy-toggle"
+				type="button"
+				aria-expanded={open}
+				disabled={busy}
+				onclick={() => {
+					open = !open;
+					preview = null;
+					error = '';
+					notice = '';
+				}}
+			>
+				{open ? 'Cancel copy' : 'Copy from another company…'}
+			</button></ActionMenu
 		>
-			{open ? 'Cancel copy' : `Copy ${label.toLowerCase()} from…`}
-		</button>
 		{#if open}
 			<div class="copy-panel">
 				<label
@@ -181,7 +184,10 @@
 
 <style>
 	.copy-setting {
-		margin-block: var(--space-3);
+		display: flex;
+		justify-content: flex-end;
+		flex-wrap: wrap;
+		margin-block: 4px;
 	}
 	.copy-toggle {
 		color: var(--text-secondary);
@@ -199,6 +205,7 @@
 		display: grid;
 		justify-items: start;
 		gap: var(--space-3);
+		width: 100%;
 		max-width: 560px;
 		margin-top: var(--space-3);
 		padding: var(--space-4);

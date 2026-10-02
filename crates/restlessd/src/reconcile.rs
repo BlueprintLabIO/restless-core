@@ -62,10 +62,7 @@ impl EffectLedger {
     pub fn summary(&self) -> String {
         if self.total == 0 {
             let unknown = if self.unknown_outcomes > 0 {
-                format!(
-                    " · {} outcome(s) need reconciliation",
-                    self.unknown_outcomes
-                )
+                format!(" · {} outcome(s) need reconciliation", self.unknown_outcomes)
             } else {
                 String::new()
             };
@@ -204,20 +201,12 @@ pub(crate) async fn effect_ledger(
     )?;
     let mut latest_email_status = BTreeMap::new();
     for event in email_statuses {
-        if let Some(id) = event
-            .body
-            .get("permit_id")
-            .and_then(serde_json::Value::as_str)
-        {
+        if let Some(id) = event.body.get("permit_id").and_then(serde_json::Value::as_str) {
             latest_email_status.insert(id.to_owned(), event.body);
         }
     }
     for reservation in email_reservations {
-        let Some(id) = reservation
-            .body
-            .get("permit_id")
-            .and_then(serde_json::Value::as_str)
-        else {
+        let Some(id) = reservation.body.get("permit_id").and_then(serde_json::Value::as_str) else {
             continue;
         };
         match latest_email_status
@@ -227,18 +216,11 @@ pub(crate) async fn effect_ledger(
         {
             Some("confirmed_sent") => {
                 ledger.total += 1;
-                ledger
-                    .by_capability
-                    .entry("customer-contact.email".into())
-                    .or_default()
-                    .total += 1;
+                ledger.by_capability.entry("customer-contact.email".into()).or_default().total += 1;
             }
             Some("confirmed_not_sent") => {
                 ledger.total += 1;
-                let tally = ledger
-                    .by_capability
-                    .entry("customer-contact.email".into())
-                    .or_default();
+                let tally = ledger.by_capability.entry("customer-contact.email".into()).or_default();
                 tally.total += 1;
                 tally.failed += 1;
             }

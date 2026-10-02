@@ -10,6 +10,8 @@
  *   RESTLESS_REVIEW_ORIGIN=http://127.0.0.1:5173 node scripts/verify-overlays.mjs */
 
 import { chromium } from 'playwright';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const origin = process.env.RESTLESS_REVIEW_ORIGIN ?? 'http://127.0.0.1:5173';
 const url = `${origin}/gallery/shell`;
@@ -250,6 +252,22 @@ try {
 		)
 	);
 
+	/* A quick click or keypress must not depend on the first animation frame. */
+	for (const mode of ['pointer', 'keyboard']) {
+		await page.reload();
+		await page.waitForTimeout(600);
+		const quick = page.locator('.hold-approve').first();
+		if (mode === 'keyboard') await quick.focus();
+		const activate = () => mode === 'pointer' ? quick.click() : page.keyboard.press('Enter');
+		await activate();
+		check(
+			`a quick ${mode} activation arms without approving`,
+			await quick.evaluate((element) => !element.classList.contains('done') && /again/i.test(element.getAttribute('aria-label') ?? ''))
+		);
+		await activate();
+		check(`a second quick ${mode} activation approves`, await quick.evaluate((element) => element.classList.contains('done')));
+	}
+
 	/* Reduced motion: nothing waits on an animation that will not run */
 	const reduced = await browser.newContext({
 		viewport: { width: 1440, height: 900 },
@@ -273,6 +291,23 @@ try {
 		'reduced motion: the command menu closes at once',
 		await quiet.evaluate(() => !document.querySelector('dialog.command-menu').open)
 	);
+
+	const proof = process.env.RESTLESS_OVERLAY_PROOF_DIR;
+	if (proof) {
+		mkdirSync(proof, { recursive: true });
+		for (const [label, viewport] of [
+			['desktop', { width: 1440, height: 900 }],
+			['mobile', { width: 375, height: 812 }]
+		]) {
+			await page.setViewportSize(viewport);
+			for (const fixture of ['shell', 'portfolio']) {
+				await page.goto(`${origin}/gallery/${fixture}`);
+				await page.waitForTimeout(600);
+				await page.screenshot({ path: join(proof, `${fixture}-${label}.png`), fullPage: true });
+			}
+		}
+		writeFileSync(join(proof, 'results.json'), JSON.stringify({ passed: results.filter(Boolean).length, total: results.length, errors }, null, 2));
+	}
 } finally {
 	await browser.close();
 }

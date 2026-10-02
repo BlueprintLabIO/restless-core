@@ -1,4 +1,5 @@
 <script lang="ts">
+	import SettingsHeader from '$lib/ui/views/SettingsHeader.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { onMount, tick } from 'svelte';
@@ -9,6 +10,9 @@
 	import CustomHarnesses from './CustomHarnesses.svelte';
 	import AgentIntelligence from './AgentIntelligence.svelte';
 	import CopyCompanySetting from './CopyCompanySetting.svelte';
+	import { companiesQuery } from '$lib/model/queries.svelte';
+	import { startLinkLabel } from '$lib/model/company-start';
+	import { modelLabel } from '$lib/model/intelligence-labels';
 	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
 	import {
 		announceIntelligenceChange,
@@ -17,6 +21,10 @@
 	} from '$lib/model/intelligence-events';
 	import { getCompanies, type CompanyCatalogEntry } from '$lib/model/cockpit';
 	let { companyId }: { companyId: string } = $props();
+	const catalogProjection = companiesQuery();
+	const setupIssue = $derived(
+		catalogProjection.view.find((company) => company.id === companyId)?.unstartable_reason
+	);
 	const intelligence = $derived(intelligenceQuery(companyId));
 	let editorOpen = $state(false);
 	type Connection = {
@@ -531,28 +539,36 @@
 </script>
 
 <div class="company-page provider-page">
-	<header class="company-page-head">
-		<h1
-			title="Use an account sign-in or API key in this company. Model choices stay company-specific."
-		>
-			Intelligence
-		</h1>
-		<div class="provider-head-actions">
-			<CopyCompanySetting
-				{companyId}
-				setting="models"
-				label="Model choices"
-				oncopied={async () => {
-					await Promise.all([refresh(), intelligence.refresh()]);
-				}}
-			/>
-			<a class="account-link" href={manageUrl}
-				>{accountScope === 'company'
-					? 'Open account to manage connections'
-					: 'Manage account connections'} <span aria-hidden="true">↗</span></a
+	<SettingsHeader
+		title="Intelligence"
+		explanation="Use an account sign-in or API key in this company. Model choices stay company-specific."
+	>
+		{#snippet actions()}
+			<div class="provider-head-actions">
+				<CopyCompanySetting
+					{companyId}
+					setting="models"
+					label="Model choices"
+					oncopied={async () => {
+						await Promise.all([refresh(), intelligence.refresh()]);
+					}}
+				/>
+				<a class="account-link" href={manageUrl}
+					>{accountScope === 'company'
+						? 'Open account to manage connections'
+						: 'Manage account connections'} <span aria-hidden="true">↗</span></a
+				>
+			</div>
+		{/snippet}
+	</SettingsHeader>
+	{#if setupIssue}<div class="provider-health-issue" role="status">
+			<span>{startLinkLabel(setupIssue)}</span><a
+				class="btn small"
+				href={manageUrl}
+				target="_blank"
+				rel="noopener">Reconnect</a
 			>
-		</div>
-	</header>
+		</div>{/if}
 	<AgentIntelligence {companyId} />
 	<section class="connect-section" aria-labelledby="connect-title">
 		<h2 id="connect-title">Connections</h2>
@@ -588,11 +604,17 @@
 								>
 							</div>
 							{#if companyGrant}
-								<span class="grant-state">Access granted</span>
+								<span class="grant-state"
+									>{item.status === 'present' && !(companyGrant.in_use && setupIssue)
+										? 'Access granted'
+										: 'Access configured'}</span
+								>
 								{#if companyGrant.in_use}<span
 										class="grant-count"
 										title="Choose another model for this provider before removing access."
-										>In use</span
+										>{item.status === 'present' && !setupIssue
+											? 'Selected'
+											: 'Selected · unavailable'}</span
 									>{:else if accountScope === 'account'}<button
 										class="text-button danger"
 										disabled={accountBusy || !status}
@@ -684,7 +706,12 @@
 									onclick={() => beginGrant(item)}>Use</button
 								>
 							{/if}
-							{#if item.status !== 'present'}<span
+							{#if item.status !== 'present' || (companyGrant?.in_use && setupIssue)}<a
+									class="btn small"
+									href={manageUrl}
+									target="_blank"
+									rel="noopener">{item.kind === 'oauth' ? 'Reconnect' : 'Replace key'}</a
+								><span
 									class="connection-unavailable"
 									title={item.detail ?? 'Check this connection in account settings.'}
 									>{item.status === 'checking'
@@ -1064,6 +1091,19 @@
 </div>
 
 <style>
+	.provider-health-issue {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		padding: 12px 14px;
+		margin-bottom: 24px;
+		border: 1px solid var(--border);
+		border-left: 2px solid var(--state-danger);
+		border-radius: 6px;
+		color: var(--text-secondary);
+		font-size: var(--t-body);
+	}
 	.provider-page {
 		box-sizing: border-box;
 	}
@@ -1269,10 +1309,6 @@
 	.storage {
 		justify-content: space-between;
 		flex-wrap: wrap;
-	}
-	h1 {
-		font-size: var(--t-title);
-		margin: 0;
 	}
 	h2 {
 		font-size: var(--t-head);

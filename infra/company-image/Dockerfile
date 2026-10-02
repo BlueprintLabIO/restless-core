@@ -9,9 +9,13 @@
 #     processes started later via `docker exec`);
 #   - HOME lives on the persistent /company volume, not a tmpfs.
 
+# Releases may reuse a separately qualified tool base by exact OCI digest.
+# Local builds still use the stage below, keeping one canonical image recipe.
+ARG RUNTIME_TOOLS_IMAGE=runtime-tools
+
 # The coordination CLI (T10): the agents' channel to layer 2, built from this
 # workspace so the binary in the image always matches the source in the tree.
-FROM --platform=$BUILDPLATFORM rust:1-bookworm AS cli
+FROM --platform=$BUILDPLATFORM rust:1-bookworm@sha256:59037199c44290f2befcdd58dcc540164763fc296950255aaefeef096a1866b0 AS cli
 # Compile on the builder CPU; only the final image executes target binaries.
 # Debian's target GNU compiler/sysroot also serves Rust dependencies that build C.
 ARG BUILDARCH
@@ -45,9 +49,15 @@ RUN --mount=type=cache,id=restless-cargo-registry-v1,target=/usr/local/cargo/reg
     && install -Dm755 /src/target/$target/release/restless /out/restless \
     && install -Dm755 /src/target/$target/release/restless-runtime-bridge /out/restless-runtime-bridge
 
-FROM node:24-bookworm-slim AS runtime-harnesses
+FROM node:24-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe AS runtime-harnesses
 
 ENV DEBIAN_FRONTEND=noninteractive
+
+# Node's pinned image bundles an older npm dependency tree. Keep the package
+# manager current independently of the Node runtime used by company projects.
+RUN npm install -g npm@11.21.0 \
+    && test "$(npm --version)" = 11.21.0 \
+    && npm cache clean --force
 
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
@@ -64,6 +74,7 @@ RUN apt-get update \
         g++ \
         git \
         jq \
+        libpcre2-8-0 \
         make \
         novnc \
         arc-theme \
@@ -161,7 +172,7 @@ ENV RESTLESS_CLAUDE_AGENT_ACP_BUILD="claude-agent-acp-${CLAUDE_AGENT_ACP_VERSION
 
 # Named at this boundary so release verification can prove the complete
 # harness toolchain without redownloading unrelated large authoring runtimes.
-FROM runtime-harnesses AS company-runtime
+FROM runtime-harnesses AS runtime-tools
 
 # S04-T2. pnpm, pinned, installed system-wide.
 #
@@ -174,13 +185,11 @@ FROM runtime-harnesses AS company-runtime
 #    in package.json. pnpm 11 stopped reading that field and fails the commit
 #    with ERR_PNPM_IGNORED_BUILDS. `corepack prepare pnpm@latest` is therefore
 #    exactly the wrong instinct — it installs a version the repo predates.
-#  * It is prepared here, as root, into a system path. Corepack's per-user cache
-#    lives under the company user's home on the *volume*, so activating as root
-#    at runtime leaves the company user still on whatever it had.
-ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
-RUN corepack enable pnpm \
-    && corepack prepare pnpm@10.18.0 --activate \
-    && pnpm --version
+#  * Install it in the system prefix. Corepack's per-user activation cache is
+#    below root's home during the build, not the persistent company user's home.
+RUN npm install -g pnpm@10.34.6 \
+    && test "$(pnpm --version)" = 10.34.6 \
+    && npm cache clean --force
 
 # An ordinary open-source CLI, not a Restless provider adapter. Authority
 # injects RESEND_API_KEY only into the exact governed child process.
@@ -231,75 +240,115 @@ RUN groupadd --gid 2000 company \
     && useradd --uid 2001 --gid 2000 --no-create-home --home-dir /tmp/restless-effect effect \
     && install -d -o company -g company -m 0770 /company
 
-COPY infra/company-image/entrypoint.sh /usr/local/bin/company-init
-COPY infra/company-image/company-volume-init.sh /usr/local/bin/company-volume-init
-COPY infra/company-image/assert-runtime-privileges.py /usr/local/bin/assert-runtime-privileges
-COPY infra/company-image/wait-for-display.sh /usr/local/bin/wait-for-company-display
-COPY infra/company-image/start-chromium.sh /usr/local/bin/start-company-chromium
-COPY infra/company-image/start-desktop-panel.sh /usr/local/bin/start-company-desktop-panel
-COPY infra/company-image/focus-chromium.sh /usr/local/bin/focus-company-chromium
-COPY infra/company-image/start-terminal.sh /usr/local/bin/start-company-terminal
-COPY infra/company-image/start-godot.sh /usr/local/bin/start-company-godot
-COPY infra/company-image/start-runtime-bridge.sh /usr/local/bin/start-runtime-bridge
-COPY infra/company-image/start-company-supervisor.sh /usr/local/bin/start-company-supervisor
-COPY infra/company-image/company-supervisorctl.sh /usr/local/bin/company-supervisorctl
-COPY infra/company-image/company-tools.sh /usr/local/bin/company-tools
-COPY infra/company-image/validate-company-supervisor-config.py /usr/local/bin/validate-company-supervisor-config
-COPY infra/company-image/refresh-desktop-launchers.sh /usr/local/bin/refresh-company-desktop-launchers
-COPY infra/company-image/git-credential-restless /usr/local/bin/git-credential-restless
+RUN npm install -g ws@8.22.0 && npm cache clean --force
+
+# npm 11.21.0 still bundles older compatible releases of these libraries.
+# Replace the installed JavaScript dependencies, keeping the patched versions
+# explicit until npm includes them in its published bundle.
+RUN npm --prefix /tmp/npm-security-fixes install \
+        --ignore-scripts --omit=dev --no-audit --no-fund --save-exact \
+        brace-expansion@5.0.11 undici@6.28.1 \
+    && rm -rf /usr/local/lib/node_modules/npm/node_modules/brace-expansion \
+        /usr/local/lib/node_modules/npm/node_modules/undici \
+    && cp -a /tmp/npm-security-fixes/node_modules/brace-expansion \
+        /tmp/npm-security-fixes/node_modules/undici \
+        /usr/local/lib/node_modules/npm/node_modules/ \
+    && rm -rf /tmp/npm-security-fixes \
+    && npm --version \
+    && npm cache clean --force
+
+# Startup code and Core binaries change more often than the installed tools.
+# An external tool base must be the exact artifact selected by the release.
+FROM ${RUNTIME_TOOLS_IMAGE} AS company-runtime
+
+# Group immutable assets so the Dockerfile frontend does not construct a large
+# intermediate Runtime filesystem for every individual file.
+COPY infra/company-image/entrypoint.sh \
+    infra/company-image/company-volume-init.sh \
+    infra/company-image/assert-runtime-privileges.py \
+    infra/company-image/wait-for-display.sh \
+    infra/company-image/start-chromium.sh \
+    infra/company-image/start-desktop-panel.sh \
+    infra/company-image/focus-chromium.sh \
+    infra/company-image/start-terminal.sh \
+    infra/company-image/start-godot.sh \
+    infra/company-image/start-runtime-bridge.sh \
+    infra/company-image/start-company-supervisor.sh \
+    infra/company-image/company-supervisorctl.sh \
+    infra/company-image/company-tools.sh \
+    infra/company-image/validate-company-supervisor-config.py \
+    infra/company-image/refresh-desktop-launchers.sh \
+    infra/company-image/git-credential-restless \
+    infra/company-image/tint2rc \
+    infra/company-image/Xresources \
+    infra/company-image/company-browser.desktop \
+    infra/company-image/company-terminal.desktop \
+    infra/company-image/company-godot.desktop \
+    infra/company-image/browser-broker.mjs \
+    infra/company-image/release-health.mjs \
+    infra/company-image/supervisord.conf \
+    infra/company-image/company-supervisord.conf \
+    /tmp/restless-runtime-assets/
 COPY infra/company-image/skills /opt/restless/skills
-COPY infra/company-image/tint2rc /etc/restless/tint2rc
-COPY infra/company-image/Xresources /etc/restless/Xresources
-COPY infra/company-image/company-browser.desktop /usr/share/applications/company-browser.desktop
-COPY infra/company-image/company-terminal.desktop /usr/share/applications/company-terminal.desktop
-COPY infra/company-image/company-godot.desktop /usr/share/applications/company-godot.desktop
-COPY infra/company-image/browser-broker.mjs /usr/local/lib/restless/browser-broker.mjs
-COPY infra/company-image/release-health.mjs /usr/local/lib/restless/release-health.mjs
-COPY tools/scenario/restless-scenario.mjs /usr/local/lib/restless/restless-scenario.mjs
-COPY tools/web-review/restless-web-review.mjs /usr/local/lib/restless/restless-web-review.mjs
-COPY tools/codex-runner/restless-codex-runner.mjs /usr/local/lib/restless/restless-codex-runner.mjs
-COPY tools/codex-runner/gpt-6-sol-0.156.1-model-catalog.json /usr/local/lib/restless/gpt-6-sol-0.156.1-model-catalog.json
+COPY tools/scenario/restless-scenario.mjs \
+    tools/web-review/restless-web-review.mjs \
+    tools/codex-runner/restless-codex-runner.mjs \
+    tools/codex-runner/gpt-6-sol-0.156.1-model-catalog.json \
+    tools/codex-runner/restless-codex-parity-preflight.mjs \
+    tools/codex-runner/restless-codex-task-run.mjs \
+    tools/codex-runner/restless-codex-longitudinal-run.mjs \
+    /usr/local/lib/restless/
 ENV RESTLESS_CODEX_GPT6_SOL_CATALOG=/usr/local/lib/restless/gpt-6-sol-0.156.1-model-catalog.json
-COPY tools/codex-runner/restless-codex-parity-preflight.mjs /usr/local/lib/restless/restless-codex-parity-preflight.mjs
-COPY tools/codex-runner/restless-codex-task-run.mjs /usr/local/lib/restless/restless-codex-task-run.mjs
-COPY tools/codex-runner/restless-codex-longitudinal-run.mjs /usr/local/lib/restless/restless-codex-longitudinal-run.mjs
-COPY infra/company-image/supervisord.conf /etc/supervisor/conf.d/restless.conf
-COPY infra/company-image/company-supervisord.conf /etc/supervisor/conf.d/company.conf
-RUN chmod 0555 /usr/local/bin/company-init /usr/local/bin/company-volume-init \
-        /usr/local/bin/assert-runtime-privileges /usr/local/bin/wait-for-company-display \
-        /usr/local/bin/start-company-chromium /usr/local/bin/start-company-desktop-panel \
-        /usr/local/bin/focus-company-chromium /usr/local/bin/start-company-terminal \
-        /usr/local/bin/start-company-godot /usr/local/bin/refresh-company-desktop-launchers \
-        /usr/local/bin/start-runtime-bridge \
-        /usr/local/bin/start-company-supervisor /usr/local/bin/company-supervisorctl \
-        /usr/local/bin/company-tools \
-        /usr/local/bin/validate-company-supervisor-config \
-        /usr/local/bin/git-credential-restless \
-        /usr/local/lib/restless/restless-scenario.mjs \
+RUN set -eu; \
+    for mapping in \
+        entrypoint.sh:company-init \
+        company-volume-init.sh:company-volume-init \
+        assert-runtime-privileges.py:assert-runtime-privileges \
+        wait-for-display.sh:wait-for-company-display \
+        start-chromium.sh:start-company-chromium \
+        start-desktop-panel.sh:start-company-desktop-panel \
+        focus-chromium.sh:focus-company-chromium \
+        start-terminal.sh:start-company-terminal \
+        start-godot.sh:start-company-godot \
+        start-runtime-bridge.sh:start-runtime-bridge \
+        start-company-supervisor.sh:start-company-supervisor \
+        company-supervisorctl.sh:company-supervisorctl \
+        company-tools.sh:company-tools \
+        validate-company-supervisor-config.py:validate-company-supervisor-config \
+        refresh-desktop-launchers.sh:refresh-company-desktop-launchers \
+        git-credential-restless:git-credential-restless; do \
+        install -Dm0555 "/tmp/restless-runtime-assets/${mapping%%:*}" "/usr/local/bin/${mapping#*:}"; \
+    done; \
+    for mapping in \
+        tint2rc:/etc/restless/tint2rc \
+        Xresources:/etc/restless/Xresources \
+        company-browser.desktop:/usr/share/applications/company-browser.desktop \
+        company-terminal.desktop:/usr/share/applications/company-terminal.desktop \
+        company-godot.desktop:/usr/share/applications/company-godot.desktop \
+        browser-broker.mjs:/usr/local/lib/restless/browser-broker.mjs \
+        release-health.mjs:/usr/local/lib/restless/release-health.mjs \
+        supervisord.conf:/etc/supervisor/conf.d/restless.conf \
+        company-supervisord.conf:/etc/supervisor/conf.d/company.conf; do \
+        install -Dm0444 "/tmp/restless-runtime-assets/${mapping%%:*}" "${mapping#*:}"; \
+    done; \
+    chmod 0555 /usr/local/lib/restless/restless-scenario.mjs \
         /usr/local/lib/restless/restless-web-review.mjs \
         /usr/local/lib/restless/restless-codex-runner.mjs \
         /usr/local/lib/restless/restless-codex-parity-preflight.mjs \
         /usr/local/lib/restless/restless-codex-task-run.mjs \
-        /usr/local/lib/restless/restless-codex-longitudinal-run.mjs \
-    && chmod 0444 /usr/local/lib/restless/gpt-6-sol-0.156.1-model-catalog.json \
-    && chmod -R a=rX /opt/restless/skills \
-    && chmod 0444 /usr/local/lib/restless/browser-broker.mjs \
-        /usr/local/lib/restless/release-health.mjs /etc/supervisor/conf.d/restless.conf \
-        /etc/supervisor/conf.d/company.conf \
-        /etc/restless/tint2rc /usr/share/applications/company-browser.desktop \
-        /etc/restless/Xresources \
-        /usr/share/applications/company-terminal.desktop /usr/share/applications/company-godot.desktop
-RUN ln -s /usr/local/lib/restless/restless-scenario.mjs /usr/local/bin/restless-scenario
-RUN ln -s /usr/local/lib/restless/restless-web-review.mjs /usr/local/bin/restless-web-review
-RUN ln -s /usr/local/lib/restless/restless-codex-runner.mjs /usr/local/bin/restless-codex-runner
+        /usr/local/lib/restless/restless-codex-longitudinal-run.mjs; \
+    chmod 0444 /usr/local/lib/restless/gpt-6-sol-0.156.1-model-catalog.json; \
+    chmod -R a=rX /opt/restless/skills; \
+    ln -s /usr/local/lib/restless/restless-scenario.mjs /usr/local/bin/restless-scenario; \
+    ln -s /usr/local/lib/restless/restless-web-review.mjs /usr/local/bin/restless-web-review; \
+    ln -s /usr/local/lib/restless/restless-codex-runner.mjs /usr/local/bin/restless-codex-runner; \
+    rm -rf /tmp/restless-runtime-assets
 
 # The coordination CLI, and where it finds the daemon from inside the
 # container (TCP: unix sockets do not cross the Docker Desktop file share —
 # probed in T10). RESTLESS_COMPANY is set per container at `docker run`.
-COPY --from=cli /out/restless /usr/local/bin/restless
-COPY --from=cli /out/restless-runtime-bridge /usr/local/bin/restless-runtime-bridge
+COPY --from=cli /out/restless /out/restless-runtime-bridge /usr/local/bin/
 ENV RESTLESS_COORDINATOR=host.docker.internal:7791
-RUN npm install -g ws@8.18.3 && npm cache clean --force
 
 # Release metadata changes with source, not with the pinned toolchain. Keep it
 # last so a new revision can reuse the large browser and agent installation layers.
@@ -307,7 +356,7 @@ ARG RESTLESS_CORE_VERSION=0.0.0
 ARG RESTLESS_SOURCE_REVISION=unknown
 ARG RESTLESS_API_CONTRACT_VERSION=1
 ARG RESTLESS_ASSERTION_CONTRACT_VERSION=1
-ARG RESTLESS_SCHEMA_VERSION=35
+ARG RESTLESS_SCHEMA_VERSION=73
 ENV RESTLESS_CORE_VERSION=${RESTLESS_CORE_VERSION} \
     RESTLESS_SOURCE_REVISION=${RESTLESS_SOURCE_REVISION} \
     RESTLESS_API_CONTRACT_VERSION=${RESTLESS_API_CONTRACT_VERSION} \

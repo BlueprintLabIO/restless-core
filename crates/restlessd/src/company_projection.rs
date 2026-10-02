@@ -375,8 +375,10 @@ impl ProjectionEmitter {
 
     async fn summary_for(daemon: &Daemon, company: &str) -> Result<Summary> {
         let config = runtime::CompanyConfig::load(&daemon.root, company)?;
-        let org = daemon.orgintel.get(company).await.ok();
-        let view = attention::project(&config, &daemon.authority, org.as_ref()).await?;
+        // Unavailable company state cannot justify reporting a smaller queue or
+        // no recent activity. Skip this observation until OrgIntel is readable.
+        let org = daemon.orgintel.get(company).await?;
+        let view = attention::project(&config, &daemon.authority, Some(&org)).await?;
         Ok(summarize(&view))
     }
 
@@ -429,7 +431,10 @@ impl ProjectionEmitter {
                             Ok(receipt) if receipt.status == "disabled" => {
                                 emission.switched_off(summary, now)
                             }
-                            Ok(_) => emission.sent(summary, now),
+                            Ok(receipt) if receipt.status == "accepted" => {
+                                emission.sent(summary, now)
+                            }
+                            Ok(_) => emission.failed(now),
                             Err(SendError::Replay) => {
                                 // Fleet already holds a higher sequence (a restart reset ours). The
                                 // clock-based sequence passes it next round.

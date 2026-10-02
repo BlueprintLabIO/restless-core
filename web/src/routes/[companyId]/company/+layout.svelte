@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { dismissable } from '$lib/actions/dismissable';
 	import { resizePane } from '$lib/actions/resize-pane';
 	import { page } from '$app/state';
 	import Activity from '@lucide/svelte/icons/activity';
@@ -14,12 +15,23 @@
 	import Fingerprint from '@lucide/svelte/icons/fingerprint';
 	import Users from '@lucide/svelte/icons/users';
 	import Sparkles from '@lucide/svelte/icons/sparkles';
-	import { companyPrincipalQuery } from '$lib/model/queries.svelte';
+	import { companyPrincipalQuery, companiesQuery, companyQuery } from '$lib/model/queries.svelte';
 	import { COMPANY_PAGES, companyPageHref } from '$lib/model/company-pages';
 
 	let { children } = $props();
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	const computerSurface = $derived(page.url.pathname === `/${companyId}/company/computer`);
+	const catalog = companiesQuery();
+	const diagnostics = $derived(companyQuery(companyId));
+	$effect(() => {
+		if (principal?.membership_role === 'owner') diagnostics.attach();
+	});
+	const setupIssue = $derived(
+		catalog.view.find((company) => company.id === companyId)?.unstartable_reason
+	);
+	const unhealthy = $derived(
+		setupIssue || (diagnostics.view && diagnostics.view.computer.doctor.status !== 'healthy')
+	);
 	const principal = $derived(companyPrincipalQuery(companyId).view);
 	const icons = {
 		charter: BookOpen,
@@ -54,9 +66,38 @@
 			? page.url.pathname === route.href
 			: page.url.pathname.startsWith(route.href);
 	}
+	function settingsKeyboard(event: KeyboardEvent) {
+		if (
+			(event.target as HTMLElement)?.closest(
+				'input, textarea, select, [contenteditable], #bridge-exrail'
+			) ||
+			event.defaultPrevented ||
+			document.querySelector('dialog[open]')
+		)
+			return;
+		if (event.altKey && event.shiftKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) {
+			event.preventDefault();
+			const index = routes.findIndex(active);
+			const step = event.key === 'ArrowDown' ? 1 : -1;
+			const route = routes[(index + step + routes.length) % routes.length];
+			if (route) void goto(route.href);
+		}
+		if (event.key === 'e' && !event.metaKey && !event.ctrlKey && !event.altKey) {
+			const button = [...document.querySelectorAll<HTMLButtonElement>('.company-page button')].find(
+				(button) =>
+					/^(Edit( charter| identity)?|Write identity)$/.test(button.textContent?.trim() ?? '')
+			);
+			if (button) {
+				event.preventDefault();
+				button.click();
+			}
+		}
+	}
 </script>
 
-{#if computerSurface}
+<svelte:window onkeydown={settingsKeyboard} />
+
+{#if computerSurface && page.url.searchParams.get('focus') === 'desktop'}
 	<div class="company-focus-shell">{@render children()}</div>
 {:else}
 	<div
@@ -76,16 +117,18 @@
 			<div class="company-spine-head">
 				<h2>Company</h2>
 			</div>
-			<label class="company-mobile-nav"
-				><span class="sr-only">Company page</span>
-				<select
-					aria-label="Company page"
-					value={page.url.pathname}
-					onchange={(event) => void goto(event.currentTarget.value)}
+			<details class="company-mobile-nav" use:dismissable>
+				<summary
+					>{routes.find((route) => active(route))?.label ?? 'Company'}
+					<span aria-hidden="true">⌄</span></summary
 				>
-					{#each routes as route}<option value={route.href}>{route.label}</option>{/each}
-				</select>
-			</label>
+				<div>
+					{#each routes as route}<a
+							href={route.href}
+							aria-current={active(route) ? 'page' : undefined}>{route.label}</a
+						>{/each}
+				</div>
+			</details>
 			<nav aria-label="Company">
 				{#each routes as route, index (route.href)}
 					{@const RouteIcon = route.icon}
@@ -101,16 +144,101 @@
 						aria-current={active(route) ? 'page' : undefined}
 					>
 						<i aria-hidden="true"><RouteIcon size={15} strokeWidth={1.8} /></i>
-						<span>{route.label}</span>
+						<span>{route.label}</span
+						>{#if (route.key === 'provider' && setupIssue) || (route.key === 'doctor' && unhealthy)}<span
+								class="company-nav-alert"
+								title="Needs attention"
+								aria-label="Needs attention"
+							></span>{/if}
 					</a>
 				{/each}
 			</nav>
+			<span
+				class="company-keyboard-hint"
+				title="Move between pages with Alt + Shift + ↑ / ↓. Press E to edit the charter or identity."
+				>Alt ⇧ ↑ / ↓ <span aria-hidden="true">·</span> E edit</span
+			>
 		</aside>
 		<section class="company-canvas">{@render children()}</section>
 	</div>
 {/if}
 
 <style>
+	.company-keyboard-hint {
+		display: block;
+		margin: auto 12px 12px;
+		padding-top: 16px;
+		font-size: var(--t-label);
+		color: var(--text-tertiary);
+	}
+	@media (max-width: 640px) {
+		.company-keyboard-hint {
+			display: none;
+		}
+	}
+	.company-nav-alert {
+		position: absolute;
+		right: 8px;
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: var(--state-danger);
+	}
+	@media (max-width: 640px) {
+		.company-mobile-nav {
+			position: relative;
+		}
+		.company-mobile-nav summary {
+			display: flex;
+			justify-content: space-between;
+			gap: 16px;
+			padding: 8px 12px;
+			width: 100%;
+			min-height: 36px;
+			font-size: var(--t-body);
+			color: var(--ink);
+			cursor: pointer;
+			list-style: none;
+		}
+		.company-mobile-nav summary::-webkit-details-marker {
+			display: none;
+		}
+		.company-mobile-nav summary::before {
+			content: none !important;
+		}
+		.company-mobile-nav > div {
+			position: absolute;
+			top: 100%;
+			left: 0;
+			z-index: 30;
+			width: 100%;
+			padding: 6px;
+			border: 1px solid var(--border);
+			background: var(--surface-raised);
+			border-radius: 6px;
+			box-shadow: var(--shadow-soft);
+		}
+		.company-mobile-nav a {
+			display: block;
+			padding: 10px;
+			color: var(--text-secondary);
+			text-decoration: none;
+		}
+		.company-mobile-nav a[aria-current] {
+			background: var(--surface-alt);
+			color: var(--ink);
+		}
+		:global(.bridge-root .company-spine-head) {
+			display: none;
+		}
+		:global(.bridge-root .company-area .company-spine) {
+			padding: 4px;
+			min-height: 44px;
+			height: auto;
+			overflow: visible;
+		}
+	}
+
 	.company-mobile-nav {
 		display: none;
 	}
@@ -133,17 +261,6 @@
 			width: 100%;
 			font-size: var(--t-label);
 			color: var(--text-secondary);
-		}
-		.company-mobile-nav select {
-			flex: 1;
-			min-width: 0;
-			min-height: 44px;
-			padding: var(--space-2) var(--space-3);
-			font: 600 var(--t-body) var(--font-ui);
-			color: var(--ink);
-			background: var(--surface);
-			border: 1px solid var(--border-strong);
-			border-radius: var(--radius-control);
 		}
 		:global(.bridge-root .company-area .company-spine nav) {
 			display: none;

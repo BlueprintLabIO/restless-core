@@ -7,9 +7,37 @@
 	import WorkBoard from '$lib/ui/views/WorkBoard.svelte';
 	import OutcomeFolio from '$lib/ui/views/OutcomeFolio.svelte';
 	import { STUDIO, STUDIO_BOARD, STUDIO_FOLIO } from '$lib/ui/showcase/lanternStudio';
+	import AppFrame from '$lib/ui/views/AppFrame.svelte';
+	import DocumentView from '$lib/ui/views/DocumentView.svelte';
+	import RoomView from '$lib/ui/views/RoomView.svelte';
+	import AttentionInbox from '$lib/ui/views/AttentionInbox.svelte';
+	import AuthorityLimits from '$lib/ui/views/AuthorityLimits.svelte';
+	import PeopleView from '$lib/ui/views/PeopleView.svelte';
+	import AgentIntelligence from '$lib/ui/views/AgentIntelligence.svelte';
+	import IdentityView from '$lib/ui/views/IdentityView.svelte';
+	import ComputerView from '$lib/ui/views/ComputerView.svelte';
+	import {
+		STUDIO_ATTENTION,
+		STUDIO_AUTHORITY,
+		STUDIO_BRIEF,
+		STUDIO_BRIEF_COMMENTS,
+		STUDIO_COLLABORATORS,
+		STUDIO_COMPANY,
+		STUDIO_CONNECTIONS,
+		STUDIO_DOCUMENTS,
+		STUDIO_IDENTITY,
+		STUDIO_IDENTITY_OUTPUTS,
+		STUDIO_INTELLIGENCE,
+		STUDIO_PERSON,
+		STUDIO_ROOMS,
+		STUDIO_ROOM_MESSAGES,
+		STUDIO_ROOM_PEOPLE,
+		STUDIO_TEAMS
+	} from '$lib/ui/showcase/lanternSurfaces';
 
 	const glyphNames = Object.keys(GLYPHS) as GlyphName[];
 	let approved = $state(false);
+	let driving = $state(false);
 </script>
 
 <svelte:head>
@@ -98,6 +126,89 @@
 			</OutcomeFolio>
 		</div>
 	</section>
+
+	<h2 class="group">Product surfaces</h2>
+
+	<section>
+		<h2>App frame with a shared document</h2>
+		<div class="frame tall">
+			<AppFrame company={STUDIO_COMPANY} active="work" attention={1}>
+				<DocumentView
+					title="Last Light — playtest brief"
+					blocks={STUDIO_BRIEF}
+					collaborators={STUDIO_COLLABORATORS}
+					presence={[{ by: 'you', block: 6 }, { by: 'marlow', block: 9 }]}
+					comments={STUDIO_BRIEF_COMMENTS}
+					documents={STUDIO_DOCUMENTS}
+					activeDocument="brief"
+				/>
+			</AppFrame>
+		</div>
+	</section>
+
+	<section>
+		<h2>Room</h2>
+		<div class="frame tall">
+			<RoomView
+				name="Studio · this week"
+				participants={STUDIO_ROOM_PEOPLE}
+				messages={STUDIO_ROOM_MESSAGES}
+				rooms={STUDIO_ROOMS}
+				activeRoom="week"
+				typing={{ name: 'Marlow', kind: 'agent' }}
+			/>
+		</div>
+	</section>
+
+	<section>
+		<h2>Attention</h2>
+		<div class="frame tall">
+			<AttentionInbox items={STUDIO_ATTENTION} selected="a1" quiet={142}>
+				{#snippet detail()}
+					<OutcomeFolio headingLevel={3} title={STUDIO_FOLIO.title} whatHappened={STUDIO_FOLIO.whatHappened} whyItMatters={STUDIO_FOLIO.whyItMatters} />
+				{/snippet}
+			</AttentionInbox>
+		</div>
+	</section>
+
+	<section>
+		<h2>Authority and limits</h2>
+		<div class="frame">
+			<AuthorityLimits {...STUDIO_AUTHORITY} highlight="Publishing" />
+		</div>
+	</section>
+
+	<section>
+		<h2>People</h2>
+		<div class="frame tall"><PeopleView teams={STUDIO_TEAMS} person={STUDIO_PERSON} /></div>
+	</section>
+
+	<section>
+		<h2>Agent intelligence</h2>
+		<div class="frame">
+			<AgentIntelligence
+				connections={STUDIO_CONNECTIONS}
+				companyDefault={{ connection: 'ChatGPT / Codex', model: 'company default' }}
+				agents={STUDIO_INTELLIGENCE}
+			/>
+		</div>
+	</section>
+
+	<section>
+		<h2>Identity</h2>
+		<div class="frame"><IdentityView version="Version 4 · today" pillars={STUDIO_IDENTITY} outputs={STUDIO_IDENTITY_OUTPUTS} /></div>
+	</section>
+
+	<section>
+		<h2>Company computer</h2>
+		<div class="frame tall">
+			<ComputerView driver={driving ? 'you' : 'Ines'} ontoggle={() => (driving = !driving)}>
+				{#snippet screen()}
+					<div class="screen"><p>Last Light · playable prototype</p></div>
+				{/snippet}
+			</ComputerView>
+		</div>
+	</section>
 </div>
 
 <style>
@@ -165,6 +276,21 @@
 	}
 	.decision {
 		margin: var(--space-4) 0;
+	}
+	.group {
+		margin: 56px 0 20px;
+		font-size: var(--t-title);
+	}
+	.frame.tall {
+		height: 520px;
+	}
+	.screen {
+		display: grid;
+		place-items: center;
+		height: 100%;
+		background: linear-gradient(#151a3c, #1c3a66);
+		color: #f2e6c8;
+		font: 400 var(--t-title) Georgia, serif;
 	}
 	.evidence {
 		display: grid;

@@ -155,7 +155,12 @@
 									<span class="portfolio-metric portfolio-proof">
 										<small class="portfolio-mobile-label">Next</small><strong
 											title={company.nextHint || company.issue || undefined}
-											>{company.issue || company.next || 'Unavailable'}</strong
+											>{#if company.issue}<a
+													class="portfolio-fix"
+													href={company.entry && 'href' in company.entry
+														? company.entry.href
+														: homeHref}>{company.issue} →</a
+												>{:else}{company.next || 'Unavailable'}{/if}</strong
 										>
 									</span>
 									{#if hasAttention}<span class="portfolio-metric portfolio-attention">
@@ -193,6 +198,18 @@
 </AccountShell>
 
 <style>
+	.portfolio-fix {
+		position: relative;
+		z-index: 2;
+		color: var(--intent-feedback);
+		text-decoration: none;
+	}
+	.portfolio-fix:hover {
+		text-decoration: underline;
+	}
+	.portfolio-attention {
+		padding-right: 40px !important;
+	}
 	.portfolio-main {
 		min-height: 0;
 		overflow: auto;
@@ -413,15 +430,15 @@
 		display: contents;
 	}
 	.portfolio-row-actions {
-		position: relative;
-		z-index: 2;
-		grid-column: 1 / -1;
+		position: absolute;
+		right: 8px;
+		top: 10px;
+		z-index: 3;
 		display: flex;
 		align-items: center;
 		flex-wrap: wrap;
 		gap: 8px;
-		padding: 0 15px 12px;
-		border-bottom: 1px solid var(--border);
+		padding: 0;
 	}
 	.portfolio-footer {
 		display: flex;

@@ -33,57 +33,24 @@ pub(super) async fn account_models(
     AxumPath(provider): AxumPath<String>,
 ) -> Response<Body> {
     if !principal.is_account_owner() {
-        return api_error(
-            StatusCode::FORBIDDEN,
-            "connections",
-            "Only the account owner can inspect this sign-in.",
-        );
+        return api_error(StatusCode::FORBIDDEN, "connections", "Only the account owner can inspect this sign-in.");
     }
     if !matches!(provider.as_str(), "openai-codex" | "anthropic") {
-        return api_error(
-            StatusCode::NOT_FOUND,
-            "connections",
-            "No account model list exists for this provider.",
-        );
+        return api_error(StatusCode::NOT_FOUND, "connections", "No account model list exists for this provider.");
     }
     let registry = match load_owner_connections(&state.daemon.root) {
         Ok(registry) => registry,
-        Err(_) => {
-            return api_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "connections",
-                "Could not read account connections.",
-            )
-        }
+        Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "Could not read account connections."),
     };
-    let Some(connection) = registry
-        .connections
-        .iter()
-        .find(|row| row.kind == "oauth" && row.provider == provider)
-    else {
-        return api_error(
-            StatusCode::NOT_FOUND,
-            "connections",
-            "Connect this provider in Account settings first.",
-        );
+    let Some(connection) = registry.connections.iter().find(|row| row.kind == "oauth" && row.provider == provider) else {
+        return api_error(StatusCode::NOT_FOUND, "connections", "Connect this provider in Account settings first.");
     };
-    if !matches!((&connection.account_key, model_gateway::oauth_account_key(&provider).await), (Some(expected), Ok(Some(actual))) if expected == &actual)
-    {
-        return api_error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "connections",
-            "The account sign-in is unavailable. Reconnect it in Account settings.",
-        );
+    if !matches!((&connection.account_key, model_gateway::oauth_account_key(&provider).await), (Some(expected), Ok(Some(actual))) if expected == &actual) {
+        return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "The account sign-in is unavailable. Reconnect it in Account settings.");
     }
     let (program, profile) = match model_gateway::oauth_login_command() {
         Ok(command) => command,
-        Err(_) => {
-            return api_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "connections",
-                "The model runtime is unavailable.",
-            )
-        }
+        Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "The model runtime is unavailable."),
     };
     let output = tokio::time::timeout(
         std::time::Duration::from_secs(60),
@@ -95,74 +62,39 @@ pub(super) async fn account_models(
             .stderr(Stdio::null())
             .kill_on_drop(true)
             .output(),
-    )
-    .await;
+    ).await;
     let Ok(Ok(output)) = output else {
-        return api_error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "connections",
-            "Could not refresh models from the connected runtime.",
-        );
+        return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "Could not refresh models from the connected runtime.");
     };
     if !output.status.success() || output.stdout.len() > 1_000_000 {
-        return api_error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "connections",
-            "Could not refresh models from the connected runtime.",
-        );
+        return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "Could not refresh models from the connected runtime.");
     }
     let Ok(body) = serde_json::from_slice::<serde_json::Value>(&output.stdout) else {
-        return api_error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "connections",
-            "The connected runtime returned an invalid model list.",
-        );
+        return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "The connected runtime returned an invalid model list.");
     };
-    let mut models = body["models"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|row| {
-            let id = row["id"].as_str()?;
-            let name = row["name"].as_str()?;
-            if row["provider"].as_str() != Some(provider.as_str())
-                || row["kind"].as_str().is_some_and(|kind| kind != "chat")
-                || id.is_empty()
-                || id.len() > 200
-                || name.is_empty()
-                || name.len() > 200
-                || !id
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || b"._:-".contains(&byte))
-                || name.chars().any(char::is_control)
-            {
-                return None;
-            }
-            Some(serde_json::json!({"id": id, "name": name}))
-        })
-        .collect::<Vec<_>>();
+    let mut models = body["models"].as_array().into_iter().flatten().filter_map(|row| {
+        let id = row["id"].as_str()?;
+        let name = row["name"].as_str()?;
+        if row["provider"].as_str() != Some(provider.as_str()) || row["kind"].as_str().is_some_and(|kind| kind != "chat") || id.is_empty() || id.len() > 200 || name.is_empty() || name.len() > 200
+            || !id.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"._:-".contains(&byte))
+            || name.chars().any(char::is_control)
+        { return None; }
+        Some(serde_json::json!({"id": id, "name": name}))
+    }).collect::<Vec<_>>();
     if models.is_empty() {
-        return api_error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "connections",
-            "The connected runtime has no available models for this sign-in.",
-        );
+        return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "The connected runtime has no available models for this sign-in.");
     }
     let preferred = if provider == "openai-codex" {
         &["gpt-6-sol", "gpt-5.6-sol"][..]
     } else {
         &["claude-sonnet-5", "claude-sonnet-4-6"][..]
     };
-    if let Some(id) = preferred
-        .iter()
-        .find(|id| models.iter().any(|model| model["id"] == **id))
-    {
+    if let Some(id) = preferred.iter().find(|id| models.iter().any(|model| model["id"] == **id)) {
         if let Some(default) = models.iter_mut().find(|model| model["id"] == *id) {
             default["default"] = serde_json::Value::Bool(true);
         }
     }
-    Json(serde_json::json!({"provider": provider, "source": "connected_runtime", "models": models}))
-        .into_response()
+    Json(serde_json::json!({"provider": provider, "source": "connected_runtime", "models": models})).into_response()
 }
 
 pub(super) async fn start_codex_login(
@@ -195,9 +127,7 @@ pub(super) async fn start_codex_login(
             Some(key) => Some(key),
             None => return api_error(StatusCode::CONFLICT, "connections", "The existing Codex account identity cannot be verified. Restore that connection before reconnecting."),
         }
-    } else {
-        None
-    };
+    } else { None };
     let companies = match crate::configured_companies(&state.daemon.root) {
         Ok(companies) => companies,
         Err(_) => {
@@ -317,35 +247,25 @@ pub(super) async fn start_codex_login(
         }
         let completed = child.wait().await.is_ok_and(|status| status.success());
         if completed {
-            let actual_account = model_gateway::oauth_account_key("openai-codex")
-                .await
-                .ok()
-                .flatten();
-            let same_account = actual_account.as_ref().is_some_and(|actual| {
-                expected_account
-                    .as_ref()
-                    .is_none_or(|expected| expected == actual)
-            });
+            let actual_account = model_gateway::oauth_account_key("openai-codex").await.ok().flatten();
+            let same_account = actual_account.as_ref().is_some_and(|actual| expected_account.as_ref().is_none_or(|expected| expected == actual));
             let _write = state.charter_writes.lock().await;
-            let registered = same_account
-                && load_owner_connections(&state.daemon.root)
-                    .and_then(|mut registry| {
-                        if let Some(existing) = registry.connections.iter_mut().find(|connection| {
-                            connection.kind == "oauth" && connection.provider == "openai-codex"
-                        }) {
-                            existing.account_key = actual_account.clone();
-                        } else {
-                            registry.connections.push(OwnerModelConnection {
-                                id: Uuid::new_v4().simple().to_string(),
-                                label: "ChatGPT / Codex".to_owned(),
-                                provider: "openai-codex".to_owned(),
-                                kind: "oauth".to_owned(),
-                                account_key: actual_account.clone(),
-                            });
-                        }
-                        save_owner_connections(&state.daemon.root, &registry)
-                    })
-                    .is_ok();
+            let registered = same_account && load_owner_connections(&state.daemon.root)
+                .and_then(|mut registry| {
+                    if let Some(existing) = registry.connections.iter_mut().find(|connection| connection.kind == "oauth" && connection.provider == "openai-codex") {
+                        existing.account_key = actual_account.clone();
+                    } else {
+                        registry.connections.push(OwnerModelConnection {
+                            id: Uuid::new_v4().simple().to_string(),
+                            label: "ChatGPT / Codex".to_owned(),
+                            provider: "openai-codex".to_owned(),
+                            kind: "oauth".to_owned(),
+                            account_key: actual_account.clone(),
+                        });
+                    }
+                    save_owner_connections(&state.daemon.root, &registry)
+                })
+                .is_ok();
             if let Some(job) = JOBS.lock().await.get_mut(&id) {
                 job.state = if registered { "connected" } else { "failed" };
                 job.url = None;
@@ -367,88 +287,41 @@ pub(super) async fn start_claude_login(
     Extension(principal): Extension<RequestPrincipal>,
 ) -> Response<Body> {
     if !principal.is_account_owner() {
-        return api_error(
-            StatusCode::FORBIDDEN,
-            "connections",
-            "Only the account owner can start this sign-in.",
-        );
+        return api_error(StatusCode::FORBIDDEN, "connections", "Only the account owner can start this sign-in.");
     }
     let registry = match load_owner_connections(&state.daemon.root) {
         Ok(registry) => registry,
-        Err(_) => {
-            return api_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "connections",
-                "Could not check existing account connections.",
-            )
-        }
+        Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "Could not check existing account connections."),
     };
-    let existing = registry
-        .connections
-        .iter()
-        .find(|connection| connection.kind == "oauth" && connection.provider == "anthropic");
+    let existing = registry.connections.iter().find(|connection| connection.kind == "oauth" && connection.provider == "anthropic");
     let expected_account = if let Some(existing) = existing {
         match existing.account_key.clone().or(model_gateway::oauth_account_key("anthropic").await.ok().flatten()) {
             Some(key) => Some(key),
             None => return api_error(StatusCode::CONFLICT, "connections", "The existing Claude account identity cannot be verified. Restore that connection before reconnecting."),
         }
-    } else {
-        None
-    };
+    } else { None };
     let companies = match crate::configured_companies(&state.daemon.root) {
         Ok(companies) => companies,
-        Err(_) => {
-            return api_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "connections",
-                "Could not check company connections.",
-            )
-        }
+        Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "Could not check company connections."),
     };
     for company in companies {
         let Ok(config) = runtime::CompanyConfig::load(&state.daemon.root, &company) else {
-            return api_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "connections",
-                "Could not check company connections.",
-            );
+            return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "Could not check company connections.");
         };
-        let current = config
-            .credentials
-            .get("model.inference.anthropic")
-            .or_else(|| {
-                config
-                    .model
-                    .starts_with("anthropic/")
-                    .then(|| config.credentials.get("model.inference"))
-                    .flatten()
-            });
-        if current.is_some_and(|reference| {
-            credential::omp_oauth_provider(reference).ok().flatten() != Some("anthropic")
-        }) {
+        let current = config.credentials.get("model.inference.anthropic").or_else(|| {
+            config.model.starts_with("anthropic/").then(|| config.credentials.get("model.inference")).flatten()
+        });
+        if current.is_some_and(|reference| credential::omp_oauth_provider(reference).ok().flatten() != Some("anthropic")) {
             return api_error(StatusCode::CONFLICT, "connections", "A company already uses a different Anthropic credential. Change that company connection before adding account sign-in.");
         }
     }
     let (program, profile) = match model_gateway::oauth_login_command() {
         Ok(command) => command,
-        Err(_) => {
-            return api_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "connections",
-                "The model sign-in helper is unavailable on this host.",
-            )
-        }
+        Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "The model sign-in helper is unavailable on this host."),
     };
     let mut jobs = JOBS.lock().await;
-    if jobs
-        .values()
-        .any(|job| matches!(job.state, "starting" | "waiting" | "completing"))
-    {
-        return api_error(
-            StatusCode::CONFLICT,
-            "connections",
-            "Finish the current sign-in before starting another.",
-        );
+    if jobs.values().any(|job| matches!(job.state, "starting" | "waiting" | "completing")) {
+        return api_error(StatusCode::CONFLICT, "connections", "Finish the current sign-in before starting another.");
     }
     jobs.retain(|_, job| matches!(job.state, "starting" | "waiting" | "completing"));
     let mut child = match tokio::process::Command::new(program)
@@ -462,107 +335,49 @@ pub(super) async fn start_claude_login(
         .spawn()
     {
         Ok(child) => child,
-        Err(_) => {
-            return api_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "connections",
-                "Could not start Claude sign-in.",
-            )
-        }
+        Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "Could not start Claude sign-in."),
     };
     let Some(stdout) = child.stdout.take() else {
-        return api_error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "connections",
-            "Could not read Claude sign-in instructions.",
-        );
+        return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "Could not read Claude sign-in instructions.");
     };
     let id = Uuid::new_v4();
-    jobs.insert(
-        id,
-        LoginJob {
-            state: "starting",
-            url: None,
-            code: None,
-            message: None,
-            callback: None,
-        },
-    );
+    jobs.insert(id, LoginJob { state: "starting", url: None, code: None, message: None, callback: None });
     drop(jobs);
     tokio::spawn(async move {
         let mut lines = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = lines.next_line().await {
             let line = line.trim();
-            let Ok(url) = reqwest::Url::parse(line) else {
-                continue;
-            };
-            if url.scheme() != "https"
-                || url.host_str() != Some("claude.ai")
-                || url.path() != "/oauth/authorize"
-                || line.len() > 4096
-            {
-                continue;
-            }
+            let Ok(url) = reqwest::Url::parse(line) else { continue };
+            if url.scheme() != "https" || url.host_str() != Some("claude.ai") || url.path() != "/oauth/authorize" || line.len() > 4096 { continue }
             let query = url.query_pairs().collect::<HashMap<_, _>>();
-            let (Some(redirect), Some(expected_state)) =
-                (query.get("redirect_uri"), query.get("state"))
-            else {
-                continue;
-            };
-            let Ok(redirect) = reqwest::Url::parse(redirect) else {
-                continue;
-            };
-            if redirect.scheme() != "http"
-                || !matches!(redirect.host_str(), Some("localhost" | "127.0.0.1"))
-                || redirect.port().is_none()
-                || redirect.path() != "/callback"
-                || redirect.query().is_some()
-                || redirect.fragment().is_some()
-                || expected_state.is_empty()
-                || expected_state.len() > 256
-            {
-                continue;
-            }
+            let (Some(redirect), Some(expected_state)) = (query.get("redirect_uri"), query.get("state")) else { continue };
+            let Ok(redirect) = reqwest::Url::parse(redirect) else { continue };
+            if redirect.scheme() != "http" || !matches!(redirect.host_str(), Some("localhost" | "127.0.0.1")) || redirect.port().is_none() || redirect.path() != "/callback" || redirect.query().is_some() || redirect.fragment().is_some() || expected_state.is_empty() || expected_state.len() > 256 { continue }
             if let Some(job) = JOBS.lock().await.get_mut(&id) {
                 job.url = Some(line.to_owned());
-                job.callback = Some(ClaudeCallback {
-                    redirect,
-                    state: expected_state.to_string(),
-                });
+                job.callback = Some(ClaudeCallback { redirect, state: expected_state.to_string() });
                 job.state = "waiting";
             }
         }
         let completed = child.wait().await.is_ok_and(|status| status.success());
         if completed {
-            let actual_account = model_gateway::oauth_account_key("anthropic")
-                .await
-                .ok()
-                .flatten();
-            let same_account = actual_account.as_ref().is_some_and(|actual| {
-                expected_account
-                    .as_ref()
-                    .is_none_or(|expected| expected == actual)
-            });
+            let actual_account = model_gateway::oauth_account_key("anthropic").await.ok().flatten();
+            let same_account = actual_account.as_ref().is_some_and(|actual| expected_account.as_ref().is_none_or(|expected| expected == actual));
             let _write = state.charter_writes.lock().await;
-            let registered = same_account
-                && load_owner_connections(&state.daemon.root)
-                    .and_then(|mut registry| {
-                        if let Some(existing) = registry.connections.iter_mut().find(|connection| {
-                            connection.kind == "oauth" && connection.provider == "anthropic"
-                        }) {
-                            existing.account_key = actual_account.clone();
-                        } else {
-                            registry.connections.push(OwnerModelConnection {
-                                id: Uuid::new_v4().simple().to_string(),
-                                label: "Claude".to_owned(),
-                                provider: "anthropic".to_owned(),
-                                kind: "oauth".to_owned(),
-                                account_key: actual_account.clone(),
-                            });
-                        }
-                        save_owner_connections(&state.daemon.root, &registry)
-                    })
-                    .is_ok();
+            let registered = same_account && load_owner_connections(&state.daemon.root).and_then(|mut registry| {
+                if let Some(existing) = registry.connections.iter_mut().find(|connection| connection.kind == "oauth" && connection.provider == "anthropic") {
+                    existing.account_key = actual_account.clone();
+                } else {
+                    registry.connections.push(OwnerModelConnection {
+                        id: Uuid::new_v4().simple().to_string(),
+                        label: "Claude".to_owned(),
+                        provider: "anthropic".to_owned(),
+                        kind: "oauth".to_owned(),
+                        account_key: actual_account.clone(),
+                    });
+                }
+                save_owner_connections(&state.daemon.root, &registry)
+            }).is_ok();
             if let Some(job) = JOBS.lock().await.get_mut(&id) {
                 job.state = if registered { "connected" } else { "failed" };
                 job.url = None;
@@ -592,33 +407,17 @@ pub(super) async fn complete_claude_login(
     Json(input): Json<CompleteClaudeLogin>,
 ) -> Response<Body> {
     if !principal.is_account_owner() {
-        return api_error(
-            StatusCode::FORBIDDEN,
-            "connections",
-            "Only the account owner can complete this sign-in.",
-        );
+        return api_error(StatusCode::FORBIDDEN, "connections", "Only the account owner can complete this sign-in.");
     }
     let Ok(url) = reqwest::Url::parse(&input.callback_url) else {
-        return api_error(
-            StatusCode::BAD_REQUEST,
-            "connections",
-            "Paste the complete callback URL from the browser.",
-        );
+        return api_error(StatusCode::BAD_REQUEST, "connections", "Paste the complete callback URL from the browser.");
     };
     let mut jobs = JOBS.lock().await;
     let Some(job) = jobs.get_mut(&id) else {
-        return api_error(
-            StatusCode::NOT_FOUND,
-            "connections",
-            "This sign-in is no longer available. Start again.",
-        );
+        return api_error(StatusCode::NOT_FOUND, "connections", "This sign-in is no longer available. Start again.");
     };
     let Some(callback) = job.callback.as_ref() else {
-        return api_error(
-            StatusCode::CONFLICT,
-            "connections",
-            "The sign-in is not waiting for a callback.",
-        );
+        return api_error(StatusCode::CONFLICT, "connections", "The sign-in is not waiting for a callback.");
     };
     let valid = job.state == "waiting"
         && url.scheme() == callback.redirect.scheme()
@@ -629,52 +428,29 @@ pub(super) async fn complete_claude_login(
         && url.password().is_none()
         && url.fragment().is_none()
         && input.callback_url.len() <= 8192
-        && url
-            .query_pairs()
-            .any(|(key, value)| key == "state" && value == callback.state)
-        && url
-            .query_pairs()
-            .any(|(key, value)| key == "code" && !value.is_empty());
+        && url.query_pairs().any(|(key, value)| key == "state" && value == callback.state)
+        && url.query_pairs().any(|(key, value)| key == "code" && !value.is_empty());
     if !valid {
-        return api_error(
-            StatusCode::BAD_REQUEST,
-            "connections",
-            "This callback does not match the current Claude sign-in.",
-        );
+        return api_error(StatusCode::BAD_REQUEST, "connections", "This callback does not match the current Claude sign-in.");
     }
     job.state = "completing";
     drop(jobs);
     let client = match reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(5))
-        .build()
-    {
+        .build() {
         Ok(client) => client,
-        Err(_) => {
-            return api_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "connections",
-                "Could not prepare the callback.",
-            )
-        }
+        Err(_) => return api_error(StatusCode::SERVICE_UNAVAILABLE, "connections", "Could not prepare the callback."),
     };
     // The URL is constrained to the callback origin and state emitted by the
     // local OMP process. Never log it: it contains a one-time authorization code.
     match client.get(url).send().await {
-        Ok(response) if response.status().is_success() => {
-            Json(serde_json::json!({"state":"completing"})).into_response()
-        }
+        Ok(response) if response.status().is_success() => Json(serde_json::json!({"state":"completing"})).into_response(),
         _ => {
             if let Some(job) = JOBS.lock().await.get_mut(&id) {
-                if job.state == "completing" {
-                    job.state = "waiting";
-                }
+                if job.state == "completing" { job.state = "waiting"; }
             }
-            api_error(
-                StatusCode::BAD_GATEWAY,
-                "connections",
-                "The local Claude callback could not be completed. Try pasting the URL again.",
-            )
+            api_error(StatusCode::BAD_GATEWAY, "connections", "The local Claude callback could not be completed. Try pasting the URL again.")
         }
     }
 }

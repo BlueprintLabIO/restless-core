@@ -16,8 +16,10 @@
 	import { renderFrame } from '$lib/vendor/pixel-agents/webview-ui/src/office/engine/renderer.js';
 	import { getCatalogEntry } from '$lib/vendor/pixel-agents/webview-ui/src/office/layout/furnitureCatalog.js';
 	import { mapOffset } from '$lib/vendor/pixel-agents/webview-ui/src/office/projection.js';
+	import { isWalkable } from '$lib/vendor/pixel-agents/webview-ui/src/office/layout/tileMap.js';
 	import {
 		CharacterState,
+		Direction,
 		TILE_SIZE
 	} from '$lib/vendor/pixel-agents/webview-ui/src/office/types.js';
 	import {
@@ -83,6 +85,53 @@
 			landmark: plan.landmark,
 			garden: plan.garden,
 			home: plan.home
+		};
+	}
+
+	/** Where each member stands right now, in CSS pixels from the canvas's top-left corner, as of
+	 * the last painted frame. A page uses this to pin its own overlays to the people on the floor. */
+	export function actorsOnScreen(): { actorId: string; x: number; y: number }[] {
+		if (!office || !canvas) return [];
+		const scale = lastZoom / (devicePixelRatio || 1);
+		const originX = lastOffset.x / (devicePixelRatio || 1);
+		const originY = lastOffset.y / (devicePixelRatio || 1);
+		return members.flatMap((member) => {
+			const character = office?.characters.get(member.numericId);
+			if (!character) return [];
+			return [{ actorId: member.actorId, x: originX + character.x * scale, y: originY + character.y * scale }];
+		});
+	}
+
+	/** A member's tile right now, or null before the floor is ready. */
+	export function actorTile(actorId: string): { col: number; row: number } | null {
+		const member = members.find((candidate) => candidate.actorId === actorId);
+		const character = member ? office?.characters.get(member.numericId) : null;
+		return character ? { col: character.tileCol, row: character.tileRow } : null;
+	}
+
+	/** Stage a scene: walk a member to stand beside another and hold them there, or pass null to send
+	 * them back to their desk. Only for scene floors (`explorable={false}`); the owner workspace never
+	 * moves people for show. */
+	export function stageActor(actorId: string, nearActorId: string | null) {
+		const member = members.find((candidate) => candidate.actorId === actorId);
+		if (!member || !office) return;
+		if (nearActorId === null) {
+			if (!staged.delete(actorId)) return;
+			office.setAgentActive(member.numericId, member.semanticActivity);
+			office.sendToSeat(member.numericId);
+			return;
+		}
+		if (staged.get(actorId) === nearActorId) return;
+		staged.set(actorId, nearActorId);
+		office.setAgentActive(member.numericId, false);
+	}
+
+	/** The CSS-pixel position of a tile's centre, as of the last painted frame. */
+	export function tileOnScreen(col: number, row: number): { x: number; y: number } {
+		const scale = lastZoom / (devicePixelRatio || 1);
+		return {
+			x: lastOffset.x / (devicePixelRatio || 1) + (col + 0.5) * TILE_SIZE * scale,
+			y: lastOffset.y / (devicePixelRatio || 1) + (row + 0.5) * TILE_SIZE * scale
 		};
 	}
 
@@ -164,6 +213,8 @@
 	let lastOffset = { x: 0, y: 0 };
 	let lastZoom = 5;
 	let lastPresence = new Map<string, OfficeMember['presence']>();
+	/** Members a scene has asked to stand beside someone (stageActor), keyed by who they stand beside. */
+	const staged = new Map<string, string>();
 	let lastSemantic = new Map<string, boolean>();
 	let simulationClock = 0;
 	let behaviourTimer = 0;
@@ -345,6 +396,7 @@
 	function updateOffice(delta: number) {
 		if (!office || !plan) return;
 		office.update(delta);
+		holdStaged();
 		simulationClock += delta;
 		behaviourTimer += delta;
 		settleAvailableMembers();
@@ -510,6 +562,44 @@
 		if (spot.posture === 'sit') character.seatTimer = 60;
 		character.currentTool =
 			spot.activity === 'reading' || spot.activity === 'sketching' ? 'Read' : null;
+	}
+
+	/* Keep staged members beside their partner: walk over, stop on a free neighbouring tile, face them. */
+	function holdStaged() {
+		if (!office || !staged.size) return;
+		const occupied = new Set([...office.characters.values()].map((character) => `${character.tileCol},${character.tileRow}`));
+		for (const [actorId, nearId] of staged) {
+			const member = members.find((candidate) => candidate.actorId === actorId);
+			const partner = members.find((candidate) => candidate.actorId === nearId);
+			const character = member ? office.characters.get(member.numericId) : null;
+			const target = partner ? office.characters.get(partner.numericId) : null;
+			if (!member || !character || !target) continue;
+			const distance = Math.abs(character.tileCol - target.tileCol) + Math.abs(character.tileRow - target.tileRow);
+			if (distance <= 1) {
+				character.path = [];
+				character.state = CharacterState.IDLE;
+				character.wanderTimer = 1e6;
+				const dx = target.tileCol - character.tileCol;
+				const dy = target.tileRow - character.tileRow;
+				character.dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? Direction.RIGHT : Direction.LEFT) : dy > 0 ? Direction.DOWN : Direction.UP;
+				continue;
+			}
+			if (character.path.length) continue;
+			const around = [
+				[0, 1],
+				[1, 0],
+				[-1, 0],
+				[0, -1],
+				[1, 1],
+				[-1, 1],
+				[1, -1],
+				[-1, -1]
+			].map(([dc, dr]) => ({ col: target.tileCol + dc, row: target.tileRow + dr }));
+			const spot = around.find(
+				(tile) => !occupied.has(`${tile.col},${tile.row}`) && isWalkable(tile.col, tile.row, office!.tileMap, office!.blockedTiles)
+			);
+			if (spot) office.walkToTile(member.numericId, spot.col, spot.row);
+		}
 	}
 
 	function settleAvailableMembers() {

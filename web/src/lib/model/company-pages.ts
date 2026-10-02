@@ -3,7 +3,7 @@
  * missing from the other. */
 export type CompanyPage = {
 	key: string;
-	section: 'Setup' | 'Operations' | 'Activity';
+	section: 'General' | 'Intelligence' | 'Operations' | 'History' | 'Health';
 	label: string;
 	path: string;
 	exact?: boolean;
@@ -14,7 +14,7 @@ export type CompanyPage = {
 export const COMPANY_PAGES: CompanyPage[] = [
 	{
 		key: 'charter',
-		section: 'Setup',
+		section: 'General',
 		label: 'Charter',
 		path: '',
 		exact: true,
@@ -22,29 +22,29 @@ export const COMPANY_PAGES: CompanyPage[] = [
 	},
 	{
 		key: 'identity',
-		section: 'Setup',
+		section: 'General',
 		label: 'Identity',
 		path: '/identity',
 		keywords: 'voice brand'
 	},
 	{
 		key: 'members',
-		section: 'Setup',
+		section: 'General',
 		label: 'Members',
 		path: '/members',
 		keywords: 'invite access'
 	},
-	{ key: 'skills', section: 'Setup', label: 'Skills', path: '/skills' },
+	{ key: 'skills', section: 'Intelligence', label: 'Skills', path: '/skills' },
 	{
 		key: 'provider',
-		section: 'Setup',
+		section: 'Intelligence',
 		label: 'Intelligence',
 		path: '/provider',
 		keywords: 'model provider connection api key codex claude'
 	},
 	{
 		key: 'vault',
-		section: 'Setup',
+		section: 'Intelligence',
 		label: 'Vault',
 		path: '/vault',
 		keywords: 'secrets credentials'
@@ -64,20 +64,20 @@ export const COMPANY_PAGES: CompanyPage[] = [
 		path: '/computer',
 		keywords: 'desktop runtime'
 	},
-	{
-		key: 'doctor',
-		section: 'Activity',
-		label: 'Doctor',
-		path: '/doctor',
-		keywords: 'health diagnose'
-	},
-	{ key: 'decisions', section: 'Activity', label: 'Decision history', path: '/decisions' },
+	{ key: 'decisions', section: 'History', label: 'Decision history', path: '/decisions' },
 	{
 		key: 'actions',
-		section: 'Activity',
+		section: 'History',
 		label: 'External activity',
 		path: '/actions',
 		keywords: 'receipts effects'
+	},
+	{
+		key: 'doctor',
+		section: 'Health',
+		label: 'Doctor',
+		path: '/doctor',
+		keywords: 'health diagnose'
 	}
 ];
 

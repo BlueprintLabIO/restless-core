@@ -4,6 +4,7 @@
 	import type { Snippet } from 'svelte';
 	import Check from '@lucide/svelte/icons/check';
 	import Copy from '@lucide/svelte/icons/copy';
+	import FileText from '@lucide/svelte/icons/file-text';
 	import AttachmentList from './AttachmentList.svelte';
 	import Markdown from './Markdown.svelte';
 	import SemanticMark from '$lib/ui/glyph/SemanticMark.svelte';
@@ -46,7 +47,7 @@
 	} = $props();
 
 	let copyState = $state<'idle' | 'copied' | 'failed'>('idle');
-	let messageExpanded = $state(false);
+	let showWorkDetails = $state(false);
 	let copyTimer: number | undefined;
 
 	function timeLabel(value: Date | string): string {
@@ -72,16 +73,6 @@
 		(sender === 'agent' || sender === 'human') && displayAuthor !== 'Exec'
 			? initials(displayAuthor)
 			: ''
-	);
-	const longOwnerMessage = $derived(
-		sender === 'owner' && (text.length > 700 || (text.match(/\n/g)?.length ?? 0) >= 12)
-	);
-	const messagePreview = $derived(
-		text
-			.replace(/\s+/g, ' ')
-			.trim()
-			.slice(0, 200)
-			.concat(text.trim().length > 200 ? '…' : '')
 	);
 
 	async function copyMessage() {
@@ -133,76 +124,53 @@
 	</header>
 
 	<div class="message-body">
-		{#if longOwnerMessage}
-			<details class="message-fold" bind:open={messageExpanded}>
-				<summary>
-					<span class="message-preview">{messagePreview}</span>
-					<span class="message-fold-label">
-						{messageExpanded ? 'Show less' : 'Read full message'}
-					</span>
-				</summary>
-				<div class="message-fold-content"><Markdown {text} /></div>
-			</details>
-		{:else}
-			<Markdown {text} />
-		{/if}
-		{#if sender === 'agent' && (intent?.outcome || intent?.nextStep || intent?.ownerNeed)}
-			<dl class="message-glance" aria-label="At a glance">
-				{#if intent.outcome}
-					<div>
-						<dt>Outcome</dt>
-						<dd>{intent.outcome}</dd>
-					</div>
-				{/if}
-				{#if intent.nextStep}
-					<div>
-						<dt>Next</dt>
-						<dd>{intent.nextStep}</dd>
-					</div>
-				{/if}
-				{#if intent.ownerNeed}
-					<div class="owner-need">
-						<dt>Needs you</dt>
-						<dd>{intent.ownerNeed}</dd>
-					</div>
-				{/if}
-			</dl>
-		{/if}
+		<Markdown {text} />
 		<AttachmentList {attachments} {hrefFor} />
 		{#if details && sender === 'agent'}
-			<details class="work-details">
+			<details class="work-details" hidden={!showWorkDetails} open>
 				<summary>Work details</summary>
 				<div class="work-details-body"><Markdown text={details} /></div>
 			</details>
 		{/if}
 	</div>
 
-	{#if copyable && sender !== 'system'}
+	{#if (copyable || (details && sender === 'agent')) && sender !== 'system'}
 		<footer class="message-footer">
 			<div class="message-actions" aria-label="Message actions">
 				{@render actions?.()}
-				<button
-					type="button"
-					class="copy-message"
-					class:confirmed={copyState === 'copied'}
-					aria-label={copyState === 'copied'
-						? 'Message copied'
-						: copyState === 'failed'
-							? 'Could not copy message'
-							: 'Copy message'}
-					title={copyState === 'copied'
-						? 'Copied'
-						: copyState === 'failed'
-							? 'Could not copy'
-							: 'Copy message'}
-					onclick={copyMessage}
-				>
-					{#if copyState === 'copied'}
-						<Check size={11} strokeWidth={2} aria-hidden="true" />
-					{:else}
-						<Copy size={11} strokeWidth={2} aria-hidden="true" />
-					{/if}
-				</button>
+				{#if details && sender === 'agent'}<button
+						type="button"
+						class="copy-message"
+						aria-label={showWorkDetails ? 'Hide Work details' : 'Show Work details'}
+						title="Work details"
+						aria-expanded={showWorkDetails}
+						onclick={() => (showWorkDetails = !showWorkDetails)}
+						><FileText size={12} aria-hidden="true" /></button
+					>{/if}
+				{#if copyable}
+					<button
+						type="button"
+						class="copy-message"
+						class:confirmed={copyState === 'copied'}
+						aria-label={copyState === 'copied'
+							? 'Message copied'
+							: copyState === 'failed'
+								? 'Could not copy message'
+								: 'Copy message'}
+						title={copyState === 'copied'
+							? 'Copied'
+							: copyState === 'failed'
+								? 'Could not copy'
+								: 'Copy message'}
+						onclick={copyMessage}
+					>
+						{#if copyState === 'copied'}
+							<Check size={11} strokeWidth={2} aria-hidden="true" />
+						{:else}
+							<Copy size={11} strokeWidth={2} aria-hidden="true" />
+						{/if}
+					</button>
+				{/if}
 			</div>
 		</footer>
 	{/if}
@@ -212,6 +180,9 @@
 </article>
 
 <style>
+	.work-details[hidden] {
+		display: none;
+	}
 	.conversation-message.fresh {
 		animation: message-arrive var(--motion-disclosure) var(--ease-out) both;
 	}
@@ -239,13 +210,6 @@
 
 	.conversation-message.continued {
 		padding-top: 0;
-	}
-
-	/* The Exec rail's history renders only what is on screen (rooms do the
-	 * same on their own row, see RoomMessage). */
-	.conversation-message:not(.embedded) {
-		content-visibility: auto;
-		contain-intrinsic-size: auto 64px;
 	}
 
 	/* Everyone else's text lines up under their name, and a run reads as one
@@ -475,94 +439,8 @@
 		color: var(--ink);
 	}
 
-	.message-fold summary {
-		display: grid;
-		gap: 5px;
-		cursor: pointer;
-		list-style: none;
-	}
-
-	.message-fold summary::-webkit-details-marker {
-		display: none;
-	}
-
-	.message-preview {
-		display: -webkit-box;
-		overflow: hidden;
-		-webkit-box-orient: vertical;
-		-webkit-line-clamp: 2;
-		line-clamp: 2;
-		color: var(--text-secondary);
-	}
-
-	.message-fold[open] .message-preview {
-		display: none;
-	}
-
-	.message-fold-label {
-		width: fit-content;
-		color: var(--text-tertiary);
-		font: 600 var(--t-label) var(--font-ui);
-	}
-
-	.message-fold summary:hover .message-fold-label,
-	.message-fold summary:focus-visible .message-fold-label {
-		color: var(--ink);
-	}
-
-	.message-fold summary:focus-visible {
-		outline: 2px solid color-mix(in srgb, var(--intent-conversation) 34%, transparent);
-		outline-offset: 2px;
-	}
-
-	.message-fold-content {
-		padding-top: 8px;
-	}
-
-	.message-glance {
-		display: grid;
-		grid-template-columns: max-content minmax(0, 1fr);
-		gap: 0;
-		margin: 10px 0 2px;
-		border-block: 1px solid var(--border-strong);
-	}
-
-	.message-glance > div {
-		display: grid;
-		grid-column: 1 / -1;
-		/* One label column for every row, as wide as its longest label. */
-		grid-template-columns: subgrid;
-		column-gap: 12px;
-		padding: 7px 0;
-	}
-
-	.message-glance > div + div {
-		border-top: 1px solid var(--border);
-	}
-
-	.message-glance dt,
-	.message-glance dd {
-		margin: 0;
-		font-size: var(--t-body);
-		line-height: 1.42;
-	}
-
-	.message-glance dt {
-		font-weight: 600;
-		color: var(--text-tertiary);
-	}
-
-	.message-glance dd {
-		color: var(--ink);
-	}
-
-	.message-glance .owner-need dt {
-		color: var(--intent-authority);
-	}
-
 	.work-details {
 		margin-top: 9px;
-		border-top: 1px solid var(--border-strong);
 	}
 
 	.work-details summary {

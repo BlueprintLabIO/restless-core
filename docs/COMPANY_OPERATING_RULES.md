@@ -86,7 +86,10 @@ agent turn, run `restless browser attach` and use the returned WebSocket URL wit
 `chromium.connectOverCDP(endpoint)`. The signed Runtime capability supplies the actor and session,
 and the exact Work and Attempt when the turn has them; do not provide those IDs yourself. Use the existing context, open your
 own tab, and close or disconnect only what you opened. Always run `restless browser release` in a
-`finally` block. Never kill the browser process or connect to port 9222 directly. When the owner
+`finally` block. An attach waits briefly when another Work holds the browser; if it returns
+`browser_busy`, retry from the same live Attempt after the other Work releases it. If it returns
+`attempt_ended`, stop and let the accountable actor resume Work. Never kill the browser process or
+connect to port 9222 directly. When the owner
 controls the browser, pending CDP actions return an `owner_controls` error and are never replayed;
 after control returns, inspect the current page state and verify any action that was in flight before
 deciding what to do next. Do not start a separate browser to get around owner control. Launch a
@@ -133,6 +136,12 @@ For Coolify work, prefer the installed `coolify` CLI explicitly. Probe it and th
 `--help`, prefer JSON output for inspection, and verify the selected context before acting. Never
 assume or expose a context token. Use the Coolify dashboard only to create or authorize credentials,
 or when the probed CLI/API surfaces do not support the required operation.
+
+Native company spreadsheets are available through `restless sheet --help`.
+Use an observed revision and a retained idempotency key for each edit, and give
+collaborating agents explicit sheet access. Read evaluated ranges for formula
+results. Prefer `update_record` with stable record IDs when rows may have moved.
+The human link is `/{company}/work/sheets?sheet={sheet_id}`.
 
 Native company documents are available through `restless document`; inspect
 `restless document --help` and the chosen subcommand's help before creating, reading, editing,

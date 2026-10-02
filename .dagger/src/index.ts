@@ -1,0 +1,327 @@
+/** The shared local/CI implementation of Core qualification and construction. */
+import { dag, Container, Directory, Platform, Secret, argument, object, func } from '@dagger.io/dagger';
+
+import { verifyRuntimeToolsImage, verifyCompanyRuntimeImage, verifyNativeDocumentsImage, verifyAccountPlaneImage } from './verify.js';
+import { publishImage, node, verifyBuildInputs, verifyImageInspection } from './publish.js';
+import { sealRelease } from './release.js';
+
+const NODE_IMAGE = 'node:24.18.1-alpine3.23@sha256:c2cc26d8f991c2db236ad51a61efee843c482372d6d22570787309d511694110';
+const RUST_IMAGE = 'rust:1-bookworm@sha256:59037199c44290f2befcdd58dcc540164763fc296950255aaefeef096a1866b0';
+const EXCLUDES = ['**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/__pycache__/**', '**/.git/**', '**/.env', '**/.env.*'];
+const ACCOUNT_INPUTS = ['infra/account-plane/Dockerfile', 'Cargo.toml', 'Cargo.lock', 'crates/**',
+  'tools/codex-runner/**', 'tools/custom-harness/**', 'tools/harness-auth/**', 'tools/schedule-test-proxy.py',
+  'docs/COMPANY_OPERATING_RULES.md', 'services/native-sheets/package.json', 'services/native-sheets/package-lock.json',
+  'services/native-sheets/src/**', 'services/native-sheets/NOTICE'];
+const RUNTIME_INPUTS = ['infra/company-image/**', 'Cargo.toml', 'Cargo.lock', 'crates/**',
+  'tools/scenario/restless-scenario.mjs', 'tools/web-review/restless-web-review.mjs', 'tools/codex-runner/**'];
+
+function project(source: Directory, path: string): Container {
+  const files = source.directory(path);
+  return dag.container().from(NODE_IMAGE)
+    .withMountedCache('/root/.npm', dag.cacheVolume('restless-core-npm-v1'))
+    .withFile('/project/package.json', files.file('package.json'))
+    .withFile('/project/package-lock.json', files.file('package-lock.json'))
+    .withWorkdir('/project').withExec(['npm', 'ci', '--no-audit', '--no-fund'])
+    .withDirectory('/project', files, { exclude: EXCLUDES });
+}
+
+function cockpit(source: Directory): Container {
+  return project(source, 'web').withExec(['npm', 'run', 'check']).withExec(['npm', 'run', 'build']);
+}
+
+function rust(source: Directory): Container {
+  return dag.container().from(RUST_IMAGE)
+    .withEnvVariable('CARGO_BUILD_JOBS', '2').withEnvVariable('CARGO_INCREMENTAL', '0')
+    .withMountedCache('/usr/local/cargo/registry', dag.cacheVolume('restless-core-cargo-registry-v1'))
+    .withMountedCache('/usr/local/cargo/git', dag.cacheVolume('restless-core-cargo-git-v1'))
+    .withMountedCache('/src/target', dag.cacheVolume('restless-core-cargo-check-v1'))
+    .withDirectory('/src', source, { include: ['Cargo.toml', 'Cargo.lock', 'crates/**', 'contracts/**', 'docs/COMPANY_OPERATING_RULES.md',
+      'docs/sprints/sprint-36/contract/v1/*.json',
+      'tools/codex-runner/**', 'tools/custom-harness/**', 'tools/harness-auth/**', 'tools/schedule-test-proxy.py'], exclude: EXCLUDES })
+    .withWorkdir('/src');
+}
+
+function checkPlatform(platform: string): asserts platform is Platform {
+  if (!['linux/amd64', 'linux/arm64'].includes(platform)) throw new Error('Core artifacts support linux/amd64 and linux/arm64');
+}
+
+@object()
+export class RestlessCore {
+  /** Build the reusable desktop/agent tool base without importing Rust or UI. */
+  @func()
+  runtimeTools(
+    @argument({ ignore: ['**', '!infra/company-image/Dockerfile', '!infra/company-image/gtk-settings.ini'] })
+    source: Directory, platform: string = 'linux/amd64',
+  ): Container {
+    checkPlatform(platform);
+    return dag.directory().withDirectory('/', source, {
+      include: ['infra/company-image/Dockerfile', 'infra/company-image/gtk-settings.ini'],
+    }).dockerBuild({ dockerfile: 'infra/company-image/Dockerfile', target: 'runtime-tools', platform })
+      .withLabel('org.opencontainers.image.source', 'https://github.com/BlueprintLabIO/restless-core');
+  }
+
+  /** Exercise installed tools in the isolated builder; no appliance is mounted. */
+  @func()
+  async verifyRuntimeTools(
+    @argument({ ignore: ['**', '!infra/company-image/Dockerfile', '!infra/company-image/gtk-settings.ini'] })
+    source: Directory, platform: string = 'linux/amd64',
+  ): Promise<string> {
+    return verifyRuntimeToolsImage(this.runtimeTools(source, platform));
+  }
+
+  /** Construct the canonical Runtime, optionally reusing an admitted tool base. */
+  @func()
+  async companyRuntime(
+    @argument({ ignore: ['**', '!Cargo.toml', '!Cargo.lock', '!crates/**', '!infra/company-image/**',
+      '!tools/scenario/restless-scenario.mjs', '!tools/web-review/restless-web-review.mjs', '!tools/codex-runner/**',
+      'infra/company-image/test_supervision_contract.py', '**/node_modules/**', '**/target/**', '**/__pycache__/**', '**/.env', '**/.env.*'] })
+    source: Directory, revision: string, platform: string = 'linux/amd64', toolsImage: string = '',
+  ): Promise<Container> {
+    checkPlatform(platform);
+    if (!/^[0-9a-f]{40}$/.test(revision)) throw new Error('company Runtime requires exact source provenance');
+    if (toolsImage && !/^ghcr\.io\/blueprintlabio\/restless-runtime-tools@sha256:[0-9a-f]{64}$/.test(toolsImage)) {
+      throw new Error('Runtime tool base must be an exact Core OCI digest');
+    }
+    const [cargo, release, entry] = await Promise.all([
+      source.file('Cargo.toml').contents(), source.file('crates/restlessd/src/release.rs').contents(),
+      source.file('crates/restlessd/src/entry.rs').contents(),
+    ]);
+    const values: [string, string | undefined][] = [
+      ['RESTLESS_CORE_VERSION', cargo.match(/^version = "([^"]+)"/m)?.[1]],
+      ['RESTLESS_API_CONTRACT_VERSION', release.match(/API_CONTRACT_VERSION: u32 = (\d+);/)?.[1]],
+      ['RESTLESS_SCHEMA_VERSION', release.match(/SCHEMA_VERSION: u32 = (\d+);/)?.[1]],
+      ['RESTLESS_ASSERTION_CONTRACT_VERSION', entry.match(/ASSERTION_CONTRACT_VERSION: u32 = (\d+);/)?.[1]],
+      ['RESTLESS_SOURCE_REVISION', revision],
+    ];
+    // Composition metadata is configuration, not a toolchain or compiler input.
+    // Keep it outside Dockerfile translation so a new revision reuses the image.
+    let image = dag.directory().withDirectory('/', source, {
+      include: RUNTIME_INPUTS, exclude: [...EXCLUDES, 'infra/company-image/test_supervision_contract.py'],
+    })
+      .dockerBuild({ dockerfile: 'infra/company-image/Dockerfile', platform,
+        buildArgs: toolsImage ? [{ name: 'RUNTIME_TOOLS_IMAGE', value: toolsImage }] : [] });
+    for (const [name, value] of values) {
+      if (!value) throw new Error(`missing canonical release value: ${name}`);
+      image = image.withEnvVariable(name, value);
+    }
+    return image
+      .withLabel('org.opencontainers.image.revision', revision)
+      .withLabel('org.opencontainers.image.source', 'https://github.com/BlueprintLabIO/restless-core');
+  }
+
+  /** Check the Runtime artifact's binary linkage and exact release metadata. */
+  @func()
+  async verifyCompanyRuntime(
+    @argument({ ignore: ['**', '!Cargo.toml', '!Cargo.lock', '!crates/**', '!infra/company-image/**',
+      '!tools/scenario/restless-scenario.mjs', '!tools/web-review/restless-web-review.mjs', '!tools/codex-runner/**',
+      'infra/company-image/test_supervision_contract.py', '**/node_modules/**', '**/target/**', '**/__pycache__/**', '**/.env', '**/.env.*'] })
+    source: Directory, revision: string, platform: string = 'linux/amd64', toolsImage: string = '',
+  ): Promise<string> {
+    return verifyCompanyRuntimeImage(await this.companyRuntime(source, revision, platform, toolsImage), revision);
+  }
+
+  /** Run the current Core checks through the same functions used for builds. */
+  @func()
+  async qualify(
+    @argument({ ignore: ['**/.git', '**/.git/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/.env', '**/.env.*'] })
+    source: Directory,
+  ): Promise<string> {
+    await Promise.all([
+      rust(source).withExec(['cargo', 'check', '--workspace', '--locked'])
+        .withExec(['cargo', 'test', '--locked', '-p', 'restlessd', 'company_projection::tests'])
+        .withExec(['cargo', 'test', '--locked', '-p', 'restlessd', 'public_jwks_routes_are_method_and_path_exact']).sync(),
+      cockpit(source).sync(),
+      this.verifyOverlays(source).sync(),
+      project(source, 'services/native-documents-collaboration')
+        .withExec(['npm', 'run', 'check']).withExec(['npm', 'run', 'build']).sync(),
+      project(source, 'services/native-sheets').withExec(['npm', 'test']).sync(),
+      this.verifyWorkflow(source).sync(),
+      this.issuer(source).sync(),
+      this.verifyRelease(source),
+    ]);
+    return 'Core qualification passed: Rust workspace, projection contract and public-key boundary tests, cockpit check/build and browser overlays, native Documents check/build, pinned native Sheets engine, issuer artifact imports, workflow lint and versioned release contracts';
+  }
+
+  /** Check workflow wiring with the same pinned tool used by Cloud. */
+  @func()
+  verifyWorkflow(source: Directory): Container {
+    return dag.container().from('rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667')
+      .withDirectory('/src/.github', source.directory('.github')).withWorkdir('/src')
+      .withExec(['actionlint', '-oneline', '-config-file', '.github/actionlint.yaml',
+        '.github/workflows/immutable-core-release.yml', '.github/workflows/identity-image.yml',
+        '.github/workflows/ui-artifact-release.yml']);
+  }
+
+  /** Build the architecture-independent cockpit once per actual UI inputs. */
+  @func()
+  cockpit(source: Directory): Directory {
+    return cockpit(source).directory('/project/build');
+  }
+
+  /** Run the real chrome's browser checks on example data in the isolated builder. */
+  @func()
+  verifyOverlays(source: Directory): Container {
+    return project(source, 'web')
+      .withExec(['apk', 'add', '--no-cache', 'chromium'])
+      .withEnvVariable('RESTLESS_BROWSER_EXECUTABLE', '/usr/bin/chromium')
+      .withEnvVariable('RESTLESS_REVIEW_ORIGIN', 'http://127.0.0.1:5173')
+      .withEnvVariable('RESTLESS_OVERLAY_PROOF_DIR', '/tmp/restless-overlay-proof')
+      .withExec(['/bin/sh', '-ec',
+        'node node_modules/vite/bin/vite.js --host 127.0.0.1 --port 5173 > /tmp/restless-overlay-vite.log 2>&1 & server_pid=$!; '
+        + 'trap \'kill -TERM "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true\' EXIT; '
+        + 'node --input-type=module -e \'let ready=false; for(let i=0;i<60;i++){try{const r=await fetch("http://127.0.0.1:5173/gallery/shell",{signal:AbortSignal.timeout(1000)}); await r.arrayBuffer(); if(r.ok){ready=true; break}}catch{} await new Promise(r=>setTimeout(r,250))} if(!ready) throw new Error("overlay fixture did not start")\' '
+        + '|| { tail -60 /tmp/restless-overlay-vite.log; exit 1; }; '
+        + 'node scripts/verify-overlays.mjs',
+      ]);
+  }
+
+  /** Exercise the versioned release contracts before any registry mutation. */
+  @func()
+  async verifyRelease(source: Directory): Promise<string> {
+    await verifyBuildInputs();
+    await verifyImageInspection();
+    await node(source).withExec(['node', '--test', 'scripts/company-collaboration-contract.test.mjs']).sync();
+    return 'Core release contracts passed: real OCI image/config inspection, timestamp-independent inputs, legacy and platform-scoped manifests and signed bundle indexes';
+  }
+
+  /** Publish and qualify exact platform images, including a reusable tool base. */
+  @func()
+  async publish(
+    @argument({ ignore: ['**/.git', '**/.git/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/.env', '**/.env.*'] })
+    source: Directory, revision: string, username: string, password: Secret, scanPeriod: string,
+    platform: string = 'linux/amd64',
+  ): Promise<Directory> {
+    checkPlatform(platform);
+    if (!/^[0-9a-f]{40}$/.test(revision)) throw new Error('Core publication requires exact source provenance');
+    if (scanPeriod !== new Date().toISOString().slice(0, 10)) throw new Error('pass the current UTC scan day');
+    await this.verifyRelease(source);
+    const toolsContext = source.filter({ include: ['infra/company-image/Dockerfile', 'infra/company-image/gtk-settings.ini'] });
+    let artifacts = await publishImage('runtime-tools', revision, platform, toolsContext,
+      async () => this.runtimeTools(source, platform), async image => { console.log(await verifyRuntimeToolsImage(image)); },
+      username, password, scanPeriod);
+    const tools = JSON.parse(await artifacts.file('images/runtime-tools.json').contents());
+    const nativeContext = source.directory('services/native-documents-collaboration').filter({
+      include: ['Dockerfile', 'package.json', 'package-lock.json', 'tsconfig.json', 'tsconfig.build.json', 'src/**'], exclude: EXCLUDES,
+    });
+    const tasks = [
+      () => publishImage('account-plane', revision, platform, source.filter({ include: [...ACCOUNT_INPUTS, 'web/**'], exclude: EXCLUDES }),
+        async () => this.accountPlane(source, revision, platform), async image => { console.log(await verifyAccountPlaneImage(image)); },
+        username, password, scanPeriod),
+      () => publishImage('native-documents-collaboration', revision, platform, nativeContext,
+        async () => this.nativeDocuments(source, revision, platform), async image => { console.log(await verifyNativeDocumentsImage(image)); },
+        username, password, scanPeriod),
+      () => publishImage('company-runtime', revision, platform, source.filter({
+        include: RUNTIME_INPUTS, exclude: [...EXCLUDES, 'infra/company-image/test_supervision_contract.py'],
+      }), async () => this.companyRuntime(source, revision, platform, tools.reference),
+        async image => { console.log(await verifyCompanyRuntimeImage(image, revision)); }, username, password, scanPeriod),
+    ];
+    // Bound independent work on the first builder instead of oversubscribing it.
+    for (let offset = 0; offset < tasks.length; offset += 2) {
+      const results = await Promise.all(tasks.slice(offset, offset + 2).map(task => task()));
+      for (const result of results) artifacts = artifacts.withDirectory('/', result);
+    }
+    return artifacts;
+  }
+
+  /** Seal publication through the existing trusted Core dev workflow. */
+  @func()
+  seal(source: Directory, artifacts: Directory, revision: string, username: string, password: Secret,
+    oidcRequestUrl: string, oidcRequestToken: Secret, workflowRef: string,
+    platform: string = 'linux/amd64',
+  ): Promise<Directory> {
+    checkPlatform(platform);
+    return sealRelease(source, artifacts, revision, platform, username, password, oidcRequestUrl, oidcRequestToken, workflowRef);
+  }
+
+  /** Exercise and export the bounded workbook engine independently of Rust. */
+  @func()
+  nativeSheets(source: Directory): Container {
+    return project(source, 'services/native-sheets').withExec(['npm', 'test']);
+  }
+
+  /** Export the Core-owned issuer package without an entire identity image. */
+  @func()
+  issuer(source: Directory): Directory {
+    const identity = source.directory('services/identity');
+    const files = dag.directory().withDirectory('/', identity.directory('library'))
+      .withFile('issuer.mjs', identity.file('src/issuer.mjs'))
+      .withFile('membership-sql.mjs', identity.file('src/membership-sql.mjs'))
+      .withFile('core-request.mjs', identity.file('src/core-request.mjs'));
+    return dag.container().from(NODE_IMAGE)
+      .withMountedCache('/root/.npm', dag.cacheVolume('restless-core-npm-v1'))
+      .withDirectory('/issuer', files).withWorkdir('/issuer')
+      .withExec(['npm', 'install', '--ignore-scripts', '--no-package-lock', '--no-audit', '--no-fund'])
+      .withExec(['node', '--input-type=module', '-e',
+        'import assert from "node:assert/strict"; '
+        + 'import { createIssuer } from "@restless/issuer"; '
+        + 'import { createSqlMembershipStore } from "@restless/issuer/membership-sql"; '
+        + 'import { coreRequest } from "@restless/issuer/core-request"; '
+        + 'for (const value of [createIssuer, createSqlMembershipStore, coreRequest]) assert.equal(typeof value, "function"); '
+        + 'console.log("Core issuer artifact imports successfully")',
+      ]).directory('/issuer').withoutDirectory('node_modules');
+  }
+
+  /** Build the canonical native Documents image using only its actual inputs. */
+  @func()
+  nativeDocuments(
+    @argument({ ignore: ['**', '!services/native-documents-collaboration/Dockerfile',
+      '!services/native-documents-collaboration/package.json', '!services/native-documents-collaboration/package-lock.json',
+      '!services/native-documents-collaboration/tsconfig.json', '!services/native-documents-collaboration/tsconfig.build.json',
+      '!services/native-documents-collaboration/src/**'] })
+    source: Directory, revision: string, platform: string = 'linux/amd64',
+  ): Container {
+    checkPlatform(platform);
+    if (!/^[0-9a-f]{40}$/.test(revision)) throw new Error('native Documents requires exact source provenance');
+    const context = source.directory('services/native-documents-collaboration').filter({
+      include: ['Dockerfile', 'package.json', 'package-lock.json', 'tsconfig.json', 'tsconfig.build.json', 'src/**'], exclude: EXCLUDES,
+    });
+    return context.dockerBuild({ dockerfile: 'Dockerfile', platform })
+      .withLabel('org.opencontainers.image.revision', revision)
+      .withLabel('org.opencontainers.image.source', 'https://github.com/BlueprintLabIO/restless-core');
+  }
+
+  /** Exercise the compiled server as its non-root image user with a store fixture. */
+  @func()
+  async verifyNativeDocuments(
+    @argument({ ignore: ['**', '!services/native-documents-collaboration/Dockerfile',
+      '!services/native-documents-collaboration/package.json', '!services/native-documents-collaboration/package-lock.json',
+      '!services/native-documents-collaboration/tsconfig.json', '!services/native-documents-collaboration/tsconfig.build.json',
+      '!services/native-documents-collaboration/src/**'] })
+    source: Directory, revision: string, platform: string = 'linux/amd64',
+  ): Promise<string> {
+    return verifyNativeDocumentsImage(this.nativeDocuments(source, revision, platform));
+  }
+
+  /** Build the existing canonical account image with the shared cockpit output. */
+  @func()
+  accountPlane(
+    @argument({ ignore: ['**', '!Cargo.toml', '!Cargo.lock', '!crates/**', '!tools/codex-runner/**',
+      '!tools/custom-harness/**', '!tools/harness-auth/**', '!tools/schedule-test-proxy.py',
+      '!docs/COMPANY_OPERATING_RULES.md', '!infra/account-plane/Dockerfile', '!services/native-sheets/package.json',
+      '!services/native-sheets/package-lock.json', '!services/native-sheets/src/**', '!services/native-sheets/NOTICE',
+      '!web/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/.env', '**/.env.*'] })
+    source: Directory, revision: string, platform: string = 'linux/amd64',
+  ): Container {
+    checkPlatform(platform);
+    if (!/^[0-9a-f]{40}$/.test(revision)) throw new Error('account plane requires exact source provenance');
+    const context = dag.directory().withDirectory('/', source, { include: ACCOUNT_INPUTS, exclude: EXCLUDES })
+      .withDirectory('web/build', this.cockpit(source));
+    return context.dockerBuild({ dockerfile: 'infra/account-plane/Dockerfile', platform,
+      buildArgs: [{ name: 'SOURCE_REVISION', value: revision }] })
+      .withLabel('org.opencontainers.image.revision', revision)
+      .withLabel('org.opencontainers.image.source', 'https://github.com/BlueprintLabIO/restless-core');
+  }
+
+  /** Exercise the built artifact without connecting to an appliance or company. */
+  @func()
+  async verifyAccountPlane(
+    @argument({ ignore: ['**', '!Cargo.toml', '!Cargo.lock', '!crates/**', '!tools/codex-runner/**',
+      '!tools/custom-harness/**', '!tools/harness-auth/**', '!tools/schedule-test-proxy.py',
+      '!docs/COMPANY_OPERATING_RULES.md', '!infra/account-plane/Dockerfile', '!services/native-sheets/package.json',
+      '!services/native-sheets/package-lock.json', '!services/native-sheets/src/**', '!services/native-sheets/NOTICE',
+      '!web/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/.env', '**/.env.*'] })
+    source: Directory, revision: string, platform: string = 'linux/amd64',
+  ): Promise<string> {
+    return verifyAccountPlaneImage(this.accountPlane(source, revision, platform));
+  }
+}

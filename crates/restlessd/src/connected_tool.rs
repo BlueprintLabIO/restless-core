@@ -385,10 +385,7 @@ fn validate_actor(actor: &str) -> Result<()> {
     Ok(())
 }
 
-fn validate_max_calls_per_work(
-    max_calls_per_work: Option<i32>,
-    unlimited_read_calls: bool,
-) -> Result<()> {
+fn validate_max_calls_per_work(max_calls_per_work: Option<i32>, unlimited_read_calls: bool) -> Result<()> {
     if max_calls_per_work.is_some() && unlimited_read_calls {
         bail!("choose a finite MCP read-call limit or explicitly unlimited reads, not both");
     }
@@ -498,10 +495,7 @@ pub(crate) fn reviewed_recurring_ch_connection(server: &LocalMcpServer) -> Resul
                 .map(String::as_str)
                 .eq(CLAPPING_HANDS_PHOTO_READ_TOOLS))
         || server.server_version.as_deref().is_none_or(str::is_empty)
-        || server
-            .tool_contract_digest
-            .as_deref()
-            .is_none_or(str::is_empty)
+        || server.tool_contract_digest.as_deref().is_none_or(str::is_empty)
     {
         bail!("recurring MCP permits only an enabled reviewed four- or five-tool Clapping Hands read profile");
     }
@@ -545,40 +539,26 @@ pub(crate) async fn approve_recurring_ch_policy(
     if server.assigned_actor != actor {
         bail!("recurring policy actor must match the existing CH connection actor");
     }
-    let staff = org
-        .active_actor(actor)
-        .await?
-        .context("recurring policy Staff actor is inactive")?;
+    let staff = org.active_actor(actor).await?.context("recurring policy Staff actor is inactive")?;
     if staff.kind != "staff" || staff.actor_class != "agent" {
         bail!("recurring MCP policy requires an active Staff actor");
     }
-    let schedule = org
-        .get_schedule(schedule_id)
-        .await?
-        .context("recurring schedule not found")?;
+    let schedule = org.get_schedule(schedule_id).await?.context("recurring schedule not found")?;
     if schedule.cancelled_at.is_some()
         || schedule.recurrence.is_none()
         || schedule.work_id.is_some()
         || schedule.responsibility_id != Some(responsibility_id)
         || schedule.responsibility_version != Some(responsibility_version)
     {
-        bail!(
-            "schedule is not an active recurring binding to that immutable responsibility version"
-        );
+        bail!("schedule is not an active recurring binding to that immutable responsibility version");
     }
     let endpoint = server.endpoint.as_deref().context("CH endpoint missing")?;
-    let token_file = server
-        .token_file
-        .as_deref()
-        .context("CH host token missing")?;
-    let observed =
-        crate::mcp_gateway::probe_upstream(endpoint, token_file, &server.allowed_tools).await?;
+    let token_file = server.token_file.as_deref().context("CH host token missing")?;
+    let observed = crate::mcp_gateway::probe_upstream(endpoint, token_file, &server.allowed_tools).await?;
     if Some(observed.server_version.as_str()) != server.server_version.as_deref()
         || Some(observed.digest.as_str()) != server.tool_contract_digest.as_deref()
     {
-        bail!(
-            "CH tool contract changed; inspect and re-pin the connection before recurring approval"
-        );
+        bail!("CH tool contract changed; inspect and re-pin the connection before recurring approval");
     }
     let mut tx = pool.begin().await?;
     let still_pinned: Option<Uuid> = sqlx::query_scalar(
@@ -618,24 +598,14 @@ pub(crate) async fn approve_recurring_ch_policy(
            connection_policy_revision=EXCLUDED.connection_policy_revision, \
            policy_revision=gen_random_uuid(),approved_at=now(),revoked_at=NULL",
     )
-    .bind(company)
-    .bind(name)
-    .bind(schedule_id)
-    .bind(responsibility_id)
-    .bind(responsibility_version)
-    .bind(actor)
-    .bind(serde_json::json!(server.allowed_tools))
-    .bind(&observed.server_version)
-    .bind(&observed.digest)
-    .bind(endpoint)
-    .bind(server.policy_revision)
-    .execute(&mut *tx)
-    .await?;
+    .bind(company).bind(name).bind(schedule_id).bind(responsibility_id)
+    .bind(responsibility_version).bind(actor)
+    .bind(serde_json::json!(server.allowed_tools)).bind(&observed.server_version)
+    .bind(&observed.digest).bind(endpoint).bind(server.policy_revision)
+    .execute(&mut *tx).await?;
     tx.commit().await?;
-    recurring_mcp_policies(pool, company, Some(name))
-        .await?
-        .into_iter()
-        .find(|policy| policy.schedule_id == schedule_id)
+    recurring_mcp_policies(pool, company, Some(name)).await?
+        .into_iter().find(|policy| policy.schedule_id == schedule_id)
         .context("approved recurring policy disappeared")
 }
 
@@ -651,19 +621,12 @@ pub(crate) async fn revoke_recurring_ch_policy(
          SET enabled=FALSE,policy_revision=gen_random_uuid(),revoked_at=now() \
          WHERE company=$1 AND connection_name=$2 AND schedule_id=$3",
     )
-    .bind(company)
-    .bind(name)
-    .bind(schedule_id)
-    .execute(pool)
-    .await?
-    .rows_affected();
+    .bind(company).bind(name).bind(schedule_id).execute(pool).await?.rows_affected();
     if affected != 1 {
         bail!("recurring CH policy not found");
     }
-    recurring_mcp_policies(pool, company, Some(name))
-        .await?
-        .into_iter()
-        .find(|policy| policy.schedule_id == schedule_id)
+    recurring_mcp_policies(pool, company, Some(name)).await?
+        .into_iter().find(|policy| policy.schedule_id == schedule_id)
         .context("revoked recurring policy disappeared")
 }
 
@@ -677,26 +640,13 @@ pub(crate) async fn validate_assignable_mcp_work(
     if org.active_actor(actor).await?.is_none() {
         bail!("local MCP actor {actor:?} is not active");
     }
-    let work = org
-        .get_work(work_id)
-        .await?
-        .context("local MCP Work not found")?;
+    let work = org.get_work(work_id).await?.context("local MCP Work not found")?;
     if work.owner_id != actor
-        || !matches!(
-            work.status,
-            restless_orgintel::WorkStatus::Proposed | restless_orgintel::WorkStatus::Blocked
-        )
+        || !matches!(work.status, restless_orgintel::WorkStatus::Proposed | restless_orgintel::WorkStatus::Blocked)
     {
-        bail!(
-            "local MCP installation requires proposed or blocked Work owned by the assigned actor"
-        );
+        bail!("local MCP installation requires proposed or blocked Work owned by the assigned actor");
     }
-    if org
-        .list_running_work_attempts()
-        .await?
-        .iter()
-        .any(|attempt| attempt.work_id == work_id)
-    {
+    if org.list_running_work_attempts().await?.iter().any(|attempt| attempt.work_id == work_id) {
         bail!("interrupt the running Work Attempt before changing its MCP tools");
     }
     Ok(())
@@ -902,10 +852,7 @@ pub(crate) async fn install_brokered_stdio_mcp(
         "SELECT EXISTS(SELECT 1 FROM restless_authority.provider_connections \
          WHERE company=$1 AND name=$2 AND status <> 'disabled')",
     )
-    .bind(company)
-    .bind(name)
-    .fetch_one(pool)
-    .await?;
+    .bind(company).bind(name).fetch_one(pool).await?;
     if provider_name_in_use {
         bail!("MCP name {name:?} is already used by a provider connection");
     }
@@ -931,9 +878,7 @@ pub(crate) async fn install_brokered_stdio_mcp(
     .bind(serde_json::to_value(&probe.names)?).bind(&probe.digest).bind(&probe.server_version)
     .bind(unlimited_read_calls)
     .execute(pool).await?;
-    local_mcp_list(pool, company)
-        .await?
-        .into_iter()
+    local_mcp_list(pool, company).await?.into_iter()
         .find(|server| server.name == name)
         .context("installed brokered stdio MCP disappeared")
 }
@@ -982,18 +927,9 @@ pub(crate) fn require_reviewed_host_read_profile(
     let expected_endpoint = format!("http://127.0.0.1:{port}/mcp");
     if name != "clapping-hands"
         || endpoint != expected_endpoint
-        || !(allowed_tools
-            .iter()
-            .map(String::as_str)
-            .eq(CLAPPING_HANDS_READ_TOOLS)
-            || allowed_tools
-                .iter()
-                .map(String::as_str)
-                .eq(CLAPPING_HANDS_BATCH_READ_TOOLS)
-            || allowed_tools
-                .iter()
-                .map(String::as_str)
-                .eq(CLAPPING_HANDS_PHOTO_READ_TOOLS))
+        || !(allowed_tools.iter().map(String::as_str).eq(CLAPPING_HANDS_READ_TOOLS)
+            || allowed_tools.iter().map(String::as_str).eq(CLAPPING_HANDS_BATCH_READ_TOOLS)
+            || allowed_tools.iter().map(String::as_str).eq(CLAPPING_HANDS_PHOTO_READ_TOOLS))
     {
         bail!("host MCP requires the reviewed Clapping Hands sourcing read profile; other tools need an external-effect adapter");
     }
@@ -1018,9 +954,9 @@ pub(crate) fn validate_public_repository(repository: &str) -> Result<()> {
             && part.len() <= 100
             && part != "."
             && part != ".."
-            && part
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+            && part.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.')
+            })
     };
     if !valid_part(owner) || !valid_part(repo) {
         bail!("public repository must be one bounded owner/repo target");
@@ -1049,13 +985,8 @@ pub(crate) fn require_reviewed_public_read_profile(
     })
 }
 
-pub(crate) fn reviewed_http_read_profile(
-    server: &LocalMcpServer,
-) -> Result<ReviewedHttpReadProfile> {
-    let endpoint = server
-        .endpoint
-        .as_deref()
-        .context("HTTP MCP endpoint missing")?;
+pub(crate) fn reviewed_http_read_profile(server: &LocalMcpServer) -> Result<ReviewedHttpReadProfile> {
+    let endpoint = server.endpoint.as_deref().context("HTTP MCP endpoint missing")?;
     match (server.transport.as_str(), server.read_profile.as_deref()) {
         ("host_http", None | Some("clapping_hands_v1")) => {
             if server.target_repository.is_some() || server.token_file.is_none() {
@@ -1073,10 +1004,7 @@ pub(crate) fn reviewed_http_read_profile(
                 &server.name,
                 endpoint,
                 &server.allowed_tools,
-                server
-                    .target_repository
-                    .as_deref()
-                    .context("public MCP repository missing")?,
+                server.target_repository.as_deref().context("public MCP repository missing")?,
             )
         }
         _ => bail!("HTTP MCP connection has no reviewed read profile"),
@@ -1085,10 +1013,7 @@ pub(crate) fn reviewed_http_read_profile(
 
 /// Owner-selected public Streamable HTTP read. The live provider is probed for
 /// its exact tool definition and the selected public repository before grant.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "one owner-reviewed HTTP MCP grant"
-)]
+#[expect(clippy::too_many_arguments, reason = "one owner-reviewed HTTP MCP grant")]
 pub(crate) async fn install_public_http_read(
     pool: &PgPool,
     company: &str,
@@ -1104,21 +1029,18 @@ pub(crate) async fn install_public_http_read(
 ) -> Result<LocalMcpServer> {
     validate_name(name)?;
     validate_max_calls_per_work(max_calls_per_work, unlimited_read_calls)?;
-    let reviewed =
-        require_reviewed_public_read_profile(profile, name, endpoint, allowed_tools, repository)?;
+    let reviewed = require_reviewed_public_read_profile(
+        profile, name, endpoint, allowed_tools, repository,
+    )?;
     let provider_name_in_use: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM restless_authority.provider_connections \
          WHERE company=$1 AND name=$2 AND status <> 'disabled')",
     )
-    .bind(company)
-    .bind(name)
-    .fetch_one(pool)
-    .await?;
+    .bind(company).bind(name).fetch_one(pool).await?;
     if provider_name_in_use {
         bail!("MCP name {name:?} is already used by a provider connection");
     }
-    let probe =
-        crate::mcp_gateway::probe_public_upstream(endpoint, allowed_tools, &reviewed).await?;
+    let probe = crate::mcp_gateway::probe_public_upstream(endpoint, allowed_tools, &reviewed).await?;
     sqlx::query(
         "INSERT INTO restless_authority.local_mcp_servers \
          (company,name,transport,command,args,endpoint,token_file,read_profile,target_repository, \
@@ -1142,9 +1064,7 @@ pub(crate) async fn install_public_http_read(
     .bind(serde_json::to_value(&probe.names)?).bind(&probe.digest).bind(&probe.server_version)
     .bind(unlimited_read_calls)
     .execute(pool).await?;
-    local_mcp_list(pool, company)
-        .await?
-        .into_iter()
+    local_mcp_list(pool, company).await?.into_iter()
         .find(|server| server.name == name)
         .context("installed public MCP disappeared")
 }
@@ -1632,33 +1552,20 @@ pub(crate) async fn session_servers(
         let mut recurring_scope = None;
         if !fixed_scope && server.transport == "host_http" {
             if let (Some(work_id), Some(attempt_id)) = (work_id, attempt_id) {
-                let running = org
-                    .list_running_work_attempts()
-                    .await?
-                    .iter()
-                    .any(|attempt| {
-                        attempt.id == attempt_id
-                            && attempt.work_id == work_id
-                            && attempt.actor_id == actor
-                            && attempt.interrupt_requested_at.is_none()
-                    });
+                let running = org.list_running_work_attempts().await?.iter().any(|attempt| {
+                    attempt.id == attempt_id && attempt.work_id == work_id
+                        && attempt.actor_id == actor && attempt.interrupt_requested_at.is_none()
+                });
                 if running {
                     for policy in recurring_policies.iter().filter(|policy| {
                         policy.connection_name == server.name
                             && policy.assigned_actor == actor
                             && recurring_policy_matches_connection(policy, &server)
                     }) {
-                        if org
-                            .recurring_work_lineage(
-                                work_id,
-                                actor,
-                                policy.schedule_id,
-                                policy.responsibility_id,
-                                policy.responsibility_version,
-                            )
-                            .await?
-                            .is_some()
-                        {
+                        if org.recurring_work_lineage(
+                            work_id, actor, policy.schedule_id,
+                            policy.responsibility_id, policy.responsibility_version,
+                        ).await?.is_some() {
                             recurring_scope = Some(policy);
                             break;
                         }
@@ -1695,23 +1602,13 @@ pub(crate) async fn session_servers(
                 };
                 let grant = if let Some(policy) = recurring_scope {
                     capabilities.issue_mcp_recurring_session(
-                        company,
-                        actor,
-                        &server.name,
-                        &server.policy_revision.to_string(),
-                        work_id,
-                        attempt_id,
-                        policy.schedule_id,
-                        policy.policy_revision,
+                        company, actor, &server.name, &server.policy_revision.to_string(),
+                        work_id, attempt_id, policy.schedule_id, policy.policy_revision,
                     )?
                 } else {
                     capabilities.issue_mcp_session(
-                        company,
-                        actor,
-                        &server.name,
-                        &server.policy_revision.to_string(),
-                        work_id,
-                        attempt_id,
+                        company, actor, &server.name, &server.policy_revision.to_string(),
+                        work_id, attempt_id,
                     )?
                 };
                 let port = crate::port_with_offset(crate::model_gateway::RUNTIME_RELAY_PORT)?;

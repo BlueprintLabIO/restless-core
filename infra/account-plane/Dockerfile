@@ -13,7 +13,7 @@
 # computer with a desktop, browser and toolchain; this one runs a single
 # credential-holding service and should stay as small as its job.
 
-FROM --platform=$BUILDPLATFORM rust:1-bookworm AS build
+FROM --platform=$BUILDPLATFORM rust:1-bookworm@sha256:59037199c44290f2befcdd58dcc540164763fc296950255aaefeef096a1866b0 AS build
 # Compile on the builder CPU; only the final image executes target binaries.
 # Debian's target GNU compiler/sysroot also serves Rust dependencies that build C.
 ARG BUILDARCH
@@ -63,8 +63,12 @@ RUN --mount=type=cache,id=restless-cargo-registry-v1,target=/usr/local/cargo/reg
     && cargo build --release --locked --target "$target" -p restlessd \
     && install -Dm755 /src/target/$target/release/restlessd /out/restlessd
 
-FROM node:24-bookworm-slim
+FROM node:24-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe
 ENV DEBIAN_FRONTEND=noninteractive
+
+RUN npm install -g npm@11.21.0 \
+    && test "$(npm --version)" = 11.21.0 \
+    && npm cache clean --force
 
 # ca-certificates for provider TLS; curl so the image can probe its own health
 # without a second tool. Explicitly refresh the base image's PCRE2 library from
@@ -92,12 +96,30 @@ RUN npm install -g bun@1.3.14 \
     && omp --version
 
 COPY --from=build /out/restlessd /usr/local/bin/restlessd
+COPY services/native-sheets/package.json services/native-sheets/package-lock.json /opt/restless/native-sheets/
+RUN npm --prefix /opt/restless/native-sheets ci --omit=dev --no-audit --no-fund && npm cache clean --force
+COPY services/native-sheets/src /opt/restless/native-sheets/src
+COPY services/native-sheets/NOTICE /opt/restless/native-sheets/NOTICE
+ENV RESTLESS_SHEETS_WORKER=/opt/restless/native-sheets/src/worker.mjs
+
+# Apply compatible security fixes that npm 11.21.0 has not bundled yet.
+RUN npm --prefix /tmp/npm-security-fixes install \
+        --ignore-scripts --omit=dev --no-audit --no-fund --save-exact \
+        brace-expansion@5.0.11 undici@6.28.1 \
+    && rm -rf /usr/local/lib/node_modules/npm/node_modules/brace-expansion \
+        /usr/local/lib/node_modules/npm/node_modules/undici \
+    && cp -a /tmp/npm-security-fixes/node_modules/brace-expansion \
+        /tmp/npm-security-fixes/node_modules/undici \
+        /usr/local/lib/node_modules/npm/node_modules/ \
+    && rm -rf /tmp/npm-security-fixes \
+    && npm --version \
+    && npm cache clean --force
 
 # The owner cockpit's built SPA. The plane serves it directly to the browser
 # (CELL_ARCHITECTURE.md §5), so a plane image without it can start but cannot
 # do its main job. Built outside this Dockerfile and copied in, because the
-# cockpit is a separate toolchain and baking node into this tier would widen
-# the container that holds the credentials.
+# cockpit is a separate toolchain; the production image includes only its
+# built output and the bounded native workbook engine's runtime dependencies.
 COPY web/build /opt/restless/cockpit
 ENV RESTLESS_COCKPIT_DIR=/opt/restless/cockpit
 

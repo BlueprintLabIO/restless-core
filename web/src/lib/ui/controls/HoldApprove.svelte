@@ -84,7 +84,7 @@
 
 	/* A press that ended before the fill completed: arm, or confirm if already armed. */
 	function release() {
-		const short = raf !== null && pct > 0 && pct < 100;
+		const short = raf !== null && pct < 100;
 		stop();
 		if (!short || done || disabled) return;
 		if (armed) approve();

@@ -51,3 +51,12 @@ tools/*
 !tools/harness-auth/
 !tools/harness-auth/auth.mjs
 !tools/schedule-test-proxy.py
+!services/
+services/*
+!services/native-sheets/
+services/native-sheets/*
+!services/native-sheets/package.json
+!services/native-sheets/package-lock.json
+!services/native-sheets/NOTICE
+!services/native-sheets/src/
+!services/native-sheets/src/**

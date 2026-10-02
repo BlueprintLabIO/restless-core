@@ -15,6 +15,7 @@
 mod appliance;
 mod chat;
 mod document;
+mod sheet;
 mod skill;
 
 use std::io::{BufRead, BufReader, Read, Write};
@@ -101,6 +102,13 @@ enum Command {
         company: Option<String>,
         #[command(subcommand)]
         command: DocumentCommand,
+    },
+    /// Native spreadsheets shared with humans and agents.
+    Sheet {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
+        company: Option<String>,
+        #[command(subcommand)]
+        command: sheet::SheetCommand,
     },
     /// Bring a company environment up (create if absent, then start).
     Up {
@@ -2601,6 +2609,9 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             serde_json::json!({"cmd":"room-operation", "company":company.context("no company: pass -c or set RESTLESS_COMPANY")?, "room_operation":operation})
         }
         Command::Document { company, command } => {
+            command.request(company.context("no company: pass -c or set RESTLESS_COMPANY")?)?
+        }
+        Command::Sheet { company, command } => {
             command.request(company.context("no company: pass -c or set RESTLESS_COMPANY")?)?
         }
         Command::Publish { company, command } => {
