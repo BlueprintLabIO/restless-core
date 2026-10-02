@@ -59,55 +59,65 @@
 	);
 </script>
 
-<div class="room-view" class:no-list={!showList || !rooms.length}>
-	{#if showList && rooms.length}
-		<nav class="room-list" aria-label="Rooms">
-			<p class="room-list-head">Rooms</p>
-			{#each rooms as room (room.id)}
-				<span class="room-entry" class:active={room.id === activeRoom}>
-					<span class="room-icon">{#if room.kind === 'group'}<Users size={14} />{:else}<MessageCircle size={14} />{/if}</span>
-					<span class="room-name"><strong>{room.name}</strong><span>{room.kind === 'group' ? 'Group room' : 'Direct room'}</span></span>
-					{#if room.unread}<b>{room.unread}</b>{/if}
-				</span>
-			{/each}
-		</nav>
-	{/if}
+<div class="view-shell">
+	<div class="room-view" class:no-list={!showList || !rooms.length}>
+		{#if showList && rooms.length}
+			<nav class="room-list" aria-label="Rooms">
+				<p class="room-list-head">Rooms</p>
+				{#each rooms as room (room.id)}
+					<span class="room-entry" class:active={room.id === activeRoom}>
+						<span class="room-icon">{#if room.kind === 'group'}<Users size={14} />{:else}<MessageCircle size={14} />{/if}</span>
+						<span class="room-name"><strong>{room.name}</strong><span>{room.kind === 'group' ? 'Group room' : 'Direct room'}</span></span>
+						{#if room.unread}<b>{room.unread}</b>{/if}
+					</span>
+				{/each}
+			</nav>
+		{/if}
 
-	<section class="room-main" aria-label={name}>
-		<header class="room-head">
-			<div>
-				<strong>{name}</strong>
-				<span class="room-who">{summary}</span>
-			</div>
-			<span class="room-tags" aria-label="Who is in this room">
-				{#each participants as person (person.name)}<span>{person.name} <ActorTag kind={person.kind} /></span>{/each}
-			</span>
-			<span class="room-tools" aria-hidden="true"><Search size={15} /></span>
-			{#if live}<span class="room-live"><Wifi size={12} strokeWidth={2.4} /> Live</span>{/if}
-		</header>
-		<ol class="room-log">
-			{#each messages as message (message.id)}
-				{@const answer = message.replyTo ? byId.get(message.replyTo) : null}
-				<li class="room-message" class:agent={message.kind === 'agent'} in:listIn>
-					<p class="room-meta"><b>{message.author}</b> <ActorTag kind={message.kind} /> <time>{message.time}</time></p>
-					{#if answer}<p class="room-reply">↳ {answer.author}: {answer.text}</p>{/if}
-					<p class="room-text">{message.text}</p>
-				</li>
-			{/each}
-			{#if typing}
-				<li class="room-typing" aria-label="{typing.name} is writing">
-					<b>{typing.name}</b> <ActorTag kind={typing.kind} /> <span><i></i><i></i><i></i></span>
-				</li>
-			{/if}
-		</ol>
-		<footer class="room-composer">
-			<span class="room-input" class:filled={!!draft}>{draft || `Message ${name}…`}</span>
-			<span class="room-composer-tools" aria-hidden="true"><AtSign size={14} /> <Mic size={14} /> <SendHorizontal size={14} /></span>
-		</footer>
-	</section>
+		<section class="room-main" aria-label={name}>
+			<header class="room-head">
+				<div>
+					<strong>{name}</strong>
+					<span class="room-who">{summary}</span>
+				</div>
+				<span class="room-tags" aria-label="Who is in this room">
+					{#each participants as person (person.name)}<span>{person.name} <ActorTag kind={person.kind} /></span>{/each}
+				</span>
+				<span class="room-tools" aria-hidden="true"><Search size={15} /></span>
+				{#if live}<span class="room-live"><Wifi size={12} strokeWidth={2.4} /> Live</span>{/if}
+			</header>
+			<ol class="room-log">
+				{#each messages as message (message.id)}
+					{@const answer = message.replyTo ? byId.get(message.replyTo) : null}
+					<li class="room-message" class:agent={message.kind === 'agent'} in:listIn>
+						<p class="room-meta"><b>{message.author}</b> <ActorTag kind={message.kind} /> <time>{message.time}</time></p>
+						{#if answer}<p class="room-reply">↳ {answer.author}: {answer.text}</p>{/if}
+						<p class="room-text">{message.text}</p>
+					</li>
+				{/each}
+				{#if typing}
+					<li class="room-typing" aria-label="{typing.name} is writing">
+						<b>{typing.name}</b> <ActorTag kind={typing.kind} /> <span><i></i><i></i><i></i></span>
+					</li>
+				{/if}
+			</ol>
+			<footer class="room-composer">
+				<span class="room-input" class:filled={!!draft}>{draft || `Message ${name}…`}</span>
+				<span class="room-composer-tools" aria-hidden="true"><AtSign size={14} /> <Mic size={14} /> <SendHorizontal size={14} /></span>
+			</footer>
+		</section>
+	</div>
 </div>
 
 <style>
+	/* Breakpoints follow this view's own width, not the window's: the same view sits in a full
+	 * workspace pane, a narrow side panel or a phone. */
+	.view-shell {
+		container-type: inline-size;
+		width: 100%;
+		height: 100%;
+		min-width: 0;
+	}
 	.room-view {
 		display: grid;
 		grid-template-columns: minmax(150px, 220px) minmax(0, 1fr);
@@ -329,7 +339,7 @@
 		gap: 10px;
 		color: var(--text-tertiary);
 	}
-	@media (max-width: 720px) {
+	@container (max-width: 720px) {
 		.room-view {
 			grid-template-columns: minmax(0, 1fr);
 		}

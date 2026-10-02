@@ -38,30 +38,40 @@
 	] as const;
 </script>
 
-<div class="app-frame">
-	<header class="app-bar">
-		<span class="app-brand"><Wordmark size={14} restless /></span>
-		<span class="app-slash" aria-hidden="true">/</span>
-		<span class="app-company">{company} <ChevronDown size={13} strokeWidth={2.2} /></span>
-		<nav class="app-sections" aria-label="Sections">
-			{#each SECTIONS as section (section.key)}
-				{@const Icon = section.icon}
-				<span class="app-section" class:active={section.key === active} aria-current={section.key === active ? 'page' : undefined}>
-					<Icon size={13} strokeWidth={2.2} />
-					{section.label}
-					{#if section.key === 'attention' && attention > 0}<b>{attention}</b>{/if}
-				</span>
-			{/each}
-		</nav>
-		<span class="app-exec"><MessageSquare size={12} strokeWidth={2.2} /> Exec</span>
-	</header>
-	<div class="app-body" class:with-rail={!!rail}>
-		{#if rail}<aside class="app-rail">{@render rail()}</aside>{/if}
-		<main class="app-main">{@render children()}</main>
+<div class="view-shell">
+	<div class="app-frame">
+		<header class="app-bar">
+			<span class="app-brand"><Wordmark size={14} restless /></span>
+			<span class="app-slash" aria-hidden="true">/</span>
+			<span class="app-company">{company} <ChevronDown size={13} strokeWidth={2.2} /></span>
+			<nav class="app-sections" aria-label="Sections">
+				{#each SECTIONS as section (section.key)}
+					{@const Icon = section.icon}
+					<span class="app-section" class:active={section.key === active} aria-current={section.key === active ? 'page' : undefined}>
+						<Icon size={13} strokeWidth={2.2} />
+						{section.label}
+						{#if section.key === 'attention' && attention > 0}<b>{attention}</b>{/if}
+					</span>
+				{/each}
+			</nav>
+			<span class="app-exec"><MessageSquare size={12} strokeWidth={2.2} /> Exec</span>
+		</header>
+		<div class="app-body" class:with-rail={!!rail}>
+			{#if rail}<aside class="app-rail">{@render rail()}</aside>{/if}
+			<main class="app-main">{@render children()}</main>
+		</div>
 	</div>
 </div>
 
 <style>
+	/* Breakpoints follow this view's own width, not the window's: the same view sits in a full
+	 * workspace pane, a narrow side panel or a phone. */
+	.view-shell {
+		container-type: inline-size;
+		width: 100%;
+		height: 100%;
+		min-width: 0;
+	}
 	.app-frame {
 		display: grid;
 		grid-template-rows: auto 1fr;
@@ -157,7 +167,7 @@
 		border-radius: var(--radius-pane);
 		background: var(--surface-pane);
 	}
-	@media (max-width: 720px) {
+	@container (max-width: 720px) {
 		.app-sections,
 		.app-company,
 		.app-slash {

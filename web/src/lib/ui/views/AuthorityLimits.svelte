@@ -37,43 +37,53 @@
 	]);
 </script>
 
-<section class="authority-limits" aria-label="Authority and limits">
-	<header class="al-head">
-		<ShieldCheck size={16} strokeWidth={2.2} />
-		<strong>Authority &amp; limits</strong>
-	</header>
-	<div class="al-standard">
-		<span class="al-label">Outcome standard</span>
-		<strong>{standard}</strong>
-		<span class="al-note">{standardNote}</span>
-	</div>
-	<div class="al-columns">
-		{#each columns as column (column.key)}
-			<div class="al-column {column.key}">
-				<p class="al-column-head">{column.label}</p>
-				{#each column.rules as rule (rule.title)}
-					<div class="al-rule" class:lit={rule.title === highlight}>
-						<strong>{rule.title}</strong>
-						<p>{rule.body}</p>
-					</div>
-				{/each}
-			</div>
-		{/each}
-	</div>
-	{#if spend}
-		<div class="al-spend">
-			<span class="al-label">Model spend</span>
-			<div class="al-figures">
-				<span><b>{money(spend.accounted, spend.currency)}</b> accounted</span>
-				<span><b>{money(spend.ceiling, spend.currency)}</b> ceiling</span>
-				<span><b>{money(Math.max(0, spend.ceiling - spend.accounted), spend.currency)}</b> remaining</span>
-			</div>
-			<div class="al-bar" aria-hidden="true"><i style:width="{used * 100}%"></i></div>
+<div class="view-shell">
+	<section class="authority-limits" aria-label="Authority and limits">
+		<header class="al-head">
+			<ShieldCheck size={16} strokeWidth={2.2} />
+			<strong>Authority &amp; limits</strong>
+		</header>
+		<div class="al-standard">
+			<span class="al-label">Outcome standard</span>
+			<strong>{standard}</strong>
+			<span class="al-note">{standardNote}</span>
 		</div>
-	{/if}
-</section>
+		<div class="al-columns">
+			{#each columns as column (column.key)}
+				<div class="al-column {column.key}">
+					<p class="al-column-head">{column.label}</p>
+					{#each column.rules as rule (rule.title)}
+						<div class="al-rule" class:lit={rule.title === highlight}>
+							<strong>{rule.title}</strong>
+							<p>{rule.body}</p>
+						</div>
+					{/each}
+				</div>
+			{/each}
+		</div>
+		{#if spend}
+			<div class="al-spend">
+				<span class="al-label">Model spend</span>
+				<div class="al-figures">
+					<span><b>{money(spend.accounted, spend.currency)}</b> accounted</span>
+					<span><b>{money(spend.ceiling, spend.currency)}</b> ceiling</span>
+					<span><b>{money(Math.max(0, spend.ceiling - spend.accounted), spend.currency)}</b> remaining</span>
+				</div>
+				<div class="al-bar" aria-hidden="true"><i style:width="{used * 100}%"></i></div>
+			</div>
+		{/if}
+	</section>
+</div>
 
 <style>
+	/* Breakpoints follow this view's own width, not the window's: the same view sits in a full
+	 * workspace pane, a narrow side panel or a phone. */
+	.view-shell {
+		container-type: inline-size;
+		width: 100%;
+		height: 100%;
+		min-width: 0;
+	}
 	.authority-limits {
 		display: grid;
 		gap: 12px;
@@ -192,7 +202,7 @@
 		background: var(--intent-authority);
 		transition: width var(--motion-punctuation) var(--ease-standard);
 	}
-	@media (max-width: 760px) {
+	@container (max-width: 760px) {
 		.al-columns {
 			grid-template-columns: 1fr;
 		}

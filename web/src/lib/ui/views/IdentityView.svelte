@@ -24,39 +24,49 @@
 	const STATE = { current: 'Current', outdated: 'Uses an old fact', updated: 'Updated' } as const;
 </script>
 
-<section class="identity-view" aria-label="Company identity">
-	<header class="id-head">
-		<Fingerprint size={15} strokeWidth={2.2} />
-		<strong>Identity</strong>
-		<span class="id-version">{version}</span>
-	</header>
-	<div class="id-pillars">
-		{#each pillars as pillar (pillar.key)}
-			<div class="id-pillar {pillar.key}">
-				<p class="id-label">{pillar.label}</p>
-				<ul>
-					{#each pillar.entries as entry (entry)}<li>{entry}</li>{/each}
-					{#if pillar.correction}
-						<li class="id-correction"><s>{pillar.correction.from}</s> <ins>{pillar.correction.to}</ins></li>
-					{/if}
-				</ul>
-			</div>
-		{/each}
-	</div>
-	{#if outputs.length}
-		<div class="id-outputs">
-			<p class="id-label">Work that uses this identity</p>
-			{#each outputs as output, index (output.title)}
-				<div class="id-output {output.state}" style:--i={index}>
-					<span>{output.title}</span>
-					<span class="id-state">{#if output.state === 'outdated'}<Flag size={11} strokeWidth={2.6} />{/if}{output.reason ?? STATE[output.state]}</span>
+<div class="view-shell">
+	<section class="identity-view" aria-label="Company identity">
+		<header class="id-head">
+			<Fingerprint size={15} strokeWidth={2.2} />
+			<strong>Identity</strong>
+			<span class="id-version">{version}</span>
+		</header>
+		<div class="id-pillars">
+			{#each pillars as pillar (pillar.key)}
+				<div class="id-pillar {pillar.key}">
+					<p class="id-label">{pillar.label}</p>
+					<ul>
+						{#each pillar.entries as entry (entry)}<li>{entry}</li>{/each}
+						{#if pillar.correction}
+							<li class="id-correction"><s>{pillar.correction.from}</s> <ins>{pillar.correction.to}</ins></li>
+						{/if}
+					</ul>
 				</div>
 			{/each}
 		</div>
-	{/if}
-</section>
+		{#if outputs.length}
+			<div class="id-outputs">
+				<p class="id-label">Work that uses this identity</p>
+				{#each outputs as output, index (output.title)}
+					<div class="id-output {output.state}" style:--i={index}>
+						<span>{output.title}</span>
+						<span class="id-state">{#if output.state === 'outdated'}<Flag size={11} strokeWidth={2.6} />{/if}{output.reason ?? STATE[output.state]}</span>
+					</div>
+				{/each}
+			</div>
+		{/if}
+	</section>
+</div>
 
 <style>
+	/* Breakpoints follow this view's own width, not the window's: the same view sits in a full
+	 * workspace pane, a narrow side panel or a phone. */
+	.view-shell {
+		container-type: inline-size;
+		width: 100%;
+		height: 100%;
+		min-width: 0;
+	}
 	.identity-view {
 		display: grid;
 		gap: 12px;
@@ -170,7 +180,7 @@
 	.updated .id-state {
 		color: var(--state-success);
 	}
-	@media (max-width: 620px) {
+	@container (max-width: 620px) {
 		.id-pillars {
 			grid-template-columns: 1fr;
 		}

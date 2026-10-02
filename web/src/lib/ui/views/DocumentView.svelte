@@ -83,71 +83,81 @@
 	}
 </script>
 
-<div class="document-view" class:no-list={!showList || !documents.length} class:no-panel={!showPanel}>
-	{#if showList && documents.length}
-		<nav class="doc-list" aria-label="Documents">
-			<p class="doc-list-head">Documents</p>
-			{#each documents as doc (doc.id)}
-				<span class="doc-entry" class:active={doc.id === activeDocument}>
-					<strong>{doc.title}</strong>
-					<span>{doc.meta}</span>
+<div class="view-shell">
+	<div class="document-view" class:no-list={!showList || !documents.length} class:no-panel={!showPanel}>
+		{#if showList && documents.length}
+			<nav class="doc-list" aria-label="Documents">
+				<p class="doc-list-head">Documents</p>
+				{#each documents as doc (doc.id)}
+					<span class="doc-entry" class:active={doc.id === activeDocument}>
+						<strong>{doc.title}</strong>
+						<span>{doc.meta}</span>
+					</span>
+				{/each}
+			</nav>
+		{/if}
+
+		<section class="doc-main" aria-label={title}>
+			<header class="doc-head">
+				<strong class="doc-title">{title}</strong>
+				<span class="doc-kind">{kind}</span>
+				<span class="doc-sync" class:pending={!synced}>
+					{#if synced}<Check size={12} strokeWidth={2.6} /> Synced with collaborators{:else}Saving…{/if}
 				</span>
-			{/each}
-		</nav>
-	{/if}
-
-	<section class="doc-main" aria-label={title}>
-		<header class="doc-head">
-			<strong class="doc-title">{title}</strong>
-			<span class="doc-kind">{kind}</span>
-			<span class="doc-sync" class:pending={!synced}>
-				{#if synced}<Check size={12} strokeWidth={2.6} /> Synced with collaborators{:else}Saving…{/if}
-			</span>
-			<span class="doc-people" aria-label="Editing now">
-				{#each collaborators as person (person.id)}
-					<span class="doc-face" style:--c={person.color} title="{person.name}">{person.name.slice(0, 1)}</span>
-				{/each}
-			</span>
-		</header>
-		<div class="doc-tools" aria-hidden="true">
-			<Bold size={14} /><Italic size={14} /><Code size={14} /><span class="sep"></span><List size={14} /><ListChecks size={14} /><Quote size={14} />
-			<span class="doc-comment-tool"><MessageSquarePlus size={13} /> Comment</span>
-		</div>
-		<div class="doc-page">
-			{#each blocks as block, index (index)}
-				{@const carets = presence.filter((entry) => entry.block === index)}
-				<svelte:element this={block.kind === 'li' ? 'p' : block.kind === 'quote' ? 'blockquote' : block.kind} class="doc-block {block.kind}">
-					{#each split(block) as part, p (p)}{#if part.mark}<mark style:--c={part.mark.color}>{part.text}</mark>{:else}{part.text}{/if}{/each}{#each carets as caret (caret.by)}{@const person = byId.get(caret.by)}{#if person}<span class="caret" style:--c={person.color}><i></i><em>{person.name} <ActorTag kind={person.kind} /></em></span>{/if}{/each}
-				</svelte:element>
-			{/each}
-		</div>
-	</section>
-
-	{#if showPanel}
-		<aside class="doc-panel" aria-label="Discussion">
-			<div class="doc-tabs">
-				<span class:active={panel === 'comments'}><MessagesSquare size={13} /> Comments {#if open.length}<b>{open.length}</b>{/if}</span>
-				<span class:active={panel === 'review'}><Scale size={13} /> Review</span>
-				<span class:active={panel === 'versions'}><History size={13} /> Versions</span>
+				<span class="doc-people" aria-label="Editing now">
+					{#each collaborators as person (person.id)}
+						<span class="doc-face" style:--c={person.color} title="{person.name}">{person.name.slice(0, 1)}</span>
+					{/each}
+				</span>
+			</header>
+			<div class="doc-tools" aria-hidden="true">
+				<Bold size={14} /><Italic size={14} /><Code size={14} /><span class="sep"></span><List size={14} /><ListChecks size={14} /><Quote size={14} />
+				<span class="doc-comment-tool"><MessageSquarePlus size={13} /> Comment</span>
 			</div>
-			<p class="doc-panel-head"><strong>Discussion</strong> Feedback stays attached to this document.</p>
-			<ol class="doc-comments">
-				{#each comments as comment (comment.id)}
-					<li class:resolved={comment.resolved}>
-						<p class="who"><b>{comment.author}</b> <ActorTag kind={comment.kind} /> <time>{comment.time}</time></p>
-						{#if comment.anchor}<p class="anchor">“{comment.anchor}”</p>{/if}
-						<p class="text">{comment.text}</p>
-						{#if comment.resolved}<p class="state">Resolved</p>{/if}
-					</li>
-				{:else}
-					<li class="empty">No comments yet. Start a thread on the document or a passage.</li>
+			<div class="doc-page">
+				{#each blocks as block, index (index)}
+					{@const carets = presence.filter((entry) => entry.block === index)}
+					<svelte:element this={block.kind === 'li' ? 'p' : block.kind === 'quote' ? 'blockquote' : block.kind} class="doc-block {block.kind}">
+						{#each split(block) as part, p (p)}{#if part.mark}<mark style:--c={part.mark.color}>{part.text}</mark>{:else}{part.text}{/if}{/each}{#each carets as caret (caret.by)}{@const person = byId.get(caret.by)}{#if person}<span class="caret" style:--c={person.color}><i></i><em>{person.name} <ActorTag kind={person.kind} /></em></span>{/if}{/each}
+					</svelte:element>
 				{/each}
-			</ol>
-		</aside>
-	{/if}
+			</div>
+		</section>
+
+		{#if showPanel}
+			<aside class="doc-panel" aria-label="Discussion">
+				<div class="doc-tabs">
+					<span class:active={panel === 'comments'}><MessagesSquare size={13} /> Comments {#if open.length}<b>{open.length}</b>{/if}</span>
+					<span class:active={panel === 'review'}><Scale size={13} /> Review</span>
+					<span class:active={panel === 'versions'}><History size={13} /> Versions</span>
+				</div>
+				<p class="doc-panel-head"><strong>Discussion</strong> Feedback stays attached to this document.</p>
+				<ol class="doc-comments">
+					{#each comments as comment (comment.id)}
+						<li class:resolved={comment.resolved}>
+							<p class="who"><b>{comment.author}</b> <ActorTag kind={comment.kind} /> <time>{comment.time}</time></p>
+							{#if comment.anchor}<p class="anchor">“{comment.anchor}”</p>{/if}
+							<p class="text">{comment.text}</p>
+							{#if comment.resolved}<p class="state">Resolved</p>{/if}
+						</li>
+					{:else}
+						<li class="empty">No comments yet. Start a thread on the document or a passage.</li>
+					{/each}
+				</ol>
+			</aside>
+		{/if}
+	</div>
 </div>
 
 <style>
+	/* Breakpoints follow this view's own width, not the window's: the same view sits in a full
+	 * workspace pane, a narrow side panel or a phone. */
+	.view-shell {
+		container-type: inline-size;
+		width: 100%;
+		height: 100%;
+		min-width: 0;
+	}
 	.document-view {
 		display: grid;
 		grid-template-columns: minmax(150px, 210px) minmax(0, 1fr) minmax(200px, 270px);
@@ -460,7 +470,7 @@
 	.empty {
 		color: var(--text-tertiary);
 	}
-	@media (max-width: 860px) {
+	@container (max-width: 860px) {
 		.document-view,
 		.document-view.no-list,
 		.document-view.no-panel {
@@ -475,6 +485,17 @@
 		.caret i,
 		.doc-comments li {
 			animation: none;
+		}
+	}
+	/* A narrow pane keeps the title and drops the secondary chrome. */
+	@container (max-width: 620px) {
+		.doc-kind,
+		.doc-sync,
+		.doc-comment-tool {
+			display: none;
+		}
+		.doc-tools {
+			gap: 10px;
 		}
 	}
 </style>

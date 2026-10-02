@@ -27,50 +27,60 @@
 	const STATUS = { proposed: 'Proposed', active: 'In motion', blocked: 'Waiting', completed: 'Completed' } as const;
 </script>
 
-<div class="people-view" class:with-detail={!!person}>
-	<nav class="pv-list" aria-label="People">
-		<p class="pv-head">People</p>
-		{#each teams as team (team.name)}
-			<div class="pv-team">
-				<p class="pv-team-name">{team.name}</p>
-				<p class="pv-team-meta">{team.members.length} members · {team.inMotion} in motion{team.blocked ? ` · ${team.blocked} waiting` : ''}</p>
-			</div>
-			{#each team.members as member (member.id)}
-				<span class="pv-member" class:lead={member.lead} class:active={member.id === person?.id}>
-					<span class="pv-initial {member.kind}">{member.name.slice(0, 1)}</span>
-					<span class="pv-name">{member.name}<small>{member.role}</small></span>
-					<ActorTag kind={member.kind} />
-				</span>
-			{/each}
-		{/each}
-	</nav>
-	{#if person}
-		<section class="pv-detail" aria-label={person.name}>
-			<header>
-				<span class="pv-initial big {person.kind}">{person.name.slice(0, 1)}</span>
-				<div>
-					<p class="pv-person">{person.name} <ActorTag kind={person.kind} long /></p>
-					<p class="pv-role">{person.role}</p>
-					<p class="pv-role">{person.standard} · {person.state}</p>
+<div class="view-shell">
+	<div class="people-view" class:with-detail={!!person}>
+		<nav class="pv-list" aria-label="People">
+			<p class="pv-head">People</p>
+			{#each teams as team (team.name)}
+				<div class="pv-team">
+					<p class="pv-team-name">{team.name}</p>
+					<p class="pv-team-meta">{team.members.length} members · {team.inMotion} in motion{team.blocked ? ` · ${team.blocked} waiting` : ''}</p>
 				</div>
-			</header>
-			{#if person.accountable}
-				<p class="pv-note"><strong>{person.name} contributes through accountable work.</strong> {person.accountable} is accountable for the outcome.</p>
-			{/if}
-			<div class="pv-work">
-				<p class="pv-work-head">Current work <b>{person.work.length}</b></p>
-				{#each person.work as item (item.title)}
-					<div class="pv-work-row">
-						<span><strong>{item.title}</strong><small>Revision {item.revision}</small></span>
-						<span class="pv-status {item.status}">{STATUS[item.status]}</span>
-					</div>
+				{#each team.members as member (member.id)}
+					<span class="pv-member" class:lead={member.lead} class:active={member.id === person?.id}>
+						<span class="pv-initial {member.kind}">{member.name.slice(0, 1)}</span>
+						<span class="pv-name">{member.name}<small>{member.role}</small></span>
+						<ActorTag kind={member.kind} />
+					</span>
 				{/each}
-			</div>
-		</section>
-	{/if}
+			{/each}
+		</nav>
+		{#if person}
+			<section class="pv-detail" aria-label={person.name}>
+				<header>
+					<span class="pv-initial big {person.kind}">{person.name.slice(0, 1)}</span>
+					<div>
+						<p class="pv-person">{person.name} <ActorTag kind={person.kind} long /></p>
+						<p class="pv-role">{person.role}</p>
+						<p class="pv-role">{person.standard} · {person.state}</p>
+					</div>
+				</header>
+				{#if person.accountable}
+					<p class="pv-note"><strong>{person.name} contributes through accountable work.</strong> {person.accountable} is accountable for the outcome.</p>
+				{/if}
+				<div class="pv-work">
+					<p class="pv-work-head">Current work <b>{person.work.length}</b></p>
+					{#each person.work as item (item.title)}
+						<div class="pv-work-row">
+							<span><strong>{item.title}</strong><small>Revision {item.revision}</small></span>
+							<span class="pv-status {item.status}">{STATUS[item.status]}</span>
+						</div>
+					{/each}
+				</div>
+			</section>
+		{/if}
+	</div>
 </div>
 
 <style>
+	/* Breakpoints follow this view's own width, not the window's: the same view sits in a full
+	 * workspace pane, a narrow side panel or a phone. */
+	.view-shell {
+		container-type: inline-size;
+		width: 100%;
+		height: 100%;
+		min-width: 0;
+	}
 	.people-view {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr);
@@ -242,7 +252,7 @@
 	.pv-status.completed {
 		color: var(--state-success);
 	}
-	@media (max-width: 760px) {
+	@container (max-width: 760px) {
 		.people-view.with-detail {
 			grid-template-columns: minmax(0, 1fr);
 		}

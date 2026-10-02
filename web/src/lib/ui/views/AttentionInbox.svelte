@@ -38,29 +38,39 @@
 	const LABEL = { 'needs-you': 'Needs you', preparing: 'Preparing', done: 'Done' } as const;
 </script>
 
-<div class="attention-inbox" class:with-detail={!!detail}>
-	<section class="ai-list" aria-label="Attention">
-		<header class="ai-head">
-			<CircleDot size={15} strokeWidth={2.2} />
-			<strong>Attention</strong>
-			<span class="ai-count">{waiting} {waiting === 1 ? 'needs you' : 'need you'}</span>
-		</header>
-		{#if quiet}<p class="ai-quiet">{quiet} events handled today without anyone</p>{/if}
-		<ol>
-			{#each items as item (item.id)}
-				<li class="ai-item {item.state}" class:active={item.id === selected} animate:listFlip in:listIn out:listOut>
-					<span class="ai-category">{item.category}</span>
-					<strong>{item.title}</strong>
-					<span class="ai-meta">{item.from} <ActorTag kind={item.fromKind} /> · {item.age}</span>
-					<span class="ai-state">{LABEL[item.state]}</span>
-				</li>
-			{/each}
-		</ol>
-	</section>
-	{#if detail}<section class="ai-detail">{@render detail()}</section>{/if}
+<div class="view-shell">
+	<div class="attention-inbox" class:with-detail={!!detail}>
+		<section class="ai-list" aria-label="Attention">
+			<header class="ai-head">
+				<CircleDot size={15} strokeWidth={2.2} />
+				<strong>Attention</strong>
+				<span class="ai-count">{waiting} {waiting === 1 ? 'needs you' : 'need you'}</span>
+			</header>
+			{#if quiet}<p class="ai-quiet">{quiet} events handled today without anyone</p>{/if}
+			<ol>
+				{#each items as item (item.id)}
+					<li class="ai-item {item.state}" class:active={item.id === selected} animate:listFlip in:listIn out:listOut>
+						<span class="ai-category">{item.category}</span>
+						<strong>{item.title}</strong>
+						<span class="ai-meta">{item.from} <ActorTag kind={item.fromKind} /> · {item.age}</span>
+						<span class="ai-state">{LABEL[item.state]}</span>
+					</li>
+				{/each}
+			</ol>
+		</section>
+		{#if detail}<section class="ai-detail">{@render detail()}</section>{/if}
+	</div>
 </div>
 
 <style>
+	/* Breakpoints follow this view's own width, not the window's: the same view sits in a full
+	 * workspace pane, a narrow side panel or a phone. */
+	.view-shell {
+		container-type: inline-size;
+		width: 100%;
+		height: 100%;
+		min-width: 0;
+	}
 	.attention-inbox {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr);
@@ -166,7 +176,7 @@
 	.ai-detail :global(.owner-folio) {
 		margin: 0;
 	}
-	@media (max-width: 760px) {
+	@container (max-width: 760px) {
 		.attention-inbox.with-detail {
 			grid-template-columns: minmax(0, 1fr);
 		}

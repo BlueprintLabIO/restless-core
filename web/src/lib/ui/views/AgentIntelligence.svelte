@@ -32,37 +32,47 @@
 	const STATE = { 'signed-in': 'Signed in', 'api-key': 'API key', expired: 'Sign-in expired' } as const;
 </script>
 
-<section class="agent-intelligence" aria-label="Agent intelligence">
-	<header class="ag-head"><Cpu size={15} strokeWidth={2.2} /><strong>Intelligence</strong></header>
-	<div class="ag-connections">
-		{#each connections as connection (connection.name)}
-			<div class="ag-connection {connection.state}">
-				<strong>{connection.name}</strong>
-				<span>{STATE[connection.state]}</span>
-			</div>
-		{/each}
-	</div>
-	<div class="ag-table">
-		<div class="ag-row default">
-			<span class="ag-who"><strong>Company default</strong><small>Used by agents without an override</small></span>
-			<span class="ag-model"><b>{companyDefault.connection}</b><small>{companyDefault.model}</small></span>
+<div class="view-shell">
+	<section class="agent-intelligence" aria-label="Agent intelligence">
+		<header class="ag-head"><Cpu size={15} strokeWidth={2.2} /><strong>Intelligence</strong></header>
+		<div class="ag-connections">
+			{#each connections as connection (connection.name)}
+				<div class="ag-connection {connection.state}">
+					<strong>{connection.name}</strong>
+					<span>{STATE[connection.state]}</span>
+				</div>
+			{/each}
 		</div>
-		{#each agents as agent (agent.id)}
-			<div class="ag-row" class:changed={agent.id === changed}>
-				<span class="ag-who"><strong>{agent.name} <ActorTag kind="agent" /></strong><small>{agent.role}</small></span>
-				<span class="ag-model">
-					{#key agent.model}
-						<b class="ag-swap">{agent.connection ?? 'Use company default'}</b>
-						<small class="ag-swap">{agent.model}</small>
-					{/key}
-				</span>
-				<span class="btn small ag-change">Change</span>
+		<div class="ag-table">
+			<div class="ag-row default">
+				<span class="ag-who"><strong>Company default</strong><small>Used by agents without an override</small></span>
+				<span class="ag-model"><b>{companyDefault.connection}</b><small>{companyDefault.model}</small></span>
 			</div>
-		{/each}
-	</div>
-</section>
+			{#each agents as agent (agent.id)}
+				<div class="ag-row" class:changed={agent.id === changed}>
+					<span class="ag-who"><strong>{agent.name} <ActorTag kind="agent" /></strong><small>{agent.role}</small></span>
+					<span class="ag-model">
+						{#key agent.model}
+							<b class="ag-swap">{agent.connection ?? 'Use company default'}</b>
+							<small class="ag-swap">{agent.model}</small>
+						{/key}
+					</span>
+					<span class="btn small ag-change">Change</span>
+				</div>
+			{/each}
+		</div>
+	</section>
+</div>
 
 <style>
+	/* Breakpoints follow this view's own width, not the window's: the same view sits in a full
+	 * workspace pane, a narrow side panel or a phone. */
+	.view-shell {
+		container-type: inline-size;
+		width: 100%;
+		height: 100%;
+		min-width: 0;
+	}
 	.agent-intelligence {
 		display: grid;
 		gap: 12px;
@@ -162,6 +172,20 @@
 	@media (prefers-reduced-motion: reduce) {
 		.ag-swap {
 			animation: none;
+		}
+	}
+	@container (max-width: 480px) {
+		.ag-row,
+		.ag-row.default {
+			grid-template-columns: minmax(0, 1fr) auto;
+		}
+		.ag-model {
+			grid-column: 1;
+		}
+		.ag-change {
+			grid-row: 1 / span 2;
+			grid-column: 2;
+			align-self: center;
 		}
 	}
 </style>

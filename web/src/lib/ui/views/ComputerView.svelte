@@ -21,24 +21,34 @@
 	const you = $derived(driver === 'you');
 </script>
 
-<section class="computer-view" class:you aria-label="Company computer">
-	<header class="cv-bar">
-		<span class="cv-icon"><Monitor size={14} strokeWidth={2.2} /></span>
-		<span class="cv-title">
-			<strong>Computer</strong>
-			<span><i class={status}></i>{status} · {you ? 'You control' : `${driver} is working`}</span>
-		</span>
-		{#if ontoggle}
-			<button type="button" class="btn small" onclick={ontoggle}>{you ? 'Release control' : 'Take control'}</button>
-		{:else}
-			<span class="btn small">{you ? 'Release control' : 'Take control'}</span>
-		{/if}
-		<span class="btn small cv-leave">Leave computer</span>
-	</header>
-	<div class="cv-screen">{@render screen()}</div>
-</section>
+<div class="view-shell">
+	<section class="computer-view" class:you aria-label="Company computer">
+		<header class="cv-bar">
+			<span class="cv-icon"><Monitor size={14} strokeWidth={2.2} /></span>
+			<span class="cv-title">
+				<strong>Computer</strong>
+				<span><i class={status}></i>{status} · {you ? 'You control' : `${driver} is working`}</span>
+			</span>
+			{#if ontoggle}
+				<button type="button" class="btn small" onclick={ontoggle}>{you ? 'Release control' : 'Take control'}</button>
+			{:else}
+				<span class="btn small">{you ? 'Release control' : 'Take control'}</span>
+			{/if}
+			<span class="btn small cv-leave">Leave computer</span>
+		</header>
+		<div class="cv-screen">{@render screen()}</div>
+	</section>
+</div>
 
 <style>
+	/* Breakpoints follow this view's own width, not the window's: the same view sits in a full
+	 * workspace pane, a narrow side panel or a phone. */
+	.view-shell {
+		container-type: inline-size;
+		width: 100%;
+		height: 100%;
+		min-width: 0;
+	}
 	.computer-view {
 		display: grid;
 		grid-template-rows: auto 1fr;
@@ -107,7 +117,7 @@
 		min-height: 0;
 		overflow: hidden;
 	}
-	@media (max-width: 520px) {
+	@container (max-width: 520px) {
 		.cv-leave {
 			display: none;
 		}
