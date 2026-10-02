@@ -3,10 +3,11 @@ import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const [root, kind, revision, day] = process.argv.slice(2);
+const [root, kind, revision, day, inputSha256] = process.argv.slice(2);
 assert.ok(['ui', 'office', 'issuer'].includes(kind));
 assert.match(revision, /^[0-9a-f]{40}$/);
 assert.equal(day, new Date().toISOString().slice(0, 10));
+assert.match(inputSha256, /^[0-9a-f]{64}$/);
 const manifest = JSON.parse(readFileSync(join(root, `${kind}-manifest.json`)));
 assert.equal(manifest.sourceRevision, revision);
 assert.equal(manifest.sourceDirty, false);
@@ -30,6 +31,7 @@ for (const [path, pkg] of Object.entries(lock.packages)) {
 const evidence = [`${kind}-manifest.json`, `${manifest.tarball}.sha256`, 'qualification.txt',
   'dependencies/package.json', 'dependencies/package-lock.json', 'npm-audit.json', 'sbom.spdx.json', 'grype.json'];
 const release = { format: 'restless.core.library.v1', component: kind,
+  input_sha256: inputSha256,
   source: { repository: 'BlueprintLabIO/restless-core', revision },
   name: manifest.name, version: manifest.version,
   archive: { file: manifest.tarball, sha256: manifest.sha256 },

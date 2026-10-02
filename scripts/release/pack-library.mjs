@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { normalizePackageModes, packageProvenance } from '../../web/scripts/package-provenance.mjs';
+import { issuerSources } from './library-inputs.mjs';
 
 const [kind, revision, epoch, destination] = process.argv.slice(2);
 if (!['ui', 'office', 'issuer'].includes(kind)) throw new Error('choose ui, office or issuer');
@@ -21,7 +22,7 @@ if (kind !== 'issuer') {
   const stage = join(out, 'issuer');
   mkdirSync(stage, { recursive: true });
   cpSync(join(root, 'services/identity/library'), stage, { recursive: true });
-  for (const file of ['issuer.mjs', 'membership-sql.mjs', 'core-request.mjs']) {
+  for (const file of issuerSources) {
     cpSync(join(root, 'services/identity/src', file), join(stage, file));
   }
   cpSync(join(root, 'LICENSE'), join(stage, 'LICENSE'));

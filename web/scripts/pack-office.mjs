@@ -14,8 +14,9 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join, normalize, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { normalizePackageModes, packageProvenance } from './package-provenance.mjs';
+import { officeSourceFiles } from './package-inputs.mjs';
 
 const args = process.argv.slice(2);
 const option = (name, fallback) => {
@@ -29,40 +30,10 @@ const template = JSON.parse(readFileSync(join(root, 'scripts/office-package.json
 const version = option('version', template.version);
 const outDir = resolve(option('out', 'dist'));
 const stage = join(outDir, 'office');
-const ENTRIES = ['office/OfficeCanvas.svelte', 'office/officeDemo.ts', 'office/projection.ts', 'office/officePlan.ts'];
-
-/* Walk the import graph from the entries; anything outside src/lib must be a declared dependency. */
-const IMPORT = /(?:import|export)[^'"]*?from\s+['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)|^\s*import\s+['"]([^'"]+)['"]/gm;
-const EXTERNAL = /^(svelte|@lucide\/svelte)(\/|$)/;
-function resolveSpec(from, spec) {
-	let path;
-	if (spec.startsWith('$lib/')) path = join(lib, spec.slice(5));
-	else if (spec.startsWith('.')) path = normalize(join(dirname(join(lib, from)), spec));
-	else {
-		if (!EXTERNAL.test(spec)) throw new Error(`${from} imports ${spec}, which the office package does not carry`);
-		return null;
-	}
-	const candidates = [path, `${path}.ts`, path.replace(/\.js$/, '.ts'), join(path, 'index.ts')];
-	const found = candidates.find((candidate) => existsSync(candidate) && !candidate.endsWith('/'));
-	if (!found) throw new Error(`${from}: cannot resolve ${spec}`);
-	return relative(lib, found);
-}
-const files = new Set();
-const queue = [...ENTRIES];
-while (queue.length) {
-	const file = queue.pop();
-	if (files.has(file)) continue;
-	files.add(file);
-	if (!/\.(ts|svelte)$/.test(file)) continue;
-	const source = readFileSync(join(lib, file), 'utf8');
-	for (const match of source.matchAll(IMPORT)) {
-		const next = resolveSpec(file, match[1] ?? match[2] ?? match[3]);
-		if (next) queue.push(next);
-	}
-}
+const files = officeSourceFiles(root);
 
 const { packedAt, ...provenance } = packageProvenance(args, root, ['src/lib', 'static/vendor',
-	'scripts/pack-office.mjs', 'scripts/office-package.json', 'scripts/package-provenance.mjs', '../LICENSE']);
+	'scripts/pack-office.mjs', 'scripts/office-package.json', 'scripts/package-inputs.mjs', 'scripts/package-provenance.mjs', '../LICENSE']);
 const revision = provenance.sourceRevision;
 const dirty = provenance.sourceDirty;
 

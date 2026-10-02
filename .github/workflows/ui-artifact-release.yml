@@ -11,7 +11,10 @@ on:
       - services/identity/src/membership-sql.mjs
       - services/identity/src/core-request.mjs
       - scripts/release/**
-      - .dagger/**
+      - .dagger/src/**
+      - .dagger/package*.json
+      - .dagger/tsconfig.json
+      - dagger.json
       - .github/workflows/ui-artifact-release.yml
   workflow_dispatch:
     inputs:
@@ -46,6 +49,8 @@ jobs:
           persist-credentials: false
       - name: Install pinned Dagger
         run: scripts/release/install-dagger.sh
+      - name: Check actual library input boundaries
+        run: DAGGER_NO_NAG=1 "$HOME/.local/bin/dagger" --progress=plain call verify-library-inputs --source=. stdout
       - name: Qualify and publish the exact package
         env:
           KIND: ${{ matrix.kind }}

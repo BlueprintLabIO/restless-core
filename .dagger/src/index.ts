@@ -4,7 +4,7 @@ import { dag, Container, Directory, Platform, Secret, argument, object, func } f
 import { verifyRuntimeToolsImage, verifyCompanyRuntimeImage, verifyNativeDocumentsImage, verifyAccountPlaneImage } from './verify.js';
 import { publishImage, node, verifyBuildInputs, verifyImageInspection } from './publish.js';
 import { sealRelease } from './release.js';
-import { library, publishLibrary, sealLibrary } from './libraries.js';
+import { library, publishLibrary, reuseLibrary, sealLibrary } from './libraries.js';
 
 const NODE_IMAGE = 'node:24.18.1-alpine3.23@sha256:c2cc26d8f991c2db236ad51a61efee843c482372d6d22570787309d511694110';
 const RUST_IMAGE = 'rust:1-bookworm@sha256:59037199c44290f2befcdd58dcc540164763fc296950255aaefeef096a1866b0';
@@ -48,10 +48,24 @@ function checkPlatform(platform: string): asserts platform is Platform {
 
 @object()
 export class RestlessCore {
+  /** Prove actual library dependency boundaries used for artifact reuse. */
+  @func()
+  verifyLibraryInputs(
+    @argument({ ignore: ['**', '!LICENSE', '!web/**', '!services/identity/**', '!scripts/release/**',
+      '!.dagger/**', '!dagger.json', '!.github/workflows/ui-artifact-release.yml',
+      '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/.git/**', '**/.env', '**/.env.*'] })
+    source: Directory,
+  ): Container {
+    return dag.container().from(NODE_IMAGE).withDirectory('/src', source).withWorkdir('/src')
+      .withExec(['node', '--test', 'scripts/release/library-inputs.test.mjs']);
+  }
+
   /** Qualify a small product package independently of Runtime/account images. */
   @func()
   library(
     @argument({ ignore: ['**', '!LICENSE', '!web/**', '!services/identity/**', '!scripts/release/**',
+      '!dagger.json', '!.dagger/package.json', '!.dagger/tsconfig.json', '!.dagger/src/index.ts',
+      '!.dagger/src/libraries.ts', '!.dagger/src/publish.ts', '!.github/workflows/ui-artifact-release.yml',
       '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/.git/**', '**/.env', '**/.env.*'] })
     source: Directory, kind: string, revision: string, epoch: string, scanPeriod: string,
   ): Promise<Directory> {
@@ -62,9 +76,14 @@ export class RestlessCore {
   @func()
   async publishLibrary(
     @argument({ ignore: ['**', '!LICENSE', '!web/**', '!services/identity/**', '!scripts/release/**',
+      '!dagger.json', '!.dagger/package.json', '!.dagger/tsconfig.json', '!.dagger/src/index.ts',
+      '!.dagger/src/libraries.ts', '!.dagger/src/publish.ts', '!.github/workflows/ui-artifact-release.yml',
       '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/.git/**', '**/.env', '**/.env.*'] })
     source: Directory, kind: string, revision: string, epoch: string, scanPeriod: string,
     username: string, password: Secret): Promise<Directory> {
+    if (!/^[0-9a-f]{40}$/.test(revision) || !/^\d+$/.test(epoch)) throw new Error('publication requires exact checkout revision/epoch');
+    const reused = await reuseLibrary(source, kind, scanPeriod, username, password);
+    if (reused) return reused;
     const payload = await this.library(source, kind, revision, epoch, scanPeriod);
     return publishLibrary(payload, kind, revision, scanPeriod, username, password, source);
   }
