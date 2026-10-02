@@ -9,9 +9,13 @@
 	import AttentionDocument from '$lib/components/AttentionDocument.svelte';
 	import DesktopViewport from '$lib/components/DesktopViewport.svelte';
 	import InfoTip from '$lib/components/InfoTip.svelte';
+	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import Composer from '$lib/primitives/Composer.svelte';
 	import ConversationMessage from '$lib/primitives/ConversationMessage.svelte';
 	import AttentionCard from '$lib/components/AttentionCard.svelte';
+	import AttentionInbox from '$lib/components/AttentionInbox.svelte';
+	import { attentionTitle } from '$lib/model/attention-presentation';
+	import { formatRelative, formatMoment } from '$lib/ui/time';
 	import Markdown from '$lib/primitives/Markdown.svelte';
 	import OutcomeFolio from '$lib/ui/views/OutcomeFolio.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
@@ -58,6 +62,7 @@
 	}
 
 	const items = $derived(view?.items ?? []);
+	let visibleItems = $state<AttentionItem[] | null>(null);
 	const graph = $derived(view?.workGraph ?? null);
 	const selectedItemId = $derived(page.url.searchParams.get('item'));
 	const companyCatalog = companiesQuery();
@@ -97,13 +102,39 @@
 		);
 		return () => cancelAnimationFrame(frame);
 	});
-	const showClear = $derived(queueClear && !startBlocker);
+	const showClear = $derived(queueClear && companyCatalog.status !== 'unknown' && !startBlocker);
 	/* The queue starts collapsed until its source answers, so an idle
 	 * company's office is never squeezed and released; when items do arrive,
 	 * the queue opens with the same motion as any later change. */
 	const selectedItem = $derived(
-		items.find((item) => item.id === selectedItemId) ?? (selectedItemId ? null : (items[0] ?? null))
+		items.find((item) => item.id === selectedItemId) ??
+			(selectedItemId ? null : ((visibleItems ?? items)[0] ?? null))
 	);
+	let missingNotice = $state('');
+	let missingItemRedirect = $state('');
+	let previousItemOrder: string[] = [];
+	$effect(() => {
+		if (
+			loaded &&
+			selectedItemId &&
+			missingItemRedirect !== selectedItemId &&
+			!items.some((item) => item.id === selectedItemId)
+		) {
+			missingItemRedirect = selectedItemId;
+			missingNotice = 'That item has been resolved or is no longer in Attention.';
+			const previousIndex = Math.max(0, previousItemOrder.indexOf(selectedItemId));
+			const next = (visibleItems ?? items)[
+				Math.min(previousIndex, (visibleItems ?? items).length - 1)
+			];
+			void goto(next ? itemHref(next.id) : baseHref, {
+				replaceState: true,
+				noScroll: true
+			});
+		}
+		if (!selectedItemId || items.some((item) => item.id === selectedItemId))
+			missingItemRedirect = '';
+		if (loaded) previousItemOrder = (visibleItems ?? items).map((item) => item.id);
+	});
 	const focusedReviewId = $derived(page.url.searchParams.get('review'));
 	const focusedReview = $derived(
 		items.find((item) => item.id === focusedReviewId && item.category === 'review') ?? null
@@ -273,42 +304,11 @@
 		await source.refresh();
 	}
 
-	/* J/K and the arrow keys walk the queue, as in any triage list. Typing,
-	 * modifiers and open dialogs keep their own meaning for those keys. */
-	function stepQueue(event: KeyboardEvent) {
-		if (event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
-		const step = { j: 1, ArrowDown: 1, k: -1, ArrowUp: -1 }[event.key];
-		if (!step || items.length < 2) return;
-		const target = event.target as HTMLElement | null;
-		if (
-			target?.closest('input, textarea, select, [contenteditable], dialog, #bridge-exrail') ||
-			document.querySelector('dialog[open]')
-		)
-			return;
-		const index = items.findIndex((item) => item.id === selectedItem?.id);
-		const next = items[Math.max(0, Math.min(items.length - 1, index + step))];
-		if (!next || next.id === selectedItem?.id) return;
-		event.preventDefault();
-		void goto(itemHref(next.id), { keepFocus: true, noScroll: true }).then(() =>
-			document
-				.querySelector('.attention-item.selected')
-				?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-		);
-	}
-
 	function itemHref(id: string): string {
 		return `${baseHref}?item=${encodeURIComponent(id)}`;
 	}
 
-	function when(value: Date | string): string {
-		const date = value instanceof Date ? value : new Date(value);
-		return date.toLocaleString(undefined, {
-			month: 'short',
-			day: 'numeric',
-			hour: 'numeric',
-			minute: '2-digit'
-		});
-	}
+	const when = (value: Date | string) => formatRelative(value);
 
 	function attentionKind(category: string): string {
 		return (
@@ -452,7 +452,6 @@
 	}
 </script>
 
-<svelte:window onkeydown={stepQueue} />
 <svelte:head><title>Attention — {view?.company.name ?? companyId}</title></svelte:head>
 
 {#if focusedReview}
@@ -732,6 +731,7 @@
 		class="cockpit-screen attention-screen"
 		class:queue-clear={queueClear}
 		class:settled
+		class:mobile-detail={compactScreen && !!selectedItemId}
 		class:awaiting={!loaded && !source.failure}
 		aria-busy={!loaded && !source.failure}
 		use:resizePane={{
@@ -745,6 +745,12 @@
 			enabled: !queueClear
 		}}
 	>
+		{#if missingNotice}<div class="attention-resolution-notice" role="status">
+				{missingNotice}<button
+					aria-label="Dismiss notification"
+					onclick={() => (missingNotice = '')}>×</button
+				>
+			</div>{/if}
 		{#if error}
 			<div class="cockpit-error attention-error" role="alert">{error}</div>
 		{:else if source.failure && loaded}
@@ -753,63 +759,23 @@
 			</div>
 		{/if}
 		<aside class="cockpit-pane attention-index" aria-hidden={queueClear} inert={queueClear}>
-			<div class="attention-index-scroll">
-				{#if startBlocker && !queueClear}
-					<a class="attention-start-blocker inline" href={startFixHref(companyId)}>
-						<span class="attention-start-glyph" aria-hidden="true">
-							<MatrixGlyph rows={GLYPHS.alert} size={7} />
-						</span>
-						<span class="attention-start-copy">
-							<strong>Can’t start yet</strong>
-							<span>{startBlocker}</span>
-						</span>
-						<span class="attention-start-go" aria-hidden="true">→</span>
-					</a>
-				{/if}
-				<div class="attention-list">
-					{#each items as item (item.id)}
-						<a
-							class="attention-item category-{item.category}"
-							animate:listFlip
-							in:listIn
-							out:listOut
-							class:selected={selectedItem?.id === item.id}
-							href={itemHref(item.id)}
-							aria-current={selectedItem?.id === item.id ? 'true' : undefined}
-						>
-							<span class="attention-item-meta">
-								<span title={`${attentionKind(item.category)} requiring owner attention`}>
-									<MatrixGlyph rows={GLYPHS.rules} size={7} />
-									{attentionKind(item.category)}
-								</span>
-								<time>{when(item.createdAt)}</time>
-							</span>
-							<strong class="attention-item-title">{item.title}</strong>
-							<span class="attention-item-action">
-								{#if item.preparing}<span>Preparing:</span>{/if}
-								{item.requestedAction} <span aria-hidden="true">→</span>
-							</span>
-						</a>
-					{:else}
-						{#if !loaded}
-							<!-- The source has not answered yet. Three placeholder rows
-							     hold the shape of the queue without asserting that it is
-							     empty — "Queue clear" here would be a claim we cannot
-							     make, and would be contradicted a round trip later. -->
-							<div class="attention-list-waiting" aria-hidden="true">
-								<i></i><i></i><i></i>
-							</div>
-						{/if}
-					{/each}
-				</div>
-			</div>
+			<AttentionInbox
+				onvisible={(rows) => (visibleItems = rows)}
+				{companyId}
+				{items}
+				selectedId={selectedItem?.id}
+				blocker={startBlocker}
+				{loaded}
+				failure={source.failure}
+				onretry={source.reload}
+			/>
 		</aside>
 
 		<section class="cockpit-pane attention-focus" class:office-focus={!selectedItem && loaded}>
-			{#if queueClear && startBlocker}
+			{#if queueClear && startBlocker && !compactScreen}
 				<a class="attention-start-blocker" href={startFixHref(companyId)}>
 					<span class="attention-start-glyph" aria-hidden="true">
-						<MatrixGlyph rows={GLYPHS.alert} size={7} />
+						<TriangleAlert size={16} />
 					</span>
 					<span class="attention-start-copy">
 						<strong>Can’t start yet</strong>
@@ -832,6 +798,9 @@
 				</span>
 				<span>All clear</span>
 			</button>
+			{#if compactScreen && selectedItemId}<a class="attention-mobile-back" href={baseHref}
+					>← Attention</a
+				>{/if}
 			{#if selectedItem}
 				{#if selectedItem.nativeDocument}
 					{#key `${companyId}:${selectedItem.id}`}
@@ -862,18 +831,24 @@
 				     campus is a large canvas that costs battery for little use at
 				     this size. -->
 				<div class="attention-clear-compact" role="status">
-					<span class="attention-clear-compact-mark" aria-hidden="true">
-						<MatrixGlyph rows={GLYPHS.check} size={10} />
-					</span>
-					<p>Nothing needs you right now.</p>
-					<a class="btn small" href={`/${companyId}/work`}>Open Work</a>
+					{#if companyCatalog.status === 'unknown'}<p>Checking company…</p>
+					{:else if startBlocker}<TriangleAlert size={22} />
+						<p>Exec is waiting for intelligence.</p>
+						<a class="btn primary small" href={startFixHref(companyId)}>{startBlocker}</a>
+					{:else}
+						<span class="attention-clear-compact-mark" aria-hidden="true">
+							<MatrixGlyph rows={GLYPHS.check} size={10} />
+						</span>
+						<p>Nothing needs you right now.</p>
+						<a class="btn small" href={`/${companyId}/work`}>Open Work</a>
+					{/if}
 				</div>
 			{:else}
 				<CompanyOffice
 					{companyId}
 					{graph}
 					sourceHealth={view?.sourceHealth ?? {}}
-					quietSignal={!!startBlocker}
+					quietSignal={companyCatalog.status === 'unknown' || !!startBlocker}
 				/>
 			{/if}
 		</section>
@@ -903,7 +878,8 @@
 		{/snippet}
 		<div class="inbox-pane">
 			<OutcomeFolio
-				title={item.title}
+				title={attentionTitle(item)}
+				compact
 				whatHappened={item.whatHappened}
 				whyItMatters={item.whyItMatters}
 				uncertainty={item.uncertainty || undefined}
@@ -917,7 +893,6 @@
 					/>
 					{#if item.deadline}<time>Decision needed by {item.deadline}</time>{/if}
 				{/snippet}
-
 
 				{#snippet decision()}
 					{#key `${companyId}:${item.id}`}<AttentionCard
@@ -936,7 +911,9 @@
 					<div class="folio-credit">
 						<span>Prepared by</span>
 						<strong
-							>{item.briefAuthor?.display ?? item.responsibleActor?.display ?? 'Source record'}</strong
+							>{item.briefAuthor?.display ??
+								item.responsibleActor?.display ??
+								'Source record'}</strong
 						>
 						{#if item.briefedAt}
 							<span class="folio-credit-separator" aria-hidden="true">·</span>
@@ -949,7 +926,7 @@
 					{#each item.evidence as evidence, evidenceIndex (`${evidence.kind}:${evidence.label}:${evidenceIndex}`)}
 						{#if evidence.content}
 							<div class="evidence-entry">
-								<div class="evidence-label mono">{evidence.label}</div>
+								<div class="evidence-label">{evidence.label}</div>
 								<blockquote class="ib-quote">{evidence.content}</blockquote>
 							</div>
 						{:else if evidence.uri}
@@ -958,11 +935,20 @@
 							</a>
 						{/if}
 					{/each}
-					<div class="source-ref mono">
-						SOURCE {item.source.kind} / {item.source.reference} · {item.canContinue
-							? 'work may continue'
-							: 'blocking'}
-					</div>
+					<button
+						class="folio-copy-reference"
+						type="button"
+						onclick={async () => {
+							try {
+								await navigator.clipboard.writeText(
+									`${item.source.plane}:${item.source.kind}:${item.source.reference}`
+								);
+								missingNotice = 'Reference copied';
+							} catch {
+								missingNotice = 'Could not copy the reference';
+							}
+						}}>Copy reference</button
+					>
 				{/snippet}
 			</OutcomeFolio>
 		</div>
@@ -970,6 +956,69 @@
 {/snippet}
 
 <style>
+	.attention-resolution-notice {
+		position: absolute;
+		bottom: 16px;
+		left: 16px;
+		z-index: 4;
+		display: flex;
+		gap: 16px;
+		padding: 12px 16px;
+		background: var(--surface-raised);
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		box-shadow: var(--shadow-soft);
+		font-size: var(--t-body);
+	}
+	.attention-resolution-notice button {
+		background: none;
+		border: 0;
+		color: var(--text-secondary);
+		cursor: pointer;
+	}
+	.attention-mobile-back {
+		display: block;
+		padding: 14px 16px;
+		border-bottom: 1px solid var(--border);
+		color: var(--text-secondary);
+		font-size: var(--t-body);
+		text-decoration: none;
+	}
+	.folio-copy-reference {
+		border: 0;
+		background: transparent;
+		padding: 8px 0;
+		color: var(--text-tertiary);
+		font: inherit;
+		font-size: var(--t-label);
+		cursor: pointer;
+	}
+	@media (max-width: 760px) {
+		:global(.bridge-root .attention-screen:not(.queue-clear)) {
+			display: flex;
+			flex-direction: column;
+		}
+		:global(.bridge-root .attention-screen:not(.queue-clear) .attention-index) {
+			width: 100%;
+			max-height: none;
+			height: 100%;
+			flex: 1;
+			border: 0;
+			display: flex;
+			flex-direction: column;
+		}
+		:global(.bridge-root .attention-screen:not(.mobile-detail):not(.queue-clear) .attention-focus) {
+			display: none;
+		}
+		:global(.bridge-root .attention-screen.mobile-detail .attention-index) {
+			display: none;
+		}
+		:global(.bridge-root .attention-screen.mobile-detail .attention-focus) {
+			display: block;
+			flex: 1;
+		}
+	}
+
 	.conversation-request {
 		margin: 16px;
 		padding: 24px;
@@ -1186,8 +1235,7 @@
 	.review-unavailable p {
 		color: var(--text-secondary);
 	}
-	.evidence-label,
-	.source-ref {
+	.evidence-label {
 		font-size: var(--t-body);
 		letter-spacing: 0.09em;
 		color: var(--text-tertiary);
@@ -1260,10 +1308,6 @@
 		border: 1px solid var(--border-strong);
 		color: var(--ink);
 		text-decoration: none;
-	}
-	.source-ref {
-		margin-top: 14px;
-		overflow-wrap: anywhere;
 	}
 	.browser-focus {
 		flex: 1 1 auto;

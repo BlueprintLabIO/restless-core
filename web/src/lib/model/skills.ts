@@ -13,6 +13,7 @@ export type { SkillRow, SkillAssignmentRow };
 export type SkillLibrary = {
 	skills: SkillRow[];
 	assignments: SkillAssignmentRow[];
+	usage?: Record<string, number>;
 	/** Names the current viewer may select now. */
 	usable: string[];
 	scan: { state: 'observed' } | { state: 'unavailable'; message: string };
@@ -46,6 +47,23 @@ async function call<T>(company: string, path: string, init?: RequestInit): Promi
 	});
 	if (!response.ok) throw await failure(response, `${response.status} ${response.statusText}`);
 	return response.json() as Promise<T>;
+}
+
+export function updateSchedule(
+	company: string,
+	schedule: ScheduleRow,
+	paused: boolean,
+	every?: string
+): Promise<{ schedule: ScheduleRow }> {
+	return call(company, `/schedules/${encodeURIComponent(schedule.id)}`, {
+		method: 'PUT',
+		body: JSON.stringify({
+			expected_fire_at: schedule.fire_at,
+			expected_paused: !!schedule.paused_at,
+			paused,
+			every
+		})
+	});
 }
 
 export function fetchSkillLibrary(company: string): Promise<SkillLibrary> {

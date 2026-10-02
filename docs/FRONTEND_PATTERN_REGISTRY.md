@@ -173,3 +173,42 @@ or verified-principal changes. Docs search belongs to `lib/model`, uses the exis
 named-version search endpoint, and cancels/discards stale completions across query, company,
 principal and access changes. Its titles/snippets stay in memory. Sheets keeps its existing accepted
 revision and access-epoch boundary. Search pagination and ordering refer to the loaded results.
+
+## Cockpit inbox and Company settings — 2 October 2026
+
+`AttentionInbox` replaces the old multi-line navigation cards with 52px native links, grouped by
+Decide, Approve, Review and Fix setup. Neutral selection, icon-only category color, relative time,
+unread state, filtering, ordering and one row action menu carry the hierarchy. Right click opens
+that same menu; J/K, arrows, C, H, Cmd/Ctrl+period and `?` stay scoped away from text inputs.
+Mobile pushes from a full-height inbox to a detail page with a Back link. Device-local snoozing
+has Undo; authoritative decisions keep their existing revision and approval boundaries.
+
+`SettingsHeader`, `EmptyState`, `RelativeTime` and `ActionMenu` consolidate Company page chrome.
+The menu uses the browser top layer to escape scroll clipping, remains within the viewport,
+closes on selection/outside click/Escape, supports arrow/Home/End focus, and has 44px touch actions.
+Company uses one grouped spine, a compact mobile picker and existing type tokens. Secondary detail
+stays behind disclosure. No ambient animation was added; existing motion respects reduced motion.
+
+Polish references inspected: [Beautiful UI](https://www.beautifului.dev/) for compact task/sidebar
+hierarchy; [Cult UI Expandable Screen](https://www.cult-ui.com/docs/components/expandable-screen)
+for a single explicit reveal; and
+[Origin UI Svelte dropdown-08 source](https://github.com/max-got/originui-svelte/blob/main/src/lib/components/dropdowns/dropdown-08.svelte)
+for grouped native actions and shortcut alignment. Only those qualities were reimplemented.
+No upstream source, theme, React runtime or dependency was copied. The full-screen morph,
+hover-only behavior and decorative surfaces were rejected.
+
+Verification: 16 cockpit routes at 1440, 390 and 320px, plus mobile detail and Doctor disclosure
+(50 captures), with no horizontal overflow or browser page errors. Browser-only fixtures use
+read-only GETs with writes rejected; they verify presentation, not live provider availability.
+Keyboard navigation, snooze/Undo, stale-link feedback and mobile Back were exercised. Real isolated
+`cockpit_ux_test` API checks separately verified schedule create/pause/resume/cadence and stale-write
+refusal, Vault creation without returning secret values, charter A/B/A history and stale revision
+refusal, and agreement between catalog and Doctor on missing intelligence. Schedule controls and
+schedule appliance integration tests passed, as did the declared-schema/migration invariant.
+The web check reports zero errors/warnings; the production web and daemon builds passed.
+
+Additional interaction acceptance passed: desktop context-menu focus/Escape; unchanged rail DOM
+and scroll across Company navigation; skill search and agent disclosure; touch menu placement and
+44px actions; mobile picker; fresh loading/error/retry and blocked empty states. The real test
+company rendered all three charter revisions (one current), the E edit shortcut, and Doctor's
+missing-provider action. Browser page errors remained empty.

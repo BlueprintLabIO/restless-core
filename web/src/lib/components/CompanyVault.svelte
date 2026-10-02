@@ -1,6 +1,9 @@
 <script lang="ts">
+	import SettingsHeader from '$lib/ui/views/SettingsHeader.svelte';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
-	import { formatDay } from '$lib/ui/time';
+	import EmptyState from '$lib/ui/views/EmptyState.svelte';
+	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
+	import { formatRelative } from '$lib/ui/time';
 	import { failureSentence } from '$lib/model/failure';
 	import { onMount } from 'svelte';
 	let { companyId }: { companyId: string } = $props();
@@ -13,6 +16,8 @@
 		revision: string;
 		message?: string;
 	};
+	let adding = $state(false),
+		newSecret = $state(true);
 	let view = $state<Vault | null>(null),
 		busy = $state(false),
 		error = $state(''),
@@ -71,11 +76,12 @@
 				cache: 'no-store',
 				credentials: 'same-origin',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ binding, secret, revision: view.revision })
+				body: JSON.stringify({ binding, secret, revision: view.revision, create: newSecret })
 			});
 			const result = await r.json().catch(() => null);
 			if (!r.ok) throw new Error(result?.message ?? 'Could not save the secret.');
-			notice = `${binding} is stored in Infisical.`;
+			notice = 'Secret stored securely';
+			adding = false;
 			binding = '';
 			await refresh();
 		} catch (e) {
@@ -92,12 +98,25 @@
 
 <CompanyTitle title="Vault" {companyId} />
 <div class="company-page vault-page">
-	<header class="company-page-head">
-		<h1>Vault</h1>
-		<button class="btn small" onclick={refresh} disabled={busy}
-			>{busy ? 'Checking…' : 'Refresh'}</button
-		>
-	</header>
+	<SettingsHeader title="Vault" explanation="Company secrets. Values stay hidden."
+		>{#snippet actions()}
+			<button
+				class="btn primary small"
+				disabled={busy || view?.status !== 'connected'}
+				title={view?.status === 'connected'
+					? 'Store a company secret'
+					: 'Secure storage must be connected first'}
+				onclick={() => {
+					adding = !adding;
+					newSecret = true;
+					binding = '';
+				}}>{adding ? 'Cancel' : 'Add secret'}</button
+			>
+			<ActionMenu label="Vault options"
+				><button onclick={refresh} disabled={busy}>Refresh</button></ActionMenu
+			>
+		{/snippet}</SettingsHeader
+	>
 	<p
 		class="status"
 		title="Secrets are kept in the company’s secure vault. You see their names, never their values."
@@ -115,33 +134,47 @@
 						? 'Checking secure storage…'
 						: 'Secure storage is not set up'}
 	</p>
-	<p class="scope">Secrets stored for this company. Values remain hidden.</p>
+
 	{#if error}<p role="alert">{error}</p>{/if}
 	{#if notice}<p class="notice" role="status">{notice}</p>{/if}
 	{#if view?.status === 'unavailable'}<p role="alert">{view.message}</p>{:else if view?.secrets}
-		{#if writable.length}<section aria-label="Add or replace a secret">
-				<h2>Add or replace a secret</h2>
+		{#if adding}<section aria-label="Add or replace a secret">
+				<h2>Store a secret</h2>
 				<form onsubmit={saveSecret}>
-					<label for="vault-binding">Connection</label><select
-						id="vault-binding"
-						bind:value={binding}
-						required
-						disabled={busy}
-					>
-						<option value="" disabled>Choose a connection…</option>
-						{#each writable as ref}<option value={ref.name}>{ref.name}</option>{/each}
-					</select>
-					<label for="vault-secret">API key</label><input
+					<label for="vault-binding">{newSecret ? 'Secret name' : 'Connection'}</label>
+					{#if newSecret}<input
+							id="vault-binding"
+							bind:value={binding}
+							placeholder="e.g. marketplace-key"
+							pattern="[A-Za-z0-9_-]+"
+							maxlength="64"
+							required
+							disabled={busy}
+						/>
+					{:else}<select id="vault-binding" bind:value={binding} required disabled={busy}
+							><option value="" disabled>Choose a connection…</option>{#each writable as ref}<option
+									value={ref.name}>{ref.name}</option
+								>{/each}</select
+						>{/if}
+					{#if writable.length}<button
+							class="btn small"
+							type="button"
+							onclick={() => {
+								newSecret = !newSecret;
+								binding = '';
+							}}>{newSecret ? 'Replace an existing secret' : 'Add a new secret'}</button
+						>{/if}
+					<label for="vault-secret">Secret value</label><input
 						id="vault-secret"
 						type="password"
 						bind:value={secret}
 						autocomplete="new-password"
-						placeholder="Paste API key"
+						placeholder="Paste secret value"
 						required
 						disabled={busy}
 					/>
 					<button class="btn primary small" type="submit" disabled={busy}
-						>{busy ? 'Saving…' : 'Save in Infisical'}</button
+						>{busy ? 'Saving…' : 'Save secret'}</button
 					>
 				</form>
 			</section>{/if}
@@ -154,14 +187,13 @@
 		<section aria-label="Stored secrets">
 			{#each rows as secret (secret.reference)}<article>
 					<div>
-						<strong>{secret.name}</strong><code>{secret.path}</code><small
-							>{uses(secret.reference)}</small
-						>
+						<strong>{secret.name}</strong><small>{uses(secret.reference)}</small>
 					</div>
-					<span title={secret.updated_at ?? ''}>{formatDay(secret.updated_at, 'Stored')}</span>
-				</article>{:else}<p>
-					{search ? 'No matching secrets.' : 'No secrets stored for this company yet.'}
-				</p>{/each}
+					<span title={secret.updated_at ?? ''}>{formatRelative(secret.updated_at, 'Stored')}</span>
+				</article>{:else}<EmptyState
+					title={search ? 'No matching secrets' : 'No secrets stored yet'}
+					explanation="Add a secret to keep it within this company's secure storage."
+				/>{/each}
 		</section>{/if}
 	{#if external.length}<details>
 			<summary>Other credential locations ({external.length})</summary
@@ -169,9 +201,6 @@
 					<div><strong>{ref.name}</strong><code>{ref.reference}</code></div>
 				</article>{/each}
 		</details>{/if}
-	<a class="vault-provider-link" href={`/${companyId}/company/provider`}
-		>Manage intelligence connections →</a
-	>
 </div>
 
 <style>
@@ -189,7 +218,6 @@
 	[role='alert'] {
 		color: var(--state-danger);
 	}
-	.scope,
 	small,
 	code {
 		color: var(--text-tertiary);

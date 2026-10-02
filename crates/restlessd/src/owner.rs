@@ -1422,6 +1422,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             get(skills_api::schedule_monitor),
         )
         .route(
+            "/companies/{company}/schedules/{schedule}",
+            axum::routing::put(skills_api::update_schedule),
+        )
+        .route(
             "/companies/{company}/schedules/{schedule}/test",
             post(skills_api::test_schedule_trigger),
         )
@@ -1452,7 +1456,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         )
         .route(
             "/companies/{company}/company/charter",
-            post(revise_company_charter),
+            get(company_charter_history).post(revise_company_charter),
         )
         .route(
             "/companies/{company}/company/spend-limit",
@@ -2972,11 +2976,7 @@ async fn create_company(
     }
     (
         StatusCode::CREATED,
-        Json(company_catalog_entry(
-            config,
-            "active",
-            Some(runtime::ContainerStatus::Absent),
-        )),
+        Json(company_catalog_entry(config, "active", Some(runtime::ContainerStatus::Absent)).await),
     )
         .into_response()
 }
@@ -4778,15 +4778,13 @@ async fn company_catalog(
     )
     .await
     .ok();
-    let catalog = configs
-        .into_iter()
-        .map(|(config, lifecycle)| {
-            let status = runtime_statuses
-                .as_ref()
-                .and_then(|statuses| statuses.get(&config.name).copied());
-            company_catalog_entry(config, lifecycle, status)
-        })
-        .collect::<Vec<_>>();
+    let mut catalog = Vec::with_capacity(configs.len());
+    for (config, lifecycle) in configs {
+        let status = runtime_statuses
+            .as_ref()
+            .and_then(|statuses| statuses.get(&config.name).copied());
+        catalog.push(company_catalog_entry(config, lifecycle, status).await);
+    }
     Json(catalog).into_response()
 }
 
@@ -4812,7 +4810,7 @@ async fn company_principal(
         .into_response()
 }
 
-fn company_catalog_entry(
+async fn company_catalog_entry(
     config: runtime::CompanyConfig,
     lifecycle_status: &'static str,
     status: Option<runtime::ContainerStatus>,
@@ -4824,7 +4822,7 @@ fn company_catalog_entry(
         Some(runtime::ContainerStatus::Absent) => "absent",
         None => "unavailable",
     };
-    let unstartable_reason = company_model_issue(&config);
+    let unstartable_reason = observed_company_model_issue(&config).await;
     CompanyCatalogEntry {
         id: config.name.clone(),
         name: config
@@ -4844,6 +4842,40 @@ fn company_model_issue(config: &runtime::CompanyConfig) -> Option<String> {
     let exec = config.for_agent("exec");
     if exec.native_model(exec.coordination_harness).is_some() {
         None
+    } else if exec.configured_model().is_none() {
+        Some(
+            "Choose an intelligence provider and model in Company → Intelligence provider."
+                .to_string(),
+        )
+    } else {
+        crate::model_gateway::unstartable_reason(&config.name)
+    }
+}
+
+pub(crate) async fn observed_company_model_issue(
+    config: &runtime::CompanyConfig,
+) -> Option<String> {
+    let exec = config.for_agent("exec");
+    if exec.native_model(exec.coordination_harness).is_some() {
+        let harness = match exec.coordination_harness {
+            runtime::AgentHarness::Codex => "codex",
+            runtime::AgentHarness::ClaudeAgent => "claude-agent",
+            _ => return None,
+        };
+        let observation = crate::native_harness::view_cached(&exec, harness).await;
+        match observation["auth"]["state"].as_str() {
+            Some("unavailable" | "expired" | "disconnected" | "failed" | "not_connected") => {
+                Some(format!(
+                    "{} sign-in is unavailable. Reconnect in Company → Intelligence.",
+                    if harness == "codex" {
+                        "ChatGPT / Codex"
+                    } else {
+                        "Claude"
+                    }
+                ))
+            }
+            _ => None,
+        }
     } else if exec.configured_model().is_none() {
         Some(
             "Choose an intelligence provider and model in Company → Intelligence provider."
@@ -5481,6 +5513,62 @@ async fn decide_company_identity_migration(
         .into_response(),
         Err(error) => api_error(StatusCode::CONFLICT, "identity", format!("{error:#}")),
     }
+}
+
+async fn company_charter_history(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+) -> Response<Body> {
+    let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => config,
+        Err(_) => return api_error(StatusCode::NOT_FOUND, "company", "Company does not exist."),
+    };
+    let records = match state
+        .daemon
+        .authority
+        .recent_records_of_kind(&company, "mandate_revision", 200)
+        .await
+    {
+        Ok(records) => records,
+        Err(_) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "charter",
+                "Could not read charter history. Try again.",
+            )
+        }
+    };
+    let saved: std::collections::HashSet<i64> = records
+        .iter()
+        .filter(|record| record.body["state"] == "succeeded")
+        .filter_map(|record| record.body["request_record_id"].as_i64())
+        .collect();
+    let current = authority::mandate_revision(&config.mission);
+    let mut revisions: Vec<serde_json::Value> = records
+        .iter()
+        .filter(|record| record.body["state"] == "requested")
+        .filter(|record| saved.contains(&record.id) || record.body["revision"] == current)
+        .map(|record| {
+            serde_json::json!({
+                "revision": record.body["revision"],
+                "markdown": record.body["markdown"],
+                "saved_at": record.created_at,
+                "author": "You",
+            })
+        })
+        .collect();
+    if !revisions.iter().any(|entry| entry["revision"] == current) {
+        revisions.insert(
+            0,
+            serde_json::json!({
+                "revision": current,
+                "markdown": config.mission,
+                "saved_at": null,
+                "author": "You",
+            }),
+        );
+    }
+    Json(serde_json::json!({ "current_revision": current, "revisions": revisions })).into_response()
 }
 
 async fn revise_company_charter(

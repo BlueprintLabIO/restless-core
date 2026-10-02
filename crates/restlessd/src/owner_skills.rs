@@ -64,7 +64,12 @@ pub(super) async fn list(
         (Ok(skills), Ok(assignments)) => (skills, assignments),
         (Err(error), _) | (_, Err(error)) => return orgintel_error(error),
     };
+    let usage = match org.skill_work_usage().await {
+        Ok(usage) => usage,
+        Err(error) => return orgintel_error(error),
+    };
     Json(json!({
+        "usage": usage,
         "skills": skills,
         "assignments": assignments,
         "usable": usable,
@@ -375,6 +380,61 @@ pub(super) async fn cancel_loop(
         Ok(cancelled) => {
             Json(json!({ "schedule_id": schedule, "cancelled": cancelled })).into_response()
         }
+        Err(error) => orgintel_error(error),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ScheduleUpdateInput {
+    expected_fire_at: chrono::DateTime<chrono::Utc>,
+    expected_paused: bool,
+    paused: bool,
+    every: Option<String>,
+}
+
+pub(super) async fn update_schedule(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, schedule)): AxumPath<(String, Uuid)>,
+    Json(input): Json<ScheduleUpdateInput>,
+) -> Response<Body> {
+    if let Some(refusal) = owner_only(&principal) {
+        return refusal;
+    }
+    let interval = match input.every.as_deref() {
+        Some(value) => match restlessd::skill_package::parse_interval(value) {
+            Some(seconds) => Some(seconds),
+            None => {
+                return api_error(
+                    StatusCode::BAD_REQUEST,
+                    "schedule",
+                    "Choose a cadence such as 30m, 2h or 1d.",
+                )
+            }
+        },
+        None => None,
+    };
+    let org = match org_for(&state, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org
+        .update_recurring_schedule(
+            schedule,
+            input.expected_fire_at,
+            input.expected_paused,
+            input.paused,
+            interval,
+        )
+        .await
+    {
+        Ok(Some(row)) => Json(json!({"schedule": row})).into_response(),
+        Ok(None) => api_error(
+            StatusCode::CONFLICT,
+            "schedule",
+            "This schedule changed. Refresh and try again.",
+        ),
         Err(error) => orgintel_error(error),
     }
 }

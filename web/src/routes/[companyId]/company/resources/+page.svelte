@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { formatRelative, formatMoment } from '$lib/ui/time';
+	import SettingsHeader from '$lib/ui/views/SettingsHeader.svelte';
+	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { failureSentence } from '$lib/model/failure';
@@ -17,6 +20,13 @@
 	import { getCollaborationBootstrap, type CollaborationWork } from '$lib/model/collaboration';
 	import { companyQuery } from '$lib/model/queries.svelte';
 
+	const section = $derived(
+		(['spend', 'authority', 'tools', 'computer'].includes(
+			page.url.searchParams.get('section') ?? ''
+		)
+			? page.url.searchParams.get('section')
+			: 'spend') as 'spend' | 'authority' | 'tools' | 'computer'
+	);
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	const source = $derived(companyQuery(companyId));
 	$effect(() => source.attach(true));
@@ -29,6 +39,7 @@
 		view?.resources.items.filter((item) => !item.launch && item.kind !== 'mcp_connection') ?? []
 	);
 	let opening = $state<string | null>(null);
+	let expandedMcp = $state<string | null>(null);
 	let launchError = $state<string | null>(null);
 	let embedded = $state<{ href: string; label: string } | null>(null);
 	let nativeNotice = $state<string | null>(null);
@@ -48,14 +59,7 @@
 	let repinError = $state<string | null>(null);
 	let repinNotice = $state<string | null>(null);
 
-	function when(value: string): string {
-		return new Date(value).toLocaleString(undefined, {
-			month: 'short',
-			day: 'numeric',
-			hour: 'numeric',
-			minute: '2-digit'
-		});
-	}
+	const when = (value?: Date | string) => formatRelative(value, 'Not yet');
 
 	function words(value: string): string {
 		return value.replaceAll('_', ' ');
@@ -74,27 +78,38 @@
 		if (item.status === 'ready' && site === 'gumtree' && read === 'complete') {
 			return 'Gumtree read worked';
 		}
-		if (item.status === 'ready' && metadataText(item, 'transport') === 'broker_stdio'
-			&& metadataText(item, 'last_success_at') && read === 'complete') {
+		if (
+			item.status === 'ready' &&
+			metadataText(item, 'transport') === 'broker_stdio' &&
+			metadataText(item, 'last_success_at') &&
+			read === 'complete'
+		) {
 			return 'Local file read worked';
 		}
 		if (
 			failure === 'authentication-required' ||
 			read === 'auth-required' ||
 			read === 'authentication-required'
-		) return 'Login needed';
+		)
+			return 'Login needed';
 		if (
 			failure === 'profile-in-use' ||
 			failure === 'profile-recovery-required' ||
 			read === 'profile-in-use' ||
 			read === 'profile-recovery-required'
-		) return 'Browser needs attention';
+		)
+			return 'Browser needs attention';
 		switch (item.status) {
-			case 'ready': return 'MCP reachable';
-			case 'degraded': return 'Needs attention';
-			case 'disabled': return 'Disabled';
-			case 'disconnected': return 'Not connected';
-			default: return words(item.status);
+			case 'ready':
+				return 'MCP reachable';
+			case 'degraded':
+				return 'Needs attention';
+			case 'disabled':
+				return 'Disabled';
+			case 'disconnected':
+				return 'Not connected';
+			default:
+				return words(item.status);
 		}
 	}
 
@@ -136,7 +151,8 @@
 			const rows = await getCompanyMcpReceipts(companyId, name);
 			if (receiptsFor === name) receipts = rows;
 		} catch (error) {
-			if (receiptsFor === name) receiptsError = error instanceof Error ? error.message : 'Core receipts are unavailable.';
+			if (receiptsFor === name)
+				receiptsError = error instanceof Error ? error.message : 'Core receipts are unavailable.';
 		} finally {
 			if (receiptsFor === name) receiptsLoading = false;
 		}
@@ -156,14 +172,19 @@
 		repinLoading = true;
 		try {
 			const company = await getCollaborationBootstrap(companyId);
-			const running = new Set(company.work_graph.attempts
-				.filter((attempt) => attempt.state === 'running')
-				.map((attempt) => attempt.work_id));
-			if (repinFor === name) repinWorks = company.work_graph.work.filter((work) =>
-				(work.status === 'proposed' || work.status === 'blocked') && !running.has(work.id)
+			const running = new Set(
+				company.work_graph.attempts
+					.filter((attempt) => attempt.state === 'running')
+					.map((attempt) => attempt.work_id)
 			);
+			if (repinFor === name)
+				repinWorks = company.work_graph.work.filter(
+					(work) =>
+						(work.status === 'proposed' || work.status === 'blocked') && !running.has(work.id)
+				);
 		} catch (error) {
-			if (repinFor === name) repinError = error instanceof Error ? error.message : 'Work is unavailable.';
+			if (repinFor === name)
+				repinError = error instanceof Error ? error.message : 'Work is unavailable.';
 		} finally {
 			if (repinFor === name) repinLoading = false;
 		}
@@ -180,7 +201,8 @@
 			repinFor = null;
 			await source.refresh();
 		} catch (error) {
-			repinError = error instanceof Error ? error.message : 'Clapping Hands could not be re-probed.';
+			repinError =
+				error instanceof Error ? error.message : 'Clapping Hands could not be re-probed.';
 		} finally {
 			repinning = false;
 		}
@@ -193,7 +215,9 @@
 
 	function metadataList(item: CompanyResource, key: string): string[] {
 		const value = item.metadata?.[key];
-		return Array.isArray(value) ? value.filter((part): part is string => typeof part === 'string') : [];
+		return Array.isArray(value)
+			? value.filter((part): part is string => typeof part === 'string')
+			: [];
 	}
 
 	function fixedWorkReadLimit(item: CompanyResource): string {
@@ -243,244 +267,360 @@
 <svelte:head><title>Access & limits — {view?.company.name ?? companyId}</title></svelte:head>
 
 <div class="company-page resources-page">
-	<header class="company-page-head">
-		<h1>Access & limits</h1>
-		<div class="company-page-freshness">
-			<span class="source-lamp status-{source.status}" aria-hidden="true"></span>{source.status ===
-			'live'
-				? 'Live'
-				: source.status === 'stale'
-					? 'Out of date'
-					: 'Checking…'}
-		</div>
-	</header>
-	{#if view}
-		<CompanyLimits />
-		<section class="mcp-connections" aria-labelledby="mcp-connections-title">
-			<div class="section-heading">
-				<h2 id="mcp-connections-title">MCP connections</h2>
-				<InfoTip text="An MCP connection lets an assigned company agent call approved tools. Discovery alone does not prove a successful read; returned public content is unverified." />
+	<SettingsHeader title="Access & limits"
+		>{#snippet actions()}
+			<div class="company-page-freshness">
+				<span class="source-lamp status-{source.status}" aria-hidden="true"
+				></span>{source.status === 'live'
+					? 'Live'
+					: source.status === 'stale'
+						? 'Out of date'
+						: 'Checking…'}
 			</div>
-			{#if mcpConnections.length}
-				<div class="mcp-list">
-					{#each mcpConnections as item (item.id)}
-						<article class="mcp-card" aria-label={item.label}>
-							<div class="mcp-card-head">
-								<h3>{item.label}</h3>
-								<span class="state-chip state-{item.status}">{connectionState(item)}</span>
-							</div>
-							{#if item.detail}<p>{item.detail}</p>{/if}
-							<dl class="mcp-facts">
-								{#if metadataText(item, 'browser_owner')}
-									<div><dt>Browser owned by</dt><dd>{metadataText(item, 'browser_owner')}</dd></div>
-								{/if}
-								<div><dt>Assigned to</dt><dd>{metadataText(item, 'assigned_actor') ?? 'No agent assigned'}</dd></div>
-								{#if ['host_http', 'public_http', 'broker_stdio'].includes(metadataText(item, 'transport') ?? '')}
-									<div><dt>Fixed Work read calls</dt><dd>{fixedWorkReadLimit(item)}</dd></div>
-								{/if}
-								<div><dt>Last successful tool call</dt><dd>{observedTime(metadataText(item, 'last_success_at'))}</dd></div>
-								{#if metadataText(item, 'target_repository')}<div><dt>Public repository</dt><dd>{metadataText(item, 'target_repository')}</dd></div>{/if}
-							</dl>
-							{#if metadataText(item, 'last_read_status')}
-								{#if metadataText(item, 'last_read_status') === 'response_observed_unverified' && metadataText(item, 'last_read_site') === 'deepwiki'}
-									<p class="mcp-read-state">DeepWiki returned wiki content. Its accuracy is unverified.</p>
-								{:else}
-									<p class="mcp-read-state">Last read: {words(metadataText(item, 'last_read_status') ?? '')}{#if metadataText(item, 'last_read_site')} on {words(metadataText(item, 'last_read_site') ?? '')}{/if}.</p>
-								{/if}
-							{/if}
-							{#if metadataText(item, 'name')}
-								<div class="mcp-actions">
-									{#if ['host_http', 'public_http', 'broker_stdio'].includes(metadataText(item, 'transport') ?? '')}
-										<button type="button" class="btn small" aria-expanded={receiptsFor === metadataText(item, 'name')}
-											onclick={() => toggleReceipts(item)}>
-											{receiptsFor === metadataText(item, 'name') ? 'Hide Core receipts' : 'View Core receipts'}
-										</button>
-									{/if}
-									{#if item.status !== 'disabled' && metadataText(item, 'name') === 'clapping-hands' && metadataText(item, 'transport') === 'host_http'}
-										<button type="button" class="btn small" aria-expanded={repinFor === 'clapping-hands'}
-											onclick={() => toggleRepin(item)}>
-											{repinFor === 'clapping-hands' ? 'Close Work selection' : 'Re-probe and assign Work'}
-										</button>
-									{/if}
-									{#if item.status !== 'disabled'}
-										{#if disableTarget === item.id}<span>Stop agent access to this connection now?</span>{/if}
-										<button type="button" class="btn small" disabled={disabling !== null}
-											onclick={() => confirmDisable(item)}>
-											{disabling === item.id ? 'Disabling…' : disableTarget === item.id ? 'Confirm disable' : 'Disable connection'}
-										</button>
-										{#if disableTarget === item.id}<button type="button" class="btn small" onclick={() => (disableTarget = null)}>Cancel</button>{/if}
-									{/if}
+		{/snippet}</SettingsHeader
+	>
+	<nav class="settings-tabs" aria-label="Access and limits sections">
+		{#each [{ id: 'spend', label: 'Spend' }, { id: 'authority', label: 'Authority' }, { id: 'tools', label: 'Tools' }, { id: 'computer', label: 'Computer' }] as tab}<a
+				href={`/${companyId}/company/resources?section=${tab.id}`}
+				class:active={section === tab.id}
+				aria-current={section === tab.id ? 'page' : undefined}>{tab.label}</a
+			>{/each}
+	</nav>
+	{#if view}
+		{#if section !== 'tools'}<CompanyLimits {section} />{:else}
+			<section class="mcp-connections" aria-labelledby="mcp-connections-title">
+				<div class="section-heading">
+					<h2 id="mcp-connections-title">MCP connections</h2>
+					<InfoTip
+						text="An MCP connection lets an assigned company agent call approved tools. Discovery alone does not prove a successful read; returned public content is unverified."
+					/>
+				</div>
+				{#if mcpConnections.length}
+					<div class="mcp-list">
+						{#each mcpConnections as item (item.id)}
+							<article class="mcp-card" aria-label={item.label}>
+								<div class="mcp-card-head">
+									<h3>{item.label}</h3>
+									<span
+										class="mcp-status-dot"
+										class:healthy={['healthy', 'available', 'active'].includes(item.status)}
+										class:failing={['degraded', 'unavailable'].includes(item.status)}
+										title={connectionState(item)}
+										aria-label={connectionState(item)}
+									></span><time
+										class="mcp-last-call"
+										title={metadataText(item, 'last_success_at') ?? 'No successful call observed'}
+										>{observedTime(metadataText(item, 'last_success_at'))}</time
+									><ActionMenu label={`${item.label} actions`}>
+										<button
+											type="button"
+											aria-expanded={expandedMcp === item.id}
+											onclick={() => (expandedMcp = expandedMcp === item.id ? null : item.id)}
+											>{expandedMcp === item.id
+												? 'Hide connection details'
+												: 'Connection details'}</button
+										>
+										{#if ['host_http', 'public_http', 'broker_stdio'].includes(metadataText(item, 'transport') ?? '')}
+											<button
+												type="button"
+												class="btn small"
+												aria-expanded={receiptsFor === metadataText(item, 'name')}
+												onclick={() => toggleReceipts(item)}
+											>
+												{receiptsFor === metadataText(item, 'name')
+													? 'Hide Core receipts'
+													: 'View Core receipts'}
+											</button>
+										{/if}
+										{#if item.status !== 'disabled' && metadataText(item, 'name') === 'clapping-hands' && metadataText(item, 'transport') === 'host_http'}
+											<button
+												type="button"
+												class="btn small"
+												aria-expanded={repinFor === 'clapping-hands'}
+												onclick={() => toggleRepin(item)}
+											>
+												{repinFor === 'clapping-hands'
+													? 'Close Work selection'
+													: 'Re-probe and assign Work'}
+											</button>
+										{/if}
+										{#if item.status !== 'disabled'}
+											{#if disableTarget === item.id}<span
+													>Stop agent access to this connection now?</span
+												>{/if}
+											<button
+												type="button"
+												class="btn small"
+												disabled={disabling !== null}
+												onclick={() => confirmDisable(item)}
+											>
+												{disabling === item.id
+													? 'Disabling…'
+													: disableTarget === item.id
+														? 'Confirm disable'
+														: 'Disable connection'}
+											</button>
+											{#if disableTarget === item.id}<button
+													type="button"
+													class="btn small"
+													onclick={() => (disableTarget = null)}>Cancel</button
+												>{/if}
+										{/if}
+									</ActionMenu>
 								</div>
-							{/if}
-							{#if receiptsFor === metadataText(item, 'name')}
-								<section class="mcp-subpanel" aria-label={`${item.label} Core read receipts`}>
-									<h4>Core read receipts</h4>
-									<p>These records show what Core observed and recorded. Returned provider content remains unverified.</p>
-									{#if receiptsLoading}<p role="status">Reading receipts…</p>
-									{:else if receiptsError}<p class="launch-message-error" role="alert">{receiptsError}</p>
-									{:else if receipts.length === 0}<p>No Core tool calls recorded for this connection.</p>
-									{:else}
-										<div class="mcp-receipt-list">
-											{#each receipts as receipt (`${receipt.call_id}:${receipt.phase}`)}
-												<article class="mcp-receipt">
-													<div class="mcp-receipt-head"><strong>{words(receipt.tool_name)}</strong><time>{when(receipt.observed_at)}</time></div>
-															<p>{receipt.phase === 'started' ? 'Started' : `Terminal: ${words(receipt.status)}`}{#if receipt.subject?.site} · {words(receipt.subject.site)}{/if}{#if receipt.provider_status} · Provider reported {words(receipt.provider_status)}{/if}</p>
-													<small>Call {receipt.call_id} · {receipt.actor} · <a href={`/${companyId}/work/${receipt.work_id}`}>Work</a> · Attempt {receipt.attempt_id}</small>
-													{#if receipt.phase === 'terminal' && receipt.result_digest}<small>Result fingerprint: <code>{receipt.result_digest}</code></small>{/if}
-												</article>
-											{/each}
+
+								{#if receiptsFor === metadataText(item, 'name')}
+									<section class="mcp-subpanel" aria-label={`${item.label} Core read receipts`}>
+										<h4>Core read receipts</h4>
+										<p>
+											These records show what Core observed and recorded. Returned provider content
+											remains unverified.
+										</p>
+										{#if receiptsLoading}<p role="status">Reading receipts…</p>
+										{:else if receiptsError}<p class="launch-message-error" role="alert">
+												{receiptsError}
+											</p>
+										{:else if receipts.length === 0}<p>
+												No Core tool calls recorded for this connection.
+											</p>
+										{:else}
+											<div class="mcp-receipt-list">
+												{#each receipts as receipt (`${receipt.call_id}:${receipt.phase}`)}
+													<article class="mcp-receipt">
+														<div class="mcp-receipt-head">
+															<strong>{words(receipt.tool_name)}</strong><time
+																title={formatMoment(receipt.observed_at)}
+																>{when(receipt.observed_at)}</time
+															>
+														</div>
+														<p>
+															{receipt.phase === 'started'
+																? 'Started'
+																: `Terminal: ${words(receipt.status)}`}{#if receipt.subject?.site}
+																· {words(receipt.subject.site)}{/if}{#if receipt.provider_status}
+																· Provider reported {words(receipt.provider_status)}{/if}
+														</p>
+														<small
+															>Call {receipt.call_id} · {receipt.actor} ·
+															<a href={`/${companyId}/work/${receipt.work_id}`}>Work</a>
+															· Attempt {receipt.attempt_id}</small
+														>
+														{#if receipt.phase === 'terminal' && receipt.result_digest}<small
+																>Result fingerprint: <code>{receipt.result_digest}</code></small
+															>{/if}
+													</article>
+												{/each}
+											</div>
+										{/if}
+									</section>
+								{/if}
+								{#if repinFor === metadataText(item, 'name')}
+									<section class="mcp-subpanel" aria-label="Re-probe Clapping Hands for Work">
+										<h4>Assign Clapping Hands to Work</h4>
+										<p>
+											Core will check the saved host connection again and issue a new pin. Choose
+											proposed or blocked Work with no running Attempt; a fresh Attempt is needed to
+											use it.
+										</p>
+										{#if repinLoading}<p role="status">Reading eligible Work…</p>
+										{:else if repinWorks.length === 0}<p>
+												No proposed or blocked Work is available. The current assignment stays as it
+												is.
+											</p>
+										{:else}
+											<label for="mcp-repin-work">Work to assign</label>
+											<select id="mcp-repin-work" bind:value={repinWorkId} disabled={repinning}>
+												<option value="">Choose Work</option>
+												{#each repinWorks as work (work.id)}<option value={work.id}
+														>{work.title} · {work.owner_id} · {words(work.status)}</option
+													>{/each}
+											</select>
+											<button
+												type="button"
+												class="btn small"
+												disabled={!repinWorkId || repinning}
+												onclick={confirmRepin}
+												>{repinning ? 'Re-probing…' : 'Confirm re-probe and assign'}</button
+											>
+										{/if}
+										{#if repinError}<p class="launch-message-error" role="alert">
+												{repinError}
+											</p>{/if}
+									</section>
+								{/if}
+								<details class="mcp-details" hidden={expandedMcp !== item.id} open>
+									<summary>Connection details</summary>
+									{#if item.detail}<p>{item.detail}</p>{/if}
+									<dl class="mcp-facts">
+										{#if metadataText(item, 'browser_owner')}
+											<div>
+												<dt>Browser owned by</dt>
+												<dd>{metadataText(item, 'browser_owner')}</dd>
+											</div>
+										{/if}
+										<div>
+											<dt>Assigned to</dt>
+											<dd>{metadataText(item, 'assigned_actor') ?? 'No agent assigned'}</dd>
 										</div>
+										{#if ['host_http', 'public_http', 'broker_stdio'].includes(metadataText(item, 'transport') ?? '')}
+											<div>
+												<dt>Fixed Work read calls</dt>
+												<dd>{fixedWorkReadLimit(item)}</dd>
+											</div>
+										{/if}
+										<div>
+											<dt>Last successful tool call</dt>
+											<dd>{observedTime(metadataText(item, 'last_success_at'))}</dd>
+										</div>
+										{#if metadataText(item, 'target_repository')}<div>
+												<dt>Public repository</dt>
+												<dd>{metadataText(item, 'target_repository')}</dd>
+											</div>{/if}
+									</dl>
+									{#if metadataText(item, 'last_read_status')}
+										{#if metadataText(item, 'last_read_status') === 'response_observed_unverified' && metadataText(item, 'last_read_site') === 'deepwiki'}
+											<p class="mcp-read-state">
+												DeepWiki returned wiki content. Its accuracy is unverified.
+											</p>
+										{:else}
+											<p class="mcp-read-state">
+												Last read: {words(
+													metadataText(item, 'last_read_status') ?? ''
+												)}{#if metadataText(item, 'last_read_site')}
+													on {words(metadataText(item, 'last_read_site') ?? '')}{/if}.
+											</p>
+										{/if}
 									{/if}
-								</section>
-							{/if}
-							{#if repinFor === metadataText(item, 'name')}
-								<section class="mcp-subpanel" aria-label="Re-probe Clapping Hands for Work">
-									<h4>Assign Clapping Hands to Work</h4>
-									<p>Core will check the saved host connection again and issue a new pin. Choose proposed or blocked Work with no running Attempt; a fresh Attempt is needed to use it.</p>
-									{#if repinLoading}<p role="status">Reading eligible Work…</p>
-									{:else if repinWorks.length === 0}<p>No proposed or blocked Work is available. The current assignment stays as it is.</p>
-									{:else}
-										<label for="mcp-repin-work">Work to assign</label>
-										<select id="mcp-repin-work" bind:value={repinWorkId} disabled={repinning}>
-											<option value="">Choose Work</option>
-											{#each repinWorks as work (work.id)}<option value={work.id}>{work.title} · {work.owner_id} · {words(work.status)}</option>{/each}
-										</select>
-										<button type="button" class="btn small" disabled={!repinWorkId || repinning}
-											onclick={confirmRepin}>{repinning ? 'Re-probing…' : 'Confirm re-probe and assign'}</button>
-									{/if}
-									{#if repinError}<p class="launch-message-error" role="alert">{repinError}</p>{/if}
-								</section>
-							{/if}
-							<details class="mcp-details">
-								<summary>Connection details</summary>
-								<dl>
-									<div><dt>Transport</dt><dd>{words(metadataText(item, 'transport') ?? 'unknown')}</dd></div>
-									{#if metadataText(item, 'authentication')}<div><dt>Authentication</dt><dd>{words(metadataText(item, 'authentication') ?? '')}</dd></div>{/if}
-									{#if metadataText(item, 'read_profile')}<div><dt>Read profile</dt><dd>{metadataText(item, 'read_profile')}</dd></div>{/if}
-									<div><dt>Work</dt><dd>{metadataText(item, 'work_id') ?? 'Not Work-bound'}</dd></div>
-									<div><dt>Permitted tools</dt><dd>{metadataList(item, 'allowed_tools').join(', ') || 'None'}</dd></div>
-									<div><dt>Observed tools</dt><dd>{metadataList(item, 'observed_tools').join(', ') || 'None yet'}</dd></div>
-									{#if metadataText(item, 'server_version')}<div><dt>Server version</dt><dd>{metadataText(item, 'server_version')}</dd></div>{/if}
-									<div><dt>Tool contract</dt><dd>{metadataText(item, 'tool_contract_digest') ?? 'Unverified'}</dd></div>
-									{#if metadataText(item, 'last_read_tool')}<div><dt>Last tool</dt><dd>{metadataText(item, 'last_read_tool')}</dd></div>{/if}
-									{#if metadataText(item, 'failure')}
-										<div><dt>Current error</dt><dd>{metadataText(item, 'failure')}</dd></div>
-									{/if}
-									{#if metadataText(item, 'receipt_command')}<div><dt>Owner receipts</dt><dd><code>{metadataText(item, 'receipt_command')}</code></dd></div>{/if}
-								</dl>
-							</details>
-						</article>
-							{/each}
-						</div>
-						{#if disableError}<p class="launch-message launch-message-error" role="alert">{disableError}</p>{/if}
-						{#if disableNotice}<p class="launch-message" role="status">{disableNotice}</p>{/if}
-						{#if repinNotice}<p class="launch-message" role="status">{repinNotice}</p>{/if}
-			{:else if view.resources.status === 'available'}
-				<p class="quiet-empty">No local MCP connection has been observed for this company.</p>
-			{/if}
-		</section>
-		<div class="section-heading">
-			<h2>Resources &amp; access</h2>
-			<InfoTip
-				text="Tools and resources the company can use. Model credentials live in Intelligence and Vault."
-			/>
-		</div>
-		{#if view.resources.status === 'unavailable'}
-			<p class="source-unavailable">
-				Authority and Runtime are unavailable. Resources are unknown, not empty.
-			</p>
-		{/if}
-		{#if launchable.length}
-			<section class="launch-surface" aria-labelledby="launch-title">
-				<div class="launch-heading">
-					<div>
-						<h2 id="launch-title">Usable now</h2>
-						<p>Open finished work directly.</p>
+									<dl>
+										<div>
+											<dt>Transport</dt>
+											<dd>{words(metadataText(item, 'transport') ?? 'unknown')}</dd>
+										</div>
+										{#if metadataText(item, 'authentication')}<div>
+												<dt>Authentication</dt>
+												<dd>{words(metadataText(item, 'authentication') ?? '')}</dd>
+											</div>{/if}
+										{#if metadataText(item, 'read_profile')}<div>
+												<dt>Read profile</dt>
+												<dd>{metadataText(item, 'read_profile')}</dd>
+											</div>{/if}
+										<div>
+											<dt>Work</dt>
+											<dd>{metadataText(item, 'work_id') ?? 'Not Work-bound'}</dd>
+										</div>
+										<div>
+											<dt>Permitted tools</dt>
+											<dd>{metadataList(item, 'allowed_tools').join(', ') || 'None'}</dd>
+										</div>
+										<div>
+											<dt>Observed tools</dt>
+											<dd>{metadataList(item, 'observed_tools').join(', ') || 'None yet'}</dd>
+										</div>
+										{#if metadataText(item, 'server_version')}<div>
+												<dt>Server version</dt>
+												<dd>{metadataText(item, 'server_version')}</dd>
+											</div>{/if}
+										<div>
+											<dt>Tool contract</dt>
+											<dd>{metadataText(item, 'tool_contract_digest') ?? 'Unverified'}</dd>
+										</div>
+										{#if metadataText(item, 'last_read_tool')}<div>
+												<dt>Last tool</dt>
+												<dd>{metadataText(item, 'last_read_tool')}</dd>
+											</div>{/if}
+										{#if metadataText(item, 'failure')}
+											<div>
+												<dt>Current error</dt>
+												<dd>{metadataText(item, 'failure')}</dd>
+											</div>
+										{/if}
+										{#if metadataText(item, 'receipt_command')}<div>
+												<dt>Owner receipts</dt>
+												<dd><code>{metadataText(item, 'receipt_command')}</code></dd>
+											</div>{/if}
+									</dl>
+								</details>
+							</article>
+						{/each}
 					</div>
-					{#if embedded}
-						<button class="btn launch-close" type="button" onclick={() => (embedded = null)}>
-							Close viewer
-						</button>
-					{/if}
-				</div>
-				<div class="launch-rail">
-					{#each launchable as item (item.id)}
-						<div class="launch-row">
-							<div class="launch-identity">
-								<strong>{item.label}</strong>
-								<span>{words(item.launch?.shape ?? item.kind)}</span>
-							</div>
-							<div class="launch-state">
-								<span class="state-chip state-{item.launch?.availability}">
-									{words(item.launch?.availability ?? item.status)}
-								</span>
-								<p>{item.launch?.detail}</p>
-							</div>
-							<button
-								class="btn primary launch-control"
-								type="button"
-								disabled={item.launch?.availability !== 'ready' || opening !== null}
-								onclick={() => openResource(item)}
-								aria-describedby={`launch-detail-${item.id}`}
-							>
-								{openLabel(item)}
-							</button>
-							<span class="sr-only" id={`launch-detail-${item.id}`}>{item.launch?.detail}</span>
-						</div>
-					{/each}
-				</div>
-				{#if launchError}<p class="launch-message launch-message-error" role="alert">
-						{launchError}
-					</p>{/if}
-				{#if nativeNotice}<p class="launch-message" role="status">{nativeNotice}</p>{/if}
-				{#if embedded}
-					<div class="launch-viewport">
-						<div><strong>{embedded.label}</strong><span>Your session</span></div>
-						<iframe
-							src={embedded.href}
-							title={embedded.label}
-							sandbox="allow-forms allow-pointer-lock allow-scripts"
-						></iframe>
-					</div>
+					{#if disableError}<p class="launch-message launch-message-error" role="alert">
+							{disableError}
+						</p>{/if}
+					{#if disableNotice}<p class="launch-message" role="status">{disableNotice}</p>{/if}
+					{#if repinNotice}<p class="launch-message" role="status">{repinNotice}</p>{/if}
+				{:else if view.resources.status === 'available'}
+					<p class="quiet-empty">No local MCP connection has been observed for this company.</p>
 				{/if}
 			</section>
-		{/if}
-
-		<div class="resource-table" role="table" aria-label="Resource evidence">
-			<div class="resource-head" role="row">
-				<span role="columnheader">Resource</span><span role="columnheader">Observed state</span
-				><span role="columnheader">Source</span>
+			<div class="section-heading">
+				<h2>Resources &amp; access</h2>
+				<InfoTip
+					text="Tools and resources the company can use. Model credentials live in Intelligence and Vault."
+				/>
 			</div>
-			{#each supporting as item (item.id)}
-				<div class="resource-row" role="row">
-					<div role="cell"><strong>{item.label}</strong><span>{words(item.kind)}</span></div>
-					<div role="cell">
-						<span class="state-chip state-{item.status}">{words(item.status)}</span
-						>{#if item.detail}<InfoTip text={item.detail} />{/if}
+			{#if view.resources.status === 'unavailable'}
+				<p class="source-unavailable">
+					Authority and Runtime are unavailable. Resources are unknown, not empty.
+				</p>
+			{/if}
+			{#if launchable.length}
+				<section class="launch-surface" aria-labelledby="launch-title">
+					<div class="launch-heading">
+						<div>
+							<h2 id="launch-title">Usable now</h2>
+							<p>Open finished work directly.</p>
+						</div>
+						{#if embedded}
+							<button class="btn launch-close" type="button" onclick={() => (embedded = null)}>
+								Close viewer
+							</button>
+						{/if}
 					</div>
-					<div role="cell">
-						<span>{words(item.source)}</span><time>{when(item.observed_at)}</time>
+					<div class="launch-rail">
+						{#each launchable as item (item.id)}
+							<div class="launch-row">
+								<div class="launch-identity">
+									<strong>{item.label}</strong>
+									<span>{words(item.launch?.shape ?? item.kind)}</span>
+								</div>
+								<div class="launch-state">
+									<span class="state-chip state-{item.launch?.availability}">
+										{words(item.launch?.availability ?? item.status)}
+									</span>
+									<p>{item.launch?.detail}</p>
+								</div>
+								<button
+									class="btn primary launch-control"
+									type="button"
+									disabled={item.launch?.availability !== 'ready' || opening !== null}
+									onclick={() => openResource(item)}
+									aria-describedby={`launch-detail-${item.id}`}
+								>
+									{openLabel(item)}
+								</button>
+								<span class="sr-only" id={`launch-detail-${item.id}`}>{item.launch?.detail}</span>
+							</div>
+						{/each}
 					</div>
-					{#if item.metadata && Object.keys(item.metadata).length}
-						<div class="resource-detail-cell" role="cell">
-							<details>
-								<summary>Source detail</summary>
-								<dl>
-									{#each Object.entries(item.metadata) as [key, value]}<div>
-											<dt>{words(key)}</dt>
-											<dd>{Array.isArray(value) ? value.join(', ') || 'none' : String(value)}</dd>
-										</div>{/each}
-								</dl>
-							</details>
+					{#if launchError}<p class="launch-message launch-message-error" role="alert">
+							{launchError}
+						</p>{/if}
+					{#if nativeNotice}<p class="launch-message" role="status">{nativeNotice}</p>{/if}
+					{#if embedded}
+						<div class="launch-viewport">
+							<div><strong>{embedded.label}</strong><span>Your session</span></div>
+							<iframe
+								src={embedded.href}
+								title={embedded.label}
+								sandbox="allow-forms allow-pointer-lock allow-scripts"
+							></iframe>
 						</div>
 					{/if}
-				</div>
-			{:else}
-				{#if view.resources.status === 'available' && !launchable.length}<p class="quiet-empty">
-						No usable artifact or supporting resource has been observed.
-					</p>{/if}
-			{/each}
-		</div>
+				</section>
+			{/if}
+
+			<p class="tools-doctor-link"><a href={`/${companyId}/company/doctor`}>Diagnostics →</a></p>
+		{/if}
 	{:else if source.failure}
 		<FailureNotice
 			error={source.failure}
@@ -492,21 +632,45 @@
 </div>
 
 <style>
+	.mcp-last-call {
+		margin-left: auto;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+	.mcp-status-dot {
+		flex: none;
+		width: 7px;
+		height: 7px;
+		border-radius: 50%;
+		background: var(--text-tertiary);
+	}
+	.mcp-status-dot.healthy {
+		background: var(--state-success);
+	}
+	.mcp-status-dot.failing {
+		background: var(--state-danger);
+	}
+	.tools-doctor-link {
+		margin-top: 24px;
+		font-size: var(--t-label);
+	}
+
 	.mcp-connections {
 		margin-block: var(--space-6);
 	}
 
 	.mcp-list {
 		display: grid;
-		gap: var(--space-3);
+		gap: 0;
 	}
 
 	.mcp-card {
-		padding: var(--space-5) var(--space-6);
-		border: 1px solid var(--company-edge-soft);
+		padding: 12px 0;
+		border: 0;
+		border-bottom: 1px solid var(--border);
 		border-radius: var(--radius-pane);
 		background: var(--surface-pane);
-		box-shadow: var(--company-surface-shadow);
+		box-shadow: none;
 	}
 
 	.mcp-card-head {
@@ -518,12 +682,12 @@
 
 	.mcp-card-head h3 {
 		margin: 0;
-		font-size: var(--t-head);
-	}
-
-	.mcp-card > p {
-		margin: var(--space-2) 0 var(--space-4);
-		color: var(--text-secondary);
+		font-size: var(--t-body);
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		white-space: nowrap;
+		text-overflow: ellipsis;
 	}
 
 	.mcp-facts,
@@ -581,10 +745,16 @@
 	}
 
 	.mcp-subpanel h4,
-	.mcp-subpanel p { margin: 0; }
+	.mcp-subpanel p {
+		margin: 0;
+	}
 	.mcp-subpanel p,
-	.mcp-receipt small { color: var(--text-secondary); }
-	.mcp-subpanel label { font-weight: 600; }
+	.mcp-receipt small {
+		color: var(--text-secondary);
+	}
+	.mcp-subpanel label {
+		font-weight: 600;
+	}
 	.mcp-subpanel select {
 		width: min(100%, 36rem);
 		padding: var(--space-2);
@@ -593,9 +763,19 @@
 		background: var(--surface-pane);
 		color: var(--text-primary);
 	}
-	.mcp-subpanel select:focus-visible { outline: 2px solid var(--company-blue); outline-offset: 2px; }
-	.mcp-subpanel > .btn { justify-self: start; }
-	.mcp-receipt-list { display: grid; gap: var(--space-2); max-height: 24rem; overflow: auto; }
+	.mcp-subpanel select:focus-visible {
+		outline: 2px solid var(--company-blue);
+		outline-offset: 2px;
+	}
+	.mcp-subpanel > .btn {
+		justify-self: start;
+	}
+	.mcp-receipt-list {
+		display: grid;
+		gap: var(--space-2);
+		max-height: 24rem;
+		overflow: auto;
+	}
 	.mcp-receipt {
 		display: grid;
 		gap: var(--space-1);
@@ -604,9 +784,16 @@
 		border-radius: var(--radius-control);
 		background: var(--surface-pane);
 	}
-	.mcp-receipt-head { display: flex; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2); }
+	.mcp-receipt-head {
+		display: flex;
+		justify-content: space-between;
+		flex-wrap: wrap;
+		gap: var(--space-2);
+	}
 	.mcp-receipt small,
-	.mcp-receipt code { overflow-wrap: anywhere; }
+	.mcp-receipt code {
+		overflow-wrap: anywhere;
+	}
 
 	.mcp-details summary {
 		width: fit-content;
@@ -620,9 +807,13 @@
 	}
 
 	@media (max-width: 820px) {
-		.mcp-card { padding: var(--space-4); }
+		.mcp-card {
+			padding: var(--space-4);
+		}
 		.mcp-facts,
-		.mcp-details dl { grid-template-columns: 1fr; }
+		.mcp-details dl {
+			grid-template-columns: 1fr;
+		}
 	}
 
 	.launch-surface {
@@ -630,7 +821,7 @@
 		background: var(--surface-pane);
 		border: 1px solid var(--company-edge-soft);
 		border-radius: var(--radius-pane);
-		box-shadow: var(--company-surface-shadow);
+		box-shadow: none;
 		overflow: hidden;
 	}
 

@@ -179,7 +179,7 @@ delivered_at: string | null, created_at: string, resolved_at: string | null, };
 
 export type WorkGraphSnapshot = { work: Array<WorkRow>, edges: Array<WorkEdgeRow>, attempts: Array<WorkAttemptRow>, attempt_inputs: Array<WorkAttemptInputRow>, attempt_feedback: Array<WorkAttemptFeedbackRow>, artifacts: Array<ArtifactRefRow>, gates: Array<WorkGateRow>, gate_runs: Array<WorkGateRunRow>, handoffs: Array<OwnerHandoffRow>, };
 
-export type ScheduleRow = { id: string, actor_id: string, work_id: string | null, reason: string, fire_at: string, fired_at: string | null, cancelled_at: string | null, recurrence: string | null, timezone: string | null, local_time: string | null, last_fired_at: string | null, missed_policy: string, catch_up_grace_seconds: number | null, last_missed_at: string | null, last_considered_at: string | null, machine_requirement: string, created_at: string,
+export type ScheduleRow = { id: string, actor_id: string, work_id: string | null, reason: string, fire_at: string, fired_at: string | null, cancelled_at: string | null, paused_at: string | null, recurrence: string | null, timezone: string | null, local_time: string | null, last_fired_at: string | null, missed_policy: string, catch_up_grace_seconds: number | null, last_missed_at: string | null, last_considered_at: string | null, machine_requirement: string, created_at: string,
 /**
  * Present only for an interval recurrence (`/loop`).
  */

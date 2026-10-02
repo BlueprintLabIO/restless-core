@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { formatRelative, formatMoment } from '$lib/ui/time';
+	import SettingsHeader from '$lib/ui/views/SettingsHeader.svelte';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { failureSentence } from '$lib/model/failure';
@@ -6,7 +8,6 @@
 	import Activity from '@lucide/svelte/icons/activity';
 	import ArrowUpRight from '@lucide/svelte/icons/arrow-up-right';
 	import Monitor from '@lucide/svelte/icons/monitor';
-	import InfoTip from '$lib/components/InfoTip.svelte';
 	import { recoverCompany, type RecoveryAction } from '$lib/model/company';
 	import { companyQuery } from '$lib/model/queries.svelte';
 
@@ -14,13 +15,6 @@
 	const source = $derived(companyQuery(companyId));
 	$effect(() => source.attach());
 	const view = $derived(source.view);
-	/* Checks report the service that ran them; the owner reads what it covers. */
-	const CHECKERS: Record<string, string> = {
-		authority: 'your account controls',
-		orgintel: 'company records',
-		runtime: 'the company computer'
-	};
-	const checker = (source: string) => CHECKERS[source] ?? source;
 
 	let startupError = $state('');
 	let startupRetry = $state(0);
@@ -71,15 +65,21 @@
 		}
 	}
 
-	function when(value?: string): string {
-		if (!value) return 'Observation time unavailable';
-		return new Date(value).toLocaleString(undefined, {
-			month: 'short',
-			day: 'numeric',
-			hour: 'numeric',
-			minute: '2-digit'
-		});
-	}
+	const failing = $derived(
+		view?.computer.doctor.checks.filter(
+			(check) => !['healthy', 'available'].includes(check.status)
+		) ?? []
+	);
+	const passing = $derived(
+		view?.computer.doctor.checks.filter((check) =>
+			['healthy', 'available'].includes(check.status)
+		) ?? []
+	);
+	const repairCheck = $derived(
+		failing.find((check) => check.id === 'image')?.id ??
+			failing.find((check) => check.source === 'runtime')?.id
+	);
+	const when = (value?: Date | string) => formatRelative(value, 'Not yet');
 
 	function statusCopy(status: string): string {
 		return (
@@ -105,12 +105,16 @@
 <svelte:head><title>Doctor — {view?.company.name ?? companyId}</title></svelte:head>
 
 <div class="company-page doctor-page">
-	<header class="company-page-head">
-		<h1>Doctor</h1>
-		<a class="doctor-computer-link" href={`/${companyId}/company/computer`}>
-			<Monitor size={14} strokeWidth={1.8} /> Computer <ArrowUpRight size={13} strokeWidth={1.8} />
-		</a>
-	</header>
+	<SettingsHeader title="Doctor"
+		>{#snippet actions()}
+			<a class="doctor-computer-link" href={`/${companyId}/company/computer`}>
+				<Monitor size={14} strokeWidth={1.8} /> Computer <ArrowUpRight
+					size={13}
+					strokeWidth={1.8}
+				/>
+			</a>
+		{/snippet}</SettingsHeader
+	>
 	<!-- The startup run is news only when it failed; otherwise its time is a
 	     hover on the overview below. -->
 	{#if startupError || startup.error || startup.setup_failed}<p role="status">
@@ -149,58 +153,63 @@
 
 		<section class="doctor-diagnostics">
 			<div class="section-heading">
-				<h2>Diagnostic checks</h2>
+				<h2>{failing.length ? `${failing.length} need attention` : 'All checks passing'}</h2>
 				<button class="btn small" disabled={!!working} onclick={recheck}
 					>{working === 'recheck' ? 'Checking…' : 'Recheck'}</button
 				>
 			</div>
 			<div class="doctor-checks">
-				{#each view.computer.doctor.checks as check (check.id)}
-					<!-- The owning plane is diagnostic detail: a hover, not a column. -->
-					<article title={`Checked by ${checker(check.source)}`}>
+				{#each failing as check (check.id)}
+					<article>
 						<i class="check-state check-{check.status}" aria-hidden="true"></i>
 						<div>
 							<strong>{check.label}</strong>
 							<p>{check.summary}</p>
+							{#if check.detail}<details>
+									<summary>Details</summary>
+									<p>{check.detail}</p>
+								</details>{/if}
 						</div>
-						<span class="sr-only">Checked by {checker(check.source)}</span>
-						{#if check.detail}<InfoTip text={check.detail} />{/if}
+						{#if check.id === 'intelligence'}<a
+								class="btn small"
+								href={`/${companyId}/company/provider`}
+								>{check.summary.startsWith('Choose an intelligence')
+									? 'Choose intelligence'
+									: 'Reconnect'}</a
+							>{:else if check.id === repairCheck}{#each view.computer.doctor.actions as action (action.id)}<button
+									class="btn small"
+									title={action.consequence}
+									disabled={!!working}
+									onclick={() => recover(action.id, action.confirmation)}
+									>{working === action.id ? 'Working…' : action.label}</button
+								>{/each}{/if}
 					</article>
 				{/each}
 			</div>
-		</section>
-
-		<section class="doctor-recovery">
-			<div class="section-heading">
-				<h2>Recovery</h2>
-				<InfoTip text="The smallest repair that would help. Every repair is recorded." />
-			</div>
-			{#if view.computer.doctor.actions.length}
-				<div class="doctor-actions">
-					{#each view.computer.doctor.actions as action (action.id)}
-						<div>
-							<p>{action.consequence}</p>
-							<button
-								class="btn"
-								type="button"
-								disabled={!!working}
-								onclick={() => recover(action.id, action.confirmation)}
-								>{working === action.id ? 'Working…' : action.label}</button
-							>
-						</div>
-					{/each}
+			{#if passing.length}<details class="doctor-passing">
+					<summary>{passing.length} checks passing</summary>
+					<div class="doctor-checks">
+						{#each passing as check (check.id)}<article>
+								<i class="check-state check-healthy" aria-hidden="true"></i>
+								<div>
+									<strong>{check.label}</strong>
+									<p>{check.summary}</p>
+								</div>
+							</article>{/each}
+					</div>
+				</details>{/if}
+			<details class="doctor-raw">
+				<summary>Show raw state</summary>
+				<pre>{JSON.stringify(view.computer.runtime, null, 2)}</pre>
+				<div class="doctor-checks">
+					{#each view.resources.items as resource (resource.id)}<article>
+							<div>
+								<strong>{resource.label}</strong>
+								<p>{resource.status} · {resource.detail}</p>
+							</div>
+						</article>{/each}
 				</div>
-			{:else if view.computer.doctor.status === 'healthy'}
-				<div class="doctor-clear">
-					<span class="check-state check-healthy" aria-hidden="true"></span>
-					<p>No recovery is proposed. Every current check is healthy.</p>
-				</div>
-			{:else}
-				<p class="quiet-empty">
-					Doctor has no safe automatic fix for this problem. Exec can inspect the source without
-					turning uncertainty into a destructive action.
-				</p>
-			{/if}
+			</details>
 		</section>
 	{:else if source.failure}
 		<section class="doctor-diagnostics">
@@ -216,3 +225,35 @@
 		<Skeleton label="Running company doctor…" variant="page" count={4} />
 	{/if}
 </div>
+
+<style>
+	.doctor-passing,
+	.doctor-raw {
+		margin-top: 20px;
+		font-size: var(--t-body);
+		color: var(--text-secondary);
+	}
+	.doctor-raw pre {
+		max-width: 100%;
+		overflow: auto;
+		max-height: 420px;
+		padding: 16px;
+		background: var(--surface-alt);
+		font-size: var(--t-label);
+	}
+	.doctor-checks article {
+		grid-template-columns: 8px minmax(0, 1fr) auto;
+	}
+	.doctor-checks article > div {
+		min-width: 0;
+	}
+	@media (max-width: 640px) {
+		.doctor-checks article {
+			grid-template-columns: 8px minmax(0, 1fr);
+		}
+		.doctor-checks article > :is(a, button) {
+			grid-column: 2;
+			justify-self: start;
+		}
+	}
+</style>

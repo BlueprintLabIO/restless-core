@@ -1,3 +1,57 @@
+.bridge-root .tb-exec.unavailable .tb-exec-lamp {
+	background: var(--state-danger);
+}
+.bridge-root .settings-search {
+	width: 100%;
+	box-sizing: border-box;
+	padding: 9px 12px;
+	border: 1px solid var(--control-edge);
+	border-radius: 5px;
+	background: var(--surface-pane);
+	color: var(--ink);
+	font: inherit;
+}
+.bridge-root .settings-tabs {
+	display: flex;
+	gap: 16px;
+	border-bottom: 1px solid var(--border);
+	margin-bottom: 24px;
+}
+.bridge-root .settings-tabs a {
+	padding: 10px 0;
+	font-size: var(--t-body);
+	color: var(--text-secondary);
+	text-decoration: none;
+	border-bottom: 2px solid transparent;
+}
+.bridge-root .settings-tabs a.active {
+	color: var(--ink);
+	border-bottom-color: var(--intent-feedback);
+}
+.bridge-root .quality-segments {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 3px;
+	padding: 3px;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	background: var(--surface-alt);
+}
+.bridge-root .quality-segments button {
+	padding: 7px 10px;
+	flex: 1;
+	border: 0;
+	background: none;
+	font: 500 var(--t-label) var(--font-ui);
+	color: var(--text-secondary);
+	cursor: pointer;
+	border-radius: 4px;
+}
+.bridge-root .quality-segments button.active {
+	background: var(--surface-raised);
+	color: var(--ink);
+	box-shadow: var(--shadow-1);
+}
 /* Production Bridge Light. Flat, full-bleed work regions; depth comes from
  * fogged glass, pane seams and one top-left light source—not card inflation. */
 
@@ -434,10 +488,9 @@
 	gap: var(--pane-gap);
 }
 
-/* Until the source answers, neither the queue layout nor the clear layout is
- * known to be true. Showing one and then swapping to the other is a layout
- * shift, so both panes stay invisible (still laid out) for that round trip. */
-.bridge-root .attention-screen.awaiting > * {
+/* Keep the neutral inbox skeleton visible while the result is unknown.
+ * The focus pane waits for a real item or a verified empty queue. */
+.bridge-root .attention-screen.awaiting > .attention-focus {
 	visibility: hidden;
 }
 
@@ -510,8 +563,8 @@
 }
 
 .bridge-root .attention-index {
-	display: grid;
-	grid-template-rows: minmax(0, 1fr);
+	display: flex;
+	flex-direction: column;
 	opacity: 1;
 	transform: translateX(0) scaleX(1);
 	transform-origin: left center;
@@ -541,108 +594,6 @@
 
 .bridge-root .attention-list {
 	display: grid;
-}
-
-.bridge-root .attention-item {
-	--item-tone: var(--surface-attention);
-	position: relative;
-	width: 100%;
-	min-width: 0;
-	display: grid;
-	gap: 6px;
-	padding: 13px 14px;
-	border-bottom: 1px solid var(--border);
-	background: transparent;
-	color: var(--ink);
-	text-decoration: none;
-}
-
-.bridge-root .attention-item.category-approval {
-	--item-tone: var(--intent-authority);
-}
-.bridge-root .attention-item.category-review {
-	--item-tone: var(--intent-feedback);
-}
-.bridge-root .attention-item.category-decision,
-.bridge-root .attention-item.category-contradiction {
-	--item-tone: var(--surface-attention);
-}
-.bridge-root .attention-item.category-blocker {
-	--item-tone: var(--state-danger);
-}
-.bridge-root .attention-item.category-human_step {
-	--item-tone: var(--intent-authority);
-}
-.bridge-root .attention-item.category-opportunity {
-	--item-tone: var(--state-success);
-}
-
-.bridge-root .attention-item:hover {
-	background: var(--surface-alt);
-}
-
-.bridge-root .attention-item.selected {
-	background: color-mix(
-		in srgb,
-		var(--item-tone) 9%,
-		color-mix(in srgb, var(--highlight) 70%, transparent)
-	);
-	box-shadow:
-		inset 3px 0 0 var(--item-tone),
-		inset 0 1px 0 color-mix(in srgb, var(--highlight) 80%, transparent);
-}
-
-.bridge-root .attention-item-meta,
-.bridge-root .attention-item-meta > span {
-	display: flex;
-	align-items: center;
-}
-
-.bridge-root .attention-item-meta {
-	min-width: 0;
-	justify-content: space-between;
-	gap: 10px;
-	font: 500 var(--t-label) var(--font-ui);
-	font-variant-numeric: tabular-nums;
-	color: var(--item-tone);
-}
-
-.bridge-root .attention-item-meta > span {
-	min-width: 0;
-	gap: 6px;
-}
-
-.bridge-root .attention-item-title {
-	display: -webkit-box;
-	overflow: hidden;
-	-webkit-box-orient: vertical;
-	-webkit-line-clamp: 2;
-	font-size: var(--t-body);
-	font-weight: 600;
-	line-height: 1.35;
-}
-
-.bridge-root .attention-item-action {
-	display: -webkit-box;
-	overflow: hidden;
-	-webkit-box-orient: vertical;
-	-webkit-line-clamp: 2;
-	font-size: var(--t-label);
-	font-weight: 500;
-	line-height: 1.4;
-	color: var(--text-secondary);
-}
-
-.bridge-root .attention-item-action > span:first-child {
-	font-weight: 600;
-	color: var(--ink);
-}
-
-.bridge-root .attention-item time {
-	font: var(--t-label) var(--font-ui);
-	font-variant-numeric: tabular-nums;
-	color: var(--text-tertiary);
-	white-space: nowrap;
 }
 
 /* The shape of the queue while the source has not answered. Deliberately mute

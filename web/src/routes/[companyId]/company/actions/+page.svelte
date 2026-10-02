@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { formatRelative, formatMoment } from '$lib/ui/time';
+	import EmptyState from '$lib/ui/views/EmptyState.svelte';
+	import SettingsHeader from '$lib/ui/views/SettingsHeader.svelte';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { page } from '$app/state';
@@ -10,14 +13,7 @@
 	$effect(() => source.attach());
 	const view = $derived(source.view);
 
-	function when(value: string): string {
-		return new Date(value).toLocaleString(undefined, {
-			month: 'short',
-			day: 'numeric',
-			hour: 'numeric',
-			minute: '2-digit'
-		});
-	}
+	const when = (value?: Date | string) => formatRelative(value, 'Not yet');
 
 	function words(value: string): string {
 		return value.replaceAll('_', ' ');
@@ -42,12 +38,10 @@
 <svelte:head><title>External activity — {view?.company.name ?? companyId}</title></svelte:head>
 
 <div class="company-page actions-page">
-	<header class="company-page-head">
-		<h1>External activity</h1>
-		<InfoTip
-			text="Only consequential effects and provider outcomes belong here. Shell commands, builds and Git activity remain with the Work that produced them."
-		/>
-	</header>
+	<SettingsHeader
+		title="External activity"
+		explanation="Only consequential effects and provider outcomes belong here. Shell commands, builds and Git activity remain with the Work that produced them."
+	></SettingsHeader>
 	{#if view}
 		{#if view.external_actions.status !== 'available'}
 			<p class="source-unavailable">
@@ -68,15 +62,16 @@
 							>
 						</div>
 						<div class="action-provenance">
-							<time>{when(item.observed_at)}</time><span>{item.actor ?? 'source record'}</span
+							<time title={formatMoment(item.observed_at)}>{when(item.observed_at)}</time><span
+								>{item.actor ?? 'source record'}</span
 							>{#if item.detail}<InfoTip text={item.detail} />{/if}
 						</div>
 					</article>
 				{:else}
-					<p class="quiet-empty">
-						Nothing yet. Messages sent, forms submitted and payments made on the company’s behalf
-						appear here. Internal chats and document edits stay with their work.
-					</p>
+					<EmptyState
+						title="No external activity yet"
+						explanation="Messages sent, forms submitted and payments made on the company's behalf appear here."
+					/>
 				{/each}
 			</div>
 		{/if}

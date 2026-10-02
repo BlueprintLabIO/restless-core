@@ -1,284 +1,373 @@
 <script lang="ts">
+	import SettingsHeader from '$lib/ui/views/SettingsHeader.svelte';
+	import EmptyState from '$lib/ui/views/EmptyState.svelte';
+	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
+	import RelativeTime from '$lib/ui/RelativeTime.svelte';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
-	import { formatMoment } from '$lib/ui/time';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { page } from '$app/state';
 	import { createQuery } from '@tanstack/svelte-query';
-	import InfoTip from '$lib/components/InfoTip.svelte';
 	import {
 		monitorSchedules,
 		testScheduleTrigger,
+		addLoop,
+		updateSchedule,
 		type MonitoredSchedule,
 		type ScheduleTestReport
 	} from '$lib/model/skills';
-
 	const companyId = $derived(page.params.companyId ?? 'aris');
-	/* A company query, so the change stream keeps it current: no Refresh. */
 	const query = createQuery(() => ({
 		queryKey: ['schedules', companyId],
 		queryFn: () => monitorSchedules(companyId)
 	}));
-	const schedules = $derived<MonitoredSchedule[] | null>(query.data ?? null);
+	const schedules = $derived(query.data ?? null);
 	let actionFailure = $state('');
 	const failure = $derived(
 		actionFailure ||
-			(query.error && !query.data
-				? failureSentence(query.error, 'Schedules could not be read.')
-				: '')
+			(query.error ? failureSentence(query.error, 'Schedules could not be read.') : '')
 	);
 	let busy = $state('');
+	let notice = $state('');
 	let report = $state<ScheduleTestReport | null>(null);
-
-	async function load() {
-		await query.refetch();
-	}
-
-	async function test(schedule: string) {
+	let creating = $state(false),
+		every = $state('1h'),
+		prompt = $state('');
+	let editing = $state(''),
+		editEvery = $state('');
+	async function act(key: string, operation: () => Promise<unknown>, message: string) {
 		if (busy) return;
-		busy = schedule;
+		busy = key;
 		actionFailure = '';
-		report = null;
+		notice = '';
 		try {
-			report = await testScheduleTrigger(companyId, schedule);
-			await load();
+			await operation();
+			await query.refetch();
+			notice = message;
 		} catch (cause) {
-			actionFailure = failureSentence(cause, 'The schedule trigger could not be tested.');
+			actionFailure = failureSentence(cause, 'The schedule could not be updated.');
 		} finally {
 			busy = '';
 		}
 	}
-
-	function when(value: string | null | undefined): string {
-		if (!value) return 'Not yet';
-		return formatMoment(value, 'Not yet');
+	async function create(event: SubmitEvent) {
+		event.preventDefault();
+		await act(
+			'create',
+			async () => {
+				await addLoop(companyId, every, prompt);
+				creating = false;
+				prompt = '';
+			},
+			'Schedule created'
+		);
 	}
-
+	async function cadence(event: SubmitEvent, item: MonitoredSchedule) {
+		event.preventDefault();
+		await act(
+			item.schedule.id,
+			async () => {
+				await updateSchedule(companyId, item.schedule, !!item.schedule.paused_at, editEvery);
+				editing = '';
+			},
+			'Cadence saved'
+		);
+	}
 	function outcomeText(outcome: unknown, reason: string | null): string {
-		if (reason) return reason;
+		const reasons: Record<string, string> = {
+			'absolute outcome deadline expired': 'The check did not finish in time.',
+			'bounded wake delivery budget exhausted':
+				'Exec could not be reached after repeated attempts.',
+			'bounded progress budget exhausted':
+				'The check stopped after repeated attempts without progress.'
+		};
+		if (reason) return reasons[reason] ?? reason;
 		if (typeof outcome === 'string') return outcome;
 		if (outcome && typeof outcome === 'object') {
 			const value = outcome as Record<string, unknown>;
-			return String(value.summary ?? value.title ?? value.status ?? 'Outcome recorded');
+			return String(value.summary ?? value.title ?? 'Result recorded');
 		}
-		return 'No final outcome recorded';
+		return 'No final result yet';
 	}
-
-	function scheduleTitle(reason: string): string {
-		const separator = reason.indexOf(':');
-		return separator > 0 && separator < 60 ? reason.slice(0, separator) : reason;
+	function cadenceText(item: MonitoredSchedule) {
+		const s = item.schedule;
+		if (s.interval_seconds) {
+			const n = s.interval_seconds;
+			return n % 86400 === 0
+				? `Every ${n / 86400}d`
+				: n % 3600 === 0
+					? `Every ${n / 3600}h`
+					: `Every ${n / 60}m`;
+		}
+		return s.recurrence === 'weekdays'
+			? `Weekdays · ${s.local_time?.slice(0, 5)} ${s.timezone ?? ''}`
+			: 'Recurring';
 	}
+	const failed = (item: MonitoredSchedule) =>
+		item.recent_outcomes.some((outcome) => ['blocked', 'needs_human'].includes(outcome.state));
 </script>
 
 <CompanyTitle title="Schedules" {companyId} />
-
 <div class="company-page schedules-page">
-	<header class="company-page-head">
-		<h1>Schedules</h1>
-		<InfoTip text="Recurring Exec check-ins: when each runs next and how the last one went." />
-	</header>
-
-	{#if failure}<p class="schedule-message schedule-error" role="alert">{failure}</p>{/if}
-
-	{#if schedules === null}
-		{#if !failure}<Skeleton label="Reading schedules…" variant="page" count={4} />{/if}
-	{:else if schedules.length === 0}
-		<p class="quiet-empty">No recurring check-ins yet.</p>
-	{:else}
-		<ul class="schedule-list">
+	<SettingsHeader title="Schedules" explanation="Recurring Exec check-ins and their results."
+		>{#snippet actions()}<button class="btn primary small" onclick={() => (creating = !creating)}
+				>{creating ? 'Cancel' : 'New schedule'}</button
+			>{/snippet}</SettingsHeader
+	>
+	{#if failure}<p class="schedule-error" role="alert">
+			{failure}<button class="btn small" onclick={() => query.refetch()}>Retry</button>
+		</p>{/if}
+	{#if notice}<p class="schedule-notice" role="status">{notice}</p>{/if}
+	{#if creating}<form class="schedule-form" onsubmit={create}>
+			<label for="schedule-prompt">What should Exec check?</label><textarea
+				id="schedule-prompt"
+				bind:value={prompt}
+				placeholder="Review inbound leads and flag ones needing a reply"
+				required
+				maxlength="2000"
+				rows="3"></textarea>
+			<label for="schedule-every">Repeat every</label><select id="schedule-every" bind:value={every}
+				><option value="30m">30 minutes</option><option value="1h">Hour</option><option value="4h"
+					>4 hours</option
+				><option value="1d">Day</option><option value="7d">Week</option></select
+			>
+			<button class="btn primary small" disabled={!!busy}
+				>{busy === 'create' ? 'Creating…' : 'Create schedule'}</button
+			>
+		</form>{/if}
+	{#if schedules === null}{#if !failure}<Skeleton
+				label="Reading schedules…"
+				variant="page"
+				count={4}
+			/>{/if}
+	{:else if !schedules.length}<EmptyState
+			title="No schedules yet"
+			explanation="Create a recurring check-in for Exec."
+			>{#snippet action()}<button class="btn small" onclick={() => (creating = true)}
+					>Create a schedule</button
+				>{/snippet}</EmptyState
+		>
+	{:else}<ul class="schedule-list">
 			{#each schedules as item (item.schedule.id)}
 				<li class="schedule-row">
-					<div class="schedule-main">
-						<div class="schedule-heading">
-							<h2>{scheduleTitle(item.schedule.reason)}</h2>
-							<InfoTip text={item.schedule.reason} />
-						</div>
-						<p>
-							Next fire <time datetime={item.schedule.fire_at}>{when(item.schedule.fire_at)}</time>
-						</p>
-						{#if item.schedule.last_fired_at}
-							<p>
-								Last fired <time datetime={item.schedule.last_fired_at}
-									>{when(item.schedule.last_fired_at)}</time
-								>
-							</p>
-						{/if}
+					<div class="schedule-heading">
+						<i
+							class:warning={failed(item)}
+							class:paused={!!item.schedule.paused_at}
+							aria-label={item.schedule.paused_at
+								? 'Paused'
+								: failed(item)
+									? 'Needs attention'
+									: 'Active'}
+						></i>
+						<h2 title={item.schedule.reason}>{item.schedule.reason}</h2>
+						<ActionMenu label={`Options for ${item.schedule.reason}`}>
+							<button
+								disabled={!!busy}
+								onclick={() =>
+									act(
+										item.schedule.id,
+										() => updateSchedule(companyId, item.schedule, !item.schedule.paused_at),
+										item.schedule.paused_at ? 'Schedule resumed' : 'Schedule paused'
+									)}>{item.schedule.paused_at ? 'Resume' : 'Pause'}</button
+							>
+							{#if item.schedule.interval_seconds}<button
+									onclick={() => {
+										editing = item.schedule.id;
+										editEvery = `${(item.schedule.interval_seconds ?? 3600) / 60}m`;
+									}}>Edit cadence</button
+								>{/if}
+							<button
+								disabled={!item.testable || !!busy}
+								title={item.testable
+									? 'Tests admission without running an actor or external action'
+									: 'This schedule needs a bound responsibility'}
+								onclick={() =>
+									act(
+										item.schedule.id,
+										async () => {
+											report = await testScheduleTrigger(companyId, item.schedule.id);
+										},
+										'Trigger tested'
+									)}>Test trigger</button
+							>
+							<a href={`/${companyId}/people/exec`}>Discuss with Exec</a>
+						</ActionMenu>
 					</div>
-					<div class="schedule-action">
-						<button
-							type="button"
-							onclick={() => void test(item.schedule.id)}
-							disabled={!item.testable || busy !== ''}
+					<div class="schedule-meta">
+						<span>{cadenceText(item)}</span>{#if item.schedule.paused_at}<span>Paused</span
+							>{:else}<span>Next <RelativeTime value={item.schedule.fire_at} /></span
+							>{/if}{#if item.schedule.last_fired_at}<span
+								>Last <RelativeTime value={item.schedule.last_fired_at} /></span
+							>{/if}
+					</div>
+					{#if editing === item.schedule.id}<form
+							class="cadence-form"
+							onsubmit={(event) => cadence(event, item)}
 						>
-							{busy === item.schedule.id ? 'Testing…' : 'Test trigger'}
-						</button>
-						{#if !item.testable}<span>Needs a bound responsibility</span>{/if}
-					</div>
-					{#if item.recent_outcomes.length}
-						<div class="recent">
-							<h3>Recent opportunities</h3>
+							<label for={`cadence-${item.schedule.id}`}>Repeat every</label><input
+								id={`cadence-${item.schedule.id}`}
+								bind:value={editEvery}
+								required
+								placeholder="30m, 2h or 1d"
+							/><button class="btn primary small" disabled={!!busy}
+								>{busy ? 'Saving…' : 'Save'}</button
+							><button class="btn small" type="button" onclick={() => (editing = '')}>Cancel</button
+							>
+						</form>{/if}
+					{#if failed(item)}<p class="schedule-warning">
+							{outcomeText(
+								item.recent_outcomes.find((o) => ['blocked', 'needs_human'].includes(o.state))
+									?.outcome,
+								item.recent_outcomes.find((o) => ['blocked', 'needs_human'].includes(o.state))
+									?.outcome_reason ?? null
+							)} <a href={`/${companyId}/company/doctor`}>Fix →</a>
+						</p>{/if}
+					{#if item.recent_outcomes.length || item.prior_responsibility_outcomes.length}<details
+							class="schedule-runs"
+						>
+							<summary>Recent runs</summary>
 							<ul>
-								{#each item.recent_outcomes as outcome (`${outcome.opportunity_id}:${outcome.scheduled_for}`)}
-									<li>
-										<span class="state">{outcome.state}</span>
-										<span>{outcomeText(outcome.outcome, outcome.outcome_reason)}</span>
-										<time datetime={outcome.scheduled_for}>{when(outcome.scheduled_for)}</time>
-									</li>
-								{/each}
+								{#each [...item.recent_outcomes, ...item.prior_responsibility_outcomes] as outcome (outcome.opportunity_id)}<li
+									>
+										<span>{outcomeText(outcome.outcome, outcome.outcome_reason)}</span><RelativeTime
+											value={outcome.created_at}
+										/>
+									</li>{/each}
 							</ul>
-						</div>
-					{:else}
-						<p class="recent-empty">No run from this schedule yet.</p>
-					{/if}
-					{#if item.prior_responsibility_outcomes.length}
-						<div class="recent">
-							<h3>Earlier checks for this responsibility</h3>
-							<ul>
-								{#each item.prior_responsibility_outcomes as outcome (outcome.opportunity_id)}
-									<li>
-										<span class="state">{outcome.state}</span>
-										<span>{outcomeText(outcome.outcome, outcome.outcome_reason)}</span>
-										<time datetime={outcome.created_at}>{when(outcome.created_at)}</time>
-									</li>
-								{/each}
-							</ul>
-						</div>
-					{/if}
+						</details>{/if}
 				</li>
 			{/each}
-		</ul>
-	{/if}
-
-	{#if report}
-		<section class="test-result" aria-labelledby="test-result-title" role="status">
-			<h2 id="test-result-title">Test trigger: {report.status.replaceAll('_', ' ')}</h2>
-			<p>Scope: scheduler admission only; no actor run or external effect.</p>
-			{#if report.test_company}
-				<p>
-					Disposable test company retained for inspection: <a href={`/${report.test_company}`}
-						>{report.test_company}</a
-					>.
-				</p>
-			{/if}
-			{#if report.opportunity}
-				<p>
-					Opportunity state: {report.opportunity.state}. {outcomeText(
-						report.opportunity.outcome,
-						report.opportunity.outcome_reason ?? null
-					)}
-				</p>
-			{/if}
-			{#if report.work_outcomes?.length}
-				<ul>
-					{#each report.work_outcomes as item (item.work?.id ?? item.attempts.length)}
-						<li>
-							{item.work?.title ?? 'Work'} — {item.work?.status ?? 'unavailable'}
-							{#if item.work?.outcome}: {item.work.outcome}{/if}
-							{#if item.attempts.length}
-								(Attempts: {item.attempts.map((attempt) => attempt.state).join(', ')})
-							{/if}
-						</li>
-					{/each}
-				</ul>
-			{/if}
-			{#if report.scheduled_for}<p>
-					Triggered at <time datetime={report.scheduled_for}>{when(report.scheduled_for)}</time>.
-				</p>{/if}
-		</section>
-	{/if}
+		</ul>{/if}
+	{#if report}<section class="test-result" role="status">
+			<strong>Trigger test: {report.status.replaceAll('_', ' ')}</strong>
+			<p>Scheduler admission checked. No actor or external action ran.</p>
+			{#if report.test_company}<a href={`/${report.test_company}`}>Inspect test company →</a>{/if}
+		</section>{/if}
 </div>
 
 <style>
 	.schedule-list,
-	.recent ul {
+	.schedule-runs ul {
 		list-style: none;
 		padding: 0;
 		margin: 0;
 	}
 	.schedule-row {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto;
-		gap: var(--space-4);
-		padding: var(--space-5) 0;
+		padding: 16px 0;
 		border-bottom: 1px solid var(--border);
-	}
-	.schedule-main h2 {
-		margin: 0;
-		font-size: var(--t-head);
-		font-weight: 500;
+		min-width: 0;
 	}
 	.schedule-heading {
 		display: flex;
 		align-items: center;
-		gap: var(--space-2);
+		gap: 10px;
 	}
-	.schedule-main p,
-	.recent-empty,
-	.schedule-action span {
-		color: var(--text-secondary);
-		font-size: var(--t-label);
-		margin: var(--space-2) 0 0;
+	.schedule-heading h2 {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		margin: 0;
+		font-size: var(--t-body);
+		font-weight: 550;
 	}
-	.schedule-action {
+	.schedule-heading i {
+		width: 6px;
+		height: 6px;
+		flex: none;
+		border-radius: 50%;
+		background: var(--state-success);
+	}
+	.schedule-heading i.warning {
+		background: var(--state-danger);
+	}
+	.schedule-heading i.paused {
+		background: var(--text-tertiary);
+	}
+	.schedule-meta {
 		display: flex;
-		flex-direction: column;
-		align-items: flex-end;
-		gap: var(--space-2);
+		flex-wrap: wrap;
+		gap: 8px 18px;
+		margin: 5px 0 0 16px;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
 	}
-	.recent,
-	.recent-empty {
-		grid-column: 1 / -1;
+	.schedule-warning {
+		margin: 12px 0 0 16px;
+		color: var(--state-danger);
+		font-size: var(--t-body);
 	}
-	.recent h3 {
-		margin: 0 0 var(--space-2);
-		font: var(--t-label) var(--font-ui);
-		font-variant-numeric: tabular-nums;
-		font-weight: 600;
+	.schedule-warning a {
+		margin-left: 6px;
 	}
-	.recent li {
-		display: grid;
-		grid-template-columns: 8rem minmax(0, 1fr) auto;
-		gap: var(--space-3);
-		padding: var(--space-2) 0;
+	.schedule-runs {
+		margin: 12px 0 0 16px;
 		color: var(--text-secondary);
 		font-size: var(--t-label);
 	}
-	.recent .state {
-		color: var(--ink);
+	.schedule-runs li {
+		display: flex;
+		justify-content: space-between;
+		gap: 16px;
+		padding: 8px 0;
 	}
-	.recent time,
-	time {
-		font-variant-numeric: tabular-nums;
+	.schedule-runs li span {
+		flex: 1;
 	}
-	.schedule-message,
-	.test-result {
-		padding: var(--space-3) var(--space-4);
+	.schedule-form {
+		display: grid;
+		gap: 10px;
+		padding: 20px;
+		margin-bottom: 20px;
 		border: 1px solid var(--border);
-		border-radius: var(--radius-md);
+		border-radius: 8px;
+	}
+	.schedule-form label {
+		font-size: var(--t-body);
+		font-weight: 500;
+	}
+	.schedule-form :is(textarea, select),
+	.cadence-form input {
+		width: 100%;
+		min-width: 0;
+		padding: 10px;
+		border: 1px solid var(--control-edge);
+		border-radius: 5px;
+		color: var(--ink);
+		background: var(--surface-pane);
+		font: inherit;
+	}
+	.schedule-form button {
+		justify-self: start;
+	}
+	.cadence-form {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 8px;
+		margin: 14px 0 0 16px;
+	}
+	.cadence-form input {
+		flex: 1;
+		width: 120px;
 	}
 	.schedule-error {
-		color: var(--danger);
+		color: var(--state-danger);
+	}
+	.schedule-notice {
+		color: var(--state-success);
+		font-size: var(--t-body);
 	}
 	.test-result {
-		margin-top: var(--space-6);
-	}
-	.test-result h2 {
-		margin: 0 0 var(--space-2);
-		font-size: var(--t-head);
+		padding: 16px;
+		margin-top: 20px;
+		border: 1px solid var(--border);
+		border-radius: 6px;
 	}
 	.test-result p {
-		margin: var(--space-2) 0 0;
-	}
-	@media (max-width: 640px) {
-		.schedule-row {
-			grid-template-columns: minmax(0, 1fr);
-		}
-		.schedule-action {
-			align-items: flex-start;
-		}
-		.recent li {
-			grid-template-columns: minmax(0, 1fr);
-			gap: var(--space-1);
-		}
+		margin: 6px 0;
+		color: var(--text-secondary);
 	}
 </style>

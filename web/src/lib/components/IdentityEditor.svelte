@@ -4,6 +4,7 @@
 	import { tick } from 'svelte';
 	import type { CompanyIdentitySnapshot } from '$lib/model/identity';
 	import { saveCompanyIdentity } from '$lib/model/identity';
+	import { sendActorMessage } from '$lib/model/attention';
 	import InfoTip from './InfoTip.svelte';
 	let {
 		companyId,
@@ -43,6 +44,25 @@
 	let expected: string | null = null;
 	let firstInput = $state<HTMLTextAreaElement>();
 	const changed = $derived(editing && JSON.stringify(draft) !== baseline);
+	let drafting = $state(false);
+	async function askExec() {
+		if (drafting) return;
+		drafting = true;
+		error = '';
+		notice = '';
+		try {
+			await sendActorMessage(
+				companyId,
+				'exec',
+				'Draft a company identity proposal grounded in our charter and existing evidence. Cover truth, voice, visual language and culture, and bring it to me for review.'
+			);
+			notice = 'Draft requested. Follow the proposal in your Exec conversation.';
+		} catch (cause) {
+			error = failureSentence(cause, 'Could not ask Exec to draft the identity.');
+		} finally {
+			drafting = false;
+		}
+	}
 	function open() {
 		const ids = new Set(
 			view.release_evidence
@@ -101,10 +121,9 @@
 			>{/if}
 	</div>
 	{#if !view.current_release && !editing}
-		<p class="editor-empty">
-			What is true about the company, how it sounds, how it looks and how it works. You can revise
-			it at any time.
-		</p>
+		<button class="btn small primary" disabled={drafting} onclick={askExec}
+			>{drafting ? 'Asking Exec…' : 'Ask Exec to draft'}</button
+		>
 	{/if}
 	{#if error}<p class="error" role="alert">{error}</p>{/if}
 	{#if notice}<p role="status">{notice}</p>{/if}
@@ -151,11 +170,6 @@
 </section>
 
 <style>
-	.editor-empty {
-		max-width: 60ch;
-		margin: var(--space-2) 0 0;
-		color: var(--text-secondary);
-	}
 	.identity-editor {
 		border: 1px solid var(--border);
 		border-radius: var(--radius-pane);

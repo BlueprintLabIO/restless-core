@@ -12,7 +12,6 @@
 	import Wifi from '@lucide/svelte/icons/wifi';
 	import WifiOff from '@lucide/svelte/icons/wifi-off';
 	import X from '@lucide/svelte/icons/x';
-	import AttentionCard from '$lib/components/AttentionCard.svelte';
 	import { initials } from '$lib/model/initials';
 	import AgentExchanges from '$lib/components/AgentExchanges.svelte';
 	import IntelligencePopover from '$lib/components/IntelligencePopover.svelte';
@@ -1215,13 +1214,18 @@
 					{#if leadTurn}
 						<ConversationTurnDock participantName={actorDisplay} turn={leadTurn} />
 					{/if}
-					{#each leadAttention as item (item.id)}
-						<div class="chat-attention"><AttentionCard {companyId} {item} inChat /></div>
-					{/each}
 				{/if}
 			</div>
 
-			{#if threadRootId === null}{@render messageComposer()}{/if}
+			{#if threadRootId === null}
+				{#if leadAttention.length}<a
+						class="chat-attention-strip"
+						href={`/${companyId}?item=${encodeURIComponent(leadAttention[0].id)}`}
+						><span>{leadAttention.length} need you</span><strong>{leadAttention[0].title}</strong
+						><span aria-hidden="true">→</span></a
+					>{/if}
+				{@render messageComposer()}
+			{/if}
 		{:else}
 			<div class="conversation-empty choose-room">
 				{#if exactTargetState === 'invalid'}
@@ -1408,6 +1412,29 @@
 {/snippet}
 
 <style>
+	.chat-attention-strip {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 10px 16px;
+		border-top: 1px solid var(--border);
+		color: var(--text-secondary);
+		text-decoration: none;
+		font-size: var(--t-label);
+		flex: none;
+	}
+	.chat-attention-strip strong {
+		flex: 1;
+		font-weight: 500;
+		overflow: hidden;
+		white-space: nowrap;
+		text-overflow: ellipsis;
+		color: var(--ink);
+	}
+	.chat-attention-strip:hover {
+		background: var(--surface-alt);
+	}
+
 	.room-contact {
 		display: inline-flex;
 		align-items: center;
@@ -1447,9 +1474,6 @@
 	.lead-exchanges {
 		padding: 0 14px;
 		border-bottom: 1px solid var(--border);
-	}
-	.chat-attention {
-		padding: 10px 14px;
 	}
 	.room-send-notice {
 		margin: 6px 0 0;

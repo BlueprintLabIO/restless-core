@@ -1,4 +1,6 @@
 <script lang="ts">
+	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
+	import SettingsHeader from '$lib/ui/views/SettingsHeader.svelte';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { failureSentence } from '$lib/model/failure';
@@ -17,16 +19,19 @@
 	let library = $state<SkillLibrary | null>(null);
 	let failure = $state('');
 	let notice = $state('');
+	let search = $state('');
+	const matches = (skill: SkillRow) =>
+		`${skillLabel(skill.name)} ${skill.description}`.toLowerCase().includes(search.toLowerCase());
 	let busy = $state('');
 
 	const candidates = $derived(
-		library?.skills.filter((skill) => skill.disposition === 'candidate') ?? []
+		library?.skills.filter((skill) => skill.disposition === 'candidate' && matches(skill)) ?? []
 	);
 	const accepted = $derived(
-		library?.skills.filter((skill) => skill.disposition === 'accepted') ?? []
+		library?.skills.filter((skill) => skill.disposition === 'accepted' && matches(skill)) ?? []
 	);
 	const retired = $derived(
-		library?.skills.filter((skill) => skill.disposition === 'retired') ?? []
+		library?.skills.filter((skill) => skill.disposition === 'retired' && matches(skill)) ?? []
 	);
 
 	async function load() {
@@ -104,12 +109,23 @@
 {#snippet skillRow(skill: SkillRow)}
 	<!-- Focusable so a tap reveals a settled skill's controls on touch. -->
 	<li class="skill-row" class:skill-off={offForEveryone(skill)} tabindex="-1">
-		<div class="skill-identity">
-			<strong title={skill.name}>{skillLabel(skill.name)}</strong>
-			<span title={skill.description}>{skill.description || 'No description'}</span>
-		</div>
+		<details class="skill-identity">
+			<summary>
+				<span class="skill-chevron" aria-hidden="true">›</span>
+				<strong title={skill.name}>{skillLabel(skill.name)}</strong>
+				<span title={skill.description}>{skill.description || 'No description'}</span></summary
+			>
+			<p>{skill.description}</p>
+			<small>Selected in {library?.usage?.[skill.name] ?? 0} Work</small>
+		</details>
 		<div class="skill-state">
-			<span class="skill-source" title={skill.origin_url ?? skill.path}>{sourceLabel(skill)}</span>
+			<span title="Work that explicitly selected this skill"
+				>{library?.usage?.[skill.name] ?? 0} Work</span
+			>
+			{#if skill.source !== 'builtin'}<span
+					class="skill-source"
+					title={skill.origin_url ?? skill.path}>{sourceLabel(skill)}</span
+				>{/if}
 			{#if skill.has_scripts}<span class="state-chip">Scripts</span><InfoTip
 					text="This skill ships executable scripts. They run with the actor's ordinary computer access and never with extra authority."
 				/>{/if}
@@ -133,21 +149,26 @@
 				>
 			{:else if skill.disposition === 'accepted'}
 				<button
-					class="btn small"
+					class="btn small skill-toggle"
+					role="switch"
+					aria-checked={!offForEveryone(skill)}
+					aria-label={`${skillLabel(skill.name)} available to everyone`}
 					type="button"
 					disabled={!!busy}
 					title={offForEveryone(skill)
 						? 'Let every actor use this skill again'
 						: 'Stop actors using this skill unless one is given it directly'}
 					onclick={() => void toggleEveryone(skill)}
-					>{offForEveryone(skill) ? 'Turn on' : 'Turn off'}</button
+					><span class="skill-toggle-track" aria-hidden="true"><i></i></span><span class="sr-only"
+						>{offForEveryone(skill) ? 'Off' : 'On'}</span
+					></button
 				>
-				<button
-					class="btn small"
-					type="button"
-					disabled={!!busy}
-					onclick={() => void decide(skill, 'retired', `${skillLabel(skill.name)} was retired.`)}
-					>Retire</button
+				<ActionMenu label={`${skillLabel(skill.name)} options`}
+					><button
+						disabled={!!busy}
+						onclick={() => void decide(skill, 'retired', `${skillLabel(skill.name)} was retired.`)}
+						>Retire</button
+					></ActionMenu
 				>
 			{:else}
 				<button
@@ -163,12 +184,17 @@
 {/snippet}
 
 <div class="company-page skills-page">
-	<header class="company-page-head">
-		<h1>Skills</h1>
-		<InfoTip
-			text="Reusable methods your agents follow, in the open SKILL.md format. They stay when you change models. Skills never grant spending, credentials or approvals. Type $ in a message to use one."
-		/>
-	</header>
+	<SettingsHeader
+		title="Skills"
+		explanation="Reusable methods your agents follow, in the open SKILL.md format. They stay when you change models. Skills never grant spending, credentials or approvals. Type $ in a message to use one."
+	></SettingsHeader>
+	<input
+		class="settings-search"
+		type="search"
+		bind:value={search}
+		placeholder="Search skills…"
+		aria-label="Search skills"
+	/>
 
 	{#if failure}<p class="skills-message skills-error" role="alert">{failure}</p>{/if}
 	{#if notice}<p class="skills-message" role="status">{notice}</p>{/if}
@@ -197,14 +223,16 @@
 		{/if}
 
 		<section class="skill-section" aria-labelledby="company-title">
-			<h2 id="company-title">Company skills</h2>
+			<h2 id="company-title" class="sr-only">Available skills</h2>
 			{#if accepted.length}
 				<ul class="skill-list">
 					{#each accepted as skill (skill.name)}{@render skillRow(skill)}{/each}
 				</ul>
 			{:else}
 				<p class="quiet-empty">
-					No skills yet. Agents add them as they find methods worth keeping.
+					{search
+						? 'No skills match your search.'
+						: 'No skills yet. Agents add them as they find methods worth keeping.'}
 				</p>
 			{/if}
 		</section>
@@ -221,6 +249,21 @@
 </div>
 
 <style>
+	.skill-identity {
+		min-width: 0;
+	}
+	.skill-identity summary {
+		cursor: pointer;
+		list-style: none;
+	}
+	.skill-identity summary:hover strong {
+		color: var(--intent-feedback);
+	}
+	.skill-identity p {
+		color: var(--text-secondary);
+		font-size: var(--t-body);
+		margin: 12px 0 4px;
+	}
 	.skills-page {
 		display: flex;
 		flex-direction: column;
@@ -235,7 +278,7 @@
 		color: var(--intent-danger, var(--ink));
 	}
 	.skill-section h2,
-	.skill-section summary {
+	.skill-section > summary {
 		display: flex;
 		align-items: center;
 		gap: var(--space-1, 4px);
@@ -244,7 +287,7 @@
 		font-weight: 600;
 		color: var(--text-secondary);
 	}
-	.skill-section summary {
+	.skill-section > summary {
 		cursor: pointer;
 	}
 	.skill-list {
@@ -263,20 +306,28 @@
 	.skill-row:last-child {
 		border-bottom: 0;
 	}
-	.skill-off .skill-identity {
+	.skill-off .skill-identity summary {
 		opacity: 0.62;
 	}
-	.skill-identity {
+	.skill-identity summary {
 		display: flex;
 		flex-direction: column;
+		align-items: flex-start;
+		position: relative;
+		padding-left: 16px;
 		gap: 2px;
 		min-width: 0;
+		margin: 0;
+		font-size: var(--t-body);
+		font-weight: 400;
 	}
 	.skill-identity strong {
 		font-weight: 600;
 		color: var(--ink);
 	}
 	.skill-identity span {
+		max-width: 100%;
+		min-width: 0;
 		overflow: hidden;
 		font-size: var(--t-label);
 		color: var(--text-secondary);
@@ -289,13 +340,61 @@
 		align-items: center;
 		gap: var(--space-2);
 	}
+	.skill-state {
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+	.skill-identity summary::before {
+		content: none !important;
+	}
+	.skill-chevron {
+		position: absolute;
+		left: 0;
+		top: 0;
+		color: var(--text-tertiary);
+	}
+	.skill-identity[open] .skill-chevron {
+		transform: rotate(90deg);
+	}
+	.skill-toggle {
+		display: grid;
+		place-items: center;
+		border: 0;
+		background: none;
+		box-shadow: none;
+		padding: 8px;
+	}
+	.skill-toggle-track {
+		display: block;
+		width: 28px;
+		height: 16px;
+		border-radius: 16px;
+		background: var(--text-tertiary);
+		padding: 2px;
+		transition: background var(--motion-state);
+	}
+	.skill-toggle-track i {
+		display: block;
+		width: 12px;
+		height: 12px;
+		border-radius: 50%;
+		background: white;
+		box-shadow: 0 1px 2px #0002;
+		transition: transform var(--motion-state);
+	}
+	.skill-toggle[aria-checked='true'] .skill-toggle-track {
+		background: var(--intent-feedback);
+	}
+	.skill-toggle[aria-checked='true'] .skill-toggle-track i {
+		transform: translateX(12px);
+	}
 	/* A settled skill's controls wait for the pointer or focus, so a long list
 	 * reads as skills rather than a wall of buttons. Candidates keep theirs:
 	 * they are asking for a decision. */
 	/* Touch has no hover: the controls appear for the skill that is tapped. */
 	@media (hover: none) {
 		.skill-row:not(:focus-within) .skill-actions.settled {
-			display: none;
+			display: flex;
 		}
 	}
 	.skill-row:focus {
@@ -303,7 +402,7 @@
 	}
 	@media (hover: hover) {
 		.skill-actions.settled {
-			opacity: 0;
+			opacity: 1;
 			transition: opacity var(--motion-state) var(--ease-standard);
 		}
 		.skill-row:hover .skill-actions.settled,
@@ -318,8 +417,23 @@
 	}
 	@media (max-width: 640px) {
 		.skill-row {
-			grid-template-columns: minmax(0, 1fr);
+			grid-template-columns: minmax(0, 1fr) auto;
 			gap: var(--space-2);
+		}
+		.skill-state {
+			grid-column: 1;
+			padding-left: 16px;
+		}
+		.skill-actions {
+			grid-column: 2;
+			grid-row: 1 / 3;
+			gap: 0;
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.skill-toggle-track,
+		.skill-toggle-track i {
+			transition: none;
 		}
 	}
 </style>

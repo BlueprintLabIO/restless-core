@@ -2,13 +2,13 @@ use axum::http::StatusCode;
 use axum::{
     extract::{Path as AxumPath, State},
     response::{IntoResponse, Response},
-    Json,
+    Extension, Json,
 };
 use serde::Deserialize;
 
 use crate::{credential, runtime};
 
-use super::{api_error, company_setup_view, OwnerState};
+use super::{api_error, company_setup_view, OwnerState, RequestPrincipal};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -16,14 +16,17 @@ pub(super) struct StoreSecretInput {
     binding: String,
     secret: String,
     revision: String,
+    #[serde(default)]
+    create: bool,
 }
 
 pub(super) async fn store_secret(
     State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
     AxumPath(company): AxumPath<String>,
     Json(input): Json<StoreSecretInput>,
 ) -> Response {
-    if state.entry.network().is_some() {
+    if !principal.is_account_owner() || state.entry.network().is_some() {
         return api_error(
             StatusCode::FORBIDDEN,
             "vault",
@@ -39,7 +42,7 @@ pub(super) async fn store_secret(
     }
 
     let _write = state.charter_writes.lock().await;
-    let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+    let mut config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(config) => config,
         Err(_) => return api_error(StatusCode::NOT_FOUND, "company", "Company does not exist."),
     };
@@ -59,13 +62,20 @@ pub(super) async fn store_secret(
             "Choose an existing non-model Vault binding.",
         );
     }
-    let Some(reference) = config.credentials.get(binding) else {
-        return api_error(
-            StatusCode::BAD_REQUEST,
-            "vault_binding",
-            "Choose an existing company credential binding.",
-        );
+    let existing = config.credentials.get(binding).cloned();
+    let reference = if let Some(reference) = existing {
+        reference
+    } else if input.create
+        && binding.len() <= 64
+        && binding
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+    {
+        format!("infisical:/companies/{company}/{binding}")
+    } else {
+        return api_error(StatusCode::BAD_REQUEST, "vault_binding", "Choose a connection, or name a new secret using letters, numbers, underscores and hyphens.");
     };
+    let new_binding = !config.credentials.contains_key(binding);
     let prefix = format!("infisical:/companies/{company}/");
     let Some(secret_name) = reference.strip_prefix(&prefix) else {
         return api_error(
@@ -86,7 +96,7 @@ pub(super) async fn store_secret(
         );
     }
 
-    if credential::store_reference(reference, &input.secret)
+    if credential::store_reference(&reference, &input.secret)
         .await
         .is_err()
     {
@@ -96,13 +106,22 @@ pub(super) async fn store_secret(
             "Could not save the secret in Infisical. Check the local Vault service and try again.",
         );
     }
-    let probe = credential::probe_reference(reference).await;
+    let probe = credential::probe_reference(&reference).await;
     if probe.status != credential::ProbeStatus::Present {
         return api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "vault",
             "Infisical did not confirm the stored secret.",
         );
+    }
+
+    if new_binding {
+        config
+            .credentials
+            .insert(binding.to_string(), reference.clone());
+        if runtime::CompanyConfig::save(&state.daemon.root, &config).is_err() {
+            return api_error(StatusCode::SERVICE_UNAVAILABLE, "vault", "The secret was stored, but its company binding could not be saved. Retry after checking host storage.");
+        }
     }
 
     let mut response = Json(serde_json::json!({

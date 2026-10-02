@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { formatRelative, formatMoment } from '$lib/ui/time';
+	import SettingsHeader from '$lib/ui/views/SettingsHeader.svelte';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { failureSentence } from '$lib/model/failure';
@@ -23,6 +25,31 @@
 	const charterText = $derived(
 		view ? withoutDocumentTitle(view.charter.purpose, view.company.name) : ''
 	);
+	let charterExpanded = $state(false);
+	let historyOpen = $state(false);
+	let historyBusy = $state(false);
+	let historyError = $state('');
+	let history = $state<
+		{ revision: string; markdown: string; saved_at: string | null; author: string }[]
+	>([]);
+	async function toggleHistory() {
+		historyOpen = !historyOpen;
+		if (!historyOpen) return;
+		historyBusy = true;
+		historyError = '';
+		try {
+			const response = await fetch(
+				`/api/companies/${encodeURIComponent(companyId)}/company/charter`,
+				{ cache: 'no-store' }
+			);
+			if (!response.ok) throw new Error('Could not read charter history. Try again.');
+			history = (await response.json()).revisions;
+		} catch (cause) {
+			historyError = failureSentence(cause, 'Could not read charter history.');
+		} finally {
+			historyBusy = false;
+		}
+	}
 	let editing = $state(false);
 	let nameVersion = $state(0);
 	let saving = $state(false);
@@ -121,62 +148,84 @@
 				: trimmed;
 	}
 
-	function when(value?: string): string {
-		if (!value) return 'revision time unavailable';
-		return new Date(value).toLocaleString(undefined, {
-			month: 'short',
-			day: 'numeric',
-			year: 'numeric',
-			hour: 'numeric',
-			minute: '2-digit'
-		});
-	}
+	const when = (value?: Date | string) => formatRelative(value, 'Not yet');
 </script>
 
 <svelte:head><title>Charter — {view?.company.name ?? companyId}</title></svelte:head>
 
 <div class="company-page charter-page">
-	<header class="company-page-head">
-		<div class="charter-heading">
-			<h1>Charter</h1>
-			<InfoTip
-				text="Why the company exists and how it operates. Not its legal constitution or its current plan."
-			/>
-		</div>
-		<div class="charter-head-actions">
-			{#if editing}
-				<span class:changed class="charter-edit-state">
-					<i aria-hidden="true"></i>{changed ? 'Unsaved changes' : 'Editing'}
-				</span>
-				<button class="btn small" type="button" disabled={saving} onclick={cancelEditing}
-					>Cancel</button
-				>
-				<button
-					class="btn primary small"
-					type="button"
-					disabled={!changed || saving}
-					onclick={saveCharter}>{saving ? 'Saving…' : 'Save charter'}</button
-				>
-			{:else}
-				<div
-					class="company-page-freshness"
-					title={view?.refreshed_at ? `Checked ${when(view.refreshed_at)}` : undefined}
-				>
-					<span class="source-lamp status-{source.status}" aria-hidden="true"></span>
-					{source.status === 'live'
-						? 'Live'
-						: source.status === 'stale'
-							? 'Out of date'
-							: 'Checking…'}
-				</div>
-				{#if view}
-					<button class="btn small" type="button" onclick={beginEditing}>Edit charter</button>
+	<SettingsHeader
+		title="Charter"
+		explanation="Why the company exists and how it operates. Not its legal constitution or its current plan."
+		>{#snippet actions()}
+			<div class="charter-head-actions">
+				{#if editing}
+					<span class:changed class="charter-edit-state">
+						<i aria-hidden="true"></i>{changed ? 'Unsaved changes' : 'Editing'}
+					</span>
+					<button
+						class="btn small"
+						type="button"
+						disabled={saving}
+						onclick={() => (changed ? saveCharter() : cancelEditing())}>Done</button
+					>
+					<button
+						class="btn primary small"
+						type="button"
+						disabled={!changed || saving}
+						onclick={saveCharter}>{saving ? 'Saving…' : 'Save charter'}</button
+					>
+				{:else}
+					<div
+						class="company-page-freshness"
+						title={view?.refreshed_at ? `Checked ${when(view.refreshed_at)}` : undefined}
+					>
+						<span class="source-lamp status-{source.status}" aria-hidden="true"></span>
+						{source.status === 'live'
+							? 'Live'
+							: source.status === 'stale'
+								? 'Out of date'
+								: 'Checking…'}
+					</div>
+					{#if view}
+						<button
+							type="button"
+							onclick={toggleHistory}
+							aria-expanded={historyOpen}
+							class="charter-version"
+							title={`Owner authorised · ${formatMoment(view.charter.effective_at)} · revision ${view.charter.revision}`}
+							>Saved {when(view.charter.effective_at)}</button
+						><button class="btn small" type="button" onclick={beginEditing}>Edit</button>
+					{/if}
 				{/if}
-			{/if}
-		</div>
-	</header>
+			</div>
+		{/snippet}</SettingsHeader
+	>
 	{#if failure}<p class="charter-save-message failure" role="alert">{failure}</p>{/if}
 	{#if notice}<p class="charter-save-message" role="status">{notice}</p>{/if}
+	{#if historyOpen}<section class="charter-history" aria-label="Charter history">
+			<h2>Charter history</h2>
+			{#if historyBusy}<p role="status">Loading revisions…</p>
+			{:else if historyError}<p role="alert">{historyError}</p>
+				<button
+					class="btn small"
+					onclick={() => {
+						historyOpen = false;
+						void toggleHistory();
+					}}>Retry</button
+				>
+			{:else}{#each history as revision, index (`${revision.revision}:${index}`)}<details>
+						<summary
+							>{history.findIndex((entry) => entry.revision === view?.charter.revision) === index
+								? 'Current revision'
+								: 'Previous revision'} · {revision.author}<time
+								title={revision.saved_at ? formatMoment(revision.saved_at) : undefined}
+								>{revision.saved_at ? when(revision.saved_at) : ''}</time
+							></summary
+						>
+						<Markdown text={revision.markdown} />
+					</details>{/each}{/if}
+		</section>{/if}
 
 	{#if view}
 		<div style="margin-bottom: var(--space-2)">
@@ -205,16 +254,27 @@
 							bind:this={editor}
 							bind:value={draft}
 							aria-label="Company charter Markdown"
+							onblur={() => {
+								if (changed && !saving) void saveCharter();
+							}}
 							spellcheck="true"></textarea>
 					</div>
 				{:else}
-					<div class="charter-purpose">
+					<div
+						class="charter-purpose"
+						class:collapsed={!charterExpanded && charterText.length > 900}
+					>
 						{#if charterText}<Markdown text={charterText} />{:else}<p>
 								What should this company achieve? Write its purpose, or discuss it with Exec and
 								save the agreed charter here.
 							</p>
 							<button class="btn primary" onclick={beginEditing}>Write company charter</button>{/if}
 					</div>
+					{#if charterText.length > 900}<button
+							class="charter-expand"
+							onclick={() => (charterExpanded = !charterExpanded)}
+							>{charterExpanded ? 'Show less' : 'Read full charter'}</button
+						>{/if}
 				{/if}
 				<CopyCompanySetting
 					{companyId}
@@ -222,11 +282,6 @@
 					label="Purpose"
 					oncopied={() => source.refresh()}
 				/>
-				<footer>
-					<span>Effective {when(view.charter.effective_at)}</span>
-					<span>Owner authorised</span>
-					<InfoTip text="Only you can change the charter. Work and chat never do." />
-				</footer>
 			</article>
 
 			<aside class="charter-context" aria-label="Charter context">
@@ -237,18 +292,15 @@
 							text="How ambitious new work should be. Each lead decides what proof a piece of work needs."
 						/>
 					</div>
-					<label class="quality-choice"
-						>New work should be
-						<select
-							value={view.company.outcome_standard}
-							disabled={qualitySaving}
-							onchange={(event) => void saveQuality(event.currentTarget.value as OutcomeStandard)}
-						>
-							<option value="fast">Fast</option><option value="thorough">Thorough</option><option
-								value="exceptional">Exceptional</option
-							><option value="frontier">Frontier</option>
-						</select>
-					</label>
+					<div class="quality-segments" role="group" aria-label="Quality bar">
+						{#each ['fast', 'thorough', 'exceptional', 'frontier'] as standard}<button
+								class:active={view.company.outcome_standard === standard}
+								aria-pressed={view.company.outcome_standard === standard}
+								disabled={qualitySaving}
+								onclick={() => saveQuality(standard as OutcomeStandard)}
+								>{standard.charAt(0).toUpperCase() + standard.slice(1)}</button
+							>{/each}
+					</div>
 					<CopyCompanySetting
 						{companyId}
 						setting="outcome_standard"
@@ -330,19 +382,92 @@
 </div>
 
 <style>
+	.charter-history {
+		padding-block: var(--space-4);
+		margin-bottom: var(--space-4);
+		border-bottom: 1px solid var(--border);
+	}
+	.charter-history h2 {
+		font-size: var(--t-head);
+	}
+	.charter-history time {
+		margin-left: auto;
+		color: var(--text-tertiary);
+	}
+	.charter-history summary {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+	}
+	@media (max-width: 360px) {
+		:global(.charter-page .quality-segments) {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
+	}
+	.charter-version {
+		font-size: var(--t-label);
+		color: var(--text-tertiary);
+		border: 0;
+		background: transparent;
+		padding: 4px;
+		border-radius: var(--radius-control);
+		cursor: pointer;
+	}
+	.charter-version:hover {
+		color: var(--ink);
+		background: var(--surface-alt);
+	}
+	.charter-version:focus-visible {
+		outline: 2px solid var(--intent-feedback);
+	}
+	.quality-segments button {
+		overflow-wrap: normal;
+		white-space: nowrap;
+	}
+	.charter-purpose.collapsed {
+		max-height: 14rem;
+		overflow: hidden;
+		mask-image: linear-gradient(#000 80%, transparent);
+	}
+	.charter-expand {
+		padding: 8px 0;
+		border: 0;
+		background: none;
+		color: var(--text-secondary);
+		font: inherit;
+		cursor: pointer;
+	}
+	.quality-segments {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 3px;
+		padding: 3px;
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		background: var(--surface-alt);
+	}
+	.quality-segments button {
+		flex: 1;
+		padding: 6px 8px;
+		border: 1px solid transparent;
+		border-radius: 4px;
+		background: transparent;
+		color: var(--text-tertiary);
+		font: 500 var(--t-label) var(--font-ui);
+		cursor: pointer;
+	}
+	.quality-segments button[aria-pressed='true'] {
+		background: var(--surface);
+		border-color: var(--border);
+		color: var(--ink);
+		box-shadow: 0 1px 2px #18243a0a;
+	}
+
 	.quality-choice {
 		display: grid;
 		gap: var(--space-2);
 		color: var(--text-secondary);
 		font-size: var(--t-label);
-	}
-	.quality-choice select {
-		width: 100%;
-		min-height: 36px;
-		padding: var(--space-2);
-		border: 1px solid var(--control-edge);
-		border-radius: var(--radius-control);
-		color: var(--ink);
-		background: var(--surface-pane);
 	}
 </style>

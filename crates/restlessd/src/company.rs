@@ -483,13 +483,31 @@ pub(crate) async fn project(
     .await;
     let harnesses = harness_settings(config, runtime_doctor.as_ref());
     let external_actions = actions(authority.as_ref());
-    let company_doctor = company_doctor(
+    let mut company_doctor = company_doctor(
         authority_source.clone(),
         orgintel_source.clone(),
         runtime_source.clone(),
         runtime_doctor.as_ref(),
         observed_at,
     );
+    let model_issue = crate::owner::observed_company_model_issue(config).await;
+    company_doctor.checks.insert(
+        0,
+        DoctorCheck {
+            id: "intelligence",
+            label: "Intelligence provider",
+            source: "authority",
+            status: if model_issue.is_some() {
+                "degraded"
+            } else {
+                "healthy"
+            },
+            summary: model_issue
+                .unwrap_or_else(|| "No provider setup problem is currently reported.".into()),
+            detail: None,
+        },
+    );
+    company_doctor.status = overall_doctor_status(&company_doctor.checks);
     let generation = runtime::generation(&config.name).await.ok().flatten();
     let runtime_json = runtime_doctor
         .as_ref()

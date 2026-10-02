@@ -1007,6 +1007,7 @@ pub struct ScheduleRow {
     pub fire_at: DateTime<Utc>,
     pub fired_at: Option<DateTime<Utc>>,
     pub cancelled_at: Option<DateTime<Utc>>,
+    pub paused_at: Option<DateTime<Utc>>,
     pub recurrence: Option<String>,
     pub timezone: Option<String>,
     pub local_time: Option<chrono::NaiveTime>,

@@ -36,6 +36,7 @@
 	import { agentRouteState, intelligenceQuery } from '$lib/model/intelligence.svelte';
 	import { affectsCompany, watchIntelligenceChanges } from '$lib/model/intelligence-events';
 	import { onMount } from 'svelte';
+	import { startLinkLabel } from '$lib/model/company-start';
 	import { actorCanReceive } from '$lib/model/cockpit';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import { inPlace } from '$lib/transition';
@@ -193,8 +194,12 @@
 					railActorId)
 	);
 	const railActorRole = $derived(focusedAttention ? 'Responsible lead' : 'Executive');
+	const providerIssue = $derived(
+		companies.find((company) => company.id === companyId)?.unstartable_reason ?? ''
+	);
 	const railRouteState = $derived(agentRouteState(intelligence.view, railActorId));
 	const railConnectionStatus = $derived.by(() => {
+		if (providerIssue) return 'unavailable';
 		if (!cockpit) return cockpitProjection.failure ? 'error' : 'unknown';
 		if (cockpit.source_health.orgintel !== 'available') return 'error';
 		const actorAvailable = actorCanReceive(cockpit, railActorId);
@@ -364,11 +369,14 @@
 	});
 
 	const tabs = $derived.by((): ShellTab[] => {
-		return companyShellTabs(
+		const routes = companyShellTabs(
 			companyId,
 			page.url.pathname,
 			principal,
 			attention.status === 'unknown' ? undefined : liveNeedsYou.length
+		);
+		return routes.map((tab) =>
+			tab.key === 'company' && providerIssue ? { ...tab, badge: 1 } : tab
 		);
 	});
 
@@ -476,7 +484,10 @@
 		conversationStatus={railConversation.status}
 		conversationFailed={Boolean(railConversation.failure)}
 		onrefreshConversation={() => void railConversation.refresh()}
-		needsProvider={railRouteState === 'needs_connection' || railRouteState === 'unavailable'}
+		needsProvider={!!providerIssue ||
+			railRouteState === 'needs_connection' ||
+			railRouteState === 'unavailable'}
+		providerLabel={providerIssue ? startLinkLabel(providerIssue) : 'Connect intelligence'}
 		contextLabel={currentContext}
 		focusAfterMessageId={railConversation.focusAfterMessageId}
 		focusStartedAt={railConversation.focusStartedAt}
@@ -515,6 +526,7 @@
 			: null}
 		execName={railActorName}
 		execLive={railConnected}
+		execUnavailable={!!providerIssue}
 		railOpen={execRailOpen}
 		expandExec={page.url.pathname === `/${companyId}` &&
 			attention.status === 'live' &&
