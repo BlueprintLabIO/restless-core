@@ -83,6 +83,29 @@
 		};
 	}
 
+	/** Where each member stands right now, in CSS pixels from the canvas's top-left corner, as of
+	 * the last painted frame. A page uses this to pin its own overlays to the people on the floor. */
+	export function actorsOnScreen(): { actorId: string; x: number; y: number }[] {
+		if (!office || !canvas) return [];
+		const scale = lastZoom / (devicePixelRatio || 1);
+		const originX = lastOffset.x / (devicePixelRatio || 1);
+		const originY = lastOffset.y / (devicePixelRatio || 1);
+		return members.flatMap((member) => {
+			const character = office?.characters.get(member.numericId);
+			if (!character) return [];
+			return [{ actorId: member.actorId, x: originX + character.x * scale, y: originY + character.y * scale }];
+		});
+	}
+
+	/** The CSS-pixel position of a tile's centre, as of the last painted frame. */
+	export function tileOnScreen(col: number, row: number): { x: number; y: number } {
+		const scale = lastZoom / (devicePixelRatio || 1);
+		return {
+			x: lastOffset.x / (devicePixelRatio || 1) + (col + 0.5) * TILE_SIZE * scale,
+			y: lastOffset.y / (devicePixelRatio || 1) + (row + 0.5) * TILE_SIZE * scale
+		};
+	}
+
 	/** Centre the camera on a tile. `zoom` runs from 0 (whole campus in view) to 1 (closest). */
 	export function setCamera(view: { col: number; row: number; zoom: number }) {
 		if (!plan || !canvas || !shell) return;

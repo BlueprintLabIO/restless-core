@@ -2,74 +2,100 @@
 
 https://github.com/user-attachments/assets/3cbfd3ce-89a7-4155-bc3f-15505609dfcb
 
-**Run your business with AI. Spend your attention on the work that needs you.**
+**Work together.**
 
-Restless is an open-source, multiplayer AI workspace for founders and teams.
-Humans and AI agents share documents, conversations, ongoing work and a persistent
-company computer. Set direction, shape the output together, and make the decisions
-that need your judgement. Agents carry the work forward.
+Restless is an open-source office where your people and AI agents work side by side:
+rooms, shared documents, a board of work and a real Linux computer. People bring the
+taste and judgement that make the business theirs; agents carry the chores around it.
+Your attention goes only where it is needed, and the work keeps moving after you go home.
 
-**Bring your people. Bring Codex, Claude, or your preferred API provider.**
+`Apache 2.0` · `Self-hosted` · `Codex, Claude or any model` · `Development preview`
 
-Research a market. Develop a product. Prepare a sales proposal. Run operations.
-Restless brings the work, the people and the tools into one place.
-
-[Why Restless](#why-restless) · [OrgIntel](#orgintel-a-company-that-carries-the-work-forward) ·
-[Features](#features) · [Product tour](#product-tour) ·
-[Getting started](#getting-started) · [Alternatives](#alternatives) ·
-[Architecture](#architecture) · [Contributing](#contributing)
+[How a day works](#how-a-day-works) · [Why Restless](#why-restless) ·
+[OrgIntel](#orgintel-a-company-that-carries-the-work-forward) · [Features](#features) ·
+[Getting started](#getting-started) · [Product tour](#product-tour) ·
+[Alternatives](#alternatives) · [Architecture](#architecture) · [Contributing](#contributing)
 
 > **Development preview:** a runnable local company workspace under active development.
 > Start from a development checkout; interfaces are evolving.
 
-**Try it with a real piece of work:** [install Restless](#getting-started), then
+**Try it on a real piece of work:** [install Restless](#getting-started), then
 [prepare your first client proposal](docs/first-outcome.md).
 [Get setup help](https://github.com/BlueprintLabIO/restless-core/issues/new?template=setup-help.yml)
-or [tell us what you want to run with Restless](https://github.com/BlueprintLabIO/restless-core/issues/new?template=founder-feedback.yml).
+or [tell us what you want to run with it](https://github.com/BlueprintLabIO/restless-core/issues/new?template=founder-feedback.yml).
+
+## The short version
+
+- **Your attention is the budget.** Routine coordination stays with the leads. What reaches
+  you is a prepared decision: context, recommendation, the actual output, what happens next.
+- **Work together, people and agents.** Your cofounder, artist and reviewer work in the
+  same company as the agents, with their own accounts, rooms and shared documents. People
+  bring taste and judgement; agents carry the chores that are not the core of the business.
+- **Someone owns every outcome.** An accountable lead keeps the goal in view while a worker
+  does the work. Goals survive restarts, model switches and handoffs.
+- **A real computer.** Each company has a persistent Linux machine with files, Git, a browser
+  and a desktop you can take over.
+- **Authority in code, not in prompts.** You choose what agents may do alone and what needs
+  you. Budgets, a vault and a record of every external action.
+- **Bring any intelligence.** Native Codex and Claude harnesses, API providers or any
+  OpenAI-compatible gateway, chosen per agent if you like.
+
+## How a day works
+
+[restless.run](https://restless.run) tells this as one scroll through a day on the company floor,
+using Lantern Studio, the example business below.
+
+| Time | What happens |
+| --- | --- |
+| **09:10** | **Start together.** You and Rosa, the studio's artist, agree the week with Exec in a room. Direction comes out of a conversation. |
+| **10:30** | **Shape it together.** The brief is one shared document: you, Rosa and Marlow, the accountable lead agent, edit it live and argue in the comments. |
+| **13:00** | **The routine stays out of your way.** Marlow briefs the workers, chases retries and packages builds. The board moves; nobody interrupts you. |
+| **15:40** | **Review the real thing.** Play the build in the company computer. Jun retunes a puzzle; an agent replays it hundreds of times and reports where players stall. |
+| **17:30** | **Decide together.** One prepared decision reaches you, and the people it affects approve beside you. |
+| **Overnight** | **The office stays lit.** Agents keep building, checking and packaging. Morning arrives with receipts. |
 
 ## Why Restless
 
-AI makes it easier to produce work. It can also give you another organisation to manage:
+AI makes it easier to produce work. It can also hand you another organisation to manage:
 more conversations, handoffs, status reports and decisions competing for your attention.
 
-We believe a business harness should help you **work with AI on the result**. The
-measure of success is useful output and the human attention it takes to get there.
+A business harness should help you **work with AI on the result**. The measure of success
+is useful output and the human attention it took to get there.
 
 ### Human multiplayer, from the start
 
-Bring your cofounder, designer, operator or reviewer into the same company. People
-work alongside agents with their own accounts and permissions. Discuss the work
-in rooms, edit shared documents, and keep feedback beside the thing you are improving.
-
-Human collaboration is central to Restless. A business can be run by several people,
-with AI contributing around them.
+A business is usually run by several people, with AI contributing around them. Bring your
+cofounder, designer, operator or reviewer into the same company. People work alongside agents
+with their own accounts and permissions, discuss the work in rooms, edit shared documents and
+keep feedback beside the thing being improved.
 
 ### Your attention is part of the budget
 
-A decision should arrive prepared: the context, the recommendation, the relevant
-output and what happens next. Leads own their work and resolve routine coordination.
-Attention brings you into the places where your judgement or participation matters.
+A decision should arrive prepared: the context, the recommendation, the relevant output and
+what happens next. Leads own their work and resolve routine coordination. Attention brings
+you in only where your judgement or participation matters.
 
-### Collaborate on the output
+### Work on the output, not about it
 
-Open the actual proposal, plan, page or prototype. Revise the document, leave a comment,
-ask a question, or take over the company computer. The executive conversation stays
-alongside the work, so you can steer without rebuilding context in another tool.
+Open the actual proposal, plan, page or prototype. Revise the document, leave a comment, ask
+a question or take over the company computer. The executive conversation stays alongside the
+work, so you can steer without rebuilding context in another tool.
 
 ### Start with the smallest useful team
 
 One capable worker can often handle a whole piece of work. Add a specialist when their
-expertise, independent checks or help working in parallel improves the result. Everyone
-should know what they own, and the extra coordination should be worth it.
+expertise, an independent check or parallel help improves the result, and make sure everyone
+knows what they own.
 
-This principle is grounded in our [coordination experiments](experiment/coordination/experiments/EXP-17/RESULTS.md).
-We measure the cost of coordination and use that evidence to shape the system.
+This is measured, not assumed. In [EXP-17](experiment/coordination/experiments/EXP-17/RESULTS.md)
+the same Codex worker ran four kinds of work with and without a supervising lead (one valid
+pair per kind, so a small sample). Every result passed its checks and blind review either way,
+within the parity threshold; supervision took **2.34× the time and 2.53× the spend**. So Restless keeps the lead accountable but out of the way until judgement is needed.
 
 ### Finish with something you can use
 
-Work should finish with something you can use: a document, a working page, a file or
-a live application. Feedback stays attached to the version you reviewed, so the team
-knows what to improve next.
+Work should end in something usable: a document, a working page, a file or a live application.
+Feedback stays attached to the version you reviewed, so the team knows what to improve next.
 
 ## OrgIntel: a company that carries the work forward
 
@@ -257,16 +283,24 @@ to see how these features work.
 
 ## Getting started
 
-Use a **Linux host with Rust/Cargo, Node.js 24/npm, Docker with Compose v2,
-curl, jq and OpenSSL**. Start Docker and keep at least 30 GiB free for the source build and company image.
-The launcher builds the daemon and company image, installs its pinned model
-broker, and provisions PostgreSQL and an Infisical vault for a new development profile.
+Three commands open the office. You need a **Linux host with Rust/Cargo, Node.js 24/npm,
+Docker with Compose v2, curl, jq and OpenSSL**, Docker running, and at least 30 GiB free for
+the source build and company image.
 
 ```sh
+# 1. Get the source
 git clone --branch dev https://github.com/BlueprintLabIO/restless-core.git
-cd restless-core
-npm --prefix web ci
+
+# 2. Install the workspace
+cd restless-core && npm --prefix web ci
+
+# 3. Open the office
+./scripts/restless-dev demo_test --reconcile
 ```
+
+The launcher builds the daemon and company image, installs its pinned model broker, and
+provisions PostgreSQL and an Infisical vault for a new development profile. Open the workspace
+address it prints, then connect **Codex, Claude or an API provider** in **Company → Intelligence**.
 
 ### Choose your intelligence
 
@@ -276,13 +310,6 @@ npm --prefix web ci
 | **Claude** | Connect the native Claude harness using sign-in or an Anthropic API key. |
 | **API providers** | Use OpenAI, Anthropic, Google Gemini, OpenRouter, Groq, Mistral, DeepSeek, xAI, Moonshot, Z.ai and other supported connections. |
 | **Custom endpoints** | Configure an OpenAI-compatible gateway with your endpoint, model IDs and credentials. |
-
-Start the workspace, then open the setup URL printed in your terminal and connect
-**Codex, Claude or an API provider** in **Company → Intelligence**:
-
-```sh
-./scripts/restless-dev demo_test --reconcile
-```
 
 You can also initialise an API-backed company with a model and a key already in your shell:
 
@@ -294,7 +321,7 @@ export RESTLESS_DEV_CREDENTIAL_REFERENCE=env:ANTHROPIC_API_KEY
 
 Existing companies retain their saved configuration.
 
-Open the workspace address printed by the launcher. In another terminal, verify setup:
+In another terminal, verify setup:
 
 ```sh
 ./scripts/restless-dev doctor demo_test
@@ -314,13 +341,19 @@ review the shared document, and ask for a revision.
 **Lantern Studio** is the example business in the walkthrough. Its brief: make a small
 co-op lighthouse game, find an audience and prepare the first playtest.
 
-| Teammate | Contribution |
-| --- | --- |
-| Human creative director | Sets direction, co-edits the brief and approves the playable result. |
-| Human artist / playtester | Adds references, tests the game and leaves specific feedback. |
-| AI production lead | Owns the outcome and brings prepared decisions to the humans. |
-| AI developer | Builds and revises the prototype in the company computer. |
-| AI researcher or QA specialist | Contributes audience research or independent testing when useful. |
+People bring the taste and skills that make the studio theirs. Agents carry the chores that
+are not the core of the business.
+
+| Teammate | | Contribution |
+| --- | --- | --- |
+| **You**, creative director | Person | Decides what the game feels like, what to cut, and approves what ships. |
+| **Rosa**, artist | Person | The look of the lighthouse and its light. Agents export and package her sprites. |
+| **Jun**, puzzle designer | Person | Puzzles that are hard but fair. Agents replay them and report where players stall. |
+| **Kit**, community and playtests | Person | Reads players in the room. Agents send invitations and sort the feedback into themes. |
+| **Marlow**, production lead | AI | Owns the outcome, briefs the workers and brings prepared decisions to the people. |
+| **Ines**, build and QA | AI | Builds, device checks, packaging and bug fixes in the company computer. |
+| **Theo**, research | AI | Market sizing, comparable games and store-page benchmarks. |
+| **Camille**, operations | AI | Store page drafts, the press kit and the books. |
 
 1. **Shape the brief together.** Agree on the experience, scope and what makes it good.
 2. **Make the work.** Build the prototype, prepare the audience plan and draft the invitation.
@@ -588,7 +621,7 @@ workflow gap and show the resulting output or behaviour.
 | `services/native-documents-collaboration/` | Document collaboration service |
 | `web/` | Owner workspace |
 | `web/src/lib/ui/` | The design system: tokens, pixel marks, pure views. Packed as `@restless/ui` (`npm run pack:ui`); `/gallery` renders all of it from fixtures |
-| `landing/` | The public Core page, built from the product's own components |
+| `web/src/lib/office/` | The company floor. Packed with its engine and sprites as `@restless/office` (`npm run pack:office`) for restless.run |
 | `experiment/` | Experiment designs and recorded results |
 
 The hosted control plane and public website live in a separate private repository.

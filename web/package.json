@@ -19,7 +19,8 @@
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"format": "prettier --write .",
 		"lint": "prettier --check .",
-		"verify:markdown": "node scripts/verify-streaming-markdown.mjs"
+		"verify:markdown": "node scripts/verify-streaming-markdown.mjs",
+		"pack:office": "node scripts/pack-office.mjs"
 	},
 	"devDependencies": {
 		"@hocuspocus/server": "^4.6.0",
