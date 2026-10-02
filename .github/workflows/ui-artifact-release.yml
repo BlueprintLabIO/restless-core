@@ -1,0 +1,68 @@
+name: Design system release
+
+# Packs @restless/ui and attaches the tarball, its checksum and its manifest to a GitHub release
+# in this repository. Restless Cloud downloads that release asset with `gh release download`
+# (scripts/fetch-ui-artifact.mjs in Cloud) and verifies the checksum, so the artifact stays private
+# while this repository is, with no registry to run (ADR 0004).
+#
+# Run it from the revision you want to ship. The tag is ui-v<version>, taken from
+# web/scripts/ui-package.json, and a tag that already exists is never overwritten.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ui-artifact-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: [self-hosted, linux, x64, restless-core]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install
+        run: npm --prefix web ci
+
+      - name: Check the types and the boundary
+        run: npm --prefix web run check
+
+      - name: Pack
+        id: pack
+        working-directory: web
+        run: |
+          node scripts/pack-ui.mjs
+          version=$(node -p "require('./scripts/ui-package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          ls dist
+
+      - name: Refuse an already published version
+        run: |
+          tag="ui-v${{ steps.pack.outputs.version }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "::error::$tag is already published. Bump web/scripts/ui-package.json."
+            exit 1
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="ui-v${{ steps.pack.outputs.version }}"
+          gh release create "$tag" \
+            --target "${{ github.sha }}" \
+            --title "@restless/ui ${{ steps.pack.outputs.version }}" \
+            --notes "Design system artifact packed from ${{ github.sha }}. Verify with the .sha256 file." \
+            web/dist/restless-ui-*.tgz web/dist/restless-ui-*.tgz.sha256 web/dist/ui-manifest.json

@@ -5,14 +5,25 @@
  * merely packs is not evidence; one that renders in a clean project is. */
 
 import { execFileSync } from 'node:child_process';
+import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
 const dist = resolve('dist');
-execFileSync('node', ['scripts/pack-ui.mjs', '--out', dist], { stdio: 'inherit' });
+const qualificationOnly = process.argv.includes('--qualification');
+execFileSync('node', ['scripts/pack-ui.mjs', '--out', dist,
+	...(qualificationOnly ? ['--qualification'] : [])], { stdio: 'inherit' });
 const manifest = JSON.parse(readFileSync(join(dist, 'ui-manifest.json'), 'utf8'));
+if (qualificationOnly) {
+	assert.equal(manifest.qualificationOnly, true);
+	assert.equal(manifest.sourceRevision, null);
+	assert.equal(manifest.sourceDirty, null);
+} else {
+	assert.match(manifest.sourceRevision, /^[0-9a-f]{40}$/);
+	assert.equal(manifest.qualificationOnly, undefined);
+}
 const tarball = join(dist, manifest.tarball);
 
 const dir = mkdtempSync(join(tmpdir(), 'restless-ui-smoke-'));
@@ -97,7 +108,6 @@ export default {
 		[html, 'name="organization_id" value="cloud-ready"', 'entry identity supplied by the adapter'],
 		[html, 'Focus unavailable', 'unknown focus remains unknown'],
 		[html, 'Nothing now', 'observed zero attention'],
-		[html, 'Unavailable', 'unknown attention is not zero'],
 		[css, '--intent-direction', 'tokens stylesheet'],
 		[String(imports.length), '4', 'the four design stylesheets, and not the document reset'],
 		[String(imports.includes('./base.css')), 'false', 'style.css leaves the host document alone']
@@ -106,10 +116,12 @@ export default {
 		html.split('data-company-id="cloud-ready"')[1]?.split('data-company-id="pending-company"')[0] ??
 		'';
 	const pending = html.split('data-company-id="pending-company"')[1]?.split('</section>')[0] ?? '';
+	const hostedAttention = hosted.match(/<span class="[^"]*\bportfolio-attention\b[^"]*">([\s\S]*?)<\/span>/)?.[1] ?? '';
 	expect.push(
+		[hostedAttention, '—', 'unknown attention remains unknown in its own row'],
 		[String(hosted.includes('Nothing now')), 'false', 'hosted unknown attention never claims zero'],
 		[
-			String(pending.includes('class="portfolio-entry ')),
+			String(/class="[^"]*\bportfolio-entry\b/.test(pending)),
 			'false',
 			'pending company has no invented entry'
 		],

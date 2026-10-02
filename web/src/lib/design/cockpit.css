@@ -229,6 +229,11 @@
 	animation: bridge-popover-in var(--motion-disclosure) var(--ease-spring) both;
 }
 
+.bridge-root .company-switcher[data-closing] .company-switcher-menu {
+	animation: bridge-popover-out var(--motion-state) var(--ease-standard) both;
+	pointer-events: none;
+}
+
 .bridge-root .company-switcher-menu a {
 	display: grid;
 	grid-template-columns: 16px minmax(0, 1fr) auto;

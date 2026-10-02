@@ -5,12 +5,24 @@
 	let trigger = $state<HTMLButtonElement>();
 	let content = $state<HTMLDivElement>();
 	let open = $state(false);
+	let grace: ReturnType<typeof setTimeout> | undefined;
 	function hide() {
+		clearTimeout(grace);
 		content?.hidePopover();
 		open = false;
 	}
+	/* Leaving the trigger starts a short grace so the pointer can reach the explanation, which a
+	 * person may want to read at length, select or magnify. */
+	function hideSoon() {
+		clearTimeout(grace);
+		grace = setTimeout(hide, 160);
+	}
+	function keep() {
+		clearTimeout(grace);
+	}
 	function show() {
 		if (!trigger || !content) return;
+		clearTimeout(grace);
 		content.showPopover();
 		open = true;
 		const anchor = trigger.getBoundingClientRect(),
@@ -37,7 +49,7 @@
 	aria-label={text}
 	aria-describedby={open ? id : undefined}
 	onmouseenter={show}
-	onmouseleave={hide}
+	onmouseleave={hideSoon}
 	onfocus={show}
 	onblur={hide}
 	onclick={show}
@@ -53,6 +65,8 @@
 	bind:this={content}
 	popover="auto"
 	role="tooltip"
+	onmouseenter={keep}
+	onmouseleave={hideSoon}
 	ontoggle={() => {
 		open = content?.matches(':popover-open') ?? false;
 	}}

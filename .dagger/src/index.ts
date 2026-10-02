@@ -35,7 +35,8 @@ function rust(source: Directory): Container {
     .withMountedCache('/usr/local/cargo/registry', dag.cacheVolume('restless-core-cargo-registry-v1'))
     .withMountedCache('/usr/local/cargo/git', dag.cacheVolume('restless-core-cargo-git-v1'))
     .withMountedCache('/src/target', dag.cacheVolume('restless-core-cargo-check-v1'))
-    .withDirectory('/src', source, { include: ['Cargo.toml', 'Cargo.lock', 'crates/**', 'docs/COMPANY_OPERATING_RULES.md',
+    .withDirectory('/src', source, { include: ['Cargo.toml', 'Cargo.lock', 'crates/**', 'contracts/**', 'docs/COMPANY_OPERATING_RULES.md',
+      'docs/sprints/sprint-36/contract/v1/*.json',
       'tools/codex-runner/**', 'tools/custom-harness/**', 'tools/harness-auth/**', 'tools/schedule-test-proxy.py'], exclude: EXCLUDES })
     .withWorkdir('/src');
 }
@@ -126,8 +127,12 @@ export class RestlessCore {
     source: Directory,
   ): Promise<string> {
     await Promise.all([
-      rust(source).withExec(['cargo', 'check', '--workspace', '--locked']).sync(),
+      rust(source).withExec(['cargo', 'check', '--workspace', '--locked'])
+        .withExec(['cargo', 'test', '--locked', '-p', 'restlessd', 'company_projection::tests'])
+        .withExec(['cargo', 'test', '--locked', '-p', 'restlessd', 'public_jwks_routes_are_method_and_path_exact']).sync(),
       cockpit(source).sync(),
+      this.verifyOverlays(source).sync(),
+      this.verifyUiArtifact(source).sync(),
       project(source, 'services/native-documents-collaboration')
         .withExec(['npm', 'run', 'check']).withExec(['npm', 'run', 'build']).sync(),
       project(source, 'services/native-sheets').withExec(['npm', 'test']).sync(),
@@ -135,7 +140,7 @@ export class RestlessCore {
       this.issuer(source).sync(),
       this.verifyRelease(source),
     ]);
-    return 'Core qualification passed: Rust workspace, cockpit check/build, native Documents check/build, pinned native Sheets engine, issuer artifact imports, workflow lint and versioned release contracts';
+    return 'Core qualification passed: Rust workspace, projection contract and public-key boundary tests, cockpit check/build and browser overlays, clean-project UI artifact consumer, native Documents check/build, pinned native Sheets engine, issuer artifact imports, workflow lint and versioned release contracts';
   }
 
   /** Check workflow wiring with the same pinned tool used by Cloud. */
@@ -144,13 +149,37 @@ export class RestlessCore {
     return dag.container().from('rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667')
       .withDirectory('/src/.github', source.directory('.github')).withWorkdir('/src')
       .withExec(['actionlint', '-oneline', '-config-file', '.github/actionlint.yaml',
-        '.github/workflows/immutable-core-release.yml', '.github/workflows/identity-image.yml']);
+        '.github/workflows/immutable-core-release.yml', '.github/workflows/identity-image.yml',
+        '.github/workflows/ui-artifact-release.yml']);
   }
 
   /** Build the architecture-independent cockpit once per actual UI inputs. */
   @func()
   cockpit(source: Directory): Directory {
     return cockpit(source).directory('/project/build');
+  }
+
+  /** Install and render the real packed UI in an empty project, without pretending it is a release. */
+  @func()
+  verifyUiArtifact(source: Directory): Container {
+    return project(source, 'web').withExec(['node', 'scripts/smoke-ui-artifact.mjs', '--qualification']);
+  }
+
+  /** Run the real chrome's browser checks on example data in the isolated builder. */
+  @func()
+  verifyOverlays(source: Directory): Container {
+    return project(source, 'web')
+      .withExec(['apk', 'add', '--no-cache', 'chromium'])
+      .withEnvVariable('RESTLESS_BROWSER_EXECUTABLE', '/usr/bin/chromium')
+      .withEnvVariable('RESTLESS_REVIEW_ORIGIN', 'http://127.0.0.1:5173')
+      .withEnvVariable('RESTLESS_OVERLAY_PROOF_DIR', '/tmp/restless-overlay-proof')
+      .withExec(['/bin/sh', '-ec',
+        'node node_modules/vite/bin/vite.js --host 127.0.0.1 --port 5173 > /tmp/restless-overlay-vite.log 2>&1 & server_pid=$!; '
+        + 'trap \'kill -TERM "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true\' EXIT; '
+        + 'node --input-type=module -e \'let ready=false; for(let i=0;i<60;i++){try{const r=await fetch("http://127.0.0.1:5173/gallery/shell",{signal:AbortSignal.timeout(1000)}); await r.arrayBuffer(); if(r.ok){ready=true; break}}catch{} await new Promise(r=>setTimeout(r,250))} if(!ready) throw new Error("overlay fixture did not start")\' '
+        + '|| { tail -60 /tmp/restless-overlay-vite.log; exit 1; }; '
+        + 'node scripts/verify-overlays.mjs',
+      ]);
   }
 
   /** Exercise the versioned release contracts before any registry mutation. */

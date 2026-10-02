@@ -19,6 +19,7 @@ mod codex;
 mod collaboration_doctor;
 mod company;
 mod company_bootstrap;
+mod company_projection;
 mod connected_tool;
 mod context;
 mod credential;

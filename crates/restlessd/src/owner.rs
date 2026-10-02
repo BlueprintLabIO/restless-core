@@ -1280,6 +1280,18 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
     let document_collaboration_tokens =
         crate::document_collaboration_token::DocumentCollaborationTokenIssuer::open(&daemon.root)
             .context("open native Documents collaboration signer")?;
+    // Cloud ADR 0005: a content-free count of what needs the owner, signed by a key that stays on this
+    // plane. Only a hosted plane told where Fleet listens sends anything.
+    let projection_signer = crate::company_projection::ProjectionSigner::open(&daemon.root)
+        .context("open company projection signer")?;
+    if let Some(emitter) = crate::company_projection::ProjectionEmitter::from_environment(
+        &entry,
+        projection_signer.clone(),
+    )
+    .context("configure company projection")?
+    {
+        tokio::spawn(emitter.run(Arc::clone(&daemon)));
+    }
     let document_collaboration_issuer: Arc<str> = entry
         .network_coordinates()
         .map(|(_, _, host)| format!("https://{host}"))
@@ -1631,6 +1643,9 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         // identity only — never company, owner or configuration detail.
         .route("/health", get(release_health))
         .merge(documents_api::public_routes::<OwnerState>())
+        .merge(crate::company_projection::routes::<OwnerState>(
+            projection_signer,
+        ))
         .merge(capacity_activity::routes::<OwnerState>())
         .merge(plane_readiness::routes())
         .merge(membership_controls)
@@ -2022,6 +2037,14 @@ fn network_boundary_violation(
         // private service name, so it cannot present the browser-facing plane
         // Host. Keep the exception method- and path-exact: no owner data,
         // session, forwarding claim or neighbouring route is admitted here.
+        return None;
+    }
+
+    if path == crate::company_projection::JWKS_PATH && matches!(*method, Method::GET | Method::HEAD)
+    {
+        // The projection signer's public key and nothing else. Fleet fetches it from the plane's
+        // hostname to verify records the plane pushed; there is no session on that request, and the
+        // exception is method- and path-exact like the Documents key above.
         return None;
     }
 
@@ -12986,18 +13009,23 @@ mod tests {
     }
 
     #[test]
-    fn collaboration_jwks_is_the_only_public_route_admitted_from_the_private_service_host() {
+    fn public_jwks_routes_are_method_and_path_exact_on_private_service_hosts() {
         const COLLABORATION_SERVICE_HOST: &str = "core-documents-api:7788";
 
-        for method in [Method::GET, Method::HEAD] {
-            assert!(network_boundary_violation(
-                &method,
-                &network_headers(COLLABORATION_SERVICE_HOST),
-                documents_api::DOCUMENT_COLLABORATION_JWKS_PATH,
-                PLANE_HOST,
-                None,
-            )
-            .is_none());
+        for path in [
+            documents_api::DOCUMENT_COLLABORATION_JWKS_PATH,
+            crate::company_projection::JWKS_PATH,
+        ] {
+            for method in [Method::GET, Method::HEAD] {
+                assert!(network_boundary_violation(
+                    &method,
+                    &network_headers(COLLABORATION_SERVICE_HOST),
+                    path,
+                    PLANE_HOST,
+                    None,
+                )
+                .is_none());
+            }
         }
 
         for (method, path) in [
@@ -13005,10 +13033,16 @@ mod tests {
                 Method::POST,
                 documents_api::DOCUMENT_COLLABORATION_JWKS_PATH,
             ),
+            (Method::POST, crate::company_projection::JWKS_PATH),
+            (Method::DELETE, crate::company_projection::JWKS_PATH),
             (Method::GET, "/.well-known/"),
             (
                 Method::GET,
                 "/.well-known/restless-native-documents-jwks.json/near-miss",
+            ),
+            (
+                Method::GET,
+                "/.well-known/restless-company-projection-jwks.json/near-miss",
             ),
         ] {
             let refusal = network_boundary_violation(
