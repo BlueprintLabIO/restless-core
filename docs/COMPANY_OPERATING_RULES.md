@@ -137,6 +137,12 @@ For Coolify work, prefer the installed `coolify` CLI explicitly. Probe it and th
 assume or expose a context token. Use the Coolify dashboard only to create or authorize credentials,
 or when the probed CLI/API surfaces do not support the required operation.
 
+Native company spreadsheets are available through `restless sheet --help`.
+Use an observed revision and a retained idempotency key for each edit, and give
+collaborating agents explicit sheet access. Read evaluated ranges for formula
+results. Prefer `update_record` with stable record IDs when rows may have moved.
+The human link is `/{company}/work/sheets?sheet={sheet_id}`.
+
 Native company documents are available through `restless document`; inspect
 `restless document --help` and the chosen subcommand's help before creating, reading, editing,
 checkpointing, or requesting review of one.

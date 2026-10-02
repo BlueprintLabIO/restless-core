@@ -35,6 +35,8 @@ mod owner_vault;
 mod plane_readiness;
 #[path = "owner_rooms_lifecycle.rs"]
 mod rooms_lifecycle_api;
+#[path = "owner_sheets.rs"]
+pub(crate) mod sheets_api;
 #[path = "owner_skills.rs"]
 mod skills_api;
 
@@ -1582,6 +1584,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .merge(room_api_routes::<OwnerState>())
         .merge(rooms_lifecycle_api::routes::<OwnerState>())
         .merge(documents_api::routes::<OwnerState>())
+        .merge(sheets_api::routes::<OwnerState>())
         .merge(member_collaboration_api::routes::<OwnerState>())
         .fallback(api_not_found)
         .layer(DefaultBodyLimit::max(32 * 1024 * 1024));
@@ -1885,6 +1888,7 @@ fn membership_boundary_violation(
         || is_actor_conversation_route(path)
         || is_company_route_family(path, "rooms")
         || is_company_route_family(path, "documents")
+        || is_company_route_family(path, "sheets")
         // The members handler admits owners and administrators itself.
         || is_company_route_family(path, "members")
         || is_company_collaboration_bootstrap_route(method, path)
@@ -13595,6 +13599,17 @@ mod tests {
             membership_version: Some(1),
         };
         let principal = RequestPrincipal::from_verified(&identity).unwrap();
+        for role in ["member", "admin"] {
+            let mut identity = identity.clone(); identity.role = role.into();
+            let participant = RequestPrincipal::from_verified(&identity).unwrap();
+            for (method, path) in [
+                (Method::GET, "/api/companies/aris/sheets"),
+                (Method::POST, "/api/companies/aris/sheets/sheet-id/operations"),
+                (Method::GET, "/api/companies/aris/sheets/sheet-id/collaboration"),
+                (Method::GET, "/api/companies/aris/sheets/sheet-id/versions"),
+            ] { assert!(membership_boundary_violation(&method,path,&participant).is_none()); }
+            assert!(membership_boundary_violation(&Method::POST,"/api/companies/aris/up",&participant).is_some());
+        }
         assert!(
             membership_boundary_violation(
                 &Method::GET,

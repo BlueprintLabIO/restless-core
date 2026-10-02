@@ -36,6 +36,7 @@ mod ingress;
 mod launch;
 mod legal;
 mod local_documents;
+mod sheet_commands;
 use crate::authority as mandate;
 mod mcp_gateway;
 mod stdio_mcp;
@@ -1496,6 +1497,7 @@ fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Result
         | "voice-review"
         | "voice-learn"
         | "document-operation"
+        | "sheet-operation"
         | "room-operation"
         | "document-review-request" => pin_actor(&mut request.orgintel.actor, actor, "actor")?,
         "publish-build" | "publish-candidate" | "publish-request" => {
@@ -1938,6 +1940,17 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
         None => return Response::err("missing company"),
     };
     match request.cmd.as_str() {
+        "sheet-operation" => {
+            let actor = if principal == Principal::Owner { "owner" } else {
+                match request.orgintel.actor.as_deref() { Some(actor) => actor, None => return Response::err("Missing authenticated actor") }
+            };
+            let Some(operation) = request.sheet_operation else { return Response::err("Missing Sheet operation"); };
+            match daemon.orgintel.get(company).await {
+                Ok(org) => match sheet_commands::execute(&org, actor, operation).await {
+                    Ok(value) => Response::ok(value), Err(error) => Response::err(format!("{error:#}")),
+                }, Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
         "document-operation" => {
             let actor = if principal == Principal::Owner { "owner" } else {
                 match request.orgintel.actor.as_deref() { Some(actor) => actor, None => return Response::err("Missing authenticated actor") }
@@ -6460,7 +6473,8 @@ mod tests {
         let daemon_source = include_str!("main.rs");
         let cli_source = concat!(
             include_str!("../../restless/src/main.rs"),
-            include_str!("../../restless/src/document.rs")
+            include_str!("../../restless/src/document.rs"),
+            include_str!("../../restless/src/sheet.rs")
         );
         let dispatch = daemon_source
             .split("match request.cmd.as_str() {")
@@ -6565,6 +6579,7 @@ mod tests {
 
         for (command, field) in [
             ("document-operation", "document_operation"),
+            ("sheet-operation", "sheet_operation"),
             ("room-operation", "room_operation"),
         ] {
             let token = issuer

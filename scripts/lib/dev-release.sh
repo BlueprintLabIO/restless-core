@@ -42,6 +42,30 @@ dev_build_company_image() {
 # Install the pinned, patched model broker for <root> into a directory keyed by
 # its lockfile and patch, shared by every release that pins the same tools.
 # Prints the directory.
+dev_install_sheets() {
+  local root="$1" tools_root="$2" source key target node_bin node_license
+  source="$root/services/native-sheets"
+  node_bin="$(node -p 'process.execPath')"
+  node_license="$(dirname "$node_bin")/../LICENSE"
+  [ -f "$node_license" ] || { printf 'The Node runtime license is missing beside its installation.\n' >&2; return 1; }
+  node -e 'if(Number(process.versions.node.split(".")[0])<22) process.exit(1)' || return 1
+  key="$( { cd "$source" && find package.json package-lock.json NOTICE src -type f -print | LC_ALL=C sort | while IFS= read -r input; do printf '%s\0' "$input"; command cat "$input"; done; command cat "$node_bin"; command cat "$node_license"; } | dev_sha256 | cut -c1-16)"
+  target="${tools_root}/native-sheets-${key}"
+  if [ ! -f "$target/.installed" ]; then
+    mkdir -p "$tools_root"
+    rm -rf "${target}.partial"
+    mkdir -p "${target}.partial"
+    (cd "$source" && tar --exclude=node_modules --exclude=test --exclude=probe.mjs -cf - .) | (cd "${target}.partial" && tar -xf -)
+    npm --prefix "${target}.partial" ci --omit=dev --no-audit --no-fund >&2
+    mkdir -p "${target}.partial/bin"
+    cp "$node_bin" "${target}.partial/bin/node"
+    cp "$node_license" "${target}.partial/NODE_LICENSE"
+    touch "${target}.partial/.installed"
+    mv "${target}.partial" "$target"
+  fi
+  printf '%s\n' "$target"
+}
+
 dev_install_host_tools() {
   local root="$1" tools_root="$2"
   local source="${root}/infra/host-tools" key target

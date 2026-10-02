@@ -92,12 +92,17 @@ RUN npm install -g bun@1.3.14 \
     && omp --version
 
 COPY --from=build /out/restlessd /usr/local/bin/restlessd
+COPY services/native-sheets/package.json services/native-sheets/package-lock.json /opt/restless/native-sheets/
+RUN npm --prefix /opt/restless/native-sheets ci --omit=dev --no-audit --no-fund && npm cache clean --force
+COPY services/native-sheets/src /opt/restless/native-sheets/src
+COPY services/native-sheets/NOTICE /opt/restless/native-sheets/NOTICE
+ENV RESTLESS_SHEETS_WORKER=/opt/restless/native-sheets/src/worker.mjs
 
 # The owner cockpit's built SPA. The plane serves it directly to the browser
 # (CELL_ARCHITECTURE.md §5), so a plane image without it can start but cannot
 # do its main job. Built outside this Dockerfile and copied in, because the
-# cockpit is a separate toolchain and baking node into this tier would widen
-# the container that holds the credentials.
+# cockpit is a separate toolchain; the production image includes only its
+# built output and the bounded native workbook engine's runtime dependencies.
 COPY web/build /opt/restless/cockpit
 ENV RESTLESS_COCKPIT_DIR=/opt/restless/cockpit
 
