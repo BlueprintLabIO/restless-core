@@ -31,6 +31,7 @@ authoritative. External libraries never supply palette, type, geometry or produc
 | `inhabited-office` | Native | `web/src/lib/office/` | Makes the company and active responsibility visible | One large pixel-world brand moment or route-specific organisation figure |
 | `conversation-band` | Native | conversation primitives, `chat.css` | Distinguishes owner, agent and context before reading | Product explanation, annotated transcript or role handoff |
 | `outcome-folio` | Native | Attention folio in `[companyId]/+page.svelte` | Returns evidence and one bounded judgement | Faithful ReviewTarget demonstration and final conversion boundary |
+| `artifact-navigation` | Native | `web/src/lib/ui/navigation/ArtifactSidebar.svelte` | Finds and opens company Docs/Sheets with calm icon/title rows | Company work navigation; data and permissions remain page/model-owned |
 | `evidence-chain` | Public-ready | Sprint 23 dossier | Separates source, observation, accepted fact and decision | Interactive or static strip using semantic state colours and source locators |
 | `company-pulse` | Public-ready | Sprint 23 homepage | Explains intent → responsibility → evidence → judgement | The one orchestrated public signature; complete static reduced-motion state |
 
@@ -150,3 +151,25 @@ and Origin UI Svelte's ordinary compact controls were consulted; no upstream cod
 copied. One title and sync state replace stacked request/editor headers; type selectors and the
 recovery subtitle are removed. Required actions remain keyboard/touch accessible, Escape and
 outside click dismiss the popover, and it stays within the desktop/mobile viewport without animation.
+
+## Shared Docs/Sheets navigation — 2 October 2026
+
+`artifact-navigation` combines native `physical-control` and `pane-machine`: one compact artifact
+switcher, creation action, search, recent/name ordering and a scrollable icon/title list. Rows remain
+native links with modifier-click and full-title tooltips. Arrow keys enter and move within the list;
+Home/End move between rows while retaining native search-input caret behavior. Enter opens, Escape
+clears search then restores focus, and `/` focuses search only from within navigation. Editors and
+the global company command menu retain their own shortcuts. Mobile opens a full-width browser list
+and transfers focus to the visible editor/back control.
+
+Beautiful UI's Sidebar Nav/Search informed density and alignment; Cult UI's Side Panel informed calm
+inset surfaces; Origin UI Svelte's compact input/navigation controls informed keyboard-visible
+chrome. Linear's official search interaction documentation informed clear temporary filtering and
+keyboard escape behavior. No external source, runtime or visual theme was copied. Restless tokens
+own type, color and spacing; no ornamental animation was added.
+
+The component owns transient presentation only. Page scope keys reset search/order/focus on company
+or verified-principal changes. Docs search belongs to `lib/model`, uses the existing permission-aware
+named-version search endpoint, and cancels/discards stale completions across query, company,
+principal and access changes. Its titles/snippets stay in memory. Sheets keeps its existing accepted
+revision and access-epoch boundary. Search pagination and ordering refer to the loaded results.
