@@ -49,9 +49,15 @@ RUN --mount=type=cache,id=restless-cargo-registry-v1,target=/usr/local/cargo/reg
     && install -Dm755 /src/target/$target/release/restless /out/restless \
     && install -Dm755 /src/target/$target/release/restless-runtime-bridge /out/restless-runtime-bridge
 
-FROM node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS runtime-harnesses
+FROM node:24-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe AS runtime-harnesses
 
 ENV DEBIAN_FRONTEND=noninteractive
+
+# Node's pinned image bundles an older npm dependency tree. Keep the package
+# manager current independently of the Node runtime used by company projects.
+RUN npm install -g npm@11.21.0 \
+    && test "$(npm --version)" = 11.21.0 \
+    && npm cache clean --force
 
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
@@ -68,6 +74,7 @@ RUN apt-get update \
         g++ \
         git \
         jq \
+        libpcre2-8-0 \
         make \
         novnc \
         arc-theme \
@@ -178,13 +185,11 @@ FROM runtime-harnesses AS runtime-tools
 #    in package.json. pnpm 11 stopped reading that field and fails the commit
 #    with ERR_PNPM_IGNORED_BUILDS. `corepack prepare pnpm@latest` is therefore
 #    exactly the wrong instinct — it installs a version the repo predates.
-#  * It is prepared here, as root, into a system path. Corepack's per-user cache
-#    lives under the company user's home on the *volume*, so activating as root
-#    at runtime leaves the company user still on whatever it had.
-ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
-RUN corepack enable pnpm \
-    && corepack prepare pnpm@10.18.0 --activate \
-    && pnpm --version
+#  * Install it in the system prefix. Corepack's per-user activation cache is
+#    below root's home during the build, not the persistent company user's home.
+RUN npm install -g pnpm@10.34.6 \
+    && test "$(pnpm --version)" = 10.34.6 \
+    && npm cache clean --force
 
 # An ordinary open-source CLI, not a Restless provider adapter. Authority
 # injects RESEND_API_KEY only into the exact governed child process.
@@ -235,7 +240,22 @@ RUN groupadd --gid 2000 company \
     && useradd --uid 2001 --gid 2000 --no-create-home --home-dir /tmp/restless-effect effect \
     && install -d -o company -g company -m 0770 /company
 
-RUN npm install -g ws@8.18.3 && npm cache clean --force
+RUN npm install -g ws@8.22.0 && npm cache clean --force
+
+# npm 11.21.0 still bundles older compatible releases of these libraries.
+# Replace the installed JavaScript dependencies, keeping the patched versions
+# explicit until npm includes them in its published bundle.
+RUN npm --prefix /tmp/npm-security-fixes install \
+        --ignore-scripts --omit=dev --no-audit --no-fund --save-exact \
+        brace-expansion@5.0.11 undici@6.28.1 \
+    && rm -rf /usr/local/lib/node_modules/npm/node_modules/brace-expansion \
+        /usr/local/lib/node_modules/npm/node_modules/undici \
+    && cp -a /tmp/npm-security-fixes/node_modules/brace-expansion \
+        /tmp/npm-security-fixes/node_modules/undici \
+        /usr/local/lib/node_modules/npm/node_modules/ \
+    && rm -rf /tmp/npm-security-fixes \
+    && npm --version \
+    && npm cache clean --force
 
 # Startup code and Core binaries change more often than the installed tools.
 # An external tool base must be the exact artifact selected by the release.

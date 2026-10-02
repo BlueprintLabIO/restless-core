@@ -1,14 +1,22 @@
 import { Container } from '@dagger.io/dagger';
 
 export async function verifyRuntimeToolsImage(image: Container): Promise<string> {
-    return image.withExec(['/bin/sh', '-ec',
+    return image.withUser('2000:2000').withEnvVariable('HOME', '/tmp').withExec(['/bin/sh', '-ec',
       'test ! -e /usr/local/bin/restless; test ! -e /usr/local/bin/restless-runtime-bridge; '
-      + 'node --version; codex --version; omp --version; pnpm --version; '
+      + 'node --version; npm --version; codex --version; omp --version; pnpm --version; '
       + 'godot --headless --version; chromium --version; '
       + 'node -e \'if (typeof require("/usr/local/lib/node_modules/ws") !== "function") throw new Error("ws is unavailable")\'; '
       + 'test "$(id -u company)" = 2000; test "$(id -u effect)" = 2001; '
       + 'test -s /opt/restless/godot/export_templates/4.7.2.stable/windows_release_x86_64.exe; '
-      + 'printf "Runtime tool base is usable without Core binaries\\n"',
+      // Exercise the package manager's archive/install path after replacing its
+      // compatible bundled dependencies, using only a local fixture as uid 2000.
+      + 'mkdir -p /tmp/restless-package-check/source; '
+      + 'printf \'{"name":"restless-runtime-tool-check","version":"1.0.0","main":"index.cjs","files":["index.{cjs,js}"]}\\n\' > /tmp/restless-package-check/source/package.json; '
+      + 'printf \'module.exports = "archive-install-ok";\\n\' > /tmp/restless-package-check/source/index.cjs; '
+      + 'cd /tmp/restless-package-check/source; npm pack --offline --ignore-scripts --pack-destination ..; '
+      + 'npm install --offline --ignore-scripts --no-audit --no-fund --prefix /tmp/restless-package-check/consumer /tmp/restless-package-check/restless-runtime-tool-check-1.0.0.tgz; '
+      + 'node -e \'if (require("/tmp/restless-package-check/consumer/node_modules/restless-runtime-tool-check") !== "archive-install-ok") throw new Error("npm archive installation failed")\'; '
+      + 'printf "Runtime tool base is usable as the unprivileged company user without Core binaries\\n"',
     ], { useEntrypoint: false }).stdout();
 }
 

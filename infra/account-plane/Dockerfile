@@ -63,8 +63,12 @@ RUN --mount=type=cache,id=restless-cargo-registry-v1,target=/usr/local/cargo/reg
     && cargo build --release --locked --target "$target" -p restlessd \
     && install -Dm755 /src/target/$target/release/restlessd /out/restlessd
 
-FROM node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
+FROM node:24-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe
 ENV DEBIAN_FRONTEND=noninteractive
+
+RUN npm install -g npm@11.21.0 \
+    && test "$(npm --version)" = 11.21.0 \
+    && npm cache clean --force
 
 # ca-certificates for provider TLS; curl so the image can probe its own health
 # without a second tool. Explicitly refresh the base image's PCRE2 library from
@@ -97,6 +101,19 @@ RUN npm --prefix /opt/restless/native-sheets ci --omit=dev --no-audit --no-fund 
 COPY services/native-sheets/src /opt/restless/native-sheets/src
 COPY services/native-sheets/NOTICE /opt/restless/native-sheets/NOTICE
 ENV RESTLESS_SHEETS_WORKER=/opt/restless/native-sheets/src/worker.mjs
+
+# Apply compatible security fixes that npm 11.21.0 has not bundled yet.
+RUN npm --prefix /tmp/npm-security-fixes install \
+        --ignore-scripts --omit=dev --no-audit --no-fund --save-exact \
+        brace-expansion@5.0.11 undici@6.28.1 \
+    && rm -rf /usr/local/lib/node_modules/npm/node_modules/brace-expansion \
+        /usr/local/lib/node_modules/npm/node_modules/undici \
+    && cp -a /tmp/npm-security-fixes/node_modules/brace-expansion \
+        /tmp/npm-security-fixes/node_modules/undici \
+        /usr/local/lib/node_modules/npm/node_modules/ \
+    && rm -rf /tmp/npm-security-fixes \
+    && npm --version \
+    && npm cache clean --force
 
 # The owner cockpit's built SPA. The plane serves it directly to the browser
 # (CELL_ARCHITECTURE.md §5), so a plane image without it can start but cannot
