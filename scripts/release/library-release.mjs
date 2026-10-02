@@ -14,9 +14,12 @@ assert.equal(manifest.qualificationOnly, undefined);
 const sha = name => createHash('sha256').update(readFileSync(join(root, name))).digest('hex');
 assert.equal(sha(manifest.tarball), manifest.sha256);
 const scan = JSON.parse(readFileSync(join(root, 'grype.json')));
-assert.equal(scan.source?.type, 'sbom');
-assert.equal((scan.matches ?? []).filter(match => ['High', 'Critical'].includes(match.vulnerability?.severity)).length, 0);
+// Grype retains the original Syft source type (directory), even when consuming
+// an SBOM. The pipeline binds the exact SBOM file and this report by hash.
+assert.ok(Array.isArray(scan.matches), 'missing Grype findings array');
+assert.equal(scan.matches.filter(match => ['High', 'Critical'].includes(match.vulnerability?.severity)).length, 0);
 const sbom = JSON.parse(readFileSync(join(root, 'sbom.spdx.json')));
+assert.ok(Array.isArray(sbom.packages) && sbom.packages.length > 0, 'empty dependency SBOM');
 const lock = JSON.parse(readFileSync(join(root, 'dependencies/package-lock.json')));
 for (const [path, pkg] of Object.entries(lock.packages)) {
   if (!path.includes('node_modules/') || pkg.dev) continue;
