@@ -2,6 +2,11 @@ name: Immutable Core release
 
 on:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish immutable artifacts after qualification
+        type: boolean
+        default: true
 
 env:
   REGISTRY: ghcr.io
@@ -22,45 +27,28 @@ jobs:
     name: Qualify source
     runs-on: [self-hosted, linux, x64, restless-core]
     timeout-minutes: 45
-    env:
-      CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
+          persist-credentials: false
 
       - name: Prove the checkout is the dispatched source
         run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install the pinned Dagger CLI
+        run: scripts/release/install-dagger.sh
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      - name: Check Rust workspace
-        run: cargo check --workspace --locked
-
-      - name: Check cockpit
+      - name: Qualify the exact source through the shared pipeline
+        env:
+          DAGGER_NO_NAG: "1"
         run: |
-          npm --prefix web ci
-          npm --prefix web run check
-          npm --prefix web run build
-
-      - name: Check native Documents sidecar
-        run: |
-          npm --prefix services/native-documents-collaboration ci
-          npm --prefix services/native-documents-collaboration run check
-          npm --prefix services/native-documents-collaboration run build
-
-      - name: Check pinned native Sheets engine
-        run: |
-          npm --prefix services/native-sheets ci --no-audit --no-fund
-          npm --prefix services/native-sheets test
+          "$HOME/.local/bin/dagger" --progress=plain call qualify --source=.
 
   publish:
     name: Publish immutable artifacts
     needs: qualify
+    if: inputs.publish
     runs-on: [self-hosted, linux, x64, restless-core]
     # Three sequential multi-arch (amd64+arm64, QEMU-emulated) Rust builds
     # run on the owner's machine. No GitHub-hosted runner or Actions cache.
@@ -79,6 +67,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
+          persist-credentials: false
 
       - name: Prove the checkout is the qualified source
         run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
@@ -87,13 +76,14 @@ jobs:
         with:
           node-version: 24
 
-      - name: Build cockpit assets for the account plane
-        run: |
-          npm --prefix web ci
-          npm --prefix web run build
+      - name: Install the pinned Dagger CLI
+        run: scripts/release/install-dagger.sh
 
-      - name: Install sidecar dependencies
-        run: npm --prefix services/native-documents-collaboration ci
+      - name: Export the qualified cockpit assets for the account plane
+        env:
+          DAGGER_NO_NAG: "1"
+        run: |
+          "$HOME/.local/bin/dagger" --progress=plain call cockpit --source=. export --path=web/build
 
       - name: Read release values from canonical Core sources
         id: versions
@@ -106,10 +96,8 @@ jobs:
           test -n "$api_contract"
           test -n "$identity_contract"
           test -n "$schema_version"
-          echo "core_version=$core_version" >> "$GITHUB_OUTPUT"
-          echo "api_contract=$api_contract" >> "$GITHUB_OUTPUT"
-          echo "identity_contract=$identity_contract" >> "$GITHUB_OUTPUT"
-          echo "schema_version=$schema_version" >> "$GITHUB_OUTPUT"
+          printf 'core_version=%s\napi_contract=%s\nidentity_contract=%s\nschema_version=%s\n' \
+            "$core_version" "$api_contract" "$identity_contract" "$schema_version" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-qemu-action@v3
 
@@ -241,9 +229,8 @@ jobs:
           for digest in "$ACCOUNT_DIGEST" "$RUNTIME_DIGEST" "$DOCUMENTS_DIGEST"; do
             [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
           done
-          echo "account_plane=ghcr.io/blueprintlabio/restless-account-plane@${ACCOUNT_DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "company_runtime=ghcr.io/blueprintlabio/restless-company-runtime@${RUNTIME_DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "native_documents=ghcr.io/blueprintlabio/restless-native-documents-collaboration@${DOCUMENTS_DIGEST}" >> "$GITHUB_OUTPUT"
+          printf 'account_plane=ghcr.io/blueprintlabio/restless-account-plane@%s\ncompany_runtime=ghcr.io/blueprintlabio/restless-company-runtime@%s\nnative_documents=ghcr.io/blueprintlabio/restless-native-documents-collaboration@%s\n' \
+            "$ACCOUNT_DIGEST" "$RUNTIME_DIGEST" "$DOCUMENTS_DIGEST" >> "$GITHUB_OUTPUT"
 
       - name: Qualify exact multi-architecture image indexes
         env:
@@ -280,9 +267,8 @@ jobs:
             --output "$RUNNER_TEMP/core-release")"
           release_manifest="$(jq -r .manifestPath <<<"$release_json")"
           release_digest="$(jq -r .manifestDigest <<<"$release_json")"
-          echo "contract_manifest=$contract_manifest" >> "$GITHUB_OUTPUT"
-          echo "release_manifest=$release_manifest" >> "$GITHUB_OUTPUT"
-          echo "release_manifest_digest=$release_digest" >> "$GITHUB_OUTPUT"
+          printf 'contract_manifest=%s\nrelease_manifest=%s\nrelease_manifest_digest=%s\n' \
+            "$contract_manifest" "$release_manifest" "$release_digest" >> "$GITHUB_OUTPUT"
 
       - name: Sign the exact release and contract manifests
         env:
@@ -405,10 +391,6 @@ jobs:
           RELEASE_MANIFEST_DIGEST: ${{ steps.contract.outputs.release_manifest_digest }}
           RELEASE_BUNDLE: ${{ steps.publish_bundle.outputs.reference }}
         run: |
-          echo '## Immutable Core candidate' >> "$GITHUB_STEP_SUMMARY"
-          echo "- Source: \`$GITHUB_SHA\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Account plane: \`$ACCOUNT_PLANE_IMAGE\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Company Runtime: \`$COMPANY_RUNTIME_IMAGE\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Native Documents: \`$NATIVE_DOCUMENTS_IMAGE\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Release manifest: \`$RELEASE_MANIFEST_DIGEST\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Core bundle: \`$RELEASE_BUNDLE\`" >> "$GITHUB_STEP_SUMMARY"
+          printf '## Immutable Core candidate\n\n- Source: %s\n- Account plane: %s\n- Company Runtime: %s\n- Native Documents: %s\n- Release manifest: %s\n- Core bundle: %s\n' \
+            "$GITHUB_SHA" "$ACCOUNT_PLANE_IMAGE" "$COMPANY_RUNTIME_IMAGE" "$NATIVE_DOCUMENTS_IMAGE" \
+            "$RELEASE_MANIFEST_DIGEST" "$RELEASE_BUNDLE" >> "$GITHUB_STEP_SUMMARY"
