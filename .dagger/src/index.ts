@@ -48,6 +48,44 @@ function checkPlatform(platform: string): asserts platform is Platform {
 
 @object()
 export class RestlessCore {
+  /** One bounded local/CI delivery call for the complete product library set. */
+  @func()
+  async deliverLibraries(
+    @argument({ ignore: ['**', '!LICENSE', '!web/**', '!services/identity/**', '!scripts/release/**',
+      '!dagger.json', '!.dagger/package.json', '!.dagger/tsconfig.json', '!.dagger/src/index.ts',
+      '!.dagger/src/libraries.ts', '!.dagger/src/publish.ts', '!.github/workflows/ui-artifact-release.yml',
+      '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/.git/**', '**/.env', '**/.env.*'] })
+    source: Directory, revision: string, epoch: string, scanPeriod: string, username: string, password: Secret,
+    oidcRequestUrl: string, oidcRequestToken: Secret, workflowRef: string, publish: boolean = true, concurrency: number = 2,
+  ): Promise<Directory> {
+    if (!/^[0-9a-f]{40}$/.test(revision) || !/^\d+$/.test(epoch)) throw new Error('delivery requires exact checkout revision/epoch');
+    if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 3) throw new Error('library concurrency must be between 1 and 3');
+    await this.verifyLibraryInputs(source).sync();
+    const pending = ['ui', 'office', 'issuer'];
+    const results: Array<{kind: string; payload: Directory; receipt: any}> = [];
+    await Promise.all(Array.from({length: concurrency}, async () => {
+      for (;;) {
+        const kind = pending.shift();
+        if (!kind) break;
+        if (!publish) {
+          const payload = await this.library(source, kind, revision, epoch, scanPeriod);
+          results.push({kind, payload, receipt: {component: kind, source_revision: revision, qualification_only: true}});
+          continue;
+        }
+        let payload = await this.publishLibrary(source, kind, revision, epoch, scanPeriod, username, password);
+        const receipt = JSON.parse(await payload.file('library-receipt.json').contents());
+        // Reuse already admitted the signed OCI payload and exact input/day.
+        // It performs no mutation or duplicate signing of the existing artifact.
+        if (!receipt.reused) payload = await this.sealLibrary(source, payload, username, password, oidcRequestUrl, oidcRequestToken, workflowRef);
+        results.push({kind, payload, receipt});
+      }
+    }));
+    results.sort((left, right) => left.kind.localeCompare(right.kind));
+    return results.reduce((out, result) => out.withDirectory(result.kind, result.payload), dag.directory())
+      .withNewFile('libraries-receipt.json', JSON.stringify({source_revision: revision, scan_period: scanPeriod,
+        libraries: results.map(result => result.receipt)}, null, 2) + '\n');
+  }
+
   /** Prove actual library dependency boundaries used for artifact reuse. */
   @func()
   verifyLibraryInputs(

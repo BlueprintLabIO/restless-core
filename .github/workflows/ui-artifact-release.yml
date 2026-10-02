@@ -19,7 +19,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: Publish and seal after package qualification
+        description: Publish changed inputs and admit existing signed packages
         type: boolean
         default: true
 
@@ -33,15 +33,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  library:
+  libraries:
     if: github.ref == 'refs/heads/dev'
     runs-on: [self-hosted, linux, x64, restless-core]
     timeout-minutes: 25
-    strategy:
-      fail-fast: false
-      max-parallel: 1
-      matrix:
-        kind: [ui, office, issuer]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -49,46 +44,26 @@ jobs:
           persist-credentials: false
       - name: Install pinned Dagger
         run: scripts/release/install-dagger.sh
-      - name: Check actual library input boundaries
-        run: DAGGER_NO_NAG=1 "$HOME/.local/bin/dagger" --progress=plain call verify-library-inputs --source=. stdout
-      - name: Qualify and publish the exact package
+      - name: Deliver the exact product library set through Dagger
         env:
-          KIND: ${{ matrix.kind }}
           PUBLISH: ${{ github.event_name == 'push' || inputs.publish }}
           RESTLESS_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: |
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test -z "$(git status --porcelain)"
-          epoch="$(git show -s --format=%ct HEAD)"
-          out="$RUNNER_TEMP/core-libraries/$KIND"
-          dagger_function=library
-          auth=()
-          if [[ "$PUBLISH" == true ]]; then
-            dagger_function=publish-library
-            auth=(--username="$GITHUB_ACTOR" --password=env:RESTLESS_REGISTRY_PASSWORD)
-          fi
-          DAGGER_NO_NAG=1 "$HOME/.local/bin/dagger" --progress=plain call "$dagger_function" --source=. \
-            --kind="$KIND" --revision="$GITHUB_SHA" --epoch="$epoch" --scan-period="$(date -u +%F)" \
-            "${auth[@]}" export --path="$out"
-      - name: Seal and verify with this workflow identity
-        if: github.event_name == 'push' || inputs.publish
-        env:
-          KIND: ${{ matrix.kind }}
-          RESTLESS_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          out="$RUNNER_TEMP/core-libraries/$KIND"
-          DAGGER_NO_NAG=1 "$HOME/.local/bin/dagger" --progress=plain call seal-library --source=. --artifacts="$out" \
+          out="$RUNNER_TEMP/core-libraries/$GITHUB_SHA"
+          DAGGER_NO_NAG=1 "$HOME/.local/bin/dagger" --progress=plain call deliver-libraries --source=. \
+            --revision="$GITHUB_SHA" --epoch="$(git show -s --format=%ct HEAD)" --scan-period="$(date -u +%F)" \
             --username="$GITHUB_ACTOR" --password=env:RESTLESS_REGISTRY_PASSWORD \
             --oidc-request-url="$ACTIONS_ID_TOKEN_REQUEST_URL" --oidc-request-token=env:ACTIONS_ID_TOKEN_REQUEST_TOKEN \
-            --workflow-ref="$GITHUB_WORKFLOW_REF" export --path="$out"
-          printf '### %s\n\n%s\n' "$KIND" "$(jq -er .reference "$out/library-receipt.json")" >> "$GITHUB_STEP_SUMMARY"
+            --workflow-ref="$GITHUB_WORKFLOW_REF" --publish="$PUBLISH" --concurrency=2 export --path="$out"
+          jq -r '.libraries[] | [.component, (.reference // "qualification only"), (if .reused then "reused" else "qualified" end)] | @tsv' \
+            "$out/libraries-receipt.json" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v7
         with:
-          name: core-library-${{ matrix.kind }}-${{ github.sha }}
-          path: ${{ runner.temp }}/core-libraries/${{ matrix.kind }}/
+          name: core-libraries-${{ github.sha }}
+          path: ${{ runner.temp }}/core-libraries/${{ github.sha }}/
           retention-days: 7
-      - name: Remove owned job exports
+      - name: Remove owned job export
         if: always()
-        env:
-          KIND: ${{ matrix.kind }}
-        run: rm -rf -- "$RUNNER_TEMP/core-libraries/$KIND"
+        run: rm -rf -- "$RUNNER_TEMP/core-libraries/$GITHUB_SHA"

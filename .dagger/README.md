@@ -55,8 +55,14 @@ Existing input markers and source discovery tags are never overwritten.
 Reuse verifies the exact dev library workflow identity, source, input hash,
 archive and evidence. It retains the artifact's original Core revision; the
 current integration commit may include unrelated changes. A new scan day or
-changed source/recipe inputs requires qualification. The standard signature and
-receipt remain independently verifiable.
+changed source/recipe inputs requires qualification. The existing OCI signature
+binds the package's source, input identity, archive and evidence; the receipt
+records that immutable reference. Reuse performs no duplicate signing.
+
+The workflow executes one `deliver-libraries` call, with at most two independent
+packages in flight. It shares the source checkout and Dagger setup. Changed
+packages are qualified and sealed; existing packages are cryptographically
+admitted. Lower-level functions remain available for a bounded diagnosis.
 
 To force package qualification without consulting published input markers:
 
