@@ -50,6 +50,37 @@ export function mountSheet(element: HTMLDivElement, company: string, sheet: stri
 		blocked = true; socket?.close(); app?.destroy(); app = undefined; model = undefined; target.replaceChildren();
 		status({ state: 'error', message, access: 'read', denied });
 	}
+	async function mount(mounted: App<typeof Root>) {
+		const outsideControl = (candidate: EventTarget | null) => candidate instanceof HTMLElement
+			&& !element.contains(candidate) && candidate.matches('a[href],button,input,textarea,select,[contenteditable="true"],[tabindex]')
+			&& candidate.isConnected && candidate.getClientRects().length > 0
+			&& !candidate.closest('[inert],[aria-hidden="true"]') ? candidate : null;
+		let retained = outsideControl(document.activeElement);
+		const focus = (event: FocusEvent) => {
+			const control = outsideControl(event.target);
+			if (control) retained = control;
+		};
+		const pointer = (event: PointerEvent) => {
+			retained = outsideControl(event.target instanceof Element
+				? event.target.closest('a[href],button,input,textarea,select,[contenteditable="true"],[tabindex]') : null);
+		};
+		const key = (event: KeyboardEvent) => {
+			if (event.target instanceof Node && element.contains(event.target)) retained = null;
+		};
+		document.addEventListener('focusin', focus, true);
+		document.addEventListener('pointerdown', pointer, true);
+		document.addEventListener('keydown', key, true);
+		try { await mounted.mount(target); }
+		finally {
+			document.removeEventListener('focusin', focus, true);
+			document.removeEventListener('pointerdown', pointer, true);
+			document.removeEventListener('keydown', key, true);
+			// Owl focuses its grid on mount. Keep deliberate sidebar/back-control
+			// focus, unless the user entered the workbook while it was loading.
+			if (!disposed && !blocked && element.contains(document.activeElement) && outsideControl(retained))
+				retained!.focus({ preventScroll: true });
+		}
+	}
 	function connect() {
 		if (disposed || blocked) return;
 		status({ state: 'connecting', access });
@@ -71,7 +102,7 @@ export function mountSheet(element: HTMLDivElement, company: string, sheet: stri
 						model = new Model(state.snapshot, { transportService: transport, client: { id: clientId, name: 'You' },
 							mode: access === 'edit' ? 'normal' : 'readonly' }, state.messages.map((m: { message: UpstreamMessage }) => m.message));
 						cursor = state.sheet.sequence;
-						const mounted = new App(Root, { props: { model }, templates }); app = mounted; await mounted.mount(target);
+						const mounted = new App(Root, { props: { model }, templates }); app = mounted; await mount(mounted);
 						if (disposed || blocked) { mounted.destroy(); return; }
 					} else for (const m of state.messages) accepted(m.sequence, m.message);
 					model.updateMode(access === 'edit' ? 'normal' : 'readonly');

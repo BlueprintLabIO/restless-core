@@ -393,6 +393,26 @@ export function createDocument(
 	return documentJson(documentsPath(company), mutation(input, commandId));
 }
 
+export interface DocumentSearchHit {
+	document_id: string;
+	named_version_id: string;
+	title: string;
+	kind: string;
+	snippet: string;
+	updated_at: string;
+	relevance: number;
+}
+
+export interface DocumentSearchPage {
+	items: DocumentSearchHit[];
+	next_offset: number | null;
+}
+
+export function searchDocuments(company: string, q: string, offset = 0, signal?: AbortSignal): Promise<DocumentSearchPage> {
+	const query = new URLSearchParams({ q, offset: String(offset), limit: '30', include_archived: 'false' });
+	return documentJson(`${documentsPath(company)}/search?${query}`, { signal });
+}
+
 export function getDocument(
 	company: string,
 	document: string,

@@ -1,17 +1,16 @@
 <script lang="ts">
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { failureSentence } from '$lib/model/failure';
+	import { untrack } from 'svelte';
+	import ArtifactSidebar from '$lib/ui/navigation/ArtifactSidebar.svelte';
+	import { documentSearch } from '$lib/model/document-search.svelte';
+	import { isAuthoritativeDocumentFailure } from '$lib/model/document-cache';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 	import BookOpen from '@lucide/svelte/icons/book-open';
-	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import FilePlus2 from '@lucide/svelte/icons/file-plus-2';
-	import Files from '@lucide/svelte/icons/files';
 	import MessageSquare from '@lucide/svelte/icons/message-square';
-	import Plus from '@lucide/svelte/icons/plus';
-	import Search from '@lucide/svelte/icons/search';
-	import X from '@lucide/svelte/icons/x';
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import DocumentEditor from '$lib/components/DocumentEditor.svelte';
 	import DocumentInspector, {
@@ -63,7 +62,6 @@
 		inspectorValue === 'review' || inspectorValue === 'versions' ? inspectorValue : 'comments'
 	);
 	let online = $state(true);
-	let search = $state('');
 	let creating = $state(false);
 	let createTitle = $state('');
 	let createBusy = $state(false);
@@ -72,15 +70,91 @@
 	let createAttemptCompanyId = $state('');
 	let commentBlockId = $state<string | null>(null);
 	let documentDirty = $state(false);
+	let mobileFocusPending = $state(false);
+	let documentStage: HTMLElement;
+	let searchAccessDenied = $state(false);
+	function companyDenied(cause: unknown): boolean {
+		const status =
+			cause && typeof cause === 'object' && 'status' in cause ? cause.status : undefined;
+		return status === 401 || status === 403;
+	}
 
-	const visibleDocuments = $derived.by(() => {
-		const needle = search.trim().toLocaleLowerCase();
-		if (!needle) return list.summaries;
-		return list.summaries.filter((item) => {
-			const haystack = `${item.document.title} ${item.document.kind} ${item.document.status}`;
-			return haystack.toLocaleLowerCase().includes(needle);
-		});
+	const partition = $derived(shellPrincipal.view?.cache_partition ?? '');
+	const authorized = $derived(
+		Boolean(partition) &&
+			!isAuthoritativeDocumentFailure(shellPrincipal.failure) &&
+			!searchAccessDenied &&
+			!companyDenied(list.failure) &&
+			!companyDenied(detail.failure)
+	);
+	const search = documentSearch({
+		company: () => companyId,
+		partition: () => partition,
+		authorized: () => authorized
 	});
+	const sidebarItems = $derived(
+		!authorized
+			? []
+			: search.query.trim()
+				? search.hits.map((item) => ({
+						id: item.document_id,
+						title: item.title,
+						href: documentHref(item.document_id),
+						updatedAt: item.updated_at,
+						hint: item.snippet
+					}))
+				: list.summaries.map((item) => ({
+						id: item.document.id,
+						title: item.document.title,
+						href: documentHref(item.document.id),
+						updatedAt: item.document.updated_at,
+						hint: summaryLine(item.document)
+					}))
+	);
+	$effect(() => {
+		companyId;
+		partition;
+		searchAccessDenied = false;
+		creating = false;
+		createTitle = '';
+		createAttempt = null;
+		createAttemptCompanyId = '';
+		createFailure = '';
+		createBusy = false;
+		mobileFocusPending = false;
+		untrack(() => search.setQuery(''));
+	});
+	$effect(() => {
+		if ([shellPrincipal.failure, list.failure, detail.failure].some(companyDenied))
+			searchAccessDenied = true;
+	});
+	$effect(() => {
+		const id = selectedDocumentId;
+		if (isAuthoritativeDocumentFailure(detail.failure)) untrack(() => search.denyDocument(id));
+		else if (documentView?.document.id === id) untrack(() => search.admitDocument(id));
+	});
+	function toggleCreate() {
+		if (createBusy) return;
+		if (creating) {
+			createAttempt = null;
+			createAttemptCompanyId = '';
+			createTitle = '';
+		}
+		creating = !creating;
+		createFailure = '';
+	}
+	async function retrySidebar() {
+		const company = companyId,
+			expectedPartition = partition;
+		await shellPrincipal.refresh();
+		if (companyId !== company || partition !== expectedPartition || shellPrincipal.failure) return;
+		await Promise.allSettled([list.refresh(), ...(selectedDocumentId ? [detail.refresh()] : [])]);
+		if (companyId !== company || partition !== expectedPartition) return;
+		if (![shellPrincipal.failure, list.failure, detail.failure].some(companyDenied)) {
+			searchAccessDenied = false;
+			search.refresh();
+		}
+	}
 
 	const sourceFailure = $derived(shellPrincipal.failure ?? list.failure ?? detail.failure ?? null);
 
@@ -100,15 +174,30 @@
 	async function openDocument(documentId: string): Promise<void> {
 		const previousDocumentId = selectedDocumentId;
 		const targetCompanyId = companyId;
+		const targetPartition = partition;
 		if (previousDocumentId && previousDocumentId !== documentId) {
 			await client.cancelQueries({
 				predicate: (query) =>
 					query.queryKey[1] === targetCompanyId && query.queryKey[2] === previousDocumentId
 			});
 		}
+		if (companyId !== targetCompanyId || partition !== targetPartition || !authorized) return;
 		commentBlockId = null;
 		documentDirty = false;
-		await goto(documentHrefFor(targetCompanyId, documentId), { keepFocus: true, noScroll: true });
+		const desktop = window.matchMedia('(min-width: 821px)').matches;
+		await goto(documentHrefFor(targetCompanyId, documentId), {
+			keepFocus: desktop,
+			noScroll: true
+		});
+		if (
+			companyId === targetCompanyId &&
+			partition === targetPartition &&
+			selectedDocumentId === documentId &&
+			!desktop
+		) {
+			mobileFocusPending = true;
+			documentStage?.focus();
+		}
 	}
 
 	function changePanel(panel: DocumentInspectorPanel): void {
@@ -134,6 +223,9 @@
 		const title = createTitle.trim();
 		if (!title || !online || createBusy) return;
 		const targetCompanyId = companyId;
+		const targetPartition = partition;
+		const currentCreation = () =>
+			companyId === targetCompanyId && partition === targetPartition && authorized;
 		if (createAttemptCompanyId !== targetCompanyId) createAttempt = null;
 		createAttemptCompanyId = targetCompanyId;
 		const semanticInput: Omit<CreateDocumentInput, 'content_json'> = {
@@ -151,24 +243,26 @@
 		let createdDocumentId: string | null = null;
 		try {
 			const receipt = await createDocument(targetCompanyId, attempt.input, attempt.command.id);
+			if (!currentCreation()) return;
 			createdDocumentId = receipt.document_id;
 			const target = { companyId: targetCompanyId, documentId: receipt.document_id };
 			const created = await getDocument(target.companyId, target.documentId);
+			if (!currentCreation()) return;
 			client.setQueryData(documentQueryKeys.detail(target.companyId, target.documentId), created);
 			await client.invalidateQueries({ queryKey: documentQueryKeys.list(target.companyId) });
-			if (companyId !== target.companyId) return;
+			if (!currentCreation()) return;
 			creating = false;
 			createTitle = '';
 			createAttempt = null;
 			createAttemptCompanyId = '';
 			await openDocument(created.document.id);
 		} catch (cause) {
+			if (!currentCreation()) return;
 			failClosedDocumentRead(client, cause, targetCompanyId, createdDocumentId);
-			if (companyId !== targetCompanyId) return;
 			createFailure = failureSentence(cause, 'The document was not created.');
 			if (!isRetryableDocumentFailure(cause)) createAttempt = null;
 		} finally {
-			createBusy = false;
+			if (currentCreation()) createBusy = false;
 		}
 	}
 
@@ -207,132 +301,81 @@
 				error={sourceFailure}
 				subject="documents"
 				stale={list.status === 'stale'}
-				onretry={() => {
-					void shellPrincipal.refresh();
-					void list.refresh();
-					void detail.refresh();
-				}}
+				onretry={() => void retrySidebar()}
 			/>
 		</div>
 	{/if}
 
-	<aside class="document-index cockpit-pane" aria-label="Company documents">
-		<header class="cockpit-pane-head document-index-head">
-			<div>
-				<a
-					href={`/${encodeURIComponent(companyId)}/work`}
-					aria-label="Back to Work"
-					title="Back to Work"
-				>
-					<ArrowLeft size={15} strokeWidth={2} aria-hidden="true" />
-				</a>
-				<h1>Documents</h1>
-			</div>
-			<button
-				type="button"
-				class="new-document-button"
-				aria-expanded={creating}
-				title="Create document"
-				onclick={() => {
-					if (creating) {
-						createAttempt = null;
-						createAttemptCompanyId = '';
-						createTitle = '';
-					}
-					creating = !creating;
-					createFailure = '';
+	<div class="document-index">
+		{#key `${companyId}/${partition}`}
+			<ArtifactSidebar
+				kind="docs"
+				items={sidebarItems}
+				selected={selectedDocumentId}
+				workHref={`/${encodeURIComponent(companyId)}/work`}
+				docsHref={`/${encodeURIComponent(companyId)}/work/documents`}
+				sheetsHref={`/${encodeURIComponent(companyId)}/work/sheets`}
+				loading={search.query.trim() ? search.loading : list.status === 'unknown' && !list.failure}
+				searching={search.loading}
+				filterLocally={false}
+				queryByteLimit={256}
+				onquery={(value) => search.setQuery(value)}
+				failure={search.query.trim()
+					? !authorized
+						? 'Documents are unavailable.'
+						: search.failure
+					: list.failure || (!authorized && shellPrincipal.failure)
+						? 'Documents are unavailable.'
+						: ''}
+				{creating}
+				createDisabled={!online || createBusy || !authorized}
+				oncreate={toggleCreate}
+				onopen={(item) => openDocument(item.id)}
+				onretry={() => void retrySidebar()}
+				hasMore={search.query.trim() ? search.hasMore : list.hasMore}
+				loadingMore={search.query.trim() ? search.loadingMore : list.loadingMore}
+				onloadmore={() => {
+					if (search.query.trim()) search.loadMore();
+					else void list.loadMore();
 				}}
 			>
-				{#if creating}<X size={15} strokeWidth={2} aria-hidden="true" />{:else}<Plus
-						size={15}
-						strokeWidth={2}
-						aria-hidden="true"
-					/>{/if}
-				<span>{creating ? 'Cancel' : 'New'}</span>
-			</button>
-		</header>
-
-		{#if creating}
-			<form class="create-document" onsubmit={(event) => void submitDocument(event)}>
-				<label
-					><span>Title</span><input
-						bind:value={createTitle}
-						maxlength="200"
-						placeholder="Name the document"
-						{@attach (input) => input.focus()}
-						disabled={!online || createBusy}
-						oninput={() => (createAttempt = null)}
-					/></label
-				>
-
-				{#if createFailure}<p role="alert">{createFailure}</p>{/if}
-				<button
-					type="submit"
-					class="btn small primary"
-					disabled={!online || createBusy || !createTitle.trim()}
-					>{createBusy ? 'Creating…' : 'Create document'}</button
-				>
-			</form>
-		{/if}
-
-		<label class="document-search">
-			<Search class="search-icon" size={14} strokeWidth={1.8} aria-hidden="true" />
-			<span class="sr-only">Search documents</span>
-			<input bind:value={search} type="search" placeholder="Find a document" />
-		</label>
-
-		<div class="document-list">
-			{#each visibleDocuments as item (item.document.id)}
-				<a
-					class="document-row status-{item.document.status}"
-					class:selected={item.document.id === selectedDocumentId}
-					href={documentHref(item.document.id)}
-					aria-current={item.document.id === selectedDocumentId ? 'page' : undefined}
-					onclick={(event) => {
-						event.preventDefault();
-						void openDocument(item.document.id);
-					}}
-				>
-					<span class="document-state" aria-hidden="true"></span>
-					<span
-						><strong>{item.document.title}</strong><small>{summaryLine(item.document)}</small></span
-					>
-					<ChevronRight size={14} strokeWidth={1.8} aria-hidden="true" />
-				</a>
-			{:else}
-				{#if list.status === 'unknown'}
-					<div class="document-list-loading" aria-label="Loading documents">
-						<i></i><i></i><i></i>
-					</div>
-				{:else if search}
-					<p class="document-list-empty">No documents match “{search}”.</p>
-				{:else}
-					<div class="document-list-empty unwritten">
-						<Files size={19} strokeWidth={1.5} aria-hidden="true" /><strong
-							>No documents yet.</strong
+				{#snippet creation()}
+					<form class="create-document" onsubmit={(event) => void submitDocument(event)}>
+						<label
+							><span>Title</span><input
+								bind:value={createTitle}
+								maxlength="200"
+								placeholder="Name the document"
+								{@attach (input) => input.focus()}
+								disabled={!online || createBusy}
+								oninput={() => (createAttempt = null)}
+							/></label
 						>
-						<p>Create a shared brief, plan, decision, or report.</p>
-					</div>
-				{/if}
-			{/each}
-		</div>
-		{#if list.hasMore}
-			<button
-				type="button"
-				class="load-document-page"
-				disabled={list.loadingMore}
-				onclick={() => void list.loadMore()}
-				>{list.loadingMore ? 'Loading…' : 'Load older documents'}</button
-			>
-		{/if}
-	</aside>
+						{#if createFailure}<p role="alert">{createFailure}</p>{/if}
+						<button
+							type="submit"
+							class="btn small primary"
+							disabled={!online || createBusy || !createTitle.trim()}
+							>{createBusy ? 'Creating…' : 'Create document'}</button
+						>
+					</form>
+				{/snippet}
+			</ArtifactSidebar>
+		{/key}
+	</div>
 
-	<main class="document-stage cockpit-pane">
+	<main class="document-stage cockpit-pane" tabindex="-1" bind:this={documentStage}>
 		{#if documentView}
 			<header class="mobile-document-bar">
 				<button
 					type="button"
 					aria-label="Back to Documents"
+					{@attach (button) => {
+						if (mobileFocusPending && button.getClientRects().length) {
+							button.focus();
+							mobileFocusPending = false;
+						}
+					}}
 					onclick={() => void goto(`/${encodeURIComponent(companyId)}/work/documents`)}
 					><ArrowLeft size={16} strokeWidth={2} /></button
 				>
@@ -457,13 +500,6 @@
 		display: flex;
 		flex-direction: column;
 	}
-	.document-index-head > div {
-		min-width: 0;
-		display: flex;
-		align-items: center;
-		gap: 9px;
-	}
-	.document-index-head a,
 	.mobile-document-bar button,
 	.mobile-inspector-bar button {
 		width: 28px;
@@ -478,38 +514,16 @@
 		color: var(--text-secondary);
 		cursor: pointer;
 	}
-	.document-index-head a:hover,
 	.mobile-document-bar button:hover,
 	.mobile-inspector-bar button:hover {
 		border-color: var(--border-strong);
 		color: var(--ink);
 	}
-	.new-document-button {
-		min-height: 28px;
-		display: flex;
-		align-items: center;
-		gap: 5px;
-		padding: 4px 8px;
-		border: 1px solid var(--control-edge);
-		border-radius: var(--radius-control);
-		background: var(--surface);
-		box-shadow: var(--control-depth);
-		color: var(--ink);
-		font: 600 var(--t-body) var(--font-ui);
-		cursor: pointer;
-	}
-	.new-document-button:active {
-		transform: translateY(1px);
-		box-shadow: var(--control-depth-pressed);
-	}
 	.create-document {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr);
 		gap: 8px;
 		padding: 11px;
 		border-bottom: 1px solid var(--border);
-		background: color-mix(in srgb, var(--surface-work) 5%, var(--surface));
-		animation: bridge-popover-in var(--motion-disclosure) var(--ease-spring) both;
 	}
 	.create-document label {
 		min-width: 0;
@@ -518,7 +532,7 @@
 	}
 	.create-document label > span {
 		color: var(--text-secondary);
-		font-weight: 600;
+		font-weight: 500;
 	}
 	.create-document input {
 		min-width: 0;
@@ -532,139 +546,24 @@
 		font: var(--t-body) var(--font-ui);
 	}
 	.create-document p {
-		grid-column: 1 / -1;
 		margin: 0;
 		color: var(--state-danger);
 	}
 	.create-document .btn {
-		grid-column: 1 / -1;
 		justify-self: end;
 	}
-	.document-search {
-		position: relative;
-		display: flex;
-		align-items: center;
-		padding: 9px 11px;
-		border-bottom: 1px solid var(--border);
-		color: var(--text-tertiary);
-	}
-	.document-search :global(.search-icon) {
-		position: absolute;
-		left: 19px;
-		pointer-events: none;
-	}
-	.document-search input {
-		width: 100%;
-		height: 31px;
-		padding: 5px 8px 5px 29px;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-control);
-		background: color-mix(in srgb, var(--highlight) 72%, transparent);
-		color: var(--ink);
-		font: var(--t-body) var(--font-ui);
-	}
-	.document-search input:focus {
-		border-color: color-mix(in srgb, var(--intent-conversation) 36%, var(--border));
-		outline: 2px solid color-mix(in srgb, var(--intent-conversation) 16%, transparent);
-	}
-	.document-list {
-		flex: 1;
-		min-height: 0;
-		overflow-y: auto;
-	}
-	.document-row {
-		min-height: 65px;
-		display: grid;
-		grid-template-columns: 7px minmax(0, 1fr) auto;
-		align-items: center;
-		gap: 9px;
-		padding: 9px 11px;
-		border-bottom: 1px solid var(--border);
-		color: inherit;
-		text-decoration: none;
-		transition: background-color var(--motion-state) var(--ease-standard);
-	}
-	.document-row:hover {
-		background: var(--surface-alt);
-	}
-	.document-row.selected {
-		background: color-mix(in srgb, var(--surface-work) 8%, var(--surface));
-		box-shadow: inset 3px 0 0 var(--surface-work);
-	}
-	.document-row > span:nth-child(2) {
-		min-width: 0;
-	}
-	.document-row strong,
-	.document-row small {
-		display: block;
-	}
-	.document-row strong {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.document-row small {
-		margin-top: 4px;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		color: var(--text-tertiary);
-	}
-	.document-state {
-		width: 7px;
-		height: 7px;
-		border-radius: 50%;
-		background: var(--status-offline);
-	}
-	.status-draft .document-state {
-		background: var(--intent-conversation);
-	}
-	.status-in_review .document-state {
-		background: var(--surface-attention);
-		box-shadow: 0 0 0 3px var(--surface-attention-soft);
-	}
-	.status-accepted .document-state {
-		background: var(--state-success);
-	}
-	.document-list-empty {
-		display: grid;
-		justify-items: start;
-		gap: 5px;
-		margin: 0;
-		padding: var(--space-4);
-		color: var(--text-tertiary);
-	}
-	.document-list-empty p {
-		margin: 0;
-	}
-	/* Beside the stage, the notebook prompt already says there is nothing yet. */
-	@media (min-width: 821px) {
-		.document-list-empty.unwritten {
-			display: none;
-		}
-	}
-	.document-list-loading,
 	.document-stage-loading {
 		display: grid;
 		gap: 9px;
 		padding: var(--space-4);
+		width: min(680px, 80%);
+		margin: 64px auto;
 	}
-	.document-list-loading i,
 	.document-stage-loading i {
 		display: block;
 		height: 42px;
 		border-radius: var(--radius-control);
-		background: linear-gradient(
-			100deg,
-			rgba(48, 57, 74, 0.06),
-			rgba(48, 57, 74, 0.025) 42%,
-			rgba(48, 57, 74, 0.06)
-		);
-		animation: document-loading var(--motion-working) var(--ease-standard) infinite;
-	}
-	.document-stage-loading {
-		width: min(680px, 80%);
-		margin: 64px auto;
+		background: var(--surface-alt);
 	}
 	.document-stage-loading i:nth-child(1) {
 		width: 56%;
@@ -678,16 +577,6 @@
 	}
 	.document-stage-loading i:nth-child(4) {
 		width: 67%;
-	}
-	.load-document-page {
-		margin: 8px;
-		padding: 7px;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-control);
-		background: var(--surface);
-		color: var(--text-secondary);
-		font: inherit;
-		cursor: pointer;
 	}
 	.document-stage {
 		display: flex;
@@ -844,7 +733,6 @@
 
 	@media (prefers-reduced-motion: reduce) {
 		.create-document,
-		.document-list-loading i,
 		.document-stage-loading i {
 			animation: none;
 		}

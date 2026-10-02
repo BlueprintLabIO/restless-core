@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
+	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
+	import ArtifactSidebar from '$lib/ui/navigation/ArtifactSidebar.svelte';
 	import SheetEditor from '$lib/components/SheetEditor.svelte';
 	import { createSheet, sheetJson, type SheetRow } from '$lib/model/sheets';
 	import { companyPrincipalQuery, collaborationBootstrapQuery } from '$lib/model/queries.svelte';
@@ -10,22 +12,34 @@
 	const authorized = $derived(Boolean(partition) && ![401, 403, 404].includes(principal.failure?.status ?? 0));
 	const directory = $derived(collaborationBootstrapQuery(company, () => principal.view));
 	let sheets = $state<SheetRow[]>([]), title = $state(''), error = $state(''), busy = $state(false);
+	let listLoading = $state(false), listFailure = $state('');
 	let creating = $state(false), revision = $state(''), saveState = $state('connecting'), access = $state('read');
 	let worksheet = $state(''), panel = $state<'history' | 'sharing' | ''>('');
 	let participant = $state(''), grant = $state('edit');
 	interface Version { id: string; title: string | null; sequence: number; created_at: string }
 	let versions = $state<Version[]>([]);
 	const selected = $derived(page.url.searchParams.get('sheet') ?? sheets[0]?.id ?? '');
-	const selectedRow = $derived(sheets.find(s => s.id === selected));
+	const sidebarItems = $derived(authorized ? sheets.map(item => ({ id: item.id, title: item.title, href: `/${encodeURIComponent(company)}/work/sheets?sheet=${encodeURIComponent(item.id)}`, updatedAt: item.updated_at })) : []);
+	const requestedSheet = $derived(page.url.searchParams.get('sheet') ?? '');
+	const selectedRow = $derived(authorized ? sheets.find(s => s.id === selected) : undefined);
 	let createId = '';
 	let accessEpoch = 0;
+	async function openSheet(item: { id: string; href: string }) {
+		const captured = context(), desktop = window.matchMedia('(min-width: 821px)').matches;
+		await goto(item.href, { keepFocus: desktop, noScroll: true });
+		if (!desktop && company === captured.company && partition === captured.partition && captured.epoch === accessEpoch && authorized && selected === item.id) {
+			document.querySelector<HTMLAnchorElement>('.sheet-mobile-back')?.focus();
+		}
+	}
 	const context = () => ({ company, selected, partition, epoch: accessEpoch });
 	const current = (captured: ReturnType<typeof context>) => authorized && company === captured.company && selected === captured.selected && partition === captured.partition && captured.epoch === accessEpoch;
 	async function refresh(target = company, expectedPartition = partition, expectedEpoch = accessEpoch) {
+		listLoading = true; listFailure = '';
 		try { const rows = await sheetJson<SheetRow[]>(target); if (company === target && partition === expectedPartition && expectedEpoch === accessEpoch && authorized) { sheets = rows; error = ''; } }
-		catch (e) { if (company === target && partition === expectedPartition && expectedEpoch === accessEpoch) { sheets = []; error = e instanceof Error ? e.message : 'Sheets are unavailable'; } }
+		catch (e) { if (company === target && partition === expectedPartition && expectedEpoch === accessEpoch) { sheets = []; listFailure = e instanceof Error ? e.message : 'Sheets are unavailable'; } }
+		finally { if (company === target && partition === expectedPartition && expectedEpoch === accessEpoch) listLoading = false; }
 	}
-	$effect(() => { const target = company, expectedPartition = partition, admitted = authorized; accessEpoch++; sheets = []; revision = ''; versions = []; panel = ''; creating = false; busy = false; title = ''; createId = ''; error = ''; if (admitted) void refresh(target, expectedPartition); });
+	$effect(() => { const target = company, expectedPartition = partition, admitted = authorized; accessEpoch++; sheets = []; revision = ''; versions = []; panel = ''; creating = false; busy = false; title = ''; createId = ''; error = ''; listLoading = false; listFailure = ''; if (admitted) void refresh(target, expectedPartition); });
 	function denied() { accessEpoch++; sheets = []; versions = []; panel = ''; revision = ''; worksheet = ''; access = 'read'; error = ''; void refresh(); }
 	async function create(event: SubmitEvent) {
 		event.preventDefault(); if (!title.trim() || busy) return;
@@ -89,16 +103,20 @@
 </script>
 
 <svelte:head><title>Sheets</title></svelte:head>
-<section class="sheets-screen cockpit-screen">
-	<aside class="sheets-list cockpit-pane">
-		<header class="cockpit-pane-head"><a href={`/${company}/work`} title="Back to company work">←</a><h1>Sheets</h1><button onclick={() => creating = !creating} title="Create a spreadsheet" aria-label="Create sheet">+</button></header>
-		{#if creating}<form onsubmit={create}><input aria-label="Sheet title" bind:value={title} placeholder="Sheet title" maxlength="200" required /><button disabled={busy}>{busy ? 'Creating…' : 'Create'}</button></form>{/if}
-		<nav aria-label="Spreadsheets">{#each sheets as item}<a class:selected={selected === item.id} href={`/${company}/work/sheets?sheet=${item.id}`}>{item.title}</a>{/each}</nav>
-		{#if !sheets.length && !error}<p>Create a sheet to work together on deals, inventory or plans.</p>{/if}
-		<a class="documents-link" href={`/${company}/work/documents`}>Documents</a>
-	</aside>
+<section class="sheets-screen cockpit-screen" class:sheet-requested={requestedSheet !== ''}>
+	<div class="sheets-list">
+		{#key `${company}/${partition}`}
+			<ArtifactSidebar kind="sheets" items={sidebarItems} {selected}
+				workHref={`/${encodeURIComponent(company)}/work`} docsHref={`/${encodeURIComponent(company)}/work/documents`} sheetsHref={`/${encodeURIComponent(company)}/work/sheets`}
+				loading={listLoading || !partition && !principal.failure} failure={listFailure || (!authorized && principal.failure ? 'Sheets are unavailable.' : '')}
+				{creating} createDisabled={busy || !authorized} oncreate={() => { creating = !creating; if (!creating) { title = ''; createId = ''; } }}
+				onretry={() => void refresh()} onopen={openSheet}>
+				{#snippet creation()}<form class="create-sheet" onsubmit={create}><label><span>Title</span><input aria-label="Sheet title" bind:value={title} placeholder="Name the sheet" maxlength="200" required {@attach input => input.focus()} disabled={busy} /></label><button disabled={busy || !title.trim()}>{busy ? 'Creating…' : 'Create sheet'}</button></form>{/snippet}
+			</ArtifactSidebar>
+		{/key}
+	</div>
 	<div class="sheet-stage cockpit-pane">
-		<header class="cockpit-pane-head"><h2>{selectedRow?.title ?? 'Spreadsheet'}</h2><span class="save-state" title="Accepted edits are stored in company history">{saveState === 'saved' ? (access === 'edit' ? 'Saved' : 'Read only') : saveState === 'saving' ? 'Saving…' : saveState === 'offline' ? 'Reconnecting…' : ''}</span>
+		<header class="cockpit-pane-head"><a class="sheet-mobile-back" href={`/${encodeURIComponent(company)}/work/sheets`} aria-label="Back to Sheets" title="Back to Sheets"><ArrowLeft size={16} aria-hidden="true" /></a><h2>{selectedRow?.title ?? 'Spreadsheet'}</h2><span class="save-state" title="Accepted edits are stored in company history">{saveState === 'saved' ? (access === 'edit' ? 'Saved' : 'Read only') : saveState === 'saving' ? 'Saving…' : saveState === 'offline' ? 'Reconnecting…' : ''}</span>
 			{#if selected}<button onclick={exportCsv} disabled={saveState !== 'saved'} title="Download the full used range of the active worksheet as CSV">Export CSV</button><button onclick={history} title="Open workbook checkpoints">History</button>{/if}
 			{#if selected && access === 'edit'}<label class="import-control" title="Import CSV into the active worksheet from A1"><input type="file" accept=".csv,text/csv" onchange={importCsv} disabled={saveState !== 'saved'} />Import CSV</label><button onclick={checkpoint} disabled={saveState !== 'saved'} title="Keep a named workbook checkpoint">Save version</button>{/if}
 			{#if selectedRow?.owner_actor_id === principal.view?.actor_id}<button onclick={() => panel = panel === 'sharing' ? '' : 'sharing'} title="Give a colleague read or edit access">Share</button>{/if}
@@ -111,17 +129,14 @@
 </section>
 
 <style>
-	.sheets-screen {display:grid;grid-template-columns:220px minmax(0,1fr);height:100%;min-height:0;gap:1px;}
-	.sheets-list,.sheet-stage {min-height:0;min-width:0;display:flex;flex-direction:column;}
-	.sheets-list header {display:flex;gap:12px;align-items:center;}
-	h1,h2 {font-size:var(--t-head);font-weight:500;margin:0;flex:1;}
-	.sheets-list nav {display:flex;flex-direction:column;padding:8px;overflow:auto;}
-	.sheets-list nav a {padding:10px 12px;border-radius:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-	.sheets-list nav a.selected {background:var(--surface-raised);}
-	.sheets-list p {padding:16px;font-size:var(--t-body);color:var(--text-secondary);}
-	.sheets-list form {padding:12px;display:flex;gap:8px;flex-wrap:wrap;}
-	.sheets-list input {width:100%;padding:8px;border:1px solid var(--border);border-radius:4px;}
-	.documents-link {padding:16px;margin-top:auto;font-size:var(--t-body);}
+	.sheets-screen {display:grid;grid-template-columns:minmax(220px,270px) minmax(0,1fr);height:100%;min-height:0;gap:var(--pane-gap);}
+	.sheets-list,.sheet-stage {min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden;}
+	h2 {font-size:var(--t-head);font-weight:500;margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+	.create-sheet {padding:11px;display:grid;gap:8px;border-bottom:1px solid var(--border);}
+	.create-sheet label {display:grid;gap:4px;color:var(--text-secondary);}
+	.create-sheet input {width:100%;min-width:0;padding:8px;border:1px solid var(--control-edge);border-radius:var(--radius-control);background:var(--surface-raised);color:var(--ink);}
+	.create-sheet button {justify-self:end;}
+	.sheet-mobile-back {display:none;text-decoration:none;color:var(--ink);}
 	.sheet-stage header {display:flex;align-items:center;gap:12px;min-height:50px;}
 	.save-state {font-size:var(--t-label);color:var(--text-secondary);}
 	.sheet-stage button,.import-control {font-size:var(--t-label);white-space:nowrap;}
@@ -133,5 +148,10 @@
 	.sheet-panel {padding:16px;display:flex;gap:16px;flex-wrap:wrap;border-bottom:1px solid var(--border);}
 	.import-control {position:relative;cursor:pointer;}
 	.import-control input {position:absolute;inset:0;opacity:0;width:100%;cursor:pointer;}
-	@media(max-width:760px){.sheets-screen{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr);}.sheets-list nav{flex-direction:row;}.sheets-list nav a{max-width:160px;}.documents-link{display:none;}.sheets-list p{margin:0;}.sheet-stage header{flex-wrap:wrap;gap:6px;padding:10px;}.sheet-stage header h2{flex-basis:70%;}.sheet-stage header button,.import-control{min-height:38px;}}
+	@media(max-width:820px){
+		.sheets-screen{display:block;}.sheets-list,.sheet-stage{width:100%;height:100%;}.sheet-stage{display:none;}
+		.sheets-screen.sheet-requested .sheets-list{display:none;}.sheets-screen.sheet-requested .sheet-stage{display:flex;}
+		.sheet-mobile-back{display:grid;place-items:center;min-width:32px;min-height:38px;}
+		.sheet-stage header{flex-wrap:wrap;gap:6px;padding:10px;}.sheet-stage header h2{flex-basis:60%;}.sheet-stage header button,.import-control{min-height:38px;}
+	}
 </style>
