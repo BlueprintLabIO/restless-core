@@ -1,0 +1,19 @@
+{
+  "name": "@restless/native-sheets",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@odoo/o-spreadsheet": "19.0.51",
+    "@odoo/owl": "2.8.2",
+    "jsdom": "26.1.0"
+  },
+  "devDependencies": {
+    "ws": "8.18.3"
+  }
+}

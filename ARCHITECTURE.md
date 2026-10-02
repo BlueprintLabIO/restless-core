@@ -77,6 +77,14 @@ product need. Its live body may use Yjs behind a Core-owned document contract. N
 explicit Runtime exports preserve provenance; exported Markdown is not a second live write path.
 Ordinary productive files, repositories and artifacts remain Runtime-owned.
 
+**Core-native Sheets** are the matching bounded exception for shared deal,
+inventory and sales workbooks. The upstream o-spreadsheet engine owns workbook
+JSON, formulas and client-side OT. Rust owns company access, ordered durable
+revision acceptance and checkpoints in the company cell. Humans use an embedded
+editor; authenticated agents use a bounded headless instance of the identical
+engine and commit through the same guarded stream. Sheet exports are deliberate
+artifacts, never another live writer. See [Native Sheets](docs/specs/native-sheets.md).
+
 ### 2.5 Observable and repairable beats impossible-to-corrupt
 
 Internal state may become stale, duplicated or inconsistent. The normal response is detection, repair, replanning or restoration—not a company-wide governance failure.

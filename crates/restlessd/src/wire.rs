@@ -674,6 +674,8 @@ pub(crate) struct Request {
     pub(crate) room_operation: Option<crate::room_commands::RoomOperation>,
     #[serde(default)]
     pub(crate) document_operation: Option<crate::document_commands::DocumentOperation>,
+    #[serde(default)]
+    pub(crate) sheet_operation: Option<crate::sheet_commands::SheetOperation>,
 }
 
 const ENVELOPE_FIELDS: &[&str] = &["cmd", "company", "principal", "session_capability"];
@@ -817,6 +819,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         "publish-show" => &["publication_id"],
         "room-operation" => &["actor", "room_operation"],
         "document-operation" => &["actor", "document_operation"],
+        "sheet-operation" => &["actor", "sheet_operation"],
         "document-review-request" => &[
             "document_id",
             "expected_document_version",

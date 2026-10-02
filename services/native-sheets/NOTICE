@@ -1,0 +1,15 @@
+Restless Native Sheets embeds unmodified o-spreadsheet 19.0.51.
+Copyright Odoo SA and contributors. LGPL-3.0-or-later.
+Upstream source: https://github.com/odoo/o-spreadsheet/tree/493acaf
+Exact published distribution: https://registry.npmjs.org/@odoo/o-spreadsheet/-/o-spreadsheet-19.0.51.tgz
+License: node_modules/@odoo/o-spreadsheet/LICENSE (also shipped by the cockpit under /licenses/o-spreadsheet.txt).
+
+Owl 2.8.2 is LGPL-3.0-or-later (https://github.com/odoo/owl/tree/v2.8.2),
+with its browser license also served at /licenses/owl.txt; jsdom 26.1.0 is MIT.
+Their original notices
+remain in the installed dependency packages. Dependencies are separately
+installed from the lockfile, not copied or modified into Restless source.
+
+The open Restless build can replace or relink the upstream packages through
+services/native-sheets/package.json and web/package.json. Browser and model
+worker must use the same version and protocol.

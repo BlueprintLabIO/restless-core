@@ -396,6 +396,7 @@
 				<a class="work-documents-link" href={`/${encodeURIComponent(companyId)}/work/documents`}>
 					<MatrixGlyph rows={GLYPHS.rules} size={7} /> Documents
 				</a>
+				<a class="work-documents-link" href={`/${encodeURIComponent(companyId)}/work/sheets`} title="Shared spreadsheets">Sheets</a>
 				<div class="lens-switch" class:board={lens === 'board'} role="group" aria-label="Work view">
 					<button type="button" aria-pressed={lens === 'map'} onclick={showMap}>Map</button>
 					<button type="button" aria-pressed={lens === 'board'} onclick={() => chooseLens('board')}
