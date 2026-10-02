@@ -64,6 +64,11 @@ packages in flight. It shares the source checkout and Dagger setup. Changed
 packages are qualified and sealed; existing packages are cryptographically
 admitted. Lower-level functions remain available for a bounded diagnosis.
 
+The first consolidated [CI delivery](https://github.com/BlueprintLabIO/restless-core/actions/runs/37063939467)
+qualified, scanned, published and signed all three packages from `8b66ccb0`.
+Its single job took 130 seconds on the current workstation runner. This measures
+library delivery only; it does not include Cloud deployment or owner verification.
+
 To force package qualification without consulting published input markers:
 
 ```sh
