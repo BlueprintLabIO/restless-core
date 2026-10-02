@@ -1,5 +1,9 @@
 /** The shared local/CI implementation of Core qualification and construction. */
-import { dag, Container, Directory, Platform, argument, object, func } from '@dagger.io/dagger';
+import { dag, Container, Directory, Platform, Secret, argument, object, func } from '@dagger.io/dagger';
+
+import { verifyRuntimeToolsImage, verifyCompanyRuntimeImage, verifyNativeDocumentsImage, verifyAccountPlaneImage } from './verify.js';
+import { publishImage, node, verifyBuildInputs } from './publish.js';
+import { sealRelease } from './release.js';
 
 const NODE_IMAGE = 'node:24.18.1-alpine3.23@sha256:c2cc26d8f991c2db236ad51a61efee843c482372d6d22570787309d511694110';
 const RUST_IMAGE = 'rust:1-bookworm@sha256:59037199c44290f2befcdd58dcc540164763fc296950255aaefeef096a1866b0';
@@ -61,15 +65,7 @@ export class RestlessCore {
     @argument({ ignore: ['**', '!infra/company-image/Dockerfile', '!infra/company-image/gtk-settings.ini'] })
     source: Directory, platform: string = 'linux/amd64',
   ): Promise<string> {
-    return this.runtimeTools(source, platform).withExec(['/bin/sh', '-ec',
-      'test ! -e /usr/local/bin/restless; test ! -e /usr/local/bin/restless-runtime-bridge; '
-      + 'node --version; codex --version; omp --version; pnpm --version; '
-      + 'godot --headless --version; chromium --version; '
-      + 'node -e \'if (typeof require("/usr/local/lib/node_modules/ws") !== "function") throw new Error("ws is unavailable")\'; '
-      + 'test "$(id -u company)" = 2000; test "$(id -u effect)" = 2001; '
-      + 'test -s /opt/restless/godot/export_templates/4.7.2.stable/windows_release_x86_64.exe; '
-      + 'printf "Runtime tool base is usable without Core binaries\\n"',
-    ], { useEntrypoint: false }).stdout();
+    return verifyRuntimeToolsImage(this.runtimeTools(source, platform));
   }
 
   /** Construct the canonical Runtime, optionally reusing an admitted tool base. */
@@ -120,38 +116,7 @@ export class RestlessCore {
       'infra/company-image/test_supervision_contract.py', '**/node_modules/**', '**/target/**', '**/__pycache__/**', '**/.env', '**/.env.*'] })
     source: Directory, revision: string, platform: string = 'linux/amd64', toolsImage: string = '',
   ): Promise<string> {
-    const image = await this.companyRuntime(source, revision, platform, toolsImage);
-    const checked = image.withEnvVariable('EXPECTED_REVISION', revision).withExec(['/bin/sh', '-ec',
-      'restless --help; links="$(ldd /usr/local/bin/restless-runtime-bridge)"; '
-      + 'printf "%s\\n" "$links"; ! printf "%s" "$links" | grep -q "not found"; '
-      + 'test "$RESTLESS_SOURCE_REVISION" = "$EXPECTED_REVISION"; '
-      + 'test -x /usr/local/bin/company-init; test -x /usr/local/bin/start-runtime-bridge; '
-      + 'test -s /opt/restless/skills/scenario-evidence/SKILL.md; '
-      + 'printf "Company Runtime binaries link and release metadata matches\\n"',
-    ], { useEntrypoint: false });
-    // Exercise the immutable launcher's actual uid/capability drop. The small
-    // supervisor fixture avoids starting desktop services or a company daemon.
-    return checked.withNewFile('/tmp/restless-privilege-probe',
-      '#!/bin/sh\nset -eu\n/usr/local/bin/assert-runtime-privileges company\n'
-      + 'printf passed > /tmp/restless-supervisor-probe/passed\n', { permissions: 0o555 })
-      .withNewFile('/etc/supervisor/conf.d/company.conf',
-        '[supervisord]\nnodaemon=true\nlogfile=/tmp/restless-supervisor-probe/supervisor.log\n'
-        + 'logfile_maxbytes=0\npidfile=/tmp/restless-supervisor-probe/supervisor.pid\n'
-        + 'childlogdir=/tmp/restless-supervisor-probe\n[program:privilege-probe]\n'
-        + 'command=/tmp/restless-privilege-probe\nautostart=true\nautorestart=false\nstartsecs=0\n'
-        + 'stdout_logfile=/tmp/restless-supervisor-probe/child.log\nstdout_logfile_maxbytes=0\nredirect_stderr=true\n')
-      .withExec(['/bin/sh', '-ec',
-        'mkdir -p /company/services/supervisor /tmp/restless-supervisor-probe; '
-        + 'chown -R 2000:2000 /company /tmp/restless-supervisor-probe; '
-        + '/usr/local/bin/start-company-supervisor > /tmp/restless-supervisor-probe/launcher.log 2>&1 & supervisor_pid=$!; '
-        + 'trap \'kill -TERM "$supervisor_pid" 2>/dev/null || true; wait "$supervisor_pid" 2>/dev/null || true\' EXIT; '
-        + 'for attempt in $(seq 1 100); do '
-        + 'if test -f /tmp/restless-supervisor-probe/passed; then '
-        + 'test "$(stat -c %u /tmp/restless-supervisor-probe/passed)" = 2000; '
-        + 'printf "Company supervisor child has uid/gid 2000, no groups/capabilities, and NoNewPrivs\\n"; exit 0; fi; '
-        + 'sleep 0.1; done; cat /tmp/restless-supervisor-probe/launcher.log; '
-        + 'cat /tmp/restless-supervisor-probe/child.log 2>/dev/null || true; exit 1',
-      ], { useEntrypoint: false }).stdout();
+    return verifyCompanyRuntimeImage(await this.companyRuntime(source, revision, platform, toolsImage), revision);
   }
 
   /** Run the current Core checks through the same functions used for builds. */
@@ -168,8 +133,9 @@ export class RestlessCore {
       project(source, 'services/native-sheets').withExec(['npm', 'test']).sync(),
       this.verifyWorkflow(source).sync(),
       this.issuer(source).sync(),
+      this.verifyRelease(source),
     ]);
-    return 'Core qualification passed: Rust workspace, cockpit check/build, native Documents check/build, pinned native Sheets engine, issuer artifact imports, workflow lint';
+    return 'Core qualification passed: Rust workspace, cockpit check/build, native Documents check/build, pinned native Sheets engine, issuer artifact imports, workflow lint and versioned release contracts';
   }
 
   /** Check workflow wiring with the same pinned tool used by Cloud. */
@@ -185,6 +151,63 @@ export class RestlessCore {
   @func()
   cockpit(source: Directory): Directory {
     return cockpit(source).directory('/project/build');
+  }
+
+  /** Exercise the versioned release contracts before any registry mutation. */
+  @func()
+  async verifyRelease(source: Directory): Promise<string> {
+    await verifyBuildInputs();
+    await node(source).withExec(['node', '--test', 'scripts/company-collaboration-contract.test.mjs']).sync();
+    return 'Core release contracts passed: timestamp-independent publication inputs, legacy and platform-scoped manifests and signed bundle indexes';
+  }
+
+  /** Publish and qualify exact platform images, including a reusable tool base. */
+  @func()
+  async publish(
+    @argument({ ignore: ['**/.git', '**/.git/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/.env', '**/.env.*'] })
+    source: Directory, revision: string, username: string, password: Secret, scanPeriod: string,
+    platform: string = 'linux/amd64',
+  ): Promise<Directory> {
+    checkPlatform(platform);
+    if (!/^[0-9a-f]{40}$/.test(revision)) throw new Error('Core publication requires exact source provenance');
+    if (scanPeriod !== new Date().toISOString().slice(0, 10)) throw new Error('pass the current UTC scan day');
+    await this.verifyRelease(source);
+    const toolsContext = source.filter({ include: ['infra/company-image/Dockerfile', 'infra/company-image/gtk-settings.ini'] });
+    let artifacts = await publishImage('runtime-tools', revision, platform, toolsContext,
+      async () => this.runtimeTools(source, platform), async image => { console.log(await verifyRuntimeToolsImage(image)); },
+      username, password, scanPeriod);
+    const tools = JSON.parse(await artifacts.file('images/runtime-tools.json').contents());
+    const nativeContext = source.directory('services/native-documents-collaboration').filter({
+      include: ['Dockerfile', 'package.json', 'package-lock.json', 'tsconfig.json', 'tsconfig.build.json', 'src/**'], exclude: EXCLUDES,
+    });
+    const tasks = [
+      () => publishImage('account-plane', revision, platform, source.filter({ include: [...ACCOUNT_INPUTS, 'web/**'], exclude: EXCLUDES }),
+        async () => this.accountPlane(source, revision, platform), async image => { console.log(await verifyAccountPlaneImage(image)); },
+        username, password, scanPeriod),
+      () => publishImage('native-documents-collaboration', revision, platform, nativeContext,
+        async () => this.nativeDocuments(source, revision, platform), async image => { console.log(await verifyNativeDocumentsImage(image)); },
+        username, password, scanPeriod),
+      () => publishImage('company-runtime', revision, platform, source.filter({
+        include: RUNTIME_INPUTS, exclude: [...EXCLUDES, 'infra/company-image/test_supervision_contract.py'],
+      }), async () => this.companyRuntime(source, revision, platform, tools.reference),
+        async image => { console.log(await verifyCompanyRuntimeImage(image, revision)); }, username, password, scanPeriod),
+    ];
+    // Bound independent work on the first builder instead of oversubscribing it.
+    for (let offset = 0; offset < tasks.length; offset += 2) {
+      const results = await Promise.all(tasks.slice(offset, offset + 2).map(task => task()));
+      for (const result of results) artifacts = artifacts.withDirectory('/', result);
+    }
+    return artifacts;
+  }
+
+  /** Seal publication through the existing trusted Core dev workflow. */
+  @func()
+  seal(source: Directory, artifacts: Directory, revision: string, username: string, password: Secret,
+    oidcRequestUrl: string, oidcRequestToken: Secret, workflowRef: string,
+    platform: string = 'linux/amd64',
+  ): Promise<Directory> {
+    checkPlatform(platform);
+    return sealRelease(source, artifacts, revision, platform, username, password, oidcRequestUrl, oidcRequestToken, workflowRef);
   }
 
   /** Exercise and export the bounded workbook engine independently of Rust. */
@@ -213,6 +236,37 @@ export class RestlessCore {
         + 'for (const value of [createIssuer, createSqlMembershipStore, coreRequest]) assert.equal(typeof value, "function"); '
         + 'console.log("Core issuer artifact imports successfully")',
       ]).directory('/issuer').withoutDirectory('node_modules');
+  }
+
+  /** Build the canonical native Documents image using only its actual inputs. */
+  @func()
+  nativeDocuments(
+    @argument({ ignore: ['**', '!services/native-documents-collaboration/Dockerfile',
+      '!services/native-documents-collaboration/package.json', '!services/native-documents-collaboration/package-lock.json',
+      '!services/native-documents-collaboration/tsconfig.json', '!services/native-documents-collaboration/tsconfig.build.json',
+      '!services/native-documents-collaboration/src/**'] })
+    source: Directory, revision: string, platform: string = 'linux/amd64',
+  ): Container {
+    checkPlatform(platform);
+    if (!/^[0-9a-f]{40}$/.test(revision)) throw new Error('native Documents requires exact source provenance');
+    const context = source.directory('services/native-documents-collaboration').filter({
+      include: ['Dockerfile', 'package.json', 'package-lock.json', 'tsconfig.json', 'tsconfig.build.json', 'src/**'], exclude: EXCLUDES,
+    });
+    return context.dockerBuild({ dockerfile: 'Dockerfile', platform })
+      .withLabel('org.opencontainers.image.revision', revision)
+      .withLabel('org.opencontainers.image.source', 'https://github.com/BlueprintLabIO/restless-core');
+  }
+
+  /** Exercise the compiled server as its non-root image user with a store fixture. */
+  @func()
+  async verifyNativeDocuments(
+    @argument({ ignore: ['**', '!services/native-documents-collaboration/Dockerfile',
+      '!services/native-documents-collaboration/package.json', '!services/native-documents-collaboration/package-lock.json',
+      '!services/native-documents-collaboration/tsconfig.json', '!services/native-documents-collaboration/tsconfig.build.json',
+      '!services/native-documents-collaboration/src/**'] })
+    source: Directory, revision: string, platform: string = 'linux/amd64',
+  ): Promise<string> {
+    return verifyNativeDocumentsImage(this.nativeDocuments(source, revision, platform));
   }
 
   /** Build the existing canonical account image with the shared cockpit output. */
@@ -245,11 +299,6 @@ export class RestlessCore {
       '!web/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/.env', '**/.env.*'] })
     source: Directory, revision: string, platform: string = 'linux/amd64',
   ): Promise<string> {
-    return this.accountPlane(source, revision, platform).withExec(['/bin/sh', '-ec',
-      '/usr/local/bin/restlessd --help; test -s /opt/restless/cockpit/index.html; '
-      + 'node --input-type=module -e \'const { Model } = await import("/opt/restless/native-sheets/src/upstream.mjs"); '
-      + 'if (typeof Model !== "function") throw new Error("Native Sheets engine is unavailable"); '
-      + 'console.log("Account-plane binary links; bundled cockpit and native Sheets engine are usable")\'',
-    ], { useEntrypoint: false }).stdout();
+    return verifyAccountPlaneImage(this.accountPlane(source, revision, platform));
   }
 }

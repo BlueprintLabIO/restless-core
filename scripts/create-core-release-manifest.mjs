@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { open, mkdir, readFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { releasePlatforms } from './release/platforms.mjs';
 
 import {
   CONTRACT_SET_FORMAT,
@@ -100,7 +101,7 @@ async function validateArtifacts(contractSetPath, manifest) {
   }
 }
 
-export async function createCoreReleaseManifest({ contractSetManifestPath, outputRoot }) {
+export async function createCoreReleaseManifest({ contractSetManifestPath, outputRoot, platforms }) {
   if (!contractSetManifestPath || !outputRoot) fail('contract-set manifest path and output root are required');
   const { bytes: contractSetBytes, value: contractSet } = await readCanonical(contractSetManifestPath, 'contract-set manifest');
   exactKeys(contractSet, ['format', 'contract_set', 'release', 'capabilities', 'artifacts'], 'contract-set manifest');
@@ -110,7 +111,8 @@ export async function createCoreReleaseManifest({ contractSetManifestPath, outpu
   const contractSetDigest = sha256(contractSetBytes);
   const release = contractSet.release;
   const manifest = {
-    manifest_version: 1,
+    manifest_version: platforms === undefined ? 1 : 2,
+    ...(platforms === undefined ? {} : { platforms }),
     core_version: release.core_version,
     source_revision: release.source_revision,
     images: release.images,
@@ -124,6 +126,7 @@ export async function createCoreReleaseManifest({ contractSetManifestPath, outpu
     },
     deployment: release.deployment,
   };
+  releasePlatforms(manifest);
   const manifestBytes = canonical(manifest);
   const manifestDigest = sha256(manifestBytes);
   const releaseRoot = join(resolve(outputRoot), 'releases', manifestDigest.slice('sha256:'.length));
@@ -141,9 +144,9 @@ function cliArguments(argv) {
     if (Object.hasOwn(values, name)) fail(`duplicate argument ${name}`);
     values[name] = value;
   }
-  const allowed = new Set(['--contract-set-manifest', '--output']);
+  const allowed = new Set(['--contract-set-manifest', '--output', '--platforms']);
   for (const name of Object.keys(values)) if (!allowed.has(name)) fail(`unsupported argument ${name}`);
-  for (const name of allowed) if (!values[name]) fail(`${name} is required`);
+  for (const name of ['--contract-set-manifest', '--output']) if (!values[name]) fail(`${name} is required`);
   return values;
 }
 
@@ -152,6 +155,7 @@ async function main() {
   const created = await createCoreReleaseManifest({
     contractSetManifestPath: resolve(args['--contract-set-manifest']),
     outputRoot: resolve(args['--output']),
+    platforms: args['--platforms'] === undefined ? undefined : args['--platforms'].split(','),
   });
   process.stdout.write(`${JSON.stringify(created)}\n`);
 }

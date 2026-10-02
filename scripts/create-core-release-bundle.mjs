@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, open, readFile } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { releasePlatforms } from './release/platforms.mjs';
 
 const FORMAT = 'restless.core.release-bundle.v1';
 const SOURCE_REVISION = /^[0-9a-f]{40}$/;
@@ -131,8 +132,9 @@ export async function createCoreReleaseBundle({
       readSignature(releaseSignaturePath, 'release-manifest signature'),
       readSignature(contractSignaturePath, 'contract-set signature'),
     ]);
-  exactKeys(release, ['manifest_version', 'core_version', 'source_revision', 'images', 'contracts', 'deployment'], 'release manifest');
-  if (release.manifest_version !== 1) fail('release manifest version is unsupported');
+  releasePlatforms(release);
+  exactKeys(release, ['manifest_version', ...(release.manifest_version === 2 ? ['platforms'] : []),
+    'core_version', 'source_revision', 'images', 'contracts', 'deployment'], 'release manifest');
   match(release.source_revision, SOURCE_REVISION, 'release source revision');
   exactKeys(release.images, ['account_plane', 'company_runtime', 'native_documents'], 'release images');
   for (const [name, image] of Object.entries(release.images)) match(image, OCI_DIGEST, `release image ${name}`);

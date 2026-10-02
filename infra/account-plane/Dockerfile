@@ -13,7 +13,7 @@
 # computer with a desktop, browser and toolchain; this one runs a single
 # credential-holding service and should stay as small as its job.
 
-FROM --platform=$BUILDPLATFORM rust:1-bookworm AS build
+FROM --platform=$BUILDPLATFORM rust:1-bookworm@sha256:59037199c44290f2befcdd58dcc540164763fc296950255aaefeef096a1866b0 AS build
 # Compile on the builder CPU; only the final image executes target binaries.
 # Debian's target GNU compiler/sysroot also serves Rust dependencies that build C.
 ARG BUILDARCH
@@ -63,7 +63,7 @@ RUN --mount=type=cache,id=restless-cargo-registry-v1,target=/usr/local/cargo/reg
     && cargo build --release --locked --target "$target" -p restlessd \
     && install -Dm755 /src/target/$target/release/restlessd /out/restlessd
 
-FROM node:24-bookworm-slim
+FROM node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
 ENV DEBIAN_FRONTEND=noninteractive
 
 # ca-certificates for provider TLS; curl so the image can probe its own health
