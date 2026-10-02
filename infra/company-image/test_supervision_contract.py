@@ -48,7 +48,15 @@ class SupervisionContractTests(unittest.TestCase):
         )
         for key in ("logfile", "pidfile", "childlogdir"):
             self.assertTrue(trusted["supervisord"][key].startswith("/run/restless/"))
-        self.assertEqual(trusted["program:company-supervisor"]["user"], "company")
+        # The immutable launcher now drops uid/gid, supplementary groups and
+        # bounding capabilities, and sets NNP. Supervisord's uid-only drop
+        # cannot establish that boundary; verifyCompanyRuntime exercises the
+        # actual child privileges in the built image.
+        self.assertEqual(trusted["program:company-supervisor"]["user"], "root")
+        self.assertEqual(
+            trusted["program:company-supervisor"]["command"],
+            "/usr/local/bin/start-company-supervisor",
+        )
         self.assertEqual(trusted["program:runtime-bridge"]["user"], "root")
         self.assertNotIn("/company/services", (HERE / "supervisord.conf").read_text())
 

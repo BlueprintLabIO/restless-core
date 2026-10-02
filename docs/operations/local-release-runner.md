@@ -30,6 +30,60 @@ prove company readiness. Account-image inputs are filtered before upload and
 again when constructing the Docker context; keep both lists aligned with the
 canonical Dockerfile's actual `COPY` inputs and the cockpit source.
 
+### Runtime construction and tool-base reuse
+
+The canonical company Dockerfile now exposes `runtime-tools` separately from
+`company-runtime`. The base contains the pinned OS/Node image, agent/browser
+tools, Godot export templates and fixed Unix accounts. Startup scripts, skills,
+Core CLI/Bridge binaries and release metadata belong to the thin final image.
+Local Docker builds still use the in-file base stage. A release can select an
+already-admitted `restless-runtime-tools@sha256:...` through
+`RUNTIME_TOOLS_IMAGE`; registry publication and admission of that separate base
+have not yet been exercised.
+
+```sh
+"$HOME/.local/bin/dagger" --progress=plain call verify-runtime-tools --source=.
+"$HOME/.local/bin/dagger" --progress=plain call verify-company-runtime --source=. --revision="$(git rev-parse HEAD)"
+```
+
+Dagger imports only the Dockerfile and GTK settings for the base. The final
+image adds its actual Rust/runtime inputs, excluding Python test/cache output.
+Composition metadata is applied after Dockerfile construction, so changing a
+release revision does not replay image construction. Asset copies are grouped
+in the canonical recipe; their existing paths and permissions are preserved.
+
+The Runtime check executes CLI help, checks Bridge linkage and exact revision,
+then exercises the immutable company-supervisor launcher. A small supervisor
+fixture runs the production privilege assertion in an actual child: uid/gid
+2000, no supplementary groups or capabilities, and `NoNewPrivs`. The fixture
+replaces the company supervisor configuration only in the isolated checking
+container and stops its exact supervisor process before exit. It never starts
+an owner appliance or a hosted company. The previous Python contract check
+still expected Supervisord's uid-only drop; it now follows the immutable
+launcher introduced by `8c63e3dc`.
+
+Observed Linux AMD64 results on 2 October 2026:
+
+- Base/tool execution: 224 seconds cold, 3 seconds repeated, 2 seconds after an
+  unrelated Rust input changed. Node, Codex, OMP, pnpm, Godot, Chromium, WebSocket
+  imports, Unix accounts and export templates were exercised.
+- The grouped final image first built and passed binary/metadata checks in 861
+  seconds. The updated metadata/privilege check first took 1,051 seconds, then
+  3 seconds repeated and 9 seconds with a different revision. The latter reran
+  the metadata and actual privilege checks without replaying Dockerfile
+  construction. This demonstrates that boundary, not a full-release speedup.
+- Shared qualification passed in 43 seconds; the focused supervision and
+  release-contract checks passed 5/5 and 10/10.
+
+Logs are in the operator's `qualification/core-runtime-tools-20261002`,
+`core-runtime-grouped-20261002` and `core-runtime-metadata-20261002` directories.
+The first final-image attempt was deliberately interrupted after exposing
+expensive per-file Dockerfile translation; its exit status remains recorded as
+a failure. Cold construction is still expensive. ARM, separate base publication,
+full signed release publication and hosted company behaviour remain unproved.
+
+### Runner pilot
+
 The replacement pilot is `restless-core-dagger-drive`, installed at
 `~/.local/share/restless-runners/core-dagger` and supervised by
 `restless-core-dagger-runner.service`. It uses Node 24 on PATH, the required
