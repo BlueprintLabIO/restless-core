@@ -1,9 +1,11 @@
-import { Container } from '@dagger.io/dagger';
+import { Container, File } from '@dagger.io/dagger';
 
-export async function verifyRuntimeToolsImage(image: Container): Promise<string> {
-    return image.withUser('2000:2000').withEnvVariable('HOME', '/tmp').withExec(['/bin/sh', '-ec',
+export async function verifyRuntimeToolsImage(image: Container, desktopProbe: File): Promise<string> {
+    return image.withMountedFile('/tmp/restless-desktop-probe.mjs', desktopProbe)
+      .withUser('2000:2000').withEnvVariable('HOME', '/tmp').withExec(['/bin/sh', '-ec',
       'test ! -e /usr/local/bin/restless; test ! -e /usr/local/bin/restless-runtime-bridge; '
       + 'node --version; npm --version; codex --version; omp --version; pnpm --version; '
+      + 'test ! -e /usr/bin/node; test -s /usr/share/novnc/vnc.html; test -s /usr/share/novnc/core/rfb.js; '
       + 'godot --headless --version; chromium --version; '
       + 'node -e \'if (typeof require("/usr/local/lib/node_modules/ws") !== "function") throw new Error("ws is unavailable")\'; '
       + 'test "$(id -u company)" = 2000; test "$(id -u effect)" = 2001; '
@@ -16,6 +18,7 @@ export async function verifyRuntimeToolsImage(image: Container): Promise<string>
       + 'cd /tmp/restless-package-check/source; npm pack --offline --ignore-scripts --pack-destination ..; '
       + 'npm install --offline --ignore-scripts --no-audit --no-fund --prefix /tmp/restless-package-check/consumer /tmp/restless-package-check/restless-runtime-tool-check-1.0.0.tgz; '
       + 'node -e \'if (require("/tmp/restless-package-check/consumer/node_modules/restless-runtime-tool-check") !== "archive-install-ok") throw new Error("npm archive installation failed")\'; '
+      + 'node /tmp/restless-desktop-probe.mjs; '
       + 'printf "Runtime tool base is usable as the unprivileged company user without Core binaries\\n"',
     ], { useEntrypoint: false }).stdout();
 }

@@ -49,7 +49,7 @@ RUN --mount=type=cache,id=restless-cargo-registry-v1,target=/usr/local/cargo/reg
     && install -Dm755 /src/target/$target/release/restless /out/restless \
     && install -Dm755 /src/target/$target/release/restless-runtime-bridge /out/restless-runtime-bridge
 
-FROM node:24-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe AS runtime-harnesses
+FROM node:24-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe AS runtime-desktop
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -76,7 +76,6 @@ RUN apt-get update \
         jq \
         libpcre2-8-0 \
         make \
-        novnc \
         arc-theme \
         adwaita-icon-theme \
         openbox \
@@ -98,6 +97,27 @@ RUN apt-get update \
         xterm \
 		x11-xserver-utils \
     && rm -rf /var/lib/apt/lists/*
+
+# noVNC is a browser application. Debian's package also installs Node 20 and
+# its dependency tree, even though this image already has pinned Node 24.
+# Ship the same noVNC 1.6 client directly, including its licenses and package
+# identity for the SBOM; its desktop URL and websockify root stay unchanged.
+ARG NOVNC_VERSION=1.6.0
+ARG NOVNC_SHA256=5066103959ef4e9b10f37e5a148627360dd8414e4cf8a7db92bdbd022e728aaa
+RUN curl --fail --location --retry 3 \
+        "https://codeload.github.com/novnc/noVNC/tar.gz/refs/tags/v${NOVNC_VERSION}" \
+        --output /tmp/novnc.tar.gz \
+    && printf '%s  %s\n' "$NOVNC_SHA256" /tmp/novnc.tar.gz | sha256sum --check - \
+    && mkdir -p /usr/share/novnc \
+    && tar -xzf /tmp/novnc.tar.gz --strip-components=1 --directory=/usr/share/novnc \
+        "noVNC-${NOVNC_VERSION}/app" "noVNC-${NOVNC_VERSION}/core" "noVNC-${NOVNC_VERSION}/vendor" \
+        "noVNC-${NOVNC_VERSION}/vnc.html" "noVNC-${NOVNC_VERSION}/vnc_lite.html" \
+        "noVNC-${NOVNC_VERSION}/defaults.json" "noVNC-${NOVNC_VERSION}/mandatory.json" \
+        "noVNC-${NOVNC_VERSION}/LICENSE.txt" "noVNC-${NOVNC_VERSION}/AUTHORS" "noVNC-${NOVNC_VERSION}/package.json" \
+    && rm /tmp/novnc.tar.gz \
+    && test ! -e /usr/bin/node \
+    && test -s /usr/share/novnc/vnc.html \
+    && test -s /usr/share/novnc/core/rfb.js
 
 # System defaults apply to existing persistent homes that have no personal
 # override. Arc is GTK-only in Debian; use Openbox's bundled Breeze theme with
@@ -125,6 +145,10 @@ RUN test -f /usr/share/themes/Breeze-ob/openbox-3/themerc \
         -e 's/#CED4D9/#69798b/g' \
         -e 's/#798085/#9ba7b5/g' \
         /usr/share/themes/Breeze-ob/openbox-3/themerc
+
+# Keep the desktop independently exercisable without downloading agent and
+# authoring runtimes; the full company image consumes this exact same stage.
+FROM runtime-desktop AS runtime-harnesses
 
 # The ACP agent binary: omp (Oh My Pi), which speaks ACP natively and reports
 # per-turn token and dollar usage on the session stream — the fact that moved

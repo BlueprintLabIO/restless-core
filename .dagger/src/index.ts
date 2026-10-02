@@ -151,10 +151,10 @@ export class RestlessCore {
   /** Exercise installed tools in the isolated builder; no appliance is mounted. */
   @func()
   async verifyRuntimeTools(
-    @argument({ ignore: ['**', '!infra/company-image/Dockerfile', '!infra/company-image/gtk-settings.ini'] })
+    @argument({ ignore: ['**', '!infra/company-image/Dockerfile', '!infra/company-image/gtk-settings.ini', '!infra/company-image/verify-desktop.mjs'] })
     source: Directory, platform: string = 'linux/amd64',
   ): Promise<string> {
-    return verifyRuntimeToolsImage(this.runtimeTools(source, platform));
+    return verifyRuntimeToolsImage(this.runtimeTools(source, platform), source.file('infra/company-image/verify-desktop.mjs'));
   }
 
   /** Construct the canonical Runtime, optionally reusing an admitted tool base. */
@@ -292,7 +292,7 @@ export class RestlessCore {
     await this.verifyRelease(source);
     const toolsContext = source.filter({ include: ['infra/company-image/Dockerfile', 'infra/company-image/gtk-settings.ini'] });
     let artifacts = await publishImage('runtime-tools', revision, platform, toolsContext,
-      async () => this.runtimeTools(source, platform), async image => { console.log(await verifyRuntimeToolsImage(image)); },
+      async () => this.runtimeTools(source, platform), async image => { console.log(await verifyRuntimeToolsImage(image, source.file('infra/company-image/verify-desktop.mjs'))); },
       username, password, scanPeriod);
     const tools = JSON.parse(await artifacts.file('images/runtime-tools.json').contents());
     const nativeContext = source.directory('services/native-documents-collaboration').filter({
