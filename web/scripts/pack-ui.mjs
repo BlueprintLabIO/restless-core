@@ -14,6 +14,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { packageProvenance } from './package-provenance.mjs';
 
 const args = process.argv.slice(2);
 const qualificationOnly = args.includes('--qualification');
@@ -31,19 +32,10 @@ const stage = join(outDir, 'ui');
 
 execFileSync('node', ['scripts/check-ui-boundary.mjs'], { stdio: 'inherit' });
 
-function git(...gitArgs) {
-	return execFileSync('git', gitArgs, { cwd: root, encoding: 'utf8' }).trim();
-}
-const revision = qualificationOnly ? null : git('rev-parse', 'HEAD');
-const dirty = qualificationOnly
-	? null
-	: git('status', '--porcelain', '--', 'src/lib/ui', 'scripts/ui-package.json',
-		'scripts/pack-ui.mjs', 'scripts/check-ui-boundary.mjs', '../LICENSE') !== '';
-const provenance = {
-	sourceRevision: revision,
-	sourceDirty: dirty,
-	...(qualificationOnly ? { qualificationOnly: true } : {})
-};
+const { packedAt, ...provenance } = packageProvenance(args, root, ['src/lib/ui', 'scripts/ui-package.json',
+	'scripts/pack-ui.mjs', 'scripts/package-provenance.mjs', 'scripts/check-ui-boundary.mjs', '../LICENSE']);
+const revision = provenance.sourceRevision;
+const dirty = provenance.sourceDirty;
 
 rmSync(stage, { recursive: true, force: true });
 mkdirSync(stage, { recursive: true });
@@ -55,7 +47,7 @@ cpSync(source, stage, {
 const pkg = {
 	...template,
 	version,
-	restless: { ...provenance, packedAt: new Date().toISOString() }
+	restless: { ...provenance, packedAt }
 };
 writeFileSync(join(stage, 'package.json'), JSON.stringify(pkg, null, '\t') + '\n');
 

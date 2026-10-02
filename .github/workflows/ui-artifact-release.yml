@@ -1,68 +1,89 @@
-name: Design system release
-
-# Packs @restless/ui and attaches the tarball, its checksum and its manifest to a GitHub release
-# in this repository. Restless Cloud downloads that release asset with `gh release download`
-# (scripts/fetch-ui-artifact.mjs in Cloud) and verifies the checksum, so the artifact stays private
-# while this repository is, with no registry to run (ADR 0004).
-#
-# Run it from the revision you want to ship. The tag is ui-v<version>, taken from
-# web/scripts/ui-package.json, and a tag that already exists is never overwritten.
+name: Core product artifacts
 
 on:
+  push:
+    branches: [dev]
+    paths:
+      - LICENSE
+      - web/**
+      - services/identity/library/**
+      - services/identity/src/issuer.mjs
+      - services/identity/src/membership-sql.mjs
+      - services/identity/src/core-request.mjs
+      - scripts/release/**
+      - .dagger/**
+      - .github/workflows/ui-artifact-release.yml
   workflow_dispatch:
-
-concurrency:
-  group: ui-artifact-release
-  cancel-in-progress: false
+    inputs:
+      publish:
+        description: Publish and seal after package qualification
+        type: boolean
+        default: true
 
 permissions:
-  contents: write
+  contents: read
+  packages: write
+  id-token: write
+
+concurrency:
+  group: core-product-artifacts
+  cancel-in-progress: false
 
 jobs:
-  release:
+  library:
+    if: github.ref == 'refs/heads/dev'
     runs-on: [self-hosted, linux, x64, restless-core]
-    timeout-minutes: 20
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        kind: [ui, office, issuer]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      - name: Install
-        run: npm --prefix web ci
-
-      - name: Check the types and the boundary
-        run: npm --prefix web run check
-
-      - name: Pack
-        id: pack
-        working-directory: web
+          persist-credentials: false
+      - name: Install pinned Dagger
+        run: scripts/release/install-dagger.sh
+      - name: Qualify and publish the exact package
+        env:
+          KIND: ${{ matrix.kind }}
+          PUBLISH: ${{ github.event_name == 'push' || inputs.publish }}
+          RESTLESS_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          node scripts/pack-ui.mjs
-          version=$(node -p "require('./scripts/ui-package.json').version")
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          ls dist
-
-      - name: Refuse an already published version
-        run: |
-          tag="ui-v${{ steps.pack.outputs.version }}"
-          if gh release view "$tag" >/dev/null 2>&1; then
-            echo "::error::$tag is already published. Bump web/scripts/ui-package.json."
-            exit 1
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain)"
+          epoch="$(git show -s --format=%ct HEAD)"
+          out="$RUNNER_TEMP/core-libraries/$KIND"
+          dagger_function=library
+          auth=()
+          if [[ "$PUBLISH" == true ]]; then
+            dagger_function=publish-library
+            auth=(--username="$GITHUB_ACTOR" --password=env:RESTLESS_REGISTRY_PASSWORD)
           fi
+          DAGGER_NO_NAG=1 "$HOME/.local/bin/dagger" --progress=plain call "$dagger_function" --source=. \
+            --kind="$KIND" --revision="$GITHUB_SHA" --epoch="$epoch" --scan-period="$(date -u +%F)" \
+            "${auth[@]}" export --path="$out"
+      - name: Seal and verify with this workflow identity
+        if: github.event_name == 'push' || inputs.publish
         env:
-          GH_TOKEN: ${{ github.token }}
-
-      - name: Publish the release
-        env:
-          GH_TOKEN: ${{ github.token }}
+          KIND: ${{ matrix.kind }}
+          RESTLESS_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          tag="ui-v${{ steps.pack.outputs.version }}"
-          gh release create "$tag" \
-            --target "${{ github.sha }}" \
-            --title "@restless/ui ${{ steps.pack.outputs.version }}" \
-            --notes "Design system artifact packed from ${{ github.sha }}. Verify with the .sha256 file." \
-            web/dist/restless-ui-*.tgz web/dist/restless-ui-*.tgz.sha256 web/dist/ui-manifest.json
+          out="$RUNNER_TEMP/core-libraries/$KIND"
+          DAGGER_NO_NAG=1 "$HOME/.local/bin/dagger" --progress=plain call seal-library --source=. --artifacts="$out" \
+            --username="$GITHUB_ACTOR" --password=env:RESTLESS_REGISTRY_PASSWORD \
+            --oidc-request-url="$ACTIONS_ID_TOKEN_REQUEST_URL" --oidc-request-token=env:ACTIONS_ID_TOKEN_REQUEST_TOKEN \
+            --workflow-ref="$GITHUB_WORKFLOW_REF" export --path="$out"
+          printf '### %s\n\n%s\n' "$KIND" "$(jq -er .reference "$out/library-receipt.json")" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: core-library-${{ matrix.kind }}-${{ github.sha }}
+          path: ${{ runner.temp }}/core-libraries/${{ matrix.kind }}/
+          retention-days: 7
+      - name: Remove owned job exports
+        if: always()
+        env:
+          KIND: ${{ matrix.kind }}
+        run: rm -rf -- "$RUNNER_TEMP/core-libraries/$KIND"

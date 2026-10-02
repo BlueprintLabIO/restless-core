@@ -11,9 +11,10 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
-const dist = resolve('dist');
+const externalAt = process.argv.indexOf('--artifact-dir');
+const dist = resolve(externalAt < 0 ? 'dist' : process.argv[externalAt + 1]);
 const qualificationOnly = process.argv.includes('--qualification');
-execFileSync('node', ['scripts/pack-ui.mjs', '--out', dist,
+if (externalAt < 0) execFileSync('node', ['scripts/pack-ui.mjs', '--out', dist,
 	...(qualificationOnly ? ['--qualification'] : [])], { stdio: 'inherit' });
 const manifest = JSON.parse(readFileSync(join(dist, 'ui-manifest.json'), 'utf8'));
 if (qualificationOnly) {

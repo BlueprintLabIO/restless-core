@@ -1,0 +1,12 @@
+{
+	"name": "@restless/office",
+	"version": "0.3.0",
+	"description": "The Restless company floor rendered from members, teams and preferences.",
+	"license": "Apache-2.0",
+	"type": "module",
+	"svelte": "./index.ts",
+	"types": "./index.ts",
+	"exports": { ".": { "types": "./index.ts", "svelte": "./index.ts", "default": "./index.ts" }, "./*": "./*" },
+	"peerDependencies": { "svelte": "^5.0.0" },
+	"dependencies": { "@lucide/svelte": "^1.31.0" }
+}

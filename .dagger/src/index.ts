@@ -4,6 +4,7 @@ import { dag, Container, Directory, Platform, Secret, argument, object, func } f
 import { verifyRuntimeToolsImage, verifyCompanyRuntimeImage, verifyNativeDocumentsImage, verifyAccountPlaneImage } from './verify.js';
 import { publishImage, node, verifyBuildInputs, verifyImageInspection } from './publish.js';
 import { sealRelease } from './release.js';
+import { library, publishLibrary, sealLibrary } from './libraries.js';
 
 const NODE_IMAGE = 'node:24.18.1-alpine3.23@sha256:c2cc26d8f991c2db236ad51a61efee843c482372d6d22570787309d511694110';
 const RUST_IMAGE = 'rust:1-bookworm@sha256:59037199c44290f2befcdd58dcc540164763fc296950255aaefeef096a1866b0';
@@ -47,6 +48,36 @@ function checkPlatform(platform: string): asserts platform is Platform {
 
 @object()
 export class RestlessCore {
+  /** Qualify a small product package independently of Runtime/account images. */
+  @func()
+  library(
+    @argument({ ignore: ['**', '!LICENSE', '!web/**', '!services/identity/**', '!scripts/release/**',
+      '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/.git/**', '**/.env', '**/.env.*'] })
+    source: Directory, kind: string, revision: string, epoch: string, scanPeriod: string,
+  ): Promise<Directory> {
+    return library(source, kind, revision, epoch, scanPeriod);
+  }
+
+  /** Publish a qualified product package through the existing Core OCI repository. */
+  @func()
+  async publishLibrary(
+    @argument({ ignore: ['**', '!LICENSE', '!web/**', '!services/identity/**', '!scripts/release/**',
+      '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/.git/**', '**/.env', '**/.env.*'] })
+    source: Directory, kind: string, revision: string, epoch: string, scanPeriod: string,
+    username: string, password: Secret): Promise<Directory> {
+    const payload = await this.library(source, kind, revision, epoch, scanPeriod);
+    return publishLibrary(payload, kind, revision, scanPeriod, username, password, source);
+  }
+
+  /** Sign a product package with the UI workflow's exact dev identity. */
+  @func()
+  sealLibrary(
+    @argument({ ignore: ['**', '!scripts/release/verify-library.mjs'] })
+    source: Directory, artifacts: Directory, username: string, password: Secret,
+    oidcRequestUrl: string, oidcRequestToken: Secret, workflowRef: string): Promise<Directory> {
+    return sealLibrary(source, artifacts, username, password, oidcRequestUrl, oidcRequestToken, workflowRef);
+  }
+
   /** Build the reusable desktop/agent tool base without importing Rust or UI. */
   @func()
   runtimeTools(

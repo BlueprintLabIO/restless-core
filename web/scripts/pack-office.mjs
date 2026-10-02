@@ -15,6 +15,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, normalize, relative, resolve } from 'node:path';
+import { packageProvenance } from './package-provenance.mjs';
 
 const args = process.argv.slice(2);
 const option = (name, fallback) => {
@@ -24,18 +25,11 @@ const option = (name, fallback) => {
 
 const root = resolve('.');
 const lib = join(root, 'src/lib');
-const version = option('version', '0.1.0');
+const template = JSON.parse(readFileSync(join(root, 'scripts/office-package.json'), 'utf8'));
+const version = option('version', template.version);
 const outDir = resolve(option('out', 'dist'));
 const stage = join(outDir, 'office');
 const ENTRIES = ['office/OfficeCanvas.svelte', 'office/officeDemo.ts', 'office/projection.ts', 'office/officePlan.ts'];
-
-function git(...gitArgs) {
-	try {
-		return execFileSync('git', gitArgs, { cwd: root, encoding: 'utf8' }).trim();
-	} catch {
-		return 'unknown';
-	}
-}
 
 /* Walk the import graph from the entries; anything outside src/lib must be a declared dependency. */
 const IMPORT = /(?:import|export)[^'"]*?from\s+['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)|^\s*import\s+['"]([^'"]+)['"]/gm;
@@ -67,8 +61,10 @@ while (queue.length) {
 	}
 }
 
-const revision = git('rev-parse', 'HEAD');
-const dirty = git('status', '--porcelain', '--', 'src/lib/office', 'src/lib/model', 'src/lib/vendor', 'static/vendor') !== '';
+const { packedAt, ...provenance } = packageProvenance(args, root, ['src/lib', 'static/vendor',
+	'scripts/pack-office.mjs', 'scripts/office-package.json', 'scripts/package-provenance.mjs', '../LICENSE']);
+const revision = provenance.sourceRevision;
+const dirty = provenance.sourceDirty;
 
 rmSync(stage, { recursive: true, force: true });
 mkdirSync(stage, { recursive: true });
@@ -99,16 +95,9 @@ export type { OfficePreferences } from './office/officePlan';
 );
 
 const pkg = {
-	name: '@restless/office',
+	...template,
 	version,
-	description: 'The Restless company floor: a pixel office rendered from members, teams and preferences.',
-	license: 'Apache-2.0',
-	type: 'module',
-	svelte: './index.ts',
-	types: './index.ts',
-	exports: { '.': { types: './index.ts', svelte: './index.ts', default: './index.ts' }, './*': './*' },
-	peerDependencies: { svelte: '^5.0.0', '@lucide/svelte': '>=1.0.0' },
-	restless: { sourceRevision: revision, sourceDirty: dirty, packedAt: new Date().toISOString() }
+	restless: { ...provenance, packedAt }
 };
 writeFileSync(join(stage, 'package.json'), JSON.stringify(pkg, null, '\t') + '\n');
 const licence = join(root, '../LICENSE');
@@ -132,7 +121,7 @@ The Restless company floor, as the owner workspace renders it.
 - \`explorable={false}\` renders a scene a page can scroll over; aim it with \`setCamera()\` and pin
   overlays to people with \`actorsOnScreen()\`.
 - Needs Svelte 5 and \`@lucide/svelte\`.
-- Source revision: ${revision}${dirty ? ' (uncommitted changes)' : ''}.
+- ${provenance.qualificationOnly ? 'Unversioned qualification artifact. Do not publish.' : `Source revision: ${revision}${dirty ? ' (uncommitted changes)' : ''}.`}
 - Apache 2.0. The office engine is Pixel Agents (MIT, see vendor/pixel-agents/NOTICE.md and assets/LICENSE);
   character art is based on JIK-A-4's MetroCity pack (CC0). The Restless name, marks and visual identity
   are not licensed.
@@ -155,6 +144,6 @@ const sha256 = createHash('sha256').update(readFileSync(tarballPath)).digest('he
 writeFileSync(`${tarballPath}.sha256`, `${sha256}  ${tarball}\n`);
 writeFileSync(
 	join(outDir, 'office-manifest.json'),
-	JSON.stringify({ name: pkg.name, version, tarball, sha256, sourceRevision: revision, sourceDirty: dirty, files: listed.sort() }, null, '\t') + '\n'
+	JSON.stringify({ name: pkg.name, version, tarball, sha256, ...provenance, files: listed.sort() }, null, '\t') + '\n'
 );
 console.log(`packed ${tarball} (${listed.length} files) sha256 ${sha256.slice(0, 12)}…${dirty ? '  [uncommitted changes]' : ''}`);

@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto';
 import { dag, Container, Directory, Platform, Secret, ReturnType } from '@dagger.io/dagger';
 
 export const NODE_IMAGE = 'node:24.18.1-alpine3.23@sha256:c2cc26d8f991c2db236ad51a61efee843c482372d6d22570787309d511694110';
-const GRYPE_IMAGE = 'anchore/grype:v0.119.0@sha256:8c2c9234a345577a6d321a4753aa3ee1276d8975c8452d2344a56b57733ecad3';
-const SYFT_IMAGE = 'anchore/syft:v1.54.0@sha256:0356562f495d432056237fbea5cbc2d4839c9c75cd500784a66de2e7cc95ca7c';
+export const GRYPE_IMAGE = 'anchore/grype:v0.119.0@sha256:8c2c9234a345577a6d321a4753aa3ee1276d8975c8452d2344a56b57733ecad3';
+export const SYFT_IMAGE = 'anchore/syft:v1.54.0@sha256:0356562f495d432056237fbea5cbc2d4839c9c75cd500784a66de2e7cc95ca7c';
 export const ORAS_IMAGE = 'ghcr.io/oras-project/oras:v1.2.2@sha256:cd549d80c4aa89638aea5964a3cd8193a6dd8abf939a43b5d562c24dbab08ff1';
 export const COSIGN_IMAGE = 'ghcr.io/sigstore/cosign/cosign:v2.4.1@sha256:b03690aa52bfe94054187142fba24dc54137650682810633901767d8a3e15b31';
 export const CORE_WORKFLOW = 'BlueprintLabIO/restless-core/.github/workflows/immutable-core-release.yml@refs/heads/dev';
