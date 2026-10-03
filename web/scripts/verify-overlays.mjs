@@ -174,18 +174,32 @@ try {
 		'the tooltip stays when the pointer moves onto it (hoverable)',
 		await page.evaluate(() => document.querySelector('.bridge-tooltip').matches(':popover-open'))
 	);
+	// Observe inside the browser before moving the pointer. A single sample
+	// after 215ms races the grace timer and rendering on a busy CI worker.
+	await page.evaluate(() => {
+		window.restlessTooltipFade = new Promise((resolve) => {
+			const tip = document.querySelector('.bridge-tooltip');
+			const deadline = performance.now() + 3000;
+			const sample = () => {
+				const state = {
+					inTopLayer: tip.matches(':popover-open'),
+					opacity: +getComputedStyle(tip).opacity
+				};
+				if (!state.inTopLayer || state.opacity < 1 || performance.now() >= deadline) {
+					resolve(state);
+				} else requestAnimationFrame(sample);
+			};
+			requestAnimationFrame(sample);
+		});
+	});
 	await page.mouse.move(700, 700);
-	await page.waitForTimeout(215);
-	const fading = await page.evaluate(() => ({
-		inTopLayer: document.querySelector('.bridge-tooltip').matches(':popover-open'),
-		opacity: +getComputedStyle(document.querySelector('.bridge-tooltip')).opacity
-	}));
+	const fading = await page.evaluate(() => window.restlessTooltipFade);
 	check(
 		'it fades out before leaving the top layer',
 		fading.inTopLayer && fading.opacity < 1,
 		JSON.stringify(fading)
 	);
-	await page.waitForTimeout(400);
+	await page.waitForFunction(() => !document.querySelector('.bridge-tooltip').matches(':popover-open'));
 	check(
 		'…then leaves',
 		await page.evaluate(() => !document.querySelector('.bridge-tooltip').matches(':popover-open'))
