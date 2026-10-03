@@ -111,16 +111,28 @@ impl Layout {
         let paths = self.release_paths(release);
         let definitions = match self.supervisor {
             Supervisor::Launchd => vec![
-                (self.plane_definition(), contract::launchd_plane_plist(&paths)?),
-                (self.wake_definition(), contract::launchd_wake_plist(&paths)?),
+                (
+                    self.plane_definition(),
+                    contract::launchd_plane_plist(&paths)?,
+                ),
+                (
+                    self.wake_definition(),
+                    contract::launchd_wake_plist(&paths)?,
+                ),
             ],
             Supervisor::Systemd => vec![
-                (self.plane_definition(), contract::systemd_plane_unit(&paths)?),
+                (
+                    self.plane_definition(),
+                    contract::systemd_plane_unit(&paths)?,
+                ),
                 (
                     self.service_dir.join(SYSTEMD_WAKE_SERVICE),
                     contract::systemd_wake_service(&paths)?,
                 ),
-                (self.wake_definition(), contract::systemd_wake_timer().to_string()),
+                (
+                    self.wake_definition(),
+                    contract::systemd_wake_timer().to_string(),
+                ),
             ],
         };
         for (_, text) in &definitions {
@@ -176,7 +188,10 @@ impl Layout {
             Supervisor::Systemd => {
                 let _ = systemctl(&["disable", SYSTEMD_PLANE_UNIT, SYSTEMD_WAKE_TIMER]);
                 for unit in [SYSTEMD_WAKE_TIMER, SYSTEMD_WAKE_SERVICE, SYSTEMD_PLANE_UNIT] {
-                    remove_if_owned_definition(&self.service_dir.join(unit), "Description=Restless")?;
+                    remove_if_owned_definition(
+                        &self.service_dir.join(unit),
+                        "Description=Restless",
+                    )?;
                 }
                 systemctl(&["daemon-reload"])?;
             }
@@ -603,7 +618,9 @@ fn import_environment(layout: &Layout, source: &Path) -> Result<()> {
     let path = layout
         .state_root
         .join(contract::PROFILE_ENVIRONMENT_RELATIVE);
-    let mut retained = BTreeMap::new();
+    // Credential refresh must not silently return a shared plane to local-owner entry.
+    let mut retained = existing_environment(&path)?;
+    retained.retain(|name, _| SHARING_ENVIRONMENT.contains(&name.as_str()));
     for name in &selected {
         if let Some(value) = supplied.get(name) {
             retained.insert(name.clone(), value.clone());
@@ -625,6 +642,284 @@ fn import_environment(layout: &Layout, source: &Path) -> Result<()> {
     }
     atomic_write(&path, &serde_json::to_vec_pretty(&retained)?, 0o600)?;
     Ok(())
+}
+
+const SHARING_ENVIRONMENT: &[&str] = &[
+    "RESTLESS_ENTRY_MODE",
+    "RESTLESS_RUNTIME_MODE",
+    "RESTLESS_ENTRY_ISSUER",
+    "RESTLESS_ENTRY_JWKS_URL",
+    "RESTLESS_ENTRY_OWNER_ID",
+    "RESTLESS_ENTRY_PLANE_ID",
+    "RESTLESS_ENTRY_HOST",
+    "RESTLESS_COMPANY_IMAGE",
+    "RESTLESS_ENTRY_ALLOW_INSECURE_HTTP",
+    "RESTLESS_ENTRY_JWKS_CA_FILE",
+];
+
+fn existing_environment(path: &Path) -> Result<BTreeMap<String, String>> {
+    if path.is_file() {
+        Ok(serde_json::from_slice(&std::fs::read(path)?)?)
+    } else {
+        Ok(BTreeMap::new())
+    }
+}
+
+fn sharing_environment(source: &Path) -> Result<BTreeMap<String, String>> {
+    use std::os::unix::fs::MetadataExt;
+    let metadata = std::fs::symlink_metadata(source)?;
+    if !metadata.is_file()
+        || metadata.nlink() != 1
+        || metadata.mode() & 0o077 != 0
+        || metadata.len() > 32768
+    {
+        bail!("sharing configuration must be one private regular file (mode 0600)");
+    }
+    let values =
+        dotenvy::from_path_iter(source)?.collect::<std::result::Result<BTreeMap<_, _>, _>>()?;
+    if values
+        .keys()
+        .any(|name| !SHARING_ENVIRONMENT.contains(&name.as_str()))
+    {
+        bail!("sharing configuration contains an unsupported setting");
+    }
+    if values.get("RESTLESS_ENTRY_MODE").map(String::as_str) != Some("network")
+        || values.get("RESTLESS_RUNTIME_MODE").map(String::as_str) != Some("local")
+    {
+        bail!("sharing requires authenticated network entry and local company computers");
+    }
+    for name in ["RESTLESS_ENTRY_OWNER_ID", "RESTLESS_ENTRY_PLANE_ID"] {
+        let value = values
+            .get(name)
+            .context("sharing configuration is incomplete")?;
+        let uuid: uuid::Uuid = value.parse()?;
+        if uuid.is_nil() {
+            bail!("sharing identity must not be nil");
+        }
+    }
+    let issuer = url::Url::parse(
+        values
+            .get("RESTLESS_ENTRY_ISSUER")
+            .context("account address is missing")?,
+    )?;
+    let local = issuer.host_str().is_some_and(|host| {
+        host == "localhost" || host.ends_with(".localhost") || host == "127.0.0.1"
+    });
+    if issuer.origin().ascii_serialization() != issuer.as_str().trim_end_matches('/')
+        || !issuer.username().is_empty()
+        || issuer.password().is_some()
+        || !(issuer.scheme() == "https"
+            || (local
+                && issuer.scheme() == "http"
+                && values
+                    .get("RESTLESS_ENTRY_ALLOW_INSECURE_HTTP")
+                    .map(String::as_str)
+                    == Some("1")))
+    {
+        bail!("account entry requires HTTPS; insecure entry is only for loopback qualification");
+    }
+    if values.get("RESTLESS_ENTRY_JWKS_URL")
+        != Some(&format!(
+            "{}/.well-known/jwks.json",
+            issuer.origin().ascii_serialization()
+        ))
+    {
+        bail!("signing keys must come from the configured account issuer");
+    }
+    let host = values
+        .get("RESTLESS_ENTRY_HOST")
+        .context("company hostname is missing")?;
+    if !host.contains('.')
+        || host
+            .bytes()
+            .any(|byte| !(byte.is_ascii_alphanumeric() || byte == b'.' || byte == b'-'))
+    {
+        bail!("company entry needs its exact DNS hostname");
+    }
+    let image = values
+        .get("RESTLESS_COMPANY_IMAGE")
+        .context("company image is missing")?;
+    if !image.split_once("@sha256:").is_some_and(|(name, digest)| {
+        !name.is_empty()
+            && digest.len() == 64
+            && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+    }) {
+        bail!("the company image must be pinned by OCI digest");
+    }
+    Ok(values)
+}
+
+/// The installed appliance owns this last step. It preserves existing credentials,
+/// checks the candidate, drains useful work and restores entry settings on failure.
+pub fn enable_sharing(environment: PathBuf) -> Result<serde_json::Value> {
+    ensure_stable_profile()?;
+    let layout = Layout::discover()?;
+    let release = read_link_name(&layout.current)
+        .context("install the local appliance before enabling sharing")?;
+    let environment = absolute(&environment)?;
+    let supplied = sharing_environment(&environment)?;
+    let issuer = supplied.get("RESTLESS_ENTRY_ISSUER").unwrap();
+    let mut builder = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .redirect(reqwest::redirect::Policy::none());
+    if let Some(path) = supplied.get("RESTLESS_ENTRY_JWKS_CA_FILE") {
+        builder =
+            builder.add_root_certificate(reqwest::Certificate::from_pem(&std::fs::read(path)?)?);
+    }
+    let client = builder.build()?;
+    let metadata = sharing_response(
+        client
+            .get(format!("{issuer}/.well-known/restless-issuer"))
+            .send()?,
+        16384,
+    )?;
+    if metadata["contract_version"] != 1 || metadata["issuer"] != issuer.as_str() {
+        bail!("the account service does not match the configured issuer contract");
+    }
+    let keys = sharing_response(
+        client
+            .get(supplied.get("RESTLESS_ENTRY_JWKS_URL").unwrap())
+            .send()?,
+        16384,
+    )?;
+    if !keys["keys"].as_array().is_some_and(|keys| {
+        !keys.is_empty()
+            && keys.len() <= 16
+            && keys
+                .iter()
+                .all(|key| key["kty"] == "OKP" && key["crv"] == "Ed25519" && key["d"].is_null())
+    }) {
+        bail!("the account service did not provide supported public signing keys");
+    }
+    // Read the same private configuration the account service uses. Before a
+    // plane-wide switch, prove every current company is still represented.
+    let configuration = environment.parent().unwrap().join("identity.json");
+    use std::os::unix::fs::MetadataExt;
+    let private = std::fs::symlink_metadata(&configuration)?;
+    if !private.is_file()
+        || private.nlink() != 1
+        || private.mode() & 0o077 != 0
+        || private.len() > 32768
+    {
+        bail!("account configuration must be one private regular file");
+    }
+    let configuration: serde_json::Value = serde_json::from_slice(&std::fs::read(configuration)?)?;
+    if configuration["origin"] != issuer.as_str()
+        || configuration["ownerId"].as_str()
+            != supplied.get("RESTLESS_ENTRY_OWNER_ID").map(String::as_str)
+        || configuration["planeId"].as_str()
+            != supplied.get("RESTLESS_ENTRY_PLANE_ID").map(String::as_str)
+    {
+        bail!("account configuration and prepared entry do not match");
+    }
+    let companies = configuration["companies"]
+        .as_array()
+        .context("prepare a current sharing setup that includes every company")?;
+    let selected = companies
+        .iter()
+        .find(|company| company["companyId"] == configuration["companyId"])
+        .context("default company is missing from sharing setup")?;
+    let handle = selected["companyHandle"]
+        .as_str()
+        .context("company handle is missing")?;
+    if !handle
+        .bytes()
+        .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+    {
+        bail!("invalid company handle in sharing configuration");
+    }
+    let current = sharing_response(client.post(format!("http://127.0.0.1:7788/api/companies/{handle}/sharing/setup"))
+        .header("Origin", "http://127.0.0.1:7788")
+        .json(&serde_json::json!({ "account_origin": issuer, "core_origin": configuration["coreOrigin"], "owner_email": configuration["ownerEmail"], "access": "private" }))
+        .send()?, 65536)?;
+    let current_companies = current["companies"]
+        .as_array()
+        .context("local company coordinates could not be checked")?;
+    if current_companies.len() != companies.len()
+        || !current_companies.iter().all(|current| {
+            companies.iter().any(|company| {
+                company["companyHandle"] == current["id"]
+                    && company["companyId"] == current["company_id"]
+                    && company["cellId"] == current["cell_id"]
+            })
+        })
+    {
+        bail!("the companies on this host changed; prepare sharing setup again from Members");
+    }
+    if !keys["keys"].as_array().unwrap().iter().any(|key| {
+        key["kid"] == configuration["signingKey"]["kid"]
+            && key["x"] == configuration["signingKey"]["x"]
+    }) {
+        bail!("the running account service uses a different signing key");
+    }
+    let path = layout
+        .state_root
+        .join(contract::PROFILE_ENVIRONMENT_RELATIVE);
+    let previous = std::fs::read(&path).ok();
+    let mut merged = existing_environment(&path)?;
+    if merged.get("RESTLESS_ENTRY_MODE").map(String::as_str) == Some("network") {
+        bail!("individual sign-in is already configured; use Members to manage access");
+    }
+    merged.extend(supplied);
+    atomic_write(&path, &serde_json::to_vec_pretty(&merged)?, 0o600)?;
+    let restore = || -> Result<()> {
+        match &previous {
+            Some(bytes) => atomic_write(&path, bytes, 0o600),
+            None => {
+                std::fs::remove_file(&path)?;
+                Ok(())
+            }
+        }
+    };
+    if let Err(error) =
+        run_candidate_preflight_with_environment(&release, &layout.state_root, &merged)
+    {
+        restore()?;
+        return Err(error);
+    }
+    let drain = match begin_appliance_drain(&layout, false) {
+        Ok(drain) => drain,
+        Err(error) => {
+            restore()?;
+            return Err(error);
+        }
+    };
+    let activation = restart_services(&layout).and_then(|_| {
+        if wait_ready(&layout, Duration::from_secs(30)) {
+            Ok(())
+        } else {
+            bail!("authenticated company entry did not become ready");
+        }
+    });
+    if let Err(error) = activation {
+        restore()?;
+        restart_services(&layout).context("restore the previous entry service")?;
+        if !wait_ready(&layout, Duration::from_secs(30)) {
+            bail!("sharing activation failed and the previous entry did not recover; company data is preserved: {error:#}");
+        }
+        drain.resume()?;
+        return Err(error)
+            .context("sharing was not enabled; previous entry settings were restored");
+    }
+    drain.resume()?;
+    Ok(
+        serde_json::json!({ "ready": true, "mode": "network", "account_url": merged.get("RESTLESS_ENTRY_ISSUER") }),
+    )
+}
+
+fn sharing_response(
+    response: reqwest::blocking::Response,
+    limit: u64,
+) -> Result<serde_json::Value> {
+    let mut bytes = Vec::new();
+    response
+        .error_for_status()?
+        .take(limit + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > limit {
+        bail!("sharing verification response exceeded its size limit");
+    }
+    Ok(serde_json::from_slice(&bytes)?)
 }
 
 fn required_environment(state_root: &Path) -> Result<(BTreeSet<String>, bool)> {
@@ -909,7 +1204,11 @@ pub fn uninstall(force: bool) -> Result<StatusReport> {
     layout.remove_definitions()?;
     remove_if_owned_symlink(&layout.bin_link, &layout.install_root)?;
     if layout.install_root.is_dir() {
-        ensure_exact_child(&layout.home.join(".local/lib"), &layout.install_root, Some("restless"))?;
+        ensure_exact_child(
+            &layout.home.join(".local/lib"),
+            &layout.install_root,
+            Some("restless"),
+        )?;
         std::fs::remove_dir_all(&layout.install_root)?;
     }
     for owned in [
@@ -986,6 +1285,14 @@ fn stage_candidate(layout: &Layout, candidate: &Candidate, release: &str) -> Res
 }
 
 fn run_candidate_preflight(release: &Path, state_root: &Path) -> Result<()> {
+    run_candidate_preflight_with_environment(release, state_root, &BTreeMap::new())
+}
+
+fn run_candidate_preflight_with_environment(
+    release: &Path,
+    state_root: &Path,
+    environment: &BTreeMap<String, String>,
+) -> Result<()> {
     let daemon = release.join("bin/restlessd");
     let cockpit = release.join("web");
     let output = Command::new(&daemon)
@@ -994,6 +1301,7 @@ fn run_candidate_preflight(release: &Path, state_root: &Path) -> Result<()> {
         .env("RESTLESS_HOME", state_root)
         .env("RESTLESS_PORT_OFFSET", "0")
         .env("RESTLESS_COCKPIT_DIR", &cockpit)
+        .envs(environment)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
@@ -1250,6 +1558,24 @@ fn service_loaded(label: &str) -> bool {
 }
 
 fn owner_health_status() -> Option<u16> {
+    let layout = Layout::discover().ok()?;
+    let values = existing_environment(
+        &layout
+            .state_root
+            .join(contract::PROFILE_ENVIRONMENT_RELATIVE),
+    )
+    .ok()?;
+    let host = values
+        .get("RESTLESS_ENTRY_HOST")
+        .filter(|_| values.get("RESTLESS_ENTRY_MODE").map(String::as_str) == Some("network"))
+        .map(String::as_str)
+        .unwrap_or("127.0.0.1:7788");
+    if host
+        .bytes()
+        .any(|byte| !(byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b':')))
+    {
+        return None;
+    }
     let mut stream = std::net::TcpStream::connect_timeout(
         &"127.0.0.1:7788".parse().expect("literal socket"),
         Duration::from_secs(1),
@@ -1257,7 +1583,9 @@ fn owner_health_status() -> Option<u16> {
     .ok()?;
     stream.set_read_timeout(Some(Duration::from_secs(1))).ok()?;
     stream
-        .write_all(b"GET /health HTTP/1.1\r\nHost: 127.0.0.1:7788\r\nConnection: close\r\n\r\n")
+        .write_all(
+            format!("GET /health HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n").as_bytes(),
+        )
         .ok()?;
     let mut response = String::new();
     stream.read_to_string(&mut response).ok()?;
@@ -1516,11 +1844,48 @@ mod tests {
     use super::*;
 
     #[test]
+    fn sharing_import_refuses_public_files_untrusted_keys_and_mutable_images() {
+        let root =
+            std::env::temp_dir().join(format!("restless-sharing-{}_test", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&root).unwrap();
+        let path = root.join("entry.env");
+        let valid = format!(
+            "RESTLESS_ENTRY_MODE=network\nRESTLESS_RUNTIME_MODE=local\nRESTLESS_ENTRY_ISSUER=https://accounts.example.com\nRESTLESS_ENTRY_JWKS_URL=https://accounts.example.com/.well-known/jwks.json\nRESTLESS_ENTRY_OWNER_ID={}\nRESTLESS_ENTRY_PLANE_ID={}\nRESTLESS_ENTRY_HOST=work.example.com\nRESTLESS_COMPANY_IMAGE=registry.example.com/company@sha256:{}\n",
+            uuid::Uuid::new_v4(), uuid::Uuid::new_v4(), "a".repeat(64)
+        );
+        atomic_write(&path, valid.as_bytes(), 0o600).unwrap();
+        assert!(sharing_environment(&path).is_ok());
+        let link = root.join("link.env");
+        symlink(&path, &link).unwrap();
+        assert!(sharing_environment(&link).is_err());
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(sharing_environment(&path).is_err());
+        for invalid in [
+            valid.replace(
+                "https://accounts.example.com/.well-known/jwks.json",
+                "https://other.example.com/.well-known/jwks.json",
+            ),
+            valid.replace(&format!("@sha256:{}", "a".repeat(64)), ":latest"),
+            format!("{valid}GPT_API_KEY=must-not-import\n"),
+            valid.replace("RESTLESS_ENTRY_MODE=network", "RESTLESS_ENTRY_MODE=local"),
+        ] {
+            atomic_write(&path, invalid.as_bytes(), 0o600).unwrap();
+            assert!(sharing_environment(&path).is_err());
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn exact_cleanup_guard_rejects_a_parent_or_sibling() {
         let exact = Some("restless");
-        assert!(ensure_exact_child(Path::new("/tmp/lib"), Path::new("/tmp/lib/restless"), exact).is_ok());
+        assert!(
+            ensure_exact_child(Path::new("/tmp/lib"), Path::new("/tmp/lib/restless"), exact)
+                .is_ok()
+        );
         assert!(ensure_exact_child(Path::new("/tmp/lib"), Path::new("/tmp/lib"), exact).is_err());
-        assert!(ensure_exact_child(Path::new("/tmp/lib"), Path::new("/tmp/lib/other"), exact).is_err());
+        assert!(
+            ensure_exact_child(Path::new("/tmp/lib"), Path::new("/tmp/lib/other"), exact).is_err()
+        );
     }
 
     #[test]
@@ -1577,6 +1942,35 @@ model_failover = ["zai/glm-5.3"]
         );
         assert!(uses_infisical);
         assert!(!required.contains("COOLIFY_API_KEY"));
+        let profile = root.join(contract::PROFILE_ENVIRONMENT_RELATIVE);
+        atomic_write(&profile, br#"{"RESTLESS_ENTRY_MODE":"network","RESTLESS_COMPANY_IMAGE":"company@sha256:pinned","GPT_API_KEY":"previous","UNUSED_SECRET":"remove"}"#, 0o600).unwrap();
+        let credentials = root.join("credentials.env");
+        atomic_write(
+            &credentials,
+            b"GPT_API_KEY=current\nRESTLESS_ENTRY_MODE=local\nUNUSED_SECRET=unrequested\n",
+            0o600,
+        )
+        .unwrap();
+        let layout = Layout {
+            home: root.clone(),
+            install_root: root.clone(),
+            releases: root.clone(),
+            current: root.clone(),
+            previous: root.clone(),
+            bin_link: root.clone(),
+            supervisor: Supervisor::Systemd,
+            service_dir: root.clone(),
+            state_root: root.clone(),
+        };
+        import_environment(&layout, &credentials).unwrap();
+        let imported = existing_environment(&profile).unwrap();
+        assert_eq!(imported.get("RESTLESS_ENTRY_MODE").unwrap(), "network");
+        assert_eq!(
+            imported.get("RESTLESS_COMPANY_IMAGE").unwrap(),
+            "company@sha256:pinned"
+        );
+        assert_eq!(imported.get("GPT_API_KEY").unwrap(), "current");
+        assert!(!imported.contains_key("UNUSED_SECRET"));
         std::fs::remove_dir_all(root).ok();
     }
 }

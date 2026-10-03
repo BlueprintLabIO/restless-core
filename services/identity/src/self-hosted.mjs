@@ -1,5 +1,5 @@
 // The self-hosted host of the identity issuer: its own Better Auth instance
-// and account pages for one company, composed with the shared library.
+// and account pages for configured companies, composed with the shared library.
 import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { betterAuth } from "better-auth";
@@ -35,8 +35,10 @@ export async function createSelfHostedIssuer(
 ) {
   if (typeof mail?.send !== "function")
     throw Error("A Mail port is required for verification and invitations");
-  const companyId = placement.defaultCompanyId;
-  const slug = `restless-${companyId}`;
+  const companies = config.companies ?? [{ companyId: config.companyId, cellId: config.cellId, companyName: config.companyName }];
+  const defaultCompanyId = placement.defaultCompanyId;
+  const configuredCompany = (id) => companies.find(company => company.companyId === id);
+  const slugFor = (id) => `restless-${id}`;
   const origin = new URL(config.origin);
   const invitationLink = (id) =>
     `${config.origin}/?invite=${encodeURIComponent(id)}`;
@@ -87,7 +89,7 @@ export async function createSelfHostedIssuer(
     plugins: [
       organization({
         allowUserToCreateOrganization: false,
-        organizationLimit: 1,
+        organizationLimit: companies.length,
         sendInvitationEmail: async ({ email, id, organization }) =>
           mail.send({
             to: email,
@@ -183,9 +185,9 @@ export async function createSelfHostedIssuer(
     }
   }
 
-  async function organizationRow(client = pool) {
+  async function organizationRow(companyId, client = pool) {
     return (
-      await client.query("SELECT id, name FROM organization WHERE slug=$1", [slug])
+      await client.query("SELECT id, name FROM organization WHERE slug=$1", [slugFor(companyId)])
     ).rows[0];
   }
   async function account(request) {
@@ -197,16 +199,18 @@ export async function createSelfHostedIssuer(
       refuse(401, "Sign in with a verified email to continue.");
     return session.user;
   }
-  async function bootstrap(user) {
+  async function bootstrap(user, companyId) {
+    const company = configuredCompany(companyId);
+    if (!company) refuse(404, "Company not found.");
     if (user.email.toLowerCase() !== config.ownerEmail)
       refuse(403, "Only the configured owner can open this company for the first time.");
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [slug]);
-      if (!(await organizationRow(client)))
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [slugFor(companyId)]);
+      if (!(await organizationRow(companyId, client)))
         await auth.api.createOrganization({
-          body: { userId: user.id, name: config.companyName, slug },
+          body: { userId: user.id, name: company.companyName, slug: slugFor(companyId) },
         });
       await client.query("COMMIT");
     } catch (error) {
@@ -236,7 +240,10 @@ export async function createSelfHostedIssuer(
     const shared = await issuer.handle(request);
     if (shared) return withHeaders(shared, { "X-Content-Type-Options": "nosniff" });
     try {
-      const path = new URL(request.url).pathname;
+      const requestUrl = new URL(request.url);
+      const path = requestUrl.pathname;
+      const companyId = requestUrl.searchParams.get("company") ?? defaultCompanyId;
+      const selected = configuredCompany(companyId);
       if (request.method === "GET" && path === "/health")
         return json(200, { status: "ready" });
       if (request.method === "POST" && request.headers.get("origin") !== config.origin)
@@ -256,39 +263,56 @@ export async function createSelfHostedIssuer(
         });
       }
       if (request.method === "GET" && path === "/api/settings")
-        return json(200, { companyName: config.companyName, coreOrigin: config.coreOrigin });
+        return json(200, { companyName: selected?.companyName ?? config.companyName, coreOrigin: config.coreOrigin });
       const user = await account(request);
       if (request.method === "GET" && path === "/api/company") {
+        if (!selected) refuse(404, "Company not found.");
         const member = await store.membership(companyId, user.id);
         const active = member?.status === "active" && !member.ending;
+        const choices = [];
+        for (const company of companies) {
+          const membership = company.companyId === companyId ? member : await store.membership(company.companyId, user.id);
+          const canBootstrap = user.email.toLowerCase() === config.ownerEmail && !(await organizationRow(company.companyId));
+          if ((membership && membership.status !== "removed") || canBootstrap) choices.push({ id: company.companyId, name: company.companyName });
+        }
         return json(200, {
           user: { name: user.name, email: user.email },
+          companyId, companyName: selected.companyName, companies: choices,
           role: active ? member.role : null,
           status: member?.status ?? null,
+          available: active && placement.checkReady ? await placement.checkReady(companyId) : null,
           canBootstrap:
-            !(await organizationRow()) && user.email.toLowerCase() === config.ownerEmail,
+            !(await organizationRow(companyId)) && user.email.toLowerCase() === config.ownerEmail,
         });
       }
       if (request.method !== "POST") refuse(404, "Page not found.");
       const input = await readJson(request);
       if (path === "/api/company/bootstrap") {
-        await bootstrap(user);
+        await bootstrap(user, input.companyId ?? companyId);
         return json(200, { ready: true });
       }
       if (path === "/api/invitations/accept") {
-        const fixed = await organizationRow();
         const invitation = (
-          await pool.query('SELECT "organizationId" FROM invitation WHERE id=$1', [input.id])
+          await pool.query('SELECT invitation."organizationId", organization.slug FROM invitation JOIN organization ON organization.id = invitation."organizationId" WHERE invitation.id=$1', [input.id])
         ).rows[0];
-        if (!fixed || invitation?.organizationId !== fixed.id)
+        const invitedCompany = invitation?.slug?.startsWith("restless-") ? invitation.slug.slice("restless-".length) : null;
+        if (!configuredCompany(invitedCompany))
           refuse(404, "This invitation is no longer available.");
         await auth.api.acceptInvitation({
           headers: new Headers({ cookie: request.headers.get("cookie") ?? "" }),
           body: { invitationId: input.id },
         });
-        return json(200, { accepted: true });
+        return json(200, { accepted: true, companyId: invitedCompany });
       }
-      if (path === "/api/enter") return json(200, await store.enter(user, companyId));
+      if (path === "/api/enter") {
+        const target = input.companyId ?? companyId;
+        const member = await store.membership(target, user.id);
+        if (!member || member.status !== "active" || member.ending)
+          refuse(403, "You do not currently have access to this company.");
+        if (placement.checkReady && !(await placement.checkReady(target)))
+          refuse(503, "The company is offline. It will be available when its host reconnects. Your account and membership are unchanged.");
+        return json(200, await store.enter(user, target));
+      }
       refuse(404, "Account action not found.");
     } catch (error) {
       return failure(error);

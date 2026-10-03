@@ -25,30 +25,33 @@ People are invited and managed in the company itself, on **Company → Members**
 The account site keeps only sign-up, sign-in, verification, password reset,
 invitation acceptance and **Open company**.
 
-## Set up a company
+## Enable sharing on a local host
 
-Requirements: Node 24+, a freshly initialized Core company, a separate PostgreSQL
-accounts database, an SMTP account, and two HTTPS origins such as
-`accounts.example.com` and `work.example.com`. The two origins must share a
-parent domain: the company calls the account service with the account session
-cookie, and browsers send it only to the same site. The Core company image must be
-available by immutable OCI digest.
+Open **Company → Members → Enable sharing** in the local cockpit. Choose private
+network access or HTTPS, enter the company address, a separate account address,
+and the owner's email, then prepare and download the setup. Preparation does not
+change access or export credentials.
 
-1. Use an existing local company, or create one through the normal local setup
-   and wait for Core to finish initializing it. The first person to enter with
-   the owner email keeps the local owner's history: Core binds them to the
-   existing owner Actor once, and records that in Authority. Stop Core before
-   continuing. Keep the company's state, resource namespace, port offset and
-   profile settings when changing its entry configuration; do not initialize
-   another company for network entry.
+Sharing changes entry for the whole account plane. The setup includes every
+existing company on that host, each with its original company and cell IDs. One
+verified account can select any company it has joined. The first network owner
+entry into each company keeps its existing local owner Actor and history.
+Membership does not grant Authority, and access to one company does not grant
+access to another.
 
-2. Create private files outside the checkout for the accounts database URL and
-   SMTP configuration. Each file must have mode `0600`. The database user needs
-   permission to create the Better Auth tables in its own database. Do not use
-   the company database for accounts.
+Requirements: Node 24+, a separate PostgreSQL accounts database, SMTP, two HTTPS
+origins on the same site, and an immutable OCI company-image digest. Sibling
+addresses such as `accounts.example.com` and `work.example.com` work; one HTTPS
+hostname on two different ports also works for private networks. The private
+network or HTTPS proxy is transport; every person still signs in independently.
+The host must stay online. Accounts show an offline state and a retry action
+without changing anyone's membership.
 
-   The database file contains one PostgreSQL connection URL. The SMTP JSON file
-   uses Nodemailer's connection options, plus `from`:
+1. Create private files outside the checkout for the accounts database URL and
+   SMTP configuration. Each file must have mode `0600`. Use a separate accounts
+   database whose user can create the Better Auth tables. Do not reuse any
+   company's database. The SMTP JSON uses Nodemailer connection options plus
+   `from`, for example:
 
    ```json
    {
@@ -60,61 +63,69 @@ available by immutable OCI digest.
    }
    ```
 
-3. Install the service dependencies and generate its configuration. Replace the
-   paths, company handle and image digest with your installation's values:
+2. Prepare the host installation from the downloaded setup:
 
    ```sh
    cd services/identity
    npm ci --ignore-scripts
-   node scripts/configure.mjs \
-     --core-home /srv/restless/company \
-     --company my_company \
-     --company-name 'My company' \
-     --company-image 'registry.example.com/restless@sha256:YOUR_IMAGE_DIGEST' \
-     --origin https://accounts.example.com \
-     --core-origin https://work.example.com \
-     --owner-email founder@example.com \
+   node scripts/setup.mjs \
+     --plan /srv/restless/restless-sharing-my_company.json \
      --database-url-file /srv/restless/accounts-database.url \
      --smtp-file /srv/restless/accounts-smtp.json \
      --output /srv/restless/accounts
    ```
 
-   The command reads the new company's immutable IDs once. It writes a
-   private signing key and account configuration to `identity.json`, and Core's
-   entry settings to `core-entry.env`. It refuses an existing output directory.
-   It does not change or restart Core. The running account service does not need
-   the company database credential.
+   If the local release does not supply a digest, also pass
+   `--company-image 'registry.example.com/restless@sha256:YOUR_IMAGE_DIGEST'`.
+   The installer checks the current company set and reads its immutable IDs.
+   A changed company or cell refuses the setup. It writes private `identity.json`
+   and `core-entry.env`, copies the production account host into `service/`, and
+   prepares account-only `Caddyfile`, post-activation `Caddyfile.shared` and `SETUP.md`. Existing output is refused so setup
+   cannot replace active signing keys. Core is still running with local access.
 
-4. Start the account service under your process supervisor:
+3. Follow `SETUP.md`: install the copied service's locked production dependencies,
+   run it under the host's process supervisor, and prepare trusted HTTPS routing.
+   `--port` selects the account listener (default `127.0.0.1:6689`);
+   `--core-port` selects the private Core listener (default `7788`). The account
+   address must be reachable from Core. Keep both backend listeners private and
+   do not publish the company route while it still uses local-owner access.
+
+4. Activate with the **installed appliance CLI**, after its current release
+   includes this command:
 
    ```sh
-   RESTLESS_IDENTITY_CONFIG=/srv/restless/accounts/identity.json npm start
+   restless appliance enable-sharing \
+     --environment /srv/restless/accounts/core-entry.env
    ```
 
-   By default it listens on `127.0.0.1:6689`; `--port` selects another port during
-   configuration. Route `accounts.example.com` to that listener over HTTPS,
-   preserving the public Host header. Route `work.example.com` to Core's owner
-   gateway, also over HTTPS. Keep both backend listeners private. Core must be
-   able to fetch the accounts origin's `/.well-known/jwks.json` and
-   `/.well-known/restless-issuer`; the accounts
-   service must be able to reach Core's `/internal/v1/membership-controls`.
+   It verifies issuer metadata, public signing keys, the private configuration
+   and every current company coordinate. It preserves existing credentials,
+   runs candidate preflight, drains work and restarts the installed release.
+   Failed activation restores the previous entry settings. A prepared setup
+   cannot rotate an already shared plane. The pinned owner entry settings take
+   precedence over release defaults during later upgrades and credential refresh.
+   Then publish the company HTTPS route. Do not start a second daemon or edit the
+   appliance's service definitions to apply sharing.
 
-5. Add the generated `core-entry.env` to Core's existing process environment and
-   restart Core with its existing state, resource namespace, port offset and
-   other profile settings. The generated settings select authenticated network
-   entry and local Docker computers. Do not run a second daemon against the same
-   company state. Serve Core's production web build from its configured web
-   directory.
-
-6. Open the accounts origin. Create the account matching `--owner-email`, verify
-   its email, sign in, and select **Set up company access**. Invite a colleague
-   from **Company → Members** in the company. They create and verify their own
-   account using the invited email address, accept the invitation and select
-   **Open company**. Exec is told when someone joins for the first time.
+5. Open the account address, create and verify the configured owner's account,
+   select a company and **Set up company access**. Invite colleagues from
+   **Company → Members**. Each invitee verifies the invited email, accepts the
+   invitation and opens the company with a distinct human Actor. All company
+   data and existing owner contributions remain in their original cells.
 
 Back up the accounts database and private configuration together. They preserve
-sign-in identities, membership and signing continuity. Re-running setup with
-new IDs or keys is not an upgrade procedure.
+identity and signing continuity. Creating new IDs or keys is not an upgrade
+procedure. The lower-level `scripts/configure.mjs` remains available for a
+fresh, explicitly single-company deployment; the cockpit setup is the supported
+way to include every company when sharing an existing local host.
+
+### SSH access
+
+SSH is an optional operator transport. An OpenSSH SOCKS tunnel, for example
+`ssh -N -D 127.0.0.1:1080 user@host`, can carry a browser configured to use that
+proxy with proxy DNS. Open the configured HTTPS account and company addresses
+through it. Individual sign-in, exact host validation and company permissions
+still apply. Never forward the unauthenticated local-owner listener to teammates.
 
 ## Membership and removal
 
@@ -199,8 +210,10 @@ Core journey evidence there; otherwise the runner creates an evidence directory
 and prints its path. `RESTLESS_COCKPIT_DIR` may name an existing production web
 build when the daemon does not use its default location.
 
-The SMTP and Core journeys drive HTTP and WebSocket protocols directly; they do
-not automate a browser. The SMTP server is an isolated local mail capture, not a
+The SMTP journey drives HTTP directly. The Core journey also drives HTTP and
+WebSocket protocols; its optional browser pass exercises sharing preparation,
+Members and simultaneous document editing. The issuer check can exercise the
+company picker and offline recovery in a browser with `RESTLESS_BROWSER_EXECUTABLE`. The SMTP server is an isolated local mail capture, not a
 real mail-provider delivery check. Browser interaction and public SMTP delivery
 remain separate launch qualification. Current overall status is recorded in
 [launch readiness](../../docs/launch-readiness.md).

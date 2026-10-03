@@ -5,8 +5,9 @@ import {spawn} from 'node:child_process';
 import {readFile,writeFile,mkdir,access} from 'node:fs/promises';
 import {openSync,closeSync} from 'node:fs';
 import {configure} from '../scripts/configure.mjs';
+import {setup} from '../scripts/setup.mjs';
 import {readConfig} from '../src/config.mjs';
-import {createSelfHostedIssuer as createIssuer} from '../src/self-hosted.mjs';
+import {createSelfHostedIssuer as sourceIssuer} from '../src/self-hosted.mjs';
 import {staticPlacement} from '../src/placement-static.mjs';
 import {HocuspocusProvider,HocuspocusProviderWebsocket} from '@hocuspocus/provider';
 import pg from 'pg';
@@ -14,6 +15,8 @@ import WS from 'ws';
 import * as Y from 'yjs';
 import {createRequire} from 'node:module';
 import {dirname} from 'node:path';
+import {pathToFileURL} from 'node:url';
+let createIssuer=sourceIssuer;
 const {RESTLESS_HOME:root,RESTLESS_AUTH_TEST_PORT:authPort,RESTLESS_PORT_OFFSET:offset,RESTLESS_TEST_COMPANY:company}=process.env;
 assert(company.endsWith('_test'));
 // The account site shares Core's parent domain, as a real deployment must, so a
@@ -58,9 +61,9 @@ async function stopDaemon(){
  if(!daemon||daemon.exitCode!==null||daemon.signalCode!==null)return;
  await new Promise(resolve=>{const timer=setTimeout(()=>{daemon.kill('SIGKILL');resolve();},10000);daemon.once('exit',()=>{clearTimeout(timer);resolve();});daemon.kill('SIGTERM');});
 }
-async function configureCli(args){
+async function configureCli(args,script='configure.mjs'){
  return await new Promise((resolve,reject)=>{
-  const child=spawn(process.execPath,['scripts/configure.mjs',...args],{cwd:process.env.RESTLESS_TEST_REPO+'/services/identity',stdio:['ignore','pipe','pipe']});let stderr='';
+  const child=spawn(process.execPath,['scripts/'+script,...args],{cwd:process.env.RESTLESS_TEST_REPO+'/services/identity',stdio:['ignore','pipe','pipe']});let stderr='';
   child.stdout.resume();child.stderr.on('data',chunk=>{if(stderr.length<8192)stderr+=chunk.toString().slice(0,8192-stderr.length);});
   child.once('error',reject);child.once('exit',(code,signal)=>resolve({code,signal,stderr}));
  });
@@ -90,14 +93,50 @@ try{
  let localDocument,lastLocal='';
  await until(async()=>{const created=await localCall(localBase+'/documents',{title:'Local owner notes',kind:'brief',visibility:'participants',content_json:{type:'doc',content:[{type:'paragraph',attrs:{block_id:randomUUID()},content:[{type:'text',text:'Written before anyone else joined.'}]}]},reason:'Local history before network entry'});if(created.status!==201){lastLocal=`${created.status} ${JSON.stringify(created.data).slice(0,300)}`;return false;}localDocument=created.data.document_id;return true;},'local owner writes a private document').catch(error=>{throw Error(`${error.message}: ${lastLocal}`);});
  console.log('PASS local owner wrote a private document before network entry');
+ const sharingInput={account_origin:origin,core_origin:`http://${coreHost}:${Number(offset)+7788}`,owner_email:'owner@restless-launch.test',access:'private'};
+ const sharingPlan=(await localCall(localBase+'/sharing/setup',sharingInput,200)).data;
+ assert.equal(sharingPlan.companies.length,1);
+ assert.equal(sharingPlan.companies[0].company_id,identity.company_id);
+ assert.equal(sharingPlan.companies[0].cell_id,identity.cell_id);
+ assert.equal((await localCall(localBase+'/members',undefined,200)).data.mode,'local','preparation does not publish or activate entry');
+ await writeFile(root+'/sharing-plan.json',JSON.stringify(sharingPlan),{mode:0o600});
+ await localCall(localBase+'/sharing/setup',{...sharingInput,core_origin:'https://user:password@work.example.com'},400);
+ console.log('PASS Members prepares exact company coordinates without changing access or exposing credentials');
  if(await openBrowser()){
   const {context,page,errors}=await contextWith([]);
+  await context.addInitScript(()=>Object.defineProperty(navigator,'onLine',{get:()=>false,configurable:true}));
   await page.goto(`http://127.0.0.1:${ownerPort}/${company}/company/members`);
-  await page.getByText('This company is local-only, so nobody else can be invited yet.').waitFor({timeout:30000});
+  await page.getByRole('button',{name:'Enable sharing'}).waitFor({timeout:30000});
   await page.screenshot({path:evidence+'/members-local-1440.png'});
   assert.equal(await page.getByRole('button',{name:'Invite'}).count(),0,'local mode offers no invitation');
+  await page.getByRole('button',{name:'Enable sharing'}).click();
+  await page.getByLabel('Company address',{exact:true}).fill(sharingInput.core_origin);
+  await page.getByLabel('Account address',{exact:true}).fill(origin);
+  await page.getByLabel('Your email',{exact:true}).fill(sharingInput.owner_email);
+  await page.screenshot({path:evidence+'/sharing-form-1440.png'});
+  await page.setViewportSize({width:320,height:844});
+  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+  await page.screenshot({path:evidence+'/sharing-form-320.png'});
+  await page.setViewportSize({width:1440,height:960});
+  await page.getByRole('button',{name:'Prepare setup'}).click();
+  await page.getByRole('heading',{name:'Sharing setup prepared'}).waitFor();
+  await page.getByRole('button',{name:'Edit setup'}).click();
+  assert.equal(await page.getByLabel('Company address',{exact:true}).inputValue(),sharingInput.core_origin);
+  await page.getByRole('button',{name:'Prepare setup'}).click();
+  await page.getByRole('heading',{name:'Sharing setup prepared'}).waitFor();
+  const downloaded=page.waitForEvent('download');
+  await page.getByRole('button',{name:'Download setup'}).click();
+  await (await downloaded).saveAs(evidence+'/sharing-setup.json');
+  const downloadedPlan=JSON.parse(await readFile(evidence+'/sharing-setup.json','utf8'));
+  assert.deepEqual(downloadedPlan.companies,sharingPlan.companies);
+  await page.screenshot({path:evidence+'/sharing-prepared-1440.png'});
+  await page.setViewportSize({width:320,height:844});
+  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+  await page.screenshot({path:evidence+'/sharing-prepared-320.png'});
+  await page.keyboard.press('Escape');
+  assert.equal(await page.getByRole('dialog').count(),0);
   assert.deepEqual(errors,[]);await context.close();
-  console.log('PASS browser: local-only Members page states why nobody can be invited');
+  console.log('PASS browser: sharing review/download at desktop and mobile; private API works while OS reports no Internet');
  }
  await stopDaemon();
  await writeFile(root+'/smtp.json',JSON.stringify({host:'localhost',from:'Restless launch check <accounts@restless-launch.test>'}),{mode:0o600});
@@ -109,9 +148,19 @@ try{
  await assert.rejects(access(root+'/rejected-accounts'));
  console.log('PASS accounts configuration refuses the selected company database despite an equivalent URL spelling');
  await writeFile(root+'/account-database.url',process.env.RESTLESS_AUTH_TEST_DATABASE,{mode:0o600});
- const configured=await configureCli(['--core-home',root,'--company',company,'--company-name','Launch Studio','--company-image',process.env.RESTLESS_COMPANY_IMAGE,'--origin',origin,'--core-origin',`http://${coreHost}:${Number(offset)+7788}`,'--owner-email','owner@restless-launch.test','--database-url-file',root+'/account-database.url','--smtp-file',root+'/smtp.json','--output',root+'/accounts','--port',String(authPort)]);
+ const changedPlan={...sharingPlan,companies:[{...sharingPlan.companies[0],company_id:randomUUID()}]};
+ await writeFile(root+'/changed-sharing-plan.json',JSON.stringify(changedPlan),{mode:0o600});
+ await assert.rejects(setup({plan:root+'/changed-sharing-plan.json',databaseUrlFile:root+'/account-database.url',smtpFile:root+'/smtp.json',output:root+'/changed-accounts',companyImage:process.env.RESTLESS_COMPANY_IMAGE}),/identity changed/);
+ await assert.rejects(access(root+'/changed-accounts'));
+ const configured=await configureCli(['--plan',root+'/sharing-plan.json','--company-image',process.env.RESTLESS_COMPANY_IMAGE,'--database-url-file',root+'/account-database.url','--smtp-file',root+'/smtp.json','--output',root+'/accounts','--port',String(authPort),'--core-port',String(Number(offset)+7788)],'setup.mjs');
  const configureFailure=configured.stderr.replaceAll(root,'[private state]').replace(/postgres(?:ql)?:\/\/\S+/gi,'[database URL]');
  assert.equal(configured.code,0,`documented configure CLI must succeed${configureFailure?`: ${configureFailure}`:''}`);
+ const installed=await new Promise((resolve,reject)=>{
+  const child=spawn(process.execPath,[dirname(process.execPath)+'/../lib/node_modules/npm/bin/npm-cli.js','ci','--omit=dev','--ignore-scripts'],{cwd:root+'/accounts/service',stdio:['ignore','ignore','pipe']});let error='';
+  child.stderr.on('data',chunk=>{if(error.length<8192)error+=chunk.toString();});child.once('error',reject);child.once('exit',code=>resolve({code,error}));
+ });
+ assert.equal(installed.code,0,`prepared account host must install its locked dependencies: ${installed.error}`);
+ ({createSelfHostedIssuer:createIssuer}=await import(pathToFileURL(root+'/accounts/service/src/self-hosted.mjs').href));
  serviceConfig=await readConfig(root+'/accounts/identity.json');
  const coreEntry=await readFile(root+'/accounts/core-entry.env','utf8');assert.match(coreEntry,/^export RESTLESS_ENTRY_MODE='network'$/m);assert.match(coreEntry,/^export RESTLESS_RUNTIME_MODE='local'$/m);
  ownerId=serviceConfig.ownerId;planeId=serviceConfig.planeId;
@@ -162,6 +211,8 @@ try{
  assert.equal((await coreCall(base+`/documents/${localDocument}`,undefined,owner.coreCookie)).data.document.title,'Local owner notes');
  assert.notEqual(owner.principal.actor_id,colleague.principal.actor_id);
  assert.equal(colleague.principal.membership_role,'member');
+ await coreCall(base+'/sharing/setup',sharingInput,owner.coreCookie,403);
+ await coreCall(base+'/sharing/setup',sharingInput,colleague.coreCookie,403);
  console.log('PASS verified invitations produce independent Core principals; replay refused');
  const humanActors=(await cellPool.query(`SELECT id,display,role FROM "${company}".actors WHERE id=ANY($1::text[])`,[[owner.principal.actor_id,colleague.principal.actor_id]])).rows;
  assert.equal(humanActors.find(actor=>actor.id===owner.principal.actor_id).display,'Launch Owner');
@@ -197,7 +248,7 @@ try{
    const {context,page,errors}=await contextWith([[origin,owner.cookie],[cockpitUrl,owner.coreCookie]],{width,height});
    await page.goto(membersUrl);
    await page.getByRole('heading',{name:'People'}).waitFor({timeout:30000});
-   await page.getByText('Launch Colleague').waitFor();
+   await page.locator('#main-content').getByText('Launch Colleague').waitFor();
    const overflow=await page.evaluate(()=>document.documentElement.scrollWidth-document.documentElement.clientWidth);
    assert(overflow<=0,`${name} Members page scrolls horizontally by ${overflow}px`);
    if(name==='desktop'){
@@ -331,7 +382,7 @@ try{
  console.log('PASS cancelled invitation, cross-origin refusal and single-use password-reset email journey');
 
 
- await writeFile(process.env.RESTLESS_TEST_RESULT,JSON.stringify({mode:'self-hosted identity service with authenticated local Core',real_authentication:true,independent_principals:true,invitation_email_matching:true,entry_replay_rejected:true,private_document_access:true,comment_by_invited_human:true,existing_session_revoked:true,removal_outage_outbox_delivery:true,owner_claims_local_owner_actor:true,local_owner_document_survives_network_entry:true,exec_told_of_new_colleague:true,core_members_view:true,role_change_versioned:true,suspend_and_reinstate:true,product_identity_service:true,published_user_journey:false,browser_coediting:false,live_protocol_coediting:true,reconnect_preserves_edits:true,open_document_connection_revoked:true},null,2));
+ await writeFile(process.env.RESTLESS_TEST_RESULT,JSON.stringify({mode:'self-hosted identity service with authenticated local Core',real_authentication:true,independent_principals:true,invitation_email_matching:true,entry_replay_rejected:true,private_document_access:true,comment_by_invited_human:true,existing_session_revoked:true,removal_outage_outbox_delivery:true,owner_claims_local_owner_actor:true,local_owner_document_survives_network_entry:true,exec_told_of_new_colleague:true,core_members_view:true,role_change_versioned:true,suspend_and_reinstate:true,product_identity_service:true,published_user_journey:false,browser_coediting:!!browser,live_protocol_coediting:true,reconnect_preserves_edits:true,open_document_connection_revoked:true},null,2));
 }finally{
  if(browser)await browser.close().catch(()=>{});
  for(const client of clients){client.provider.destroy();client.socket.destroy();client.document.destroy();}

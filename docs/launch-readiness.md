@@ -9,7 +9,7 @@ revision and exercise the installation a new user receives.
 | Ship the demonstrated product | Reviewed collaboration/settings changes, migrations and assets committed; clean published checkout builds and runs the demonstrated flows | Accounts, documents, conversation routing, Company settings, provider-first setup, and collaboration owner workflow shipped in `cc933fc`; remaining model and independent-browser requirements stay open |
 | First installation and intelligence | Fresh state and checkout; README commands; successful native Codex, native Claude and API-backed requests; actionable connection failures | Clean setup verified at `c88e29d`; normal Docker bridge reaches Core with the approved narrow firewall rule; native Codex works; Claude/API requests deferred by owner |
 | First useful outcome | Published starter exercise produces an actual business document, then accepts a human-requested revision | Real Codex delegation produced and reviewed a proposal; explicit Request changes updated the same document; human edits and comments survived reload |
-| Human multiplayer | Two independent authenticated humans; invitation, shared editing, reconnect, comments, permission boundaries and removal through the supported product path | Independent-account protocol journey passes; simultaneous independent browsers remain open |
+| Human multiplayer | Two independent authenticated humans; invitation, shared editing, reconnect, comments, permission boundaries and removal through the supported product path | Independent-account protocol and simultaneous independent-browser journeys pass; public SMTP and HTTPS deployment qualification remain open |
 | Completion and recovery | Real model delegation, produced output, review and revision; interrupted execution recovers preserved work and delivers a final owner notification without a prompting message | Real delegation and revision verified; interrupted owner request recovered; initial and revised reviews reached Attention automatically; accepted output attached at closeout (see final smoke below) |
 | Founder feedback | Visible, working route from the README to onboarding help and founder feedback | Shipped; links verified |
 
@@ -555,3 +555,45 @@ complete user journeys.
   Cleanup was verified.
 - `web/` now uses npm only. `pnpm-lock.yaml` was removed, `package-lock.json`
   was updated and `packageManager` was set, so pnpm refuses to install.
+
+## Local sharing preparation — 3 October 2026
+
+- Local **Members → Enable sharing** prepares a non-secret download covering all
+  existing company and cell identities on the host. Preparation keeps local
+  access in place. The host installer refuses a changed company set or identity,
+  account storage that aliases a company database, and existing output.
+- The account issuer supports multiple configured companies on one local plane.
+  A verified owner can enter both; a member of one cannot bootstrap or enter its
+  neighbour. Real PostgreSQL tests exercised these boundaries, versioned role
+  changes, suspension, removal during an outage, and outbox recovery across an
+  issuer restart. Browser checks exercised the company picker and offline retry
+  at 1440 and 320 pixels. Production-entrypoint verification mail was captured by
+  isolated SMTP, not sent to a public mail provider.
+- The isolated Core journey installed and ran the prepared account-host source.
+  It downloaded setup from the real Members form, preserved an earlier local
+  owner document and Actor, admitted a colleague with a distinct verified
+  identity, and refused replay and attempts to prepare sharing in network mode.
+  Separate browser profiles edited one document concurrently and retained both
+  contributions after reload. Removal closed the member's existing document
+  connection and Core session. The runner removed its own containers, volume,
+  databases, roles and state.
+- The installed-appliance activation command validates private entry files,
+  issuer metadata, public keys and fresh company coordinates. It preserves
+  credentials and uses the existing preflight, drain and restart/recovery path.
+  Focused Rust checks exercised private-file rejection, scoped imports and
+  preservation of sharing settings during credential refresh. A real OS service
+  switch with public HTTPS and provider SMTP is still an operator qualification
+  step; the owner's live network entry has not been enabled.
+- Final visual calibration used Beautiful UI's quiet action hierarchy, Cult UI's
+  progressive disclosure, and [Origin UI's Svelte dialog source](https://github.com/max-got/originui-svelte/blob/main/src/lib/components/ui/dialog/dialog-content.svelte)
+  for bounded width, scroll and close affordances. Native dialog and the existing
+  Bridge tokens implement the form; no upstream component code was copied.
+
+Risk dispositions: company/Actor continuity and membership isolation were resolved
+by real Core runs; credential and private-file handling were checked by focused
+invariants. Public routing, certificate trust, provider email delivery and the OS
+activation cycle remain deployment evidence to collect once the host's actual
+addresses and email transport are chosen. The initial routing file contains only
+the account site; the company route is prepared separately for use after
+activation. SSH uses the configured HTTPS addresses through a SOCKS tunnel and
+never substitutes for individual membership.

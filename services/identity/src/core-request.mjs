@@ -38,7 +38,7 @@ export function coreRequest(url, options) {
         );
       },
     );
-    connection.setTimeout(10000, () =>
+    connection.setTimeout(options.timeoutMs ?? 10000, () =>
       connection.destroy(Error("Core did not respond")),
     );
     connection.on("error", reject);

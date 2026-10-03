@@ -35,6 +35,14 @@ sign-in, verification, invitation acceptance and **Open company**. Its setup gui
 connects the service to this deployment mode, including for a company that began
 in local mode. Another issuer must publish the same metadata, entry and
 membership-control contracts.
+Local owners prepare the host's sharing configuration from **Company → Members →
+Enable sharing**. The account plane includes all existing companies with their
+original immutable identities; accounts select only companies they may access.
+The installed appliance's `enable-sharing` command applies entry settings with
+preflight, drain and restoration on failure. Private-network access and SSH
+SOCKS transport preserve the configured HTTPS addresses and individual sign-in.
+A raw local-owner port forward is not team access.
+
 The full self-hosted invitation and cockpit journey is still being qualified in
 [launch readiness](launch-readiness.md).
 

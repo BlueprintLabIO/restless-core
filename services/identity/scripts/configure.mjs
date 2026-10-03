@@ -42,30 +42,25 @@ export async function configure(options) {
   const smtp = JSON.parse(await privateText(options.smtpFile));
   if (!smtp.host || !smtp.from)
     throw Error("SMTP host and from address are required");
-  const sourceUrl = (
-    await privateText(
-      join(options.coreHome, "cells", options.company, "database.url"),
-    )
-  ).trim();
-  if (sourceUrl === databaseUrl)
-    throw Error("Accounts need a separate database from company data");
-  const source = new pg.Client({
-    connectionString: sourceUrl,
-    connectionTimeoutMillis: 5000,
-    statement_timeout: 10000,
-  });
-  let identity;
-  try {
-    await source.connect();
-    const result = await source.query(
-      `SELECT company_id, cell_id FROM "${options.company}".company_access_identity`,
-    );
-    if (result.rows.length !== 1)
-      throw Error("Core must have initialized exactly one company identity");
-    identity = result.rows[0];
-  } finally {
-    await source.end().catch(() => {});
+  const selectedCompanies = options.companies ?? [{ id: options.company, name: options.companyName }];
+  const companies = [];
+  for (const company of selectedCompanies) {
+    if (!/^[a-z][a-z0-9_]{0,62}$/.test(company.id)) throw Error("Invalid company handle");
+    const sourceUrl = (await privateText(join(options.coreHome, "cells", company.id, "database.url"))).trim();
+    if (sourceUrl === databaseUrl) throw Error("Accounts need a separate database from company data");
+    const source = new pg.Client({ connectionString: sourceUrl, connectionTimeoutMillis: 5000, statement_timeout: 10000 });
+    try {
+      await source.connect();
+      const result = await source.query(`SELECT company_id, cell_id FROM "${company.id}".company_access_identity`);
+      if (result.rows.length !== 1) throw Error("Core must have initialized exactly one company identity");
+      const identity = result.rows[0];
+      if ((company.company_id && company.company_id !== identity.company_id) || (company.cell_id && company.cell_id !== identity.cell_id))
+        throw Error("The company's identity changed. Prepare sharing setup again from Members.");
+      companies.push({ companyId: identity.company_id, cellId: identity.cell_id, companyName: company.name, companyHandle: company.id });
+    } finally { await source.end().catch(() => {}); }
   }
+  const identity = companies.find(company => company.companyHandle === options.company);
+  if (!identity) throw Error("The selected company is missing from this account plane");
   const accounts = new pg.Client({
     connectionString: databaseUrl,
     connectionTimeoutMillis: 5000,
@@ -81,11 +76,11 @@ export async function configure(options) {
          FROM pg_catalog.pg_namespace namespace
          JOIN pg_catalog.pg_class relation
            ON relation.relnamespace = namespace.oid
-         WHERE namespace.nspname = $1
+         WHERE namespace.nspname = ANY($1::text[])
            AND relation.relname = 'company_access_identity'
            AND relation.relkind IN ('r', 'p')
        ) AS contains_company_data`,
-      [options.company],
+      [selectedCompanies.map(company => company.id)],
     );
     if (result.rows[0]?.contains_company_data)
       throw Error("Accounts need a separate database from company data");
@@ -100,8 +95,9 @@ export async function configure(options) {
     ownerEmail: options.ownerEmail,
     ownerId: randomUUID(),
     planeId: randomUUID(),
-    companyId: identity.company_id,
-    cellId: identity.cell_id,
+    companyId: identity.companyId,
+    cellId: identity.cellId,
+    companies,
     secret: randomBytes(48).toString("hex"),
     signingKey: { ...privateKey.export({ format: "jwk" }), kid: randomUUID() },
     databaseUrl,
@@ -110,11 +106,14 @@ export async function configure(options) {
     port: Number(options.port ?? 6689),
   });
   // Refuse existing output, so a second run cannot replace active signing keys.
+  const configuration = JSON.stringify(config, null, 2) + "\n";
+  if (Buffer.byteLength(configuration) > 32768)
+    throw Error("The account configuration exceeds its private-file size limit");
   await mkdir(options.output, { mode: 0o700 });
   try {
     await writeFile(
       join(options.output, "identity.json"),
-      JSON.stringify(config, null, 2) + "\n",
+      configuration,
       { flag: "wx", mode: 0o600 },
     );
     const env = {

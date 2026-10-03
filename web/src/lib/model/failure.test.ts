@@ -1,11 +1,30 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { describeFailure, isRetryable, responseFailure } from './failure.ts';
+import { describeFailure, failureKind, isRetryable, responseFailure } from './failure.ts';
 
 const json = (status: number, body: unknown) =>
 	new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 const text = (status: number, statusText: string) =>
 	new Response('upstream connect error', { status, statusText });
+
+test('a private-network response stays authoritative when the browser reports no Internet', async () => {
+	const previous = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+	Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { onLine: false } });
+	try {
+		assert.equal(
+			failureKind(await responseFailure(json(403, { message: 'Owner only.' }))),
+			'access'
+		);
+		assert.equal(
+			failureKind(await responseFailure(json(401, { message: 'Sign in.' }))),
+			'signed_out'
+		);
+		assert.equal(failureKind(new TypeError('Failed to fetch')), 'offline');
+	} finally {
+		if (previous) Object.defineProperty(globalThis, 'navigator', previous);
+		else Reflect.deleteProperty(globalThis, 'navigator');
+	}
+});
 
 test('transport and proxy failures never reach the owner as raw text', async () => {
 	const seen = [

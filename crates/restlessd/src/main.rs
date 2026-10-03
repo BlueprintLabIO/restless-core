@@ -669,8 +669,8 @@ async fn run() -> Result<()> {
         Err(dotenvy::Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(error).context("load local .env"),
     }
-    restlessd::appliance::load_release_environment()?;
     restlessd::appliance::load_profile_environment(&machine_profile)?;
+    restlessd::appliance::load_release_environment()?;
     if matches!(std::env::args().nth(1).as_deref(), Some("--help" | "-h")) {
         println!(
             "restlessd\n\nThe supervised Restless account plane. Run it without arguments; use `restless appliance status` for lifecycle status."

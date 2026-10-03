@@ -1,6 +1,8 @@
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 let invitation = params.get("invite");
+let selectedCompany = params.get("company");
+let refreshVersion = 0;
 let mode = params.has("token") ? "reset" : "sign-in";
 function message(id, text) {
   $(id).textContent = text;
@@ -32,7 +34,7 @@ async function action(button, work) {
   } catch (error) {
     message("error", error.message);
   } finally {
-    button.disabled = false;
+    button.disabled = button.id === "enter-company" && !$("company-offline").hidden;
   }
 }
 function setMode(next) {
@@ -71,6 +73,7 @@ function setMode(next) {
   $("resend-verification").hidden = true;
 }
 async function refresh() {
+  const version = ++refreshVersion;
   if (mode === "reset") {
     $("authentication").hidden = false;
     $("company").hidden = true;
@@ -79,16 +82,37 @@ async function refresh() {
   }
   let state;
   try {
-    state = await api("/api/company");
+    state = await api("/api/company" + (selectedCompany ? "?company=" + encodeURIComponent(selectedCompany) : ""));
   } catch (error) {
     if (error.status !== 401) throw error;
     state = null;
   }
+  if (version !== refreshVersion) return;
   $("authentication").hidden = !!state;
   $("company").hidden = !state;
   $("sign-out").hidden = !state;
   $("accept-invitation").hidden = !state || !invitation;
   if (!state) return;
+  if (!state.role && !state.canBootstrap && !invitation && state.companies?.length && !state.companies.some(company => company.id === state.companyId)) {
+    selectedCompany = state.companies[0].id;
+    return refresh();
+  }
+  selectedCompany = state.companyId;
+  document.querySelectorAll(".company-name").forEach(element => element.textContent = state.companyName);
+  document.title = `${state.companyName} · Restless`;
+  const select = $("company-select");
+  select.replaceChildren();
+  for (const company of state.companies ?? []) {
+    const option = document.createElement("option");
+    option.value = company.id;
+    option.textContent = company.name;
+    select.append(option);
+  }
+  select.value = selectedCompany;
+  $("company-picker").hidden = (state.companies?.length ?? 0) < 2;
+  $("company-offline").hidden = state.available !== false;
+  $("retry-company").hidden = state.available !== false;
+  $("enter-company").disabled = state.available === false;
   $("account-identity").textContent =
     `${state.user.name} · ${state.user.email}`;
   $("enter-company").hidden = !state.role;
@@ -170,23 +194,24 @@ $("sign-out").addEventListener("click", () =>
 );
 $("bootstrap-company").addEventListener("click", () =>
   action($("bootstrap-company"), async () => {
-    await api("/api/company/bootstrap", {});
+    await api("/api/company/bootstrap", { companyId: selectedCompany });
     await refresh();
   }),
 );
 $("accept-invitation").addEventListener("click", () =>
   action($("accept-invitation"), async () => {
-    await api("/api/invitations/accept", { id: invitation });
+    const accepted = await api("/api/invitations/accept", { id: invitation });
+    selectedCompany = accepted.companyId;
     $("invitation").hidden = true;
     invitation = null;
-    history.replaceState(null, "", "/");
+    history.replaceState(null, "", "/?company=" + encodeURIComponent(selectedCompany));
     await refresh();
     message("status", "You’ve joined the company.");
   }),
 );
 $("enter-company").addEventListener("click", () =>
   action($("enter-company"), async () => {
-    const entry = await api("/api/enter", {});
+    const entry = await api("/api/enter", { companyId: selectedCompany });
     const form = document.createElement("form");
     form.method = "POST";
     form.action = entry.action;
@@ -199,6 +224,13 @@ $("enter-company").addEventListener("click", () =>
     form.submit();
   }),
 );
+$("company-select").addEventListener("change", () => {
+  selectedCompany = $("company-select").value;
+  history.replaceState(null, "", "/?company=" + encodeURIComponent(selectedCompany) + (invitation ? "&invite=" + encodeURIComponent(invitation) : ""));
+  void action($("enter-company"), refresh);
+});
+$("retry-company").addEventListener("click", () => action($("retry-company"), refresh));
+window.addEventListener("focus", () => { if (!$("company").hidden) void refresh().catch(() => message("error", "The company could not be checked. Try again.")); });
 try {
   const settings = await api("/api/settings");
   document.title = `${settings.companyName} · Restless`;

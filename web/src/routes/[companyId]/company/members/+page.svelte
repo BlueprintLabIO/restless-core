@@ -5,6 +5,7 @@
 	import { failureSentence } from '$lib/model/failure';
 	import { page } from '$app/state';
 	import InfoTip from '$lib/components/InfoTip.svelte';
+	import SharingSetup from '$lib/components/SharingSetup.svelte';
 	import {
 		changeMembership,
 		getCoreMembers,
@@ -29,6 +30,7 @@
 	let confirming = $state('');
 	let inviteEmail = $state('');
 	let inviteRole = $state<MembershipRole>('member');
+	let sharingOpen = $state(false);
 	let loadVersion = 0;
 
 	const rows = $derived(issuer && core ? joinMembers(core.members, issuer.members) : []);
@@ -68,6 +70,7 @@
 
 	$effect(() => {
 		void companyId;
+		sharingOpen = false;
 		void load();
 	});
 	// Signing in happens in the account tab; notice it on return, never ask.
@@ -166,10 +169,10 @@
 				<span class="member-avatar" aria-hidden="true">Y</span>
 				<div class="member-identity"><strong>You</strong><span>Owner</span></div>
 				<button
-					class="btn small"
-					disabled
-					title="Invites require a connected account service. This company uses local access."
-					>Invite</button
+					class="btn small primary"
+					onclick={() => (sharingOpen = true)}
+					title="Prepare individual accounts and invitations while keeping the company on this host."
+					>Enable sharing</button
 				>
 			</li>
 		</ul>
@@ -337,6 +340,11 @@
 		</section>
 	{/if}
 </div>
+
+{#if sharingOpen && core?.mode === 'local'}<SharingSetup
+		{companyId}
+		onclose={() => (sharingOpen = false)}
+	/>{/if}
 
 <style>
 	.member-avatar {

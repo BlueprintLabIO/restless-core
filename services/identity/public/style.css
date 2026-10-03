@@ -195,6 +195,21 @@ button.danger {
   color: var(--muted);
   margin: 12px 0 30px;
 }
+#company-picker {
+  max-width: 400px;
+  margin-bottom: 24px;
+}
+#company-offline {
+  border-left: 2px solid var(--border);
+  padding: 8px 12px;
+  color: var(--muted);
+}
+#enter-company:disabled {
+  cursor: default;
+}
+@media (pointer: coarse) {
+  input, select, button { min-height: 44px; }
+}
 @media (max-width: 560px) {
   main {
     padding: 24px 16px 48px;

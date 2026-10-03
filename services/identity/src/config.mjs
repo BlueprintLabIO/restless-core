@@ -30,6 +30,7 @@ export function origin(value) {
  * protocols, not browser cookie placement.
  */
 export function sameSite(account, core) {
+  if (account.protocol !== core.protocol) return false;
   if (account.protocol === "http:") return true;
   const labels = (host) => host.toLowerCase().split(".");
   const a = labels(account.hostname),
@@ -41,7 +42,8 @@ export function sameSite(account, core) {
     a[a.length - 1 - shared] === b[b.length - 1 - shared]
   )
     shared++;
-  return shared >= 2 && shared < a.length && shared < b.length;
+  return account.hostname === core.hostname ||
+    (shared >= 2 && shared < a.length && shared < b.length);
 }
 export function validateConfig(value) {
   const account = origin(value.origin),
@@ -92,8 +94,26 @@ export function validateConfig(value) {
   const port = value.port ?? Number(account.port || 6689);
   if (!Number.isInteger(port) || port < 1 || port > 65535)
     throw Error("The listening port must be an integer from 1 to 65535");
+  const companies = value.companies ?? [{
+    companyId: value.companyId, cellId: value.cellId,
+    companyName: value.companyName,
+  }];
+  if (!Array.isArray(companies) || !companies.length || companies.length > 100)
+    throw Error("Accounts need between one and 100 configured companies");
+  const companyIds = new Set(), cellIds = new Set();
+  for (const company of companies) {
+    if (!UUID.test(company.companyId) || !UUID.test(company.cellId) ||
+        typeof company.companyName !== "string" || !company.companyName.trim() ||
+        company.companyName.length > 120 || companyIds.has(company.companyId) || cellIds.has(company.cellId))
+      throw Error("Company coordinates must be valid and unique");
+    companyIds.add(company.companyId);
+    cellIds.add(company.cellId);
+  }
+  if (!companyIds.has(value.companyId))
+    throw Error("The default company must be in this account plane");
   return {
     ...value,
+    companies,
     ownerEmail: value.ownerEmail.toLowerCase(),
     host: account.host,
     coreHost: core.hostname,

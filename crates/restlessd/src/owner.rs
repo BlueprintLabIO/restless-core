@@ -35,6 +35,8 @@ mod owner_vault;
 mod plane_readiness;
 #[path = "owner_rooms_lifecycle.rs"]
 mod rooms_lifecycle_api;
+#[path = "owner_sharing.rs"]
+mod sharing_api;
 #[path = "owner_sheets.rs"]
 pub(crate) mod sheets_api;
 #[path = "owner_skills.rs"]
@@ -1454,6 +1456,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route("/companies/{company}/restore", post(restore_company))
         .route("/companies/{company}/attention", get(attention_view))
         .route("/companies/{company}/changes", get(company_changes))
+        .route(
+            "/companies/{company}/sharing/setup",
+            post(sharing_api::prepare_setup),
+        )
         .route("/companies/{company}/email-mandates/proposals", post(propose_email_mandate))
         .route("/companies/{company}/email-mandates/proposals/{proposal}/decision", post(decide_email_mandate))
         .route("/companies/{company}/cockpit", get(cockpit_view))

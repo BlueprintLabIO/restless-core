@@ -87,6 +87,9 @@
 		mutationCache: new MutationCache({ onError: observeFailure, onSuccess: succeeded }),
 		defaultOptions: {
 			queries: {
+				// Private networks and localhost can work while the OS reports no Internet.
+				// Attempt the real endpoint; browser online state is not access evidence.
+				networkMode: 'always',
 				staleTime: 5_000,
 				gcTime: 10 * 60_000,
 				refetchOnWindowFocus: true,
@@ -145,7 +148,7 @@
 	</div>
 {/if}
 
-{#if !online}
+{#if !online && connection.lost}
 	<div class="app-banner" role="status" aria-live="polite" transition:fade={{ duration: 160 }}>
 		You're offline.
 	</div>

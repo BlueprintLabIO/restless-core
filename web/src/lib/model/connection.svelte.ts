@@ -23,7 +23,7 @@ const QUIET_BEFORE_LOST_MS = 4_000;
 let lastSuccessAt = 0;
 
 export function observeFailure(error: unknown): void {
-	if (failureKind(error) !== 'unreachable' || connection.lost) return;
+	if (!['unreachable', 'offline'].includes(failureKind(error)) || connection.lost) return;
 	if (Date.now() - lastSuccessAt < QUIET_BEFORE_LOST_MS) return;
 	connection.lost = true;
 	connection.lostAt = Date.now();

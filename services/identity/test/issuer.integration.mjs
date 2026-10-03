@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { generateKeyPairSync, randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { createLocalJWKSet, jwtVerify } from "jose";
 import pg from "pg";
 import { validateConfig } from "../src/config.mjs";
@@ -40,6 +40,8 @@ const config = validateConfig({
   databaseUrl: databaseUrl.toString(),
   port: accountPort,
 });
+const secondCompany = { companyId: randomUUID(), cellId: randomUUID(), companyName: "Second local company" };
+config.companies.push(secondCompany);
 
 // ---- stand-in Core: verifies each control and keeps monotonic state ----
 const jwks = createLocalJWKSet({
@@ -53,6 +55,10 @@ const core = createServer(async (req, res) => {
     res.writeHead(503);
     return res.end();
   }
+  if (req.method === "GET" && req.url === "/health") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    return res.end(JSON.stringify({ status: "ok" }));
+  }
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
   const { control } = JSON.parse(Buffer.concat(chunks).toString());
@@ -62,7 +68,7 @@ const core = createServer(async (req, res) => {
     typ: "restless-membership-control+jwt",
   });
   assert.equal(protectedHeader.alg, "EdDSA");
-  assert.equal(payload.company_id, config.companyId);
+  assert([config.companyId, secondCompany.companyId].includes(payload.company_id));
   assert.equal(payload.plane_hostname, "plane.localhost");
   controls.push(payload);
   const prior = coreState.get(payload.membership_id);
@@ -166,6 +172,56 @@ try {
   const ownerEntry = decode((await call("/api/enter", { body: {}, cookie: owner.cookie })).data.assertion);
   assert.equal(ownerEntry.membership_role, "owner");
   assert.equal(ownerEntry.membership_version, 1);
+  await call("/api/company/bootstrap", { body: { companyId: secondCompany.companyId }, cookie: owner.cookie });
+  const secondEntry = decode((await call("/api/enter", { body: { companyId: secondCompany.companyId }, cookie: owner.cookie })).data.assertion);
+  assert.equal(secondEntry.company_id, secondCompany.companyId);
+  assert.equal(secondEntry.cell_id, secondCompany.cellId);
+  const ownerChoices = (await call("/api/company", { cookie: owner.cookie })).data.companies;
+  assert.equal(ownerChoices.length, 2);
+  coreUp = false;
+  assert.equal((await call("/api/company", { cookie: owner.cookie })).data.available, false);
+  const offline = await call("/api/enter", { body: {}, cookie: owner.cookie, expected: 503 });
+  assert.match(offline.data.message, /offline/i);
+  coreUp = true;
+  assert.equal((await call("/api/company", { cookie: owner.cookie })).data.available, true);
+  console.log("PASS one owner enters both companies; offline entry keeps membership and recovers");
+
+  if (process.env.RESTLESS_BROWSER_EXECUTABLE) {
+    const { chromium } = await import("../../../web/node_modules/playwright/index.mjs");
+    const browser = await chromium.launch({ executablePath: process.env.RESTLESS_BROWSER_EXECUTABLE, headless: true });
+    const output = process.env.RESTLESS_IDENTITY_BROWSER_OUTPUT;
+    if (output) await mkdir(output, { recursive: true });
+    try {
+      for (const width of [1440, 320]) {
+        const context = await browser.newContext({ viewport: { width, height: 900 } });
+        try {
+          await context.addCookies(owner.cookie.split("; ").map(value => {
+            const at = value.indexOf("=");
+            return { name: value.slice(0, at), value: value.slice(at + 1), url: origin };
+          }));
+          const page = await context.newPage();
+          const errors = [];
+          page.on("pageerror", error => errors.push(error.message));
+          await page.goto(origin);
+          await page.getByLabel("Company", { exact: true }).selectOption(secondCompany.companyId);
+          await page.getByRole("heading", { name: secondCompany.companyName, exact: true }).waitFor();
+          assert.equal(await page.getByLabel("Company", { exact: true }).inputValue(), secondCompany.companyId);
+          if (output) await page.screenshot({ path: `${output}/accounts-picker-${width}.png`, fullPage: true });
+          coreUp = false;
+          await page.reload();
+          await page.getByText("The company is offline.", { exact: false }).waitFor();
+          assert(await page.getByRole("button", { name: "Open company" }).isDisabled());
+          assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+          if (output) await page.screenshot({ path: `${output}/accounts-offline-${width}.png`, fullPage: true });
+          coreUp = true;
+          await page.getByRole("button", { name: "Try again" }).click();
+          await page.waitForFunction(() => !document.getElementById("enter-company").disabled);
+          assert.deepEqual(errors, []);
+        } finally { coreUp = true; await context.close(); }
+      }
+      console.log("PASS browser: company selection, offline state and retry on desktop and narrow mobile");
+    } finally { await browser.close(); }
+  }
 
   // CORS: only this company's cockpit origin may use the account session.
   const preflight = await call(adminPath("members"), {
@@ -195,7 +251,11 @@ try {
   assert.match(invited.link, /\?invite=/);
   assert(messages.some((m) => m.to === "colleague@issuer.test" && m.text.includes(invited.link)));
   const colleague = await signup("Colleague", "colleague@issuer.test");
+  await call("/api/company/bootstrap", { body: { companyId: secondCompany.companyId }, cookie: colleague.cookie, expected: 403 });
   await call("/api/invitations/accept", { body: { id: invited.id }, cookie: colleague.cookie });
+  await call("/api/enter", { body: { companyId: secondCompany.companyId }, cookie: colleague.cookie, expected: 403 });
+  assert.equal((await call("/api/company", { cookie: colleague.cookie })).data.companies.length, 1);
+  console.log("PASS a member of one company cannot bootstrap or enter its neighbour");
   let entry = decode((await call("/api/enter", { body: {}, cookie: colleague.cookie })).data.assertion);
   assert.equal(entry.membership_role, "member");
   assert.equal(entry.membership_version, 1);

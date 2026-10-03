@@ -86,8 +86,10 @@ function isTransportFailure(error: unknown): boolean {
 }
 
 export function failureKind(error: unknown): FailureKind {
-	if (typeof navigator !== 'undefined' && navigator.onLine === false) return 'offline';
-	if (isTransportFailure(error)) return 'unreachable';
+	if (isTransportFailure(error))
+		return typeof navigator !== 'undefined' && navigator.onLine === false
+			? 'offline'
+			: 'unreachable';
 	const failure = error as OwnerFailure | null;
 	const status = typeof failure?.status === 'number' ? failure.status : null;
 	// A plain Error was written by cockpit code for the owner. Anything else

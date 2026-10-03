@@ -62,6 +62,7 @@
         </button>
       </section>
       <section id="company" hidden>
+        <label id="company-picker" hidden>Company<select id="company-select" aria-label="Company"></select></label>
         <div class="company-heading">
           <h1 class="company-name">Your company</h1>
           <button id="enter-company" hidden>
@@ -69,6 +70,8 @@
           </button>
         </div>
         <p id="account-identity"></p>
+        <p id="company-offline" role="status" hidden>The company is offline. Your access is unchanged; try again when its host reconnects.</p>
+        <button id="retry-company" class="quiet" hidden>Try again</button>
         <button id="bootstrap-company" hidden>Set up company access</button>
         <p id="no-access" hidden>
           You haven’t joined this company yet. Open your invitation email to
