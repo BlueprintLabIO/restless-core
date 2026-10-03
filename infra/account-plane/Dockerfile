@@ -63,23 +63,27 @@ RUN --mount=type=cache,id=restless-cargo-registry-v1,target=/usr/local/cargo/reg
     && cargo build --release --locked --target "$target" -p restlessd \
     && install -Dm755 /src/target/$target/release/restlessd /out/restlessd
 
-FROM node:24-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe
+FROM node:24-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe AS node-runtime
+FROM ubuntu:24.04@sha256:a853f94d226358a79c740cfc7bce0c289748f3fe3488d921d038ccd752c61b60
+COPY --from=node-runtime /usr/local/ /usr/local/
 ENV DEBIAN_FRONTEND=noninteractive
-
-RUN npm install -g npm@11.21.0 \
-    && test "$(npm --version)" = 11.21.0 \
-    && npm cache clean --force
+ENV NODE_OPTIONS=--no-network-family-autoselection
 
 # ca-certificates for provider TLS; curl so the image can probe its own health
 # without a second tool. Explicitly refresh the base image's PCRE2 library from
-# Debian security; installing curl alone leaves that inherited package unchanged.
+# Ubuntu security; installing curl alone does not describe that dependency.
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
         ca-certificates \
         curl \
         libpcre2-8-0 \
+        libstdc++6 \
         tini \
     && rm -rf /var/lib/apt/lists/*
+
+RUN npm install -g npm@11.21.0 \
+    && test "$(npm --version)" = 11.21.0 \
+    && npm cache clean --force
 
 # The Authority plane starts OMP's credential broker and model gateway whenever
 # a configured company has a model route. Keep that host-side dependency here,

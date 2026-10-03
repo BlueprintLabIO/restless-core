@@ -113,11 +113,30 @@ export async function publishImage(component: string, revision: string, platform
   const config = await registryConfig(username, password);
   // Inspect actual registry config, not a requested SDK platform hint.
   await inspectPlatform(reference, platform, tool(ORAS_IMAGE, config));
+  // Catalogue the exact image once. Include producer CycloneDX records: newer
+  // Chrome binaries no longer match Syft's binary-string version classifier.
+  // Grype consumes this same inventory rather than recataloguing the image.
+  const sbom = scanner(SYFT_IMAGE, 'SYFT', username, password).withNewFile('/reports/.keep', '')
+    .withExec([`registry:${reference}`, '--override-default-catalogers', 'image',
+      '--override-default-catalogers', 'sbom-cataloger', '--output', 'syft-json=/reports/inventory.json',
+      '--output', 'spdx-json=/reports/sbom.json'], { useEntrypoint: true });
+  if (['runtime-tools', 'company-runtime'].includes(component)) {
+    const inventory = JSON.parse(await sbom.file('/reports/inventory.json').contents());
+    const browser = JSON.parse(await image.file('/usr/local/share/restless/browser.cdx.json').contents()).components?.[0];
+    const expectedCpe = `cpe:2.3:a:google:chrome:${browser?.version}:*:*:*:*:*:*:*`;
+    const found = (inventory.artifacts ?? []).filter((p: any) => p.name === 'chrome');
+    if (browser?.name !== 'chrome' || !/^\d+\.\d+\.\d+\.\d+$/.test(browser.version)
+      || browser.cpe !== expectedCpe || found.some((p: any) => p.version !== browser.version)
+      || !found.some((p: any) => p.cpes?.some((c: any) => c.cpe === expectedCpe))) {
+      throw new Error(`${component}: software inventory does not cover the installed Chrome version and CPE`);
+    }
+  }
   const scan = scanner(GRYPE_IMAGE, 'GRYPE', username, password)
     .withMountedCache('/cache', dag.cacheVolume('restless-core-grype-v0.119.0'))
     .withEnvVariable('GRYPE_DB_CACHE_DIR', '/cache').withEnvVariable('GRYPE_CHECK_FOR_APP_UPDATE', 'false')
-    .withEnvVariable('RESTLESS_SCAN_PERIOD', scanPeriod).withNewFile('/reports/.keep', '')
-    .withExec([`registry:${reference}`, '--fail-on', 'high', '--output', 'json'],
+    .withEnvVariable('RESTLESS_SCAN_PERIOD', scanPeriod)
+    .withFile('/reports/inventory.json', sbom.file('/reports/inventory.json'))
+    .withExec(['sbom:/reports/inventory.json', '--fail-on', 'high', '--output', 'json'],
       { useEntrypoint: true, redirectStdout: '/reports/scan.json', expect: ReturnType.Any });
   const status = await scan.exitCode();
   if (status !== 0) {
@@ -129,8 +148,6 @@ export async function publishImage(component: string, revision: string, platform
     }
     throw new Error(`${component}: exact Core artifact scan failed (exit ${status})\n${findings}\n${await scan.stderr()}`);
   }
-  const sbom = scanner(SYFT_IMAGE, 'SYFT', username, password).withNewFile('/reports/.keep', '')
-    .withExec([`registry:${reference}`, '--output', 'spdx-json'], { useEntrypoint: true, redirectStdout: '/reports/sbom.json' });
   const [scanBytes, sbomBytes] = await Promise.all([scan.file('/reports/scan.json').contents(), sbom.file('/reports/sbom.json').contents()]);
   const provenance = { buildDefinition: { buildType: 'https://github.com/BlueprintLabIO/restless-core/tree/dev/.dagger',
     externalParameters: { component, platform, source: { repository: 'BlueprintLabIO/restless-core', revision: actualRevision }, input_sha256: input },

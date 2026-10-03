@@ -9,6 +9,10 @@ export async function verifyRuntimeToolsImage(image: Container, desktopProbe: Fi
       + 'godot --headless --version; chromium --version; '
       + 'node -e \'if (typeof require("/usr/local/lib/node_modules/ws") !== "function") throw new Error("ws is unavailable")\'; '
       + 'test "$(id -u company)" = 2000; test "$(id -u effect)" = 2001; '
+      + 'node /usr/local/lib/restless/browser-sbom.mjs > /tmp/restless-browser-inventory.json; '
+      + 'cmp /usr/local/share/restless/browser.cdx.json /tmp/restless-browser-inventory.json; '
+      + 'rm /tmp/restless-browser-inventory.json; '
+      + 'printf "Browser inventory matches the executable version and SHA-256\\n"; '
       + 'test -s /opt/restless/godot/export_templates/4.7.2.stable/windows_release_x86_64.exe; '
       // Exercise the package manager's archive/install path after replacing its
       // compatible bundled dependencies, using only a local fixture as uid 2000.

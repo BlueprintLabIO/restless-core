@@ -138,12 +138,12 @@ export class RestlessCore {
   /** Build the reusable desktop/agent tool base without importing Rust or UI. */
   @func()
   runtimeTools(
-    @argument({ ignore: ['**', '!infra/company-image/Dockerfile', '!infra/company-image/gtk-settings.ini'] })
+    @argument({ ignore: ['**', '!infra/company-image/Dockerfile', '!infra/company-image/gtk-settings.ini', '!infra/company-image/browser-sbom.mjs'] })
     source: Directory, platform: string = 'linux/amd64',
   ): Container {
     checkPlatform(platform);
     return dag.directory().withDirectory('/', source, {
-      include: ['infra/company-image/Dockerfile', 'infra/company-image/gtk-settings.ini'],
+      include: ['infra/company-image/Dockerfile', 'infra/company-image/gtk-settings.ini', 'infra/company-image/browser-sbom.mjs'],
     }).dockerBuild({ dockerfile: 'infra/company-image/Dockerfile', target: 'runtime-tools', platform })
       .withLabel('org.opencontainers.image.source', 'https://github.com/BlueprintLabIO/restless-core');
   }
@@ -151,7 +151,7 @@ export class RestlessCore {
   /** Exercise installed tools in the isolated builder; no appliance is mounted. */
   @func()
   async verifyRuntimeTools(
-    @argument({ ignore: ['**', '!infra/company-image/Dockerfile', '!infra/company-image/gtk-settings.ini', '!infra/company-image/verify-desktop.mjs'] })
+    @argument({ ignore: ['**', '!infra/company-image/Dockerfile', '!infra/company-image/gtk-settings.ini', '!infra/company-image/browser-sbom.mjs', '!infra/company-image/verify-desktop.mjs'] })
     source: Directory, platform: string = 'linux/amd64',
   ): Promise<string> {
     return verifyRuntimeToolsImage(this.runtimeTools(source, platform), source.file('infra/company-image/verify-desktop.mjs'));
@@ -290,7 +290,7 @@ export class RestlessCore {
     if (!/^[0-9a-f]{40}$/.test(revision)) throw new Error('Core publication requires exact source provenance');
     if (scanPeriod !== new Date().toISOString().slice(0, 10)) throw new Error('pass the current UTC scan day');
     await this.verifyRelease(source);
-    const toolsContext = source.filter({ include: ['infra/company-image/Dockerfile', 'infra/company-image/gtk-settings.ini'] });
+    const toolsContext = source.filter({ include: ['infra/company-image/Dockerfile', 'infra/company-image/gtk-settings.ini', 'infra/company-image/browser-sbom.mjs'] });
     let artifacts = await publishImage('runtime-tools', revision, platform, toolsContext,
       async () => this.runtimeTools(source, platform), async image => { console.log(await verifyRuntimeToolsImage(image, source.file('infra/company-image/verify-desktop.mjs'))); },
       username, password, scanPeriod);

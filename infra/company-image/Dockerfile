@@ -49,7 +49,33 @@ RUN --mount=type=cache,id=restless-cargo-registry-v1,target=/usr/local/cargo/reg
     && install -Dm755 /src/target/$target/release/restless /out/restless \
     && install -Dm755 /src/target/$target/release/restless-runtime-bridge /out/restless-runtime-bridge
 
-FROM node:24-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe AS runtime-desktop
+FROM node:24-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe AS node-runtime
+
+FROM --platform=$BUILDPLATFORM ubuntu:24.04@sha256:a853f94d226358a79c740cfc7bce0c289748f3fe3488d921d038ccd752c61b60 AS browser-runtime
+ARG TARGETARCH
+RUN set -eu; \
+    case "$TARGETARCH" in \
+        amd64) browser_platform=linux64; browser_sha256=ff43322f335e436b2f4dcdfeeec5db032299e335a7e8c1c618b326e100ce8732 ;; \
+        arm64) browser_platform=linux-arm64; browser_sha256=c0af361aab66b24c72e36a4326dce4d7edf4bc23f9aede8af988c2cb6ea3fec0 ;; \
+        *) echo "Unsupported browser architecture: $TARGETARCH" >&2; exit 1 ;; \
+    esac; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates curl unzip; \
+    curl --fail --location --show-error --retry 3 --connect-timeout 30 \
+        "https://storage.googleapis.com/chrome-for-testing-public/154.0.8037.92/${browser_platform}/chrome-${browser_platform}.zip" \
+        --output /tmp/chrome.zip; \
+    printf '%s  %s\n' "$browser_sha256" /tmp/chrome.zip | sha256sum --check --status; \
+    unzip -q /tmp/chrome.zip -d /browser; \
+    mv "/browser/chrome-${browser_platform}" /browser/chrome; \
+    rm /tmp/chrome.zip
+
+FROM ubuntu:24.04@sha256:a853f94d226358a79c740cfc7bce0c289748f3fe3488d921d038ccd752c61b60 AS runtime-desktop
+COPY --from=node-runtime /usr/local/ /usr/local/
+COPY --from=browser-runtime /browser/ /opt/restless/browser/
+ENV NODE_OPTIONS=--no-network-family-autoselection
+RUN test -x /opt/restless/browser/chrome/chrome \
+    && ln -s /opt/restless/browser/chrome/chrome /usr/bin/chromium \
+    && chmod -R a=rX /opt/restless/browser
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -63,7 +89,27 @@ RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
         bash \
         ca-certificates \
-        chromium \
+        libasound2t64 \
+        libatk-bridge2.0-0t64 \
+        libatk1.0-0t64 \
+        libatspi2.0-0t64 \
+        libcairo2 \
+        libcups2t64 \
+        libdbus-1-3 \
+        libdrm2 \
+        libgbm1 \
+        libglib2.0-0t64 \
+        libnspr4 \
+        libnss3 \
+        libpango-1.0-0 \
+        libx11-6 \
+        libxcb1 \
+        libxcomposite1 \
+        libxdamage1 \
+        libxext6 \
+        libxfixes3 \
+        libxkbcommon0 \
+        libxrandr2 \
         curl \
         dbus-x11 \
         dmz-cursor-theme \
@@ -225,7 +271,7 @@ RUN npm install -g resend-cli@2.12.0 mcp-remote@0.8.1 \
 # Playwright library for browser-driven acceptance (T11). Uses the Debian
 # chromium installed above — do NOT download Playwright's own browser build.
 # Scripts must pass `executablePath: '/usr/bin/chromium'` to chromium.launch.
-RUN PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install -g playwright@1.62.1 \
+RUN PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install -g playwright@1.63.0 \
     && npm cache clean --force
 
 # Scenario-native game delivery lane (Sprint 19). Godot is a self-contained
@@ -280,6 +326,13 @@ RUN npm --prefix /tmp/npm-security-fixes install \
     && rm -rf /tmp/npm-security-fixes \
     && npm --version \
     && npm cache clean --force
+
+# Record the installed browser through the standard CycloneDX format. Binary
+# signature detection alone misses recent Chrome executables in Syft 1.54.
+COPY infra/company-image/browser-sbom.mjs /usr/local/lib/restless/browser-sbom.mjs
+RUN install -d -m 0755 /usr/local/share/restless \
+    && node /usr/local/lib/restless/browser-sbom.mjs > /usr/local/share/restless/browser.cdx.json \
+    && chmod 0444 /usr/local/share/restless/browser.cdx.json /usr/local/lib/restless/browser-sbom.mjs
 
 # Startup code and Core binaries change more often than the installed tools.
 # An external tool base must be the exact artifact selected by the release.

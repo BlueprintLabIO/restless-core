@@ -14,12 +14,12 @@ RUN npm run build \
     && npm prune --omit=dev --ignore-scripts \
     && npm cache clean --force
 
-FROM node:24-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe AS runtime
+FROM ubuntu:24.04@sha256:a853f94d226358a79c740cfc7bce0c289748f3fe3488d921d038ccd752c61b60 AS runtime
+COPY --from=build /usr/local/bin/node /usr/local/bin/node
 
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends libpcre2-8-0 \
-    && rm -rf /var/lib/apt/lists/* \
-    && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
+    && apt-get install --yes --no-install-recommends ca-certificates libpcre2-8-0 libstdc++6 \
+    && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production \
     HOME=/tmp
