@@ -52,7 +52,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test -z "$(git status --porcelain)"
           out="$RUNNER_TEMP/core-libraries/$GITHUB_SHA"
-          DAGGER_NO_NAG=1 "$HOME/.local/bin/dagger" --progress=plain call deliver-libraries --source=. \
+          DAGGER_NO_NAG=1 "$HOME/.local/bin/dagger" --silent call deliver-libraries --source=. \
             --revision="$GITHUB_SHA" --epoch="$(git show -s --format=%ct HEAD)" --scan-period="$(date -u +%F)" \
             --username="$GITHUB_ACTOR" --password=env:RESTLESS_REGISTRY_PASSWORD \
             --oidc-request-url="$ACTIONS_ID_TOKEN_REQUEST_URL" --oidc-request-token=env:ACTIONS_ID_TOKEN_REQUEST_TOKEN \

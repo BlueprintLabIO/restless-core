@@ -47,7 +47,7 @@ jobs:
         run: scripts/release/install-dagger.sh
       - name: Qualify the exact source through the shared pipeline
         run: |
-          "$HOME/.local/bin/dagger" --progress=plain call qualify --source=.
+          "$HOME/.local/bin/dagger" --silent call qualify --source=.
       - name: Prepare job-scoped registry access for Dockerfile base resolution
         if: inputs.publish
         env:
