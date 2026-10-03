@@ -136,8 +136,11 @@ export async function publishImage(component: string, revision: string, platform
     .withEnvVariable('GRYPE_DB_CACHE_DIR', '/cache').withEnvVariable('GRYPE_CHECK_FOR_APP_UPDATE', 'false')
     .withEnvVariable('RESTLESS_SCAN_PERIOD', scanPeriod)
     .withFile('/reports/inventory.json', sbom.file('/reports/inventory.json'))
-    .withExec(['sbom:/reports/inventory.json', '--fail-on', 'high', '--output', 'json'],
-      { useEntrypoint: true, redirectStdout: '/reports/scan.json', expect: ReturnType.Any });
+    // Ask Grype to own the report file. Dagger's progress stream can still
+    // mirror redirected stdout, which previously inflated one Actions log by
+    // tens of megabytes and obscured diagnosis of an unrelated runner hang.
+    .withExec(['sbom:/reports/inventory.json', '--fail-on', 'high', '--output', 'json',
+      '--file', '/reports/scan.json'], { useEntrypoint: true, expect: ReturnType.Any });
   const status = await scan.exitCode();
   if (status !== 0) {
     let findings = '';

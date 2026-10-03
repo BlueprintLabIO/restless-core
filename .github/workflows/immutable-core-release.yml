@@ -60,21 +60,23 @@ jobs:
           printf 'DOCKER_CONFIG=%s\n' "$DOCKER_CONFIG" >> "$GITHUB_ENV"
       - name: Publish and exercise the exact platform artifacts
         if: inputs.publish
+        timeout-minutes: 60
         env:
           RESTLESS_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
           PLATFORM: ${{ inputs.platform }}
         run: |
-          "$HOME/.local/bin/dagger" --progress=plain call publish --source=. --revision="$GITHUB_SHA" \
+          exec "$HOME/.local/bin/dagger" --silent call publish --source=. --revision="$GITHUB_SHA" \
             --username="$GITHUB_ACTOR" --password=env:RESTLESS_REGISTRY_PASSWORD \
             --platform="$PLATFORM" --scan-period="$(date -u +%F)" \
             export --path="$RUNNER_TEMP/core-release-artifacts"
       - name: Seal and verify the existing Core contract with this workflow identity
         if: inputs.publish
+        timeout-minutes: 15
         env:
           RESTLESS_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
           PLATFORM: ${{ inputs.platform }}
         run: |
-          "$HOME/.local/bin/dagger" --progress=plain call seal --source=. --artifacts="$RUNNER_TEMP/core-release-artifacts" \
+          exec "$HOME/.local/bin/dagger" --silent call seal --source=. --artifacts="$RUNNER_TEMP/core-release-artifacts" \
             --revision="$GITHUB_SHA" --username="$GITHUB_ACTOR" --password=env:RESTLESS_REGISTRY_PASSWORD \
             --platform="$PLATFORM" --oidc-request-url="$ACTIONS_ID_TOKEN_REQUEST_URL" \
             --oidc-request-token=env:ACTIONS_ID_TOKEN_REQUEST_TOKEN --workflow-ref="$GITHUB_WORKFLOW_REF" \

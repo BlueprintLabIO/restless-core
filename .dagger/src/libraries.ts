@@ -89,8 +89,8 @@ export async function library(source: Directory, kind: string, revision: string,
     .withMountedCache('/cache', dag.cacheVolume('restless-core-grype-v0.119.0'))
     .withEnvVariable('GRYPE_DB_CACHE_DIR', '/cache').withEnvVariable('GRYPE_CHECK_FOR_APP_UPDATE', 'false')
     .withEnvVariable('RESTLESS_SCAN_PERIOD', scanPeriod)
-    .withExec(['sbom:/scan/sbom.spdx.json', '--fail-on', 'high', '--output', 'json'],
-      { useEntrypoint: true, redirectStdout: '/grype.json', expect: ReturnType.Any });
+    .withExec(['sbom:/scan/sbom.spdx.json', '--fail-on', 'high', '--output', 'json',
+      '--file', '/grype.json'], { useEntrypoint: true, expect: ReturnType.Any });
   if (await scanned.exitCode() !== 0) {
     const report = JSON.parse(await scanned.file('/grype.json').contents());
     const findings = (report.matches ?? []).filter((m: any) => ['High', 'Critical'].includes(m.vulnerability?.severity))
