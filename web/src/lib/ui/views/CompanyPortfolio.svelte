@@ -96,6 +96,7 @@
 							{#each companies as company (company.id)}
 								<div
 									class="portfolio-company-row"
+									class:dormant={company.dormant}
 									data-company-id={company.id}
 									data-state={company.status}
 								>
@@ -129,7 +130,7 @@
 									<span class="portfolio-company-cell">
 										<span
 											class="portfolio-mark"
-											class:working={(company.tone ?? 'waiting') === 'waiting'}
+											class:working={(company.tone ?? 'waiting') === 'waiting' && !company.dormant}
 										>
 											<SemanticMark
 												meaning={company.tone ?? 'waiting'}
@@ -439,6 +440,9 @@
 		flex-wrap: wrap;
 		gap: 8px;
 		padding: 0;
+	}
+	.portfolio-company-row.dormant > :not(.portfolio-row-actions) {
+		opacity: 0.6;
 	}
 	.portfolio-footer {
 		display: flex;

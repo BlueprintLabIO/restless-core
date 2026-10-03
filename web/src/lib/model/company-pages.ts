@@ -3,7 +3,7 @@
  * missing from the other. */
 export type CompanyPage = {
 	key: string;
-	section: 'General' | 'Intelligence' | 'Operations' | 'History' | 'Health';
+	section: 'General' | 'Capabilities' | 'Operations' | 'History' | 'Health';
 	label: string;
 	path: string;
 	exact?: boolean;
@@ -34,17 +34,17 @@ export const COMPANY_PAGES: CompanyPage[] = [
 		path: '/members',
 		keywords: 'invite access'
 	},
-	{ key: 'skills', section: 'Intelligence', label: 'Skills', path: '/skills' },
+	{ key: 'skills', section: 'Capabilities', label: 'Skills', path: '/skills' },
 	{
 		key: 'provider',
-		section: 'Intelligence',
+		section: 'Capabilities',
 		label: 'Intelligence',
 		path: '/provider',
 		keywords: 'model provider connection api key codex claude'
 	},
 	{
 		key: 'vault',
-		section: 'Intelligence',
+		section: 'Capabilities',
 		label: 'Vault',
 		path: '/vault',
 		keywords: 'secrets credentials'

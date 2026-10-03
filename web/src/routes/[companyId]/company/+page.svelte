@@ -196,6 +196,12 @@
 							title={`Owner authorised · ${formatMoment(view.charter.effective_at)} · revision ${view.charter.revision}`}
 							>Saved {when(view.charter.effective_at)}</button
 						><button class="btn small" type="button" onclick={beginEditing}>Edit</button>
+						<CopyCompanySetting
+							{companyId}
+							setting="purpose"
+							label="Purpose"
+							oncopied={() => source.refresh()}
+						/>
 					{/if}
 				{/if}
 			</div>
@@ -228,7 +234,7 @@
 		</section>{/if}
 
 	{#if view}
-		<div style="margin-bottom: var(--space-2)">
+		<div class="charter-name-row">
 			{#key `${companyId}:${nameVersion}`}<CompanySettings {companyId} section="name" />{/key}
 			<CopyCompanySetting
 				{companyId}
@@ -276,21 +282,23 @@
 							>{charterExpanded ? 'Show less' : 'Read full charter'}</button
 						>{/if}
 				{/if}
-				<CopyCompanySetting
-					{companyId}
-					setting="purpose"
-					label="Purpose"
-					oncopied={() => source.refresh()}
-				/>
 			</article>
 
 			<aside class="charter-context" aria-label="Charter context">
 				<section class="charter-profile-card">
 					<div class="section-heading">
 						<h2>Quality bar</h2>
-						<InfoTip
-							text="How ambitious new work should be. Each lead decides what proof a piece of work needs."
-						/>
+						<span class="heading-tools">
+							<InfoTip
+								text="How ambitious new work should be. Each lead decides what proof a piece of work needs."
+							/>
+							<CopyCompanySetting
+								{companyId}
+								setting="outcome_standard"
+								label="Quality bar"
+								oncopied={() => source.refresh()}
+							/>
+						</span>
 					</div>
 					<div class="quality-segments" role="group" aria-label="Quality bar">
 						{#each ['fast', 'thorough', 'exceptional', 'frontier'] as standard}<button
@@ -301,12 +309,6 @@
 								>{standard.charAt(0).toUpperCase() + standard.slice(1)}</button
 							>{/each}
 					</div>
-					<CopyCompanySetting
-						{companyId}
-						setting="outcome_standard"
-						label="Quality bar"
-						oncopied={() => source.refresh()}
-					/>
 					{#if qualityError}<p role="alert" class="charter-save-message failure">
 							{qualityError}
 						</p>{/if}

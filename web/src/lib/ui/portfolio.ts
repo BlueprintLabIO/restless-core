@@ -15,4 +15,6 @@ export interface CompanyPortfolioEntry {
 	needsYou?: string;
 	issue?: string;
 	entry?: PortfolioAction | null;
+	/** Kept but not running, such as an archived company: shown quietly, never as setting up. */
+	dormant?: boolean;
 }

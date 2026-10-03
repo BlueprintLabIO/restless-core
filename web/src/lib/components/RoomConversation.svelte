@@ -164,6 +164,8 @@
 	let pendingMessage = $state<RoomMessageRecord | null>(null);
 	let lastMarkedRoom = $state('');
 	let lastMarkedMessage = $state(0);
+	// Not reactive: only paces retries of a failed read marker.
+	let readMarkFailures = 0;
 	let locallyReadRoom = $state('');
 	let locallyReadThrough = $state(0);
 	let draftTimer: number | undefined;
@@ -610,10 +612,17 @@
 				if (company !== companyId || room !== selectedRoomId) return;
 				locallyReadRoom = room;
 				locallyReadThrough = cursor.last_read_message_id ?? through;
+				readMarkFailures = 0;
 			})
 			.catch(() => {
-				// Read state is a recoverable projection; a later page/event refresh retries.
-				if (lastMarkedRoom === room && lastMarkedMessage === through) lastMarkedMessage = 0;
+				// Read state is a recoverable projection. Re-arming the marker at once
+				// re-ran this effect immediately and retried in a tight loop, so a
+				// failing endpoint received hundreds of writes a second; back off.
+				readMarkFailures += 1;
+				const delay = Math.min(60_000, 1_000 * 2 ** readMarkFailures);
+				setTimeout(() => {
+					if (lastMarkedRoom === room && lastMarkedMessage === through) lastMarkedMessage = 0;
+				}, delay);
 			});
 	});
 
@@ -1221,8 +1230,8 @@
 				{#if leadAttention.length}<a
 						class="chat-attention-strip"
 						href={`/${companyId}?item=${encodeURIComponent(leadAttention[0].id)}`}
-						><span>{leadAttention.length} need you</span><strong>{leadAttention[0].title}</strong
-						><span aria-hidden="true">→</span></a
+						><span>{leadAttention.length} {leadAttention.length === 1 ? 'needs' : 'need'} you</span
+						><strong>{leadAttention[0].title}</strong><span aria-hidden="true">→</span></a
 					>{/if}
 				{@render messageComposer()}
 			{/if}

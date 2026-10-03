@@ -8,17 +8,23 @@
 	import { tooltips } from '$lib/actions/tooltips';
 	import { selectMenu } from '$lib/actions/select-menu';
 	import { goto } from '$app/navigation';
-	import { Settings2 } from '@lucide/svelte';
 	import { page } from '$app/state';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import CreateCompany from '$lib/components/CreateCompany.svelte';
+	import AccountNavigation from '$lib/components/AccountNavigation.svelte';
 	import { getApplianceStatus, type ApplianceStatus } from '$lib/model/appliance';
 	import {
 		companiesQuery,
 		portfolioQuery,
 		type PortfolioProjection
 	} from '$lib/model/queries.svelte';
-	import { startFixHref, startLinkLabel } from '$lib/model/company-start';
+	import {
+		accountGrantFix,
+		getAccountConnections,
+		startFixHref,
+		startLinkLabel,
+		type AccountConnectionSummary
+	} from '$lib/model/company-start';
 	import { plainText } from '$lib/ui/text';
 
 	const companyCatalog = companiesQuery();
@@ -44,6 +50,7 @@
 		if (next) void goto(next, { replaceState: true });
 	});
 
+	let accountConnections = $state<AccountConnectionSummary[]>([]);
 	$effect(() => {
 		const controller = new AbortController();
 		void getApplianceStatus(controller.signal)
@@ -51,6 +58,10 @@
 			.catch(() => {
 				// The portfolio query already owns the global unavailable state.
 			});
+		// Only refines a blocked company's fix; without it the Company page link stays.
+		void getAccountConnections(controller.signal)
+			.then((rows) => (accountConnections = rows))
+			.catch(() => {});
 		return () => controller.abort();
 	});
 
@@ -91,10 +102,42 @@
 			busy = '';
 		}
 	}
-	const rows = $derived(
-		activeCompanies.map((company): CompanyPortfolioEntry => {
+	let showArchived = $state(false);
+	async function restore(id: string) {
+		if (busy) return;
+		busy = id;
+		actionError = '';
+		try {
+			await restoreCompany(id);
+			await companyCatalog.refresh();
+			notice = 'Company restored';
+			archivedId = '';
+		} catch (cause) {
+			actionError = failureSentence(cause, 'Company could not be restored.');
+		} finally {
+			busy = '';
+		}
+	}
+	const archivedRows = $derived(
+		showArchived
+			? archivedCompanies.map((company): CompanyPortfolioEntry => ({
+					id: company.id,
+					name: company.name,
+					status: 'Archived',
+					tone: 'waiting',
+					focus: plainText(company.mission, { dropTitle: true }) || 'Focus not set',
+					next: 'Restore it to open it again',
+					entry: null,
+					dormant: true
+				}))
+			: []
+	);
+	const rows = $derived([
+		...activeCompanies.map((company): CompanyPortfolioEntry => {
 			const projection = projections[company.id];
-			const issue = company.unstartable_reason ? startLinkLabel(company.unstartable_reason) : '';
+			const reason = company.unstartable_reason ?? '';
+			const grant = reason ? accountGrantFix(reason, company.id, accountConnections) : null;
+			const issue = grant?.label ?? (reason ? startLinkLabel(reason) : '');
 			return {
 				id: company.id,
 				name: company.name,
@@ -111,15 +154,19 @@
 				attentionCount: projection?.attentionCount,
 				needsYou: projection?.attentionCount == null && !issue ? 'Checking…' : undefined,
 				issue,
-				entry: { href: issue ? startFixHref(company.id) : `/${company.id}` }
+				entry: {
+					href: grant?.href ?? (issue ? startFixHref(company.id) : `/${company.id}`)
+				}
 			};
-		})
-	);
+		}),
+		...archivedRows
+	]);
+	const archivedSet = $derived(new Set(archivedCompanies.map((company) => company.id)));
 </script>
 
 <svelte:head><title>Companies — {PRODUCT_NAME}</title></svelte:head>
 
-{#snippet failures()}
+{#snippet feedback()}
 	{#if companyCatalog.failure}
 		<FailureNotice
 			error={companyCatalog.failure}
@@ -129,6 +176,14 @@
 			onretry={companyCatalog.refresh}
 		/>
 	{/if}
+	{#if actionError}<p class="portfolio-toast failure" role="alert">{actionError}</p>{/if}
+	{#if notice}<p class="portfolio-toast" role="status">
+			<span>{notice}</span>{#if archivedId}<button
+					class="btn small"
+					disabled={!!busy}
+					onclick={undoArchive}>Undo</button
+				>{/if}
+		</p>{/if}
 {/snippet}
 
 <div use:tooltips use:selectMenu>
@@ -136,32 +191,39 @@
 		companies={rows}
 		{loaded}
 		brandName={PRODUCT_NAME}
-		feedback={companyCatalog.failure ? failures : null}
+		feedback={companyCatalog.failure || actionError || notice ? feedback : null}
 	>
 		{#snippet headerActions()}
 			{#if loaded}<CreateCompany />{/if}
-			<a
-				class="btn settings-link"
-				href="/account/settings"
-				aria-label="Account settings"
-				title="Account settings"
-			>
-				<Settings2 size={17} strokeWidth={1.8} aria-hidden="true" /><span>Settings</span>
-			</a>
+			<AccountNavigation {appliance} />
 		{/snippet}
 		{#snippet rowActions(company)}<ActionMenu label={`${company.name} options`}
-				><a href={`/${company.id}/company`}>Rename</a><button
-					disabled={!!busy}
-					onclick={() => archive(company.id)}>Archive company</button
-				></ActionMenu
+				>{#if archivedSet.has(company.id)}<button
+						disabled={!!busy}
+						onclick={() => restore(company.id)}>Restore company</button
+					>{:else}<a href={`/${company.id}`}>Open</a><a href={`/${company.id}/company`}>Rename</a><a
+						href={`/${company.id}/company/provider`}>Intelligence</a
+					><button disabled={!!busy} onclick={() => archive(company.id)}>Archive company</button
+					>{/if}</ActionMenu
 			>{/snippet}
+		{#snippet footer()}
+			<span
+				>{activeCompanies.length}
+				{activeCompanies.length === 1 ? 'company' : 'companies'} · {appliance?.profile === 'dev'
+					? 'Development profile'
+					: appliance?.profile === 'test'
+						? 'Test profile'
+						: 'Local appliance'}</span
+			>
+			{#if archivedCompanies.length}<button
+					class="portfolio-archived-toggle"
+					type="button"
+					aria-pressed={showArchived}
+					onclick={() => (showArchived = !showArchived)}
+					>{showArchived ? 'Hide archived' : `Show archived (${archivedCompanies.length})`}</button
+				>{/if}
+		{/snippet}
 		{#snippet before()}
-			{#if actionError}<p role="alert">{actionError}</p>{/if}
-			{#if notice}<p role="status">
-					{notice}{#if archivedId}<button class="btn small" disabled={!!busy} onclick={undoArchive}
-							>Undo</button
-						>{/if}
-				</p>{/if}
 			{#if appliance?.state === 'recovering'}
 				<div class="appliance-notice" role="status">
 					<span>Restoring runtime safety.</span>
@@ -184,16 +246,44 @@
 			<h2>No companies yet</h2>
 			<p>
 				{archivedCompanies.length
-					? 'Use + to start a company.'
-					: 'Use + to start your first company.'}
+					? 'Use New company to start one.'
+					: 'Tell Exec what to build with New company.'}
 			</p>
 		{/snippet}
 	</CompanyPortfolio>
 </div>
 
 <style>
-	.settings-link {
-		gap: var(--space-2);
+	.portfolio-toast {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-3);
+		margin: 0;
+		padding: 6px 6px 6px 12px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-control);
+		background: var(--surface-raised);
+		box-shadow: var(--shadow-soft);
+		font-size: var(--t-body);
+		animation: bridge-popover-in var(--motion-disclosure) var(--ease-spring) both;
+	}
+	.portfolio-toast.failure {
+		color: var(--state-danger);
+		padding-right: 12px;
+	}
+	.portfolio-archived-toggle {
+		padding: 4px 6px;
+		border: 0;
+		border-radius: var(--radius-control);
+		background: transparent;
+		color: var(--text-secondary);
+		font: inherit;
+		cursor: pointer;
+	}
+	.portfolio-archived-toggle:hover,
+	.portfolio-archived-toggle:focus-visible {
+		background: var(--surface-alt);
+		color: var(--ink);
 	}
 
 	.appliance-notice {

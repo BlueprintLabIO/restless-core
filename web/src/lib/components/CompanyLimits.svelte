@@ -105,16 +105,28 @@
 			{#if section === 'spend'}<section class="limits-ledger">
 					<div class="section-heading">
 						<h2>Model spend</h2>
-						<InfoTip
-							text="The total model budget, not a monthly one. Lowering it does not undo past spend."
-						/>
+						<span class="heading-tools">
+							<InfoTip
+								text="The total model budget, not a monthly one. Lowering it does not undo past spend."
+							/>
+							{#if !editingLimit}<button
+									class="btn small"
+									onclick={() => {
+										limit = String(view.limits.spend.ceiling_usd);
+										baseLimit = limit;
+										limitError = '';
+										limitNotice = '';
+										editingLimit = true;
+									}}>Edit limit</button
+								>{/if}
+							<CopyCompanySetting
+								{companyId}
+								setting="spend"
+								label="Model spend limit"
+								oncopied={() => source.refresh()}
+							/>
+						</span>
 					</div>
-					<CopyCompanySetting
-						{companyId}
-						setting="spend"
-						label="Model spend limit"
-						oncopied={() => source.refresh()}
-					/>
 					{#if editingLimit}
 						<form
 							class="limit-form"
@@ -146,16 +158,7 @@
 								>{limitSaving ? 'Saving…' : 'Save limit'}</button
 							>
 						</form>
-					{:else}<button
-							class="btn small"
-							onclick={() => {
-								limit = String(view.limits.spend.ceiling_usd);
-								baseLimit = limit;
-								limitError = '';
-								limitNotice = '';
-								editingLimit = true;
-							}}>Edit spend limit</button
-						>{/if}
+					{/if}
 					{#if limitError}<p role="alert" class="standard-setting-message failure">
 							{limitError}
 						</p>{/if}
@@ -188,16 +191,32 @@
 			{#if section === 'computer'}<section class="limits-ledger">
 					<div class="section-heading">
 						<h2>Company computer</h2>
-						<InfoTip
-							text="The computer sleeps when nothing needs it and wakes by itself for messages, ready work and due schedules; its files are kept. Once the monthly hours limit is reached, it will not start again that month."
-						/>
+						<span class="heading-tools">
+							<InfoTip
+								text="The computer sleeps when nothing needs it and wakes by itself for messages, ready work and due schedules; its files are kept. Once the monthly hours limit is reached, it will not start again that month."
+							/>
+							{#if !editingRuntime}<button
+									class="btn small"
+									onclick={() => {
+										baseAutoSleepMinutes = view.limits.runtime.auto_sleep_after_minutes;
+										baseMonthlyRuntimeHours = view.limits.runtime.monthly_runtime_cap_hours;
+										autoSleepMinutes =
+											baseAutoSleepMinutes == null ? '' : String(baseAutoSleepMinutes);
+										monthlyRuntimeHours =
+											baseMonthlyRuntimeHours == null ? '' : String(baseMonthlyRuntimeHours);
+										runtimeError = '';
+										runtimeNotice = '';
+										editingRuntime = true;
+									}}>Edit limits</button
+								>{/if}
+							<CopyCompanySetting
+								{companyId}
+								setting="runtime"
+								label="Computer limits"
+								oncopied={() => source.refresh()}
+							/>
+						</span>
 					</div>
-					<CopyCompanySetting
-						{companyId}
-						setting="runtime"
-						label="Computer limits"
-						oncopied={() => source.refresh()}
-					/>
 					{#if editingRuntime}
 						<form
 							class="limit-form"
@@ -247,43 +266,39 @@
 							>
 						</form>
 					{:else}
-						<p>
-							Sleeps when quiet for: {view.limits.runtime.sleep_after_minutes == null
-								? 'Never'
-								: `${view.limits.runtime.sleep_after_minutes} minutes`}
-							· Monthly computer hours limit: {view.limits.runtime.monthly_runtime_cap_hours == null
-								? 'None'
-								: `${view.limits.runtime.monthly_runtime_cap_hours} hours`}
-						</p>
-						{#if view.limits.runtime.usage}
-							<p>
-								{view.limits.runtime.usage.complete ? '' : 'At least '}{(
-									view.limits.runtime.usage.used_seconds / 3600
-								).toFixed(1)} hours running this month (UTC) · {view.limits.runtime.usage.status ===
-									'stopped' && view.limits.runtime.asleep
-									? 'Asleep'
-									: ({
-											running: 'Awake',
-											stopped: 'Stopped',
-											absent: 'Not created yet'
-										}[view.limits.runtime.usage.status] ?? view.limits.runtime.usage.status)}
-							</p>
-						{:else}
-							<p class="source-unavailable">Runtime usage is temporarily unavailable.</p>
-						{/if}
-						<button
-							class="btn small"
-							onclick={() => {
-								baseAutoSleepMinutes = view.limits.runtime.auto_sleep_after_minutes;
-								baseMonthlyRuntimeHours = view.limits.runtime.monthly_runtime_cap_hours;
-								autoSleepMinutes = baseAutoSleepMinutes == null ? '' : String(baseAutoSleepMinutes);
-								monthlyRuntimeHours =
-									baseMonthlyRuntimeHours == null ? '' : String(baseMonthlyRuntimeHours);
-								runtimeError = '';
-								runtimeNotice = '';
-								editingRuntime = true;
-							}}>Edit runtime limits</button
-						>
+						<dl class="runtime-facts">
+							<div>
+								<dt>Sleeps when quiet</dt>
+								<dd>
+									{view.limits.runtime.sleep_after_minutes == null
+										? 'Never'
+										: `${view.limits.runtime.sleep_after_minutes} minutes`}
+								</dd>
+							</div>
+							<div>
+								<dt>Monthly hours limit</dt>
+								<dd>
+									{view.limits.runtime.monthly_runtime_cap_hours == null
+										? 'None'
+										: `${view.limits.runtime.monthly_runtime_cap_hours} hours`}
+								</dd>
+							</div>
+							<div>
+								<dt>This month (UTC)</dt>
+								{#if view.limits.runtime.usage}<dd>
+										{view.limits.runtime.usage.complete ? '' : 'At least '}{(
+											view.limits.runtime.usage.used_seconds / 3600
+										).toFixed(1)} hours · {view.limits.runtime.usage.status === 'stopped' &&
+										view.limits.runtime.asleep
+											? 'Asleep'
+											: ({
+													running: 'Awake',
+													stopped: 'Stopped',
+													absent: 'Not created yet'
+												}[view.limits.runtime.usage.status] ?? view.limits.runtime.usage.status)}
+									</dd>{:else}<dd class="source-unavailable">Temporarily unavailable</dd>{/if}
+							</div>
+						</dl>
 					{/if}
 					{#if runtimeError}<p role="alert" class="standard-setting-message failure">
 							{runtimeError}
@@ -373,6 +388,32 @@
 </div>
 
 <style>
+	.runtime-facts {
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: var(--space-4);
+		margin: 0;
+	}
+	.runtime-facts div {
+		display: grid;
+		gap: 2px;
+		min-width: 0;
+	}
+	.runtime-facts dt {
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+	.runtime-facts dd {
+		margin: 0;
+		color: var(--ink);
+		font-variant-numeric: tabular-nums;
+	}
+	@media (max-width: 640px) {
+		.runtime-facts {
+			grid-template-columns: 1fr;
+			gap: var(--space-2);
+		}
+	}
 	.spend-summary {
 		display: flex;
 		align-items: baseline;

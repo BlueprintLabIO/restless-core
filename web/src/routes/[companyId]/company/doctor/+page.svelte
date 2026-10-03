@@ -153,12 +153,16 @@
 
 		<section class="doctor-diagnostics">
 			<div class="section-heading">
-				<h2>{failing.length ? `${failing.length} need attention` : 'All checks passing'}</h2>
+				<h2>
+					{failing.length
+						? `${failing.length} ${failing.length === 1 ? 'needs' : 'need'} attention`
+						: 'All checks passing'}
+				</h2>
 				<button class="btn small" disabled={!!working} onclick={recheck}
 					>{working === 'recheck' ? 'Checking…' : 'Recheck'}</button
 				>
 			</div>
-			<div class="doctor-checks">
+			<div class="doctor-checks failing">
 				{#each failing as check (check.id)}
 					<article>
 						<i class="check-state check-{check.status}" aria-hidden="true"></i>
@@ -243,6 +247,14 @@
 	}
 	.doctor-checks article {
 		grid-template-columns: 8px minmax(0, 1fr) auto;
+	}
+	/* What needs attention reads across the full width with its fix beside it;
+	 * only the folded passing checks use the two-column list. */
+	.doctor-checks.failing {
+		grid-template-columns: minmax(0, 1fr);
+	}
+	.doctor-checks.failing article {
+		align-items: center;
 	}
 	.doctor-checks article > div {
 		min-width: 0;

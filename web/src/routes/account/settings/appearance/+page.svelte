@@ -37,10 +37,12 @@
 	/* The same page frame and title as Connections, so moving between the two
 	 * settings pages changes only the content. */
 	.appearance-page {
-		padding: 42px clamp(20px, 5vw, 72px);
+		width: min(920px, 100%);
+		padding: 34px clamp(18px, 4vw, 44px) 48px;
+		box-sizing: border-box;
 	}
 	.appearance-page h1 {
-		margin: 0 0 28px;
+		margin: 0 0 22px;
 		font-size: var(--t-title);
 		letter-spacing: -0.035em;
 	}

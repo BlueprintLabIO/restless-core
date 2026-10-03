@@ -3,74 +3,82 @@
 	import { selectMenu } from '$lib/actions/select-menu';
 	import { page } from '$app/state';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
-	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
+	import AccountShell from '$lib/ui/views/AccountShell.svelte';
+	import AccountNavigation from '$lib/components/AccountNavigation.svelte';
+	import Palette from '@lucide/svelte/icons/palette';
+	import Plug from '@lucide/svelte/icons/plug';
 	let { children } = $props();
 	const section = $derived(page.url.pathname.split('/').at(-1));
+	/* The same account shell as the Companies page and Cloud's account pages:
+	 * one header with the account menu, then this section's own navigation. */
+	const sections = [
+		{ key: 'connections', label: 'Connections', icon: Plug },
+		{ key: 'appearance', label: 'Appearance', icon: Palette }
+	];
 </script>
 
 <svelte:head><title>Account settings — {PRODUCT_NAME}</title></svelte:head>
 
-<div class="bridge-root portfolio-root settings-root" use:tooltips use:selectMenu>
-	<header class="bridge-topbar" aria-label="Account navigation">
-		<a class="tb-brand portfolio-brand" href="/" aria-label={`${PRODUCT_NAME} companies`}>
-			<span class="tb-mark"><MatrixGlyph rows={GLYPHS.r} size={13} glow /></span>
-			<span class="tb-name">{PRODUCT_NAME}</span>
-		</a>
-		<a class="back-link" href="/">Back to companies</a>
-	</header>
-	<div class="settings-frame">
-		<aside class="settings-sidebar" aria-label="Account settings">
-			<h1>Settings</h1>
-			<nav>
-				<a
-					href="/account/settings/connections"
-					class:active={section === 'connections'}
-					aria-current={section === 'connections' ? 'page' : undefined}>Connections</a
-				>
-				<a
-					href="/account/settings/appearance"
-					class:active={section === 'appearance'}
-					aria-current={section === 'appearance' ? 'page' : undefined}>Appearance</a
-				>
-			</nav>
-		</aside>
-		{@render children()}
-	</div>
+<div class="settings-root" use:tooltips use:selectMenu>
+	<AccountShell brandName={PRODUCT_NAME} homeHref="/">
+		{#snippet actions()}<AccountNavigation />{/snippet}
+		<div class="settings-frame">
+			<aside class="settings-sidebar" aria-label="Account settings">
+				<h1>Settings</h1>
+				<nav>
+					{#each sections as item (item.key)}
+						{@const Icon = item.icon}
+						<a
+							href={`/account/settings/${item.key}`}
+							class:active={section === item.key}
+							aria-current={section === item.key ? 'page' : undefined}
+							><Icon size={15} strokeWidth={1.8} aria-hidden="true" />{item.label}</a
+						>
+					{/each}
+				</nav>
+			</aside>
+			<div class="settings-content">{@render children()}</div>
+		</div>
+	</AccountShell>
 </div>
 
 <style>
 	.settings-root {
 		min-height: 100svh;
 	}
-	.back-link {
-		margin-left: auto;
-		color: var(--text-secondary);
-		font-size: var(--t-body);
-		text-decoration: none;
-	}
-	.back-link:hover {
-		color: var(--intent-conversation);
-	}
 	.settings-frame {
 		display: grid;
 		grid-template-columns: 220px minmax(0, 1fr);
-		min-height: calc(100svh - 58px);
+		min-height: 0;
+		overflow: hidden;
+		border: 1px solid rgba(57, 66, 84, 0.14);
+		border-radius: var(--radius-pane);
+		background: color-mix(in srgb, var(--highlight) 60%, transparent);
+		box-shadow: var(--shadow-soft);
+	}
+	.settings-content {
+		min-width: 0;
+		min-height: 0;
+		overflow: auto;
 	}
 	.settings-sidebar {
-		padding: 42px 20px 28px max(24px, calc((100vw - 1200px) / 2));
+		padding: 22px 12px;
 		border-right: 1px solid var(--border);
 	}
 	.settings-sidebar h1 {
-		margin: 0 0 22px;
+		margin: 0 10px 14px;
 		font-size: var(--t-head);
 		font-weight: 600;
 	}
 	.settings-sidebar nav {
 		display: grid;
-		gap: 4px;
+		gap: 2px;
 	}
 	.settings-sidebar nav a {
-		padding: 10px 12px;
+		display: flex;
+		align-items: center;
+		gap: 9px;
+		padding: 8px 10px;
 		border-radius: var(--radius-control);
 		color: var(--text-secondary);
 		font-size: var(--t-body);
@@ -86,31 +94,31 @@
 	.settings-sidebar nav a.active {
 		color: var(--ink);
 		background: var(--surface-alt);
-		box-shadow: inset 2px 0 var(--intent-conversation);
 	}
-	.settings-sidebar nav a:focus-visible,
-	.back-link:focus-visible {
+	.settings-sidebar nav a:focus-visible {
 		outline: 2px solid var(--intent-conversation);
 		outline-offset: 2px;
 	}
 	@media (max-width: 700px) {
 		.settings-frame {
 			grid-template-columns: 1fr;
-			align-content: start;
+			grid-template-rows: auto minmax(0, 1fr);
 		}
 		.settings-sidebar {
-			padding: 16px 20px 0;
+			padding: 10px 10px 0;
 			border-right: 0;
-		}
-		.settings-sidebar h1 {
-			margin: 0 0 10px;
-		}
-		.settings-sidebar nav {
-			grid-template-columns: 1fr;
 			border-bottom: 1px solid var(--border);
 		}
+		.settings-sidebar h1 {
+			display: none;
+		}
+		.settings-sidebar nav {
+			grid-auto-flow: column;
+			grid-auto-columns: 1fr;
+		}
 		.settings-sidebar nav a {
-			text-align: center;
+			justify-content: center;
+			border-radius: var(--radius-control) var(--radius-control) 0 0;
 		}
 		.settings-sidebar nav a.active {
 			box-shadow: inset 0 -2px var(--intent-conversation);

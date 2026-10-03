@@ -99,10 +99,21 @@
 		line-height: 1.3;
 		letter-spacing: -0.025em;
 	}
+	/* The explanation sits beside the title it explains, on its first line,
+	 * rather than on a row of its own under it. */
 	.compact .folio-heading {
-		grid-template-columns: 1fr;
+		display: flex;
+		align-items: flex-start;
 		gap: 8px;
 		margin-bottom: 24px;
+	}
+	.compact .folio-heading > :global(:is(h1, h2, h3)) {
+		flex: 1;
+		min-width: 0;
+	}
+	.compact .folio-context {
+		flex: none;
+		margin-top: 0.45em;
 	}
 	.compact .folio-context-copy {
 		margin-top: 0;

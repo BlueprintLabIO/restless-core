@@ -47,3 +47,58 @@ export function startLinkLabel(reason: string): string {
 export function startFixHref(companyId: string): string {
 	return `/${encodeURIComponent(companyId)}/company/provider`;
 }
+
+/** An account connection as the account Connections API lists it. */
+export interface AccountConnectionSummary {
+	id: string;
+	label: string;
+	provider: string;
+	kind?: 'api_key' | 'oauth';
+	status?: 'present' | 'absent' | 'invalid' | 'checking';
+	companies: { id: string }[];
+}
+
+const ACCOUNT_PROVIDER: Record<string, string> = {
+	codex: 'openai-codex',
+	claude: 'anthropic'
+};
+
+/* "Reconnect ChatGPT / Codex" is the wrong instruction when the account
+ * already holds a working sign-in for that provider and this company simply
+ * has not been given it: nothing needs reconnecting. Then the fix is one
+ * grant, made on the account Connections page with the company preselected. */
+export function accountGrantFix(
+	reason: string,
+	companyId: string,
+	connections: AccountConnectionSummary[]
+): { label: string; href: string; connection: AccountConnectionSummary } | null {
+	const normalized = reason.toLowerCase();
+	const harness = normalized.includes('codex')
+		? 'codex'
+		: normalized.includes('claude')
+			? 'claude'
+			: null;
+	if (!harness) return null;
+	const connection = connections.find(
+		(item) =>
+			item.provider === ACCOUNT_PROVIDER[harness] &&
+			item.status === 'present' &&
+			!item.companies.some((use) => use.id === companyId)
+	);
+	if (!connection) return null;
+	const name = harness === 'codex' ? 'ChatGPT / Codex' : 'Claude';
+	return {
+		label: `Use your ${name} sign-in`,
+		href: `/account/settings/connections?grant=${encodeURIComponent(companyId)}&connection=${encodeURIComponent(connection.id)}`,
+		connection
+	};
+}
+
+export async function getAccountConnections(
+	signal?: AbortSignal
+): Promise<AccountConnectionSummary[]> {
+	const response = await fetch('/api/connections', { cache: 'no-store', signal });
+	if (!response.ok) return [];
+	const body = (await response.json()) as { connections?: AccountConnectionSummary[] };
+	return body.connections ?? [];
+}

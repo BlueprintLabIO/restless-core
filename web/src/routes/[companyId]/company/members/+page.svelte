@@ -406,6 +406,11 @@
 		padding: var(--space-3) 0;
 		border-bottom: 1px solid var(--border);
 	}
+	/* With an avatar the identity column follows it, not the row's first track. */
+	.member-row:has(> .member-avatar) {
+		grid-template-columns: 32px minmax(0, 1fr) auto;
+		gap: var(--space-3);
+	}
 	.member-row:last-child {
 		border-bottom: 0;
 	}

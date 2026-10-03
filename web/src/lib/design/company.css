@@ -338,6 +338,26 @@
 	margin-bottom: 15px;
 }
 
+/* Help and the section's own menu share the heading's trailing edge. */
+.bridge-root .heading-tools {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	margin-left: auto;
+}
+
+/* The charter's lead line: the editable name with its copy menu beside it. */
+.bridge-root .charter-name-row {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	margin-bottom: var(--space-3);
+}
+.bridge-root .charter-name-row > :first-child {
+	flex: 1;
+	min-width: 0;
+}
+
 /* A new section after the limits starts at the same distance the page uses
  * between its other sections. */
 .bridge-root .authority-settings + .section-heading {
@@ -1419,7 +1439,9 @@
 	min-width: 0;
 	min-height: 0;
 	display: grid;
-	grid-template-rows: auto minmax(0, 1fr) auto;
+	/* The Company spine already names the page and links Doctor, so the
+	 * portal is only the machine and its footer. */
+	grid-template-rows: minmax(0, 1fr) auto;
 	overflow: hidden;
 	border-radius: inherit;
 	background:
@@ -1488,7 +1510,7 @@
 .bridge-root .portal-error {
 	position: absolute;
 	z-index: 6;
-	top: 62px;
+	top: 16px;
 	left: 50%;
 	width: min(520px, calc(100% - 32px));
 	margin: 0;

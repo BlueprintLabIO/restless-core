@@ -4,6 +4,10 @@
 	import { onMount } from 'svelte';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import { getCompanies, type CompanyCatalogEntry } from '$lib/model/cockpit';
+	import { accountGrantFix } from '$lib/model/company-start';
+	import { page } from '$app/state';
+	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
+	import InfoTip from './InfoTip.svelte';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
 	import {
 		announceIntelligenceChange,
@@ -329,6 +333,11 @@
 		if (item.status === 'invalid') return `${credential} unavailable`;
 		return `${credential} missing`;
 	}
+	function providerMark(id: string) {
+		if (id === 'openai-codex') return 'GPT';
+		if (id === 'anthropic') return 'Cl';
+		return providerName(id).slice(0, 2);
+	}
 	function providerName(id: string) {
 		if (id === 'openai-codex') return 'ChatGPT / Codex';
 		return providerOptions.find(([key]) => key === id)?.[1] ?? id;
@@ -455,6 +464,79 @@
 		}
 	}
 
+	function beginGrant(item: AccountConnection, companyId: string) {
+		managingId = item.id;
+		selectedCompany = companyId;
+		selectedModel = defaultModel(item.provider, item.kind);
+		selectedCustomModel = false;
+		modelTouched = false;
+		selectedMakeDefault = false;
+		replaceRequired = false;
+		requestAnimationFrame(() =>
+			document
+				.querySelector(`[data-connection="${CSS.escape(item.id)}"]`)
+				?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+		);
+	}
+
+	/* Companies that cannot start only because an account sign-in that already
+	 * works has not been shared with them: one grant each fixes them. */
+	const blocked = $derived(
+		companies.flatMap((company) => {
+			const fix = company.unstartable_reason
+				? accountGrantFix(company.unstartable_reason, company.id, connections)
+				: null;
+			const connection = fix && connections.find((item) => item.id === fix.connection.id);
+			return connection ? [{ company, connection }] : [];
+		})
+	);
+
+	/* The Companies page links a blocked company here with the fix chosen;
+	 * open that grant once both lists have loaded. */
+	let deepLinkHandled = false;
+	$effect(() => {
+		if (deepLinkHandled || loading || !companies.length) return;
+		const companyId = page.url.searchParams.get('grant');
+		const connectionId = page.url.searchParams.get('connection');
+		if (!companyId) return;
+		deepLinkHandled = true;
+		const item =
+			connections.find((row) => row.id === connectionId) ??
+			blocked.find((row) => row.company.id === companyId)?.connection;
+		if (item && companies.some((company) => company.id === companyId)) beginGrant(item, companyId);
+	});
+
+	type ProviderRow = {
+		key: string;
+		title: string;
+		oauth?: 'codex' | 'claude';
+		connection?: AccountConnection;
+	};
+	const providerRows = $derived<ProviderRow[]>([
+		{
+			key: 'oauth:codex',
+			title: 'ChatGPT / Codex',
+			oauth: 'codex',
+			connection: connections.find(
+				(item) => item.kind === 'oauth' && item.provider === 'openai-codex'
+			)
+		},
+		{
+			key: 'oauth:claude',
+			title: 'Claude',
+			oauth: 'claude',
+			connection: connections.find((item) => item.kind === 'oauth' && item.provider === 'anthropic')
+		},
+		...connections
+			.filter(
+				(item) => !(item.kind === 'oauth' && ['openai-codex', 'anthropic'].includes(item.provider))
+			)
+			.map((item) => ({ key: item.id, title: providerName(item.provider), connection: item }))
+	]);
+	const legacyProblems = $derived(
+		nativeSignIns.filter((signIn) => signIn.state !== 'connected').length
+	);
+
 	onMount(() => {
 		void refresh();
 		const stopWatching = watchIntelligenceChanges(() => void refresh(), true);
@@ -476,122 +558,187 @@
 </script>
 
 <svelte:head><title>Account connections — {PRODUCT_NAME}</title></svelte:head>
-<main class="account-connections">
-	<header class="page-head">
-		<div class="page-intro">
-			<h1 title="Connect an account once, then grant individual companies access.">Connections</h1>
-		</div>
-		<!-- The empty state carries the one first action; the header takes over
-		     once there is a list to add to. -->
-		{#if accountScope === 'account'}{#if addOpen || connections.length}<button
-					class="btn primary"
-					onclick={() => (addOpen = !addOpen)}>{addOpen ? 'Close' : 'Add connection'}</button
-				>{/if}{:else if connections.length}<a class="btn primary" href={manageUrl}>Open account ↗</a
-			>{/if}
-	</header>
-	{#if accountScope === 'account'}<section
-			class="native-section"
-			aria-label="Account Codex sign-in"
-		>
-			<div class="section-head">
-				<h2>ChatGPT / Codex</h2>
-				<button
-					class="btn"
-					disabled={!!oauthJob || codexChecking}
-					onclick={() => void startSignIn('codex')}
-					>{oauthJob && oauthProvider === 'codex'
-						? 'Signing in…'
-						: codexSaved
-							? 'Reconnect Codex'
-							: 'Connect Codex'}</button
-				>
-			</div>
-			<p>
-				{codexConnected
-					? 'Connected to this account. Grant company access below, or reconnect the same account if its sign-in stops working.'
-					: codexChecking
-						? 'Checking this sign-in after a company settings change…'
-						: codexSaved
-							? 'The saved Codex sign-in is unavailable. Reconnect the same account to restore company access.'
-							: 'Sign in once, then choose which companies can use it.'}
-			</p>
-			{#if oauthProvider === 'codex'}
-				{#if oauthUrl}<p>
-						<a href={oauthUrl} target="_blank" rel="noreferrer">Open Codex sign-in ↗</a
-						>{#if oauthCode}
-							· Enter code <strong>{oauthCode}</strong>{/if}
-					</p>{/if}
-				{#if oauthMessage}<p role="status">{oauthMessage}</p>{:else if oauthState === 'connected'}<p
-						role="status"
+
+{#snippet accessManager(item: AccountConnection)}
+	<div class="access-manager" aria-label={`Company access for ${item.label}`}>
+		{#if companyError}<span class="replace-warning" role="alert">{companyError}</span>{/if}
+		{#each companies as company (company.id)}
+			{@const granted = item.companies.find((use) => use.id === company.id)}
+			<div class="access-row" class:selected={selectedCompany === company.id}>
+				<strong>{company.name}</strong>
+				{#if granted}<span class="access-state">Has access{granted.in_use ? ' · in use' : ''}</span
+					>{#if granted.in_use && confirmRevocation === `${item.id}:${company.id}`}
+						<span class="replace-warning" role="alert"
+							>AI work using this connection will stop until another is selected.</span
+						>
+						<button
+							class="text-button danger"
+							disabled={busyCompany}
+							onclick={() => void revoke(item, granted)}>Remove access now</button
+						>
+						<button
+							class="text-button"
+							disabled={busyCompany}
+							onclick={() => (confirmRevocation = '')}>Keep access</button
+						>
+					{:else}<button
+							class="text-button danger"
+							disabled={busyCompany}
+							onclick={() => {
+								if (granted.in_use) confirmRevocation = `${item.id}:${company.id}`;
+								else void revoke(item, granted);
+							}}>Remove</button
+						>{/if}
+				{:else if selectedCompany === company.id}
+					<label class="model-picker"
+						><span>Model</span><select
+							value={selectedCustomModel ? '__custom' : selectedModel}
+							onchange={(event) => {
+								modelTouched = true;
+								selectedCustomModel = event.currentTarget.value === '__custom';
+								selectedModel = selectedCustomModel ? '' : event.currentTarget.value;
+							}}
+							aria-label={`Model for ${item.label} in ${company.name}`}
+							><option value="">Choose a model…</option
+							>{#each modelChoices(item.provider, item.kind) as model}<option
+									value={routeModel(item.provider, model.id)}>{model.name ?? model.id}</option
+								>{/each}<option value="__custom">Custom model ID…</option></select
+						></label
 					>
-						Codex connected. Choose company access below.
-					</p>{/if}
-			{/if}
-		</section>
-		<section class="native-section" aria-label="Account Claude sign-in">
-			<div class="section-head">
-				<h2>Claude</h2>
-				<button
-					class="btn"
-					disabled={!!oauthJob || claudeChecking}
-					onclick={() => void startSignIn('claude')}
-					>{oauthJob && oauthProvider === 'claude'
-						? 'Signing in…'
-						: claudeSaved
-							? 'Reconnect Claude'
-							: 'Connect Claude'}</button
-				>
-			</div>
-			<p>
-				{claudeConnected
-					? 'Connected to this account. Grant Claude Agent access below, or reconnect the same account if its sign-in stops working.'
-					: claudeChecking
-						? 'Checking this sign-in after a company settings change…'
-						: claudeSaved
-							? 'The saved Claude sign-in is unavailable. Reconnect the same account to restore company access.'
-							: 'Sign in once, then choose which companies can use it.'}
-			</p>
-			{#if oauthProvider === 'claude'}
-				{#if oauthUrl}<p>
-						<a href={oauthUrl} target="_blank" rel="noreferrer">Open Claude sign-in ↗</a>
-					</p>
-					{#if oauthState === 'waiting'}<label class="callback-label"
-							>If your browser cannot reach the callback on this computer, copy its final localhost
-							URL and paste it here.<input
-								type="url"
-								bind:value={oauthCallback}
-								placeholder="http://localhost:54545/callback?code=…"
-								autocomplete="off"
+					{#if selectedCustomModel}<label class="model-picker"
+							><span>Full model ID</span><input
+								aria-label="Full model ID"
+								placeholder={`${item.provider}/model-id`}
+								bind:value={selectedModel}
 							/></label
+						>{/if}
+					<label
+						class="model-picker inline"
+						title={catalog.source(item.provider, item.kind) === 'connected'
+							? 'Models from this account’s connected runtime'
+							: 'Model suggestions; availability depends on this connection'}
+						><input type="checkbox" bind:checked={selectedMakeDefault} /> Company default</label
+					>
+					{#if replaceRequired}<span class="replace-warning" role="alert"
+							>This replaces the current {providerName(item.provider)} connection for {company.name}.</span
 						><button
 							class="btn primary small"
-							disabled={!oauthCallback.trim() || callbackBusy}
-							onclick={() => void completeClaudeSignIn()}
-							>{callbackBusy ? 'Finishing…' : 'Finish sign-in'}</button
+							disabled={busyCompany || !validModel(item.provider, selectedModel)}
+							onclick={() => void grant(item, company.id, true)}
+							>{busyCompany ? 'Replacing…' : 'Confirm replacement'}</button
+						><button
+							class="text-button"
+							disabled={busyCompany}
+							onclick={() => {
+								selectedCompany = '';
+								replaceRequired = false;
+							}}>Keep current</button
+						>
+					{:else}<button
+							class="btn primary small"
+							disabled={busyCompany ||
+								!validModel(item.provider, selectedModel) ||
+								item.status !== 'present'}
+							onclick={() => void grant(item, company.id)}
+							>{busyCompany ? 'Giving access…' : 'Give access'}</button
+						><button
+							class="text-button"
+							disabled={busyCompany}
+							onclick={() => (selectedCompany = '')}>Cancel</button
 						>{/if}
-				{/if}
-				{#if oauthMessage}<p role="status">
-						{oauthMessage}
-					</p>{:else if oauthState === 'completing'}<p role="status">
-						Finishing Claude sign-in…
-					</p>{:else if oauthState === 'connected'}<p role="status">
-						Claude connected. Choose company access below.
-					</p>{/if}
-			{/if}
-		</section>{/if}
+				{:else}<button
+						class="btn small"
+						disabled={busyCompany || item.status !== 'present'}
+						onclick={() => beginGrant(item, company.id)}>Give access…</button
+					>{/if}
+			</div>
+		{/each}
+		{#if !companies.length}<span class="unused">No active companies available.</span>{/if}
+	</div>
+{/snippet}
+
+{#snippet signInProgress(provider: 'codex' | 'claude')}
+	{#if oauthProvider === provider && (oauthUrl || oauthMessage || ['connected', 'completing', 'waiting'].includes(oauthState))}
+		<div class="sign-in-progress" aria-live="polite">
+			{#if oauthUrl}<a class="btn small" href={oauthUrl} target="_blank" rel="noreferrer"
+					>Open {provider === 'codex' ? 'Codex' : 'Claude'} sign-in ↗</a
+				>{/if}
+			{#if provider === 'codex' && oauthCode}<span
+					>Enter code <strong class="code">{oauthCode}</strong></span
+				>{/if}
+			{#if provider === 'claude' && oauthUrl && oauthState === 'waiting'}<label
+					class="callback-label"
+					title="If your browser cannot reach the callback on this computer, copy its final localhost URL and paste it here."
+					><span>Callback URL</span><input
+						type="url"
+						bind:value={oauthCallback}
+						placeholder="http://localhost:54545/callback?code=…"
+						autocomplete="off"
+					/></label
+				><button
+					class="btn primary small"
+					disabled={!oauthCallback.trim() || callbackBusy}
+					onclick={() => void completeClaudeSignIn()}
+					>{callbackBusy ? 'Finishing…' : 'Finish sign-in'}</button
+				>{/if}
+			{#if oauthMessage}<span role="status">{oauthMessage}</span
+				>{:else if oauthState === 'completing'}<span role="status">Finishing sign-in…</span
+				>{:else if oauthState === 'connected'}<span role="status"
+					>Connected. Give companies access below.</span
+				>{/if}
+		</div>
+	{/if}
+{/snippet}
+
+<main class="account-connections">
+	<header class="page-head">
+		<h1>Connections</h1>
+		<InfoTip
+			text="Connect a model account once, then give individual companies access. Each company keeps its own model choice."
+		/>
+		<span class="page-head-actions">
+			{#if accountScope === 'account'}<button
+					class="btn small"
+					aria-expanded={addOpen}
+					onclick={() => (addOpen = !addOpen)}>{addOpen ? 'Cancel' : 'Add API key'}</button
+				>{:else if connections.length}<a class="btn small primary" href={manageUrl}
+					>Open account ↗</a
+				>{/if}
+		</span>
+	</header>
+
 	{#if error}<div class="error" role="alert">
 			{error}<button class="btn small" onclick={() => void refresh()}>Try again</button>
 		</div>{/if}
+
+	{#if blocked.length && accountScope === 'account'}
+		<section class="needs-access" aria-label="Companies waiting for access">
+			{#each blocked as row (row.company.id)}
+				<div class="needs-access-row">
+					<i aria-hidden="true"></i>
+					<span
+						><strong>{row.company.name}</strong> can’t start without {providerName(
+							row.connection.provider
+						)}</span
+					>
+					<button
+						class="btn small primary"
+						disabled={busyCompany}
+						onclick={() => beginGrant(row.connection, row.company.id)}>Give access</button
+					>
+				</div>
+			{/each}
+		</section>
+	{/if}
+
 	{#if addOpen && accountScope === 'account'}
 		<form class="add-form" onsubmit={create}>
-			<h2>New provider connection</h2>
-			<p>Save an API key at account level, then grant individual companies access.</p>
 			<div class="form-grid">
 				<label
 					>Provider<select bind:value={provider}
 						>{#each providerOptions as [id, name]}<option value={id}>{name}</option>{/each}</select
 					></label
-				><label class="full"
+				><label
 					>Name<input
 						bind:value={label}
 						required
@@ -609,207 +756,129 @@
 				>
 			</div>
 			<div class="actions">
-				<button class="btn primary" disabled={busy}>{busy ? 'Saving…' : 'Save API key'}</button
-				><button
-					class="btn"
-					type="button"
-					disabled={busy}
-					onclick={() => {
-						addOpen = false;
-						secret = '';
-					}}>Cancel</button
+				<button class="btn primary small" disabled={busy}
+					>{busy ? 'Saving…' : 'Save API key'}</button
+				><span class="unused">Saved to this account; no company uses it until you give access.</span
 				>
 			</div>
 		</form>
 	{/if}
-	{#if loading}<Skeleton label="Loading connections" variant="list" count={2} />
-	{:else if connections.length}
-		<section class="connection-list" aria-label="Account connections">
-			{#each connections as item (item.id)}
-				<article class="connection">
-					<div class="connection-head">
-						<div>
-							<h2>{item.label}</h2>
-							<span>{providerName(item.provider)}</span>
-							{#if item.account_identity}<small class="account-identity"
-									>{item.account_identity}</small
-								>{/if}
-						</div>
-						<span class="status" class:connected={item.status === 'present'}
-							>{statusText(item)}</span
+
+	{#if loading && !connections.length}<Skeleton
+			label="Loading connections"
+			variant="list"
+			count={2}
+		/>
+	{:else if accountScope === 'company' && !connections.length}
+		<div class="empty">
+			<h2>No account connection is shared here yet</h2>
+			<a class="btn primary small" href={manageUrl}>Open account ↗</a>
+		</div>
+	{:else}
+		<section class="provider-list" aria-label="Model connections">
+			{#each providerRows.filter((row) => accountScope === 'account' || row.connection) as row (row.key)}
+				{@const item = row.connection}
+				{@const signedIn = item?.status === 'present'}
+				{@const checking = item?.status === 'checking'}
+				<article
+					class="provider-row"
+					data-connection={item?.id ?? row.key}
+					class:open={!!item && managingId === item.id}
+				>
+					<div class="provider-main">
+						<span class="provider-mark" class:live={signedIn} aria-hidden="true"
+							>{providerMark(
+								item?.provider ?? (row.oauth === 'codex' ? 'openai-codex' : 'anthropic')
+							)}</span
 						>
-					</div>
-					{#if item.detail}<p class="connection-detail">{item.detail}</p>{/if}
-					<div class="uses">
-						<strong>Available to</strong>{#if item.companies.length}<div class="company-list">
-								{#each item.companies as company (company.id)}<a
-										href={`/${encodeURIComponent(company.id)}/company/provider`}
-										>{company.name}<span aria-hidden="true">↗</span></a
-									>{/each}
-							</div>{:else}<span class="unused">No company access yet</span>{/if}
-					</div>
-					<div class="connection-controls">
-						<span class="connection-kind"
-							>{item.kind === 'oauth' ? 'Account sign-in' : 'API key'}</span
-						>{#if accountScope === 'account'}<button
-								class="text-button"
-								onclick={() => toggleManage(item)}
-								>{managingId === item.id ? 'Close access' : 'Manage company access'}</button
-							>{/if}
-					</div>
-					{#if managingId === item.id}
-						<div class="access-manager" aria-label={`Company access for ${item.label}`}>
-							{#if companyError}<span class="replace-warning" role="alert">{companyError}</span
-								>{/if}
-							{#each companies as company (company.id)}
-								{@const granted = item.companies.find((use) => use.id === company.id)}
-								<div class="access-row">
-									<strong>{company.name}</strong>
-									{#if granted}<span class="access-state"
-											>Available{granted.in_use ? ' · in use' : ''}</span
-										>{#if granted.in_use && confirmRevocation === `${item.id}:${company.id}`}
-											<span class="replace-warning" role="alert"
-												>AI work using this connection will stop until another is selected.</span
-											>
-											<button
-												class="text-button danger"
-												disabled={busyCompany}
-												onclick={() => void revoke(item, granted)}>Remove access now</button
-											>
-											<button
-												class="text-button"
-												disabled={busyCompany}
-												onclick={() => (confirmRevocation = '')}>Keep access</button
-											>
-										{:else}<button
-												class="text-button danger"
-												disabled={busyCompany}
-												onclick={() => {
-													if (granted.in_use) confirmRevocation = `${item.id}:${company.id}`;
-													else void revoke(item, granted);
-												}}>Remove access</button
-											>{/if}
-									{:else if selectedCompany === company.id}
-										<label class="model-picker"
-											><span>Model</span><select
-												value={selectedCustomModel ? '__custom' : selectedModel}
-												onchange={(event) => {
-													modelTouched = true;
-													selectedCustomModel = event.currentTarget.value === '__custom';
-													selectedModel = selectedCustomModel ? '' : event.currentTarget.value;
-												}}
-												aria-label={`Model for ${item.label} in ${company.name}`}
-												><option value="">Choose a model…</option
-												>{#each modelChoices(item.provider, item.kind) as model}<option
-														value={routeModel(item.provider, model.id)}
-														>{model.name ?? model.id}</option
-													>{/each}<option value="__custom">Custom model ID…</option></select
-											></label
-										>
-										{#if selectedCustomModel}<label class="model-picker"
-												><span>Full model ID</span><input
-													aria-label="Full model ID"
-													placeholder={`${item.provider}/model-id`}
-													bind:value={selectedModel}
-												/></label
-											>{/if}
-										<small class="model-source"
-											>{catalog.source(item.provider, item.kind) === 'connected'
-												? 'Models from this account’s connected runtime'
-												: 'Model suggestions; availability depends on this connection'}</small
-										>
-										<label class="model-picker"
-											><input type="checkbox" bind:checked={selectedMakeDefault} /> Use as this company’s
-											default model</label
-										>
-										{#if replaceRequired}<span class="replace-warning" role="alert"
-												>This replaces the current {providerName(item.provider)} connection for {company.name}.</span
-											><button
-												class="btn primary small"
-												disabled={busyCompany || !validModel(item.provider, selectedModel)}
-												onclick={() => void grant(item, company.id, true)}
-												>{busyCompany ? 'Replacing…' : 'Confirm replacement'}</button
-											><button
-												class="text-button"
-												disabled={busyCompany}
-												onclick={() => {
-													selectedCompany = '';
-													replaceRequired = false;
-												}}>Keep current</button
-											>
-										{:else}<button
-												class="btn primary small"
-												disabled={busyCompany ||
-													!validModel(item.provider, selectedModel) ||
-													item.status !== 'present'}
-												onclick={() => void grant(item, company.id)}
-												>{busyCompany ? 'Granting…' : 'Grant access'}</button
-											><button
-												class="text-button"
-												disabled={busyCompany}
-												onclick={() => (selectedCompany = '')}>Cancel</button
-											>{/if}
-									{:else}<button
-											class="btn small"
-											disabled={busyCompany || item.status !== 'present'}
-											onclick={() => {
-												selectedCompany = company.id;
-												selectedModel = defaultModel(item.provider, item.kind);
-												selectedCustomModel = false;
-												modelTouched = false;
-												selectedMakeDefault = false;
-												replaceRequired = false;
-											}}>Choose model and grant</button
-										>{/if}
-								</div>
-							{/each}
-							{#if !companies.length}<span class="unused">No active companies available.</span>{/if}
+						<div class="provider-copy">
+							<strong
+								>{row.title}{#if item && item.label
+										.trim()
+										.toLowerCase() !== row.title.toLowerCase()}<span class="provider-label"
+										>{item.label}</span
+									>{/if}</strong
+							>
+							<small title={item?.detail ?? undefined}
+								>{item?.account_identity ??
+									(item
+										? item.kind === 'oauth'
+											? 'Account sign-in'
+											: 'API key'
+										: row.oauth === 'codex'
+											? 'Sign in with ChatGPT'
+											: 'Sign in with Claude')}</small
+							>
 						</div>
-					{/if}
+						<div class="provider-uses">
+							{#if item?.companies.length}{#each item.companies as company (company.id)}<a
+										class="company-chip"
+										class:in-use={company.in_use}
+										title={company.in_use ? 'In use by this company' : 'Available to this company'}
+										href={`/${encodeURIComponent(company.id)}/company/provider`}>{company.name}</a
+									>{/each}{:else if item}<span class="unused">No company access</span>{/if}
+						</div>
+						<span
+							class="status"
+							class:connected={signedIn}
+							class:failed={item?.status === 'invalid' || item?.status === 'absent'}
+							>{item ? statusText(item) : 'Not connected'}</span
+						>
+						<div class="provider-actions">
+							{#if row.oauth && (!item || !signedIn) && accountScope === 'account'}<button
+									class="btn small"
+									class:primary={!!item}
+									disabled={!!oauthJob || checking}
+									onclick={() => void startSignIn(row.oauth!)}
+									>{oauthJob && oauthProvider === row.oauth
+										? 'Signing in…'
+										: item
+											? 'Reconnect'
+											: 'Connect'}</button
+								>{/if}
+							{#if item && signedIn && accountScope === 'account'}<button
+									class="btn small"
+									aria-expanded={managingId === item.id}
+									onclick={() => toggleManage(item)}
+									>{managingId === item.id ? 'Done' : 'Manage access'}</button
+								>{/if}
+							{#if item && accountScope === 'account'}<ActionMenu label={`${row.title} options`}
+									>{#if row.oauth && signedIn}<button
+											disabled={!!oauthJob}
+											onclick={() => void startSignIn(row.oauth!)}>Reconnect same account</button
+										>{/if}<button onclick={() => void refresh()}>Refresh status</button></ActionMenu
+								>{/if}
+						</div>
+					</div>
+					{#if row.oauth}{@render signInProgress(row.oauth)}{/if}
+					{#if item && managingId === item.id}{@render accessManager(item)}{/if}
 				</article>
 			{/each}
 		</section>
-	{:else if accountScope === 'company'}
-		<div class="empty">
-			<h2>No account connection is granted here yet</h2>
-			<p>Open your account, then choose Account settings to connect a provider and grant access.</p>
-			<a class="btn primary" href={manageUrl}>Open account ↗</a>
-		</div>
-	{:else if !addOpen}
-		<div class="empty">
-			<h2>No reusable connections yet</h2>
-			<p>
-				Save an API key or connect Codex or Claude above, then choose which companies can use it.
-			</p>
-			<button class="btn primary" onclick={() => (addOpen = true)}>Add your first connection</button
-			>
-		</div>
 	{/if}
+
 	<!-- Legacy sign-ins are shown only when some exist: "None." is not news. -->
-	{#if nativeLoading || nativeError || nativeSignIns.length}<section
-		class="native-section"
-		aria-label="Native sign-ins by company"
-	>
-		<div class="section-head">
-			<h2>Older company-only sign-ins</h2>
-			<button
-				class="text-button"
-				disabled={nativeLoading}
-				onclick={() => void refreshNativeSignIns(companies)}>Refresh status</button
+	{#if nativeLoading || nativeError || nativeSignIns.length}<details class="legacy">
+			<summary
+				><span class="legacy-chevron" aria-hidden="true">›</span>Company-only sign-ins
+				<span class="legacy-count"
+					>{nativeLoading ? 'Checking…' : nativeSignIns.length}{legacyProblems ===
+						nativeSignIns.length && legacyProblems
+						? ' · none signed in'
+						: legacyProblems
+							? ` · ${legacyProblems} not signed in`
+							: ''}</span
+				>
+				<InfoTip
+					text="Older sign-ins saved inside individual company computers. They do not affect the account connections above; give companies an account connection instead."
+				/></summary
 			>
-		</div>
-		<p>
-			Sign-ins saved inside individual company computers. They do not affect the account connections
-			above.
-		</p>
-		{#if nativeError}<p class="native-error" role="alert">{nativeError}</p>{/if}
-		{#if nativeLoading}<p role="status">Checking company sign-ins…</p>
-		{:else if nativeSignIns.length}
-			<div class="native-list">
+			<div class="legacy-body">
+				{#if nativeError}<p class="native-error" role="alert">{nativeError}</p>{/if}
 				{#each nativeSignIns as signIn (`${signIn.companyId}:${signIn.harness}`)}
 					<div class="native-row">
-						<strong>{signIn.harness === 'codex' ? 'ChatGPT / Codex' : 'Claude Code'}</strong>
-						<span>{signIn.companyName}</span>
+						<strong>{signIn.companyName}</strong>
+						<span>{signIn.harness === 'codex' ? 'ChatGPT / Codex' : 'Claude Code'}</span>
 						<span class="native-status" class:connected={signIn.state === 'connected'}
 							>{nativeStatus(signIn.state)}</span
 						>
@@ -822,108 +891,404 @@
 									>{importingCompany === signIn.companyId ? 'Adding…' : 'Add to account'}</button
 								>
 							{/if}
-							<a href={`/${encodeURIComponent(signIn.companyId)}/company/provider`}
-								>Manage in company ↗</a
-							>
+							<a href={`/${encodeURIComponent(signIn.companyId)}/company/provider`}>Open ↗</a>
 						</div>
 					</div>
 				{/each}
+				<button
+					class="text-button"
+					disabled={nativeLoading}
+					onclick={() => void refreshNativeSignIns(companies)}>Check again</button
+				>
 			</div>
-		{/if}
-	</section>{/if}
+		</details>{/if}
 </main>
 
 <style>
 	.account-connections {
-		width: 100%;
-		min-height: calc(100svh - 58px);
+		width: min(920px, 100%);
 		margin: 0;
-		padding: 42px clamp(20px, 5vw, 72px);
+		padding: 34px clamp(18px, 4vw, 44px) 48px;
 		box-sizing: border-box;
 	}
-	.page-head,
-	.connection-head,
-	.actions,
-	.company-list,
-	.uses {
+	.page-head {
 		display: flex;
 		align-items: center;
+		gap: var(--space-2);
+		margin-bottom: 22px;
 	}
-	.page-head,
-	.connection-head {
-		justify-content: space-between;
-		gap: var(--space-4);
+	.page-head-actions {
+		margin-left: auto;
+		display: flex;
+		gap: var(--space-2);
 	}
 	h1 {
 		margin: 0;
 		font-size: var(--t-title);
 		letter-spacing: -0.035em;
 	}
-	.native-section {
-		margin-top: 28px;
+
+	/* What blocks a company comes first, as one row and one action each. */
+	.needs-access {
+		display: grid;
+		margin-bottom: 18px;
+		border: 1px solid color-mix(in srgb, var(--intent-authority) 30%, var(--border));
+		border-radius: var(--radius-pane);
+		background: color-mix(in srgb, var(--intent-authority-soft) 60%, var(--surface-pane));
+	}
+	.needs-access-row {
+		display: grid;
+		grid-template-columns: 8px minmax(0, 1fr) auto;
+		align-items: center;
+		gap: 12px;
+		min-height: 48px;
+		padding: 8px 10px 8px 14px;
+		font-size: var(--t-body);
+	}
+	.needs-access-row + .needs-access-row {
+		border-top: 1px solid color-mix(in srgb, var(--intent-authority) 18%, var(--border));
+	}
+	.needs-access-row i {
+		width: 7px;
+		height: 7px;
+		border-radius: 50%;
+		background: var(--intent-authority);
+	}
+	.needs-access-row span {
+		color: var(--text-secondary);
+	}
+	.needs-access-row strong {
+		color: var(--ink);
+		font-weight: 600;
+	}
+
+	/* One list, one row per provider: who it is, which companies use it, its
+	 * state and one action. Detail opens inside the row it belongs to. */
+	.provider-list {
+		display: grid;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-pane);
+		background: var(--surface-pane);
+		overflow: hidden;
+	}
+	.provider-row + .provider-row {
+		border-top: 1px solid var(--border);
+	}
+	.provider-row.open {
+		background: color-mix(in srgb, var(--surface-alt) 45%, var(--surface-pane));
+	}
+	.provider-main {
+		display: grid;
+		grid-template-columns: 32px minmax(150px, 1fr) minmax(0, 1.1fr) auto auto;
+		align-items: center;
+		gap: 14px;
+		min-height: 62px;
+		padding: 10px 12px 10px 14px;
+	}
+	.provider-mark {
+		width: 32px;
+		height: 32px;
+		display: grid;
+		place-items: center;
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		background: var(--surface-alt);
+		color: var(--text-secondary);
+		font: 600 var(--t-label)/1 var(--font-mono);
+		letter-spacing: 0.02em;
+	}
+	.provider-mark.live {
+		border-color: color-mix(in srgb, var(--state-success) 35%, var(--border));
+		color: var(--state-success);
+	}
+	.provider-copy {
+		display: grid;
+		gap: 1px;
+		min-width: 0;
+	}
+	.provider-copy strong {
+		display: flex;
+		align-items: baseline;
+		gap: 6px;
+		font-size: var(--t-body);
+		font-weight: 600;
+	}
+	.provider-label {
+		color: var(--text-tertiary);
+		font-weight: 400;
+	}
+	.provider-copy small {
+		overflow: hidden;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.provider-uses {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+		min-width: 0;
+	}
+	.company-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		padding: 3px 8px;
+		border: 1px solid var(--border);
+		border-radius: 99px;
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+		text-decoration: none;
+	}
+	.company-chip.in-use::before {
+		content: '';
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: var(--state-success);
+	}
+	.company-chip:hover {
+		border-color: var(--intent-conversation);
+		color: var(--ink);
+	}
+	.status {
+		justify-self: end;
+		padding: 3px 8px;
+		border-radius: 99px;
+		background: var(--surface-alt);
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+		white-space: nowrap;
+	}
+	.status.connected {
+		color: var(--state-success);
+	}
+	.status.failed {
+		color: var(--state-danger);
+	}
+	.provider-actions {
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 6px;
+		min-width: 132px;
+	}
+	.sign-in-progress {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 10px 14px;
+		margin: 0 14px 12px 60px;
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+	}
+	.code {
+		font-family: var(--font-mono);
+		letter-spacing: 0.08em;
+		color: var(--ink);
+	}
+	.callback-label {
+		display: grid;
+		gap: 4px;
+		flex: 1 1 320px;
+		color: var(--text-tertiary);
+	}
+	.callback-label input,
+	.model-picker select,
+	.model-picker input:not([type='checkbox']),
+	.form-grid input,
+	.form-grid select {
+		width: 100%;
+		min-width: 0;
+		min-height: 34px;
+		padding: 5px 9px;
+		border: 1px solid var(--control-edge);
+		border-radius: var(--radius-control);
+		background: var(--surface-pane);
+		color: var(--ink);
+		font: inherit;
+		box-sizing: border-box;
+	}
+	.access-manager {
+		display: grid;
+		margin: 0 12px 12px 60px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-control);
+		background: var(--surface-pane);
+	}
+	.access-row {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 8px 10px;
+		min-height: 44px;
+		padding: 6px 8px 6px 12px;
+	}
+	.access-row + .access-row {
+		border-top: 1px solid var(--border);
+	}
+	.access-row.selected {
+		background: color-mix(in srgb, var(--intent-conversation-soft) 55%, transparent);
+	}
+	.access-row > strong {
+		margin-right: auto;
+		font-size: var(--t-body);
+		font-weight: 500;
+	}
+	.access-state,
+	.unused {
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+	.model-picker {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+	.model-picker select {
+		width: auto;
+		max-width: 220px;
+	}
+	.replace-warning {
+		flex-basis: 100%;
+		color: var(--state-danger);
+		font-size: var(--t-label);
+		line-height: 1.45;
+	}
+	.text-button {
+		padding: 4px 6px;
+		border: 0;
+		border-radius: var(--radius-control);
+		background: transparent;
+		color: var(--text-secondary);
+		font: inherit;
+		font-size: var(--t-label);
+		cursor: pointer;
+	}
+	.text-button:hover {
+		background: var(--surface-alt);
+		color: var(--ink);
+	}
+	.text-button.danger {
+		color: var(--state-danger);
+	}
+	.add-form {
+		margin-bottom: 18px;
+		padding: 16px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-pane);
+		background: var(--surface-pane);
+		animation: bridge-popover-in var(--motion-disclosure) var(--ease-spring) both;
+	}
+	.form-grid {
+		display: grid;
+		grid-template-columns: 220px 1fr;
+		gap: var(--space-3);
+	}
+	.form-grid label {
+		display: grid;
+		gap: var(--space-1);
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+	}
+	.form-grid .full {
+		grid-column: 1 / -1;
+	}
+	.actions {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: var(--space-3);
+		margin-top: var(--space-3);
+	}
+	.error {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: var(--space-3);
+		margin-bottom: 18px;
+		padding: var(--space-3);
+		color: var(--state-danger);
+		background: color-mix(in srgb, var(--state-danger) 7%, var(--surface-pane));
+		border-radius: var(--radius-control);
+	}
+	.empty {
+		display: grid;
+		justify-items: start;
+		gap: 12px;
 		padding: 20px;
 		border: 1px solid var(--border);
 		border-radius: var(--radius-pane);
 		background: var(--surface-pane);
 	}
-	.section-head {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-3);
-	}
-	.section-head h2 {
+	.empty h2 {
 		margin: 0;
 		font-size: var(--t-head);
 	}
-	.native-section p {
-		margin: 8px 0 0;
+
+	/* Older company-only sign-ins: history, folded away with a count. */
+	.legacy {
+		margin-top: 22px;
+		color: var(--text-secondary);
+		font-size: var(--t-body);
+	}
+	.legacy summary {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		width: fit-content;
+		padding: 4px 6px 4px 2px;
+		border-radius: var(--radius-control);
+		cursor: pointer;
+		list-style: none;
+	}
+	.legacy summary::-webkit-details-marker {
+		display: none;
+	}
+	.legacy summary::before {
+		content: none !important;
+	}
+	.legacy summary:hover {
+		color: var(--ink);
+	}
+	.legacy-chevron {
+		display: inline-block;
+		transition: transform var(--motion-state) var(--ease-standard);
+	}
+	.legacy[open] .legacy-chevron {
+		transform: rotate(90deg);
+	}
+	.legacy-count {
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
-		line-height: 1.5;
 	}
-	.native-section .native-error {
-		color: var(--state-danger);
-	}
-	.callback-label {
+	.legacy-body {
 		display: grid;
-		gap: var(--space-2);
-		max-width: 720px;
-		margin: 16px 0 12px;
-		color: var(--text-secondary);
+		justify-items: start;
+		margin-top: 8px;
+		padding: 4px 0 0;
+	}
+	.native-error {
+		margin: 0 0 8px;
+		color: var(--state-danger);
 		font-size: var(--t-label);
-	}
-	.callback-label input {
-		width: 100%;
-		padding: 10px 12px;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-control);
-		background: var(--surface-pane);
-		color: var(--ink);
-		font: inherit;
-	}
-	.native-list {
-		margin-top: 16px;
-		border-top: 1px solid var(--border);
 	}
 	.native-row {
 		display: grid;
-		grid-template-columns: minmax(150px, 1.2fr) minmax(140px, 1fr) 120px auto;
+		grid-template-columns: minmax(140px, 1fr) minmax(120px, 1fr) 120px auto;
 		align-items: center;
 		gap: var(--space-3);
-		min-height: 48px;
-		padding: 8px 0;
+		width: 100%;
+		min-height: 40px;
 		border-bottom: 1px solid var(--border);
 		font-size: var(--t-label);
 	}
 	.native-row strong {
-		font-weight: 600;
-	}
-	.native-row > span:not(.native-status) {
-		color: var(--text-secondary);
-	}
-	.native-status {
-		color: var(--text-secondary);
+		color: var(--ink);
+		font-weight: 500;
 	}
 	.native-status.connected {
 		color: var(--state-success);
@@ -936,254 +1301,67 @@
 		white-space: nowrap;
 	}
 	.native-row a {
-		justify-self: end;
 		color: var(--intent-conversation);
 		text-decoration: none;
 	}
 	.native-row a:hover {
 		text-decoration: underline;
 	}
-	.native-row a:focus-visible {
+	.legacy-body .text-button {
+		margin-top: 8px;
+	}
+	:is(.native-row a, .company-chip, .text-button):focus-visible {
 		outline: 2px solid var(--intent-conversation);
-		outline-offset: 3px;
-	}
-	.add-form p,
-	.connection-head span,
-	.connection-detail,
-	.unused {
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-		line-height: 1.5;
-	}
-	.connection-list {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr);
-		gap: 14px;
-		margin-top: 30px;
-	}
-	.connection,
-	.add-form,
-	.empty {
-		padding: 20px;
-		background: var(--surface-pane);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-pane);
-	}
-	.connection {
-		min-height: 150px;
-		box-shadow: 0 1px 2px rgb(20 24 30 / 3%);
-	}
-	.connection-head h2,
-	.add-form h2,
-	.empty h2 {
-		margin: 0 0 3px;
-		font-size: var(--t-head);
-	}
-	.connection-head > div {
-		display: grid;
-		gap: 2px;
-	}
-	.account-identity {
-		color: var(--text-secondary);
-		font-size: var(--t-label);
-		overflow-wrap: anywhere;
-	}
-	.status {
-		flex: none;
-		padding: 4px 8px;
-		border-radius: 99px;
-		background: var(--surface-alt);
-	}
-	.status.connected {
-		color: var(--state-success);
-	}
-	.uses {
-		flex-wrap: wrap;
-		gap: var(--space-3);
-		padding-top: var(--space-3);
-		margin-top: var(--space-3);
-		border-top: 1px solid var(--border);
-		font-size: var(--t-label);
-	}
-	.uses > strong {
-		color: var(--text-secondary);
-		font-weight: 500;
-	}
-	.company-list {
-		flex-wrap: wrap;
-		gap: var(--space-2);
-	}
-	.company-list a {
-		display: inline-flex;
-		gap: var(--space-1);
-		padding: 5px 8px;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-control);
-		color: var(--ink);
-		text-decoration: none;
-	}
-	.company-list a:hover {
-		border-color: var(--intent-conversation);
-	}
-	.connection-controls {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 12px;
-		margin-top: 12px;
-	}
-	.connection-kind {
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	.access-manager {
-		display: grid;
-		gap: 8px;
-		margin-top: 12px;
-		padding-top: 12px;
-		border-top: 1px solid var(--border);
-	}
-	.access-row {
-		display: flex;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: 10px;
-		min-height: 38px;
-	}
-	.access-row > strong {
-		margin-right: auto;
-		font-size: var(--t-label);
-		font-weight: 500;
-	}
-	.access-state {
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	.model-picker {
-		display: inline-grid;
-		gap: 4px;
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	.model-picker select,
-	.model-picker input {
-		min-height: 36px;
-		padding: 4px 8px;
-		border: 1px solid var(--control-edge);
-		border-radius: var(--radius-control);
-		color: var(--ink);
-		background: var(--surface-pane);
-		font: inherit;
-	}
-	.model-source {
-		flex-basis: 100%;
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	.replace-warning {
-		flex-basis: 100%;
-		color: var(--state-danger);
-		font-size: var(--t-label);
-		line-height: 1.45;
-	}
-	.add-form {
-		max-width: 900px;
-		margin-top: 26px;
-	}
-	.add-form p {
-		margin: var(--space-2) 0 var(--space-4);
-	}
-	.form-grid {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: var(--space-3);
-	}
-	.form-grid label {
-		display: grid;
-		gap: var(--space-1);
-		color: var(--text-secondary);
-		font-size: var(--t-label);
-	}
-	.form-grid .full {
-		grid-column: 1 / -1;
-	}
-	.form-grid input,
-	.form-grid select {
-		width: 100%;
-		min-width: 0;
-		min-height: 40px;
-		padding: var(--space-2) var(--space-3);
-		border: 1px solid var(--control-edge);
-		border-radius: var(--radius-control);
-		color: var(--ink);
-		background: var(--surface-pane);
-		font: inherit;
-	}
-	.actions {
-		flex-wrap: wrap;
-		gap: var(--space-2);
-		margin-top: var(--space-4);
-	}
-	.error {
-		display: flex;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: var(--space-3);
-		padding: var(--space-3);
-		margin-top: var(--space-4);
-		color: var(--state-danger);
-		background: color-mix(in srgb, var(--state-danger) 7%, var(--surface-pane));
-		border-radius: var(--radius-control);
-	}
-	.empty {
-		margin-top: 30px;
-		color: var(--text-secondary);
-	}
-	.empty p {
-		max-width: 540px;
-		color: var(--text-tertiary);
-		line-height: 1.5;
+		outline-offset: 2px;
 	}
 	@media (max-width: 860px) {
+		.provider-main {
+			grid-template-columns: 32px minmax(0, 1fr) auto;
+		}
+		.provider-uses {
+			grid-column: 2 / -1;
+			grid-row: 2;
+		}
+		.status {
+			grid-column: 3;
+			grid-row: 1;
+		}
+		.provider-actions {
+			grid-column: 2 / -1;
+			grid-row: 3;
+			justify-content: flex-start;
+			min-width: 0;
+		}
+		.sign-in-progress,
+		.access-manager {
+			margin-left: 14px;
+		}
 		.native-row {
 			grid-template-columns: 1fr auto;
+			padding: 6px 0;
 		}
 		.native-row > span:not(.native-status) {
 			grid-column: 1;
 			grid-row: 2;
 		}
-		.native-status {
-			grid-column: 2;
-			grid-row: 1;
-		}
 		.native-actions {
-			grid-column: 1 / -1;
-			grid-row: 3;
-			justify-content: flex-start;
-			flex-wrap: wrap;
+			grid-column: 2;
+			grid-row: 2;
 		}
 	}
 	@media (max-width: 620px) {
 		.account-connections {
-			min-height: auto;
-			padding: 26px 20px 36px;
-		}
-		.page-head {
-			align-items: flex-start;
-			flex-direction: column;
-		}
-		.page-head > button {
-			width: 100%;
+			padding: 20px 14px 32px;
 		}
 		.form-grid {
 			grid-template-columns: 1fr;
 		}
-		.form-grid .full {
-			grid-column: auto;
+		.needs-access-row {
+			grid-template-columns: 8px minmax(0, 1fr);
 		}
-		.connection-head {
-			align-items: flex-start;
-			flex-direction: row;
+		.needs-access-row button {
+			grid-column: 2;
+			justify-self: start;
 		}
 	}
 </style>

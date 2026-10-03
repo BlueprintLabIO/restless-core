@@ -55,6 +55,32 @@
 			.catch(() => (error = 'Other companies could not be loaded.'));
 	});
 
+	// The panel floats like a menu, so it closes like one: Escape or a click elsewhere.
+	let root = $state<HTMLDivElement>();
+	$effect(() => {
+		if (!open) return;
+		const close = () => {
+			if (!busy) open = false;
+		};
+		const key = (event: KeyboardEvent) => event.key === 'Escape' && close();
+		const pointer = (event: PointerEvent) => {
+			if (!root?.contains(event.target as Node)) close();
+		};
+		window.addEventListener('keydown', key);
+		document.addEventListener('pointerdown', pointer, true);
+		return () => {
+			window.removeEventListener('keydown', key);
+			document.removeEventListener('pointerdown', pointer, true);
+		};
+	});
+
+	// The confirmation floats over the page, so it leaves on its own.
+	$effect(() => {
+		if (!notice) return;
+		const timer = setTimeout(() => (notice = ''), 5000);
+		return () => clearTimeout(timer);
+	});
+
 	function describe(value: unknown): string {
 		if (value === null || value === undefined || value === '') return 'Not set';
 		if (typeof value === 'object') return JSON.stringify(value);
@@ -109,7 +135,7 @@
 </script>
 
 {#if companies.length}
-	<div class="copy-setting">
+	<div class="copy-setting" bind:this={root}>
 		<ActionMenu label={`${label} options`}
 			><button
 				class="copy-toggle"
@@ -127,7 +153,11 @@
 			</button></ActionMenu
 		>
 		{#if open}
-			<div class="copy-panel">
+			<div
+				class="copy-panel"
+				role="dialog"
+				aria-label={`Copy ${label.toLowerCase()} from another company`}
+			>
 				<label
 					>Source company
 					<select
@@ -183,11 +213,12 @@
 {/if}
 
 <style>
+	/* The trigger sits inside a heading row and takes no layout of its own; the
+	 * copy panel and its confirmation float from it instead of pushing content. */
 	.copy-setting {
-		display: flex;
-		justify-content: flex-end;
-		flex-wrap: wrap;
-		margin-block: 4px;
+		position: relative;
+		display: inline-flex;
+		flex: none;
 	}
 	.copy-toggle {
 		color: var(--text-secondary);
@@ -205,13 +236,30 @@
 		display: grid;
 		justify-items: start;
 		gap: var(--space-3);
-		width: 100%;
-		max-width: 560px;
-		margin-top: var(--space-3);
+		position: absolute;
+		z-index: 30;
+		top: calc(100% + 6px);
+		right: 0;
+		width: min(420px, calc(100vw - 32px));
 		padding: var(--space-4);
-		border: 1px solid var(--border);
+		border: 1px solid var(--border-strong);
 		border-radius: var(--radius-pane);
 		background: var(--surface-pane);
+		box-shadow: var(--shadow-lift);
+		text-align: left;
+	}
+	.copy-notice {
+		position: absolute;
+		top: calc(100% + 6px);
+		right: 0;
+		z-index: 30;
+		width: max-content;
+		max-width: min(320px, calc(100vw - 32px));
+		padding: 6px 10px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-control);
+		background: var(--surface-pane);
+		box-shadow: var(--shadow-soft);
 	}
 	.copy-panel label {
 		display: grid;

@@ -383,7 +383,7 @@
 					>Your decision<textarea
 						bind:value={decision}
 						rows="3"
-						placeholder={item.requestedAction || 'Tell the team how to proceed…'}
+						placeholder="Type your answer…"
 						disabled={acting}
 						oninput={grow}
 						onkeydown={(event) => {
@@ -394,15 +394,18 @@
 						}}></textarea></label
 				>
 			{/if}
-			<button
-				class="btn small primary"
-				disabled={acting || !decisionReady}
-				title={!decisionReady
-					? 'Enter your decision to continue'
-					: `${record.consequence} ${record.nextState} ${item.ifNoAction}`}
-				aria-keyshortcuts="Meta+Enter Control+Enter">{acting ? 'Recording…' : record.label}</button
-			>
-			<span class="submit-hint">⌘ / Ctrl ↵</span>
+			<div class="decision-submit">
+				<button
+					class="btn small primary"
+					disabled={acting || !decisionReady}
+					title={!decisionReady
+						? 'Enter your decision to continue'
+						: `${record.consequence} ${record.nextState} ${item.ifNoAction}`}
+					aria-keyshortcuts="Meta+Enter Control+Enter"
+					>{acting ? 'Recording…' : record.label}</button
+				>
+				{#if !fields.length}<kbd class="submit-hint">⌘ / Ctrl ↵</kbd>{/if}
+			</div>
 		</form>
 	{/if}
 	{#if error}<p class="error" role="alert">{error}</p>{/if}
@@ -410,7 +413,8 @@
 
 <style>
 	.request {
-		font-weight: 500;
+		font-size: var(--t-body);
+		font-weight: 600;
 		line-height: 1.6;
 		margin-bottom: 20px;
 	}
@@ -420,12 +424,14 @@
 	.request :global(.md > :last-child) {
 		margin-bottom: 0;
 	}
+	.decision-submit {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+	}
 	.submit-hint {
 		color: var(--text-tertiary);
-		font-size: var(--t-label);
-		justify-self: end;
-		margin-top: -30px;
-		pointer-events: none;
+		font: var(--t-label) var(--font-ui);
 	}
 	.decision-fields {
 		display: grid;
@@ -481,10 +487,6 @@
 		flex-shrink: 0;
 		color: var(--intent-authority);
 		font-size: var(--t-label);
-	}
-	.request {
-		font-size: var(--t-body);
-		font-weight: 600;
 	}
 	.mandate-judgement-warning {
 		margin: 12px 0 0;

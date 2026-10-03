@@ -146,13 +146,20 @@
 					class:connected={c.auth.state === 'connected' || c.auth.state === 'key_saved'}
 					class:failed={['failed', 'unavailable', 'expired'].includes(c.auth.state)}
 					class="status"
-					role="status">{status(c.auth.state)}</span
+					role="status"
+					title={isInUse(c.harness) ? undefined : 'No current agent route uses this profile.'}
+					>{status(c.auth.state)}{isInUse(c.harness) ? '' : ' · not in use'}</span
 				>
 			</header>
-			{#if !isInUse(c.harness)}<p>This profile is not used by a current agent route.</p>{/if}
 			{#if c.auth.account?.email}<p>{c.auth.account.email}</p>{/if}
 			<div class="row actions">
-				<button class="btn primary small" disabled={!!busy} onclick={() => act(c, 'login')}
+				<!-- A profile no agent route uses is not the company's next step, so its
+				     sign-in stays secondary rather than competing with the page's work. -->
+				<button
+					class="btn small"
+					class:primary={isInUse(c.harness)}
+					disabled={!!busy}
+					onclick={() => act(c, 'login')}
 					>{busy === c.harness
 						? 'Working…'
 						: `Sign in with ${c.harness === 'codex' ? 'ChatGPT' : 'Claude'}`}</button

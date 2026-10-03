@@ -5,7 +5,6 @@
 	import { page } from '$app/state';
 	import { onMount, untrack } from 'svelte';
 	import Activity from '@lucide/svelte/icons/activity';
-	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 	import ArrowUpRight from '@lucide/svelte/icons/arrow-up-right';
 	import Monitor from '@lucide/svelte/icons/monitor';
 	import { desktopWindows, focusDesktopWindow, type DesktopWindow } from '$lib/model/desktop';
@@ -458,18 +457,6 @@
 	</div>
 {:else}
 	<div class="company-computer-portal">
-		<header class="computer-portal-nav">
-			<a href={`/${companyId}/company`} title="Back to Company" aria-label="Back to Company"
-				><ArrowLeft size={14} strokeWidth={1.8} /> <span>Company</span></a
-			>
-			<a href={`/${companyId}/company/doctor`}>
-				<Activity size={14} strokeWidth={1.8} />
-				Doctor
-				{#if view}<i class="doctor-dot check-{view.computer.doctor.status}" aria-hidden="true"
-					></i>{/if}
-			</a>
-		</header>
-
 		{#if error}<div class="computer-error portal-error" role="alert">{error}</div>{/if}
 
 		<main class="computer-portal-stage">

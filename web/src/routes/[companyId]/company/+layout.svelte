@@ -15,6 +15,7 @@
 	import Fingerprint from '@lucide/svelte/icons/fingerprint';
 	import Users from '@lucide/svelte/icons/users';
 	import Sparkles from '@lucide/svelte/icons/sparkles';
+	import Keyboard from '@lucide/svelte/icons/keyboard';
 	import { companyPrincipalQuery, companiesQuery, companyQuery } from '$lib/model/queries.svelte';
 	import { COMPANY_PAGES, companyPageHref } from '$lib/model/company-pages';
 
@@ -153,10 +154,13 @@
 					</a>
 				{/each}
 			</nav>
-			<span
+			<!-- Shortcuts are a hover explanation, not a caption under the navigation. -->
+			<button
+				type="button"
 				class="company-keyboard-hint"
-				title="Move between pages with Alt + Shift + ↑ / ↓. Press E to edit the charter or identity."
-				>Alt ⇧ ↑ / ↓ <span aria-hidden="true">·</span> E edit</span
+				aria-label="Keyboard shortcuts: Alt + Shift + Up or Down moves between pages; E edits the charter or identity."
+				title="Alt + Shift + ↑ / ↓ moves between pages. E edits the charter or identity."
+				><Keyboard size={15} strokeWidth={1.7} aria-hidden="true" /></button
 			>
 		</aside>
 		<section class="company-canvas">{@render children()}</section>
@@ -165,11 +169,22 @@
 
 <style>
 	.company-keyboard-hint {
-		display: block;
-		margin: auto 12px 12px;
-		padding-top: 16px;
-		font-size: var(--t-label);
+		display: grid;
+		place-items: center;
+		width: 28px;
+		height: 28px;
+		margin: auto 8px 8px;
+		padding: 0;
+		border: 0;
+		border-radius: var(--radius-control);
+		background: transparent;
 		color: var(--text-tertiary);
+		cursor: help;
+	}
+	.company-keyboard-hint:hover,
+	.company-keyboard-hint:focus-visible {
+		background: var(--surface-alt);
+		color: var(--text-secondary);
 	}
 	@media (max-width: 640px) {
 		.company-keyboard-hint {

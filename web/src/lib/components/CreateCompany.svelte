@@ -82,7 +82,7 @@
 			stroke="currentColor"
 			stroke-width="2"
 			aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg
-		><span class="add-company-label">New</span>
+		><span class="add-company-label">New company</span>
 	</button>
 	{#if open}
 		<div class="create-popover" role="dialog" aria-label="Start a company">

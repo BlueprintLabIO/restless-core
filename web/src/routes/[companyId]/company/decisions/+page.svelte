@@ -60,8 +60,9 @@
 							<div class="decision-summary">
 								<strong>{workTitle(decision.workId, decision.title)}</strong><span
 									title={decision.recordedDecision}
-									>{decision.recordedDecision}{#if decisionOwner(decision.id)}
-										· {decisionOwner(decision.id)}{/if}</span
+									>{decision.recordedDecision}{#if decisionOwner(decision.id)}{' · '}{decisionOwner(
+											decision.id
+										)}{/if}</span
 								>
 							</div>
 							<time title={formatMoment(decision.observedAt)}>{when(decision.observedAt)}</time>

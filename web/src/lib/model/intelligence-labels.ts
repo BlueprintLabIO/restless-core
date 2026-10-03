@@ -27,6 +27,15 @@ function providerName(provider: string): string {
 	);
 }
 
+/* "ChatGPT / Codex · ChatGPT / Codex" says nothing twice: a connection whose
+ * saved name is just its provider's name is called by that name once. */
+function named(provider: string, label: string | null | undefined): string {
+	const trimmed = label?.trim();
+	return trimmed && trimmed.toLowerCase() !== provider.toLowerCase()
+		? `${provider} · ${trimmed}`
+		: provider;
+}
+
 /** The owner-facing name of a connection id, using the listed connection when known. */
 export function connectionLabel(
 	id: string | null | undefined,
@@ -36,12 +45,11 @@ export function connectionLabel(
 	const known = connections.find((connection) => connection.id === id);
 	if (id.startsWith('account-harness:')) {
 		const harness = id.slice('account-harness:'.length).split(':')[0];
-		const name = HARNESS_NAMES[harness] ?? harness;
-		return known?.label ? `${name} · ${known.label}` : name;
+		return named(HARNESS_NAMES[harness] ?? harness, known?.label);
 	}
 	if (id.startsWith('account:')) {
 		const provider = known?.provider ?? id.slice('account:'.length).split('@')[0];
-		return known?.label ? `${providerName(provider)} · ${known.label}` : providerName(provider);
+		return named(providerName(provider), known?.label);
 	}
 	if (id.startsWith('harness:custom:'))
 		return known?.provider ?? id.slice('harness:custom:'.length);
