@@ -1,8 +1,22 @@
 <script lang="ts">
 	import { Streamdown } from 'svelte-streamdown';
 	import Code from 'svelte-streamdown/code';
+	import FileText from '@lucide/svelte/icons/file-text';
+	import Sheet from '@lucide/svelte/icons/sheet';
+	import Workflow from '@lucide/svelte/icons/workflow';
+	import UserRound from '@lucide/svelte/icons/user-round';
+	import File from '@lucide/svelte/icons/file';
 
-	let { text, streaming = false }: { text: string; streaming?: boolean } = $props();
+	let {
+		text,
+		streaming = false,
+		onreference
+	}: {
+		text: string;
+		streaming?: boolean;
+		/** Opens a company file an agent linked to; without it such links stay plain. */
+		onreference?: (path: string, label: string) => void;
+	} = $props();
 	const origin = typeof window === 'undefined' ? undefined : window.location.origin;
 	// No raw HTML or model-supplied components: Markdown becomes Svelte nodes,
 	// with Streamdown's URL checks at the link/image boundary.
@@ -10,7 +24,90 @@
 		code: { header: 'md-code-header', buttons: 'md-code-buttons', line: 'md-code-line' },
 		components: { button: 'md-code-button' }
 	};
+
+	/* What a link points at decides how it reads: a company file or a place in
+	 * the cockpit is a chip naming the thing; anything else stays a link. */
+	type Reference = { kind: 'file' | 'doc' | 'sheet' | 'work' | 'person'; path?: string };
+	function referenceOf(href: string | undefined): Reference | null {
+		if (!href) return null;
+		let url: URL;
+		try {
+			url = new URL(href, origin ?? 'http://local');
+		} catch {
+			return null;
+		}
+		if (origin && url.origin !== origin) return null;
+		if (url.pathname.startsWith('/company/'))
+			return { kind: 'file', path: decodeURIComponent(url.pathname).replace(/:\d+$/, '') };
+		if (/\/library\/documents$/.test(url.pathname)) return { kind: 'doc' };
+		if (/\/library\/sheets$/.test(url.pathname)) return { kind: 'sheet' };
+		if (/\/work\/[^/]+$/.test(url.pathname)) return { kind: 'work' };
+		if (/\/people$/.test(url.pathname) && url.searchParams.has('person')) return { kind: 'person' };
+		return null;
+	}
+	const ICONS = { file: FileText, doc: FileText, sheet: Sheet, work: Workflow, person: UserRound };
+
+	/* A quote that opens with one of these words is a callout the owner can
+	 * spot without reading the paragraph around it. */
+	const CALLOUTS: [RegExp, string][] = [
+		[/^\s*(\*\*)?(needs you|decision needed|your call)\b/i, 'needs'],
+		[/^\s*(\*\*)?(blocked|blocker)\b/i, 'blocked'],
+		[/^\s*(\*\*)?(done|shipped|ready)\b/i, 'done'],
+		[/^\s*(\*\*)?(risk|warning|caution)\b/i, 'risk']
+	];
+	function calloutOf(raw: string): string {
+		const body = raw.replace(/^\s*>\s?/gm, '');
+		return CALLOUTS.find(([pattern]) => pattern.test(body))?.[1] ?? '';
+	}
 </script>
+
+{#snippet link({
+	href,
+	children,
+	token
+}: {
+	href?: string;
+	children: import('svelte').Snippet;
+	token: { href: string; title?: string | null };
+})}
+	{@const reference = referenceOf(token.href ?? href)}
+	{#if reference?.kind === 'file' && reference.path && onreference}
+		{@const Icon = File}
+		<button
+			type="button"
+			class="md-ref file"
+			title={`Open ${reference.path}`}
+			onclick={() =>
+				onreference(reference.path!, reference.path!.split('/').pop() ?? reference.path!)}
+			><Icon size={13} strokeWidth={1.9} aria-hidden="true" />{@render children()}</button
+		>
+	{:else if reference && reference.kind !== 'file'}
+		{@const Icon = ICONS[reference.kind]}
+		<a class="md-ref {reference.kind}" href={token.href} title={token.title ?? undefined}
+			><Icon size={13} strokeWidth={1.9} aria-hidden="true" />{@render children()}</a
+		>
+	{:else}
+		<a
+			href={href ?? token.href}
+			title={token.title ?? undefined}
+			target={href && !href.startsWith('/') ? '_blank' : undefined}
+			rel="noopener noreferrer">{@render children()}</a
+		>
+	{/if}
+{/snippet}
+
+{#snippet blockquote({
+	children,
+	token
+}: {
+	children: import('svelte').Snippet;
+	token: { raw: string };
+})}
+	{@const callout = calloutOf(token.raw)}
+	<blockquote class:md-callout={!!callout} data-callout={callout || undefined}>
+		{@render children()}
+	</blockquote>
+{/snippet}
 
 <div class="markdown">
 	<Streamdown
@@ -25,6 +122,8 @@
 		controls={{ code: { copy: true, download: false }, table: false, mermaid: false }}
 		components={{ code: Code }}
 		{theme}
+		{link}
+		{blockquote}
 	/>
 </div>
 
@@ -126,11 +225,66 @@
 		text-decoration: underline;
 		text-underline-offset: 2px;
 	}
+	/* A reference reads as the thing it names, not as underlined prose. */
+	.markdown :global(.md-ref) {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		max-width: 100%;
+		margin: 0 1px;
+		padding: 0 6px;
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		background: var(--surface-raised);
+		color: var(--ink);
+		font: inherit;
+		line-height: 1.55;
+		text-decoration: none;
+		vertical-align: baseline;
+		cursor: pointer;
+		transition:
+			border-color var(--motion-state) var(--ease-standard),
+			background-color var(--motion-state) var(--ease-standard);
+	}
+	.markdown :global(.md-ref:hover) {
+		border-color: var(--border-strong);
+		background: var(--surface-hover);
+	}
+	.markdown :global(.md-ref svg) {
+		flex: none;
+		color: var(--text-tertiary);
+	}
 	.markdown :global(blockquote) {
 		margin: 0 0 0.6em;
 		padding-left: 0.8em;
 		border-left: 2px solid currentColor;
 		opacity: 0.85;
+	}
+	.markdown :global(.md-callout) {
+		padding: 8px 10px;
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		background: var(--surface-raised);
+		color: var(--ink);
+		opacity: 1;
+	}
+	.markdown :global(.md-callout > :last-child) {
+		margin-bottom: 0;
+	}
+	.markdown :global(.md-callout[data-callout='needs']) {
+		border-color: color-mix(in srgb, var(--state-warning) 40%, var(--border));
+		background: color-mix(in srgb, var(--state-warning) 8%, var(--surface-raised));
+	}
+	.markdown :global(.md-callout[data-callout='blocked']) {
+		border-color: color-mix(in srgb, var(--state-danger) 36%, var(--border));
+		background: color-mix(in srgb, var(--state-danger) 6%, var(--surface-raised));
+	}
+	.markdown :global(.md-callout[data-callout='done']) {
+		border-color: color-mix(in srgb, var(--state-success) 36%, var(--border));
+		background: color-mix(in srgb, var(--state-success) 6%, var(--surface-raised));
+	}
+	.markdown :global(.md-callout[data-callout='risk']) {
+		border-color: color-mix(in srgb, var(--state-danger) 24%, var(--border));
 	}
 	.markdown :global(hr) {
 		margin: 0.9em 0;

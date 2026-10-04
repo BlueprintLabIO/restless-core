@@ -17,6 +17,7 @@
 		message,
 		presentation = null,
 		hrefFor,
+		companyId = '',
 		author,
 		isYou = false,
 		isAgent = false,
@@ -42,6 +43,8 @@
 		message: RoomMessageRecord;
 		presentation?: ThreadMessage | null;
 		hrefFor?: (attachment: MessageAttachment) => string;
+		/** Lets files an agent names in this message open in place. */
+		companyId?: string;
 		author: string;
 		isYou?: boolean;
 		isAgent?: boolean;
@@ -256,6 +259,8 @@
 			intent={message.edited_at ? null : (presentation?.intent ?? null)}
 			{hrefFor}
 			{continued}
+			messageId={message.id > 0 ? String(message.id) : ''}
+			{companyId}
 			embedded
 		>
 			{#snippet headerExtra()}

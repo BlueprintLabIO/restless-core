@@ -664,6 +664,12 @@ struct ReviewTicketRequest {
     item_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MessageReferenceQuery {
+    path: String,
+}
+
 #[derive(Debug, Serialize)]
 struct ReviewTicketResponse {
     review_url: String,
@@ -1587,6 +1593,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route(
             "/companies/{company}/reviews/ticket",
             post(issue_review_ticket),
+        )
+        .route(
+            "/companies/{company}/messages/{message}/reference",
+            get(message_reference),
         )
         .route("/companies/{company}/browser/status", get(browser_status))
         .route("/companies/{company}/desktop/windows", get(desktop_windows))
@@ -9719,6 +9729,114 @@ async fn issue_review_ticket(
         review_url,
         expires_in_seconds: REVIEW_TTL.as_secs(),
     })
+    .into_response()
+}
+
+/// Open a company file that an agent pointed the owner to in a message. This
+/// is not general file serving: the path must appear in that exact message,
+/// sit beneath /company, and pass the same bounded reads a prepared review
+/// uses. Markdown and plain text come back as text; other presentable files
+/// get a short-lived ticket on the isolated review origin.
+async fn message_reference(
+    State(state): State<OwnerState>,
+    AxumPath((company, message_id)): AxumPath<(String, i64)>,
+    Query(query): Query<MessageReferenceQuery>,
+) -> impl IntoResponse {
+    let path = query.path.trim().to_string();
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
+        }
+    };
+    match org.current_message_text(message_id).await {
+        Ok(Some(text)) if !path.is_empty() && text.contains(path.as_str()) => {}
+        Ok(_) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "reference",
+                "that message does not point to this file",
+            )
+        }
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
+        }
+    }
+    if runtime::is_runtime_review_text_target(&path) {
+        return match runtime::read_runtime_review_text(&company, &path).await {
+            Ok(markdown) => Json(serde_json::json!({
+                "kind": "text",
+                "path": path,
+                "markdown": markdown,
+            }))
+            .into_response(),
+            Err(error) => api_error(
+                StatusCode::NOT_FOUND,
+                "reference",
+                format!("the file could not be read: {error:#}"),
+            ),
+        };
+    }
+    let (root, entry) = match runtime::runtime_review_file_root(&path) {
+        Ok(value) => value,
+        Err(error) => {
+            return api_error(
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                "reference",
+                format!("{error:#}"),
+            )
+        }
+    };
+    let Some(generation) = runtime::generation(&company).await.ok().flatten() else {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "runtime",
+            "the company computer is not running",
+        );
+    };
+    if let Err(error) = runtime::probe_runtime_review_file(&company, &path).await {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "reference",
+            format!("the file is unavailable: {error:#}"),
+        );
+    }
+    let ticket = Uuid::new_v4().simple().to_string();
+    let (review_url, expected_host) =
+        match materialize_review_url(&state.review_public_url, &ticket, &format!("/{entry}")) {
+            Ok(value) => value,
+            Err(error) => {
+                return api_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "review",
+                    format!("review origin is invalid: {error:#}"),
+                )
+            }
+        };
+    state.reviews.lock().expect("review registry").insert(
+        ticket,
+        ReviewSession {
+            company: company.clone(),
+            generation,
+            item_id: format!("message:{message_id}"),
+            source: ReviewSource::Files { root, entry },
+            expected_host,
+            expires_at: SystemTime::now() + REVIEW_TTL,
+        },
+    );
+    Json(serde_json::json!({
+        "kind": "frame",
+        "path": path,
+        "url": review_url,
+    }))
     .into_response()
 }
 

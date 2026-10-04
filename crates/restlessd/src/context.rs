@@ -532,6 +532,9 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          limitations or the exact decision needed. A producer completion is not proof of lead \
          acceptance or completion of downstream Work. Deliver requested results promptly rather \
          than promising to return later. Do not create approval gates merely to report a result.\n\
+         When a proactive update asks the owner for anything, end it with the intent marker \
+         described below (kind conversation) and put the exact question in `ownerNeed`; \
+         a question asked only in prose never reaches the owner's Attention.\n\
          The Runtime atomically saves your final response into the existing Exec-owner conversation \
          and acknowledges the exact input facts together, including on background wakes. Never \
          send an owner reply with `restless message`. Check recent conversation before repeating \

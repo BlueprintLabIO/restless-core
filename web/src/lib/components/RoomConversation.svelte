@@ -1183,6 +1183,7 @@
 						{/if}
 						<RoomMessage
 							{message}
+							{companyId}
 							continued={index > 0 &&
 								continuesRun(visibleRoots[index - 1], message) &&
 								!(
@@ -1341,6 +1342,7 @@
 				{#each visibleThread as message (message.id)}
 					<RoomMessage
 						{message}
+						{companyId}
 						presentation={actorMessagesById.get(String(message.id))}
 						hrefFor={(attachment) =>
 							`/api/companies/${encodeURIComponent(companyId)}/attachments/${encodeURIComponent(attachment.uploadId)}`}

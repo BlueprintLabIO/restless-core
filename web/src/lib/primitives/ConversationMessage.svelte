@@ -7,6 +7,7 @@
 	import FileText from '@lucide/svelte/icons/file-text';
 	import AttachmentList from './AttachmentList.svelte';
 	import Markdown from './Markdown.svelte';
+	import ReferencePreview from './ReferencePreview.svelte';
 	import SemanticMark from '$lib/ui/glyph/SemanticMark.svelte';
 	import type { MessageAttachment, MessageIntentReceipt } from '$lib/model/view';
 	import { initials } from '$lib/model/initials';
@@ -23,6 +24,8 @@
 		copyable = true,
 		pending = false,
 		domId,
+		messageId = '',
+		companyId = '',
 		headerExtra,
 		actions,
 		embedded = false,
@@ -39,6 +42,9 @@
 		copyable?: boolean;
 		pending?: boolean;
 		domId?: string;
+		/** The stored message, so files it names can be opened in place. */
+		messageId?: string;
+		companyId?: string;
 		headerExtra?: Snippet;
 		actions?: Snippet;
 		embedded?: boolean;
@@ -73,6 +79,17 @@
 		(sender === 'agent' || sender === 'human') && displayAuthor !== 'Exec'
 			? initials(displayAuthor)
 			: ''
+	);
+
+	/* Takeaway first: an agent's own one-line reading of the message leads, and
+	 * a long body folds beneath it until the owner asks for the rest. */
+	const takeaway = $derived(sender === 'agent' ? (intent?.summary?.trim() ?? '') : '');
+	const long = $derived(text.split(/\s+/).length > (takeaway ? 60 : 160));
+	let expanded = $state(false);
+	const folded = $derived(long && !expanded);
+	let preview: ReferencePreview | undefined = $state();
+	const referable = $derived(
+		!!companyId && !!messageId && /^\d+$/.test(messageId) && sender !== 'owner'
 	);
 
 	async function copyMessage() {
@@ -124,7 +141,18 @@
 	</header>
 
 	<div class="message-body">
-		<Markdown {text} />
+		{#if takeaway}<p class="takeaway">{takeaway}</p>{/if}
+		<div class="message-text" class:folded class:after-takeaway={!!takeaway}>
+			<Markdown
+				{text}
+				onreference={referable
+					? (path, name) => void preview?.open(messageId, path, name)
+					: undefined}
+			/>
+		</div>
+		{#if long}<button type="button" class="fold-toggle" onclick={() => (expanded = !expanded)}
+				>{expanded ? 'Show less' : 'Show more'}</button
+			>{/if}
 		<AttachmentList {attachments} {hrefFor} />
 		{#if details && sender === 'agent'}
 			<details class="work-details" hidden={!showWorkDetails} open>
@@ -174,6 +202,7 @@
 			</div>
 		</footer>
 	{/if}
+	{#if referable}<ReferencePreview bind:this={preview} {companyId} />{/if}
 	<span class="copy-status" aria-live="polite">
 		{copyState === 'copied' ? 'Message copied' : copyState === 'failed' ? 'Copy failed' : ''}
 	</span>
@@ -439,6 +468,32 @@
 		color: var(--ink);
 	}
 
+	.takeaway {
+		max-width: 80ch;
+		margin: 0 0 4px;
+		color: var(--ink);
+		font-weight: 500;
+	}
+	.message-text.folded {
+		max-height: 12.5em;
+		overflow: hidden;
+		mask-image: linear-gradient(to bottom, black 70%, transparent);
+	}
+	.message-text.folded.after-takeaway {
+		max-height: 4.6em;
+	}
+	.fold-toggle {
+		margin-top: 2px;
+		padding: 0;
+		border: 0;
+		background: transparent;
+		color: var(--text-tertiary);
+		font: 500 var(--t-label) var(--font-ui);
+		cursor: pointer;
+	}
+	.fold-toggle:hover {
+		color: var(--ink);
+	}
 	.work-details {
 		margin-top: 9px;
 	}

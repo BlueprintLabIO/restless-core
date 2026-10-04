@@ -2037,6 +2037,20 @@ impl OrgIntel {
         .await?)
     }
 
+    /// The current text of one live message, including any edit. The owner
+    /// cockpit uses it to confirm that a file an agent pointed to really is in
+    /// that message before showing the file.
+    pub async fn current_message_text(&self, message_id: i64) -> Result<Option<String>> {
+        Ok(sqlx::query_scalar(
+            "SELECT COALESCE(revision.body,message.body) FROM messages message \
+             LEFT JOIN room_message_revisions revision ON revision.id=message.latest_revision_id \
+             WHERE message.id=$1 AND message.deleted_at IS NULL",
+        )
+        .bind(message_id)
+        .fetch_optional(&self.pool)
+        .await?)
+    }
+
     /// Work context attached to a message, when there is one. Conversation
     /// streaming uses this only to persist the final reply beside the owner's
     /// triggering message; `work_feedback` remains the one canonical link.

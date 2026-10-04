@@ -190,6 +190,55 @@
 	let pendingFocusAfterMessageId = $state(0);
 	let composerFocusKey = $state(0);
 
+	/* What the owner has already seen here, per company and recipient, so new
+	 * replies start under a "New" rule. Read once per conversation; marked as
+	 * seen while the rail is open. */
+	const seenKey = $derived(`restless:${companyId}:rail-seen:${participantId}`);
+	let seenThrough = $state<number | null>(null);
+	let seenLoadedFor = '';
+	$effect(() => {
+		const key = seenKey;
+		if (key === seenLoadedFor || !messages.length) return;
+		seenLoadedFor = key;
+		let stored = 0;
+		try {
+			stored = Number(localStorage.getItem(key) ?? 0) || 0;
+		} catch {
+			/* Without storage there is no rule; the conversation still reads. */
+		}
+		seenThrough = stored;
+	});
+	$effect(() => {
+		const key = seenKey,
+			latest = messages.reduce((max, m) => Math.max(max, messageNumericId(m.id)), 0);
+		if (!open || !latest || key !== seenLoadedFor) return;
+		try {
+			localStorage.setItem(key, String(latest));
+		} catch {
+			/* See above. */
+		}
+	});
+	function unreadRuleBefore(index: number): boolean {
+		if (!seenThrough) return false;
+		const current = visibleMessages[index];
+		if (!current || current.from === 'you' || messageNumericId(current.id) <= seenThrough)
+			return false;
+		const previous = visibleMessages[index - 1];
+		return !previous || messageNumericId(previous.id) <= seenThrough;
+	}
+	function shortTime(value: Date | string): string {
+		const date = value instanceof Date ? value : new Date(value);
+		return Number.isNaN(date.getTime())
+			? ''
+			: date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+	}
+	/* The agent's open question, when its latest word asks for one. Replying
+	 * answers it; the Inbox lists the same question until then. */
+	const openQuestion = $derived.by(() => {
+		const last = visibleMessages.at(-1);
+		return last && last.from !== 'you' ? (last.intent?.ownerNeed?.trim() ?? '') : '';
+	});
+
 	const activeFocusAfterMessageId = $derived(
 		newFocusPending ? pendingFocusAfterMessageId : focusAfterMessageId
 	);
@@ -464,6 +513,15 @@
 								<span>New focus</span><i aria-hidden="true"></i><span>Company memory retained</span>
 							</div>
 						{/if}
+						{#if unreadRuleBefore(i)}
+							<div class="unread-rule" role="separator">
+								<span
+									>New since {shortTime(
+										visibleMessages[i - 1]?.createdAt ?? message.createdAt
+									)}</span
+								>
+							</div>
+						{/if}
 						{#if i === 0 || dayOf(message.createdAt) !== dayOf(visibleMessages[i - 1].createdAt)}
 							<div class="day-sep" aria-hidden="true">
 								<span>{dayLabel(message.createdAt)}</span>
@@ -472,6 +530,8 @@
 						<ConversationMessage
 							continued={continuesRun(i)}
 							domId={messageDomId(message.id)}
+							messageId={String(messageNumericId(message.id) || '')}
+							{companyId}
 							sender={message.from === 'you' ? 'owner' : message.from}
 							author={message.from === 'you' ? 'You' : message.author || participantName}
 							text={message.text}
@@ -562,6 +622,15 @@
 						>
 					{/if}
 				{:else}
+					{#if openQuestion}
+						<div class="open-question" role="note">
+							<span>{participantName} is asking</span>
+							<p>{openQuestion}</p>
+							<button type="button" class="btn small" onclick={() => (composerFocusKey += 1)}
+								>Answer</button
+							>
+						</div>
+					{/if}
 					<form class="exr-composer" onsubmit={submitAsk}>
 						<Composer
 							bind:value={composer}
@@ -617,6 +686,46 @@
 </aside>
 
 <style>
+	.unread-rule {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin: 10px 14px 2px;
+		color: var(--intent-conversation);
+		font: 500 var(--t-label) var(--font-ui);
+	}
+	.unread-rule::after {
+		flex: 1;
+		height: 1px;
+		content: '';
+		background: color-mix(in srgb, var(--intent-conversation) 30%, transparent);
+	}
+	.open-question {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: center;
+		gap: 2px 10px;
+		margin: 0 12px 8px;
+		padding: 10px 12px;
+		border: 1px solid color-mix(in srgb, var(--state-warning) 40%, var(--border));
+		border-radius: var(--radius-lg);
+		background: color-mix(in srgb, var(--state-warning) 8%, var(--surface-raised));
+	}
+	.open-question span {
+		grid-column: 1;
+		color: var(--text-secondary);
+		font: 500 var(--t-label) var(--font-ui);
+	}
+	.open-question p {
+		grid-column: 1;
+		margin: 0;
+		color: var(--ink);
+		line-height: 1.4;
+	}
+	.open-question .btn {
+		grid-column: 2;
+		grid-row: 1 / 3;
+	}
 	.provider-connect-slot {
 		margin: var(--space-3);
 	}
