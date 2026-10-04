@@ -34,6 +34,7 @@ import { setPetTemplates } from '$lib/vendor/pixel-agents/webview-ui/src/office/
 import { setCharacterTemplates } from '$lib/vendor/pixel-agents/webview-ui/src/office/sprites/spriteData.js';
 import { setWallSprites } from '$lib/vendor/pixel-agents/webview-ui/src/office/wallTiles.js';
 import { AMENITY_CATALOG, AMENITY_FRAMES, AMENITY_SPRITES } from './amenities';
+import { yieldToMain } from './yieldToMain';
 
 const ASSET_BASE = '/vendor/pixel-agents/assets/';
 
@@ -82,12 +83,6 @@ function readSprite(
 		sprite.push(row);
 	}
 	return sprite;
-}
-
-/** Hand the main thread back between files so decoding never lands as one long task. */
-function yieldToMain(): Promise<void> {
-	const scheduler = (globalThis as { scheduler?: { yield?: () => Promise<void> } }).scheduler;
-	return scheduler?.yield ? scheduler.yield() : new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 async function decodePng(path: string, base = ASSET_BASE): Promise<DecodedPng> {
@@ -236,11 +231,14 @@ async function initializePixelAssets(): Promise<PixelOfficeAssets> {
 		decodePets()
 	]);
 
+	await yieldToMain();
 	setCharacterTemplates(characters);
 	setFloorSprites(floors);
 	setWallSprites(walls);
+	await yieldToMain();
 	setCarpetSprites(carpets);
 	setPetTemplates(pets.frames, pets.names);
+	await yieldToMain();
 	if (
 		!buildDynamicCatalog({
 			catalog: [...catalog, ...AMENITY_CATALOG],

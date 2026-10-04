@@ -1,3 +1,15 @@
+<script lang="ts" module>
+	import { loadPixelOfficeAssets as startLoadingSprites } from './pixelAssets';
+	import { warmPaintWorker } from './offThread';
+
+	/** Start what the office needs, its sprites and its paint worker, before it mounts. A host
+	 * can call this as soon as this module loads; mounting does the same if it was not called. */
+	export function prepareOffice(): void {
+		void startLoadingSprites().catch(() => {});
+		warmPaintWorker();
+	}
+</script>
+
 <script lang="ts">
 	import { failureSentence } from '$lib/model/failure';
 	import { onMount } from 'svelte';
@@ -13,7 +25,12 @@
 	import type { CockpitTeam } from '$lib/model/cockpit';
 	import { startGameLoop } from '$lib/vendor/pixel-agents/webview-ui/src/office/engine/gameLoop.js';
 	import { OfficeState } from '$lib/vendor/pixel-agents/webview-ui/src/office/engine/officeState.js';
-	import { renderFrame } from '$lib/vendor/pixel-agents/webview-ui/src/office/engine/renderer.js';
+	import {
+		renderFrame,
+		warmFloorLayer
+	} from '$lib/vendor/pixel-agents/webview-ui/src/office/engine/renderer.js';
+	import { getCachedSprite } from '$lib/vendor/pixel-agents/webview-ui/src/office/sprites/spriteCache.js';
+	import { getCharacterSprites } from '$lib/vendor/pixel-agents/webview-ui/src/office/sprites/spriteData.js';
 	import { getCatalogEntry } from '$lib/vendor/pixel-agents/webview-ui/src/office/layout/furnitureCatalog.js';
 	import { mapOffset } from '$lib/vendor/pixel-agents/webview-ui/src/office/projection.js';
 	import { isWalkable } from '$lib/vendor/pixel-agents/webview-ui/src/office/layout/tileMap.js';
@@ -42,6 +59,8 @@
 		type CampusWorld
 	} from './campusBackdrop';
 	import { drawGroundMotion, paintOfficeGround, paintOfficeLight } from './officeGround';
+	import { campusWorldAsync, groundLayersAsync, keptGroundLayers } from './offThread';
+	import { yieldToMain } from './yieldToMain';
 	import {
 		MAX_AMBIENT_VISITORS,
 		MAX_ANIMATED_ACTIVITY_SCENES,
@@ -297,18 +316,49 @@
 		});
 		visibility.observe(shell);
 
+		prepareOffice();
 		void loadPixelOfficeAssets()
-			.then((loadedAssets) => {
+			.then(async (loadedAssets) => {
+				if (destroyed) return;
+				draftedPlan = {
+					inputs: officeInputsKey(teams, members, preferences),
+					plan: createCompanyOfficePlan(teams, members, preferences)
+				};
+				await yieldToMain();
 				if (destroyed) return;
 				assets = loadedAssets;
 				rebuildOffice(teams, members, preferences);
-				// Paint the campus while loading, not in the first animated frame.
+				/* Paint the campus while loading, off the main thread where the
+				 * browser can, and give the page a turn between boot steps. */
 				if (plan) {
-					campusWorld = campusWorldFor(plan);
-					campusTiles = plan.layout.tiles;
+					const forPlan = plan;
+					const world = await campusWorldAsync(forPlan);
+					if (destroyed) return;
+					if (plan === forPlan) {
+						campusWorld = world;
+						campusTiles = forPlan.layout.tiles;
+					}
+					await groundLayersAsync(forPlan, layoutKey(forPlan));
+					if (destroyed) return;
 				}
+				await yieldToMain();
+				if (destroyed) return;
 				sizeCanvas();
 				homeCamera();
+				await warmSprites();
+				if (destroyed) return;
+				// The cached floor gets its own slice too, ahead of the first frame.
+				if (office && plan)
+					warmFloorLayer(
+						office.tileMap,
+						office.layout.tileColors,
+						office.layout.cols,
+						office.layout.rows,
+						office.layout.carpetTiles,
+						floorGround(plan)
+					);
+				await yieldToMain();
+				if (destroyed) return;
 				stopLoop = startGameLoop(canvas, {
 					update: (delta) => {
 						if (documentVisible && onScreen && !reducedMotion) updateOffice(delta);
@@ -357,6 +407,28 @@
 		};
 	});
 
+	/* Build the furniture's zoomed sprites a few at a time before the first
+	 * frame, so the first paint is not also the moment every sprite is made. */
+	async function warmSprites() {
+		if (!office) return;
+		const zoom = Math.max(1, Math.round(zoomCss * devicePixelRatio));
+		const current = office;
+		const sprites = current.furniture.map((item) => item.sprite);
+		// Every frame of every colleague's look (hue-shifted sets are built here too).
+		for (const character of current.characters.values()) {
+			const set = getCharacterSprites(character.palette, character.hueShift);
+			for (const frames of [set.walk, set.typing, set.reading])
+				for (const direction of Object.values(frames)) sprites.push(...direction);
+		}
+		for (let index = 0; index < sprites.length; index += 1) {
+			getCachedSprite(sprites[index], zoom);
+			if (index % 24 === 23) {
+				await yieldToMain();
+				if (office !== current) return;
+			}
+		}
+	}
+
 	let planInputs = '';
 	function officeInputsKey(
 		nextTeams: CockpitTeam[],
@@ -370,6 +442,9 @@
 		]);
 	}
 
+	/* At boot the plan is drafted in its own slice, before the office is built from it. */
+	let draftedPlan: { inputs: string; plan: OfficePlan } | null = null;
+
 	function rebuildOffice(
 		nextTeams: CockpitTeam[],
 		nextMembers: OfficeMember[],
@@ -382,8 +457,13 @@
 			synchronizeMembers(office, nextMembers, plan);
 			return;
 		}
-		const nextPlan = createCompanyOfficePlan(nextTeams, nextMembers, nextPreferences);
-		planInputs = officeInputsKey(nextTeams, nextMembers, nextPreferences);
+		const inputs = officeInputsKey(nextTeams, nextMembers, nextPreferences);
+		const nextPlan =
+			draftedPlan?.inputs === inputs
+				? draftedPlan.plan
+				: createCompanyOfficePlan(nextTeams, nextMembers, nextPreferences);
+		draftedPlan = null;
+		planInputs = inputs;
 		if (nextPlan.signature === planSignature && office) {
 			synchronizeMembers(office, nextMembers, nextPlan);
 			return;
@@ -843,6 +923,23 @@
 	let campusWorld: CampusWorld | null = null;
 	let campusTiles: readonly number[] | null = null;
 
+	/** The floor's ground and light (painted in a worker where possible) and their cache key. */
+	function floorGround(currentPlan: OfficePlan) {
+		return {
+			ground: (layer: CanvasRenderingContext2D) => {
+				const painted = keptGroundLayers(layoutKey(currentPlan));
+				if (painted) layer.drawImage(painted.below, 0, 0);
+				else paintOfficeGround(layer, currentPlan);
+			},
+			groundAbove: (layer: CanvasRenderingContext2D) => {
+				const painted = keptGroundLayers(layoutKey(currentPlan));
+				if (painted) layer.drawImage(painted.above, 0, 0);
+				else paintOfficeLight(layer, currentPlan);
+			},
+			groundKey: layoutKey(currentPlan)
+		};
+	}
+
 	function render(context: CanvasRenderingContext2D, now: number) {
 		if (!office || !plan || !canvas.width || !canvas.height) return;
 		const currentPlan = plan;
@@ -905,9 +1002,7 @@
 								motion
 							})
 					: undefined,
-				ground: (layer) => paintOfficeGround(layer, currentPlan),
-				groundAbove: (layer) => paintOfficeLight(layer, currentPlan),
-				groundKey: layoutKey(currentPlan),
+				...floorGround(currentPlan),
 				afterFloor: (layer, offsetX, offsetY) =>
 					drawGroundMotion(layer, currentPlan, { offsetX, offsetY, zoom: lastZoom, now, motion })
 			}

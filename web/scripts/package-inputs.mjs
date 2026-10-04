@@ -19,7 +19,7 @@ export function sourceFiles(root) {
 export function officeSourceFiles(webRoot) {
   const lib = resolve(webRoot, 'src/lib');
   const entries = ['office/OfficeCanvas.svelte', 'office/officeDemo.ts', 'office/projection.ts', 'office/officePlan.ts'];
-  const imports = /(?:import|export)[^'"]*?from\s+['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)|^\s*import\s+['"]([^'"]+)['"]/gm;
+  const imports = /(?:import|export)[^'"]*?from\s+['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)|^\s*import\s+['"]([^'"]+)['"]|new URL\(\s*['"]([^'"]+)['"]\s*,\s*import\.meta\.url/gm;
   const external = /^(svelte|@lucide\/svelte)(\/|$)/;
   const files = new Set();
   const queue = [...entries];
@@ -46,7 +46,7 @@ export function officeSourceFiles(webRoot) {
     if (lstatSync(absolute).isSymbolicLink()) throw new Error(`package source cannot be a symlink: ${file}`);
     if (!/\.(ts|svelte)$/.test(file)) continue;
     for (const match of readFileSync(absolute, 'utf8').matchAll(imports)) {
-      const next = resolveSpec(file, match[1] ?? match[2] ?? match[3]);
+      const next = resolveSpec(file, match[1] ?? match[2] ?? match[3] ?? match[4]);
       if (next) queue.push(next);
     }
   }

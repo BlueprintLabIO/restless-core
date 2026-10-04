@@ -58,7 +58,7 @@ function hash(x: number, y: number, salt = 0): number {
 	return (h >>> 0) / 4294967296;
 }
 
-type Paint = CanvasRenderingContext2D;
+type Paint = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 
 function px(ctx: Paint, x: number, y: number, w: number, h: number, color: string) {
 	ctx.fillStyle = color;

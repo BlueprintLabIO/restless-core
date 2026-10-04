@@ -1,5 +1,8 @@
 import { TILE_SIZE } from '$lib/vendor/pixel-agents/webview-ui/src/office/types.js';
-import { blitVisible } from '$lib/vendor/pixel-agents/webview-ui/src/office/engine/renderer.js';
+import {
+	blitVisible,
+	type WorldLayer
+} from '$lib/vendor/pixel-agents/webview-ui/src/office/engine/blit.js';
 
 /* The lakeside campus around the office: a textured meadow, a forest to the
  * north, a lake to the east, and garden beds woven around the work pavilions.
@@ -160,7 +163,21 @@ function mulberry(seed: number): () => number {
 
 /* ---------- pixel primitives (art pixels, integers) ---------- */
 
-type Paint = CanvasRenderingContext2D;
+type Paint = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+type Surface = HTMLCanvasElement | OffscreenCanvas;
+
+/** A blank canvas: in the page, or off the main thread in the campus worker. */
+function makeSurface(width: number, height: number): Surface {
+	if (typeof document === 'undefined') return new OffscreenCanvas(width, height);
+	const canvas = document.createElement('canvas');
+	canvas.width = width;
+	canvas.height = height;
+	return canvas;
+}
+
+function paintOn(surface: Surface): Paint | null {
+	return surface.getContext('2d') as Paint | null;
+}
 
 function px(ctx: Paint, x: number, y: number, w: number, h: number, color: string): void {
 	ctx.fillStyle = color;
@@ -215,7 +232,7 @@ export function paintTree(ctx: Paint, x: number, y: number, r: number, seed: num
 
 /* A few dozen tree looks cover a whole forest: each (size, variant, trunk)
  * is painted once into a small sprite and then stamped. */
-const treeSprites = new Map<string, { canvas: HTMLCanvasElement; ox: number; oy: number }>();
+const treeSprites = new Map<string, { canvas: Surface; ox: number; oy: number }>();
 
 function stampTree(ctx: Paint, x: number, y: number, r: number, seed: number, trunk: boolean) {
 	const size = Math.round(r);
@@ -224,10 +241,8 @@ function stampTree(ctx: Paint, x: number, y: number, r: number, seed: number, tr
 	let sprite = treeSprites.get(key);
 	if (!sprite) {
 		const pad = Math.ceil(size * 1.6) + 4;
-		const canvas = document.createElement('canvas');
-		canvas.width = pad * 2;
-		canvas.height = pad * 2;
-		const layer = canvas.getContext('2d');
+		const canvas = makeSurface(pad * 2, pad * 2);
+		const layer = paintOn(canvas);
 		if (!layer) return paintTree(ctx, x, y, r, seed, trunk);
 		paintTree(layer, pad, pad, size, variant * 1_009 + size * 7, trunk);
 		sprite = { canvas, ox: pad, oy: pad };
@@ -313,7 +328,7 @@ export function makeShore(width: number, height: number) {
 /* ---------- the world ---------- */
 
 export interface CampusWorld {
-	canvas: HTMLCanvasElement;
+	canvas: WorldLayer;
 	/** Office-local art pixel (0,0) sits at this canvas pixel. */
 	originX: number;
 	originY: number;
@@ -352,13 +367,11 @@ export interface CampusSource {
 
 /** Paint the static campus once for this layout. */
 export function buildCampusWorld(source: CampusSource): CampusWorld | null {
-	if (typeof document === 'undefined') return null;
+	if (typeof document === 'undefined' && typeof OffscreenCanvas === 'undefined') return null;
 	const W = source.cols * TILE_SIZE;
 	const H = source.rows * TILE_SIZE;
-	const canvas = document.createElement('canvas');
-	canvas.width = W + MARGIN_X * 2;
-	canvas.height = H + MARGIN_Y * 2;
-	const ctx = canvas.getContext('2d');
+	const canvas = makeSurface(W + MARGIN_X * 2, H + MARGIN_Y * 2);
+	const ctx = paintOn(canvas);
 	if (!ctx) return null;
 	ctx.imageSmoothingEnabled = false;
 	ctx.translate(MARGIN_X, MARGIN_Y);
@@ -413,10 +426,8 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 	// Meadow: a base green with tufts, pale specks and the odd deeper patch,
 	// painted once as a 96-pixel tile and laid as a pattern (fast to build;
 	// the tufts are too fine for the repeat to show).
-	const grassTile = document.createElement('canvas');
-	grassTile.width = 96;
-	grassTile.height = 96;
-	const grass = grassTile.getContext('2d');
+	const grassTile = makeSurface(96, 96);
+	const grass = paintOn(grassTile);
 	if (grass) {
 		px(grass, 0, 0, 96, 96, C.grass);
 		for (let y = 0; y < 96; y += 3) {
@@ -763,12 +774,29 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
  * across mounts, so returning to Attention does not repaint it. */
 let lastWorld: { key: string; world: CampusWorld | null } | null = null;
 
+export function campusKey(layout: CampusSource): string {
+	return `${layout.cols}x${layout.rows}:${layout.tiles.join('')}`;
+}
+
+/** The painted campus for this key, if it is the one kept. */
+export function keptCampusWorld(key: string): CampusWorld | null | undefined {
+	return lastWorld?.key === key ? lastWorld.world : undefined;
+}
+
+/** Keep a campus painted elsewhere (see offThread.ts). */
+export function keepCampusWorld(key: string, world: CampusWorld | null): void {
+	lastWorld = { key, world };
+}
+
 export function campusWorldFor(plan: { layout: CampusSource }): CampusWorld | null {
-	const key = `${plan.layout.cols}x${plan.layout.rows}:${plan.layout.tiles.join('')}`;
+	const key = campusKey(plan.layout);
 	if (lastWorld?.key === key) return lastWorld.world;
 	lastWorld = { key, world: buildCampusWorld(plan.layout) };
 	return lastWorld.world;
 }
+
+/** The campus as the paint worker returns it: a bitmap and the plain motion seeds. */
+export type PaintedCampus = Omit<CampusWorld, 'canvas' | 'shore'> & { bitmap: ImageBitmap };
 
 /** Identity of everything the cached floor is painted from. */
 export function layoutKey(plan: { signature: string }): string {

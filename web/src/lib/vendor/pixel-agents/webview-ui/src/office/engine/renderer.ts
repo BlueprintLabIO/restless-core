@@ -44,6 +44,7 @@ import {
 	VOID_TILE_DASH_PATTERN,
 	VOID_TILE_OUTLINE_COLOR
 } from '../../constants.js';
+import { blitVisible } from './blit.js';
 import { getColorizedFloorSprite, hasFloorSprites, WALL_COLOR } from '../floorTiles.js';
 import { mapOffset } from '../projection.js';
 import {
@@ -902,6 +903,20 @@ function drawFloorLayer(
 	paint: (layer: CanvasRenderingContext2D) => void,
 	sources: readonly unknown[]
 ): void {
+	const floor = ensureFloorLayer(cols, rows, paint, sources);
+	const smoothing = ctx.imageSmoothingEnabled;
+	ctx.imageSmoothingEnabled = false;
+	blitVisible(ctx, floor, offsetX, offsetY, zoom);
+	ctx.imageSmoothingEnabled = smoothing;
+}
+
+/** The cached floor for these sources, painted now if it is missing or stale. */
+function ensureFloorLayer(
+	cols: number,
+	rows: number,
+	paint: (layer: CanvasRenderingContext2D) => void,
+	sources: readonly unknown[]
+): HTMLCanvasElement {
 	const width = cols * TILE_SIZE;
 	const height = rows * TILE_SIZE;
 	const stale =
@@ -920,27 +935,55 @@ function drawFloorLayer(
 		floorCache = { canvas, sources };
 		paint(layer);
 	}
-	const smoothing = ctx.imageSmoothingEnabled;
-	ctx.imageSmoothingEnabled = false;
-	blitVisible(ctx, floorCache!.canvas, offsetX, offsetY, zoom);
-	ctx.imageSmoothingEnabled = smoothing;
+	return floorCache!.canvas;
 }
 
-/** Scale-blit only the part of a world-space layer that lands on screen. */
-export function blitVisible(
-	ctx: CanvasRenderingContext2D,
-	source: HTMLCanvasElement,
-	left: number,
-	top: number,
-	zoom: number
-): void {
-	const sx = Math.max(0, Math.floor(-left / zoom));
-	const sy = Math.max(0, Math.floor(-top / zoom));
-	const sw = Math.min(source.width, Math.ceil((ctx.canvas.width - left) / zoom) + 1) - sx;
-	const sh = Math.min(source.height, Math.ceil((ctx.canvas.height - top) / zoom) + 1) - sy;
-	if (sw <= 0 || sh <= 0) return;
-	ctx.drawImage(source, sx, sy, sw, sh, left + sx * zoom, top + sy * zoom, sw * zoom, sh * zoom);
+/** What paints the floor layer: tiles, the host's ground, carpets, then light. */
+function floorPainter(
+	tileMap: TileTypeVal[][],
+	cols: number,
+	rows: number,
+	tileColors?: Array<ColorValue | null>,
+	layoutCols?: number,
+	carpetTiles?: Array<CarpetTile | null>,
+	layers?: FrameLayers
+): { paint: (layer: CanvasRenderingContext2D) => void; sources: readonly unknown[] } {
+	return {
+		paint: (layer) => {
+			// Draw tiles (floor + wall base color)
+			renderTileGrid(layer, tileMap, 0, 0, 1, tileColors, layoutCols);
+			layers?.ground?.(layer);
+			// Carpet layer (above floor, below seat indicators / furniture / characters)
+			if (carpetTiles && carpetTiles.length > 0) {
+				renderCarpetLayer(layer, carpetTiles, cols, rows, 0, 0, 1);
+			}
+			layers?.groundAbove?.(layer);
+		},
+		// A host key describes the whole floor by content, so the cache also
+		// survives a remount that rebuilds identical arrays.
+		sources: layers?.groundKey !== undefined ? [layers.groundKey] : [tileMap, tileColors, carpetTiles]
+	};
 }
+
+/** Restless: paint the cached floor ahead of the first frame, so a host can
+ * give that work its own slice instead of adding it to the first paint. */
+export function warmFloorLayer(
+	tileMap: TileTypeVal[][],
+	tileColors?: Array<ColorValue | null>,
+	layoutCols?: number,
+	layoutRows?: number,
+	carpetTiles?: Array<CarpetTile | null>,
+	layers?: FrameLayers
+): void {
+	const cols = layoutCols ?? (tileMap.length > 0 ? tileMap[0].length : 0);
+	const rows = layoutRows ?? tileMap.length;
+	const { paint, sources } = floorPainter(tileMap, cols, rows, tileColors, layoutCols, carpetTiles, layers);
+	ensureFloorLayer(cols, rows, paint, sources);
+}
+
+/* Restless: blitVisible lives in blit.ts so the campus worker can use it
+ * without loading the renderer. */
+export { blitVisible };
 
 /** Restless host layers around the vendored scene. */
 export interface FrameLayers {
@@ -992,27 +1035,8 @@ export function renderFrame(
 	else ctx.clearRect(0, 0, canvasWidth, canvasHeight);
 
 	// Floor, wall base, host ground and carpet: one cached world layer.
-	drawFloorLayer(
-		ctx,
-		cols,
-		rows,
-		offsetX,
-		offsetY,
-		zoom,
-		(layer) => {
-			// Draw tiles (floor + wall base color)
-			renderTileGrid(layer, tileMap, 0, 0, 1, tileColors, layoutCols);
-			layers?.ground?.(layer);
-			// Carpet layer (above floor, below seat indicators / furniture / characters)
-			if (carpetTiles && carpetTiles.length > 0) {
-				renderCarpetLayer(layer, carpetTiles, cols, rows, 0, 0, 1);
-			}
-			layers?.groundAbove?.(layer);
-		},
-		// A host key describes the whole floor by content, so the cache also
-		// survives a remount that rebuilds identical arrays.
-		layers?.groundKey !== undefined ? [layers.groundKey] : [tileMap, tileColors, carpetTiles]
-	);
+	const floor = floorPainter(tileMap, cols, rows, tileColors, layoutCols, carpetTiles, layers);
+	drawFloorLayer(ctx, cols, rows, offsetX, offsetY, zoom, floor.paint, floor.sources);
 	layers?.afterFloor?.(ctx, offsetX, offsetY);
 
 	// Area overlay (translucent color wash) — above carpets, below seat indicators
