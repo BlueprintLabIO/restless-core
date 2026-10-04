@@ -17,6 +17,9 @@
 	import CompanyQueryPersistence from '$lib/components/CompanyQueryPersistence.svelte';
 	import { referenceOptions } from '$lib/model/composer-options.svelte';
 	import ExecutiveRail from '$lib/components/ExecutiveRail.svelte';
+	import { presence } from '$lib/model/presence.svelte';
+	import { desktopNotify } from '$lib/model/desktop-notify.svelte';
+	import { ASK_EXEC_EVENT } from '$lib/model/ask-exec';
 	import { cockpitContextPath, reviewAction } from '$lib/model/attention';
 	import { prepareCompanyBrowser } from '$lib/model/company-browser';
 	import {
@@ -507,12 +510,93 @@
 
 	/* Owner-only destinations for the command menu. Collaborators keep the
 	 * surface moves the shell adds for everyone. */
+	/* Others in this company's cockpit, and the signed-in person's circle. */
+	const others = presence(() => companyId);
+	let railFocusRequest = $state(0);
+	$effect(() => {
+		const ask = () => {
+			chooseTopic(null);
+			execRailOpen = true;
+			railFocusRequest += 1;
+		};
+		window.addEventListener(ASK_EXEC_EVENT, ask);
+		return () => window.removeEventListener(ASK_EXEC_EVENT, ask);
+	});
+	const viewerName = $derived(
+		(ownerAccess ? cockpit?.people : collaboration.view?.people)?.find(
+			(person) => person.actor_id === principal?.actor_id
+		)?.display ?? (ownerAccess ? 'Owner' : 'Member')
+	);
+	const viewerRole = $derived(
+		`${principal?.membership_role === 'owner' ? 'Owner' : 'Member'} · ${companyName || companyId}`
+	);
+
+	/* Desktop notifications: tell this device about anything new that needs
+	 * the owner while the cockpit is in the background. The first projection
+	 * only primes what is already known. */
+	let knownNeeds: Set<string> | null = null;
+	$effect(() => {
+		if (!ownerAccess || attention.status !== 'live') return;
+		const items = attention.view?.items ?? [];
+		const ids = new Set(items.map((item) => item.id));
+		if (knownNeeds) {
+			for (const item of items) {
+				if (knownNeeds.has(item.id) || item.preparing) continue;
+				desktopNotify.show(
+					item.title,
+					item.requestedAction || item.whatHappened,
+					() => void goto(`/${encodeURIComponent(companyId)}?item=${encodeURIComponent(item.id)}`)
+				);
+			}
+		}
+		knownNeeds = ids;
+	});
+
 	const commands = $derived.by((): Command[] => {
 		if (!ownerAccess) return [];
 		const root = `/${encodeURIComponent(companyId)}`;
 		const work = attention.view?.workGraph?.work ?? [];
 		const goalTitle = new Map((cockpit?.goals ?? []).map((goal) => [goal.id, goal.title]));
+		const leads = (cockpit?.teams ?? [])
+			.map((team) => cockpit?.people.find((person) => person.actor_id === team.lead_actor_id))
+			.filter(
+				(person): person is NonNullable<typeof person> => !!person && person.actor_id !== 'exec'
+			);
 		return [
+			{
+				id: 'action:new-document',
+				group: 'Actions',
+				label: 'New document',
+				keywords: 'create write doc',
+				href: `${root}/library?create=doc`
+			},
+			{
+				id: 'action:new-sheet',
+				group: 'Actions',
+				label: 'New sheet',
+				keywords: 'create spreadsheet table',
+				href: `${root}/library?create=sheet`
+			},
+			{
+				id: 'action:ask-exec',
+				group: 'Actions',
+				label: 'Ask the Exec…',
+				keywords: 'talk message chat',
+				run: () => {
+					chooseTopic(null);
+					execRailOpen = true;
+				}
+			},
+			...leads.map((lead) => ({
+				id: `action:ask:${lead.actor_id}`,
+				group: 'Actions',
+				label: `Ask ${lead.display}…`,
+				keywords: `talk message lead ${lead.role}`,
+				run: () => {
+					chooseTopic({ actorId: lead.actor_id });
+					execRailOpen = true;
+				}
+			})),
 			...(attention.view?.items ?? []).map((item) => ({
 				id: `attention:${item.id}`,
 				group: 'Needs you',
@@ -623,6 +707,7 @@
 		ontopic={chooseTopic}
 		viewerActorId={principal?.actor_id ?? 'owner'}
 		onclose={() => (execRailOpen = false)}
+		focusRequest={railFocusRequest}
 		references={ownerAccess
 			? referenceOptions(companyId, workRows, cockpit?.goals ?? [], cockpit?.people ?? [])
 			: []}
@@ -651,6 +736,9 @@
 		{companies}
 		{tabs}
 		{commands}
+		{viewerName}
+		{viewerRole}
+		present={others.present}
 		homeHref={ownerAccess ? '/' : collaboratorHome(companyId)}
 		canSwitchCompanies={ownerAccess}
 		execHref={ownerAccess &&

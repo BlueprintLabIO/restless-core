@@ -65,6 +65,7 @@
 
 	type Menu = import('$lib/primitives/composer-menu').ComposerTrigger;
 	let menu = $state<Menu | null>(null);
+	let dropping = $state(false);
 	let highlighted = $state(0);
 	const menuItems = $derived(
 		menu ? filterComposerOptions(options, menu.trigger, menu.query, selectedSkills) : []
@@ -317,7 +318,27 @@
 	}
 </script>
 
-<div class="hc">
+<div
+	class="hc"
+	class:dropping
+	role="group"
+	ondragover={(event) => {
+		if (!allowAttachments || disabled || !event.dataTransfer?.types.includes('Files')) return;
+		event.preventDefault();
+		dropping = true;
+	}}
+	ondragleave={(event) => {
+		if (!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node))
+			dropping = false;
+	}}
+	ondrop={(event) => {
+		dropping = false;
+		const dropped = [...(event.dataTransfer?.files ?? [])];
+		if (!allowAttachments || disabled || !dropped.length) return;
+		event.preventDefault();
+		files = [...files, ...dropped];
+	}}
+>
 	{#if menu && menuItems.length > 0}
 		<div
 			class="hc-menu"
@@ -404,7 +425,14 @@
 			onblur={() => (menu = null)}
 			onkeydown={onKeydown}
 			oncompositionstart={() => (composing = true)}
-			oncompositionend={() => (composing = false)}></textarea>
+			oncompositionend={() => (composing = false)}
+			onpaste={(event) => {
+				// A pasted screenshot attaches; pasted text stays text.
+				const pasted = [...(event.clipboardData?.files ?? [])];
+				if (!allowAttachments || disabled || !pasted.length) return;
+				event.preventDefault();
+				files = [...files, ...pasted];
+			}}></textarea>
 		<div class="hc-toolbar">
 			{#if allowAttachments}<AttachmentPicker bind:files {disabled} />{/if}
 			{#if controls}<div class="hc-slot">{@render controls()}</div>{/if}

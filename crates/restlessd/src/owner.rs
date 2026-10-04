@@ -33,6 +33,8 @@ mod native_import_api;
 mod owner_vault;
 #[path = "owner_plane_readiness.rs"]
 mod plane_readiness;
+#[path = "owner_presence.rs"]
+mod presence_api;
 #[path = "owner_rooms_lifecycle.rs"]
 mod rooms_lifecycle_api;
 #[path = "owner_sharing.rs"]
@@ -1637,6 +1639,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(set_message_reaction),
         )
         .route(
+            "/companies/{company}/presence",
+            post(presence_api::heartbeat).delete(presence_api::leave),
+        )
+        .route(
             "/companies/{company}/message-reactions",
             get(list_message_reactions),
         )
@@ -1970,6 +1976,8 @@ fn membership_boundary_violation(
         || is_company_route_family(path, "rooms")
         || is_company_route_family(path, "documents")
         || is_company_route_family(path, "sheets")
+        // Presence names only people already in the company directory.
+        || is_company_route_family(path, "presence")
         // The members handler admits owners and administrators itself.
         || is_company_route_family(path, "members")
         || is_company_collaboration_bootstrap_route(method, path)

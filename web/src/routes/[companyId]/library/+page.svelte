@@ -60,7 +60,15 @@
 	type Filter = 'all' | 'docs' | 'sheets' | 'review';
 	const filter = $derived((page.url.searchParams.get('show') as Filter) || 'all');
 	let search = $state('');
-	let creator: LibraryNew;
+	let creator: LibraryNew | undefined = $state();
+	$effect(() => {
+		const create = page.url.searchParams.get('create');
+		if (!creator || (create !== 'doc' && create !== 'sheet')) return;
+		creator.open(create);
+		const url = new URL(page.url);
+		url.searchParams.delete('create');
+		history.replaceState(history.state, '', url);
+	});
 
 	/* Documents an owner was asked to review or work on, from the Inbox. */
 	const requested = $derived(
@@ -173,7 +181,7 @@
 					placeholder="Search"
 					aria-label="Search the Library"
 				/>
-				<button class="btn small new-sheet" type="button" onclick={() => creator.open('sheet')}
+				<button class="btn small new-sheet" type="button" onclick={() => creator?.open('sheet')}
 					>New sheet</button
 				>
 				<button
@@ -181,7 +189,7 @@
 					type="button"
 					aria-label="New document"
 					title="New document"
-					onclick={() => creator.open(filter === 'sheets' ? 'sheet' : 'doc')}
+					onclick={() => creator?.open(filter === 'sheets' ? 'sheet' : 'doc')}
 					><Plus size={14} strokeWidth={2} aria-hidden="true" /><span>New document</span></button
 				>
 			</header>
@@ -245,7 +253,7 @@
 						{#snippet action()}{#if !search && filter !== 'review'}<button
 									class="btn small"
 									type="button"
-									onclick={() => creator.open(filter === 'sheets' ? 'sheet' : 'doc')}
+									onclick={() => creator?.open(filter === 'sheets' ? 'sheet' : 'doc')}
 									>{filter === 'sheets' ? 'New sheet' : 'New document'}</button
 								>{/if}{/snippet}
 					</Empty>

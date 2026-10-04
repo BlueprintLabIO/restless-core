@@ -541,6 +541,26 @@ async fn projected_intents(
                         "item",
                     )
                 }
+                ("orgintel", "conversation_owner_need") => {
+                    // An agent's open question to the owner. Its identity is the
+                    // asking message, so a later question notifies again and the
+                    // same one never does twice.
+                    let actor = item.responsible_actor.as_ref();
+                    let actor_id = actor
+                        .map(|actor| actor.id.clone())
+                        .unwrap_or_else(|| "exec".into());
+                    let actor_display = actor
+                        .map(|actor| actor.display.clone())
+                        .unwrap_or_else(|| actor_id.clone());
+                    (
+                        "personal_attention",
+                        format!("orgintel-conversation-need:{}", item.source.reference),
+                        actor_id,
+                        None,
+                        actor_display,
+                        "item",
+                    )
+                }
                 ("orgintel", "blocked_opportunity") => {
                     // A blocked Opportunity is terminal, owner-worthy work.
                     // Keep its notification identity stable for this exact

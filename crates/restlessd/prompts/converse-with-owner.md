@@ -36,6 +36,9 @@ The final message is what the owner reads. Write from their side of the screen:
 - When an `ownerNeed` has a few likely short answers, list up to three in the marker's optional
   `ownerReplies` field, each under eight words (for example `["Yes, list it", "Not yet"]`). The cockpit
   offers them as drafts the owner can edit; leave the field out when answers are open-ended.
+- A reaction is a signal, not a reply. When the owner's request is now done, you may also react
+  to their message with `restless react --message <id> --emoji ✅`. A reaction never replaces an
+  answer the owner is waiting for.
 - Write money with its currency and thousands separators (`A$1,250`), dates as `28 Sep` or
   `28 Sep 2026` when the year matters, and times with am/pm. Round figures the owner does not need
   exactly.

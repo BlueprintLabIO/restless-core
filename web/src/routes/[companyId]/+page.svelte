@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { askExec } from '$lib/model/ask-exec';
 	import { failureSentence } from '$lib/model/failure';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { listFlip, listIn, listOut } from '$lib/ui/motion';
@@ -128,7 +129,9 @@
 		) {
 			missingItemRedirect = selectedItemId;
 			missingNotice =
-				resolvedHere === selectedItemId ? '' : 'That item has been resolved or is no longer in the Inbox.';
+				resolvedHere === selectedItemId
+					? ''
+					: 'That item has been resolved or is no longer in the Inbox.';
 			const previousIndex = Math.max(0, previousItemOrder.indexOf(selectedItemId));
 			const next = (visibleItems ?? items)[
 				Math.min(previousIndex, (visibleItems ?? items).length - 1)
@@ -784,7 +787,10 @@
 			/>
 		</aside>
 
-		<section class="cockpit-pane attention-focus" class:office-focus={!selectedItem && loaded}>
+		<section
+			class="cockpit-pane attention-focus"
+			class:office-focus={!selectedItem && loaded && !compactScreen}
+		>
 			{#if queueClear && startBlocker && !compactScreen}
 				<a class="attention-start-blocker" href={startFixHref(companyId)}>
 					<span class="attention-start-glyph" aria-hidden="true">
@@ -853,6 +859,9 @@
 							<MatrixGlyph rows={GLYPHS.check} size={10} />
 						</span>
 						<p>Nothing needs you right now.</p>
+						<button class="btn small primary" type="button" onclick={askExec}
+							>Tell Exec what you want</button
+						>
 						<a class="btn small" href={`/${companyId}/work`}>Open Work</a>
 					{/if}
 				</div>
@@ -938,7 +947,6 @@
 			flex: 1;
 		}
 	}
-
 
 	.review-canvas {
 		width: 100%;

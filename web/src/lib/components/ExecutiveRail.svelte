@@ -32,6 +32,9 @@
 	import type { ThreadMessage } from '$lib/model/view';
 	import { runExecCommand } from '$lib/model/skills';
 	import { reactionsQuery } from '$lib/model/reactions.svelte';
+	import { recentDirectConversationsQuery } from '$lib/model/room-queries.svelte';
+	import { deleteRoomMessage } from '$lib/model/rooms';
+	import { markSeen, seenThrough as roomSeenThrough } from '$lib/model/conversation-seen';
 	import { composerOptions, readDraft, writeDraft } from '$lib/model/composer-options.svelte';
 
 	let {
@@ -63,7 +66,8 @@
 		ontopic = null,
 		viewerActorId = 'owner',
 		references = [],
-		onclose = null
+		onclose = null,
+		focusRequest = 0
 	}: {
 		messages?: ThreadMessage[];
 		participantName?: string;
@@ -121,7 +125,12 @@
 		references?: import('$lib/model/skills').ComposerOption[];
 		/** Hides the rail; the topbar's Exec button brings it back. */
 		onclose?: (() => void) | null;
+		/** Bumped by a page that hands the owner to this conversation. */
+		focusRequest?: number;
 	} = $props();
+	$effect(() => {
+		if (focusRequest) composerFocusKey += 1;
+	});
 	const reactions = reactionsQuery(
 		() => companyId,
 		() =>
@@ -277,6 +286,80 @@
 	const openQuestion = $derived.by(() => {
 		const last = visibleMessages.at(-1);
 		return last && last.from !== 'you' ? (last.intent?.ownerNeed?.trim() ?? '') : '';
+	});
+	/* A receipt under your latest message: sent, or seen when the agent's turn
+	 * consumed it without replying. While it works, the turn dock says so;
+	 * once it replies, the reply is the receipt. */
+	const directRooms = $derived(recentDirectConversationsQuery(companyId, () => open && canOperate));
+	const directRoom = $derived(
+		directRooms.conversations.find((entry) => entry.person_actor_id === participantId)?.room_id ??
+			''
+	);
+	$effect(() => {
+		const latest = messages.reduce((max, m) => Math.max(max, messageNumericId(m.id)), 0);
+		if (open && directRoom && latest) markSeen(companyId, directRoom, latest);
+	});
+	let seenVersion = $state(0);
+	$effect(() => {
+		const bump = () => (seenVersion += 1);
+		window.addEventListener('restless:seen', bump);
+		return () => window.removeEventListener('restless:seen', bump);
+	});
+	/* Another conversation in the switcher with something new since you looked. */
+	function topicHasNew(entry: { key: string; topic: { actorId: string; workId?: string } | null }) {
+		void seenVersion;
+		if (entry.key === currentTopicKey || entry.topic?.workId) return false;
+		const actor = entry.topic?.actorId ?? 'exec';
+		const conversation = directRooms.conversations.find((c) => c.person_actor_id === actor);
+		return (
+			!!conversation &&
+			conversation.last_message_id > roomSeenThrough(companyId, conversation.room_id)
+		);
+	}
+	const anyTopicNew = $derived(topics.some((entry) => topicHasNew(entry)));
+	/* Until the agent picks it up, your last message can be taken back: retract
+	 * removes it, edit returns its words to the composer. */
+	const retractable = $derived.by(() => {
+		const last = visibleMessages.at(-1);
+		return !!last &&
+			last.from === 'you' &&
+			!last.readAt &&
+			!turn &&
+			!!directRoom &&
+			messageNumericId(last.id) > 0
+			? last
+			: null;
+	});
+	let retracting = $state(false);
+	async function retract(restore: boolean) {
+		const last = retractable;
+		if (!last || retracting) return;
+		retracting = true;
+		try {
+			await deleteRoomMessage(
+				companyId,
+				directRoom,
+				messageNumericId(last.id),
+				crypto.randomUUID()
+			);
+			if (restore) {
+				composer = last.text;
+				composerFocusKey += 1;
+			}
+			onrefreshConversation?.();
+		} catch (cause) {
+			askError = failureSentence(
+				cause,
+				'That message could not be taken back; it may already be in progress.'
+			);
+		} finally {
+			retracting = false;
+		}
+	}
+	const receipt = $derived.by(() => {
+		const last = visibleMessages.at(-1);
+		if (!last || last.from !== 'you' || turn || last.id.startsWith('optimistic:')) return '';
+		return last.readAt ? `Seen by ${participantName}` : 'Sent';
 	});
 	const openReplies = $derived.by(() =>
 		openQuestion ? (visibleMessages.at(-1)?.intent?.ownerReplies ?? []).slice(0, 3) : []
@@ -494,13 +577,17 @@
 										size="small"
 									/><strong class="exr-name">{participantName}</strong>{#if topicLabel}<span
 											class="topic-label">{topicLabel}</span
-										>{/if}<ChevronDown size={14} aria-hidden="true" /></span
+										>{/if}{#if anyTopicNew}<i
+											class="topic-new"
+											title="Something new in another conversation"
+										></i>{/if}<ChevronDown size={14} aria-hidden="true" /></span
 								>{/snippet}
 							{#each topics as entry (entry.key)}
 								<button type="button" onclick={() => ontopic(entry.topic)}
 									><span class="topic-option"
 										><span>{entry.label}</span><small>{entry.hint}</small></span
-									>{#if entry.key === currentTopicKey}<Check
+									>{#if topicHasNew(entry)}<i class="topic-new" aria-label="New"
+										></i>{/if}{#if entry.key === currentTopicKey}<Check
 											size={14}
 											aria-label="Current"
 										/>{/if}</button
@@ -718,6 +805,15 @@
 							<p class="conversation-capability-hint">{capabilityHint}</p>
 						{/if}
 					{/if}
+					{#if receipt}<p class="receipt" role="status">
+							{#if retractable}<button
+									type="button"
+									disabled={retracting}
+									onclick={() => retract(true)}>Edit</button
+								><button type="button" disabled={retracting} onclick={() => retract(false)}
+									>Retract</button
+								><span aria-hidden="true">·</span>{/if}{receipt}
+						</p>{/if}
 					{#if turn && needsProvider && (turn.live?.phase ?? 'queued') === 'queued'}
 						<p class="exr-setup-pending" role="status">
 							Message saved. {participantName} can reply after intelligence access is restored.
@@ -864,6 +960,33 @@
 		margin: 0;
 		color: var(--ink);
 		line-height: 1.4;
+	}
+	.topic-new {
+		width: 7px;
+		height: 7px;
+		flex: none;
+		border-radius: 999px;
+		background: var(--intent-conversation);
+	}
+	.receipt {
+		display: flex;
+		justify-content: flex-end;
+		gap: 6px;
+		margin: 2px 16px 8px;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+	.receipt button {
+		padding: 0;
+		border: 0;
+		background: transparent;
+		color: var(--text-secondary);
+		font: inherit;
+		cursor: pointer;
+	}
+	.receipt button:hover {
+		color: var(--ink);
+		text-decoration: underline;
 	}
 	.open-replies {
 		display: flex;

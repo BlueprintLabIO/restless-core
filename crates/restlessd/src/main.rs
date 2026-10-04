@@ -1472,6 +1472,8 @@ fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Result
         | "team-disband"
         | "goal-add"
         | "goal-close"
+        | "message-react"
+        | "message-unreact"
         | "goal-standard"
         | "work-goal"
         | "work-standard"
@@ -3938,6 +3940,26 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 }
             }
             _ => Response::err("goal-close needs a Goal id and actor attribution"),
+        },
+        "message-react" | "message-unreact" => match (
+            request.common.id.as_deref().and_then(|id| id.parse::<i64>().ok()),
+            request.common.body.as_deref(),
+            request.orgintel.actor.as_deref(),
+        ) {
+            (Some(message_id), Some(emoji), Some(actor)) => match daemon.orgintel.get(company).await {
+                Ok(org) => match org
+                    .set_message_reaction(message_id, actor, emoji.trim(), request.cmd == "message-react")
+                    .await
+                {
+                    Ok(()) => Response::ok(serde_json::json!({
+                        "message_id": message_id, "emoji": emoji.trim(),
+                        "on": request.cmd == "message-react",
+                    })),
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
+                Err(error) => Response::err(format!("{error:#}")),
+            },
+            _ => Response::err("react needs a message id, an emoji and actor attribution"),
         },
         "goal-standard" => match (
             request.orgintel.goal.as_deref(),

@@ -352,6 +352,22 @@ enum Command {
         work: Option<String>,
         body: String,
     },
+    /// React to a message instead of sending a courtesy reply. A reaction is a
+    /// signal on that message; it never wakes anyone.
+    React {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[arg(long = "as", env = "RESTLESS_ACTOR")]
+        as_actor: Option<String>,
+        #[arg(long)]
+        message: i64,
+        /// One of 👍 👀 ✅ ❤️ 🎉 ❓.
+        #[arg(long)]
+        emoji: String,
+        /// Remove the reaction instead of adding it.
+        #[arg(long)]
+        remove: bool,
+    },
     /// Clear a fail-closed spend poison after inspecting why it happened.
     /// A poison stops a company dead; without this it stops it forever.
     ClearPoison {
@@ -4066,6 +4082,17 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             "cmd": if revoke { "revoke" } else if decline { "decline" } else { "approve" },
             "company": c,
             "party": party,
+        }),
+        Command::React {
+            company: c,
+            as_actor,
+            message,
+            emoji,
+            remove,
+        } => serde_json::json!({
+            "cmd": if remove { "message-unreact" } else { "message-react" },
+            "company": c, "id": message.to_string(), "body": emoji,
+            "actor": as_actor.unwrap_or_else(acting_actor),
         }),
         Command::Message {
             company: c,

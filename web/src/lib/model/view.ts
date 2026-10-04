@@ -156,5 +156,7 @@ export interface ThreadMessage {
 	attachments: MessageAttachment[];
 	details?: string | null;
 	intent?: MessageIntentReceipt | null;
+	/** When the recipient's turn consumed this message, for sent / seen receipts. */
+	readAt?: Date | string | null;
 	contextPath?: string | null;
 }

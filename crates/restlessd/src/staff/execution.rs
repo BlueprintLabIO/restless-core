@@ -1392,7 +1392,7 @@ impl StaffDrive {
                 let feedback = self.org.checkpoint_attempt_feedback(attempt_id).await?;
                 if !feedback.is_empty() {
                     next = format!(
-                        "# Work feedback and peer messages delivered at a safe checkpoint\n{}\n\nUse these facts in the same Attempt. If a colleague asked a concrete question and you know the answer, reply directly with `restless message --to <actor>`. Do not send a courtesy acknowledgement. Preserve useful work already completed, then continue until the assigned outcome is done or genuinely blocked.",
+                        "# Work feedback and peer messages delivered at a safe checkpoint\n{}\n\nUse these facts in the same Attempt. If a colleague asked a concrete question and you know the answer, reply directly with `restless message --to <actor>`. Do not send a courtesy acknowledgement; react with `restless react --message <id> --emoji 👍` if one is useful. Preserve useful work already completed, then continue until the assigned outcome is done or genuinely blocked.",
                         feedback
                             .iter()
                             .map(|message| format!(

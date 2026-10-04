@@ -24,6 +24,7 @@
 		roomMessageSearchQuery
 	} from '$lib/model/room-queries.svelte';
 	import { type Room } from '$lib/model/rooms';
+	import { seenThrough, markSeen } from '$lib/model/conversation-seen';
 
 	const companyId = $derived(page.params.companyId ?? '');
 	const principal = $derived(companyPrincipalQuery(companyId));
@@ -121,6 +122,27 @@
 			.toSorted((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
 		if (!current.length) return '';
 		return current.length > 1 ? `${current[0].title} · +${current.length - 1}` : current[0].title;
+	}
+	let seenVersion = $state(0);
+	$effect(() => {
+		const bump = () => (seenVersion += 1);
+		window.addEventListener('restless:seen', bump);
+		return () => window.removeEventListener('restless:seen', bump);
+	});
+	/* The conversation in view is seen through its newest message. */
+	$effect(() => {
+		const open = recent.conversations.find(
+			(conversation) =>
+				conversation.room_id === roomId || (!roomId && conversation.person_actor_id === personId)
+		);
+		if (open) markSeen(companyId, open.room_id, open.last_message_id);
+	});
+	function hasNew(actorId: string): boolean {
+		void seenVersion;
+		const conversation = recent.conversations.find((entry) => entry.person_actor_id === actorId);
+		return (
+			!!conversation && conversation.last_message_id > seenThrough(companyId, conversation.room_id)
+		);
 	}
 	function openPerson(event: MouseEvent | null, id: string) {
 		event?.preventDefault();
@@ -278,7 +300,11 @@
 									class="doing"
 									title={doing(person.actor_id)}>{doing(person.actor_id)}</small
 								>{/if}</span
-						>{@render personStatuses(person.actor_id, person.display)}</span
+						>{#if hasNew(person.actor_id) && personId !== person.actor_id}<span
+								class="new-dot"
+								title="Something new since you last looked"
+								aria-label="New messages"
+							></span>{/if}{@render personStatuses(person.actor_id, person.display)}</span
 					>
 				</a>
 			{/snippet}
@@ -529,6 +555,13 @@
 		min-width: 0;
 		flex: 1;
 		overflow: hidden;
+	}
+	.new-dot {
+		width: 7px;
+		height: 7px;
+		flex: none;
+		border-radius: 999px;
+		background: var(--intent-conversation);
 	}
 	.person-lines {
 		display: grid;

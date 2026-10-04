@@ -443,7 +443,8 @@ function threadMessage(
 		attachments: message.attachments ?? [],
 		details: message.details ?? null,
 		intent: message.intent ?? null,
-		contextPath: message.context_path ?? null
+		contextPath: message.context_path ?? null,
+		readAt: message.read_at ?? null
 	};
 }
 

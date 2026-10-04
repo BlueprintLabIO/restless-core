@@ -24,6 +24,7 @@
 	import type { CollaborationWork } from '$lib/model/collaboration';
 	import type { WorkRow } from '$lib/model/generated/orgintel';
 	import WorkBoard from '$lib/ui/views/WorkBoard.svelte';
+	import { askExec } from '$lib/model/ask-exec';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import Check from '@lucide/svelte/icons/check';
 	import { STANDARDS, setGoalStandard, standardLabel } from '$lib/model/standards';
@@ -352,7 +353,13 @@
 					<Empty
 						title="No work yet"
 						info="Work appears here as Exec turns what you want into outcomes."
-					/>
+					>
+						{#snippet action()}{#if ownerAccess}<button
+									class="btn small primary"
+									type="button"
+									onclick={askExec}>Tell Exec what you want</button
+								>{/if}{/snippet}
+					</Empty>
 				{:else if view === 'board'}
 					<WorkBoard columns={boardColumns} />
 				{:else}

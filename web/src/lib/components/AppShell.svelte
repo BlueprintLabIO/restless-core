@@ -12,6 +12,9 @@
 	import { tooltips } from '$lib/actions/tooltips';
 	import { selectMenu } from '$lib/actions/select-menu';
 	import { theme } from '$lib/theme.svelte';
+	import ProfileMenu from './ProfileMenu.svelte';
+	import ShortcutsDialog from './ShortcutsDialog.svelte';
+	import type { PresentPerson } from '$lib/model/presence.svelte';
 	/* Bridge Light has one company shell. Owners receive the four owner surfaces
 	 * and bounded Exec control; collaborators receive only Work and People. The
 	 * executive transcript remains a persistent sibling of the owner workspace,
@@ -48,6 +51,9 @@
 		onexectoggle = null,
 		commands = [],
 		rail = null,
+		viewerName = '',
+		viewerRole = '',
+		present = [],
 		children
 	}: {
 		companyId: string;
@@ -72,6 +78,11 @@
 		onexectoggle?: (() => void) | null;
 		/** Destinations and actions for the command menu (⌘K). */
 		commands?: Command[];
+		/** The signed-in person, for the profile circle. */
+		viewerName?: string;
+		viewerRole?: string;
+		/** Other people in this company's cockpit right now. */
+		present?: PresentPerson[];
 		/**
 		 * The persistent executive transcript. Omitted on surfaces that already
 		 * hold a conversation with a specific actor — People carries its own, and
@@ -111,6 +122,7 @@
 	const execShortcut = isMac ? '⌘J' : 'Ctrl+J';
 	const menuShortcut = isMac ? '⌘K' : 'Ctrl+K';
 	let commandMenuOpen = $state(false);
+	let shortcuts: ShortcutsDialog | undefined = $state();
 	const menuCommands = $derived<Command[]>([
 		...tabs.map((tab) => ({
 			id: `surface:${tab.key}`,
@@ -140,7 +152,14 @@
 			hint: theme.preference === choice ? 'Current' : undefined,
 			keywords: `theme appearance mode${choice === 'system' ? ' auto os device' : ''}`,
 			run: () => theme.set(choice)
-		}))
+		})),
+		{
+			id: 'help:shortcuts',
+			group: 'Help',
+			label: 'Keyboard shortcuts',
+			hint: '?',
+			run: () => shortcuts?.open()
+		}
 	]);
 
 	let tabNav: HTMLElement | undefined = $state();
@@ -342,6 +361,14 @@
 				<span class="tb-search-label">Search</span>
 				<kbd aria-hidden="true">{menuShortcut}</kbd>
 			</button>
+			{#if viewerName}
+				<ProfileMenu
+					name={viewerName}
+					role={viewerRole}
+					{present}
+					onshortcuts={() => shortcuts?.open()}
+				/>
+			{/if}
 			{#if execHref}
 				<a
 					class="tb-exec"
@@ -369,6 +396,8 @@
 			{/if}
 		</div>
 	</header>
+
+	<ShortcutsDialog bind:this={shortcuts} />
 
 	{#snippet surfaceTab(tab: ShellTab)}
 		<a
