@@ -1,6 +1,23 @@
+<script lang="ts" module>
+	import type { Component } from 'svelte';
+
+	/* The code highlighter is most of Markdown's weight and most messages have
+	 * no code fence, so it loads the first time one does. Until then a fence
+	 * renders as Streamdown's plain block. */
+	type CodeComponent = Component<any>;
+	let loadedCode: CodeComponent | null = null;
+	let codeLoading: Promise<CodeComponent> | null = null;
+	function loadCode(): Promise<CodeComponent> {
+		codeLoading ??= import('svelte-streamdown/code').then(
+			(module) => (loadedCode = module.default as CodeComponent)
+		);
+		return codeLoading;
+	}
+	const FENCE = /(^|\n)[ \t]{0,3}(```|~~~)/;
+</script>
+
 <script lang="ts">
 	import { Streamdown } from 'svelte-streamdown';
-	import Code from 'svelte-streamdown/code';
 	import FileText from '@lucide/svelte/icons/file-text';
 	import Sheet from '@lucide/svelte/icons/sheet';
 	import Workflow from '@lucide/svelte/icons/workflow';
@@ -18,6 +35,11 @@
 		/** Opens a company file an agent linked to; without it such links stay plain. */
 		onreference?: (path: string, label: string) => void;
 	} = $props();
+	let Code = $state<CodeComponent | null>(loadedCode);
+	$effect(() => {
+		if (Code || !FENCE.test(text ?? '')) return;
+		void loadCode().then((component) => (Code = component));
+	});
 	const origin = typeof window === 'undefined' ? undefined : window.location.origin;
 	// No raw HTML or model-supplied components: Markdown becomes Svelte nodes,
 	// with Streamdown's URL checks at the link/image boundary.
@@ -132,7 +154,7 @@
 		allowedImagePrefixes={['http://', 'https://']}
 		animation={{ enabled: false }}
 		controls={{ code: { copy: true, download: false }, table: false, mermaid: false }}
-		components={{ code: Code }}
+		components={Code ? { code: Code } : {}}
 		{theme}
 		{link}
 		{blockquote}

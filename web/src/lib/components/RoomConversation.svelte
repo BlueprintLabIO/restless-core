@@ -611,6 +611,11 @@
 		return people.find((person) => person.actor_id === actorId)?.display ?? actorId;
 	}
 
+	/* The requested person stands in until the room's participants load, so the
+	 * exchanges bar is in place before the transcript rather than pushing it down. */
+	const exchangesPartner = $derived(
+		directPartner ?? (participants.length ? undefined : requestedPersonId || undefined)
+	);
 	function actorIsAgent(actorId: string): boolean {
 		const kind = people.find((person) => person.actor_id === actorId)?.kind;
 		return actorId === 'exec' || kind === 'exec' || kind === 'staff';
@@ -1043,8 +1048,8 @@
 					<span class="sr-only" role="status">Live</span>
 				{/if}
 			</header>
-			{#if ownerAccess && directPartner && actorIsAgent(directPartner)}
-				<div class="lead-exchanges"><AgentExchanges {companyId} actorId={directPartner} /></div>
+			{#if ownerAccess && exchangesPartner && actorIsAgent(exchangesPartner)}
+				<div class="lead-exchanges"><AgentExchanges {companyId} actorId={exchangesPartner} /></div>
 			{/if}
 			{#if exactTargetState === 'invalid' && threadRootId === null}
 				<div class="exact-target-state unavailable" role="status">
