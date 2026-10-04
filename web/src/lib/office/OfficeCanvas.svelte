@@ -1100,27 +1100,43 @@
 		}
 	}
 
+	/* Plaques are text on a fixed card, so each is rendered once and blitted.
+	 * The key notes whether the pixel font has arrived, so they repaint once it does. */
+	const plaqueSprites = new Map<string, HTMLCanvasElement>();
+	function plaqueSprite(label: string, kind: string, scale: number): HTMLCanvasElement {
+		const font = `400 ${9 * scale}px Silkscreen, monospace`;
+		const key = `${label}|${kind}|${scale}|${document.fonts?.check(font) ?? true}`;
+		let sprite = plaqueSprites.get(key);
+		if (sprite) return sprite;
+		sprite = document.createElement('canvas');
+		const paint = sprite.getContext('2d');
+		if (!paint) return sprite;
+		paint.font = font;
+		sprite.width = Math.ceil(paint.measureText(label).width) + 10 * scale;
+		sprite.height = 16 * scale;
+		paint.font = font;
+		paint.textBaseline = 'middle';
+		paint.fillStyle = 'rgba(239, 248, 244, 0.92)';
+		paint.fillRect(0, 0, sprite.width, sprite.height);
+		paint.fillStyle = kind === 'team' ? '#2b6660' : '#6d5da8';
+		paint.fillText(label, 5 * scale, Math.round(sprite.height / 2));
+		if (plaqueSprites.size > 200) plaqueSprites.clear();
+		plaqueSprites.set(key, sprite);
+		return sprite;
+	}
+
 	function drawZonePlaques(context: CanvasRenderingContext2D) {
 		if (!plan) return;
 		const scale = devicePixelRatio;
-		context.save();
-		context.textBaseline = 'middle';
-		context.font = `400 ${9 * scale}px Silkscreen, monospace`;
 		for (const zone of plan.zones) {
 			const x = lastOffset.x + (zone.col + 1) * TILE_SIZE * lastZoom;
 			const y = lastOffset.y + (zone.row + 0.58) * TILE_SIZE * lastZoom;
 			if (x < -220 * scale || y < -30 * scale || x > canvas.width || y > canvas.height) {
 				continue;
 			}
-			const label = zone.label;
-			const width = Math.ceil(context.measureText(label).width) + 10 * scale;
-			const height = 16 * scale;
-			context.fillStyle = 'rgba(239, 248, 244, 0.92)';
-			context.fillRect(Math.round(x), Math.round(y - height / 2), width, height);
-			context.fillStyle = zone.kind === 'team' ? '#2b6660' : '#6d5da8';
-			context.fillText(label, Math.round(x + 5 * scale), Math.round(y));
+			const sprite = plaqueSprite(zone.label, zone.kind, scale);
+			context.drawImage(sprite, Math.round(x), Math.round(y - sprite.height / 2));
 		}
-		context.restore();
 	}
 
 	function drawChatBubble(context: CanvasRenderingContext2D) {
