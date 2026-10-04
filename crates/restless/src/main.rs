@@ -1580,6 +1580,18 @@ enum WorkCommand {
         #[arg(long = "as", env = "RESTLESS_ACTOR")]
         as_actor: Option<String>,
     },
+    /// Hold one piece of Work to its own quality bar, or `inherit` its Goal's.
+    Standard {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[arg(long)]
+        work: String,
+        /// fast, thorough, exceptional, frontier or inherit.
+        #[arg(long)]
+        standard: String,
+        #[arg(long = "as", env = "RESTLESS_ACTOR")]
+        as_actor: Option<String>,
+    },
     Edge {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
@@ -1821,6 +1833,14 @@ enum GoalCommand {
         work: String,
         #[arg(long)]
         goal: String,
+    },
+    /// Set the quality bar this Goal's Work is held to.
+    Standard {
+        #[arg(long)]
+        goal: String,
+        /// fast, thorough, exceptional or frontier.
+        #[arg(long)]
+        standard: String,
     },
 }
 
@@ -3518,6 +3538,10 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 "cmd": "work-goal", "company": company, "id": work, "goal": goal,
                 "actor": acting_actor(),
             }),
+            Some(GoalCommand::Standard { goal, standard }) => serde_json::json!({
+                "cmd": "goal-standard", "company": company, "goal": goal,
+                "outcome_standard": standard, "actor": acting_actor(),
+            }),
         },
         Command::Work { command } => match command {
             WorkCommand::List { company } => {
@@ -3603,6 +3627,15 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             } => serde_json::json!({
                 "cmd": "work-assign", "company": company, "id": work, "to": owner,
                 "reason": reason, "actor": as_actor.unwrap_or_else(acting_actor),
+            }),
+            WorkCommand::Standard {
+                company,
+                work,
+                standard,
+                as_actor,
+            } => serde_json::json!({
+                "cmd": "work-standard", "company": company, "id": work,
+                "outcome_standard": standard, "actor": as_actor.unwrap_or_else(acting_actor),
             }),
             WorkCommand::Edge {
                 company,

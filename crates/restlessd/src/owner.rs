@@ -592,11 +592,6 @@ struct CharterRevisionInput {
 }
 
 #[derive(Debug, Deserialize)]
-struct OutcomeStandardInput {
-    standard: restless_orgintel::OutcomeStandard,
-}
-
-#[derive(Debug, Deserialize)]
 struct HarnessSettingsInput {
     coordination_harness: String,
     worker_harness: String,
@@ -812,6 +807,8 @@ struct CockpitGoal {
     created_by: String,
     created_at: chrono::DateTime<Utc>,
     closed_at: Option<chrono::DateTime<Utc>>,
+    /// The quality bar this Goal's Work is held to unless a Work states its own.
+    outcome_standard: restless_orgintel::OutcomeStandard,
 }
 
 #[derive(Debug, Serialize, ts_rs::TS)]
@@ -1434,6 +1431,14 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(skills_api::close_goal),
         )
         .route(
+            "/companies/{company}/goals/{goal}/standard",
+            post(skills_api::set_goal_standard),
+        )
+        .route(
+            "/companies/{company}/work/{work}/standard",
+            post(skills_api::set_work_standard),
+        )
+        .route(
             "/companies/{company}/loops",
             get(skills_api::list_loops).post(skills_api::add_loop),
         )
@@ -1473,10 +1478,6 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route("/companies/{company}/email-mandates/proposals", post(propose_email_mandate))
         .route("/companies/{company}/email-mandates/proposals/{proposal}/decision", post(decide_email_mandate))
         .route("/companies/{company}/cockpit", get(cockpit_view))
-        .route(
-            "/companies/{company}/teams/{team}/outcome-standard",
-            post(set_team_outcome_standard),
-        )
         .route("/companies/{company}/company", get(company_view))
         .route(
             "/companies/{company}/members",
@@ -1493,10 +1494,6 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route(
             "/companies/{company}/company/runtime-policy",
             post(company_settings_api::save_runtime_policy),
-        )
-        .route(
-            "/companies/{company}/company/outcome-standard",
-            post(set_company_outcome_standard),
         )
         .route(
             "/companies/{company}/company/harnesses",
@@ -4129,7 +4126,6 @@ enum CompanySetupSection {
     Purpose,
     Spend,
     Runtime,
-    OutcomeStandard,
 }
 
 impl CompanySetupSection {
@@ -4142,19 +4138,17 @@ impl CompanySetupSection {
             Self::Purpose => "purpose",
             Self::Spend => "spend",
             Self::Runtime => "runtime",
-            Self::OutcomeStandard => "outcome_standard",
         }
     }
     fn label(self) -> &'static str {
         match self {
             Self::Identity => "Name and purpose",
             Self::Models => "Model choices",
-            Self::Limits => "Limits and outcome standard",
+            Self::Limits => "Limits",
             Self::Name => "Company name",
             Self::Purpose => "Purpose",
             Self::Spend => "Model spend limit",
             Self::Runtime => "Computer limits",
-            Self::OutcomeStandard => "Outcome standard",
         }
     }
 }
@@ -4217,11 +4211,9 @@ fn setup_copy_preview(
             CompanySetupSection::Limits => vec![
                 serde_json::json!({"label":"Spend ceiling","from":target.spend_ceiling_usd,"to":source.spend_ceiling_usd}),
                 serde_json::json!({"label":"Runtime limits","from":{"monthly_hours":target.monthly_runtime_cap_hours,"auto_sleep_minutes":target.auto_sleep_after_minutes},"to":{"monthly_hours":source.monthly_runtime_cap_hours,"auto_sleep_minutes":source.auto_sleep_after_minutes}}),
-                serde_json::json!({"label":"Outcome standard","from":target.outcome_standard,"to":source.outcome_standard}),
             ],
             CompanySetupSection::Spend => vec![serde_json::json!({"label":"Spend ceiling","from":target.spend_ceiling_usd,"to":source.spend_ceiling_usd})],
             CompanySetupSection::Runtime => vec![serde_json::json!({"label":"Computer limits","from":{"monthly_hours":target.monthly_runtime_cap_hours,"auto_sleep_minutes":target.auto_sleep_after_minutes},"to":{"monthly_hours":source.monthly_runtime_cap_hours,"auto_sleep_minutes":source.auto_sleep_after_minutes}})],
-            CompanySetupSection::OutcomeStandard => vec![serde_json::json!({"label":"Outcome standard","from":target.outcome_standard,"to":source.outcome_standard})],
         };
         serde_json::json!({"id":section.id(),"label":section.label(),"changes":changes})
     }).collect::<Vec<_>>();
@@ -4433,14 +4425,6 @@ async fn copy_company_setup(
     }) {
         target.monthly_runtime_cap_hours = source.monthly_runtime_cap_hours;
         target.auto_sleep_after_minutes = source.auto_sleep_after_minutes;
-    }
-    if sections.iter().any(|section| {
-        matches!(
-            section,
-            CompanySetupSection::Limits | CompanySetupSection::OutcomeStandard
-        )
-    }) {
-        target.outcome_standard = source.outcome_standard;
     }
     let changed = company_setup_view(&original_target)["revision"]
         != company_setup_view(&target)["revision"];
@@ -5674,108 +5658,6 @@ async fn revise_company_charter(
     .into_response()
 }
 
-#[derive(Debug, Deserialize)]
-struct TeamOutcomeStandardInput {
-    standard: restless_orgintel::OutcomeStandard,
-    expected_standard: restless_orgintel::OutcomeStandard,
-}
-
-async fn set_team_outcome_standard(
-    State(state): State<OwnerState>,
-    Extension(principal): Extension<RequestPrincipal>,
-    AxumPath((company, team)): AxumPath<(String, uuid::Uuid)>,
-    Json(input): Json<TeamOutcomeStandardInput>,
-) -> impl IntoResponse {
-    if principal.membership_role() != "owner" {
-        return api_error(
-            StatusCode::FORBIDDEN,
-            "membership_role",
-            "only the owner may change the team quality target",
-        );
-    }
-    let org = match state.daemon.orgintel.get(&company).await {
-        Ok(org) => org,
-        Err(error) => {
-            return api_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "company",
-                format!("{error:#}"),
-            )
-        }
-    };
-    match org
-        .set_team_outcome_standard(
-            team,
-            principal.actor_id(),
-            input.expected_standard,
-            input.standard,
-        )
-        .await
-    {
-        Ok(()) => {
-            state.daemon.schedule_wake.notify_one();
-            Json(serde_json::json!({"standard":input.standard})).into_response()
-        }
-        Err(restless_orgintel::OrgIntelError::InvalidWork(message)) => {
-            api_error(StatusCode::CONFLICT, "outcome_standard", message)
-        }
-        Err(error) => api_error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "outcome_standard",
-            format!("{error:#}"),
-        ),
-    }
-}
-
-async fn set_company_outcome_standard(
-    State(state): State<OwnerState>,
-    Extension(principal): Extension<RequestPrincipal>,
-    AxumPath(company): AxumPath<String>,
-    Json(input): Json<OutcomeStandardInput>,
-) -> impl IntoResponse {
-    // Share the bounded company-config write lock with charter revision. The
-    // standard is owner policy in the same file; neither write may erase the
-    // other after two tabs read an older copy.
-    let _write = state.charter_writes.lock().await;
-    let mut config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
-        Ok(config) => config,
-        Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
-    };
-    if config.outcome_standard != input.standard {
-        let previous = config.outcome_standard;
-        config.outcome_standard = input.standard;
-        if let Err(error) = runtime::CompanyConfig::save(&state.daemon.root, &config) {
-            return api_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "outcome_standard",
-                format!("{error:#}"),
-            );
-        }
-        if let Err(error) = state
-            .daemon
-            .authority
-            .emit(
-                &company,
-                "company_outcome_standard_changed",
-                Some(principal.actor_id()),
-                serde_json::json!({
-                    "previous": previous,
-                    "standard": input.standard,
-                    "effect": "newly commissioned outcomes only",
-                }),
-            )
-            .await
-        {
-            return api_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "authority",
-                format!("the setting changed but its owner audit record failed: {error:#}"),
-            );
-        }
-    }
-    Json(company_projection::project(&state.daemon, &config, false).await).into_response()
-}
-
 async fn set_company_harnesses(
     State(state): State<OwnerState>,
     Extension(principal): Extension<RequestPrincipal>,
@@ -6480,6 +6362,7 @@ async fn cockpit_view(
                 created_by: goal.created_by,
                 created_at: goal.created_at,
                 closed_at: goal.closed_at,
+                outcome_standard: goal.outcome_standard,
             })
             .collect(),
         spend: CockpitSpend {
@@ -14359,6 +14242,7 @@ mod tests {
                 created_by: "owner".into(),
                 created_at: at(),
                 closed_at: None,
+                outcome_standard: restless_orgintel::OutcomeStandard::Thorough,
             }],
             spend: CockpitSpend {
                 accounted_usd: 1.25,

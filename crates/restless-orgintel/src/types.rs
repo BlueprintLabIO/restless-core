@@ -395,6 +395,9 @@ pub struct GoalRow {
     pub created_by: String,
     pub created_at: DateTime<Utc>,
     pub closed_at: Option<DateTime<Utc>>,
+    /// The quality bar this Goal's Work is held to unless a Work states its own.
+    #[sqlx(default)]
+    pub outcome_standard: OutcomeStandard,
 }
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
@@ -986,6 +989,14 @@ pub struct WorkGraphSnapshot {
     pub gates: Vec<WorkGateRow>,
     pub gate_runs: Vec<WorkGateRunRow>,
     pub handoffs: Vec<OwnerHandoffRow>,
+    /// Work that states its own quality bar; the rest inherit their Goal's.
+    pub standards: Vec<WorkStandardRow>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct WorkStandardRow {
+    pub work_id: Uuid,
+    pub outcome_standard: OutcomeStandard,
 }
 
 pub struct NewOwnerHandoff<'a> {

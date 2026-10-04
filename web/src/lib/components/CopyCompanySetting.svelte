@@ -24,7 +24,7 @@
 		oncopied
 	}: {
 		companyId: string;
-		setting: 'name' | 'purpose' | 'models' | 'spend' | 'runtime' | 'outcome_standard';
+		setting: 'name' | 'purpose' | 'models' | 'spend' | 'runtime';
 		label: string;
 		oncopied?: () => void | Promise<unknown>;
 	} = $props();

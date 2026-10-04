@@ -963,6 +963,31 @@
 	justify-content: space-between;
 	gap: 20px;
 }
+.bridge-root .standard-cell summary {
+	width: auto;
+	height: 26px;
+	margin-left: -8px;
+	padding: 0 8px;
+	justify-content: flex-start;
+}
+.bridge-root .standard-face {
+	display: inline-flex;
+	align-items: baseline;
+	gap: 6px;
+	color: var(--ink);
+}
+.bridge-root .standard-face small {
+	color: var(--text-tertiary);
+	font-size: var(--t-label);
+}
+.bridge-root .standard-cell .action-menu-panel button {
+	justify-content: space-between;
+}
+.bridge-root .standard-failure {
+	display: block;
+	color: var(--state-danger);
+	font-size: var(--t-label);
+}
 .bridge-root .work-talk {
 	display: flex;
 	flex: none;

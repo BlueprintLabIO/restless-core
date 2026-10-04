@@ -13,7 +13,7 @@ export type OutcomeStandard = 'fast' | 'thorough' | 'exceptional' | 'frontier';
 export type AgentHarness = 'restless-managed' | 'codex' | 'claude-agent';
 
 export interface CompanyView {
-	company: { id: string; name: string; outcome_standard: OutcomeStandard };
+	company: { id: string; name: string };
 	sources: Record<'authority' | 'orgintel' | 'runtime', CompanySourceObservation>;
 	charter: {
 		purpose: string;
@@ -311,7 +311,10 @@ export async function disableCompanyMcp(company: string, name: string): Promise<
 	);
 }
 
-export async function getCompanyMcpReceipts(company: string, name: string): Promise<McpReadReceipt[]> {
+export async function getCompanyMcpReceipts(
+	company: string,
+	name: string
+): Promise<McpReadReceipt[]> {
 	return ownerResponse<McpReadReceipt[]>(
 		await fetch(
 			`/api/companies/${encodeURIComponent(company)}/company/mcp/${encodeURIComponent(name)}/receipts`,
@@ -362,20 +365,6 @@ export async function reviseCompanyCharter(
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify({ markdown, base_revision: baseRevision }),
-			credentials: 'same-origin'
-		})
-	);
-}
-
-export async function setCompanyOutcomeStandard(
-	company: string,
-	standard: OutcomeStandard
-): Promise<CompanyView> {
-	return ownerResponse<CompanyView>(
-		await fetch(`/api/companies/${encodeURIComponent(company)}/company/outcome-standard`, {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ standard }),
 			credentials: 'same-origin'
 		})
 	);

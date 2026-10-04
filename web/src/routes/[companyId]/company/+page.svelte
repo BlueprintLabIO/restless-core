@@ -1,7 +1,7 @@
 <script lang="ts">
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import { formatRelative, formatMoment } from '$lib/ui/time';
-	import { Page, Section, Row, Item, Notice, Empty, Segmented } from '$lib/ui/page';
+	import { Page, Section, Row, Item, Notice, Empty } from '$lib/ui/page';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { failureSentence } from '$lib/model/failure';
@@ -10,11 +10,7 @@
 	import { tick } from 'svelte';
 	import CompanyNameField from '$lib/components/CompanyNameField.svelte';
 	import CopyCompanySetting from '$lib/components/CopyCompanySetting.svelte';
-	import {
-		reviseCompanyCharter,
-		setCompanyOutcomeStandard,
-		type OutcomeStandard
-	} from '$lib/model/company';
+	import { reviseCompanyCharter } from '$lib/model/company';
 	import Markdown from '$lib/primitives/Markdown.svelte';
 	import { companyQuery } from '$lib/model/queries.svelte';
 	import ArrowRight from '@lucide/svelte/icons/arrow-right';
@@ -44,16 +40,7 @@
 	let editor = $state<HTMLTextAreaElement>();
 	let notice = $state('');
 	let failure = $state('');
-	let qualitySaving = $state(false);
-	let qualityError = $state('');
 	const changed = $derived(editing && draft !== openedMarkdown);
-
-	const STANDARDS: { value: OutcomeStandard; label: string; title: string }[] = [
-		{ value: 'fast', label: 'Fast', title: 'Good enough to move on; speed matters most.' },
-		{ value: 'thorough', label: 'Thorough', title: 'Checked carefully before it is called done.' },
-		{ value: 'exceptional', label: 'Exceptional', title: 'Clearly better than the usual result.' },
-		{ value: 'frontier', label: 'Frontier', title: 'The best credible result, whatever it takes.' }
-	];
 
 	async function toggleHistory() {
 		historyOpen = !historyOpen;
@@ -123,19 +110,6 @@
 		}
 	}
 
-	async function saveQuality(standard: OutcomeStandard) {
-		if (qualitySaving || !view || view.company.outcome_standard === standard) return;
-		qualitySaving = true;
-		qualityError = '';
-		try {
-			source.accept(await setCompanyOutcomeStandard(companyId, standard));
-		} catch (cause) {
-			qualityError = failureSentence(cause, 'Could not change the quality bar.');
-		} finally {
-			qualitySaving = false;
-		}
-	}
-
 	$effect(() => {
 		if (!changed) return;
 		const warn = (event: BeforeUnloadEvent) => event.preventDefault();
@@ -195,27 +169,6 @@
 					}}
 				/>
 			</Row>
-			<Row
-				label="Quality bar"
-				info="How ambitious new work should be. Each lead decides what proof a piece of work needs."
-			>
-				<Segmented
-					label="Quality bar"
-					options={STANDARDS}
-					value={view.company.outcome_standard as OutcomeStandard}
-					disabled={qualitySaving}
-					onchange={saveQuality}
-				/>
-				<CopyCompanySetting
-					{companyId}
-					setting="outcome_standard"
-					label="Quality bar"
-					oncopied={() => source.refresh()}
-				/>
-			</Row>
-			{#if qualityError}<Notice tone="danger" title="The quality bar did not change"
-					>{qualityError}</Notice
-				>{/if}
 		</Section>
 
 		<Section

@@ -380,6 +380,13 @@ impl OrgIntel {
         .bind(actor_id)
         .fetch_all(&mut *tx)
         .await?;
+        let standards = sqlx::query_as(
+            "SELECT id AS work_id, outcome_standard FROM work \
+             WHERE id=ANY($1) AND outcome_standard IS NOT NULL",
+        )
+        .bind(&visible)
+        .fetch_all(&mut *tx)
+        .await?;
         tx.commit().await?;
         Ok(WorkGraphSnapshot {
             work,
@@ -391,6 +398,7 @@ impl OrgIntel {
             gates,
             gate_runs,
             handoffs,
+            standards,
         })
     }
 }

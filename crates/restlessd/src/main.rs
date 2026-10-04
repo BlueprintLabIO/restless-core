@@ -1472,7 +1472,9 @@ fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Result
         | "team-disband"
         | "goal-add"
         | "goal-close"
+        | "goal-standard"
         | "work-goal"
+        | "work-standard"
         | "work-assign"
         | "work-artifact"
         | "work-gate"
@@ -3936,6 +3938,74 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 }
             }
             _ => Response::err("goal-close needs a Goal id and actor attribution"),
+        },
+        "goal-standard" => match (
+            request.orgintel.goal.as_deref(),
+            request
+                .orgintel
+                .outcome_standard
+                .as_deref()
+                .and_then(restless_orgintel::OutcomeStandard::parse),
+            request.orgintel.actor.as_deref(),
+        ) {
+            (Some(goal), Some(standard), Some(actor)) => {
+                let goal_id = match uuid::Uuid::parse_str(goal) {
+                    Ok(goal_id) => goal_id,
+                    Err(error) => return Response::err(format!("bad Goal id: {error}")),
+                };
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => match org.set_goal_standard(goal_id, standard, actor).await {
+                        Ok(true) => Response::ok(serde_json::json!({
+                            "goal_id": goal_id, "standard": standard,
+                        })),
+                        Ok(false) => Response::err(format!("Goal {goal_id} does not exist")),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err(
+                "goal-standard needs a Goal id, a standard (fast, thorough, exceptional or frontier) and actor attribution",
+            ),
+        },
+        "work-standard" => match (
+            request.common.id.as_deref(),
+            request.orgintel.outcome_standard.as_deref(),
+            request.orgintel.actor.as_deref(),
+        ) {
+            (Some(work_id), Some(value), Some(actor)) => {
+                let work_id = match uuid::Uuid::parse_str(work_id) {
+                    Ok(work_id) => work_id,
+                    Err(error) => return Response::err(format!("bad Work id: {error}")),
+                };
+                // `inherit` returns the Work to its Goal's bar.
+                let standard = if value.eq_ignore_ascii_case("inherit") {
+                    None
+                } else {
+                    match restless_orgintel::OutcomeStandard::parse(value) {
+                        Some(standard) => Some(standard),
+                        None => {
+                            return Response::err(
+                                "standard must be fast, thorough, exceptional, frontier or inherit",
+                            )
+                        }
+                    }
+                };
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => match org.set_work_standard(work_id, standard, actor).await {
+                        Ok(true) => match org.effective_work_standard(work_id).await {
+                            Ok(effective) => Response::ok(serde_json::json!({
+                                "work_id": work_id, "standard": standard, "effective": effective,
+                            })),
+                            Err(error) => Response::err(format!("{error:#}")),
+                        },
+                        Ok(false) => Response::err(format!("Work {work_id} does not exist")),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err("work-standard needs a Work id, a standard and actor attribution"),
         },
         "skill-list" | "skill-observe" | "skill-activate" | "skill-candidate-add"
         | "skill-disposition" | "skill-assign" | "work-skill" => {

@@ -1399,7 +1399,6 @@ async fn gather_snapshot(
         human_is_membership_owner,
         operating_rules: crate::context::COMPANY_OPERATING_RULES.to_string(),
         mission: config.mission.clone(),
-        outcome_standard: config.outcome_standard,
         legal_identity,
         current_plan,
         latest_journal,

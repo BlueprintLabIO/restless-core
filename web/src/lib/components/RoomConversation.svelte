@@ -56,9 +56,6 @@
 		type RoomMessage as RoomMessageRecord,
 		type RoomMessageSearchResult
 	} from '$lib/model/rooms';
-	import type { OutcomeStandard } from '$lib/model/company';
-	import type { CockpitTeam } from '$lib/model/cockpit';
-	import type { CollaborationTeam } from '$lib/model/collaboration';
 	import type { AttentionItem, ThreadMessage } from '$lib/model/view';
 	import Composer from '$lib/primitives/Composer.svelte';
 	import { followChat } from '$lib/actions/follow-chat';
@@ -161,8 +158,6 @@
 	let sending = $state(false);
 	let sendError = $state('');
 	let sendNotice = $state('');
-	let standardSaving = $state(false);
-	let standardError = $state('');
 	let pendingMessage = $state<RoomMessageRecord | null>(null);
 	let lastMarkedRoom = $state('');
 	let lastMarkedMessage = $state(0);
@@ -560,39 +555,6 @@
 	);
 	const actorNameForHeader = $derived(directPerson?.display ?? directPartner ?? '');
 	const actorDisplay = $derived(directPerson?.display ?? directPartner ?? '');
-	function isOwnerTeam(team: CockpitTeam | CollaborationTeam | null): team is CockpitTeam {
-		return !!team && 'outcome_standard_source' in team;
-	}
-	async function changeStandard(control: HTMLSelectElement) {
-		if (!ownerAccess || !isOwnerTeam(directTeam) || standardSaving) return;
-		const team = directTeam;
-		const standard = control.value as OutcomeStandard;
-		standardSaving = true;
-		standardError = '';
-		try {
-			const response = await fetch(
-				`/api/companies/${encodeURIComponent(companyId)}/teams/${team.id}/outcome-standard`,
-				{
-					method: 'POST',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify({ standard, expected_standard: team.outcome_standard })
-				}
-			);
-			if (!response.ok) {
-				const failure = await response.json();
-				throw new Error(failure.message ?? 'Could not save the quality target.');
-			}
-		} catch (cause) {
-			control.value = team.outcome_standard;
-			standardError = failureSentence(cause, 'Could not save the quality target.');
-		} finally {
-			try {
-				await cockpitProjection.refresh();
-			} finally {
-				standardSaving = false;
-			}
-		}
-	}
 	const canExtendDirect = $derived(
 		participantProjection?.status === 'live' &&
 			participants.some((p) => p.actor_id === currentActorId) &&
@@ -1002,21 +964,6 @@
 					{:else}<strong>{roomLabel(selectedRoomId)}</strong>{/if}
 					{#if participantSummary && !directPerson}<small>{participantSummary}</small>{/if}
 				</div>
-				{#if ownerAccess && isOwnerTeam(directTeam)}
-					<select
-						class="team-standard"
-						aria-label="Team quality target"
-						title="How ambitious this team’s new work should be. Separate from model thinking effort."
-						value={directTeam.outcome_standard}
-						disabled={standardSaving}
-						onchange={(event) => void changeStandard(event.currentTarget)}
-					>
-						<option value="fast">Fast</option><option value="thorough">Thorough</option><option
-							value="exceptional">Exceptional</option
-						><option value="frontier">Frontier</option>
-					</select>
-				{/if}
-				{#if standardError}<span role="alert">{standardError}</span>{/if}
 				<button
 					type="button"
 					class="message-search-toggle"
@@ -1508,16 +1455,6 @@
 		overflow: hidden;
 		clip-path: inset(50%);
 		white-space: nowrap;
-	}
-	.team-standard {
-		max-width: 112px;
-		min-height: 30px;
-		padding: 4px 6px;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-control);
-		background: var(--surface);
-		color: var(--text-secondary);
-		font: 500 var(--t-label) var(--font-ui);
 	}
 	.lead-exchanges {
 		padding: 0 14px;

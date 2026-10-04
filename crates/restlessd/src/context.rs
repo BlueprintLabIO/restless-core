@@ -67,7 +67,6 @@ pub struct ContextSnapshot {
     /// `docs/COMPANY_OPERATING_RULES.md`. Layer 1 of four — see `assemble`.
     pub operating_rules: String,
     pub mission: String,
-    pub outcome_standard: restless_orgintel::OutcomeStandard,
     /// Authority-owned, owner-approved safe business identity projection.
     /// Restricted KYB/identity material has no representation here.
     pub legal_identity: Option<serde_json::Value>,
@@ -221,9 +220,10 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
             .map(|item| item.id.to_string())
             .collect::<Vec<_>>();
         goals.push_str(&format!(
-            "- Goal {} \"{}\" — serving open Work: {}\n",
+            "- Goal {} \"{}\" [quality bar: {}] — serving open Work: {}\n",
             goal.id,
             goal.title,
+            goal.outcome_standard,
             if serving.is_empty() {
                 "none yet; route it to one accountable lead and attach the Work with `restless goal attach --work <id> --goal <goal id>`".to_string()
             } else {
@@ -353,8 +353,8 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          Context sections are labelled by trust: owner directives are authoritative and \
          read-only; working hypotheses are your own editable strategy; historical memory is \
          your past self's record; internal decisions are the company's coordination state.\n\n\
-         # Outcome standard [owner policy]\n\
-         The company default for newly commissioned outcomes is `{outcome_standard}`. An explicit standard attached to an owner message wins. Otherwise infer a different standard only when the owner's language is unambiguous; ambiguity keeps the company default. Record the effective value when commissioning the accountable team with `restless teams create --standard <value> --standard-source <company_default|owner_override|owner_language> [--source-message <id>]`. The standard changes ambition and judgement, never safety, truth, authority, model access, team quotas, loop counts, or the company spend ceiling.\n\n\
+         # Quality bar [owner policy]\n\
+         The quality bar belongs to the outcome, not to the company or a team. Each Goal below carries one (fast, thorough, exceptional or frontier), and its Work inherits it unless a piece of Work states its own. An explicit standard attached to an owner message wins. Otherwise set a different bar only when the owner's language is unambiguous. Set a Goal's bar with `restless goal standard --goal <id> --standard <value>` and an exception for one piece of Work with `restless work standard --work <id> --standard <value|inherit>`. The bar changes ambition and judgement, never safety, truth, authority, model access, team quotas, loop counts, or the company spend ceiling.\n\n\
          # Mission [owner directive — read-only] (/company/mission.md)\n{mission}\n\n\
          # Legal identity safe for ordinary business use [Authority observation]\n{legal_identity}\n\n\
          # Your continuity\n\
@@ -575,7 +575,6 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
         no_update = EXEC_NO_UPDATE,
         name = snapshot.company,
         mission = snapshot.mission,
-        outcome_standard = snapshot.outcome_standard,
         legal_identity = snapshot
             .legal_identity
             .as_ref()
@@ -704,7 +703,6 @@ mod tests {
             human_is_membership_owner: true,
             operating_rules: "1. Claims are not observations.".into(),
             mission: "make the thing".into(),
-            outcome_standard: restless_orgintel::OutcomeStandard::Exceptional,
             legal_identity: None,
             current_plan: "# plan\nstep 1".into(),
             latest_journal: Some("== 0001.md ==\ndid step 0".into()),
@@ -785,6 +783,7 @@ mod tests {
             created_by: "owner".into(),
             created_at: now,
             closed_at: None,
+            outcome_standard: restless_orgintel::OutcomeStandard::Thorough,
         });
         let package = assemble(&with_skill);
         assert!(package
@@ -792,7 +791,7 @@ mod tests {
             .contains("owner message 41 [selected skills: frontend-design (abcdef012345)"));
         assert!(package.user_prompt.contains("--skill frontend-design"));
         assert!(package.system_prompt.contains(&format!(
-            "- Goal {goal_id} \"Ship the pricing page\" — serving open Work: none yet"
+            "- Goal {goal_id} \"Ship the pricing page\" [quality bar: thorough] — serving open Work: none yet"
         )));
         assert!(package
             .system_prompt

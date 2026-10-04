@@ -19,7 +19,11 @@ export type CockpitPerson = { actor_id: string, kind: string, role: string, disp
 
 export type CockpitTeam = { id: string, name: string, brief: string, outcome_standard: OutcomeStandard, outcome_standard_source: OutcomeStandardSource, standard_source_message_id: number | null, frontier_phase: string, lead_actor_id: string, created_by: string, created_at: string, member_count: number, in_motion_count: number, blocked_count: number, };
 
-export type CockpitGoal = { id: string, title: string, body: string, created_by: string, created_at: string, closed_at: string | null, };
+export type CockpitGoal = { id: string, title: string, body: string, created_by: string, created_at: string, closed_at: string | null,
+/**
+ * The quality bar this Goal's Work is held to unless a Work states its own.
+ */
+outcome_standard: OutcomeStandard, };
 
 export type CockpitSpend = { accounted_usd: number, ceiling_usd: number, remaining_usd: number | null, status: string, };
 

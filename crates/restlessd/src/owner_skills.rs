@@ -228,6 +228,97 @@ pub(super) async fn close_goal(
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+pub(super) struct StandardInput {
+    /// fast, thorough, exceptional or frontier. For Work, null inherits the Goal's.
+    standard: Option<String>,
+}
+
+fn parse_standard(
+    value: Option<&str>,
+) -> std::result::Result<Option<restless_orgintel::OutcomeStandard>, Response<Body>> {
+    match value {
+        None => Ok(None),
+        Some(text) => restless_orgintel::OutcomeStandard::parse(text)
+            .map(Some)
+            .ok_or_else(|| {
+                api_error(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "standard",
+                    "standard must be fast, thorough, exceptional or frontier",
+                )
+            }),
+    }
+}
+
+/// The quality bar belongs to the outcome: the owner sets it on a Goal, and
+/// that Goal's Work inherits it.
+pub(super) async fn set_goal_standard(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, goal)): AxumPath<(String, Uuid)>,
+    Json(input): Json<StandardInput>,
+) -> Response<Body> {
+    if let Some(refusal) = owner_only(&principal) {
+        return refusal;
+    }
+    let standard = match parse_standard(input.standard.as_deref()) {
+        Ok(Some(standard)) => standard,
+        Ok(None) => {
+            return api_error(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "standard",
+                "a Goal always has a standard",
+            )
+        }
+        Err(response) => return response,
+    };
+    let org = match org_for(&state, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org.set_goal_standard(goal, standard, principal.actor_id()).await {
+        Ok(true) => Json(json!({ "goal_id": goal, "standard": standard })).into_response(),
+        Ok(false) => api_error(StatusCode::NOT_FOUND, "goal", "that Goal does not exist"),
+        Err(error) => orgintel_error(error),
+    }
+}
+
+/// One piece of Work can hold itself to a different bar than its Goal, or
+/// return to inheriting it with a null standard.
+pub(super) async fn set_work_standard(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, work)): AxumPath<(String, Uuid)>,
+    Json(input): Json<StandardInput>,
+) -> Response<Body> {
+    if let Some(refusal) = owner_only(&principal) {
+        return refusal;
+    }
+    let standard = match parse_standard(input.standard.as_deref()) {
+        Ok(standard) => standard,
+        Err(response) => return response,
+    };
+    let org = match org_for(&state, &company).await {
+        Ok(org) => org,
+        Err(response) => return response,
+    };
+    match org.set_work_standard(work, standard, principal.actor_id()).await {
+        Ok(true) => match org.effective_work_standard(work).await {
+            Ok(effective) => Json(json!({
+                "work_id": work,
+                "standard": standard,
+                "effective": effective,
+            }))
+            .into_response(),
+            Err(error) => orgintel_error(error),
+        },
+        Ok(false) => api_error(StatusCode::NOT_FOUND, "work", "that Work does not exist"),
+        Err(error) => orgintel_error(error),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct LoopInput {
     every: String,
     prompt: String,

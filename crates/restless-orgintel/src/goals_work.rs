@@ -93,11 +93,89 @@ impl OrgIntel {
 
     pub async fn list_goals(&self) -> Result<Vec<GoalRow>> {
         Ok(sqlx::query_as(
-            "SELECT id, title, body, created_by, created_at, closed_at FROM goals \
-             ORDER BY created_at",
+            "SELECT id, title, body, created_by, created_at, closed_at, outcome_standard \
+             FROM goals ORDER BY created_at",
         )
         .fetch_all(&self.pool)
         .await?)
+    }
+
+    /// Set the quality bar a Goal holds its Work to.
+    pub async fn set_goal_standard(
+        &self,
+        goal_id: Uuid,
+        standard: OutcomeStandard,
+        changed_by: &str,
+    ) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
+        let changed = sqlx::query("UPDATE goals SET outcome_standard=$2 WHERE id=$1")
+            .bind(goal_id)
+            .bind(standard)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected()
+            == 1;
+        if changed {
+            sqlx::query(
+                "INSERT INTO events (kind, actor_id, body) VALUES ('goal_standard_set',$1,$2)",
+            )
+            .bind(changed_by)
+            .bind(serde_json::json!({ "goal_id": goal_id, "standard": standard }))
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(changed)
+    }
+
+    /// Give one piece of Work its own bar, or `None` to inherit its Goal's again.
+    pub async fn set_work_standard(
+        &self,
+        work_id: Uuid,
+        standard: Option<OutcomeStandard>,
+        changed_by: &str,
+    ) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
+        let changed = sqlx::query("UPDATE work SET outcome_standard=$2 WHERE id=$1")
+            .bind(work_id)
+            .bind(standard)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected()
+            == 1;
+        if changed {
+            sqlx::query(
+                "INSERT INTO events (kind, actor_id, body) VALUES ('work_standard_set',$1,$2)",
+            )
+            .bind(changed_by)
+            .bind(serde_json::json!({ "work_id": work_id, "standard": standard }))
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(changed)
+    }
+
+    /// Work that states its own bar rather than inheriting its Goal's.
+    pub async fn work_standard_overrides(&self) -> Result<Vec<(Uuid, OutcomeStandard)>> {
+        Ok(sqlx::query_as(
+            "SELECT id, outcome_standard FROM work WHERE outcome_standard IS NOT NULL",
+        )
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    /// The bar a piece of Work is held to: its own, else its Goal's, else the
+    /// default for Work that serves no Goal.
+    pub async fn effective_work_standard(&self, work_id: Uuid) -> Result<OutcomeStandard> {
+        let found: Option<Option<OutcomeStandard>> = sqlx::query_scalar(
+            "SELECT COALESCE(work.outcome_standard, goal.outcome_standard) FROM work \
+             LEFT JOIN goals goal ON goal.id = work.goal_id WHERE work.id=$1",
+        )
+        .bind(work_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(found.flatten().unwrap_or_default())
     }
 
     /// Attach or reassign existing Work to an existing Goal. This is ordinary

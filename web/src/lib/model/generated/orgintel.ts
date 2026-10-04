@@ -119,7 +119,11 @@ retired_by: string | null,
  */
 retirement_reason: string, created_at: string, };
 
-export type GoalRow = { id: string, title: string, body: string, created_by: string, created_at: string, closed_at: string | null, };
+export type GoalRow = { id: string, title: string, body: string, created_by: string, created_at: string, closed_at: string | null,
+/**
+ * The quality bar this Goal's Work is held to unless a Work states its own.
+ */
+outcome_standard: OutcomeStandard, };
 
 export type WorkRow = { id: string, goal_id: string | null, owner_id: string, title: string, outcome: string, status: WorkStatus, resolution: string, priority: number, expected_artifact: string,
 /**
@@ -177,7 +181,13 @@ escalated_from: string | null, escalated_at: string | null, owner_brief: OwnerBr
  */
 delivered_at: string | null, created_at: string, resolved_at: string | null, };
 
-export type WorkGraphSnapshot = { work: Array<WorkRow>, edges: Array<WorkEdgeRow>, attempts: Array<WorkAttemptRow>, attempt_inputs: Array<WorkAttemptInputRow>, attempt_feedback: Array<WorkAttemptFeedbackRow>, artifacts: Array<ArtifactRefRow>, gates: Array<WorkGateRow>, gate_runs: Array<WorkGateRunRow>, handoffs: Array<OwnerHandoffRow>, };
+export type WorkGraphSnapshot = { work: Array<WorkRow>, edges: Array<WorkEdgeRow>, attempts: Array<WorkAttemptRow>, attempt_inputs: Array<WorkAttemptInputRow>, attempt_feedback: Array<WorkAttemptFeedbackRow>, artifacts: Array<ArtifactRefRow>, gates: Array<WorkGateRow>, gate_runs: Array<WorkGateRunRow>, handoffs: Array<OwnerHandoffRow>,
+/**
+ * Work that states its own quality bar; the rest inherit their Goal's.
+ */
+standards: Array<WorkStandardRow>, };
+
+export type WorkStandardRow = { work_id: string, outcome_standard: OutcomeStandard, };
 
 export type ScheduleRow = { id: string, actor_id: string, work_id: string | null, reason: string, fire_at: string, fired_at: string | null, cancelled_at: string | null, paused_at: string | null, recurrence: string | null, timezone: string | null, local_time: string | null, last_fired_at: string | null, missed_policy: string, catch_up_grace_seconds: number | null, last_missed_at: string | null, last_considered_at: string | null, machine_requirement: string, created_at: string,
 /**

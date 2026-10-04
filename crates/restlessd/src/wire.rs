@@ -876,6 +876,8 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         ],
         "goal-add" => &["title", "body", "actor"],
         "goal-close" => &["goal", "actor"],
+        "goal-standard" => &["goal", "outcome_standard", "actor"],
+        "work-standard" => &["id", "outcome_standard", "actor"],
         "skill-list" => &["as_actor", "include_retired"],
         "skill-observe" => &["as_actor", "observed_skills"],
         "skill-activate" => &[
@@ -1787,7 +1789,9 @@ mod tests {
             "spend-correct",
             "goals",
             "goal-add",
+            "goal-standard",
             "work-goal",
+            "work-standard",
             "work",
             "work-graph",
             "work-attempts",

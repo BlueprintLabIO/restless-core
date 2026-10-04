@@ -45,6 +45,10 @@ pub(super) fn actor_posture(accountable_lead: bool) -> &'static str {
 /// role name. It is intentionally small: a team charter and its current
 /// roster let a lead decide whether a genuine seam exists without replaying a
 /// company directory or inventing a headcount target.
+/// What each quality bar asks of an outcome. The bar belongs to a Goal and
+/// its Work, never to the company or a team.
+const STANDARD_MEANING: &str = "This is an ambition contract, not permission, a team-size target, or a loop quota. Fast still preserves safety, truth, authority and native correctness. Thorough seeks production readiness. Exceptional seeks a clearly superior outcome through strong references, purposeful exploration and independent native evaluation where consequence warrants it. Frontier seeks a new ceiling while reporting uncertainty and diminishing returns honestly. Translate the bar into this outcome's fitness, evidence and stopping judgement.";
+
 pub(super) fn team_capacity_context(team: &TeamRow, actors: &[ActorRow]) -> String {
     let roster = actors
         .iter()
@@ -63,20 +67,13 @@ pub(super) fn team_capacity_context(team: &TeamRow, actors: &[ActorRow]) -> Stri
         })
         .collect::<Vec<_>>();
     format!(
-        "\n# Commissioned outcome standard [owner/company policy]\n\
-         `{}` via `{}`{}. This is an ambition contract, not permission, a team-size target, or a loop quota. Fast still preserves safety, truth, authority and native correctness. Thorough seeks production readiness. Exceptional seeks a clearly superior outcome through strong references, purposeful exploration and independent native evaluation where consequence warrants it. Frontier seeks a new ceiling while reporting uncertainty and diminishing returns honestly. Translate the standard into this outcome's fitness, evidence and stopping judgement.\n\n\
-         # Your available team [internal decision]\n{} — {}\n{}\n\
+        "\n# Your available team [internal decision]\n{} — {}\n{}\n\
          This is available capacity, not a headcount target. Every executable outcome needs at least \
          one Staff producer: commission one end-to-end worker by default, and add more only when a \
          stable independently useful seam repays coordination cost. Create each producer's bounded \
          Work with `restless work add` before it starts; messages are not assignments, and lead-owned \
          production Work is invalid. Only when a registered external message from `world` caused the outcome, add \
          `--source-message <message-id>` so source linkage and Work creation commit once together. Do not pass an owner or Exec conversation message id; commission their directions as ordinary Work.\n",
-        team.outcome_standard,
-        team.outcome_standard_source.as_str(),
-        team.standard_source_message_id
-            .map(|id| format!(" from owner message {id}"))
-            .unwrap_or_default(),
         team.name,
         team.brief,
         if roster.is_empty() {
@@ -251,11 +248,43 @@ pub(super) async fn shared_spine(
             spine.push_str(&format!("\n# Human-step preparation [current OrgIntel state]\nHandoff {handoff_id} is being repaired: {prepared_state}\nReuse this handoff ID. Prepare the exact live prompt, then `restless work refresh-handoff --handoff {handoff_id} --action <bounded owner action with the actual URL/code/session> --prepared <the same usable URL/code/session and current state> --resume-when ...` without --preparing to publish it. Do not replace this with an obsolete browser-request instruction. Existing approval remains recorded. Observe completion or expiry; do not ask the owner to confirm an observable result.\n"));
         }
     }
+    if let ActorContextFocus::WorkAttempt { work_id, .. } = focus {
+        let standard = org.effective_work_standard(work_id).await?;
+        spine.push_str(&format!(
+            "\n# Quality bar for this Work [owner policy]\n`{standard}`, set by its Goal unless the Work states its own. {STANDARD_MEANING}\n"
+        ));
+    }
     if accountable_lead {
         let teams = org.list_teams().await?;
         let actors = org.list_actors().await?;
         if let Some(team) = teams.iter().find(|team| team.lead_actor_id == actor) {
             spine.push_str(&team_capacity_context(team, &actors));
+            // The bars of the Goals this team's open Work serves.
+            let members: std::collections::HashSet<&str> = actors
+                .iter()
+                .filter(|candidate| candidate.team_id == Some(team.id))
+                .map(|candidate| candidate.id.as_str())
+                .collect();
+            let work = org.list_work().await?;
+            let bars = org
+                .list_goals()
+                .await?
+                .into_iter()
+                .filter(|goal| {
+                    goal.closed_at.is_none()
+                        && work.iter().any(|item| {
+                            item.goal_id == Some(goal.id)
+                                && members.contains(item.owner_id.as_str())
+                        })
+                })
+                .map(|goal| format!("- {}: `{}`", goal.title, goal.outcome_standard))
+                .collect::<Vec<_>>();
+            if !bars.is_empty() {
+                spine.push_str(&format!(
+                    "\n# Quality bars of the Goals your team serves [owner policy]\n{}\nWork inherits its Goal's bar unless it states its own. {STANDARD_MEANING}\n",
+                    bars.join("\n")
+                ));
+            }
         }
     }
     if actor == "exec" {

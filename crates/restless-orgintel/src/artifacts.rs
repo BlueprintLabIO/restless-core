@@ -402,6 +402,11 @@ impl OrgIntel {
         )
         .fetch_all(&mut *tx)
         .await?;
+        let standards = sqlx::query_as(
+            "SELECT id AS work_id, outcome_standard FROM work WHERE outcome_standard IS NOT NULL",
+        )
+        .fetch_all(&mut *tx)
+        .await?;
         tx.commit().await?;
         Ok(WorkGraphSnapshot {
             work,
@@ -413,6 +418,7 @@ impl OrgIntel {
             gates,
             gate_runs,
             handoffs,
+            standards,
         })
     }
 

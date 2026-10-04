@@ -17,6 +17,11 @@
 		workActivityStream
 	} from '$lib/model/queries.svelte';
 	import type { ArtifactRefRow, WorkGateRow, WorkRow } from '$lib/model/generated/orgintel';
+	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
+	import Check from '@lucide/svelte/icons/check';
+	import { STANDARDS, setWorkStandard, standardLabel } from '$lib/model/standards';
+	import type { OutcomeStandard } from '$lib/model/company';
+	import { failureSentence } from '$lib/model/failure';
 
 	/* The authoring contract deliberately separates a human opening from the
 	 * exact actor contract with one blank line. Respect that declared boundary;
@@ -73,6 +78,32 @@
 		ownerAccess ? (cockpit?.company.name ?? companyId) : (collaboration?.company.name ?? companyId)
 	);
 	const goal = $derived(goals.find((item) => item.id === work?.goal_id) ?? null);
+	/* The bar this Work is held to: its own, else its Goal's. */
+	const ownStandard = $derived(
+		((graph && 'standards' in graph ? graph.standards : undefined) ?? []).find(
+			(row) => row.work_id === work?.id
+		)?.outcome_standard ?? null
+	);
+	const goalStandard = $derived(
+		(goal && 'outcome_standard' in goal ? goal.outcome_standard : undefined) as
+			OutcomeStandard | undefined
+	);
+	const effectiveStandard = $derived(ownStandard ?? goalStandard ?? 'exceptional');
+	let standardBusy = $state(false);
+	let standardFailure = $state('');
+	async function chooseStandard(standard: OutcomeStandard | null) {
+		if (!work || standardBusy) return;
+		standardBusy = true;
+		standardFailure = '';
+		try {
+			await setWorkStandard(companyId, work.id, standard);
+			await attentionProjection.reload();
+		} catch (cause) {
+			standardFailure = failureSentence(cause, 'The quality bar did not change.');
+		} finally {
+			standardBusy = false;
+		}
+	}
 	const attempts = $derived(
 		(graph?.attempts ?? [])
 			.filter((attempt) => attempt.work_id === workId)
@@ -584,6 +615,48 @@
 									href={`/${encodeURIComponent(companyId)}/work?goal=${encodeURIComponent(goal.id)}`}
 									>{goal.title}</a
 								>{:else}<span class="muted">Unassigned</span>{/if}
+						</dd>
+						<dt
+							title="How far this Work should go before it is called done. Set on its Goal; a piece of Work can hold itself to its own."
+						>
+							Quality bar
+						</dt>
+						<dd class="standard-cell">
+							{#if ownerAccess}
+								<ActionMenu label="Quality bar">
+									{#snippet trigger()}<span class="standard-face"
+											>{standardLabel(effectiveStandard)}{#if !ownStandard && goal}<small
+													>from Goal</small
+												>{/if}</span
+										>{/snippet}
+									{#if goal}
+										<button
+											type="button"
+											disabled={standardBusy}
+											onclick={() => chooseStandard(null)}
+											><span>Same as Goal · {standardLabel(goalStandard)}</span
+											>{#if !ownStandard}<Check size={14} aria-label="Current" />{/if}</button
+										>
+									{/if}
+									{#each STANDARDS as option (option.value)}
+										<button
+											type="button"
+											title={option.title}
+											disabled={standardBusy}
+											onclick={() => chooseStandard(option.value)}
+											><span>{option.label}</span>{#if ownStandard === option.value}<Check
+													size={14}
+													aria-label="Current"
+												/>{/if}</button
+										>
+									{/each}
+								</ActionMenu>
+								{#if standardFailure}<span class="standard-failure" role="alert"
+										>{standardFailure}</span
+									>{/if}
+							{:else}
+								{standardLabel(effectiveStandard)}
+							{/if}
 						</dd>
 						{#if latestAttempt}
 							<dt>Latest run</dt>

@@ -67,7 +67,6 @@ pub(crate) struct CompanyView {
 struct CompanyIdentity {
     id: String,
     name: String,
-    outcome_standard: restless_orgintel::OutcomeStandard,
 }
 
 #[derive(Debug, Serialize)]
@@ -520,7 +519,6 @@ pub(crate) async fn project(
                 .display_name
                 .clone()
                 .unwrap_or_else(|| display_name(&config.name)),
-            outcome_standard: config.outcome_standard,
         },
         sources: Sources {
             authority: authority_source,
