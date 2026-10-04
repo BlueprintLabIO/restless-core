@@ -426,7 +426,7 @@ pub(crate) async fn accept_browser(
                 .messages
                 .iter()
                 .any(|m| m.message["nextRevisionId"] == message[field] && m.actor_id == actor),
-            "Cannot undo another collaborator's revision"
+            "Only your own recent changes can be undone here"
         );
     }
     message["timestamp"] = json!(Utc::now().timestamp_millis());

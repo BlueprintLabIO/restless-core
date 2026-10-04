@@ -116,6 +116,24 @@ mod tests {
             assert_eq!(finalread["result"]["rows"][0][1]["value"],"browser");
             assert_eq!(finalread["result"]["rows"][0][2]["value"],"agent");
             reopened.close().await;
+            // A long-lived sheet opens from its newest checkpoint and replays a
+            // bounded tail that rebuilds exactly what the whole log rebuilds.
+            let long=Uuid::new_v4();
+            let mut head=execute(&org,"owner",SheetOperation::Create{id:long,title:"Long".into(),visibility:"company".into()}).await.unwrap()["head_revision"].as_str().unwrap().to_string();
+            for n in 0..270 {
+                let receipt=execute(&org,"owner",SheetOperation::Edit{sheet:long,expected_revision:head,key:Uuid::new_v4(),action:json!({"action":"set_cells","start":format!("A{}",n%40+1),"values":[[n]]})}).await.unwrap();
+                head=receipt["revision_id"].as_str().unwrap().to_string();
+            }
+            let fresh=org.sheet_state(long,"owner",false,0).await.unwrap();
+            assert_eq!(fresh.messages.len(),220,"replays from the checkpoint at sequence 50");
+            let pool=sqlx::PgPool::connect(&url).await.unwrap();
+            let base:Value=sqlx::query_scalar(&format!("SELECT replay_base FROM {company}.native_sheets WHERE id=$1")).bind(long).fetch_one(&pool).await.unwrap();
+            let log:Vec<Value>=sqlx::query_scalar(&format!("SELECT message FROM {company}.native_sheet_messages WHERE sheet_id=$1 ORDER BY sequence")).bind(long).fetch_all(&pool).await.unwrap();
+            pool.close().await;
+            assert_eq!(log.len(),270);
+            let whole=model(json!({"engine_version":SHEET_ENGINE_VERSION,"snapshot":base,"messages":log})).await.unwrap();
+            let tail=model(model_input(&fresh)).await.unwrap();
+            assert_eq!(tail["workbook"],whole["workbook"]);
         }).catch_unwind().await;
         org.close().await;
         elsewhere.close().await;

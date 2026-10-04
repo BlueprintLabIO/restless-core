@@ -151,10 +151,18 @@
 			0,
 			0
 		);
-		cameraPan = {
+		const next = {
 			x: canvas.width / 2 - (view.col + 0.5) * TILE_SIZE * zoomPx - centered.offsetX,
 			y: canvas.height / 2 - (view.row + 0.5) * TILE_SIZE * zoomPx - centered.offsetY
 		};
+		/* A camera driven by scrolling has to keep pace with the page, so a real move paints on
+		 * the next frame instead of waiting for the 30 fps ambient cadence. Sub-pixel easing that
+		 * cannot change a single painted pixel does not count as a move. */
+		if (zoomPx !== lastCameraZoom || Math.abs(next.x - cameraPan.x) >= 0.5 || Math.abs(next.y - cameraPan.y) >= 0.5) {
+			paintRequested = true;
+		}
+		lastCameraZoom = zoomPx;
+		cameraPan = next;
 	}
 
 	const decorationOptions: Array<{
@@ -283,6 +291,10 @@
 
 		const resize = new ResizeObserver(() => sizeCanvas());
 		resize.observe(shell);
+		const visibility = new IntersectionObserver(([entry]) => {
+			onScreen = entry.isIntersecting;
+		});
+		visibility.observe(shell);
 
 		void loadPixelOfficeAssets()
 			.then((loadedAssets) => {
@@ -298,13 +310,22 @@
 				homeCamera();
 				stopLoop = startGameLoop(canvas, {
 					update: (delta) => {
-						if (documentVisible && !reducedMotion) updateOffice(delta);
+						if (documentVisible && onScreen && !reducedMotion) updateOffice(delta);
 					},
 					render: (context) => {
 						/* Pixel art reads the same at 30 frames a second, and a
 						 * 60Hz repaint of a full-pane canvas is the office's main
 						 * cost; the canvas keeps its last frame in between. */
 						const now = performance.now();
+						/* The page moved the camera: paint now so the scene keeps pace with the scroll. */
+						if (paintRequested) {
+							paintRequested = false;
+							lastPaintAt = now;
+							render(context, now);
+							return;
+						}
+						/* Paused, hidden or scrolled away: the canvas keeps its last frame. */
+						if (!documentVisible || !onScreen) return;
 						/* While someone is typing, keystrokes come first: the
 						 * floor slows to 12 frames a second. */
 						const typing = document.activeElement?.matches(
@@ -328,6 +349,7 @@
 			destroyed = true;
 			stopLoop?.();
 			resize.disconnect();
+			visibility.disconnect();
 			canvas.removeEventListener('wheel', wheel);
 			media.removeEventListener('change', readMotion);
 			document.removeEventListener('visibilitychange', readVisibility);
@@ -687,8 +709,12 @@
 		character.frameTimer = 0;
 	}
 
+	/* The shell's client size, refreshed whenever it resizes (sizeCanvas runs from a ResizeObserver). */
+	let shellSize = { width: 0, height: 0 };
+
 	function sizeCanvas() {
 		if (!canvas || !shell) return;
+		shellSize = { width: shell.clientWidth, height: shell.clientHeight };
 		const rectangle = shell.getBoundingClientRect();
 		/* The display's real ratio: a 1x screen paints a quarter of the pixels a
 		 * forced 2x did, and pixel art stays exactly one canvas pixel per screen
@@ -807,6 +833,11 @@
 	const MIN_PAINT_INTERVAL_MS = 1000 / 30 - 2;
 	const TYPING_PAINT_INTERVAL_MS = 1000 / 12 - 2;
 	let lastPaintAt = 0;
+	/* Set by setCamera when the page moves the camera; the next frame paints at once. */
+	let paintRequested = false;
+	let lastCameraZoom = 0;
+	/* False while the floor is scrolled out of view: nothing updates or paints. */
+	let onScreen = true;
 	/* The campus is painted once per layout (see campusBackdrop.ts). */
 	let campusWorld: CampusWorld | null = null;
 	let campusTiles: readonly number[] | null = null;
@@ -1423,9 +1454,13 @@
 	function fittedZoom(): number {
 		if (!shell || !plan) return 1;
 		const campusMargin = plan.layout.cols >= 60 ? 40 : 88;
+		/* The cached size, not a live read: setCamera runs every frame while a page scrolls,
+		 * and reading layout after the page has changed forces a synchronous layout each time. */
+		const width = shellSize.width || shell.clientWidth;
+		const height = shellSize.height || shell.clientHeight;
 		const fit = Math.min(
-			(shell.clientWidth - campusMargin) / (plan.layout.cols * TILE_SIZE),
-			(shell.clientHeight - campusMargin) / (plan.layout.rows * TILE_SIZE)
+			(width - campusMargin) / (plan.layout.cols * TILE_SIZE),
+			(height - campusMargin) / (plan.layout.rows * TILE_SIZE)
 		);
 		return Math.max(0.5, Math.min(2.5, fit));
 	}

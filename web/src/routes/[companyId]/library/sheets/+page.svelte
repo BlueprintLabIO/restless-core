@@ -1,596 +1,475 @@
 <script lang="ts">
+	/* One sheet, full width, opened from the Library. History and sharing open
+	 * in a side panel; everything else lives in the header's More menu. */
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
-	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
-	import ArtifactSidebar from '$lib/ui/navigation/ArtifactSidebar.svelte';
+	import X from '@lucide/svelte/icons/x';
+	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
+	import { Item, Notice, Empty } from '$lib/ui/page';
+	import RelativeTime from '$lib/ui/RelativeTime.svelte';
 	import SheetEditor from '$lib/components/SheetEditor.svelte';
-	import { createSheet, sheetJson, type SheetRow } from '$lib/model/sheets';
+	import LibraryCrumb from '$lib/components/LibraryCrumb.svelte';
+	import { sheetJson, type SheetRow } from '$lib/model/sheets';
 	import { companyPrincipalQuery, collaborationBootstrapQuery } from '$lib/model/queries.svelte';
-	const company = $derived(page.params.companyId ?? '');
-	const principal = $derived(companyPrincipalQuery(company));
-	const partition = $derived(principal.view?.cache_partition ?? '');
-	const authorized = $derived(
-		Boolean(partition) && ![401, 403, 404].includes(principal.failure?.status ?? 0)
-	);
-	const directory = $derived(collaborationBootstrapQuery(company, () => principal.view));
-	let sheets = $state<SheetRow[]>([]),
-		title = $state(''),
-		error = $state(''),
-		busy = $state(false);
-	let listLoading = $state(false),
-		listFailure = $state('');
-	let creating = $state(false),
-		revision = $state(''),
-		saveState = $state('connecting'),
-		access = $state('read');
-	let worksheet = $state(''),
-		panel = $state<'history' | 'sharing' | ''>('');
-	let participant = $state(''),
-		grant = $state('edit');
+
 	interface Version {
 		id: string;
 		title: string | null;
 		sequence: number;
 		created_at: string;
 	}
-	let versions = $state<Version[]>([]);
-	const selected = $derived(page.url.searchParams.get('sheet') ?? sheets[0]?.id ?? '');
-	const sidebarItems = $derived(
-		authorized
-			? sheets.map((item) => ({
-					id: item.id,
-					title: item.title,
-					href: `/${encodeURIComponent(company)}/library/sheets?sheet=${encodeURIComponent(item.id)}`,
-					updatedAt: item.updated_at
-				}))
-			: []
+	const company = $derived(page.params.companyId ?? '');
+	const sheet = $derived(page.url.searchParams.get('sheet') ?? '');
+	const principal = $derived(companyPrincipalQuery(company));
+	const partition = $derived(principal.view?.cache_partition ?? '');
+	const authorized = $derived(
+		Boolean(partition) && ![401, 403, 404].includes(principal.failure?.status ?? 0)
 	);
-	const requestedSheet = $derived(page.url.searchParams.get('sheet') ?? '');
-	const selectedRow = $derived(authorized ? sheets.find((s) => s.id === selected) : undefined);
-	let createId = '';
-	let accessEpoch = 0;
-	async function openSheet(item: { id: string; href: string }) {
-		const captured = context(),
-			desktop = window.matchMedia('(min-width: 821px)').matches;
-		await goto(item.href, { keepFocus: desktop, noScroll: true });
-		if (
-			!desktop &&
-			company === captured.company &&
-			partition === captured.partition &&
-			captured.epoch === accessEpoch &&
-			authorized &&
-			selected === item.id
-		) {
-			document.querySelector<HTMLAnchorElement>('.sheet-mobile-back')?.focus();
-		}
-	}
-	const context = () => ({ company, selected, partition, epoch: accessEpoch });
-	const current = (captured: ReturnType<typeof context>) =>
-		authorized &&
-		company === captured.company &&
-		selected === captured.selected &&
-		partition === captured.partition &&
-		captured.epoch === accessEpoch;
-	async function refresh(
-		target = company,
-		expectedPartition = partition,
-		expectedEpoch = accessEpoch
-	) {
-		listLoading = true;
-		listFailure = '';
-		try {
-			const rows = await sheetJson<SheetRow[]>(target);
-			if (
-				company === target &&
-				partition === expectedPartition &&
-				expectedEpoch === accessEpoch &&
-				authorized
-			) {
-				sheets = rows;
-				error = '';
-			}
-		} catch (e) {
-			if (company === target && partition === expectedPartition && expectedEpoch === accessEpoch) {
-				sheets = [];
-				listFailure = e instanceof Error ? e.message : 'Sheets are unavailable';
-			}
-		} finally {
-			if (company === target && partition === expectedPartition && expectedEpoch === accessEpoch)
-				listLoading = false;
-		}
-	}
+	const directory = $derived(collaborationBootstrapQuery(company, () => principal.view));
+
+	let row = $state<SheetRow | null>(null);
+	let missing = $state(false);
+	let error = $state('');
+	let revision = $state(''),
+		saveState = $state('connecting'),
+		access = $state('read'),
+		worksheet = $state('');
+	let panel = $state<'history' | 'sharing' | ''>('');
+	let versions = $state<Version[] | null>(null);
+	let participant = $state(''),
+		grant = $state('edit'),
+		sharing = $state(false);
+	let fileInput: HTMLInputElement | undefined = $state();
+	let epoch = 0;
+	const ready = $derived(saveState === 'saved');
+	const owned = $derived(!!row && row.owner_actor_id === principal.view?.actor_id);
+
+	/* Sheets are found in the Library; this address without one goes there. */
+	$effect(() => {
+		if (!sheet)
+			void goto(`/${encodeURIComponent(company)}/library?show=sheets`, { replaceState: true });
+	});
 	$effect(() => {
 		const target = company,
-			expectedPartition = partition,
+			id = sheet,
 			admitted = authorized;
-		accessEpoch++;
-		sheets = [];
-		revision = '';
-		versions = [];
+		const mine = ++epoch;
+		row = null;
+		missing = false;
+		error = '';
 		panel = '';
-		creating = false;
-		busy = false;
-		title = '';
-		createId = '';
-		error = '';
-		listLoading = false;
-		listFailure = '';
-		if (admitted) void refresh(target, expectedPartition);
-	});
-	let newRequested = false;
-	$effect(() => {
-		if (newRequested || page.url.searchParams.get('new') !== '1') return;
-		newRequested = true;
-		creating = true;
-	});
-	function denied() {
-		accessEpoch++;
-		sheets = [];
-		versions = [];
-		panel = '';
-		revision = '';
-		worksheet = '';
-		access = 'read';
-		error = '';
-		void refresh();
-	}
-	async function create(event: SubmitEvent) {
-		event.preventDefault();
-		if (!title.trim() || busy) return;
-		busy = true;
-		error = '';
-		createId ||= crypto.randomUUID();
-		const captured = context(),
-			target = captured.company;
-		try {
-			const row = await createSheet(target, createId, title.trim());
-			if (!current(captured)) return;
-			await refresh(target, captured.partition, captured.epoch);
-			if (!(
-				current(captured) ||
-				(!captured.selected &&
-					company === target &&
-					partition === captured.partition &&
-					authorized &&
-					captured.epoch === accessEpoch &&
-					selected === row.id)
-			))
-				return;
-			title = '';
-			createId = '';
-			creating = false;
-			await goto(`/${encodeURIComponent(target)}/library/sheets?sheet=${row.id}`);
-		} catch (e) {
-			if (current(captured)) error = e instanceof Error ? e.message : 'Sheet could not be created';
-		} finally {
-			if (company === target && partition === captured.partition && captured.epoch === accessEpoch)
-				busy = false;
-		}
-	}
-	async function checkpoint() {
-		if (!revision || !selected) return;
-		const captured = context();
-		try {
-			await sheetJson(captured.company, `/${captured.selected}/versions`, {
-				method: 'POST',
-				body: JSON.stringify({
-					key: crypto.randomUUID(),
-					expected_revision: revision,
-					title: new Date().toLocaleString()
-				})
+		versions = null;
+		if (!admitted || !id) return;
+		void sheetJson<SheetRow[]>(target)
+			.then((rows) => {
+				if (mine !== epoch) return;
+				row = rows.find((candidate) => candidate.id === id) ?? null;
+				missing = !row;
+			})
+			.catch((cause) => {
+				if (mine === epoch)
+					error = cause instanceof Error ? cause.message : 'Sheets are unavailable';
 			});
-			if (current(captured)) error = '';
-		} catch (e) {
-			if (current(captured)) error = e instanceof Error ? e.message : 'Version could not be saved';
+	});
+
+	/* Every action is bound to the sheet it started on; a late answer for a
+	 * sheet the owner has since left is dropped. */
+	async function act<T>(run: () => Promise<T>, done?: (value: T) => void) {
+		const mine = epoch;
+		try {
+			const value = await run();
+			if (mine === epoch) {
+				error = '';
+				done?.(value);
+			}
+		} catch (cause) {
+			if (mine === epoch) error = cause instanceof Error ? cause.message : String(cause);
 		}
 	}
-	async function exportCsv() {
-		if (!selected) return;
-		const captured = context(),
-			filename = selectedRow?.title ?? 'Sheet';
-		try {
-			const response = await sheetJson<{ result: { csv: string } }>(
-				captured.company,
-				`/${captured.selected}/operations`,
-				{
+	function download(name: string, body: string, type: string) {
+		const url = URL.createObjectURL(new Blob([body], { type }));
+		const link = document.createElement('a');
+		link.href = url;
+		link.download = name;
+		link.click();
+		URL.revokeObjectURL(url);
+	}
+	const exportCsv = () =>
+		act(
+			() =>
+				sheetJson<{ result: { csv: string } }>(company, `/${sheet}/operations`, {
 					method: 'POST',
 					body: JSON.stringify({ action: { action: 'export_csv', worksheet } })
-				}
-			);
-			if (!current(captured)) return;
-			const url = URL.createObjectURL(new Blob([response.result.csv], { type: 'text/csv' }));
-			const link = document.createElement('a');
-			link.href = url;
-			link.download = `${filename}.csv`;
-			link.click();
-			URL.revokeObjectURL(url);
-		} catch (e) {
-			if (current(captured)) error = e instanceof Error ? e.message : 'CSV could not be exported';
-		}
-	}
+				}),
+			(value) => download(`${row?.title ?? 'Sheet'}.csv`, value.result.csv, 'text/csv')
+		);
 	async function importCsv(event: Event) {
 		const input = event.currentTarget as HTMLInputElement,
 			file = input.files?.[0];
 		if (!file) return;
-		const captured = context(),
-			expected_revision = revision,
-			targetWorksheet = worksheet;
-		try {
-			const csv = await file.text();
-			if (!current(captured)) return;
-			await sheetJson(captured.company, `/${captured.selected}/operations`, {
+		const expected_revision = revision,
+			target = worksheet,
+			csv = await file.text();
+		input.value = '';
+		await act(() =>
+			sheetJson(company, `/${sheet}/operations`, {
 				method: 'POST',
 				body: JSON.stringify({
 					key: crypto.randomUUID(),
 					expected_revision,
-					action: { action: 'import_csv', worksheet: targetWorksheet, csv, start: 'A1' }
+					action: { action: 'import_csv', worksheet: target, csv, start: 'A1' }
 				})
-			});
-			if (current(captured)) error = '';
-		} catch (e) {
-			if (current(captured)) error = e instanceof Error ? e.message : 'CSV could not be imported';
-		} finally {
-			input.value = '';
-		}
+			})
+		);
 	}
-	async function history() {
-		const captured = context();
-		panel = panel === 'history' ? '' : 'history';
-		if (panel) {
-			try {
-				const result = await sheetJson<Version[]>(
-					captured.company,
-					`/${captured.selected}/versions`
-				);
-				if (current(captured) && panel === 'history') versions = result;
-			} catch (e) {
-				if (current(captured)) error = String(e);
+	const saveVersion = () =>
+		act(
+			() =>
+				sheetJson(company, `/${sheet}/versions`, {
+					method: 'POST',
+					body: JSON.stringify({
+						key: crypto.randomUUID(),
+						expected_revision: revision,
+						title: new Date().toLocaleString()
+					})
+				}),
+			() => {
+				if (panel === 'history') void loadVersions();
 			}
-		}
+		);
+	const loadVersions = () =>
+		act(
+			() => sheetJson<Version[]>(company, `/${sheet}/versions`),
+			(value) => (versions = value)
+		);
+	function openPanel(next: 'history' | 'sharing') {
+		panel = panel === next ? '' : next;
+		if (panel === 'history') void loadVersions();
 	}
-	async function downloadVersion(version: Version) {
-		const captured = context(),
-			filename = selectedRow?.title ?? 'Sheet';
-		try {
-			const value = await sheetJson(
-				captured.company,
-				`/${captured.selected}/versions/${version.id}`
-			);
-			if (!current(captured)) return;
-			const url = URL.createObjectURL(
-				new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' })
-			);
-			const link = document.createElement('a');
-			link.href = url;
-			link.download = `${filename}-${version.id}.sheet.json`;
-			link.click();
-			URL.revokeObjectURL(url);
-		} catch (e) {
-			if (current(captured)) error = String(e);
-		}
-	}
-	async function recover(version: Version) {
-		const captured = context();
-		try {
-			const copy = await sheetJson<SheetRow>(
-				captured.company,
-				`/${captured.selected}/versions/${version.id}/restore`,
-				{
+	const downloadVersion = (version: Version) =>
+		act(
+			() => sheetJson(company, `/${sheet}/versions/${version.id}`),
+			(value) =>
+				download(
+					`${row?.title ?? 'Sheet'}-${version.id}.sheet.json`,
+					JSON.stringify(value, null, 2),
+					'application/json'
+				)
+		);
+	const recover = (version: Version) =>
+		act(
+			() =>
+				sheetJson<SheetRow>(company, `/${sheet}/versions/${version.id}/restore`, {
 					method: 'POST',
 					body: JSON.stringify({
 						id: crypto.randomUUID(),
-						title: `${selectedRow?.title ?? 'Sheet'} — recovered`
+						title: `${row?.title ?? 'Sheet'} — recovered`
 					})
-				}
-			);
-			if (!current(captured)) return;
-			await refresh(captured.company, captured.partition);
-			if (!current(captured)) return;
-			panel = '';
-			await goto(`/${encodeURIComponent(captured.company)}/library/sheets?sheet=${copy.id}`);
-		} catch (e) {
-			if (current(captured)) error = String(e);
-		}
-	}
+				}),
+			(copy) =>
+				void goto(
+					`/${encodeURIComponent(company)}/library/sheets?sheet=${encodeURIComponent(copy.id)}`
+				)
+		);
 	async function share(event: SubmitEvent) {
 		event.preventDefault();
-		if (!participant) return;
-		const captured = context();
-		try {
-			await sheetJson(
-				captured.company,
-				`/${captured.selected}/participants/${encodeURIComponent(participant)}`,
-				{
+		if (!participant || sharing) return;
+		sharing = true;
+		await act(
+			() =>
+				sheetJson(company, `/${sheet}/participants/${encodeURIComponent(participant)}`, {
 					method: grant === 'remove' ? 'DELETE' : 'PUT',
 					...(grant === 'remove' ? {} : { body: JSON.stringify({ access: grant }) })
-				}
-			);
-			if (current(captured)) {
-				error = '';
+				}),
+			() => {
+				participant = '';
 				panel = '';
 			}
-		} catch (e) {
-			if (current(captured)) error = String(e);
-		}
+		);
+		sharing = false;
 	}
+	const stateLabel = $derived(
+		saveState === 'saved'
+			? access === 'edit'
+				? 'Saved'
+				: 'Read only'
+			: saveState === 'saving'
+				? 'Saving…'
+				: saveState === 'offline'
+					? 'Reconnecting…'
+					: saveState === 'connecting'
+						? 'Opening…'
+						: ''
+	);
 </script>
 
-<svelte:head><title>Sheets</title></svelte:head>
-<section class="sheets-screen cockpit-screen" class:sheet-requested={requestedSheet !== ''}>
-	<div class="sheets-list">
-		{#key `${company}/${partition}`}
-			<ArtifactSidebar
-				kind="sheets"
-				items={sidebarItems}
-				{selected}
-				workHref={`/${encodeURIComponent(company)}/library`}
-				docsHref={`/${encodeURIComponent(company)}/library/documents`}
-				sheetsHref={`/${encodeURIComponent(company)}/library/sheets`}
-				loading={listLoading || (!partition && !principal.failure)}
-				failure={listFailure || (!authorized && principal.failure ? 'Sheets are unavailable.' : '')}
-				{creating}
-				createDisabled={busy || !authorized}
-				oncreate={() => {
-					creating = !creating;
-					if (!creating) {
-						title = '';
-						createId = '';
-					}
-				}}
-				onretry={() => void refresh()}
-				onopen={openSheet}
+<svelte:head><title>{row?.title ?? 'Sheet'}</title></svelte:head>
+
+<div class="sheet-screen" class:side-open={panel !== ''}>
+	<main class="sheet-stage cockpit-pane">
+		<header class="head">
+			<LibraryCrumb companyId={company} show="sheets" />
+			<h1 title={row?.title}>{row?.title ?? (missing ? 'Sheet unavailable' : '')}</h1>
+			<span class="state state-{saveState}" title="Accepted edits are stored in company history"
+				>{stateLabel}</span
 			>
-				{#snippet creation()}<form class="create-sheet" onsubmit={create}>
-						<label
-							><span>Title</span><input
-								aria-label="Sheet title"
-								bind:value={title}
-								placeholder="Name the sheet"
-								maxlength="200"
-								required
-								{@attach (input) => input.focus()}
-								disabled={busy}
-							/></label
-						><button disabled={busy || !title.trim()}>{busy ? 'Creating…' : 'Create sheet'}</button>
-					</form>{/snippet}
-			</ArtifactSidebar>
-		{/key}
-	</div>
-	<div class="sheet-stage cockpit-pane">
-		<header class="cockpit-pane-head">
-			<a
-				class="sheet-mobile-back"
-				href={`/${encodeURIComponent(company)}/library/sheets`}
-				aria-label="Back to Sheets"
-				title="Back to Sheets"><ArrowLeft size={16} aria-hidden="true" /></a
-			>
-			<h2>{selectedRow?.title ?? 'Spreadsheet'}</h2>
-			<span class="save-state" title="Accepted edits are stored in company history"
-				>{saveState === 'saved'
-					? access === 'edit'
-						? 'Saved'
-						: 'Read only'
-					: saveState === 'saving'
-						? 'Saving…'
-						: saveState === 'offline'
-							? 'Reconnecting…'
-							: ''}</span
-			>
-			{#if selected}<button
-					onclick={exportCsv}
-					disabled={saveState !== 'saved'}
-					title="Download the full used range of the active worksheet as CSV">Export CSV</button
-				><button onclick={history} title="Open workbook checkpoints">History</button>{/if}
-			{#if selected && access === 'edit'}<label
-					class="import-control"
-					title="Import CSV into the active worksheet from A1"
-					><input
-						type="file"
-						accept=".csv,text/csv"
-						onchange={importCsv}
-						disabled={saveState !== 'saved'}
-					/>Import CSV</label
-				><button
-					onclick={checkpoint}
-					disabled={saveState !== 'saved'}
-					title="Keep a named workbook checkpoint">Save version</button
-				>{/if}
-			{#if selectedRow?.owner_actor_id === principal.view?.actor_id}<button
-					onclick={() => (panel = panel === 'sharing' ? '' : 'sharing')}
-					title="Give a colleague read or edit access">Share</button
-				>{/if}
-		</header>
-		{#if error}<div class="sheet-error" role="alert">
-				{error} <button onclick={() => void refresh()}>Retry</button>
-			</div>{/if}
-		{#if panel === 'history'}<div class="sheet-panel">
-				<h2>History</h2>
-				{#each versions as version}<div>
-						{version.title ?? `Checkpoint ${version.sequence}`}
-						<button onclick={() => downloadVersion(version)}>Download</button><button
-							onclick={() => recover(version)}
-							title="Create a private recovered copy">Recover copy</button
+			<span class="spacer"></span>
+			{#if row}
+				{#if owned}<button
+						class="btn small"
+						class:active={panel === 'sharing'}
+						type="button"
+						title="Give a colleague read or edit access"
+						onclick={() => openPanel('sharing')}>Share</button
+					>{/if}
+				<ActionMenu label="Sheet actions">
+					<button type="button" onclick={() => openPanel('history')}>History</button>
+					<button type="button" disabled={!ready} onclick={exportCsv}>Export CSV</button>
+					{#if access === 'edit'}
+						<button type="button" disabled={!ready} onclick={() => fileInput?.click()}
+							>Import CSV…</button
 						>
-					</div>{/each}{#if !versions.length}<p>
-						No checkpoints yet. Save a version to keep one.
-					</p>{/if}
+						<button type="button" disabled={!ready} onclick={saveVersion}>Save version</button>
+					{/if}
+				</ActionMenu>
+				<input
+					bind:this={fileInput}
+					class="file"
+					type="file"
+					accept=".csv,text/csv"
+					tabindex="-1"
+					aria-hidden="true"
+					onchange={importCsv}
+				/>
+			{/if}
+		</header>
+		{#if error}<div class="notice-slot">
+				<Notice tone="danger" title="That didn’t work" details={error}>
+					{#snippet actions()}<button class="btn small" type="button" onclick={() => (error = '')}
+							>Dismiss</button
+						>{/snippet}
+				</Notice>
 			</div>{/if}
-		{#if panel === 'sharing'}<form class="sheet-panel" onsubmit={share}>
-				<label
-					>Colleague <select bind:value={participant}
-						><option value="">Choose a colleague</option
-						>{#each directory.view?.people ?? [] as person}<option value={person.actor_id}
-								>{person.display}</option
-							>{/each}</select
-					></label
-				><label
-					>Access <select bind:value={grant}
-						><option value="edit">Edit</option><option value="read">Read</option><option
-							value="remove">Remove explicit access</option
-						></select
-					></label
-				><button disabled={!participant}>Apply</button>
-			</form>{/if}
-		{#if selected && authorized && sheets.some((s) => s.id === selected)}{#key `${company}/${selected}/${partition}`}<SheetEditor
+		{#if missing}
+			<Empty
+				title="Sheet unavailable"
+				info="It may have been removed, or you may no longer have access."
+			>
+				{#snippet action()}<a
+						class="btn small"
+						href={`/${encodeURIComponent(company)}/library?show=sheets`}>Back to the Library</a
+					>{/snippet}
+			</Empty>
+		{:else if sheet && authorized}
+			{#key `${company}/${sheet}/${partition}`}<SheetEditor
 					{company}
-					sheet={selected}
+					{sheet}
 					onstatus={(value) => {
 						saveState = value.state;
 						revision = value.revision ?? '';
 						worksheet = value.worksheet ?? '';
 						access = value.access;
-						if (value.denied) denied();
 					}}
-				/>{/key}{/if}
-	</div>
-</section>
+				/>{/key}
+		{/if}
+	</main>
+
+	{#if panel}
+		<aside class="side cockpit-pane" aria-label={panel === 'history' ? 'History' : 'Sharing'}>
+			<header class="side-head">
+				<h2>{panel === 'history' ? 'History' : 'Share'}</h2>
+				<button
+					type="button"
+					class="close"
+					aria-label="Close"
+					title="Close"
+					onclick={() => (panel = '')}><X size={16} strokeWidth={2} /></button
+				>
+			</header>
+			{#if panel === 'history'}
+				<div class="side-body">
+					{#if versions === null}
+						<p class="quiet">Loading…</p>
+					{:else if versions.length}
+						<div class="rows">
+							{#each versions as version (version.id)}
+								<Item
+									title={version.title ?? 'Autosave'}
+									meta={version.title ? 'Saved version' : null}
+								>
+									{#snippet trailing()}<RelativeTime value={version.created_at} />{/snippet}
+									{#snippet actions()}
+										<ActionMenu label="Version actions">
+											<button type="button" onclick={() => recover(version)}
+												>Recover as a copy</button
+											>
+											<button type="button" onclick={() => downloadVersion(version)}
+												>Download</button
+											>
+										</ActionMenu>
+									{/snippet}
+								</Item>
+							{/each}
+						</div>
+					{:else}
+						<Empty compact title="No checkpoints yet" info="Save a version to keep one." />
+					{/if}
+				</div>
+			{:else}
+				<form class="side-body share" onsubmit={share}>
+					<label
+						><span>Colleague</span><select bind:value={participant}
+							><option value="">Choose a colleague</option
+							>{#each directory.view?.people ?? [] as person (person.actor_id)}<option
+									value={person.actor_id}>{person.display}</option
+								>{/each}</select
+						></label
+					>
+					<label
+						><span>Access</span><select bind:value={grant}
+							><option value="edit">Can edit</option><option value="read">Can view</option><option
+								value="remove">Remove access</option
+							></select
+						></label
+					>
+					<button class="btn small primary" disabled={!participant || sharing}
+						>{sharing ? 'Applying…' : 'Apply'}</button
+					>
+				</form>
+			{/if}
+		</aside>
+	{/if}
+</div>
 
 <style>
-	.sheets-screen {
+	.sheet-screen {
 		display: grid;
-		grid-template-columns: minmax(220px, 270px) minmax(0, 1fr);
-		height: 100%;
-		min-height: 0;
+		grid-template-columns: minmax(0, 1fr);
 		gap: var(--pane-gap);
-	}
-	.sheets-list,
-	.sheet-stage {
+		width: 100%;
 		min-height: 0;
-		min-width: 0;
+	}
+	.sheet-screen.side-open {
+		grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+	}
+	.sheet-stage,
+	.side {
 		display: flex;
 		flex-direction: column;
+		min-width: 0;
+		min-height: 0;
 		overflow: hidden;
 	}
+	.sheet-stage {
+		container-type: inline-size;
+		background: var(--surface-pane);
+	}
+	.head,
+	.side-head {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		min-height: var(--pane-head-h, 52px);
+		padding: 8px 12px 8px 10px;
+		border-bottom: 1px solid var(--border);
+	}
+	h1,
 	h2 {
-		font-size: var(--t-head);
-		font-weight: 500;
-		margin: 0;
-		flex: 1;
 		min-width: 0;
+		margin: 0;
 		overflow: hidden;
+		font-size: var(--t-head);
+		font-weight: 600;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-	.create-sheet {
-		padding: 11px;
-		display: grid;
-		gap: 8px;
-		border-bottom: 1px solid var(--border);
+	.state {
+		flex: none;
+		margin-left: 6px;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
 	}
-	.create-sheet label {
-		display: grid;
-		gap: 4px;
-		color: var(--text-secondary);
+	.state-offline {
+		color: var(--state-warning);
 	}
-	.create-sheet input {
-		width: 100%;
-		min-width: 0;
-		padding: 8px;
-		border: 1px solid var(--control-edge);
+	.spacer {
+		flex: 1;
+	}
+	.btn.active {
+		background: var(--surface-hover);
+	}
+	.file {
+		display: none;
+	}
+	.notice-slot {
+		padding: 10px 12px 0;
+	}
+	.side {
+		background: var(--surface-rail);
+	}
+	.side-head {
+		padding-left: 16px;
+		justify-content: space-between;
+	}
+	.close {
+		display: grid;
+		place-items: center;
+		width: 28px;
+		height: 28px;
+		padding: 0;
+		border: 0;
 		border-radius: var(--radius-control);
-		background: var(--surface-raised);
+		background: transparent;
+		color: var(--text-tertiary);
+		cursor: pointer;
+	}
+	.close:hover {
+		background: var(--wash-hover);
 		color: var(--ink);
 	}
-	.create-sheet button {
+	.side-body {
+		min-height: 0;
+		overflow: auto;
+		padding: 12px;
+	}
+	.rows {
+		overflow: hidden;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-lg);
+		background: var(--surface-raised);
+	}
+	.rows > :global(* + *) {
+		border-top: 1px solid var(--border);
+	}
+	.quiet {
+		margin: 4px;
+		color: var(--text-tertiary);
+	}
+	.share {
+		display: grid;
+		align-content: start;
+		gap: 14px;
+	}
+	.share label {
+		display: grid;
+		gap: 6px;
+		color: var(--text-secondary);
+	}
+	.share .btn {
 		justify-self: end;
 	}
-	.sheet-mobile-back {
-		display: none;
-		text-decoration: none;
-		color: var(--ink);
-	}
-	.sheet-stage header {
-		display: flex;
-		align-items: center;
-		gap: 12px;
-		min-height: 50px;
-	}
-	.save-state {
-		font-size: var(--t-label);
-		color: var(--text-secondary);
-	}
-	.sheet-stage button,
-	.import-control {
-		font-size: var(--t-label);
-		white-space: nowrap;
-	}
-	button,
-	.import-control {
-		border: 1px solid var(--border);
-		background: var(--surface-raised);
-		color: var(--text-primary);
-		border-radius: 6px;
-		padding: 6px 9px;
-	}
-	button:hover:not(:disabled),
-	.import-control:hover {
-		background: var(--surface);
-	}
-	button:focus-visible,
-	.import-control:focus-within {
-		outline: 2px solid var(--accent);
-		outline-offset: 2px;
-	}
-	button:disabled {
-		opacity: 0.45;
-	}
-	.sheet-error {
-		padding: 12px 16px;
-		font-size: var(--t-body);
-	}
-	.sheet-panel {
-		padding: 16px;
-		display: flex;
-		gap: 16px;
-		flex-wrap: wrap;
-		border-bottom: 1px solid var(--border);
-	}
-	.import-control {
-		position: relative;
-		cursor: pointer;
-	}
-	.import-control input {
-		position: absolute;
-		inset: 0;
-		opacity: 0;
-		width: 100%;
-		cursor: pointer;
-	}
-	@media (max-width: 820px) {
-		.sheets-screen {
-			display: block;
+	/* Below the width that fits both, the panel takes the sheet's place. */
+	@media (max-width: 1100px) {
+		.sheet-screen.side-open {
+			grid-template-columns: minmax(0, 1fr);
 		}
-		.sheets-list,
-		.sheet-stage {
-			width: 100%;
-			height: 100%;
-		}
-		.sheet-stage {
+		.sheet-screen.side-open .sheet-stage {
 			display: none;
 		}
-		.sheets-screen.sheet-requested .sheets-list {
+	}
+	@container (max-width: 520px) {
+		.state {
 			display: none;
-		}
-		.sheets-screen.sheet-requested .sheet-stage {
-			display: flex;
-		}
-		.sheet-mobile-back {
-			display: grid;
-			place-items: center;
-			min-width: 32px;
-			min-height: 38px;
-		}
-		.sheet-stage header {
-			flex-wrap: wrap;
-			gap: 6px;
-			padding: 10px;
-		}
-		.sheet-stage header h2 {
-			flex-basis: 60%;
-		}
-		.sheet-stage header button,
-		.import-control {
-			min-height: 38px;
 		}
 	}
 </style>

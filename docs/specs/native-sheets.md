@@ -14,7 +14,7 @@ flowchart LR
   WS --> DB[(Company Postgres)]
   API --> DB
   DB -->|ordered accepted revisions| Human
-  DB -->|replay base + full log| Engine
+  DB -->|newest checkpoint + recent log| Engine
 ```
 
 Browser and headless engine pin o-spreadsheet 19.0.51 and Owl 2.8.2. The Rust
@@ -54,13 +54,17 @@ private new workbook from an immutable checkpoint; it cannot erase live pending
 edits. Checkpoints retain their exact original receipt and reject key reuse for
 different inputs.
 
-MVP recovery deliberately replays the full log to retain upstream undo history.
-Limits are 8 MiB workbook JSON, 24 MiB cumulative replay, 20,000 revisions,
+The accepted log is kept whole, but a fresh read starts from the newest
+server-computed checkpoint (taken every 50 revisions) that leaves at least 200
+revisions to replay. Opening a sheet and validating an edit therefore replay a
+bounded tail, not the whole history; a sheet with 13,019 revisions took over a
+minute to open before this. Accepted risk: undoing a revision older than that
+window is refused and the editor says so, because its inverse is no
+longer replayed. Limits are 8 MiB workbook JSON,
 30 worksheets, 1,000 columns, 100,000 rows and 5 million rectangular cells.
-Range reads/writes/CSV exports are bounded to 10,000 cells. Writes exceeding the
-recoverable budget fail atomically; recover a checkpoint into a new sheet to
-start a fresh log. The serialized model worker has no credentials, a 512 MiB Node
-heap cap, bounded input/output and a 15-second deadline. Its failure restarts
+Range reads/writes/CSV exports are bounded to 10,000 cells. The serialized model
+worker has no credentials, a 512 MiB Node heap cap, bounded input/output and a
+60-second deadline. Its failure restarts
 only the worker. A measured 5,000-cell resale workbook replays in about 2.4 seconds
 on the development host; this is a workload check, not a latency guarantee.
 
