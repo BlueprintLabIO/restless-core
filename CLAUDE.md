@@ -341,6 +341,13 @@ This repo is built in sprints by two founders collaborating on the `main` branch
 - **Build storage is bounded operating state.** Before full Rust verification or build-heavy scratch
   work, follow [`docs/BUILD_STORAGE.md`](./docs/BUILD_STORAGE.md). Keep throwaway targets isolated,
   check host headroom, and clean only exact regenerable locations while their tools are idle.
+- **Compile through `scripts/restless-cargo`** (same arguments as `cargo`) for build, check, test
+  and run: a newer compile in your checkout supersedes one still running there. Every rustc
+  already takes a host-wide slot, so concurrent agents share the cores. Iterate with `cargo check`
+  (~6 s) and a named test rather than the whole suite; a new worktree's first build is ~3 minutes,
+  almost all of it the single `restlessd` crate. Keep one target per worktree. The measurements
+  and the approaches that failed are in
+  [`docs/BUILD_STORAGE.md`](./docs/BUILD_STORAGE.md#compile-time--4-october-2026).
 - **You own everything you start that outlives your turn.** Not a list of nouns — anything still
   running, registered, or occupying disk after you stop typing. A `_test` company, container, volume,
   daemon or scratch clone, and equally: a dev server, a preview server, a game or render loop, a

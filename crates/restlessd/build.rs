@@ -7,6 +7,18 @@
 use std::path::Path;
 use std::process::Command;
 
+/// Repository paths the Rust workspace compiles from, including the files it
+/// embeds with `include_str!`. "-dirty" describes these, not the whole tree.
+const BUILD_INPUTS: &[&str] = &[
+    ":/Cargo.toml",
+    ":/Cargo.lock",
+    ":/crates",
+    ":/contracts",
+    ":/tools",
+    ":/docs/COMPANY_OPERATING_RULES.md",
+    ":/docs/dogfood",
+];
+
 fn main() {
     watch_git_inputs();
     println!("cargo:rerun-if-env-changed=RESTLESS_SOURCE_REVISION");
@@ -35,11 +47,9 @@ fn watch_git_inputs() {
     // HEAD normally contains a symbolic reference and does not change when
     // another commit lands on that branch. Resolve Git paths instead of assuming
     // .git is a directory: linked worktrees keep their metadata elsewhere.
-    let mut paths = vec![
-        "HEAD".to_string(),
-        "index".to_string(),
-        "packed-refs".to_string(),
-    ];
+    // The index is deliberately not watched: staging changes no source, and
+    // Git rewrites it on its own whenever it refreshes its stat cache.
+    let mut paths = vec!["HEAD".to_string(), "packed-refs".to_string()];
     if let Some(reference) = git_output(&["symbolic-ref", "-q", "HEAD"]) {
         paths.push(reference.trim().to_owned());
     }
@@ -60,10 +70,13 @@ fn watch_git_inputs() {
         }
     }
     // A clean -> dirty transition must also refresh the embedded identity.
-    // Watch tracked inputs, not ignored build directories or node_modules.
+    // Watch only tracked build inputs: a web or docs edit cannot change this
+    // binary and used to recompile the whole daemon.
+    let mut ls_files = vec!["ls-files", "--full-name", "-z", "--"];
+    ls_files.extend(BUILD_INPUTS);
     if let (Some(root), Some(files)) = (
         git_output(&["rev-parse", "--show-toplevel"]),
-        git_output(&["ls-files", "--full-name", "-z", "--", ":/"]),
+        git_output(&ls_files),
     ) {
         for file in files.split('\0').filter(|file| !file.is_empty()) {
             println!("cargo:rerun-if-changed={}/{}", root.trim(), file);
@@ -83,9 +96,17 @@ fn git_revision() -> Option<String> {
     }
 
     // A dirty tree is not the revision it claims to be. Say so rather than
-    // reporting a commit that does not describe the running code.
+    // reporting a commit that does not describe the running code. Without
+    // optional locks, status does not rewrite the index while it looks.
     let dirty = Command::new("git")
-        .args(["status", "--porcelain", "--untracked-files=no"])
+        .args([
+            "--no-optional-locks",
+            "status",
+            "--porcelain",
+            "--untracked-files=no",
+            "--",
+        ])
+        .args(BUILD_INPUTS)
         .output()
         .ok()
         .map(|output| !output.stdout.is_empty())

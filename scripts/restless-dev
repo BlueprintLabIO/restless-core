@@ -266,7 +266,8 @@ dev() {
   fi
 
   printf '\nBuilding Restless. The first build can take several minutes.\n'
-  cargo build --manifest-path "${STACK_REPO_ROOT}/Cargo.toml" \
+  # A newer stack start in this checkout supersedes a build still running.
+  "${STACK_REPO_ROOT}/scripts/restless-cargo" build --manifest-path "${STACK_REPO_ROOT}/Cargo.toml" \
     --target-dir "$STACK_TARGET_DIR" -p restlessd -p restless
 
   # Documents are part of the same checkout release as the daemon and Runtime.
@@ -442,7 +443,7 @@ promote() {
   printf 'PROMOTE  %s (%s)\n' "$short" "$(git -C "$source" log -1 --format=%s)"
 
   printf '\nBuilding Restless (release)…\n'
-  cargo build --release --manifest-path "${source}/Cargo.toml" \
+  "${STACK_REPO_ROOT}/scripts/restless-cargo" build --release --manifest-path "${source}/Cargo.toml" \
     --target-dir "${build_root}/target" -p restlessd -p restless
   printf '\nBuilding the Cockpit…\n'
   npm --prefix "${source}/web" ci --no-audit --no-fund

@@ -25,3 +25,11 @@ publish = false
 
 [workspace.dependencies]
 # Sprint 01 workspace pins.
+
+# Development builds keep backtrace line numbers but not full debug info: it
+# was most of the debug binary's size and link time. Dependencies carry none.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false

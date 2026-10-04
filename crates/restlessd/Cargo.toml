@@ -20,7 +20,7 @@ dotenvy = "0.15"
 restless-model-gateway = { path = "../restless-model-gateway" }
 restless-orgintel = { path = "../restless-orgintel" }
 restless-runtime-bridge-protocol = { path = "../restless-runtime-bridge-protocol" }
-reqwest = { version = "0.12", features = ["rustls-tls", "json", "brotli"], default-features = false }
+reqwest = { version = "0.12", features = ["rustls-tls", "json", "brotli", "blocking", "multipart"], default-features = false }
 reqwest_mcp = { package = "reqwest", version = "0.13", features = ["rustls"], default-features = false }
 rmcp = { version = "3.4.1", default-features = false, features = ["client", "server", "transport-child-process", "transport-streamable-http-client-reqwest", "transport-streamable-http-server"] }
 serde = { version = "1", features = ["derive"] }
@@ -50,6 +50,22 @@ rcgen = "0.13"
 tower-http = { version = "0.6", features = ["fs", "trace", "compression-gzip", "compression-br"] }
 tower = { version = "0.5", features = ["util"] }
 ts-rs = { version = "12.0.1", features = ["chrono-impl", "uuid-impl", "serde-json-impl"] }
+
+# Compile speed only. The restless CLI enables these features on shared
+# dependencies (blocking reqwest above, and its terminal UI below). Requesting
+# them here as well makes `-p restlessd` resolve the same graph as the stack's
+# `-p restlessd -p restless`, so both reuse one compiled daemon instead of each
+# compiling its own (~2 min and ~3 GB per checkout). A stale line costs only an
+# extra feature; drop one when neither crate enables it any more.
+derive_more = { version = "2", default-features = false, features = ["is_variant"] }
+either = { version = "1", default-features = false, features = ["use_std"] }
+hashbrown = { version = "0.17", features = ["default", "raw-entry"] }
+mio = { version = "1", features = ["log"] }
+rustix = { version = "1", default-features = false, features = ["stdio", "termios"] }
+
+[build-dependencies]
+# Compile speed only; see the note above derive_more.
+syn = { version = "3", default-features = false, features = ["extra-traits"] }
 
 [dev-dependencies]
 rustls-pemfile = "2"

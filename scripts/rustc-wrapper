@@ -1,0 +1,36 @@
+#!/bin/sh
+# Every rustc that Cargo starts in this repository runs through here
+# (.cargo/config.toml) to take a host-wide compiler slot.
+#
+# Each agent's Cargo runs one rustc per core, so three concurrent builds on
+# twelve cores asked for thirty-six and pushed the host into swap. A slot is a
+# lock file shared by every checkout: at most RESTLESS_RUSTC_SLOTS compilers
+# (default: one per core) run at once, slightly deprioritised so the live
+# appliance stays responsive, and the rest wait their turn. Where flock is
+# unavailable (macOS by default) the compiler simply runs.
+#
+# Cargo invokes this as: rustc-wrapper <path-to-rustc> <args...>
+
+rustc="$1"
+shift
+
+if [ -z "${RESTLESS_RUSTC_DIRECT:-}" ] && command -v flock >/dev/null 2>&1; then
+	slots="${RESTLESS_RUSTC_SLOTS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}"
+	dir="${XDG_RUNTIME_DIR:-/tmp}/restless-rustc-slots-$(id -u)"
+	if mkdir -p "$dir" 2>/dev/null; then
+		while :; do
+			slot=1
+			while [ "$slot" -le "$slots" ]; do
+				# The lock is held on fd 9 through exec, so it is released
+				# exactly when this compiler and its linker exit.
+				if exec 9>"$dir/$slot" 2>/dev/null && flock -n 9; then
+					exec nice -n 5 "$rustc" "$@"
+				fi
+				slot=$((slot + 1))
+			done
+			sleep 0.1
+		done
+	fi
+fi
+
+exec "$rustc" "$@"

@@ -1,0 +1,5 @@
+# Every rustc runs through scripts/rustc-wrapper to take a host-wide compiler
+# slot, so concurrent agents share the CPU instead of oversubscribing it. It
+# falls back to plain rustc where flock is unavailable.
+[build]
+rustc-wrapper = "scripts/rustc-wrapper"

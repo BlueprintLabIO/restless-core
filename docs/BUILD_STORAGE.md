@@ -144,9 +144,9 @@ repeat disk fill. Automatic deletion of potentially durable state remains out of
 
 On the development host, the Core checkout's `target` directory occupied 27 GiB, including 16 GiB
 of `target/debug/incremental`. A separate scratch build target occupied 5.3 GiB. These are
-regenerable build artifacts, not company files. Keep one shared `CARGO_TARGET_DIR` for related
-worktrees where practical, and give disposable experiments their own target that can be removed
-when the experiment ends. For one-off verification in a disposable target, set
+regenerable build artifacts, not company files. Give each worktree its own target (see "Compile
+time" below for why a shared one does not work with concurrent agents), and give disposable
+experiments their own target that can be removed when the experiment ends. For one-off verification in a disposable target, set
 `CARGO_INCREMENTAL=0` to avoid building another incremental cache; keep incremental compilation in
 the main checkout when fast edit/build cycles matter. Do not clean a target while a build is active.
 
@@ -163,3 +163,50 @@ bound company files, browser profiles, package caches, database growth, or host-
 Before a pilot, monitor free bytes and inodes on the filesystem, per-company named-volume sizes,
 database sizes, and Docker image usage. Alert before the filesystem reaches its reserve rather than
 deleting company data automatically.
+
+## Compile time — 4 October 2026
+
+Measured on the 12-core Linux development host with other agents running (load 2–5), so treat
+single numbers as ±15%.
+
+**Where the time goes.** A cold build of the daemon and CLI took 252 s. Dependencies were done by
+52 s and `restless-orgintel` by 75 s; the `restlessd` binary alone then took 177 s as one serial
+unit. Its 165 s compile was 109 s of code generation (61 s of it monomorphization), 30 s type
+checking, 26 s coherence and 16 s borrow checking. An incremental rebuild after editing
+`owner.rs` took 12–15 s, of which roughly 10 s is per-crate fixed cost that scales with crate size.
+`cargo check` after an edit took 6 s. The first test binary in a target took another 160–200 s.
+
+**What was fixed.**
+
+- `restlessd/build.rs` watched the Git index and all ~4,000 tracked files, and its `git status`
+  rewrote the index it watched. Every docs or web edit, `git add` or `checkout` recompiled the
+  daemon (~14 s), sometimes twice. It now watches only the Rust build inputs and reads status
+  without optional locks: such edits cost 0.4 s. A commit still restamps the revision (~12 s);
+  that is the price of a binary that can say exactly which build it is.
+- `-p restlessd` alone and the stack's `-p restlessd -p restless` resolved different dependency
+  features, so each compiled its own daemon (~2 min and ~3 GB the first time each ran in a
+  target). `restlessd/Cargo.toml` now requests the CLI's features too; both resolve one graph.
+- The dev profile keeps line tables only, and none for dependencies. Measured A/B: cold build
+  188 → 165 s, first test binary 198 → 180 s, target 12 → 6.6 GB, daemon binary 654 → 214 MB.
+- Every rustc takes a host-wide slot (`scripts/rustc-wrapper`, wired by `.cargo/config.toml`), so
+  concurrent agents share one core per compiler instead of each running one per core.
+- `scripts/restless-cargo` lets a newer compile in a checkout supersede one still running there.
+
+**What did not work, and why.**
+
+- *sccache* gave zero hits across worktrees: its keys contain the worktree's absolute paths, and
+  `SCCACHE_BASEDIRS` strips one fixed prefix per server, not one per worktree. It also cannot
+  cache incremental workspace crates, which is where the time is.
+- *Seeding a new worktree's target by copying another's* reused dependencies but recompiled
+  every workspace crate (184 s), because the incremental cache records absolute source paths. It
+  also copied 14 GB.
+- *One shared target for several worktrees* serialises every agent on Cargo's build-directory lock
+  and makes their branches overwrite each other's incremental state.
+- *Splitting the owner API into its own crate* would trim perhaps 3–4 s from an incremental
+  rebuild, but `owner*.rs` (28.7k lines) and the rest of the daemon call into each other in both
+  directions, so it is a multi-week, conflict-prone refactor. Revisit only along a real plane
+  boundary (Cell / Account plane / Fleet), not for compile time alone.
+
+A new worktree therefore still pays one ~3 minute cold build, dominated by the single `restlessd`
+crate. Nightly-only options (the parallel front end, Cranelift) and Cargo's still-unstable
+workspace feature unification are the next levers when they stabilise.

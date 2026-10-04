@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Cargo for this checkout, where the newest compile wins: if a compile started
+# through this script is still running against the same target directory, it
+# is interrupted and this one builds the current sources instead of queueing
+# behind work that is already stale.
+#
+# Only compiles supersede compiles. Other commands (fmt, metadata, tree…) pass
+# straight through and never interrupt anything. Another checkout's build is
+# never touched: the record lives in this checkout's target directory.
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+subcommand=""
+for argument in "$@"; do
+  case "$argument" in
+    +*|-*) ;;
+    *) subcommand="$argument"; break ;;
+  esac
+done
+case "$subcommand" in
+  build|b|check|c|test|t|run|r|clippy|bench|doc|d|rustc) ;;
+  *) exec cargo "$@" ;;
+esac
+
+target="${CARGO_TARGET_DIR:-$root/target}"
+previous_argument=""
+for argument in "$@"; do
+  case "$argument" in
+    --target-dir=*) target="${argument#--target-dir=}" ;;
+    *) [[ "$previous_argument" == "--target-dir" ]] && target="$argument" ;;
+  esac
+  previous_argument="$argument"
+done
+mkdir -p "$target"
+record="$target/.restless-cargo.pid"
+
+if [[ -f "$record" ]]; then
+  previous="$(cat "$record" 2>/dev/null || true)"
+  if [[ "$previous" =~ ^[0-9]+$ ]] && [[ "$previous" != "$$" ]] \
+    && kill -0 "$previous" 2>/dev/null \
+    && [[ "$(basename "$(ps -o comm= -p "$previous" 2>/dev/null)")" == cargo* ]]; then
+    printf 'restless-cargo: superseding the compile already running here (pid %s)\n' "$previous" >&2
+    # Compilers first, so none keeps writing into the target directory after
+    # the Cargo that started them is gone; then that Cargo.
+    children="$(pgrep -P "$previous" 2>/dev/null || true)"
+    [[ -n "$children" ]] && kill -INT $children 2>/dev/null || true
+    kill -INT "$previous" 2>/dev/null || true
+    for _ in $(seq 100); do
+      alive=0
+      for pid in "$previous" $children; do
+        kill -0 "$pid" 2>/dev/null && alive=1
+      done
+      (( alive )) || break
+      sleep 0.1
+    done
+  fi
+fi
+
+printf '%s\n' "$$" > "$record"
+exec cargo "$@"

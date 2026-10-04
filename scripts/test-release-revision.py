@@ -40,10 +40,23 @@ class ReleaseRevisionTest(unittest.TestCase):
             second = run('git', 'rev-parse', 'HEAD')
             self.assertNotEqual(first, second)
             self.assertEqual(run('cargo', 'run', '--quiet', '--offline'), second)
-            (root / 'README.md').write_text('Uncommitted release edit.\n')
-            self.assertEqual(run('cargo', 'run', '--quiet', '--offline'), second + '-dirty')
-            run('git', 'restore', 'README.md')
+            notes = package / 'NOTES.md'
+            notes.write_text('Tracked beside the build inputs.\n')
+            run('git', 'add', 'crates/probe/NOTES.md')
+            run('git', '-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'Notes')
+            second = run('git', 'rev-parse', 'HEAD')
             self.assertEqual(run('cargo', 'run', '--quiet', '--offline'), second)
+            notes.write_text('Uncommitted edit to a build input.\n')
+            self.assertEqual(run('cargo', 'run', '--quiet', '--offline'), second + '-dirty')
+            run('git', 'restore', 'crates/probe/NOTES.md')
+            self.assertEqual(run('cargo', 'run', '--quiet', '--offline'), second)
+            # Outside the build inputs an edit neither marks the binary dirty
+            # nor recompiles it.
+            (root / 'README.md').write_text('Uncommitted documentation edit.\n')
+            rebuild = subprocess.run(['cargo', 'build', '--offline'], cwd=root, env=env, capture_output=True, text=True, check=True)
+            self.assertNotIn('Compiling', rebuild.stderr)
+            self.assertEqual(run('cargo', 'run', '--quiet', '--offline'), second)
+            run('git', 'restore', 'README.md')
             run('git', 'pack-refs', '--all')
             self.assertEqual(run('cargo', 'run', '--quiet', '--offline'), second)
             linked = Path(directory) / 'linked'
