@@ -1,6 +1,6 @@
 // GENERATED — do not edit.
 //
-// Source: crates/restlessd/src/owner.rs and crates/restlessd/src/activity.rs.
+// Source: crates/restlessd/src/owner.rs, transcript.rs and activity.rs.
 // Regenerate: RESTLESS_WRITE_CONVERSATION_BINDINGS=1 cargo test -p restlessd conversation_typescript_bindings_match
 //
 // Shared owner conversation and live-turn response contract.

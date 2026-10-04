@@ -26,9 +26,8 @@ const MAX_REPLY_CHARS: usize = 40_000;
 /// Keep them at a paint-friendly rate so a fast provider does not turn one
 /// response into hundreds of Svelte renders and megabytes of repeated text.
 const MIN_INCREMENTAL_EMIT_INTERVAL: Duration = Duration::from_millis(75);
-const INTENT_MARKER: &str = "<!--restless-intent:";
 const DETAILS_MARKER: &str = "<!--restless-details:";
-const HIDDEN_MARKERS: [&str; 2] = [DETAILS_MARKER, INTENT_MARKER];
+const HIDDEN_MARKERS: [&str; 2] = [DETAILS_MARKER, crate::transcript::INTENT_MARKER];
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum ActivityScope {

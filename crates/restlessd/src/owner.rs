@@ -89,6 +89,7 @@ use crate::{
 use crate::authority as mandate;
 use crate::model_connections::{load_owner_connections, model_connection_reference, owner_connection_reference, save_owner_connections, valid_provider_id, OwnerModelConnection};
 use crate::owner_config::{materialize_review_url, OwnerConfig};
+use crate::transcript::{split_attachment_block, OwnerAttachment, OwnerIntentReceipt, ATTACHMENT_BLOCK, ATTACHMENT_MARKER, ATTENTION_CONTEXT_BLOCK, ATTENTION_CONTEXT_MARKER, CONTEXT_BLOCK, CONTEXT_MARKER};
 
 const ATTACH_COOKIE: &str = "restless_attach";
 const SESSION_COOKIE: &str = "restless_session";
@@ -121,7 +122,6 @@ const ATTACHMENT_GC_BATCH: usize = 8;
 const ATTACHMENT_STAGE_STALE_AFTER: ChronoDuration = ChronoDuration::hours(1);
 const ATTACHMENT_GC_CLAIM_FOR: ChronoDuration = ChronoDuration::minutes(5);
 pub(crate) const OWNER_ATTACHMENT_RECONCILE_INTERVAL: Duration = Duration::from_secs(5 * 60);
-const ATTACHMENT_BLOCK: &str = "\n\n[Restless attachments]\n";
 
 pub(crate) async fn agent_document_body(
     root: &std::path::Path,
@@ -140,13 +140,6 @@ pub(crate) async fn agent_document_body(
         .agent_body(root, org, actor, document, &issuer, payload)
         .await
 }
-const ATTACHMENT_MARKER: &str = "<!--restless-attachments:";
-const INTENT_MARKER: &str = "<!--restless-intent:";
-const DETAILS_MARKER: &str = "<!--restless-details:";
-const CONTEXT_BLOCK: &str = "\n\n[Owner cockpit context]\n";
-const CONTEXT_MARKER: &str = "\n\n<!--restless-context:";
-const ATTENTION_CONTEXT_BLOCK: &str = "\n\n[Restless Attention context — system supplied]\n";
-const ATTENTION_CONTEXT_MARKER: &str = "\n\n<!--restless-attention-context:";
 
 #[derive(Clone)]
 struct OwnerState {
@@ -328,49 +321,9 @@ struct PreparedOwnerAttachment {
     bytes: Vec<u8>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(rename_all = "camelCase")]
-struct OwnerAttachment {
-    upload_id: Uuid,
-    name: String,
-    media_type: String,
-    size_bytes: usize,
-    path: String,
-}
 
-#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(rename_all = "snake_case")]
-enum OwnerIntentKind {
-    Conversation,
-    WorkFeedback,
-    Direction,
-    Authority,
-}
 
-#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(rename_all = "camelCase")]
-struct OwnerIntentReceipt {
-    kind: OwnerIntentKind,
-    summary: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    outcome: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    next_step: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    owner_need: Option<String>,
-    /// Up to three short answers the agent expects to `owner_need`. The
-    /// cockpit offers them as drafts; the owner still sends their own words.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    owner_replies: Vec<String>,
-}
 
-#[derive(Debug, Deserialize)]
-struct OwnerMessageDetails {
-    markdown: String,
-}
 
 /// The durable owner/actor transcript returned to both the browser and the
 /// terminal client. This is intentionally a small response contract instead
@@ -6263,7 +6216,7 @@ fn render_conversation_bindings() -> String {
     let mut rendered = String::from(
         "// GENERATED — do not edit.\n\
          //\n\
-         // Source: crates/restlessd/src/owner.rs and crates/restlessd/src/activity.rs.\n\
+         // Source: crates/restlessd/src/owner.rs, transcript.rs and activity.rs.\n\
          // Regenerate: RESTLESS_WRITE_CONVERSATION_BINDINGS=1 cargo test -p restlessd conversation_typescript_bindings_match\n\
          //\n\
          // Shared owner conversation and live-turn response contract.\n\
@@ -6272,7 +6225,7 @@ fn render_conversation_bindings() -> String {
     for declaration in [
         restless_orgintel::OutcomeStandard::decl(&config),
         OwnerAttachment::decl(&config),
-        OwnerIntentKind::decl(&config),
+        crate::transcript::OwnerIntentKind::decl(&config),
         OwnerIntentReceipt::decl(&config),
         ConversationActorView::decl(&config),
         ConversationFocusView::decl(&config),
@@ -7455,38 +7408,22 @@ async fn actor_conversation(
 }
 
 fn conversation_message_view(message: restless_orgintel::MessageRow) -> ConversationMessageView {
-    let (body, _) = split_attention_context(&message.body);
-    let (body, intent) = split_intent_receipt(body);
-    let (body, details) = split_message_details(body);
-    let (body, attachments) = split_attachment_block(body);
-    let (body, context_path) = split_context_marker(body);
+    let decoded = crate::transcript::decode_body(&message.body);
     ConversationMessageView {
         id: message.id,
         from_actor: message.from_actor,
         to_actor: message.to_actor,
-        body: body.to_string(),
+        body: decoded.body.to_string(),
         outcome_standard: message.outcome_standard,
-        attachments,
-        details,
-        intent,
-        context_path,
+        attachments: decoded.attachments,
+        details: decoded.details,
+        intent: decoded.intent,
+        context_path: decoded.context_path,
         created_at: message.created_at,
         read_at: message.read_at,
     }
 }
 
-/// Reuse the transcript decoder so Attention never guesses from prose or leaks metadata.
-pub(crate) fn conversation_owner_need(
-    message: restless_orgintel::MessageRow,
-) -> Option<(String, String)> {
-    let view = conversation_message_view(message);
-    let need = view.intent?.owner_need?;
-    let need = need.trim();
-    if need.is_empty() {
-        return None;
-    }
-    Some((view.body, need.to_owned()))
-}
 
 /// Reconnectable live projection for one agent turn. This endpoint never
 /// invents durable transcript, Work, or Attempt rows: it carries only the
@@ -8693,58 +8630,7 @@ fn message_with_attention_context(body: &str, item: &attention::AttentionItem) -
     )
 }
 
-fn split_attention_context(body: &str) -> (&str, Option<String>) {
-    let Some((visible_with_context, encoded)) = body.rsplit_once(ATTENTION_CONTEXT_MARKER) else {
-        return (body, None);
-    };
-    let Some(encoded) = encoded.strip_suffix("-->") else {
-        return (body, None);
-    };
-    let Ok(marker) = serde_json::from_str::<serde_json::Value>(encoded) else {
-        return (body, None);
-    };
-    let Some(original_bytes) = marker
-        .get("original_bytes")
-        .and_then(serde_json::Value::as_u64)
-        .and_then(|value| usize::try_from(value).ok())
-    else {
-        return (body, None);
-    };
-    let Some(item_id) = marker
-        .get("item_id")
-        .and_then(serde_json::Value::as_str)
-        .filter(|value| !value.is_empty())
-    else {
-        return (body, None);
-    };
-    if original_bytes > visible_with_context.len()
-        || !visible_with_context.is_char_boundary(original_bytes)
-        || !visible_with_context[original_bytes..].starts_with(ATTENTION_CONTEXT_BLOCK)
-    {
-        return (body, None);
-    }
-    (
-        &visible_with_context[..original_bytes],
-        Some(item_id.to_string()),
-    )
-}
 
-fn split_attachment_block(body: &str) -> (&str, Vec<OwnerAttachment>) {
-    let Some((visible, block)) = body.rsplit_once(ATTACHMENT_BLOCK) else {
-        return (body, Vec::new());
-    };
-    let Some(marker) = block.rfind(ATTACHMENT_MARKER) else {
-        return (body, Vec::new());
-    };
-    let encoded = &block[marker + ATTACHMENT_MARKER.len()..];
-    let Some(encoded) = encoded.strip_suffix("-->") else {
-        return (body, Vec::new());
-    };
-    match serde_json::from_str(encoded) {
-        Ok(attachments) => (visible, attachments),
-        Err(_) => (body, Vec::new()),
-    }
-}
 
 fn canonical_attachment_path(attachment_id: Uuid) -> String {
     format!("/var/lib/restless-owner-attachments/{attachment_id}/content")
@@ -8858,74 +8744,8 @@ async fn rollback_attachment_attempt(
     }
 }
 
-fn split_intent_receipt(body: &str) -> (&str, Option<OwnerIntentReceipt>) {
-    let Some((visible, encoded)) = body.rsplit_once(INTENT_MARKER) else {
-        return (body, None);
-    };
-    let Some(encoded) = encoded.strip_suffix("-->") else {
-        return (body, None);
-    };
-    match serde_json::from_str::<OwnerIntentReceipt>(encoded) {
-        Ok(mut receipt)
-            if !receipt.summary.trim().is_empty() && receipt.summary.chars().count() <= 300 =>
-        {
-            // Suggested answers only make sense beside a question, and stay short.
-            receipt.owner_replies = if receipt.owner_need.is_some() {
-                receipt
-                    .owner_replies
-                    .iter()
-                    .map(|reply| reply.trim().to_string())
-                    .filter(|reply| !reply.is_empty() && reply.chars().count() <= 80)
-                    .take(3)
-                    .collect()
-            } else {
-                Vec::new()
-            };
-            (visible.trim_end(), Some(receipt))
-        }
-        _ => (visible.trim_end(), None),
-    }
-}
 
-fn split_message_details(body: &str) -> (&str, Option<String>) {
-    let Some((visible, encoded)) = body.rsplit_once(DETAILS_MARKER) else {
-        return (body, None);
-    };
-    let Some(encoded) = encoded.strip_suffix("-->") else {
-        // Metadata syntax is never owner-facing, even when a provider emits a
-        // malformed optional block.
-        return (visible.trim_end(), None);
-    };
-    let details = serde_json::from_str::<OwnerMessageDetails>(encoded)
-        .ok()
-        .map(|details| details.markdown.trim().to_string())
-        .filter(|markdown| !markdown.is_empty() && markdown.chars().count() <= 20_000);
-    (visible.trim_end(), details)
-}
 
-fn split_context_marker(body: &str) -> (&str, Option<String>) {
-    let Some((visible, encoded)) = body.rsplit_once(CONTEXT_MARKER) else {
-        return (body, None);
-    };
-    let Some(encoded) = encoded.strip_suffix("-->") else {
-        return (body, None);
-    };
-    let path = serde_json::from_str::<serde_json::Value>(encoded)
-        .ok()
-        .and_then(|value| {
-            value
-                .get("path")
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_string)
-        });
-    match path {
-        Some(path) => match visible.rsplit_once(CONTEXT_BLOCK) {
-            Some((body, rendered)) if rendered == path => (body, Some(path)),
-            _ => (visible, Some(path)),
-        },
-        None => (body, None),
-    }
-}
 
 async fn download_attachment(
     State(state): State<RoomApiState>,
@@ -11040,6 +10860,7 @@ async fn api_not_found() -> Response<Body> {
 
 #[cfg(test)]
 mod tests {
+    use crate::transcript::{split_attention_context, split_context_marker, OwnerIntentKind};
     use super::*;
     use axum::body::to_bytes;
     use sqlx::Connection as _;
@@ -14986,80 +14807,6 @@ mod tests {
             None
         );
         assert_eq!(canonical_cockpit_context("aris", "/aris#hidden"), None);
-    }
-
-    #[test]
-    fn only_a_valid_exec_intent_receipt_is_promoted_to_ui_metadata() {
-        let body = concat!(
-            "I will treat this as durable direction.",
-            "\n\n<!--restless-intent:{\"kind\":\"direction\",",
-            "\"summary\":\"Prioritise tutor interviews before outreach.\"}-->"
-        );
-        let (visible, receipt) = split_intent_receipt(body);
-        assert_eq!(visible, "I will treat this as durable direction.");
-        assert!(matches!(
-            receipt.map(|receipt| receipt.kind),
-            Some(OwnerIntentKind::Direction)
-        ));
-
-        let at_a_glance = concat!(
-            "The four drafts are ready.",
-            "\n\n<!--restless-intent:{\"kind\":\"conversation\",",
-            "\"summary\":\"Campaign preparation result.\",",
-            "\"outcome\":\"Four reviewed drafts are ready.\",",
-            "\"nextStep\":\"The lead waits for the campaign decision.\",",
-            "\"ownerNeed\":\"Approve, change or decline the campaign.\"}-->"
-        );
-        let (_, receipt) = split_intent_receipt(at_a_glance);
-        let receipt = receipt.expect("optional reader fields should parse");
-        assert_eq!(
-            receipt.outcome.as_deref(),
-            Some("Four reviewed drafts are ready.")
-        );
-        assert_eq!(
-            receipt.owner_need.as_deref(),
-            Some("Approve, change or decline the campaign.")
-        );
-
-        let suggested = concat!(
-            "Ready?",
-            "\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Asks to proceed.\",",
-            "\"ownerNeed\":\"Proceed with the listing?\",",
-            "\"ownerReplies\":[\"Yes, list it\",\" \",\"Not yet\",\"Hold\",\"Ask me tomorrow\"]}-->"
-        );
-        let receipt = split_intent_receipt(suggested).1.expect("replies parse");
-        assert_eq!(receipt.owner_replies, vec!["Yes, list it", "Not yet", "Hold"]);
-        let without_question = concat!(
-            "Done.",
-            "\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Done.\",",
-            "\"ownerReplies\":[\"Thanks\"]}-->"
-        );
-        assert!(split_intent_receipt(without_question)
-            .1
-            .expect("parses")
-            .owner_replies
-            .is_empty());
-
-        let malformed = "Reply\n\n<!--restless-intent:{\"kind\":\"whatever\",\"summary\":\"x\"}-->";
-        assert_eq!(split_intent_receipt(malformed).0, "Reply");
-        assert!(split_intent_receipt(malformed).1.is_none());
-    }
-
-    #[test]
-    fn optional_work_details_are_separate_and_malformed_metadata_stays_hidden() {
-        let body = concat!(
-            "The release is ready.",
-            "\n\n<!--restless-details:{\"markdown\":\"- Commit `abc123`\\n- Build passed\"}-->"
-        );
-        let (visible, details) = split_message_details(body);
-        assert_eq!(visible, "The release is ready.");
-        assert_eq!(
-            details.as_deref(),
-            Some("- Commit `abc123`\n- Build passed")
-        );
-
-        let malformed = "Answer.\n\n<!--restless-details:not-json-->";
-        assert_eq!(split_message_details(malformed), ("Answer.", None));
     }
 
     #[test]

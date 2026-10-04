@@ -67,6 +67,7 @@ mod skills;
 mod spend;
 mod staff;
 mod telemetry;
+mod transcript;
 mod wire;
 
 use std::collections::HashMap;

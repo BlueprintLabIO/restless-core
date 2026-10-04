@@ -215,7 +215,7 @@ async fn conversation_requests(
             }
             let message_id = message.id;
             let created_at = message.created_at;
-            let Some((body, need)) = crate::owner::conversation_owner_need(message) else {
+            let Some((body, need)) = crate::transcript::conversation_owner_need(message) else {
                 return Ok(None);
             };
             // The request comes from the latest direct message. Point Reply at
