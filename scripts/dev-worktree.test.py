@@ -26,8 +26,8 @@ with tempfile.TemporaryDirectory(prefix='restless-worktree-pool-') as directory:
     for key, value in (('user.name', 'Pool test'), ('user.email', 'pool@restless.test'), ('commit.gpgsign', 'false')):
         run('git', 'config', key, value, cwd=repo)
     (repo / 'README.md').write_text('pool\n')
-    # The repository's own rule: a slot's build targets are not its work.
-    (repo / '.gitignore').write_text('/target-*/\n')
+    # The repository's own rules: a slot's build targets are not its work.
+    (repo / '.gitignore').write_text('/target\n/target-*/\n')
     run('git', 'add', '.', cwd=repo)
     run('git', 'commit', '--quiet', '-m', 'start', cwd=repo)
     run('git', 'push', '--quiet', 'origin', 'HEAD:main', cwd=repo)
