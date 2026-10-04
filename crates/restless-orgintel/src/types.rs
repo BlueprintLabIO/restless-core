@@ -993,6 +993,17 @@ pub struct WorkGraphSnapshot {
     pub standards: Vec<WorkStandardRow>,
 }
 
+/// The reactions a message may carry. A short fixed set keeps them meaningful
+/// as signals rather than decoration.
+pub const MESSAGE_REACTIONS: &[&str] = &["👍", "👀", "✅", "❤️", "🎉", "❓"];
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct MessageReactionRow {
+    pub message_id: i64,
+    pub actor_id: String,
+    pub emoji: String,
+}
+
 #[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
 pub struct WorkStandardRow {
     pub work_id: Uuid,

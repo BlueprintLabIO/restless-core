@@ -8,6 +8,8 @@
 	import AttachmentList from './AttachmentList.svelte';
 	import Markdown from './Markdown.svelte';
 	import ReferencePreview from './ReferencePreview.svelte';
+	import MessageReactions from './MessageReactions.svelte';
+	import type { ReactionSummary } from '$lib/model/reactions.svelte';
 	import SemanticMark from '$lib/ui/glyph/SemanticMark.svelte';
 	import type { MessageAttachment, MessageIntentReceipt } from '$lib/model/view';
 	import { initials } from '$lib/model/initials';
@@ -26,6 +28,8 @@
 		domId,
 		messageId = '',
 		companyId = '',
+		reactions = [],
+		onreact,
 		headerExtra,
 		actions,
 		embedded = false,
@@ -45,6 +49,9 @@
 		/** The stored message, so files it names can be opened in place. */
 		messageId?: string;
 		companyId?: string;
+		reactions?: ReactionSummary[];
+		/** Present when the viewer may react; reacting never starts a turn. */
+		onreact?: (emoji: string, on: boolean) => void;
 		headerExtra?: Snippet;
 		actions?: Snippet;
 		embedded?: boolean;
@@ -154,6 +161,7 @@
 				>{expanded ? 'Show less' : 'Show more'}</button
 			>{/if}
 		<AttachmentList {attachments} {hrefFor} />
+		{#if onreact && sender !== 'system'}<MessageReactions {reactions} {onreact} />{/if}
 		{#if details && sender === 'agent'}
 			<details class="work-details" hidden={!showWorkDetails} open>
 				<summary>Work details</summary>

@@ -15,6 +15,7 @@
 	import { workStatusLabel } from '$lib/work/status';
 	import { companyBrowserLinks } from '$lib/actions/company-browser-links';
 	import CompanyQueryPersistence from '$lib/components/CompanyQueryPersistence.svelte';
+	import { referenceOptions } from '$lib/model/composer-options.svelte';
 	import ExecutiveRail from '$lib/components/ExecutiveRail.svelte';
 	import { cockpitContextPath, reviewAction } from '$lib/model/attention';
 	import { prepareCompanyBrowser } from '$lib/model/company-browser';
@@ -620,6 +621,10 @@
 		topics={focusedAttention ? [] : railTopics}
 		currentTopicKey={chosenTopic ? `${chosenTopic.actorId}:${chosenTopic.workId ?? ''}` : 'general'}
 		ontopic={chooseTopic}
+		viewerActorId={principal?.actor_id ?? 'owner'}
+		references={ownerAccess
+			? referenceOptions(companyId, workRows, cockpit?.goals ?? [], cockpit?.people ?? [])
+			: []}
 		open={execRailOpen}
 		onask={askRail}
 		review={focusedReview

@@ -26,6 +26,7 @@
 	import type { OutcomeStandard } from '$lib/model/company';
 	import type { ThreadMessage } from '$lib/model/view';
 	import { runExecCommand } from '$lib/model/skills';
+	import { reactionsQuery } from '$lib/model/reactions.svelte';
 	import { composerOptions, readDraft, writeDraft } from '$lib/model/composer-options.svelte';
 
 	let {
@@ -54,7 +55,9 @@
 		topicLabel = '',
 		topics = [],
 		currentTopicKey = 'general',
-		ontopic = null
+		ontopic = null,
+		viewerActorId = 'owner',
+		references = []
 	}: {
 		messages?: ThreadMessage[];
 		participantName?: string;
@@ -107,7 +110,19 @@
 		}[];
 		currentTopicKey?: string;
 		ontopic?: ((topic: { actorId: string; workId?: string } | null) => void) | null;
+		viewerActorId?: string;
+		/** Work, Goals and people the composer offers after `#` and `@`. */
+		references?: import('$lib/model/skills').ComposerOption[];
 	} = $props();
+	const reactions = reactionsQuery(
+		() => companyId,
+		() =>
+			messages
+				.map((message) => messageNumericId(message.id))
+				.filter((id) => id > 0)
+				.slice(-60),
+		() => viewerActorId
+	);
 
 	const canOperate = $derived(['owner', 'operator'].includes(membershipRole ?? ''));
 
@@ -573,6 +588,10 @@
 							domId={messageDomId(message.id)}
 							messageId={String(messageNumericId(message.id) || '')}
 							{companyId}
+							reactions={reactions.summaryFor(messageNumericId(message.id))}
+							onreact={canOperate && messageNumericId(message.id) > 0
+								? (emoji, on) => void reactions.react(messageNumericId(message.id), emoji, on)
+								: undefined}
 							sender={message.from === 'you' ? 'owner' : message.from}
 							author={message.from === 'you' ? 'You' : message.author || participantName}
 							text={message.text}
@@ -677,7 +696,7 @@
 							bind:value={composer}
 							bind:files={composerFiles}
 							bind:selectedSkills={composerSkills}
-							options={options.value}
+							options={[...options.value, ...references]}
 							actionLabel={turn ? 'Queue direction' : 'Send'}
 							disabled={!canOperate ||
 								sending ||

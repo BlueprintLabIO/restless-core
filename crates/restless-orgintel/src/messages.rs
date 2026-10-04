@@ -2037,6 +2037,69 @@ impl OrgIntel {
         .await?)
     }
 
+    /// Add or remove one actor's reaction to a message. Reacting records a
+    /// signal; it does not deliver a message or wake anyone.
+    pub async fn set_message_reaction(
+        &self,
+        message_id: i64,
+        actor: &str,
+        emoji: &str,
+        on: bool,
+    ) -> Result<()> {
+        if !MESSAGE_REACTIONS.contains(&emoji) {
+            return Err(OrgIntelError::InvalidRoom(format!(
+                "reaction must be one of {}",
+                MESSAGE_REACTIONS.join(" ")
+            )));
+        }
+        if on {
+            let inserted = sqlx::query(
+                "INSERT INTO message_reactions (message_id, actor_id, emoji) \
+                 SELECT id, $2, $3 FROM messages WHERE id=$1 AND deleted_at IS NULL \
+                 ON CONFLICT DO NOTHING",
+            )
+            .bind(message_id)
+            .bind(actor)
+            .bind(emoji)
+            .execute(&self.pool)
+            .await?;
+            if inserted.rows_affected() == 0 {
+                let exists: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM messages WHERE id=$1 AND deleted_at IS NULL)",
+                )
+                .bind(message_id)
+                .fetch_one(&self.pool)
+                .await?;
+                if !exists {
+                    return Err(OrgIntelError::InvalidRoom(format!(
+                        "message {message_id} does not exist"
+                    )));
+                }
+            }
+        } else {
+            sqlx::query(
+                "DELETE FROM message_reactions WHERE message_id=$1 AND actor_id=$2 AND emoji=$3",
+            )
+            .bind(message_id)
+            .bind(actor)
+            .bind(emoji)
+            .execute(&self.pool)
+            .await?;
+        }
+        Ok(())
+    }
+
+    /// Reactions on a set of messages, oldest first.
+    pub async fn message_reactions(&self, message_ids: &[i64]) -> Result<Vec<MessageReactionRow>> {
+        Ok(sqlx::query_as(
+            "SELECT message_id, actor_id, emoji FROM message_reactions \
+             WHERE message_id = ANY($1) ORDER BY created_at, message_id",
+        )
+        .bind(message_ids)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
     /// The current text of one live message, including any edit. The owner
     /// cockpit uses it to confirm that a file an agent pointed to really is in
     /// that message before showing the file.

@@ -34,6 +34,42 @@ test('/ opens only at the start of a message and $ at any word boundary', () => 
 	});
 });
 
+test('# and @ open at a word boundary and offer only their kind', () => {
+	assert.deepEqual(composerTrigger('see #oat', 8), {
+		trigger: '#',
+		query: 'oat',
+		start: 4,
+		end: 8
+	});
+	assert.deepEqual(composerTrigger('ask @kat', 8), {
+		trigger: '@',
+		query: 'kat',
+		start: 4,
+		end: 8
+	});
+	assert.equal(composerTrigger('issue#4', 7), null, 'a hash inside a word is prose');
+	assert.equal(composerTrigger('mail a@b', 8), null, 'an email address is prose');
+	const options: ComposerOption[] = [
+		...EXEC_COMMANDS,
+		{ kind: 'reference', name: 'oatlands', label: 'Oatlands evidence', description: 'Work' },
+		{ kind: 'person', name: 'katniss', label: 'Katniss', description: 'Lead' }
+	];
+	assert.deepEqual(
+		filterComposerOptions(options, '#', '').map((option: ComposerOption) => option.name),
+		['oatlands']
+	);
+	assert.deepEqual(
+		filterComposerOptions(options, '@', 'k').map((option: ComposerOption) => option.name),
+		['katniss']
+	);
+	assert.equal(
+		filterComposerOptions(options, '/', '').some(
+			(option: ComposerOption) => option.kind === 'reference'
+		),
+		false
+	);
+});
+
 test('$ offers only skills and hides ones already selected', () => {
 	const options: ComposerOption[] = [
 		...EXEC_COMMANDS,

@@ -665,6 +665,20 @@ struct MessageReferenceQuery {
     path: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MessageReactionInput {
+    emoji: String,
+    on: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MessageReactionsQuery {
+    /// Comma-separated message ids, at most 200.
+    ids: String,
+}
+
 #[derive(Debug, Serialize)]
 struct ReviewTicketResponse {
     review_url: String,
@@ -1594,6 +1608,14 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route(
             "/companies/{company}/messages/{message}/reference",
             get(message_reference),
+        )
+        .route(
+            "/companies/{company}/messages/{message}/reactions",
+            post(set_message_reaction),
+        )
+        .route(
+            "/companies/{company}/message-reactions",
+            get(list_message_reactions),
         )
         .route("/companies/{company}/browser/status", get(browser_status))
         .route("/companies/{company}/desktop/windows", get(desktop_windows))
@@ -9721,6 +9743,78 @@ async fn message_reference(
         "url": review_url,
     }))
     .into_response()
+}
+
+/// React to a message. The reaction is stored as a signal the recipient sees
+/// on its next read; it never sends a message or starts a turn.
+async fn set_message_reaction(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, message_id)): AxumPath<(String, i64)>,
+    Json(input): Json<MessageReactionInput>,
+) -> impl IntoResponse {
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
+        }
+    };
+    match org
+        .set_message_reaction(message_id, principal.actor_id(), &input.emoji, input.on)
+        .await
+    {
+        Ok(()) => match org.message_reactions(&[message_id]).await {
+            Ok(reactions) => Json(serde_json::json!({ "reactions": reactions })).into_response(),
+            Err(error) => api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            ),
+        },
+        Err(restless_orgintel::OrgIntelError::InvalidRoom(message)) => {
+            api_error(StatusCode::UNPROCESSABLE_ENTITY, "reaction", message)
+        }
+        Err(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "orgintel",
+            format!("{error:#}"),
+        ),
+    }
+}
+
+async fn list_message_reactions(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+    Query(query): Query<MessageReactionsQuery>,
+) -> impl IntoResponse {
+    let ids: Vec<i64> = query
+        .ids
+        .split(',')
+        .filter_map(|value| value.trim().parse().ok())
+        .take(200)
+        .collect();
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
+        }
+    };
+    match org.message_reactions(&ids).await {
+        Ok(reactions) => Json(serde_json::json!({ "reactions": reactions })).into_response(),
+        Err(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "orgintel",
+            format!("{error:#}"),
+        ),
+    }
 }
 
 async fn review_proxy(

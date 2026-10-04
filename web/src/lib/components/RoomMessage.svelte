@@ -18,6 +18,8 @@
 		presentation = null,
 		hrefFor,
 		companyId = '',
+		reactions = [],
+		onreact,
 		author,
 		isYou = false,
 		isAgent = false,
@@ -45,6 +47,8 @@
 		hrefFor?: (attachment: MessageAttachment) => string;
 		/** Lets files an agent names in this message open in place. */
 		companyId?: string;
+		reactions?: import('$lib/model/reactions.svelte').ReactionSummary[];
+		onreact?: (emoji: string, on: boolean) => void;
 		author: string;
 		isYou?: boolean;
 		isAgent?: boolean;
@@ -261,6 +265,8 @@
 			{continued}
 			messageId={message.id > 0 ? String(message.id) : ''}
 			{companyId}
+			{reactions}
+			{onreact}
 			embedded
 		>
 			{#snippet headerExtra()}

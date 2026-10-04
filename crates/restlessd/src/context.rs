@@ -80,6 +80,9 @@ pub struct ContextSnapshot {
     /// The current unread owner input remains in `inbox` and is never duplicated
     /// here.
     pub recent_owner_conversation: Vec<MessageRow>,
+    /// Reactions on those messages: lightweight owner feedback that never
+    /// woke anyone on its own.
+    pub recent_owner_reactions: Vec<restless_orgintel::MessageReactionRow>,
     pub inbox: Vec<MessageRow>,
     /// Explicit skill selections attached to inbox Messages, by Message id.
     pub inbox_skills: std::collections::BTreeMap<i64, Vec<restless_orgintel::SelectedSkill>>,
@@ -298,7 +301,21 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
         if message.body.chars().count() > 2_000 {
             body.push('…');
         }
-        recent_conversation.push_str(&format!("- {speaker} message {}: {body}\n", message.id));
+        let reactions = snapshot
+            .recent_owner_reactions
+            .iter()
+            .filter(|reaction| reaction.message_id == message.id)
+            .map(|reaction| reaction.emoji.as_str())
+            .collect::<Vec<_>>();
+        let reacted = if reactions.is_empty() {
+            String::new()
+        } else {
+            format!(" [reacted: {}]", reactions.join(" "))
+        };
+        recent_conversation.push_str(&format!(
+            "- {speaker} message {}: {body}{reacted}\n",
+            message.id
+        ));
     }
     let mut judgements = String::new();
     for handoff in &snapshot.owed_judgements {
@@ -707,6 +724,7 @@ mod tests {
             current_plan: "# plan\nstep 1".into(),
             latest_journal: Some("== 0001.md ==\ndid step 0".into()),
             recent_owner_conversation: vec![],
+            recent_owner_reactions: vec![],
             open_work: vec![WorkRow {
                 id: uuid::Uuid::nil(),
                 goal_id: None,

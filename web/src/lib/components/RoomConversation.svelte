@@ -14,8 +14,9 @@
 	import { initials } from '$lib/model/initials';
 	import AgentExchanges from '$lib/components/AgentExchanges.svelte';
 	import IntelligenceChip from '$lib/components/IntelligenceChip.svelte';
-	import { composerOptions } from '$lib/model/composer-options.svelte';
+	import { composerOptions, referenceOptions } from '$lib/model/composer-options.svelte';
 	import { runExecCommand } from '$lib/model/skills';
+	import { reactionsQuery } from '$lib/model/reactions.svelte';
 	import ConversationTurnDock from '$lib/primitives/ConversationTurnDock.svelte';
 	import RoomMessage from '$lib/components/RoomMessage.svelte';
 	import RoomManager from '$lib/components/RoomManager.svelte';
@@ -524,6 +525,15 @@
 		() => companyId,
 		() => accountableDirect,
 		() => ownerAccess && directPartner === 'exec'
+	);
+	const reactions = reactionsQuery(
+		() => companyId,
+		() =>
+			[...roomMessages, ...threadMessages]
+				.map((message) => message.id)
+				.filter((id) => id > 0)
+				.slice(-120),
+		() => currentActorId
 	);
 	const leadTurn = $derived(accountableDirect ? (actorConversation?.activeTurn ?? null) : null);
 	function attentionFor(actorId: string): AttentionItem[] {
@@ -1131,6 +1141,10 @@
 						<RoomMessage
 							{message}
 							{companyId}
+							reactions={reactions.summaryFor(message.id)}
+							onreact={ownerAccess && message.id > 0
+								? (emoji, on) => void reactions.react(message.id, emoji, on)
+								: undefined}
 							continued={index > 0 &&
 								continuesRun(visibleRoots[index - 1], message) &&
 								!(
@@ -1290,6 +1304,10 @@
 					<RoomMessage
 						{message}
 						{companyId}
+						reactions={reactions.summaryFor(message.id)}
+						onreact={ownerAccess && message.id > 0
+							? (emoji, on) => void reactions.react(message.id, emoji, on)
+							: undefined}
 						presentation={actorMessagesById.get(String(message.id))}
 						hrefFor={(attachment) =>
 							`/api/companies/${encodeURIComponent(companyId)}/attachments/${encodeURIComponent(attachment.uploadId)}`}
@@ -1348,7 +1366,17 @@
 			bind:value={composer}
 			bind:files={composerFiles}
 			bind:selectedSkills={composerSkills}
-			options={threadRootId === null ? options.value : []}
+			options={[
+				...(threadRootId === null ? options.value : []),
+				...(ownerAccess
+					? referenceOptions(
+							companyId,
+							attention.view?.workGraph?.work ?? [],
+							cockpitProjection.view?.goals ?? [],
+							people
+						)
+					: [])
+			]}
 			actionLabel={leadTurn
 				? 'Interrupt and send'
 				: retryCommandId && retryBody === composer.trim()

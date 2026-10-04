@@ -6,6 +6,7 @@
 	import Workflow from '@lucide/svelte/icons/workflow';
 	import UserRound from '@lucide/svelte/icons/user-round';
 	import File from '@lucide/svelte/icons/file';
+	import Target from '@lucide/svelte/icons/target';
 
 	let {
 		text,
@@ -27,7 +28,10 @@
 
 	/* What a link points at decides how it reads: a company file or a place in
 	 * the cockpit is a chip naming the thing; anything else stays a link. */
-	type Reference = { kind: 'file' | 'doc' | 'sheet' | 'work' | 'person'; path?: string };
+	type Reference = {
+		kind: 'file' | 'doc' | 'sheet' | 'work' | 'goal' | 'person';
+		path?: string;
+	};
 	function referenceOf(href: string | undefined): Reference | null {
 		if (!href) return null;
 		let url: URL;
@@ -42,10 +46,18 @@
 		if (/\/library\/documents$/.test(url.pathname)) return { kind: 'doc' };
 		if (/\/library\/sheets$/.test(url.pathname)) return { kind: 'sheet' };
 		if (/\/work\/[^/]+$/.test(url.pathname)) return { kind: 'work' };
+		if (/\/work$/.test(url.pathname) && url.searchParams.has('goal')) return { kind: 'goal' };
 		if (/\/people$/.test(url.pathname) && url.searchParams.has('person')) return { kind: 'person' };
 		return null;
 	}
-	const ICONS = { file: FileText, doc: FileText, sheet: Sheet, work: Workflow, person: UserRound };
+	const ICONS = {
+		file: FileText,
+		doc: FileText,
+		sheet: Sheet,
+		work: Workflow,
+		goal: Target,
+		person: UserRound
+	};
 
 	/* A quote that opens with one of these words is a callout the owner can
 	 * spot without reading the paragraph around it. */

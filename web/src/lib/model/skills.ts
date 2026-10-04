@@ -21,7 +21,8 @@ export type SkillLibrary = {
 
 /** One entry in the composer's `/` and `$` menus. */
 export type ComposerOption = {
-	kind: 'skill' | 'command';
+	/** `reference` links Work or a Goal (`#`); `person` mentions someone (`@`). */
+	kind: 'skill' | 'command' | 'reference' | 'person';
 	name: string;
 	label: string;
 	description: string;

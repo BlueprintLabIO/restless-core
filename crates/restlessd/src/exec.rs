@@ -1388,6 +1388,14 @@ async fn gather_snapshot(
             .filter(|message| !unread_owner_message_ids.contains(&message.id))
             .collect()
     };
+    let recent_owner_reactions = org
+        .message_reactions(
+            &recent_owner_conversation
+                .iter()
+                .map(|message: &restless_orgintel::MessageRow| message.id)
+                .collect::<Vec<_>>(),
+        )
+        .await?;
     let owed_judgements = if pending_mention.is_some() {
         Vec::new()
     } else {
@@ -1408,6 +1416,7 @@ async fn gather_snapshot(
             .filter(|goal| goal.closed_at.is_none())
             .collect(),
         recent_owner_conversation,
+        recent_owner_reactions,
         inbox,
         inbox_skills,
         owed_judgements,

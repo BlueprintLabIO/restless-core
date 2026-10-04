@@ -63,7 +63,7 @@
 		selectedSkills?: string[];
 	} = $props();
 
-	type Menu = { trigger: '/' | '$'; query: string; start: number; end: number };
+	type Menu = import('$lib/primitives/composer-menu').ComposerTrigger;
 	let menu = $state<Menu | null>(null);
 	let highlighted = $state(0);
 	const menuItems = $derived(
@@ -322,7 +322,13 @@
 		<div
 			class="hc-menu"
 			role="listbox"
-			aria-label={menu.trigger === '$' ? 'Skills' : 'Commands and skills'}
+			aria-label={menu.trigger === '$'
+				? 'Skills'
+				: menu.trigger === '#'
+					? 'Work and Goals'
+					: menu.trigger === '@'
+						? 'People'
+						: 'Commands and skills'}
 		>
 			{#each menuItems as option, index (option.kind + option.name)}
 				<button
