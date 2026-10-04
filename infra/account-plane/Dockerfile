@@ -63,6 +63,10 @@ RUN --mount=type=cache,id=restless-cargo-registry-v1,target=/usr/local/cargo/reg
     && cargo build --release --locked --target "$target" -p restlessd \
     && install -Dm755 /src/target/$target/release/restlessd /out/restlessd
 
+# A Cloud-managed owner VM runs this image in local Runtime mode, where the plane
+# starts company containers itself through the host's Docker socket. Only the
+# static client is copied; the image never runs a Docker daemon.
+FROM docker:28.5-cli@sha256:625d9431a9f54c5a2bc90f24f0e1c3d55b1349fd857dd85035f98c2c9acbdd4d AS docker-cli
 FROM node:24-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe AS node-runtime
 FROM ubuntu:24.04@sha256:a853f94d226358a79c740cfc7bce0c289748f3fe3488d921d038ccd752c61b60
 COPY --from=node-runtime /usr/local/ /usr/local/
@@ -100,6 +104,7 @@ RUN npm install -g bun@1.3.14 \
     && omp --version
 
 COPY --from=build /out/restlessd /usr/local/bin/restlessd
+COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 COPY services/native-sheets/package.json services/native-sheets/package-lock.json /opt/restless/native-sheets/
 RUN npm --prefix /opt/restless/native-sheets ci --omit=dev --no-audit --no-fund && npm cache clean --force
 COPY services/native-sheets/src /opt/restless/native-sheets/src

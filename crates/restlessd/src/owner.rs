@@ -1273,8 +1273,16 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             .await
             .context("load Fleet entry verification keys before listening")?;
     }
-    let company_bootstrap = crate::company_bootstrap::routes::<OwnerState>(&daemon, &entry)
-        .context("configure company-bootstrap endpoint")?;
+    let local_documents_issuer = (runtime_mode == crate::runtime_mode::RuntimeMode::Local)
+        .then(|| {
+            entry
+                .network_coordinates()
+                .map(|(_, _, host)| format!("https://{host}"))
+        })
+        .flatten();
+    let company_bootstrap =
+        crate::company_bootstrap::routes::<OwnerState>(&daemon, &entry, local_documents_issuer)
+            .context("configure company-bootstrap endpoint")?;
     let runtime_bridge = crate::runtime_bridge::routes::<OwnerState>(&daemon, &entry)
         .context("configure hosted Runtime-bridge endpoints")?;
     let cell_readiness = if runtime_mode == crate::runtime_mode::RuntimeMode::Hosted {
@@ -1313,6 +1321,17 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             (
                 capacity_activity::CapacityActivityService::from_environment(&daemon, &entry)
                     .context("configure Fleet capacity-activity endpoint")?,
+                plane_readiness::PlaneReadinessService::from_environment(&daemon, &entry)
+                    .context("configure Fleet plane-readiness endpoint")?,
+            )
+        } else if entry.network().is_some()
+            && std::env::var_os(plane_readiness::TOKEN_ENV).is_some()
+        {
+            // A Cloud-managed appliance (one owner VM) runs its companies locally but
+            // still proves plane readiness to Fleet before Fleet issues entry.
+            // Self-hosted sharing sets no readiness token and keeps the route closed.
+            (
+                capacity_activity::CapacityActivityService::Disabled,
                 plane_readiness::PlaneReadinessService::from_environment(&daemon, &entry)
                     .context("configure Fleet plane-readiness endpoint")?,
             )

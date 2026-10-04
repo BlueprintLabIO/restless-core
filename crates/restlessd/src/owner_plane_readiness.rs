@@ -31,7 +31,7 @@ use super::OwnerState;
 use crate::{credential, entry::EntryMode, release, runtime, Daemon};
 
 const CONTRACT_VERSION: u32 = 1;
-const TOKEN_ENV: &str = "RESTLESS_PLANE_READINESS_TOKEN";
+pub(super) const TOKEN_ENV: &str = "RESTLESS_PLANE_READINESS_TOKEN";
 const ACCOUNT_PLANE_IMAGE_ENV: &str = "RESTLESS_ACCOUNT_PLANE_IMAGE";
 const DESIRED_REVISION_ENV: &str = "RESTLESS_DESIRED_REVISION";
 const RELEASE_MANIFEST_DIGEST_ENV: &str = "RESTLESS_RELEASE_MANIFEST_DIGEST";
