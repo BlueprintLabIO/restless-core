@@ -11,6 +11,9 @@
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import Check from '@lucide/svelte/icons/check';
+	import SquarePen from '@lucide/svelte/icons/square-pen';
+	import Maximize2 from '@lucide/svelte/icons/maximize-2';
+	import PanelRightClose from '@lucide/svelte/icons/panel-right-close';
 	import Reply from '@lucide/svelte/icons/reply';
 	import X from '@lucide/svelte/icons/x';
 	import { SvelteDate } from 'svelte/reactivity';
@@ -59,7 +62,8 @@
 		currentTopicKey = 'general',
 		ontopic = null,
 		viewerActorId = 'owner',
-		references = []
+		references = [],
+		onclose = null
 	}: {
 		messages?: ThreadMessage[];
 		participantName?: string;
@@ -115,6 +119,8 @@
 		viewerActorId?: string;
 		/** Work, Goals and people the composer offers after `#` and `@`. */
 		references?: import('$lib/model/skills').ComposerOption[];
+		/** Hides the rail; the topbar's Exec button brings it back. */
+		onclose?: (() => void) | null;
 	} = $props();
 	const reactions = reactionsQuery(
 		() => companyId,
@@ -483,12 +489,12 @@
 					<div class="exr-who topic-switch">
 						<ActionMenu label="Switch conversation">
 							{#snippet trigger()}<span class="topic-face"
-									><SemanticMark meaning={participantId === 'exec' ? 'executive' : 'work'} /><strong
-										class="exr-name">{participantName}</strong
-									>{#if topicLabel}<span class="topic-label">{topicLabel}</span>{/if}<ChevronDown
-										size={14}
-										aria-hidden="true"
-									/></span
+									><SemanticMark
+										meaning={participantId === 'exec' ? 'executive' : 'work'}
+										size="small"
+									/><strong class="exr-name">{participantName}</strong>{#if topicLabel}<span
+											class="topic-label">{topicLabel}</span
+										>{/if}<ChevronDown size={14} aria-hidden="true" /></span
 								>{/snippet}
 							{#each topics as entry (entry.key)}
 								<button type="button" onclick={() => ontopic(entry.topic)}
@@ -500,30 +506,50 @@
 										/>{/if}</button
 								>
 							{/each}
-							{#if newFocusAvailable}
-								<button
-									type="button"
-									class="topic-fresh"
-									disabled={!connected || !!turn || sending}
-									title="Begin with fresh working context; company memory is retained"
-									onclick={beginNewFocus}>Start fresh</button
-								>
-							{/if}
 						</ActionMenu>
 					</div>
 				{:else}
 					<div class="exr-who">
-						<SemanticMark meaning={review || workContext ? 'work' : 'executive'} />
+						<SemanticMark meaning={review || workContext ? 'work' : 'executive'} size="small" />
 						<strong class="exr-name">{participantName}</strong>
 					</div>
 				{/if}
-				{#if visibleMessages.length}
-					<ConversationHistoryTools
-						messages={visibleMessages}
-						{participantName}
-						onjump={jumpToMessage}
-					/>
-				{/if}
+				<div class="exr-tools">
+					{#if newFocusAvailable}
+						<button
+							type="button"
+							class="exr-tool"
+							aria-label="New conversation"
+							title="New conversation · fresh working context, company memory kept"
+							disabled={!connected || !!turn || sending}
+							onclick={beginNewFocus}><SquarePen size={15} strokeWidth={1.9} /></button
+						>
+					{/if}
+					{#if visibleMessages.length}
+						<ConversationHistoryTools
+							messages={visibleMessages}
+							{participantName}
+							onjump={jumpToMessage}
+						/>
+					{/if}
+					{#if !review && !workContext}
+						<a
+							class="exr-tool"
+							href={`/${encodeURIComponent(companyId)}/people?person=${encodeURIComponent(participantId)}`}
+							aria-label="Open full width"
+							title="Open this conversation full width"><Maximize2 size={14} strokeWidth={1.9} /></a
+						>
+					{/if}
+					{#if onclose}
+						<button
+							type="button"
+							class="exr-tool"
+							aria-label="Close"
+							title="Close · the Exec button brings it back"
+							onclick={onclose}><PanelRightClose size={15} strokeWidth={1.9} /></button
+						>
+					{/if}
+				</div>
 			</div>
 			{#if review}
 				<div class="review-controls">
@@ -910,11 +936,13 @@
 		align-items: center;
 		gap: 10px;
 	}
+	/* The switcher is the name, not a bar: it sizes to its words and only
+	 * shows a wash on hover or while its menu is open. */
 	.topic-switch {
+		flex: 0 1 auto !important;
 		overflow: hidden;
 	}
 	.topic-switch :global(.action-menu) {
-		flex: 1 1 auto;
 		min-width: 0;
 	}
 	.topic-switch :global(summary) {
@@ -923,9 +951,47 @@
 		width: auto;
 		max-width: 100%;
 		min-width: 0;
-		height: 34px;
-		padding: 0 8px 0 4px;
+		height: 30px;
+		padding: 0 6px 0 2px;
+		border-color: transparent !important;
 		overflow: hidden;
+	}
+	.topic-switch :global(summary:hover),
+	.topic-switch :global(.action-menu[open] > summary) {
+		background: var(--wash-hover);
+	}
+	.exr-tools {
+		display: flex;
+		flex: none;
+		align-items: center;
+		gap: 2px;
+		margin-left: auto;
+	}
+	.exr-tool {
+		display: grid;
+		place-items: center;
+		width: 28px;
+		height: 28px;
+		padding: 0;
+		border: 0;
+		border-radius: var(--radius-control);
+		background: transparent;
+		color: var(--text-tertiary);
+		cursor: pointer;
+	}
+	.exr-tool:hover:not(:disabled) {
+		background: var(--wash-hover);
+		color: var(--ink);
+	}
+	.exr-tool:disabled {
+		opacity: 0.4;
+		cursor: default;
+	}
+	.exr-head-primary :global(.history-toggle) {
+		width: 28px;
+		height: 28px;
+		padding: 0;
+		justify-content: center;
 	}
 	.topic-face {
 		display: flex;
@@ -968,11 +1034,6 @@
 	.topic-option small {
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
-	}
-	.topic-fresh {
-		border-top: 1px solid var(--border) !important;
-		border-radius: 0 !important;
-		color: var(--text-secondary) !important;
 	}
 	.exr-head-primary .exr-who {
 		min-width: 0;

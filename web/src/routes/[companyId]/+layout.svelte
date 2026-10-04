@@ -622,6 +622,7 @@
 		currentTopicKey={chosenTopic ? `${chosenTopic.actorId}:${chosenTopic.workId ?? ''}` : 'general'}
 		ontopic={chooseTopic}
 		viewerActorId={principal?.actor_id ?? 'owner'}
+		onclose={() => (execRailOpen = false)}
 		references={ownerAccess
 			? referenceOptions(companyId, workRows, cockpit?.goals ?? [], cockpit?.people ?? [])
 			: []}
