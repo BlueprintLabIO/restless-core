@@ -289,7 +289,7 @@ the source build and company image.
 
 ```sh
 # 1. Get the source
-git clone --branch dev https://github.com/BlueprintLabIO/restless-core.git
+git clone https://github.com/BlueprintLabIO/restless-core.git
 
 # 2. Install the workspace
 cd restless-core && npm --prefix web ci

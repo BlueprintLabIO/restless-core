@@ -1,5 +1,5 @@
 # Short-lived worktrees for agents and founders. Every task starts from a fresh
-# origin/dev, lands on dev, and is then removed. Sourced by scripts/restless-dev.
+# origin/main, lands on main, and is then removed. Sourced by scripts/restless-dev.
 
 dev_worktree_main_root() {
   local common
@@ -35,10 +35,10 @@ dev_worktree_new() {
   local dir branch="${RESTLESS_WORKTREE_BRANCH_PREFIX:-feat/}${name}"
   dir="$(dev_worktree_parent)/${name}"
   git -C "$STACK_REPO_ROOT" fetch --quiet origin dev
-  git -C "$STACK_REPO_ROOT" worktree add -b "$branch" "$dir" origin/dev
-  printf '\nWORKTREE %s\nBRANCH   %s (from origin/dev %s)\n' \
+  git -C "$STACK_REPO_ROOT" worktree add -b "$branch" "$dir" origin/main
+  printf '\nWORKTREE %s\nBRANCH   %s (from origin/main %s)\n' \
     "$dir" "$branch" "$(git -C "$dir" rev-parse --short HEAD)"
-  printf 'Rebase on origin/dev before verifying and before landing; remove it once landed:\n'
+  printf 'Rebase on origin/main before verifying and before landing; remove it once landed:\n'
   printf '  restless-dev worktree prune\n'
 }
 
@@ -95,7 +95,7 @@ dev_worktree_prune() {
           else
             git -C "$STACK_REPO_ROOT" worktree remove --force "$dir"
             if [ -n "${branch:-}" ] &&
-               git -C "$STACK_REPO_ROOT" merge-base --is-ancestor "$branch" origin/dev 2>/dev/null; then
+               git -C "$STACK_REPO_ROOT" merge-base --is-ancestor "$branch" origin/main 2>/dev/null; then
               git -C "$STACK_REPO_ROOT" branch -q -D "$branch" 2>/dev/null || true
             fi
             printf 'REMOVED %s\n' "$dir"

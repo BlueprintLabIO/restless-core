@@ -39,8 +39,8 @@ jobs:
           PUBLISH: ${{ inputs.publish }}
         run: |
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          if [[ "$PUBLISH" == true && "$GITHUB_REF" != refs/heads/dev ]]; then
-            echo 'Core publication must use the trusted dev workflow.' >&2
+          if [[ "$PUBLISH" == true && "$GITHUB_REF" != refs/heads/main ]]; then
+            echo 'Core publication must use the trusted main workflow.' >&2
             exit 1
           fi
       - name: Install the pinned Dagger CLI

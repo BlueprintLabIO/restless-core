@@ -126,7 +126,7 @@ export class RestlessCore {
     return publishLibrary(payload, kind, revision, scanPeriod, username, password, source);
   }
 
-  /** Sign a product package with the UI workflow's exact dev identity. */
+  /** Sign a product package with the UI workflow's exact main identity. */
   @func()
   sealLibrary(
     @argument({ ignore: ['**', '!scripts/release/verify-library.mjs'] })
@@ -323,7 +323,7 @@ export class RestlessCore {
     return artifacts;
   }
 
-  /** Seal publication through the existing trusted Core dev workflow. */
+  /** Seal publication through the trusted Core main workflow. */
   @func()
   seal(source: Directory, artifacts: Directory, revision: string, username: string, password: Secret,
     oidcRequestUrl: string, oidcRequestToken: Secret, workflowRef: string,

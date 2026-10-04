@@ -2,7 +2,7 @@ name: Core product artifacts
 
 on:
   push:
-    branches: [dev]
+    branches: [main]
     paths:
       - LICENSE
       - web/**
@@ -34,7 +34,7 @@ concurrency:
 
 jobs:
   libraries:
-    if: github.ref == 'refs/heads/dev'
+    if: github.ref == 'refs/heads/main'
     runs-on: [self-hosted, linux, x64, restless-core]
     timeout-minutes: 25
     steps:

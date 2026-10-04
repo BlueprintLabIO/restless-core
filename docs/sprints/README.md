@@ -3,7 +3,7 @@
 Restless is built in sprints. The cadence (see `CLAUDE.md` → "How we work"):
 
 > `ARCHITECTURE.md` (target) → **sprint spec** (founders align) → coding agents break it into tickets
-> → founders align on tickets → implement as a goal-mode sprint on `dev`.
+> → founders align on tickets → implement as a goal-mode sprint on `main`.
 
 ## Sprint specs
 

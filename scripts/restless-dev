@@ -100,14 +100,14 @@ after startup. To initialise an API connection from your shell, set both
 RESTLESS_DEV_MODEL=provider/model and RESTLESS_DEV_CREDENTIAL_REFERENCE=env:YOUR_API_KEY.
 Existing companies keep their settings.
 
-worktree new starts a branch from a fresh origin/dev. stale lists every
+worktree new starts a branch from a fresh origin/main. stale lists every
 worktree's age, uncommitted files and commits no remote has. prune removes
 only worktrees that are clean, fully pushed and unused.
 
-promote builds one origin/dev commit (default: origin/dev) in a clean build
+promote builds one origin/main commit (default: origin/main) in a clean build
 worktree and installs it as the owner's stable appliance through
 `restless appliance upgrade`, which drains work and rolls back on failure. It
-refuses any commit that is not on origin/dev.
+refuses any commit that is not on origin/main.
 
 reap-timer installs an hourly `restless-reap --check` (systemd on Linux).
 EOF
@@ -407,10 +407,10 @@ report_resource_debt() {
   "$reaper" --check || true
 }
 
-# Build one origin/dev commit and hand it to the appliance. The appliance owns
+# Build one origin/main commit and hand it to the appliance. The appliance owns
 # activation, drain and rollback; this only produces the exact artifacts.
 promote() {
-  local ref="origin/dev" build_only=false
+  local ref="origin/main" build_only=false
   local appliance_args=()
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -424,8 +424,8 @@ promote() {
   git -C "$STACK_REPO_ROOT" fetch --quiet origin
   local commit
   commit="$(git -C "$STACK_REPO_ROOT" rev-parse --verify "${ref}^{commit}")"
-  if ! git -C "$STACK_REPO_ROOT" merge-base --is-ancestor "$commit" origin/dev; then
-    printf 'refusing to promote %s: it is not on origin/dev. Land it first.\n' "$commit" >&2
+  if ! git -C "$STACK_REPO_ROOT" merge-base --is-ancestor "$commit" origin/main; then
+    printf 'refusing to promote %s: it is not on origin/main. Land it first.\n' "$commit" >&2
     return 1
   fi
   local short="${commit:0:12}"

@@ -7,7 +7,7 @@ const REPOSITORY = 'ghcr.io/blueprintlabio/restless-core-release';
 export async function sealRelease(source: Directory, artifacts: Directory, revision: string, platform: string,
   username: string, password: Secret, oidcRequestUrl: string, oidcRequestToken: Secret, workflowRef: string): Promise<Directory> {
   if (workflowRef !== CORE_WORKFLOW || !/^https:\/\/[^/]+\.actions\.githubusercontent\.com\//.test(oidcRequestUrl)) {
-    throw new Error('Core sealing requires the trusted dev workflow and its GitHub OIDC endpoint');
+    throw new Error('Core sealing requires the trusted main workflow and its GitHub OIDC endpoint');
   }
   const config = await registryConfig(username, password);
   const identity = ['--certificate-identity', `https://github.com/${CORE_WORKFLOW}`,

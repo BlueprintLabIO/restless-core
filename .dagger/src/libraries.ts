@@ -2,7 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { dag, Container, Directory, Secret, ReturnType } from '@dagger.io/dagger';
 import { NODE_IMAGE, SYFT_IMAGE, GRYPE_IMAGE, ORAS_IMAGE, COSIGN_IMAGE, registryConfig, tool, EXCLUDES } from './publish.js';
 
-export const LIBRARY_WORKFLOW = 'BlueprintLabIO/restless-core/.github/workflows/ui-artifact-release.yml@refs/heads/dev';
+export const LIBRARY_WORKFLOW = 'BlueprintLabIO/restless-core/.github/workflows/ui-artifact-release.yml@refs/heads/main';
+/* Packages published before main became the release line were signed from dev (now locked);
+ * reuse still trusts them. New packages are sealed only from main. */
+const REUSABLE_LIBRARY_IDENTITY =
+  '^https://github\\.com/BlueprintLabIO/restless-core/\\.github/workflows/ui-artifact-release\\.yml@refs/heads/(main|dev)$';
 const REPOSITORY = 'ghcr.io/blueprintlabio/restless-core-release';
 const checkKind = (kind: string) => {
   if (!['ui', 'office', 'issuer'].includes(kind)) throw new Error('choose ui, office or issuer');
@@ -48,7 +52,7 @@ export async function reuseLibrary(source: Directory, kind: string, scanPeriod: 
   }
   const reference = `${REPOSITORY}@${JSON.parse(await lookup.stdout()).digest}`;
   if (!/^sha256:[0-9a-f]{64}$/.test(reference.split('@')[1])) throw new Error('library reuse requires an OCI digest');
-  await tool(COSIGN_IMAGE, config).withExec(['verify', '--certificate-identity', `https://github.com/${LIBRARY_WORKFLOW}`,
+  await tool(COSIGN_IMAGE, config).withExec(['verify', '--certificate-identity-regexp', REUSABLE_LIBRARY_IDENTITY,
     '--certificate-oidc-issuer', 'https://token.actions.githubusercontent.com', reference], {useEntrypoint: true}).sync();
   const payload = oras.withExec(['pull', reference, '--output', '/payload'], {useEntrypoint: true}).directory('/payload');
   const release = JSON.parse(await payload.file('library-release.json').contents());
@@ -147,11 +151,11 @@ export async function publishLibrary(payload: Directory, kind: string, revision:
     source_revision: revision, scan_period: scanPeriod, input_sha256: qualified.input_sha256, reused: false }, null, 2) + '\n');
 }
 
-/** Seal the exact library with the established UI workflow's dev OIDC identity. */
+/** Seal the exact library with the established UI workflow's main OIDC identity. */
 export async function sealLibrary(source: Directory, artifacts: Directory, username: string, password: Secret,
   oidcRequestUrl: string, oidcRequestToken: Secret, workflowRef: string): Promise<Directory> {
   if (workflowRef !== LIBRARY_WORKFLOW || !/^https:\/\/[^/]+\.actions\.githubusercontent\.com\//.test(oidcRequestUrl)) {
-    throw new Error('library sealing requires the dev library workflow and its GitHub OIDC endpoint');
+    throw new Error('library sealing requires the main library workflow and its GitHub OIDC endpoint');
   }
   const receipt = JSON.parse(await artifacts.file('library-receipt.json').contents());
   const release = JSON.parse(await artifacts.file('library-release.json').contents());

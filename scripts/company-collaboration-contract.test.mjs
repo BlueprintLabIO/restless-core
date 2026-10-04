@@ -186,7 +186,7 @@ for (const platforms of [undefined, ['linux/amd64']]) test(`the signed v${platfo
     releaseSignaturePath: releaseSignature,
     contractSignaturePath: contractSignature,
     repository: 'BlueprintLabIO/restless-core',
-    workflowRef: 'BlueprintLabIO/restless-core/.github/workflows/immutable-core-release.yml@refs/heads/dev',
+    workflowRef: 'BlueprintLabIO/restless-core/.github/workflows/immutable-core-release.yml@refs/heads/main',
     outputPath,
   });
   const bytes = await readFile(outputPath);
@@ -209,7 +209,7 @@ for (const platforms of [undefined, ['linux/amd64']]) test(`the signed v${platfo
       releaseSignaturePath: releaseSignature,
       contractSignaturePath: contractSignature,
       repository: 'BlueprintLabIO/restless-core',
-      workflowRef: 'BlueprintLabIO/restless-core/.github/workflows/immutable-core-release.yml@refs/heads/dev',
+      workflowRef: 'BlueprintLabIO/restless-core/.github/workflows/immutable-core-release.yml@refs/heads/main',
       outputPath,
     }),
     /not from its canonical repository|release tuple differs|descriptor image differs/,

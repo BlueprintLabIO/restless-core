@@ -6,7 +6,7 @@ export const GRYPE_IMAGE = 'anchore/grype:v0.119.0@sha256:8c2c9234a345577a6d321a
 export const SYFT_IMAGE = 'anchore/syft:v1.54.0@sha256:0356562f495d432056237fbea5cbc2d4839c9c75cd500784a66de2e7cc95ca7c';
 export const ORAS_IMAGE = 'ghcr.io/oras-project/oras:v1.2.2@sha256:cd549d80c4aa89638aea5964a3cd8193a6dd8abf939a43b5d562c24dbab08ff1';
 export const COSIGN_IMAGE = 'ghcr.io/sigstore/cosign/cosign:v2.4.1@sha256:b03690aa52bfe94054187142fba24dc54137650682810633901767d8a3e15b31';
-export const CORE_WORKFLOW = 'BlueprintLabIO/restless-core/.github/workflows/immutable-core-release.yml@refs/heads/dev';
+export const CORE_WORKFLOW = 'BlueprintLabIO/restless-core/.github/workflows/immutable-core-release.yml@refs/heads/main';
 export const EXCLUDES = ['**/.git/**', '**/node_modules/**', '**/target/**', '**/build/**', '**/.svelte-kit/**', '**/dist/**', '**/.env', '**/.env.*', '**/__pycache__/**'];
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 
@@ -152,7 +152,7 @@ export async function publishImage(component: string, revision: string, platform
     throw new Error(`${component}: exact Core artifact scan failed (exit ${status})\n${findings}\n${await scan.stderr()}`);
   }
   const [scanBytes, sbomBytes] = await Promise.all([scan.file('/reports/scan.json').contents(), sbom.file('/reports/sbom.json').contents()]);
-  const provenance = { buildDefinition: { buildType: 'https://github.com/BlueprintLabIO/restless-core/tree/dev/.dagger',
+  const provenance = { buildDefinition: { buildType: 'https://github.com/BlueprintLabIO/restless-core/tree/main/.dagger',
     externalParameters: { component, platform, source: { repository: 'BlueprintLabIO/restless-core', revision: actualRevision }, input_sha256: input },
     resolvedDependencies: [{ uri: `git+https://github.com/BlueprintLabIO/restless-core@${actualRevision}`, digest: { gitCommit: actualRevision } }] },
     runDetails: { builder: { id: `https://github.com/${CORE_WORKFLOW}` } } };

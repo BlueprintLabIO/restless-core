@@ -2,7 +2,7 @@
 
 GitHub Actions schedules the pinned Dagger module; the module owns qualification,
 image construction, exact-image checks, scanning and release sealing. The existing
-`immutable-core-release.yml` identity on `dev` remains the trusted publisher.
+`immutable-core-release.yml` identity on `main` remains the trusted publisher.
 
 Source qualification is read-only:
 
@@ -11,7 +11,7 @@ dagger call qualify --source=.
 dagger call verify-native-documents --source=. --revision="$(git rev-parse HEAD)"
 ```
 
-Dispatch `Immutable Core release` on `dev` with `publish=true` and
+Dispatch `Immutable Core release` on `main` with `publish=true` and
 `platform=linux/amd64` for the alpha. ARM uses the separate native ARM runner;
 do not dispatch it until that runner exists. Each v2 release manifest declares
 only its qualified platform. Legacy v1 manifests and bundles remain admissible.
@@ -56,7 +56,7 @@ the full Core release.
 
 ## Independent product libraries
 
-`Core product artifacts` runs on relevant pushes to `dev`. It delivers the UI
+`Core product artifacts` runs on relevant pushes to `main`. It delivers the UI
 kit, Office and issuer as small OCI packages in the existing
 `ghcr.io/blueprintlabio/restless-core-release` repository. This path builds no
 Rust or Runtime image. The whole cockpit's asset delivery is a separate migration.

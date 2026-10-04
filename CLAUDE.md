@@ -237,10 +237,10 @@ we already know does not work, and the levers that are not written rules. In bri
 
 ## How we work — sprint-driven, two founders
 
-This repo is built in sprints by two founders collaborating on the `dev` branch. The cadence is:
+This repo is built in sprints by two founders collaborating on the `main` branch. The cadence is:
 
 > `ARCHITECTURE.md` (target) → **sprint spec** (founders align) → coding agents break it into tickets
-> → founders align on tickets → implement as a goal-mode sprint on `dev`.
+> → founders align on tickets → implement as a goal-mode sprint on `main`.
 
 - **`ARCHITECTURE.md`** is the high-level architecture and source of truth. It is short enough to
   reread and challenge. Do not turn it into an exhaustive executable specification; record unresolved
@@ -256,22 +256,22 @@ This repo is built in sprints by two founders collaborating on the `dev` branch.
   When breaking a sprint into tickets, coding agents must cite the observed outcome or friction each
   ticket serves (§16.7), name which layer it belongs to and why, and state what prior machinery — if
   any — it makes deletable.
-- **Branches.** `main` is the default branch and the foundation; `dev` is the sprint integration line.
-  Founders integrate on `dev`. Short-lived `feat/*` / `fix/*` branches PR into `dev`. Do not long-run
-  feature branches. `main` is reserved for what is releaseable.
+- **Branches.** `main` is the default branch and the one integration line (`dev` is retired and
+  frozen; do not push to it). Founders integrate on `main`. Short-lived `feat/*` / `fix/*` branches PR
+  into `main`. Do not long-run feature branches. Releases are published only from `main`.
 - **Checkpoints.** After each coherent, verified slice, make a narrow commit that states the exact
-  observed check, rebase it on `origin/dev`, and push it to `dev` promptly — that standing
-  permission covers verified work only. Never force-push, never push to `main`, and never sweep
+  observed check, rebase it on `origin/main`, and push it to `main` promptly — that standing
+  permission covers verified work only. Never force-push, and never sweep
   unrelated dirty work into a checkpoint. A checkpoint saves recovery progress, but does not turn an
   unrun claim into evidence.
-- **Worktrees are short-lived and start from `origin/dev`.** Begin every task with
+- **Worktrees are short-lived and start from `origin/main`.** Begin every task with
   `restless-dev worktree new <name>`; never edit the shared main checkout in place — another agent's
-  uncommitted work may live there. Rebase on `origin/dev` before verifying and before landing, land
+  uncommitted work may live there. Rebase on `origin/main` before verifying and before landing, land
   within about a day, then `restless-dev worktree prune`. `restless-dev worktree stale` shows what
-  has drifted. Work that is not on `dev` does not exist for the owner.
-- **The owner's live stack runs only `origin/dev`.** The founder's singleton is the stable appliance
+  has drifted. Work that is not on `main` does not exist for the owner.
+- **The owner's live stack runs only `origin/main`.** The founder's singleton is the stable appliance
   (`~/.restless`, cockpit on 7788, `systemd --user` / launchd). Change it only with
-  `restless-dev promote` (builds a clean `origin/dev` commit and runs `restless appliance upgrade`,
+  `restless-dev promote` (builds a clean `origin/main` commit and runs `restless appliance upgrade`,
   which drains work and rolls back on failure) or `restless appliance rollback`. Never run a daemon,
   binary or image built from a worktree against it, never hand-edit its service definitions, and
   never touch `~/.restless` or its company containers and volumes. Develop and test only with
@@ -309,8 +309,8 @@ This repo is built in sprints by two founders collaborating on the `dev` branch.
   `web/src/lib/model/` are the owner-surface contracts — read them before designing anything
   owner-facing. **Brand config is not in this repo yet** (cofounder ports branding manually). Keep
   code and protocols brand-neutral so a configured name is applied in one place.
-- **Pushing** verified work to `dev` is standing-authorised (see Checkpoints). Any other push —
-  `main`, a force-push, another repository, a release tag — needs the owner's explicit request.
+- **Pushing** verified work to `main` is standing-authorised (see Checkpoints). Any other push —
+  a force-push, another repository, a release tag — needs the owner's explicit request.
 - **Testing style** (carried forward): add automated tests only for key product invariants and
   security/data-integrity boundaries. Do not add tests for implementation details, trivial wiring,
   styling, snapshots, or every branch merely to increase coverage. Layer-appropriate testing (§16.8):
