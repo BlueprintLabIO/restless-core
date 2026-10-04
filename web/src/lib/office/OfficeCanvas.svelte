@@ -201,9 +201,10 @@
 	const ZOOM_EPSILON = 0.001;
 	let shell: HTMLDivElement;
 	let canvas: HTMLCanvasElement;
-	let office = $state<OfficeState | null>(null);
-	let plan = $state<OfficePlan | null>(null);
-	let assets = $state<PixelOfficeAssets | null>(null);
+	// Raw: the engine mutates these every frame; only reassignment should be reactive.
+	let office = $state.raw<OfficeState | null>(null);
+	let plan = $state.raw<OfficePlan | null>(null);
+	let assets = $state.raw<PixelOfficeAssets | null>(null);
 	let ready = $state(false);
 	let error = $state('');
 	let hoveredActorId = $state<string | null>(null);

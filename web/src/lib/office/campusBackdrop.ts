@@ -373,11 +373,40 @@ export function buildCampusWorld(source: CampusSource): CampusWorld | null {
 		col < source.cols &&
 		row < source.rows &&
 		source.tiles[row * source.cols + col] !== 255;
+	// Solid-tile counts as a 2D prefix sum, so any tile rectangle is one lookup.
+	const stride = source.cols + 1;
+	const solidSum = new Int32Array(stride * (source.rows + 1));
+	for (let row = 0; row < source.rows; row += 1)
+		for (let col = 0; col < source.cols; col += 1)
+			solidSum[(row + 1) * stride + col + 1] =
+				(solid(col, row) ? 1 : 0) +
+				solidSum[row * stride + col + 1] +
+				solidSum[(row + 1) * stride + col] -
+				solidSum[row * stride + col];
+	const solidIn = (col0: number, row0: number, col1: number, row1: number) => {
+		col0 = Math.max(0, col0);
+		row0 = Math.max(0, row0);
+		col1 = Math.min(source.cols - 1, col1);
+		row1 = Math.min(source.rows - 1, row1);
+		if (col0 > col1 || row0 > row1) return false;
+		return (
+			solidSum[(row1 + 1) * stride + col1 + 1] -
+				solidSum[row0 * stride + col1 + 1] -
+				solidSum[(row1 + 1) * stride + col0] +
+				solidSum[row0 * stride + col0] >
+			0
+		);
+	};
+	// Any solid tile under a grid of samples 8px apart within `pad`. Samples are
+	// closer than a tile, so together they cover every tile in their span.
 	const onPlate = (x: number, y: number, pad = 0) => {
-		for (let dy = -pad; dy <= pad; dy += 8)
-			for (let dx = -pad; dx <= pad; dx += 8)
-				if (solid(Math.floor((x + dx) / TILE_SIZE), Math.floor((y + dy) / TILE_SIZE))) return true;
-		return false;
+		const reach = -pad + Math.floor((2 * pad) / 8) * 8;
+		return solidIn(
+			Math.floor((x - pad) / TILE_SIZE),
+			Math.floor((y - pad) / TILE_SIZE),
+			Math.floor((x + reach) / TILE_SIZE),
+			Math.floor((y + reach) / TILE_SIZE)
+		);
 	};
 	const land = (x: number, y: number) => x < shore(y) - 14;
 
