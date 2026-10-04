@@ -709,8 +709,12 @@
 		character.frameTimer = 0;
 	}
 
+	/* The shell's client size, refreshed whenever it resizes (sizeCanvas runs from a ResizeObserver). */
+	let shellSize = { width: 0, height: 0 };
+
 	function sizeCanvas() {
 		if (!canvas || !shell) return;
+		shellSize = { width: shell.clientWidth, height: shell.clientHeight };
 		const rectangle = shell.getBoundingClientRect();
 		/* The display's real ratio: a 1x screen paints a quarter of the pixels a
 		 * forced 2x did, and pixel art stays exactly one canvas pixel per screen
@@ -1450,9 +1454,13 @@
 	function fittedZoom(): number {
 		if (!shell || !plan) return 1;
 		const campusMargin = plan.layout.cols >= 60 ? 40 : 88;
+		/* The cached size, not a live read: setCamera runs every frame while a page scrolls,
+		 * and reading layout after the page has changed forces a synchronous layout each time. */
+		const width = shellSize.width || shell.clientWidth;
+		const height = shellSize.height || shell.clientHeight;
 		const fit = Math.min(
-			(shell.clientWidth - campusMargin) / (plan.layout.cols * TILE_SIZE),
-			(shell.clientHeight - campusMargin) / (plan.layout.rows * TILE_SIZE)
+			(width - campusMargin) / (plan.layout.cols * TILE_SIZE),
+			(height - campusMargin) / (plan.layout.rows * TILE_SIZE)
 		);
 		return Math.max(0.5, Math.min(2.5, fit));
 	}
