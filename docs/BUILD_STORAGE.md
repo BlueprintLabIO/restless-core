@@ -223,6 +223,8 @@ into the engine's build script, which watches every crate file, so an owner edit
 engine; the stamp now belongs to the `restlessd` binary, which hands it to the engine at startup.
 And testing the engine alone resolved `syn` without `extra-traits`, a second engine variant; the
 engine requests it as a build dependency too.
+Both regress silently when dependencies change; PASS each daemon crate alone resolves the same dependency features as the stack build compares each
+daemon crate built alone with the stack build and names the missing features.
 
 A brand-new worktree therefore still pays one ~3 minute cold build, dominated by the single
 `restlessd` crate. That is why `restless-dev worktree new` reuses pooled slots (`work/slot-N`):
