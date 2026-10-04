@@ -73,3 +73,76 @@
 >
 	{text}
 </div>
+
+<style>
+	.info-tip {
+		position: relative;
+		z-index: 4;
+		width: 22px;
+		height: 22px;
+		display: inline-grid;
+		place-items: center;
+		flex: 0 0 auto;
+		padding: 0;
+		border: 1px solid transparent;
+		border-radius: 50%;
+		background: transparent;
+		color: var(--text-tertiary);
+		cursor: help;
+		transition:
+			color var(--motion-state) var(--ease-standard),
+			background-color var(--motion-state) var(--ease-standard);
+	}
+	/* A 44px touch target around the mark, without moving the layout. */
+	@media (pointer: coarse) {
+		.info-tip::after {
+			content: '';
+			position: absolute;
+			inset: -11px;
+		}
+	}
+	.info-tip:hover,
+	.info-tip:focus-visible {
+		background: var(--wash-hover);
+		color: var(--ink);
+	}
+	/* The same inverse bubble as hover tips in both themes, rising into place. */
+	.info-tip-content {
+		position: fixed;
+		inset: auto;
+		margin: 0;
+		width: max-content;
+		max-width: min(310px, calc(100vw - 24px));
+		max-height: calc(100vh - 24px);
+		overflow: auto;
+		box-sizing: border-box;
+		padding: 10px 12px;
+		border: 1px solid color-mix(in srgb, var(--highlight) 12%, transparent);
+		border-radius: var(--radius-control);
+		background: var(--tooltip-bg);
+		box-shadow: var(--shadow-lift);
+		color: var(--tooltip-ink);
+		font: var(--t-body) var(--font-ui);
+		font-weight: 400;
+		line-height: 1.5;
+		text-align: left;
+		overflow-wrap: anywhere;
+		opacity: 0;
+		transform: translateY(-3px) scale(0.985);
+		transition:
+			opacity var(--motion-state) var(--ease-out),
+			transform var(--motion-state) var(--ease-out),
+			overlay var(--motion-state) allow-discrete,
+			display var(--motion-state) allow-discrete;
+	}
+	.info-tip-content:popover-open {
+		opacity: 1;
+		transform: none;
+	}
+	@starting-style {
+		.info-tip-content:popover-open {
+			opacity: 0;
+			transform: translateY(-3px) scale(0.985);
+		}
+	}
+</style>

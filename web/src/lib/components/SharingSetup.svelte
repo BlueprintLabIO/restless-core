@@ -1,5 +1,5 @@
 <script lang="ts">
-	import InfoTip from './InfoTip.svelte';
+	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { downloadSharingSetup, prepareSharing, type SharingSetup } from '$lib/model/sharing';
 	import X from '@lucide/svelte/icons/x';

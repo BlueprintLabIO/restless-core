@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { useQueryClient } from '@tanstack/svelte-query';
-	import InfoTip from '$lib/components/InfoTip.svelte';
+	import { Section, Row, Item, Notice, Empty } from '$lib/ui/page';
 	import { describeFailure, failureSentence, responseFailure } from '$lib/model/failure';
 	import { refreshAttention } from '$lib/model/queries.svelte';
 
@@ -222,14 +222,15 @@
 				return 'Status unavailable';
 		}
 	}
+	let openMandate = $state('');
 </script>
 
-<section class="email-mandates" aria-label="Email mandates">
-	<div class="section-heading">
-		<h2>Email authority</h2>
-		<InfoTip
-			text="Exec judges whether each prospect and message fits the approved purpose and audience, and it can make mistakes. The send boundary checks the exact recipient and message, sender, daily and total limits, and expiry; it cannot prove the judgement is right. Until you approve a mandate in Attention, emails still need exact-recipient approval. Existing approvals are not converted."
-		/>
+<Section
+	id="email"
+	title="Email authority"
+	info="A mandate lets Exec email people who fit an approved purpose and audience, within daily and total limits, until it expires. Exec judges each prospect and can make mistakes; the send boundary checks recipient, sender, limits and expiry, not the judgement. Without a mandate, every email needs your exact-recipient approval."
+>
+	{#snippet actions()}
 		{#if !editing}<button
 				class="btn small"
 				type="button"
@@ -238,226 +239,197 @@
 					mandates.some((item) => Date.parse(item.expires_at) > Date.now())}
 				onclick={beginCreate}>Add mandate</button
 			>{/if}
-	</div>
-	{#if error}<p class="message failure" role="alert">{error}</p>{/if}
-	{#if notice}<p class="message" role="status">{notice}</p>{/if}
+	{/snippet}
+	{#if error}<Notice tone="danger" title="That change was not made">{error}</Notice>{/if}
+	{#if notice}<Notice tone="success" title={notice} />{/if}
 	{#if loadError}
-		<p class="message failure" role="alert">{loadError}</p>
-		{#if loadRetryable}<button class="btn small" type="button" onclick={() => void loadMandates()}
-				>Retry</button
-			>{/if}
-	{:else if loading}
-		<p class="quiet-empty" aria-live="polite">Loading email mandates…</p>
-	{:else if mandates.length}
-		<div class="mandate-list">
-			{#each mandates as mandate (mandate.id)}
-				<article class="mandate-row">
-					<div class="mandate-copy">
-						<strong>{mandate.purpose}</strong>
-						{#if Date.parse(mandate.expires_at) <= Date.now()}
-							<span>· Expired</span>{/if}
-						<p>{mandate.audience_guidance}</p>
-						<dl>
-							<div>
-								<dt>Sender</dt>
-								<dd>
-									{mandate.sender_name
-										? mandate.sender_name + ' <' + mandate.sender + '>'
-										: mandate.sender}
-								</dd>
-							</div>
-							<div>
-								<dt>Limits</dt>
-								<dd>{mandate.max_per_day} per day · {mandate.max_total} total</dd>
-							</div>
-							<div>
-								<dt>Quota used</dt>
-								<dd>
-									{#if mandate.usage}
-										{mandate.usage.used_today} / {mandate.usage.limit_per_day} today ·
-										{mandate.usage.used_total} / {mandate.usage.limit_total} total
-									{:else}
-										Unavailable
-									{/if}
-								</dd>
-							</div>
-							<div>
-								<dt>Quota day</dt>
-								<dd>{mandate.usage?.usage_day ?? '—'} ({mandate.timezone})</dd>
-							</div>
-							<div>
-								<dt>Expires</dt>
-								<dd>{localDate(mandate.expires_at)}</dd>
-							</div>
-						</dl>
-						<div class="recent-activity">
-							{#if mandate.recent_decisions?.length}
-								{#each mandate.recent_decisions.slice(0, 1) as decision (decision.permit_id)}
-									<p>
-										<strong>Latest:</strong>
-										{decision.recipient} · {decisionLabel(decision.outcome)} ·
-										{localDate(decision.issued_at)}
-										<InfoTip
-											text={decision.rationale + ' Evidence: ' + decision.evidence_refs.join(', ')}
-										/>
-										{#if decision.provider_ref}<InfoTip
-												text={`Provider reference: ${decision.provider_ref}`}
-											/>{/if}
-									</p>
-								{/each}
-								{#if mandate.recent_decisions.length > 1}
-									<details>
-										<summary>Earlier activity ({mandate.recent_decisions.length - 1})</summary>
-										<ul>
-											{#each mandate.recent_decisions.slice(1) as decision (decision.permit_id)}
-												<li>
-													{decision.recipient} · {decisionLabel(decision.outcome)} ·
-													{localDate(decision.issued_at)}
-													<InfoTip
-														text={decision.rationale +
-															' Evidence: ' +
-															decision.evidence_refs.join(', ')}
-													/>
-													{#if decision.provider_ref}<InfoTip
-															text={`Provider reference: ${decision.provider_ref}`}
-														/>{/if}
-												</li>
-											{/each}
-										</ul>
-									</details>
-								{/if}
-							{:else}
-								<p>No email permits issued yet.</p>
-							{/if}
-						</div>
-					</div>
-					<button
+		<Notice tone="danger" title="Email mandates could not be read" details={loadError}>
+			{#snippet actions()}{#if loadRetryable}<button
 						class="btn small"
 						type="button"
-						disabled={revoking !== null || mandate.revoked_at != null}
-						onclick={() => void revoke(mandate)}
+						onclick={() => void loadMandates()}>Retry</button
+					>{/if}{/snippet}
+		</Notice>
+	{:else if loading}
+		<Empty compact title="Loading email mandates…" />
+	{:else if mandates.length}
+		{#each mandates as mandate (mandate.id)}
+			{@const expired = Date.parse(mandate.expires_at) <= Date.now()}
+			<Item
+				title={mandate.purpose}
+				meta={mandate.usage
+					? `${mandate.usage.used_today}/${mandate.usage.limit_per_day} today · ${mandate.usage.used_total}/${mandate.usage.limit_total} total`
+					: `${mandate.max_per_day} a day · ${mandate.max_total} total`}
+				dim={expired || mandate.revoked_at != null}
+				onclick={() => (openMandate = openMandate === mandate.id ? '' : mandate.id)}
+				selected={openMandate === mandate.id}
+			>
+				{#snippet trailing()}
+					<span
+						>{mandate.revoked_at
+							? 'Revoked'
+							: expired
+								? 'Expired'
+								: `Until ${localDate(mandate.expires_at)}`}</span
 					>
-						{revoking === mandate.id ? 'Revoking…' : mandate.revoked_at ? 'Revoked' : 'Revoke'}
-					</button>
-				</article>
-			{/each}
-		</div>
-	{:else}
-		<p class="quiet-empty">
-			No email mandate is active. Exact-recipient approvals in Attention remain in effect.
-		</p>
+				{/snippet}
+				{#snippet actions()}
+					{#if !mandate.revoked_at}<button
+							class="btn small"
+							type="button"
+							disabled={revoking !== null}
+							onclick={() => void revoke(mandate)}
+							>{revoking === mandate.id ? 'Revoking…' : 'Revoke'}</button
+						>{/if}
+				{/snippet}
+				{#if openMandate === mandate.id}
+					<dl class="facts">
+						<div>
+							<dt>Audience</dt>
+							<dd>{mandate.audience_guidance}</dd>
+						</div>
+						<div>
+							<dt>Sender</dt>
+							<dd>
+								{mandate.sender_name
+									? `${mandate.sender_name} <${mandate.sender}>`
+									: mandate.sender}
+							</dd>
+						</div>
+						<div>
+							<dt>Quota day</dt>
+							<dd>{mandate.usage?.usage_day ?? '—'} ({mandate.timezone})</dd>
+						</div>
+					</dl>
+					{#if mandate.recent_decisions?.length}
+						<ul class="sends" aria-label="Recent sends">
+							{#each mandate.recent_decisions as decision (decision.permit_id)}
+								<li
+									title={`${decision.rationale} Evidence: ${decision.evidence_refs.join(', ')}${decision.provider_ref ? ` · Provider reference: ${decision.provider_ref}` : ''}`}
+								>
+									<span>{decision.recipient}</span>
+									<span>{decisionLabel(decision.outcome)}</span>
+									<time>{localDate(decision.issued_at)}</time>
+								</li>
+							{/each}
+						</ul>
+					{:else}<p class="quiet">No emails sent under this mandate yet.</p>{/if}
+				{/if}
+			</Item>
+		{/each}
+	{:else if !editing}
+		<Empty
+			compact
+			title="No email mandate"
+			info="Every email still needs your exact-recipient approval in the Inbox."
+		/>
 	{/if}
 
 	{#if editing}
 		<form
-			class="mandate-form"
 			onsubmit={(event) => {
 				event.preventDefault();
 				void save();
 			}}
 		>
-			<p class="judgement-note">
-				Exec must use judgement to decide whether each prospect and message fit this mandate, and it
-				can make mistakes. Review the full proposal in Attention and decide whether to enable that
-				discretion; no sends are authorized until you approve it.
-			</p>
-			<div class="field">
-				<label for="mandate-purpose">Purpose</label>
+			<Row
+				label="Purpose"
+				info="What these emails should achieve. Nothing is sent until you approve the proposal in the Inbox."
+				stack
+			>
 				<textarea
-					id="mandate-purpose"
-					rows="2"
+					class="full"
+					aria-label="Purpose"
 					maxlength="2000"
 					required
 					bind:value={draft.purpose}
 					disabled={saving}
 					placeholder="What should these emails achieve?"></textarea>
-			</div>
-			<div class="field">
-				<label for="mandate-audience">Audience guidance</label>
+			</Row>
+			<Row label="Audience" info="The prospects Exec should consider." stack>
 				<textarea
-					id="mandate-audience"
-					rows="3"
+					class="full"
+					aria-label="Audience guidance"
 					maxlength="4000"
 					required
 					bind:value={draft.audience_guidance}
 					disabled={saving}
 					placeholder="Describe the prospects Exec should consider."></textarea>
-			</div>
-			<div class="field">
-				<label for="mandate-sender">Sending address</label>
+			</Row>
+			<Row label="Sending address">
 				<input
-					id="mandate-sender"
+					class="field"
 					type="email"
+					aria-label="Sending address"
 					required
 					maxlength="320"
 					bind:value={draft.sender}
 					disabled={saving}
 					placeholder="you@company.com"
 				/>
-			</div>
-			<div class="field">
-				<label for="mandate-sender-name">Sender name (optional)</label>
+			</Row>
+			<Row label="Sender name">
 				<input
-					id="mandate-sender-name"
+					class="field"
 					type="text"
+					aria-label="Sender name"
 					maxlength="120"
 					bind:value={draft.sender_name}
 					disabled={saving}
-					placeholder="Aris Academy"
+					placeholder="Optional"
 				/>
-			</div>
-			<div class="field-row">
-				<div class="field">
-					<label for="mandate-daily">Maximum emails per day</label>
-					<input
-						id="mandate-daily"
-						type="number"
-						min="1"
-						step="1"
-						required
-						bind:value={draft.max_per_day}
-						disabled={saving}
-					/>
-				</div>
-				<div class="field">
-					<label for="mandate-total">Maximum emails in total</label>
-					<input
-						id="mandate-total"
-						type="number"
-						min="1"
-						step="1"
-						required
-						bind:value={draft.max_total}
-						disabled={saving}
-					/>
-				</div>
-			</div>
-			<div class="field-row">
-				<div class="field">
-					<label for="mandate-timezone">Daily quota timezone</label>
-					<input
-						id="mandate-timezone"
-						type="text"
-						required
-						bind:value={draft.timezone}
-						disabled={saving}
-						placeholder="Australia/Sydney"
-					/>
-				</div>
-				<div class="field">
-					<label for="mandate-expiry">Expires (your local time)</label>
-					<input
-						id="mandate-expiry"
-						type="datetime-local"
-						required
-						bind:value={draft.expires_at}
-						disabled={saving}
-					/>
-				</div>
-			</div>
-			<div class="form-actions">
+			</Row>
+			<Row label="Limits">
+				<input
+					class="count"
+					type="number"
+					min="1"
+					step="1"
+					required
+					aria-label="Maximum emails per day"
+					title="Maximum emails per day"
+					bind:value={draft.max_per_day}
+					disabled={saving}
+				/><span class="unit">a day</span>
+				<input
+					class="count"
+					type="number"
+					min="1"
+					step="1"
+					required
+					aria-label="Maximum emails in total"
+					title="Maximum emails in total"
+					bind:value={draft.max_total}
+					disabled={saving}
+				/><span class="unit">total</span>
+			</Row>
+			<Row label="Quota timezone">
+				<input
+					class="field"
+					type="text"
+					aria-label="Daily quota timezone"
+					required
+					bind:value={draft.timezone}
+					disabled={saving}
+					placeholder="Australia/Sydney"
+				/>
+			</Row>
+			<Row label="Expires" info="In your local time.">
+				<input
+					class="field"
+					type="datetime-local"
+					aria-label="Expires"
+					required
+					bind:value={draft.expires_at}
+					disabled={saving}
+				/>
+			</Row>
+			<div class="form-bar">
+				<button class="btn primary small" type="submit" disabled={saving}
+					>{saving ? 'Submitting…' : 'Request approval'}</button
+				>
 				<button
-					class="btn small"
+					class="btn small ghost"
 					type="button"
 					disabled={saving}
 					onclick={() => {
@@ -465,163 +437,71 @@
 						error = '';
 					}}>Cancel</button
 				>
-				<button class="btn primary small" type="submit" disabled={saving}
-					>{saving ? 'Submitting…' : 'Request approval'}</button
-				>
 			</div>
 		</form>
 	{/if}
-</section>
+</Section>
 
 <style>
-	.email-mandates {
-		min-width: 0;
-	}
-	.section-heading {
-		display: flex;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: var(--space-2);
-	}
-	.section-heading h2 {
-		margin: 0;
-	}
-	.section-heading > button {
-		margin-left: auto;
-	}
-	.mandate-copy p {
-		color: var(--text-secondary);
-	}
-	.mandate-list {
-		display: grid;
-		gap: var(--space-2);
-	}
-	.mandate-row {
-		display: flex;
-		justify-content: space-between;
-		align-items: flex-start;
-		gap: var(--space-4);
-		padding: var(--space-3) 0;
-		border-top: 1px solid var(--border);
-	}
-	.mandate-copy {
-		min-width: 0;
-	}
-	.mandate-copy strong {
-		overflow-wrap: anywhere;
-	}
-	.mandate-copy p {
-		margin: var(--space-1) 0 var(--space-2);
-		overflow-wrap: anywhere;
-	}
-	.recent-activity {
-		margin-top: var(--space-2);
-		padding-top: var(--space-2);
-		border-top: 1px solid var(--border);
-		color: var(--text-secondary);
-		font-size: var(--t-small);
-		overflow-wrap: anywhere;
-	}
-	.recent-activity p {
-		margin: 0;
-	}
-	.recent-activity details {
-		margin-top: var(--space-2);
-	}
-	.recent-activity summary {
-		cursor: pointer;
-	}
-	.recent-activity ul {
-		display: grid;
-		gap: var(--space-1);
-		margin: var(--space-2) 0 0;
-		padding-left: var(--space-4);
-	}
-	dl {
-		display: flex;
-		flex-wrap: wrap;
-		gap: var(--space-2) var(--space-5);
-		margin: 0;
-	}
-	dl div {
-		display: flex;
-		gap: var(--space-1);
-		min-width: 0;
-	}
-	dt {
-		color: var(--text-secondary);
-	}
-	dd {
-		margin: 0;
-		overflow-wrap: anywhere;
-	}
-	.mandate-form {
-		display: grid;
-		gap: var(--space-3);
-		margin-top: var(--space-4);
-		padding-top: var(--space-4);
-		border-top: 1px solid var(--border);
-	}
-	.judgement-note {
-		margin: 0;
-		padding: 10px 12px;
-		border-left: 2px solid var(--intent-authority);
-		color: var(--text-muted);
-		font-size: var(--t-label);
-		line-height: 1.5;
+	.full {
+		width: 100%;
 	}
 	.field {
-		display: grid;
-		grid-template-columns: 1fr;
-		gap: var(--space-1);
-		min-width: 0;
+		width: min(280px, 100%);
 	}
-	.field label {
-		font-weight: 600;
+	.count {
+		width: 76px;
 	}
-	.field input,
-	.field textarea {
-		width: 100%;
-		box-sizing: border-box;
-		min-width: 0;
-		border: 1px solid var(--border-strong);
-		border-radius: var(--radius-control);
-		color: var(--ink);
-		background: var(--surface);
-		padding: var(--space-2) var(--space-3);
-		font: inherit;
+	.unit {
+		color: var(--text-tertiary);
 	}
-	.field textarea {
-		resize: vertical;
-		line-height: 1.45;
-	}
-	.field-row {
-		display: grid;
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-		gap: var(--space-3);
-	}
-	.form-actions {
+	.form-bar {
 		display: flex;
-		justify-content: flex-end;
-		flex-wrap: wrap;
 		gap: var(--space-2);
+		padding: 12px 16px;
 	}
-	.message {
-		margin: var(--space-2) 0;
+	.facts {
+		display: grid;
+		gap: 8px;
+		margin: 0 0 12px;
+	}
+	.facts div {
+		display: grid;
+		grid-template-columns: 110px minmax(0, 1fr);
+		gap: var(--space-3);
+		font-size: var(--t-body);
+	}
+	.facts dt {
+		color: var(--text-tertiary);
+	}
+	.facts dd {
+		margin: 0;
+		color: var(--ink);
+		overflow-wrap: anywhere;
+	}
+	.sends {
+		display: grid;
+		margin: 0;
+		padding: 0;
+		border-top: 1px solid var(--border);
+		list-style: none;
+	}
+	.sends li {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto auto;
+		gap: var(--space-3);
+		min-height: 34px;
+		align-items: center;
+		border-bottom: 1px solid var(--border);
 		color: var(--text-secondary);
+		font-size: var(--t-body);
 	}
-	.failure {
-		color: var(--state-danger);
+	.sends time {
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
 	}
-	.quiet-empty {
-		color: var(--text-secondary);
-	}
-	@media (max-width: 600px) {
-		.mandate-row {
-			flex-direction: column;
-		}
-		.field-row {
-			grid-template-columns: 1fr;
-		}
+	.quiet {
+		margin: 0;
+		color: var(--text-tertiary);
 	}
 </style>

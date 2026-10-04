@@ -1,12 +1,12 @@
 <script lang="ts">
+	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import { formatRelative, formatMoment } from '$lib/ui/time';
-	import SettingsHeader from '$lib/ui/views/SettingsHeader.svelte';
+	import { Page, Section, Item, Notice, Dot, Fold } from '$lib/ui/page';
+	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { page } from '$app/state';
-	import Activity from '@lucide/svelte/icons/activity';
-	import ArrowUpRight from '@lucide/svelte/icons/arrow-up-right';
 	import Monitor from '@lucide/svelte/icons/monitor';
 	import { recoverCompany, type RecoveryAction } from '$lib/model/company';
 	import { companyQuery } from '$lib/model/queries.svelte';
@@ -100,172 +100,161 @@
 			working = '';
 		}
 	}
+	let open = $state('');
+	const toneFor = (status: string) =>
+		status === 'healthy'
+			? 'success'
+			: status === 'degraded'
+				? 'warning'
+				: status === 'unknown'
+					? 'info'
+					: 'danger';
 </script>
 
-<svelte:head><title>Doctor — {view?.company.name ?? companyId}</title></svelte:head>
+<CompanyTitle title="Health" {companyId} />
 
-<div class="company-page doctor-page">
-	<SettingsHeader title="Doctor"
-		>{#snippet actions()}
-			<a class="doctor-computer-link" href={`/${companyId}/company/computer`}>
-				<Monitor size={14} strokeWidth={1.8} /> Computer <ArrowUpRight
-					size={13}
-					strokeWidth={1.8}
-				/>
-			</a>
-		{/snippet}</SettingsHeader
-	>
-	<!-- The startup run is news only when it failed; otherwise its time is a
-	     hover on the overview below. -->
-	{#if startupError || startup.error || startup.setup_failed}<p role="status">
-			{startupError || startup.error || 'The startup check found something that needs attention.'}
-		</p>{/if}
+<Page
+	title="Health"
+	info="Live checks of everything the company needs to run, with the fix for anything that fails."
+>
+	{#snippet actions()}
+		{#if view}<time
+				class="checked"
+				title={startup.ran_at
+					? `Checked ${formatMoment(view.computer.doctor.observed_at)}. Also checked when the host started, ${when(startup.ran_at)}.`
+					: `Checked ${formatMoment(view.computer.doctor.observed_at)}`}
+				>Checked {when(view.computer.doctor.observed_at)}</time
+			>{/if}
+		<button class="btn small" disabled={!!working} onclick={recheck}
+			>{working === 'recheck' ? 'Checking…' : 'Check again'}</button
+		>
+	{/snippet}
 
-	{#if startupError}<button
-			class="btn small"
-			onclick={() => {
-				startupError = '';
-				startupRetry += 1;
-			}}>Retry startup check</button
-		>{/if}
-	{#if error}<div class="computer-error" role="alert">{error}</div>{/if}
-	{#if notice}<div class="computer-notice" role="status">{notice}</div>{/if}
-
+	{#if error}<Notice tone="danger" title="Recovery did not complete" details={error} />{/if}
+	{#if notice}<Notice tone="success" title={notice} />{/if}
+	{#if startupError || startup.error || startup.setup_failed}
+		<Notice
+			tone="warning"
+			title="The startup check found a problem"
+			details={startupError || startup.error || null}
+		>
+			{#snippet actions()}{#if startupError}<button
+						class="btn small"
+						onclick={() => {
+							startupError = '';
+							startupRetry += 1;
+						}}>Retry</button
+					>{/if}{/snippet}
+		</Notice>
+	{/if}
 	{#if view && source.failure}
 		<FailureNotice error={source.failure} subject="diagnostics" stale onretry={source.refresh} />
 	{/if}
-	{#if view}
-		<section class="doctor-overview doctor-{view.computer.doctor.status}">
-			<div class="doctor-overview-mark"><Activity size={22} strokeWidth={1.7} /></div>
-			<div>
-				<div class="doctor-overview-title">
-					<h2>{view.computer.doctor.status}</h2>
-					<span><i aria-hidden="true"></i>{view.computer.doctor.checks.length} checks</span>
-				</div>
-				<p>{statusCopy(view.computer.doctor.status)}</p>
-			</div>
-			<time
-				title={startup.ran_at
-					? `Doctor also ran when the host started, ${when(startup.ran_at)}.`
-					: undefined}>{when(view.computer.doctor.observed_at)}</time
-			>
-		</section>
 
-		<section class="doctor-diagnostics">
-			<div class="section-heading">
-				<h2>
-					{failing.length
-						? `${failing.length} ${failing.length === 1 ? 'needs' : 'need'} attention`
-						: 'All checks passing'}
-				</h2>
-				<button class="btn small" disabled={!!working} onclick={recheck}
-					>{working === 'recheck' ? 'Checking…' : 'Recheck'}</button
-				>
-			</div>
-			<div class="doctor-checks failing">
+	{#if view}
+		{#if !failing.length}<Notice
+				tone={toneFor(view.computer.doctor.status)}
+				title={statusCopy(view.computer.doctor.status)}
+			/>{/if}
+
+		{#if failing.length}
+			<Section title="Needs attention" count={failing.length}>
 				{#each failing as check (check.id)}
-					<article>
-						<i class="check-state check-{check.status}" aria-hidden="true"></i>
-						<div>
-							<strong>{check.label}</strong>
-							<p>{check.summary}</p>
-							{#if check.detail}<details>
-									<summary>Details</summary>
-									<p>{check.detail}</p>
-								</details>{/if}
-						</div>
-						{#if check.id === 'intelligence'}<a
-								class="btn small"
-								href={`/${companyId}/company/provider`}
-								>{check.summary.startsWith('Choose an intelligence')
-									? 'Choose intelligence'
-									: 'Reconnect'}</a
-							>{:else if check.id === repairCheck}{#each view.computer.doctor.actions as action (action.id)}<button
-									class="btn small"
-									title={action.consequence}
-									disabled={!!working}
-									onclick={() => recover(action.id, action.confirmation)}
-									>{working === action.id ? 'Working…' : action.label}</button
-								>{/each}{/if}
-					</article>
+					<Item
+						title={check.label}
+						meta={check.summary}
+						onclick={check.detail ? () => (open = open === check.id ? '' : check.id) : undefined}
+						selected={open === check.id}
+					>
+						{#snippet leading()}<Dot tone="danger" label={check.status} />{/snippet}
+						{#snippet trailing()}
+							{#if check.id === 'intelligence'}<a
+									class="btn small primary"
+									href={`/${companyId}/company/provider`}
+									>{check.summary.startsWith('Choose an intelligence')
+										? 'Choose intelligence'
+										: 'Reconnect'}</a
+								>{:else if check.id === repairCheck}{#each view.computer.doctor.actions as action (action.id)}<button
+										class="btn small primary"
+										title={action.consequence}
+										disabled={!!working}
+										onclick={() => recover(action.id, action.confirmation)}
+										>{working === action.id ? 'Working…' : action.label}</button
+									>{/each}{/if}
+						{/snippet}
+						{#if open === check.id && check.detail}<p class="detail">{check.detail}</p>{/if}
+					</Item>
 				{/each}
-			</div>
-			{#if passing.length}<details class="doctor-passing">
-					<summary>{passing.length} checks passing</summary>
-					<div class="doctor-checks">
-						{#each passing as check (check.id)}<article>
-								<i class="check-state check-healthy" aria-hidden="true"></i>
-								<div>
-									<strong>{check.label}</strong>
-									<p>{check.summary}</p>
-								</div>
-							</article>{/each}
-					</div>
-				</details>{/if}
-			<details class="doctor-raw">
-				<summary>Show raw state</summary>
+			</Section>
+		{/if}
+
+		<Section title="Passing" count={passing.length}>
+			<Fold label={passing.length ? 'Show passing checks' : 'Nothing has passed yet'}>
+				{#each passing as check (check.id)}
+					<Item title={check.label} meta={check.summary}>
+						{#snippet leading()}<Dot tone="success" label="Passing" />{/snippet}
+					</Item>
+				{/each}
+			</Fold>
+		</Section>
+
+		<Section title="Company computer">
+			<Item
+				title="Open the company computer"
+				meta="The shared browser, files and applications your team works in"
+				href={`/${companyId}/company/computer`}
+			>
+				{#snippet leading()}<Monitor size={15} strokeWidth={1.8} />{/snippet}
+				{#snippet trailing()}<ChevronRight
+						size={14}
+						strokeWidth={1.8}
+						aria-hidden="true"
+					/>{/snippet}
+			</Item>
+		</Section>
+
+		<Section
+			title="Raw state"
+			info="The runtime and service state behind these checks, for diagnosis."
+		>
+			<Fold label="Show raw state">
+				{#each view.resources.items as resource (resource.id)}
+					<Item title={resource.label} meta={`${resource.status} · ${resource.detail}`} />
+				{/each}
 				<pre>{JSON.stringify(view.computer.runtime, null, 2)}</pre>
-				<div class="doctor-checks">
-					{#each view.resources.items as resource (resource.id)}<article>
-							<div>
-								<strong>{resource.label}</strong>
-								<p>{resource.status} · {resource.detail}</p>
-							</div>
-						</article>{/each}
-				</div>
-			</details>
-		</section>
+			</Fold>
+		</Section>
 	{:else if source.failure}
-		<section class="doctor-diagnostics">
-			<div class="section-heading">
-				<h2>Diagnostic checks</h2>
-				<button class="btn small" disabled={!!working} onclick={recheck}
-					>{working === 'recheck' ? 'Checking…' : 'Recheck'}</button
-				>
-			</div>
-			<FailureNotice error={source.failure} subject="diagnostics" onretry={source.refresh} />
-		</section>
+		<FailureNotice
+			error={source.failure}
+			subject="diagnostics"
+			variant="block"
+			onretry={source.refresh}
+		/>
 	{:else}
-		<Skeleton label="Running company doctor…" variant="page" count={4} />
+		<Skeleton label="Checking the company…" variant="page" count={4} />
 	{/if}
-</div>
+</Page>
 
 <style>
-	.doctor-passing,
-	.doctor-raw {
-		margin-top: 20px;
-		font-size: var(--t-body);
-		color: var(--text-secondary);
-	}
-	.doctor-raw pre {
-		max-width: 100%;
-		overflow: auto;
-		max-height: 420px;
-		padding: 16px;
-		background: var(--surface-alt);
+	.checked {
+		color: var(--text-tertiary);
 		font-size: var(--t-label);
 	}
-	.doctor-checks article {
-		grid-template-columns: 8px minmax(0, 1fr) auto;
+	.detail {
+		margin: 0;
+		max-width: 72ch;
+		color: var(--text-secondary);
+		line-height: 1.55;
+		white-space: pre-wrap;
 	}
-	/* What needs attention reads across the full width with its fix beside it;
-	 * only the folded passing checks use the two-column list. */
-	.doctor-checks.failing {
-		grid-template-columns: minmax(0, 1fr);
-	}
-	.doctor-checks.failing article {
-		align-items: center;
-	}
-	.doctor-checks article > div {
-		min-width: 0;
-	}
-	@media (max-width: 640px) {
-		.doctor-checks article {
-			grid-template-columns: 8px minmax(0, 1fr);
-		}
-		.doctor-checks article > :is(a, button) {
-			grid-column: 2;
-			justify-self: start;
-		}
+	pre {
+		max-height: 360px;
+		margin: 0;
+		overflow: auto;
+		padding: 14px 16px;
+		background: var(--surface-alt);
+		color: var(--text-secondary);
+		font: var(--t-label) / 1.5 var(--font-mono);
 	}
 </style>

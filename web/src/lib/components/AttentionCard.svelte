@@ -11,7 +11,7 @@
 	import HoldApprove from '$lib/ui/controls/HoldApprove.svelte';
 	import Markdown from '$lib/primitives/Markdown.svelte';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
-	import InfoTip from './InfoTip.svelte';
+	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
 
 	let {
 		companyId,

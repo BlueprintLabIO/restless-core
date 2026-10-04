@@ -1,11 +1,11 @@
 <script lang="ts">
-	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
-	import SettingsHeader from '$lib/ui/views/SettingsHeader.svelte';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
+	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
+	import { Page, Section, Item, Notice, Empty, Toggle, Fold } from '$lib/ui/page';
+	import Sparkles from '@lucide/svelte/icons/sparkles';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { page } from '$app/state';
-	import InfoTip from '$lib/components/InfoTip.svelte';
 	import {
 		assignSkill,
 		fetchSkillLibrary,
@@ -23,6 +23,7 @@
 	const matches = (skill: SkillRow) =>
 		`${skillLabel(skill.name)} ${skill.description}`.toLowerCase().includes(search.toLowerCase());
 	let busy = $state('');
+	let expanded = $state('');
 
 	const candidates = $derived(
 		library?.skills.filter((skill) => skill.disposition === 'candidate' && matches(skill)) ?? []
@@ -106,31 +107,27 @@
 
 <CompanyTitle title="Skills" {companyId} />
 
-{#snippet skillRow(skill: SkillRow)}
-	<!-- Focusable so a tap reveals a settled skill's controls on touch. -->
-	<li class="skill-row" class:skill-off={offForEveryone(skill)} tabindex="-1">
-		<details class="skill-identity">
-			<summary>
-				<span class="skill-chevron" aria-hidden="true">›</span>
-				<strong title={skill.name}>{skillLabel(skill.name)}</strong>
-				<span title={skill.description}>{skill.description || 'No description'}</span></summary
-			>
-			<p>{skill.description}</p>
-			<small>Selected in {library?.usage?.[skill.name] ?? 0} Work</small>
-		</details>
-		<div class="skill-state">
-			<span title="Work that explicitly selected this skill"
-				>{library?.usage?.[skill.name] ?? 0} Work</span
-			>
-			{#if skill.source !== 'builtin'}<span
-					class="skill-source"
-					title={skill.origin_url ?? skill.path}>{sourceLabel(skill)}</span
+{#snippet skillItem(skill: SkillRow)}
+	{@const uses = library?.usage?.[skill.name] ?? 0}
+	<Item
+		title={skillLabel(skill.name)}
+		meta={skill.description || 'No description'}
+		onclick={() => (expanded = expanded === skill.name ? '' : skill.name)}
+		selected={expanded === skill.name}
+		dim={skill.disposition === 'retired' || offForEveryone(skill)}
+		unread={skill.disposition === 'candidate'}
+	>
+		{#snippet leading()}<Sparkles size={15} strokeWidth={1.8} />{/snippet}
+		{#snippet trailing()}
+			<span title="Work that explicitly selected this skill">{uses} Work</span>
+			{#if skill.source !== 'builtin'}<span title={skill.origin_url ?? skill.path}
+					>{sourceLabel(skill)}</span
 				>{/if}
-			{#if skill.has_scripts}<span class="state-chip">Scripts</span><InfoTip
-					text="This skill ships executable scripts. They run with the actor's ordinary computer access and never with extra authority."
-				/>{/if}
-		</div>
-		<div class="skill-actions" class:settled={skill.disposition !== 'candidate'}>
+			{#if skill.has_scripts}<span
+					class="badge"
+					title="Ships executable scripts. They run with the agent's ordinary computer access, never extra authority."
+					>Scripts</span
+				>{/if}
 			{#if skill.disposition === 'candidate'}
 				<button
 					class="btn small primary"
@@ -148,28 +145,15 @@
 					>Decline</button
 				>
 			{:else if skill.disposition === 'accepted'}
-				<button
-					class="btn small skill-toggle"
-					role="switch"
-					aria-checked={!offForEveryone(skill)}
-					aria-label={`${skillLabel(skill.name)} available to everyone`}
-					type="button"
-					disabled={!!busy}
+				<Toggle
+					checked={!offForEveryone(skill)}
+					label={`${skillLabel(skill.name)} available to everyone`}
 					title={offForEveryone(skill)
-						? 'Let every actor use this skill again'
-						: 'Stop actors using this skill unless one is given it directly'}
-					onclick={() => void toggleEveryone(skill)}
-					><span class="skill-toggle-track" aria-hidden="true"><i></i></span><span class="sr-only"
-						>{offForEveryone(skill) ? 'Off' : 'On'}</span
-					></button
-				>
-				<ActionMenu label={`${skillLabel(skill.name)} options`}
-					><button
-						disabled={!!busy}
-						onclick={() => void decide(skill, 'retired', `${skillLabel(skill.name)} was retired.`)}
-						>Retire</button
-					></ActionMenu
-				>
+						? 'Off: only agents given it directly can use it'
+						: 'On: every agent can use it'}
+					disabled={!!busy}
+					onchange={() => void toggleEveryone(skill)}
+				/>
 			{:else}
 				<button
 					class="btn small"
@@ -179,261 +163,95 @@
 					>Restore</button
 				>
 			{/if}
-		</div>
-	</li>
+		{/snippet}
+		{#snippet actions()}
+			{#if skill.disposition === 'accepted'}<ActionMenu label={`${skillLabel(skill.name)} options`}
+					><button
+						disabled={!!busy}
+						onclick={() => void decide(skill, 'retired', `${skillLabel(skill.name)} was retired.`)}
+						>Retire skill</button
+					></ActionMenu
+				>{/if}
+		{/snippet}
+		{#if expanded === skill.name}<p class="description">{skill.description}</p>{/if}
+	</Item>
 {/snippet}
 
-<div class="company-page skills-page">
-	<SettingsHeader
-		title="Skills"
-		explanation="Reusable methods your agents follow, in the open SKILL.md format. They stay when you change models. Skills never grant spending, credentials or approvals. Type $ in a message to use one."
-	></SettingsHeader>
-	<input
-		class="settings-search"
-		type="search"
-		bind:value={search}
-		placeholder="Search skills…"
-		aria-label="Search skills"
-	/>
+<Page
+	title="Skills"
+	info="Reusable methods your agents follow, in the open SKILL.md format. They stay when you change models and never grant spending, credentials or approvals. Type $ in a message to use one."
+>
+	{#snippet actions()}
+		<input
+			class="search"
+			type="search"
+			bind:value={search}
+			placeholder="Search skills"
+			aria-label="Search skills"
+		/>
+	{/snippet}
 
-	{#if failure}<p class="skills-message skills-error" role="alert">{failure}</p>{/if}
-	{#if notice}<p class="skills-message" role="status">{notice}</p>{/if}
+	{#if failure}<Notice tone="danger" title="That change was not made" details={failure} />{/if}
+	{#if notice}<Notice tone="success" title={notice} />{/if}
 
 	{#if !library}
 		{#if !failure}<Skeleton label="Reading company skills…" variant="page" count={4} />{/if}
 	{:else}
-		{#if library.scan.state === 'unavailable'}
-			<p class="source-unavailable">
-				The company computer is not answering, so this is the last list recorded.
-				<InfoTip text="Start the company computer to refresh it." />
-			</p>
-		{/if}
+		{#if library.scan.state === 'unavailable'}<Notice
+				tone="warning"
+				title="Showing the last list recorded"
+				details="The company computer is not answering. Start it to refresh this list."
+			/>{/if}
 
 		{#if candidates.length}
-			<section class="skill-section" aria-labelledby="candidate-title">
-				<h2 id="candidate-title">
-					Waiting for you<InfoTip
-						text="Skills an agent imported or found in a project folder. Only the agent that added one can use it until you accept it."
-					/>
-				</h2>
-				<ul class="skill-list">
-					{#each candidates as skill (skill.name)}{@render skillRow(skill)}{/each}
-				</ul>
-			</section>
+			<Section
+				title="Waiting for you"
+				count={candidates.length}
+				info="Skills an agent imported or found in a project folder. Only the agent that added one can use it until you accept it."
+			>
+				{#each candidates as skill (skill.name)}{@render skillItem(skill)}{/each}
+			</Section>
 		{/if}
 
-		<section class="skill-section" aria-labelledby="company-title">
-			<h2 id="company-title" class="sr-only">Available skills</h2>
-			{#if accepted.length}
-				<ul class="skill-list">
-					{#each accepted as skill (skill.name)}{@render skillRow(skill)}{/each}
-				</ul>
-			{:else}
-				<p class="quiet-empty">
-					{search
-						? 'No skills match your search.'
-						: 'No skills yet. Agents add them as they find methods worth keeping.'}
-				</p>
-			{/if}
-		</section>
+		<Section title="Company skills" count={accepted.length}>
+			{#each accepted as skill (skill.name)}{@render skillItem(skill)}{:else}
+				<Empty
+					compact
+					title={search ? 'No skills match your search' : 'No skills yet'}
+					info="Agents add skills as they find methods worth keeping."
+				/>
+			{/each}
+		</Section>
 
 		{#if retired.length}
-			<details class="skill-section">
-				<summary>Retired ({retired.length})</summary>
-				<ul class="skill-list">
-					{#each retired as skill (skill.name)}{@render skillRow(skill)}{/each}
-				</ul>
-			</details>
+			<Section title="Retired" count={retired.length}>
+				<Fold label="Show retired skills">
+					{#each retired as skill (skill.name)}{@render skillItem(skill)}{/each}
+				</Fold>
+			</Section>
 		{/if}
 	{/if}
-</div>
+</Page>
 
 <style>
-	.skill-identity {
-		min-width: 0;
+	.search {
+		width: 220px;
 	}
-	.skill-identity summary {
-		cursor: pointer;
-		list-style: none;
+	.badge {
+		padding: 1px 6px;
+		border: 1px solid var(--border-strong);
+		border-radius: 999px;
 	}
-	.skill-identity summary:hover strong {
-		color: var(--intent-feedback);
-	}
-	.skill-identity p {
+	.description {
+		margin: 0;
+		max-width: 72ch;
 		color: var(--text-secondary);
 		font-size: var(--t-body);
-		margin: 12px 0 4px;
+		line-height: 1.6;
 	}
-	.skills-page {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-5, 20px);
-	}
-	.skills-message {
-		margin: 0;
-		font-size: var(--t-label);
-		color: var(--text-secondary);
-	}
-	.skills-error {
-		color: var(--intent-danger, var(--ink));
-	}
-	.skill-section h2,
-	.skill-section > summary {
-		display: flex;
-		align-items: center;
-		gap: var(--space-1, 4px);
-		margin: 0 0 var(--space-2);
-		font-size: var(--t-label);
-		font-weight: 600;
-		color: var(--text-secondary);
-	}
-	.skill-section > summary {
-		cursor: pointer;
-	}
-	.skill-list {
-		margin: 0;
-		padding: 0;
-		list-style: none;
-	}
-	.skill-row {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto auto;
-		align-items: center;
-		gap: var(--space-4);
-		padding: var(--space-3) 0;
-		border-bottom: 1px solid var(--border);
-	}
-	.skill-row:last-child {
-		border-bottom: 0;
-	}
-	.skill-off .skill-identity summary {
-		opacity: 0.62;
-	}
-	.skill-identity summary {
-		display: flex;
-		flex-direction: column;
-		align-items: flex-start;
-		position: relative;
-		padding-left: 16px;
-		gap: 2px;
-		min-width: 0;
-		margin: 0;
-		font-size: var(--t-body);
-		font-weight: 400;
-	}
-	.skill-identity strong {
-		font-weight: 600;
-		color: var(--ink);
-	}
-	.skill-identity span {
-		max-width: 100%;
-		min-width: 0;
-		overflow: hidden;
-		font-size: var(--t-label);
-		color: var(--text-secondary);
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.skill-state,
-	.skill-actions {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-	}
-	.skill-state {
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	.skill-identity summary::before {
-		content: none !important;
-	}
-	.skill-chevron {
-		position: absolute;
-		left: 0;
-		top: 0;
-		color: var(--text-tertiary);
-	}
-	.skill-identity[open] .skill-chevron {
-		transform: rotate(90deg);
-	}
-	.skill-toggle {
-		display: grid;
-		place-items: center;
-		border: 0;
-		background: none;
-		box-shadow: none;
-		padding: 8px;
-	}
-	.skill-toggle-track {
-		display: block;
-		width: 28px;
-		height: 16px;
-		border-radius: 16px;
-		background: var(--text-tertiary);
-		padding: 2px;
-		transition: background var(--motion-state);
-	}
-	.skill-toggle-track i {
-		display: block;
-		width: 12px;
-		height: 12px;
-		border-radius: 50%;
-		background: white;
-		box-shadow: 0 1px 2px #0002;
-		transition: transform var(--motion-state);
-	}
-	.skill-toggle[aria-checked='true'] .skill-toggle-track {
-		background: var(--intent-feedback);
-	}
-	.skill-toggle[aria-checked='true'] .skill-toggle-track i {
-		transform: translateX(12px);
-	}
-	/* A settled skill's controls wait for the pointer or focus, so a long list
-	 * reads as skills rather than a wall of buttons. Candidates keep theirs:
-	 * they are asking for a decision. */
-	/* Touch has no hover: the controls appear for the skill that is tapped. */
-	@media (hover: none) {
-		.skill-row:not(:focus-within) .skill-actions.settled {
-			display: flex;
-		}
-	}
-	.skill-row:focus {
-		outline: none;
-	}
-	@media (hover: hover) {
-		.skill-actions.settled {
-			opacity: 1;
-			transition: opacity var(--motion-state) var(--ease-standard);
-		}
-		.skill-row:hover .skill-actions.settled,
-		.skill-row:focus-within .skill-actions.settled {
-			opacity: 1;
-		}
-	}
-	.skill-source {
-		font-size: var(--t-label);
-		color: var(--text-secondary);
-		white-space: nowrap;
-	}
-	@media (max-width: 640px) {
-		.skill-row {
-			grid-template-columns: minmax(0, 1fr) auto;
-			gap: var(--space-2);
-		}
-		.skill-state {
-			grid-column: 1;
-			padding-left: 16px;
-		}
-		.skill-actions {
-			grid-column: 2;
-			grid-row: 1 / 3;
-			gap: 0;
-		}
-	}
-	@media (prefers-reduced-motion: reduce) {
-		.skill-toggle-track,
-		.skill-toggle-track i {
-			transition: none;
+	@container page (max-width: 560px) {
+		.search {
+			width: 150px;
 		}
 	}
 </style>

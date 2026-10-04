@@ -1,65 +1,65 @@
 <script lang="ts">
+	/* Company is the settings area: a quiet navigation list and one content pane.
+	 * Every page inside renders through the shared Page frame, so this layout owns
+	 * no headers, widths or section styles of its own. */
 	import { goto } from '$app/navigation';
-	import { dismissable } from '$lib/actions/dismissable';
-	import { resizePane } from '$lib/actions/resize-pane';
 	import { page } from '$app/state';
+	import { dismissable } from '$lib/actions/dismissable';
 	import Activity from '@lucide/svelte/icons/activity';
-	import CalendarClock from '@lucide/svelte/icons/calendar-clock';
-	import Settings from '@lucide/svelte/icons/settings';
 	import BookOpen from '@lucide/svelte/icons/book-open';
-	import KeyRound from '@lucide/svelte/icons/key-round';
-	import ListChecks from '@lucide/svelte/icons/list-checks';
-	import Monitor from '@lucide/svelte/icons/monitor';
-	import RadioTower from '@lucide/svelte/icons/radio-tower';
-	import ShieldCheck from '@lucide/svelte/icons/shield-check';
+	import Brain from '@lucide/svelte/icons/brain';
+	import CalendarClock from '@lucide/svelte/icons/calendar-clock';
+	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import Fingerprint from '@lucide/svelte/icons/fingerprint';
-	import Users from '@lucide/svelte/icons/users';
+	import Gauge from '@lucide/svelte/icons/gauge';
+	import History from '@lucide/svelte/icons/history';
+	import KeyRound from '@lucide/svelte/icons/key-round';
+	import Monitor from '@lucide/svelte/icons/monitor';
 	import Sparkles from '@lucide/svelte/icons/sparkles';
-	import Keyboard from '@lucide/svelte/icons/keyboard';
+	import Users from '@lucide/svelte/icons/users';
 	import { companyPrincipalQuery, companiesQuery, companyQuery } from '$lib/model/queries.svelte';
 	import { COMPANY_PAGES, companyPageHref } from '$lib/model/company-pages';
 
 	let { children } = $props();
 	const companyId = $derived(page.params.companyId ?? 'aris');
-	const computerSurface = $derived(page.url.pathname === `/${companyId}/company/computer`);
+	const principal = $derived(companyPrincipalQuery(companyId).view);
+	const owner = $derived(principal?.membership_role === 'owner');
 	const catalog = companiesQuery();
 	const diagnostics = $derived(companyQuery(companyId));
 	$effect(() => {
-		if (principal?.membership_role === 'owner') diagnostics.attach();
+		if (owner) diagnostics.attach();
 	});
 	const setupIssue = $derived(
 		catalog.view.find((company) => company.id === companyId)?.unstartable_reason
 	);
 	const unhealthy = $derived(
-		setupIssue || (diagnostics.view && diagnostics.view.computer.doctor.status !== 'healthy')
+		!!diagnostics.view && diagnostics.view.computer.doctor.status !== 'healthy'
 	);
-	const principal = $derived(companyPrincipalQuery(companyId).view);
 	const icons = {
-		charter: BookOpen,
+		general: BookOpen,
 		identity: Fingerprint,
 		members: Users,
+		provider: Brain,
 		skills: Sparkles,
-		provider: Settings,
 		vault: KeyRound,
 		schedules: CalendarClock,
-		resources: ShieldCheck,
+		limits: Gauge,
 		computer: Monitor,
-		doctor: Activity,
-		decisions: ListChecks,
-		actions: RadioTower
+		activity: History,
+		health: Activity
 	} as const;
-	const allRoutes = $derived(
-		COMPANY_PAGES.map((route) => ({
+	const routes = $derived(
+		COMPANY_PAGES.filter((route) => owner || route.key === 'members').map((route) => ({
 			...route,
 			href: companyPageHref(companyId, route),
-			icon: icons[route.key as keyof typeof icons]
+			icon: icons[route.key as keyof typeof icons],
+			alert: (route.key === 'provider' && !!setupIssue) || (route.key === 'health' && unhealthy)
 		}))
 	);
-	// Administrators see only the access they manage; the rest is the owner's.
-	const routes = $derived(
-		principal?.membership_role === 'owner'
-			? allRoutes
-			: allRoutes.filter((route) => route.label === 'Members')
+	const current = $derived(routes.find((route) => active(route)));
+	const desktopFocus = $derived(
+		page.url.pathname === `/${companyId}/company/computer` &&
+			page.url.searchParams.get('focus') === 'desktop'
 	);
 
 	function active(route: { href: string; exact?: boolean }): boolean {
@@ -67,7 +67,9 @@
 			? page.url.pathname === route.href
 			: page.url.pathname.startsWith(route.href);
 	}
-	function settingsKeyboard(event: KeyboardEvent) {
+
+	/* Alt+Shift+↑/↓ steps through pages; E edits where a page offers it. */
+	function keyboard(event: KeyboardEvent) {
 		if (
 			(event.target as HTMLElement)?.closest(
 				'input, textarea, select, [contenteditable], #bridge-exrail'
@@ -79,206 +81,212 @@
 		if (event.altKey && event.shiftKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) {
 			event.preventDefault();
 			const index = routes.findIndex(active);
-			const step = event.key === 'ArrowDown' ? 1 : -1;
-			const route = routes[(index + step + routes.length) % routes.length];
-			if (route) void goto(route.href);
+			const next =
+				routes[(index + (event.key === 'ArrowDown' ? 1 : -1) + routes.length) % routes.length];
+			if (next) void goto(next.href);
 		}
 		if (event.key === 'e' && !event.metaKey && !event.ctrlKey && !event.altKey) {
-			const button = [...document.querySelectorAll<HTMLButtonElement>('.company-page button')].find(
-				(button) =>
-					/^(Edit( charter| identity)?|Write identity)$/.test(button.textContent?.trim() ?? '')
+			const edit = [...document.querySelectorAll<HTMLButtonElement>('.company-main button')].find(
+				(button) => /^(Edit|Write charter|Write identity)$/.test(button.textContent?.trim() ?? '')
 			);
-			if (button) {
+			if (edit) {
 				event.preventDefault();
-				button.click();
+				edit.click();
 			}
 		}
 	}
 </script>
 
-<svelte:window onkeydown={settingsKeyboard} />
+<svelte:window onkeydown={keyboard} />
 
-{#if computerSurface && page.url.searchParams.get('focus') === 'desktop'}
-	<div class="company-focus-shell">{@render children()}</div>
+{#if desktopFocus}
+	<div class="company-focus">{@render children()}</div>
 {:else}
-	<div
-		class="company-area"
-		use:resizePane={{
-			key: `${companyId}:company`,
-			label: 'Resize company panes',
-			target: '.company-spine',
-			variable: '--company-index-w',
-			min: 170,
-			minOther: 280,
-			defaultSize: 230,
-			enabled: true
-		}}
-	>
-		<aside class="company-spine">
-			<div class="company-spine-head">
-				<h2>Company</h2>
-			</div>
-			<details class="company-mobile-nav" use:dismissable>
+	<div class="company-shell">
+		<nav class="company-nav" aria-label="Company settings">
+			<details class="company-nav-mobile" use:dismissable>
 				<summary
-					>{routes.find((route) => active(route))?.label ?? 'Company'}
-					<span aria-hidden="true">⌄</span></summary
+					><span>{current?.label ?? 'Company'}</span><ChevronDown
+						size={14}
+						strokeWidth={1.8}
+						aria-hidden="true"
+					/></summary
 				>
-				<div>
-					{#each routes as route}<a
+				<div class="company-nav-menu">
+					{#each routes as route (route.href)}<a
 							href={route.href}
 							aria-current={active(route) ? 'page' : undefined}>{route.label}</a
 						>{/each}
 				</div>
 			</details>
-			<nav aria-label="Company">
+			<div class="company-nav-list">
 				{#each routes as route, index (route.href)}
-					{@const RouteIcon = route.icon}
-					{#if index === 0 || routes[index - 1].section !== route.section}<div
-							class="company-nav-group"
-						>
-							{route.section}
-						</div>{/if}
+					{@const Icon = route.icon}
+					{#if index === 0 || routes[index - 1].group !== route.group}<span
+							class="company-nav-group">{route.group}</span
+						>{/if}
 					<a
-						class:active={active(route)}
 						href={route.href}
-						title={route.label}
+						class:active={active(route)}
 						aria-current={active(route) ? 'page' : undefined}
+						title={route.alert ? `${route.label}: needs attention` : undefined}
 					>
-						<i aria-hidden="true"><RouteIcon size={15} strokeWidth={1.8} /></i>
-						<span>{route.label}</span
-						>{#if (route.key === 'provider' && setupIssue) || (route.key === 'doctor' && unhealthy)}<span
-								class="company-nav-alert"
-								title="Needs attention"
-								aria-label="Needs attention"
-							></span>{/if}
+						<Icon size={15} strokeWidth={1.8} aria-hidden="true" />
+						<span>{route.label}</span>
+						{#if route.alert}<i class="company-nav-alert" aria-label="Needs attention"></i>{/if}
 					</a>
 				{/each}
-			</nav>
-			<!-- Shortcuts are a hover explanation, not a caption under the navigation. -->
-			<button
-				type="button"
-				class="company-keyboard-hint"
-				aria-label="Keyboard shortcuts: Alt + Shift + Up or Down moves between pages; E edits the charter or identity."
-				title="Alt + Shift + ↑ / ↓ moves between pages. E edits the charter or identity."
-				><Keyboard size={15} strokeWidth={1.7} aria-hidden="true" /></button
-			>
-		</aside>
-		<section class="company-canvas">{@render children()}</section>
+			</div>
+		</nav>
+		<main class="company-main">{@render children()}</main>
 	</div>
 {/if}
 
 <style>
-	.company-keyboard-hint {
+	.company-shell,
+	.company-focus {
+		display: flex;
+		flex: 1 1 auto;
+		gap: var(--pane-gap);
+		width: 100%;
+		min-width: 0;
+		min-height: 0;
+		overflow: hidden;
+	}
+	.company-nav,
+	.company-main {
+		min-height: 0;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-pane);
+		box-shadow: var(--bevel), var(--shadow-soft);
+	}
+	.company-nav {
+		display: flex;
+		flex-direction: column;
+		flex: none;
+		width: 220px;
+		padding: 14px 8px 8px;
+		overflow: auto;
+		background: var(--surface-rail);
+	}
+	.company-main {
+		display: flex;
+		flex: 1 1 auto;
+		min-width: 0;
+		overflow: hidden;
+		background: var(--surface-pane);
+	}
+	.company-nav-list {
 		display: grid;
-		place-items: center;
-		width: 28px;
-		height: 28px;
-		margin: auto 8px 8px;
-		padding: 0;
-		border: 0;
-		border-radius: var(--radius-control);
-		background: transparent;
+		gap: 1px;
+	}
+	.company-nav-group {
+		margin: 14px 8px 4px;
 		color: var(--text-tertiary);
-		cursor: help;
+		font-size: var(--t-label);
+		font-weight: 500;
 	}
-	.company-keyboard-hint:hover,
-	.company-keyboard-hint:focus-visible {
-		background: var(--surface-alt);
+	.company-nav-group:first-child {
+		margin-top: 2px;
+	}
+	.company-nav-list a {
+		position: relative;
+		display: flex;
+		align-items: center;
+		gap: 9px;
+		min-height: 30px;
+		padding: 0 8px;
+		border-radius: var(--radius-control);
 		color: var(--text-secondary);
+		font-size: var(--t-body);
+		text-decoration: none;
+		transition:
+			background-color var(--motion-state) var(--ease-standard),
+			color var(--motion-state) var(--ease-standard);
 	}
-	@media (max-width: 640px) {
-		.company-keyboard-hint {
-			display: none;
-		}
+	.company-nav-list a :global(svg) {
+		flex: none;
+		color: var(--text-tertiary);
+	}
+	.company-nav-list a:hover {
+		background: var(--wash-hover);
+		color: var(--ink);
+	}
+	.company-nav-list a.active {
+		background: var(--surface-raised);
+		box-shadow: var(--control-depth);
+		color: var(--ink);
+		font-weight: 500;
+	}
+	.company-nav-list a.active :global(svg) {
+		color: var(--ink);
 	}
 	.company-nav-alert {
-		position: absolute;
-		right: 8px;
 		width: 6px;
 		height: 6px;
+		margin-left: auto;
 		border-radius: 50%;
 		background: var(--state-danger);
 	}
-	@media (max-width: 640px) {
-		.company-mobile-nav {
+	.company-nav-mobile {
+		display: none;
+	}
+	@media (max-width: 760px) {
+		.company-shell {
+			flex-direction: column;
+		}
+		.company-nav {
+			width: auto;
+			padding: 4px;
+			overflow: visible;
+		}
+		.company-nav-list {
+			display: none;
+		}
+		.company-nav-mobile {
+			display: block;
 			position: relative;
 		}
-		.company-mobile-nav summary {
+		.company-nav-mobile summary {
 			display: flex;
+			align-items: center;
 			justify-content: space-between;
-			gap: 16px;
-			padding: 8px 12px;
-			width: 100%;
-			min-height: 36px;
-			font-size: var(--t-body);
+			min-height: 40px;
+			padding: 0 12px;
 			color: var(--ink);
+			font-size: var(--t-body);
+			font-weight: 500;
 			cursor: pointer;
 			list-style: none;
 		}
-		.company-mobile-nav summary::-webkit-details-marker {
+		.company-nav-mobile summary::-webkit-details-marker {
 			display: none;
 		}
-		.company-mobile-nav summary::before {
+		.company-nav-mobile summary::before {
 			content: none !important;
 		}
-		.company-mobile-nav > div {
+		.company-nav-menu {
 			position: absolute;
-			top: 100%;
+			top: calc(100% + 4px);
 			left: 0;
+			right: 0;
 			z-index: 30;
-			width: 100%;
+			display: grid;
 			padding: 6px;
-			border: 1px solid var(--border);
+			border: 1px solid var(--border-strong);
+			border-radius: var(--radius-lg);
 			background: var(--surface-raised);
-			border-radius: 6px;
-			box-shadow: var(--shadow-soft);
+			box-shadow: var(--shadow-lift);
 		}
-		.company-mobile-nav a {
-			display: block;
-			padding: 10px;
+		.company-nav-menu a {
+			padding: 11px 10px;
+			border-radius: var(--radius-control);
 			color: var(--text-secondary);
 			text-decoration: none;
 		}
-		.company-mobile-nav a[aria-current] {
+		.company-nav-menu a[aria-current] {
 			background: var(--surface-alt);
 			color: var(--ink);
-		}
-		:global(.bridge-root .company-spine-head) {
-			display: none;
-		}
-		:global(.bridge-root .company-area .company-spine) {
-			padding: 4px;
-			min-height: 44px;
-			height: auto;
-			overflow: visible;
-		}
-	}
-
-	.company-mobile-nav {
-		display: none;
-	}
-	:global(.company-spine nav .company-nav-group) {
-		padding: var(--space-3) var(--space-3) var(--space-1);
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-		font-weight: 600;
-		letter-spacing: 0.02em;
-	}
-	:global(.company-spine nav .company-nav-group:not(:first-child)) {
-		margin-top: var(--space-2);
-		border-top: 1px solid var(--border);
-	}
-	@media (max-width: 640px) {
-		.company-mobile-nav {
-			display: flex;
-			align-items: center;
-			gap: var(--space-3);
-			width: 100%;
-			font-size: var(--t-label);
-			color: var(--text-secondary);
-		}
-		:global(.bridge-root .company-area .company-spine nav) {
-			display: none;
 		}
 	}
 </style>

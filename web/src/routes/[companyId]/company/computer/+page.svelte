@@ -1,4 +1,5 @@
 <script lang="ts">
+	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import { formatRelative, formatMoment } from '$lib/ui/time';
 	import { failureSentence } from '$lib/model/failure';
 	import { goto } from '$app/navigation';
@@ -371,7 +372,7 @@
 	const when = (value?: Date | string) => formatRelative(value, 'Not yet');
 </script>
 
-<svelte:head><title>Computer — {view?.company.name ?? companyId}</title></svelte:head>
+<CompanyTitle title="Computer" {companyId} />
 
 {#if focus}
 	<div class="company-desktop-focus">

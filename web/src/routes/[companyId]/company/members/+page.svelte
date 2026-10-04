@@ -1,10 +1,12 @@
 <script lang="ts">
-	import SettingsHeader from '$lib/ui/views/SettingsHeader.svelte';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
+	import { Page, Section, Item, Notice, Empty } from '$lib/ui/page';
+	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
+	import UserPlus from '@lucide/svelte/icons/user-plus';
+	import Mail from '@lucide/svelte/icons/mail';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { page } from '$app/state';
-	import InfoTip from '$lib/components/InfoTip.svelte';
 	import SharingSetup from '$lib/components/SharingSetup.svelte';
 	import {
 		changeMembership,
@@ -31,6 +33,7 @@
 	let inviteEmail = $state('');
 	let inviteRole = $state<MembershipRole>('member');
 	let sharingOpen = $state(false);
+	let inviting = $state(false);
 	let loadVersion = 0;
 
 	const rows = $derived(issuer && core ? joinMembers(core.members, issuer.members) : []);
@@ -152,170 +155,177 @@
 
 <CompanyTitle title="Members" {companyId} />
 
-<div class="company-page members-page">
-	<SettingsHeader
-		title="Members"
-		explanation="Members can enter the company and collaborate. Membership never grants spending, policy or computer access."
-	></SettingsHeader>
+{#snippet avatar(name: string)}<span class="avatar" aria-hidden="true"
+		>{name.trim().charAt(0).toUpperCase() || '?'}</span
+	>{/snippet}
 
-	{#if failure}<p class="members-message members-error" role="alert">{failure}</p>{/if}
-	{#if notice}<p class="members-message" role="status">{notice}</p>{/if}
+<Page
+	title="Members"
+	info="Members can enter the company and collaborate. Membership never grants spending, policy or computer access."
+>
+	{#snippet actions()}
+		{#if core?.mode === 'local'}<button
+				class="btn small primary"
+				onclick={() => (sharingOpen = true)}
+				title="Prepare individual accounts and invitations while keeping the company on this computer."
+				>Enable sharing</button
+			>{:else if issuer && viewer}<button
+				class="btn small primary"
+				aria-expanded={inviting}
+				onclick={() => (inviting = !inviting)}
+				><UserPlus size={14} strokeWidth={1.9} aria-hidden="true" />Invite</button
+			>{/if}
+	{/snippet}
+
+	{#if failure}<Notice tone="danger" title="That change was not made" details={failure} />{/if}
+	{#if notice}<Notice tone="success" title={notice} />{/if}
 
 	{#if !core}
 		{#if !failure}<Skeleton label="Reading company access…" variant="page" count={4} />{/if}
 	{:else if core.mode === 'local'}
-		<ul class="member-list">
-			<li class="member-row">
-				<span class="member-avatar" aria-hidden="true">Y</span>
-				<div class="member-identity"><strong>You</strong><span>Owner</span></div>
-				<button
-					class="btn small primary"
-					onclick={() => (sharingOpen = true)}
-					title="Prepare individual accounts and invitations while keeping the company on this host."
-					>Enable sharing</button
-				>
-			</li>
-		</ul>
+		<Section title="People" count={1}>
+			<Item title="You" meta="Owner · this computer">
+				{#snippet leading()}{@render avatar('You')}{/snippet}
+			</Item>
+		</Section>
 	{:else if core.issuer_unavailable}
-		<p class="source-unavailable">
-			The account service is not answering, so access can’t be changed right now. People who already
-			have access keep it.
-		</p>
+		<Notice
+			tone="warning"
+			title="Access can’t be changed right now"
+			details="The account service is not answering. People who already have access keep it."
+		/>
 	{:else if signInNeeded && core.issuer}
-		<div class="members-signin">
-			<p>Sign in to your account to invite and manage people.</p>
-			<a class="btn small primary" href={core.issuer.account_url} target="_blank" rel="noopener"
-				>Open account</a
-			>
-		</div>
+		<Notice tone="info" title="Sign in to your account to invite and manage people">
+			{#snippet actions()}<a
+					class="btn small primary"
+					href={core?.issuer?.account_url}
+					target="_blank"
+					rel="noopener">Open account</a
+				>{/snippet}
+		</Notice>
 	{:else if issuer && viewer}
-		<form class="member-invite" onsubmit={invite}>
-			<input
-				id="invite-email"
-				aria-label="Email to invite"
-				type="email"
-				autocomplete="off"
-				placeholder="colleague@example.com"
-				required
-				bind:value={inviteEmail}
-			/>
-			<select id="invite-role" aria-label="Access" bind:value={inviteRole}>
-				<option value="member">Member</option>
-				{#if viewer.role === 'owner'}<option value="admin">Administrator</option>{/if}
-			</select>
-			<button class="btn small primary" type="submit" disabled={busy === 'invite'}>Invite</button>
-			<InfoTip
-				text="Members collaborate. Administrators can also invite and remove members. Only the owner can add or change administrators."
-			/>
-		</form>
-
-		{#if issuer.invitations.length}
-			<section class="member-section" aria-labelledby="pending-title">
-				<h2 id="pending-title">Invited</h2>
-				<ul class="member-list">
-					{#each issuer.invitations as invitation (invitation.id)}
-						<li class="member-row">
-							<div class="member-identity">
-								<strong>{invitation.email}</strong><span
-									>{roleLabel(invitation.role)} · expires {expires(invitation.expires_at)}</span
-								>
-							</div>
-							<div class="member-actions">
-								{#if linkInvites}<button
-										class="btn small"
-										type="button"
-										onclick={() => void copy(invitation)}>Copy link</button
-									>{/if}
-								{#if viewer.role === 'owner' || invitation.role === 'member'}<button
-										class="btn small"
-										type="button"
-										disabled={!!busy}
-										onclick={() =>
-											void act(
-												`cancel:${invitation.id}`,
-												`invitations/${invitation.id}/cancel`,
-												{},
-												'Invitation cancelled.'
-											)}>Cancel</button
-									>{/if}
-							</div>
-						</li>
-					{/each}
-				</ul>
-			</section>
+		{#if inviting}
+			<form class="invite" onsubmit={invite}>
+				<input
+					aria-label="Email to invite"
+					type="email"
+					autocomplete="off"
+					placeholder="colleague@example.com"
+					required
+					bind:value={inviteEmail}
+				/>
+				<select
+					aria-label="Access"
+					bind:value={inviteRole}
+					title="Members collaborate. Administrators can also invite and remove members. Only the owner can add or change administrators."
+				>
+					<option value="member">Member</option>
+					{#if viewer.role === 'owner'}<option value="admin">Administrator</option>{/if}
+				</select>
+				<button class="btn small primary" type="submit" disabled={busy === 'invite'}
+					>{busy === 'invite' ? 'Sending…' : 'Send invite'}</button
+				>
+				<button class="btn small ghost" type="button" onclick={() => (inviting = false)}
+					>Cancel</button
+				>
+			</form>
 		{/if}
 
-		<section class="member-section" aria-labelledby="members-title">
-			<h2 id="members-title">People</h2>
-			<ul class="member-list">
-				{#each rows as row (row.membership_id)}
-					{@const manageable = mayManage(viewer, row) && row.status !== 'removed'}
-					<li class="member-row" class:member-paused={row.status !== 'active'}>
-						<div class="member-identity">
-							<strong
-								>{row.name}{#if row.membership_id === viewer.membership_id}<em>
-										· you</em
-									>{/if}</strong
-							><span>{row.email} · {seen(row)}</span>
-						</div>
-						<div class="member-state">
-							{#if row.ending}<span class="state-chip state-pending">Ending access</span><InfoTip
-									text="New entry is already blocked. Open sessions and documents close as soon as the company confirms."
-								/>{:else if row.status === 'suspended'}<span class="state-chip state-paused"
-									>Paused</span
-								>{/if}
-							{#if manageable && viewer.role === 'owner' && row.status === 'active'}
-								<select
-									id={`role-${row.membership_id}`}
-									aria-label={`Access for ${row.name}`}
-									value={row.role}
-									disabled={!!busy}
-									onchange={(event) =>
-										void act(
-											`role:${row.membership_id}`,
-											`members/${row.membership_id}/role`,
-											{ role: event.currentTarget.value },
-											`${row.name} is now ${roleLabel(event.currentTarget.value as MembershipRole).toLowerCase()}.`
-										)}
-								>
-									<option value="member">Member</option>
-									<option value="admin">Administrator</option>
-								</select>
-							{:else}<span class="member-role">{roleLabel(row.role)}</span>{/if}
-						</div>
-						{#if manageable}
-							<div class="member-actions">
-								{#if confirming === row.membership_id}
-									<button
-										class="btn small danger"
-										type="button"
-										disabled={!!busy}
-										onclick={() =>
-											void act(
-												`remove:${row.membership_id}`,
-												`members/${row.membership_id}/remove`,
-												{},
-												`${row.name} no longer has access.`
-											)}>Remove access</button
-									><button class="btn small" type="button" onclick={() => (confirming = '')}
-										>Keep</button
-									>
-								{:else}
-									{#if canSuspend && row.status === 'active' && !row.ending}<button
-											class="btn small"
-											type="button"
+		{#if issuer.invitations.length}
+			<Section title="Invited" count={issuer.invitations.length}>
+				{#each issuer.invitations as invitation (invitation.id)}
+					<Item
+						title={invitation.email}
+						meta={`${roleLabel(invitation.role)} · expires ${expires(invitation.expires_at)}`}
+					>
+						{#snippet leading()}<Mail size={15} strokeWidth={1.8} />{/snippet}
+						{#snippet actions()}
+							{#if linkInvites || viewer.role === 'owner' || invitation.role === 'member'}
+								<ActionMenu label={`Invitation to ${invitation.email}`}
+									>{#if linkInvites}<button onclick={() => void copy(invitation)}
+											>Copy invitation link</button
+										>{/if}{#if viewer.role === 'owner' || invitation.role === 'member'}<button
 											disabled={!!busy}
-											title="Block entry for now, without removing them"
+											onclick={() =>
+												void act(
+													`cancel:${invitation.id}`,
+													`invitations/${invitation.id}/cancel`,
+													{},
+													'Invitation cancelled.'
+												)}>Cancel invitation</button
+										>{/if}</ActionMenu
+								>
+							{/if}
+						{/snippet}
+					</Item>
+				{/each}
+			</Section>
+		{/if}
+
+		<Section title="People" count={rows.length}>
+			{#each rows as row (row.membership_id)}
+				{@const manageable = mayManage(viewer, row) && row.status !== 'removed'}
+				<Item
+					title={`${row.name}${row.membership_id === viewer.membership_id ? ' (you)' : ''}`}
+					meta={`${row.email} · ${seen(row)}`}
+					dim={row.status !== 'active'}
+				>
+					{#snippet leading()}{@render avatar(row.name)}{/snippet}
+					{#snippet trailing()}
+						{#if row.ending}<span
+								class="state pending"
+								title="New entry is already blocked. Open sessions close as soon as the company confirms."
+								>Ending access</span
+							>{:else if row.status === 'suspended'}<span class="state">Paused</span>{/if}
+						{#if manageable && viewer.role === 'owner' && row.status === 'active'}
+							<select
+								class="role"
+								aria-label={`Access for ${row.name}`}
+								value={row.role}
+								disabled={!!busy}
+								onchange={(event) =>
+									void act(
+										`role:${row.membership_id}`,
+										`members/${row.membership_id}/role`,
+										{ role: event.currentTarget.value },
+										`${row.name} is now ${roleLabel(event.currentTarget.value as MembershipRole).toLowerCase()}.`
+									)}
+							>
+								<option value="member">Member</option>
+								<option value="admin">Administrator</option>
+							</select>
+						{:else}<span>{roleLabel(row.role)}</span>{/if}
+					{/snippet}
+					{#snippet actions()}
+						{#if manageable}
+							{#if confirming === row.membership_id}
+								<button
+									class="btn small danger"
+									type="button"
+									disabled={!!busy}
+									title="Their past work stays in the company"
+									onclick={() =>
+										void act(
+											`remove:${row.membership_id}`,
+											`members/${row.membership_id}/remove`,
+											{},
+											`${row.name} no longer has access.`
+										)}>Remove access</button
+								><button class="btn small ghost" type="button" onclick={() => (confirming = '')}
+									>Keep</button
+								>
+							{:else}
+								<ActionMenu label={`Access for ${row.name}`}
+									>{#if canSuspend && row.status === 'active' && !row.ending}<button
+											disabled={!!busy}
 											onclick={() =>
 												void act(
 													`suspend:${row.membership_id}`,
 													`members/${row.membership_id}/suspend`,
 													{},
 													`${row.name}’s access is paused.`
-												)}>Pause</button
+												)}>Pause access</button
 										>{:else if row.status === 'suspended' && !row.ending}<button
-											class="btn small"
-											type="button"
 											disabled={!!busy}
 											onclick={() =>
 												void act(
@@ -325,21 +335,20 @@
 													`${row.name} can enter again.`
 												)}>Reinstate</button
 										>{/if}<button
-										class="btn small"
-										type="button"
 										disabled={!!busy || row.ending}
-										title="Their past work stays in the company"
-										onclick={() => (confirming = row.membership_id)}>Remove</button
-									>
-								{/if}
-							</div>
+										onclick={() => (confirming = row.membership_id)}>Remove…</button
+									></ActionMenu
+								>
+							{/if}
 						{/if}
-					</li>
-				{/each}
-			</ul>
-		</section>
+					{/snippet}
+				</Item>
+			{:else}
+				<Empty compact title="Nobody else has access yet" />
+			{/each}
+		</Section>
 	{/if}
-</div>
+</Page>
 
 {#if sharingOpen && core?.mode === 'local'}<SharingSetup
 		{companyId}
@@ -347,137 +356,43 @@
 	/>{/if}
 
 <style>
-	.member-avatar {
-		width: 32px;
-		height: 32px;
+	.avatar {
 		display: grid;
 		place-items: center;
-		border: 1px solid var(--border);
-		background: var(--surface-alt);
+		width: 22px;
+		height: 22px;
 		border-radius: 50%;
-		color: var(--text-secondary);
-		font-size: var(--t-body);
-	}
-	.member-row .member-identity {
-		flex: 1;
-	}
-
-	.members-page {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-5);
-	}
-	.members-message {
-		margin: 0;
-		font-size: var(--t-label);
-		color: var(--text-secondary);
-	}
-	.members-error {
-		color: var(--intent-danger, var(--ink));
-	}
-	.member-invite {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-	}
-	.member-invite input,
-	.member-invite select,
-	.member-state select {
-		min-width: 0;
-		padding: var(--space-2) var(--space-3);
-		font: inherit;
-		font-size: var(--t-label);
-		color: var(--ink);
-		background: var(--surface);
+		background: var(--surface-alt);
 		border: 1px solid var(--border-strong);
-		border-radius: var(--radius-control);
-	}
-	.member-invite input {
-		flex: 1;
-	}
-	.member-section h2 {
-		margin: 0 0 var(--space-1);
+		color: var(--text-secondary);
 		font-size: var(--t-label);
 		font-weight: 600;
-		color: var(--text-secondary);
 	}
-	.member-list {
-		margin: 0;
-		padding: 0;
-		list-style: none;
-	}
-	.member-row {
+	.invite {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto auto;
+		grid-template-columns: minmax(0, 1fr) auto auto auto;
+		gap: var(--space-2);
 		align-items: center;
-		gap: var(--space-4);
-		padding: var(--space-3) 0;
-		border-bottom: 1px solid var(--border);
+		padding: 12px;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-lg);
+		background: var(--surface-raised);
+		box-shadow: var(--shadow-soft);
+		animation: bridge-popover-in var(--motion-disclosure) var(--ease-spring) both;
 	}
-	/* With an avatar the identity column follows it, not the row's first track. */
-	.member-row:has(> .member-avatar) {
-		grid-template-columns: 32px minmax(0, 1fr) auto;
-		gap: var(--space-3);
+	.role {
+		min-height: 28px;
+		padding-block: 2px;
 	}
-	.member-row:last-child {
-		border-bottom: 0;
-	}
-	.member-paused .member-identity {
-		opacity: 0.62;
-	}
-	.member-identity {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-		min-width: 0;
-	}
-	.member-identity strong {
-		font-weight: 600;
-		color: var(--ink);
-	}
-	.member-identity em {
-		font-style: normal;
-		font-weight: 400;
+	.state {
 		color: var(--text-tertiary);
 	}
-	.member-identity span {
-		overflow: hidden;
-		font-size: var(--t-label);
-		color: var(--text-secondary);
-		text-overflow: ellipsis;
-		white-space: nowrap;
+	.state.pending {
+		color: var(--intent-authority);
 	}
-	.member-state,
-	.member-actions {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-	}
-	.member-role {
-		font-size: var(--t-label);
-		color: var(--text-secondary);
-	}
-	.members-signin {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: var(--space-3);
-	}
-	.members-signin p {
-		flex-basis: 100%;
-		margin: 0;
-		color: var(--text-secondary);
-	}
-	@media (max-width: 640px) {
-		.member-invite {
-			flex-wrap: wrap;
-		}
-		.member-invite input {
-			flex-basis: 100%;
-		}
-		.member-row {
-			grid-template-columns: minmax(0, 1fr);
-			gap: var(--space-2);
+	@container page (max-width: 560px) {
+		.invite {
+			grid-template-columns: 1fr;
 		}
 	}
 </style>

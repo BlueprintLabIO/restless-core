@@ -1,7 +1,8 @@
 <script lang="ts">
-	import SettingsHeader from '$lib/ui/views/SettingsHeader.svelte';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
-	import EmptyState from '$lib/ui/views/EmptyState.svelte';
+	import { Page, Section, Item, Notice, Empty, Dot, Row } from '$lib/ui/page';
+	import KeyRound from '@lucide/svelte/icons/key-round';
+	import Link from '@lucide/svelte/icons/link';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import { formatRelative } from '$lib/ui/time';
 	import { failureSentence } from '$lib/model/failure';
@@ -97,216 +98,178 @@
 </script>
 
 <CompanyTitle title="Vault" {companyId} />
-<div class="company-page vault-page">
-	<SettingsHeader title="Vault" explanation="Company secrets. Values stay hidden."
-		>{#snippet actions()}
-			<button
-				class="btn primary small"
-				disabled={busy || view?.status !== 'connected'}
-				title={view?.status === 'connected'
-					? 'Store a company secret'
-					: 'Secure storage must be connected first'}
-				onclick={() => {
-					adding = !adding;
-					newSecret = true;
-					binding = '';
-				}}>{adding ? 'Cancel' : 'Add secret'}</button
-			>
-			<ActionMenu label="Vault options"
-				><button onclick={refresh} disabled={busy}>Refresh</button></ActionMenu
-			>
-		{/snippet}</SettingsHeader
-	>
-	<p
-		class="status"
-		title="Secrets are kept in the company’s secure vault. You see their names, never their values."
-		class:connected={!error && view?.status === 'connected'}
-		class:unavailable={!!error || view?.status === 'unavailable'}
-		role="status"
-	>
-		{error
-			? 'Vault status unavailable'
-			: view?.status === 'connected'
-				? 'Secure storage connected'
-				: view?.status === 'unavailable'
-					? 'Secure storage unavailable'
-					: busy
-						? 'Checking secure storage…'
-						: 'Secure storage is not set up'}
-	</p>
 
-	{#if error}<p role="alert">{error}</p>{/if}
-	{#if notice}<p class="notice" role="status">{notice}</p>{/if}
-	{#if view?.status === 'unavailable'}<p role="alert">{view.message}</p>{:else if view?.secrets}
-		{#if adding}<section aria-label="Add or replace a secret">
-				<h2>Store a secret</h2>
-				<form onsubmit={saveSecret}>
-					<label for="vault-binding">{newSecret ? 'Secret name' : 'Connection'}</label>
+<Page
+	title="Vault"
+	info="Company secrets, kept in the company's secure storage. You see their names, never their values."
+>
+	{#snippet actions()}
+		<span
+			title={error
+				? 'Vault status unavailable'
+				: 'Secrets are stored in the company’s secure vault.'}
+		>
+			<Dot
+				show
+				tone={error || view?.status === 'unavailable'
+					? 'danger'
+					: view?.status === 'connected'
+						? 'success'
+						: 'muted'}
+				label={error
+					? 'Unavailable'
+					: view?.status === 'connected'
+						? 'Connected'
+						: view?.status === 'unavailable'
+							? 'Unavailable'
+							: busy
+								? 'Checking…'
+								: 'Not set up'}
+			/>
+		</span>
+		<button
+			class="btn primary small"
+			disabled={busy || view?.status !== 'connected'}
+			title={view?.status === 'connected'
+				? 'Store a company secret'
+				: 'Secure storage must be connected first'}
+			onclick={() => {
+				adding = !adding;
+				newSecret = true;
+				binding = '';
+			}}>{adding ? 'Cancel' : 'Add secret'}</button
+		>
+		<ActionMenu label="Vault options"
+			><button onclick={refresh} disabled={busy}>Refresh</button></ActionMenu
+		>
+	{/snippet}
+
+	{#if error}<Notice tone="danger" title="Could not read the vault" details={error}>
+			{#snippet actions()}<button class="btn small" onclick={refresh} disabled={busy}>Retry</button
+				>{/snippet}
+		</Notice>{/if}
+	{#if notice}<Notice tone="success" title={notice} />{/if}
+	{#if view?.status === 'unavailable'}<Notice
+			tone="danger"
+			title="Secure storage is unavailable"
+			details={view.message}
+		/>{/if}
+
+	{#if adding && view?.secrets}
+		<Section title="Store a secret">
+			<form id="vault-form" onsubmit={saveSecret}>
+				<Row
+					label={newSecret ? 'Name' : 'Connection'}
+					info={newSecret
+						? 'Letters, numbers, - and _. Agents refer to the secret by this name.'
+						: 'Replace the secret an existing connection uses.'}
+				>
 					{#if newSecret}<input
-							id="vault-binding"
+							class="wide"
 							bind:value={binding}
-							placeholder="e.g. marketplace-key"
+							aria-label="Secret name"
+							placeholder="marketplace-key"
 							pattern="[A-Za-z0-9_-]+"
 							maxlength="64"
 							required
 							disabled={busy}
 						/>
-					{:else}<select id="vault-binding" bind:value={binding} required disabled={busy}
+					{:else}<select
+							class="wide"
+							bind:value={binding}
+							aria-label="Connection"
+							required
+							disabled={busy}
 							><option value="" disabled>Choose a connection…</option>{#each writable as ref}<option
 									value={ref.name}>{ref.name}</option
 								>{/each}</select
 						>{/if}
+				</Row>
+				<Row label="Value">
+					<input
+						class="wide"
+						type="password"
+						bind:value={secret}
+						aria-label="Secret value"
+						autocomplete="new-password"
+						placeholder="Paste the value"
+						required
+						disabled={busy}
+					/>
+				</Row>
+				<div class="form-bar">
+					<button class="btn primary small" type="submit" disabled={busy}
+						>{busy ? 'Saving…' : 'Save secret'}</button
+					>
 					{#if writable.length}<button
-							class="btn small"
+							class="btn small ghost"
 							type="button"
 							onclick={() => {
 								newSecret = !newSecret;
 								binding = '';
-							}}>{newSecret ? 'Replace an existing secret' : 'Add a new secret'}</button
+							}}
+							>{newSecret
+								? 'Replace an existing secret instead'
+								: 'Add a new secret instead'}</button
 						>{/if}
-					<label for="vault-secret">Secret value</label><input
-						id="vault-secret"
-						type="password"
-						bind:value={secret}
-						autocomplete="new-password"
-						placeholder="Paste secret value"
-						required
-						disabled={busy}
-					/>
-					<button class="btn primary small" type="submit" disabled={busy}
-						>{busy ? 'Saving…' : 'Save secret'}</button
-					>
-				</form>
-			</section>{/if}
-		{#if view.secrets.length > 6}<label for="vault-search">Find a secret</label><input
-				id="vault-search"
-				type="search"
-				bind:value={search}
-				placeholder="Search names or folders"
-			/>{/if}
-		<section aria-label="Stored secrets">
-			{#each rows as secret (secret.reference)}<article>
-					<div>
-						<strong>{secret.name}</strong><small>{uses(secret.reference)}</small>
-					</div>
-					<span title={secret.updated_at ?? ''}>{formatRelative(secret.updated_at, 'Stored')}</span>
-				</article>{:else}<EmptyState
+				</div>
+			</form>
+		</Section>
+	{/if}
+
+	{#if view?.secrets}
+		<Section title="Secrets" count={view.secrets.length}>
+			{#snippet actions()}
+				{#if view && view.secrets && view.secrets.length > 6}<input
+						class="search"
+						type="search"
+						bind:value={search}
+						aria-label="Find a secret"
+						placeholder="Find a secret"
+					/>{/if}
+			{/snippet}
+			{#each rows as item (item.reference)}
+				<Item title={item.name} meta={uses(item.reference)}>
+					{#snippet leading()}<KeyRound size={15} strokeWidth={1.8} />{/snippet}
+					{#snippet trailing()}<time title={item.updated_at ?? ''}
+							>{formatRelative(item.updated_at, 'Stored')}</time
+						>{/snippet}
+				</Item>
+			{:else}
+				<Empty
+					compact
 					title={search ? 'No matching secrets' : 'No secrets stored yet'}
-					explanation="Add a secret to keep it within this company's secure storage."
-				/>{/each}
-		</section>{/if}
-	{#if external.length}<details>
-			<summary>Other credential locations ({external.length})</summary
-			>{#each external as ref}<article>
-					<div><strong>{ref.name}</strong><code>{ref.reference}</code></div>
-				</article>{/each}
-		</details>{/if}
-</div>
+					info="Add a secret to keep it in this company's secure storage."
+				/>
+			{/each}
+		</Section>
+	{/if}
+
+	{#if external.length}
+		<Section
+			title="Stored elsewhere"
+			count={external.length}
+			info="Credentials this company uses that live outside its vault, such as account connections."
+		>
+			{#each external as ref (ref.name)}
+				<Item title={ref.name} meta={ref.reference}>
+					{#snippet leading()}<Link size={15} strokeWidth={1.8} />{/snippet}
+				</Item>
+			{/each}
+		</Section>
+	{/if}
+</Page>
 
 <style>
-	.vault-page {
-		overflow-wrap: anywhere;
+	.wide {
+		width: min(320px, 100%);
 	}
-	.status {
-		color: var(--text-tertiary);
-		margin-block: 0 var(--space-3);
+	.search {
+		width: 200px;
 	}
-	.connected {
-		color: var(--state-success);
-	}
-	.unavailable,
-	[role='alert'] {
-		color: var(--state-danger);
-	}
-	small,
-	code {
-		color: var(--text-tertiary);
-	}
-	label {
-		display: block;
-		margin-top: var(--space-5);
-		margin-bottom: var(--space-2);
-	}
-	input,
-	select,
-	button {
-		box-sizing: border-box;
-		font: inherit;
-		border: 1px solid var(--control-edge);
-		border-radius: var(--radius-control);
-		padding: var(--space-2) var(--space-3);
-		min-height: 40px;
-		color: var(--ink);
-		background: var(--surface-pane);
-		max-width: 100%;
-	}
-	input {
-		width: 100%;
-		min-width: 0;
-	}
-	select {
-		width: 100%;
-	}
-	form button {
-		margin-top: var(--space-4);
-	}
-	.notice {
-		color: var(--state-success);
-	}
-	button,
-	summary {
-		cursor: pointer;
-	}
-	button:disabled {
-		opacity: 0.5;
-	}
-	article {
+	.form-bar {
 		display: flex;
-		justify-content: space-between;
-		gap: var(--space-3);
-		padding-block: var(--space-4);
-		border-bottom: 1px solid var(--control-edge);
-	}
-	article div {
-		display: grid;
-		min-width: 0;
 		gap: var(--space-2);
-	}
-	article > span {
-		flex: none;
-		font-size: var(--t-label);
-	}
-	code,
-	small {
-		font-size: var(--t-label);
-	}
-	section,
-	details {
-		margin-bottom: var(--space-5);
-	}
-	@container company-canvas (max-width:640px) {
-		.vault-page {
-			padding: var(--space-4);
-		}
-		article {
-			flex-direction: column;
-		}
-	}
-	.status::before {
-		content: '';
-		display: inline-block;
-		width: 7px;
-		height: 7px;
-		margin-right: 7px;
-		border-radius: 50%;
-		background: var(--status-offline);
-		vertical-align: 1px;
-	}
-	.status.connected::before {
-		background: var(--state-success);
-		box-shadow: 0 0 0 3px color-mix(in srgb, var(--state-success) 16%, transparent);
-	}
-	.status.unavailable::before {
-		background: var(--state-danger);
+		padding: 12px 16px;
 	}
 </style>

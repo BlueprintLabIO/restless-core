@@ -175,7 +175,8 @@
 		min-height: 44px;
 		align-items: center;
 	}
-	:is(.bridge-root, .bridge-tokens) :is(.work-crumbs a, .back-link, .account-link, .vault-provider-link, dd > a) {
+	:is(.bridge-root, .bridge-tokens)
+		:is(.work-crumbs a, .back-link, .account-link, .vault-provider-link, dd > a) {
 		display: inline-flex;
 	}
 	:is(.bridge-root, .bridge-tokens) :is(.tb-brand, .document-index-head a, .work-crumbs a) {
@@ -294,12 +295,12 @@
 :where(:is(.bridge-root, .bridge-tokens))
 	:where(
 		summary:not(
-				.company-switcher > summary,
-				.owner-menu > summary,
-				.message-fold > summary,
-				.folio-details > summary,
-				.company-decision > summary
-			)
+			.company-switcher > summary,
+			.owner-menu > summary,
+			.message-fold > summary,
+			.folio-details > summary,
+			.company-decision > summary
+		)
 	)::before {
 	content: '';
 	display: inline-block;
@@ -324,7 +325,8 @@
 	:is(.bridge-root, .bridge-tokens) {
 		interpolate-size: allow-keywords;
 	}
-	:where(:is(.bridge-root, .bridge-tokens)) :where(details:not(.company-switcher, .owner-menu))::details-content {
+	:where(:is(.bridge-root, .bridge-tokens))
+		:where(details:not(.company-switcher, .owner-menu))::details-content {
 		block-size: 0;
 		overflow: clip;
 		opacity: 0;
@@ -333,7 +335,8 @@
 			opacity var(--motion-state) var(--ease-out),
 			content-visibility var(--motion-disclosure) allow-discrete;
 	}
-	:where(:is(.bridge-root, .bridge-tokens)) :where(details[open]:not(.company-switcher, .owner-menu))::details-content {
+	:where(:is(.bridge-root, .bridge-tokens))
+		:where(details[open]:not(.company-switcher, .owner-menu))::details-content {
 		block-size: auto;
 		opacity: 1;
 	}
@@ -552,7 +555,9 @@
 :is(.bridge-root, .bridge-tokens) .bridge-select-menu [role='option'][aria-selected='true'] {
 	font-weight: 500;
 }
-:is(.bridge-root, .bridge-tokens) .bridge-select-menu [role='option'][aria-selected='true']::before {
+:is(.bridge-root, .bridge-tokens)
+	.bridge-select-menu
+	[role='option'][aria-selected='true']::before {
 	content: '';
 	position: absolute;
 	left: 11px;
@@ -571,4 +576,52 @@
 	padding: 6px 10px 2px;
 	color: var(--text-tertiary);
 	font-size: var(--t-label);
+}
+
+/* Fields. One shape for text, number, date and multi-line input, at zero
+ * specificity so a component can still size its own. Pages never restyle a
+ * field from scratch. */
+:where(:is(.bridge-root, .bridge-tokens))
+	:where(
+		input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color']),
+		textarea,
+		select:not([multiple])
+	) {
+	box-sizing: border-box;
+	min-height: 32px;
+	padding: 6px 10px;
+	border: 1px solid var(--edge-control);
+	border-radius: var(--radius-control);
+	background-color: var(--surface-raised);
+	color: var(--ink);
+	font: inherit;
+	font-size: var(--t-body);
+}
+:where(:is(.bridge-root, .bridge-tokens)) :where(textarea) {
+	min-height: 80px;
+	line-height: 1.5;
+	resize: vertical;
+}
+:where(:is(.bridge-root, .bridge-tokens))
+	:where(input:not([type='checkbox'], [type='radio'], [type='range']), textarea):hover:not(
+		:disabled,
+		:focus
+	) {
+	border-color: var(--edge-control-hover);
+}
+:where(:is(.bridge-root, .bridge-tokens)) :where(input, textarea, select)::placeholder {
+	color: var(--text-tertiary);
+}
+
+/* A quiet action beside a primary one: Cancel, Not now. Same size, no frame. */
+:is(.bridge-root, .bridge-tokens) .btn.ghost {
+	border-color: transparent;
+	background: transparent;
+	box-shadow: none;
+	color: var(--text-secondary);
+}
+:is(.bridge-root, .bridge-tokens) .btn.ghost:hover:not(:disabled) {
+	border-color: transparent;
+	background: var(--wash-hover);
+	color: var(--ink);
 }

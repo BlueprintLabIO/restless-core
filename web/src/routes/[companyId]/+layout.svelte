@@ -429,7 +429,7 @@
 				id: `company:${companyPage.key}`,
 				group: 'Company',
 				label: companyPage.label,
-				hint: companyPage.section,
+				hint: companyPage.group,
 				keywords: `settings ${companyPage.keywords ?? ''}`,
 				href: companyPageHref(encodeURIComponent(companyId), companyPage)
 			})),

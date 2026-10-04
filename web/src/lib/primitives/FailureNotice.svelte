@@ -15,7 +15,7 @@
 	import CloudOff from '@lucide/svelte/icons/cloud-off';
 	import Lock from '@lucide/svelte/icons/lock';
 	import SearchX from '@lucide/svelte/icons/search-x';
-	import InfoTip from '$lib/components/InfoTip.svelte';
+	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
 	import { describeFailure, type FailureKind } from '$lib/model/failure';
 	import { connection } from '$lib/model/connection.svelte';
 

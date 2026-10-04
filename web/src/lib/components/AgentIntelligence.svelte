@@ -3,8 +3,9 @@
 	import { failureSentence } from '$lib/model/failure';
 	import { intelligenceQuery, type IntelligenceAgent } from '$lib/model/intelligence.svelte';
 	import { announceIntelligenceChange } from '$lib/model/intelligence-events';
-	import { MODEL_PRESETS } from '$lib/model/model-presets';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
+	import { Section, Item, Notice, Empty } from '$lib/ui/page';
+	import Bot from '@lucide/svelte/icons/bot';
 	const catalog = modelCatalog();
 	let { companyId }: { companyId: string } = $props();
 	const source = $derived(intelligenceQuery(companyId));
@@ -122,233 +123,158 @@
 	}
 </script>
 
-<section class="assignments" aria-labelledby="agent-assignments-title">
-	<header>
-		<h2
-			id="agent-assignments-title"
-			title="What powers each agent. Agents without their own choice use the company default. Changes apply to the next session; removing access stops the next model request."
-		>
-			Model assignments
-		</h2>
-	</header>
-	{#if source.error}<p role="alert">
-			Could not load agents. <button class="btn small" onclick={() => source.refresh()}
-				>Retry</button
-			>
-		</p>
-	{:else if !source.view}<p class="sr-only" role="status">Loading agents…</p>
-		{#each [0, 1] as row (row)}<div class="agent-row" aria-hidden="true">
-				<div class="identity">
-					<span class="skeleton-line" style:width="7em"></span><span
-						class="skeleton-line"
-						style:width="11em"
-					></span>
-				</div>
-				<div class="route"><span class="skeleton-line" style:width="9em"></span></div>
-				<span class="skeleton-line" style:width="4.5em" style:height="40px"></span>
-			</div>{/each}
+<Section
+	title="Models"
+	info="What powers each agent. Agents without their own choice use the company default. Changes apply to the next session."
+>
+	{#if source.error}
+		<Notice tone="danger" title="Could not load agents">
+			{#snippet actions()}<button class="btn small" onclick={() => source.refresh()}>Retry</button
+				>{/snippet}
+		</Notice>
+	{:else if !source.view}
+		<Empty compact title="Loading agents…" />
 	{:else}
 		{#each shownRows as agent (agent.id)}
-			<div class="agent-row">
-				<div class="identity">
-					<strong>{agent.id === 'exec' ? 'Exec' : agent.name}</strong
-					>{#if agent.role.toLowerCase() !== agent.id}<small class="role">{agent.role}</small>{/if}
-				</div>
-				<div class="route">
-					<span
-						>{agent.assignment
-							? label(agent.assignment.connection)
-							: agent.id === 'default'
-								? 'No default selected'
-								: 'Use company default'}</span
-					><small>{modelLabel(agent.assignment?.model ?? agent.effective_model)}</small>
-				</div>
-				<!-- With nothing connected there is nothing to change to; the row
-				     already points to the connection that comes first. -->
-				{#if source.view.connections.length}<button
-						class="btn small"
-						disabled={busy}
-						onclick={() => edit(agent)}
-						aria-label={`Change intelligence for ${agent.id === 'exec' ? 'Exec' : agent.name}`}
-						>Change</button
-					>{/if}
-			</div>
-			{#if editing === agent.id}
-				<form
-					class="agent-editor"
-					onsubmit={(e) => {
-						e.preventDefault();
-						void save();
-					}}
-				>
-					<label
-						>Connection<select
-							aria-label="Connection"
-							bind:value={connection}
-							onchange={choose}
+			{@const name = agent.id === 'exec' ? 'Exec' : agent.name}
+			<Item
+				title={name}
+				meta={`${
+					agent.assignment
+						? label(agent.assignment.connection)
+						: agent.id === 'default'
+							? 'No default selected'
+							: 'Company default'
+				} · ${modelLabel(agent.assignment?.model ?? agent.effective_model)}`}
+				selected={editing === agent.id}
+			>
+				{#snippet leading()}<Bot size={15} strokeWidth={1.8} />{/snippet}
+				{#snippet trailing()}
+					{#if agent.id === 'default'}<span title={agent.role}>Default</span>{/if}
+					{#if source.view?.connections.length && editing !== agent.id}<button
+							class="btn small"
 							disabled={busy}
-							>{#each source.view.connections as c}<option value={c.id}
-									>{label(c.id)}{!c.loaded ? ' · restart pending' : ''}</option
-								>{/each}</select
-						></label
+							onclick={() => edit(agent)}
+							aria-label={`Change the model for ${name}`}>Change</button
+						>{/if}
+				{/snippet}
+				{#if editing === agent.id}
+					<form
+						class="editor"
+						onsubmit={(event) => {
+							event.preventDefault();
+							void save();
+						}}
 					>
-					<label
-						>Model<select
-							aria-label="Model"
-							value={custom ? '__custom' : model}
-							disabled={busy}
-							onchange={(e) => {
-								custom = e.currentTarget.value === '__custom';
-								if (!custom) model = e.currentTarget.value;
-							}}
-						>
-							{#if model && !presets.some((m) => m.id === model)}<option value={model}
-									>{model} (saved/custom)</option
-								>{/if}
-							{#each presets as m}<option value={m.id}>{m.name}</option>{/each}<option
-								value="__custom">Custom model…</option
-							>
-						</select></label
-					>
-					{#if custom}<label
-							>Custom model ID<input
-								aria-label="Custom model ID"
-								bind:value={model}
-								required
+						<label
+							><span>Connection</span><select
+								bind:value={connection}
+								onchange={choose}
 								disabled={busy}
-							/></label
-						>{/if}
-					{#if selected?.kind === 'harness'}<small
-							>{selected.models?.length
-								? 'Models offered by this connection.'
-								: 'Catalog suggestions; availability is confirmed by the connection.'}</small
-						>{/if}
-
-					<div class="buttons">
-						<button class="btn primary small" disabled={busy || !connection || !model.trim()}
-							>{busy ? 'Saving…' : 'Save assignment'}</button
-						><button class="btn small" type="button" disabled={busy} onclick={() => (editing = '')}
-							>Cancel</button
-						>{#if agent.assignment && agent.id !== 'default'}<button
-								class="btn small"
+								>{#each source.view.connections as c}<option value={c.id}
+										>{label(c.id)}{!c.loaded ? ' · restart pending' : ''}</option
+									>{/each}</select
+							></label
+						>
+						<label
+							title={selected?.kind === 'harness'
+								? selected.models?.length
+									? 'Models offered by this connection.'
+									: 'Catalog suggestions; the connection confirms availability.'
+								: undefined}
+							><span>Model</span><select
+								value={custom ? '__custom' : model}
+								disabled={busy}
+								onchange={(event) => {
+									custom = event.currentTarget.value === '__custom';
+									if (!custom) model = event.currentTarget.value;
+								}}
+							>
+								{#if model && !presets.some((m) => m.id === model)}<option value={model}
+										>{model} (saved)</option
+									>{/if}
+								{#each presets as m}<option value={m.id}>{m.name}</option>{/each}<option
+									value="__custom">Custom model…</option
+								>
+							</select></label
+						>
+						{#if custom}<label
+								><span>Model ID</span><input bind:value={model} required disabled={busy} /></label
+							>{/if}
+						<div class="bar">
+							<button class="btn primary small" disabled={busy || !connection || !model.trim()}
+								>{busy ? 'Saving…' : 'Save'}</button
+							>
+							{#if agent.assignment && agent.id !== 'default'}<button
+									class="btn small"
+									type="button"
+									disabled={busy}
+									onclick={() => save(true)}>Use company default</button
+								>{/if}
+							<button
+								class="btn small ghost"
 								type="button"
 								disabled={busy}
-								onclick={() => save(true)}>Use company default</button
-							>{/if}
-					</div>
-				</form>
-			{/if}
+								onclick={() => (editing = '')}>Cancel</button
+							>
+						</div>
+					</form>
+				{/if}
+			</Item>
 		{/each}
 		{#if foldedCount > 0 || showAll}
 			<button
-				class="text-button fold-toggle"
+				class="more"
 				type="button"
 				aria-expanded={showAll}
 				onclick={() => (showAll = !showAll)}
 			>
-				<span aria-hidden="true">{showAll ? '↑' : '↓'}</span>
 				{showAll
 					? 'Show fewer'
 					: `${foldedCount} more ${foldedCount === 1 ? 'agent uses' : 'agents use'} the company default`}
 			</button>
 		{/if}
 	{/if}
-	{#if error}<p role="alert">{error}</p>{/if}{#if notice}<p role="status">{notice}</p>{/if}
-</section>
+	{#if error}<Notice tone="danger" title="Could not save the model">{error}</Notice>{/if}
+	{#if notice}<Notice tone="success" title={notice} />{/if}
+</Section>
 
 <style>
-	.assignments {
-		margin-top: var(--space-5);
-	}
-	header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-	}
-	h2 {
-		font-size: var(--t-head);
-		margin: 0;
-	}
-	small {
-		color: var(--text-tertiary);
-	}
-	.agent-row {
-		display: grid;
-		grid-template-columns: minmax(90px, 0.8fr) minmax(100px, 1.4fr) auto;
-		gap: var(--space-3);
-		align-items: center;
-		padding-block: var(--space-4);
-		border-bottom: 1px solid var(--control-edge);
-	}
-	.identity,
-	.route {
-		display: grid;
-		gap: var(--space-1);
-		min-width: 0;
-	}
-	small {
-		font-size: var(--t-label);
-		overflow-wrap: anywhere;
-	}
-	.agent-editor {
-		padding: var(--space-4);
-		background: var(--surface-alt);
-		display: grid;
-		gap: var(--space-3);
-	}
-	label {
-		display: grid;
-		gap: var(--space-2);
-	}
-	input,
-	select,
-	button {
-		font: inherit;
-		min-height: 38px;
-		padding: var(--space-2) var(--space-3);
-		border: 1px solid var(--control-edge);
-		border-radius: var(--radius-control);
-		background: var(--surface-pane);
-		color: var(--ink);
-	}
-	input,
-	select {
-		width: 100%;
-		min-width: 0;
-		box-sizing: border-box;
-	}
-	button {
-		cursor: pointer;
-	}
-	button:disabled {
-		opacity: 0.5;
-		cursor: default;
-	}
-	.buttons {
+	.editor {
 		display: flex;
 		flex-wrap: wrap;
+		align-items: flex-end;
+		gap: 12px;
+		padding-top: 4px;
+	}
+	.editor label {
+		display: grid;
+		gap: 4px;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+	.editor select,
+	.editor input {
+		min-width: 200px;
+	}
+	.bar {
+		display: flex;
 		gap: var(--space-2);
 	}
-	[role='alert'] {
-		color: var(--state-danger);
+	.more {
+		width: 100%;
+		min-height: 40px;
+		padding: 0 16px;
+		border: 0;
+		background: transparent;
+		color: var(--text-tertiary);
+		font: inherit;
+		font-size: var(--t-body);
+		text-align: left;
+		cursor: pointer;
 	}
-	@container company-canvas (max-width: 480px) {
-		.agent-row {
-			grid-template-columns: 1fr auto;
-		}
-		.route {
-			grid-column: 1;
-			grid-row: 2;
-		}
-		.agent-row > button {
-			grid-column: 2;
-			grid-row: 1 / 3;
-		}
-	}
-	.role::first-letter {
-		text-transform: uppercase;
-	}
-	.fold-toggle {
-		margin: var(--space-2) 0 0 -7px;
+	.more:hover {
+		background: var(--surface-hover);
+		color: var(--ink);
 	}
 </style>

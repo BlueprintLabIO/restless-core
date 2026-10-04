@@ -8,7 +8,7 @@
 	import { goto } from '$app/navigation';
 	import AttentionDocument from '$lib/components/AttentionDocument.svelte';
 	import DesktopViewport from '$lib/components/DesktopViewport.svelte';
-	import InfoTip from '$lib/components/InfoTip.svelte';
+	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import Composer from '$lib/primitives/Composer.svelte';
 	import ConversationMessage from '$lib/primitives/ConversationMessage.svelte';

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import AppShell, { type ShellTab } from '$lib/components/AppShell.svelte';
-	import InfoTip from '$lib/components/InfoTip.svelte';
+	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
 	import HoldApprove from '$lib/ui/controls/HoldApprove.svelte';
 	import WorkBoard from '$lib/ui/views/WorkBoard.svelte';
 	import { STUDIO_BOARD } from '$lib/ui/showcase/lanternStudio';

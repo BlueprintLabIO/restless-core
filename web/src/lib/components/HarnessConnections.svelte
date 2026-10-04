@@ -336,7 +336,7 @@
 		font-family: var(--font-mono);
 		user-select: all;
 	}
-	@container company-canvas (max-width: 1000px) {
+	@container page (max-width: 1000px) {
 		.native-connections {
 			grid-template-columns: 1fr;
 		}

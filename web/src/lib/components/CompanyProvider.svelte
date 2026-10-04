@@ -1,5 +1,6 @@
 <script lang="ts">
-	import SettingsHeader from '$lib/ui/views/SettingsHeader.svelte';
+	import { Page, Section, Row, Item, Notice, Empty, Dot, Fold } from '$lib/ui/page';
+	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { onMount, tick } from 'svelte';
@@ -111,14 +112,15 @@
 	const endpoint = $derived(`/api/companies/${encodeURIComponent(companyId)}/provider`);
 	const connection = $derived(status?.connections.find((c) => c.provider === selected));
 	const savedCount = $derived(status?.connections.filter((c) => c.reference).length ?? 0);
-	/* Advanced stays folded until it holds something of this company's own, or a
-	 * link asks for the harnesses inside it. */
-	let advancedOpen = $state(false);
+	/* Company-only keys stay folded until the company has one or one is being
+	 * added; custom harnesses open when a link asks for them. */
+	let keysOpen = $state(false);
+	let harnessOpen = $state(false);
 	$effect(() => {
-		if (savedCount || editorOpen) advancedOpen = true;
+		if (savedCount || editorOpen) keysOpen = true;
 	});
 	onMount(() => {
-		if (location.hash === '#harnesses') advancedOpen = true;
+		if (location.hash === '#harnesses') harnessOpen = true;
 	});
 	function defaultReference(provider: string) {
 		return `infisical:/companies/${companyId}/MODEL_${provider.replace(/[^a-zA-Z0-9_]/g, '_')}_API_KEY`;
@@ -538,274 +540,268 @@
 	});
 </script>
 
-<div class="company-page provider-page">
-	<SettingsHeader
-		title="Intelligence"
-		explanation="Use an account sign-in or API key in this company. Model choices stay company-specific."
+<Page
+	title="Intelligence"
+	info="Which models the company's agents use, and the sign-ins and keys they reach them through. Model choices stay company-specific."
+>
+	{#snippet actions()}
+		<CopyCompanySetting
+			{companyId}
+			setting="models"
+			label="Model choices"
+			oncopied={async () => {
+				await Promise.all([refresh(), intelligence.refresh()]);
+			}}
+		/>
+		<a class="btn small" href={manageUrl}
+			>{accountScope === 'company' ? 'Open account' : 'Account connections'}
+			<span aria-hidden="true">↗</span></a
+		>
+	{/snippet}
+
+	{#if setupIssue}
+		<Notice tone="warning" title={startLinkLabel(setupIssue)} details={setupIssue}>
+			{#snippet actions()}<a class="btn small primary" href={manageUrl}>Fix</a>{/snippet}
+		</Notice>
+	{/if}
+	{#if error}<Notice tone="danger" title="That change was not saved" details={error} />{/if}
+	{#if notice}<Notice tone="success" title={notice} />{/if}
+
+	<AgentIntelligence {companyId} />
+
+	<Section
+		title="Connections"
+		info="Sign-ins and API keys saved in your account. A company can only use one after you give it access here."
+		count={reusableConnections.length || null}
 	>
 		{#snippet actions()}
-			<div class="provider-head-actions">
-				<CopyCompanySetting
-					{companyId}
-					setting="models"
-					label="Model choices"
-					oncopied={async () => {
-						await Promise.all([refresh(), intelligence.refresh()]);
-					}}
-				/>
-				<a class="account-link" href={manageUrl}
-					>{accountScope === 'company'
-						? 'Open account to manage connections'
-						: 'Manage account connections'} <span aria-hidden="true">↗</span></a
-				>
-			</div>
+			{#if accountScope === 'account'}<button
+					class="btn small"
+					disabled={accountBusy}
+					aria-expanded={addConnectionOpen}
+					onclick={toggleAddConnection}>{addConnectionOpen ? 'Cancel' : 'Add API key'}</button
+				>{/if}
 		{/snippet}
-	</SettingsHeader>
-	{#if setupIssue}<div class="provider-health-issue" role="status">
-			<span>{startLinkLabel(setupIssue)}</span><a
-				class="btn small"
-				href={manageUrl}
-				target="_blank"
-				rel="noopener">Reconnect</a
-			>
-		</div>{/if}
-	<AgentIntelligence {companyId} />
-	<section class="connect-section" aria-labelledby="connect-title">
-		<h2 id="connect-title">Connections</h2>
-		<section class="reuse-panel" aria-labelledby="account-connections-title">
-			<div class="reuse-section-head">
-				<div>
-					<h3
-						id="account-connections-title"
-						title="Sign-ins and API keys saved in your account. Each company needs an explicit grant to use one."
-					>
-						Account connections
-					</h3>
-				</div>
-				{#if accountScope === 'account'}<button
-						class="btn small"
-						disabled={accountBusy}
-						onclick={toggleAddConnection}
-					>
-						{addConnectionOpen ? 'Close' : 'Add API key'}
-					</button>{/if}
-			</div>
-			{#if accountLoading}<Skeleton label="Loading account connections" variant="list" count={2} />
-			{:else if reusableConnections.length}
-				<div class="reuse-list">
-					{#each reusableConnections as item (item.id)}
-						{@const companyGrant = item.companies.find((company) => company.id === companyId)}
-						<div class="reuse-row">
-							<div class="reuse-identity">
-								<strong>{item.label}</strong><span
-									>{labels[item.provider] ?? item.provider} · {item.kind === 'oauth'
-										? 'Account sign-in'
-										: 'API key'}</span
-								>
-							</div>
-							{#if companyGrant}
-								<span class="grant-state"
-									>{item.status === 'present' && !(companyGrant.in_use && setupIssue)
-										? 'Access granted'
-										: 'Access configured'}</span
-								>
-								{#if companyGrant.in_use}<span
-										class="grant-count"
-										title="Choose another model for this provider before removing access."
-										>{item.status === 'present' && !setupIssue
-											? 'Selected'
-											: 'Selected · unavailable'}</span
-									>{:else if accountScope === 'account'}<button
-										class="text-button danger"
-										disabled={accountBusy || !status}
-										onclick={() => revokeConnection(item)}>Remove access</button
-									>{/if}
-							{:else if grantSelection === item.id}
-								<label class="model-picker"
-									><span>Model for this connection</span><select
-										aria-label={`Model for ${item.label}`}
-										value={grantCustomModels[item.id] ? '__custom' : modelForGrant(item)}
-										onchange={(event) => {
-											grantCustomModels[item.id] = event.currentTarget.value === '__custom';
-											grantModels[item.id] = grantCustomModels[item.id]
-												? ''
-												: event.currentTarget.value;
-										}}
-									>
-										{#each modelChoices(item.provider, item.kind ?? 'api_key') as model}<option
-												value={routeModel(item.provider, model.id)}>{model.name ?? model.id}</option
-											>{/each}
-										<option value="__custom">Custom model ID…</option>
-									</select></label
-								>
-								{#if grantCustomModels[item.id]}<label class="model-picker"
-										><span>Full model ID</span><input
-											aria-label={`Full model ID for ${item.label}`}
-											placeholder={`${item.provider}/model-id`}
-											bind:value={grantModels[item.id]}
-										/></label
-									>{/if}
-								<small class="model-source"
-									>{catalog.source(item.provider, item.kind ?? 'api_key') === 'connected'
+		{#if accountLoading}
+			<Empty compact title="Loading connections…" />
+		{:else}
+			{#each reusableConnections as item (item.id)}
+				{@const companyGrant = item.companies.find((company) => company.id === companyId)}
+				{@const broken = item.status !== 'present' || (companyGrant?.in_use && !!setupIssue)}
+				{@const name = labels[item.provider] ?? item.provider}
+				<Item
+					title={item.label}
+					meta={[
+						item.kind === 'oauth' ||
+						item.label.toLowerCase().includes(name.toLowerCase()) ||
+						name.toLowerCase().includes(item.label.toLowerCase())
+							? null
+							: name,
+						item.kind === 'oauth' ? 'Account sign-in' : 'API key',
+						item.companies.length && !companyGrant ? `used by ${item.companies.length} other` : null
+					]
+						.filter(Boolean)
+						.join(' · ')}
+					selected={grantSelection === item.id}
+				>
+					{#snippet leading()}<Dot
+							tone={broken
+								? 'danger'
+								: companyGrant?.in_use
+									? 'success'
+									: companyGrant
+										? 'progress'
+										: 'muted'}
+							label={broken
+								? item.status === 'checking'
+									? 'Checking'
+									: 'Unavailable'
+								: companyGrant?.in_use
+									? 'In use'
+									: companyGrant
+										? 'Available'
+										: 'Not given access'}
+						/>{/snippet}
+					{#snippet trailing()}
+						{#if broken}
+							<span class="bad" title={item.detail ?? 'Check this connection in your account.'}
+								>{item.status === 'checking'
+									? 'Checking'
+									: item.kind === 'oauth'
+										? 'Sign-in unavailable'
+										: 'Key unavailable'}</span
+							>
+							<a class="btn small primary" href={manageUrl}
+								>{item.kind === 'oauth' ? 'Reconnect' : 'Replace key'}</a
+							>
+						{:else if companyGrant}
+							<span
+								title={companyGrant.in_use
+									? 'Choose another model for this provider before removing access.'
+									: undefined}>{companyGrant.in_use ? 'In use' : 'Has access'}</span
+							>
+						{:else if grantSelection !== item.id}
+							<button
+								class="btn small primary"
+								disabled={accountBusy || !status || item.status !== 'present'}
+								onclick={() => beginGrant(item)}>Use here</button
+							>
+						{/if}
+					{/snippet}
+					{#snippet actions()}
+						{#if companyGrant && !companyGrant.in_use && accountScope === 'account'}<ActionMenu
+								label={`${item.label} options`}
+								><button disabled={accountBusy || !status} onclick={() => revokeConnection(item)}
+									>Remove access</button
+								></ActionMenu
+							>{/if}
+					{/snippet}
+					{#if grantSelection === item.id}
+						<div class="grant">
+							<label class="field-label"
+								><span>Model</span><select
+									aria-label={`Model for ${item.label}`}
+									value={grantCustomModels[item.id] ? '__custom' : modelForGrant(item)}
+									title={catalog.source(item.provider, item.kind ?? 'api_key') === 'connected'
 										? 'Models from this account’s connected runtime'
-										: 'Model suggestions; availability depends on this connection'}</small
+										: 'Model suggestions; availability depends on this connection'}
+									onchange={(event) => {
+										grantCustomModels[item.id] = event.currentTarget.value === '__custom';
+										grantModels[item.id] = grantCustomModels[item.id]
+											? ''
+											: event.currentTarget.value;
+									}}
 								>
-								{#if status?.primary_provider === 'unconfigured'}<p class="default-note">
-										The first usable connection becomes this company’s default.
-									</p>{:else}<label class="default-option"
-										><input type="checkbox" bind:checked={grantMakeDefault} /><span
-											>Make this the company default</span
-										></label
-									>{/if}
-								{#if replaceGrantId === item.id}<p class="replace-confirm" role="alert">
-										This company already has a {labels[item.provider] ?? item.provider} connection. Replace
-										it with <strong>{item.label}</strong> here?
-									</p>
-									<button
-										class="btn primary small"
-										disabled={accountBusy ||
-											!status ||
-											!validModel(item.provider, modelForGrant(item)) ||
-											item.status !== 'present'}
-										onclick={() => grantConnection(item)}
-										>{accountBusy ? 'Switching…' : 'Replace this company’s connection'}</button
-									><button
-										class="text-button"
-										disabled={accountBusy}
-										onclick={() => {
-											replaceGrantId = '';
-											grantSelection = '';
-										}}>Keep current</button
-									>
-								{:else}<button
-										class="btn primary small"
-										disabled={accountBusy ||
-											!status ||
-											!validModel(item.provider, modelForGrant(item)) ||
-											item.status !== 'present'}
-										onclick={() => grantConnection(item)}
-										>{accountBusy ? 'Saving…' : 'Use in this company'}</button
-									>{/if}
+									{#each modelChoices(item.provider, item.kind ?? 'api_key') as model}<option
+											value={routeModel(item.provider, model.id)}>{model.name ?? model.id}</option
+										>{/each}
+									<option value="__custom">Custom model ID…</option>
+								</select></label
+							>
+							{#if grantCustomModels[item.id]}<label class="field-label"
+									><span>Model ID</span><input
+										aria-label={`Full model ID for ${item.label}`}
+										placeholder={`${item.provider}/model-id`}
+										bind:value={grantModels[item.id]}
+									/></label
+								>{/if}
+							{#if status?.primary_provider !== 'unconfigured'}<label class="check"
+									><input type="checkbox" bind:checked={grantMakeDefault} />Company default</label
+								>{/if}
+							{#if replaceGrantId === item.id}<Notice
+									tone="warning"
+									title={`This replaces the company's current ${name} connection`}
+								/>{/if}
+							<div class="bar">
 								<button
-									class="text-button"
+									class="btn primary small"
+									disabled={accountBusy ||
+										!status ||
+										!validModel(item.provider, modelForGrant(item)) ||
+										item.status !== 'present'}
+									onclick={() => grantConnection(item)}
+									>{accountBusy
+										? 'Saving…'
+										: replaceGrantId === item.id
+											? 'Replace'
+											: 'Use in this company'}</button
+								>
+								<button
+									class="btn small ghost"
 									disabled={accountBusy}
 									onclick={() => {
 										grantSelection = '';
 										replaceGrantId = '';
 									}}>Cancel</button
 								>
-							{:else}
-								<span class="grant-count"
-									>{keyStatus(item)}{item.companies.length
-										? ` · used by ${item.companies.length}`
-										: ''}</span
-								>
-								<button
-									class="btn primary small"
-									disabled={accountBusy || !status || item.status !== 'present'}
-									onclick={() => beginGrant(item)}>Use</button
-								>
-							{/if}
-							{#if item.status !== 'present' || (companyGrant?.in_use && setupIssue)}<a
-									class="btn small"
-									href={manageUrl}
-									target="_blank"
-									rel="noopener">{item.kind === 'oauth' ? 'Reconnect' : 'Replace key'}</a
-								><span
-									class="connection-unavailable"
-									title={item.detail ?? 'Check this connection in account settings.'}
-									>{item.status === 'checking'
-										? 'Checking account sign-in'
-										: item.kind === 'oauth'
-											? 'Account sign-in unavailable'
-											: 'Account key unavailable'}</span
-								>{/if}
+							</div>
 						</div>
-					{/each}
-				</div>
+					{/if}
+				</Item>
 			{:else}
-				<div class="reuse-empty">
-					<p>No account connection is available to this company yet.</p>
-					<span
-						>{accountScope === 'company'
-							? 'Open your account, then choose Account settings to grant one.'
-							: 'Sign in or save an API key in your account, then grant it to this company.'}</span
-					>
-				</div>
-			{/if}
+				<Empty
+					compact
+					title="No connection is available to this company yet"
+					info={accountScope === 'company'
+						? 'Open your account, then choose Account settings to grant one.'
+						: 'Sign in or save an API key in your account, then give this company access.'}
+				/>
+			{/each}
+
 			{#if addConnectionOpen && accountScope === 'account'}
-				<form class="add-form" onsubmit={createReusableConnection}>
-					<h3>Save an API connection</h3>
-					<div class="form-grid">
-						<label
-							>Provider<select
-								bind:value={connectionProvider}
-								onchange={() => {
-									connectionModel = defaultModel(connectionProvider);
-									connectionCustomModel = false;
-									connectionModelTouched = false;
-								}}
-								>{#each Object.entries(labels).filter(([id]) => id !== 'openai-codex') as [id, label]}<option
-										value={id}>{label}</option
-									>{/each}</select
-							></label
+				<form class="add" onsubmit={createReusableConnection}>
+					<Row label="Provider">
+						<select
+							bind:value={connectionProvider}
+							aria-label="Provider"
+							onchange={() => {
+								connectionModel = defaultModel(connectionProvider);
+								connectionCustomModel = false;
+								connectionModelTouched = false;
+							}}
+							>{#each Object.entries(labels).filter(([id]) => id !== 'openai-codex') as [id, label]}<option
+									value={id}>{label}</option
+								>{/each}</select
 						>
-						<label
-							>Name<input
-								bind:value={connectionLabel}
-								placeholder="e.g. Anthropic team key"
-								required
-								maxlength="80"
-							/></label
+					</Row>
+					<Row label="Name">
+						<input
+							class="field"
+							bind:value={connectionLabel}
+							aria-label="Name"
+							placeholder="Anthropic team key"
+							required
+							maxlength="80"
+						/>
+					</Row>
+					<Row
+						label="API key"
+						info="One API key per provider is shared across companies. Each company still needs its own access. This saves the key; it does not test a sign-in."
+					>
+						<input
+							class="field"
+							type="password"
+							bind:value={connectionSecret}
+							aria-label="API key"
+							autocomplete="new-password"
+							placeholder="Paste API key"
+							required
+						/>
+					</Row>
+					<Row label="Model">
+						<select
+							value={connectionCustomModel ? '__custom' : connectionModel}
+							aria-label="Model"
+							onchange={(event) => {
+								connectionModelTouched = true;
+								connectionCustomModel = event.currentTarget.value === '__custom';
+								connectionModel = connectionCustomModel ? '' : event.currentTarget.value;
+							}}
+							><option value="">Choose a model…</option
+							>{#each modelChoices(connectionProvider) as model}<option
+									value={routeModel(connectionProvider, model.id)}>{model.name ?? model.id}</option
+								>{/each}<option value="__custom">Custom model ID…</option></select
 						>
-						<label class="wide"
-							>API key<input
-								type="password"
-								bind:value={connectionSecret}
-								autocomplete="new-password"
-								placeholder="Paste API key"
-								required
-							/></label
-						>
-						<label class="wide"
-							>Model<select
-								value={connectionCustomModel ? '__custom' : connectionModel}
-								onchange={(event) => {
-									connectionModelTouched = true;
-									connectionCustomModel = event.currentTarget.value === '__custom';
-									connectionModel = connectionCustomModel ? '' : event.currentTarget.value;
-								}}
-								><option value="">Choose a model…</option
-								>{#each modelChoices(connectionProvider) as model}<option
-										value={routeModel(connectionProvider, model.id)}
-										>{model.name ?? model.id}</option
-									>{/each}<option value="__custom">Custom model ID…</option></select
-							></label
-						>
-						{#if connectionCustomModel}<label class="wide"
-								>Full model ID<input
-									placeholder={`${connectionProvider}/model-id`}
-									bind:value={connectionModel}
-								/></label
-							>{/if}
-						<small class="model-source wide"
-							>{catalog.source(connectionProvider) === 'connected'
-								? 'Models from this account’s connected runtime'
-								: 'Model suggestions; availability depends on this connection'}</small
-						>
-						{#if status?.primary_provider === 'unconfigured'}<p class="default-note wide">
-								The first usable connection becomes this company’s default.
-							</p>{:else}<label class="default-option wide"
-								><input type="checkbox" bind:checked={connectionMakeDefault} /><span
-									>Make this the company default</span
-								></label
-							>{/if}
-					</div>
-					<div class="inline-actions">
+						{#if connectionCustomModel}<input
+								class="field"
+								aria-label="Full model ID"
+								placeholder={`${connectionProvider}/model-id`}
+								bind:value={connectionModel}
+							/>{/if}
+					</Row>
+					{#if status?.primary_provider !== 'unconfigured'}<Row label="Company default"
+							><input
+								type="checkbox"
+								aria-label="Make this the company default"
+								bind:checked={connectionMakeDefault}
+							/></Row
+						>{/if}
+					<div class="bar pad">
 						<button class="btn primary small" disabled={accountBusy}
-							>{accountBusy ? 'Saving…' : 'Save connection'}</button
-						><button
-							class="text-button"
+							>{accountBusy ? 'Saving…' : 'Save key'}</button
+						>
+						<button
+							class="btn small ghost"
 							type="button"
 							disabled={accountBusy}
 							onclick={() => {
@@ -814,226 +810,206 @@
 							}}>Cancel</button
 						>
 					</div>
-					<p class="form-note">
-						One API key per provider is shared across companies. Each company needs its own grant.
-						This is a stored key check, not a provider sign-in test.
-					</p>
 				</form>
 			{/if}
-			{#if accountScope === 'company'}
-				<p class="form-note">Account connections and grants are managed by the account owner.</p>
-			{:else if !otherCompanies.length}
-				<!-- Nothing to bring in until a second company exists. -->
-			{:else if !importOpen}
-				<button
-					class="text-button import-link"
-					disabled={accountBusy}
-					onclick={() => {
-						importOpen = true;
-						accountError = '';
-					}}>Bring in an API connection from another company</button
-				>
-			{:else}
-				<div class="import-form">
-					<h3>Bring in an existing connection</h3>
-					<p>
-						Restless creates an account-level copy of the key. The original company keeps its
-						connection. Only one API key per provider can be used across companies.
-					</p>
-					<label
-						>Source company<select
-							bind:value={importSource}
-							onchange={() => void loadImportProviders()}
-							><option value="">Choose a company…</option
-							>{#each companies.filter((company) => company.id !== companyId) as company}<option
-									value={company.id}>{company.name}</option
-								>{/each}</select
-						></label
-					>
-					{#if importProviders.length}<label
-							>API connection<select bind:value={importProvider} onchange={() => (importLabel = '')}
-								>{#each importProviders as item}<option value={item.provider}
-										>{labels[item.provider] ?? item.provider}</option
+
+			{#if accountScope === 'account' && otherCompanies.length}
+				<Fold label="Bring in a key from another company" bind:open={importOpen}>
+					<div class="import">
+						<p class="quiet">
+							This makes an account copy of the key. The other company keeps its own. One API key
+							per provider can be shared across companies.
+						</p>
+						<div class="bar">
+							<select
+								bind:value={importSource}
+								aria-label="Source company"
+								onchange={() => void loadImportProviders()}
+								><option value="">Choose a company…</option
+								>{#each companies.filter((company) => company.id !== companyId) as company}<option
+										value={company.id}>{company.name}</option
 									>{/each}</select
-							></label
-						><label
-							>Name<input
-								bind:value={importLabel}
-								placeholder="Optional name"
-								maxlength="80"
-							/></label
-						>{/if}
-					<div class="inline-actions">
-						<button
-							class="btn primary small"
-							disabled={accountBusy || !importProvider}
-							onclick={() => void importReusableConnection()}
-							>{accountBusy ? 'Importing…' : 'Save as reusable connection'}</button
-						><button
-							class="text-button"
-							disabled={accountBusy}
-							onclick={() => {
-								importOpen = false;
-								importSource = '';
-								importProviders = [];
-							}}>Cancel</button
-						>
+							>
+							{#if importProviders.length}<select
+									bind:value={importProvider}
+									aria-label="API connection"
+									onchange={() => (importLabel = '')}
+									>{#each importProviders as item}<option value={item.provider}
+											>{labels[item.provider] ?? item.provider}</option
+										>{/each}</select
+								><input
+									class="field"
+									bind:value={importLabel}
+									aria-label="Name"
+									placeholder="Optional name"
+									maxlength="80"
+								/>{/if}
+							<button
+								class="btn primary small"
+								disabled={accountBusy || !importProvider}
+								onclick={() => void importReusableConnection()}
+								>{accountBusy ? 'Importing…' : 'Bring in'}</button
+							>
+						</div>
 					</div>
+				</Fold>
+			{/if}
+		{/if}
+	</Section>
+	{#if accountError}<Notice
+			tone="danger"
+			title="That connection change failed"
+			details={accountError}
+		/>{/if}
+
+	<Section
+		title="Advanced"
+		info="Sign-ins and keys that belong to this company only, the model catalog, diagnostics and custom harnesses."
+	>
+		<Fold label="Company-only sign-ins">
+			<div class="pad"><HarnessConnections {companyId} /></div>
+		</Fold>
+		<Fold label="Company-only API keys" count={savedCount || null} bind:open={keysOpen}>
+			<div class="pad keys">
+				<div class="bar">
+					<Dot
+						show
+						tone={status?.infisical_status === 'present' ? 'success' : status ? 'danger' : 'muted'}
+						label={status?.infisical_status === 'present'
+							? 'Secure key storage ready'
+							: status
+								? 'Key storage unavailable'
+								: 'Checking key storage…'}
+					/>
+					<span class="spacer"></span>
+					<a class="btn small ghost" href={`/${companyId}/company/vault`}>Vault</a>
+					<button class="btn small ghost" disabled={busy || refreshing} onclick={() => refresh()}
+						>{refreshing ? 'Checking…' : 'Refresh'}</button
+					>
+					<button
+						class="btn small"
+						disabled={!status || busy}
+						onclick={() => {
+							choose('');
+							editorOpen = true;
+						}}>Add key</button
+					>
 				</div>
-			{/if}
-			{#if accountError}<p class="inline-error" role="alert">{accountError}</p>{/if}
-		</section>
-	</section>
-	{#if error}<p role="alert">{error}</p>{/if}{#if notice}<p class="notice" role="status">
-			{notice}
-		</p>{/if}
-	<details class="advanced-settings" bind:open={advancedOpen}>
-		<summary>Company-only connections and advanced settings</summary>
-		<p class="form-note">
-			These sign-ins belong to this company. Account connections above can be granted to other
-			companies.
-		</p>
-		<HarnessConnections {companyId} />
-		<section class="company-only-settings">
-			<header>
-				<h3
-					title="These keys belong only to this company. Use account API keys when several companies need the same provider."
-				>
-					Company-only API keys
-				</h3>
-				<button
-					class="btn small"
-					disabled={!status || busy}
-					onclick={() => {
-						choose('');
-						editorOpen = true;
-					}}>Add key</button
-				>
-			</header>
-			<div class="storage">
-				<span
-					class:good={status?.infisical_status === 'present'}
-					title={status?.infisical_detail ??
-						'API keys are stored securely in Infisical; only references are saved in company settings.'}
-					>● {status?.infisical_status === 'present'
-						? 'Secure key storage ready'
-						: status
-							? 'Key storage unavailable'
-							: 'Checking key storage…'}</span
-				><a href={`/${companyId}/company/vault`}>Vault →</a><button
-					class="text-button"
-					disabled={busy || refreshing}
-					onclick={() => refresh()}>{refreshing ? 'Checking…' : 'Refresh'}</button
-				>
-			</div>
-			{#if status}
-				{#if savedCount}
-					<section aria-label="Your connections" class="connections">
-						{#each status.connections.filter((c) => c.reference) as row (row.provider)}
-							<div class="connection-row">
-								<strong>{labels[row.provider] ?? row.provider}</strong><span
-									class="badge {tone(row)}">● {stateLabel(row)}</span
-								><button
-									class="btn small"
-									disabled={busy}
-									onclick={() => choose(row.provider, true)}
-									aria-label={`Edit ${labels[row.provider] ?? row.provider}`}>Edit</button
-								>
-							</div>
-						{/each}
-					</section>
-				{:else}<p class="empty">None yet.</p>{/if}
-			{/if}
-			{#if editorOpen && status}
-				<section class="connection-editor" bind:this={editor} aria-label="Connection settings">
-					<form class="credentials" onsubmit={(e) => connect(e)}>
-						<label for="provider-choice">Provider</label><select
-							id="provider-choice"
-							required
-							disabled={busy}
-							value={selected ? (labels[selected] ? selected : 'custom') : ''}
-							onchange={(e) => choose(e.currentTarget.value)}
-						>
-							<option value="" disabled>Choose a provider…</option>
-							{#each Object.entries(labels).filter(([id]) => id !== 'openai-codex' || status?.connections.some((c) => c.provider === id && c.reference)) as [id, label]}<option
-									value={id}>{label}</option
-								>{/each}<option value="custom">Custom provider…</option>
-						</select>
-						{#if selected && !labels[selected]}<label for="custom-provider">Provider ID</label
-							><input
-								id="custom-provider"
-								placeholder="Provider ID"
-								value={selected === 'custom' ? '' : selected}
-								oninput={(e) => choose(e.currentTarget.value || 'custom')}
-								pattern="[a-zA-Z0-9_.\-]+"
+				{#if status}
+					{#each status.connections.filter((c) => c.reference) as row (row.provider)}
+						<div class="key-row">
+							<strong>{labels[row.provider] ?? row.provider}</strong>
+							<span class="badge {tone(row)}">{stateLabel(row)}</span>
+							<button
+								class="btn small"
+								disabled={busy}
+								onclick={() => choose(row.provider, true)}
+								aria-label={`Edit ${labels[row.provider] ?? row.provider}`}>Edit</button
+							>
+						</div>
+					{:else}<p class="quiet">None yet.</p>{/each}
+				{/if}
+				{#if editorOpen && status}
+					<form
+						class="editor"
+						bind:this={editor}
+						aria-label="Key settings"
+						onsubmit={(e) => connect(e)}
+					>
+						<label class="field-label"
+							><span>Provider</span><select
 								required
 								disabled={busy}
-							/>{/if}
-						{#if mode === 'infisical'}<label for="provider-key">API key</label><input
-								id="provider-key"
-								type="password"
-								bind:value={secret}
-								oninput={() => (edited = true)}
-								autocomplete="new-password"
-								placeholder={connection?.reference
-									? 'Paste a replacement key, or leave blank to keep it'
-									: 'Paste your API key'}
-								disabled={busy || status.infisical_status !== 'present'}
-								required={!connection?.reference}
-							/>{/if}
-						{#if connection?.credential_detail}<p role="alert">
-								{connection.credential_detail}
-							</p>{/if}
-						<label for="provider-model">Model</label><select
-							id="provider-model"
-							value={advancedCustomModel ? '__custom' : advancedModel}
-							onchange={(event) => {
-								advancedModelTouched = true;
-								advancedCustomModel = event.currentTarget.value === '__custom';
-								advancedModel = advancedCustomModel ? '' : event.currentTarget.value;
-							}}
-							disabled={busy}
+								value={selected ? (labels[selected] ? selected : 'custom') : ''}
+								onchange={(e) => choose(e.currentTarget.value)}
+							>
+								<option value="" disabled>Choose a provider…</option>
+								{#each Object.entries(labels).filter(([id]) => id !== 'openai-codex' || status?.connections.some((c) => c.provider === id && c.reference)) as [id, label]}<option
+										value={id}>{label}</option
+									>{/each}<option value="custom">Custom provider…</option>
+							</select></label
 						>
-							<option value="">Choose a model…</option
-							>{#each modelChoices(selected, mode === 'oauth' ? 'oauth' : 'api_key') as model}<option
-									value={routeModel(selected, model.id)}>{model.name ?? model.id}</option
-								>{/each}<option value="__custom">Custom model ID…</option>
-						</select>
-						{#if advancedCustomModel}<label for="provider-custom-model">Full model ID</label><input
-								id="provider-custom-model"
-								placeholder={`${selected}/model-id`}
-								bind:value={advancedModel}
-								disabled={busy}
+						{#if selected && !labels[selected]}<label class="field-label"
+								><span>Provider ID</span><input
+									placeholder="Provider ID"
+									value={selected === 'custom' ? '' : selected}
+									oninput={(e) => choose(e.currentTarget.value || 'custom')}
+									pattern="[a-zA-Z0-9_.\-]+"
+									required
+									disabled={busy}
+								/></label
+							>{/if}
+						{#if mode === 'infisical'}<label class="field-label"
+								><span>API key</span><input
+									type="password"
+									bind:value={secret}
+									oninput={() => (edited = true)}
+									autocomplete="new-password"
+									placeholder={connection?.reference
+										? 'Paste a replacement, or leave blank to keep it'
+										: 'Paste your API key'}
+									disabled={busy || status.infisical_status !== 'present'}
+									required={!connection?.reference}
+								/></label
+							>{/if}
+						{#if connection?.credential_detail}<Notice
+								tone="warning"
+								title="This key needs attention"
+								details={connection.credential_detail}
 							/>{/if}
-						<p class="model-source">
-							{catalog.source(selected, mode === 'oauth' ? 'oauth' : 'api_key') === 'connected'
-								? 'Models from this account’s connected runtime'
-								: 'Model suggestions; availability depends on this connection'}
-						</p>
-						<details>
-							<summary>Advanced settings</summary><label for="provider-auth"
-								>Credential source</label
-							><select id="provider-auth" bind:value={mode} onchange={selectMode} disabled={busy}
+						<label class="field-label"
+							><span>Model</span><select
+								value={advancedCustomModel ? '__custom' : advancedModel}
+								title={catalog.source(selected, mode === 'oauth' ? 'oauth' : 'api_key') ===
+								'connected'
+									? 'Models from this account’s connected runtime'
+									: 'Model suggestions; availability depends on this connection'}
+								onchange={(event) => {
+									advancedModelTouched = true;
+									advancedCustomModel = event.currentTarget.value === '__custom';
+									advancedModel = advancedCustomModel ? '' : event.currentTarget.value;
+								}}
+								disabled={busy}
+							>
+								<option value="">Choose a model…</option
+								>{#each modelChoices(selected, mode === 'oauth' ? 'oauth' : 'api_key') as model}<option
+										value={routeModel(selected, model.id)}>{model.name ?? model.id}</option
+									>{/each}<option value="__custom">Custom model ID…</option>
+							</select></label
+						>
+						{#if advancedCustomModel}<label class="field-label"
+								><span>Model ID</span><input
+									placeholder={`${selected}/model-id`}
+									bind:value={advancedModel}
+									disabled={busy}
+								/></label
+							>{/if}
+						<label class="field-label"
+							><span>Credential source</span><select
+								bind:value={mode}
+								onchange={selectMode}
+								disabled={busy}
 								><option value="infisical">API key stored securely</option><option value="env"
-									>Existing host environment variable</option
+									>Host environment variable</option
 								>{#if connection?.reference?.startsWith('omp-oauth:')}<option value="oauth"
 										>Existing company OAuth reference</option
 									>{/if}</select
-							>
-							<label for="provider-reference">Credential reference</label><input
-								id="provider-reference"
+							></label
+						>
+						<label
+							class="field-label"
+							title={mode === 'oauth'
+								? 'Kept for compatibility. Give reusable sign-ins from Account → Connections.'
+								: undefined}
+							><span>Reference</span><input
 								bind:value={reference}
 								oninput={() => (edited = true)}
 								disabled={busy}
 								required
 								spellcheck="false"
-							/>
-							{#if mode === 'oauth'}<p>
-									This existing company reference is kept for compatibility. Grant reusable sign-ins
-									from Account → Connections.
-								</p>{/if}
-						</details>
-						<div class="actions">
+							/></label
+						>
+						<div class="bar">
 							<button
 								class="btn primary small"
 								disabled={busy ||
@@ -1042,443 +1018,154 @@
 									selected === 'custom' ||
 									!validModel(selected, advancedModel) ||
 									(mode === 'infisical' && status.infisical_status !== 'present')}
-								>{busy ? 'Saving…' : connection?.reference ? 'Save connection' : 'Connect'}</button
-							><button
-								class="btn small"
+								>{busy ? 'Saving…' : connection?.reference ? 'Save' : 'Connect'}</button
+							>
+							<button
+								class="btn small ghost"
 								type="button"
 								disabled={busy}
 								onclick={() => {
 									editorOpen = false;
 									secret = '';
 								}}>Cancel</button
-							>{#if connection?.reference}<button
+							>
+							{#if connection?.reference}<button
 									type="button"
-									class="text-button danger"
+									class="btn small danger"
 									disabled={busy}
 									onclick={() => connect(undefined, true)}>Disconnect</button
 								>{/if}
 						</div>
 					</form>
-				</section>
-			{/if}
-		</section>
-		<div
-			class="catalog-status"
-			title="Restless checks models.dev hourly and keeps the last good catalog. Model availability depends on your connection. Saved model choices are never changed automatically."
+				{/if}
+			</div>
+		</Fold>
+		<Fold
+			label="Model catalog"
+			hint={catalog.pending
+				? 'Refreshing…'
+				: catalog.updatedAt
+					? `Updated ${new Date(catalog.updatedAt).toLocaleDateString([], { dateStyle: 'medium' })}`
+					: 'Bundled suggestions'}
 		>
-			<span
-				>{catalog.pending
-					? 'Refreshing model catalog…'
-					: catalog.failed
+			<div class="pad bar">
+				<span
+					class="quiet"
+					title="Restless checks models.dev hourly and keeps the last good catalog. Saved model choices are never changed automatically."
+					>{catalog.failed
 						? catalog.updatedAt
-							? 'Using cached model catalog'
+							? 'Using the cached model catalog'
 							: 'Using bundled model suggestions'
-						: catalog.updatedAt
-							? 'Models updated ' +
-								new Date(catalog.updatedAt).toLocaleString([], {
-									dateStyle: 'medium',
-									timeStyle: 'short'
-								})
-							: 'Bundled model suggestions'}</span
-			>
-			<button class="text-button" disabled={catalog.pending} onclick={() => catalog.refresh()}
-				>Refresh models</button
-			>
-		</div>
-		<HarnessDiagnostics {companyId} />
-		<div id="harnesses"><CustomHarnesses {companyId} /></div>
-	</details>
-</div>
+						: 'Model list is current'}</span
+				>
+				<span class="spacer"></span>
+				<button class="btn small" disabled={catalog.pending} onclick={() => catalog.refresh()}
+					>Refresh models</button
+				>
+			</div>
+		</Fold>
+		<Fold label="Diagnostics">
+			<div class="pad"><HarnessDiagnostics {companyId} /></div>
+		</Fold>
+		<Fold label="Custom harnesses" bind:open={harnessOpen}>
+			<div class="pad" id="harnesses"><CustomHarnesses {companyId} /></div>
+		</Fold>
+	</Section>
+</Page>
 
 <style>
-	.provider-health-issue {
+	.bad {
+		color: var(--state-danger);
+	}
+	.grant {
 		display: flex;
-		align-items: center;
-		justify-content: space-between;
+		flex-wrap: wrap;
+		align-items: flex-end;
 		gap: 12px;
-		padding: 12px 14px;
-		margin-bottom: 24px;
-		border: 1px solid var(--border);
-		border-left: 2px solid var(--state-danger);
-		border-radius: 6px;
+		padding-top: 4px;
+	}
+	.grant :global(.notice) {
+		flex-basis: 100%;
+	}
+	.field-label {
+		display: grid;
+		gap: 4px;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+	.field-label :is(select, input) {
+		min-width: 200px;
+	}
+	.check {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		min-height: 32px;
 		color: var(--text-secondary);
 		font-size: var(--t-body);
 	}
-	.provider-page {
-		box-sizing: border-box;
-	}
-	.provider-head-actions {
+	.bar {
 		display: flex;
 		flex-wrap: wrap;
-		align-items: center;
-		gap: var(--space-3);
-	}
-	.reuse-panel {
-		padding: var(--space-5);
-		margin-bottom: var(--space-6);
-		background: var(--surface-pane);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-pane);
-		box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 4%, transparent);
-	}
-	.reuse-section-head,
-	.inline-actions,
-	.reuse-row,
-	.reuse-identity,
-	.grant-state,
-	.grant-count {
-		display: flex;
-		align-items: center;
-	}
-	.reuse-section-head,
-	.reuse-row {
-		justify-content: space-between;
-		gap: var(--space-4);
-	}
-	.reuse-empty span,
-	.form-note,
-	.import-form > p {
-		display: block;
-		margin: var(--space-1) 0 0;
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-		line-height: 1.5;
-	}
-	.account-link {
-		flex: none;
-		padding: var(--space-2) 0;
-		color: var(--text-secondary);
-		font-size: var(--t-label);
-		text-decoration: none;
-	}
-	.account-link:hover {
-		color: var(--intent-conversation);
-	}
-	.reuse-section-head {
-		padding-block: 0 var(--space-3);
-	}
-	.reuse-section-head h3 {
-		margin: 0;
-		font-size: var(--t-head);
-	}
-	.reuse-list {
-		border-top: 1px solid var(--border);
-	}
-	.reuse-row {
-		min-height: 56px;
-		padding-block: var(--space-2);
-		border-bottom: 1px solid var(--border);
-		flex-wrap: wrap;
-	}
-	.reuse-identity {
-		gap: var(--space-3);
-		min-width: 160px;
-	}
-	.reuse-identity span,
-	.grant-count,
-	.grant-state {
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	.grant-state {
-		color: var(--state-success);
-	}
-	.model-picker {
-		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-		color: var(--text-secondary);
-		font-size: var(--t-label);
 	}
-	.model-picker select,
-	.model-picker input {
-		width: auto;
-		min-width: 180px;
+	.bar.pad,
+	.pad {
+		padding: 12px 16px;
 	}
-	.model-source {
-		flex: 1 1 100%;
-		margin: 0;
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	.default-option {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		color: var(--text-secondary);
-		font-size: var(--t-label);
-	}
-	.default-option input {
-		width: 16px;
-		min-height: 16px;
-		height: 16px;
-		padding: 0;
-		accent-color: var(--intent-conversation);
-	}
-	.default-note {
-		flex: 1 1 100%;
-		margin: 0;
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	.reuse-empty {
-		padding: var(--space-3) 0 0;
-	}
-	.reuse-empty p {
-		margin: 0;
-		color: var(--text-secondary);
-	}
-	.replace-confirm {
-		flex: 1 1 100%;
-		margin: 0;
-		color: var(--company-amber);
-		font-size: var(--t-label);
-		line-height: 1.45;
-	}
-	.add-form,
-	.import-form {
-		padding: var(--space-4);
-		margin-top: var(--space-3);
-		background: var(--surface-alt);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-control);
-	}
-	.add-form h3,
-	.import-form h3 {
-		margin: 0 0 var(--space-3);
-		font-size: var(--t-head);
-	}
-	.form-grid {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: var(--space-3);
-	}
-	.form-grid label,
-	.import-form > label {
-		display: grid;
-		gap: var(--space-1);
-		color: var(--text-secondary);
-		font-size: var(--t-label);
-	}
-	.form-grid .wide {
-		grid-column: 1 / -1;
-	}
-	.inline-actions {
-		flex-wrap: wrap;
-		gap: var(--space-2);
-		margin-top: var(--space-3);
-	}
-	.form-note {
-		margin-top: var(--space-2);
-	}
-	.import-link {
-		margin-top: var(--space-3);
-		color: var(--text-secondary);
-	}
-	.import-form > label {
-		margin-top: var(--space-3);
-	}
-	.inline-status {
-		color: var(--text-tertiary);
-	}
-	.inline-error {
-		padding: var(--space-3);
-		color: var(--state-danger);
-		background: color-mix(in srgb, var(--state-danger) 7%, var(--surface-pane));
-		border-radius: var(--radius-control);
-	}
-	header,
-	.storage,
-	.actions,
-	.connection-row {
-		display: flex;
-		align-items: center;
-		gap: var(--space-3);
-	}
-	.catalog-status {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-3);
-		font-size: var(--t-label);
-		color: var(--text-tertiary);
-		margin-block: var(--space-4);
-	}
-	header,
-	.storage {
-		justify-content: space-between;
-		flex-wrap: wrap;
-	}
-	h2 {
-		font-size: var(--t-head);
-		margin: 0;
-	}
-	.storage {
-		justify-content: flex-start;
-		gap: var(--space-4);
-		margin-block: var(--space-4) var(--space-5);
-		font-size: var(--t-label);
-		color: var(--text-tertiary);
-	}
-	.storage > button {
-		margin-left: auto;
-	}
-	.good {
-		color: var(--state-success);
-	}
-	button:not(.text-button, .btn),
-	input,
-	select {
-		font: inherit;
-		color: var(--ink);
-		background: var(--surface-pane);
-		border: 1px solid var(--control-edge);
-		border-radius: var(--radius-control);
-		min-height: 40px;
-		padding: var(--space-2) var(--space-3);
-		box-sizing: border-box;
-	}
-	button {
-		cursor: pointer;
-		flex: none;
-	}
-	button:disabled {
-		opacity: 0.5;
-		cursor: default;
-	}
-	.connection-row {
-		padding-block: var(--space-3);
-		border-bottom: 1px solid var(--control-edge);
-		flex-wrap: wrap;
-	}
-	.connection-row strong {
+	.spacer {
 		flex: 1;
 	}
-	.badge {
-		font-size: var(--t-label);
+	.field {
+		width: min(280px, 100%);
 	}
-	.success {
-		color: var(--state-success);
-	}
-	.warning {
-		color: var(--company-amber);
-	}
-	.error,
-	.danger,
-	[role='alert'] {
-		color: var(--state-danger);
-	}
-	.neutral {
-		color: var(--text-tertiary);
-	}
-	.empty {
-		margin-block: var(--space-5);
-	}
-	p {
-		color: var(--text-tertiary);
-		line-height: 1.5;
-	}
-	.connection-editor {
-		background: var(--surface-pane);
-		border: 1px solid var(--control-edge);
-		border-radius: var(--radius-pane);
-		padding: var(--space-5);
-		margin-block: var(--space-4);
-	}
-	.credentials {
-		display: grid;
-		gap: var(--space-2);
-	}
-	input,
-	select {
-		width: 100%;
-		min-width: 0;
-	}
-	label {
-		margin-top: var(--space-2);
-	}
-	details {
-		margin-block: var(--space-3);
-	}
-	details label {
-		display: block;
-		margin-bottom: var(--space-2);
-	}
-	summary {
-		cursor: pointer;
-		color: var(--text-secondary);
-	}
-	.actions {
-		flex-wrap: wrap;
-		margin-top: var(--space-3);
-	}
-	.connect-section {
-		margin-top: calc(var(--space-6) * 1.5);
-	}
-	.connect-section > h2 {
-		margin-bottom: var(--space-4);
-	}
-	.connect-section .reuse-panel {
-		margin-top: var(--space-4);
-	}
-	h3 {
-		font-size: var(--t-head);
+	.quiet {
 		margin: 0;
+		color: var(--text-tertiary);
+		font-size: var(--t-body);
+		line-height: 1.55;
 	}
-	.advanced-settings {
-		margin-block: var(--space-6) 0;
-		padding-top: var(--space-4);
-		border-top: 1px solid var(--control-edge);
+	.import {
+		display: grid;
+		gap: 10px;
+		padding: 12px 16px;
 	}
-	.advanced-settings > summary {
-		padding-block: var(--space-2);
+	.keys {
+		display: grid;
+		gap: 10px;
+	}
+	.key-row {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+		min-height: 40px;
+		border-top: 1px solid var(--border);
+		font-size: var(--t-body);
+	}
+	.key-row strong {
+		flex: 1;
 		font-weight: 500;
 	}
-	.company-only-settings {
-		margin-top: var(--space-4);
+	.badge {
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
 	}
-	.provider-page {
-		min-height: 0;
-		overflow-wrap: anywhere;
+	.badge.success {
+		color: var(--state-success);
 	}
-	.provider-page :is(button, select, input) {
-		max-width: 100%;
+	.badge.warning {
+		color: var(--intent-authority);
 	}
-	.notice {
-		padding: var(--space-3);
-		background: var(--surface-alt);
-		border-radius: var(--radius-control);
+	.badge.error {
+		color: var(--state-danger);
 	}
-	@container company-canvas (max-width: 640px) {
-		.reuse-panel {
-			padding: var(--space-4);
-		}
-		.connection-editor {
-			padding: var(--space-4);
-		}
-		.reuse-section-head {
-			align-items: flex-start;
-		}
-		.reuse-row {
-			align-items: flex-start;
-		}
-		.reuse-identity {
-			flex: 1 1 100%;
-		}
-		.model-picker {
-			flex: 1 1 100%;
-			align-items: flex-start;
-			flex-direction: column;
-		}
-		.model-picker select {
-			width: 100%;
-		}
-		.form-grid {
-			grid-template-columns: 1fr;
-		}
-		.form-grid .wide {
-			grid-column: auto;
-		}
+	.editor {
+		display: grid;
+		gap: 12px;
+		padding: 14px;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-lg);
+		background: var(--surface-pane);
 	}
 </style>

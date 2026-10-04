@@ -7,7 +7,7 @@
 	import { accountGrantFix } from '$lib/model/company-start';
 	import { page } from '$app/state';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
-	import InfoTip from './InfoTip.svelte';
+	import InfoTip from '$lib/ui/controls/InfoTip.svelte';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
 	import {
 		announceIntelligenceChange,

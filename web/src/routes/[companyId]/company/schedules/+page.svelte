@@ -1,9 +1,8 @@
 <script lang="ts">
-	import SettingsHeader from '$lib/ui/views/SettingsHeader.svelte';
-	import EmptyState from '$lib/ui/views/EmptyState.svelte';
+	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
+	import { Page, Section, Item, Notice, Empty, Dot, Row } from '$lib/ui/page';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import RelativeTime from '$lib/ui/RelativeTime.svelte';
-	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { page } from '$app/state';
@@ -33,6 +32,7 @@
 	let creating = $state(false),
 		every = $state('1h'),
 		prompt = $state('');
+	let open = $state('');
 	let editing = $state(''),
 		editEvery = $state('');
 	async function act(key: string, operation: () => Promise<unknown>, message: string) {
@@ -103,84 +103,139 @@
 			? `Weekdays · ${s.local_time?.slice(0, 5)} ${s.timezone ?? ''}`
 			: 'Recurring';
 	}
-	const failed = (item: MonitoredSchedule) =>
-		item.recent_outcomes.some((outcome) => ['blocked', 'needs_human'].includes(outcome.state));
+	/* An outcome as the owner reads it: one short sentence, with the full agent
+	 * or system text kept for Details. */
+	function headline(outcome: unknown, reason: string | null): { line: string; full: string } {
+		const full = outcomeText(outcome, reason);
+		if (reason && full !== reason) return { line: full, full: '' };
+		const first = full.split(/(?<=[.!?])\s/)[0] ?? full;
+		const line = first.length > 110 ? `${first.slice(0, 107).trimEnd()}…` : first;
+		return { line, full: line === full ? '' : full };
+	}
+	const latestProblem = (item: MonitoredSchedule) =>
+		item.recent_outcomes.find((outcome) => ['blocked', 'needs_human'].includes(outcome.state));
+	const stateTone = (state: string) =>
+		state === 'blocked' || state === 'needs_human'
+			? 'danger'
+			: state === 'running' || state === 'pending'
+				? 'progress'
+				: state === 'completed' || state === 'done'
+					? 'success'
+					: 'neutral';
 </script>
 
 <CompanyTitle title="Schedules" {companyId} />
-<div class="company-page schedules-page">
-	<SettingsHeader title="Schedules" explanation="Recurring Exec check-ins and their results."
-		>{#snippet actions()}<button class="btn primary small" onclick={() => (creating = !creating)}
-				>{creating ? 'Cancel' : 'New schedule'}</button
-			>{/snippet}</SettingsHeader
-	>
-	{#if failure}<p class="schedule-error" role="alert">
-			{failure}<button class="btn small" onclick={() => query.refetch()}>Retry</button>
-		</p>{/if}
-	{#if notice}<p class="schedule-notice" role="status">{notice}</p>{/if}
-	{#if creating}<form class="schedule-form" onsubmit={create}>
-			<label for="schedule-prompt">What should Exec check?</label><textarea
-				id="schedule-prompt"
-				bind:value={prompt}
-				placeholder="Review inbound leads and flag ones needing a reply"
-				required
-				maxlength="2000"
-				rows="3"></textarea>
-			<label for="schedule-every">Repeat every</label><select id="schedule-every" bind:value={every}
-				><option value="30m">30 minutes</option><option value="1h">Hour</option><option value="4h"
-					>4 hours</option
-				><option value="1d">Day</option><option value="7d">Week</option></select
-			>
-			<button class="btn primary small" disabled={!!busy}
-				>{busy === 'create' ? 'Creating…' : 'Create schedule'}</button
-			>
-		</form>{/if}
-	{#if schedules === null}{#if !failure}<Skeleton
-				label="Reading schedules…"
-				variant="page"
-				count={4}
-			/>{/if}
-	{:else if !schedules.length}<EmptyState
-			title="No schedules yet"
-			explanation="Create a recurring check-in for Exec."
-			>{#snippet action()}<button class="btn small" onclick={() => (creating = true)}
-					>Create a schedule</button
-				>{/snippet}</EmptyState
+
+<Page title="Schedules" info="Recurring check-ins Exec runs on its own, and what came of them.">
+	{#snippet actions()}<button class="btn primary small" onclick={() => (creating = !creating)}
+			>{creating ? 'Cancel' : 'New schedule'}</button
+		>{/snippet}
+
+	{#if failure}<Notice tone="danger" title="Schedules could not be updated" details={failure}>
+			{#snippet actions()}<button class="btn small" onclick={() => query.refetch()}>Retry</button
+				>{/snippet}
+		</Notice>{/if}
+	{#if notice}<Notice tone="success" title={notice} />{/if}
+	{#if report}<Notice
+			tone="info"
+			title={`Trigger test: ${report.status.replaceAll('_', ' ')}`}
+			details="Scheduler admission was checked. No agent or external action ran."
 		>
-	{:else}<ul class="schedule-list">
+			{#snippet actions()}{#if report?.test_company}<a
+						class="btn small"
+						href={`/${report.test_company}`}>Inspect</a
+					>{/if}<button class="btn small ghost" onclick={() => (report = null)}>Dismiss</button
+				>{/snippet}
+		</Notice>{/if}
+
+	{#if creating}
+		<Section title="New schedule">
+			<form onsubmit={create}>
+				<Row label="What Exec should check" stack>
+					<textarea
+						class="full"
+						bind:value={prompt}
+						aria-label="What Exec should check"
+						placeholder="Review inbound leads and flag the ones needing a reply"
+						required
+						maxlength="2000"></textarea>
+				</Row>
+				<Row label="Repeat every">
+					<select bind:value={every} aria-label="Repeat every"
+						><option value="30m">30 minutes</option><option value="1h">Hour</option><option
+							value="4h">4 hours</option
+						><option value="1d">Day</option><option value="7d">Week</option></select
+					>
+				</Row>
+				<div class="form-bar">
+					<button class="btn primary small" disabled={!!busy}
+						>{busy === 'create' ? 'Creating…' : 'Create schedule'}</button
+					>
+					<button class="btn small ghost" type="button" onclick={() => (creating = false)}
+						>Cancel</button
+					>
+				</div>
+			</form>
+		</Section>
+	{/if}
+
+	{#if schedules === null}
+		{#if !failure}<Skeleton label="Reading schedules…" variant="page" count={4} />{/if}
+	{:else if !schedules.length && !creating}
+		<Empty title="No schedules yet" info="A schedule wakes Exec to check something on a cadence.">
+			{#snippet action()}<button class="btn small" onclick={() => (creating = true)}
+					>Create a schedule</button
+				>{/snippet}
+		</Empty>
+	{:else if schedules.length}
+		<Section title="Active" count={schedules.length}>
 			{#each schedules as item (item.schedule.id)}
-				<li class="schedule-row">
-					<div class="schedule-heading">
-						<i
-							class:warning={failed(item)}
-							class:paused={!!item.schedule.paused_at}
-							aria-label={item.schedule.paused_at
-								? 'Paused'
-								: failed(item)
-									? 'Needs attention'
-									: 'Active'}
-						></i>
-						<h2 title={item.schedule.reason}>{item.schedule.reason}</h2>
+				{@const problem = latestProblem(item)}
+				{@const paused = !!item.schedule.paused_at}
+				<Item
+					title={item.schedule.reason}
+					meta={[
+						cadenceText(item),
+						paused ? 'Paused' : null,
+						problem ? headline(problem.outcome, problem.outcome_reason).line : null
+					]
+						.filter(Boolean)
+						.join(' · ')}
+					onclick={() => (open = open === item.schedule.id ? '' : item.schedule.id)}
+					selected={open === item.schedule.id}
+					dim={paused}
+				>
+					{#snippet leading()}<Dot
+							tone={paused ? 'muted' : problem ? 'danger' : 'success'}
+							label={paused ? 'Paused' : problem ? 'Last run needs attention' : 'Active'}
+						/>{/snippet}
+					{#snippet trailing()}
+						{#if !paused}<span title="Next run"
+								>Next <RelativeTime value={item.schedule.fire_at} /></span
+							>{/if}
+					{/snippet}
+					{#snippet actions()}
 						<ActionMenu label={`Options for ${item.schedule.reason}`}>
 							<button
 								disabled={!!busy}
 								onclick={() =>
 									act(
 										item.schedule.id,
-										() => updateSchedule(companyId, item.schedule, !item.schedule.paused_at),
-										item.schedule.paused_at ? 'Schedule resumed' : 'Schedule paused'
-									)}>{item.schedule.paused_at ? 'Resume' : 'Pause'}</button
+										() => updateSchedule(companyId, item.schedule, !paused),
+										paused ? 'Schedule resumed' : 'Schedule paused'
+									)}>{paused ? 'Resume' : 'Pause'}</button
 							>
 							{#if item.schedule.interval_seconds}<button
 									onclick={() => {
+										open = item.schedule.id;
 										editing = item.schedule.id;
 										editEvery = `${(item.schedule.interval_seconds ?? 3600) / 60}m`;
-									}}>Edit cadence</button
+									}}>Change cadence</button
 								>{/if}
 							<button
 								disabled={!item.testable || !!busy}
 								title={item.testable
-									? 'Tests admission without running an actor or external action'
+									? 'Tests admission without running an agent or external action'
 									: 'This schedule needs a bound responsibility'}
 								onclick={() =>
 									act(
@@ -191,183 +246,146 @@
 										'Trigger tested'
 									)}>Test trigger</button
 							>
-							<a href={`/${companyId}/people/exec`}>Discuss with Exec</a>
+							<a href={`/${companyId}/people?person=exec&view=people`}>Discuss with Exec</a>
 						</ActionMenu>
-					</div>
-					<div class="schedule-meta">
-						<span>{cadenceText(item)}</span>{#if item.schedule.paused_at}<span>Paused</span
-							>{:else}<span>Next <RelativeTime value={item.schedule.fire_at} /></span
-							>{/if}{#if item.schedule.last_fired_at}<span
-								>Last <RelativeTime value={item.schedule.last_fired_at} /></span
-							>{/if}
-					</div>
-					{#if editing === item.schedule.id}<form
-							class="cadence-form"
-							onsubmit={(event) => cadence(event, item)}
-						>
-							<label for={`cadence-${item.schedule.id}`}>Repeat every</label><input
-								id={`cadence-${item.schedule.id}`}
-								bind:value={editEvery}
-								required
-								placeholder="30m, 2h or 1d"
-							/><button class="btn primary small" disabled={!!busy}
-								>{busy ? 'Saving…' : 'Save'}</button
-							><button class="btn small" type="button" onclick={() => (editing = '')}>Cancel</button
-							>
-						</form>{/if}
-					{#if failed(item)}<p class="schedule-warning">
-							{outcomeText(
-								item.recent_outcomes.find((o) => ['blocked', 'needs_human'].includes(o.state))
-									?.outcome,
-								item.recent_outcomes.find((o) => ['blocked', 'needs_human'].includes(o.state))
-									?.outcome_reason ?? null
-							)} <a href={`/${companyId}/company/doctor`}>Fix →</a>
-						</p>{/if}
-					{#if item.recent_outcomes.length || item.prior_responsibility_outcomes.length}<details
-							class="schedule-runs"
-						>
-							<summary>Recent runs</summary>
-							<ul>
-								{#each [...item.recent_outcomes, ...item.prior_responsibility_outcomes] as outcome (outcome.opportunity_id)}<li
+					{/snippet}
+					{#if open === item.schedule.id}
+						<div class="detail">
+							{#if problem}
+								{@const text = headline(problem.outcome, problem.outcome_reason)}
+								<Notice
+									tone="warning"
+									title="The last run didn’t finish"
+									details={text.full || null}
+									>{text.line}
+									{#snippet actions()}<a
+											class="btn small"
+											href={`/${companyId}/people?person=exec&view=people`}>Discuss</a
+										>{/snippet}</Notice
+								>
+							{/if}
+							{#if editing === item.schedule.id}
+								<form class="cadence" onsubmit={(event) => cadence(event, item)}>
+									<label for={`cadence-${item.schedule.id}`}>Repeat every</label>
+									<input
+										id={`cadence-${item.schedule.id}`}
+										bind:value={editEvery}
+										required
+										placeholder="30m, 2h or 1d"
+									/>
+									<button class="btn primary small" disabled={!!busy}
+										>{busy ? 'Saving…' : 'Save'}</button
 									>
-										<span>{outcomeText(outcome.outcome, outcome.outcome_reason)}</span><RelativeTime
-											value={outcome.created_at}
-										/>
-									</li>{/each}
-							</ul>
-						</details>{/if}
-				</li>
+									<button class="btn small ghost" type="button" onclick={() => (editing = '')}
+										>Cancel</button
+									>
+								</form>
+							{/if}
+							<dl class="facts">
+								<div>
+									<dt>Cadence</dt>
+									<dd>{cadenceText(item)}</dd>
+								</div>
+								{#if item.schedule.last_fired_at}<div>
+										<dt>Last run</dt>
+										<dd><RelativeTime value={item.schedule.last_fired_at} /></dd>
+									</div>{/if}
+								{#if !paused}<div>
+										<dt>Next run</dt>
+										<dd><RelativeTime value={item.schedule.fire_at} /></dd>
+									</div>{/if}
+							</dl>
+							{#if item.recent_outcomes.length || item.prior_responsibility_outcomes.length}
+								<ul class="runs" aria-label="Recent runs">
+									{#each [...item.recent_outcomes, ...item.prior_responsibility_outcomes] as outcome (outcome.opportunity_id)}
+										{@const text = headline(outcome.outcome, outcome.outcome_reason)}
+										<li title={text.full || undefined}>
+											<Dot
+												tone={stateTone(outcome.state)}
+												label={outcome.state.replaceAll('_', ' ')}
+											/>
+											<span>{text.line}</span>
+											<RelativeTime value={outcome.created_at} />
+										</li>
+									{/each}
+								</ul>
+							{/if}
+						</div>
+					{/if}
+				</Item>
 			{/each}
-		</ul>{/if}
-	{#if report}<section class="test-result" role="status">
-			<strong>Trigger test: {report.status.replaceAll('_', ' ')}</strong>
-			<p>Scheduler admission checked. No actor or external action ran.</p>
-			{#if report.test_company}<a href={`/${report.test_company}`}>Inspect test company →</a>{/if}
-		</section>{/if}
-</div>
+		</Section>
+	{/if}
+</Page>
 
 <style>
-	.schedule-list,
-	.schedule-runs ul {
-		list-style: none;
-		padding: 0;
+	.full {
+		width: 100%;
+	}
+	.form-bar {
+		display: flex;
+		gap: var(--space-2);
+		padding: 12px 16px;
+	}
+	.detail {
+		display: grid;
+		gap: 14px;
+		padding-top: 6px;
+	}
+	.cadence {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--space-2);
+		font-size: var(--t-body);
+	}
+	.cadence input {
+		width: 140px;
+	}
+	.facts {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px 28px;
 		margin: 0;
 	}
-	.schedule-row {
-		padding: 16px 0;
-		border-bottom: 1px solid var(--border);
-		min-width: 0;
+	.facts div {
+		display: grid;
+		gap: 2px;
 	}
-	.schedule-heading {
-		display: flex;
+	.facts dt {
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+	.facts dd {
+		margin: 0;
+		color: var(--ink);
+		font-size: var(--t-body);
+	}
+	.runs {
+		display: grid;
+		margin: 0;
+		padding: 0;
+		border-top: 1px solid var(--border);
+		list-style: none;
+	}
+	.runs li {
+		display: grid;
+		grid-template-columns: auto minmax(0, 1fr) auto;
 		align-items: center;
 		gap: 10px;
+		min-height: 36px;
+		border-bottom: 1px solid var(--border);
+		color: var(--text-secondary);
+		font-size: var(--t-body);
 	}
-	.schedule-heading h2 {
-		flex: 1;
+	.runs li span:not(:global(.dot-wrap)) {
 		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		margin: 0;
-		font-size: var(--t-body);
-		font-weight: 550;
 	}
-	.schedule-heading i {
-		width: 6px;
-		height: 6px;
-		flex: none;
-		border-radius: 50%;
-		background: var(--state-success);
-	}
-	.schedule-heading i.warning {
-		background: var(--state-danger);
-	}
-	.schedule-heading i.paused {
-		background: var(--text-tertiary);
-	}
-	.schedule-meta {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 8px 18px;
-		margin: 5px 0 0 16px;
+	.runs li :global(time) {
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
-	}
-	.schedule-warning {
-		margin: 12px 0 0 16px;
-		color: var(--state-danger);
-		font-size: var(--t-body);
-	}
-	.schedule-warning a {
-		margin-left: 6px;
-	}
-	.schedule-runs {
-		margin: 12px 0 0 16px;
-		color: var(--text-secondary);
-		font-size: var(--t-label);
-	}
-	.schedule-runs li {
-		display: flex;
-		justify-content: space-between;
-		gap: 16px;
-		padding: 8px 0;
-	}
-	.schedule-runs li span {
-		flex: 1;
-	}
-	.schedule-form {
-		display: grid;
-		gap: 10px;
-		padding: 20px;
-		margin-bottom: 20px;
-		border: 1px solid var(--border);
-		border-radius: 8px;
-	}
-	.schedule-form label {
-		font-size: var(--t-body);
-		font-weight: 500;
-	}
-	.schedule-form :is(textarea, select),
-	.cadence-form input {
-		width: 100%;
-		min-width: 0;
-		padding: 10px;
-		border: 1px solid var(--control-edge);
-		border-radius: 5px;
-		color: var(--ink);
-		background: var(--surface-pane);
-		font: inherit;
-	}
-	.schedule-form button {
-		justify-self: start;
-	}
-	.cadence-form {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: 8px;
-		margin: 14px 0 0 16px;
-	}
-	.cadence-form input {
-		flex: 1;
-		width: 120px;
-	}
-	.schedule-error {
-		color: var(--state-danger);
-	}
-	.schedule-notice {
-		color: var(--state-success);
-		font-size: var(--t-body);
-	}
-	.test-result {
-		padding: 16px;
-		margin-top: 20px;
-		border: 1px solid var(--border);
-		border-radius: 6px;
-	}
-	.test-result p {
-		margin: 6px 0;
-		color: var(--text-secondary);
 	}
 </style>

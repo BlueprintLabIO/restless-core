@@ -1,81 +1,128 @@
 <script lang="ts">
-	import { formatRelative, formatMoment } from '$lib/ui/time';
-	import SettingsHeader from '$lib/ui/views/SettingsHeader.svelte';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
+	import { formatRelative, formatMoment } from '$lib/ui/time';
+	import { Page, Section, Row, Item, Notice, Segmented, Fold } from '$lib/ui/page';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import IdentityEditor from '$lib/components/IdentityEditor.svelte';
 	import { page } from '$app/state';
-	import InfoTip from '$lib/components/InfoTip.svelte';
 	import { identityQuery } from '$lib/model/queries.svelte';
+	import FileQuestion from '@lucide/svelte/icons/file-question';
+	import GitBranch from '@lucide/svelte/icons/git-branch';
+	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import {
 		decideIdentityMigration,
 		promoteIdentityProposal,
 		rejectIdentityProposal,
-		type CultureCaseRecordRow,
-		type CultureEvidenceDetailRow,
-		type CultureReviewRow,
-		type IdentityEvidenceRow,
 		type IdentityDriftFindingRow,
+		type IdentityEvidenceRow,
 		type IdentityMigrationDisposition,
-		type IdentityProposalRow,
-		type VoiceEvidenceDetailRow,
-		type VoiceRenderEvidenceRow,
-		type VoiceReviewRow,
-		type VisualEvidenceDetailRow,
-		type VisualRenderEvidenceRow,
-		type VisualReviewRow
+		type IdentityProposalRow
 	} from '$lib/model/identity';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	const source = $derived(identityQuery(companyId));
 	const view = $derived(source.view);
-	const currentEvidenceIds = $derived(
-		new Set(
-			view?.release_evidence
+	const currentEvidence = $derived.by(() => {
+		if (!view) return [];
+		const ids = new Set(
+			view.release_evidence
 				.filter((link) => link.release_id === view.current_release?.id)
-				.map((link) => link.evidence_id) ?? []
-		)
-	);
-	const currentEvidence = $derived(
-		view?.evidence.filter((item) => currentEvidenceIds.has(item.id)) ?? []
-	);
-	const staleBindings = $derived(view?.bindings.filter((binding) => binding.stale_at) ?? []);
-	const voiceContracts = $derived(view?.voice_work_contracts ?? []);
-	const voiceRenders = $derived(view?.voice_render_evidence ?? []);
-	const voiceReviews = $derived(view?.voice_reviews ?? []);
-	const visualContracts = $derived(view?.visual_work_contracts ?? []);
-	const visualUses = $derived(view?.visual_primitive_uses ?? []);
-	const visualRenders = $derived(view?.visual_render_evidence ?? []);
-	const visualReviews = $derived(view?.visual_reviews ?? []);
-	const cultureContracts = $derived(view?.culture_work_contracts ?? []);
-	const cultureCases = $derived(view?.culture_case_records ?? []);
-	const cultureReviews = $derived(view?.culture_reviews ?? []);
-	const constitutionBindings = $derived(view?.constitution_artifact_bindings ?? []);
-	const migrationDecisions = $derived(view?.identity_migration_decisions ?? []);
-	const decidedDrift = $derived(
-		new Set(migrationDecisions.map((decision) => decision.drift_finding_id))
-	);
-	const consequentialDrift = $derived(
-		(view?.identity_drift_findings ?? []).filter((finding) => !decidedDrift.has(finding.id))
-	);
+				.map((link) => link.evidence_id)
+		);
+		return view.evidence.filter((item) => ids.has(item.id));
+	});
+	const staleBindings = $derived(view?.bindings.filter((binding) => binding.stale_at).length ?? 0);
+	const openDrift = $derived.by(() => {
+		if (!view) return [];
+		const decided = new Set(view.identity_migration_decisions.map((d) => d.drift_finding_id));
+		return view.identity_drift_findings.filter((finding) => !decided.has(finding.id));
+	});
+	/* Usage records: how bound Work used the identity and what reviewers found.
+	 * Detail for anyone who asks, never a wall on the page. */
+	const usage = $derived.by(() => {
+		if (!view) return [];
+		const reviews = [
+			...view.voice_reviews.map((r) => ({
+				id: r.id,
+				pillar: 'Voice',
+				verdict: r.verdict,
+				finding: firstOf(
+					r.factual_findings,
+					r.abstraction_findings,
+					r.repetition_findings,
+					r.channel_findings,
+					r.authorship_findings
+				),
+				by: r.reviewer,
+				at: r.created_at
+			})),
+			...view.visual_reviews.map((r) => ({
+				id: r.id,
+				pillar: 'Visual',
+				verdict: r.verdict,
+				finding: firstOf(
+					r.identity_findings,
+					r.hierarchy_findings,
+					r.proof_findings,
+					r.product_fidelity_findings,
+					r.motion_findings,
+					r.defect_findings
+				),
+				by: '',
+				at: ''
+			})),
+			...view.culture_reviews.map((r) => ({
+				id: r.id,
+				pillar: 'Culture',
+				verdict: r.verdict,
+				finding: firstOf(
+					r.conduct_findings,
+					r.dissent_findings,
+					r.uncertainty_findings,
+					r.correction_findings,
+					r.authority_findings,
+					r.customer_or_hiring_findings
+				),
+				by: '',
+				at: ''
+			}))
+		];
+		return reviews;
+	});
+	const PILLARS = [
+		['truth', 'Truth'],
+		['voice', 'Voice'],
+		['visual', 'Visual language'],
+		['culture', 'Culture']
+	] as const;
+	const DISPOSITIONS: { value: IdentityMigrationDisposition; label: string; title: string }[] = [
+		{ value: 'retain', label: 'Keep', title: 'Keep the artifact as it is.' },
+		{ value: 'revise', label: 'Revise', title: 'Have the artifact revised to the new identity.' },
+		{ value: 'retire', label: 'Retire', title: 'Stop using the artifact.' }
+	];
+
 	let deciding = $state<string | null>(null);
+	let decisionText = $state('');
 	let migrationFinding = $state<string | null>(null);
 	let migrationDisposition = $state<IdentityMigrationDisposition>('revise');
 	let migrationRationale = $state('');
-	let decisionText = $state('');
 	let saving = $state(false);
 	let notice = $state('');
 	let failure = $state('');
 
+	function firstOf(...findings: string[]): string {
+		return findings.find((finding) => finding.trim()) ?? '';
+	}
 	function evidenceFor(proposal: IdentityProposalRow): IdentityEvidenceRow[] {
+		if (!view) return [];
 		const ids = new Set(
-			view?.proposal_evidence
+			view.proposal_evidence
 				.filter((link) => link.proposal_id === proposal.id)
-				.map((link) => link.evidence_id) ?? []
+				.map((link) => link.evidence_id)
 		);
-		return view?.evidence.filter((item) => ids.has(item.id)) ?? [];
+		return view.evidence.filter((item) => ids.has(item.id));
 	}
 
 	async function decide(proposal: IdentityProposalRow, decision: 'promote' | 'reject') {
@@ -86,10 +133,10 @@
 		try {
 			if (decision === 'promote') {
 				await promoteIdentityProposal(companyId, proposal.id, decisionText);
-				notice = 'Identity release promoted. New Work will use it; earlier Work keeps its release.';
+				notice = 'Promoted. New work will use this version; earlier work keeps its own.';
 			} else {
 				await rejectIdentityProposal(companyId, proposal.id, decisionText);
-				notice = 'Proposal rejected. Its attributed evidence remains available.';
+				notice = 'Rejected. Its evidence stays available.';
 			}
 			deciding = null;
 			decisionText = '';
@@ -113,281 +160,79 @@
 				migrationDisposition,
 				migrationRationale
 			);
-			notice = `Migration recorded: ${migrationDisposition}. The artifact itself was not changed.`;
+			notice = 'Decision recorded. The artifact itself was not changed.';
 			migrationFinding = null;
 			migrationRationale = '';
 			await source.refresh();
 		} catch (cause) {
-			failure = failureSentence(cause, 'The migration decision was not recorded.');
+			failure = failureSentence(cause, 'The decision was not recorded.');
 		} finally {
 			saving = false;
 		}
 	}
 
-	function short(id: string): string {
-		return id.slice(0, 8);
-	}
-
-	const when = (value?: Date | string) => formatRelative(value, 'Not yet');
-
-	function words(value: string): string {
-		return value.replaceAll('_', ' ');
-	}
-
-	function voiceDetail(evidenceId: string): VoiceEvidenceDetailRow | undefined {
-		return view?.voice_evidence_details.find((detail) => detail.evidence_id === evidenceId);
-	}
-
-	function renderFor(review: VoiceReviewRow): VoiceRenderEvidenceRow | undefined {
-		return voiceRenders.find((render) => render.id === review.render_evidence_id);
-	}
-
-	function firstFinding(review: VoiceReviewRow): string {
-		return (
-			[
-				review.factual_findings,
-				review.abstraction_findings,
-				review.repetition_findings,
-				review.channel_findings,
-				review.authorship_findings
-			].find((finding) => finding.trim()) ?? 'No revision finding recorded.'
-		);
-	}
-
-	function visualDetail(evidenceId: string): VisualEvidenceDetailRow | undefined {
-		return view?.visual_evidence_details.find((detail) => detail.evidence_id === evidenceId);
-	}
-
-	function visualRenderFor(review: VisualReviewRow): VisualRenderEvidenceRow | undefined {
-		return visualRenders.find((render) => render.id === review.render_evidence_id);
-	}
-
-	function visualFinding(review: VisualReviewRow): string {
-		return (
-			[
-				review.identity_findings,
-				review.hierarchy_findings,
-				review.proof_findings,
-				review.product_fidelity_findings,
-				review.motion_findings,
-				review.defect_findings
-			].find((finding) => finding.trim()) ?? 'No revision finding recorded.'
-		);
-	}
-	function cultureDetail(evidenceId: string): CultureEvidenceDetailRow | undefined {
-		return view?.culture_evidence_details.find((detail) => detail.evidence_id === evidenceId);
-	}
-	function cultureCaseFor(review: CultureReviewRow): CultureCaseRecordRow | undefined {
-		return cultureCases.find((record) => record.id === review.case_record_id);
-	}
-	function cultureFinding(review: CultureReviewRow): string {
-		return (
-			[
-				review.conduct_findings,
-				review.dissent_findings,
-				review.uncertainty_findings,
-				review.correction_findings,
-				review.authority_findings,
-				review.customer_or_hiring_findings
-			].find((finding) => finding.trim()) ?? 'No conduct finding recorded.'
-		);
-	}
+	const when = (value?: Date | string) => formatRelative(value, '');
+	const words = (value: string) => value.replaceAll('_', ' ');
+	const sentence = (value: string) => {
+		const text = words(value);
+		return text.charAt(0).toUpperCase() + text.slice(1);
+	};
 </script>
 
 <CompanyTitle title="Identity" {companyId} />
 
-<div class="company-page identity-page">
-	<SettingsHeader
-		title="Identity"
-		explanation="What the company is and how it sounds. Agents use it in all company work. Drafts can suggest changes; only you approve them."
-		>{#snippet actions()}
-			<div class="company-page-freshness">
-				<span class="source-lamp status-{source.status}" aria-hidden="true"></span>
-				{source.status === 'live'
-					? 'Live'
-					: source.status === 'stale'
-						? 'Out of date'
-						: 'Checking…'}
-			</div>
-		{/snippet}</SettingsHeader
-	>
-
-	{#if failure}<p class="identity-message failure" role="alert">{failure}</p>{/if}
-	{#if notice}<p class="identity-message" role="status">{notice}</p>{/if}
-
+<Page
+	title="Identity"
+	info="What the company is and how it sounds. Agents use it in all company work. Drafts can suggest changes; only you approve them."
+>
 	{#if view}
-		<IdentityEditor {companyId} {view} onSaved={() => source.refresh()} />
-		{#if view.current_release}
-			<details class="release-details">
-				<summary>Current version · {when(view.current_release.effective_from)}</summary>
-				<section class="release-ledger" aria-labelledby="effective-release">
-					<div class="release-mark" aria-hidden="true">
-						<span>Effective</span>
-						<strong>{short(view.current_release.id)}</strong>
-					</div>
-					<div class="release-account">
-						<div class="section-heading">
-							<h2 id="effective-release">Current release</h2>
-							<InfoTip
-								text="New work uses this version. A later version never changes finished work."
-							/>
-						</div>
-						<p>{view.current_release.change_account}</p>
-						<dl>
-							<div>
-								<dt>Effective</dt>
-								<dd>{when(view.current_release.effective_from)}</dd>
-							</div>
-							<div>
-								<dt>Promoted by</dt>
-								<dd>{view.current_release.promoted_by}</dd>
-							</div>
-							<div>
-								<dt>Authority</dt>
-								<dd>{view.current_release.authority_record_id}</dd>
-							</div>
-							<div>
-								<dt>Evidence</dt>
-								<dd>{currentEvidence.length} sourced statements</dd>
-							</div>
-						</dl>
-					</div>
-					<div class="binding-facts">
-						<strong>{constitutionBindings.length}</strong>
-						<span>exact bound artifacts</span>
-						{#if staleBindings.length}<em>{staleBindings.length} need review after a correction</em
-							>{/if}
-					</div>
-				</section>
-			</details>
-		{/if}
-
-		{#if consequentialDrift.length || view.constitution_learning_proposals.length}
-			<section class="identity-impact" aria-labelledby="identity-impact-title">
-				<div class="section-heading">
-					<h2 id="identity-impact-title">Identity impact</h2>
-					<InfoTip
-						text="Only consequential evidence changes and owner decisions appear here. Routine compliant production stays quiet."
-					/>
-				</div>
-				{#if consequentialDrift.length}
-					<div class="impact-list">
-						{#each consequentialDrift as finding (finding.id)}
-							<article class="impact-card">
-								<header>
-									<div>
-										<strong>{words(finding.kind)}</strong><span
-											>Artifact {short(finding.artifact_ref_id)}</span
-										>
-									</div>
-									<code>{short(finding.from_release_id)} → {short(finding.to_release_id)}</code>
-								</header>
-								<p>{finding.dependency}</p>
-								<small>{finding.consequence}</small>
-								{#if migrationFinding === finding.id}
-									<div class="migration-decision">
-										<fieldset>
-											<legend>What should happen to this exact artifact?</legend>
-											{#each ['retain', 'revise', 'retire'] as disposition}
-												<label
-													><input
-														type="radio"
-														bind:group={migrationDisposition}
-														value={disposition}
-													/>{disposition}</label
-												>
-											{/each}
-										</fieldset>
-										<label
-											><span>Decision account</span><textarea
-												bind:value={migrationRationale}
-												placeholder="Why this disposition is correct for this artifact"
-											></textarea></label
-										>
-										<div class="proposal-actions">
-											<button
-												class="btn small"
-												type="button"
-												onclick={() => {
-													migrationFinding = null;
-													migrationRationale = '';
-												}}>Cancel</button
-											>
-											<button
-												class="btn primary small"
-												type="button"
-												disabled={saving || !migrationRationale.trim()}
-												onclick={() => decideMigration(finding)}
-												>{saving ? 'Recording…' : 'Record decision'}</button
-											>
-										</div>
-									</div>
-								{:else}
-									<button
-										class="btn small"
-										type="button"
-										onclick={() => {
-											migrationFinding = finding.id;
-											migrationDisposition = 'revise';
-											migrationRationale = '';
-										}}>Decide migration</button
-									>
-								{/if}
-							</article>
-						{/each}
-					</div>
-				{/if}
-				{#if view.constitution_learning_proposals.length}
-					<p class="learning-account">
-						{view.constitution_learning_proposals.length} attributed learning {view
-							.constitution_learning_proposals.length === 1
-							? 'proposal is'
-							: 'proposals are'} linked to exact before-and-after artifacts. Promotion remains an owner
-						decision.
-					</p>
-				{/if}
-			</section>
-		{/if}
+		{#if failure}<Notice
+				tone="danger"
+				title="That decision was not recorded"
+				details={failure}
+			/>{/if}
+		{#if notice}<Notice tone="success" title={notice} />{/if}
 
 		{#if view.pending_proposals.length}
-			<section class="proposal-section">
-				<div class="section-heading">
-					<h2>Waiting for your decision</h2>
-					<InfoTip
-						text="Promotion makes a complete evidence set effective. Rejection keeps the evidence and attribution without turning it into a permanent ban."
-					/>
-				</div>
-				<div class="proposal-list">
-					{#each view.pending_proposals as proposal (proposal.id)}
-						<article class="proposal-card">
-							<div>
-								<strong>{proposal.rationale}</strong>
-								<span>Proposed by {proposal.created_by} · {when(proposal.created_at)}</span>
-							</div>
-							<div class="proposal-evidence">
-								{#each evidenceFor(proposal).slice(0, 4) as item (item.id)}
-									<span>{words(item.pillar)} · {words(item.statement_kind)}</span>
-								{/each}
-								{#if evidenceFor(proposal).length > 4}<span
-										>+{evidenceFor(proposal).length - 4} more</span
-									>{/if}
-							</div>
-							{#if deciding === proposal.id}
-								<label>
-									<span>Your decision account</span>
-									<textarea
-										bind:value={decisionText}
-										placeholder="What changed, or why this should not become current"></textarea>
-								</label>
-								<div class="proposal-actions">
+			<Section
+				title="Waiting for your decision"
+				count={view.pending_proposals.length}
+				info="Promoting makes a proposal the current version. Rejecting keeps its evidence without banning it."
+			>
+				{#each view.pending_proposals as proposal (proposal.id)}
+					{@const evidence = evidenceFor(proposal)}
+					<Item
+						title={proposal.rationale}
+						meta={`${proposal.created_by} · ${evidence.length} statement${evidence.length === 1 ? '' : 's'}`}
+						onclick={() => {
+							deciding = deciding === proposal.id ? null : proposal.id;
+							decisionText = '';
+						}}
+						selected={deciding === proposal.id}
+						unread
+					>
+						{#snippet leading()}<FileQuestion size={15} strokeWidth={1.8} />{/snippet}
+						{#snippet trailing()}<time title={formatMoment(proposal.created_at)}
+								>{when(proposal.created_at)}</time
+							>{/snippet}
+						{#if deciding === proposal.id}
+							<div class="decision">
+								<ul class="statements">
+									{#each evidence as item (item.id)}<li>
+											<span class="kind">{sentence(item.pillar)}</span>{item.statement}
+										</li>{/each}
+								</ul>
+								<textarea
+									bind:value={decisionText}
+									aria-label="Your reason"
+									placeholder="Your reason, sent with the decision"></textarea>
+								<div class="decision-bar">
 									<button
-										class="btn small"
+										class="btn primary small"
 										type="button"
-										disabled={saving}
-										onclick={() => {
-											deciding = null;
-											decisionText = '';
-										}}>Cancel</button
+										disabled={saving || !decisionText.trim()}
+										onclick={() => decide(proposal, 'promote')}
+										>{saving ? 'Recording…' : 'Promote'}</button
 									>
 									<button
 										class="btn small"
@@ -396,298 +241,171 @@
 										onclick={() => decide(proposal, 'reject')}>Reject</button
 									>
 									<button
-										class="btn primary small"
+										class="btn small ghost"
 										type="button"
-										disabled={saving || !decisionText.trim()}
-										onclick={() => decide(proposal, 'promote')}
-										>{saving ? 'Recording…' : 'Promote release'}</button
+										disabled={saving}
+										onclick={() => (deciding = null)}>Cancel</button
 									>
 								</div>
-							{:else}
-								<button
-									class="btn small"
-									type="button"
-									onclick={() => {
-										deciding = proposal.id;
-										decisionText = '';
-									}}>Review proposal</button
-								>
-							{/if}
-						</article>
-					{/each}
-				</div>
-			</section>
+							</div>
+						{/if}
+					</Item>
+				{/each}
+			</Section>
+		{/if}
+
+		{#if openDrift.length}
+			<Section
+				title="Artifacts affected by a change"
+				count={openDrift.length}
+				info="A newer identity changed something an existing artifact depends on. Decide what happens to each one."
+			>
+				{#each openDrift as finding (finding.id)}
+					<Item
+						title={finding.dependency}
+						meta={sentence(finding.kind)}
+						onclick={() => {
+							migrationFinding = migrationFinding === finding.id ? null : finding.id;
+							migrationDisposition = 'revise';
+							migrationRationale = '';
+						}}
+						selected={migrationFinding === finding.id}
+					>
+						{#snippet leading()}<GitBranch size={15} strokeWidth={1.8} />{/snippet}
+						{#snippet trailing()}<ChevronRight
+								size={14}
+								strokeWidth={1.8}
+								aria-hidden="true"
+							/>{/snippet}
+						{#if migrationFinding === finding.id}
+							<div class="decision">
+								<p class="consequence">{finding.consequence}</p>
+								<Segmented
+									label="What should happen to this artifact"
+									options={DISPOSITIONS}
+									value={migrationDisposition}
+									onchange={(value) => (migrationDisposition = value)}
+								/>
+								<textarea
+									bind:value={migrationRationale}
+									aria-label="Your reason"
+									placeholder="Why this is right for this artifact"></textarea>
+								<div class="decision-bar">
+									<button
+										class="btn primary small"
+										type="button"
+										disabled={saving || !migrationRationale.trim()}
+										onclick={() => decideMigration(finding)}
+										>{saving ? 'Recording…' : 'Record decision'}</button
+									>
+									<button
+										class="btn small ghost"
+										type="button"
+										onclick={() => (migrationFinding = null)}>Cancel</button
+									>
+								</div>
+							</div>
+						{/if}
+					</Item>
+				{/each}
+			</Section>
+		{/if}
+
+		<IdentityEditor {companyId} {view} onSaved={() => source.refresh()} />
+
+		{#if view.current_release}
+			<Section
+				title="Current version"
+				info="New work uses this version. A later version never changes finished work."
+			>
+				<Row label="Effective">
+					<span title={formatMoment(view.current_release.effective_from)}
+						>{when(view.current_release.effective_from)}</span
+					>
+				</Row>
+				<Row label="Promoted by">{view.current_release.promoted_by}</Row>
+				<Row
+					label="Bound artifacts"
+					info="Artifacts that were produced against this exact identity."
+				>
+					{view.constitution_artifact_bindings.length}{#if staleBindings}<span class="warn"
+							>{' · '}{staleBindings} need review</span
+						>{/if}
+				</Row>
+				<Row label="What changed" stack>
+					<span class="change">{view.current_release.change_account}</span>
+				</Row>
+			</Section>
 		{/if}
 
 		{#if currentEvidence.length}
-			{#if voiceContracts.length || voiceReviews.length}
-				<section class="voice-in-use" aria-labelledby="voice-in-use-title">
-					<div class="section-heading">
-						<h2 id="voice-in-use-title">Voice in use</h2>
-						<InfoTip
-							text="Every voice-producing Work keeps one explicit reader, author, proof and consequence contract. Copy-desk decisions attach to the exact native artifact reviewed."
-						/>
-					</div>
-					<div class="voice-ledger">
-						<div class="voice-contract-list">
-							<h3>Bound situations</h3>
-							{#each voiceContracts.slice(-6).reverse() as contract (contract.work_id)}
-								<article>
-									<div>
-										<strong>{words(contract.channel)}</strong>
-										<span>{contract.author} → {contract.audience}</span>
-									</div>
-									<p>{contract.reader_situation}</p>
-									<small>Proof: {contract.proof} · bound by {contract.bound_by}</small>
-								</article>
-							{/each}
-						</div>
-						<div class="voice-review-list">
-							<h3>Native copy desk</h3>
-							{#each voiceReviews.slice(-6).reverse() as review (review.id)}
-								<article class:accepted={review.verdict === 'accept'}>
-									<header>
-										<strong>{words(review.verdict)}</strong>
-										<span>{renderFor(review) ? words(renderFor(review)!.channel) : 'artifact'}</span
-										>
-									</header>
-									<p>{firstFinding(review)}</p>
-									<small>{review.reviewer} · {when(review.created_at)}</small>
-								</article>
-							{/each}
-							{#if !voiceReviews.length}<p class="pillar-empty">
-									No native copy-desk decision yet.
-								</p>{/if}
-						</div>
-					</div>
-				</section>
-			{/if}
+			<Section
+				title="Released statements"
+				count={currentEvidence.length}
+				info="Every statement in the current version, with its kind and source."
+			>
+				{#each PILLARS as [key, label] (key)}
+					{@const items = currentEvidence.filter((item) => item.pillar === key)}
+					<Fold {label} count={items.length}>
+						{#if items.length}
+							<ul class="statements">
+								{#each items as item (item.id)}
+									<li class:negative={item.polarity === 'negative'}>
+										<span
+											class="kind"
+											title={item.source === 'owner_identity_editor'
+												? 'Your direction'
+												: `${item.author_id} · ${item.evidence_locator}`}
+											>{sentence(item.statement_kind)}{item.polarity === 'negative'
+												? ' · avoid'
+												: ''}</span
+										>{item.statement}
+									</li>
+								{/each}
+							</ul>
+						{:else}<p class="fold-empty">Nothing released for {label.toLowerCase()}.</p>{/if}
+					</Fold>
+				{/each}
+			</Section>
+		{/if}
 
-			{#if visualContracts.length || visualReviews.length}
-				<section class="visual-in-use" aria-labelledby="visual-in-use-title">
-					<div class="section-heading">
-						<h2 id="visual-in-use-title">Visual language in use</h2>
-						<InfoTip
-							text="Visual direction binds product truth, one outcome and native review states. Registry primitives are inspectable capabilities, never a component quota."
-						/>
-					</div>
-					<div class="visual-ledger">
-						<div class="visual-contract-list">
-							<h3>Native targets</h3>
-							{#each visualContracts.slice(-6).reverse() as contract (contract.work_id)}
-								<article>
-									<header>
-										<strong>{words(contract.channel)}</strong><span
-											>{words(contract.product_representation)}</span
-										>
-									</header>
-									<p>{contract.outcome}</p>
-									<small>{contract.information_hierarchy}</small>
-									{#if contract.requested_departure}<em
-											>Departure: {contract.requested_departure}</em
-										>{/if}
-								</article>
-							{/each}
-						</div>
-						<div class="visual-review-list">
-							<h3>Native art direction</h3>
-							{#each visualReviews.slice(-6).reverse() as review (review.id)}
-								<article class:accepted={review.verdict === 'accept'}>
-									<header>
-										<strong>{words(review.verdict)}</strong><span
-											>{visualRenderFor(review)
-												? `${visualRenderFor(review)!.viewport_width} × ${visualRenderFor(review)!.viewport_height} · ${words(visualRenderFor(review)!.motion_state)}`
-												: 'exact artifact'}</span
-										>
-									</header>
-									<p>{visualFinding(review)}</p>
-									{#if review.control_render_evidence_id}<small
-											>Compared with restrained control</small
-										>{/if}
-									{#if review.departure_decision}<em>{review.departure_decision}</em>{/if}
-								</article>
-							{/each}
-							{#if !visualReviews.length}<p class="pillar-empty">
-									No native art-direction decision yet.
-								</p>{/if}
-						</div>
-					</div>
-					{#if visualUses.length}<p class="visual-use-account">
-							{visualUses.length} exact primitive {visualUses.length === 1 ? 'version' : 'versions'} used
-							across bound Work. Availability does not imply use.
-						</p>{/if}
-				</section>
-			{/if}
-
-			{#if cultureContracts.length || cultureReviews.length}
-				<section class="culture-in-use" aria-labelledby="culture-in-use-title">
-					<div class="section-heading">
-						<h2 id="culture-in-use-title">Operating culture in use</h2>
-						<InfoTip
-							text="Culture here means observed conduct under consequence. It cannot score people, infer personality, grant authority or suppress disagreement."
-						/>
-					</div>
-					<div class="visual-ledger">
-						<div class="visual-contract-list">
-							<h3>Bound situations</h3>
-							{#each cultureContracts.slice(-6).reverse() as contract (contract.work_id)}<article>
-									<header>
-										<strong>{words(contract.case_kind)}</strong><span
-											>{contract.actor_role} · {contract.team}</span
-										>
-									</header>
-									<p>{contract.consequence}</p>
-									<small>{contract.decision_boundary}</small>
-								</article>{/each}
-						</div>
-						<div class="visual-review-list">
-							<h3>Independent conduct review</h3>
-							{#each cultureReviews.slice(-6).reverse() as review (review.id)}<article
-									class:accepted={review.verdict === 'accept'}
-								>
-									<header>
-										<strong>{words(review.verdict)}</strong><span
-											>{cultureCaseFor(review)
-												? words(cultureCaseFor(review)!.case_kind)
-												: 'exact case'}</span
-										>
-									</header>
-									<p>{cultureFinding(review)}</p>
-									{#if cultureCaseFor(review)?.correction_of}<small
-											>Visible correction · original retained</small
-										>{/if}
-								</article>{/each}
-							{#if !cultureReviews.length}<p class="pillar-empty">
-									No independent conduct decision yet.
-								</p>{/if}
-						</div>
-					</div>
-				</section>
-			{/if}
-
-			<section class="evidence-section">
-				<div class="section-heading">
-					<h2>Company identity</h2>
-					<InfoTip
-						text="Each statement keeps its kind (fact, belief, guidance or example) and links to its source."
-					/>
-				</div>
-				<div class="pillar-grid">
-					{#each ['truth', 'voice', 'visual', 'culture'] as pillar}
-						<section class="pillar">
-							<header>
-								<h3>{pillar}</h3>
-								<span>{currentEvidence.filter((item) => item.pillar === pillar).length}</span>
-							</header>
-							{#each currentEvidence.filter((item) => item.pillar === pillar) as item (item.id)}
-								<article
-									class:negative={item.polarity === 'negative'}
-									class:disputed={item.status === 'disputed'}
-								>
-									<div class="evidence-kind">
-										{cultureDetail(item.id)
-											? words(cultureDetail(item.id)!.kind)
-											: visualDetail(item.id)
-												? words(visualDetail(item.id)!.kind)
-												: voiceDetail(item.id)
-													? words(voiceDetail(item.id)!.kind)
-													: words(item.statement_kind)}{item.polarity === 'negative'
-											? ' · negative evidence'
-											: ''}
-									</div>
-									<p>{item.statement}</p>
-									{#if voiceDetail(item.id)}
-										<p class="voice-judgement">Why: {voiceDetail(item.id)!.judgement_reason}</p>
-										<div class="voice-scopes">
-											{#if voiceDetail(item.id)!.channel}<span
-													>{words(voiceDetail(item.id)!.channel!)}</span
-												>{/if}
-											{#if voiceDetail(item.id)!.named_author}<span
-													>{voiceDetail(item.id)!.named_author}</span
-												>{/if}
-											{#if voiceDetail(item.id)!.audience}<span
-													>{voiceDetail(item.id)!.audience}</span
-												>{/if}
-										</div>
-									{/if}
-									{#if cultureDetail(item.id)}
-										<p class="voice-judgement">Observed: {cultureDetail(item.id)!.conduct}</p>
-										<p class="voice-judgement">
-											Consequence: {cultureDetail(item.id)!.consequence}
-										</p>
-										<div class="voice-scopes">
-											<span>{words(cultureDetail(item.id)!.confidence)}</span><span
-												>{cultureDetail(item.id)!.actor_scope}</span
-											>{#if cultureDetail(item.id)!.case_kind}<span
-													>{words(cultureDetail(item.id)!.case_kind!)}</span
-												>{/if}
-										</div>
-										<p class="culture-counterexample">
-											<strong>Counterexample</strong>
-											{cultureDetail(item.id)!.counterexample}
-										</p>
-										<p class="culture-boundary">
-											<strong>Boundary</strong>
-											{cultureDetail(item.id)!.boundary_conditions}
-										</p>
-									{/if}
-									{#if visualDetail(item.id)}
-										<p class="voice-judgement">Why: {visualDetail(item.id)!.rationale}</p>
-										<div class="voice-scopes">
-											<span>{visualDetail(item.id)!.purpose}</span>
-											{#if visualDetail(item.id)!.channel}<span
-													>{words(visualDetail(item.id)!.channel!)}</span
-												>{/if}
-											{#if visualDetail(item.id)!.licence}<span
-													>{visualDetail(item.id)!.licence} · {visualDetail(item.id)!
-														.framework}</span
-												>{/if}
-											{#if visualDetail(item.id)!.reduced_motion_replacement}<span
-													>Reduced: {visualDetail(item.id)!.reduced_motion_replacement}</span
-												>{/if}
-										</div>
-									{/if}
-									<footer>
-										{#if item.source === 'owner_identity_editor'}<span
-												>Owner-authored direction</span
-											>{:else}<details>
-												<summary>Source · {item.author_id}</summary><span>{item.source}</span><code
-													>{item.evidence_locator}</code
-												>
-											</details>{/if}
-									</footer>
-								</article>
-							{/each}
-							{#if !currentEvidence.some((item) => item.pillar === pillar)}
-								<p class="pillar-empty">No released {pillar} evidence.</p>
-							{/if}
-						</section>
-					{/each}
-				</div>
-			</section>
+		{#if usage.length}
+			<Section
+				title="Reviews"
+				count={usage.length}
+				info="What independent reviewers found when work used the identity."
+			>
+				<Fold label="Show reviews">
+					<ul class="statements">
+						{#each usage.slice(-20).reverse() as review (review.id)}
+							<li>
+								<span class="kind">{review.pillar} · {words(review.verdict)}</span
+								>{review.finding || 'No finding recorded.'}
+							</li>
+						{/each}
+					</ul>
+				</Fold>
+			</Section>
 		{/if}
 
 		{#if view.releases.length > 1}
-			<section class="release-history">
-				<h2>Version history</h2>
+			<Section title="Version history" count={view.releases.length}>
 				{#each view.releases as release (release.id)}
-					<details class="identity-version">
-						<summary
-							>{when(release.effective_from)}{release.id === view.current_release?.id
-								? ' · Current'
-								: ''}</summary
-						>
-						<p>{release.change_account} · {release.promoted_by}</p>
-						{#each view.release_evidence.filter((link) => link.release_id === release.id) as link}
-							{@const evidence = view.evidence.find((item) => item.id === link.evidence_id)}
-							{#if evidence}<div class="version-statement">
-									<strong>{words(evidence.pillar)}</strong>
-									<p>{evidence.statement}</p>
-								</div>{/if}
-						{/each}
-					</details>
+					<Fold
+						label={release.change_account}
+						hint={`${release.id === view.current_release?.id ? 'Current · ' : ''}${when(release.effective_from)}`}
+					>
+						<ul class="statements">
+							{#each view.release_evidence.filter((link) => link.release_id === release.id) as link (link.evidence_id)}
+								{@const evidence = view.evidence.find((item) => item.id === link.evidence_id)}
+								{#if evidence}<li>
+										<span class="kind">{sentence(evidence.pillar)}</span>{evidence.statement}
+									</li>{/if}
+							{/each}
+						</ul>
+					</Fold>
 				{/each}
-			</section>
+			</Section>
 		{/if}
 	{:else if source.failure}
 		<FailureNotice
@@ -699,537 +417,66 @@
 	{:else}
 		<Skeleton label="Reading company identity…" variant="page" count={4} />
 	{/if}
-</div>
+</Page>
 
 <style>
-	.release-details {
-		margin-block: var(--space-4);
-		color: var(--text-secondary);
-	}
-	.release-details summary,
-	.identity-version summary {
-		cursor: pointer;
-		padding-block: var(--space-3);
-	}
-	.identity-version {
-		border-top: 1px solid var(--border);
-		padding-block: var(--space-2);
-	}
-	.version-statement p {
-		white-space: pre-wrap;
-		overflow-wrap: anywhere;
-	}
-	.identity-page > section {
-		margin-block: var(--space-5);
-	}
-
-	.identity-page {
-		gap: 24px;
-		container-type: inline-size;
-	}
-	.identity-title {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-	}
-	.identity-message {
-		padding: 10px 12px;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-control);
-		background: var(--surface);
-		color: var(--text-secondary);
-	}
-	.identity-message.failure {
-		border-color: color-mix(in srgb, var(--state-danger) 35%, var(--border));
-		color: var(--state-danger);
-	}
-	.release-ledger {
-		display: grid;
-		grid-template-columns: auto minmax(0, 1fr) auto;
-		gap: 24px;
-		align-items: stretch;
-		padding: 22px;
-		border: 1px solid var(--border-strong);
-		border-radius: var(--radius-pane);
-		background: var(--surface);
-		box-shadow: var(--bevel-subtle);
-	}
-	.release-mark {
-		display: grid;
-		place-content: center;
-		width: 116px;
-		aspect-ratio: 1;
-		border: 1px solid var(--border-strong);
-		border-radius: 50%;
-		text-align: center;
-		box-shadow: inset 0 0 0 5px var(--surface-alt);
-	}
-	.release-mark span {
-		color: var(--text-secondary);
-		font-size: var(--t-label);
-	}
-	.release-mark strong {
-		font: 600 var(--t-body) var(--font-ui);
-		font-variant-numeric: tabular-nums;
-		letter-spacing: normal;
-	}
-	.release-account > p {
-		max-width: 68ch;
-		margin: 10px 0 16px;
-		color: var(--text-secondary);
-	}
-	.release-account dl {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 12px 24px;
-		margin: 0;
-	}
-	.release-account dl div {
-		display: grid;
-		gap: 2px;
-	}
-	.release-account dt {
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	.release-account dd {
-		margin: 0;
-		color: var(--ink);
-		font-size: var(--t-body);
-	}
-	.binding-facts {
-		display: grid;
-		align-content: center;
-		min-width: 150px;
-		padding-left: 22px;
-		border-left: 1px solid var(--border);
-	}
-	.binding-facts strong {
-		font-size: var(--t-head);
-		line-height: 1;
-	}
-	.binding-facts span {
-		margin-top: 5px;
-		color: var(--text-secondary);
-	}
-	.binding-facts em {
-		max-width: 20ch;
-		margin-top: 12px;
-		color: var(--warning, #9a6500);
-		font-size: var(--t-label);
-		font-style: normal;
-	}
-	.proposal-section,
-	.voice-in-use,
-	.visual-in-use,
-	.culture-in-use,
-	.evidence-section,
-	.release-history {
-		display: grid;
-		gap: 14px;
-	}
-	.proposal-list {
-		display: grid;
-		gap: 10px;
-	}
-	.proposal-card {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto auto;
-		align-items: center;
-		gap: 18px;
-		padding: 16px 18px;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-pane);
-		background: var(--surface);
-	}
-	.proposal-card > div:first-child {
-		display: grid;
-		gap: 4px;
-	}
-	.proposal-card > div:first-child span {
-		color: var(--text-secondary);
-		font-size: var(--t-label);
-	}
-	.proposal-evidence {
-		display: flex;
-		flex-wrap: wrap;
-		justify-content: flex-end;
-		gap: 5px;
-	}
-	.proposal-evidence span {
-		padding: 3px 7px;
-		border-radius: 999px;
-		background: var(--surface-alt);
-		color: var(--text-secondary);
-		font-size: var(--t-label);
-	}
-	.proposal-card label {
-		grid-column: 1 / -1;
-		display: grid;
-		gap: 6px;
-	}
-	.proposal-card label span {
-		color: var(--text-secondary);
-		font-size: var(--t-body);
-	}
-	.proposal-card textarea {
-		min-height: 84px;
-		resize: vertical;
-		padding: 10px 12px;
-		border: 1px solid var(--border-strong);
-		border-radius: var(--radius-control);
-		background: var(--surface);
-		color: var(--ink);
-		font: inherit;
-	}
-	.proposal-actions {
-		grid-column: 1 / -1;
-		display: flex;
-		justify-content: flex-end;
-		gap: 8px;
-	}
-	.voice-ledger {
-		display: grid;
-		grid-template-columns: minmax(0, 1.2fr) minmax(260px, 0.8fr);
-		gap: 12px;
-	}
-	.visual-ledger {
-		display: grid;
-		grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
-		gap: 12px;
-	}
-	.visual-contract-list,
-	.visual-review-list {
-		min-width: 0;
-		overflow: hidden;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-pane);
-		background: var(--surface);
-	}
-	.visual-ledger h3 {
-		margin: 0;
-		padding: 12px 14px;
-		border-bottom: 1px solid var(--border);
-		background: var(--surface-alt);
-		font-size: var(--t-body);
-	}
-	.visual-ledger article {
-		display: grid;
-		gap: 6px;
-		padding: 13px 14px;
-		border-bottom: 1px solid var(--border);
-	}
-	.visual-ledger article:last-child {
-		border-bottom: 0;
-	}
-	.visual-ledger header {
-		display: flex;
-		justify-content: space-between;
-		gap: 12px;
-		align-items: baseline;
-	}
-	.visual-ledger p {
-		margin: 0;
-		color: var(--text-secondary);
-	}
-	.visual-ledger span,
-	.visual-ledger small {
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	.visual-ledger em {
-		color: var(--text-secondary);
-		font-size: var(--t-label);
-		font-style: normal;
-	}
-	.visual-review-list article:not(.accepted) {
-		box-shadow: inset 3px 0 var(--warning, #9a6500);
-	}
-	.visual-review-list article.accepted strong {
-		color: var(--state-success);
-	}
-	.visual-use-account {
-		margin: 0;
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	.culture-counterexample,
-	.culture-boundary {
-		margin: 0;
-		padding: 7px 8px;
-		border-left: 2px solid var(--border-strong);
-		background: var(--surface-alt);
-		color: var(--text-secondary);
-		font-size: var(--t-label);
-	}
-	.culture-counterexample strong,
-	.culture-boundary strong {
-		margin-right: 4px;
-		color: var(--ink);
-	}
-	.voice-contract-list,
-	.voice-review-list {
-		min-width: 0;
-		overflow: hidden;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-pane);
-		background: var(--surface);
-	}
-	.voice-contract-list > h3,
-	.voice-review-list > h3 {
-		margin: 0;
-		padding: 12px 14px;
-		border-bottom: 1px solid var(--border);
-		background: var(--surface-alt);
-		font-size: var(--t-body);
-	}
-	.voice-ledger article {
-		display: grid;
-		gap: 6px;
-		padding: 13px 14px;
-		border-bottom: 1px solid var(--border);
-	}
-	.voice-ledger article:last-child {
-		border-bottom: 0;
-	}
-	.voice-ledger article > div,
-	.voice-ledger article > header {
-		display: flex;
-		align-items: baseline;
-		justify-content: space-between;
-		gap: 12px;
-	}
-	.voice-ledger article p {
-		margin: 0;
-		color: var(--text-secondary);
-	}
-	.voice-ledger article span,
-	.voice-ledger article small {
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	.voice-review-list article:not(.accepted) {
-		box-shadow: inset 3px 0 var(--warning, #9a6500);
-	}
-	.voice-review-list article.accepted strong {
-		color: var(--state-success);
-	}
-	.voice-judgement {
-		color: var(--text-secondary) !important;
-		font-size: var(--t-body);
-	}
-	.voice-scopes {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 5px;
-	}
-	.voice-scopes span {
-		padding: 2px 6px;
-		border: 1px solid var(--border);
-		border-radius: 999px;
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	.pillar-grid {
-		display: grid;
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-		gap: 12px;
-	}
-	.pillar {
-		min-width: 0;
-		overflow: hidden;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-pane);
-		background: var(--surface);
-	}
-	.pillar > header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 12px 14px;
-		border-bottom: 1px solid var(--border);
-		background: var(--surface-alt);
-	}
-	.pillar h3 {
-		margin: 0;
-		text-transform: capitalize;
-		font-size: var(--t-body);
-	}
-	.pillar > header span {
-		color: var(--text-tertiary);
-		font: var(--t-label) var(--font-ui);
-		font-variant-numeric: tabular-nums;
-	}
-	.pillar article {
-		display: grid;
-		gap: 7px;
-		padding: 14px;
-		border-bottom: 1px solid var(--border);
-	}
-	.pillar article:last-child {
-		border-bottom: 0;
-	}
-	.pillar article.negative {
-		box-shadow: inset 3px 0 var(--state-danger);
-	}
-	.pillar article.disputed {
-		background: color-mix(in srgb, var(--state-danger) 5%, var(--surface));
-	}
-	.evidence-kind {
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-		text-transform: capitalize;
-	}
-	.pillar article p {
-		margin: 0;
-		color: var(--ink);
-	}
-	.pillar article footer {
-		display: grid;
-		gap: 3px;
-		color: var(--text-secondary);
-		font-size: var(--t-label);
-	}
-	.pillar article code {
-		overflow: hidden;
-		color: var(--text-tertiary);
-		font: var(--t-label) var(--font-mono);
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.pillar-empty {
-		margin: 0;
-		padding: 18px 14px;
-		color: var(--text-tertiary);
-		font-size: var(--t-body);
-	}
-	.identity-impact,
-	.impact-list {
-		display: grid;
-		gap: 12px;
-	}
-	.impact-card {
-		display: grid;
-		gap: 10px;
-		padding: 16px 18px;
-		border: 1px solid color-mix(in srgb, var(--warning, #9a6500) 35%, var(--border));
-		border-radius: var(--radius-pane);
-		background: var(--surface);
-		box-shadow: inset 3px 0 var(--warning, #9a6500);
-	}
-	.impact-card > header {
-		display: flex;
-		align-items: start;
-		justify-content: space-between;
-		gap: 16px;
-	}
-	.impact-card > header div {
-		display: grid;
-		gap: 3px;
-	}
-	.impact-card > header span,
-	.impact-card small,
-	.learning-account {
-		color: var(--text-secondary);
-		font-size: var(--t-body);
-	}
-	.impact-card p,
-	.learning-account {
-		margin: 0;
-	}
-	.impact-card code {
-		color: var(--text-tertiary);
-		font: var(--t-label) var(--font-mono);
-	}
-	.migration-decision {
+	.decision {
 		display: grid;
 		gap: 12px;
 		padding-top: 4px;
-		border-top: 1px solid var(--border);
 	}
-	.migration-decision fieldset {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 8px 16px;
-		margin: 0;
-		padding: 0;
-		border: 0;
-	}
-	.migration-decision legend,
-	.migration-decision > label {
+	.decision textarea {
 		width: 100%;
-		color: var(--text-secondary);
-		font-size: var(--t-body);
+		min-height: 72px;
 	}
-	.migration-decision > label {
-		display: grid;
-		gap: 6px;
-	}
-	.migration-decision fieldset label {
+	.decision-bar {
 		display: flex;
 		align-items: center;
-		gap: 5px;
-		text-transform: capitalize;
+		gap: var(--space-2);
 	}
-	@media (max-width: 820px) {
-		.voice-ledger,
-		.visual-ledger {
-			grid-template-columns: 1fr;
-		}
-		.release-ledger {
-			grid-template-columns: auto 1fr;
-		}
-		.binding-facts {
-			grid-column: 1 / -1;
-			padding: 14px 0 0;
-			border-top: 1px solid var(--border);
-			border-left: 0;
-		}
-		.proposal-card {
-			grid-template-columns: 1fr;
-		}
-		.proposal-evidence {
-			justify-content: flex-start;
-		}
-		.pillar-grid {
-			grid-template-columns: 1fr;
-		}
+	.consequence {
+		margin: 0;
+		color: var(--text-secondary);
+		line-height: 1.55;
 	}
-	@container (max-width: 720px) {
-		.visual-ledger {
-			grid-template-columns: 1fr;
-		}
-		.release-ledger {
-			grid-template-columns: 1fr;
-		}
-		.release-mark {
-			width: 88px;
-		}
-		.binding-facts {
-			grid-column: 1;
-			padding: 14px 0 0;
-			border-top: 1px solid var(--border);
-			border-left: 0;
-		}
-		.proposal-card {
-			grid-template-columns: 1fr;
-		}
-		.proposal-evidence {
-			justify-content: flex-start;
-		}
-		.proposal-card > .btn {
-			justify-self: start;
-		}
-		.pillar-grid {
-			grid-template-columns: 1fr;
-		}
+	.statements {
+		display: grid;
+		gap: 10px;
+		margin: 0;
+		padding: 0 16px 14px 40px;
+		list-style: none;
+		color: var(--ink);
+		font-size: var(--t-body);
+		line-height: 1.55;
 	}
-	@media (max-width: 540px) {
-		.release-ledger {
-			grid-template-columns: 1fr;
-		}
-		.release-mark {
-			width: 88px;
-		}
+	.decision .statements {
+		padding: 0;
+	}
+	.statements li {
+		display: grid;
+		gap: 2px;
+		overflow-wrap: anywhere;
+		white-space: pre-wrap;
+	}
+	.statements li.negative {
+		color: var(--text-secondary);
+	}
+	.kind {
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+		white-space: normal;
+	}
+	.fold-empty {
+		margin: 0;
+		padding: 0 16px 14px 40px;
+		color: var(--text-tertiary);
+	}
+	.change {
+		color: var(--text-secondary);
+		line-height: 1.55;
+		white-space: pre-wrap;
+	}
+	.warn {
+		color: var(--intent-authority);
 	}
 </style>
