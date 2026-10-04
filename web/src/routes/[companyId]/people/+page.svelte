@@ -3,8 +3,6 @@
 	import { initials } from '$lib/model/initials';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
-	import FileText from '@lucide/svelte/icons/file-text';
-	import ConversationDocument from '$lib/components/ConversationDocument.svelte';
 	import Search from '@lucide/svelte/icons/search';
 	import Users from '@lucide/svelte/icons/users';
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
@@ -32,9 +30,7 @@
 	const owner = $derived(principal.view?.membership_role === 'owner');
 	const cockpit = $derived(cockpitQuery(companyId, () => owner));
 	const collaboration = $derived(
-		collaborationBootstrapQuery(companyId, () =>
-			owner && !page.url.searchParams.has('document') ? null : principal.view
-		)
+		collaborationBootstrapQuery(companyId, () => (owner ? null : principal.view))
 	);
 	const attention = $derived(attentionQuery(companyId, () => owner));
 	const people = $derived(
@@ -54,59 +50,11 @@
 	const roomId = $derived(page.url.searchParams.get('room') ?? '');
 	const personId = $derived(page.url.searchParams.get('person') ?? '');
 	const selectedPerson = $derived(people.find((p) => p.actor_id === personId));
-	const documentOpen = $derived(page.url.searchParams.has('document'));
-	const linkedRoomId = $derived(
-		roomId || rooms.rooms.find((r) => directPerson(r)?.actor_id === personId)?.id || ''
-	);
 	const selectedRoom = $derived(rooms.rooms.find((room) => room.id === roomId) ?? null);
 	const selectedDirectActorId = $derived(
 		selectedRoom ? (directPerson(selectedRoom)?.actor_id ?? '') : ''
 	);
-	function toggleDocument() {
-		const url = new URL(page.url);
-		if (documentOpen) url.searchParams.delete('document');
-		else url.searchParams.set('document', '');
-		void goto(url, { noScroll: true, keepFocus: true });
-	}
 	const explicitSelection = $derived(!!roomId || page.url.searchParams.has('person'));
-	const requestedView = $derived(page.url.searchParams.get('view'));
-	type PeopleView = 'people' | 'conversations';
-	const viewPreferenceKey = $derived(`restless:${companyId}:people-view`);
-	let preferredView = $state<PeopleView>('people');
-	let preferenceCompany = $state('');
-	$effect(() => {
-		const company = companyId;
-		if (!company) return;
-		preferenceCompany = company;
-		try {
-			preferredView =
-				localStorage.getItem(`restless:${company}:people-view`) === 'conversations'
-					? 'conversations'
-					: 'people';
-		} catch {
-			preferredView = 'people';
-		}
-	});
-	$effect(() => {
-		const view = requestedView;
-		if (!companyId || (view !== 'people' && view !== 'conversations')) return;
-		preferredView = view;
-		preferenceCompany = companyId;
-		try {
-			localStorage.setItem(viewPreferenceKey, view);
-		} catch {
-			// The URL remains authoritative if storage is unavailable.
-		}
-	});
-	const directory = $derived(
-		requestedView === 'people'
-			? true
-			: requestedView === 'conversations'
-				? false
-				: preferenceCompany === companyId
-					? preferredView === 'people'
-					: true
-	);
 	let search = $state('');
 	let debouncedSearch = $state('');
 	$effect(() => {
@@ -221,33 +169,24 @@
 		const query = search.trim().toLocaleLowerCase();
 		return people.filter((person) => person.kind === 'human' && matchesDirectory(person, query));
 	});
-	function setDirectory(next: boolean) {
-		const view: PeopleView = next ? 'people' : 'conversations';
-		preferredView = view;
-		preferenceCompany = companyId;
-		try {
-			localStorage.setItem(viewPreferenceKey, view);
-		} catch {
-			// Keep the current selection usable when browser storage is unavailable.
-		}
-		const url = new URL(page.url);
-		url.searchParams.set('view', view);
-		void goto(url, { noScroll: true, keepFocus: true });
-	}
 	function href(person: string, room = '') {
 		const params = new URLSearchParams(room ? { room } : person ? { person } : {});
-		params.set('view', directory ? 'people' : 'conversations');
-		const document = page.url.searchParams.get('document');
-		if (document !== null) params.set('document', document);
 		return `/${encodeURIComponent(companyId)}/people?${params}`;
 	}
 	function indexHref() {
 		const url = new URL(page.url);
 		for (const key of ['room', 'person', 'thread', 'message', 'mention', 'focus'])
 			url.searchParams.delete(key);
-		url.searchParams.set('view', directory ? 'people' : 'conversations');
+		url.searchParams.delete('view');
 		return `${url.pathname}${url.search}${url.hash}`;
 	}
+	$effect(() => {
+		if (explicitSelection || !owner || recent.status === 'unknown') return;
+		if (!window.matchMedia('(min-width: 761px)').matches) return;
+		const latest = rows[0]?.person ?? directoryExec?.actor_id;
+		if (latest) void goto(href(latest), { replaceState: true, noScroll: true, keepFocus: true });
+	});
+	const recentRows = $derived(search.trim() ? [] : rows.slice(0, 5));
 	function created(room: Room) {
 		void goto(href('', room.id));
 	}
@@ -260,11 +199,7 @@
 			companyId}</title
 	></svelte:head
 >
-<div
-	class="conversation-workspace"
-	class:selected={explicitSelection}
-	class:with-document={documentOpen}
->
+<div class="conversation-workspace" class:selected={explicitSelection}>
 	<aside class="conversation-index cockpit-pane" aria-label="Conversations">
 		<header class="cockpit-pane-head">
 			<h1>People</h1>
@@ -285,18 +220,6 @@
 				bind:value={search}
 			/></label
 		>
-		<nav class="tabs" aria-label="Conversation list">
-			<div class="lens-switch" class:board={!directory}>
-				<button class:active={directory} aria-pressed={directory} onclick={() => setDirectory(true)}
-					>People</button
-				>
-				<button
-					class:active={!directory}
-					aria-pressed={!directory}
-					onclick={() => setDirectory(false)}>Conversations</button
-				>
-			</div>
-		</nav>
 		<div class="entries">
 			{#snippet personStatuses(actorId: string, name: string)}
 				{@const status = personStatus(actorId)}
@@ -338,77 +261,74 @@
 					>
 				</a>
 			{/snippet}
-			{#if directory}
-				{#if directoryExec && matchesDirectory(directoryExec, search.trim().toLocaleLowerCase())}
-					<section class="directory-section executive-section" aria-label="Executive">
-						{@render directoryPerson(directoryExec, 'executive')}
-					</section>
-				{/if}
-				{#each directoryTeams as entry (entry.team.id)}
-					<section class="directory-section team-section" aria-label={entry.team.name}>
-						<header class="team-directory-head" title={entry.team.brief}>
-							<span><Users size={14} aria-hidden="true" /> {entry.team.name}</span>
-						</header>
-						{#if entry.lead}{@render directoryPerson(entry.lead, 'lead')}{/if}
-						{#each entry.members.filter((member) => entry.teamMatches || matchesDirectory(member, search
-										.trim()
-										.toLocaleLowerCase())) as member (member.actor_id)}
-							{@render directoryPerson(member, 'member')}
-						{/each}
-					</section>
-				{/each}
-				{#if directoryUnassigned.length}
-					<section class="directory-section" aria-label="Unassigned staff">
-						<header class="team-directory-head">
-							<span>Unassigned</span>
-						</header>
-						{#each directoryUnassigned as member (member.actor_id)}
-							{@render directoryPerson(member, 'member')}
-						{/each}
-					</section>
-				{/if}
-				{#if directoryHumans.length}
-					<section class="directory-section" aria-label="Human colleagues">
-						<header class="team-directory-head"><span>Colleagues</span></header>
-						{#each directoryHumans as colleague (colleague.actor_id)}
-							{@render directoryPerson(colleague, 'colleague')}
-						{/each}
-					</section>
-				{/if}
-				{#if !directoryExec && !directoryTeams.length && !directoryUnassigned.length && !directoryHumans.length}<p
-						class="empty"
-					>
-						No people match.
-					</p>{/if}
-			{:else}
-				{#each rows as row (row.key)}
-					<div
-						class="entry"
-						class:current={row.room ? roomId === row.room : !roomId && personId === row.person}
-					>
+			{#if recentRows.length}
+				<section class="directory-section" aria-label="Recent">
+					<header class="team-directory-head"><span>Recent</span></header>
+					{#each recentRows as row (row.key)}
 						<a
+							class="directory-person recent"
+							href={href(row.person, row.room)}
 							onclick={(event) => {
 								if (row.person && !row.room) void openPerson(event, row.person);
 							}}
-							href={href(row.person, row.room)}
 							aria-current={(row.room ? roomId === row.room : !roomId && personId === row.person)
 								? 'page'
 								: undefined}
 							title={row.hint}
 						>
-							<span class="avatar">{initials(row.name)}</span><span class="name">{row.name}</span
-							>{#if row.person}{@render personStatuses(row.person, row.name)}{/if}
+							<span class="avatar">{initials(row.name)}</span>
+							<span class="directory-person-copy"
+								><span class="name">{row.name}</span>{#if row.person}{@render personStatuses(
+										row.person,
+										row.name
+									)}{/if}</span
+							>
 						</a>
-					</div>
-				{:else}<p class="empty">
-						{recent.status === 'unknown'
-							? 'Loading conversations…'
-							: search.trim()
-								? 'No matches.'
-								: 'No conversations yet. Find someone in People to start one.'}
-					</p>{/each}
+					{/each}
+				</section>
 			{/if}
-			{#if search.trim() && !directory}
+			{#if directoryExec && matchesDirectory(directoryExec, search.trim().toLocaleLowerCase())}
+				<section class="directory-section executive-section" aria-label="Executive">
+					{@render directoryPerson(directoryExec, 'executive')}
+				</section>
+			{/if}
+			{#each directoryTeams as entry (entry.team.id)}
+				<section class="directory-section team-section" aria-label={entry.team.name}>
+					<header class="team-directory-head" title={entry.team.brief}>
+						<span><Users size={14} aria-hidden="true" /> {entry.team.name}</span>
+					</header>
+					{#if entry.lead}{@render directoryPerson(entry.lead, 'lead')}{/if}
+					{#each entry.members.filter((member) => entry.teamMatches || matchesDirectory(member, search
+									.trim()
+									.toLocaleLowerCase())) as member (member.actor_id)}
+						{@render directoryPerson(member, 'member')}
+					{/each}
+				</section>
+			{/each}
+			{#if directoryUnassigned.length}
+				<section class="directory-section" aria-label="Unassigned staff">
+					<header class="team-directory-head">
+						<span>Unassigned</span>
+					</header>
+					{#each directoryUnassigned as member (member.actor_id)}
+						{@render directoryPerson(member, 'member')}
+					{/each}
+				</section>
+			{/if}
+			{#if directoryHumans.length}
+				<section class="directory-section" aria-label="Human colleagues">
+					<header class="team-directory-head"><span>Colleagues</span></header>
+					{#each directoryHumans as colleague (colleague.actor_id)}
+						{@render directoryPerson(colleague, 'colleague')}
+					{/each}
+				</section>
+			{/if}
+			{#if !directoryExec && !directoryTeams.length && !directoryUnassigned.length && !directoryHumans.length}<p
+					class="empty"
+				>
+					No people match.
+				</p>{/if}
+			{#if search.trim()}
 				{#each messageSearch.messages.filter( (message) => recent.conversations.some((conversation) => conversation.room_id === message.room_id) ) as message (message.id)}
 					<a
 						class="search-result"
@@ -433,20 +353,9 @@
 		</div>
 	</aside>
 	<section class="conversation-main" aria-label="Selected conversation">
-		<a class="back" href={indexHref()}
-			><ArrowLeft size={16} /> {directory ? 'People' : 'Conversations'}</a
-		>
+		<a class="back" href={indexHref()}><ArrowLeft size={16} /> People</a>
 		{#if roomId || personId}
-			<RoomConversation>
-				{#snippet actions()}
-					<button
-						class="document-toggle"
-						title="Open a document alongside this conversation"
-						aria-label="Open document"
-						onclick={toggleDocument}><FileText size={17} /></button
-					>
-				{/snippet}
-			</RoomConversation>
+			<RoomConversation />
 		{:else}
 			<div class="conversation-empty cockpit-pane">
 				<span class="conversation-empty-mark" aria-hidden="true">
@@ -462,17 +371,6 @@
 			</div>
 		{/if}
 	</section>
-	{#if documentOpen}<ConversationDocument
-			{companyId}
-			companyUuid={collaboration.view
-				? collaboration.view.company.company_id
-				: collaboration.failure
-					? null
-					: undefined}
-			actorId={principal.view?.actor_id ?? ''}
-			roomId={linkedRoomId}
-			onclose={toggleDocument}
-		/>{/if}
 </div>
 
 <style>
@@ -532,15 +430,6 @@
 		font: inherit;
 		outline-offset: 3px;
 		color: var(--ink);
-	}
-	.tabs .lens-switch {
-		flex: 1;
-	}
-	.tabs {
-		display: flex;
-		gap: 4px;
-		padding: 0 8px 8px;
-		border-bottom: 1px solid var(--border);
 	}
 	.entries {
 		overflow-y: auto;
@@ -619,29 +508,6 @@
 		min-width: 0;
 		flex: 1;
 		overflow: hidden;
-	}
-	.entry {
-		display: flex;
-		align-items: center;
-		border-radius: var(--radius-control);
-		margin-bottom: 2px;
-	}
-	.entry:hover,
-	.entry.current {
-		background: var(--intent-conversation-soft);
-	}
-	.entry a {
-		display: flex;
-		align-items: center;
-		box-sizing: border-box;
-		height: 48px;
-		gap: 10px;
-		min-width: 0;
-		flex: 1;
-		padding: 10px 7px;
-		overflow: hidden;
-		color: var(--ink);
-		text-decoration: none;
 	}
 	.avatar {
 		width: 30px;
@@ -765,33 +631,9 @@
 	.back {
 		display: none;
 	}
-	.with-document {
-		grid-template-columns: 230px minmax(320px, 0.8fr) minmax(380px, 1.2fr);
-	}
-	.document-toggle {
-		border: 0;
-		background: transparent;
-		padding: 8px;
-		display: grid;
-		place-items: center;
-		color: var(--text-secondary);
-		cursor: pointer;
-	}
-	@media (min-width: 761px) and (max-width: 1100px) {
-		.with-document {
-			grid-template-columns: minmax(300px, 1fr) minmax(360px, 1fr);
-		}
-		.with-document .conversation-index {
-			display: none;
-		}
-	}
 	@media (max-width: 760px) {
 		.conversation-workspace {
 			grid-template-columns: minmax(0, 1fr);
-		}
-		.conversation-workspace.with-document .conversation-main,
-		.conversation-workspace.with-document .conversation-index {
-			display: none;
 		}
 		.conversation-main {
 			display: none;

@@ -2809,6 +2809,19 @@ impl OrgIntel {
         before_message_id: Option<i64>,
         limit: i64,
     ) -> Result<RoomMessageSearchPage> {
+        self.search_room_messages_in(requesting_actor, query, None, before_message_id, limit)
+            .await
+    }
+
+    /// The same search, optionally kept to one Room the Actor can see.
+    pub async fn search_room_messages_in(
+        &self,
+        requesting_actor: &str,
+        query: &str,
+        room_id: Option<Uuid>,
+        before_message_id: Option<i64>,
+        limit: i64,
+    ) -> Result<RoomMessageSearchPage> {
         let query = query.trim();
         if query.is_empty() || query.len() > MAX_ROOM_SEARCH_QUERY_BYTES {
             return Err(OrgIntelError::InvalidRoom(format!(
@@ -2848,6 +2861,7 @@ impl OrgIntel {
              LEFT JOIN room_message_revisions revision ON revision.id=message.latest_revision_id \
              WHERE message.deleted_at IS NULL \
                AND message.id<COALESCE($3,9223372036854775807) \
+               AND ($6::uuid IS NULL OR message.room_id=$6) \
                AND to_tsvector('simple',message.current_plain_text) \
                      @@ websearch_to_tsquery('simple',$2) \
              ORDER BY message.id DESC LIMIT $4",
@@ -2857,6 +2871,7 @@ impl OrgIntel {
         .bind(before_message_id)
         .bind(limit + 1)
         .bind(MAX_ROOM_SEARCH_SNIPPET_CHARACTERS)
+        .bind(room_id)
         .fetch_all(&mut *tx)
         .await?;
         let has_more = messages.len() as i64 > limit;

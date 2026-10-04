@@ -2,8 +2,7 @@
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
-	import { onDestroy, tick, untrack, type Snippet } from 'svelte';
-	let { actions }: { actions?: Snippet } = $props();
+	import { onDestroy, tick, untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
@@ -14,7 +13,9 @@
 	import X from '@lucide/svelte/icons/x';
 	import { initials } from '$lib/model/initials';
 	import AgentExchanges from '$lib/components/AgentExchanges.svelte';
-	import IntelligencePopover from '$lib/components/IntelligencePopover.svelte';
+	import IntelligenceChip from '$lib/components/IntelligenceChip.svelte';
+	import { composerOptions } from '$lib/model/composer-options.svelte';
+	import { runExecCommand } from '$lib/model/skills';
 	import ConversationTurnDock from '$lib/primitives/ConversationTurnDock.svelte';
 	import RoomMessage from '$lib/components/RoomMessage.svelte';
 	import RoomManager from '$lib/components/RoomManager.svelte';
@@ -153,6 +154,7 @@
 	let online = $state(true);
 	let composer = $state('');
 	let composerFiles = $state<File[]>([]);
+	let composerSkills = $state<string[]>([]);
 	let activeDraftKey = $state('');
 	let retryCommandId = $state<string | null>(null);
 	let retryBody = $state('');
@@ -222,7 +224,7 @@
 		};
 	});
 	const messageSearchProjection = $derived(
-		roomMessageSearchQuery(companyId, debouncedMessageSearch)
+		roomMessageSearchQuery(companyId, debouncedMessageSearch, selectedRoomId)
 	);
 	const revisionProjection = $derived(
 		selectedRoomId && historyMessageId
@@ -322,6 +324,7 @@
 			activeDraftKey = '';
 			composer = '';
 			composerFiles = [];
+			composerSkills = [];
 			retryCommandId = null;
 			retryBody = '';
 			sendError = '';
@@ -521,6 +524,11 @@
 				.filter((message) => !message.id.startsWith('optimistic:'))
 				.map((message) => [message.id, message])
 		)
+	);
+	const options = composerOptions(
+		() => companyId,
+		() => accountableDirect,
+		() => ownerAccess && directPartner === 'exec'
 	);
 	const leadTurn = $derived(accountableDirect ? (actorConversation?.activeTurn ?? null) : null);
 	function attentionFor(actorId: string): AttentionItem[] {
@@ -779,15 +787,6 @@
 		composer = `${composer.trimEnd()}${composer.trim() ? ' ' : ''}@${actor} `;
 	}
 
-	function includeDocumentLink() {
-		const id = page.url.searchParams.get('document');
-		if (!id) return;
-		const url = new URL(`/${encodeURIComponent(companyId)}/library/documents`, page.url.origin);
-		url.searchParams.set('document', id);
-		if (composer.includes(url.href)) return;
-		composer = `${composer.trimEnd()}${composer.trim() ? '\n\n' : ''}${url.href}`;
-	}
-
 	async function submitMessage(event: SubmitEvent) {
 		event.preventDefault();
 		const body = composer.trim();
@@ -811,6 +810,22 @@
 		const sendAsAccountableLead = accountableDirect && parent === null;
 		const targetConversation = actorConversation;
 		const files = [...composerFiles];
+		const skills = [...composerSkills];
+		if (sendAsAccountableLead && recipientActor === 'exec' && ownerAccess) {
+			const command = await runExecCommand(targetCompany, body).catch((cause) => ({
+				error: failureSentence(cause, 'That command did not run.'),
+				send: false,
+				notice: undefined
+			}));
+			if (!command.send) {
+				if (command.error) sendError = command.error;
+				else {
+					sendNotice = command.notice ?? '';
+					composer = '';
+				}
+				return;
+			}
+		}
 		const targetProjection = parent === null ? roomProjection : threadProjection;
 		const stillCurrent = () =>
 			companyId === targetCompany &&
@@ -845,7 +860,15 @@
 		try {
 			if (sendAsAccountableLead && targetConversation && recipientActor) {
 				const contextPath = cockpitContextPath(targetCompany, page.url);
-				const result = await targetConversation.send(body, files, contextPath, false, !!leadTurn);
+				const result = await targetConversation.send(
+					body,
+					files,
+					contextPath,
+					false,
+					!!leadTurn,
+					undefined,
+					skills
+				);
 				if (result.interrupted && stillCurrent())
 					sendNotice = `${actorName(recipientActor)} was interrupted and your new direction is queued.`;
 				void targetProjection?.refresh().catch(() => {});
@@ -949,7 +972,17 @@
 	}
 </script>
 
-<svelte:window bind:online onpagehide={flushDraft} />
+<svelte:window
+	bind:online
+	onpagehide={flushDraft}
+	onkeydown={(event) => {
+		if (!selectedRoomId || !(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'f')
+			return;
+		if (document.activeElement?.closest('.bridge-exrail')) return;
+		event.preventDefault();
+		messageSearchOpen = true;
+	}}
+/>
 <div
 	class="cockpit-screen rooms-screen"
 	class:room-selected={selectedRoomId !== '' || requestedPersonId !== ''}
@@ -960,25 +993,14 @@
 		{#if selectedRoomId}
 			<header class="room-head">
 				<div class="room-head-copy">
-					{#if directPerson && actorIsAgent(directPerson.actor_id)}
-						<IntelligencePopover
-							{companyId}
-							actorId={directPerson.actor_id}
-							label={directPerson.display}
+					{#if directPerson}
+						<span class="room-contact"
+							><span class="person-avatar">{initials(directPerson.display)}</span><strong
+								>{directPerson.display}</strong
+							></span
 						>
-							{#snippet children(tooltipId)}<button
-									class="room-contact"
-									aria-label={`${directPerson.display} intelligence settings`}
-									aria-describedby={tooltipId}
-									title={`Model settings for ${directPerson.display}`}
-								>
-									<span class="person-avatar">{initials(directPerson.display)}</span><strong
-										>{directPerson.display}</strong
-									>
-								</button>{/snippet}
-						</IntelligencePopover>
 					{:else}<strong>{roomLabel(selectedRoomId)}</strong>{/if}
-					{#if participantSummary}<small>{participantSummary}</small>{/if}
+					{#if participantSummary && !directPerson}<small>{participantSummary}</small>{/if}
 				</div>
 				{#if ownerAccess && isOwnerTeam(directTeam)}
 					<select
@@ -1000,8 +1022,8 @@
 					class="message-search-toggle"
 					class:active={messageSearchOpen}
 					aria-expanded={messageSearchOpen}
-					aria-label={messageSearchOpen ? 'Close message search' : 'Search conversation messages'}
-					title={messageSearchOpen ? 'Close message search' : 'Search conversation messages'}
+					aria-label={messageSearchOpen ? 'Close search' : 'Search this conversation (Ctrl+F)'}
+					title={messageSearchOpen ? 'Close search' : 'Search this conversation (Ctrl+F)'}
 					onclick={() => {
 						messageSearchOpen = !messageSearchOpen;
 						if (!messageSearchOpen) messageSearch = '';
@@ -1063,7 +1085,6 @@
 				{:else}
 					<span class="sr-only" role="status">Live</span>
 				{/if}
-				{@render actions?.()}
 			</header>
 			{#if ownerAccess && directPartner && actorIsAgent(directPartner)}
 				<div class="lead-exchanges"><AgentExchanges {companyId} actorId={directPartner} /></div>
@@ -1076,12 +1097,19 @@
 			{#if messageSearchOpen}
 				<label class="message-search-field">
 					<Search size={14} strokeWidth={1.9} aria-hidden="true" />
-					<span class="sr-only">Search all conversations</span>
+					<span class="sr-only">Search this conversation</span>
 					<input
 						bind:value={messageSearch}
 						type="search"
 						maxlength={256}
-						placeholder="Search all conversation messages"
+						placeholder="Search this conversation"
+						{@attach (input) => input.focus()}
+						onkeydown={(event) => {
+							if (event.key === 'Escape') {
+								messageSearch = '';
+								messageSearchOpen = false;
+							}
+						}}
 					/>
 				</label>
 			{/if}
@@ -1272,7 +1300,6 @@
 				<div>
 					<strong>Thread</strong><small>{Math.max(0, visibleThread.length - 1)} replies</small>
 				</div>
-				<div class="thread-actions">{@render actions?.()}</div>
 			</header>
 			{#if exactTargetState === 'locating'}
 				<div class="exact-target-state" role="status" aria-live="polite">
@@ -1371,6 +1398,8 @@
 		<Composer
 			bind:value={composer}
 			bind:files={composerFiles}
+			bind:selectedSkills={composerSkills}
+			options={threadRootId === null ? options.value : []}
 			actionLabel={leadTurn
 				? 'Interrupt and send'
 				: retryCommandId && retryBody === composer.trim()
@@ -1383,14 +1412,12 @@
 			ariaLabel={threadRootId ? 'Thread reply' : 'Conversation message'}
 		>
 			{#snippet controls()}
-				{#if page.url.searchParams.get('document')}
-					<button
-						type="button"
-						class="document-reference"
-						onclick={includeDocumentLink}
-						title="Add this document’s link to your draft. Document access stays unchanged."
-						>Include document link</button
-					>
+				{#if directPerson && actorIsAgent(directPerson.actor_id) && threadRootId === null}
+					<IntelligenceChip
+						{companyId}
+						actorId={directPerson.actor_id}
+						name={directPerson.display}
+					/>
 				{/if}
 				{#if !directPartner || !actorIsAgent(directPartner)}
 					<select
@@ -1454,10 +1481,6 @@
 		background: transparent;
 		color: var(--ink);
 		font: inherit;
-		cursor: pointer;
-	}
-	.room-contact:hover {
-		color: var(--intent-conversation);
 	}
 	.person-avatar {
 		display: grid;
@@ -1469,6 +1492,20 @@
 		border-radius: var(--radius-control);
 		background: var(--surface-alt);
 		font-size: var(--t-label);
+	}
+	.room-head :global(.room-manage-trigger) {
+		width: 30px;
+		height: 30px;
+		padding: 0;
+		justify-content: center;
+	}
+	.room-head :global(.room-manage-trigger span) {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
 	}
 	.team-standard {
 		max-width: 112px;
@@ -1490,22 +1527,6 @@
 		font-size: var(--t-label);
 	}
 
-	.thread-actions {
-		display: none;
-		margin-left: auto;
-	}
-	.thread-head > .thread-actions {
-		flex: 0 0 auto;
-	}
-	.document-reference {
-		border: 0;
-		background: transparent;
-		color: var(--intent-conversation);
-		font: inherit;
-		font-size: var(--t-label);
-		cursor: pointer;
-		padding: 4px;
-	}
 	.reply-picker {
 		max-width: 200px;
 		min-width: 0;
@@ -1907,9 +1928,6 @@
 		.room-head {
 			flex-wrap: wrap;
 		}
-		.room-head :global(.room-manage-trigger span) {
-			display: none;
-		}
 		.room-head-copy {
 			flex: 1 0 100%;
 		}
@@ -1928,9 +1946,6 @@
 		}
 		.rooms-screen.thread-selected .room-conversation {
 			display: none;
-		}
-		.thread-actions {
-			display: flex;
 		}
 	}
 

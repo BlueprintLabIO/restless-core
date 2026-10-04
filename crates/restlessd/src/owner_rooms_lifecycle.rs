@@ -62,6 +62,7 @@ struct RevisionPageQuery {
 #[serde(deny_unknown_fields)]
 struct MessageSearchQuery {
     q: String,
+    room_id: Option<Uuid>,
     before_message_id: Option<i64>,
     limit: Option<i64>,
 }
@@ -510,7 +511,13 @@ async fn search_messages(
         Err(response) => return response,
     };
     match org
-        .search_room_messages(principal.actor_id(), search, query.before_message_id, limit)
+        .search_room_messages_in(
+            principal.actor_id(),
+            search,
+            query.room_id,
+            query.before_message_id,
+            limit,
+        )
         .await
     {
         Ok(page) => lifecycle_json(

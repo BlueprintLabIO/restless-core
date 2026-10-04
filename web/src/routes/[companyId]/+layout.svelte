@@ -211,6 +211,12 @@
 	});
 	const railConnected = $derived(railConnectionStatus === 'available');
 	const companyComputerSurface = $derived(page.url.pathname === `/${companyId}/company/computer`);
+	/* People already shows the Exec conversation full width; a second copy in
+	 * the rail would only repeat it, so the rail steps aside while it is open. */
+	const execConversationSurface = $derived(
+		page.url.pathname === `/${companyId}/people` && page.url.searchParams.get('person') === 'exec'
+	);
+	const railYields = $derived(companyComputerSurface || execConversationSurface);
 	const immersiveComputer = $derived(
 		(companyComputerSurface && page.url.searchParams.get('focus') === 'desktop') ||
 			(page.url.pathname === `/${companyId}` && page.url.searchParams.has('computer'))
@@ -262,10 +268,10 @@
 		else if (readRail(companyId) !== 'setup') writeRail(companyId, 'closed');
 	});
 	$effect(() => {
-		if (companyComputerSurface && focusRailRestore === null) {
+		if (railYields && focusRailRestore === null) {
 			focusRailRestore = execRailOpen;
 			execRailOpen = false;
-		} else if (!companyComputerSurface && focusRailRestore !== null) {
+		} else if (!railYields && focusRailRestore !== null) {
 			execRailOpen = focusRailRestore;
 			focusRailRestore = null;
 		}
@@ -362,7 +368,8 @@
 		const path = page.url.pathname;
 		const root = `/${companyId}`;
 		if (path === `${root}/work` || path.startsWith(`${root}/work/`)) return 'Linked · Work';
-		if (path === `${root}/library` || path.startsWith(`${root}/library/`)) return 'Linked · Library';
+		if (path === `${root}/library` || path.startsWith(`${root}/library/`))
+			return 'Linked · Library';
 		if (path === `${root}/people` || path.startsWith(`${root}/people/`)) return 'Linked · People';
 		if (path === `${root}/company` || path.startsWith(`${root}/company/`))
 			return 'Linked · Company';

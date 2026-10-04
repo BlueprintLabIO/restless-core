@@ -7,7 +7,7 @@
 	 * chat inside the outcome surface. */
 
 	import { followChat } from '$lib/actions/follow-chat';
-	import IntelligencePopover from './IntelligencePopover.svelte';
+	import IntelligenceChip from './IntelligenceChip.svelte';
 	import { SvelteDate } from 'svelte/reactivity';
 	import Plus from '@lucide/svelte/icons/plus';
 	import RotateCw from '@lucide/svelte/icons/rotate-cw';
@@ -22,20 +22,8 @@
 	import type { ActiveAgentTurn, QuerySourceStatus } from '$lib/model/queries.svelte';
 	import type { OutcomeStandard } from '$lib/model/company';
 	import type { ThreadMessage } from '$lib/model/view';
-	import {
-		EXEC_COMMANDS,
-		addGoal,
-		addLoop,
-		cancelLoop,
-		closeGoal,
-		describeInterval,
-		fetchSkillLibrary,
-		listGoals,
-		listLoops,
-		parseComposerCommand,
-		skillOptions,
-		type ComposerOption
-	} from '$lib/model/skills';
+	import { runExecCommand } from '$lib/model/skills';
+	import { composerOptions, readDraft, writeDraft } from '$lib/model/composer-options.svelte';
 
 	let {
 		messages = [],
@@ -110,90 +98,19 @@
 	 * company library; the commands are Restless primitives offered only in the
 	 * Exec conversation, where they have one accountable meaning. */
 	let composerSkills = $state<string[]>([]);
-	let skillChoices = $state<ComposerOption[]>([]);
 	const execConversation = $derived(participantId === 'exec' && !review && !workContext);
-	const composerOptions = $derived(
-		execConversation && membershipRole === 'owner'
-			? [...EXEC_COMMANDS, ...skillChoices]
-			: skillChoices
+	const commandsAllowed = $derived(execConversation && membershipRole === 'owner');
+	const options = composerOptions(
+		() => companyId,
+		() => open && canOperate,
+		() => commandsAllowed
 	);
-	$effect(() => {
-		if (!open || !canOperate || !companyId) return;
-		let cancelled = false;
-		fetchSkillLibrary(companyId)
-			.then((library) => {
-				if (!cancelled) skillChoices = skillOptions(library);
-			})
-			.catch(() => {
-				/* The composer still works without skills; the library page reports why. */
-			});
-		return () => {
-			cancelled = true;
-		};
-	});
 
-	/* Returns a notice for commands handled without a message, or null to send. */
+	/* Returns a notice for commands handled without a message, or send: true. */
 	async function runCommand(
 		text: string
 	): Promise<{ notice?: string; error?: string; send: boolean }> {
-		const command =
-			execConversation && membershipRole === 'owner' ? parseComposerCommand(text) : null;
-		if (!command) return { send: true };
-		switch (command.kind) {
-			case 'invalid':
-				return { error: command.message, send: false };
-			case 'goal-set':
-				await addGoal(companyId, command.objective);
-				return { send: true };
-			case 'goal-show': {
-				const open = (await listGoals(companyId)).filter((goal) => !goal.closed_at);
-				return {
-					notice: open.length
-						? `Open goals: ${open.map((goal) => goal.title).join('; ')}`
-						: 'No open goals. Set one with /goal <objective>.',
-					send: false
-				};
-			}
-			case 'goal-clear': {
-				const open = (await listGoals(companyId)).filter((goal) => !goal.closed_at);
-				const latest = open.at(-1);
-				if (!latest) return { notice: 'There is no open goal to clear.', send: false };
-				await closeGoal(companyId, latest.id);
-				return { notice: `Closed the goal “${latest.title}”. Its work is unchanged.`, send: false };
-			}
-			case 'loop-set': {
-				const loop = await addLoop(companyId, command.every, command.prompt);
-				return {
-					notice: loop.created
-						? `Exec will check in every ${describeInterval(loop.interval_seconds)}: ${command.prompt}`
-						: `That loop is already running every ${describeInterval(loop.interval_seconds)}.`,
-					send: false
-				};
-			}
-			case 'loop-show': {
-				const loops = await listLoops(companyId);
-				return {
-					notice: loops.length
-						? loops
-								.map(
-									(loop) => `Every ${describeInterval(loop.interval_seconds ?? 0)}: ${loop.reason}`
-								)
-								.join(' · ')
-						: 'No loops are running. Start one with /loop 30m <what to check>.',
-					send: false
-				};
-			}
-			case 'loop-clear': {
-				const loops = await listLoops(companyId);
-				await Promise.all(loops.map((loop) => cancelLoop(companyId, loop.id)));
-				return {
-					notice: loops.length
-						? `Stopped ${loops.length} loop${loops.length === 1 ? '' : 's'}.`
-						: 'No loops were running.',
-					send: false
-				};
-			}
-		}
+		return commandsAllowed ? runExecCommand(companyId, text) : { send: true };
 	}
 
 	/* Day separators, same as the thread — computed from the record, so the
@@ -243,6 +160,22 @@
 	}
 
 	let composer = $state('');
+	/* The draft belongs to this company and this recipient, and survives a reload. */
+	const draftKey = $derived(`restless:${companyId}:rail-draft:${participantId}`);
+	let loadedDraftKey = '';
+	$effect(() => {
+		const key = draftKey;
+		if (key === loadedDraftKey) return;
+		loadedDraftKey = key;
+		composer = readDraft(key);
+	});
+	$effect(() => {
+		const key = draftKey,
+			body = composer;
+		if (key !== loadedDraftKey) return;
+		const timer = setTimeout(() => writeDraft(key, body), 150);
+		return () => clearTimeout(timer);
+	});
 	let composerFiles = $state<File[]>([]);
 	let includeContext = $state(true);
 	let contextFlare = $state(0);
@@ -437,24 +370,10 @@
 						<ArrowLeft size={18} aria-hidden="true" />
 					</button>
 				{/if}
-				<IntelligencePopover
-					{companyId}
-					actorId={participantId}
-					label={participantName}
-					align="start"
-				>
-					{#snippet children(tooltipId)}
-						<button
-							class="exr-who intelligence-trigger"
-							type="button"
-							aria-label={`${participantName} intelligence settings`}
-							aria-describedby={tooltipId}
-						>
-							<SemanticMark meaning={review || workContext ? 'work' : 'executive'} />
-							<strong class="exr-name">{participantName}</strong>
-						</button>
-					{/snippet}
-				</IntelligencePopover>
+				<div class="exr-who">
+					<SemanticMark meaning={review || workContext ? 'work' : 'executive'} />
+					<strong class="exr-name">{participantName}</strong>
+				</div>
 				{#if newFocusAvailable}
 					<button
 						class="exr-new-focus"
@@ -648,7 +567,7 @@
 							bind:value={composer}
 							bind:files={composerFiles}
 							bind:selectedSkills={composerSkills}
-							options={composerOptions}
+							options={options.value}
 							actionLabel={turn ? 'Queue direction' : 'Send'}
 							disabled={!canOperate ||
 								sending ||
@@ -666,6 +585,7 @@
 							focusKey={composerFocusKey}
 						>
 							{#snippet controls()}
+								<IntelligenceChip {companyId} actorId={participantId} name={participantName} />
 								{#if !review && !workContext}
 									<div class="exec-context-line">
 										<button
@@ -697,19 +617,6 @@
 </aside>
 
 <style>
-	.intelligence-trigger {
-		border: 0;
-		padding: 0;
-		background: transparent;
-		color: inherit;
-		cursor: help;
-	}
-	.intelligence-trigger:focus-visible {
-		outline: 2px solid var(--intent-conversation);
-		outline-offset: 4px;
-		border-radius: var(--radius-control);
-	}
-
 	.provider-connect-slot {
 		margin: var(--space-3);
 	}
@@ -724,13 +631,12 @@
 		align-items: center;
 		gap: 10px;
 	}
-	.exr-head-primary > :global(.intelligence-hover) {
-		min-width: 0;
-		margin-right: auto;
-	}
 	.exr-head-primary .exr-who {
 		min-width: 0;
 		flex: 1 1 auto;
+		display: flex;
+		align-items: center;
+		gap: 8px;
 	}
 	.exr-panel {
 		position: relative;

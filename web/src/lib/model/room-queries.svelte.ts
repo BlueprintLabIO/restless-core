@@ -162,12 +162,13 @@ function olderSearchCursor(page: RoomMessageSearchPage): number | undefined {
 		: undefined;
 }
 
-export function roomMessageSearchQuery(companyId: string, search: string) {
+/** Searches every conversation the principal can see, or only `roomId`. */
+export function roomMessageSearchQuery(companyId: string, search: string, roomId = '') {
 	const normalized = search.trim();
 	const query = createInfiniteQuery(() => ({
-		queryKey: roomQueryKeys.messageSearch(companyId, normalized),
+		queryKey: [...roomQueryKeys.messageSearch(companyId, normalized), roomId],
 		queryFn: ({ pageParam, signal }: { pageParam: number | null; signal: AbortSignal }) =>
-			searchRoomMessages(companyId, normalized, pageParam, 20, signal),
+			searchRoomMessages(companyId, normalized, pageParam, 20, signal, roomId),
 		initialPageParam: null as number | null,
 		getNextPageParam: olderSearchCursor,
 		enabled: normalized.length > 0,

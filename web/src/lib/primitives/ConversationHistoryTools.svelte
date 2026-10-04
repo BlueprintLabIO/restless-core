@@ -2,7 +2,6 @@
 	import { tick } from 'svelte';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import ChevronUp from '@lucide/svelte/icons/chevron-up';
-	import History from '@lucide/svelte/icons/history';
 	import Search from '@lucide/svelte/icons/search';
 	import X from '@lucide/svelte/icons/x';
 	import type { ThreadMessage } from '$lib/model/view';
@@ -68,17 +67,28 @@
 	}
 </script>
 
+<!-- Ctrl/Cmd+F finds in this conversation when the rail has focus, or when no
+     other conversation is on the page to claim it. -->
+<svelte:window
+	onkeydown={(event) => {
+		if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'f') return;
+		const inRail = document.activeElement?.closest('.bridge-exrail');
+		if (!inRail && document.querySelector('.room-conversation')) return;
+		event.preventDefault();
+		if (!open) void toggle();
+		else searchInput?.focus();
+	}}
+/>
 <div class="history-tools" class:open>
 	<button
 		type="button"
 		class="history-toggle"
 		aria-expanded={open}
-		aria-label={`Search conversation history with ${participantName}`}
-		title="Conversation history"
+		aria-label={`Search this conversation with ${participantName}`}
+		title="Search this conversation (Ctrl+F)"
 		onclick={toggle}
 	>
-		<History size={15} strokeWidth={1.9} aria-hidden="true" />
-		<span>History</span>
+		<Search size={15} strokeWidth={1.9} aria-hidden="true" />
 	</button>
 
 	{#if open}

@@ -269,3 +269,68 @@ export function describeInterval(seconds: number): string {
 	if (seconds % 3_600 === 0) return seconds === 3_600 ? 'hour' : `${seconds / 3_600} hours`;
 	return `${Math.round(seconds / 60)} minutes`;
 }
+
+/** Runs a `/goal` or `/loop` command typed to the Exec. Returns a notice for
+ * commands handled without a message, or `send: true` to deliver the text. */
+export async function runExecCommand(
+	company: string,
+	text: string
+): Promise<{ notice?: string; error?: string; send: boolean }> {
+	const command = parseComposerCommand(text);
+	if (!command) return { send: true };
+	switch (command.kind) {
+		case 'invalid':
+			return { error: command.message, send: false };
+		case 'goal-set':
+			await addGoal(company, command.objective);
+			return { send: true };
+		case 'goal-show': {
+			const open = (await listGoals(company)).filter((goal) => !goal.closed_at);
+			return {
+				notice: open.length
+					? `Open goals: ${open.map((goal) => goal.title).join('; ')}`
+					: 'No open goals. Set one with /goal <objective>.',
+				send: false
+			};
+		}
+		case 'goal-clear': {
+			const open = (await listGoals(company)).filter((goal) => !goal.closed_at);
+			const latest = open.at(-1);
+			if (!latest) return { notice: 'There is no open goal to clear.', send: false };
+			await closeGoal(company, latest.id);
+			return { notice: `Closed the goal “${latest.title}”. Its work is unchanged.`, send: false };
+		}
+		case 'loop-set': {
+			const loop = await addLoop(company, command.every, command.prompt);
+			return {
+				notice: loop.created
+					? `Exec will check in every ${describeInterval(loop.interval_seconds)}: ${command.prompt}`
+					: `That loop is already running every ${describeInterval(loop.interval_seconds)}.`,
+				send: false
+			};
+		}
+		case 'loop-show': {
+			const loops = await listLoops(company);
+			return {
+				notice: loops.length
+					? loops
+							.map(
+								(loop) => `Every ${describeInterval(loop.interval_seconds ?? 0)}: ${loop.reason}`
+							)
+							.join(' · ')
+					: 'No loops are running. Start one with /loop 30m <what to check>.',
+				send: false
+			};
+		}
+		case 'loop-clear': {
+			const loops = await listLoops(company);
+			await Promise.all(loops.map((loop) => cancelLoop(company, loop.id)));
+			return {
+				notice: loops.length
+					? `Stopped ${loops.length} loop${loops.length === 1 ? '' : 's'}.`
+					: 'No loops were running.',
+				send: false
+			};
+		}
+	}
+}

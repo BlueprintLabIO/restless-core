@@ -287,9 +287,11 @@ export function searchRoomMessages(
 	search: string,
 	beforeMessageId: number | null = null,
 	limit = 20,
-	signal?: AbortSignal
+	signal?: AbortSignal,
+	roomId = ''
 ): Promise<RoomMessageSearchPage> {
 	const query = new URLSearchParams({ q: search, limit: String(limit) });
+	if (roomId) query.set('room_id', roomId);
 	if (beforeMessageId !== null) query.set('before_message_id', String(beforeMessageId));
 	return roomJson(`/api/companies/${encodeURIComponent(company)}/room-messages/search?${query}`, {
 		signal

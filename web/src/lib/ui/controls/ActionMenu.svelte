@@ -2,7 +2,11 @@
 	import type { Snippet } from 'svelte';
 	import Ellipsis from '@lucide/svelte/icons/ellipsis';
 	import { dismissable } from './dismissable';
-	let { label = 'More actions', children }: { label?: string; children: Snippet } = $props();
+	let {
+		label = 'More actions',
+		trigger,
+		children
+	}: { label?: string; trigger?: Snippet; children: Snippet } = $props();
 	let panel: HTMLDivElement;
 	function place(node: HTMLDetailsElement) {
 		function position() {
@@ -63,7 +67,9 @@
 </script>
 
 <details class="action-menu" use:dismissable use:place>
-	<summary aria-label={label} title={label}><Ellipsis size={16} aria-hidden="true" /></summary>
+	<summary aria-label={label} title={label}
+		>{#if trigger}{@render trigger()}{:else}<Ellipsis size={16} aria-hidden="true" />{/if}</summary
+	>
 	<div bind:this={panel} popover="manual" class="action-menu-panel">{@render children()}</div>
 </details>
 
