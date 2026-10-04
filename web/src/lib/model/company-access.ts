@@ -82,7 +82,7 @@ export function companyShellTabs(
 	return [
 		{
 			key: 'attention',
-			label: 'Attention',
+			label: 'Inbox',
 			href: root,
 			on: pathname === root,
 			badge: attentionCount || undefined

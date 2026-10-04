@@ -165,7 +165,7 @@
 			await refreshAttention(queryClient, companyId);
 			editing = false;
 			notice =
-				'Mandate proposal sent to Attention. It will not authorize sends until you approve it there.';
+				'Mandate proposal sent to your Inbox. It will not authorize sends until you approve it there.';
 		} catch (cause) {
 			error =
 				cause instanceof Error

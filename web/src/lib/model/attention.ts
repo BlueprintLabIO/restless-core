@@ -299,17 +299,20 @@ export async function reviewAction(
 	if (!response.ok) throw await ownerError(response);
 }
 
+/** Answer a request, or decline it ("Not doing this"). Either way the text
+ * reaches the responsible lead as a message in their conversation. */
 export async function resolveHandoffDecision(
 	company: string,
 	handoff: string,
-	resolution: string
+	resolution: string,
+	declined = false
 ): Promise<void> {
 	const response = await fetch(
 		`/api/companies/${encodeURIComponent(company)}/handoffs/${encodeURIComponent(handoff)}/decision`,
 		{
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ resolution }),
+			body: JSON.stringify({ resolution, declined }),
 			credentials: 'same-origin'
 		}
 	);

@@ -95,7 +95,7 @@
 				type="button"
 				disabled={busy || !online || !detail.view || !readyToLeave}
 				onclick={done}
-				title="Finish this collaboration and clear it from Attention. Your document stays available in Documents."
+				title="Finish this collaboration and clear it from the Inbox. Your document stays available in Documents."
 			>
 				{busy ? 'Finishing…' : 'Done'}
 			</button>

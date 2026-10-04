@@ -12,12 +12,11 @@
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import Composer from '$lib/primitives/Composer.svelte';
 	import ConversationMessage from '$lib/primitives/ConversationMessage.svelte';
-	import AttentionCard from '$lib/components/AttentionCard.svelte';
-	import AttentionInbox from '$lib/components/AttentionInbox.svelte';
+	import InboxList from '$lib/components/InboxList.svelte';
+	import InboxDetail from '$lib/components/InboxDetail.svelte';
 	import { attentionTitle } from '$lib/model/attention-presentation';
 	import { formatRelative, formatMoment } from '$lib/ui/time';
 	import Markdown from '$lib/primitives/Markdown.svelte';
-	import OutcomeFolio from '$lib/ui/views/OutcomeFolio.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
 	import ConversationTurnDock from '$lib/primitives/ConversationTurnDock.svelte';
 	import CompanyOffice, { preloadOffice } from '$lib/office/LazyCompanyOffice.svelte';
@@ -112,6 +111,13 @@
 	);
 	let missingNotice = $state('');
 	let missingItemRedirect = $state('');
+	let resolvedHere = '';
+	let sent = $state<{ text: string; href?: string } | null>(null);
+	$effect(() => {
+		if (!sent) return;
+		const timer = setTimeout(() => (sent = null), 6000);
+		return () => clearTimeout(timer);
+	});
 	let previousItemOrder: string[] = [];
 	$effect(() => {
 		if (
@@ -121,7 +127,8 @@
 			!items.some((item) => item.id === selectedItemId)
 		) {
 			missingItemRedirect = selectedItemId;
-			missingNotice = 'That item has been resolved or is no longer in Attention.';
+			missingNotice =
+				resolvedHere === selectedItemId ? '' : 'That item has been resolved or is no longer in the Inbox.';
 			const previousIndex = Math.max(0, previousItemOrder.indexOf(selectedItemId));
 			const next = (visibleItems ?? items)[
 				Math.min(previousIndex, (visibleItems ?? items).length - 1)
@@ -745,6 +752,12 @@
 			enabled: !queueClear
 		}}
 	>
+		{#if sent}<div class="attention-resolution-notice" role="status">
+				{sent.text}{#if sent.href}<a href={sent.href}>Open conversation</a>{/if}<button
+					aria-label="Dismiss notification"
+					onclick={() => (sent = null)}>×</button
+				>
+			</div>{/if}
 		{#if missingNotice}<div class="attention-resolution-notice" role="status">
 				{missingNotice}<button
 					aria-label="Dismiss notification"
@@ -755,11 +768,11 @@
 			<div class="cockpit-error attention-error" role="alert">{error}</div>
 		{:else if source.failure && loaded}
 			<div class="cockpit-error">
-				<FailureNotice error={source.failure} subject="Attention" stale onretry={source.reload} />
+				<FailureNotice error={source.failure} subject="the Inbox" stale onretry={source.reload} />
 			</div>
 		{/if}
 		<aside class="cockpit-pane attention-index" aria-hidden={queueClear} inert={queueClear}>
-			<AttentionInbox
+			<InboxList
 				onvisible={(rows) => (visibleItems = rows)}
 				{companyId}
 				{items}
@@ -799,7 +812,7 @@
 				<span>All clear</span>
 			</button>
 			{#if compactScreen && selectedItemId}<a class="attention-mobile-back" href={baseHref}
-					>← Attention</a
+					>← Inbox</a
 				>{/if}
 			{#if selectedItem}
 				{#if selectedItem.nativeDocument}
@@ -818,7 +831,7 @@
 			{:else if !loaded && source.failure}
 				<FailureNotice
 					error={source.failure}
-					subject="Attention"
+					subject="the Inbox"
 					variant="page"
 					onretry={source.reload}
 				/>
@@ -856,103 +869,19 @@
 {/if}
 
 {#snippet attentionDetail(item: AttentionItem)}
-	{#if item.source.kind === 'conversation_owner_need'}
-		<article class="conversation-request cockpit-pane">
-			<h1>{item.title}</h1>
-			<div class="request-message"><Markdown text={item.whatHappened} /></div>
-			<p class="request-need">
-				<strong>{item.preparing ? 'Preparing' : 'Needs you'}</strong>
-				{item.requestedAction}
-			</p>
-			<a
-				class="btn small primary"
-				href={item.actions.find((action) => action.id === 'continue-conversation')?.href}>Reply →</a
-			>
-		</article>
-	{:else}
-		{@const showRecommendation =
-			item.recommendation.trim() !== item.whatHappened.trim() &&
-			item.recommendation.trim() !== item.whyItMatters.trim()}
-		{#snippet recommendationBody()}
-			<Markdown text={item.recommendation} />
-		{/snippet}
-		<div class="inbox-pane">
-			<OutcomeFolio
-				title={attentionTitle(item)}
-				compact
-				whatHappened={item.whatHappened}
-				whyItMatters={item.whyItMatters}
-				uncertainty={item.uncertainty || undefined}
-				category={item.category}
-				recommendation={showRecommendation ? recommendationBody : undefined}
-				detailsCount={item.evidence.length}
-			>
-				{#snippet context()}
-					<InfoTip
-						text={`${attentionKind(item.category)} from ${item.source.plane.replaceAll('_', ' ')}. Supporting source detail is available below.`}
-					/>
-					{#if item.deadline}<time>Decision needed by {item.deadline}</time>{/if}
-				{/snippet}
-
-				{#snippet decision()}
-					{#key `${companyId}:${item.id}`}<AttentionCard
-							{companyId}
-							{item}
-							showTitle={false}
-							embedded={true}
-							onopenDocument={async () => {
-								const result = await source.reload();
-								if (result.error) throw result.error;
-							}}
-						/>{/key}
-				{/snippet}
-
-				{#snippet details()}
-					<div class="folio-credit">
-						<span>Prepared by</span>
-						<strong
-							>{item.briefAuthor?.display ??
-								item.responsibleActor?.display ??
-								'Source record'}</strong
-						>
-						{#if item.briefedAt}
-							<span class="folio-credit-separator" aria-hidden="true">·</span>
-							<time>{when(item.briefedAt)}</time>
-						{/if}
-					</div>
-					<InfoTip
-						text={`Brief status: ${item.briefStatus.replaceAll('-', ' ')}. The wording was prepared by the named accountable actor.`}
-					/>
-					{#each item.evidence as evidence, evidenceIndex (`${evidence.kind}:${evidence.label}:${evidenceIndex}`)}
-						{#if evidence.content}
-							<div class="evidence-entry">
-								<div class="evidence-label">{evidence.label}</div>
-								<blockquote class="ib-quote">{evidence.content}</blockquote>
-							</div>
-						{:else if evidence.uri}
-							<a class="evidence-link" href={evidence.uri} target="_blank" rel="noreferrer">
-								{evidence.label} <span aria-hidden="true">↗</span>
-							</a>
-						{/if}
-					{/each}
-					<button
-						class="folio-copy-reference"
-						type="button"
-						onclick={async () => {
-							try {
-								await navigator.clipboard.writeText(
-									`${item.source.plane}:${item.source.kind}:${item.source.reference}`
-								);
-								missingNotice = 'Reference copied';
-							} catch {
-								missingNotice = 'Could not copy the reference';
-							}
-						}}>Copy reference</button
-					>
-				{/snippet}
-			</OutcomeFolio>
-		</div>
-	{/if}
+	<InboxDetail
+		{companyId}
+		{item}
+		declining={page.url.searchParams.get('decline') === '1'}
+		onopenDocument={async () => {
+			const result = await source.reload();
+			if (result.error) throw result.error;
+		}}
+		onresolved={(result) => {
+			resolvedHere = item.id;
+			sent = result;
+		}}
+	/>
 {/snippet}
 
 <style>
@@ -984,15 +913,6 @@
 		font-size: var(--t-body);
 		text-decoration: none;
 	}
-	.folio-copy-reference {
-		border: 0;
-		background: transparent;
-		padding: 8px 0;
-		color: var(--text-tertiary);
-		font: inherit;
-		font-size: var(--t-label);
-		cursor: pointer;
-	}
 	@media (max-width: 760px) {
 		:global(.bridge-root .attention-screen:not(.queue-clear)) {
 			display: flex;
@@ -1019,29 +939,6 @@
 		}
 	}
 
-	.conversation-request {
-		margin: 16px;
-		padding: 24px;
-		min-width: 0;
-	}
-	.conversation-request h1 {
-		margin: 0 0 20px;
-		font-size: var(--t-title);
-	}
-	.request-message {
-		max-width: 72ch;
-		overflow-wrap: anywhere;
-	}
-	.request-need {
-		margin: 20px 0;
-		padding-top: 16px;
-		border-top: 1px solid var(--border);
-		overflow-wrap: anywhere;
-	}
-	.request-need strong {
-		color: var(--intent-authority);
-		margin-right: 10px;
-	}
 
 	.review-canvas {
 		width: 100%;
@@ -1235,11 +1132,6 @@
 	.review-unavailable p {
 		color: var(--text-secondary);
 	}
-	.evidence-label {
-		font-size: var(--t-body);
-		letter-spacing: 0.09em;
-		color: var(--text-tertiary);
-	}
 	.attention-clear-compact {
 		display: grid;
 		justify-items: center;
@@ -1275,39 +1167,6 @@
 		padding: 9px 14px;
 		border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--border));
 		background: color-mix(in srgb, var(--danger) 7%, var(--surface));
-	}
-	.folio-credit {
-		min-width: 0;
-		display: flex;
-		flex-wrap: wrap;
-		align-items: baseline;
-		gap: 0 var(--space-1);
-		font-size: var(--t-body);
-		font-weight: 400;
-		line-height: 1.45;
-		color: var(--text-secondary);
-	}
-	.folio-credit strong {
-		font-weight: 500;
-		color: var(--ink);
-	}
-	.folio-credit time {
-		white-space: nowrap;
-		color: var(--text-tertiary);
-	}
-	.folio-credit-separator {
-		color: var(--border-strong);
-	}
-	.evidence-entry {
-		margin-top: 15px;
-	}
-	.evidence-link {
-		display: block;
-		margin-top: 10px;
-		padding: 10px 12px;
-		border: 1px solid var(--border-strong);
-		color: var(--ink);
-		text-decoration: none;
 	}
 	.browser-focus {
 		flex: 1 1 auto;
@@ -1489,12 +1348,6 @@
 		font-size: var(--t-title);
 		line-height: 1.05;
 	}
-	.outcome-offline p {
-		max-width: 620px;
-		margin: 0;
-		color: var(--text-secondary);
-		line-height: 1.55;
-	}
 	@media (max-width: 1040px) {
 		.browser-workspace {
 			grid-template-columns: minmax(0, 1fr) var(--handover-w, 224px);
@@ -1551,24 +1404,6 @@
 	@media (prefers-reduced-motion: reduce) {
 		.live-mark.owner {
 			box-shadow: none;
-		}
-	}
-	/* Choosing another item settles its detail in place (a short fade and
-	 * 4px rise after the selection lands) instead of swapping the pane. */
-	.conversation-request,
-	.inbox-pane {
-		animation: attention-detail-in 260ms var(--ease-out) 30ms backwards;
-	}
-	@keyframes attention-detail-in {
-		from {
-			opacity: 0;
-			transform: translateY(4px);
-		}
-	}
-	@media (prefers-reduced-motion: reduce) {
-		.conversation-request,
-		.inbox-pane {
-			animation: none;
 		}
 	}
 </style>

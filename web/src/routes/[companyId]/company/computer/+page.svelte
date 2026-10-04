@@ -510,7 +510,7 @@
 				<a href={`/${companyId}`}
 					>{preparedHandoffs.length} prepared {preparedHandoffs.length === 1
 						? 'handoff'
-						: 'handoffs'} in Attention</a
+						: 'handoffs'} in the Inbox</a
 				>
 			{:else}
 				<span>No prepared handoff is waiting.</span>

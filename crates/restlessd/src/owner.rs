@@ -635,6 +635,10 @@ struct OwnerReviewInput {
 #[derive(Debug, Deserialize)]
 struct OwnerHandoffDecisionInput {
     resolution: String,
+    /// "Not doing this": the owner declines the request instead of answering
+    /// it. The reason still reaches the responsible lead as feedback.
+    #[serde(default)]
+    declined: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -7954,18 +7958,19 @@ async fn resolve_handoff_decision(
             )
         }
     };
+    let outcome = if input.declined {
+        restless_orgintel::OwnerHandoffState::Declined
+    } else {
+        restless_orgintel::OwnerHandoffState::Resolved
+    };
     match org
-        .resolve_handoff_as(
-            handoff,
-            "owner",
-            restless_orgintel::OwnerHandoffState::Resolved,
-            input.resolution.trim(),
-        )
+        .resolve_handoff_as(handoff, "owner", outcome, input.resolution.trim())
         .await
     {
         Ok(()) => Json(serde_json::json!({
             "handoff_id": handoff,
             "recorded": true,
+            "declined": input.declined,
         }))
         .into_response(),
         Err(error) => api_error(StatusCode::BAD_REQUEST, "decision", format!("{error:#}")),

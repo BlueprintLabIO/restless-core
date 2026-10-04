@@ -430,8 +430,8 @@
 					<button
 						class="rail-back"
 						type="button"
-						aria-label="Back to Attention"
-						title="Back to Attention"
+						aria-label="Back to the Inbox"
+						title="Back to the Inbox"
 						onclick={(review ?? workContext)!.onback}
 					>
 						<ArrowLeft size={18} aria-hidden="true" />

@@ -365,7 +365,7 @@
 		if (path === `${root}/people` || path.startsWith(`${root}/people/`)) return 'Linked · People';
 		if (path === `${root}/company` || path.startsWith(`${root}/company/`))
 			return 'Linked · Company';
-		return 'Linked · Attention';
+		return 'Linked · Inbox';
 	});
 
 	const tabs = $derived.by((): ShellTab[] => {
