@@ -229,6 +229,7 @@ daemon crate built alone with the stack build and names the missing features.
 A brand-new worktree therefore still pays one ~3 minute cold build, dominated by the single
 `restlessd` crate. That is why `restless-dev worktree new` reuses pooled slots (`work/slot-N`):
 the incremental cache is bound to the path, so a slot switched to a new branch rebuilds only what
-changed since its last task. Each warm slot holds roughly 7 GB; the pool keeps
-`RESTLESS_WORKTREE_POOL_SIZE` (default 4) of them. Nightly-only options (the parallel front end, Cranelift) and Cargo's still-unstable
+changed since its last task. The pool keeps `RESTLESS_WORKTREE_POOL_SIZE` (default 4) slots warm.
+Cargo never collects incremental caches for crate variants it no longer builds, so one slot
+reached 42 GB in a day; releasing a slot now trims each crate to its three newest caches. Nightly-only options (the parallel front end, Cranelift) and Cargo's still-unstable
 workspace feature unification are the next levers when they stabilise.
