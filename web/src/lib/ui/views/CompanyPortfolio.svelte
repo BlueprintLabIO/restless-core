@@ -100,12 +100,13 @@
 									data-company-id={company.id}
 									data-state={company.status}
 								>
+									<!-- The entry covers the whole row, so it carries no title: a native tooltip
+									     would pop wherever the pointer rests, detached from the cell it describes. -->
 									{#if company.entry && 'href' in company.entry}
 										<a
 											class="portfolio-entry"
 											href={company.entry.href}
 											aria-label={entryLabel(company)}
-											title={company.issue || company.nextHint || company.focus || undefined}
 											><span class="sr-only">{entryLabel(company)}</span></a
 										>
 									{:else if company.entry && 'formAction' in company.entry}
@@ -122,7 +123,6 @@
 											<button
 												class="portfolio-entry"
 												aria-label={entryLabel(company)}
-												title={company.issue || company.nextHint || company.focus || undefined}
 												><span class="sr-only">{entryLabel(company)}</span></button
 											>
 										</form>
