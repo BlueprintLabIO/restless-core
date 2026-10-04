@@ -66,7 +66,7 @@ RUN --mount=type=cache,id=restless-cargo-registry-v1,target=/usr/local/cargo/reg
 # A Cloud-managed owner VM runs this image in local Runtime mode, where the plane
 # starts company containers itself through the host's Docker socket. Only the
 # static client is copied; the image never runs a Docker daemon.
-FROM docker:28.5-cli@sha256:625d9431a9f54c5a2bc90f24f0e1c3d55b1349fd857dd85035f98c2c9acbdd4d AS docker-cli
+FROM docker:29.8.2-cli@sha256:b1805116a6a86cc591b5d5f60a910a0715cdcc9d18d866ad68b1457ead25c35c AS docker-cli
 FROM node:24-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe AS node-runtime
 FROM ubuntu:24.04@sha256:a853f94d226358a79c740cfc7bce0c289748f3fe3488d921d038ccd752c61b60
 COPY --from=node-runtime /usr/local/ /usr/local/
