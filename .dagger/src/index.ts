@@ -15,10 +15,12 @@ const ACCOUNT_INPUTS = ['infra/account-plane/Dockerfile', 'Cargo.toml', 'Cargo.l
   'services/native-sheets/src/**', 'services/native-sheets/NOTICE'];
 const RUNTIME_INPUTS = ['infra/company-image/**', 'Cargo.toml', 'Cargo.lock', 'crates/**',
   'tools/scenario/restless-scenario.mjs', 'tools/web-review/restless-web-review.mjs', 'tools/codex-runner/**'];
+// The x64 builder has 20 threads; two Rust builds run side by side. arm64 keeps the old bound.
+const cargoJobs = (platform: string = 'linux/amd64') => platform === 'linux/amd64' ? '8' : '2';
 
-function project(source: Directory, path: string): Container {
+function project(source: Directory, path: string, base: Container = dag.container().from(NODE_IMAGE)): Container {
   const files = source.directory(path);
-  return dag.container().from(NODE_IMAGE)
+  return base
     .withMountedCache('/root/.npm', dag.cacheVolume('restless-core-npm-v1'))
     .withFile('/project/package.json', files.file('package.json'))
     .withFile('/project/package-lock.json', files.file('package-lock.json'))
@@ -32,7 +34,7 @@ function cockpit(source: Directory): Container {
 
 function rust(source: Directory): Container {
   return dag.container().from(RUST_IMAGE)
-    .withEnvVariable('CARGO_BUILD_JOBS', '2').withEnvVariable('CARGO_INCREMENTAL', '0')
+    .withEnvVariable('CARGO_BUILD_JOBS', cargoJobs()).withEnvVariable('CARGO_INCREMENTAL', '0')
     .withMountedCache('/usr/local/cargo/registry', dag.cacheVolume('restless-core-cargo-registry-v1'))
     .withMountedCache('/usr/local/cargo/git', dag.cacheVolume('restless-core-cargo-git-v1'))
     .withMountedCache('/src/target', dag.cacheVolume('restless-core-cargo-check-v1'))
@@ -187,7 +189,8 @@ export class RestlessCore {
       include: RUNTIME_INPUTS, exclude: [...EXCLUDES, 'infra/company-image/test_supervision_contract.py'],
     })
       .dockerBuild({ dockerfile: 'infra/company-image/Dockerfile', platform,
-        buildArgs: toolsImage ? [{ name: 'RUNTIME_TOOLS_IMAGE', value: toolsImage }] : [] });
+        buildArgs: [{ name: 'CARGO_BUILD_JOBS', value: cargoJobs(platform) },
+          ...(toolsImage ? [{ name: 'RUNTIME_TOOLS_IMAGE', value: toolsImage }] : [])] });
     for (const [name, value] of values) {
       if (!value) throw new Error(`missing canonical release value: ${name}`);
       image = image.withEnvVariable(name, value);
@@ -261,8 +264,10 @@ export class RestlessCore {
   /** Run the real chrome's browser checks on example data in the isolated builder. */
   @func()
   verifyOverlays(source: Directory): Container {
-    return project(source, 'web')
-      .withExec(['apk', 'add', '--no-cache', 'chromium'])
+    // Chromium sits below the web sources so it stays cached across commits; a stalled mirror is retried.
+    const browser = dag.container().from(NODE_IMAGE).withExec(['/bin/sh', '-c',
+      'for i in 1 2 3; do timeout 300 apk add --no-cache chromium && exit 0; sleep 5; done; exit 1']);
+    return project(source, 'web', browser)
       .withEnvVariable('RESTLESS_BROWSER_EXECUTABLE', '/usr/bin/chromium')
       .withEnvVariable('RESTLESS_REVIEW_ORIGIN', 'http://127.0.0.1:5173')
       .withEnvVariable('RESTLESS_OVERLAY_PROOF_DIR', '/tmp/restless-overlay-proof')
@@ -407,7 +412,7 @@ export class RestlessCore {
     const context = dag.directory().withDirectory('/', source, { include: ACCOUNT_INPUTS, exclude: EXCLUDES })
       .withDirectory('web/build', this.cockpit(source));
     return context.dockerBuild({ dockerfile: 'infra/account-plane/Dockerfile', platform,
-      buildArgs: [{ name: 'SOURCE_REVISION', value: revision }] })
+      buildArgs: [{ name: 'SOURCE_REVISION', value: revision }, { name: 'CARGO_BUILD_JOBS', value: cargoJobs(platform) }] })
       .withLabel('org.opencontainers.image.revision', revision)
       .withLabel('org.opencontainers.image.source', 'https://github.com/BlueprintLabIO/restless-core');
   }
