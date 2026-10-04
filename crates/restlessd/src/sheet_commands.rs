@@ -185,7 +185,10 @@ pub(crate) async fn model(input: Value) -> Result<Value> {
         *guard = Some(start_worker().await?);
     }
     let w = guard.as_mut().unwrap();
-    let result = tokio::time::timeout(std::time::Duration::from_secs(15), async {
+    // Large, long-lived workbooks can legitimately take longer than fifteen
+    // seconds to replay in the deterministic local worker. Keep the guard
+    // bounded while allowing those workbooks to complete.
+    let result = tokio::time::timeout(std::time::Duration::from_secs(60), async {
         w.input.write_all(&bytes).await?;
         w.input.write_all(b"\n").await?;
         w.input.flush().await?;
