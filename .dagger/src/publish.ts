@@ -116,8 +116,11 @@ export async function publishImage(component: string, revision: string, platform
   // Catalogue the exact image once. Include producer CycloneDX records: newer
   // Chrome binaries no longer match Syft's binary-string version classifier.
   // Grype consumes this same inventory rather than recataloguing the image.
+  // Syft reads the image the engine already pulled by digest: downloading it a
+  // second time from GHCR repeatedly broke off mid-layer on the release runner.
   const sbom = scanner(SYFT_IMAGE, 'SYFT', username, password).withNewFile('/reports/.keep', '')
-    .withExec([`registry:${reference}`, '--override-default-catalogers', 'image',
+    .withFile('/image.tar', image.asTarball())
+    .withExec(['oci-archive:/image.tar', '--source-name', reference, '--override-default-catalogers', 'image',
       '--override-default-catalogers', 'sbom-cataloger', '--output', 'syft-json=/reports/inventory.json',
       '--output', 'spdx-json=/reports/sbom.json'], { useEntrypoint: true });
   if (['runtime-tools', 'company-runtime'].includes(component)) {
