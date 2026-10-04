@@ -1125,6 +1125,28 @@
 		return sprite;
 	}
 
+	/** Space kept below a presence cue's baseline, in CSS pixels. */
+	const CUE_PAD = 3;
+	function cueSprite(cue: string, color: string, scale: number): HTMLCanvasElement {
+		const size = 8 * scale;
+		const font = `400 ${size}px Silkscreen, monospace`;
+		const key = `cue|${cue}|${color}|${scale}|${document.fonts?.check(font) ?? true}`;
+		let sprite = plaqueSprites.get(key);
+		if (sprite) return sprite;
+		sprite = document.createElement('canvas');
+		const paint = sprite.getContext('2d');
+		if (!paint) return sprite;
+		paint.font = font;
+		sprite.width = Math.ceil(paint.measureText(cue).width) + 2 * scale;
+		sprite.height = Math.ceil(size + CUE_PAD * scale);
+		paint.font = font;
+		paint.textAlign = 'center';
+		paint.fillStyle = color;
+		paint.fillText(cue, sprite.width / 2, sprite.height - CUE_PAD * scale);
+		plaqueSprites.set(key, sprite);
+		return sprite;
+	}
+
 	function drawZonePlaques(context: CanvasRenderingContext2D) {
 		if (!plan) return;
 		const scale = devicePixelRatio;
@@ -1198,12 +1220,17 @@
 								: member.presence === 'unavailable'
 									? '×'
 									: '·';
-				context.save();
-				context.fillStyle = member.presence === 'waiting' ? '#a56820' : '#526673';
-				context.font = `400 ${8 * devicePixelRatio}px Silkscreen, monospace`;
-				context.textAlign = 'center';
-				context.fillText(cue, Math.round(x), Math.round(y + 3 * lastZoom));
-				context.restore();
+				const sprite = cueSprite(
+					cue,
+					member.presence === 'waiting' ? '#a56820' : '#526673',
+					devicePixelRatio
+				);
+				// The sprite's baseline sits at its pad, matching fillText's alphabetic baseline.
+				context.drawImage(
+					sprite,
+					Math.round(x - sprite.width / 2),
+					Math.round(y + 3 * lastZoom - sprite.height + CUE_PAD * devicePixelRatio)
+				);
 			}
 		}
 
