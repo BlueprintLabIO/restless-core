@@ -54,15 +54,8 @@ export interface PixelOfficeAssets {
 
 let assetLoad: Promise<PixelOfficeAssets> | null = null;
 
-function getPixel(
-	data: Uint8ClampedArray,
-	width: number,
-	x: number,
-	y: number
-): [number, number, number, number] {
-	const index = (y * width + x) * 4;
-	return [data[index], data[index + 1], data[index + 2], data[index + 3]];
-}
+// Sprites repeat a small palette, so each packed RGBA value is converted to hex once.
+const hexCache = new Map<number, string>();
 
 function readSprite(
 	png: DecodedPng,
@@ -71,16 +64,30 @@ function readSprite(
 	offsetX = 0,
 	offsetY = 0
 ): string[][] {
+	const { data } = png;
 	const sprite: string[][] = [];
 	for (let y = 0; y < height; y += 1) {
-		const row: string[] = [];
-		for (let x = 0; x < width; x += 1) {
-			const [red, green, blue, alpha] = getPixel(png.data, png.width, offsetX + x, offsetY + y);
-			row.push(rgbaToHex(red, green, blue, alpha));
+		const row: string[] = new Array(width);
+		let index = ((offsetY + y) * png.width + offsetX) * 4;
+		for (let x = 0; x < width; x += 1, index += 4) {
+			const key =
+				((data[index] << 24) | (data[index + 1] << 16) | (data[index + 2] << 8) | data[index + 3]) >>> 0;
+			let hex = hexCache.get(key);
+			if (hex === undefined) {
+				hex = rgbaToHex(data[index], data[index + 1], data[index + 2], data[index + 3]);
+				hexCache.set(key, hex);
+			}
+			row[x] = hex;
 		}
 		sprite.push(row);
 	}
 	return sprite;
+}
+
+/** Hand the main thread back between files so decoding never lands as one long task. */
+function yieldToMain(): Promise<void> {
+	const scheduler = (globalThis as { scheduler?: { yield?: () => Promise<void> } }).scheduler;
+	return scheduler?.yield ? scheduler.yield() : new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 async function decodePng(path: string, base = ASSET_BASE): Promise<DecodedPng> {
@@ -90,7 +97,8 @@ async function decodePng(path: string, base = ASSET_BASE): Promise<DecodedPng> {
 	const canvas = document.createElement('canvas');
 	canvas.width = bitmap.width;
 	canvas.height = bitmap.height;
-	const context = canvas.getContext('2d');
+	// A CPU-backed canvas: these pixels are read straight back, never shown.
+	const context = canvas.getContext('2d', { willReadFrequently: true });
 	if (!context) {
 		bitmap.close();
 		throw new Error('The office could not create a canvas renderer.');
@@ -98,6 +106,7 @@ async function decodePng(path: string, base = ASSET_BASE): Promise<DecodedPng> {
 	context.drawImage(bitmap, 0, 0);
 	bitmap.close();
 	const image = context.getImageData(0, 0, canvas.width, canvas.height);
+	await yieldToMain();
 	return { width: canvas.width, height: canvas.height, data: image.data };
 }
 
