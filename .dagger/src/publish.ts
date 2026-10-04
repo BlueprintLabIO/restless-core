@@ -73,6 +73,25 @@ export function node(source: Directory): Container {
   return dag.container().from(NODE_IMAGE).withDirectory('/src', source, { exclude: EXCLUDES }).withWorkdir('/src');
 }
 
+/**
+ * High findings the owner accepted for a bounded period because no fixed
+ * version exists. Each entry names the exact package and version and stops
+ * applying after `until` (UTC day), so the release fails again unless the fix
+ * has shipped or the exception is renewed on purpose.
+ */
+const SCAN_EXCEPTIONS = [
+  // Bundled npm HTTP cache dependency in runtime-tools; no patched release (2026-10-04).
+  { id: 'GHSA-ch52-4w7c-c8xp', name: 'http-cache-semantics', version: '4.2.0', until: '2026-10-18' },
+];
+
+/** Grype config that ignores the exceptions still in force on the scan day. */
+export function scanConfig(scanPeriod: string): string {
+  const active = SCAN_EXCEPTIONS.filter((exception) => scanPeriod <= exception.until);
+  if (!active.length) return 'ignore: []\n';
+  return `ignore:\n${active.map((exception) => `  - vulnerability: ${exception.id}\n    package:\n`
+    + `      name: ${exception.name}\n      version: ${exception.version}\n`).join('')}`;
+}
+
 function scanner(image: string, prefix: string, username: string, password: Secret): Container {
   return dag.container().from(image).withEnvVariable(`${prefix}_REGISTRY_AUTH_AUTHORITY`, 'ghcr.io')
     .withEnvVariable(`${prefix}_REGISTRY_AUTH_USERNAME`, username).withSecretVariable(`${prefix}_REGISTRY_AUTH_PASSWORD`, password);
@@ -136,10 +155,11 @@ export async function publishImage(component: string, revision: string, platform
     .withEnvVariable('GRYPE_DB_CACHE_DIR', '/cache').withEnvVariable('GRYPE_CHECK_FOR_APP_UPDATE', 'false')
     .withEnvVariable('RESTLESS_SCAN_PERIOD', scanPeriod)
     .withFile('/reports/inventory.json', sbom.file('/reports/inventory.json'))
+    .withNewFile('/reports/grype.yaml', scanConfig(scanPeriod))
     // Ask Grype to own the report file. Dagger's progress stream can still
     // mirror redirected stdout, which previously inflated one Actions log by
     // tens of megabytes and obscured diagnosis of an unrelated runner hang.
-    .withExec(['sbom:/reports/inventory.json', '--fail-on', 'high', '--output', 'json',
+    .withExec(['sbom:/reports/inventory.json', '--config', '/reports/grype.yaml', '--fail-on', 'high', '--output', 'json',
       '--file', '/reports/scan.json'], { useEntrypoint: true, expect: ReturnType.Any });
   const status = await scan.exitCode();
   if (status !== 0) {
