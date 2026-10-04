@@ -354,8 +354,8 @@ This repo is built in sprints by two founders collaborating on the `main` branch
   and run: a newer compile in your checkout supersedes one still running there. Every rustc
   already takes a host-wide slot, so concurrent agents share the cores. Iterate with `cargo check`
   (~6 s) and a named test rather than the whole suite; a new worktree's first build is ~3 minutes,
-  most of it the `restless-engine` crate; editing owner API code rebuilds in about 6 s. Keep one target per worktree. The measurements
-  and the approaches that failed are in
+  most of it the `restless-engine` crate, while an owner API edit rebuilds in about 6 s. Keep one
+  target per worktree. The measurements and the approaches that failed are in
   [`docs/BUILD_STORAGE.md`](./docs/BUILD_STORAGE.md#compile-time--4-october-2026).
 - **You own everything you start that outlives your turn.** Not a list of nouns — anything still
   running, registered, or occupying disk after you stop typing. A `_test` company, container, volume,
