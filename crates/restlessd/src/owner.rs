@@ -365,6 +365,10 @@ struct OwnerIntentReceipt {
     next_step: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     owner_need: Option<String>,
+    /// Up to three short answers the agent expects to `owner_need`. The
+    /// cockpit offers them as drafts; the owner still sends their own words.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    owner_replies: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -9101,9 +9105,21 @@ fn split_intent_receipt(body: &str) -> (&str, Option<OwnerIntentReceipt>) {
         return (body, None);
     };
     match serde_json::from_str::<OwnerIntentReceipt>(encoded) {
-        Ok(receipt)
+        Ok(mut receipt)
             if !receipt.summary.trim().is_empty() && receipt.summary.chars().count() <= 300 =>
         {
+            // Suggested answers only make sense beside a question, and stay short.
+            receipt.owner_replies = if receipt.owner_need.is_some() {
+                receipt
+                    .owner_replies
+                    .iter()
+                    .map(|reply| reply.trim().to_string())
+                    .filter(|reply| !reply.is_empty() && reply.chars().count() <= 80)
+                    .take(3)
+                    .collect()
+            } else {
+                Vec::new()
+            };
             (visible.trim_end(), Some(receipt))
         }
         _ => (visible.trim_end(), None),
@@ -14175,6 +14191,7 @@ mod tests {
                     outcome: Some("The launch plan is ready for review.".into()),
                     next_step: Some("Exec checks the prepared plan.".into()),
                     owner_need: None,
+                    owner_replies: Vec::new(),
                 }),
                 context_path: Some("/demo_test/company".into()),
                 created_at: at,
@@ -15319,6 +15336,25 @@ mod tests {
             receipt.owner_need.as_deref(),
             Some("Approve, change or decline the campaign.")
         );
+
+        let suggested = concat!(
+            "Ready?",
+            "\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Asks to proceed.\",",
+            "\"ownerNeed\":\"Proceed with the listing?\",",
+            "\"ownerReplies\":[\"Yes, list it\",\" \",\"Not yet\",\"Hold\",\"Ask me tomorrow\"]}-->"
+        );
+        let receipt = split_intent_receipt(suggested).1.expect("replies parse");
+        assert_eq!(receipt.owner_replies, vec!["Yes, list it", "Not yet", "Hold"]);
+        let without_question = concat!(
+            "Done.",
+            "\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Done.\",",
+            "\"ownerReplies\":[\"Thanks\"]}-->"
+        );
+        assert!(split_intent_receipt(without_question)
+            .1
+            .expect("parses")
+            .owner_replies
+            .is_empty());
 
         let malformed = "Reply\n\n<!--restless-intent:{\"kind\":\"whatever\",\"summary\":\"x\"}-->";
         assert_eq!(split_intent_receipt(malformed).0, "Reply");

@@ -11,6 +11,8 @@
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import Check from '@lucide/svelte/icons/check';
+	import Reply from '@lucide/svelte/icons/reply';
+	import X from '@lucide/svelte/icons/x';
 	import { SvelteDate } from 'svelte/reactivity';
 	import Plus from '@lucide/svelte/icons/plus';
 	import RotateCw from '@lucide/svelte/icons/rotate-cw';
@@ -270,6 +272,26 @@
 		const last = visibleMessages.at(-1);
 		return last && last.from !== 'you' ? (last.intent?.ownerNeed?.trim() ?? '') : '';
 	});
+	const openReplies = $derived.by(() =>
+		openQuestion ? (visibleMessages.at(-1)?.intent?.ownerReplies ?? []).slice(0, 3) : []
+	);
+	function draftReply(text: string) {
+		composer = text;
+		composerFocusKey += 1;
+	}
+
+	/* Replying to one message quotes it, so a reply to a long message says
+	 * which point it answers. The quote travels as ordinary Markdown. */
+	let quoting = $state<{ author: string; excerpt: string } | null>(null);
+	function quote(author: string, text: string) {
+		const plain = text
+			.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+			.replace(/[*_`>#]/g, '')
+			.replace(/\s+/g, ' ')
+			.trim();
+		quoting = { author, excerpt: plain.length > 180 ? `${plain.slice(0, 180)}…` : plain };
+		composerFocusKey += 1;
+	}
 
 	const activeFocusAfterMessageId = $derived(
 		newFocusPending ? pendingFocusAfterMessageId : focusAfterMessageId
@@ -364,6 +386,8 @@
 		askError = '';
 		askNotice = '';
 		const sent = composer;
+		const quoted = quoting;
+		const outgoing = quoted ? `> ${quoted.author}: ${quoted.excerpt}\n\n${text}` : text;
 		const files = composerFiles;
 		const skills = composerSkills;
 		composer = '';
@@ -379,7 +403,7 @@
 				return;
 			}
 			const outcome = await onask(
-				text,
+				outgoing,
 				files,
 				includeContext,
 				newFocusPending,
@@ -393,6 +417,7 @@
 			} else {
 				composerFiles = [];
 				composerSkills = [];
+				quoting = null;
 				newFocusPending = false;
 				askNotice = outcome.notice ?? '';
 			}
@@ -600,7 +625,16 @@
 							intent={message.intent}
 							attachments={message.attachments}
 							hrefFor={attachmentHref}
-						/>
+						>
+							{#snippet actions()}{#if message.from !== 'you' && onask}<button
+										type="button"
+										class="copy-message"
+										aria-label="Reply to this message"
+										title="Reply to this message"
+										onclick={() => quote(message.author || participantName, message.text)}
+										><Reply size={12} aria-hidden="true" /></button
+									>{/if}{/snippet}
+						</ConversationMessage>
 					{:else}
 						{#if conversationFailed && conversationStatus === 'unknown'}
 							<div class="exr-empty" role="alert">
@@ -689,9 +723,32 @@
 							<button type="button" class="btn small" onclick={() => (composerFocusKey += 1)}
 								>Answer</button
 							>
+							{#if openReplies.length}
+								<div class="open-replies">
+									{#each openReplies as reply (reply)}
+										<button
+											type="button"
+											title="Put this in your reply; edit before sending"
+											onclick={() => draftReply(reply)}>{reply}</button
+										>
+									{/each}
+								</div>
+							{/if}
 						</div>
 					{/if}
 					<form class="exr-composer" onsubmit={submitAsk}>
+						{#if quoting}
+							<div class="quoting">
+								<Reply size={13} aria-hidden="true" />
+								<span>Replying to {quoting.author}: <em>{quoting.excerpt}</em></span>
+								<button
+									type="button"
+									aria-label="Stop replying to that message"
+									title="Stop replying to that message"
+									onclick={() => (quoting = null)}><X size={13} /></button
+								>
+							</div>
+						{/if}
 						<Composer
 							bind:value={composer}
 							bind:files={composerFiles}
@@ -781,6 +838,59 @@
 		margin: 0;
 		color: var(--ink);
 		line-height: 1.4;
+	}
+	.open-replies {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+		grid-column: 1 / -1;
+		margin-top: 6px;
+	}
+	.open-replies button {
+		padding: 3px 10px;
+		border: 1px solid var(--border-strong);
+		border-radius: 999px;
+		background: var(--surface-raised);
+		color: var(--ink);
+		font: inherit;
+		font-size: var(--t-label);
+		cursor: pointer;
+	}
+	.open-replies button:hover {
+		background: var(--surface-hover);
+	}
+	.quoting {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin: 0 0 6px;
+		padding: 6px 8px;
+		border-left: 2px solid var(--intent-conversation);
+		background: var(--surface-raised);
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+	}
+	.quoting span {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.quoting em {
+		color: var(--ink);
+		font-style: normal;
+	}
+	.quoting button {
+		display: grid;
+		place-items: center;
+		width: 22px;
+		height: 22px;
+		padding: 0;
+		border: 0;
+		background: transparent;
+		color: var(--text-tertiary);
+		cursor: pointer;
 	}
 	.open-question .btn {
 		grid-column: 2;

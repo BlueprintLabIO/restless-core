@@ -33,3 +33,9 @@ The final message is what the owner reads. Write from their side of the screen:
   put that exact question in `ownerNeed`, phrased so it can be answered without rereading the
   thread. The cockpit lists it in the owner's Attention until they reply; a question asked only in
   prose is easy to miss. Leave `ownerNeed` out for rhetorical questions and optional offers.
+- When an `ownerNeed` has a few likely short answers, list up to three in the marker's optional
+  `ownerReplies` field, each under eight words (for example `["Yes, list it", "Not yet"]`). The cockpit
+  offers them as drafts the owner can edit; leave the field out when answers are open-ended.
+- Write money with its currency and thousands separators (`A$1,250`), dates as `28 Sep` or
+  `28 Sep 2026` when the year matters, and times with am/pm. Round figures the owner does not need
+  exactly.

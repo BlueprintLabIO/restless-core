@@ -140,6 +140,8 @@ export interface MessageIntentReceipt {
 	outcome?: string | null;
 	nextStep?: string | null;
 	ownerNeed?: string | null;
+	/** Short answers the agent expects; offered as editable drafts. */
+	ownerReplies?: string[] | null;
 }
 
 export interface ThreadMessage {

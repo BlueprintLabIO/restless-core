@@ -103,6 +103,25 @@
 			need: need?.source.kind === 'conversation_owner_need' ? 'reply' : need ? 'attention' : null
 		} as const;
 	}
+	/* What someone is producing right now, in a few words: their own active
+	 * Work, or for a lead, their team's. */
+	function doing(actorId: string): string {
+		if (!owner) return '';
+		const work = (attention.view?.workGraph?.work ?? []).filter(
+			(item) => item.status === 'active' || item.status === 'blocked'
+		);
+		const team = teams.find((candidate) => candidate.lead_actor_id === actorId);
+		const members = new Set(
+			team
+				? people.filter((person) => person.team_id === team.id).map((person) => person.actor_id)
+				: [actorId]
+		);
+		const current = work
+			.filter((item) => members.has(item.owner_id))
+			.toSorted((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
+		if (!current.length) return '';
+		return current.length > 1 ? `${current[0].title} · +${current.length - 1}` : current[0].title;
+	}
 	function openPerson(event: MouseEvent | null, id: string) {
 		event?.preventDefault();
 		return goto(href(id));
@@ -254,10 +273,12 @@
 				>
 					<span class="avatar">{initials(person.display)}</span>
 					<span class="directory-person-copy"
-						><span class="name">{person.display}</span>{@render personStatuses(
-							person.actor_id,
-							person.display
-						)}</span
+						><span class="person-lines"
+							><span class="name">{person.display}</span>{#if doing(person.actor_id)}<small
+									class="doing"
+									title={doing(person.actor_id)}>{doing(person.actor_id)}</small
+								>{/if}</span
+						>{@render personStatuses(person.actor_id, person.display)}</span
 					>
 				</a>
 			{/snippet}
@@ -508,6 +529,17 @@
 		min-width: 0;
 		flex: 1;
 		overflow: hidden;
+	}
+	.person-lines {
+		display: grid;
+		min-width: 0;
+	}
+	.doing {
+		overflow: hidden;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.avatar {
 		width: 30px;

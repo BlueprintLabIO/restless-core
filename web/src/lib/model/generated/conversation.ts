@@ -11,7 +11,12 @@ export type OwnerAttachment = { uploadId: string, name: string, mediaType: strin
 
 export type OwnerIntentKind = "conversation" | "work_feedback" | "direction" | "authority";
 
-export type OwnerIntentReceipt = { kind: OwnerIntentKind, summary: string, outcome?: string | null, nextStep?: string | null, ownerNeed?: string | null, };
+export type OwnerIntentReceipt = { kind: OwnerIntentKind, summary: string, outcome?: string | null, nextStep?: string | null, ownerNeed?: string | null,
+/**
+ * Up to three short answers the agent expects to `owner_need`. The
+ * cockpit offers them as drafts; the owner still sends their own words.
+ */
+ownerReplies?: Array<string>, };
 
 export type ConversationActorView = { id: string, display: string, kind: string, role: string, };
 

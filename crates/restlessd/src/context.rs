@@ -83,6 +83,9 @@ pub struct ContextSnapshot {
     /// Reactions on those messages: lightweight owner feedback that never
     /// woke anyone on its own.
     pub recent_owner_reactions: Vec<restless_orgintel::MessageReactionRow>,
+    /// The owner's recent direct exchanges with team leads. The Exec is
+    /// copied for portfolio awareness; these never wake it and owe no reply.
+    pub owner_lead_exchanges: Vec<(String, restless_orgintel::MessageRow)>,
     pub inbox: Vec<MessageRow>,
     /// Explicit skill selections attached to inbox Messages, by Message id.
     pub inbox_skills: std::collections::BTreeMap<i64, Vec<restless_orgintel::SelectedSkill>>,
@@ -317,6 +320,29 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
             message.id
         ));
     }
+    let mut lead_exchanges = String::new();
+    for (lead, message) in &snapshot.owner_lead_exchanges {
+        let speaker = if message.from_actor == snapshot.owner_actor_id {
+            format!("owner to {lead}")
+        } else {
+            format!("{lead} to owner")
+        };
+        let mut body = message.body.chars().take(600).collect::<String>();
+        if message.body.chars().count() > 600 {
+            body.push('…');
+        }
+        lead_exchanges.push_str(&format!("- {speaker}: {body}\n"));
+    }
+    let lead_exchanges = if lead_exchanges.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "# Owner's direct conversations with leads [copied to you — no reply owed]\n\
+             The owner talks to leads directly about the Work they own. Use this to keep the portfolio coherent; \
+             do not answer for the lead or repeat what the lead already said. Step in only when a conversation \
+             changes priorities, resources or the charter across teams.\n{lead_exchanges}\n"
+        )
+    };
     let mut judgements = String::new();
     for handoff in &snapshot.owed_judgements {
         let brief = match (&handoff.owner_brief, handoff.briefed_by.as_deref()) {
@@ -531,6 +557,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          {budget}\n\n\
          # Current plan [working hypothesis]\n{plan}\n\n\
          # Latest journal entry [historical memory]\n{journal}\n\n\
+         {lead_exchanges}\
          # Open Goals [owner directive — complete only on Work evidence]\n{goals}\
          # Open Work graph [internal decision]\n{work}\
          # Organisational judgement protocol\n\
@@ -725,6 +752,7 @@ mod tests {
             latest_journal: Some("== 0001.md ==\ndid step 0".into()),
             recent_owner_conversation: vec![],
             recent_owner_reactions: vec![],
+            owner_lead_exchanges: vec![],
             open_work: vec![WorkRow {
                 id: uuid::Uuid::nil(),
                 goal_id: None,
@@ -771,6 +799,35 @@ mod tests {
         assert_ne!(alice, alice_new_focus);
         let mention = super::focused_mention_responsibility("portfolio", uuid::Uuid::new_v4());
         assert_ne!(alice, mention);
+    }
+
+    #[test]
+    fn owner_lead_conversations_are_copied_without_a_reply_owed() {
+        let now = chrono::Utc::now();
+        let quiet = assemble(&snapshot());
+        assert!(!quiet
+            .system_prompt
+            .contains("direct conversations with leads"));
+        let mut copied = snapshot();
+        copied.owner_lead_exchanges = vec![(
+            "Katniss".into(),
+            MessageRow {
+                id: 41,
+                from_actor: "owner".into(),
+                to_actor: Some("resale-strategy".into()),
+                body: "Hold the Parramatta contact until Monday.".into(),
+                outcome_standard: None,
+                created_at: now,
+                read_at: Some(now),
+            },
+        )];
+        let package = assemble(&copied);
+        assert!(package
+            .system_prompt
+            .contains("# Owner's direct conversations with leads [copied to you — no reply owed]"));
+        assert!(package
+            .system_prompt
+            .contains("- owner to Katniss: Hold the Parramatta contact until Monday."));
     }
 
     #[test]

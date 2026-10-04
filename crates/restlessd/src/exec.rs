@@ -1396,6 +1396,34 @@ async fn gather_snapshot(
                 .collect::<Vec<_>>(),
         )
         .await?;
+    // The Exec is copied on the owner's direct conversations with leads: the
+    // last few messages of each from the past week, for awareness only.
+    let mut owner_lead_exchanges = Vec::new();
+    if pending_mention.is_none() {
+        let since = chrono::Utc::now() - chrono::Duration::days(7);
+        let actors = org.list_actors().await?;
+        for team in org.list_teams().await? {
+            if team.disbanded_at.is_some() || team.lead_actor_id == "exec" {
+                continue;
+            }
+            let lead = actors
+                .iter()
+                .find(|actor| actor.id == team.lead_actor_id)
+                .map(|actor| actor.display.clone())
+                .unwrap_or_else(|| team.lead_actor_id.clone());
+            for message in org
+                .human_conversation(owner_actor_id, &team.lead_actor_id, 4)
+                .await?
+                .into_iter()
+                .filter(|message| message.created_at >= since)
+            {
+                owner_lead_exchanges.push((lead.clone(), message));
+            }
+        }
+        owner_lead_exchanges.sort_by_key(|(_, message)| message.created_at);
+        let keep = owner_lead_exchanges.len().saturating_sub(12);
+        owner_lead_exchanges.drain(..keep);
+    }
     let owed_judgements = if pending_mention.is_some() {
         Vec::new()
     } else {
@@ -1417,6 +1445,7 @@ async fn gather_snapshot(
             .collect(),
         recent_owner_conversation,
         recent_owner_reactions,
+        owner_lead_exchanges,
         inbox,
         inbox_skills,
         owed_judgements,
