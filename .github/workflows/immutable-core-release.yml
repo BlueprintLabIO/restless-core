@@ -25,7 +25,9 @@ permissions:
 jobs:
   candidate:
     name: Deliver exact candidate
-    runs-on: ${{ fromJSON(inputs.platform == 'linux/arm64' && '["self-hosted","linux","arm64","restless-core"]' || '["self-hosted","linux","x64","restless-core"]') }}
+    # amd64 builds on GitHub's hosted runners: the self-hosted WSL runner's GHCR
+    # downloads repeatedly broke off mid-layer during publish (2026-10-04).
+    runs-on: ${{ fromJSON(inputs.platform == 'linux/arm64' && '["self-hosted","linux","arm64","restless-core"]' || '"ubuntu-24.04"') }}
     timeout-minutes: 165
     env:
       DAGGER_NO_NAG: "1"
@@ -43,6 +45,9 @@ jobs:
             echo 'Core publication must use the trusted main workflow.' >&2
             exit 1
           fi
+      - name: Free hosted runner disk for the Rust and image builds
+        if: runner.environment == 'github-hosted'
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
       - name: Install the pinned Dagger CLI
         run: scripts/release/install-dagger.sh
       - name: Qualify the exact source through the shared pipeline
