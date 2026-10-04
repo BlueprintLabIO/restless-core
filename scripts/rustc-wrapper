@@ -22,8 +22,11 @@ if [ -z "${RESTLESS_RUSTC_DIRECT:-}" ] && command -v flock >/dev/null 2>&1; then
 			slot=1
 			while [ "$slot" -le "$slots" ]; do
 				# The lock is held on fd 9 through exec, so it is released
-				# exactly when this compiler and its linker exit.
-				if exec 9>"$dir/$slot" 2>/dev/null && flock -n 9; then
+				# exactly when this compiler and its linker exit. Redirect
+				# nothing else here: a redirection on a bare `exec` is
+				# permanent, and stderr is how Cargo receives every diagnostic.
+				exec 9>"$dir/$slot"
+				if flock -n 9; then
 					exec nice -n 5 "$rustc" "$@"
 				fi
 				slot=$((slot + 1))
