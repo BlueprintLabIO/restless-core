@@ -29,6 +29,8 @@ jobs:
     timeout-minutes: 165
     env:
       DAGGER_NO_NAG: "1"
+      # Cargo parallelism the runner's builder memory allows (about 2 GiB per job).
+      CARGO_JOBS: ${{ vars.CORE_CARGO_JOBS || '2' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -46,8 +48,9 @@ jobs:
       - name: Install the pinned Dagger CLI
         run: scripts/release/install-dagger.sh
       - name: Qualify the exact source through the shared pipeline
+        timeout-minutes: 60
         run: |
-          "$HOME/.local/bin/dagger" --silent call qualify --source=.
+          "$HOME/.local/bin/dagger" --silent call qualify --source=. --cargo-jobs="$CARGO_JOBS"
       - name: Prepare job-scoped registry access for Dockerfile base resolution
         if: inputs.publish
         env:
@@ -67,7 +70,7 @@ jobs:
         run: |
           exec "$HOME/.local/bin/dagger" --silent call publish --source=. --revision="$GITHUB_SHA" \
             --username="$GITHUB_ACTOR" --password=env:RESTLESS_REGISTRY_PASSWORD \
-            --platform="$PLATFORM" --scan-period="$(date -u +%F)" \
+            --platform="$PLATFORM" --scan-period="$(date -u +%F)" --cargo-jobs="$CARGO_JOBS" \
             export --path="$RUNNER_TEMP/core-release-artifacts"
       - name: Seal and verify the existing Core contract with this workflow identity
         if: inputs.publish

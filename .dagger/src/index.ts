@@ -30,9 +30,15 @@ function cockpit(source: Directory): Container {
   return project(source, 'web').withExec(['npm', 'run', 'check']).withExec(['npm', 'run', 'build']);
 }
 
-function rust(source: Directory): Container {
+/** Cargo parallelism is bounded by the builder's memory, so the runner chooses it (1-16). */
+function cargoJobsArg(cargoJobs: number): string {
+  if (!Number.isInteger(cargoJobs) || cargoJobs < 1 || cargoJobs > 16) throw new Error('cargo jobs must be between 1 and 16');
+  return String(cargoJobs);
+}
+
+function rust(source: Directory, cargoJobs: number = 2): Container {
   return dag.container().from(RUST_IMAGE)
-    .withEnvVariable('CARGO_BUILD_JOBS', '2').withEnvVariable('CARGO_INCREMENTAL', '0')
+    .withEnvVariable('CARGO_BUILD_JOBS', cargoJobsArg(cargoJobs)).withEnvVariable('CARGO_INCREMENTAL', '0')
     .withMountedCache('/usr/local/cargo/registry', dag.cacheVolume('restless-core-cargo-registry-v1'))
     .withMountedCache('/usr/local/cargo/git', dag.cacheVolume('restless-core-cargo-git-v1'))
     .withMountedCache('/src/target', dag.cacheVolume('restless-core-cargo-check-v1'))
@@ -164,6 +170,7 @@ export class RestlessCore {
       '!tools/scenario/restless-scenario.mjs', '!tools/web-review/restless-web-review.mjs', '!tools/codex-runner/**',
       'infra/company-image/test_supervision_contract.py', '**/node_modules/**', '**/target/**', '**/__pycache__/**', '**/.env', '**/.env.*'] })
     source: Directory, revision: string, platform: string = 'linux/amd64', toolsImage: string = '',
+    cargoJobs: number = 2,
   ): Promise<Container> {
     checkPlatform(platform);
     if (!/^[0-9a-f]{40}$/.test(revision)) throw new Error('company Runtime requires exact source provenance');
@@ -186,8 +193,10 @@ export class RestlessCore {
     let image = dag.directory().withDirectory('/', source, {
       include: RUNTIME_INPUTS, exclude: [...EXCLUDES, 'infra/company-image/test_supervision_contract.py'],
     })
-      .dockerBuild({ dockerfile: 'infra/company-image/Dockerfile', platform,
-        buildArgs: toolsImage ? [{ name: 'RUNTIME_TOOLS_IMAGE', value: toolsImage }] : [] });
+      .dockerBuild({ dockerfile: 'infra/company-image/Dockerfile', platform, buildArgs: [
+        { name: 'CARGO_BUILD_JOBS', value: cargoJobsArg(cargoJobs) },
+        ...(toolsImage ? [{ name: 'RUNTIME_TOOLS_IMAGE', value: toolsImage }] : []),
+      ] });
     for (const [name, value] of values) {
       if (!value) throw new Error(`missing canonical release value: ${name}`);
       image = image.withEnvVariable(name, value);
@@ -212,10 +221,10 @@ export class RestlessCore {
   @func()
   async qualify(
     @argument({ ignore: ['**/.git', '**/.git/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/.env', '**/.env.*'] })
-    source: Directory,
+    source: Directory, cargoJobs: number = 2,
   ): Promise<string> {
     await Promise.all([
-      rust(source).withExec(['cargo', 'check', '--workspace', '--locked'])
+      rust(source, cargoJobs).withExec(['cargo', 'check', '--workspace', '--locked'])
         .withExec(['cargo', 'test', '--locked', '-p', 'restlessd', 'company_projection::tests'])
         .withExec(['cargo', 'test', '--locked', '-p', 'restlessd', 'public_jwks_routes_are_method_and_path_exact']).sync(),
       cockpit(source).sync(),
@@ -262,7 +271,9 @@ export class RestlessCore {
   @func()
   verifyOverlays(source: Directory): Container {
     return project(source, 'web')
-      .withExec(['apk', 'add', '--no-cache', 'chromium'])
+      // apk has no read timeout; a stalled mirror once hung a release for 80 minutes.
+      .withExec(['/bin/sh', '-ec', 'for attempt in 1 2 3; do timeout 300 apk add --no-cache chromium && exit 0; '
+        + 'echo "apk add chromium attempt $attempt failed" >&2; sleep 5; done; exit 1'])
       .withEnvVariable('RESTLESS_BROWSER_EXECUTABLE', '/usr/bin/chromium')
       .withEnvVariable('RESTLESS_REVIEW_ORIGIN', 'http://127.0.0.1:5173')
       .withEnvVariable('RESTLESS_OVERLAY_PROOF_DIR', '/tmp/restless-overlay-proof')
@@ -289,7 +300,7 @@ export class RestlessCore {
   async publish(
     @argument({ ignore: ['**/.git', '**/.git/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/.env', '**/.env.*'] })
     source: Directory, revision: string, username: string, password: Secret, scanPeriod: string,
-    platform: string = 'linux/amd64',
+    platform: string = 'linux/amd64', cargoJobs: number = 2,
   ): Promise<Directory> {
     checkPlatform(platform);
     if (!/^[0-9a-f]{40}$/.test(revision)) throw new Error('Core publication requires exact source provenance');
@@ -305,14 +316,14 @@ export class RestlessCore {
     });
     const tasks = [
       () => publishImage('account-plane', revision, platform, source.filter({ include: [...ACCOUNT_INPUTS, 'web/**'], exclude: EXCLUDES }),
-        async () => this.accountPlane(source, revision, platform), async image => { console.log(await verifyAccountPlaneImage(image)); },
+        async () => this.accountPlane(source, revision, platform, cargoJobs), async image => { console.log(await verifyAccountPlaneImage(image)); },
         username, password, scanPeriod),
       () => publishImage('native-documents-collaboration', revision, platform, nativeContext,
         async () => this.nativeDocuments(source, revision, platform), async image => { console.log(await verifyNativeDocumentsImage(image)); },
         username, password, scanPeriod),
       () => publishImage('company-runtime', revision, platform, source.filter({
         include: RUNTIME_INPUTS, exclude: [...EXCLUDES, 'infra/company-image/test_supervision_contract.py'],
-      }), async () => this.companyRuntime(source, revision, platform, tools.reference),
+      }), async () => this.companyRuntime(source, revision, platform, tools.reference, cargoJobs),
         async image => { console.log(await verifyCompanyRuntimeImage(image, revision)); }, username, password, scanPeriod),
     ];
     // Bound independent work on the first builder instead of oversubscribing it.
@@ -400,14 +411,14 @@ export class RestlessCore {
       '!docs/COMPANY_OPERATING_RULES.md', '!infra/account-plane/Dockerfile', '!services/native-sheets/package.json',
       '!services/native-sheets/package-lock.json', '!services/native-sheets/src/**', '!services/native-sheets/NOTICE',
       '!web/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/.env', '**/.env.*'] })
-    source: Directory, revision: string, platform: string = 'linux/amd64',
+    source: Directory, revision: string, platform: string = 'linux/amd64', cargoJobs: number = 2,
   ): Container {
     checkPlatform(platform);
     if (!/^[0-9a-f]{40}$/.test(revision)) throw new Error('account plane requires exact source provenance');
     const context = dag.directory().withDirectory('/', source, { include: ACCOUNT_INPUTS, exclude: EXCLUDES })
       .withDirectory('web/build', this.cockpit(source));
     return context.dockerBuild({ dockerfile: 'infra/account-plane/Dockerfile', platform,
-      buildArgs: [{ name: 'SOURCE_REVISION', value: revision }] })
+      buildArgs: [{ name: 'SOURCE_REVISION', value: revision }, { name: 'CARGO_BUILD_JOBS', value: cargoJobsArg(cargoJobs) }] })
       .withLabel('org.opencontainers.image.revision', revision)
       .withLabel('org.opencontainers.image.source', 'https://github.com/BlueprintLabIO/restless-core');
   }
