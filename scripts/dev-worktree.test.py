@@ -47,6 +47,7 @@ with tempfile.TemporaryDirectory(prefix='restless-worktree-pool-') as directory:
     first = pool('dev_worktree_new', 'alpha')
     slot1 = work / 'slot-1'
     assert str(slot1) in first and 'new slot' in first, first
+    assert (slot1 / 'target' / '.metadata_never_index').exists(), 'slots are excluded from Spotlight'
     marker = slot1 / 'target-dev' / 'warm'
     marker.parent.mkdir(parents=True)
     marker.write_text('incremental cache\n')

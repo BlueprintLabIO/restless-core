@@ -161,6 +161,8 @@ dev_worktree_new() {
   fi
   printf '%s\t%s\t%s\n' "$name" "$(date +%s)" "$(git -C "$dir" rev-parse HEAD)" \
     > "$(dev_worktree_claim_file "$dir")"
+  # A warm slot's target holds tens of GB; keep macOS Spotlight out of it.
+  mkdir -p "$dir/target" && touch "$dir/target/.metadata_never_index"
 
   if [ "$reused" = 1 ]; then
     printf '\nWORKTREE %s (reused: its build cache is warm)\n' "$dir"
