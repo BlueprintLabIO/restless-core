@@ -1005,28 +1005,36 @@ function reachableTiles(
 	start: { col: number; row: number },
 	blocked: Set<string>
 ): Set<string> {
+	/* Breadth-first over tile indices: each tile is examined once (whether
+	 * it opens or not never changes), with a flat queue instead of shift().
+	 * Tiles are reached in the same order as a queue of neighbours would. */
+	const { cols, rows, tiles } = layout;
 	const reached = new Set<string>();
-	const queue = [start];
-	while (queue.length) {
-		const current = queue.shift()!;
-		const key = `${current.col},${current.row}`;
-		if (reached.has(key) || blocked.has(key)) continue;
-		if (
-			current.col < 0 ||
-			current.row < 0 ||
-			current.col >= layout.cols ||
-			current.row >= layout.rows
-		)
-			continue;
-		const tile = layout.tiles[current.row * layout.cols + current.col];
-		if (tile === TileType.WALL || tile === TileType.VOID) continue;
+	const seen = new Uint8Array(cols * rows);
+	const queue = new Int32Array(cols * rows);
+	let head = 0;
+	let tail = 0;
+	const visit = (col: number, row: number) => {
+		if (col < 0 || row < 0 || col >= cols || row >= rows) return;
+		const index = row * cols + col;
+		if (seen[index]) return;
+		seen[index] = 1;
+		const key = `${col},${row}`;
+		if (blocked.has(key)) return;
+		const tile = tiles[index];
+		if (tile === TileType.WALL || tile === TileType.VOID) return;
 		reached.add(key);
-		queue.push(
-			{ col: current.col + 1, row: current.row },
-			{ col: current.col - 1, row: current.row },
-			{ col: current.col, row: current.row + 1 },
-			{ col: current.col, row: current.row - 1 }
-		);
+		queue[tail++] = index;
+	};
+	visit(start.col, start.row);
+	while (head < tail) {
+		const index = queue[head++];
+		const col = index % cols;
+		const row = (index - col) / cols;
+		visit(col + 1, row);
+		visit(col - 1, row);
+		visit(col, row + 1);
+		visit(col, row - 1);
 	}
 	return reached;
 }
