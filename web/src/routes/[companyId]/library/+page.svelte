@@ -1,11 +1,12 @@
 <script lang="ts">
 	/* The Library: what the company has written and built, in one place. Docs
 	 * and sheets share one table, filtered from the side; each opens in its
-	 * editor. New items start in that editor's own create flow. */
+	 * editor. New items are named here and open straight into their editor. */
 	import { page } from '$app/state';
 	import { Item, Notice, Empty, Dot } from '$lib/ui/page';
 	import RelativeTime from '$lib/ui/RelativeTime.svelte';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
+	import LibraryNew from '$lib/components/LibraryNew.svelte';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FileText from '@lucide/svelte/icons/file-text';
 	import Sheet from '@lucide/svelte/icons/sheet';
@@ -59,6 +60,7 @@
 	type Filter = 'all' | 'docs' | 'sheets' | 'review';
 	const filter = $derived((page.url.searchParams.get('show') as Filter) || 'all');
 	let search = $state('');
+	let creator: LibraryNew;
 
 	/* Documents an owner was asked to review or work on, from the Inbox. */
 	const requested = $derived(
@@ -171,13 +173,16 @@
 					placeholder="Search"
 					aria-label="Search the Library"
 				/>
-				<a class="btn small new-sheet" href={`${root}/library/sheets?new=1`}>New sheet</a>
-				<a
+				<button class="btn small new-sheet" type="button" onclick={() => creator.open('sheet')}
+					>New sheet</button
+				>
+				<button
 					class="btn small primary new"
-					href={`${root}/library/documents?new=1`}
+					type="button"
 					aria-label="New document"
 					title="New document"
-					><Plus size={14} strokeWidth={2} aria-hidden="true" /><span>New document</span></a
+					onclick={() => creator.open(filter === 'sheets' ? 'sheet' : 'doc')}
+					><Plus size={14} strokeWidth={2} aria-hidden="true" /><span>New document</span></button
 				>
 			</header>
 
@@ -237,10 +242,11 @@
 								: 'Nothing here yet'}
 						info="Documents and sheets the company writes appear here. Agents add to it as they work."
 					>
-						{#snippet action()}{#if !search && filter !== 'review'}<a
+						{#snippet action()}{#if !search && filter !== 'review'}<button
 									class="btn small"
-									href={`${root}/library/${filter === 'sheets' ? 'sheets' : 'documents'}?new=1`}
-									>{filter === 'sheets' ? 'New sheet' : 'New document'}</a
+									type="button"
+									onclick={() => creator.open(filter === 'sheets' ? 'sheet' : 'doc')}
+									>{filter === 'sheets' ? 'New sheet' : 'New document'}</button
 								>{/if}{/snippet}
 					</Empty>
 				{/if}
@@ -248,6 +254,8 @@
 		</div>
 	</main>
 </div>
+
+<LibraryNew bind:this={creator} {companyId} />
 
 <style>
 	.library {

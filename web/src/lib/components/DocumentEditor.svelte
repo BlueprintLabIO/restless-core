@@ -62,6 +62,8 @@
 		view: DocumentReadView;
 		principalActorId: string;
 		online?: boolean;
+		/** Rendered before the title, for the way back to where it was opened. */
+		leading?: Snippet;
 		actions?: Snippet;
 		moreActions?: Snippet;
 		onaccept?: (target: DocumentTarget, view: DocumentReadView) => void;
@@ -76,6 +78,7 @@
 		view,
 		principalActorId,
 		online = true,
+		leading,
 		actions,
 		moreActions,
 		onaccept = () => {},
@@ -562,6 +565,7 @@
 <section class="document-editor" aria-label="Document editor">
 	<header class="editor-head">
 		<div class="document-title-field">
+			{@render leading?.()}
 			<label for="document-title">Document title</label>
 			<input
 				id="document-title"
@@ -848,6 +852,8 @@
 		white-space: nowrap;
 	}
 	.document-title-field input {
+		flex: 1;
+		min-width: 0;
 		width: 100%;
 		padding: 3px 1px;
 		border: 0;
@@ -872,6 +878,9 @@
 		gap: 6px;
 	}
 	.document-title-field {
+		display: flex;
+		align-items: center;
+		gap: 4px;
 		min-width: 0;
 	}
 	.collaboration-state {

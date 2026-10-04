@@ -1,5 +1,6 @@
 //! Cell-local native workbooks. Upstream JSON and accepted OT messages are the
-//! only body truth. Checkpoints do not compact the replay log or destroy undo.
+//! only body truth. The replay log is kept whole; a fresh read starts from the
+//! newest server-computed checkpoint so replay cost stays bounded as a sheet ages.
 use crate::OrgIntel;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
@@ -10,6 +11,9 @@ use uuid::Uuid;
 
 pub const SHEET_ENGINE_VERSION: &str = "19.0.51";
 pub const MAX_SHEET_BYTES: usize = 8 * 1024 * 1024;
+/// Revisions a fresh read replays on top of its checkpoint, at least. Undo of a
+/// revision older than this window is refused rather than replayed.
+pub const SHEET_REPLAY_WINDOW: i64 = 200;
 
 #[derive(Debug, thiserror::Error)]
 pub enum SheetError {
@@ -268,14 +272,30 @@ impl OrgIntel {
     ) -> Result<SheetState> {
         let mut tx = self.pool.begin().await?;
         let grant = access(&mut tx, id, actor, edit).await?;
-        let sheet = sqlx::query_as(&format!("SELECT {ROW} FROM native_sheets WHERE id=$1"))
-            .bind(id)
-            .fetch_one(&mut *tx)
-            .await?;
-        let snapshot = sqlx::query_scalar("SELECT replay_base FROM native_sheets WHERE id=$1")
-            .bind(id)
-            .fetch_one(&mut *tx)
-            .await?;
+        let sheet: SheetRow =
+            sqlx::query_as(&format!("SELECT {ROW} FROM native_sheets WHERE id=$1"))
+                .bind(id)
+                .fetch_one(&mut *tx)
+                .await?;
+        // A catch-up read continues from its cursor. A fresh read starts from the
+        // newest checkpoint that still leaves the replay window, so neither the
+        // browser nor the model worker replays a long-lived sheet's whole history.
+        let checkpoint: Option<(Value, i64)> = if after == 0 {
+            sqlx::query_as("SELECT workbook,sequence FROM native_sheet_checkpoints WHERE sheet_id=$1 AND sequence<=$2 ORDER BY sequence DESC LIMIT 1")
+                .bind(id).bind(sheet.sequence - SHEET_REPLAY_WINDOW).fetch_optional(&mut *tx).await?
+        } else {
+            None
+        };
+        let (snapshot, after) = match checkpoint {
+            Some((workbook, sequence)) => (workbook, sequence),
+            None => (
+                sqlx::query_scalar("SELECT replay_base FROM native_sheets WHERE id=$1")
+                    .bind(id)
+                    .fetch_one(&mut *tx)
+                    .await?,
+                after,
+            ),
+        };
         let messages = sqlx::query_as("SELECT sequence,actor_id,message FROM native_sheet_messages WHERE sheet_id=$1 AND sequence>$2 ORDER BY sequence")
             .bind(id).bind(after).fetch_all(&mut *tx).await?;
         tx.commit().await?;
@@ -369,22 +389,6 @@ impl OrgIntel {
             return Err(SheetError::Conflict(
                 "workbook changed; reread its current revision".into(),
             ));
-        }
-        if sequence + messages.len() as i64 > 20_000 {
-            return Err(SheetError::Invalid("workbook exceeds the supported 20,000-revision history; recover a checkpoint into a new sheet".into()));
-        }
-        let replay_bytes:i64=sqlx::query_scalar("SELECT COALESCE(SUM(octet_length(message::text)),0)::bigint FROM native_sheet_messages WHERE sheet_id=$1")
-            .bind(id).fetch_one(&mut *tx).await?;
-        let added: usize = messages
-            .iter()
-            .map(|m| serde_json::to_vec(m).map_or(usize::MAX, |v| v.len()))
-            .sum();
-        if replay_bytes as usize
-            + added
-            + serde_json::to_vec(workbook).map_or(usize::MAX, |v| v.len())
-            > 24 * 1024 * 1024
-        {
-            return Err(SheetError::Invalid("workbook replay exceeds the supported 24 MiB history limit; recover a checkpoint into a new sheet".into()));
         }
         for message in messages {
             bounded(message)?;

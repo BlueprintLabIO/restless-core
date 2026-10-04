@@ -113,15 +113,25 @@
 @keyframes bridge-vt-in {
 	from {
 		opacity: 0;
-		transform: translateY(4px);
 	}
 }
 
+/* A true cross-dissolve: both frames run together and add with plus-lighter,
+ * so pixels that did not change (pane frames, the side panel of a section,
+ * the background) hold perfectly still and only the changed pane dissolves.
+ * A staggered fade or a positional settle would move the whole page. */
+::view-transition-image-pair(root) {
+	isolation: isolate;
+}
+::view-transition-old(root),
+::view-transition-new(root) {
+	mix-blend-mode: plus-lighter;
+}
 ::view-transition-old(root) {
-	animation: bridge-vt-out 120ms var(--ease-out, ease-out) both;
+	animation: bridge-vt-out 160ms var(--ease-out, ease-out) both;
 }
 ::view-transition-new(root) {
-	animation: bridge-vt-in 220ms var(--ease-out, ease-out) 40ms both;
+	animation: bridge-vt-in 160ms var(--ease-out, ease-out) both;
 }
 /* In-place changes (theme, Exec rail; see lib/transition.ts) crossfade
  * without the navigation settle, and a closing rail slides away. */
