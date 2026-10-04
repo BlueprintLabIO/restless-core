@@ -22,6 +22,7 @@ test('collaborator navigation contains no owner-only destinations', () => {
 		tabs.map(({ key, href, on }) => ({ key, href, on })),
 		[
 			{ key: 'work', href: '/acme/work', on: false },
+			{ key: 'library', href: '/acme/library', on: false },
 			{ key: 'people', href: '/acme/people', on: true }
 		]
 	);
@@ -35,13 +36,14 @@ test('navigation stays empty until a principal has been authenticated', () => {
 	assert.deepEqual(companyShellTabs('acme', '/acme', null), []);
 });
 
-test('owner navigation keeps the four canonical company areas', () => {
+test('owner navigation keeps the five canonical company areas', () => {
 	const tabs = companyShellTabs('acme', '/acme/company/computer', principal('owner'), 3);
 	assert.deepEqual(
 		tabs.map(({ key, on, badge }) => ({ key, on, badge })),
 		[
 			{ key: 'attention', on: false, badge: 3 },
 			{ key: 'work', on: false, badge: undefined },
+			{ key: 'library', on: false, badge: undefined },
 			{ key: 'people', on: false, badge: undefined },
 			{ key: 'company', on: true, badge: undefined }
 		]
@@ -55,7 +57,7 @@ test('non-owner route admission matches only collaboration route families', () =
 		'/acme/people/rooms',
 		'/acme/work',
 		'/acme/work/work-1',
-		'/acme/work/documents'
+		'/acme/library/documents'
 	]) {
 		assert.equal(mayOpenCompanyRoute('acme', pathname, member), true, pathname);
 	}

@@ -362,6 +362,7 @@
 		const path = page.url.pathname;
 		const root = `/${companyId}`;
 		if (path === `${root}/work` || path.startsWith(`${root}/work/`)) return 'Linked · Work';
+		if (path === `${root}/library` || path.startsWith(`${root}/library/`)) return 'Linked · Library';
 		if (path === `${root}/people` || path.startsWith(`${root}/people/`)) return 'Linked · People';
 		if (path === `${root}/company` || path.startsWith(`${root}/company/`))
 			return 'Linked · Company';

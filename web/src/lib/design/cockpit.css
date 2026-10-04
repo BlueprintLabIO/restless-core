@@ -843,102 +843,6 @@
 	min-height: 100%;
 }
 
-/* Work: one source, relational Map and operational Board. */
-.bridge-root .work-screen {
-	display: grid;
-	grid-template-columns: var(--work-index-w, 228px) minmax(0, 1fr);
-	gap: var(--pane-gap);
-}
-
-.bridge-root .goal-spine {
-	display: block;
-	min-width: 0;
-	overflow: auto;
-	background: var(--glass-pane-strong);
-	backdrop-filter: blur(var(--glass-blur));
-}
-
-.bridge-root .goal-list {
-	display: grid;
-	gap: 1px;
-	padding: 6px;
-}
-
-.bridge-root .goal-spine button {
-	position: relative;
-	width: 100%;
-	min-width: 0;
-	display: grid;
-	grid-template-columns: minmax(0, 1fr) auto;
-	align-items: baseline;
-	gap: 4px 10px;
-	padding: 9px 10px;
-	border: 0;
-	border-radius: var(--radius-control);
-	background: transparent;
-	color: var(--text-secondary);
-	text-align: left;
-	cursor: pointer;
-	transition:
-		background-color var(--motion-state) var(--ease-standard),
-		color var(--motion-state) var(--ease-standard);
-}
-
-.bridge-root .goal-spine button:hover {
-	background: color-mix(in srgb, var(--highlight) 62%, transparent);
-	color: var(--ink);
-}
-
-.bridge-root .goal-spine button.current {
-	background: var(--intent-direction-soft);
-	color: var(--ink);
-}
-
-.bridge-root .goal-spine button:nth-child(2) {
-	margin-bottom: 7px;
-}
-
-.bridge-root .goal-spine strong {
-	min-width: 0;
-	font-size: var(--t-body);
-	font-weight: 500;
-	line-height: 1.4;
-}
-
-.bridge-root .goal-spine button.current strong {
-	font-weight: 600;
-}
-
-.bridge-root .goal-count {
-	color: var(--text-tertiary);
-	font: 500 var(--t-label) var(--font-ui);
-	font-variant-numeric: tabular-nums;
-}
-
-.bridge-root .goal-progress {
-	grid-column: 1 / -1;
-	height: 2px;
-	overflow: hidden;
-	border-radius: 2px;
-	background: color-mix(in srgb, var(--intent-direction) 10%, transparent);
-}
-
-.bridge-root .goal-progress::after {
-	content: '';
-	display: block;
-	width: calc(var(--goal-done, 0) * 100%);
-	height: 100%;
-	background: var(--state-success);
-	transition: width var(--motion-disclosure) var(--ease-out);
-}
-
-.bridge-root .work-stage {
-	position: relative;
-	display: grid;
-	grid-template-rows: var(--pane-head-h) minmax(0, 1fr);
-	overflow: hidden;
-}
-
 .bridge-root .lens-switch {
 	position: relative;
 	display: flex;
@@ -972,67 +876,6 @@
 
 .bridge-root .lens-switch.board::before {
 	transform: translateX(100%);
-}
-
-.bridge-root .history-control,
-.bridge-root .board-history-toggle,
-.bridge-root .flat-control {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	gap: 6px;
-	padding: 5px 9px;
-	border: 1px solid var(--control-edge);
-	border-radius: var(--radius-control);
-	background: linear-gradient(180deg, var(--surface-raised), var(--surface-alt));
-	box-shadow: var(--bevel-subtle), var(--control-depth);
-	font: 500 var(--t-label) var(--font-ui);
-	font-variant-numeric: tabular-nums;
-	color: var(--text-secondary);
-	cursor: pointer;
-}
-
-.bridge-root .history-control.on {
-	border-color: color-mix(in srgb, var(--state-success) 35%, var(--control-edge));
-	background: linear-gradient(
-		180deg,
-		var(--surface-raised),
-		color-mix(in srgb, var(--state-success-soft) 75%, var(--surface-alt))
-	);
-	color: var(--state-success);
-}
-
-.bridge-root :is(.history-control, .board-history-toggle, .flat-control):active {
-	transform: translateY(1px);
-	box-shadow: var(--bevel-subtle), var(--control-depth-pressed);
-}
-
-.bridge-root .map-key {
-	display: flex;
-	align-items: center;
-	gap: 12px;
-	margin-left: auto;
-	font: 500 var(--t-label) var(--font-ui);
-	font-variant-numeric: tabular-nums;
-	letter-spacing: normal;
-	text-transform: none;
-	color: var(--text-tertiary);
-}
-
-.bridge-root .map-key span {
-	display: flex;
-	align-items: center;
-	gap: 5px;
-}
-
-.bridge-root .map-key i {
-	width: 14px;
-	height: 1px;
-	background: var(--intent-conversation);
-}
-
-.bridge-root .map-key i.revision {
-	background: repeating-linear-gradient(90deg, var(--intent-feedback) 0 3px, transparent 3px 6px);
 }
 
 .bridge-root .lens-switch button {
@@ -1069,14 +912,6 @@
 	transform: scale(0.97);
 }
 
-.bridge-root .work-map {
-	min-width: 0;
-	min-height: 0;
-	position: relative;
-	overflow: hidden;
-	background: var(--surface-pane);
-}
-
 .bridge-root .work-relations-section a:focus-visible {
 	outline: 2px solid var(--intent-conversation);
 	outline-offset: 2px;
@@ -1111,14 +946,6 @@
 
 .bridge-root .status-blocked > span {
 	color: var(--intent-authority);
-}
-
-.bridge-root .board-history-toggle {
-	width: 100%;
-	margin-top: 4px;
-	white-space: normal;
-	line-height: 1.35;
-	color: var(--state-success);
 }
 
 .bridge-root .work-detail-screen {
@@ -2132,7 +1959,6 @@
 	cursor: pointer;
 }
 
-.bridge-root .flat-control,
 .bridge-root .bounded-confirm button {
 	padding: 5px 8px;
 	border: 1px solid var(--border-strong);
@@ -2334,9 +2160,6 @@
 }
 
 @media (max-width: 1180px) {
-	.bridge-root .work-screen {
-		grid-template-columns: var(--work-index-w, 220px) minmax(0, 1fr);
-	}
 	.bridge-root .attention-screen {
 		grid-template-columns: minmax(0, var(--attention-index-w, 280px)) minmax(0, 1fr);
 	}
@@ -2352,12 +2175,6 @@
 	.bridge-root .exr-inner,
 	.bridge-root .exr-lock {
 		width: calc(var(--exec-rail-w, 340px) - 2px);
-	}
-}
-
-@media (max-width: 1360px) {
-	.bridge-root .map-key {
-		display: none;
 	}
 }
 
@@ -2422,18 +2239,7 @@
 		top: 8px;
 		left: 8px;
 	}
-	.bridge-root .work-screen {
-		display: grid;
-		grid-template-columns: 1fr;
-		overflow: hidden;
-	}
-	.bridge-root .goal-spine {
-		display: none;
-	}
-	.bridge-root .work-stage {
-		min-height: 0;
-		margin: 0;
-	}
+
 	.bridge-root .work-detail-head {
 		padding: 14px 15px;
 	}

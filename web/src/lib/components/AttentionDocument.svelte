@@ -103,7 +103,7 @@
 	{/snippet}
 	{#snippet moreActions()}
 		<a
-			href={`/${encodeURIComponent(companyId)}/work/documents?document=${encodeURIComponent(request.document_id)}`}
+			href={`/${encodeURIComponent(companyId)}/library/documents?document=${encodeURIComponent(request.document_id)}`}
 			>Open in Documents</a
 		>
 		{#if request.kind === 'review'}

@@ -88,6 +88,7 @@
 	const tabGlyphs: Record<string, readonly string[]> = {
 		attention: GLYPHS.alert,
 		work: GLYPHS.briefcase,
+		library: GLYPHS.rules,
 		people: GLYPHS.group,
 		company: GLYPHS.key
 	};
@@ -99,7 +100,13 @@
 		unavailable: 'Unavailable'
 	};
 	/* Linear-style two-key moves: G then the surface's initial. */
-	const tabKeys: Record<string, string> = { attention: 'i', work: 'w', people: 'p', company: 'c' };
+	const tabKeys: Record<string, string> = {
+		attention: 'i',
+		work: 'w',
+		library: 'l',
+		people: 'p',
+		company: 'c'
+	};
 	const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 	const execShortcut = isMac ? '⌘J' : 'Ctrl+J';
 	const menuShortcut = isMac ? '⌘K' : 'Ctrl+K';

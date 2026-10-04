@@ -28,7 +28,7 @@ export function prefetchTarget(
 		const known = person && directRooms?.find((entry) => entry.person_actor_id === person);
 		return known ? { room: known.room_id } : null;
 	}
-	if (url.pathname === `${base}/work/documents`) {
+	if (url.pathname === `${base}/library/documents`) {
 		const document = url.searchParams.get('document');
 		return document ? { document } : null;
 	}

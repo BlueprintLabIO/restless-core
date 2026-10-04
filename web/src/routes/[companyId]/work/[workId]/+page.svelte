@@ -206,17 +206,16 @@
 
 	function backHref(): string {
 		const selectedGoal = page.url.searchParams.get('goal') || work?.goal_id || '';
-		const lens = page.url.searchParams.get('lens') === 'board' ? 'board' : 'map';
-		const query = new URLSearchParams({ lens });
+		const query = new URLSearchParams();
+		if (page.url.searchParams.get('view') === 'board') query.set('view', 'board');
 		if (selectedGoal) query.set('goal', selectedGoal);
-		return `/${encodeURIComponent(companyId)}/work?${query}`;
+		const search = query.toString();
+		return `/${encodeURIComponent(companyId)}/work${search ? `?${search}` : ''}`;
 	}
 
 	function relatedHref(item: WorkItem): string {
-		const query = new URLSearchParams({
-			goal: item.goal_id ?? work?.goal_id ?? '',
-			lens: page.url.searchParams.get('lens') === 'board' ? 'board' : 'map'
-		});
+		const query = new URLSearchParams({ goal: item.goal_id ?? work?.goal_id ?? '' });
+		if (page.url.searchParams.get('view') === 'board') query.set('view', 'board');
 		return `/${encodeURIComponent(companyId)}/work/${encodeURIComponent(item.id)}?${query}`;
 	}
 

@@ -133,6 +133,14 @@
 		if (isAuthoritativeDocumentFailure(detail.failure)) untrack(() => search.denyDocument(id));
 		else if (documentView?.document.id === id) untrack(() => search.admitDocument(id));
 	});
+	/* The Library's "New document" lands here with ?new=1 and opens the one
+	 * create flow, which keeps its own retry and duplicate protection. */
+	let newRequested = false;
+	$effect(() => {
+		if (newRequested || page.url.searchParams.get('new') !== '1' || creating) return;
+		newRequested = true;
+		untrack(() => toggleCreate());
+	});
 	function toggleCreate() {
 		if (createBusy) return;
 		if (creating) {
@@ -159,16 +167,16 @@
 	const sourceFailure = $derived(shellPrincipal.failure ?? list.failure ?? detail.failure ?? null);
 
 	function documentHref(documentId: string): string {
-		return `/${encodeURIComponent(companyId)}/work/documents?document=${encodeURIComponent(documentId)}`;
+		return `/${encodeURIComponent(companyId)}/library/documents?document=${encodeURIComponent(documentId)}`;
 	}
 
 	function documentHrefFor(company: string, documentId: string): string {
-		return `/${encodeURIComponent(company)}/work/documents?document=${encodeURIComponent(documentId)}`;
+		return `/${encodeURIComponent(company)}/library/documents?document=${encodeURIComponent(documentId)}`;
 	}
 
 	function inspectorHref(panel: DocumentInspectorPanel): string {
 		const query = new URLSearchParams({ document: selectedDocumentId, inspect: panel });
-		return `/${encodeURIComponent(companyId)}/work/documents?${query}`;
+		return `/${encodeURIComponent(companyId)}/library/documents?${query}`;
 	}
 
 	async function openDocument(documentId: string): Promise<void> {
@@ -312,9 +320,9 @@
 				kind="docs"
 				items={sidebarItems}
 				selected={selectedDocumentId}
-				workHref={`/${encodeURIComponent(companyId)}/work`}
-				docsHref={`/${encodeURIComponent(companyId)}/work/documents`}
-				sheetsHref={`/${encodeURIComponent(companyId)}/work/sheets`}
+				workHref={`/${encodeURIComponent(companyId)}/library`}
+				docsHref={`/${encodeURIComponent(companyId)}/library/documents`}
+				sheetsHref={`/${encodeURIComponent(companyId)}/library/sheets`}
 				loading={search.query.trim() ? search.loading : list.status === 'unknown' && !list.failure}
 				searching={search.loading}
 				filterLocally={false}
@@ -376,7 +384,7 @@
 							mobileFocusPending = false;
 						}
 					}}
-					onclick={() => void goto(`/${encodeURIComponent(companyId)}/work/documents`)}
+					onclick={() => void goto(`/${encodeURIComponent(companyId)}/library/documents`)}
 					><ArrowLeft size={16} strokeWidth={2} /></button
 				>
 				<strong>{documentView.document.title}</strong>

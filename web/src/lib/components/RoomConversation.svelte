@@ -782,7 +782,7 @@
 	function includeDocumentLink() {
 		const id = page.url.searchParams.get('document');
 		if (!id) return;
-		const url = new URL(`/${encodeURIComponent(companyId)}/work/documents`, page.url.origin);
+		const url = new URL(`/${encodeURIComponent(companyId)}/library/documents`, page.url.origin);
 		url.searchParams.set('document', id);
 		if (composer.includes(url.href)) return;
 		composer = `${composer.trimEnd()}${composer.trim() ? '\n\n' : ''}${url.href}`;

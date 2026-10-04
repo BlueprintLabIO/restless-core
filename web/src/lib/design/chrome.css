@@ -113,6 +113,9 @@
 .bridge-topbar .tb-tab[data-surface='work'] {
 	--tab-tone: var(--surface-work);
 }
+.bridge-topbar .tb-tab[data-surface='library'] {
+	--tab-tone: var(--intent-direction);
+}
 .bridge-topbar .tb-tab[data-surface='people'] {
 	--tab-tone: var(--surface-people);
 }
@@ -392,6 +395,9 @@
 
 	.bridge-dock .tb-tab[data-surface='work'] {
 		--tab-tone: var(--surface-work);
+	}
+	.bridge-dock .tb-tab[data-surface='library'] {
+		--tab-tone: var(--intent-direction);
 	}
 	.bridge-dock .tb-tab[data-surface='people'] {
 		--tab-tone: var(--surface-people);

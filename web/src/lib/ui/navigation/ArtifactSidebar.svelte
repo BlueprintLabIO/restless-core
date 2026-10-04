@@ -227,8 +227,8 @@
 
 <aside class="artifact-sidebar cockpit-pane" aria-label={`Company ${label}`} bind:this={root}>
 	<header class="artifact-head">
-		<a class="work-link" href={workHref} title="Back to company work"
-			><ArrowLeft size={14} aria-hidden="true" /><span>Work</span></a
+		<a class="work-link" href={workHref} title="Back to the Library"
+			><ArrowLeft size={14} aria-hidden="true" /><span>Library</span></a
 		>
 		<button
 			bind:this={createButton}
@@ -249,7 +249,7 @@
 			<span>{creating ? 'Cancel' : 'New'}</span>
 		</button>
 	</header>
-	<nav class="artifact-switcher" aria-label="Work artifacts">
+	<nav class="artifact-switcher" aria-label="Library">
 		<a
 			href={docsHref}
 			class:current={kind === 'docs'}

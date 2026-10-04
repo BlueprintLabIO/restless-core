@@ -39,7 +39,9 @@ export function mayOpenCompanyRoute(
 		pathname === `${root}/people` ||
 		pathname.startsWith(`${root}/people/`) ||
 		pathname === `${root}/work` ||
-		pathname.startsWith(`${root}/work/`)
+		pathname.startsWith(`${root}/work/`) ||
+		pathname === `${root}/library` ||
+		pathname.startsWith(`${root}/library/`)
 	);
 }
 
@@ -71,6 +73,12 @@ export function companyShellTabs(
 				on: pathname === `${root}/work` || pathname.startsWith(`${root}/work/`)
 			},
 			{
+			key: 'library',
+			label: 'Library',
+			href: `${root}/library`,
+			on: pathname === `${root}/library` || pathname.startsWith(`${root}/library/`)
+		},
+			{
 				key: 'people',
 				label: 'People',
 				href: `${root}/people`,
@@ -92,6 +100,12 @@ export function companyShellTabs(
 			label: 'Work',
 			href: `${root}/work`,
 			on: pathname === `${root}/work` || pathname.startsWith(`${root}/work/`)
+		},
+		{
+			key: 'library',
+			label: 'Library',
+			href: `${root}/library`,
+			on: pathname === `${root}/library` || pathname.startsWith(`${root}/library/`)
 		},
 		{
 			key: 'people',

@@ -497,7 +497,7 @@
 	h1 {
 		margin: 0;
 		color: var(--ink);
-		font-size: clamp(18px, 1.6vw, 21px);
+		font-size: var(--t-title);
 		font-weight: 600;
 		line-height: 1.3;
 		letter-spacing: -0.015em;

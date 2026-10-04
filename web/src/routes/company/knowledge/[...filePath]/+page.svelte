@@ -7,7 +7,7 @@
 	// Compatibility for the Aris Runtime knowledge link shared before the
 	// document was available in the owner cockpit. Runtime files are not served
 	// by the SPA; this maps the filename to its imported, company-scoped copy.
-	let destination = $state('/aris/work/documents');
+	let destination = $state('/aris/library/documents');
 	let status = $state('Finding the matching Aris document…');
 
 	function slug(value: string): string {
@@ -33,7 +33,7 @@
 				const result = await getDocuments('aris', cursor, 30, true);
 				const match = result.items.find((item) => slug(item.document.title) === wanted);
 				if (match) {
-					destination = `/aris/work/documents?document=${encodeURIComponent(match.document.id)}`;
+					destination = `/aris/library/documents?document=${encodeURIComponent(match.document.id)}`;
 					status = 'Opening the matching Aris document…';
 					void goto(destination, { replaceState: true });
 					return;

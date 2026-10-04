@@ -149,7 +149,7 @@
 	const reviewEvidence = $derived(focusedReview?.evidence ?? []);
 	const DOCUMENT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 	function sameCompanyDocumentHref(content: string, company: string): string {
-		const canonicalPath = `/${encodeURIComponent(company)}/work/documents`;
+		const canonicalPath = `/${encodeURIComponent(company)}/library/documents`;
 		for (const line of content.split(/\r?\n/)) {
 			const value = line.trim();
 			const legacy = /^\/documents\/([^/?#\s]+)\/([^/?#\s]+)$/.exec(value);
