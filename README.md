@@ -613,7 +613,10 @@ workflow gap and show the resulting output or behaviour.
 
 | Path | Contents |
 | --- | --- |
-| `crates/restlessd/` | Coordination daemon and owner APIs |
+| `crates/restlessd/` | Daemon binary: starts the engine and the owner API |
+| `crates/restless-engine/` | Everything beneath the owner API, including the coordination socket |
+| `crates/restless-owner/` | Owner HTTP and WebSocket API |
+| `crates/restless-contracts/` | Released contracts shared with the CLI |
 | `crates/restless/` | Operator CLI |
 | `crates/restless-orgintel/` | Recoverable company and work state |
 | `crates/restless-model-gateway/` | Model routing and spend accounting |

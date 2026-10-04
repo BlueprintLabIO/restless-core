@@ -49,7 +49,7 @@ const MAX_ARTIFACT_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 const WORKSPACE_RESULT_TTL: Duration = Duration::from_secs(10 * 60);
 const MAX_WORKSPACE_RESULTS: usize = 1_024;
 const BRIDGE_SECRET_GID: u32 = 10_002;
-const OMP_CONFIG: &str = include_str!("../../restlessd/omp-runtime.yml");
+const OMP_CONFIG: &str = include_str!("../../restless-engine/omp-runtime.yml");
 
 #[derive(Clone)]
 struct Config {
@@ -2362,7 +2362,7 @@ async fn purge_codex_profile_capabilities(profile: &Path, values: &[String]) -> 
         }
         let mut command = tokio::process::Command::new("python3");
         command
-            .args(["-c", include_str!("../../restlessd/src/purge_capability.py")])
+            .args(["-c", include_str!("../../restless-engine/src/purge_capability.py")])
             .arg(profile)
             .env_clear()
             .env("RESTLESS_PURGE_SECRET", value)

@@ -25,7 +25,7 @@ test("credential cleanup matches chunk boundaries without touching unrelated fil
       [
         fileURLToPath(
           new URL(
-            "../../crates/restlessd/src/purge_capability.py",
+            "../../crates/restless-engine/src/purge_capability.py",
             import.meta.url,
           ),
         ),
@@ -55,7 +55,7 @@ test("credential cleanup preserves absent-profile success and rejects the size b
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const credential = "isolated-fixture-capability-947";
   const script = fileURLToPath(
-    new URL("../../crates/restlessd/src/purge_capability.py", import.meta.url),
+    new URL("../../crates/restless-engine/src/purge_capability.py", import.meta.url),
   );
   const run = (profile) =>
     spawnSync("python3", [script, profile], {

@@ -44,7 +44,7 @@ COPY tools/codex-runner/restless-codex-runner.mjs tools/codex-runner/restless-ch
 COPY tools/custom-harness/manage.mjs tools/custom-harness/presets.json tools/custom-harness/hermes.py tools/custom-harness/run.mjs tools/custom-harness/legacy-models.mjs tools/custom-harness/openclaw.mjs tools/custom-harness/setup.mjs ./tools/custom-harness/
 COPY tools/harness-auth/auth.mjs ./tools/harness-auth/auth.mjs
 COPY tools/schedule-test-proxy.py ./tools/schedule-test-proxy.py
-# restlessd include_str!s this at compile time (crates/restlessd/src/context.rs:21),
+# restlessd include_str!s this at compile time (crates/restless-engine/src/context.rs:21),
 # resolving to /src/docs. Copy the exact file rather than the directory: docs/ is
 # hundreds of files and none of the rest belongs in a build context.
 COPY docs/COMPANY_OPERATING_RULES.md ./docs/COMPANY_OPERATING_RULES.md

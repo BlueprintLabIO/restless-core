@@ -62,7 +62,7 @@ Three separate defects combined:
 - **Containers had no resource bounds.** `docker run` passed no `--cpus`, `--memory` or
   `--pids-limit`, so one company could take the whole host. An abandoned Godot demo held ~6 of 12
   cores for 23 hours. Bounds now come from `DEFAULT_CPUS` / `DEFAULT_MEMORY` / `DEFAULT_PIDS_LIMIT`
-  in `crates/restlessd/src/runtime.rs`, overridable per-run with `RESTLESS_COMPANY_CPUS`,
+  in `crates/restless-engine/src/runtime.rs`, overridable per-run with `RESTLESS_COMPANY_CPUS`,
   `RESTLESS_COMPANY_MEMORY` and `RESTLESS_COMPANY_PIDS_LIMIT`. `--memory-swap` is pinned equal to
   `--memory` so a runaway is OOM-killed in its own cgroup rather than swapping the shared VM.
 - **The staleness check never actually measured age.** It grepped `docker ps --format {{.RunningFor}}`
@@ -202,10 +202,27 @@ checking, 26 s coherence and 16 s borrow checking. An incremental rebuild after 
   also copied 14 GB.
 - *One shared target for several worktrees* serialises every agent on Cargo's build-directory lock
   and makes their branches overwrite each other's incremental state.
-- *Splitting the owner API into its own crate* would trim perhaps 3–4 s from an incremental
-  rebuild, but `owner*.rs` (28.7k lines) and the rest of the daemon call into each other in both
-  directions, so it is a multi-week, conflict-prone refactor. Revisit only along a real plane
-  boundary (Cell / Account plane / Fleet), not for compile time alone.
+
+**The crate split (5 October 2026).** The daemon's 44-module cycle turned out to be held by only
+61 back references. Moving the domain rules out of the owner HTTP layer (account connections,
+model catalog, transcript codec, Documents client, sheet revision acceptance, gateway config) and
+turning `main.rs` into wiring let it split into `restless-engine`, `restless-owner` and a thin
+`restlessd`. Staff stayed in the engine: the scheduler and Staff dispatch are one loop, and
+cutting them apart would need a dispatcher abstraction that exists only for compile time.
+Measured on the same host:
+
+| Loop | Before | After |
+| --- | --- | --- |
+| Owner edit, build daemon + CLI | 12.5 s | 5.7 s |
+| Owner edit, build owner tests | 17.5 s | 5.0–5.5 s |
+| Engine edit, build engine tests | 17.5 s | 9.7 s |
+| Engine edit, build daemon + CLI | 12.5 s | 11.9 s (everything is downstream) |
+
+Two things nearly erased the gain and are worth knowing. The source-revision stamp first moved
+into the engine's build script, which watches every crate file, so an owner edit rebuilt the
+engine; the stamp now belongs to the `restlessd` binary, which hands it to the engine at startup.
+And testing the engine alone resolved `syn` without `extra-traits`, a second engine variant; the
+engine requests it as a build dependency too.
 
 A brand-new worktree therefore still pays one ~3 minute cold build, dominated by the single
 `restlessd` crate. That is why `restless-dev worktree new` reuses pooled slots (`work/slot-N`):

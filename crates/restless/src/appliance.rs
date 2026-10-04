@@ -14,7 +14,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
-use restlessd::appliance::{
+use restless_contracts::appliance::{
     self as contract, MachineProfile, ServicePaths, MACOS_PLANE_LABEL, MACOS_WAKE_LABEL,
     RELEASE_ENVIRONMENT_FILE, SYSTEMD_PLANE_UNIT, SYSTEMD_WAKE_SERVICE, SYSTEMD_WAKE_TIMER,
 };

@@ -171,8 +171,8 @@ export class RestlessCore {
       throw new Error('Runtime tool base must be an exact Core OCI digest');
     }
     const [cargo, release, entry] = await Promise.all([
-      source.file('Cargo.toml').contents(), source.file('crates/restlessd/src/release.rs').contents(),
-      source.file('crates/restlessd/src/entry.rs').contents(),
+      source.file('Cargo.toml').contents(), source.file('crates/restless-engine/src/release.rs').contents(),
+      source.file('crates/restless-engine/src/entry.rs').contents(),
     ]);
     const values: [string, string | undefined][] = [
       ['RESTLESS_CORE_VERSION', cargo.match(/^version = "([^"]+)"/m)?.[1]],

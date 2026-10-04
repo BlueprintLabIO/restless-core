@@ -2339,7 +2339,7 @@ fn main() -> Result<()> {
     // Runtime clients authenticate through RESTLESS_COORDINATOR instead and
     // deliberately do not inherit host filesystem identity.
     if !is_runtime() {
-        restlessd::appliance::MachineProfile::from_env()?;
+        restless_contracts::appliance::MachineProfile::from_env()?;
     }
     match cli.command {
         Command::Appliance { command } => match command {
@@ -2469,7 +2469,7 @@ fn main() -> Result<()> {
                 format!("RESTLESS_COMPANY={name}"),
                 "-e".to_string(),
                 "RESTLESS_ACTOR=owner".to_string(),
-                restlessd::appliance::MachineProfile::from_env()?.docker_container_name(&name),
+                restless_contracts::appliance::MachineProfile::from_env()?.docker_container_name(&name),
             ]);
             if command.is_empty() {
                 args.push("bash".to_string());
@@ -3868,7 +3868,7 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                     );
                     serde_json::json!({
                         "recurrence": "interval",
-                        "interval_seconds": restlessd::skill_package::parse_interval(&every)
+                        "interval_seconds": restless_contracts::skill_package::parse_interval(&every)
                             .with_context(|| format!("--every {every:?}: use a duration such as 30m, 2h or 1d"))?,
                     })
                 } else {
@@ -4791,7 +4791,7 @@ fn connect() -> Result<Stream> {
                 "connect {coordinator}; check that restlessd is running and the host firewall allows Docker bridge traffic to this port"
             ));
     }
-    let sock = restlessd::appliance::MachineProfile::from_env()?.socket_path();
+    let sock = restless_contracts::appliance::MachineProfile::from_env()?.socket_path();
     if let Ok(stream) = UnixStream::connect(&sock) {
         return Ok(Stream::Unix(stream));
     }

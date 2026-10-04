@@ -24,9 +24,9 @@ dev_build_company_image() {
       | dev_sha256 \
       | awk '{print $1}'
   )"
-  api_contract="$(sed -n 's/.*API_CONTRACT_VERSION: u32 = \([0-9]*\);.*/\1/p' "${root}/crates/restlessd/src/release.rs")"
-  assertion_contract="$(sed -n 's/.*ASSERTION_CONTRACT_VERSION: u32 = \([0-9]*\);.*/\1/p' "${root}/crates/restlessd/src/entry.rs")"
-  schema_version="$(sed -n 's/.*SCHEMA_VERSION: u32 = \([0-9]*\);.*/\1/p' "${root}/crates/restlessd/src/release.rs")"
+  api_contract="$(sed -n 's/.*API_CONTRACT_VERSION: u32 = \([0-9]*\);.*/\1/p' "${root}/crates/restless-engine/src/release.rs")"
+  assertion_contract="$(sed -n 's/.*ASSERTION_CONTRACT_VERSION: u32 = \([0-9]*\);.*/\1/p' "${root}/crates/restless-engine/src/entry.rs")"
+  schema_version="$(sed -n 's/.*SCHEMA_VERSION: u32 = \([0-9]*\);.*/\1/p' "${root}/crates/restless-engine/src/release.rs")"
   docker build \
     --file "${root}/infra/company-image/Dockerfile" \
     --tag "$tag" \
