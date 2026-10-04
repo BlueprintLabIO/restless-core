@@ -5,6 +5,7 @@ import test from 'node:test';
 
 import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/provider';
 import * as Y from 'yjs';
+import { Awareness, encodeAwarenessUpdate } from 'y-protocols/awareness';
 
 import type { CollaborationConfig } from '../src/config.js';
 import { LIVE_PATH, READY_PATH } from '../src/constants.js';
@@ -169,7 +170,7 @@ test('the real Hocuspocus boundary authenticates before load and enforces read-o
   assert.equal(store.loadCount, 0, 'authorization must finish before any durable content load');
   unauthorized.destroy();
 
-  const readToken = await signer.sign({ access: 'read' });
+  const readToken = await signer.sign({ access: 'read', actor_id: 'reader-actor' });
   const readDocument = new Y.Doc();
   let statelessDenied = false;
   const reader = new HocuspocusProvider({
@@ -206,11 +207,38 @@ test('the real Hocuspocus boundary authenticates before load and enforces read-o
     cursor: { anchor: 3, head: 4 },
     arbitrary: { identity: 'must-not-cross-the-boundary' },
   });
+  await eventually(() => writer.awareness?.getStates().has(readDocument.clientID) === true, 'reader presence fan-out');
+  assert.deepEqual(
+    writer.awareness?.getStates().get(readDocument.clientID),
+    { user: { actor_id: 'reader-actor' }, cursor: { anchor: 3, head: 4 } },
+    'presence carries only the verified actor and a bounded caret',
+  );
+
+  // A connection cannot speak for another connection's client.
+  const forgedDocument = new Y.Doc();
+  forgedDocument.clientID = readDocument.clientID;
+  const forged = new Awareness(forgedDocument);
+  for (let clock = 0; clock < 20; clock += 1) forged.setLocalState({ cursor: { anchor: 9, head: clock } });
+  const update = encodeAwarenessUpdate(forged, [readDocument.clientID]);
+  const nameBytes = new TextEncoder().encode(name);
+  const varUint = (value: number) => {
+    const bytes: number[] = [];
+    while (value > 127) {
+      bytes.push((value & 127) | 128);
+      value = Math.floor(value / 128);
+    }
+    bytes.push(value);
+    return bytes;
+  };
+  writer.configuration.websocketProvider.send(
+    new Uint8Array([...varUint(nameBytes.length), ...nameBytes, ...varUint(1), ...varUint(update.length), ...update]),
+  );
+  forged.destroy();
   await new Promise((resolve) => setTimeout(resolve, 75));
-  assert.equal(
-    writer.awareness?.getStates().has(readDocument.clientID),
-    false,
-    'untrusted awareness identity must not cross the server boundary',
+  assert.deepEqual(
+    (writer.awareness?.getStates().get(readDocument.clientID) as { cursor?: unknown } | undefined)?.cursor,
+    { anchor: 3, head: 4 },
+    "another connection's client must not be overwritten",
   );
   assert.equal(reader.isAuthenticated, true, 'discarded awareness must not break document synchronization');
 

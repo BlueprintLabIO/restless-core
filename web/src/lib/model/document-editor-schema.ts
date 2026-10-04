@@ -1,5 +1,6 @@
 import { Mark, Node, type Editor, type Extensions, type JSONContent } from '@tiptap/core';
 import Collaboration, { isChangeOrigin } from '@tiptap/extension-collaboration';
+import CollaborationCaret from '@tiptap/extension-collaboration-caret';
 import TaskItem from '@tiptap/extension-task-item';
 import TaskList from '@tiptap/extension-task-list';
 import UniqueID from '@tiptap/extension-unique-id';
@@ -142,10 +143,49 @@ const Link = Mark.create({
 	]
 });
 
+/** The same person always gets the same caret colour. */
+export function caretHue(actorId: string): number {
+	let hash = 0;
+	for (const character of actorId) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+	return hash % 360;
+}
+
+/** Other people's carets. The server stamps each with the actor it verified;
+ * the name comes from Core's people, never from the other browser. */
+export interface DocumentCarets {
+	actorId: string;
+	nameOf: (actorId: string) => string;
+}
+
+function caretExtension(provider: HocuspocusProvider, carets: DocumentCarets) {
+	return CollaborationCaret.configure({
+		provider,
+		user: { actor_id: carets.actorId },
+		render: (user) => {
+			const actorId = typeof user.actor_id === 'string' ? user.actor_id : '';
+			const hue = caretHue(actorId);
+			const caret = window.document.createElement('span');
+			caret.classList.add('collaboration-carets__caret');
+			caret.style.borderColor = `hsl(${hue} 65% 45%)`;
+			const label = window.document.createElement('div');
+			label.classList.add('collaboration-carets__label');
+			label.style.backgroundColor = `hsl(${hue} 65% 45%)`;
+			label.textContent = carets.nameOf(actorId);
+			caret.append(label);
+			return caret;
+		},
+		selectionRender: (user) => ({
+			class: 'collaboration-carets__selection',
+			style: `background-color: hsl(${caretHue(typeof user.actor_id === 'string' ? user.actor_id : '')} 65% 45% / 0.18)`
+		})
+	});
+}
+
 export function createDocumentEditorExtensions(
 	document: Doc,
 	provider: HocuspocusProvider,
-	updateBlockIds: boolean
+	updateBlockIds: boolean,
+	carets?: DocumentCarets
 ): Extensions {
 	return [
 		StarterKit.configure({
@@ -173,7 +213,8 @@ export function createDocumentEditorExtensions(
 			document,
 			field: DOCUMENT_COLLABORATION_FRAGMENT,
 			provider
-		})
+		}),
+		...(carets ? [caretExtension(provider, carets)] : [])
 	];
 }
 

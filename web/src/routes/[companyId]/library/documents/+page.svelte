@@ -98,6 +98,10 @@
 						: undefined}
 				view={documentView}
 				principalActorId={shellPrincipal.view?.actor_id ?? ''}
+				nameOf={(actorId) =>
+					(ownerAccess ? cockpit.view?.people : collaboration.view?.people)?.find(
+						(person) => person.actor_id === actorId
+					)?.display ?? 'Someone'}
 				{online}
 				onaccept={acceptDocument}
 				oncomment={openBlockComment}

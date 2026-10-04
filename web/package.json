@@ -50,6 +50,7 @@
 		"@tanstack/svelte-query": "^6.1.41",
 		"@tiptap/core": "^3.31.3",
 		"@tiptap/extension-collaboration": "^3.31.3",
+		"@tiptap/extension-collaboration-caret": "^3.31.3",
 		"@tiptap/extension-task-item": "^3.31.3",
 		"@tiptap/extension-task-list": "^3.31.3",
 		"@tiptap/extension-unique-id": "^3.31.3",

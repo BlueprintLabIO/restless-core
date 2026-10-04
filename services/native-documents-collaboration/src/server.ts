@@ -61,6 +61,8 @@ interface CollaborationContext {
   };
 }
 
+const MAX_CURSOR_JSON_BYTES = 1024;
+
 export interface CollaborationServerDependencies {
   readonly store: DocumentStore;
   readonly tokenVerifier?: CoreTokenVerifier;
@@ -134,6 +136,17 @@ function inboundMessageType(update: Uint8Array): MessageType {
   } catch {
     throw new SocketAuthorizationError(FORBIDDEN_CLOSE_CODE, 'Forbidden');
   }
+}
+
+/** Keeps only a bounded `{anchor, head}` caret; everything else is the client's claim. */
+function boundedCursor(state: unknown): unknown {
+  if (!state || typeof state !== 'object') return undefined;
+  const cursor = (state as { cursor?: unknown }).cursor;
+  if (!cursor || typeof cursor !== 'object' || Array.isArray(cursor)) return undefined;
+  const keys = Object.keys(cursor).sort();
+  if (keys.length !== 2 || keys[0] !== 'anchor' || keys[1] !== 'head') return undefined;
+  const json = JSON.stringify(cursor);
+  return Buffer.byteLength(json) <= MAX_CURSOR_JSON_BYTES ? JSON.parse(json) : undefined;
 }
 
 function clearLease(lease: CollaborationLease): void {
@@ -306,12 +319,28 @@ export class NativeDocumentsCollaborationServer {
         ) {
           throw new SocketAuthorizationError();
         }
-        // Hocuspocus 4.6.0 decodes awareness through a scratch Awareness instance
-        // before this hook. That representation cannot reliably distinguish its
-        // synthetic local state from a client's first clock-0 state, so identity
-        // cannot be rewritten without accepting spoofing or ghost clients. Keep
-        // the protocol heartbeat but apply and broadcast no awareness state.
-        states.clear();
+        // Presence carries only what Core verified: this connection's actor and
+        // a bounded caret. Names are resolved by each viewer from Core, so no
+        // client-supplied identity ever crosses this boundary.
+        const document = connection.document;
+        const claimedElsewhere = (clientId: number) =>
+          document
+            .getConnections()
+            .some((other) => other !== connection && document.getClients(other).has(clientId));
+        for (const [clientId, state] of [...states]) {
+          // Another connection's client is never relayed. Hocuspocus's scratch
+          // decoder adds its own clock-0 state here too; y-protocols never
+          // applies a clock-0 state, so it cannot become a ghost client.
+          if (claimedElsewhere(clientId)) {
+            states.delete(clientId);
+            continue;
+          }
+          const cursor = boundedCursor(state);
+          states.set(clientId, {
+            user: { actor_id: context.session.lease.claims.actor_id },
+            ...(cursor === undefined ? {} : { cursor }),
+          });
+        }
       },
       onTokenSync: async ({ connection, connectionConfig, context, documentName, token }) => {
         try {

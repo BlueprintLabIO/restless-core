@@ -61,6 +61,8 @@
 		companyUuid: string | null | undefined;
 		view: DocumentReadView;
 		principalActorId: string;
+		/** Names other people's carets from the actor the server verified. */
+		nameOf?: (actorId: string) => string;
 		online?: boolean;
 		/** Rendered before the title, for the way back to where it was opened. */
 		leading?: Snippet;
@@ -77,6 +79,7 @@
 		companyUuid,
 		view,
 		principalActorId,
+		nameOf = () => 'Someone',
 		online = true,
 		leading,
 		actions,
@@ -357,7 +360,10 @@
 						if (disposed || mountedEditor || !editorElement) return;
 						mountedEditor = new Editor({
 							element: editorElement,
-							extensions: createDocumentEditorExtensions(yDocument, provider, writable),
+							extensions: createDocumentEditorExtensions(yDocument, provider, writable, {
+								actorId,
+								nameOf: (id) => nameOf(id)
+							}),
 							editable: writable,
 							editorProps: {
 								attributes: {
@@ -373,10 +379,6 @@
 							}
 						});
 						editorState = { editor: mountedEditor };
-						provider.awareness?.setLocalStateField('user', {
-							id: actorId,
-							name: actorId
-						});
 					});
 				}
 			});
@@ -1148,6 +1150,29 @@
 	}
 	:global(.native-document-body.ProseMirror-focused > [data-block-id]:hover) {
 		background: color-mix(in srgb, var(--surface-work) 3%, transparent);
+	}
+	/* Other people's carets: a thin coloured bar with their name above it. */
+	:global(.collaboration-carets__caret) {
+		position: relative;
+		margin-right: -1px;
+		margin-left: -1px;
+		border-right: 0;
+		border-left: 2px solid;
+		word-break: normal;
+		pointer-events: none;
+	}
+	:global(.collaboration-carets__label) {
+		position: absolute;
+		top: -1.35em;
+		left: -2px;
+		padding: 1px 5px;
+		border-radius: var(--radius-sm) var(--radius-sm) var(--radius-sm) 0;
+		color: #fff;
+		font-size: var(--t-label);
+		font-weight: 600;
+		line-height: 1.3;
+		white-space: nowrap;
+		user-select: none;
 	}
 	:global(.rendered-document) {
 		color: var(--ink);
