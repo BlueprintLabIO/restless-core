@@ -241,7 +241,7 @@ pub async fn startup_doctor(
 ) {
     let (documents, setup_failed) = tokio::join!(
         async {
-            let owner_config = crate::owner::OwnerConfig::from_env()?;
+            let owner_config = crate::owner_config::OwnerConfig::from_env()?;
             if let Some(issuer) = owner_config.local_documents_issuer() {
                 crate::local_documents::ensure(&root, &config.name, &org, &issuer).await?;
                 Ok::<_, anyhow::Error>(json!({"status":"ready"}))

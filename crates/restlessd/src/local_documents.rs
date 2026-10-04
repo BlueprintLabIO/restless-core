@@ -146,7 +146,7 @@ pub(crate) async fn ensure(root: &Path, company: &str, org: &OrgIntel, issuer: &
     );
     crate::runtime::validate_company_name(company)?;
     let _guard = LIFECYCLE.lock().await;
-    let owner_config = crate::owner::OwnerConfig::from_env()?;
+    let owner_config = crate::owner_config::OwnerConfig::from_env()?;
     let jwks_url = if owner_config.is_network() {
         owner_config.local_documents_jwks_url()
     } else {

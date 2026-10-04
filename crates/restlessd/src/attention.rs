@@ -1171,7 +1171,7 @@ pub async fn project(
                 == Some(0);
             if event.actor_id.as_deref() == Some("exec") && blocked && no_tools {
                 if let Some(true) = exec_startup_failure(reason) {
-                    if let Some(provider_issue) = crate::owner::observed_company_model_issue(config).await {
+                    if let Some(provider_issue) = crate::company::observed_company_model_issue(config).await {
                         let action = AttentionAction {
                             id: "open-intelligence-provider".into(),
                             label: "Fix intelligence connection".into(),

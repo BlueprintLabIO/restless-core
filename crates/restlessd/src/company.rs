@@ -489,7 +489,7 @@ pub(crate) async fn project(
         runtime_doctor.as_ref(),
         observed_at,
     );
-    let model_issue = crate::owner::observed_company_model_issue(config).await;
+    let model_issue = observed_company_model_issue(config).await;
     company_doctor.checks.insert(
         0,
         DoctorCheck {
@@ -2228,5 +2228,39 @@ model = "moonshot/kimi-k3"
         );
         assert_eq!(reconciled.state, "failed");
         assert_eq!(reconciled.evidence, "reconciled");
+    }
+}
+
+pub(crate) async fn observed_company_model_issue(
+    config: &runtime::CompanyConfig,
+) -> Option<String> {
+    let exec = config.for_agent("exec");
+    if exec.native_model(exec.coordination_harness).is_some() {
+        let harness = match exec.coordination_harness {
+            runtime::AgentHarness::Codex => "codex",
+            runtime::AgentHarness::ClaudeAgent => "claude-agent",
+            _ => return None,
+        };
+        let observation = crate::native_harness::view_cached(&exec, harness).await;
+        match observation["auth"]["state"].as_str() {
+            Some("unavailable" | "expired" | "disconnected" | "failed" | "not_connected") => {
+                Some(format!(
+                    "{} sign-in is unavailable. Reconnect in Company → Intelligence.",
+                    if harness == "codex" {
+                        "ChatGPT / Codex"
+                    } else {
+                        "Claude"
+                    }
+                ))
+            }
+            _ => None,
+        }
+    } else if exec.configured_model().is_none() {
+        Some(
+            "Choose an intelligence provider and model in Company → Intelligence provider."
+                .to_string(),
+        )
+    } else {
+        crate::model_gateway::unstartable_reason(&config.name)
     }
 }

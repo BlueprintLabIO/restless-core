@@ -685,7 +685,7 @@ pub(crate) async fn agent_auth_for_model(
     {
         if let Some((provider, id, _)) = runtime::account_intelligence_route(&route.connection) {
             if model != company_config.for_agent(actor).model
-                || !crate::owner::account_assignment_is_granted(&root, &company_config, provider, id)?
+                || !crate::model_connections::account_assignment_is_granted(&root, &company_config, provider, id)?
             {
                 anyhow::bail!("This agent's account connection is no longer granted to the company");
             }
@@ -1518,7 +1518,7 @@ async fn staffing_routes(org: &OrgIntel, config: &CompanyConfig) -> String {
                 "the provider bills its own API key outside this spend ceiling".to_string()
             }
             Ok(ModelBilling::MeteredApi) => {
-                match crate::owner::model_catalog_api::list_price(&model).await {
+                match crate::model_catalog::list_price(&model).await {
                     Some((input, output)) => format!(
                         "metered against the ceiling: ${input:.2} in / ${output:.2} out per million tokens"
                     ),

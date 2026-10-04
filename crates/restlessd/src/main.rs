@@ -42,9 +42,12 @@ use crate::authority as mandate;
 mod mcp_gateway;
 mod stdio_mcp;
 mod mentions;
+mod model_catalog;
+mod model_connections;
 mod model_gateway;
 mod native_harness;
 mod owner;
+mod owner_config;
 mod owner_brief;
 mod owner_cell_readiness;
 mod plane;
@@ -746,7 +749,7 @@ async fn run() -> Result<()> {
         runtime::CompanyConfig::load(&root, company)
             .with_context(|| format!("rotation company {company} is not configured"))?;
         anyhow::ensure!(
-            owner::OwnerConfig::from_env()?.local_documents_issuer().is_some(),
+            owner_config::OwnerConfig::from_env()?.local_documents_issuer().is_some(),
             "native Documents credential rotation is supported for the local Docs service only"
         );
         anyhow::ensure!(
@@ -779,7 +782,7 @@ async fn run() -> Result<()> {
     // entry that verifies a signed assertion. Resolve and validate the entry
     // configuration before starting provider or scheduler work, so a plane
     // that cannot describe how it verifies fails here rather than serving.
-    let owner_config = owner::OwnerConfig::from_env()?;
+    let owner_config = owner_config::OwnerConfig::from_env()?;
     runtime::validate_company_image_config(owner_config.is_network())?;
 
     // Open authoritative charged-use accounting before the model relay. The
@@ -936,11 +939,11 @@ async fn run() -> Result<()> {
                     // Providers load only when the gateway starts, so restart it
                     // when a company's model route or credential references
                     // change instead of asking the owner to restart Restless.
-                    let started_from = format!("{}|{:?}", model_gateway::provider_fingerprint(&model_configs), owner::account_oauth_providers(&model_root));
+                    let started_from = format!("{}|{:?}", model_gateway::provider_fingerprint(&model_configs), model_connections::account_oauth_providers(&model_root));
                     loop {
                         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                         if let Ok(current) = load_configs(&model_root) {
-                            if format!("{}|{:?}", model_gateway::provider_fingerprint(&current), owner::account_oauth_providers(&model_root)) != started_from {
+                            if format!("{}|{:?}", model_gateway::provider_fingerprint(&current), model_connections::account_oauth_providers(&model_root)) != started_from {
                                 model_configs = current;
                                 break;
                             }

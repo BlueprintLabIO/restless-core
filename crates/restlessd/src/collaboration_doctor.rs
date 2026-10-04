@@ -388,7 +388,7 @@ pub(crate) async fn run(daemon: &Daemon) -> Result<Value> {
         daemon.authority.initialise_company(&company, &[]).await?;
         let org = daemon.orgintel.get(&company).await?;
         crate::ensure_standing_actors(&org, config.configured_model()).await?;
-        let issuer = crate::owner::OwnerConfig::from_env()?
+        let issuer = crate::owner_config::OwnerConfig::from_env()?
             .local_documents_issuer()
             .context("local Docs issuer unavailable")?;
         crate::local_documents::ensure(&daemon.root, &company, &org, &issuer).await?;

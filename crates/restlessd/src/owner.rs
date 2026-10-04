@@ -20,7 +20,7 @@ mod documents_api;
 #[path = "owner_member_collaboration.rs"]
 mod member_collaboration_api;
 #[path = "owner_model_catalog.rs"]
-pub(crate) mod model_catalog_api;
+mod model_catalog_api;
 #[path = "owner_members.rs"]
 mod members_api;
 #[path = "owner_notifications.rs"]
@@ -46,7 +46,7 @@ mod skills_api;
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::convert::Infallible;
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
@@ -87,6 +87,8 @@ use crate::{
     legal, model_gateway, reconcile, runtime, Daemon,
 };
 use crate::authority as mandate;
+use crate::model_connections::{load_owner_connections, model_connection_reference, owner_connection_reference, save_owner_connections, valid_provider_id, OwnerModelConnection};
+use crate::owner_config::{materialize_review_url, OwnerConfig};
 
 const ATTACH_COOKIE: &str = "restless_attach";
 const SESSION_COOKIE: &str = "restless_session";
@@ -250,14 +252,6 @@ impl RoomApiState {
     }
 }
 
-#[derive(Clone)]
-pub(crate) struct OwnerConfig {
-    address: SocketAddr,
-    review_address: SocketAddr,
-    review_public_url: String,
-    entry: EntryMode,
-    runtime_mode: crate::runtime_mode::RuntimeMode,
-}
 
 #[derive(Clone)]
 struct AttachTicket {
@@ -1117,81 +1111,7 @@ fn cockpit_payment_intent(payment: finance::PaymentIntent) -> CockpitPaymentInte
     }
 }
 
-impl OwnerConfig {
-    pub(crate) fn local_documents_issuer(&self) -> Option<String> {
-        (!self.hosted_runtime()).then(|| self.document_issuer())
-    }
 
-    fn document_issuer(&self) -> String {
-        self.entry
-            .network_coordinates()
-            .map(|(_, _, host)| format!("https://{host}"))
-            .unwrap_or_else(|| format!("http://{}", self.address))
-    }
-
-    pub(crate) fn local_documents_jwks_url(&self) -> String {
-        // The local sidecar reaches Core over loopback; token identity still uses
-        // the public network issuer. A wildcard listen address is not a destination.
-        let mut address = self.address;
-        if address.ip().is_unspecified() {
-            address.set_ip(if address.is_ipv4() {
-                std::net::Ipv4Addr::LOCALHOST.into()
-            } else {
-                std::net::Ipv6Addr::LOCALHOST.into()
-            });
-        }
-        format!("http://{address}/.well-known/restless-native-documents-jwks.json")
-    }
-
-    pub(crate) fn hosted_runtime(&self) -> bool {
-        self.runtime_mode == crate::runtime_mode::RuntimeMode::Hosted
-    }
-
-    pub(crate) fn is_network(&self) -> bool {
-        self.entry.network().is_some()
-    }
-
-    pub(crate) fn from_env() -> Result<Self> {
-        let default_address = format!("127.0.0.1:{}", crate::port_with_offset(7788)?);
-        let address = std::env::var("RESTLESS_OWNER_ADDR")
-            .unwrap_or(default_address)
-            .parse::<SocketAddr>()
-            .context("parse RESTLESS_OWNER_ADDR")?;
-        let default_review_address = format!("127.0.0.1:{}", crate::port_with_offset(7794)?);
-        let review_address = std::env::var("RESTLESS_REVIEW_ADDR")
-            // 7788 is the owner gateway, 7789 the auth broker, 7790 the model
-            // gateway, 7791 coordination, 7792 ingress and 7793 Infisical.
-            .unwrap_or(default_review_address)
-            .parse::<SocketAddr>()
-            .context("parse RESTLESS_REVIEW_ADDR")?;
-        let entry = EntryMode::from_env()?;
-        let runtime_mode = crate::runtime_mode::RuntimeMode::from_env(entry.network().is_some())?;
-        // ADR 0007: the loopback bail is conditional on entry mode, never
-        // removed. In local mode the network *is* the boundary, so binding
-        // beyond loopback would publish an unauthenticated API.
-        if entry.network().is_none() {
-            ensure_loopback(address, "RESTLESS_OWNER_ADDR")?;
-        }
-        ensure_loopback(review_address, "RESTLESS_REVIEW_ADDR")?;
-        let review_public_url = std::env::var("RESTLESS_REVIEW_PUBLIC_URL")
-            .unwrap_or_else(|_| format!("http://{{ticket}}.localhost:{}", review_address.port()));
-        validate_review_public_url(&review_public_url, review_address.port())?;
-        Ok(Self {
-            address,
-            review_address,
-            review_public_url,
-            entry,
-            runtime_mode,
-        })
-    }
-}
-
-fn ensure_loopback(address: SocketAddr, variable: &str) -> Result<()> {
-    if !address.ip().is_loopback() {
-        anyhow::bail!("{variable} must remain loopback-only until network authentication exists");
-    }
-    Ok(())
-}
 
 /// Core-owned collaboration stays behind the same verified company entry
 /// boundary as the existing owner API. A smaller body ceiling applies here
@@ -1753,7 +1673,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .with_context(|| format!("bind review gateway {review_address}"))?;
     tracing::info!(addr = %address, "owner gateway listening");
     tracing::info!(addr = %review_address, "isolated review gateway listening");
-    model_catalog_api::start_refresh_loop();
+    crate::model_catalog::start_refresh_loop();
     tokio::try_join!(
         axum::serve(listener, app),
         axum::serve(preview_listener, preview)
@@ -3310,152 +3230,18 @@ async fn update_company_provider(
     Json(provider_view(&config).await).into_response()
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct OwnerModelConnection {
-    id: String,
-    label: String,
-    provider: String,
-    #[serde(default = "default_owner_connection_kind")]
-    kind: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    account_key: Option<String>,
-}
 
-fn default_owner_connection_kind() -> String {
-    "api_key".into()
-}
 
-#[derive(Default, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct OwnerModelConnections {
-    connections: Vec<OwnerModelConnection>,
-}
 
-fn owner_connections_path(root: &std::path::Path) -> PathBuf {
-    root.join("owner-model-connections.json")
-}
 
-pub(crate) fn account_oauth_providers(root: &std::path::Path) -> Result<Vec<String>> {
-    Ok(load_owner_connections(root)?
-        .connections.into_iter().filter(|connection| connection.kind == "oauth")
-        .map(|connection| connection.provider).collect())
-}
 
-fn load_owner_connections(root: &std::path::Path) -> Result<OwnerModelConnections> {
-    let path = owner_connections_path(root);
-    match std::fs::symlink_metadata(&path) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            Ok(OwnerModelConnections::default())
-        }
-        Err(error) => Err(error.into()),
-        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
-            bail!("owner connection registry must be a regular file")
-        }
-        Ok(metadata) => {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt as _;
-                if metadata.permissions().mode() & 0o077 != 0 {
-                    bail!("owner connection registry permissions must be private")
-                }
-            }
-            let bytes = std::fs::read(&path)?;
-            let registry: OwnerModelConnections =
-                serde_json::from_slice(&bytes).context("parse owner connection registry")?;
-            if registry.connections.iter().any(|connection| {
-                !matches!(connection.kind.as_str(), "api_key" | "oauth")
-                    || !valid_provider_id(&connection.provider)
-                    || connection.id.is_empty()
-                    || connection.account_key.as_ref().is_some_and(|key| connection.kind != "oauth" || key.is_empty() || key.len() > 200 || key.chars().any(char::is_control))
-            }) {
-                bail!(
-                    "owner connection registry contains an unsupported connection kind or identity"
-                );
-            }
-            let mut oauth_providers = std::collections::BTreeSet::new();
-            if registry.connections.iter().any(|connection| {
-                connection.kind == "oauth" && !oauth_providers.insert(connection.provider.as_str())
-            }) {
-                bail!("owner connection registry contains duplicate OAuth providers");
-            }
-            Ok(registry)
-        }
-    }
-}
 
-fn save_owner_connections(root: &std::path::Path, registry: &OwnerModelConnections) -> Result<()> {
-    let path = owner_connections_path(root);
-    let bytes = serde_json::to_vec_pretty(registry)?;
-    let temporary = root.join(format!(".owner-model-connections-{}.tmp", Uuid::new_v4()));
-    let result = (|| -> Result<()> {
-        use std::io::Write as _;
-        let mut options = std::fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt as _;
-            options.mode(0o600);
-        }
-        let mut file = options.open(&temporary)?;
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-        std::fs::rename(&temporary, &path)?;
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(&temporary);
-    }
-    result
-}
 
-fn model_connection_reference(id: &str) -> String {
-    format!("infisical:/owner/model-connections/{id}/API_KEY")
-}
 
-fn owner_connection_reference(connection: &OwnerModelConnection) -> String {
-    if connection.kind == "oauth" {
-        format!("omp-oauth:{}@{}", connection.provider, connection.id)
-    } else {
-        model_connection_reference(&connection.id)
-    }
-}
 
-pub(crate) fn account_connection_matches(root: &std::path::Path, provider: &str, reference: &str) -> Result<bool> {
-    let registry = load_owner_connections(root)?;
-    Ok(registry.connections.iter().any(|connection| {
-        connection.provider == provider && owner_connection_reference(connection) == reference
-    }))
-}
 
-pub(crate) fn account_assignment_is_granted(
-    root: &std::path::Path,
-    config: &runtime::CompanyConfig,
-    provider: &str,
-    id: &str,
-) -> Result<bool> {
-    let registry = load_owner_connections(root)?;
-    let Some(connection) = registry.connections.iter().find(|connection| {
-        connection.provider == provider && connection.id == id
-    }) else { return Ok(false); };
-    let reference = owner_connection_reference(connection);
-    Ok(config.credentials.get(&format!("model.inference.{provider}")) == Some(&reference))
-}
 
-pub(crate) fn account_oauth_key(root: &std::path::Path, provider: &str, reference: &str) -> Result<Option<String>> {
-    let registry = load_owner_connections(root)?;
-    Ok(registry.connections.iter().find(|connection| {
-        connection.kind == "oauth" && connection.provider == provider && owner_connection_reference(connection) == reference
-    }).and_then(|connection| connection.account_key.clone()))
-}
 
-fn valid_provider_id(provider: &str) -> bool {
-    !provider.is_empty()
-        && provider.len() <= 80
-        && provider
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || b"-_.".contains(&byte))
-}
 
 fn safe_connection_summary(
     connection: &OwnerModelConnection,
@@ -4902,7 +4688,7 @@ async fn company_catalog_entry(
         Some(runtime::ContainerStatus::Absent) => "absent",
         None => "unavailable",
     };
-    let unstartable_reason = observed_company_model_issue(&config).await;
+    let unstartable_reason = crate::company::observed_company_model_issue(&config).await;
     CompanyCatalogEntry {
         id: config.name.clone(),
         name: config
@@ -4932,39 +4718,6 @@ fn company_model_issue(config: &runtime::CompanyConfig) -> Option<String> {
     }
 }
 
-pub(crate) async fn observed_company_model_issue(
-    config: &runtime::CompanyConfig,
-) -> Option<String> {
-    let exec = config.for_agent("exec");
-    if exec.native_model(exec.coordination_harness).is_some() {
-        let harness = match exec.coordination_harness {
-            runtime::AgentHarness::Codex => "codex",
-            runtime::AgentHarness::ClaudeAgent => "claude-agent",
-            _ => return None,
-        };
-        let observation = crate::native_harness::view_cached(&exec, harness).await;
-        match observation["auth"]["state"].as_str() {
-            Some("unavailable" | "expired" | "disconnected" | "failed" | "not_connected") => {
-                Some(format!(
-                    "{} sign-in is unavailable. Reconnect in Company → Intelligence.",
-                    if harness == "codex" {
-                        "ChatGPT / Codex"
-                    } else {
-                        "Claude"
-                    }
-                ))
-            }
-            _ => None,
-        }
-    } else if exec.configured_model().is_none() {
-        Some(
-            "Choose an intelligence provider and model in Company → Intelligence provider."
-                .to_string(),
-        )
-    } else {
-        crate::model_gateway::unstartable_reason(&config.name)
-    }
-}
 
 async fn archive_company(
     State(state): State<OwnerState>,
@@ -10026,54 +9779,7 @@ fn finish_review_response(
     response
 }
 
-fn validate_review_public_url(template: &str, expected_port: u16) -> Result<()> {
-    if template.matches("{ticket}").count() != 1 {
-        anyhow::bail!("RESTLESS_REVIEW_PUBLIC_URL must contain one {{ticket}} placeholder");
-    }
-    let (url, _) = materialize_review_url(template, &"a".repeat(32), "/")?;
-    let parsed = url::Url::parse(&url)?;
-    if parsed.scheme() != "http"
-        || !parsed.username().is_empty()
-        || parsed.password().is_some()
-        || parsed.port_or_known_default() != Some(expected_port)
-        || !parsed
-            .host_str()
-            .is_some_and(|host| host.ends_with(".localhost"))
-    {
-        anyhow::bail!(
-            "review public URL must be the configured http loopback origin on port {expected_port}"
-        );
-    }
-    Ok(())
-}
 
-fn materialize_review_url(
-    template: &str,
-    ticket: &str,
-    path_and_query: &str,
-) -> Result<(String, String)> {
-    let mut url = url::Url::parse(&template.replace("{ticket}", ticket))?;
-    let hostname = url
-        .host_str()
-        .context("review public URL has no host")?
-        .to_string();
-    if !hostname.starts_with(&format!("{ticket}.")) {
-        anyhow::bail!("review ticket must be the first hostname label");
-    }
-    if url.path() != "/" || url.query().is_some() || url.fragment().is_some() {
-        anyhow::bail!("review public URL must be an origin without a path, query, or fragment");
-    }
-    let (path, query) = path_and_query
-        .split_once('?')
-        .map_or((path_and_query, None), |(path, query)| (path, Some(query)));
-    url.set_path(path);
-    url.set_query(query);
-    let expected_host = match url.port() {
-        Some(port) => format!("{hostname}:{port}"),
-        None => hostname,
-    };
-    Ok((url.to_string(), expected_host))
-}
 
 async fn issue_ticket(
     State(state): State<OwnerState>,
@@ -14481,14 +14187,6 @@ mod tests {
     }
 
     #[test]
-    fn network_owner_bindings_are_refused_until_real_auth_exists() {
-        assert!(ensure_loopback("127.0.0.1:7788".parse().unwrap(), "owner").is_ok());
-        assert!(ensure_loopback("[::1]:7788".parse().unwrap(), "owner").is_ok());
-        assert!(ensure_loopback("0.0.0.0:7788".parse().unwrap(), "owner").is_err());
-        assert!(ensure_loopback("192.0.2.1:7788".parse().unwrap(), "owner").is_err());
-    }
-
-    #[test]
     fn local_owner_boundary_allows_reads_and_same_origin_writes() {
         let mut read = HeaderMap::new();
         read.insert(HOST, HeaderValue::from_static("localhost:7788"));
@@ -14529,28 +14227,6 @@ mod tests {
         headers.remove("x-forwarded-for");
         headers.insert(HOST, HeaderValue::from_static("example.com:7788"));
         assert!(local_owner_boundary_violation(&Method::GET, &headers).is_some());
-    }
-
-    #[test]
-    fn review_url_uses_ticket_as_an_isolated_origin_and_preserves_route() {
-        let ticket = "0123456789abcdef0123456789abcdef";
-        let (url, host) = materialize_review_url(
-            "http://{ticket}.localhost:7794",
-            ticket,
-            "/for-tutoring-centres?language=en",
-        )
-        .unwrap();
-        assert_eq!(
-            url,
-            "http://0123456789abcdef0123456789abcdef.localhost:7794/for-tutoring-centres?language=en"
-        );
-        assert_eq!(host, "0123456789abcdef0123456789abcdef.localhost:7794");
-        assert!(materialize_review_url("http://localhost:7794/{ticket}", ticket, "/").is_err());
-        assert!(validate_review_public_url("http://preview.localhost:7794", 7794).is_err());
-        assert!(validate_review_public_url("http://{ticket}.localhost:7794", 7794).is_ok());
-        assert!(validate_review_public_url("https://{ticket}.localhost:7794", 7794).is_err());
-        assert!(validate_review_public_url("http://{ticket}.example.com:7794", 7794).is_err());
-        assert!(validate_review_public_url("http://{ticket}.localhost:8000", 7794).is_err());
     }
 
     #[test]

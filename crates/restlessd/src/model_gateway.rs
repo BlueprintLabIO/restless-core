@@ -610,7 +610,7 @@ pub async fn start(
     sweep_orphaned_model_children(root)?;
     let endpoints = GatewayEndpoints::from_env()?;
     let mut provider_credentials = provider_credentials(configs).await?;
-    for provider in crate::owner::account_oauth_providers(root)? {
+    for provider in crate::model_connections::account_oauth_providers(root)? {
         match provider_credentials.get(&provider) {
             Some(ProviderCredential::ApiKey(_)) => bail!(
                 "account OAuth connection for {provider} conflicts with a company API key; choose one credential before starting the gateway"
@@ -1984,7 +1984,7 @@ async fn relay_anthropic_count_tokens(
         AnthropicRouteCredential::ApiKey(key) if grant.billing == "metered_api" => upstream_request.header("x-api-key", key),
         AnthropicRouteCredential::AccountOauth(_) if grant.billing == "subscription" => {
             let expected_account = grant.credential_reference.as_deref()
-                .and_then(|reference| crate::owner::account_oauth_key(&state.root, provider, reference).ok().flatten());
+                .and_then(|reference| crate::model_connections::account_oauth_key(&state.root, provider, reference).ok().flatten());
             let token = match expected_account {
                 Some(expected) => current_anthropic_oauth_token(&state, &expected).await,
                 None => Err(anyhow::anyhow!("account identity is unavailable")),
@@ -2208,11 +2208,11 @@ async fn live_company_model_grant(
         if (reference.starts_with("omp-oauth:") && reference.contains('@'))
             || reference.starts_with("infisical:/owner/model-connections/")
         {
-            if !crate::owner::account_connection_matches(root, &grant.provider, reference)? {
+            if !crate::model_connections::account_connection_matches(root, &grant.provider, reference)? {
                 bail!("account model connection is no longer registered");
             }
             if reference.starts_with("omp-oauth:") {
-                let expected = crate::owner::account_oauth_key(root, &grant.provider, reference)?
+                let expected = crate::model_connections::account_oauth_key(root, &grant.provider, reference)?
                     .context("account OAuth connection has no verified identity")?;
                 let actual = oauth_account_key(&grant.provider)
                     .await
