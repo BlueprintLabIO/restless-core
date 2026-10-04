@@ -26,6 +26,7 @@ mod credential;
 mod custom_harness;
 mod document_collaboration_token;
 mod document_commands;
+mod documents_service;
 mod email;
 mod effect;
 mod entry;

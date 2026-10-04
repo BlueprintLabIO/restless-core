@@ -123,23 +123,6 @@ const ATTACHMENT_STAGE_STALE_AFTER: ChronoDuration = ChronoDuration::hours(1);
 const ATTACHMENT_GC_CLAIM_FOR: ChronoDuration = ChronoDuration::minutes(5);
 pub(crate) const OWNER_ATTACHMENT_RECONCILE_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
-pub(crate) async fn agent_document_body(
-    root: &std::path::Path,
-    org: &restless_orgintel::OrgIntel,
-    actor: &str,
-    document: Uuid,
-    payload: &serde_json::Value,
-) -> Result<serde_json::Value> {
-    let config = OwnerConfig::from_env()?;
-    let issuer = config.document_issuer();
-    let mut proxy = documents_api::NativeDocumentsProxy::from_environment()?;
-    if !config.hosted_runtime() {
-        proxy.use_local_services(root.to_owned());
-    }
-    proxy
-        .agent_body(root, org, actor, document, &issuer, payload)
-        .await
-}
 
 #[derive(Clone)]
 struct OwnerState {
@@ -154,7 +137,7 @@ struct OwnerState {
     document_collaboration_tokens:
         crate::document_collaboration_token::DocumentCollaborationTokenIssuer,
     document_collaboration_issuer: Arc<str>,
-    native_documents_proxy: documents_api::NativeDocumentsProxy,
+    native_documents_proxy: crate::documents_service::NativeDocumentsProxy,
     capacity_activity: capacity_activity::CapacityActivityService,
     plane_readiness: plane_readiness::PlaneReadinessService,
 }
@@ -173,7 +156,7 @@ struct RoomApiState {
     document_collaboration_tokens:
         crate::document_collaboration_token::DocumentCollaborationTokenIssuer,
     document_collaboration_issuer: Arc<str>,
-    native_documents_proxy: documents_api::NativeDocumentsProxy,
+    native_documents_proxy: crate::documents_service::NativeDocumentsProxy,
 }
 
 #[derive(Clone)]
@@ -240,7 +223,7 @@ impl RoomApiState {
                     [23; 32],
                 ),
             document_collaboration_issuer: "http://127.0.0.1:7788".into(),
-            native_documents_proxy: documents_api::NativeDocumentsProxy::disabled_for_test(),
+            native_documents_proxy: crate::documents_service::NativeDocumentsProxy::disabled_for_test(),
         }
     }
 }
@@ -1136,7 +1119,7 @@ pub(crate) async fn document_service_doctor(daemon: &Daemon, company: &str) -> s
             .company_access_identity()
             .await?
             .ok_or_else(|| anyhow::anyhow!("Documents identity has not been provisioned"))?;
-        let mut proxy = documents_api::NativeDocumentsProxy::from_environment()?;
+        let mut proxy = crate::documents_service::NativeDocumentsProxy::from_environment()?;
         if !daemon.runtime_bridges.is_hosted() {
             proxy.use_local_services(daemon.root.clone());
         }
@@ -1207,7 +1190,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .map(|(_, _, host)| format!("https://{host}"))
         .unwrap_or_else(|| format!("http://{address}"))
         .into();
-    let mut native_documents_proxy = documents_api::NativeDocumentsProxy::from_environment()
+    let mut native_documents_proxy = crate::documents_service::NativeDocumentsProxy::from_environment()
         .context("configure native Documents owner-plane proxy")?;
     if runtime_mode == crate::runtime_mode::RuntimeMode::Local {
         native_documents_proxy.use_local_services(daemon.root.clone());

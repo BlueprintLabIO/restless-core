@@ -145,7 +145,7 @@ pub(crate) async fn execute_with_body(
 ) -> Result<Value> {
     match operation {
         DocumentOperation::Read { document } => {
-            crate::owner::agent_document_body(root, org, actor, document, &json!({"action":"read"}))
+            crate::documents_service::agent_document_body(root, org, actor, document, &json!({"action":"read"}))
                 .await
         }
         DocumentOperation::Edit {
@@ -160,7 +160,7 @@ pub(crate) async fn execute_with_body(
             let selected = match existing {
                 Some(edit) => edit,
                 None => {
-                    let prepared = crate::owner::agent_document_body(
+                    let prepared = crate::documents_service::agent_document_body(
                         root,
                         org,
                         actor,
@@ -176,7 +176,7 @@ pub(crate) async fn execute_with_body(
             if let Some(result) = selected.result_json {
                 return Ok(result);
             }
-            let result = crate::owner::agent_document_body(
+            let result = crate::documents_service::agent_document_body(
                 root,
                 org,
                 actor,
@@ -197,7 +197,7 @@ pub(crate) async fn execute_with_body(
             key,
         } => {
             if block.is_some() {
-                crate::owner::agent_document_body(
+                crate::documents_service::agent_document_body(
                     root,
                     org,
                     actor,
