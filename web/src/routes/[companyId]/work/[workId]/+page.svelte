@@ -309,6 +309,19 @@
 					<i aria-hidden="true"></i>
 					<span>{unverifiedCompletion ? 'Done · unverified' : workStatusLabel(work.status)}</span>
 				</div>
+				{#if ownerAccess}
+					<div class="work-talk">
+						<a class="btn small" href="?talk=exec" title="Talk about this Work with the Exec"
+							>Discuss</a
+						>
+						{#if accountableLead && accountableLead.actor_id !== 'exec'}<a
+								class="btn small"
+								href={`?talk=${encodeURIComponent(accountableLead.actor_id)}`}
+								title={`Talk about this Work with ${accountableLead.display}, who leads it`}
+								>Ask {accountableLead.display}</a
+							>{/if}
+					</div>
+				{/if}
 			</div>
 		</header>
 

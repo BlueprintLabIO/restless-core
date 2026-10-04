@@ -8,6 +8,9 @@
 
 	import { followChat } from '$lib/actions/follow-chat';
 	import IntelligenceChip from './IntelligenceChip.svelte';
+	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
+	import ChevronDown from '@lucide/svelte/icons/chevron-down';
+	import Check from '@lucide/svelte/icons/check';
 	import { SvelteDate } from 'svelte/reactivity';
 	import Plus from '@lucide/svelte/icons/plus';
 	import RotateCw from '@lucide/svelte/icons/rotate-cw';
@@ -47,7 +50,11 @@
 		open = true,
 		onask = null,
 		review = null,
-		workContext = null
+		workContext = null,
+		topicLabel = '',
+		topics = [],
+		currentTopicKey = 'general',
+		ontopic = null
 	}: {
 		messages?: ThreadMessage[];
 		participantName?: string;
@@ -90,6 +97,16 @@
 			) => Promise<string | null>;
 		} | null;
 		workContext?: { onback: () => void } | null;
+		/** What this conversation is about: General, or one piece of Work. */
+		topicLabel?: string;
+		topics?: {
+			key: string;
+			label: string;
+			hint: string;
+			topic: { actorId: string; workId?: string } | null;
+		}[];
+		currentTopicKey?: string;
+		ontopic?: ((topic: { actorId: string; workId?: string } | null) => void) | null;
 	} = $props();
 
 	const canOperate = $derived(['owner', 'operator'].includes(membershipRole ?? ''));
@@ -161,7 +178,7 @@
 
 	let composer = $state('');
 	/* The draft belongs to this company and this recipient, and survives a reload. */
-	const draftKey = $derived(`restless:${companyId}:rail-draft:${participantId}`);
+	const draftKey = $derived(`restless:${companyId}:rail-draft:${participantId}:${currentTopicKey}`);
 	let loadedDraftKey = '';
 	$effect(() => {
 		const key = draftKey;
@@ -193,7 +210,7 @@
 	/* What the owner has already seen here, per company and recipient, so new
 	 * replies start under a "New" rule. Read once per conversation; marked as
 	 * seen while the rail is open. */
-	const seenKey = $derived(`restless:${companyId}:rail-seen:${participantId}`);
+	const seenKey = $derived(`restless:${companyId}:rail-seen:${participantId}:${currentTopicKey}`);
 	let seenThrough = $state<number | null>(null);
 	let seenLoadedFor = '';
 	$effect(() => {
@@ -259,6 +276,8 @@
 			messages.some((message) => messageNumericId(message.id) > activeFocusAfterMessageId)
 	);
 	const capabilityHint = $derived.by(() => {
+		if (participantId !== 'exec')
+			return `Ask ${participantName} about the work they own; the page you are on is linked.`;
 		if (contextLabel.includes('Work')) return 'Exec can inspect current Work before answering.';
 		if (contextLabel.includes('People'))
 			return 'Exec can route a question through the accountable lead.';
@@ -419,22 +438,44 @@
 						<ArrowLeft size={18} aria-hidden="true" />
 					</button>
 				{/if}
-				<div class="exr-who">
-					<SemanticMark meaning={review || workContext ? 'work' : 'executive'} />
-					<strong class="exr-name">{participantName}</strong>
-				</div>
-				{#if newFocusAvailable}
-					<button
-						class="exr-new-focus"
-						type="button"
-						disabled={!connected || !!turn || sending}
-						title={turn || sending
-							? 'Start a new focus when Exec finishes the current reply'
-							: 'Begin with fresh working context; company memory is retained'}
-						onclick={beginNewFocus}
-					>
-						New focus
-					</button>
+				{#if topics.length && ontopic}
+					<!-- Who you are talking to, and about what. One menu switches both. -->
+					<div class="exr-who topic-switch">
+						<ActionMenu label="Switch conversation">
+							{#snippet trigger()}<span class="topic-face"
+									><SemanticMark meaning={participantId === 'exec' ? 'executive' : 'work'} /><strong
+										class="exr-name">{participantName}</strong
+									>{#if topicLabel}<span class="topic-label">{topicLabel}</span>{/if}<ChevronDown
+										size={14}
+										aria-hidden="true"
+									/></span
+								>{/snippet}
+							{#each topics as entry (entry.key)}
+								<button type="button" onclick={() => ontopic(entry.topic)}
+									><span class="topic-option"
+										><span>{entry.label}</span><small>{entry.hint}</small></span
+									>{#if entry.key === currentTopicKey}<Check
+											size={14}
+											aria-label="Current"
+										/>{/if}</button
+								>
+							{/each}
+							{#if newFocusAvailable}
+								<button
+									type="button"
+									class="topic-fresh"
+									disabled={!connected || !!turn || sending}
+									title="Begin with fresh working context; company memory is retained"
+									onclick={beginNewFocus}>Start fresh</button
+								>
+							{/if}
+						</ActionMenu>
+					</div>
+				{:else}
+					<div class="exr-who">
+						<SemanticMark meaning={review || workContext ? 'work' : 'executive'} />
+						<strong class="exr-name">{participantName}</strong>
+					</div>
 				{/if}
 				{#if visibleMessages.length}
 					<ConversationHistoryTools
@@ -644,8 +685,8 @@
 								!onask ||
 								connectionStatus !== 'available'}
 							minlength={1}
-							placeholder={review || workContext
-								? 'Message the lead…'
+							placeholder={review || workContext || participantId !== 'exec'
+								? `Message ${participantName}…`
 								: 'Ask, redirect, or make a judgement…'}
 							ariaLabel={review || workContext
 								? `Message ${participantName}`
@@ -739,6 +780,70 @@
 		display: flex;
 		align-items: center;
 		gap: 10px;
+	}
+	.topic-switch {
+		overflow: hidden;
+	}
+	.topic-switch :global(.action-menu) {
+		flex: 1 1 auto;
+		min-width: 0;
+	}
+	.topic-switch :global(summary) {
+		display: flex;
+		justify-content: flex-start;
+		width: auto;
+		max-width: 100%;
+		min-width: 0;
+		height: 34px;
+		padding: 0 8px 0 4px;
+		overflow: hidden;
+	}
+	.topic-face {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		min-width: 0;
+		color: var(--ink);
+	}
+	.topic-face :global(svg) {
+		flex: none;
+		color: var(--text-tertiary);
+	}
+	.topic-face .exr-name {
+		flex: none;
+		max-width: 60%;
+	}
+	.topic-label {
+		flex: 1 1 auto;
+		min-width: 0;
+		overflow: hidden;
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.topic-label::before {
+		content: '· ';
+		color: var(--text-tertiary);
+	}
+	.topic-option {
+		display: grid;
+		flex: 1;
+		min-width: 0;
+	}
+	.topic-option span {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.topic-option small {
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+	.topic-fresh {
+		border-top: 1px solid var(--border) !important;
+		border-radius: 0 !important;
+		color: var(--text-secondary) !important;
 	}
 	.exr-head-primary .exr-who {
 		min-width: 0;

@@ -311,46 +311,6 @@
 	color: var(--intent-direction);
 }
 
-.bridge-root .exr-new-focus {
-	flex: none;
-	min-height: 29px;
-	padding: 5px 9px;
-	border: 1px solid color-mix(in srgb, var(--intent-conversation) 14%, var(--control-edge));
-	border-radius: var(--radius-control);
-	background: color-mix(in srgb, var(--highlight) 34%, transparent);
-	box-shadow: var(--bevel-subtle);
-	color: var(--text-secondary);
-	font: 500 var(--t-label) var(--font-ui);
-	white-space: nowrap;
-	cursor: pointer;
-	transition:
-		border-color var(--motion-state) var(--ease-standard),
-		background-color var(--motion-state) var(--ease-standard),
-		color var(--motion-state) var(--ease-standard),
-		transform var(--motion-press) var(--ease-standard);
-}
-
-.bridge-root .exr-new-focus:hover:not(:disabled) {
-	transform: translateY(-1px);
-	border-color: color-mix(in srgb, var(--intent-conversation) 30%, var(--control-edge));
-	background: color-mix(in srgb, var(--intent-conversation-soft) 42%, var(--surface-raised));
-	color: var(--ink);
-}
-
-.bridge-root .exr-new-focus:active:not(:disabled) {
-	transform: translateY(1px);
-}
-
-.bridge-root .exr-new-focus:disabled {
-	opacity: 0.42;
-	cursor: default;
-}
-
-.bridge-root .exr-new-focus:focus-visible {
-	outline: 2px solid var(--intent-conversation);
-	outline-offset: 2px;
-}
-
 .bridge-root .bridge-body {
 	min-height: 0;
 	height: 100%;
@@ -1002,6 +962,11 @@
 	align-items: flex-start;
 	justify-content: space-between;
 	gap: 20px;
+}
+.bridge-root .work-talk {
+	display: flex;
+	flex: none;
+	gap: 6px;
 }
 
 .bridge-root .work-detail-head h1 {

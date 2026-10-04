@@ -21,6 +21,8 @@
 			if (node.open) {
 				panel.showPopover();
 				position();
+				// The panel has no width until it lays out; place it again then.
+				requestAnimationFrame(position);
 			} else if (panel.matches(':popover-open')) panel.hidePopover();
 		}
 		function choose(event: MouseEvent) {

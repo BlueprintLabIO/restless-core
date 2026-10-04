@@ -175,12 +175,126 @@
 		liveNeedsYou.find((item) => item.id === focusedConversationId) ?? null
 	);
 	const focusedAttention = $derived(focusedReview ?? focusedConversation);
-	const railActorId = $derived(focusedAttention?.responsibleActor?.id ?? 'exec');
+
+	/* Who the rail talks to, and about what. The Exec and a lead each hold one
+	 * direct conversation, with the current page linked; a piece of Work has
+	 * its own thread only with the person producing it (OrgIntel keeps Work
+	 * feedback with its owner). The owner picks from the rail header; an Inbox
+	 * focus decides while that focus is open. */
+	type RailTopic = { actorId: string; workId?: string };
+	let chosenTopic = $state<RailTopic | null>(null);
+	let topicCompany = '';
+	$effect(() => {
+		if (companyId === topicCompany) return;
+		topicCompany = companyId;
+		chosenTopic = null;
+	});
+	const topicsKey = $derived(`restless:${companyId}:rail-topics`);
+	function readTopics(): RailTopic[] {
+		try {
+			const stored = JSON.parse(localStorage.getItem(topicsKey) ?? '[]');
+			return Array.isArray(stored) ? stored.slice(0, 6) : [];
+		} catch {
+			return [];
+		}
+	}
+	let recentTopics = $state<RailTopic[]>([]);
+	$effect(() => {
+		topicsKey;
+		recentTopics = readTopics();
+	});
+	function chooseTopic(topic: RailTopic | null) {
+		chosenTopic = topic && (topic.actorId !== 'exec' || topic.workId) ? topic : null;
+		if (!chosenTopic) return;
+		const next = [
+			chosenTopic,
+			...recentTopics.filter(
+				(t) => !(t.actorId === chosenTopic!.actorId && t.workId === chosenTopic!.workId)
+			)
+		].slice(0, 6);
+		recentTopics = next;
+		try {
+			localStorage.setItem(topicsKey, JSON.stringify(next));
+		} catch {
+			/* Recents are a convenience. */
+		}
+	}
+	const workRows = $derived(attention.view?.workGraph?.work ?? []);
+	const workTitle = (id: string) => workRows.find((work) => work.id === id)?.title ?? 'Work';
+	function personName(actorId: string): string {
+		if (actorId === 'exec') return 'Exec';
+		return cockpit?.people.find((person) => person.actor_id === actorId)?.display ?? actorId;
+	}
+	/* The lead accountable for a piece of Work: its team's lead, or its owner. */
+	function leadFor(workId: string): string {
+		const owner = workRows.find((work) => work.id === workId)?.owner_id ?? '';
+		const person = cockpit?.people.find((candidate) => candidate.actor_id === owner);
+		const team = cockpit?.teams.find(
+			(candidate) => candidate.lead_actor_id === owner || candidate.id === person?.team_id
+		);
+		return team?.lead_actor_id ?? owner;
+	}
+	const pageWorkId = $derived(
+		page.url.pathname.match(new RegExp(`^/${companyId}/work/([^/]+)$`))?.[1] ?? ''
+	);
+	const railTopics = $derived.by(() => {
+		const entries: { key: string; label: string; hint: string; topic: RailTopic | null }[] = [
+			{ key: 'general', label: 'General', hint: 'Exec', topic: null }
+		];
+		const add = (topic: RailTopic, hint?: string) => {
+			const key = `${topic.actorId}:${topic.workId ?? ''}`;
+			if (entries.some((entry) => entry.key === key) || topic.actorId === 'exec') return;
+			entries.push(
+				topic.workId
+					? { key, label: workTitle(topic.workId), hint: hint ?? personName(topic.actorId), topic }
+					: { key, label: personName(topic.actorId), hint: hint ?? 'Direct conversation', topic }
+			);
+		};
+		if (pageWorkId) {
+			const lead = leadFor(pageWorkId);
+			const owner = workRows.find((work) => work.id === pageWorkId)?.owner_id ?? '';
+			if (lead) add({ actorId: lead }, 'Leads this Work');
+			if (owner && owner !== lead)
+				add({ actorId: owner, workId: pageWorkId }, `${personName(owner)} · working on it`);
+		}
+		for (const topic of recentTopics)
+			if (!topic.workId || workRows.some((work) => work.id === topic.workId)) add(topic);
+		return entries;
+	});
+	/* A page can start a conversation about its Work with ?talk=<actor>; the
+	 * layout takes it as the chosen topic and drops it from the address. */
+	$effect(() => {
+		const talk = page.url.searchParams.get('talk');
+		if (!talk || !pageWorkId) return;
+		const owner = workRows.find((work) => work.id === pageWorkId)?.owner_id;
+		chooseTopic(
+			talk === owner && talk !== leadFor(pageWorkId)
+				? { actorId: talk, workId: pageWorkId }
+				: { actorId: talk }
+		);
+		execRailOpen = true;
+		const url = new URL(page.url);
+		url.searchParams.delete('talk');
+		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
+	});
+	const railActorId = $derived(
+		focusedAttention?.responsibleActor?.id ?? chosenTopic?.actorId ?? 'exec'
+	);
+	const railWorkId = $derived(focusedAttention?.workId ?? chosenTopic?.workId);
+	const railTopicLabel = $derived(
+		focusedAttention
+			? ''
+			: chosenTopic?.workId
+				? workTitle(chosenTopic.workId)
+				: chosenTopic
+					? ''
+					: 'General'
+	);
 	const railConversation = $derived(
 		conversationQuery(
 			companyId,
 			railActorId,
-			focusedAttention?.workId,
+			railWorkId,
 			focusedAttention?.id,
 			() => ownerAccess,
 			principal?.actor_id ?? 'owner'
@@ -191,9 +305,11 @@
 			? 'Exec'
 			: (focusedAttention?.responsibleActor?.display ??
 					railConversation.actor?.display ??
-					railActorId)
+					personName(railActorId))
 	);
-	const railActorRole = $derived(focusedAttention ? 'Responsible lead' : 'Executive');
+	const railActorRole = $derived(
+		focusedAttention || railActorId !== 'exec' ? 'Responsible lead' : 'Executive'
+	);
 	const providerIssue = $derived(
 		companies.find((company) => company.id === companyId)?.unstartable_reason ?? ''
 	);
@@ -499,7 +615,11 @@
 		contextLabel={currentContext}
 		focusAfterMessageId={railConversation.focusAfterMessageId}
 		focusStartedAt={railConversation.focusStartedAt}
-		newFocusAvailable={railActorId === 'exec' && !focusedAttention && railConnected}
+		newFocusAvailable={railActorId === 'exec' && !focusedAttention && !railWorkId && railConnected}
+		topicLabel={railTopicLabel}
+		topics={focusedAttention ? [] : railTopics}
+		currentTopicKey={chosenTopic ? `${chosenTopic.actorId}:${chosenTopic.workId ?? ''}` : 'general'}
+		ontopic={chooseTopic}
 		open={execRailOpen}
 		onask={askRail}
 		review={focusedReview
