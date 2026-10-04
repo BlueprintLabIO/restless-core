@@ -264,11 +264,15 @@ This repo is built in sprints by two founders collaborating on the `main` branch
   permission covers verified work only. Never force-push, and never sweep
   unrelated dirty work into a checkpoint. A checkpoint saves recovery progress, but does not turn an
   unrun claim into evidence.
-- **Worktrees are short-lived and start from `origin/main`.** Begin every task with
-  `restless-dev worktree new <name>`; never edit the shared main checkout in place — another agent's
-  uncommitted work may live there. Rebase on `origin/main` before verifying and before landing, land
-  within about a day, then `restless-dev worktree prune`. `restless-dev worktree stale` shows what
-  has drifted. Work that is not on `main` does not exist for the owner.
+- **Tasks are short-lived and start from `origin/main`, in pooled worktrees.** Begin every task with
+  `restless-dev worktree new <name>`: it switches an idle `work/slot-N` to your new branch, so its
+  build cache is warm and you rebuild only what changed since that slot's last task. Work only in
+  the slot it prints; never edit the shared main checkout in place — another agent's uncommitted
+  work may live there. Rebase on `origin/main` before verifying and before landing, land within
+  about a day, then `restless-dev worktree prune` to release the slot. A slot with uncommitted or
+  unpushed work, or a claim whose work has not landed, is never handed to anyone else.
+  `restless-dev worktree stale` shows what has drifted. Work that is not on `main` does not exist
+  for the owner.
 - **The owner's live stack runs only `origin/main`.** The founder's singleton is the stable appliance
   (`~/.restless`, cockpit on 7788, `systemd --user` / launchd). Change it only with
   `restless-dev promote` (builds a clean `origin/main` commit and runs `restless appliance upgrade`,

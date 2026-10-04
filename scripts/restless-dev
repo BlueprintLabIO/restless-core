@@ -100,9 +100,11 @@ after startup. To initialise an API connection from your shell, set both
 RESTLESS_DEV_MODEL=provider/model and RESTLESS_DEV_CREDENTIAL_REFERENCE=env:YOUR_API_KEY.
 Existing companies keep their settings.
 
-worktree new starts a branch from a fresh origin/main. stale lists every
-worktree's age, uncommitted files and commits no remote has. prune removes
-only worktrees that are clean, fully pushed and unused.
+worktree new starts a branch from a fresh origin/main in an idle pooled slot
+(work/slot-N), keeping its build cache warm. stale lists every worktree's age,
+uncommitted files, commits no remote has and claim. prune releases slots whose
+task has landed and removes other worktrees that are clean, fully pushed and
+unused; RESTLESS_WORKTREE_POOL_SIZE (default 4) slots are kept warm.
 
 promote builds one origin/main commit (default: origin/main) in a clean build
 worktree and installs it as the owner's stable appliance through

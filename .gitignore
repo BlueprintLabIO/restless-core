@@ -1,6 +1,7 @@
-# Rust
+# Rust (target-dev and other scratch targets too)
 /target
 /**/target
+/target-*/
 
 # Local environment / secrets — never commit
 .env

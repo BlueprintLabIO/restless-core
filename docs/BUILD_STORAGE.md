@@ -207,6 +207,9 @@ checking, 26 s coherence and 16 s borrow checking. An incremental rebuild after 
   directions, so it is a multi-week, conflict-prone refactor. Revisit only along a real plane
   boundary (Cell / Account plane / Fleet), not for compile time alone.
 
-A new worktree therefore still pays one ~3 minute cold build, dominated by the single `restlessd`
-crate. Nightly-only options (the parallel front end, Cranelift) and Cargo's still-unstable
+A brand-new worktree therefore still pays one ~3 minute cold build, dominated by the single
+`restlessd` crate. That is why `restless-dev worktree new` reuses pooled slots (`work/slot-N`):
+the incremental cache is bound to the path, so a slot switched to a new branch rebuilds only what
+changed since its last task. Each warm slot holds roughly 7 GB; the pool keeps
+`RESTLESS_WORKTREE_POOL_SIZE` (default 4) of them. Nightly-only options (the parallel front end, Cranelift) and Cargo's still-unstable
 workspace feature unification are the next levers when they stabilise.
