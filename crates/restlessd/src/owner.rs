@@ -1111,32 +1111,6 @@ where
         .layer(DefaultBodyLimit::max(128 * 1024))
 }
 
-/// Observe the live Docs service; never provision or mutate company content.
-pub(crate) async fn document_service_doctor(daemon: &Daemon, company: &str) -> serde_json::Value {
-    let observation = async {
-        let org = daemon.orgintel.get(company).await?;
-        let identity = org
-            .company_access_identity()
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("Documents identity has not been provisioned"))?;
-        let mut proxy = crate::documents_service::NativeDocumentsProxy::from_environment()?;
-        if !daemon.runtime_bridges.is_hosted() {
-            proxy.use_local_services(daemon.root.clone());
-        }
-        proxy.observe_readiness(identity.cell_id).await
-    }
-    .await;
-    match observation {
-        Ok(health) => serde_json::json!({
-            "status": "available", "health": health,
-            "detail": "Live collaboration service and its storage capability respond; editing and delivery require separate workflow probes."
-        }),
-        Err(error) => {
-            tracing::warn!(%company, %error, "Doctor could not observe Documents readiness");
-            serde_json::json!({"status": "unavailable", "detail": "Documents collaboration service or its storage capability is unavailable."})
-        }
-    }
-}
 
 pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
     let OwnerConfig {

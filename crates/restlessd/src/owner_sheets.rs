@@ -430,7 +430,7 @@ async fn session(
                         continue;
                     }
                 }
-                let result=accept_browser(&org,id,&actor,&client,&text).await;
+                let result=sheet_commands::accept_browser(&org,id,&actor,&client,&text).await;
                 if let Err(e)=result {
                     socket.send(AxumMessage::Text(json!({"type":"ERROR","message":e.to_string()}).to_string().into())).await?;
                     break;
@@ -441,83 +441,6 @@ async fn session(
     let _ = hub.send((client.client_id, json!({"type":"CLIENT_LEFT","version":1,"clientId":client.client_id.to_string()})));
     let _ = socket.close().await;
     Ok(())
-}
-pub(crate) async fn accept_browser(
-    org: &restless_orgintel::OrgIntel,
-    id: Uuid,
-    actor: &str,
-    client: &restless_orgintel::SheetClient,
-    text: &str,
-) -> Result<()> {
-    let mut message: Value = serde_json::from_str(text)?;
-    let kind = message["type"].as_str().unwrap_or("").to_string();
-    anyhow::ensure!(message["version"] == 1, "Unsupported Sheets protocol");
-    if ["CLIENT_JOINED", "CLIENT_MOVED", "CLIENT_LEFT", "SNAPSHOT"].contains(&kind.as_str()) {
-        return Ok(());
-    }
-    anyhow::ensure!(
-        ["REMOTE_REVISION", "REVISION_UNDONE", "REVISION_REDONE"].contains(&kind.as_str()),
-        "Unsupported sheet message"
-    );
-    if kind == "REMOTE_REVISION" {
-        anyhow::ensure!(
-            message["clientId"].as_str() == Some(&client.client_id.to_string()),
-            "Invalid sheet client identity"
-        );
-    }
-    let state = org.sheet_state(id, actor, true, 0).await?;
-    if let Some(stored) = state
-        .messages
-        .iter()
-        .find(|m| m.message["nextRevisionId"] == message["nextRevisionId"])
-    {
-        let mut original = stored.message.clone();
-        original.as_object_mut().map(|o| o.remove("timestamp"));
-        anyhow::ensure!(
-            stored.actor_id == actor && original == message,
-            "Sheet revision ID reused"
-        );
-        return Ok(());
-    }
-    // Stale messages are not accepted. The ordered catch-up pump delivers the
-    // intervening revisions and upstream transforms/resubmits pending edits.
-    if message["serverRevisionId"].as_str() != Some(&state.sheet.head_revision) {
-        return Ok(());
-    }
-    if kind != "REMOTE_REVISION" {
-        let field = if kind == "REVISION_UNDONE" {
-            "undoneRevisionId"
-        } else {
-            "redoneRevisionId"
-        };
-        anyhow::ensure!(
-            state
-                .messages
-                .iter()
-                .any(|m| m.message["nextRevisionId"] == message[field] && m.actor_id == actor),
-            "Only your own recent changes can be undone here"
-        );
-    }
-    message["timestamp"] = json!(Utc::now().timestamp_millis());
-    let mut input = sheet_commands::model_input(&state);
-    input["revision"] = message.clone();
-    let output = sheet_commands::model(input).await?;
-    match org
-        .accept_sheet_messages(
-            id,
-            actor,
-            &state.sheet.head_revision,
-            &[message],
-            &output["workbook"],
-            None,
-            Some((client.client_id, client.generation)),
-        )
-        .await
-    {
-        Ok(_) => Ok(()),
-        Err(restless_orgintel::SheetError::Conflict(_)) => Ok(()),
-        Err(e) => Err(e.into()),
-    }
 }
 
 #[cfg(test)]

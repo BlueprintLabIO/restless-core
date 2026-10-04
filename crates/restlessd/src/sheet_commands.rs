@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use chrono::Utc;
 use uuid::Uuid;
 
 struct Worker {
@@ -95,17 +96,17 @@ mod tests {
             let mut input=model_input(&state);input["client_id"]=json!(resumed.client_id);input["operation"]=json!({"action":"set_cells","start":"G2","values":[["browser"]]});
             let output=model(input).await.unwrap();
             let message=output["messages"][0].clone();
-            assert!(crate::owner::sheets_api::accept_browser(&org,sheet,"alice",&a,&message.to_string()).await.is_err(),"old reconnect generation cannot write");
-            crate::owner::sheets_api::accept_browser(&org,sheet,"alice",&resumed,&message.to_string()).await.unwrap();
+            assert!(accept_browser(&org,sheet,"alice",&a,&message.to_string()).await.is_err(),"old reconnect generation cannot write");
+            accept_browser(&org,sheet,"alice",&resumed,&message.to_string()).await.unwrap();
             let head=org.sheet_state(sheet,"owner",false,0).await.unwrap().sheet.head_revision;
             execute(&org,"exec",SheetOperation::Edit{sheet,expected_revision:head,key:Uuid::new_v4(),action:json!({"action":"set_cells","start":"H2","values":[["agent"]]})}).await.unwrap();
-            crate::owner::sheets_api::accept_browser(&org,sheet,"alice",&resumed,&message.to_string()).await.unwrap();
+            accept_browser(&org,sheet,"alice",&resumed,&message.to_string()).await.unwrap();
             let state=org.sheet_state(sheet,"owner",false,0).await.unwrap();
             let mut reused=message.clone();reused["serverRevisionId"]=json!(state.sheet.head_revision);reused["nextRevisionId"]=state.snapshot["revisionId"].clone();
             let mut badworkbook=output["workbook"].clone();badworkbook["revisionId"]=reused["nextRevisionId"].clone();
             assert!(org.accept_sheet_messages(sheet,"alice",&state.sheet.head_revision,&[reused],&badworkbook,None,Some((resumed.client_id,resumed.generation))).await.is_err());
             let undo=json!({"version":1,"type":"REVISION_UNDONE","serverRevisionId":state.sheet.head_revision,"nextRevisionId":Uuid::new_v4(),"undoneRevisionId":later["revision_id"]});
-            assert!(crate::owner::sheets_api::accept_browser(&org,sheet,"alice",&resumed,&undo.to_string()).await.is_err(),"cannot undo another Actor's revision");
+            assert!(accept_browser(&org,sheet,"alice",&resumed,&undo.to_string()).await.is_err(),"cannot undo another Actor's revision");
             org.share_sheet(sheet,"owner","alice",None).await.unwrap();
             assert!(org.sheet_checkpoint(sheet,"alice",checkpoint).await.is_err(),"history obeys current ACL");
             // Replay from a new DB handle and a new process restores the same body.
@@ -439,5 +440,83 @@ pub(crate) async fn execute(
                 )
                 .await?)
         }
+    }
+}
+
+pub(crate) async fn accept_browser(
+    org: &restless_orgintel::OrgIntel,
+    id: Uuid,
+    actor: &str,
+    client: &restless_orgintel::SheetClient,
+    text: &str,
+) -> Result<()> {
+    let mut message: Value = serde_json::from_str(text)?;
+    let kind = message["type"].as_str().unwrap_or("").to_string();
+    anyhow::ensure!(message["version"] == 1, "Unsupported Sheets protocol");
+    if ["CLIENT_JOINED", "CLIENT_MOVED", "CLIENT_LEFT", "SNAPSHOT"].contains(&kind.as_str()) {
+        return Ok(());
+    }
+    anyhow::ensure!(
+        ["REMOTE_REVISION", "REVISION_UNDONE", "REVISION_REDONE"].contains(&kind.as_str()),
+        "Unsupported sheet message"
+    );
+    if kind == "REMOTE_REVISION" {
+        anyhow::ensure!(
+            message["clientId"].as_str() == Some(&client.client_id.to_string()),
+            "Invalid sheet client identity"
+        );
+    }
+    let state = org.sheet_state(id, actor, true, 0).await?;
+    if let Some(stored) = state
+        .messages
+        .iter()
+        .find(|m| m.message["nextRevisionId"] == message["nextRevisionId"])
+    {
+        let mut original = stored.message.clone();
+        original.as_object_mut().map(|o| o.remove("timestamp"));
+        anyhow::ensure!(
+            stored.actor_id == actor && original == message,
+            "Sheet revision ID reused"
+        );
+        return Ok(());
+    }
+    // Stale messages are not accepted. The ordered catch-up pump delivers the
+    // intervening revisions and upstream transforms/resubmits pending edits.
+    if message["serverRevisionId"].as_str() != Some(&state.sheet.head_revision) {
+        return Ok(());
+    }
+    if kind != "REMOTE_REVISION" {
+        let field = if kind == "REVISION_UNDONE" {
+            "undoneRevisionId"
+        } else {
+            "redoneRevisionId"
+        };
+        anyhow::ensure!(
+            state
+                .messages
+                .iter()
+                .any(|m| m.message["nextRevisionId"] == message[field] && m.actor_id == actor),
+            "Only your own recent changes can be undone here"
+        );
+    }
+    message["timestamp"] = json!(Utc::now().timestamp_millis());
+    let mut input = model_input(&state);
+    input["revision"] = message.clone();
+    let output = model(input).await?;
+    match org
+        .accept_sheet_messages(
+            id,
+            actor,
+            &state.sheet.head_revision,
+            &[message],
+            &output["workbook"],
+            None,
+            Some((client.client_id, client.generation)),
+        )
+        .await
+    {
+        Ok(_) => Ok(()),
+        Err(restless_orgintel::SheetError::Conflict(_)) => Ok(()),
+        Err(e) => Err(e.into()),
     }
 }
