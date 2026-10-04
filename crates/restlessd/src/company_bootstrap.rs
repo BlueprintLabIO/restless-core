@@ -435,6 +435,10 @@ struct CompanyBootstrapService {
     database_url: String,
     authority: AuthorityStore,
     native_documents_credential_publisher: NativeDocumentsCredentialPublisher,
+    /// A Cloud-managed plane in local Runtime mode hosts each company's
+    /// Documents service itself: admission provisions it, so the company is
+    /// collaborative before its first Runtime starts.
+    local_documents_issuer: Option<String>,
 }
 
 impl CompanyBootstrapService {
@@ -556,6 +560,11 @@ impl CompanyBootstrapService {
             )
             .await
             .map_err(unavailable)?;
+        if let Some(issuer) = &self.local_documents_issuer {
+            crate::local_documents::ensure(&self.root, &company_handle, &org, issuer)
+                .await
+                .map_err(unavailable)?;
+        }
         drop(org);
 
         // A durable ready receipt proves a past handoff, not present
@@ -600,7 +609,11 @@ enum BootstrapEndpoint {
     Enabled(Arc<CompanyBootstrapService>),
 }
 
-pub(crate) fn routes<S>(daemon: &Arc<Daemon>, entry: &EntryMode) -> Result<Router<S>>
+pub(crate) fn routes<S>(
+    daemon: &Arc<Daemon>,
+    entry: &EntryMode,
+    local_documents_issuer: Option<String>,
+) -> Result<Router<S>>
 where
     S: Clone + Send + Sync + 'static,
 {
@@ -611,6 +624,7 @@ where
             database_url: daemon.orgintel.database_url.clone(),
             authority: daemon.authority.clone(),
             native_documents_credential_publisher: NativeDocumentsCredentialPublisher::Infisical,
+            local_documents_issuer,
         })),
         None => BootstrapEndpoint::Disabled,
     };
@@ -1441,6 +1455,7 @@ mod tests {
                 native_documents_credential_publisher: NativeDocumentsCredentialPublisher::Recorded(
                     Arc::clone(&published),
                 ),
+                local_documents_issuer: None,
             })
         };
         let admission_deployment = |request: &CompanyBootstrapRequest| CompanyAdmissionDeployment {
@@ -2015,6 +2030,7 @@ mod tests {
             native_documents_credential_publisher: NativeDocumentsCredentialPublisher::Recorded(
                 Arc::clone(&published_credentials),
             ),
+            local_documents_issuer: None,
         });
 
         let mut attempts = Vec::new();
