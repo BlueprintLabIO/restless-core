@@ -1407,9 +1407,11 @@
 		color: var(--text-tertiary);
 		cursor: pointer;
 	}
+	/* On the card's first line, beside who is asking: centred against a long question it floats. */
 	.open-question > .btn {
 		grid-column: 2;
 		grid-row: 1 / 3;
+		align-self: start;
 	}
 	.open-fields {
 		display: grid;
