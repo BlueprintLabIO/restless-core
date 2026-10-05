@@ -2634,7 +2634,7 @@ async fn consume_account_entry_assertion(
     let mut response = if form_post {
         Redirect::to(&request.target_company.as_ref()
             .map(|company| format!("/{company}/company"))
-            .unwrap_or_else(|| "/account#connections".to_owned())).into_response()
+            .unwrap_or_else(|| "/account/connections".to_owned())).into_response()
     } else {
         Json(serde_json::json!({"entered": true, "account": true})).into_response()
     };

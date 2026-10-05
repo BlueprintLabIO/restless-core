@@ -16,25 +16,31 @@
 		/** Renders one section's body, given its id. */
 		section: Snippet<[AccountSection]>;
 	} = $props();
+	/* One section is a page of its own: its title is the page's, with its explanation on hover. */
+	const single = $derived(sections.length === 1 ? sections[0] : null);
 </script>
 
 <main class="account-page-main">
 	<header class="account-page-head">
-		<h1>{title}</h1>
+		<h1>
+			{single?.title ?? title}{#if single?.tooltip}<InfoTip text={single.tooltip} />{/if}
+		</h1>
 		{#if sections.length >= 4}
 			<nav class="account-page-index" aria-label="Sections">
 				{#each sections as item (item.id)}<a href={`#${item.id}`}>{item.title}</a>{/each}
 			</nav>
 		{/if}
 	</header>
-	{#each sections as item (item.id)}
-		<section class="account-page-section" id={item.id} aria-labelledby={`${item.id}-title`}>
-			<h2 id={`${item.id}-title`}>
-				{item.title}{#if item.tooltip}<InfoTip text={item.tooltip} />{/if}
-			</h2>
-			{@render section(item)}
-		</section>
-	{/each}
+	{#if single}
+		<section class="account-page-single" id={single.id}>{@render section(single)}</section>
+	{:else}{#each sections as item (item.id)}
+			<section class="account-page-section" id={item.id} aria-labelledby={`${item.id}-title`}>
+				<h2 id={`${item.id}-title`}>
+					{item.title}{#if item.tooltip}<InfoTip text={item.tooltip} />{/if}
+				</h2>
+				{@render section(item)}
+			</section>
+		{/each}{/if}
 </main>
 
 <style>
@@ -49,6 +55,9 @@
 		margin-bottom: 28px;
 	}
 	.account-page-head h1 {
+		display: flex;
+		align-items: center;
+		gap: 8px;
 		margin: 0;
 		font-size: var(--t-hero);
 		line-height: 1.1;

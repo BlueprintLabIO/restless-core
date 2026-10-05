@@ -12,6 +12,8 @@
 
 	let tokens = $state<AccessToken[] | null>(null);
 	let failure = $state<string | null>(null);
+	/* Reading the list and changing it fail differently: only a change can be 'not made'. */
+	let loadFailed = $state(false);
 	let label = $state('');
 	let busy = $state(false);
 	let fresh = $state<{ label: string; command: string } | null>(null);
@@ -22,6 +24,7 @@
 			tokens = await fetchTokens();
 		} catch (error) {
 			failure = failureSentence(error);
+			loadFailed = true;
 		}
 	}
 	onMount(load);
@@ -30,6 +33,7 @@
 		event.preventDefault();
 		busy = true;
 		failure = null;
+		loadFailed = false;
 		copied = false;
 		try {
 			const issued = await issueToken(label.trim());
@@ -48,6 +52,7 @@
 
 	async function revoke(token: AccessToken) {
 		failure = null;
+		loadFailed = false;
 		try {
 			await revokeToken(token.id);
 			await load();
@@ -66,7 +71,11 @@
 </script>
 
 <div class="ai-apps">
-	{#if failure}<Notice tone="danger" title="That change was not made" details={failure} />{/if}
+	{#if failure}<Notice
+			tone="danger"
+			title={loadFailed ? 'Your tokens could not be loaded' : 'That change was not made'}
+			details={failure}
+		/>{/if}
 
 	<form class="create" onsubmit={create}>
 		<input

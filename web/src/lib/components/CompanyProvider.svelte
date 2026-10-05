@@ -85,7 +85,7 @@
 	};
 	let reusableConnections = $state<ReusableConnection[]>([]);
 	let accountScope = $state<'account' | 'company'>('account');
-	let manageUrl = $state('/account#connections');
+	let manageUrl = $state('/account/connections');
 	let accountError = $state('');
 	let accountBusy = $state(false);
 	let accountLoading = $state(false);
@@ -255,8 +255,8 @@
 			accountScope = body.scope === 'company' ? 'company' : 'account';
 			manageUrl =
 				accountScope === 'company'
-					? (body.manage_url ?? '/account#connections')
-					: '/account#connections';
+					? (body.manage_url ?? '/account/connections')
+					: '/account/connections';
 			companies = companyRows.filter((company) => company.lifecycle_status === 'active');
 		} catch (cause) {
 			accountError = failureSentence(cause, 'Could not load reusable connections.');

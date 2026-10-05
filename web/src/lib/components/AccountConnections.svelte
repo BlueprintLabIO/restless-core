@@ -91,7 +91,7 @@
 		)
 	);
 	let accountScope = $state<'account' | 'company'>('account');
-	let manageUrl = $state('/account#connections');
+	let manageUrl = $state('/account/connections');
 	let loading = $state(true);
 	let error = $state('');
 	let addOpen = $state(false);
@@ -152,7 +152,7 @@
 			)
 				void catalog.refreshConnected();
 			accountScope = body.scope === 'company' ? 'company' : 'account';
-			manageUrl = body.manage_url ?? '/account#connections';
+			manageUrl = body.manage_url ?? '/account/connections';
 			if (statusRefreshTimer) clearTimeout(statusRefreshTimer);
 			if (connections.some((connection) => connection.status === 'checking')) {
 				statusRefreshAttempts = Math.min(statusRefreshAttempts + 1, 12);
