@@ -36,6 +36,9 @@ The final message is what the owner reads. Write from their side of the screen:
 - When an `ownerNeed` has a few likely short answers, list up to three in the marker's optional
   `ownerReplies` field, each under eight words (for example `["Yes, list it", "Not yet"]`). The cockpit
   offers them as drafts the owner can edit; leave the field out when answers are open-ended.
+- When an `ownerNeed` asks for several separate facts (a price, a date, a test result), name each in
+  the marker's optional `ownerFields` field, up to four short labels such as `["Price paid",
+  "Load test result"]`. The cockpit gives each one a field so the owner can answer in place.
 - A reaction is a signal, not a reply. When the owner's request is now done, you may also react
   to their message with `restless react --message <id> --emoji ✅`. A reaction never replaces an
   answer the owner is waiting for.
