@@ -38,7 +38,7 @@ const KEY_FILE: &str = "company-projection.ed25519";
 const TOKEN_TYPE: &str = "restless-company-projection+jwt";
 const ALGORITHM: &str = "EdDSA";
 const AUDIENCE: &str = "restless-fleet";
-const CONTRACT_VERSION: u32 = 1;
+const CONTRACT_VERSION: u32 = 2;
 const KIND_ATTENTION: &str = "attention";
 
 const URL_ENV: &str = "RESTLESS_PROJECTION_URL";
@@ -53,7 +53,8 @@ const HEARTBEAT: Duration = Duration::from_secs(120);
 const DISABLED_PROBE: Duration = Duration::from_secs(600);
 const FAILURE_BACKOFF: Duration = Duration::from_secs(30);
 
-/// The whole of the v1 `attention` record. Field-for-field what Fleet accepts; keep them together.
+/// The whole of the v2 `attention` record: v1's count and time plus two more counts and one yes/no.
+/// Field-for-field what Fleet accepts; keep them together. Still nothing that could hold content.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AttentionClaims {
@@ -68,6 +69,12 @@ pub struct AttentionClaims {
     pub decisions_waiting: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_activity_at: Option<i64>,
+    /// Actors with a turn in flight now (v2).
+    pub people_working: u32,
+    /// Work completed in the 24 hours before `projected_at` (v2).
+    pub outcomes_last_day: u32,
+    /// Whether Exec has working intelligence and can start (v2).
+    pub exec_ready: bool,
 }
 
 #[derive(Clone)]
@@ -216,32 +223,91 @@ where
     )
 }
 
-/// What a company has to say: a count and a time.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// What a company has to say about itself: counts, a time and whether Exec can start. This is the
+/// portfolio card on every host: signed for Fleet, handed unsigned to the local root page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct Summary {
     pub decisions_waiting: u32,
     pub last_activity_at: Option<DateTime<Utc>>,
+    pub people_working: u32,
+    pub outcomes_last_day: u32,
+    pub exec_ready: bool,
 }
 
-/// Counts the owner's queue and finds when Work last moved. Only the length of the queue and a
-/// timestamp leave this function; the items themselves are never read past `len`.
-pub fn summarize(view: &attention::AttentionView) -> Summary {
+/// Counts the owner's queue, finds when Work last moved and counts Work completed in the last day.
+/// Only lengths, counts and a timestamp leave this function; no item is read for its content.
+pub fn summarize(
+    view: &attention::AttentionView,
+    people_working: usize,
+    exec_ready: bool,
+    now: DateTime<Utc>,
+) -> Summary {
     summarize_parts(
         view.items.len(),
-        view.work_graph
-            .iter()
-            .flat_map(|graph| graph.work.iter().map(|work| work.updated_at)),
+        view.work_graph.iter().flat_map(|graph| {
+            graph.work.iter().map(|work| {
+                (
+                    work.updated_at,
+                    work.status == restless_orgintel::WorkStatus::Completed,
+                )
+            })
+        }),
+        people_working,
+        exec_ready,
+        now,
     )
 }
 
+/// The cap on every count, as in v1: large enough to be honest, small enough to bound.
+const MAX_COUNT: u32 = 1_000_000;
+
+fn bounded(count: usize) -> u32 {
+    u32::try_from(count).unwrap_or(u32::MAX).min(MAX_COUNT)
+}
+
+/// `work` is each Work's last update and whether it is completed. A completed Work's last update is
+/// its completion, so it counts as an outcome when that falls within the day before `now`.
 pub fn summarize_parts(
     items: usize,
-    work_updated_at: impl IntoIterator<Item = DateTime<Utc>>,
+    work: impl IntoIterator<Item = (DateTime<Utc>, bool)>,
+    people_working: usize,
+    exec_ready: bool,
+    now: DateTime<Utc>,
 ) -> Summary {
-    Summary {
-        decisions_waiting: u32::try_from(items).unwrap_or(u32::MAX).min(1_000_000),
-        last_activity_at: work_updated_at.into_iter().max(),
+    let day_ago = now - chrono::Duration::hours(24);
+    let mut last_activity_at = None;
+    let mut outcomes = 0usize;
+    for (updated_at, completed) in work {
+        last_activity_at = last_activity_at.max(Some(updated_at));
+        if completed && updated_at > day_ago && updated_at <= now {
+            outcomes += 1;
+        }
     }
+    Summary {
+        decisions_waiting: bounded(items),
+        last_activity_at,
+        people_working: bounded(people_working),
+        outcomes_last_day: bounded(outcomes),
+        exec_ready,
+    }
+}
+
+/// The card for one company, as the plane sees it now. Unavailable company state is an error, never
+/// a smaller queue or a quieter company.
+pub async fn card_for(daemon: &Daemon, company: &str) -> Result<Summary> {
+    let config = runtime::CompanyConfig::load(&daemon.root, company)?;
+    let org = daemon.orgintel.get(company).await?;
+    let view = attention::project(&config, &daemon.authority, Some(&org)).await?;
+    let exec_waking = daemon
+        .in_flight
+        .lock()
+        .map(|guard| guard.is_active(company))
+        .unwrap_or(false);
+    let working = daemon.staff.running_actors(company).len() + usize::from(exec_waking);
+    let exec_ready = crate::company::observed_company_model_issue(&config)
+        .await
+        .is_none();
+    Ok(summarize(&view, working, exec_ready, Utc::now()))
 }
 
 /// A hosted company's handle is `company_<uuid>`; anything else is not a Fleet company and is skipped.
@@ -370,16 +436,16 @@ impl ProjectionEmitter {
             sequence,
             decisions_waiting: summary.decisions_waiting,
             last_activity_at: summary.last_activity_at.map(|at| at.timestamp()),
+            people_working: summary.people_working,
+            outcomes_last_day: summary.outcomes_last_day,
+            exec_ready: summary.exec_ready,
         }
     }
 
     async fn summary_for(daemon: &Daemon, company: &str) -> Result<Summary> {
-        let config = runtime::CompanyConfig::load(&daemon.root, company)?;
         // Unavailable company state cannot justify reporting a smaller queue or
         // no recent activity. Skip this observation until OrgIntel is readable.
-        let org = daemon.orgintel.get(company).await?;
-        let view = attention::project(&config, &daemon.authority, Some(&org)).await?;
-        Ok(summarize(&view))
+        card_for(daemon, company).await
     }
 
     /// Returns what Fleet said: `accepted`, `disabled`, or an error to back off from.
@@ -481,6 +547,9 @@ mod tests {
         Summary {
             decisions_waiting: waiting,
             last_activity_at: None,
+            people_working: 0,
+            outcomes_last_day: 0,
+            exec_ready: true,
         }
     }
 
@@ -495,6 +564,9 @@ mod tests {
             &Summary {
                 decisions_waiting: 4,
                 last_activity_at: Some(now),
+                people_working: 2,
+                outcomes_last_day: 3,
+                exec_ready: true,
             },
             now,
         );
@@ -533,9 +605,12 @@ mod tests {
                 "company_id",
                 "contract_version",
                 "decisions_waiting",
+                "exec_ready",
                 "iss",
                 "kind",
                 "last_activity_at",
+                "outcomes_last_day",
+                "people_working",
                 "plane_id",
                 "projected_at",
                 "sequence"
@@ -543,6 +618,10 @@ mod tests {
             "the record carries exactly the contract fields and nothing that could hold content"
         );
         assert_eq!(payload["decisions_waiting"], 4);
+        assert_eq!(payload["people_working"], 2);
+        assert_eq!(payload["outcomes_last_day"], 3);
+        assert_eq!(payload["exec_ready"], true);
+        assert_eq!(payload["contract_version"], 2);
         assert_eq!(payload["kind"], "attention");
         let header: serde_json::Value = serde_json::from_slice(
             &base64::engine::general_purpose::URL_SAFE_NO_PAD
@@ -596,16 +675,30 @@ mod tests {
     }
 
     #[test]
-    fn only_the_queue_length_and_a_time_leave_the_summary() {
-        let early = Utc::now() - chrono::Duration::hours(3);
-        let late = Utc::now() - chrono::Duration::minutes(2);
-        let summary = summarize_parts(3, [early, late]);
+    fn only_counts_a_time_and_readiness_leave_the_summary() {
+        let now = Utc::now();
+        let early = now - chrono::Duration::hours(30);
+        let recent = now - chrono::Duration::hours(3);
+        let late = now - chrono::Duration::minutes(2);
+        // Completed two days ago, completed recently, and still active.
+        let summary =
+            summarize_parts(3, [(early, true), (recent, true), (late, false)], 2, true, now);
         assert_eq!(summary.decisions_waiting, 3);
         assert_eq!(summary.last_activity_at, Some(late));
-        let nothing = summarize_parts(0, []);
+        assert_eq!(
+            summary.outcomes_last_day, 1,
+            "only completions within the day count"
+        );
+        assert_eq!(summary.people_working, 2);
+        assert!(summary.exec_ready);
+        let nothing = summarize_parts(0, [], 0, false, now);
         assert_eq!(nothing.decisions_waiting, 0);
         assert_eq!(nothing.last_activity_at, None);
-        assert_eq!(summarize_parts(usize::MAX, []).decisions_waiting, 1_000_000);
+        assert_eq!(nothing.outcomes_last_day, 0);
+        assert!(!nothing.exec_ready);
+        let huge = summarize_parts(usize::MAX, [], usize::MAX, true, now);
+        assert_eq!(huge.decisions_waiting, MAX_COUNT);
+        assert_eq!(huge.people_working, MAX_COUNT);
     }
 
     #[test]
@@ -682,9 +775,10 @@ mod tests {
         .is_none());
     }
 
-    /// The wire contract, pinned. `contracts/company-projection.v1.fixture.json` is byte-identical in
+    /// The wire contract, pinned. `contracts/company-projection.v2.fixture.json` is byte-identical in
     /// Core and in Cloud: Core proves it still signs exactly this record, and Cloud proves it still
-    /// accepts it, so neither side can drift without a test failing. Regenerate with
+    /// accepts it, so neither side can drift without a test failing. The v1 fixture stays beside it
+    /// for Cloud, which keeps accepting v1 from planes not yet upgraded. Regenerate with
     /// `RESTLESS_WRITE_PROJECTION_FIXTURE=1 cargo test -p restless-owner projection_fixture`.
     #[test]
     fn projection_fixture_is_the_pinned_wire_contract() {
@@ -700,20 +794,29 @@ mod tests {
             sequence: 1_790_000_000_000,
             decisions_waiting: 4,
             last_activity_at: Some(1_789_999_900),
+            people_working: 2,
+            outcomes_last_day: 3,
+            exec_ready: true,
         };
         let fixture = serde_json::json!({
             "contract": "restless-company-projection",
-            "version": 1,
+            "version": 2,
             "verify_at": 1_790_000_010,
             "hostname": "owner.example.test",
             "plane_id": claims.plane_id,
             "company_id": claims.company_id,
-            "expect": { "decisions_waiting": 4, "sequence": 1_790_000_000_000i64 },
+            "expect": {
+                "decisions_waiting": 4,
+                "sequence": 1_790_000_000_000i64,
+                "people_working": 2,
+                "outcomes_last_day": 3,
+                "exec_ready": true
+            },
             "jwks": signer.jwks(),
             "token": signer.sign(&claims).unwrap(),
         });
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../contracts/company-projection.v1.fixture.json");
+            .join("../../contracts/company-projection.v2.fixture.json");
         let rendered = serde_json::to_string_pretty(&fixture).unwrap()
             + "
 ";

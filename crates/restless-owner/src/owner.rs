@@ -592,7 +592,15 @@ struct CompanyCatalogEntry {
     /// reason is resolved (cross-layer contract §1.4.1).
     #[serde(skip_serializing_if = "Option::is_none")]
     unstartable_reason: Option<String>,
+    /// The portfolio card: exactly the counts this plane would sign for Fleet (company projection
+    /// v2), so the local root page and Cloud's portfolio show the same thing. Absent when the
+    /// company's state could not be read in time; never a guessed zero.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    card: Option<crate::company_projection::Summary>,
 }
+
+/// How long the companies list waits for any one company's card.
+const PORTFOLIO_CARD_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// The one high-value owner read model. This remains a projection: every
 /// field is assembled from its authoritative plane immediately before the
@@ -2891,7 +2899,10 @@ async fn create_company(
     }
     (
         StatusCode::CREATED,
-        Json(company_catalog_entry(config, "active", Some(runtime::ContainerStatus::Absent)).await),
+        Json(
+            company_catalog_entry(config, "active", Some(runtime::ContainerStatus::Absent), None)
+                .await,
+        ),
     )
         .into_response()
 }
@@ -4546,12 +4557,30 @@ async fn company_catalog(
     )
     .await
     .ok();
+    let cards = futures_util::future::join_all(configs.iter().map(|(config, lifecycle)| {
+        let daemon = state.daemon.clone();
+        let company = config.name.clone();
+        let active = *lifecycle == "active";
+        async move {
+            if !active {
+                return None;
+            }
+            tokio::time::timeout(
+                PORTFOLIO_CARD_TIMEOUT,
+                crate::company_projection::card_for(&daemon, &company),
+            )
+            .await
+            .ok()
+            .and_then(Result::ok)
+        }
+    }))
+    .await;
     let mut catalog = Vec::with_capacity(configs.len());
-    for (config, lifecycle) in configs {
+    for ((config, lifecycle), card) in configs.into_iter().zip(cards) {
         let status = runtime_statuses
             .as_ref()
             .and_then(|statuses| statuses.get(&config.name).copied());
-        catalog.push(company_catalog_entry(config, lifecycle, status).await);
+        catalog.push(company_catalog_entry(config, lifecycle, status, card).await);
     }
     Json(catalog).into_response()
 }
@@ -4582,6 +4611,7 @@ async fn company_catalog_entry(
     config: runtime::CompanyConfig,
     lifecycle_status: &'static str,
     status: Option<runtime::ContainerStatus>,
+    card: Option<crate::company_projection::Summary>,
 ) -> CompanyCatalogEntry {
     let runtime_status = match status {
         Some(runtime::ContainerStatus::Running) => "running",
@@ -4603,6 +4633,7 @@ async fn company_catalog_entry(
         runtime_status,
         lifecycle_status,
         unstartable_reason,
+        card,
     }
 }
 
