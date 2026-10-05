@@ -605,7 +605,7 @@ pub async fn start(
     root: &std::path::Path,
     capabilities: crate::capability::CapabilityIssuer,
     spend: crate::spend::SpendLedger,
-    local_mcp_daemon: Option<std::sync::Arc<crate::Daemon>>,
+    tool_gateway_daemon: Option<std::sync::Arc<crate::Daemon>>,
 ) -> Result<Option<Processes>> {
     sweep_orphaned_model_children(root)?;
     let endpoints = GatewayEndpoints::from_env()?;
@@ -854,7 +854,7 @@ pub async fn start(
             .build()
             .context("build Runtime model relay client")?,
     };
-    let relay = start_runtime_relay(relay_state.clone(), &endpoints.relay_bind, local_mcp_daemon)
+    let relay = start_runtime_relay(relay_state.clone(), &endpoints.relay_bind, tool_gateway_daemon)
         .await?;
     match (CLIENT.write(), HOSTED_RELAY_STATE.write()) {
         (Ok(mut client), Ok(mut hosted)) => {
@@ -1310,7 +1310,7 @@ fn direct_anthropic_routes(
 async fn start_runtime_relay(
     state: RelayState,
     relay_bind: &str,
-    local_mcp_daemon: Option<std::sync::Arc<crate::Daemon>>,
+    tool_gateway_daemon: Option<std::sync::Arc<crate::Daemon>>,
 ) -> Result<tokio::task::JoinHandle<()>> {
     let listener = tokio::net::TcpListener::bind(relay_bind)
         .await
@@ -1326,9 +1326,8 @@ async fn start_runtime_relay(
         )
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
         .with_state(state);
-    let app = match local_mcp_daemon {
+    let app = match tool_gateway_daemon {
         Some(daemon) => model_app
-            .merge(crate::mcp_gateway::router(daemon.clone()))
             .merge(crate::tool_gateway::router(daemon)),
         None => model_app,
     };

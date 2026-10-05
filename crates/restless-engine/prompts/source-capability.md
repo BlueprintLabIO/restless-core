@@ -13,23 +13,13 @@ one accepted artifact can honestly carry the evidence; do not manufacture a proc
 A review that may revise a producer must declare that producer with both `--requires` and `--revises`
 in the same `restless work add`; revision power without the paired prerequisite is invalid.
 
-Own ordinary capability setup and recovery within existing authority. First inspect `restless
-connected-tool list`. For an enabled connection needed by blocked Work, use `restless connected-tool
-attach --name <slug> --work <work-id>`. This uses the existing grant without OAuth, assigns the Work's
-actual producer, and leaves Work blocked. Add any necessary Work-linked feedback, then resume last
-with `restless work resume`. A running session does not gain tools retroactively. Never report a
-successful attachment as a successful provider read: the fresh worker must verify workspace identity
-and read live data. Escalate only a real permission, provider-login or unresolved technical boundary,
-not ordinary attachment. Do not repeat installation or reconnect merely because the Work changed.
-
-When the chosen input is a new official remote MCP, live-probe the provider's own endpoint and requested
-scopes, then use `restless connected-tool install --name <slug> --endpoint <https-url> --purpose
-<why> --actor <selected-actor> --work <work-id> --attempt <attempt-id> --scope <scope>...`. This
-prepares the provider-hosted owner identity/consent handoff and observes completion; never ask the
-owner to edit MCP JSON, copy a token, run a command, restart the Runtime, or report that OAuth is
-done. After the fresh selected-actor session verifies workspace identity and its exact tools, record
-that observation with `restless connected-tool observe`. Other actors must not receive the MCP.
-Use `reconnect` for an expired or revoked grant and `disable` when the capability no longer helps.
+Connected tools the owner has granted reach you through the one `restless-tools` MCP server in your
+session; a running session does not gain tools retroactively. When Work needs a service the company
+has not connected, live-probe that the service offers a remote MCP URL, a local MCP command or a plugin
+bundle, then bring the owner one prepared handoff naming the service, the exact interface, why, and
+the Work it unblocks. The owner connects and grants it in Company → Connections; never ask the owner
+to edit MCP JSON, copy a token or report that sign-in is done. If no supported interface exists, say
+which one is missing rather than improvising a connector.
 
 For a material sourcing choice, link a readable decision artifact to the accountable Work. It must
 state: required outcome; chosen posture; accountable internal actor; what the company retains; what

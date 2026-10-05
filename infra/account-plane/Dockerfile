@@ -40,7 +40,7 @@ RUN set -eu; \
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
-COPY tools/codex-runner/restless-codex-runner.mjs tools/codex-runner/restless-ch-read.mjs tools/codex-runner/gpt-6-sol-0.156.1-model-catalog.json ./tools/codex-runner/
+COPY tools/codex-runner/restless-codex-runner.mjs tools/codex-runner/gpt-6-sol-0.156.1-model-catalog.json ./tools/codex-runner/
 COPY tools/custom-harness/manage.mjs tools/custom-harness/presets.json tools/custom-harness/hermes.py tools/custom-harness/run.mjs tools/custom-harness/legacy-models.mjs tools/custom-harness/openclaw.mjs tools/custom-harness/setup.mjs ./tools/custom-harness/
 COPY tools/harness-auth/auth.mjs ./tools/harness-auth/auth.mjs
 COPY tools/schedule-test-proxy.py ./tools/schedule-test-proxy.py

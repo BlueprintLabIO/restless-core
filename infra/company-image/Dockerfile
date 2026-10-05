@@ -263,9 +263,8 @@ RUN npm install -g pnpm@10.34.6 \
 
 # An ordinary open-source CLI, not a Restless provider adapter. Authority
 # injects RESEND_API_KEY only into the exact governed child process.
-RUN npm install -g resend-cli@2.12.0 mcp-remote@0.8.1 \
+RUN npm install -g resend-cli@2.12.0 \
     && resend --version \
-    && command -v mcp-remote \
     && npm cache clean --force
 
 # Playwright library for browser-driven acceptance (T11). Uses the Debian
