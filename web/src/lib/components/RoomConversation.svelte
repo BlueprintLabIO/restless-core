@@ -244,6 +244,16 @@
 	const teams = $derived(
 		ownerAccess ? (cockpitProjection.view?.teams ?? []) : (collaboration.view?.teams ?? [])
 	);
+	/* app.html starts a remembered person's room on the next cold load. */
+	$effect(() => {
+		const room = resolvedPersonRoom;
+		if (!room || room.key !== `${companyId}:${principalActorId}:${requestedPersonId}`) return;
+		try {
+			localStorage.setItem(`restless:${companyId}:person-room:${requestedPersonId}`, room.room.id);
+		} catch {
+			/* Without storage the room is found the ordinary way. */
+		}
+	});
 	function directCanonicalKey(a: string, b: string): string {
 		const [first, second] = [a, b].sort();
 		return `direct:${new TextEncoder().encode(first).length}:${first}:${new TextEncoder().encode(second).length}:${second}`;

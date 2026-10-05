@@ -1,4 +1,5 @@
 import { responseFailure } from './failure.ts';
+import { bootFetch } from './boot-fetch.ts';
 export type RoomKind = 'company' | 'group' | 'direct';
 
 export interface Room {
@@ -241,7 +242,9 @@ const roomPath = (company: string, room?: string): string => {
 const roomError = responseFailure;
 
 async function roomJson<T>(url: string, init?: RequestInit): Promise<T> {
-	const response = await fetch(url, {
+	// Only a read may take a response app.html started; a write always goes out.
+	const read = !init?.method || init.method === 'GET';
+	const response = await (read ? bootFetch : fetch)(url, {
 		credentials: 'same-origin',
 		cache: 'no-store',
 		...init
