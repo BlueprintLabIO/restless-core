@@ -411,3 +411,66 @@ pub(super) async fn receipts(
         ),
     }
 }
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct PluginInput {
+    url: String,
+}
+
+/// Import a plugin bundle: its MCP servers become connections awaiting
+/// probe and grant, and Exec is asked to add its skills as candidates in the
+/// company computer, where skills live.
+pub(super) async fn import_plugin(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<PluginInput>,
+) -> Response<Body> {
+    if let Err(refusal) = owner_gate(&state, &company, &principal).await {
+        return refusal;
+    }
+    let pool = state.daemon.authority.pool();
+    let mut imported = match connections::import_plugin(
+        pool,
+        &state.daemon.authority,
+        &company,
+        input.url.trim(),
+        principal.actor_id(),
+    )
+    .await
+    {
+        Ok(imported) => imported,
+        Err(error) => return connection_error(error),
+    };
+    for connection in &mut imported.connections {
+        if connection.status == "awaiting_probe" {
+            if let Ok(probed) =
+                connections::probe(pool, &state.daemon.root, &company, &connection.name).await
+            {
+                *connection = probed;
+            }
+        }
+    }
+    let mut skills_requested = false;
+    if !imported.skills.is_empty() {
+        if let Ok(org) = state.daemon.orgintel.get(&company).await {
+            let sources = imported
+                .skills
+                .iter()
+                .map(|source| format!("- `restless skill add {source}`"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let body = format!(
+                "I imported the plugin {} ({}). Add its skills as candidates for me to review:\n{sources}\nThen tell me in one line which were added.",
+                imported.plugin, imported.source
+            );
+            skills_requested = org
+                .send_message(principal.actor_id(), Some("exec"), &body)
+                .await
+                .is_ok();
+        }
+    }
+    Json(serde_json::json!({ "import": imported, "skills_requested": skills_requested }))
+        .into_response()
+}

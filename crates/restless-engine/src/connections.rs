@@ -1140,6 +1140,303 @@ pub async fn recent_read_receipts(
 }
 
 // ---------------------------------------------------------------------------
+// Plugin bundles
+
+/// What a Codex- or Claude-format plugin bundle carried.
+#[derive(Debug, Clone, Serialize)]
+pub struct PluginImport {
+    pub plugin: String,
+    pub source: String,
+    pub commit: String,
+    pub connections: Vec<Connection>,
+    /// Connections the bundle declares that could not be added, and why.
+    pub skipped: Vec<String>,
+    /// Skill directories, as `<url>#<path>` sources for `restless skill add`.
+    pub skills: Vec<String>,
+}
+
+/// Read a plugin bundle from Git on the host and add its MCP servers as
+/// connections awaiting probe and grant. Skills are returned, not installed:
+/// they belong in the company computer, where Exec adds them as candidates.
+pub async fn import_plugin(
+    pool: &PgPool,
+    authority: &crate::authority::AuthorityStore,
+    company: &str,
+    url: &str,
+    by: &str,
+) -> Result<PluginImport> {
+    let parsed = url::Url::parse(url).context("plugin source is not a URL")?;
+    if parsed.scheme() != "https" || !parsed.username().is_empty() || parsed.password().is_some() {
+        bail!("plugin source must be an https Git URL without credentials");
+    }
+    let checkout =
+        std::env::temp_dir().join(format!("restless-plugin-{}", Uuid::new_v4().simple()));
+    let result = async {
+        let clone = tokio::time::timeout(
+            Duration::from_secs(90),
+            tokio::process::Command::new("git")
+                .args(["clone", "--quiet", "--depth", "1", url])
+                .arg(&checkout)
+                .env("GIT_TERMINAL_PROMPT", "0")
+                .stdin(Stdio::null())
+                .kill_on_drop(true)
+                .output(),
+        )
+        .await
+        .context("cloning the plugin timed out")??;
+        if !clone.status.success() {
+            bail!("could not clone {url}");
+        }
+        let commit = tokio::process::Command::new("git")
+            .arg("-C")
+            .arg(&checkout)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .await?;
+        let commit = String::from_utf8_lossy(&commit.stdout).trim().to_string();
+        let bundle = read_plugin_bundle(&checkout)?;
+        let mut connections = Vec::new();
+        let mut skipped = Vec::new();
+        for (server, declaration) in bundle.servers {
+            let name = connection_name(&bundle.name, &server);
+            let source = Some(format!("plugin:{url}@{commit}"));
+            let new = match plugin_connection(&name, &declaration, source) {
+                Ok(new) => new,
+                Err(error) => {
+                    skipped.push(format!("{server}: {error:#}"));
+                    continue;
+                }
+            };
+            match add(pool, authority, company, new, by).await {
+                Ok(connection) => connections.push(connection),
+                Err(error) => skipped.push(format!("{server}: {error:#}")),
+            }
+        }
+        let skills = bundle
+            .skills
+            .iter()
+            .map(|path| format!("{url}#{path}"))
+            .collect();
+        Ok(PluginImport {
+            plugin: bundle.name,
+            source: url.to_string(),
+            commit,
+            connections,
+            skipped,
+            skills,
+        })
+    }
+    .await;
+    let _ = tokio::fs::remove_dir_all(&checkout).await;
+    result
+}
+
+struct PluginBundle {
+    name: String,
+    servers: Vec<(String, serde_json::Value)>,
+    skills: Vec<String>,
+}
+
+fn read_json(path: &Path) -> Result<Option<serde_json::Value>> {
+    match std::fs::read(path) {
+        Ok(bytes) if bytes.len() <= 256 * 1024 => {
+            Ok(Some(serde_json::from_slice(&bytes).with_context(|| {
+                format!("{} is not JSON", path.display())
+            })?))
+        }
+        Ok(_) => bail!("{} is too large", path.display()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// A path inside the bundle; `..` and absolute paths are refused.
+fn bundle_path(root: &Path, relative: &str) -> Result<PathBuf> {
+    let relative = relative.trim_start_matches("./");
+    let path = Path::new(relative);
+    if path.is_absolute()
+        || path
+            .components()
+            .any(|part| matches!(part, std::path::Component::ParentDir))
+    {
+        bail!("plugin path {relative:?} leaves the bundle");
+    }
+    Ok(root.join(path))
+}
+
+fn read_plugin_bundle(root: &Path) -> Result<PluginBundle> {
+    let manifest = match read_json(&root.join(".codex-plugin/plugin.json"))? {
+        Some(manifest) => Some(manifest),
+        None => read_json(&root.join(".claude-plugin/plugin.json"))?,
+    };
+    let name = manifest
+        .as_ref()
+        .and_then(|manifest| manifest.get("name"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+        .or_else(|| {
+            root.file_name()
+                .map(|name| name.to_string_lossy().to_string())
+        })
+        .unwrap_or_else(|| "plugin".into());
+    let mut servers_document = None;
+    if let Some(declared) = manifest
+        .as_ref()
+        .and_then(|manifest| manifest.get("mcpServers"))
+    {
+        servers_document = match declared {
+            serde_json::Value::String(path) => read_json(&bundle_path(root, path)?)?,
+            serde_json::Value::Object(_) => Some(serde_json::json!({ "mcpServers": declared })),
+            _ => None,
+        };
+    }
+    if servers_document.is_none() {
+        servers_document = read_json(&root.join(".mcp.json"))?;
+    }
+    let servers: Vec<(String, serde_json::Value)> = servers_document
+        .as_ref()
+        .and_then(|document| document.get("mcpServers").or(Some(document)))
+        .and_then(serde_json::Value::as_object)
+        .map(|servers| {
+            servers
+                .iter()
+                .map(|(name, value)| (name.clone(), value.clone()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let skills_root = manifest
+        .as_ref()
+        .and_then(|manifest| manifest.get("skills"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("skills");
+    let skills_dir = bundle_path(root, skills_root)?;
+    let mut skills = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&skills_dir) {
+        for entry in entries.flatten() {
+            if entry.path().join("SKILL.md").is_file() {
+                if let Ok(relative) = entry.path().strip_prefix(root) {
+                    skills.push(relative.to_string_lossy().to_string());
+                }
+            }
+        }
+    }
+    if skills.is_empty() && root.join("SKILL.md").is_file() {
+        skills.push(String::new());
+    }
+    skills.sort();
+    if servers.is_empty() && skills.is_empty() {
+        bail!("this repository has no plugin manifest, MCP servers or skills");
+    }
+    Ok(PluginBundle {
+        name,
+        servers,
+        skills,
+    })
+}
+
+fn connection_name(plugin: &str, server: &str) -> String {
+    let clean = |value: &str| {
+        value
+            .to_lowercase()
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+            .collect::<String>()
+            .split('-')
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join("-")
+    };
+    let (plugin, server) = (clean(plugin), clean(server));
+    let mut name = if plugin == server || server.is_empty() {
+        plugin
+    } else {
+        format!("{plugin}-{server}")
+    };
+    name.truncate(40);
+    name.trim_end_matches('-').to_string()
+}
+
+/// `${NAME}` or `$NAME` names a company credential; anything else is refused
+/// because a literal secret in a public bundle is not a credential.
+fn placeholder(value: &str) -> Option<String> {
+    let value = value.trim();
+    let inner = value
+        .strip_prefix("${")
+        .and_then(|rest| rest.strip_suffix('}'))
+        .or_else(|| value.strip_prefix('$'))?;
+    (!inner.is_empty()
+        && inner
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_'))
+    .then(|| inner.to_string())
+}
+
+fn plugin_connection(
+    name: &str,
+    declaration: &serde_json::Value,
+    source: Option<String>,
+) -> Result<NewConnection> {
+    if let Some(url) = declaration.get("url").and_then(serde_json::Value::as_str) {
+        let authorization = declaration
+            .get("headers")
+            .and_then(|headers| {
+                headers
+                    .get("Authorization")
+                    .or_else(|| headers.get("authorization"))
+            })
+            .and_then(serde_json::Value::as_str);
+        let auth = match authorization {
+            None => ConnectionAuth::None,
+            Some(value) => {
+                let token = value.trim().strip_prefix("Bearer ").unwrap_or(value);
+                let credential = placeholder(token)
+                    .context("the Authorization header must name a credential like ${TOKEN}")?;
+                ConnectionAuth::Bearer { credential }
+            }
+        };
+        return Ok(NewConnection::Remote {
+            name: name.into(),
+            endpoint: url.into(),
+            auth,
+            source,
+        });
+    }
+    let command = declaration
+        .get("command")
+        .and_then(serde_json::Value::as_str)
+        .context("neither a url nor a command")?;
+    let args = declaration
+        .get("args")
+        .and_then(serde_json::Value::as_array)
+        .map(|args| {
+            args.iter()
+                .filter_map(|arg| arg.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut env = BTreeMap::new();
+    if let Some(declared) = declaration
+        .get("env")
+        .and_then(serde_json::Value::as_object)
+    {
+        for (key, value) in declared {
+            let value = value.as_str().unwrap_or_default();
+            let credential = placeholder(value).with_context(|| {
+                format!("environment {key} must name a credential like ${{{key}}}")
+            })?;
+            env.insert(key.clone(), credential);
+        }
+    }
+    Ok(NewConnection::Local {
+        name: name.into(),
+        command: command.into(),
+        args,
+        env,
+        source,
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Credentials
 
 /// Resolve a credential reference or a company credential binding name.
@@ -1336,7 +1633,27 @@ pub async fn begin_sign_in(
     name: &str,
     redirect_uri: &str,
 ) -> Result<String> {
-    let connection = require(pool, company, name).await?;
+    let mut connection = require(pool, company, name).await?;
+    // A URL added without auth that answers "sign in" becomes an OAuth
+    // connection here; the probe already said what the server needs.
+    if matches!(connection.auth, ConnectionAuth::None) && connection.kind == "remote" {
+        let auth = ConnectionAuth::Oauth {
+            credential: default_oauth_credential(company, name),
+            client_id: None,
+            client_secret: None,
+            scopes: Vec::new(),
+        };
+        sqlx::query(
+            "UPDATE restless_authority.connections SET auth=$3, updated_at=now() \
+             WHERE company=$1 AND name=$2 AND status<>'disconnected'",
+        )
+        .bind(company)
+        .bind(name)
+        .bind(serde_json::to_value(&auth)?)
+        .execute(pool)
+        .await?;
+        connection = require(pool, company, name).await?;
+    }
     let ConnectionAuth::Oauth {
         credential,
         client_id,
@@ -1761,6 +2078,53 @@ mod tests {
             &["id"],
         ));
         assert_eq!(delete.class, ToolClass::Reserved);
+    }
+
+    #[test]
+    fn plugin_bundles_declare_servers_and_skills_without_leaving_the_bundle() {
+        let root = std::env::temp_dir().join(format!("plugin-{}", Uuid::new_v4().simple()));
+        std::fs::create_dir_all(root.join(".codex-plugin")).unwrap();
+        std::fs::create_dir_all(root.join("skills/triage")).unwrap();
+        std::fs::write(
+            root.join("skills/triage/SKILL.md"),
+            "---\nname: triage\n---\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join(".codex-plugin/plugin.json"),
+            r#"{"name": "Acme CRM", "mcpServers": "./.mcp.json"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            root.join(".mcp.json"),
+            r#"{"mcpServers": {
+                "api": {"url": "https://mcp.acme.example/mcp", "headers": {"Authorization": "Bearer ${ACME_TOKEN}"}},
+                "local": {"command": "npx", "args": ["-y", "acme-mcp"], "env": {"ACME_KEY": "${ACME_KEY}"}},
+                "leaky": {"command": "acme", "env": {"ACME_KEY": "sk-live-123"}}
+            }}"#,
+        )
+        .unwrap();
+        let bundle = read_plugin_bundle(&root).unwrap();
+        assert_eq!(bundle.name, "Acme CRM");
+        assert_eq!(bundle.skills, vec!["skills/triage".to_string()]);
+        let mut added = Vec::new();
+        let mut refused = Vec::new();
+        for (server, declaration) in &bundle.servers {
+            match plugin_connection(&connection_name(&bundle.name, server), declaration, None) {
+                Ok(new) => added.push(new),
+                Err(_) => refused.push(server.clone()),
+            }
+        }
+        assert_eq!(refused, vec!["leaky".to_string()]);
+        assert!(
+            matches!(&added[0], NewConnection::Remote { name, auth: ConnectionAuth::Bearer { credential }, .. }
+            if name == "acme-crm-api" && credential == "ACME_TOKEN")
+        );
+        assert!(
+            matches!(&added[1], NewConnection::Local { env, .. } if env["ACME_KEY"] == "ACME_KEY")
+        );
+        assert!(bundle_path(&root, "../etc/passwd").is_err());
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
