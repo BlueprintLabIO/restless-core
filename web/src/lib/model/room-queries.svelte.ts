@@ -264,6 +264,14 @@ export function roomMessagesQuery(companyId: string, roomId: string) {
 		get mentions() {
 			return query.data ? uniqueMentions(query.data.pages) : [];
 		},
+		/** Reply count per root message id. */
+		get threads() {
+			return new Map(
+				(query.data?.pages ?? [])
+					.flatMap((page) => page.threads ?? [])
+					.map((summary) => [summary.root_message_id, summary])
+			);
+		},
 		get status() {
 			return sourceStatus(query);
 		},
@@ -369,7 +377,8 @@ function appendCanonicalMessage(
 					messages: [result.message],
 					mentions: result.mentions,
 					next_before_message_id: null,
-					has_more: false
+					has_more: false,
+					threads: []
 				}
 			],
 			pageParams: [null]

@@ -229,6 +229,7 @@
 		}
 		if (
 			event.key === 'Escape' &&
+			rail &&
 			railOpen &&
 			onexectoggle &&
 			(event.target as Element | null)?.closest?.('#bridge-exrail') &&

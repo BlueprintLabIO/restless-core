@@ -25,6 +25,11 @@
 	} from '$lib/model/room-queries.svelte';
 	import { type Room } from '$lib/model/rooms';
 	import { seenThrough, markSeen } from '$lib/model/conversation-seen';
+	import { getContext, type Snippet } from 'svelte';
+
+	/* The Exec and team leads open in the same conversation as the rail, at
+	 * full width; the layout owns it. */
+	const wide = getContext<{ actor: string; render: () => Snippet<[boolean]> }>('wide-conversation');
 
 	const companyId = $derived(page.params.companyId ?? '');
 	const principal = $derived(companyPrincipalQuery(companyId));
@@ -228,6 +233,22 @@
 		if (latest) void goto(href(latest), { replaceState: true, noScroll: true, keepFocus: true });
 	});
 	const recentRows = $derived(search.trim() ? [] : rows.slice(0, 5));
+	/* A hit in a conversation with the Exec or a lead opens that conversation
+	 * (the full-width rail) at the message; anything else opens its room. */
+	function searchHref(message: {
+		id: number;
+		room_id: string;
+		thread_root_message_id: number | null;
+	}): string {
+		const contact = recent.conversations.find(
+			(conversation) =>
+				conversation.room_id === message.room_id &&
+				contacts.some((person) => person.actor_id === conversation.person_actor_id)
+		);
+		if (owner && contact && !message.thread_root_message_id)
+			return `${href(contact.person_actor_id)}&focus=${message.id}`;
+		return `${href('', message.room_id)}${message.thread_root_message_id ? `&thread=${message.thread_root_message_id}` : ''}&focus=${message.id}`;
+	}
 	function created(room: Room) {
 		void goto(href('', room.id));
 	}
@@ -377,9 +398,7 @@
 				</p>{/if}
 			{#if search.trim()}
 				{#each messageSearch.messages.filter( (message) => recent.conversations.some((conversation) => conversation.room_id === message.room_id) ) as message (message.id)}
-					<a
-						class="search-result"
-						href={`${href('', message.room_id)}${message.thread_root_message_id ? `&thread=${message.thread_root_message_id}` : ''}&focus=${message.id}`}
+					<a class="search-result" href={searchHref(message)}
 						><strong
 							>{people.find((p) => p.actor_id === message.from_actor)?.display ??
 								message.from_actor}</strong
@@ -401,7 +420,9 @@
 	</aside>
 	<section class="conversation-main" aria-label="Selected conversation">
 		<a class="back" href={indexHref()}><ArrowLeft size={16} /> People</a>
-		{#if roomId || personId}
+		{#if wide.actor && wide.actor === personId && !roomId}
+			{@render wide.render()(true)}
+		{:else if roomId || personId}
 			<RoomConversation />
 		{:else}
 			<div class="conversation-empty cockpit-pane">

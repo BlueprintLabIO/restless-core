@@ -84,11 +84,21 @@ export interface RoomMention {
 	cancelled_at: string | null;
 }
 
+export interface RoomThreadSummary {
+	root_message_id: number;
+	reply_count: number;
+	last_reply_at: string;
+	/** Distinct reply authors, most recent first, at most three. */
+	repliers: string[];
+}
+
 export interface RoomMessagePage {
 	messages: RoomMessage[];
 	mentions: RoomMention[];
 	next_before_message_id: number | null;
 	has_more: boolean;
+	/** Reply counts for roots in this page; absent on Thread pages. */
+	threads?: RoomThreadSummary[];
 }
 
 export interface RoomMessageRevision {
