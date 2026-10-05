@@ -60,8 +60,9 @@ ENV RESTLESS_SOURCE_REVISION=${SOURCE_REVISION}
 RUN --mount=type=cache,id=restless-cargo-registry-v1,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=restless-cargo-native-${BUILDARCH}-${TARGETARCH}-v2,target=/src/target,sharing=locked \
     target="$(cat /rust-target)" \
-    && cargo build --release --locked --target "$target" -p restlessd \
-    && install -Dm755 /src/target/$target/release/restlessd /out/restlessd
+    && cargo build --release --locked --target "$target" -p restlessd -p restless \
+    && install -Dm755 /src/target/$target/release/restlessd /out/restlessd \
+    && install -Dm755 /src/target/$target/release/restless /out/restless
 
 # A Cloud-managed owner VM runs this image in local Runtime mode, where the plane
 # starts company containers itself through the host's Docker socket. Only the
@@ -104,6 +105,9 @@ RUN npm install -g bun@1.3.14 \
     && omp --version
 
 COPY --from=build /out/restlessd /usr/local/bin/restlessd
+# The owner CLI travels with the plane so scripts/install-core.sh can install a
+# self-hosted appliance from this exact signed image.
+COPY --from=build /out/restless /usr/local/bin/restless
 COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 COPY services/native-sheets/package.json services/native-sheets/package-lock.json /opt/restless/native-sheets/
 RUN npm --prefix /opt/restless/native-sheets ci --omit=dev --no-audit --no-fund && npm cache clean --force
