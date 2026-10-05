@@ -3029,12 +3029,35 @@ impl OrgIntel {
             .map(|message| message.id)
             .collect::<Vec<_>>();
         let mentions = message_mentions_for_messages_in_tx(&mut tx, &message_ids).await?;
+        let threads = if thread_root_message_id.is_none() && !message_ids.is_empty() {
+            sqlx::query_as::<_, RoomThreadSummary>(
+                "SELECT reply.thread_root_message_id AS root_message_id, \
+                        COUNT(*) AS reply_count, MAX(reply.created_at) AS last_reply_at, \
+                        (ARRAY(SELECT author.from_actor FROM messages author \
+                               WHERE author.room_id=$1 \
+                                 AND author.thread_root_message_id=reply.thread_root_message_id \
+                                 AND author.deleted_at IS NULL \
+                               GROUP BY author.from_actor \
+                               ORDER BY MAX(author.id) DESC LIMIT 3)) AS repliers \
+                 FROM messages reply \
+                 WHERE reply.room_id=$1 AND reply.thread_root_message_id=ANY($2) \
+                   AND reply.deleted_at IS NULL \
+                 GROUP BY reply.thread_root_message_id",
+            )
+            .bind(room_id)
+            .bind(&message_ids)
+            .fetch_all(&mut *tx)
+            .await?
+        } else {
+            Vec::new()
+        };
         tx.commit().await?;
         Ok(RoomMessagePage {
             messages,
             mentions,
             next_before_message_id,
             has_more,
+            threads,
         })
     }
 

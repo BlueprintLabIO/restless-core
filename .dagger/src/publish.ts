@@ -73,9 +73,44 @@ export function node(source: Directory): Container {
   return dag.container().from(NODE_IMAGE).withDirectory('/src', source, { exclude: EXCLUDES }).withWorkdir('/src');
 }
 
+/**
+ * High findings the owner accepted for a bounded period because no fixed
+ * version exists. Each entry names the exact package and version and stops
+ * applying after `until` (UTC day), so the release fails again unless the fix
+ * has shipped or the exception is renewed on purpose.
+ */
+const SCAN_EXCEPTIONS = [
+  // Bundled npm HTTP cache dependency in runtime-tools; no patched release (2026-10-04).
+  { id: 'GHSA-ch52-4w7c-c8xp', name: 'http-cache-semantics', version: '4.2.0', until: '2026-10-18' },
+];
+
+/** Grype config that ignores the exceptions still in force on the scan day. */
+export function scanConfig(scanPeriod: string): string {
+  const active = SCAN_EXCEPTIONS.filter((exception) => scanPeriod <= exception.until);
+  if (!active.length) return 'ignore: []\n';
+  return `ignore:\n${active.map((exception) => `  - vulnerability: ${exception.id}\n    package:\n`
+    + `      name: ${exception.name}\n      version: ${exception.version}\n`).join('')}`;
+}
+
 function scanner(image: string, prefix: string, username: string, password: Secret): Container {
   return dag.container().from(image).withEnvVariable(`${prefix}_REGISTRY_AUTH_AUTHORITY`, 'ghcr.io')
     .withEnvVariable(`${prefix}_REGISTRY_AUTH_USERNAME`, username).withSecretVariable(`${prefix}_REGISTRY_AUTH_PASSWORD`, password);
+}
+
+/**
+ * Push to GHCR, retrying a dropped connection. Already uploaded blobs are
+ * skipped on the next attempt, so a retry only resends what was interrupted.
+ */
+async function publishWithRetry(image: Container, tag: string): Promise<string> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await image.publish(tag);
+    } catch (error) {
+      const transient = /(?:timed out|timeout|connection reset|broken pipe|unexpected EOF|network is unreachable|: 5\d\d)/i;
+      if (attempt >= 3 || !transient.test(String(error))) throw error;
+      console.log(`${tag}: push interrupted (attempt ${attempt}), retrying`);
+    }
+  }
 }
 
 /** Reuse a partial upload, then qualify the exact image before it can be sealed. */
@@ -97,7 +132,7 @@ export async function publishImage(component: string, revision: string, platform
     if (!/(?:manifest unknown|manifest_unknown|name_unknown|: not found|: 404)/i.test(String(error))) throw error;
     image = (await factory()).withLabel('io.restless.build-input-sha256', input).withLabel('io.restless.component', component)
       .withLabel('org.opencontainers.image.revision', revision).withRegistryAuth('ghcr.io', username, password);
-    reference = `${repository}@${(await image.publish(tag)).split('@')[1]}`;
+    reference = `${repository}@${(await publishWithRetry(image, tag)).split('@')[1]}`;
     image = dag.container({ platform }).withRegistryAuth('ghcr.io', username, password).from(reference);
   }
   if (!/^sha256:[0-9a-f]{64}$/.test(reference.split('@')[1])) throw new Error(`${component}: registry returned a mutable reference`);
@@ -116,8 +151,11 @@ export async function publishImage(component: string, revision: string, platform
   // Catalogue the exact image once. Include producer CycloneDX records: newer
   // Chrome binaries no longer match Syft's binary-string version classifier.
   // Grype consumes this same inventory rather than recataloguing the image.
+  // Syft reads the image the engine already pulled by digest: downloading it a
+  // second time from GHCR repeatedly broke off mid-layer on the release runner.
   const sbom = scanner(SYFT_IMAGE, 'SYFT', username, password).withNewFile('/reports/.keep', '')
-    .withExec([`registry:${reference}`, '--override-default-catalogers', 'image',
+    .withFile('/image.tar', image.asTarball())
+    .withExec(['oci-archive:/image.tar', '--source-name', reference, '--override-default-catalogers', 'image',
       '--override-default-catalogers', 'sbom-cataloger', '--output', 'syft-json=/reports/inventory.json',
       '--output', 'spdx-json=/reports/sbom.json'], { useEntrypoint: true });
   if (['runtime-tools', 'company-runtime'].includes(component)) {
@@ -136,10 +174,11 @@ export async function publishImage(component: string, revision: string, platform
     .withEnvVariable('GRYPE_DB_CACHE_DIR', '/cache').withEnvVariable('GRYPE_CHECK_FOR_APP_UPDATE', 'false')
     .withEnvVariable('RESTLESS_SCAN_PERIOD', scanPeriod)
     .withFile('/reports/inventory.json', sbom.file('/reports/inventory.json'))
+    .withNewFile('/reports/grype.yaml', scanConfig(scanPeriod))
     // Ask Grype to own the report file. Dagger's progress stream can still
     // mirror redirected stdout, which previously inflated one Actions log by
     // tens of megabytes and obscured diagnosis of an unrelated runner hang.
-    .withExec(['sbom:/reports/inventory.json', '--fail-on', 'high', '--output', 'json',
+    .withExec(['sbom:/reports/inventory.json', '--config', '/reports/grype.yaml', '--fail-on', 'high', '--output', 'json',
       '--file', '/reports/scan.json'], { useEntrypoint: true, expect: ReturnType.Any });
   const status = await scan.exitCode();
   if (status !== 0) {

@@ -33,4 +33,19 @@ with tempfile.TemporaryDirectory(prefix='restless-rustc-wrapper-') as directory:
     assert code == 0 and 'unused_marker' in output, f'the warning never reached Cargo:\n{output}'
     code, output = build('fn main() {\n    let value: u32 = "not a number";\n}\n')
     assert code != 0 and 'error[E0308]' in output, f'the type error never reached Cargo:\n{output}'
-    print('PASS errors and warnings pass through the compiler slot wrapper')
+    # Cargo hands rustc its jobserver on inherited descriptors, once observed as 3 and 9. The
+    # wrapper must leave every inherited descriptor exactly as it was.
+    fake = Path(directory) / 'fake-rustc'
+    fake.write_text('#!/bin/sh\nreadlink /proc/self/fd/9\n')
+    fake.chmod(0o755)
+    read_end, write_end = os.pipe()
+    os.dup2(read_end, 9)
+    try:
+        seen = subprocess.run([str(ROOT / 'scripts/rustc-wrapper'), str(fake)], env=env,
+                              capture_output=True, text=True, pass_fds=(9,), check=True).stdout.strip()
+    finally:
+        os.close(9)
+        os.close(read_end)
+        os.close(write_end)
+    assert seen.startswith('pipe:'), f'the wrapper replaced inherited descriptor 9 with {seen!r}'
+    print('PASS errors and warnings pass through the compiler slot wrapper; inherited descriptors are untouched')

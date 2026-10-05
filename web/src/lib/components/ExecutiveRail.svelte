@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	/* One contextual conversation rail. It normally belongs to the Exec; while
@@ -31,11 +32,17 @@
 	import type { OutcomeStandard } from '$lib/model/company';
 	import type { ThreadMessage } from '$lib/model/view';
 	import { runExecCommand } from '$lib/model/skills';
-	import { reactionsQuery } from '$lib/model/reactions.svelte';
+	import { PIN, reactionsQuery } from '$lib/model/reactions.svelte';
+	import { workDraftFrom, askExec } from '$lib/model/ask-exec';
+	import Pin from '@lucide/svelte/icons/pin';
+	import Link from '@lucide/svelte/icons/link';
+	import ListPlus from '@lucide/svelte/icons/list-plus';
 	import { recentDirectConversationsQuery } from '$lib/model/room-queries.svelte';
 	import { deleteRoomMessage } from '$lib/model/rooms';
 	import { markSeen, seenThrough as roomSeenThrough } from '$lib/model/conversation-seen';
 	import { composerOptions, readDraft, writeDraft } from '$lib/model/composer-options.svelte';
+	import { agentExchangesQuery, type AgentExchange } from '$lib/model/exchanges.svelte';
+	import HandoffReceipt from '$lib/primitives/HandoffReceipt.svelte';
 
 	let {
 		messages = [],
@@ -53,6 +60,7 @@
 		needsProvider = false,
 		providerLabel = 'Connect intelligence',
 		contextLabel = 'Current screen',
+		contextKind = '',
 		focusAfterMessageId = 0,
 		focusStartedAt = null,
 		newFocusAvailable = false,
@@ -67,7 +75,10 @@
 		viewerActorId = 'owner',
 		references = [],
 		onclose = null,
-		focusRequest = 0
+		focusRequest = 0,
+		draftRequest = null,
+		wide = false,
+		focusMessage = 0
 	}: {
 		messages?: ThreadMessage[];
 		participantName?: string;
@@ -85,7 +96,10 @@
 		onrefreshConversation?: (() => void) | null;
 		needsProvider?: boolean;
 		providerLabel?: string;
+		/** The thing on screen a message will be linked to, by name. */
 		contextLabel?: string;
+		/** Which surface it is on: work, library, people, company or inbox. */
+		contextKind?: string;
 		focusAfterMessageId?: number;
 		focusStartedAt?: string | null;
 		newFocusAvailable?: boolean;
@@ -127,9 +141,24 @@
 		onclose?: (() => void) | null;
 		/** Bumped by a page that hands the owner to this conversation. */
 		focusRequest?: number;
+		/** A draft another surface prepared for this conversation. */
+		draftRequest?: { text: string; key: number } | null;
+		/** The same conversation at full width, in People. */
+		wide?: boolean;
+		/** A message a link points at; the conversation scrolls to it. */
+		focusMessage?: number;
 	} = $props();
+	let focusedFor = 0;
 	$effect(() => {
-		if (focusRequest) composerFocusKey += 1;
+		if (!focusMessage || focusMessage === focusedFor) return;
+		const target = messages.find((message) => messageNumericId(message.id) === focusMessage);
+		if (!target) return;
+		focusedFor = focusMessage;
+		requestAnimationFrame(() => jumpToMessage(target.id));
+	});
+	/* Untracked: reading the key it bumps would re-run this forever. */
+	$effect(() => {
+		if (focusRequest) untrack(() => (composerFocusKey += 1));
 	});
 	const reactions = reactionsQuery(
 		() => companyId,
@@ -142,6 +171,69 @@
 	);
 
 	const canOperate = $derived(['owner', 'operator'].includes(membershipRole ?? ''));
+
+	/* Pinned messages stay in reach above the conversation. */
+	const pinnedMessages = $derived.by(() => {
+		const ids = reactions.pinned();
+		return messages.filter((message) => ids.has(messageNumericId(message.id)));
+	});
+	let pinsOpen = $state(false);
+	function togglePin(message: ThreadMessage) {
+		const id = messageNumericId(message.id);
+		if (id > 0) void reactions.react(id, PIN, !reactions.pinned().has(id));
+	}
+	async function copyLink(message: ThreadMessage) {
+		const href = new URL(
+			`/${encodeURIComponent(companyId)}/people?person=${encodeURIComponent(participantId)}&focus=${messageNumericId(message.id)}`,
+			window.location.origin
+		).href;
+		try {
+			await navigator.clipboard.writeText(href);
+			askNotice = 'Link to that message copied.';
+		} catch {
+			askError = 'The link could not be copied.';
+		}
+	}
+	function turnIntoWork(message: ThreadMessage) {
+		const draft = workDraftFrom(
+			message.from === 'you' ? 'You' : message.author || participantName,
+			message.text
+		);
+		if (participantId === 'exec' && !review && !workContext) {
+			composer = draft;
+			composerFocusKey += 1;
+		} else askExec(draft);
+	}
+
+	/* Handoffs between agents appear where they happened in time. */
+	const exchanges = agentExchangesQuery(
+		() => companyId,
+		() => participantId,
+		() => open && membershipRole === 'owner'
+	);
+	let lastTurn: unknown = null;
+	$effect(() => {
+		const current = turn?.triggerMessageId ?? null;
+		if (lastTurn !== null && current === null) void exchanges.refresh();
+		lastTurn = current;
+	});
+	function at(value: Date | string): number {
+		return new Date(value).getTime();
+	}
+	function handoffsBefore(index: number): AgentExchange[] {
+		if (index === 0) return [];
+		const after = at(visibleMessages[index - 1].createdAt);
+		const until = at(visibleMessages[index].createdAt);
+		return exchanges.exchanges.filter(
+			(exchange) => at(exchange.created_at) > after && at(exchange.created_at) <= until
+		);
+	}
+	const handoffsSinceLast = $derived.by(() => {
+		const last = visibleMessages.at(-1);
+		return last
+			? exchanges.exchanges.filter((exchange) => at(exchange.created_at) > at(last.createdAt))
+			: [];
+	});
 
 	/* `$skill` selection and the `/goal` and `/loop` commands. Skills are the
 	 * company library; the commands are Restless primitives offered only in the
@@ -218,6 +310,14 @@
 		loadedDraftKey = key;
 		composer = readDraft(key);
 	});
+	/* After the saved draft loads, so a requested draft is not overwritten by it. */
+	let appliedDraft = 0;
+	$effect(() => {
+		if (!draftRequest || draftRequest.key === appliedDraft) return;
+		appliedDraft = draftRequest.key;
+		composer = draftRequest.text;
+		untrack(() => (composerFocusKey += 1));
+	});
 	$effect(() => {
 		const key = draftKey,
 			body = composer;
@@ -226,6 +326,8 @@
 		return () => clearTimeout(timer);
 	});
 	let composerFiles = $state<File[]>([]);
+	/* While the agent is replying, Send queues and Interrupt stops the reply. */
+	let interruptNext = $state(false);
 	let includeContext = $state(true);
 	let contextFlare = $state(0);
 	let askError = $state('');
@@ -235,6 +337,9 @@
 	let deciding = $state(false);
 	let scrollEl = $state<HTMLDivElement | undefined>();
 	let scrollReset = $state(0);
+	/* How many messages there were when the reader scrolled up; null while
+	 * the transcript follows its end. */
+	let awayFrom = $state<number | null>(null);
 	let newFocusPending = $state(false);
 	let pendingFocusAfterMessageId = $state(0);
 	let composerFocusKey = $state(0);
@@ -366,19 +471,62 @@
 	);
 	function draftReply(text: string) {
 		composer = text;
+		quote(participantName, openQuestion, 'answer');
 		composerFocusKey += 1;
+	}
+	/* The separate facts the question asks for, each with its own field. The
+	 * answer travels as ordinary text, one line per fact. */
+	const openFields = $derived.by(() =>
+		openQuestion ? (visibleMessages.at(-1)?.intent?.ownerFields ?? []).slice(0, 4) : []
+	);
+	let fieldValues = $state<Record<string, string>>({});
+	let fieldsFor = '';
+	$effect(() => {
+		const key = `${visibleMessages.at(-1)?.id ?? ''}`;
+		if (key === fieldsFor) return;
+		fieldsFor = key;
+		fieldValues = {};
+	});
+	const fieldAnswer = $derived(
+		openFields
+			.filter((field) => fieldValues[field]?.trim())
+			.map((field) => `${field}: ${fieldValues[field].trim()}`)
+			.join('\n')
+	);
+	function answerWithFields(event: SubmitEvent) {
+		event.preventDefault();
+		if (!fieldAnswer) return;
+		quote(participantName, openQuestion, 'answer');
+		composer = composer.trim() ? `${fieldAnswer}\n\n${composer.trim()}` : fieldAnswer;
+		void deliver();
+	}
+	/* When the owner replied to an agent's question, the question folds to a
+	 * receipt under it instead of staying open. */
+	function answeredAt(index: number): string {
+		const message = visibleMessages[index];
+		if (!message?.intent?.ownerNeed || message.from === 'you') return '';
+		/* A later ask supersedes this one; only your next word before it answers. */
+		for (const later of visibleMessages.slice(index + 1)) {
+			if (later.from === 'you') return shortTime(later.createdAt);
+			if (later.intent?.ownerNeed) return '';
+		}
+		return '';
 	}
 
 	/* Replying to one message quotes it, so a reply to a long message says
 	 * which point it answers. The quote travels as ordinary Markdown. */
-	let quoting = $state<{ author: string; excerpt: string } | null>(null);
-	function quote(author: string, text: string) {
+	let quoting = $state<{ author: string; excerpt: string; answer?: boolean } | null>(null);
+	function quote(author: string, text: string, mode: 'reply' | 'answer' = 'reply') {
 		const plain = text
 			.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
 			.replace(/[*_`>#]/g, '')
 			.replace(/\s+/g, ' ')
 			.trim();
-		quoting = { author, excerpt: plain.length > 180 ? `${plain.slice(0, 180)}…` : plain };
+		quoting = {
+			author,
+			excerpt: plain.length > 180 ? `${plain.slice(0, 180)}…` : plain,
+			answer: mode === 'answer'
+		};
 		composerFocusKey += 1;
 	}
 
@@ -404,10 +552,9 @@
 	const capabilityHint = $derived.by(() => {
 		if (participantId !== 'exec')
 			return `Ask ${participantName} about the work they own; the page you are on is linked.`;
-		if (contextLabel.includes('Work')) return 'Exec can inspect current Work before answering.';
-		if (contextLabel.includes('People'))
-			return 'Exec can route a question through the accountable lead.';
-		if (contextLabel.includes('Company'))
+		if (contextKind === 'work') return 'Exec can inspect current Work before answering.';
+		if (contextKind === 'people') return 'Exec can route a question through the accountable lead.';
+		if (contextKind === 'company')
 			return 'Exec can compare a proposal with current company direction.';
 		return 'Exec can inspect Work, compare options, or bring in a fresh critic.';
 	});
@@ -467,6 +614,10 @@
 	let sending = $state(false);
 	async function submitAsk(event: SubmitEvent) {
 		event.preventDefault();
+		await deliver();
+	}
+
+	async function deliver() {
 		const text = composer.trim();
 		if (!text || sending || deciding || !onask || needsProvider || connectionStatus !== 'available')
 			return;
@@ -496,7 +647,7 @@
 				files,
 				includeContext,
 				newFocusPending,
-				!!turn,
+				!!turn && interruptNext,
 				undefined,
 				skills
 			);
@@ -507,6 +658,7 @@
 				composerFiles = [];
 				composerSkills = [];
 				quoting = null;
+				fieldValues = {};
 				newFocusPending = false;
 				askNotice = outcome.notice ?? '';
 			}
@@ -549,6 +701,7 @@
 	id="bridge-exrail"
 	class="bridge-exrail"
 	class:open
+	class:wide
 	aria-label={`${participantName} conversation`}
 	aria-hidden={!open}
 	inert={!open}
@@ -619,7 +772,7 @@
 							onjump={jumpToMessage}
 						/>
 					{/if}
-					{#if !review && !workContext}
+					{#if !review && !workContext && !wide}
 						<a
 							class="exr-tool"
 							href={`/${encodeURIComponent(companyId)}/people?person=${encodeURIComponent(participantId)}`}
@@ -673,6 +826,26 @@
 			</form>
 		{/if}
 
+		{#if pinnedMessages.length}
+			<details class="pinned" bind:open={pinsOpen}>
+				<summary
+					><Pin size={12} aria-hidden="true" />{pinnedMessages.length} pinned{#if !pinsOpen}<span
+							class="pinned-first">{pinnedMessages.at(-1)?.text.slice(0, 80)}</span
+						>{/if}</summary
+				>
+				{#each pinnedMessages as message (message.id)}
+					<button
+						type="button"
+						onclick={() => {
+							pinsOpen = false;
+							jumpToMessage(message.id);
+						}}
+						><strong>{message.from === 'you' ? 'You' : message.author || participantName}</strong
+						><span>{message.text.replace(/\s+/g, ' ').slice(0, 140)}</span></button
+					>
+				{/each}
+			</details>
+		{/if}
 		<div class="exr-panel">
 			{#if !needsProvider && connectionStatus === 'unknown'}
 				<!-- Unknown is the ordinary first moment; the transcript skeleton below
@@ -699,7 +872,13 @@
 				<div
 					class="exr-msgs"
 					bind:this={scrollEl}
-					use:followChat={`${companyId}:${participantId}:${scrollReset}`}
+					use:followChat={{
+						key: `${companyId}:${participantId}:${scrollReset}`,
+						memory: `rail:${companyId}:${participantId}:${currentTopicKey}`,
+						onfollow: (following) => {
+							awayFrom = following ? null : visibleMessages.length;
+						}
+					}}
 				>
 					{#each visibleMessages as message, i (message.id)}
 						{#if focusDividerBefore(i)}
@@ -716,6 +895,10 @@
 								>
 							</div>
 						{/if}
+						{#each handoffsBefore(i) as exchange (exchange.id)}<HandoffReceipt
+								{exchange}
+								name={exchanges.name}
+							/>{/each}
 						{#if i === 0 || dayOf(message.createdAt) !== dayOf(visibleMessages[i - 1].createdAt)}
 							<div class="day-sep" aria-hidden="true">
 								<span>{dayLabel(message.createdAt)}</span>
@@ -739,7 +922,32 @@
 							attachments={message.attachments}
 							hrefFor={attachmentHref}
 						>
-							{#snippet actions()}{#if message.from !== 'you' && onask}<button
+							{#snippet actions()}{#if canOperate && messageNumericId(message.id) > 0}<button
+										type="button"
+										class="copy-message"
+										class:confirmed={reactions.pinned().has(messageNumericId(message.id))}
+										aria-label={reactions.pinned().has(messageNumericId(message.id))
+											? 'Unpin this message'
+											: 'Pin this message'}
+										title={reactions.pinned().has(messageNumericId(message.id))
+											? 'Unpin'
+											: 'Pin above the conversation'}
+										onclick={() => togglePin(message)}><Pin size={12} aria-hidden="true" /></button
+									><button
+										type="button"
+										class="copy-message"
+										aria-label="Copy link to this message"
+										title="Copy link"
+										onclick={() => void copyLink(message)}
+										><Link size={12} aria-hidden="true" /></button
+									><button
+										type="button"
+										class="copy-message"
+										aria-label="Turn this into Work"
+										title="Ask the Exec to turn this into Work"
+										onclick={() => turnIntoWork(message)}
+										><ListPlus size={12} aria-hidden="true" /></button
+									>{/if}{#if message.from !== 'you' && onask}<button
 										type="button"
 										class="copy-message"
 										aria-label="Reply to this message"
@@ -748,6 +956,9 @@
 										><Reply size={12} aria-hidden="true" /></button
 									>{/if}{/snippet}
 						</ConversationMessage>
+						{#if answeredAt(i)}<p class="answered" title={message.intent?.ownerNeed ?? ''}>
+								<Check size={12} aria-hidden="true" /> You answered · {answeredAt(i)}
+							</p>{/if}
 					{:else}
 						{#if conversationFailed && conversationStatus === 'unknown'}
 							<div class="exr-empty" role="alert">
@@ -805,6 +1016,10 @@
 							<p class="conversation-capability-hint">{capabilityHint}</p>
 						{/if}
 					{/if}
+					{#each handoffsSinceLast as exchange (exchange.id)}<HandoffReceipt
+							{exchange}
+							name={exchanges.name}
+						/>{/each}
 					{#if receipt}<p class="receipt" role="status">
 							{#if retractable}<button
 									type="button"
@@ -821,6 +1036,18 @@
 					{:else if turn}<ConversationTurnDock {participantName} {turn} />{/if}
 				</div>
 
+				{#if awayFrom !== null && visibleMessages.length}
+					<div class="jump-anchor">
+						<button
+							type="button"
+							class="jump-latest"
+							onclick={() => scrollEl?.dispatchEvent(new Event('chat-scroll-end'))}
+							>{visibleMessages.length > awayFrom
+								? `${visibleMessages.length - awayFrom} new ↓`
+								: 'Jump to latest ↓'}</button
+						>
+					</div>
+				{/if}
 				{#if needsProvider}
 					<!-- In the empty state the connect action sits with its explanation
 					     above; otherwise it takes the composer's place. -->
@@ -842,9 +1069,32 @@
 						<div class="open-question" role="note">
 							<span>{participantName} is asking</span>
 							<p>{openQuestion}</p>
-							<button type="button" class="btn small" onclick={() => (composerFocusKey += 1)}
-								>Answer</button
-							>
+							{#if !openFields.length}<button
+									type="button"
+									class="btn small"
+									onclick={() => {
+										quote(participantName, openQuestion, 'answer');
+										composerFocusKey += 1;
+									}}>Answer</button
+								>{/if}
+							{#if openFields.length}
+								<form class="open-fields" onsubmit={answerWithFields}>
+									{#each openFields as field (field)}
+										<label
+											><span>{field}</span><input
+												bind:value={fieldValues[field]}
+												disabled={!canOperate || sending}
+											/></label
+										>
+									{/each}
+									<button
+										class="btn small primary"
+										disabled={!fieldAnswer || sending || !canOperate}
+										title="Send these as your answer, with anything you typed below"
+										>Send answer</button
+									>
+								</form>
+							{/if}
 							{#if openReplies.length}
 								<div class="open-replies">
 									{#each openReplies as reply (reply)}
@@ -862,7 +1112,10 @@
 						{#if quoting}
 							<div class="quoting">
 								<Reply size={13} aria-hidden="true" />
-								<span>Replying to {quoting.author}: <em>{quoting.excerpt}</em></span>
+								<span
+									>{quoting.answer ? 'Answering' : `Replying to ${quoting.author}`}:
+									<em>{quoting.excerpt}</em></span
+								>
 								<button
 									type="button"
 									aria-label="Stop replying to that message"
@@ -876,7 +1129,8 @@
 							bind:files={composerFiles}
 							bind:selectedSkills={composerSkills}
 							options={[...options.value, ...references]}
-							actionLabel={turn ? 'Queue direction' : 'Send'}
+							interruptible={!!turn}
+							bind:interrupt={interruptNext}
 							disabled={!canOperate ||
 								sending ||
 								deciding ||
@@ -901,11 +1155,13 @@
 											class="exec-context-chip"
 											class:off={!includeContext}
 											aria-pressed={includeContext}
-											title="Link this message to the current screen"
+											title={includeContext
+												? `This message links to ${contextLabel}; click to send it without the link`
+												: `Link ${contextLabel} to this message`}
 											onclick={toggleContext}
 										>
 											<MatrixGlyph rows={GLYPHS.work} size={8} />
-											<span>{includeContext ? contextLabel : 'Link current screen'}</span>
+											<span>{includeContext ? contextLabel : `Link ${contextLabel}`}</span>
 										</button>
 									</div>
 								{/if}
@@ -925,6 +1181,80 @@
 </aside>
 
 <style>
+	.jump-anchor {
+		position: relative;
+		height: 0;
+	}
+	.jump-latest {
+		position: absolute;
+		z-index: 2;
+		left: 50%;
+		bottom: 8px;
+		transform: translateX(-50%);
+		padding: 4px 12px;
+		border: 1px solid var(--border-strong);
+		border-radius: 999px;
+		background: var(--surface-raised);
+		box-shadow: var(--shadow-soft);
+		color: var(--ink);
+		font: 500 var(--t-label) var(--font-ui);
+		cursor: pointer;
+	}
+	.jump-latest:hover {
+		background: var(--surface-hover);
+	}
+	.pinned {
+		flex: none;
+		border-bottom: 1px solid var(--border-soft);
+		background: color-mix(in srgb, var(--surface-raised) 70%, transparent);
+		font-size: var(--t-label);
+	}
+	.pinned summary {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		min-width: 0;
+		padding: 6px 14px;
+		color: var(--text-secondary);
+		font-weight: 500;
+		cursor: pointer;
+		list-style: none;
+	}
+	.pinned summary::-webkit-details-marker {
+		display: none;
+	}
+	.pinned-first {
+		min-width: 0;
+		overflow: hidden;
+		color: var(--text-tertiary);
+		font-weight: 400;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.pinned button {
+		display: grid;
+		width: 100%;
+		gap: 1px;
+		padding: 6px 14px;
+		border: 0;
+		background: transparent;
+		color: var(--text-secondary);
+		font: inherit;
+		text-align: left;
+		cursor: pointer;
+	}
+	.pinned button:hover {
+		background: var(--wash-hover);
+	}
+	.pinned button strong {
+		color: var(--ink);
+		font-weight: 500;
+	}
+	.pinned button span {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
 	.unread-rule {
 		display: flex;
 		align-items: center;
@@ -946,16 +1276,16 @@
 		gap: 2px 10px;
 		margin: 0 12px 8px;
 		padding: 10px 12px;
-		border: 1px solid color-mix(in srgb, var(--state-warning) 40%, var(--border));
+		border: 1px solid color-mix(in srgb, var(--surface-attention) 40%, var(--border));
 		border-radius: var(--radius-lg);
-		background: color-mix(in srgb, var(--state-warning) 8%, var(--surface-raised));
+		background: color-mix(in srgb, var(--surface-attention) 8%, var(--surface-raised));
 	}
-	.open-question span {
+	.open-question > span {
 		grid-column: 1;
 		color: var(--text-secondary);
 		font: 500 var(--t-label) var(--font-ui);
 	}
-	.open-question p {
+	.open-question > p {
 		grid-column: 1;
 		margin: 0;
 		color: var(--ink);
@@ -1041,9 +1371,44 @@
 		color: var(--text-tertiary);
 		cursor: pointer;
 	}
-	.open-question .btn {
+	.open-question > .btn {
 		grid-column: 2;
 		grid-row: 1 / 3;
+	}
+	.open-fields {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+		grid-column: 1 / -1;
+		gap: 6px;
+		margin-top: 8px;
+	}
+	.open-fields label {
+		display: grid;
+		gap: 2px;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+	.open-fields input {
+		min-width: 0;
+		padding: 5px 7px;
+		border: 1px solid var(--control-edge);
+		border-radius: var(--radius-control);
+		background: var(--surface-raised);
+		color: var(--ink);
+		font: inherit;
+		font-size: var(--t-body);
+	}
+	.open-fields .btn {
+		grid-column: 1 / -1;
+		justify-self: start;
+	}
+	.answered {
+		display: flex;
+		align-items: center;
+		gap: 5px;
+		margin: 0 14px 4px 45px;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
 	}
 	.provider-connect-slot {
 		margin: var(--space-3);

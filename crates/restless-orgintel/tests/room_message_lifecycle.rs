@@ -63,6 +63,15 @@ async fn edits_and_deletes_are_immutable_retry_safe_and_visible_as_tombstones() 
         )
         .await
         .unwrap();
+    // A root says how many replies it has without opening its Thread.
+    let page = org
+        .room_messages_before("owner", room.id, None, 20)
+        .await
+        .unwrap();
+    assert_eq!(page.threads.len(), 1);
+    assert_eq!(page.threads[0].root_message_id, root.message.id);
+    assert_eq!(page.threads[0].reply_count, 1);
+    assert_eq!(page.threads[0].repliers, vec!["owner".to_string()]);
     let fuzzy_rooms = org
         .search_rooms_for_actor("owner", "Releaze", None, 20)
         .await

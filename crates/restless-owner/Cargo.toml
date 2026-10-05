@@ -1,0 +1,39 @@
+[package]
+name = "restless-owner"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = """
+The owner API: the cockpit's HTTP and WebSocket surface over restless-engine.
+"""
+
+[dependencies]
+async-trait = "0.1"
+anyhow = "1"
+axum = { version = "0.8", features = ["ws", "multipart"] }
+chrono = "0.4"
+restless-orgintel = { path = "../restless-orgintel" }
+reqwest = { version = "0.12", features = ["rustls-tls", "json", "brotli", "blocking", "multipart"], default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+sqlx = { version = "0.8", default-features = false, features = ["macros", "postgres", "runtime-tokio", "tls-rustls", "chrono", "uuid"] }
+tokio = { version = "1", features = ["full"] }
+toml = "0.8"
+tracing = "0.1"
+url = "2"
+uuid = { version = "1", features = ["v4"] }
+hmac = "0.12"
+base64 = "0.23.1"
+ed25519-dalek = "2"
+futures-util = "0.3"
+tokio-tungstenite = "0.26"
+tower-http = { version = "0.6", features = ["fs", "trace", "compression-gzip", "compression-br"] }
+tower = { version = "0.5", features = ["util"] }
+ts-rs = { version = "12.0.1", features = ["chrono-impl", "uuid-impl", "serde-json-impl"] }
+restless-contracts = { path = "../restless-contracts" }
+restless-engine = { path = "../restless-engine" }
+rmcp = { version = "3.4.1", default-features = false, features = ["server", "transport-streamable-http-server"] }
+
+[dev-dependencies]

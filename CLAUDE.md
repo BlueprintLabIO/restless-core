@@ -293,11 +293,16 @@ This repo is built in sprints by two founders collaborating on the `main` branch
 
 ## Repo conventions
 
-- **Rust workspace.** The implemented crates are `restlessd` (the daemon and stable coordination
-  core), `restless` (the owner CLI), `restless-orgintel` (recoverable organisational state) and
-  `restless-model-gateway` (host-side model access and spend accounting). Do not pre-scaffold new
-  layer crates; grow a crate or service only when a proved slice needs its ownership or failure
-  boundary, per §16.1.
+- **Rust workspace.** The daemon is three crates: `restless-engine` (everything beneath the owner
+  API: runtimes, OrgIntel use, Staff and Exec, authority, harnesses, the coordination socket),
+  `restless-owner` (the owner HTTP/WebSocket API, which must not hold domain rules the engine
+  needs) and `restlessd` (a thin binary that starts both). Beside them: `restless-contracts`
+  (released contracts shared with the CLI), `restless` (the owner CLI), `restless-orgintel`
+  (recoverable organisational state) and `restless-model-gateway` (host-side model access and
+  spend accounting). The engine/owner split exists for compile time and keeps the HTTP layer thin;
+  Staff stays in the engine because the scheduler and Staff dispatch are one loop. Do not
+  pre-scaffold new layer crates; grow a crate or service only when a proved slice needs its
+  ownership or failure boundary, per §16.1.
 - **Deployment tiers are the plane boundaries.** `restlessd` today runs three trust domains in one
   process; the target splits them, and new code should respect the boundary even before the binary
   does. **Cell** = per company (OrgIntel in its own database, Runtime in its own container) — the
@@ -349,8 +354,8 @@ This repo is built in sprints by two founders collaborating on the `main` branch
   and run: a newer compile in your checkout supersedes one still running there. Every rustc
   already takes a host-wide slot, so concurrent agents share the cores. Iterate with `cargo check`
   (~6 s) and a named test rather than the whole suite; a new worktree's first build is ~3 minutes,
-  almost all of it the single `restlessd` crate. Keep one target per worktree. The measurements
-  and the approaches that failed are in
+  most of it the `restless-engine` crate, while an owner API edit rebuilds in about 6 s. Keep one
+  target per worktree. The measurements and the approaches that failed are in
   [`docs/BUILD_STORAGE.md`](./docs/BUILD_STORAGE.md#compile-time--4-october-2026).
 - **You own everything you start that outlives your turn.** Not a list of nouns — anything still
   running, registered, or occupying disk after you stop typing. A `_test` company, container, volume,

@@ -39,12 +39,61 @@ Local owners prepare the host's sharing configuration from **Company → Members
 Enable sharing**. The account plane includes all existing companies with their
 original immutable identities; accounts select only companies they may access.
 The installed appliance's `enable-sharing` command applies entry settings with
-preflight, drain and restoration on failure. Private-network access and SSH
-SOCKS transport preserve the configured HTTPS addresses and individual sign-in.
-A raw local-owner port forward is not team access.
+preflight, drain and restoration on failure. A raw local-owner port forward is
+not team access.
 
-The full self-hosted invitation and cockpit journey is still being qualified in
-[launch readiness](launch-readiness.md).
+## Sharing over Tailscale (recommended)
+
+Tailscale is the supported way to reach a self-hosted Core from teammates'
+devices. It only carries HTTPS on the host's tailnet name; every person still
+signs in with their own verified account, and nothing is published to the
+internet. Both addresses use the one `*.ts.net` name: the company on `443` and
+the account service on `8443`.
+
+Requirements: Tailscale installed and signed in on the Core host (inside WSL
+when Core runs there), MagicDNS and HTTPS Certificates turned on for the tailnet,
+and permission for your user to configure it (`sudo tailscale set
+--operator=$USER` once on Linux). Each teammate joins the tailnet, or receives
+this machine through Tailscale sharing.
+
+1. Print the exact addresses:
+
+   ```sh
+   restless appliance tailscale-addresses
+   ```
+
+2. In **Company → Members → Enable sharing**, choose **Private network** and
+   enter those two addresses, then run the account installer from the
+   [account service guide](../services/identity/README.md) on the download.
+3. Start the prepared account service, then activate:
+
+   ```sh
+   restless appliance enable-sharing --tailscale \
+     --environment /srv/restless/accounts/core-entry.env
+   ```
+
+   This refuses a setup prepared for other addresses, and refuses to replace a
+   different `tailscale serve` route or one published with Funnel. It publishes
+   the account route, runs the ordinary activation (preflight, drain, restore on
+   failure, and removes that route again if activation fails), publishes the
+   company route, and then checks both addresses over the tailnet name with a
+   trusted certificate. Tailscale's HTTPS replaces the prepared
+   `Caddyfile`s.
+4. `restless appliance tailscale-doctor` repeats the reachability check later.
+
+Tailscale gives both origins one hostname, so the account session cookie is
+also sent to the company address (cookies ignore ports). Core is trusted code
+on the same host, so this is accepted; separate hostnames remain possible with
+your own DNS and HTTPS proxy.
+
+**Fallback: SSH SOCKS.** Without Tailscale, an OpenSSH SOCKS tunnel
+(`ssh -N -D 127.0.0.1:1080 user@host`) can carry a teammate's browser, set to
+that proxy with proxy DNS, to the configured HTTPS addresses. You operate the
+HTTPS routing and certificates yourself in that case.
+
+The multiplayer journey — three verified accounts, invitation, concurrent
+document editing, room chat, a member's mention and removal — runs nightly as
+`scripts/multiplayer-smoke` (see [launch readiness](launch-readiness.md)).
 
 See [the network entry boundary](adr/0007-network-owner-entry-by-verified-assertion.md)
 and [the provider-neutral identity contract](adr/0009-provider-neutral-company-access-context.md).

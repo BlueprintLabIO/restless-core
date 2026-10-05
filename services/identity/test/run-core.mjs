@@ -11,6 +11,11 @@ import pg from "pg";
 
 const serviceDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repo = resolve(serviceDir, "..", "..");
+// The protocol journey is the default; the multiplayer journey drives three
+// browser accounts through the same isolated plane and cleanup.
+const journeys = { "core-journey.mjs": 240, "multiplayer-journey.mjs": 900 };
+const journeyName = process.env.RESTLESS_TEST_JOURNEY ?? "core-journey.mjs";
+const journeySeconds = journeys[journeyName];
 const required = [
   "RESTLESS_TEST_DATABASE_URL_FILE",
   "RESTLESS_TEST_DAEMON",
@@ -128,7 +133,7 @@ function waitForJourney(child) {
     };
     const onExit = (code, signal) => finish({ code, signal });
     const onError = (error) => finish(undefined, error);
-    const timer = setTimeout(() => finish({ timeout: true }), 240000);
+    const timer = setTimeout(() => finish({ timeout: true }), journeySeconds * 1000);
     child.once("exit", onExit);
     child.once("error", onError);
   });
@@ -151,6 +156,8 @@ async function removeNamedVolume(name) {
   for (const found of await namedVolumes(name)) await shell("docker", ["volume", "rm", found]);
 }
 
+if (!journeySeconds) fail(`unknown RESTLESS_TEST_JOURNEY ${journeyName}`);
+if (journeyName === "multiplayer-journey.mjs") required.push("RESTLESS_BROWSER_EXECUTABLE");
 for (const name of required) if (!process.env[name]) fail(`missing ${name}`);
 const adminFile = process.env.RESTLESS_TEST_DATABASE_URL_FILE;
 const daemon = process.env.RESTLESS_TEST_DAEMON;
@@ -160,7 +167,7 @@ if (!daemonStat?.isFile()) fail("RESTLESS_TEST_DAEMON must name a regular file")
 await access(daemon, constants.X_OK).catch(() => fail("RESTLESS_TEST_DAEMON must be executable"));
 if (!/^\S+@sha256:[a-f0-9]{64}$/.test(process.env.RESTLESS_COMPANY_IMAGE))
   fail("RESTLESS_COMPANY_IMAGE must be a pinned repository@sha256 digest");
-await access(join(serviceDir, "test", "core-journey.mjs"));
+await access(join(serviceDir, "test", journeyName));
 const adminUrl = await privateText(adminFile);
 try { new URL(adminUrl); } catch { fail("RESTLESS_TEST_DATABASE_URL_FILE does not contain a URL"); }
 await shell("docker", ["image", "inspect", "--format", "{{.Id}}", process.env.RESTLESS_COMPANY_IMAGE, process.env.RESTLESS_NATIVE_DOCUMENTS_IMAGE]);
@@ -259,17 +266,17 @@ try {
   });
   const log = await open(journeyLog, "w", 0o600);
   try {
-    journey = spawn(process.execPath, [join(serviceDir, "test", "core-journey.mjs")], {
+    journey = spawn(process.execPath, [join(serviceDir, "test", journeyName)], {
       cwd: serviceDir, env: environment, detached: true, stdio: ["ignore", log.fd, log.fd],
     });
   } finally {
     await log.close();
   }
   const exit = await waitForJourney(journey);
-  if (exit.timeout) fail(`journey exceeded 240 seconds; evidence: ${output}`);
+  if (exit.timeout) fail(`journey exceeded ${journeySeconds} seconds; evidence: ${output}`);
   if (exit.code !== 0) fail(`journey failed (${exit.signal ?? exit.code}); evidence: ${output}`);
   await access(result);
-  console.log(`PASS isolated self-hosted identity Core journey; evidence retained at ${output}`);
+  console.log(`PASS isolated self-hosted identity Core ${journeyName}; evidence retained at ${output}`);
 } catch (error) {
   await writeFile(join(output, "runner-error.txt"), `${error.stack ?? error}\n`, { mode: 0o600 }).catch(() => {});
   console.error(error.stack ?? error);

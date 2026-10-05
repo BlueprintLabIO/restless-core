@@ -4,68 +4,27 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-
 description = """
 The restless daemon — the stable coordination core (ARCHITECTURE.md §4.4).
-Coordinates Authority, OrgIntel, the persistent company Runtime and the local owner API.
+Starts the engine and the owner API; the code lives in restless-engine and restless-owner.
 """
 
 [dependencies]
-agent-client-protocol = { version = "2.0.0", features = ["unstable_end_turn_token_usage"] }
 anyhow = "1"
-axum = { version = "0.8", features = ["ws", "multipart"] }
-chrono = "0.4"
-chrono-tz = "0.10"
 dotenvy = "0.15"
-restless-model-gateway = { path = "../restless-model-gateway" }
 restless-orgintel = { path = "../restless-orgintel" }
-restless-runtime-bridge-protocol = { path = "../restless-runtime-bridge-protocol" }
-reqwest = { version = "0.12", features = ["rustls-tls", "json", "brotli", "blocking", "multipart"], default-features = false }
-reqwest_mcp = { package = "reqwest", version = "0.13", features = ["rustls"], default-features = false }
-rmcp = { version = "3.4.1", default-features = false, features = ["client", "server", "transport-child-process", "transport-streamable-http-client-reqwest", "transport-streamable-http-server"] }
-serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.10"
 sqlx = { version = "0.8", default-features = false, features = ["macros", "postgres", "runtime-tokio", "tls-rustls", "chrono", "uuid"] }
 tokio = { version = "1", features = ["full"] }
-tokio-util = { version = "0.7", features = ["compat", "rt"] }
-toml = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-url = "2"
 uuid = { version = "1", features = ["v4"] }
-zip = { version = "2", default-features = false, features = ["deflate"] }
-hmac = "0.12"
-base64 = "0.23.1"
-ed25519-dalek = "2"
-futures-util = "0.3"
-fs2 = "0.4"
-http-body-util = "0.1"
-hyper = { version = "1", features = ["client", "http1", "server"] }
-hyper-util = { version = "0.1", features = ["tokio", "server", "service", "http1"] }
-tokio-tungstenite = "0.26"
-tokio-rustls = "0.26"
-rustls = "0.23"
-rcgen = "0.13"
-tower-http = { version = "0.6", features = ["fs", "trace", "compression-gzip", "compression-br"] }
-tower = { version = "0.5", features = ["util"] }
-ts-rs = { version = "12.0.1", features = ["chrono-impl", "uuid-impl", "serde-json-impl"] }
-
-# Compile speed only. The restless CLI enables these features on shared
-# dependencies (blocking reqwest above, and its terminal UI below). Requesting
-# them here as well makes `-p restlessd` resolve the same graph as the stack's
-# `-p restlessd -p restless`, so both reuse one compiled daemon instead of each
-# compiling its own (~2 min and ~3 GB per checkout). A stale line costs only an
-# extra feature; drop one when neither crate enables it any more.
-derive_more = { version = "2", default-features = false, features = ["is_variant"] }
-either = { version = "1", default-features = false, features = ["use_std"] }
-hashbrown = { version = "0.17", features = ["default", "raw-entry"] }
-mio = { version = "1", features = ["log"] }
-rustix = { version = "1", default-features = false, features = ["stdio", "termios"] }
+restless-contracts = { path = "../restless-contracts" }
+restless-engine = { path = "../restless-engine" }
+restless-owner = { path = "../restless-owner" }
 
 [build-dependencies]
-# Compile speed only; see the note above derive_more.
+# Compile speed only: the restless CLI enables this feature on the proc-macro
+# side, so requesting it here keeps `-p restlessd` and `-p restlessd -p restless`
+# on one dependency graph (see the matching note in restless-engine).
 syn = { version = "3", default-features = false, features = ["extra-traits"] }
-
-[dev-dependencies]
-rustls-pemfile = "2"

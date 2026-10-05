@@ -26,8 +26,8 @@ with tempfile.TemporaryDirectory(prefix='restless-worktree-pool-') as directory:
     for key, value in (('user.name', 'Pool test'), ('user.email', 'pool@restless.test'), ('commit.gpgsign', 'false')):
         run('git', 'config', key, value, cwd=repo)
     (repo / 'README.md').write_text('pool\n')
-    # The repository's own rule: a slot's build targets are not its work.
-    (repo / '.gitignore').write_text('/target-*/\n')
+    # The repository's own rules: a slot's build targets are not its work.
+    (repo / '.gitignore').write_text('/target\n/target-*/\n')
     run('git', 'add', '.', cwd=repo)
     run('git', 'commit', '--quiet', '-m', 'start', cwd=repo)
     run('git', 'push', '--quiet', 'origin', 'HEAD:main', cwd=repo)
@@ -47,6 +47,7 @@ with tempfile.TemporaryDirectory(prefix='restless-worktree-pool-') as directory:
     first = pool('dev_worktree_new', 'alpha')
     slot1 = work / 'slot-1'
     assert str(slot1) in first and 'new slot' in first, first
+    assert (slot1 / 'target' / '.metadata_never_index').exists(), 'slots are excluded from Spotlight'
     marker = slot1 / 'target-dev' / 'warm'
     marker.parent.mkdir(parents=True)
     marker.write_text('incremental cache\n')
@@ -64,10 +65,26 @@ with tempfile.TemporaryDirectory(prefix='restless-worktree-pool-') as directory:
     run('git', 'commit', '--quiet', '-m', 'draft', cwd=work / 'slot-2')
     assert '1 commit(s) on no remote' in pool('dev_worktree_prune')
 
+    # Old incremental caches pile up per crate variant; releasing keeps the three
+    # newest per crate and touches nothing outside the target directories.
+    incremental = slot1 / 'target' / 'debug' / 'incremental'
+    for age, name in enumerate(['engine-e', 'engine-d', 'engine-c', 'engine-b', 'engine-a', 'owner-x']):
+        cache = incremental / name
+        cache.mkdir(parents=True)
+        (cache / 'query-cache.bin').write_text('cache\n')
+        stamp = 1_700_000_000 - age * 60
+        os.utime(cache, (stamp, stamp))
+    keepsake = slot1 / 'notes-engine-a.txt'
+    keepsake.write_text('not a cache\n')
+    (slot1 / '.gitignore').write_text('/target-*/\n/target/\nnotes-*\n')
+
     # Once alpha lands, prune releases slot-1 and the next task reuses it warm.
     land(slot1, 'alpha')
     out = pool('dev_worktree_prune')
     assert 'RELEASED ' + str(slot1) + ' (alpha landed' in out, out
+    assert sorted(p.name for p in incremental.iterdir()) == ['engine-c', 'engine-d', 'engine-e', 'owner-x'], \
+        sorted(p.name for p in incremental.iterdir())
+    assert keepsake.exists(), 'only cache directories are trimmed'
     third = pool('dev_worktree_new', 'gamma')
     assert str(slot1) in third and 'reused' in third, third
     assert marker.read_text() == 'incremental cache\n', 'the slot kept its build cache'

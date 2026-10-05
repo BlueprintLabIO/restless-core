@@ -22,6 +22,8 @@ export interface AttentionItem {
 		reference: string;
 		/** Authority-only: the exact party the typed approval controls. */
 		party?: string;
+		/** A prepared `reserved` tool call the owner answers once. */
+		call_key?: string;
 	};
 	category: 'approval' | 'review' | 'blocker' | string;
 	title: string;
@@ -142,6 +144,8 @@ export interface MessageIntentReceipt {
 	ownerNeed?: string | null;
 	/** Short answers the agent expects; offered as editable drafts. */
 	ownerReplies?: string[] | null;
+	/** Separate facts the question asks for; each gets a field. */
+	ownerFields?: string[] | null;
 }
 
 export interface ThreadMessage {

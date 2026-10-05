@@ -12,11 +12,15 @@
 	import WifiOff from '@lucide/svelte/icons/wifi-off';
 	import X from '@lucide/svelte/icons/x';
 	import { initials } from '$lib/model/initials';
-	import AgentExchanges from '$lib/components/AgentExchanges.svelte';
+	import HandoffReceipt from '$lib/primitives/HandoffReceipt.svelte';
+	import { agentExchangesQuery, type AgentExchange } from '$lib/model/exchanges.svelte';
 	import IntelligenceChip from '$lib/components/IntelligenceChip.svelte';
 	import { composerOptions, referenceOptions } from '$lib/model/composer-options.svelte';
 	import { runExecCommand } from '$lib/model/skills';
-	import { reactionsQuery } from '$lib/model/reactions.svelte';
+	import { PIN, reactionsQuery } from '$lib/model/reactions.svelte';
+	import { documentsQuery } from '$lib/model/document-queries.svelte';
+	import { askExec, workDraftFrom } from '$lib/model/ask-exec';
+	import Pin from '@lucide/svelte/icons/pin';
 	import ConversationTurnDock from '$lib/primitives/ConversationTurnDock.svelte';
 	import RoomMessage from '$lib/components/RoomMessage.svelte';
 	import RoomManager from '$lib/components/RoomManager.svelte';
@@ -153,6 +157,10 @@
 	let composer = $state('');
 	let composerFiles = $state<File[]>([]);
 	let composerSkills = $state<string[]>([]);
+	/* While the agent replies, Send queues and Interrupt stops the reply. */
+	let interruptNext = $state(false);
+	/* Messages in view when the reader scrolled up; null while following. */
+	let awayFrom = $state<number | null>(null);
 	let activeDraftKey = $state('');
 	let retryCommandId = $state<string | null>(null);
 	let retryBody = $state('');
@@ -235,11 +243,13 @@
 	const currentActorId = $derived(
 		principalProjection.view?.actor_id ?? readProjection?.actorId ?? ''
 	);
+	// Everyone who can author or be named here, the owner included: a member
+	// reads the owner's name, not the `owner` Actor id.
+	const roster = $derived(
+		ownerAccess ? (cockpitProjection.view?.people ?? []) : (collaboration.view?.people ?? [])
+	);
 	const people = $derived(
-		(ownerAccess
-			? (cockpitProjection.view?.people ?? [])
-			: (collaboration.view?.people ?? [])
-		).filter((person) => person.kind !== 'owner' && person.kind !== 'system')
+		roster.filter((person) => person.kind !== 'owner' && person.kind !== 'system')
 	);
 	const teams = $derived(
 		ownerAccess ? (cockpitProjection.view?.teams ?? []) : (collaboration.view?.teams ?? [])
@@ -395,6 +405,11 @@
 	const visibleRoots = $derived(
 		pendingMessage && pendingMessage.parent_message_id === null ? [...roots, pendingMessage] : roots
 	);
+	const libraryDocuments = $derived(documentsQuery(ownerAccess ? companyId : ''));
+	const pinnedRoots = $derived.by(() => {
+		const ids = reactions.pinned();
+		return visibleRoots.filter((message) => ids.has(message.id) && !message.deleted_at);
+	});
 	const threadMessages = $derived(threadProjection?.messages ?? []);
 	const visibleThread = $derived(
 		pendingMessage && pendingMessage.parent_message_id !== null
@@ -485,6 +500,27 @@
 			: undefined
 	);
 	const directPerson = $derived(people.find((person) => person.actor_id === directPartner) ?? null);
+	/* Handoffs between this agent and others appear where they happened. */
+	const exchanges = agentExchangesQuery(
+		() => companyId,
+		() => directPartner ?? '',
+		() => ownerAccess && !!directPartner && actorIsAgent(directPartner)
+	);
+	const at = (value: string) => new Date(value).getTime();
+	function handoffsBefore(index: number): AgentExchange[] {
+		if (index === 0) return [];
+		const after = at(visibleRoots[index - 1].created_at);
+		const until = at(visibleRoots[index].created_at);
+		return exchanges.exchanges.filter(
+			(exchange) => at(exchange.created_at) > after && at(exchange.created_at) <= until
+		);
+	}
+	const handoffsSinceLast = $derived.by(() => {
+		const last = visibleRoots.at(-1);
+		return last
+			? exchanges.exchanges.filter((exchange) => at(exchange.created_at) > at(last.created_at))
+			: [];
+	});
 	const directTeam = $derived(
 		directPerson
 			? (teams.find((team) => team.lead_actor_id === directPerson.actor_id) ??
@@ -606,15 +642,37 @@
 			});
 	});
 
+	function displayName(actorId: string): string {
+		return roster.find((person) => person.actor_id === actorId)?.display ?? actorId;
+	}
+
 	function actorName(actorId: string): string {
-		if (actorId === currentActorId) return 'You';
-		return people.find((person) => person.actor_id === actorId)?.display ?? actorId;
+		return actorId === currentActorId ? 'You' : displayName(actorId);
 	}
 
 	function actorIsAgent(actorId: string): boolean {
 		const kind = people.find((person) => person.actor_id === actorId)?.kind;
 		return actorId === 'exec' || kind === 'exec' || kind === 'staff';
 	}
+
+	// An open mention of the viewer in the open Thread: a reply there may
+	// answer it, which clears it from their attention.
+	const answerableMention = $derived(
+		threadRootId === null
+			? null
+			: ([...(roomProjection?.mentions ?? []), ...(threadProjection?.mentions ?? [])].find(
+					(mention) =>
+						mention.thread_root_message_id === threadRootId &&
+						mention.mentioned_actor_id === currentActorId &&
+						mention.resolution_message_id === null &&
+						mention.cancelled_event_id === null
+				) ?? null)
+	);
+	let resolvesMention = $state(true);
+	$effect(() => {
+		void answerableMention?.id;
+		resolvesMention = true;
+	});
 
 	function mentionsFor(messageId: number) {
 		const mentions = [...(roomProjection?.mentions ?? []), ...(threadProjection?.mentions ?? [])];
@@ -715,6 +773,27 @@
 		return `${roomHref(selectedRoomId)}&thread=${encodeURIComponent(messageId)}`;
 	}
 
+	function threadSummary(messageId: number) {
+		const summary = roomProjection?.threads.get(messageId);
+		return summary
+			? {
+					count: summary.reply_count,
+					lastAt: summary.last_reply_at,
+					repliers: summary.repliers
+				}
+			: null;
+	}
+
+	async function copyMessageLink(messageId: number) {
+		const link = new URL(`${roomHref(selectedRoomId)}&focus=${messageId}`, window.location.origin);
+		try {
+			await navigator.clipboard.writeText(link.href);
+			sendNotice = 'Link to that message copied.';
+		} catch {
+			sendError = 'The link could not be copied.';
+		}
+	}
+
 	function openThread(messageId: number) {
 		void goto(threadHref(messageId), { keepFocus: true, noScroll: true });
 	}
@@ -752,11 +831,6 @@
 		// A direct chat addresses its agent counterpart without requiring an @ token.
 		if (directPartner && actorIsAgent(directPartner)) tokens.add(directPartner);
 		return [...tokens].filter((actorId) => known.has(actorId)).map((actor_id) => ({ actor_id }));
-	}
-
-	function requestReply(actor: string) {
-		if (!actor || composer.split(/\s+/).includes(`@${actor}`)) return;
-		composer = `${composer.trimEnd()}${composer.trim() ? ' ' : ''}@${actor} `;
 	}
 
 	async function submitMessage(event: SubmitEvent) {
@@ -805,6 +879,8 @@
 			currentActorId === targetActor &&
 			threadRootId === parent;
 		const mentions = knownMentions(body);
+		const resolvesMentionId =
+			parent !== null && resolvesMention ? (answerableMention?.id ?? null) : null;
 		const followDirectReply =
 			!sendAsAccountableLead && parent === null && !!directPartner && actorIsAgent(directPartner);
 		writeRoomDraft(targetDraft, { body, commandId, updatedAt: new Date().toISOString() });
@@ -837,7 +913,7 @@
 					files,
 					contextPath,
 					false,
-					!!leadTurn,
+					!!leadTurn && interruptNext,
 					undefined,
 					skills
 				);
@@ -851,7 +927,8 @@
 					body,
 					commandId,
 					parent,
-					mentions
+					mentions,
+					resolvesMentionId
 				);
 				sentMessageId = result.message.id;
 				targetProjection?.accept(result);
@@ -1043,9 +1120,6 @@
 					<span class="sr-only" role="status">Live</span>
 				{/if}
 			</header>
-			{#if ownerAccess && directPartner && actorIsAgent(directPartner)}
-				<div class="lead-exchanges"><AgentExchanges {companyId} actorId={directPartner} /></div>
-			{/if}
 			{#if exactTargetState === 'invalid' && threadRootId === null}
 				<div class="exact-target-state unavailable" role="status">
 					This linked message address is invalid.
@@ -1077,10 +1151,29 @@
 				</div>
 			{/if}
 
+			{#if pinnedRoots.length && !hasMessageSearch}
+				<details class="room-pinned">
+					<summary><Pin size={12} aria-hidden="true" />{pinnedRoots.length} pinned</summary>
+					{#each pinnedRoots as message (message.id)}
+						<a href={`${roomHref(selectedRoomId)}&focus=${message.id}`}
+							><strong>{actorName(message.from_actor)}</strong><span
+								>{message.body.replace(/\s+/g, ' ').slice(0, 140)}</span
+							></a
+						>
+					{/each}
+				</details>
+			{/if}
 			<div
 				class="room-message-list"
 				bind:this={roomScrollEl}
-				use:followChat={{ key: selectedRoomId, enabled: !hasMessageSearch && !focusedMessageId }}
+				use:followChat={{
+					key: selectedRoomId,
+					enabled: !hasMessageSearch && !focusedMessageId,
+					memory: `room:${companyId}:${selectedRoomId}`,
+					onfollow: (following) => {
+						awayFrom = following ? null : visibleRoots.length;
+					}
+				}}
 			>
 				{#if hasMessageSearch}
 					<div class="message-search-results" aria-live="polite">
@@ -1132,6 +1225,10 @@
 						</button>
 					{/if}
 					{#each visibleRoots as message, index (message.id)}
+						{#each handoffsBefore(index) as exchange (exchange.id)}<HandoffReceipt
+								{exchange}
+								name={exchanges.name}
+							/>{/each}
 						{#if index === 0 || dayKey(message.created_at) !== dayKey(visibleRoots[index - 1].created_at)}
 							<div class="room-day"><span>{dayLabel(message.created_at)}</span></div>
 						{/if}
@@ -1165,6 +1262,16 @@
 								? `search:${selectedRoomId}:${focusedMessageId}`
 								: exactTargetKey}
 							mentions={mentionsFor(message.id)}
+							nameFor={actorName}
+							replies={threadSummary(message.id)}
+							onjump={message.id > 0 ? () => void copyMessageLink(message.id) : null}
+							pinned={reactions.pinned().has(message.id)}
+							onpin={ownerAccess && message.id > 0
+								? () => void reactions.react(message.id, PIN, !reactions.pinned().has(message.id))
+								: null}
+							onwork={ownerAccess && message.id > 0 && !message.deleted_at
+								? () => askExec(workDraftFrom(actorName(message.from_actor), message.body))
+								: null}
 							onthread={message.id > 0 ? () => openThread(message.id) : null}
 							canEdit={message.id > 0 &&
 								!message.deleted_at &&
@@ -1193,6 +1300,10 @@
 							onedit={(body, commandId) => saveMessageEdit(message, body, commandId)}
 							ondelete={(commandId) => removeMessage(message, commandId)}
 						/>
+						{#if index === visibleRoots.length - 1}{#each handoffsSinceLast as exchange (exchange.id)}<HandoffReceipt
+									{exchange}
+									name={exchanges.name}
+								/>{/each}{/if}
 					{:else}
 						{#if roomProjection?.failure && !roomMessages.length}
 							<FailureNotice
@@ -1216,6 +1327,18 @@
 				{/if}
 			</div>
 
+			{#if awayFrom !== null && visibleRoots.length && !hasMessageSearch}
+				<div class="jump-anchor">
+					<button
+						type="button"
+						class="jump-latest"
+						onclick={() => roomScrollEl?.dispatchEvent(new Event('chat-scroll-end'))}
+						>{visibleRoots.length > awayFrom
+							? `${visibleRoots.length - awayFrom} new ↓`
+							: 'Jump to latest ↓'}</button
+					>
+				</div>
+			{/if}
 			{#if threadRootId === null}
 				{#if leadAttention.length}<a
 						class="chat-attention-strip"
@@ -1321,6 +1444,7 @@
 							? `search:${selectedRoomId}:${focusedMessageId}`
 							: exactTargetKey}
 						mentions={mentionsFor(message.id)}
+						nameFor={actorName}
 						thread
 						canEdit={message.id > 0 && !message.deleted_at && message.from_actor === currentActorId}
 						canDelete={mayDelete(message)}
@@ -1373,19 +1497,22 @@
 							companyId,
 							attention.view?.workGraph?.work ?? [],
 							cockpitProjection.view?.goals ?? [],
-							people
+							people,
+							libraryDocuments.documents
 						)
 					: [])
 			]}
-			actionLabel={leadTurn
-				? 'Interrupt and send'
-				: retryCommandId && retryBody === composer.trim()
-					? 'Retry send'
-					: 'Send'}
+			interruptible={!!leadTurn && accountableDirect && threadRootId === null}
+			bind:interrupt={interruptNext}
+			actionLabel={retryCommandId && retryBody === composer.trim() ? 'Retry send' : 'Send'}
 			disabled={sending || !online || (selectedRoom?.kind === 'direct' && !canExtendDirect)}
 			minlength={1}
 			allowAttachments={accountableDirect && threadRootId === null}
-			placeholder={threadRootId ? 'Reply in this Thread…' : `Message ${roomLabel(selectedRoomId)}…`}
+			placeholder={threadRootId
+				? 'Reply in this Thread…'
+				: directPartner && actorIsAgent(directPartner)
+					? `Message ${roomLabel(selectedRoomId)}…`
+					: `Message ${roomLabel(selectedRoomId)}… @ asks someone to reply`}
 			ariaLabel={threadRootId ? 'Thread reply' : 'Conversation message'}
 		>
 			{#snippet controls()}
@@ -1396,25 +1523,19 @@
 						name={directPerson.display}
 					/>
 				{/if}
-				{#if !directPartner || !actorIsAgent(directPartner)}
-					<select
-						class="reply-picker"
-						aria-label="Ask someone to reply"
-						title="Choose whose reply you need. Only explicitly mentioned agents are asked to respond."
-						value=""
-						onchange={(event) => {
-							requestReply(event.currentTarget.value);
-							event.currentTarget.value = '';
-						}}
-					>
-						<option value="">Ask someone to reply…</option>
-						{#each people.filter((p) => actorIsAgent(p.actor_id) && (p.actor_id === 'exec' || participants.some((m) => m.actor_id === p.actor_id))) as person}
-							<option value={person.actor_id}>{person.display}</option>
-						{/each}
-					</select>
-				{/if}
 			{/snippet}
 		</Composer>
+		{#if answerableMention}
+			<label
+				class="resolve-mention"
+				title={answerableMention.expected_response
+					? `Your reply answers the request: ${answerableMention.expected_response}`
+					: 'Your reply answers the request addressed to you in this Thread.'}
+			>
+				<input type="checkbox" bind:checked={resolvesMention} />
+				Answers the request
+			</label>
+		{/if}
 		{#if sendError}<p class="room-send-error" role="alert">{sendError}</p>{/if}
 		{#if sendNotice}<p class="room-send-notice" role="status">{sendNotice}</p>{/if}
 		{#if accountableDirect && composerFiles.length}<p class="room-draft-state">
@@ -1425,6 +1546,61 @@
 {/snippet}
 
 <style>
+	.room-pinned {
+		flex: none;
+		border-bottom: 1px solid var(--border-soft);
+		font-size: var(--t-label);
+	}
+	.room-pinned summary {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 6px 16px;
+		color: var(--text-secondary);
+		font-weight: 500;
+		cursor: pointer;
+	}
+	.room-pinned a {
+		display: grid;
+		gap: 1px;
+		padding: 6px 16px;
+		color: var(--text-secondary);
+		text-decoration: none;
+	}
+	.room-pinned a:hover {
+		background: var(--wash-hover);
+	}
+	.room-pinned strong {
+		color: var(--ink);
+		font-weight: 500;
+	}
+	.room-pinned span {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.jump-anchor {
+		position: relative;
+		height: 0;
+	}
+	.jump-latest {
+		position: absolute;
+		z-index: 2;
+		left: 50%;
+		bottom: 8px;
+		transform: translateX(-50%);
+		padding: 4px 12px;
+		border: 1px solid var(--border-strong);
+		border-radius: 999px;
+		background: var(--surface-raised);
+		box-shadow: var(--shadow-soft);
+		color: var(--ink);
+		font: 500 var(--t-label) var(--font-ui);
+		cursor: pointer;
+	}
+	.jump-latest:hover {
+		background: var(--surface-hover);
+	}
 	.chat-attention-strip {
 		display: flex;
 		align-items: center;
@@ -1484,29 +1660,21 @@
 		clip-path: inset(50%);
 		white-space: nowrap;
 	}
-	.lead-exchanges {
-		padding: 0 14px;
-		border-bottom: 1px solid var(--border);
-	}
 	.room-send-notice {
 		margin: 6px 0 0;
 		color: var(--text-secondary);
 		font-size: var(--t-label);
 	}
 
-	.reply-picker {
-		max-width: 200px;
-		min-width: 0;
-		padding: 4px;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-control);
-		font: inherit;
+	.resolve-mention {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		margin: 6px 2px 0;
+		color: var(--text-secondary);
 		font-size: var(--t-label);
-		color: var(--intent-conversation);
-		background: var(--surface);
+		white-space: nowrap;
+		cursor: pointer;
 	}
 	.rooms-screen {
 		width: 100%;
@@ -1895,17 +2063,15 @@
 		.room-head {
 			flex-wrap: wrap;
 		}
+		/* The title truncates; its actions stay on the same row. */
 		.room-head-copy {
-			flex: 1 0 100%;
+			flex: 1 1 0;
 		}
 		.room-contact {
 			max-width: 100%;
 		}
 		.room-transport {
 			margin-left: auto;
-		}
-		.reply-picker {
-			max-width: 100%;
 		}
 
 		.rooms-screen.thread-selected {

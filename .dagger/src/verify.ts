@@ -82,7 +82,7 @@ export async function verifyNativeDocumentsImage(image: Container): Promise<stri
 
 export async function verifyAccountPlaneImage(image: Container): Promise<string> {
     return image.withExec(['/bin/sh', '-ec',
-      '/usr/local/bin/restlessd --help; test -s /opt/restless/cockpit/index.html; '
+      '/usr/local/bin/restlessd --help; /usr/local/bin/restless appliance --help; test -s /opt/restless/cockpit/index.html; '
       + 'node --input-type=module -e \'const { Model } = await import("/opt/restless/native-sheets/src/upstream.mjs"); '
       + 'if (typeof Model !== "function") throw new Error("Native Sheets engine is unavailable"); '
       + 'console.log("Account-plane binary links; bundled cockpit and native Sheets engine are usable")\'',

@@ -14,8 +14,12 @@ import { dirname, join, resolve } from 'node:path';
 const externalAt = process.argv.indexOf('--artifact-dir');
 const dist = resolve(externalAt < 0 ? 'dist' : process.argv[externalAt + 1]);
 const qualificationOnly = process.argv.includes('--qualification');
-if (externalAt < 0) execFileSync('node', ['scripts/pack-ui.mjs', '--out', dist,
-	...(qualificationOnly ? ['--qualification'] : [])], { stdio: 'inherit' });
+if (externalAt < 0)
+	execFileSync(
+		'node',
+		['scripts/pack-ui.mjs', '--out', dist, ...(qualificationOnly ? ['--qualification'] : [])],
+		{ stdio: 'inherit' }
+	);
 const manifest = JSON.parse(readFileSync(join(dist, 'ui-manifest.json'), 'utf8'));
 if (qualificationOnly) {
 	assert.equal(manifest.qualificationOnly, true);
@@ -51,14 +55,14 @@ try {
 	writeFileSync(
 		join(dir, 'Page.svelte'),
 		`<script>
-	import { Wordmark, WorkBoard, OutcomeFolio, HoldApprove, SemanticMark, CompanyPortfolio, STUDIO_BOARD, STUDIO_FOLIO } from '@restless/ui';
+	import { Wordmark, WorkBoard, OutcomeFolio, HoldApprove, SemanticMark, AccountShell, CompanyPortfolio, STUDIO_BOARD, STUDIO_FOLIO } from '@restless/ui';
 const companies = [
 	{ id: 'local-ready', name: 'Local Company', status: 'running', tone: 'presence', focus: 'A real company focus', next: 'Review a prepared result', attentionCount: 0, entry: { href: '/local-ready' } },
 	{ id: 'cloud-ready', name: 'Hosted Company', status: 'Ready', tone: 'presence', attentionCount: null, entry: { formAction: '?/enterCockpit', fields: { organization_id: 'cloud-ready' } } },
 	{ id: 'pending-company', name: 'Pending Company', status: 'Setting up', next: 'Preparing its private workspace', attentionCount: null }
 ];
 </script>
-<CompanyPortfolio {companies} />
+<AccountShell><CompanyPortfolio {companies} /></AccountShell>
 <div class="bridge-tokens">
 	<Wordmark />
 	<SemanticMark meaning="attention" />
@@ -117,7 +121,8 @@ export default {
 		html.split('data-company-id="cloud-ready"')[1]?.split('data-company-id="pending-company"')[0] ??
 		'';
 	const pending = html.split('data-company-id="pending-company"')[1]?.split('</section>')[0] ?? '';
-	const hostedAttention = hosted.match(/<span class="[^"]*\bportfolio-attention\b[^"]*">([\s\S]*?)<\/span>/)?.[1] ?? '';
+	const hostedAttention =
+		hosted.match(/<span class="[^"]*\bportfolio-attention\b[^"]*">([\s\S]*?)<\/span>/)?.[1] ?? '';
 	expect.push(
 		[hostedAttention, '—', 'unknown attention remains unknown in its own row'],
 		[String(hosted.includes('Nothing now')), 'false', 'hosted unknown attention never claims zero'],
