@@ -120,9 +120,7 @@
 												{name}
 												{value}
 											/>{/each}
-										<button
-											class="portfolio-entry"
-											aria-label={entryLabel(company)}
+										<button class="portfolio-entry" aria-label={entryLabel(company)}
 											><span class="sr-only">{entryLabel(company)}</span></button
 										>
 									</form>
