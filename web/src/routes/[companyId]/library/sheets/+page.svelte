@@ -392,7 +392,7 @@
 		font-size: var(--t-label);
 	}
 	.state-offline {
-		color: var(--state-warning);
+		color: var(--surface-attention);
 	}
 	.spacer {
 		flex: 1;
