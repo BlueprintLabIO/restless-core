@@ -4888,6 +4888,10 @@ struct ApplianceStatus {
     schedule_transport: &'static str,
     last_schedule_wake: Option<serde_json::Value>,
     repair: Option<&'static str>,
+    /// A hosted plane: its owner's Home (the one company list) lives on the
+    /// account issuer, and there is no host for the owner to repair.
+    hosted: bool,
+    home_url: Option<String>,
 }
 
 async fn appliance_status(State(state): State<OwnerState>) -> impl IntoResponse {
@@ -4911,7 +4915,14 @@ async fn appliance_status(State(state): State<OwnerState>) -> impl IntoResponse 
     let draining = state.daemon.lifecycle.is_draining()
         || restless_contracts::appliance::drain_marker_exists(&state.daemon.root);
     let recovering = state.daemon.lifecycle.is_recovering();
+    let hosted = state.entry.network().is_some();
     let (state_name, schedule_transport, repair) = match profile.kind {
+        // A hosted plane runs continuously under its VM's supervision, so the
+        // in-process scheduler is its whole wake path; the launchd/systemd hint
+        // below exists only to wake a local appliance that is asleep.
+        restless_contracts::appliance::ProfileKind::Stable if hosted => {
+            ("ready", "in_process", None)
+        }
         restless_contracts::appliance::ProfileKind::Stable if cfg!(target_os = "macos") => {
             let definition = std::env::var_os("HOME")
                 .map(PathBuf::from)
@@ -5029,6 +5040,11 @@ async fn appliance_status(State(state): State<OwnerState>) -> impl IntoResponse 
         schedule_transport,
         last_schedule_wake,
         repair,
+        hosted,
+        home_url: state
+            .entry
+            .network()
+            .map(|network| network.account_portfolio_url()),
     })
     .into_response()
 }

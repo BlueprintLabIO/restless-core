@@ -7,19 +7,15 @@
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import AccountShell from '$lib/ui/views/AccountShell.svelte';
 	import type { AccountTab } from '$lib/ui/account';
-	import { getApplianceStatus, type ApplianceStatus } from '$lib/model/appliance';
+	import { getApplianceStatus, planeLabel, type ApplianceStatus } from '$lib/model/appliance';
 
 	let { appliance = null, children }: { appliance?: ApplianceStatus | null; children: Snippet } =
 		$props();
 	let observed = $state<ApplianceStatus | null>(null);
 	const status = $derived(appliance ?? observed);
-	const profile = $derived(
-		status?.profile === 'dev'
-			? 'Development profile'
-			: status?.profile === 'test'
-				? 'Test profile'
-				: 'Local appliance'
-	);
+	const profile = $derived(planeLabel(status));
+	/* On a hosted plane, Home (the one company list) is on the account issuer. */
+	const home = $derived(status?.home_url ?? '/');
 
 	$effect(() => {
 		if (appliance) return;
@@ -34,7 +30,7 @@
 
 	const path = $derived(page.url.pathname);
 	const tabs = $derived<AccountTab[]>([
-		{ label: 'Companies', href: '/', active: path === '/' },
+		{ label: 'Companies', href: home, active: path === '/' },
 		{
 			label: 'Account',
 			href: '/account',
@@ -46,9 +42,9 @@
 
 <AccountShell
 	brandName={PRODUCT_NAME}
-	homeHref="/"
+	homeHref={home}
 	{tabs}
-	account={{ name: 'You', detail: `${profile} · this computer` }}
+	account={{ name: 'You', detail: status?.hosted ? profile : `${profile} · this computer` }}
 >
 	{#snippet accountMenu()}
 		<a href="/account#connections">Connections</a>

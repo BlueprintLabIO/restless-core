@@ -1853,6 +1853,14 @@ fn container_summary(status: runtime::ContainerStatus) -> &'static str {
 }
 
 pub fn display_name(name: &str) -> String {
+    // A generated handle (`company_` and a hex id, as hosted bootstrap and the
+    // local New company flow mint) is not a name; show what the owner chose.
+    if name
+        .strip_prefix("company_")
+        .is_some_and(|id| id.len() >= 12 && id.bytes().all(|byte| byte.is_ascii_hexdigit()))
+    {
+        return "New company".to_string();
+    }
     name.split('_')
         .filter(|part| !part.is_empty())
         .map(|part| {

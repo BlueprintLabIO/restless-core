@@ -12,7 +12,7 @@
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import CreateCompany from '$lib/components/CreateCompany.svelte';
 	import AccountFrame from '$lib/components/AccountFrame.svelte';
-	import { getApplianceStatus, type ApplianceStatus } from '$lib/model/appliance';
+	import { getApplianceStatus, planeLabel, type ApplianceStatus } from '$lib/model/appliance';
 	import { companiesQuery } from '$lib/model/queries.svelte';
 	import {
 		accountGrantFix,
@@ -33,9 +33,16 @@
 		absent: 'Not started',
 		unavailable: 'Unavailable'
 	};
-	const loaded = $derived(companyCatalog.status !== 'unknown');
 	let redirected = $state(false);
 	let appliance = $state<ApplianceStatus | null>(null);
+	let applianceSettled = $state(false);
+	/* A hosted plane keeps no company list of its own: Home is on the account issuer, so there is
+	 * one list. Hold the skeleton until the plane says which it is, so its own list never flashes. */
+	const hostedHome = $derived(appliance?.hosted ? (appliance.home_url ?? null) : null);
+	$effect(() => {
+		if (hostedHome && !page.url.searchParams.get('next')) window.location.replace(hostedHome);
+	});
+	const loaded = $derived(companyCatalog.status !== 'unknown' && applianceSettled && !hostedHome);
 	const activeCompanies = $derived(
 		companies.filter((company) => company.lifecycle_status === 'active')
 	);
@@ -57,7 +64,8 @@
 			.then((value) => (appliance = value))
 			.catch(() => {
 				// The portfolio query already owns the global unavailable state.
-			});
+			})
+			.finally(() => (applianceSettled = true));
 		// Only refines a blocked company's fix; without it the Company page link stays.
 		void getAccountConnections(controller.signal)
 			.then((rows) => (accountConnections = rows))
@@ -215,11 +223,7 @@
 			{#snippet footer()}
 				<span
 					>{activeCompanies.length}
-					{activeCompanies.length === 1 ? 'company' : 'companies'} · {appliance?.profile === 'dev'
-						? 'Development profile'
-						: appliance?.profile === 'test'
-							? 'Test profile'
-							: 'Local appliance'}</span
+					{activeCompanies.length === 1 ? 'company' : 'companies'} · {planeLabel(appliance)}</span
 				>
 				{#if archivedCompanies.length}<button
 						class="portfolio-archived-toggle"

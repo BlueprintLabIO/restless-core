@@ -380,6 +380,8 @@ impl NetworkEntry {
         owner == self.owner_id.to_string()
     }
 
+    /// Home: the one company list, which a hosted owner keeps on the account
+    /// issuer rather than on each plane.
     pub fn account_portfolio_url(&self) -> String {
         format!("{}/account", self.issuer)
     }
