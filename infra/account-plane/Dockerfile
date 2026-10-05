@@ -19,15 +19,13 @@ ARG RUST_BINARIES=build
 
 FROM --platform=$BUILDPLATFORM rust:1-bookworm@sha256:59037199c44290f2befcdd58dcc540164763fc296950255aaefeef096a1866b0 AS build
 # Compile on the builder CPU; only the final image executes target binaries.
+# Native builds keep Rust's default bundled LLD linker (several times faster than GNU ld);
+# only a cross build names the target's GNU compiler as linker, which opts out of LLD.
 # Debian's target GNU compiler/sysroot also serves Rust dependencies that build C.
 ARG BUILDARCH
 ARG TARGETARCH
 ARG CARGO_BUILD_JOBS=2
-ENV CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS} \
-    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
-    CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc \
-    CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc \
-    CC_x86_64_unknown_linux_gnu=x86_64-linux-gnu-gcc
+ENV CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS}
 RUN set -eu; \
     case "${TARGETARCH}" in \
         amd64) compiler=gcc-x86-64-linux-gnu; sysroot=libc6-dev-amd64-cross; target=x86_64-unknown-linux-gnu ;; \
@@ -35,6 +33,13 @@ RUN set -eu; \
         *) echo "unsupported Rust image architecture: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
     if [ "${BUILDARCH}" = "${TARGETARCH}" ]; then compiler=gcc; sysroot=libc6-dev; fi; \
+    : > /rust-env; \
+    if [ "${BUILDARCH}" != "${TARGETARCH}" ]; then \
+        cross="$(printf '%s' "$target" | sed 's/-unknown-linux-gnu//')-linux-gnu-gcc"; \
+        upper="$(printf '%s' "$target" | tr 'a-z-' 'A-Z_')"; \
+        lower="$(printf '%s' "$target" | tr '-' '_')"; \
+        printf 'export CARGO_TARGET_%s_LINKER=%s CC_%s=%s\n' "$upper" "$cross" "$lower" "$cross" > /rust-env; \
+    fi; \
     apt-get update; \
     apt-get install --yes --no-install-recommends "$compiler" "$sysroot"; \
     rm -rf /var/lib/apt/lists/*; \
@@ -64,6 +69,7 @@ ENV RESTLESS_SOURCE_REVISION=${SOURCE_REVISION}
 RUN --mount=type=cache,id=restless-cargo-registry-v1,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=restless-cargo-native-${BUILDARCH}-${TARGETARCH}-v2,target=/src/target,sharing=locked \
     target="$(cat /rust-target)" \
+    && . /rust-env \
     && cargo build --release --locked --target "$target" -p restlessd -p restless \
     && install -Dm755 /src/target/$target/release/restlessd /out/restlessd \
     && install -Dm755 /src/target/$target/release/restless /out/restless
@@ -113,10 +119,6 @@ RUN npm install -g bun@1.3.14 \
     && npm cache clean --force \
     && omp --version
 
-COPY --from=binaries /out/restlessd /usr/local/bin/restlessd
-# The owner CLI travels with the plane so scripts/install-core.sh can install a
-# self-hosted appliance from this exact signed image.
-COPY --from=binaries /out/restless /usr/local/bin/restless
 COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 COPY services/native-sheets/package.json services/native-sheets/package-lock.json /opt/restless/native-sheets/
 RUN npm --prefix /opt/restless/native-sheets ci --omit=dev --no-audit --no-fund && npm cache clean --force
@@ -144,6 +146,13 @@ RUN npm --prefix /tmp/npm-security-fixes install \
 # built output and the bounded native workbook engine's runtime dependencies.
 COPY web/build /opt/restless/cockpit
 ENV RESTLESS_COCKPIT_DIR=/opt/restless/cockpit
+
+# The binaries change with every source revision, so they come last: every layer above them (the
+# Docker client, native Sheets dependencies, npm fixes) stays cached between releases.
+COPY --from=binaries /out/restlessd /usr/local/bin/restlessd
+# The owner CLI travels with the plane so scripts/install-core.sh can install a
+# self-hosted appliance from this exact signed image.
+COPY --from=binaries /out/restless /usr/local/bin/restless
 
 # The plane serves the owner cockpit and the CLI endpoint. In network mode it
 # verifies an identity assertion; in local mode it refuses a non-loopback bind.

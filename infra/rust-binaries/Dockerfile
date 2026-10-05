@@ -11,11 +11,7 @@ FROM --platform=$BUILDPLATFORM rust:1-bookworm@sha256:59037199c44290f2befcdd58dc
 ARG BUILDARCH
 ARG TARGETARCH
 ARG CARGO_BUILD_JOBS=2
-ENV CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS} \
-    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
-    CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc \
-    CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc \
-    CC_x86_64_unknown_linux_gnu=x86_64-linux-gnu-gcc
+ENV CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS}
 RUN set -eu; \
     case "${TARGETARCH}" in \
         amd64) compiler=gcc-x86-64-linux-gnu; sysroot=libc6-dev-amd64-cross; target=x86_64-unknown-linux-gnu ;; \
@@ -23,6 +19,13 @@ RUN set -eu; \
         *) echo "unsupported Rust image architecture: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
     if [ "${BUILDARCH}" = "${TARGETARCH}" ]; then compiler=gcc; sysroot=libc6-dev; fi; \
+    : > /rust-env; \
+    if [ "${BUILDARCH}" != "${TARGETARCH}" ]; then \
+        cross="$(printf '%s' "$target" | sed 's/-unknown-linux-gnu//')-linux-gnu-gcc"; \
+        upper="$(printf '%s' "$target" | tr 'a-z-' 'A-Z_')"; \
+        lower="$(printf '%s' "$target" | tr '-' '_')"; \
+        printf 'export CARGO_TARGET_%s_LINKER=%s CC_%s=%s\n' "$upper" "$cross" "$lower" "$cross" > /rust-env; \
+    fi; \
     apt-get update; \
     apt-get install --yes --no-install-recommends "$compiler" "$sysroot"; \
     rm -rf /var/lib/apt/lists/*; \
@@ -47,6 +50,7 @@ ENV RESTLESS_SOURCE_REVISION=${SOURCE_REVISION}
 RUN --mount=type=cache,id=restless-cargo-registry-v1,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=restless-cargo-release-${BUILDARCH}-${TARGETARCH}-v1,target=/src/target,sharing=locked \
     target="$(cat /rust-target)" \
+    && . /rust-env \
     && cargo build --release --locked --target "$target" -p restlessd -p restless -p restless-runtime-bridge \
     && for binary in restlessd restless restless-runtime-bridge; do \
          install -Dm755 "/src/target/$target/release/$binary" "/out/$binary"; \
