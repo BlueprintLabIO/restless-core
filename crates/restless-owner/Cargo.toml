@@ -34,5 +34,6 @@ tower = { version = "0.5", features = ["util"] }
 ts-rs = { version = "12.0.1", features = ["chrono-impl", "uuid-impl", "serde-json-impl"] }
 restless-contracts = { path = "../restless-contracts" }
 restless-engine = { path = "../restless-engine" }
+rmcp = { version = "3.4.1", default-features = false, features = ["server", "transport-streamable-http-server"] }
 
 [dev-dependencies]

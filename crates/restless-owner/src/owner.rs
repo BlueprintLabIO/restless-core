@@ -51,6 +51,8 @@ mod skills_api;
 mod telegram_api;
 #[path = "owner_tool_connections.rs"]
 mod tool_connections_api;
+#[path = "owner_mcp.rs"]
+mod mcp_api;
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::convert::Infallible;
@@ -1147,6 +1149,11 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             get(list_owner_connections).post(create_owner_connection),
         )
         .route("/connections/import", post(import_owner_connection))
+        .route(
+            "/mcp-access",
+            get(mcp_api::list_access).post(mcp_api::issue_access),
+        )
+        .route("/mcp-access/{id}/revoke", post(mcp_api::revoke_access))
         .route("/connections/models/{provider}", get(oauth_login_api::account_models))
         .route("/connections/import/company-codex", post(native_import_api::import_company_codex))
         .route("/connections/oauth/codex", post(oauth_login_api::start_codex_login))
@@ -1484,6 +1491,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         )
         .layer(DefaultBodyLimit::max(32 * 1024));
     let notification_delivery = notification_delivery_api::routes::<OwnerState>()?;
+    let mcp_api_router: mcp_api::Api = api.clone().with_state(state.clone());
     let app = Router::new()
         // The default predicate leaves event streams, images and tiny bodies
         // alone, so live updates are never held back by the encoder.
@@ -1510,6 +1518,13 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route(
             tool_connections_api::OAUTH_CALLBACK_PATH,
             get(tool_connections_api::oauth_callback),
+        )
+        .route(
+            mcp_api::MCP_PATH,
+            any(move |State(state): State<OwnerState>, request: Request| {
+                let api = mcp_api_router.clone();
+                async move { mcp_api::serve(state, api, request).await }
+            }),
         )
         .route("/entry", post(consume_entry_assertion))
         .route("/entry/account", post(consume_account_entry_assertion))
@@ -1605,6 +1620,12 @@ async fn enforce_owner_boundary(
         // Fleet's dedicated read-only bearer, exact Host and exact cell tuple
         // are checked by the handler. This is a machine lifecycle route, not
         // an owner browser session route.
+        return next.run(request).await;
+    }
+    if request.uri().path() == mcp_api::MCP_PATH {
+        // An outside MCP client presents a personal bearer, never a browser
+        // session. The handler refuses browsers, resolves the token, and
+        // rebuilds and re-checks the holder's principal on every call.
         return next.run(request).await;
     }
     if request.uri().path() == tool_connections_api::OAUTH_CALLBACK_PATH
@@ -1765,6 +1786,9 @@ fn membership_boundary_violation(
         // handlers perform their own principal and audience authorization.
         || !is_owner_data_surface(path)
         || path == "/entry/logout"
+        // Each person issues and revokes only their own MCP tokens.
+        || path == mcp_api::ACCESS_PATH
+        || path.starts_with("/api/mcp-access/")
         || is_company_principal_route(path)
         || is_actor_conversation_route(path)
         || is_company_route_family(path, "rooms")

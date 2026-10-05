@@ -11,6 +11,7 @@
 	import Building2 from '@lucide/svelte/icons/building-2';
 	import Palette from '@lucide/svelte/icons/palette';
 	import Plug from '@lucide/svelte/icons/plug';
+	import Bot from '@lucide/svelte/icons/bot';
 
 	let { appliance = null, children }: { appliance?: ApplianceStatus | null; children: Snippet } =
 		$props();
@@ -47,6 +48,13 @@
 					icon: Plug,
 					tooltip: 'Model sign-ins and connections shared across your companies',
 					active: path === '/account/settings/connections'
+				},
+				{
+					label: 'AI apps',
+					href: '/account/settings/ai-apps',
+					icon: Bot,
+					tooltip: 'Use Restless from Claude Code, Claude Desktop or Codex',
+					active: path === '/account/settings/ai-apps'
 				},
 				{
 					label: 'Appearance',

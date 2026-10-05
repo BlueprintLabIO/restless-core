@@ -261,7 +261,7 @@ pub struct VerifiedMembershipControl {
 }
 
 /// The server-derived identity carried by a browser session.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VerifiedIdentity {
     pub user: String,
     pub issuer: Option<String>,

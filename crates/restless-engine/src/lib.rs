@@ -41,6 +41,7 @@ pub mod legal;
 pub mod local_documents;
 pub mod sheet_commands;
 pub mod mcp_gateway;
+pub mod member_access;
 pub mod tool_gateway;
 pub mod stdio_mcp;
 pub mod mentions;
