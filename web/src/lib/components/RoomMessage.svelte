@@ -65,6 +65,7 @@
 		targeted?: boolean;
 		focusKey?: string;
 		mentions?: RoomMention[];
+		/** Names a mentioned Actor; defaults to its id. */
 		thread?: boolean;
 		/** Follows a message from the same author moments earlier. */
 		continued?: boolean;
