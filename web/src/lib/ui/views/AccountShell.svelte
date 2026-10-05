@@ -354,7 +354,7 @@
 		border-radius: 50%;
 		background: var(--ink);
 		color: var(--text-inverse);
-		font: 600 10px/1 var(--font-mono);
+		font: 600 var(--t-label)/1 var(--font-mono);
 	}
 	.account-copy {
 		display: grid;
