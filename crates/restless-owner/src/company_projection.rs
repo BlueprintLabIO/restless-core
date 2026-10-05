@@ -306,8 +306,30 @@ pub async fn card_for(daemon: &Daemon, company: &str) -> Result<Summary> {
     let working = daemon.staff.running_actors(company).len() + usize::from(exec_waking);
     let exec_ready = crate::company::observed_company_model_issue(&config)
         .await
-        .is_none();
+        .is_none()
+        && computer_can_start(daemon, company).await;
     Ok(summarize(&view, working, exec_ready, Utc::now()))
+}
+
+/// Exec can start only on a computer that runs or will wake. A plane that runs
+/// its companies itself (local Runtime) is the only one that knows: an absent
+/// computer is never recreated by a wake, an owner-stopped one stays stopped,
+/// and one whose wakes keep failing is backing off. Asleep is ready: the next
+/// owed demand wakes it. Hosted cells report their Runtime through Fleet.
+async fn computer_can_start(daemon: &Daemon, company: &str) -> bool {
+    if daemon.runtime_bridges.is_hosted() {
+        return true;
+    }
+    let backing_off = daemon
+        .in_flight
+        .lock()
+        .map(|guard| guard.is_runtime_start_backing_off(company))
+        .unwrap_or(true);
+    match runtime::status(company).await {
+        Ok(runtime::ContainerStatus::Running) => true,
+        Ok(runtime::ContainerStatus::Stopped) => runtime::is_sleeping(company) && !backing_off,
+        Ok(runtime::ContainerStatus::Absent) | Err(_) => false,
+    }
 }
 
 /// A hosted company's handle is `company_<uuid>`; anything else is not a Fleet company and is skipped.
