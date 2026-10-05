@@ -483,6 +483,13 @@ pub struct CompanyConfig {
     /// representation of the provider's invoice.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub monthly_runtime_cap_hours: Option<u32>,
+    /// Optional caps on native-harness use (Codex or Claude on their own
+    /// sign-in) per UTC month. Reaching either refuses new native turns; a
+    /// turn already running is never stopped. `None` is no cap.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_monthly_turn_limit: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_monthly_token_limit: Option<u64>,
     /// Sleep after this many minutes without company demand. `None` uses
     /// [`DEFAULT_SLEEP_AFTER_MINUTES`]; `Some(0)` keeps the computer always on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -755,6 +762,10 @@ impl CompanyConfig {
             .is_some_and(|hours| !(1..=744).contains(&hours))
         {
             bail!("monthly_runtime_cap_hours must be between 1 and 744 hours");
+        }
+        if self.native_monthly_turn_limit == Some(0) || self.native_monthly_token_limit == Some(0)
+        {
+            bail!("native usage limits must be at least 1, or absent for no limit");
         }
         if self
             .auto_sleep_after_minutes
@@ -4029,6 +4040,8 @@ worker_harness = "claude_agent"
             mission: "Preserve me".into(),
             spend_ceiling_usd: SpendCeiling::from_micro_usd(5_000_000),
             monthly_runtime_cap_hours: None,
+            native_monthly_turn_limit: None,
+            native_monthly_token_limit: None,
             auto_sleep_after_minutes: None,
             outcome_standard: Default::default(),
             model: "moonshot/kimi-k3".into(),

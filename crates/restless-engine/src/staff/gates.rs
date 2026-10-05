@@ -1138,6 +1138,7 @@ mod tests {
             work_id: Some(metered_work),
             attempt_id: Some(uuid::Uuid::new_v4()),
             settlement,
+            native: None,
             occurred_at: chrono::Utc::now(),
         };
         for cost in [7, 11, 13] {
@@ -1249,6 +1250,8 @@ mod tests {
             mission: "Sprint 26 integrated fixture".into(),
             spend_ceiling_usd: SpendCeiling::from_micro_usd(0),
             monthly_runtime_cap_hours: None,
+            native_monthly_turn_limit: None,
+            native_monthly_token_limit: None,
             auto_sleep_after_minutes: None,
             outcome_standard: Default::default(),
             model: "litellm/gpt-5.6-terra".into(),

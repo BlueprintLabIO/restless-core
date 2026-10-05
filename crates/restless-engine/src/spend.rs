@@ -4,6 +4,10 @@
 //! a scoped relay capability, and the relay records terminal charged usage here
 //! in exact micro-USD. ACP usage remains useful telemetry and an in-session
 //! early-stop hint, but it is intentionally not a second charging path.
+//!
+//! Native-harness turns are the exception that never reaches the relay. Their
+//! ACP or Codex usage is recorded here once per turn, at zero charge, and an
+//! owner-set monthly turn or token cap gates the next native turn.
 
 use std::{
     collections::HashMap,
@@ -12,10 +16,10 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-#[cfg(test)]
-use chrono::Utc;
+use chrono::{DateTime, Datelike, TimeZone, Utc};
 use restless_model_gateway::{
-    CompanySpendState, SpendCorrection, SpendCorrectionPreview, SpendRecord, SpendStore,
+    CompanySpendState, NativeTurn, NativeUsage, SpendCorrection, SpendCorrectionPreview,
+    SpendRecord, SpendSettlement, SpendStore,
 };
 use uuid::Uuid;
 
@@ -246,6 +250,75 @@ impl TurnMeter {
                 "request uncertainty record failed; company poisoned: {error}"
             );
         }
+    }
+}
+
+/// Why this month's native use has reached an owner cap, if it has.
+#[must_use]
+pub fn native_limit_reason(config: &CompanyConfig, usage: &NativeUsage) -> Option<String> {
+    if let Some(limit) = config.native_monthly_turn_limit {
+        if usage.turns >= u64::from(limit) {
+            return Some(format!(
+                "[budget] {} has used {} of its {limit} native-harness turns this month; raise or clear the limit before native work continues",
+                config.name, usage.turns
+            ));
+        }
+    }
+    if let Some(limit) = config.native_monthly_token_limit {
+        if usage.tokens >= limit {
+            return Some(format!(
+                "[budget] {} has used {} of its {limit} native-harness tokens this month; raise or clear the limit before native work continues",
+                config.name, usage.tokens
+            ));
+        }
+    }
+    None
+}
+
+/// Codex or Claude on their own sign-in or key, outside the host relay.
+fn is_native_route(model: &str) -> bool {
+    model.starts_with("native-")
+}
+
+fn month_start(now: DateTime<Utc>) -> DateTime<Utc> {
+    Utc.with_ymd_and_hms(now.year(), now.month(), 1, 0, 0, 0)
+        .single()
+        .unwrap_or(now)
+}
+
+fn native_turn_record(
+    auth: &crate::acp::AgentAuth,
+    actor: &str,
+    responsibility: &str,
+    work_id: Option<Uuid>,
+    attempt_id: Option<Uuid>,
+    turn: &crate::acp::TurnUsage,
+) -> SpendRecord {
+    SpendRecord {
+        request_id: turn.turn_id,
+        company_id: auth.company.clone(),
+        model: auth.model.clone(),
+        input_tokens: 0,
+        output_tokens: 0,
+        total_tokens: turn.turn_tokens.unwrap_or_default(),
+        cached_input_tokens: None,
+        // Not charged per token: the native limit bounds it, not the ceiling.
+        cost_micro_usd: 0,
+        actor_id: actor.to_string(),
+        session_id: auth.session_id.clone(),
+        responsibility: responsibility.to_string(),
+        work_id,
+        attempt_id,
+        settlement: SpendSettlement::Accounted,
+        native: Some(NativeTurn {
+            billing: auth.billing.as_str().to_string(),
+            tokens: turn.turn_tokens,
+            estimated_cost_micro_usd: turn
+                .turn_cost_usd
+                .filter(|cost| cost.is_finite() && *cost >= 0.0)
+                .map(|cost| (cost * 1_000_000.0).round() as u64),
+        }),
+        occurred_at: Utc::now(),
     }
 }
 
@@ -562,6 +635,73 @@ impl SpendLedger {
             .map_err(|error| anyhow::anyhow!("apply spend correction: {error}"))
     }
 
+    /// Record native-harness turns in this company's ledger, once per turn.
+    ///
+    /// Native turns never pass the host relay, so this is the only place they
+    /// are counted. Callers report every usage snapshot they hold; a turn
+    /// already recorded (by a repair, a retry of the recording, or the
+    /// enclosing run) is skipped by its id. Non-native routes are ignored:
+    /// the relay already records them.
+    pub fn record_native_turns(
+        &self,
+        auth: &crate::acp::AgentAuth,
+        actor: &str,
+        responsibility: &str,
+        work_id: Option<Uuid>,
+        attempt_id: Option<Uuid>,
+        turns: &[crate::acp::TurnUsage],
+    ) {
+        if !is_native_route(&auth.model) {
+            return;
+        }
+        for turn in turns.iter().filter(|turn| !turn.turn_id.is_nil()) {
+            let record = native_turn_record(auth, actor, responsibility, work_id, attempt_id, turn);
+            let written = self.store(&auth.company).and_then(|store| {
+                store
+                    .record_once(&record)
+                    .map_err(|error| anyhow::anyhow!("{error}"))
+            });
+            if let Err(error) = written {
+                tracing::error!(
+                    company = %auth.company,
+                    turn_id = %turn.turn_id,
+                    %error,
+                    "native turn usage was not recorded"
+                );
+            }
+        }
+    }
+
+    /// Native-harness use in the current UTC month.
+    #[must_use]
+    pub fn native_usage(&self, company: &str, now: DateTime<Utc>) -> NativeUsage {
+        self.store(company)
+            .map(|store| store.native_usage_since(company, month_start(now)))
+            .unwrap_or_default()
+    }
+
+    /// The native fuse: refuse a new native turn once this month's use has
+    /// reached an owner-set cap. Returns the owner-facing `[budget]` reason,
+    /// or `None` when the turn may start. It is checked only before a turn,
+    /// so a running turn is never stopped by it.
+    #[must_use]
+    pub fn native_turn_refusal(&self, company: &str, model: &str) -> Option<String> {
+        if !is_native_route(model) {
+            return None;
+        }
+        // Read the limit as saved now, so an owner change applies to the next
+        // turn of an actor that was configured earlier.
+        let config = match CompanyConfig::load(&self.root, company) {
+            Ok(config) => config,
+            Err(error) => {
+                return Some(format!(
+                    "[budget] {company}'s native usage limit could not be read, so no native turn starts: {error:#}"
+                ))
+            }
+        };
+        native_limit_reason(&config, &self.native_usage(company, Utc::now()))
+    }
+
     /// S04-T1. Drop a destroyed company's accounted spend.
     pub fn forget(&self, company: &str) -> Result<()> {
         self.store(company)?
@@ -633,6 +773,114 @@ mod tests {
         // Non-destructive: the shared spool stays until an operator removes it.
         assert!(root.join("spend").join("spend.jsonl").exists());
 
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    fn native_auth(company: &str, model: &str, session: &str) -> crate::acp::AgentAuth {
+        crate::acp::AgentAuth {
+            model: model.into(),
+            effort: "medium".into(),
+            company: company.into(),
+            session_id: session.into(),
+            coordination_token_env: String::new(),
+            coordination_token: String::new(),
+            gateway_token_env: String::new(),
+            gateway_token: String::new(),
+            gateway_url: String::new(),
+            billing: ModelBilling::Subscription,
+        }
+    }
+
+    fn native_turn(tokens: u64) -> crate::acp::TurnUsage {
+        crate::acp::TurnUsage {
+            used: 9_000,
+            size: 200_000,
+            turn_id: Uuid::new_v4(),
+            turn_tokens: Some(tokens),
+            ..Default::default()
+        }
+    }
+
+    /// A native turn is reported by the run, by a completion repair under its
+    /// own session, and again if the recording is retried after a restart. It
+    /// must count once. A failover runs a second, distinct turn, which counts.
+    #[test]
+    fn native_turn_is_recorded_once_across_retry_and_failover() {
+        let root = std::env::temp_dir().join(format!("restless-native-once-{}", Uuid::new_v4()));
+        let company = "native_once_test";
+        let model = "native-codex-oauth/test";
+        let turn = native_turn(1_200);
+
+        let ledger = SpendLedger::open(&root).unwrap();
+        let run_auth = native_auth(company, model, "run-session");
+        let repair_auth = native_auth(company, model, "repair-session");
+        ledger.record_native_turns(&repair_auth, "worker", "repair", None, None, &[turn]);
+        ledger.record_native_turns(&run_auth, "worker", "work", None, None, &[turn, turn]);
+        // A relay route is already recorded by the relay; it is never a native turn.
+        ledger.record_native_turns(
+            &native_auth(company, "openai/test", "relay"),
+            "worker",
+            "work",
+            None,
+            None,
+            &[native_turn(50)],
+        );
+        let usage = ledger.native_usage(company, Utc::now());
+        assert_eq!((usage.turns, usage.tokens), (1, 1_200));
+
+        // The daemon restarts and the same turn is reported again.
+        drop(ledger);
+        let ledger = SpendLedger::open(&root).unwrap();
+        ledger.record_native_turns(&run_auth, "worker", "work", None, None, &[turn]);
+        assert_eq!(ledger.native_usage(company, Utc::now()).turns, 1);
+
+        // Failover to another candidate is another turn.
+        ledger.record_native_turns(&run_auth, "worker", "work", None, None, &[native_turn(300)]);
+        let usage = ledger.native_usage(company, Utc::now());
+        assert_eq!((usage.turns, usage.tokens), (2, 1_500));
+        // Native use never moves the dollar ceiling.
+        assert_eq!(ledger.spent_usd(company), 0.0);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn native_fuse_refuses_a_new_native_turn_at_the_owner_limit() {
+        let root = std::env::temp_dir().join(format!("restless-native-fuse-{}", Uuid::new_v4()));
+        let company = "native_fuse_test";
+        let model = "native-claude-oauth/test";
+        std::fs::create_dir_all(root.join("companies")).unwrap();
+        let write_limits = |limits: &str| {
+            std::fs::write(
+                root.join("companies").join(format!("{company}.toml")),
+                format!("name = \"{company}\"\n{limits}"),
+            )
+            .unwrap();
+        };
+        let ledger = SpendLedger::open(&root).unwrap();
+        let auth = native_auth(company, model, "session");
+
+        write_limits("native_monthly_turn_limit = 2\n");
+        ledger.record_native_turns(&auth, "exec", "exec", None, None, &[native_turn(10)]);
+        assert_eq!(ledger.native_turn_refusal(company, model), None);
+        ledger.record_native_turns(&auth, "exec", "exec", None, None, &[native_turn(10)]);
+        let refusal = ledger
+            .native_turn_refusal(company, model)
+            .expect("turn cap reached");
+        assert!(refusal.starts_with("[budget] "), "{refusal}");
+        // The native cap never blocks a relay route.
+        assert_eq!(ledger.native_turn_refusal(company, "openai/test"), None);
+
+        write_limits("native_monthly_token_limit = 21\n");
+        assert_eq!(ledger.native_turn_refusal(company, model), None);
+        ledger.record_native_turns(&auth, "exec", "exec", None, None, &[native_turn(1)]);
+        assert!(
+            ledger.native_turn_refusal(company, model).is_some(),
+            "token cap reached"
+        );
+
+        // Off by default.
+        write_limits("");
+        assert_eq!(ledger.native_turn_refusal(company, model), None);
         std::fs::remove_dir_all(&root).unwrap();
     }
 

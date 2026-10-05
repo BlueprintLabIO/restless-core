@@ -49,6 +49,20 @@ export interface CompanyView {
 			remaining_usd?: number | null;
 			status: 'available' | 'exhausted' | 'metering_unknown';
 		};
+		/** Native-harness use (Codex or Claude on their own sign-in) this UTC month. */
+		native: {
+			month_utc: string;
+			turns: number;
+			tokens: number;
+			/** Turns with no reported token count; `tokens` is then a floor. */
+			turns_without_tokens: number;
+			/** The harnesses' own reported price; null when none reported one. */
+			estimated_usd: number | null;
+			turns_without_estimate: number;
+			monthly_turn_limit: number | null;
+			monthly_token_limit: number | null;
+			status: 'available' | 'exhausted';
+		};
 		runtime: {
 			/** Stored setting: null follows the default, 0 never sleeps. */
 			auto_sleep_after_minutes: number | null;

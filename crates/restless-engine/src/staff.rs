@@ -1039,6 +1039,7 @@ mod tests {
             used: 42_000,
             size: 200_000,
             cost_usd: Some(0.80),
+            ..Default::default()
         };
         assert!(staff_spend_limit_reached(true, 0.80, &usage));
         assert!(staff_spend_limit_reached(true, 0.79, &usage));
@@ -1349,22 +1350,26 @@ mod tests {
                 used: 35_873,
                 size: 262_144,
                 cost_usd: Some(0.47),
+                ..Default::default()
             },
             TurnUsage {
                 used: 51_204,
                 size: 262_144,
                 cost_usd: Some(1.11),
+                ..Default::default()
             },
             TurnUsage {
                 used: 64_814,
                 size: 262_144,
                 cost_usd: Some(2.38),
+                ..Default::default()
             },
             // A repeated stream snapshot is still the same cumulative bill.
             TurnUsage {
                 used: 64_814,
                 size: 262_144,
                 cost_usd: Some(2.38),
+                ..Default::default()
             },
         ];
         let (usage, reported) = final_staff_usage(ModelBilling::MeteredApi, &snapshots)

@@ -86,7 +86,41 @@ pub struct SpendRecord {
     /// charge and not permission to contaminate sibling requests.
     #[serde(default)]
     pub settlement: SpendSettlement,
+    /// Present only for a native-harness turn: Codex or Claude running on its
+    /// own sign-in inside the company computer, outside the host relay. Such a
+    /// turn carries `cost_micro_usd = 0` because the company is not charged
+    /// per token for it; the owner's native limit bounds it instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native: Option<NativeTurn>,
     pub occurred_at: DateTime<Utc>,
+}
+
+/// What a native-harness turn used. `tokens` is `None` when the harness did
+/// not report a per-turn count; that is unknown, not zero.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NativeTurn {
+    /// `subscription` or `native_api_unmetered`.
+    pub billing: String,
+    #[serde(default)]
+    pub tokens: Option<u64>,
+    /// The harness's own price for the turn, when it reported one. Never
+    /// derived from a rate table, and never charged against the ceiling.
+    #[serde(default)]
+    pub estimated_cost_micro_usd: Option<u64>,
+}
+
+/// One company's native-harness use since a point in time.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct NativeUsage {
+    pub turns: u64,
+    /// Sum of reported per-turn tokens.
+    pub tokens: u64,
+    /// Turns whose harness reported no token count.
+    pub turns_without_tokens: u64,
+    /// Sum of the prices harnesses reported; turns without one add nothing.
+    pub estimated_cost_micro_usd: u64,
+    pub turns_without_estimate: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -456,6 +490,7 @@ fn same_accounted_request(left: &SpendRecord, right: &SpendRecord) -> bool {
         && left.cached_input_tokens == right.cached_input_tokens
         && left.cost_micro_usd == right.cost_micro_usd
         && left.settlement == right.settlement
+        && left.native == right.native
 }
 
 /// Crash-durable per-company spend counter. Append-only JSONL spool +
@@ -739,6 +774,7 @@ impl SpendStore {
             work_id: None,
             attempt_id: None,
             settlement: SpendSettlement::Accounted,
+            native: None,
             occurred_at: Utc::now(),
         };
         if self.record(&marker).is_err() {
@@ -767,10 +803,60 @@ impl SpendStore {
             work_id: None,
             attempt_id: None,
             settlement: SpendSettlement::Accounted,
+            native: None,
             occurred_at: Utc::now(),
         };
         self.record(&marker)?;
         Ok(())
+    }
+
+    /// Append one record unless its request id is already in the ledger, in
+    /// any form. A native turn is reported from more than one place (the turn
+    /// itself, a repair, the enclosing run), sometimes under a different
+    /// session; the first report of a turn is the one that counts. Returns
+    /// whether this call wrote.
+    pub fn record_once(&self, record: &SpendRecord) -> GatewayResult<bool> {
+        let mut writer = self.writer.lock().map_err(|_| GatewayError::Upstream)?;
+        let mut state = self.state.lock().map_err(|_| GatewayError::Upstream)?;
+        if state.records.contains_key(&record.request_id)
+            || state.unknown_requests.contains_key(&record.request_id)
+        {
+            return Ok(false);
+        }
+        let mut candidate = state.clone();
+        candidate.apply_record(record.clone())?;
+        self.append(&mut writer, record, "spend record")?;
+        *state = candidate;
+        Ok(true)
+    }
+
+    /// Native-harness use recorded at or after `since`.
+    #[must_use]
+    pub fn native_usage_since(&self, company_id: &str, since: DateTime<Utc>) -> NativeUsage {
+        let Ok(state) = self.state.lock() else {
+            return NativeUsage::default();
+        };
+        let mut usage = NativeUsage::default();
+        let native_turns = state
+            .records
+            .values()
+            .filter(|record| record.company_id == company_id && record.occurred_at >= since)
+            .filter_map(|record| record.native.as_ref());
+        for native in native_turns {
+            usage.turns += 1;
+            match native.tokens {
+                Some(tokens) => usage.tokens = usage.tokens.saturating_add(tokens),
+                None => usage.turns_without_tokens += 1,
+            }
+            match native.estimated_cost_micro_usd {
+                Some(cost) => {
+                    usage.estimated_cost_micro_usd =
+                        usage.estimated_cost_micro_usd.saturating_add(cost);
+                }
+                None => usage.turns_without_estimate += 1,
+            }
+        }
+        usage
     }
 
     /// Append one accounted call, fsync, then update the in-memory total.
@@ -994,6 +1080,7 @@ mod tests {
             work_id: None,
             attempt_id: None,
             settlement: SpendSettlement::Accounted,
+            native: None,
             occurred_at: Utc::now(),
         }
     }
