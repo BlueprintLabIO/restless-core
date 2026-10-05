@@ -439,6 +439,8 @@ struct CompanyBootstrapService {
     /// Documents service itself: admission provisions it, so the company is
     /// collaborative before its first Runtime starts.
     local_documents_issuer: Option<String>,
+    /// Starts the first company computer after admission; absent in tests.
+    daemon: Option<Arc<Daemon>>,
 }
 
 impl CompanyBootstrapService {
@@ -599,8 +601,42 @@ impl CompanyBootstrapService {
             return Err(BootstrapFailure::Conflict);
         }
         completion.commit().await.map_err(unavailable)?;
+        if let Some(daemon) = &self.daemon {
+            start_first_computer(Arc::clone(daemon), company_handle);
+        }
         Ok(receipt_bytes)
     }
+}
+
+/// Admission is the company's creation, so a plane that runs its companies
+/// itself (local Runtime mode) creates the company computer here, once. The
+/// scheduler deliberately never recreates an absent computer, so without this
+/// a Cloud company stays absent forever. It runs after the receipt so Fleet is
+/// never held on an image pull; a failure leaves the owner's Reconcile
+/// recovery and Exec's preflight message, as for any computer that will not start.
+fn start_first_computer(daemon: Arc<Daemon>, company: String) {
+    if daemon.runtime_bridges.is_hosted() {
+        return;
+    }
+    tokio::spawn(async move {
+        let started = async {
+            if runtime::status(&company).await? != runtime::ContainerStatus::Absent {
+                return Ok(false);
+            }
+            let config = runtime::CompanyConfig::load(&daemon.root, &company)?;
+            runtime::up(&config, false).await?;
+            crate::materialize_runtime_bridge(&daemon, &company).await?;
+            anyhow::Ok(true)
+        }
+        .await;
+        match started {
+            Ok(true) => tracing::info!(company, "started the new company computer"),
+            Ok(false) => {}
+            Err(error) => {
+                tracing::error!(company, "could not start the new company computer: {error:#}")
+            }
+        }
+    });
 }
 
 #[derive(Clone)]
@@ -625,6 +661,7 @@ where
             authority: daemon.authority.clone(),
             native_documents_credential_publisher: NativeDocumentsCredentialPublisher::Infisical,
             local_documents_issuer,
+            daemon: Some(Arc::clone(daemon)),
         })),
         None => BootstrapEndpoint::Disabled,
     };
@@ -1458,6 +1495,7 @@ mod tests {
                     Arc::clone(&published),
                 ),
                 local_documents_issuer: None,
+                daemon: None,
             })
         };
         let admission_deployment = |request: &CompanyBootstrapRequest| CompanyAdmissionDeployment {
@@ -2033,6 +2071,7 @@ mod tests {
                 Arc::clone(&published_credentials),
             ),
             local_documents_issuer: None,
+            daemon: None,
         });
 
         let mut attempts = Vec::new();
