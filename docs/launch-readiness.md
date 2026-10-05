@@ -597,3 +597,27 @@ addresses and email transport are chosen. The initial routing file contains only
 the account site; the company route is prepared separately for use after
 activation. SSH uses the configured HTTPS addresses through a SOCKS tunnel and
 never substitutes for individual membership.
+## Tailscale sharing and multiplayer smoke — 5 October 2026
+
+- Tailscale is the supported remote-access path for self-hosted Core
+  ([guide](self-hosted-network-entry.md#sharing-over-tailscale-recommended)).
+  `restless appliance tailscale-addresses` derives the company (`443`) and
+  account (`8443`) origins from the host's certified `*.ts.net` name;
+  `enable-sharing --tailscale` wraps the existing activation with `tailscale
+  serve` routes and a tailnet reachability check. Name derivation, refusals and
+  route reuse are unit-tested, and the absent and logged-out messages were
+  observed from the CLI with a fake `tailscale`. No real tailnet, certificate or
+  `tailscale serve` has been exercised yet.
+- `scripts/multiplayer-smoke` runs nightly on the self-hosted runner. In an
+  isolated `_test` company it drives an owner and two members in separate
+  browser contexts through email verification (loopback SMTP), invitation,
+  acceptance and entry, three-way concurrent document editing that survives
+  reload, room chat, a member's mention, and removal that closes the member's
+  live document connection and session. The account service and Core share one
+  hostname on two ports, the Tailscale shape. It passed on 5 October against a
+  stand-in company image and a locally built Documents image; it removed its
+  own containers, volume, databases and roles.
+- It records, without failing on, what a person sees that is still wrong: a
+  cockpit thread answer does not resolve a mention, mention receipts show raw
+  actor ids, and a removed member's open document says Reconnecting. Its
+  screenshots also show members reading the owner's messages as "owner".
