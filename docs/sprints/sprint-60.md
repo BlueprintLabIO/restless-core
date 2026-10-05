@@ -42,32 +42,41 @@ traffic moves.
 - [x] C60-T2 — The session cookie is named `restless_session_<plane-id>`. (`/<company>/entry` needs no
   plane change: the router rewrites it to the plane's `/entry`, T5. Entry already lands on
   `/<company>/…`.)
-- [ ] C60-T3 — A plane's Home and Account pages redirect to the public origin's `/` and `/account`
-  on a hosted plane. The Sprint 59 re-entry redirect points at Fleet's `/enter?company=<key>`.
-- [ ] C60-T4 — Untrusted content audit: every surface that renders company-produced markup uses the
-  isolated review origin; record the list and close any gap before P4.
+- [x] C60-T3 — A hosted plane's root goes Home on the issuer (`47ba77c`), and a signed-out page load
+  goes there too (`2d4c776`); Home re-enters through the company card, so no `/enter` endpoint is
+  needed. The plane's account sections are its own pages (T9).
+- [x] C60-T4 — Untrusted content audit (6 October): nothing company-produced runs as the cockpit's
+  origin. Document HTML (`DocumentEditor`) comes from OrgIntel's allowlist renderer: fixed node
+  types, escaped text and attributes, links limited to http(s) and mailto. Chat Markdown is built
+  from components, never raw HTML. The embedded resource viewer is sandboxed without
+  `allow-same-origin`. The review and reference previews load the isolated review origin. **Found
+  in passing:** that origin is loopback-only (`<ticket>.localhost`), so previews do not open on a
+  hosted plane at all; a separate Cloud gap, not a one-address blocker.
 
 ### P2 — The edge router (*Cloud*)
 
-- [ ] C60-T5 — A Cloudflare Worker on `app.restless.run`: the path table above, the cookie filter
-  (only the target plane's session cookie is forwarded; Fleet's never is), WebSocket pass-through,
-  and refusal of unknown company keys. Deployed by the Release workflow.
-- [ ] C60-T6 — Fleet writes the company directory (key → plane tunnel host) to Workers KV on create,
-  archive, delete and move, and sets `restless_home_plane` at sign-in.
-- [ ] C60-T7 — Fleet Web moves its assets to `/_fleet` (SvelteKit `appDir`). The Core release
-  publishes each cockpit build's `/_app/immutable` to the edge bucket, keeping every released build.
+- [x] C60-T5 — The Cloudflare Worker (restless-cloud #40, #44): the path table, the cookie filter,
+  WebSocket pass-through, unknown keys refused; deployed by the Release workflow before the services.
+- [x] C60-T6 — **Revised:** Fleet answers `/v1/route` and the router caches each answer for a minute,
+  instead of Fleet writing a KV copy, so there is one directory and no edge credential (#41). Fleet
+  sets `restless_home_plane` on the account pages.
+- [x] C60-T7 — Fleet Web's assets are under `/_fleet` (#41). **Revised:** no asset bucket. The router
+  fetches cockpit assets from the plane whose page asked (page Referer, else a routing hint), so the
+  build always matches the page (#44).
 
 ### P3 — Same-origin entry and one Account (*Cloud + Cockpit*)
 
-- [ ] C60-T8 — Entering a company is a same-origin POST to `/<company>/entry`, and Fleet's
-  `/enter?company=<key>` re-mints after a lapse. Cards link to `/<company>`.
-- [ ] C60-T9 — One Account page on Fleet: Profile, Security, Plan and Support from Fleet, plus
-  Connections, AI apps and Appearance from the owner's plane through the router. The Core account
-  sections ship in `@restless/ui`, so both hosts render the same views.
+- [x] C60-T8 — With the switch on, company entry is a same-origin POST to `/<company>/entry` and
+  account entry to `/account/entry` (#44).
+- [x] C60-T9 — **Revised:** one Account in the rail, each section living once with its owner, rather
+  than Fleet rendering the plane's sections. Profile, Security, Plan and Support are Fleet's; the
+  plane serves `/account/connections`, `/account/ai-apps` and `/account/appearance` (`e4ff8f9`); the
+  router sends each to its owner, and both rails list all seven (#44).
 
 ### P4 — Cut over and delete (*Cloud*)
 
-- [ ] C60-T10 — Every owner moves to `app.restless.run`. A browser on `owner-<hex>.restless.run` is
+- [ ] C60-T10 — Set the restless-cloud repository variable `RESTLESS_ONE_ADDRESS=true` and deploy
+  with a Core release at or after `e4ff8f9`. Every owner moves to `app.restless.run`. A browser on `owner-<hex>.restless.run` is
   sent to the matching `app.restless.run` path. Verified on the founder's account: sign in once,
   Home, a company, Account, a lapsed session, and a member of another owner's company.
 - [ ] C60-T11 — Delete: the cross-origin entry page, the plane Home redirect, account-entry
