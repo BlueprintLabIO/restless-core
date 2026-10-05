@@ -41,6 +41,13 @@ export const COMPANY_PAGES: CompanyPage[] = [
 		path: '/provider',
 		keywords: 'model provider connection api key codex claude'
 	},
+	{
+		key: 'connections',
+		group: 'Capabilities',
+		label: 'Connections',
+		path: '/connections',
+		keywords: 'mcp tools integrations plugins gmail github linear notion'
+	},
 	{ key: 'skills', group: 'Capabilities', label: 'Skills', path: '/skills' },
 	{
 		key: 'vault',

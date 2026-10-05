@@ -1354,6 +1354,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             get(tool_connections_api::list).post(tool_connections_api::add),
         )
         .route(
+            "/companies/{company}/tool-connections/plugins",
+            post(tool_connections_api::import_plugin),
+        )
+        .route(
             "/companies/{company}/tool-connections/{name}/probe",
             post(tool_connections_api::probe),
         )

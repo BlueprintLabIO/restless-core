@@ -278,8 +278,8 @@ what it deletes.
   in-Runtime `mcp-remote` and legacy stdio; migrate Clapping Hands. *Runtime*
 - [ ] T7 — Exec classification proposal and connection proposals as prepared handoffs; connections
   in Exec context. *OrgIntel*
-- [ ] T8 — Company → Connections: suggestions, add by URL, command or plugin, probe status,
+- [ ] T8 ([ticket](sprint-57/s57-t8-connections-page.md)) — Company → Connections: suggestions, add by URL, command or plugin, probe status,
   three-class grant, receipts, freeze, disconnect. *Cockpit*
-- [ ] T9 — Plugin bundle import (skills → Library, MCP servers → Connections). *Runtime/Cockpit*
+- [ ] T9 ([ticket](sprint-57/s57-t9-plugin-import.md)) — Plugin bundle import (skills → Library, MCP servers → Connections). *Runtime/Cockpit*
 - [ ] T10 — Acceptance runs 1–7 on `_test` with dedicated accounts; T11 (stretch) the OpenAPI bridge
   and acceptance 8.
