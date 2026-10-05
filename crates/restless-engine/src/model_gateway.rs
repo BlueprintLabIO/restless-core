@@ -1327,7 +1327,9 @@ async fn start_runtime_relay(
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
         .with_state(state);
     let app = match local_mcp_daemon {
-        Some(daemon) => model_app.merge(crate::mcp_gateway::router(daemon)),
+        Some(daemon) => model_app
+            .merge(crate::mcp_gateway::router(daemon.clone()))
+            .merge(crate::tool_gateway::router(daemon)),
         None => model_app,
     };
     Ok(tokio::spawn(async move {
@@ -2323,6 +2325,7 @@ impl MeteredRequest {
             work_id: self.work_id,
             attempt_id: self.attempt_id,
             settlement,
+            native: None,
             occurred_at: chrono::Utc::now(),
         }
     }
@@ -3572,6 +3575,8 @@ mission = "Choose native intelligence"
                 mission: "relay test".into(),
                 spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(2),
                 monthly_runtime_cap_hours: None,
+                native_monthly_turn_limit: None,
+                native_monthly_token_limit: None,
                 auto_sleep_after_minutes: None,
                 outcome_standard: Default::default(),
                 model: "moonshot/kimi-k3".into(),
@@ -3876,6 +3881,8 @@ mission = "Choose native intelligence"
             mission: String::new(),
             spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(2),
             monthly_runtime_cap_hours: None,
+            native_monthly_turn_limit: None,
+            native_monthly_token_limit: None,
             auto_sleep_after_minutes: None,
             outcome_standard: Default::default(),
             model: "litellm/gpt-5.6-sol".into(),
@@ -3907,6 +3914,8 @@ mission = "Choose native intelligence"
             mission: String::new(),
             spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(2),
             monthly_runtime_cap_hours: None,
+            native_monthly_turn_limit: None,
+            native_monthly_token_limit: None,
             auto_sleep_after_minutes: None,
             outcome_standard: Default::default(),
             model: model.into(),
@@ -3968,6 +3977,8 @@ mission = "Choose native intelligence"
             mission: String::new(),
             spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(2),
             monthly_runtime_cap_hours: None,
+            native_monthly_turn_limit: None,
+            native_monthly_token_limit: None,
             auto_sleep_after_minutes: None,
             outcome_standard: Default::default(),
             model: "anthropic/claude-sonnet-4-6".into(),
@@ -4739,6 +4750,8 @@ mission = "Choose native intelligence"
             mission: String::new(),
             spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(10_000_000),
             monthly_runtime_cap_hours: None,
+            native_monthly_turn_limit: None,
+            native_monthly_token_limit: None,
             auto_sleep_after_minutes: None,
             outcome_standard: Default::default(),
             model: "moonshot/kimi-k3".into(),
@@ -4819,6 +4832,8 @@ mission = "Choose native intelligence"
             mission: String::new(),
             spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(10_000_000),
             monthly_runtime_cap_hours: None,
+            native_monthly_turn_limit: None,
+            native_monthly_token_limit: None,
             auto_sleep_after_minutes: None,
             outcome_standard: Default::default(),
             model: "openai-codex/gpt-5.6-sol".into(),

@@ -15,6 +15,7 @@
 	import History from '@lucide/svelte/icons/history';
 	import KeyRound from '@lucide/svelte/icons/key-round';
 	import Monitor from '@lucide/svelte/icons/monitor';
+	import Plug from '@lucide/svelte/icons/plug';
 	import Sparkles from '@lucide/svelte/icons/sparkles';
 	import Users from '@lucide/svelte/icons/users';
 	import { companyPrincipalQuery, companiesQuery, companyQuery } from '$lib/model/queries.svelte';
@@ -40,6 +41,7 @@
 		identity: Fingerprint,
 		members: Users,
 		provider: Brain,
+		connections: Plug,
 		skills: Sparkles,
 		vault: KeyRound,
 		schedules: CalendarClock,

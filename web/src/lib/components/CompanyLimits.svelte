@@ -28,6 +28,54 @@
 		runtimeError = $state(''),
 		runtimeNotice = $state('');
 
+	let editingNative = $state(false),
+		nativeSaving = $state(false),
+		nativeTurns = $state(''),
+		nativeTokens = $state(''),
+		baseNativeTurns = $state<number | null>(null),
+		baseNativeTokens = $state<number | null>(null),
+		nativeError = $state(''),
+		nativeNotice = $state('');
+
+	async function saveNativeLimit() {
+		if (nativeSaving) return;
+		nativeSaving = true;
+		nativeError = '';
+		nativeNotice = '';
+		try {
+			const response = await fetch(
+				`/api/companies/${encodeURIComponent(companyId)}/company/native-limit`,
+				{
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({
+						monthly_turn_limit: nativeTurns === '' ? null : Number(nativeTurns),
+						monthly_token_limit: nativeTokens === '' ? null : Number(nativeTokens),
+						expected_monthly_turn_limit: baseNativeTurns,
+						expected_monthly_token_limit: baseNativeTokens
+					})
+				}
+			);
+			const result = await response.json();
+			if (!response.ok) throw new Error(result.message ?? 'Native limits could not be saved.');
+			source.accept(result);
+			editingNative = false;
+			nativeNotice = 'Native limits saved.';
+		} catch (error) {
+			nativeError = failureSentence(error, 'Native limits could not be saved.');
+		} finally {
+			nativeSaving = false;
+		}
+	}
+	const count = (value: number) => new Intl.NumberFormat().format(value);
+	function nativeLimitText(turns: number | null, tokens: number | null): string {
+		const parts = [
+			turns == null ? '' : `${count(turns)} turns`,
+			tokens == null ? '' : `${count(tokens)} tokens`
+		].filter(Boolean);
+		return parts.length ? parts.join(' · ') : 'None';
+	}
+
 	async function saveRuntimePolicy() {
 		if (runtimeSaving) return;
 		runtimeSaving = true;
@@ -185,6 +233,89 @@
 			{#if limitError}<Notice tone="danger" title="The limit was not saved">{limitError}</Notice
 				>{/if}
 			{#if limitNotice}<Notice tone="success" title={limitNotice} />{/if}
+			{@const native = view.limits.native}
+			<form
+				onsubmit={(event) => {
+					event.preventDefault();
+					void saveNativeLimit();
+				}}
+			>
+				<Row
+					label="Native harness use"
+					info={`Codex or Claude on their own sign-in, in ${native.month_utc} (UTC). Not charged against the model budget.${native.estimated_usd == null ? '' : ' The dollar figure is the harnesses’ own estimate.'}${native.turns_without_tokens ? ` ${native.turns_without_tokens} turns reported no token count.` : ''}`}
+				>
+					{count(native.turns)} turns · {native.turns_without_tokens ? 'at least ' : ''}{count(
+						native.tokens
+					)} tokens{native.estimated_usd == null ? '' : ` · ≈ ${money(native.estimated_usd)}`}
+				</Row>
+				<Row
+					label="Native monthly limit"
+					info="Once either limit is reached, no new native turn starts until next month or a higher limit. A turn already running finishes."
+				>
+					{#if editingNative}
+						<input
+							class="hours"
+							type="number"
+							min="1"
+							step="1"
+							aria-label="Native turns per month"
+							placeholder="No turn limit"
+							bind:value={nativeTurns}
+							disabled={nativeSaving}
+						/>
+						<input
+							class="tokens"
+							type="number"
+							min="1"
+							step="1"
+							aria-label="Native tokens per month"
+							placeholder="No token limit"
+							bind:value={nativeTokens}
+							disabled={nativeSaving}
+						/>
+					{:else}
+						<span class:reached={native.status === 'exhausted'}
+							>{nativeLimitText(
+								native.monthly_turn_limit,
+								native.monthly_token_limit
+							)}{native.status === 'exhausted' ? ' · reached' : ''}</span
+						>
+						<button
+							class="btn small ghost"
+							type="button"
+							onclick={() => {
+								baseNativeTurns = native.monthly_turn_limit;
+								baseNativeTokens = native.monthly_token_limit;
+								nativeTurns = baseNativeTurns == null ? '' : String(baseNativeTurns);
+								nativeTokens = baseNativeTokens == null ? '' : String(baseNativeTokens);
+								nativeError = '';
+								nativeNotice = '';
+								editingNative = true;
+							}}>Edit</button
+						>
+					{/if}
+				</Row>
+				{#if editingNative}
+					<div class="form-bar">
+						<button class="btn primary small" disabled={nativeSaving}
+							>{nativeSaving ? 'Saving…' : 'Save'}</button
+						>
+						<button
+							class="btn small ghost"
+							type="button"
+							disabled={nativeSaving}
+							onclick={() => {
+								editingNative = false;
+								nativeError = '';
+							}}>Cancel</button
+						>
+					</div>
+				{/if}
+			</form>
+			{#if nativeError}<Notice tone="danger" title="Native limits were not saved"
+					>{nativeError}</Notice
+				>{/if}
+			{#if nativeNotice}<Notice tone="success" title={nativeNotice} />{/if}
 		</Section>
 	{:else if section === 'authority'}
 		<Section
@@ -396,6 +527,12 @@
 	}
 	.hours {
 		width: 120px;
+	}
+	.tokens {
+		width: 150px;
+	}
+	.reached {
+		color: var(--intent-authority);
 	}
 	.form-bar {
 		display: flex;

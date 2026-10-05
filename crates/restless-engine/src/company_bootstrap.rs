@@ -1013,6 +1013,8 @@ fn desired_company_config(
         mission: String::new(),
         spend_ceiling_usd: runtime::SpendCeiling::from_micro_usd(10_000_000),
         monthly_runtime_cap_hours: None,
+        native_monthly_turn_limit: None,
+        native_monthly_token_limit: None,
         auto_sleep_after_minutes: None,
         outcome_standard: Default::default(),
         model: request.model.clone(),

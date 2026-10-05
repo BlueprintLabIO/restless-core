@@ -47,6 +47,12 @@ mod sharing_api;
 pub mod sheets_api;
 #[path = "owner_skills.rs"]
 mod skills_api;
+#[path = "owner_telegram.rs"]
+mod telegram_api;
+#[path = "owner_tool_connections.rs"]
+mod tool_connections_api;
+#[path = "owner_mcp.rs"]
+mod mcp_api;
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::convert::Infallible;
@@ -227,7 +233,11 @@ impl RoomApiState {
 
 #[derive(Debug, Deserialize)]
 struct PartyAction {
+    #[serde(default)]
     party: String,
+    /// A prepared `reserved` tool call to answer instead of a party.
+    #[serde(default)]
+    call_key: Option<String>,
 }
 
 #[derive(Default)]
@@ -1110,6 +1120,8 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         plane_readiness,
     };
 
+    telegram_api::spawn(state.clone());
+
     // Resume a first native sign-in across a daemon restart. Explicit defaults
     // always win; the same write lock fences competing completed logins.
     if state.entry.network().is_none() {
@@ -1137,6 +1149,11 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             get(list_owner_connections).post(create_owner_connection),
         )
         .route("/connections/import", post(import_owner_connection))
+        .route(
+            "/mcp-access",
+            get(mcp_api::list_access).post(mcp_api::issue_access),
+        )
+        .route("/mcp-access/{id}/revoke", post(mcp_api::revoke_access))
         .route("/connections/models/{provider}", get(oauth_login_api::account_models))
         .route("/connections/import/company-codex", post(native_import_api::import_company_codex))
         .route("/connections/oauth/codex", post(oauth_login_api::start_codex_login))
@@ -1265,6 +1282,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(company_settings_api::save_runtime_policy),
         )
         .route(
+            "/companies/{company}/company/native-limit",
+            post(company_settings_api::save_native_limit),
+        )
+        .route(
             "/companies/{company}/company/harnesses",
             post(set_company_harnesses),
         )
@@ -1342,6 +1363,48 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route(
             "/companies/{company}/handoffs/{handoff}/complete",
             post(complete_human_step),
+        )
+        .route(
+            "/companies/{company}/tool-connections",
+            get(tool_connections_api::list).post(tool_connections_api::add),
+        )
+        .route(
+            "/companies/{company}/tool-connections/plugins",
+            post(tool_connections_api::import_plugin),
+        )
+        .route(
+            "/companies/{company}/tool-connections/{name}/probe",
+            post(tool_connections_api::probe),
+        )
+        .route(
+            "/companies/{company}/tool-connections/{name}/sign-in",
+            post(tool_connections_api::sign_in),
+        )
+        .route(
+            "/companies/{company}/tool-connections/{name}/grant",
+            post(tool_connections_api::grant),
+        )
+        .route(
+            "/companies/{company}/tool-connections/{name}/revoke",
+            post(tool_connections_api::revoke),
+        )
+        .route(
+            "/companies/{company}/tool-connections/{name}/freeze",
+            post(tool_connections_api::freeze),
+        )
+        .route(
+            "/companies/{company}/tool-connections/{name}/disconnect",
+            post(tool_connections_api::disconnect),
+        )
+        .route(
+            "/companies/{company}/tool-connections/{name}/receipts",
+            get(tool_connections_api::receipts),
+        )
+        .route(
+            "/companies/{company}/telegram",
+            get(telegram_api::status)
+                .post(telegram_api::start)
+                .delete(telegram_api::unpair),
         )
         .route("/companies/{company}/approvals/grant", post(grant))
         .route("/companies/{company}/approvals/decline", post(decline))
@@ -1432,6 +1495,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         )
         .layer(DefaultBodyLimit::max(32 * 1024));
     let notification_delivery = notification_delivery_api::routes::<OwnerState>()?;
+    let mcp_api_router: mcp_api::Api = api.clone().with_state(state.clone());
     let app = Router::new()
         // The default predicate leaves event streams, images and tiny bodies
         // alone, so live updates are never held back by the encoder.
@@ -1454,6 +1518,17 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .nest(
             crate::model_gateway::HOSTED_MODEL_GATEWAY_PREFIX,
             crate::model_gateway::hosted_routes::<OwnerState>(),
+        )
+        .route(
+            tool_connections_api::OAUTH_CALLBACK_PATH,
+            get(tool_connections_api::oauth_callback),
+        )
+        .route(
+            mcp_api::MCP_PATH,
+            any(move |State(state): State<OwnerState>, request: Request| {
+                let api = mcp_api_router.clone();
+                async move { mcp_api::serve(state, api, request).await }
+            }),
         )
         .route("/entry", post(consume_entry_assertion))
         .route("/entry/account", post(consume_account_entry_assertion))
@@ -1549,6 +1624,20 @@ async fn enforce_owner_boundary(
         // Fleet's dedicated read-only bearer, exact Host and exact cell tuple
         // are checked by the handler. This is a machine lifecycle route, not
         // an owner browser session route.
+        return next.run(request).await;
+    }
+    if request.uri().path() == mcp_api::MCP_PATH {
+        // An outside MCP client presents a personal bearer, never a browser
+        // session. The handler refuses browsers, resolves the token, and
+        // rebuilds and re-checks the holder's principal on every call.
+        return next.run(request).await;
+    }
+    if request.uri().path() == tool_connections_api::OAUTH_CALLBACK_PATH
+        && request.method() == Method::GET
+    {
+        // A provider's redirect is a cross-site top-level navigation. The
+        // single-use OAuth state of a sign-in the owner started is its
+        // authority; the handler completes nothing else.
         return next.run(request).await;
     }
     if plane_readiness::is_plane_readiness_path(request.uri().path()) {
@@ -1701,6 +1790,9 @@ fn membership_boundary_violation(
         // handlers perform their own principal and audience authorization.
         || !is_owner_data_surface(path)
         || path == "/entry/logout"
+        // Each person issues and revokes only their own MCP tokens.
+        || path == mcp_api::ACCESS_PATH
+        || path.starts_with("/api/mcp-access/")
         || is_company_principal_route(path)
         || is_actor_conversation_route(path)
         || is_company_route_family(path, "rooms")
@@ -8890,6 +8982,21 @@ async fn grant(
         return refusal;
     }
     let org = state.daemon.orgintel.get(&company).await.ok();
+    if let Some(key) = input.call_key.as_deref() {
+        return match crate::effect::decide_tool_call(
+            &state.daemon.authority,
+            org.as_ref(),
+            &company,
+            key,
+            true,
+            principal.actor_id(),
+        )
+        .await
+        {
+            Ok(message) => Json(serde_json::json!({ "message": message })).into_response(),
+            Err(error) => api_error(StatusCode::BAD_REQUEST, "approval", format!("{error:#}")),
+        };
+    }
     match approval::grant(
         &state.daemon.root,
         &company,
@@ -8915,6 +9022,21 @@ async fn decline(
         return refusal;
     }
     let org = state.daemon.orgintel.get(&company).await.ok();
+    if let Some(key) = input.call_key.as_deref() {
+        return match crate::effect::decide_tool_call(
+            &state.daemon.authority,
+            org.as_ref(),
+            &company,
+            key,
+            false,
+            principal.actor_id(),
+        )
+        .await
+        {
+            Ok(message) => Json(serde_json::json!({ "message": message })).into_response(),
+            Err(error) => api_error(StatusCode::BAD_REQUEST, "approval", format!("{error:#}")),
+        };
+    }
     match approval::decline(
         &state.daemon.root,
         &company,

@@ -294,6 +294,7 @@ mod tests {
             work_id: Some(Uuid::new_v4()),
             attempt_id: Some(Uuid::new_v4()),
             settlement: SpendSettlement::Accounted,
+            native: None,
             occurred_at: Utc::now(),
         }
     }

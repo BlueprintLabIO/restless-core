@@ -161,9 +161,12 @@
 	const approve = (kind: 'grant' | 'decline') =>
 		run(
 			async () => {
-				if (!item.source.party)
+				const target = item.source.call_key
+					? { call_key: item.source.call_key }
+					: item.source.party;
+				if (!target)
 					throw new Error('This request has no approval target. Refresh and try again.');
-				await approvalAction(companyId, kind, item.source.party);
+				await approvalAction(companyId, kind, target);
 				await removeConfirmedAttention(client, companyId, item.id);
 			},
 			kind === 'grant' ? 'Approved' : 'Declined',

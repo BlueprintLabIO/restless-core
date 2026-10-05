@@ -521,6 +521,7 @@ impl CodexSession {
         let mut last_message_id: Option<String> = None;
         let mut last_activity = Instant::now();
         let mut tools_in_flight = 0usize;
+        let mut turn_token_base: Option<u64> = None;
         let mut events = self.events.lock().await;
         loop {
             tokio::select! {
@@ -607,7 +608,26 @@ impl CodexSession {
                             let used = last.get("totalTokens").and_then(serde_json::Value::as_u64).unwrap_or_default();
                             let size = usage.get("modelContextWindow").and_then(serde_json::Value::as_u64).unwrap_or_default();
                             let output = last.get("outputTokens").and_then(serde_json::Value::as_u64);
-                            transcript.usage = Some(TurnUsage { used, size, cost_usd: None });
+                            // `total` is the thread's running sum and `last` the
+                            // latest model call, so the turn began at the first
+                            // report's total less its own call.
+                            let total = usage
+                                .get("total")
+                                .and_then(|total| total.get("totalTokens"))
+                                .and_then(serde_json::Value::as_u64);
+                            if turn_token_base.is_none() {
+                                turn_token_base = total.map(|total| total.saturating_sub(used));
+                            }
+                            transcript.usage = Some(TurnUsage {
+                                used,
+                                size,
+                                cost_usd: None,
+                                turn_id: transcript.turn_id(),
+                                turn_tokens: total
+                                    .zip(turn_token_base)
+                                    .map(|(total, base)| total.saturating_sub(base)),
+                                turn_cost_usd: None,
+                            });
                             transcript.output_tokens = output;
                             if let Some(output) = output {
                                 self.observe(LiveSessionEvent::GeneratedOutputTokens(output));

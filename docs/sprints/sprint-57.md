@@ -266,20 +266,23 @@ what it deletes.
 - [ ] T1 — Probe the Gmail paths: Google's hosted Workspace MCP endpoint vs a community Gmail MCP
   server with a bring-your-own OAuth client. Record scopes, verification limits and the token
   lifetime observed. *Decision input, Kernel/Gateway*
-- [ ] T2 — Tool-call effect kind, intent idempotency, receipt and unknown-outcome reconciliation, with
+- [x] T2 ([ticket](sprint-57/s57-t2-tool-call-effect.md)) — Tool-call effect kind, intent idempotency, receipt and unknown-outcome reconciliation, with
   adversarial tests. *Kernel*
-- [ ] T3 — Connection grant record (classes, party argument, contract digest, freeze, expiry) and the
+- [x] T3 ([ticket](sprint-57/s57-t3-connection-grant.md)) — Connection grant record (classes, party argument, contract digest, freeze, expiry) and the
   first-contact rule applied to declared parties. *Kernel*
-- [ ] T4 — One gateway path: host-side remote MCP with MCP authorization, credential resolution,
+- [x] T4 ([ticket](sprint-57/s57-t4-one-gateway.md)) — One gateway path: host-side remote MCP with MCP authorization, credential resolution,
   class enforcement and routing through the effect runner. *Gateway*
-- [ ] T5 — Host-side local MCP worker (generalised `stdio_mcp`), networkable, with credential
+- [ ] T5 ([ticket](sprint-57/s57-t5-local-worker.md)) — Host-side local MCP worker (generalised `stdio_mcp`), networkable, with credential
   references. *Gateway/Runtime*
 - [ ] T6 — Launch contract: one gateway MCP server per actor, scoped to granted tools; retire
   in-Runtime `mcp-remote` and legacy stdio; migrate Clapping Hands. *Runtime*
 - [ ] T7 — Exec classification proposal and connection proposals as prepared handoffs; connections
   in Exec context. *OrgIntel*
-- [ ] T8 — Company → Connections: suggestions, add by URL, command or plugin, probe status,
+- [ ] T8 ([ticket](sprint-57/s57-t8-connections-page.md)) — Company → Connections: suggestions, add by URL, command or plugin, probe status,
   three-class grant, receipts, freeze, disconnect. *Cockpit*
-- [ ] T9 — Plugin bundle import (skills → Library, MCP servers → Connections). *Runtime/Cockpit*
+- [ ] T9 ([ticket](sprint-57/s57-t9-plugin-import.md)) — Plugin bundle import (skills → Library, MCP servers → Connections). *Runtime/Cockpit*
 - [ ] T10 — Acceptance runs 1–7 on `_test` with dedicated accounts; T11 (stretch) the OpenAPI bridge
   and acceptance 8.
+- [ ] T12 ([ticket](sprint-57/s57-t12-telegram-attention.md)) — Telegram Attention channel: pairing,
+  delivery and approval buttons through the cockpit's decision functions. Built; open until a real
+  bot run on `_test`. *Kernel/Cockpit*

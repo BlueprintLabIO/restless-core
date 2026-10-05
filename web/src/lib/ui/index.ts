@@ -41,5 +41,6 @@ export { default as ComputerView } from './views/ComputerView.svelte';
 export * from './showcase/lanternSurfaces';
 
 export { default as AccountShell } from './views/AccountShell.svelte';
+export type { AccountNavGroup, AccountNavItem } from './account';
 export { default as CompanyPortfolio } from './views/CompanyPortfolio.svelte';
 export type { CompanyPortfolioEntry, PortfolioAction } from './portfolio';

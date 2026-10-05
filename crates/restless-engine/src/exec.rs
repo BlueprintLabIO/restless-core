@@ -199,7 +199,13 @@ pub async fn wake(
         hosted_identity.as_ref().map(|_| (String::new(), None)),
     )
     .await?;
-    let package = context::assemble(&snapshot);
+    let mut package = context::assemble(&snapshot);
+    if let Ok(Some(tools)) =
+        crate::connections::context_summary(authority.pool(), &config.name, "exec").await
+    {
+        package.system_prompt.push_str("\n\n# Connected tools [Authority grant]\n");
+        package.system_prompt.push_str(&tools);
+    }
     let candidates = crate::model_gateway::available_candidates(
         config,
         config.agent_preference("exec", exec_model.as_deref()),
@@ -295,11 +301,13 @@ pub async fn wake(
         let reserved_budget_available = metered_turn
             .as_ref()
             .is_none_or(|turn| turn.allowance_micro_usd() > 0);
-        if auth.billing == crate::model_gateway::ModelBilling::MeteredApi
-            && (!budget.is_available() || !reserved_budget_available)
+        let metered_refusal = (auth.billing == crate::model_gateway::ModelBilling::MeteredApi
+            && (!budget.is_available() || !reserved_budget_available))
+            .then(|| format!("[budget] {}", budget.owner_message(&config.name)));
+        if let Some(reason) =
+            metered_refusal.or_else(|| spend.native_turn_refusal(&config.name, model))
         {
             drop(metered_turn);
-            let reason = format!("[budget] {}", budget.owner_message(&config.name));
             if let Some(next) = candidates.get(index + 1) {
                 let transition = failover_report(model, next, health::BlockKind::Budget, &reason);
                 record_failover(org, &transition).await?;
@@ -533,6 +541,7 @@ pub async fn wake(
             .flatten();
         let failover_kind = blocked_kind.filter(|kind| health::is_provider_failover_kind(*kind));
         if let Some(usage) = usage {
+            spend.record_native_turns(&auth, "exec", &responsibility, None, None, &[usage]);
             record_usage(org, &auth, usage, failover_kind).await?;
         }
         // Keep the lane through final durable accounting so a waiting turn

@@ -107,6 +107,11 @@ pub async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcome> {
         matches!(run.worker_harness, crate::runtime::AgentHarness::Codex),
     )
     .await?;
+    let connected_tools =
+        crate::connections::context_summary(run.authority.pool(), &run.company, &run.actor)
+            .await
+            .ok()
+            .flatten();
 
     for (index, model) in run.candidates.iter().enumerate() {
         let auth = match crate::exec::agent_auth_for_model(
@@ -167,13 +172,16 @@ pub async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcome> {
         let reserved_budget_available = metered_turn
             .as_ref()
             .is_none_or(|turn| turn.allowance_micro_usd() > 0);
-        if billing == crate::model_gateway::ModelBilling::MeteredApi
-            && (!budget.is_available() || !reserved_budget_available)
+        let metered_refusal = (billing == crate::model_gateway::ModelBilling::MeteredApi
+            && (!budget.is_available() || !reserved_budget_available))
+            .then(|| format!("[budget] {}", budget.owner_message(&run.company)));
+        if let Some(summary) =
+            metered_refusal.or_else(|| run.spend.native_turn_refusal(&run.company, model))
         {
             drop(metered_turn);
             return Ok(StaffOutcome {
                 termination: Termination::Blocked,
-                summary: format!("[budget] {}", budget.owner_message(&run.company)),
+                summary,
                 output_tokens: None,
             });
         }
@@ -295,7 +303,10 @@ pub async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcome> {
                 attempt_id: run.attempt_id,
                 org: run.org.clone(),
                 name: run.name.clone(),
-                task: run.task.clone(),
+                task: match &connected_tools {
+                    Some(tools) => format!("{}\n\n# Connected tools [Authority grant]\n{tools}", run.task),
+                    None => run.task.clone(),
+                },
                 turn_prompt: run.turn_prompt.clone(),
                 role: run.role.clone(),
                 spine,
@@ -409,6 +420,14 @@ pub async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcome> {
         // ACP snapshots are retained as telemetry before deciding whether to
         // continue or fail over.
         if let Ok((_, _, spent, _)) = &outcome {
+            run.spend.record_native_turns(
+                &auth,
+                &run.actor,
+                &run.responsibility,
+                run.work_id,
+                run.attempt_id,
+                spent,
+            );
             record_staff_usage(&run.org, &run.actor, model, billing, spent, failure_kind).await?;
         }
         // The relay's terminal record is visible before a waiting charged turn
@@ -640,9 +659,8 @@ fn final_session_usage(snapshots: &[acp::TurnUsage]) -> Option<acp::TurnUsage> {
             (previous, current) => current.or(previous),
         };
         Some(acp::TurnUsage {
-            used: current.used,
-            size: current.size,
             cost_usd,
+            ..current
         })
     })
 }
@@ -1209,6 +1227,14 @@ impl StaffDrive {
             }
         }
         if let Some(usage) = usage {
+            self.spend.record_native_turns(
+                &repair_auth,
+                &self.actor,
+                &responsibility,
+                Some(work_id),
+                Some(attempt_id),
+                &[usage],
+            );
             let _ = record_staff_usage(
                 &self.org,
                 &self.actor,

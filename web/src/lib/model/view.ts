@@ -22,6 +22,8 @@ export interface AttentionItem {
 		reference: string;
 		/** Authority-only: the exact party the typed approval controls. */
 		party?: string;
+		/** A prepared `reserved` tool call the owner answers once. */
+		call_key?: string;
 	};
 	category: 'approval' | 'review' | 'blocker' | string;
 	title: string;

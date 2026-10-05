@@ -243,3 +243,97 @@ pub(super) async fn save_runtime_policy(
     }
     Json(company_projection::project(&state.daemon, &config, false).await).into_response()
 }
+
+#[derive(Deserialize)]
+pub(super) struct NativeLimitInput {
+    monthly_turn_limit: Option<u32>,
+    monthly_token_limit: Option<u64>,
+    expected_monthly_turn_limit: Option<u32>,
+    expected_monthly_token_limit: Option<u64>,
+}
+
+/// Caps on native-harness use per UTC month. They gate new native turns
+/// only; a running turn is never stopped.
+pub(super) async fn save_native_limit(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<NativeLimitInput>,
+) -> impl IntoResponse {
+    if principal.membership_role() != "owner" {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "native_limit",
+            "Only the owner can edit native usage limits.",
+        );
+    }
+    if input.monthly_turn_limit == Some(0) || input.monthly_token_limit == Some(0) {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "native_limit",
+            "A native usage limit must be at least 1, or empty for no limit.",
+        );
+    }
+    let _write = state.charter_writes.lock().await;
+    let mut config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => config,
+        Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+    };
+    if config.native_monthly_turn_limit != input.expected_monthly_turn_limit
+        || config.native_monthly_token_limit != input.expected_monthly_token_limit
+    {
+        return api_error(
+            StatusCode::CONFLICT,
+            "native_limit",
+            "Native usage limits changed. Reload before saving.",
+        );
+    }
+    if config.native_monthly_turn_limit != input.monthly_turn_limit
+        || config.native_monthly_token_limit != input.monthly_token_limit
+    {
+        let change = serde_json::json!({
+            "monthly_turn_limit": input.monthly_turn_limit,
+            "monthly_token_limit": input.monthly_token_limit,
+        });
+        if let Err(error) = state
+            .daemon
+            .authority
+            .emit(
+                &company,
+                "company_native_limit_requested",
+                Some(principal.actor_id()),
+                change.clone(),
+            )
+            .await
+        {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "authority",
+                format!("The change could not be recorded: {error:#}"),
+            );
+        }
+        config.native_monthly_turn_limit = input.monthly_turn_limit;
+        config.native_monthly_token_limit = input.monthly_token_limit;
+        if let Err(error) = runtime::CompanyConfig::save(&state.daemon.root, &config) {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "native_limit",
+                format!("Native usage limits were not saved: {error:#}"),
+            );
+        }
+        if let Err(error) = state
+            .daemon
+            .authority
+            .emit(
+                &company,
+                "company_native_limit_changed",
+                Some(principal.actor_id()),
+                change,
+            )
+            .await
+        {
+            return api_error(StatusCode::SERVICE_UNAVAILABLE, "authority", format!("Native usage limits were saved but confirmation could not be recorded. Refresh to check them: {error:#}"));
+        }
+    }
+    Json(company_projection::project(&state.daemon, &config, false).await).into_response()
+}

@@ -8,6 +8,7 @@
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import CompanyLimits from '$lib/components/CompanyLimits.svelte';
+	import TelegramChannel from '$lib/components/TelegramChannel.svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import {
@@ -263,9 +264,9 @@
 >
 	{#snippet actions()}
 		<nav class="jump" aria-label="Sections on this page">
-			<a href="#spend">Spend</a><a href="#authority">Authority</a><a href="#tools">Tools</a><a
-				href="#computer">Computer</a
-			>
+			<a href="#spend">Spend</a><a href="#authority">Authority</a><a href="#telegram">Telegram</a><a
+				href="#tools">Tools</a
+			><a href="#computer">Computer</a>
 		</nav>
 	{/snippet}
 	{#if view}
@@ -275,6 +276,7 @@
 			</Notice>{/if}
 		<CompanyLimits section="spend" />
 		<CompanyLimits section="authority" />
+		{#key companyId}<TelegramChannel {companyId} />{/key}
 
 		<Section
 			id="tools"

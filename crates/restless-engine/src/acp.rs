@@ -831,6 +831,13 @@ pub struct TurnUsage {
     /// Cost added by this wake relative to its persisted session baseline,
     /// when the provider reports a cumulative session price.
     pub cost_usd: Option<f64>,
+    /// Identity of the one prompt turn this report belongs to. A native turn
+    /// is recorded under this id, so reporting it twice counts it once.
+    pub turn_id: uuid::Uuid,
+    /// Tokens this prompt turn consumed, when the harness reported a count.
+    pub turn_tokens: Option<u64>,
+    /// Price of this prompt turn alone, when the harness reports a price.
+    pub turn_cost_usd: Option<f64>,
 }
 
 /// One observed turn: the agent's visible text plus the tool calls it made.
@@ -852,6 +859,11 @@ pub struct TurnTranscript {
     /// Provider cumulative price at the start of this process. Kept private:
     /// consumers must use the per-wake delta in `usage`.
     session_cost_baseline_usd: Option<f64>,
+    /// Cumulative provider price when this prompt turn began, and the latest
+    /// one seen during it. Their difference prices the turn alone.
+    turn_cost_baseline_usd: Option<f64>,
+    last_cumulative_cost_usd: Option<f64>,
+    turn_id: uuid::Uuid,
     /// When the agent last said anything at all — the liveness signal the
     /// watchdog reads. Thought chunks count: they are not transcript content,
     /// but they are proof the model is running. A 20-minute wall-clock bound
@@ -873,6 +885,9 @@ impl Default for TurnTranscript {
             last_message_id: None,
             usage: None,
             session_cost_baseline_usd: None,
+            turn_cost_baseline_usd: None,
+            last_cumulative_cost_usd: None,
+            turn_id: uuid::Uuid::new_v4(),
             last_activity: std::time::Instant::now(),
             tools_in_flight: 0,
         }
@@ -889,6 +904,12 @@ fn session_cost_delta(current: Option<f64>, baseline: Option<f64>) -> Option<f64
 }
 
 impl TurnTranscript {
+    /// The id every usage report of this prompt turn carries.
+    #[must_use]
+    pub fn turn_id(&self) -> uuid::Uuid {
+        self.turn_id
+    }
+
     /// Evidence that the agent ran even if the ACP process ended before its
     /// final usage update. Thought-only activity deliberately does not qualify:
     /// it is a liveness pulse, but leaves no replayable transcript or durable
@@ -936,12 +957,21 @@ impl TurnTranscript {
             }
             SessionUpdate::UsageUpdate(usage) => {
                 let cumulative_cost_usd = usage.cost.as_ref().map(|cost| cost.amount);
+                if cumulative_cost_usd.is_some() {
+                    self.last_cumulative_cost_usd = cumulative_cost_usd;
+                }
                 self.usage = Some(TurnUsage {
                     used: usage.used,
                     size: usage.size,
                     cost_usd: session_cost_delta(
                         cumulative_cost_usd,
                         self.session_cost_baseline_usd,
+                    ),
+                    turn_id: self.turn_id,
+                    turn_tokens: self.usage.and_then(|usage| usage.turn_tokens),
+                    turn_cost_usd: session_cost_delta(
+                        cumulative_cost_usd,
+                        self.turn_cost_baseline_usd.or(self.session_cost_baseline_usd),
                     ),
                 });
             }
@@ -1180,7 +1210,7 @@ impl AgentSession {
                 finished = &mut prompt => {
                     return match finished {
                         Ok(response) => {
-                            let output_tokens = response.usage.map(|usage| usage.output_tokens);
+                            let output_tokens = response.usage.as_ref().map(|usage| usage.output_tokens);
                             if let Some(tokens) = output_tokens {
                                 if self.live_observer_enabled.load(Ordering::Acquire) {
                                     if let Some(observer) = &self.observer {
@@ -1190,6 +1220,13 @@ impl AgentSession {
                             }
                             let mut transcript = self.take_transcript();
                             transcript.output_tokens = output_tokens;
+                            // The end-of-turn report is the only per-turn token
+                            // count ACP carries; usage updates are snapshots.
+                            if let (Some(usage), Some(reported)) =
+                                (transcript.usage.as_mut(), response.usage.as_ref())
+                            {
+                                usage.turn_tokens = Some(reported.total_tokens);
+                            }
                             TurnEnd::Completed { transcript }
                         },
                         Err(error) => TurnEnd::Failed {
@@ -1258,8 +1295,12 @@ impl AgentSession {
             .lock()
             .map(|mut guard| {
                 let baseline = guard.session_cost_baseline_usd;
+                let turn_baseline = guard
+                    .last_cumulative_cost_usd
+                    .or(guard.turn_cost_baseline_usd);
                 let transcript = std::mem::take(&mut *guard);
                 guard.session_cost_baseline_usd = baseline;
+                guard.turn_cost_baseline_usd = turn_baseline;
                 transcript
             })
             .unwrap_or_default()

@@ -3214,6 +3214,7 @@
                 kind: "owner_handoff".into(),
                 reference: "00000000-0000-0000-0000-000000000001".into(),
                 party: None,
+                call_key: None,
             },
             category: "decision".into(),
             title: "Choose the launch boundary".into(),

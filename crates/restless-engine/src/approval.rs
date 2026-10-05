@@ -157,10 +157,12 @@ pub async fn decline(
 
 /// The exact Authority records that are an answer to the company, oldest first.
 const DECISION_KINDS: [&str; 3] = ["approval_granted", "approval_declined", "approval_revoked"];
+const TOOL_CALL_DECISION_KINDS: [&str; 2] = ["tool_call_approved", "tool_call_declined"];
 const EMAIL_MANDATE_DECISION_KIND: &str = "email_mandate_proposal_decision";
 
 enum DecisionSubject {
     Party(String),
+    ToolCall { key: String, tool: String },
     EmailMandate {
         proposal_id: String,
         mandate_id: Option<String>,
@@ -217,6 +219,22 @@ pub async fn announce_decisions(
             pending.push((record.id, kind, DecisionSubject::Party(normalize_party(party))));
         }
     }
+    for kind in TOOL_CALL_DECISION_KINDS {
+        let Ok(records) = authority.records_of_kind(company, kind).await else {
+            return 0;
+        };
+        for record in records {
+            let Some(key) = record.body.get("call_key").and_then(|value| value.as_str()) else {
+                continue;
+            };
+            let tool = record.body.get("tool").and_then(|value| value.as_str()).unwrap_or("tool");
+            pending.push((
+                record.id,
+                kind,
+                DecisionSubject::ToolCall { key: key.to_owned(), tool: tool.to_owned() },
+            ));
+        }
+    }
     let Ok(records) = authority.records_of_kind(company, EMAIL_MANDATE_DECISION_KIND).await else {
         return 0;
     };
@@ -267,6 +285,14 @@ pub async fn announce_decisions(
                     _ => format!("The owner revoked approval for real external effects to {party}. Stop any work that depends on reaching them."),
                 };
                 (body, serde_json::json!({ "party": party }))
+            }
+            DecisionSubject::ToolCall { key, tool } => {
+                let body = if kind == "tool_call_approved" {
+                    format!("The owner allowed the prepared {tool} call with key {key}. Retry exactly that call with the same arguments, purpose and key; it runs once.")
+                } else {
+                    format!("The owner declined the prepared {tool} call with key {key}. Do not run it. Work that was waiting on it needs a different route or an explicit decision to stop.")
+                };
+                (body, serde_json::json!({ "call_key": key, "tool": tool }))
             }
             DecisionSubject::EmailMandate { proposal_id, mandate_id, decision } => {
                 let body = if decision == "approve" {
@@ -465,6 +491,8 @@ mod tests {
             mission: String::new(),
             spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(30_000_000),
             monthly_runtime_cap_hours: None,
+            native_monthly_turn_limit: None,
+            native_monthly_token_limit: None,
             auto_sleep_after_minutes: None,
             outcome_standard: Default::default(),
             model: "moonshot/kimi-k3".to_string(),

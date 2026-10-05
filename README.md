@@ -283,6 +283,9 @@ to see how these features work.
 
 ## Getting started
 
+To run a published release as a service with upgrades and backups, follow
+[self-hosting](docs/self-hosting.md). To build from source:
+
 Three commands open the office. You need a **Linux host with Rust/Cargo, Node.js 24/npm,
 Docker with Compose v2, curl, jq and OpenSSL**, Docker running, and at least 30 GiB free for
 the source build and company image.

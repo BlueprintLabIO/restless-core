@@ -55,6 +55,12 @@ impl Supervisor {
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+#[path = "appliance_tailscale.rs"]
+pub mod tailscale;
+
+#[path = "appliance_backup.rs"]
+pub mod backup;
+
 #[derive(Debug, Clone)]
 struct Layout {
     home: PathBuf,
