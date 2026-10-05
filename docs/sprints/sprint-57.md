@@ -215,9 +215,9 @@ never touch the owner's real mailbox or a live company (evaluation-dogfood §9.6
    Codex and Hermes), because tools come from the gateway, not harness configuration.
 6. **Honest gaps.** Adding a service with none of the supported interfaces shows which interface is
    missing. It doesn't produce a fake connection.
-7. **Deletion done.** The per-provider read profiles are removed, after migrating the Clapping Hands
-   connection to an ordinary local MCP grant with its tools classed `reads`. Also removed: the
-   in-Runtime `mcp-remote` path and the legacy in-Runtime stdio transport.
+7. **Deletion done.** The per-provider read profiles are removed, with the in-Runtime `mcp-remote`
+   path and the legacy in-Runtime stdio transport. Clapping Hands is deprecated and was not
+   migrated.
 8. **Stretch: OpenAPI.** One real service with an OpenAPI spec and no MCP server is connected
    through the OSS bridge, and an agent performs one `acts` call with a receipt.
 
@@ -274,8 +274,12 @@ what it deletes.
   class enforcement and routing through the effect runner. *Gateway*
 - [ ] T5 ([ticket](sprint-57/s57-t5-local-worker.md)) — Host-side local MCP worker (generalised `stdio_mcp`), networkable, with credential
   references. *Gateway/Runtime*
-- [ ] T6 — Launch contract: one gateway MCP server per actor, scoped to granted tools; retire
-  in-Runtime `mcp-remote` and legacy stdio; migrate Clapping Hands. *Runtime*
+- [x] T6 — Launch contract: one gateway MCP server per actor, scoped to granted tools; retire
+  in-Runtime `mcp-remote` and legacy stdio. *Runtime* Done by deletion: `connected_tool.rs`,
+  `mcp_gateway.rs`, `stdio_mcp.rs`, the `connected-tool` and `local-mcp` commands, the owner
+  `/company/mcp/*` routes and the Limits page's MCP rows are gone, and `mcp-remote` left the
+  company image. No migration: the owner deprecated Clapping Hands, and Restless carries no bespoke
+  connectors. Legacy Authority tables are left orphaned rather than dropped.
 - [ ] T7 — Exec classification proposal and connection proposals as prepared handoffs; connections
   in Exec context. *OrgIntel*
 - [ ] T8 ([ticket](sprint-57/s57-t8-connections-page.md)) — Company → Connections: suggestions, add by URL, command or plugin, probe status,

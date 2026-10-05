@@ -333,15 +333,13 @@ pub async fn wake(
             .unwrap_or_default();
         let metered = auth.billing == crate::model_gateway::ModelBilling::MeteredApi;
         let harness = config.coordination_harness;
-        let mcp_servers = crate::connected_tool::session_servers(
+        let mcp_servers = crate::tool_gateway::session_servers(
             authority.pool(),
-            org,
             capabilities,
             &config.name,
             "exec",
             None,
             None,
-            matches!(harness, crate::runtime::AgentHarness::Codex),
         )
         .await?;
         let outcome = match harness {

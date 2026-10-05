@@ -44,5 +44,12 @@ provider catalogue.
   dedicated test accounts held host-side.
 - `acts` and `reserved` tools gain a required `_restless {purpose, key?}` argument that the gateway
   strips before forwarding.
-- The legacy profiles in `connected_tool.rs` and `mcp_gateway.rs` remain until the Clapping Hands
-  connection migrates (T6), then are deleted.
+- The legacy connector machinery is deleted (T6): the per-provider read profiles, the Attempt-scoped
+  `/mcp/{company}/{name}` bridge, the in-Runtime `mcp-remote` OAuth path, the in-Runtime and
+  brokered stdio transports and the Clapping Hands read facade. Clapping Hands is deprecated, so
+  nothing was migrated. The gateway is now the only way an actor session receives an MCP server.
+  Restless ships no bespoke or provider-specific connector; first-party connectors may be added
+  later as ordinary connections.
+- Authority no longer creates `provider_connections`, `local_mcp_servers`, `mcp_read_receipts` or
+  `mcp_recurring_read_policies`. Existing installations keep those tables orphaned and unread; no
+  drop migration was written.

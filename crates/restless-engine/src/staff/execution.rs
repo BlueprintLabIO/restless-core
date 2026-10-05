@@ -96,15 +96,13 @@ pub async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcome> {
         None
     };
     let mut continuity_note: Option<String> = None;
-    let mcp_servers = crate::connected_tool::session_servers(
+    let mcp_servers = crate::tool_gateway::session_servers(
         run.authority.pool(),
-        &run.org,
         &run.capabilities,
         &run.company,
         &run.actor,
         run.work_id,
         run.attempt_id,
-        matches!(run.worker_harness, crate::runtime::AgentHarness::Codex),
     )
     .await?;
     let connected_tools =

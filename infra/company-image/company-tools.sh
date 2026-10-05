@@ -30,7 +30,7 @@ tools=(
   codex omp claude-agent-acp
   node npm pnpm bun
   python3 git curl jq rg
-  resend mcp-remote playwright godot chromium socat
+  resend playwright godot chromium socat
   company-supervisorctl supervisorctl
   wmctrl xdotool scrot
   restless-scenario restless-web-review
@@ -49,7 +49,6 @@ purpose_for() {
     git) echo "source control" ;;
     curl|jq|rg) echo "network, JSON, or text utility" ;;
     resend) echo "Resend email CLI" ;;
-    mcp-remote) echo "remote MCP client" ;;
     playwright) echo "browser automation library CLI" ;;
     godot) echo "game editor and exporter" ;;
     chromium) echo "company browser" ;;

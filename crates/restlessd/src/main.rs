@@ -312,7 +312,7 @@ async fn run() -> Result<()> {
 
     let model_capabilities = daemon.capabilities.clone();
     let model_spend = daemon.spend.clone();
-    let local_mcp_daemon = (!daemon.runtime_bridges.is_hosted())
+    let tool_gateway_daemon = (!daemon.runtime_bridges.is_hosted())
         .then(|| std::sync::Arc::clone(&daemon));
     let schedule_daemon = std::sync::Arc::clone(&daemon);
     let idle_daemon = std::sync::Arc::clone(&daemon);
@@ -340,7 +340,7 @@ async fn run() -> Result<()> {
                 &model_root,
                 model_capabilities.clone(),
                 model_spend.clone(),
-                local_mcp_daemon.clone(),
+                tool_gateway_daemon.clone(),
             )
             .await
             {

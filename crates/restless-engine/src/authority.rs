@@ -453,7 +453,6 @@ impl AuthorityStore {
             crate::legal::ensure_schema(&pool).await?;
             crate::finance::ensure_schema(&pool).await?;
             crate::airwallex::ensure_schema(&pool).await?;
-            crate::connected_tool::ensure_schema(&pool).await?;
             crate::connections::ensure_schema(&pool).await?;
             crate::telegram::ensure_schema(&pool).await?;
             crate::member_access::ensure_schema(&pool).await?;
@@ -1185,14 +1184,6 @@ impl AuthorityStore {
             .execute(&mut *tx)
             .await?;
         sqlx::query("DELETE FROM restless_authority.airwallex_connections WHERE company = $1")
-            .bind(company)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("DELETE FROM restless_authority.provider_connections WHERE company = $1")
-            .bind(company)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("DELETE FROM restless_authority.local_mcp_servers WHERE company = $1")
             .bind(company)
             .execute(&mut *tx)
             .await?;

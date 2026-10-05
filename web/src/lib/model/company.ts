@@ -136,35 +136,6 @@ export interface CompanyResource {
 	launch?: ArtifactLaunchDescriptor;
 }
 
-export interface McpReadReceipt {
-	call_id: string;
-	phase: 'started' | 'terminal';
-	actor: string;
-	work_id: string;
-	attempt_id: string;
-	connection_name: string;
-	tool_name: string;
-	tool_contract_digest: string;
-	policy_revision: string;
-	request_digest: string;
-	result_digest: string | null;
-	subject: { kind?: string; site?: string; repository?: string } | null;
-	status: string;
-	provider_status: string | null;
-	observed_at: string;
-	wall_ms: number | null;
-	error_class: string | null;
-}
-
-export interface McpRepinOutcome {
-	name: string;
-	assigned_actor: string;
-	work_id: string;
-	tool_contract_digest: string;
-	policy_revision: string;
-	last_observed_at: string;
-}
-
 export type ArtifactLaunchShape = 'embedded_web' | 'native_client' | 'company_computer';
 
 export interface ArtifactLaunchDescriptor {
@@ -313,45 +284,6 @@ export async function openCompanyResource(
 			method: 'POST',
 			credentials: 'same-origin'
 		})
-	);
-}
-
-export async function disableCompanyMcp(company: string, name: string): Promise<void> {
-	await ownerResponse<unknown>(
-		await fetch(
-			`/api/companies/${encodeURIComponent(company)}/company/mcp/${encodeURIComponent(name)}/disable`,
-			{ method: 'POST', credentials: 'same-origin' }
-		)
-	);
-}
-
-export async function getCompanyMcpReceipts(
-	company: string,
-	name: string
-): Promise<McpReadReceipt[]> {
-	return ownerResponse<McpReadReceipt[]>(
-		await fetch(
-			`/api/companies/${encodeURIComponent(company)}/company/mcp/${encodeURIComponent(name)}/receipts`,
-			{ credentials: 'same-origin', cache: 'no-store' }
-		)
-	);
-}
-
-export async function repinCompanyMcp(
-	company: string,
-	name: string,
-	workId: string
-): Promise<McpRepinOutcome> {
-	return ownerResponse<McpRepinOutcome>(
-		await fetch(
-			`/api/companies/${encodeURIComponent(company)}/company/mcp/${encodeURIComponent(name)}/repin`,
-			{
-				method: 'POST',
-				credentials: 'same-origin',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ work_id: workId })
-			}
-		)
 	);
 }
 

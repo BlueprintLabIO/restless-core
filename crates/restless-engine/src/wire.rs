@@ -42,6 +42,8 @@ pub struct CommonInput {
     pub objective: Option<String>,
     #[serde(default)]
     pub policy: Option<serde_json::Value>,
+    #[serde(default)]
+    pub work_id: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -106,48 +108,6 @@ pub struct AuthorityInput {
     pub email_observe_list: Option<String>,
     #[serde(default)]
     pub email_observe_after: Option<String>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-pub struct ConnectedToolInput {
-    #[serde(default)]
-    pub tool_name: Option<String>,
-    #[serde(default)]
-    pub endpoint: Option<String>,
-    #[serde(default)]
-    pub assigned_actor: Option<String>,
-    #[serde(default)]
-    pub work_id: Option<String>,
-    #[serde(default)]
-    pub attempt_id: Option<String>,
-    #[serde(default)]
-    pub requested_scopes: Vec<String>,
-    #[serde(default)]
-    pub workspace_reference: Option<String>,
-    #[serde(default)]
-    pub observed_tools: Vec<String>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-pub struct LocalMcpInput {
-    #[serde(default)]
-    pub command: Option<String>,
-    #[serde(default)]
-    pub args: Vec<String>,
-    #[serde(default)]
-    pub broker_aware: bool,
-    #[serde(default)]
-    pub token_file: Option<String>,
-    #[serde(default)]
-    pub allowed_tools: Vec<String>,
-    #[serde(default)]
-    pub max_calls_per_work: Option<i32>,
-    #[serde(default)]
-    pub unlimited_read_calls: bool,
-    #[serde(default)]
-    pub read_profile: Option<String>,
-    #[serde(default)]
-    pub target_repository: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -654,12 +614,6 @@ pub struct Request {
     pub lifecycle: LifecycleInput,
     #[serde(flatten)]
     pub authority: AuthorityInput,
-    // Both remote and local MCP commands use this shared name/actor pair.
-    // Duplicating either key in two flattened structs silently loses it.
-    #[serde(flatten)]
-    pub connected_tool: ConnectedToolInput,
-    #[serde(flatten)]
-    pub local_mcp: LocalMcpInput,
     #[serde(flatten)]
     pub orgintel: OrgIntelInput,
     #[serde(flatten)]
@@ -777,14 +731,8 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         | "browser-session-release"
         | "browser-release"
         | "watch"
-        | "connected-tools"
-        | "local-mcp-list"
         | "identity-show"
         | "publish-list" => &[],
-        "local-mcp-receipts" => &["tool_name"],
-        "local-mcp-recurring" => &["tool_name"],
-        "local-mcp-approve-recurring" => &["tool_name", "schedule_id", "responsibility_id", "version", "assigned_actor"],
-        "local-mcp-revoke-recurring" => &["tool_name", "schedule_id"],
         "schedule-wake" => &["adapter"],
         "publish-build" => &[
             "actor",
@@ -1059,63 +1007,6 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         "mandate-permit" => &["mandate_id", "mandate_proposal", "actor"],
         "email-preview" | "email-send" => &["email_request", "actor"],
         "email-observe" => &["actor", "email_observe_list", "email_observe_after"],
-        "connected-tool-install" | "connected-tool-reconnect" => &[
-            "tool_name",
-            "endpoint",
-            "purpose",
-            "assigned_actor",
-            "work_id",
-            "attempt_id",
-            "requested_scopes",
-            "actor",
-        ],
-        "connected-tool-attach" => &["tool_name", "work_id", "actor"],
-        "connected-tool-observe" => &[
-            "tool_name",
-            "workspace_reference",
-            "observed_tools",
-            "actor",
-        ],
-        "connected-tool-disable" => &["tool_name", "actor"],
-        "local-mcp-install" => &[
-            "tool_name",
-            "command",
-            "args",
-            "assigned_actor",
-            "work_id",
-            "broker_aware",
-        ],
-        "local-mcp-install-host" => &[
-            "tool_name",
-            "endpoint",
-            "token_file",
-            "assigned_actor",
-            "work_id",
-            "allowed_tools",
-            "max_calls_per_work",
-            "unlimited_read_calls",
-        ],
-        "local-mcp-install-public-read" => &[
-            "tool_name",
-            "endpoint",
-            "read_profile",
-            "target_repository",
-            "assigned_actor",
-            "work_id",
-            "allowed_tools",
-            "max_calls_per_work",
-            "unlimited_read_calls",
-        ],
-        "local-mcp-install-stdio-read" => &[
-            "tool_name",
-            "command",
-            "args",
-            "assigned_actor",
-            "work_id",
-            "max_calls_per_work",
-            "unlimited_read_calls",
-        ],
-        "local-mcp-disable" => &["tool_name"],
         "identity-evidence-add" => &[
             "identity_pillar",
             "identity_kind",
@@ -1398,16 +1289,6 @@ pub const OWNER_ONLY: &[&str] = &[
     // may use it are owner trust decisions for this sprint.
     "skill-disposition",
     "skill-assign",
-    "local-mcp-install",
-    "local-mcp-install-host",
-    "local-mcp-install-public-read",
-    "local-mcp-install-stdio-read",
-    "local-mcp-disable",
-    "local-mcp-list",
-    "local-mcp-receipts",
-    "local-mcp-recurring",
-    "local-mcp-approve-recurring",
-    "local-mcp-revoke-recurring",
 ];
 
 /// Actor-owned Opportunity mutations. The owner has a separate, future
@@ -1829,19 +1710,6 @@ mod tests {
             "effect",
             "effect-reconcile",
             "watch",
-            "connected-tools",
-            "connected-tool-install",
-            "connected-tool-attach",
-            "connected-tool-reconnect",
-            "connected-tool-observe",
-            "connected-tool-disable",
-            "local-mcp-list",
-            "local-mcp-receipts",
-            "local-mcp-install",
-            "local-mcp-install-host",
-            "local-mcp-install-public-read",
-            "local-mcp-install-stdio-read",
-            "local-mcp-disable",
             "document-review-request",
         ];
         for command in COMMANDS {
@@ -1850,76 +1718,5 @@ mod tests {
                 "dispatch command {command:?} has no checked input view"
             );
         }
-    }
-
-    #[test]
-    fn connected_tool_attach_cannot_supply_new_provider_authority() {
-        let request: Request = serde_json::from_str(
-            r#"{"cmd":"connected-tool-attach","company":"acme_test","tool_name":"crm","work_id":"ebc5691f-f865-402c-8b31-d8389b5a9ea7","actor":"lead"}"#,
-        ).unwrap();
-        assert_eq!(request.connected_tool.tool_name.as_deref(), Some("crm"));
-        assert!(request.connected_tool.endpoint.is_none());
-        assert!(request.connected_tool.requested_scopes.is_empty());
-        assert!(!command_fields("connected-tool-attach")
-            .unwrap()
-            .contains(&"endpoint"));
-        assert!(!command_fields("connected-tool-attach")
-            .unwrap()
-            .contains(&"requested_scopes"));
-    }
-
-    #[test]
-    fn local_mcp_install_decodes_shared_name_and_actor_under_owner_authority() {
-        let request = Request::decode(
-            r#"{"cmd":"local-mcp-install","company":"sydney_resale_test","tool_name":"cash-converters-public-read","command":"/company/clapping-hands/node_modules/.bin/clapping-hands-cash-converters","assigned_actor":"exec","args":[]}"#,
-        )
-        .unwrap();
-        assert_eq!(
-            request.connected_tool.tool_name.as_deref(),
-            Some("cash-converters-public-read")
-        );
-        assert_eq!(
-            request.connected_tool.assigned_actor.as_deref(),
-            Some("exec")
-        );
-        assert_eq!(
-            request.local_mcp.command.as_deref(),
-            Some("/company/clapping-hands/node_modules/.bin/clapping-hands-cash-converters")
-        );
-        assert!(request.local_mcp.args.is_empty());
-        assert!(!request.local_mcp.broker_aware);
-        assert_eq!(
-            authorize(Principal::Owner, &request.cmd).unwrap(),
-            Principal::Owner
-        );
-        assert!(authorize(Principal::CompanyExec, &request.cmd).is_err());
-        let broker_request = Request::decode(
-            r#"{"cmd":"local-mcp-install","company":"sydney_resale_test","tool_name":"broker-reader","command":"/company/bin/broker-reader","assigned_actor":"exec","args":[],"broker_aware":true}"#,
-        )
-        .unwrap();
-        assert!(broker_request.local_mcp.broker_aware);
-    }
-
-    #[test]
-    fn connected_tool_install_decodes_one_authority_owned_purpose() {
-        let request = Request::decode(
-            r#"{"cmd":"connected-tool-install","company":"exp12_attio_test","tool_name":"attio","endpoint":"https://mcp.attio.com/mcp","purpose":"Operate the tutoring-centre pipeline","assigned_actor":"crm-operations","work_id":"ebc5691f-f865-402c-8b31-d8389b5a9ea7","attempt_id":"59b6fd81-438d-48cd-992c-ccd4b0c7eb3f","requested_scopes":["openid","offline_access","mcp"],"actor":"crm-operations"}"#,
-        )
-        .expect("decode connected-tool install");
-
-        assert_eq!(
-            request.authority.purpose.as_deref(),
-            Some("Operate the tutoring-centre pipeline")
-        );
-        assert_eq!(request.connected_tool.tool_name.as_deref(), Some("attio"));
-        assert_eq!(
-            request.connected_tool.assigned_actor.as_deref(),
-            Some("crm-operations")
-        );
-        assert_eq!(request.orgintel.actor.as_deref(), Some("crm-operations"));
-        assert_eq!(
-            request.connected_tool.requested_scopes,
-            ["openid", "offline_access", "mcp"]
-        );
     }
 }

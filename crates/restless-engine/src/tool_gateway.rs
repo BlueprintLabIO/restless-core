@@ -8,10 +8,11 @@
 //! applies first-contact approval, per-call owner approval for `reserved`,
 //! one durable intent per execution and a receipt.
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use agent_client_protocol::schema::v1::{HttpHeader, McpServer, McpServerHttp};
 use axum::{
     body::Body,
     extract::{ConnectInfo, DefaultBodyLimit, Path as AxumPath, State},
@@ -60,6 +61,43 @@ pub fn runtime_url(company: &str) -> String {
     format!("http://host.docker.internal:{port}/tools/{company}")
 }
 
+/// The one MCP server an actor session receives for connected tools, or none
+/// when nothing is granted to this actor. A productive session is bound to its
+/// exact Work and Attempt; any other session gets an actor-scoped capability.
+pub async fn session_servers(
+    pool: &sqlx::PgPool,
+    capabilities: &crate::capability::CapabilityIssuer,
+    company: &str,
+    actor: &str,
+    work_id: Option<Uuid>,
+    attempt_id: Option<Uuid>,
+) -> anyhow::Result<Vec<McpServer>> {
+    if connections::usable_tools(pool, company, actor).await?.is_empty() {
+        return Ok(Vec::new());
+    }
+    let (work_id, attempt_id) = match (work_id, attempt_id) {
+        (Some(work_id), Some(attempt_id)) => (Some(work_id), Some(attempt_id)),
+        _ => (None, None),
+    };
+    let grant = capabilities.issue_tool_session(company, actor, work_id, attempt_id)?;
+    // The nonce changes the ACP/Codex launch contract when a new grant is
+    // issued; the URL carries no secret.
+    let url = format!("{}?launch={}", runtime_url(company), Uuid::new_v4().simple());
+    Ok(vec![McpServer::Http(
+        McpServerHttp::new("restless-tools", url)
+            .headers(vec![HttpHeader::new("Authorization", format!("Bearer {grant}"))]),
+    )])
+}
+
+/// Only the host itself or a container on the default Docker bridge may reach
+/// the gateway listener.
+fn local_runtime_peer(ip: IpAddr) -> bool {
+    if ip.is_loopback() {
+        return true;
+    }
+    matches!(ip, IpAddr::V4(ipv4) if ipv4.octets()[0..2] == [172, 17])
+}
+
 async fn handle(
     State(daemon): State<Arc<Daemon>>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
@@ -70,7 +108,7 @@ async fn handle(
     if request.method() != Method::POST || headers.contains_key("origin") {
         return StatusCode::METHOD_NOT_ALLOWED.into_response();
     }
-    if !crate::mcp_gateway::local_runtime_peer(peer.ip()) {
+    if !local_runtime_peer(peer.ip()) {
         return StatusCode::FORBIDDEN.into_response();
     }
     let Some(token) = headers
@@ -907,6 +945,25 @@ mod tests {
             grant: &other_grant,
         };
         assert!(other.list().await.unwrap().is_empty());
+
+        // The launch contract: a granted actor's session receives exactly the
+        // one gateway server, carrying its own tool-session capability; an
+        // actor with no grant receives no MCP server at all.
+        let issuer = crate::capability::CapabilityIssuer::open(&root).unwrap();
+        let launched = session_servers(&pool, &issuer, &company, "exec", None, None)
+            .await
+            .unwrap();
+        let [McpServer::Http(server)] = launched.as_slice() else {
+            panic!("expected one HTTP gateway server, got {launched:?}");
+        };
+        assert_eq!(server.name, "restless-tools");
+        assert!(server.url.starts_with(&runtime_url(&company)));
+        let bearer = server.headers[0].value.strip_prefix("Bearer ").unwrap();
+        assert_eq!(issuer.verify_tool_session(bearer).unwrap().actor, "exec");
+        assert!(session_servers(&pool, &issuer, &company, "staff-a", None, None)
+            .await
+            .unwrap()
+            .is_empty());
         assert!(other
             .call("mail__search", args(serde_json::json!({"query": "x"})))
             .await
