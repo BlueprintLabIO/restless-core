@@ -16,7 +16,7 @@
 	import { companyBrowserLinks } from '$lib/actions/company-browser-links';
 	import CompanyQueryPersistence from '$lib/components/CompanyQueryPersistence.svelte';
 	import { referenceOptions } from '$lib/model/composer-options.svelte';
-	import ExecutiveRail from '$lib/components/ExecutiveRail.svelte';
+	import type ExecutiveRailView from '$lib/components/ExecutiveRail.svelte';
 	import { presence } from '$lib/model/presence.svelte';
 	import { desktopNotify } from '$lib/model/desktop-notify.svelte';
 	import { ASK_EXEC_EVENT } from '$lib/model/ask-exec';
@@ -54,6 +54,30 @@
 	const principalProjection = $derived(companyPrincipalQuery(companyId));
 	const principal = $derived(principalProjection.view);
 	const ownerAccess = $derived(hasOwnerSurfaceAccess(principal));
+	/* The rail's conversation, composer and Markdown are a large share of a
+	 * company page's code. Phones start with the rail closed, so it loads when
+	 * first opened, or as soon as the owner starts interacting. */
+	let ExecutiveRail = $state<typeof ExecutiveRailView | null>(null);
+	let railLoading: Promise<void> | null = null;
+	function loadRail() {
+		railLoading ??= import('$lib/components/ExecutiveRail.svelte').then(
+			(module) => void (ExecutiveRail = module.default)
+		);
+		return railLoading;
+	}
+	$effect(() => {
+		/* People shows the Exec and leads in the rail at full width. */
+		if (execRailOpen || wideActor) void loadRail();
+	});
+	onMount(() => {
+		const early = () => void loadRail();
+		const events = ['pointerdown', 'keydown'] as const;
+		for (const name of events) window.addEventListener(name, early, { once: true, passive: true });
+		return () => {
+			for (const name of events) window.removeEventListener(name, early);
+		};
+	});
+
 	/* People owns its selected-person conversation, and immersive computer pages
 	 * do not render the Exec rail. Do not keep shell-only rail state polling there. */
 	const peopleConversation = $derived(
@@ -797,57 +821,61 @@
 <CompanyQueryPersistence {companyId} />
 
 {#snippet executiveRail(wide = false)}
-	<ExecutiveRail
-		{wide}
-		focusMessage={wide ? Number(page.url.searchParams.get('focus')) || 0 : 0}
-		messages={railConversation.messages}
-		participantName={railActorName}
-		participantId={railActorId}
-		participantRole={railActorRole}
-		turn={railConversation.activeTurn}
-		{companyId}
-		membershipRole={principal?.membership_role ?? 'member'}
-		connected={railConnected}
-		connectionStatus={railConnectionStatus}
-		conversationStatus={railConversation.status}
-		conversationFailed={Boolean(railConversation.failure)}
-		onrefreshConversation={() => void railConversation.refresh()}
-		needsProvider={!!providerIssue ||
-			railRouteState === 'needs_connection' ||
-			railRouteState === 'unavailable'}
-		providerLabel={providerIssue ? startLinkLabel(providerIssue) : 'Connect intelligence'}
-		contextLabel={currentContext.label}
-		contextKind={currentContext.kind}
-		focusAfterMessageId={railConversation.focusAfterMessageId}
-		focusStartedAt={railConversation.focusStartedAt}
-		newFocusAvailable={railActorId === 'exec' && !focusedAttention && !railWorkId && railConnected}
-		topicLabel={railTopicLabel}
-		topics={focusedAttention || wide ? [] : railTopics}
-		currentTopicKey={railTopicKey}
-		ontopic={chooseTopic}
-		viewerActorId={principal?.actor_id ?? 'owner'}
-		onclose={wide ? null : () => (execRailOpen = false)}
-		focusRequest={railFocusRequest}
-		draftRequest={railDraft}
-		references={ownerAccess
-			? referenceOptions(
-					companyId,
-					workRows,
-					cockpit?.goals ?? [],
-					cockpit?.people ?? [],
-					libraryDocuments.documents
-				)
-			: []}
-		open={wide || execRailOpen}
-		onask={askRail}
-		review={focusedReview && !wide
-			? {
-					onback: closeFocusedContext,
-					ondecide: decideFocusedReview
-				}
-			: null}
-		workContext={focusedAttention && !wide ? { onback: closeFocusedContext } : null}
-	/>
+	{#if ExecutiveRail}
+		<ExecutiveRail
+			{wide}
+			focusMessage={wide ? Number(page.url.searchParams.get('focus')) || 0 : 0}
+			messages={railConversation.messages}
+			participantName={railActorName}
+			participantId={railActorId}
+			participantRole={railActorRole}
+			turn={railConversation.activeTurn}
+			{companyId}
+			membershipRole={principal?.membership_role ?? 'member'}
+			connected={railConnected}
+			connectionStatus={railConnectionStatus}
+			conversationStatus={railConversation.status}
+			conversationFailed={Boolean(railConversation.failure)}
+			onrefreshConversation={() => void railConversation.refresh()}
+			needsProvider={!!providerIssue ||
+				railRouteState === 'needs_connection' ||
+				railRouteState === 'unavailable'}
+			providerLabel={providerIssue ? startLinkLabel(providerIssue) : 'Connect intelligence'}
+			contextLabel={currentContext.label}
+			contextKind={currentContext.kind}
+			focusAfterMessageId={railConversation.focusAfterMessageId}
+			focusStartedAt={railConversation.focusStartedAt}
+			newFocusAvailable={railActorId === 'exec' &&
+				!focusedAttention &&
+				!railWorkId &&
+				railConnected}
+			topicLabel={railTopicLabel}
+			topics={focusedAttention || wide ? [] : railTopics}
+			currentTopicKey={railTopicKey}
+			ontopic={chooseTopic}
+			viewerActorId={principal?.actor_id ?? 'owner'}
+			onclose={wide ? null : () => (execRailOpen = false)}
+			focusRequest={railFocusRequest}
+			draftRequest={railDraft}
+			references={ownerAccess
+				? referenceOptions(
+						companyId,
+						workRows,
+						cockpit?.goals ?? [],
+						cockpit?.people ?? [],
+						libraryDocuments.documents
+					)
+				: []}
+			open={wide || execRailOpen}
+			onask={askRail}
+			review={focusedReview && !wide
+				? {
+						onback: closeFocusedContext,
+						ondecide: decideFocusedReview
+					}
+				: null}
+			workContext={focusedAttention && !wide ? { onback: closeFocusedContext } : null}
+		/>{/if}
 {/snippet}
 
 <div

@@ -1,5 +1,6 @@
 import type { CockpitView } from './generated/cockpit';
 import { responseFailure } from './failure.ts';
+import { bootFetch } from './boot-fetch.ts';
 
 export type {
 	CockpitEffectReceipt as EffectReceipt,
@@ -28,7 +29,7 @@ export interface CompanyCatalogEntry {
 }
 
 export async function getCompanies(): Promise<CompanyCatalogEntry[]> {
-	const response = await fetch('/api/companies', {
+	const response = await bootFetch('/api/companies', {
 		credentials: 'same-origin',
 		cache: 'no-store'
 	});
@@ -81,10 +82,13 @@ export function restoreCompany(company: string): Promise<void> {
 
 export async function getCockpit(company: string, probeCredentials = false): Promise<CockpitView> {
 	const query = probeCredentials ? '?probe_credentials=true' : '';
-	const response = await fetch(`/api/companies/${encodeURIComponent(company)}/cockpit${query}`, {
-		credentials: 'same-origin',
-		cache: 'no-store'
-	});
+	const response = await bootFetch(
+		`/api/companies/${encodeURIComponent(company)}/cockpit${query}`,
+		{
+			credentials: 'same-origin',
+			cache: 'no-store'
+		}
+	);
 	if (!response.ok) throw await responseFailure(response);
 	return response.json();
 }

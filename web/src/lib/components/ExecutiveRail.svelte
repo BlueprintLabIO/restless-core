@@ -18,6 +18,7 @@
 	import Reply from '@lucide/svelte/icons/reply';
 	import X from '@lucide/svelte/icons/x';
 	import { SvelteDate } from 'svelte/reactivity';
+	import { tick } from 'svelte';
 	import Plus from '@lucide/svelte/icons/plus';
 	import RotateCw from '@lucide/svelte/icons/rotate-cw';
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
@@ -221,9 +222,11 @@
 		return new Date(value).getTime();
 	}
 	function handoffsBefore(index: number): AgentExchange[] {
-		if (index === 0) return [];
-		const after = at(visibleMessages[index - 1].createdAt);
-		const until = at(visibleMessages[index].createdAt);
+		/* Indexes the shown window; the message before it may be hidden. */
+		const previous = messages[windowStart + index - 1];
+		if (!previous) return [];
+		const after = at(previous.createdAt);
+		const until = at(messages[windowStart + index].createdAt);
 		return exchanges.exchanges.filter(
 			(exchange) => at(exchange.created_at) > after && at(exchange.created_at) <= until
 		);
@@ -276,7 +279,9 @@
 		return `rail-message-${companyId}-${messageId.replaceAll(':', '-')}`;
 	}
 
-	function jumpToMessage(messageId: string) {
+	async function jumpToMessage(messageId: string) {
+		const index = messages.findIndex((entry) => entry.id === messageId);
+		if (index >= 0 && index < windowStart) await showEarlier(index);
 		const message = document.getElementById(messageDomId(messageId));
 		if (!message) return;
 		scrollEl?.dispatchEvent(new Event('chat-scroll-pause'));
@@ -374,10 +379,10 @@
 	});
 	function unreadRuleBefore(index: number): boolean {
 		if (!seenThrough) return false;
-		const current = visibleMessages[index];
+		const current = messages[windowStart + index];
 		if (!current || current.from === 'you' || messageNumericId(current.id) <= seenThrough)
 			return false;
-		const previous = visibleMessages[index - 1];
+		const previous = messages[windowStart + index - 1];
 		return !previous || messageNumericId(previous.id) <= seenThrough;
 	}
 	function shortTime(value: Date | string): string {
@@ -534,8 +539,38 @@
 		newFocusPending ? pendingFocusAfterMessageId : focusAfterMessageId
 	);
 	const focusActive = $derived(newFocusPending || focusStartedAt !== null);
+	/* The rail sits beside every company page, so it renders only the recent end
+	 * of the conversation; each message is Markdown, and a long history cost
+	 * thousands of nodes on pages that never looked at it. Earlier messages load
+	 * on request, and a closed rail renders no transcript until first opened. */
+	const MESSAGE_WINDOW = 30;
+	let messageWindow = $state(MESSAGE_WINDOW);
+	let windowFor = '';
+	$effect(() => {
+		const key = `${companyId}:${participantId}:${currentTopicKey}`;
+		if (key === windowFor) return;
+		windowFor = key;
+		messageWindow = MESSAGE_WINDOW;
+	});
+	let openedOnce = $state(false);
+	$effect(() => {
+		if (open) openedOnce = true;
+	});
+	const everOpened = $derived(open || openedOnce);
+	const windowStart = $derived(Math.max(0, messages.length - messageWindow));
 	// Each durable reply keeps its own timestamp, intent, and navigation target.
-	const visibleMessages = $derived(messages);
+	const visibleMessages = $derived(windowStart ? messages.slice(windowStart) : messages);
+
+	/* Prepending earlier messages keeps the reader's place rather than jumping
+	 * them to the top of what was just loaded. */
+	async function showEarlier(through = windowStart) {
+		const el = scrollEl;
+		const before = el ? el.scrollHeight - el.scrollTop : 0;
+		el?.dispatchEvent(new Event('chat-scroll-pause'));
+		messageWindow = Math.max(messageWindow + MESSAGE_WINDOW, messages.length - through);
+		await tick();
+		if (el) el.scrollTop = el.scrollHeight - before;
+	}
 	/* Mirrors the transcript's empty-state branch: only there does the
 	 * connect action appear beside its explanation. */
 	const providerPromptInline = $derived(
@@ -572,9 +607,9 @@
 	/* One header for a run: same author, same day, within five minutes, and
 	 * no focus boundary between them. */
 	function continuesRun(index: number): boolean {
-		if (index === 0 || focusDividerBefore(index)) return false;
-		const previous = visibleMessages[index - 1];
-		const current = visibleMessages[index];
+		if (windowStart + index === 0 || focusDividerBefore(index)) return false;
+		const previous = messages[windowStart + index - 1];
+		const current = messages[windowStart + index];
 		return (
 			previous.from === current.from &&
 			dayOf(previous.createdAt) === dayOf(current.createdAt) &&
@@ -584,9 +619,9 @@
 
 	function focusDividerBefore(index: number): boolean {
 		if (!focusActive) return false;
-		const current = visibleMessages[index];
+		const current = messages[windowStart + index];
 		if (!current || firstMessageNumericId(current.id) <= activeFocusAfterMessageId) return false;
-		const previous = visibleMessages[index - 1];
+		const previous = messages[windowStart + index - 1];
 		return !previous || messageNumericId(previous.id) <= activeFocusAfterMessageId;
 	}
 
@@ -766,11 +801,7 @@
 						>
 					{/if}
 					{#if visibleMessages.length}
-						<ConversationHistoryTools
-							messages={visibleMessages}
-							{participantName}
-							onjump={jumpToMessage}
-						/>
+						<ConversationHistoryTools {messages} {participantName} onjump={jumpToMessage} />
 					{/if}
 					{#if !review && !workContext && !wide}
 						<a
@@ -876,11 +907,16 @@
 						key: `${companyId}:${participantId}:${scrollReset}`,
 						memory: `rail:${companyId}:${participantId}:${currentTopicKey}`,
 						onfollow: (following) => {
-							awayFrom = following ? null : visibleMessages.length;
+							awayFrom = following ? null : messages.length;
 						}
 					}}
 				>
-					{#each visibleMessages as message, i (message.id)}
+					{#if everOpened && windowStart}
+						<button type="button" class="exr-earlier" onclick={() => void showEarlier()}
+							>Show earlier messages</button
+						>
+					{/if}
+					{#each everOpened ? visibleMessages : [] as message, i (message.id)}
 						{#if focusDividerBefore(i)}
 							<div class="conversation-focus-boundary">
 								<span>New focus</span><i aria-hidden="true"></i><span>Company memory retained</span>
@@ -890,7 +926,7 @@
 							<div class="unread-rule" role="separator">
 								<span
 									>New since {shortTime(
-										visibleMessages[i - 1]?.createdAt ?? message.createdAt
+										messages[windowStart + i - 1]?.createdAt ?? message.createdAt
 									)}</span
 								>
 							</div>
@@ -1042,8 +1078,8 @@
 							type="button"
 							class="jump-latest"
 							onclick={() => scrollEl?.dispatchEvent(new Event('chat-scroll-end'))}
-							>{visibleMessages.length > awayFrom
-								? `${visibleMessages.length - awayFrom} new ↓`
+							>{messages.length > awayFrom
+								? `${messages.length - awayFrom} new ↓`
 								: 'Jump to latest ↓'}</button
 						>
 					</div>
@@ -1615,6 +1651,19 @@
 		font-weight: 600;
 		cursor: pointer;
 	}
+	.exr-earlier {
+		align-self: center;
+		margin: 6px 0 2px;
+		border: 0;
+		padding: 4px 8px;
+		background: none;
+		color: var(--intent-conversation);
+		font: inherit;
+		font-size: var(--t-label);
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.exr-earlier:focus-visible,
 	.exr-retry:focus-visible {
 		outline: 2px solid var(--intent-conversation);
 		outline-offset: 3px;

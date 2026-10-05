@@ -1,5 +1,6 @@
 import type { QueryClient } from '@tanstack/query-core';
 import { responseFailure } from './failure.ts';
+import { bootFetch } from './boot-fetch.ts';
 
 export const QUERY_CACHE_SCHEMA = 2;
 export const QUERY_CACHE_MAX_AGE_MS = 12 * 60 * 60_000;
@@ -478,7 +479,7 @@ export async function getCompanyPrincipal(
 	company: string,
 	signal?: AbortSignal
 ): Promise<CompanyPrincipal> {
-	const response = await fetch(`/api/companies/${encodeURIComponent(company)}/principal`, {
+	const response = await bootFetch(`/api/companies/${encodeURIComponent(company)}/principal`, {
 		credentials: 'same-origin',
 		cache: 'no-store',
 		signal

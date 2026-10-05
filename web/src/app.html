@@ -20,6 +20,51 @@
 				} catch (error) {}
 			})();
 		</script>
+		<script>
+			/* Start the reads a cold company load always makes while the app's code
+			 * downloads. lib/model/boot-fetch.ts hands each to its first reader. */
+			(function () {
+				var top = {
+					account: 1,
+					company: 1,
+					connections: 1,
+					documents: 1,
+					gallery: 1,
+					'office-demo': 1
+				};
+				var urls = ['/api/companies'];
+				var match = location.pathname.match(/^\/([^/]+)/);
+				if (match && !top[match[1]]) {
+					var base = '/api/companies/' + match[1];
+					urls.push(base + '/principal', base + '/cockpit', base + '/attention');
+					/* A person's conversation: the room list, and the room itself when
+					 * this browser has opened it before (RoomConversation remembers it). */
+					if (/^\/[^/]+\/people\/?$/.test(location.pathname)) {
+						urls.push(base + '/rooms?limit=30');
+						try {
+							var person = new URLSearchParams(location.search).get('person');
+							var room =
+								person &&
+								localStorage.getItem(
+									'restless:' + decodeURIComponent(match[1]) + ':person-room:' + person
+								);
+							if (room) {
+								var path = base + '/rooms/' + encodeURIComponent(room);
+								urls.push(path + '/messages?limit=50', path + '/participants', path + '/read-cursor');
+							}
+						} catch (error) {}
+					}
+				}
+				var reads = {};
+				try {
+					urls.forEach(function (url) {
+						reads[url] = fetch(url, { credentials: 'same-origin', cache: 'no-store' });
+						reads[url].catch(function () {});
+					});
+				} catch (error) {}
+				window.__restlessBoot = reads;
+			})();
+		</script>
 		<meta name="application-name" content="Restless" />
 		<meta name="mobile-web-app-capable" content="yes" />
 		<meta name="apple-mobile-web-app-capable" content="yes" />

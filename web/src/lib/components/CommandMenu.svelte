@@ -183,7 +183,8 @@
 			{flat.length ? `${flat.length} ${flat.length === 1 ? 'result' : 'results'}` : 'No results'}
 		</p>
 		<div class="command-results" id="command-results" role="listbox" bind:this={list}>
-			{#each results as section (section.group)}
+			<!-- The menu is in every company page; its results render only while it is open. -->
+			{#each open ? results : [] as section (section.group)}
 				<div class="command-group" role="group" aria-label={section.group}>
 					<div class="command-group-label" aria-hidden="true">{section.group}</div>
 					{#each section.items as command (command.id)}

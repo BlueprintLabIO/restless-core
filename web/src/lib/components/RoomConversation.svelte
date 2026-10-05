@@ -254,6 +254,16 @@
 	const teams = $derived(
 		ownerAccess ? (cockpitProjection.view?.teams ?? []) : (collaboration.view?.teams ?? [])
 	);
+	/* app.html starts a remembered person's room on the next cold load. */
+	$effect(() => {
+		const room = resolvedPersonRoom;
+		if (!room || room.key !== `${companyId}:${principalActorId}:${requestedPersonId}`) return;
+		try {
+			localStorage.setItem(`restless:${companyId}:person-room:${requestedPersonId}`, room.room.id);
+		} catch {
+			/* Without storage the room is found the ordinary way. */
+		}
+	});
 	function directCanonicalKey(a: string, b: string): string {
 		const [first, second] = [a, b].sort();
 		return `direct:${new TextEncoder().encode(first).length}:${first}:${new TextEncoder().encode(second).length}:${second}`;
@@ -405,6 +415,29 @@
 	const visibleRoots = $derived(
 		pendingMessage && pendingMessage.parent_message_id === null ? [...roots, pendingMessage] : roots
 	);
+	/* A page of history is fifty messages, each rendered as Markdown, which cost
+	 * a phone over a second before the newest showed. The newest fifteen render
+	 * first; older loaded ones come back with "Load older messages", before it
+	 * fetches another page. A linked or searched message is always in view. */
+	const ROOT_WINDOW = 15;
+	let rootWindow = $state(ROOT_WINDOW);
+	let rootWindowFor = '';
+	$effect(() => {
+		if (selectedRoomId === rootWindowFor) return;
+		rootWindowFor = selectedRoomId;
+		rootWindow = ROOT_WINDOW;
+	});
+	const rootStart = $derived.by(() => {
+		const start = Math.max(0, visibleRoots.length - rootWindow);
+		const pinned = [
+			focusedMessageId,
+			exactMessageTarget?.messageId,
+			exactMessageTarget?.threadRootMessageId
+		];
+		const index = visibleRoots.findIndex((message) => pinned.includes(message.id));
+		return index >= 0 ? Math.min(start, index) : start;
+	});
+	const shownRoots = $derived(rootStart ? visibleRoots.slice(rootStart) : visibleRoots);
 	const libraryDocuments = $derived(documentsQuery(ownerAccess ? companyId : ''));
 	const pinnedRoots = $derived.by(() => {
 		const ids = reactions.pinned();
@@ -805,7 +838,8 @@
 	async function loadOlderRoomMessages() {
 		if (!roomProjection || !roomScrollEl) return;
 		const before = roomScrollEl.scrollHeight;
-		await roomProjection.loadMore();
+		if (rootStart) rootWindow = visibleRoots.length - rootStart + ROOT_WINDOW;
+		else await roomProjection.loadMore();
 		await tick();
 		roomScrollEl.scrollTop += roomScrollEl.scrollHeight - before;
 	}
@@ -1214,7 +1248,7 @@
 						{/if}
 					</div>
 				{:else}
-					{#if roomProjection?.hasMore}
+					{#if roomProjection && (rootStart || roomProjection.hasMore)}
 						<button
 							type="button"
 							class="load-message-page"
@@ -1224,15 +1258,15 @@
 							{roomProjection.loadingMore ? 'Loading…' : 'Load older messages'}
 						</button>
 					{/if}
-					{#each visibleRoots as message, index (message.id)}
-						{#each handoffsBefore(index) as exchange (exchange.id)}<HandoffReceipt
+					{#each shownRoots as message, index (message.id)}
+						{#each handoffsBefore(rootStart + index) as exchange (exchange.id)}<HandoffReceipt
 								{exchange}
 								name={exchanges.name}
 							/>{/each}
-						{#if index === 0 || dayKey(message.created_at) !== dayKey(visibleRoots[index - 1].created_at)}
+						{#if index === 0 || dayKey(message.created_at) !== dayKey(shownRoots[index - 1].created_at)}
 							<div class="room-day"><span>{dayLabel(message.created_at)}</span></div>
 						{/if}
-						{#if unreadFrom !== null && message.id > unreadFrom && (index === 0 || visibleRoots[index - 1].id <= unreadFrom)}
+						{#if unreadFrom !== null && message.id > unreadFrom && (rootStart + index === 0 || visibleRoots[rootStart + index - 1].id <= unreadFrom)}
 							<div class="unread-rule"><span>New since your last read</span></div>
 						{/if}
 						<RoomMessage
@@ -1243,11 +1277,11 @@
 								? (emoji, on) => void reactions.react(message.id, emoji, on)
 								: undefined}
 							continued={index > 0 &&
-								continuesRun(visibleRoots[index - 1], message) &&
+								continuesRun(shownRoots[index - 1], message) &&
 								!(
 									unreadFrom !== null &&
 									message.id > unreadFrom &&
-									visibleRoots[index - 1].id <= unreadFrom
+									shownRoots[index - 1].id <= unreadFrom
 								)}
 							presentation={actorMessagesById.get(String(message.id))}
 							hrefFor={(attachment) =>

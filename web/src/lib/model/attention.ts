@@ -9,6 +9,7 @@ import type {
 	ConversationView
 } from './generated/conversation';
 import { responseFailure } from './failure.ts';
+import { bootFetch } from './boot-fetch.ts';
 
 export type {
 	AgentActivityPhase,
@@ -132,7 +133,7 @@ type WireContinuation = {
 };
 
 export async function getAttention(company: string): Promise<AttentionView> {
-	const response = await fetch(`/api/companies/${encodeURIComponent(company)}/attention`, {
+	const response = await bootFetch(`/api/companies/${encodeURIComponent(company)}/attention`, {
 		credentials: 'same-origin',
 		cache: 'no-store'
 	});
