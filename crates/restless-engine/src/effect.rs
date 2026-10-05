@@ -160,6 +160,14 @@ pub struct Receipt {
     pub replayed: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repeat_of: Option<String>,
+    /// Tool-call effects: the connection, the exact arguments as sent and
+    /// every party they reach. Argv effects leave these empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arguments: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parties: Vec<String>,
 }
 
 pub struct EffectEnvironment<'a> {
@@ -267,41 +275,10 @@ pub async fn request_effect(
         Sha256::digest(command_document.to_string().as_bytes())
     );
 
-    let stored_receipt = authority
-        .find_body(&config.name, "effect", "idempotency_key", key)
-        .await?;
-    if let Some(stored) = stored_receipt.as_ref() {
-        let mut receipt: Receipt = serde_json::from_value(stored.clone())
-            .context("stored effect record is not a generic receipt")?;
-        if receipt.command_digest != command_digest {
-            bail!("idempotency key {key:?} was already used with a different command");
-        }
-        if receipt.success {
-            receipt.replayed = true;
-            authority.emit(&config.name, "effect_replayed", Some(actor), serde_json::json!({
-                "effect_class": effect_class, "idempotency_key": key, "receipt_id": receipt.id,
-            })).await?;
-            return Ok(receipt);
-        }
-    }
-    let latest_intent = authority
-        .find_body(&config.name, "effect_intent", "idempotency_key", key)
-        .await?;
-    if let Some(intent) = latest_intent.as_ref() {
-        if intent
-            .get("command_digest")
-            .and_then(serde_json::Value::as_str)
-            != Some(&command_digest)
-        {
-            bail!("idempotency key {key:?} was already used with a different command");
-        }
-        let intent_execution = execution_no(intent);
-        let receipt_execution = stored_receipt.as_ref().map(execution_no).unwrap_or(0);
-        if intent_execution > receipt_execution {
-            bail!(
-                "effect {key:?} has an unknown outcome from execution {intent_execution}; reconcile it against external evidence before retrying"
-            );
-        }
+    let (stored_receipt, replay) =
+        prior_execution(authority, &config.name, effect_class, &command_digest, key, actor).await?;
+    if let Some(receipt) = replay {
+        return Ok(receipt);
     }
 
     let repeat = match party.as_deref() {
@@ -412,6 +389,9 @@ pub async fn request_effect(
         created_at: Utc::now(),
         replayed: false,
         repeat_of: repeat.clone(),
+        connection: None,
+        arguments: None,
+        parties: Vec::new(),
     };
     authority
         .emit(
@@ -427,6 +407,56 @@ pub async fn request_effect(
         })).await?;
     }
     Ok(receipt)
+}
+
+/// The idempotency rule every governed effect shares: a successful receipt
+/// replays, a different command under the same key is refused, and an intent
+/// newer than its receipt is an unknown outcome that blocks blind retry.
+async fn prior_execution(
+    authority: &crate::authority::AuthorityStore,
+    company: &str,
+    effect_class: &str,
+    command_digest: &str,
+    key: &str,
+    actor: &str,
+) -> Result<(Option<serde_json::Value>, Option<Receipt>)> {
+    let stored_receipt = authority
+        .find_body(company, "effect", "idempotency_key", key)
+        .await?;
+    if let Some(stored) = stored_receipt.as_ref() {
+        let mut receipt: Receipt = serde_json::from_value(stored.clone())
+            .context("stored effect record is not a generic receipt")?;
+        if receipt.command_digest != command_digest {
+            bail!("idempotency key {key:?} was already used with a different command");
+        }
+        if receipt.success {
+            receipt.replayed = true;
+            authority.emit(company, "effect_replayed", Some(actor), serde_json::json!({
+                "effect_class": effect_class, "idempotency_key": key, "receipt_id": receipt.id,
+            })).await?;
+            return Ok((stored_receipt, Some(receipt)));
+        }
+    }
+    let latest_intent = authority
+        .find_body(company, "effect_intent", "idempotency_key", key)
+        .await?;
+    if let Some(intent) = latest_intent.as_ref() {
+        if intent
+            .get("command_digest")
+            .and_then(serde_json::Value::as_str)
+            != Some(command_digest)
+        {
+            bail!("idempotency key {key:?} was already used with a different command");
+        }
+        let intent_execution = execution_no(intent);
+        let receipt_execution = stored_receipt.as_ref().map(execution_no).unwrap_or(0);
+        if intent_execution > receipt_execution {
+            bail!(
+                "effect {key:?} has an unknown outcome from execution {intent_execution}; reconcile it against external evidence before retrying"
+            );
+        }
+    }
+    Ok((stored_receipt, None))
 }
 
 fn is_finance_identifier(value: &str) -> bool {
@@ -753,6 +783,438 @@ fn valid_staging_path(path: &str) -> bool {
     leaf.is_some_and(|leaf| leaf.len() == 32 && leaf.bytes().all(|byte| byte.is_ascii_hexdigit()))
 }
 
+// ---------------------------------------------------------------------------
+// Tool-call effects
+//
+// The second execution kind beside argv: a call to a connected MCP tool that
+// the owner granted as `acts` or `reserved`. The gateway holds the upstream
+// session and credential; this function holds the same constitutional layer
+// as an argv effect: first-contact approval for every declared party, owner
+// approval of each `reserved` call, one durable intent per execution, and a
+// receipt. MCP has no idempotency key, so a lost result stays unknown until a
+// governed read settles it.
+
+/// Receipts keep a bounded copy of the provider result. The full result goes
+/// to the caller; the receipt keeps the external references, not the payload.
+const MAX_RECEIPT_RESULT_BYTES: usize = 64 * 1024;
+
+pub struct ToolCall<'a> {
+    pub connection: &'a str,
+    pub tool: &'a str,
+    pub reserved: bool,
+    pub contract_digest: &'a str,
+    pub arguments: serde_json::Value,
+    pub parties: Vec<String>,
+}
+
+/// What the upstream said. `is_error` is a tool-level failure the server
+/// reported, which is a known outcome. A lost response is not a `ToolResult`:
+/// the executor returns `Err`, and the intent stays unknown.
+pub struct ToolResult {
+    pub is_error: bool,
+    pub result: serde_json::Value,
+}
+
+pub fn tool_effect_class(connection: &str) -> String {
+    format!("tool.{connection}")
+}
+
+/// Object keys in sorted order at every depth. The workspace enables
+/// serde_json's `preserve_order`, so the same arguments in another key order
+/// would otherwise be a different command.
+pub fn canonical_json(value: &serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => {
+            let mut keys = map.keys().collect::<Vec<_>>();
+            keys.sort();
+            serde_json::Value::Object(
+                keys.into_iter()
+                    .map(|key| (key.clone(), canonical_json(&map[key])))
+                    .collect(),
+            )
+        }
+        serde_json::Value::Array(values) => {
+            serde_json::Value::Array(values.iter().map(canonical_json).collect())
+        }
+        other => other.clone(),
+    }
+}
+
+/// The digest the owner approves and the idempotency key is bound to.
+pub fn tool_command(call: &ToolCall<'_>, purpose: &str) -> (serde_json::Value, String) {
+    let document = serde_json::json!({
+        "kind": "tool_call",
+        "class": tool_effect_class(call.connection),
+        "connection": call.connection,
+        "tool": call.tool,
+        "arguments": canonical_json(&call.arguments),
+        "parties": call.parties,
+        "purpose": purpose,
+    });
+    let digest = format!("{:x}", Sha256::digest(document.to_string().as_bytes()));
+    (document, digest)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn request_tool_effect<F, Fut>(
+    config: &CompanyConfig,
+    authority: &crate::authority::AuthorityStore,
+    org: Option<&restless_orgintel::OrgIntel>,
+    mut call: ToolCall<'_>,
+    purpose: &str,
+    key: &str,
+    actor: &str,
+    execute: F,
+) -> Result<Receipt>
+where
+    F: FnOnce(serde_json::Value) -> Fut,
+    Fut: std::future::Future<Output = Result<ToolResult>>,
+{
+    if key.trim().is_empty() || key.chars().count() > 200 {
+        bail!("tool effect needs an idempotency key of at most 200 characters");
+    }
+    if purpose.trim().is_empty() || purpose.chars().count() > 1_000 {
+        bail!("effect purpose must contain between 1 and 1,000 characters");
+    }
+    let effect_class = tool_effect_class(call.connection);
+    if !valid_identifier(&effect_class) {
+        bail!("invalid connection name {:?}", call.connection);
+    }
+    let mut parties = call
+        .parties
+        .iter()
+        .map(|party| party.trim().to_lowercase())
+        .filter(|party| !party.is_empty())
+        .collect::<Vec<_>>();
+    parties.sort();
+    parties.dedup();
+    call.parties = parties.clone();
+    let (command_document, command_digest) = tool_command(&call, purpose);
+
+    let (stored_receipt, replay) =
+        prior_execution(authority, &config.name, &effect_class, &command_digest, key, actor).await?;
+    if let Some(receipt) = replay {
+        return Ok(receipt);
+    }
+
+    if call.reserved {
+        match tool_call_decision(authority, &config.name, key, &command_digest).await? {
+            Some(true) => {}
+            Some(false) => bail!("the owner declined this {} call; do not retry it", call.tool),
+            None => {
+                let reason = format!(
+                    "{} on {} asks the owner first; the prepared call is waiting in Attention",
+                    call.tool, call.connection
+                );
+                authority
+                    .emit(
+                        &config.name,
+                        "approval_required",
+                        Some(actor),
+                        serde_json::json!({
+                            "effect_class": effect_class,
+                            "party": serde_json::Value::Null,
+                            "call_key": key,
+                            "command_digest": command_digest,
+                            "connection": call.connection,
+                            "tool": call.tool,
+                            "purpose": purpose,
+                            "reason": reason,
+                            "prepared_command": command_document,
+                        }),
+                    )
+                    .await?;
+                if let Some(org) = org {
+                    let _ = org.ensure_actor("exec", "exec", "exec", "The Exec").await;
+                }
+                bail!("{reason}");
+            }
+        }
+    } else {
+        // Tool credentials stay host-side, so test companies are governed like
+        // live ones: their dedicated test accounts still reach real parties.
+        let mut waiting = Vec::new();
+        for party in &parties {
+            if let crate::approval::Decision::NeedsOwner(reason) =
+                crate::approval::check(config, authority, &effect_class, Some(party), false).await?
+            {
+                authority
+                    .emit(
+                        &config.name,
+                        "approval_required",
+                        Some(actor),
+                        serde_json::json!({
+                            "effect_class": effect_class,
+                            "party": party,
+                            "reason": reason,
+                            "prepared_command": command_document,
+                        }),
+                    )
+                    .await?;
+                waiting.push(reason);
+            }
+        }
+        if !waiting.is_empty() {
+            if let Some(org) = org {
+                let _ = org.ensure_actor("exec", "exec", "exec", "The Exec").await;
+            }
+            bail!("{}", waiting.join("; "));
+        }
+    }
+
+    let mut repeat = None;
+    for party in &parties {
+        if let Some(earlier) =
+            prior_effect_on(authority, &config.name, &effect_class, party, key).await?
+        {
+            repeat = Some(earlier);
+            break;
+        }
+    }
+    let execution_no = stored_receipt
+        .as_ref()
+        .map(execution_no)
+        .unwrap_or(0)
+        .saturating_add(1);
+    let intent = serde_json::json!({
+        "idempotency_key": key,
+        "execution_no": execution_no,
+        "command_digest": command_digest,
+        "effect_class": effect_class,
+        "kind": "tool_call",
+        "connection": call.connection,
+        "tool": call.tool,
+        "contract_digest": call.contract_digest,
+        "parties": parties,
+        "purpose": purpose,
+        "command": command_document,
+        "started_at": Utc::now(),
+    });
+    if !authority
+        .claim_effect_intent(&config.name, actor, intent)
+        .await?
+    {
+        bail!("effect {key:?} execution {execution_no} is already in flight or awaiting reconciliation");
+    }
+    // Past this point a failure to hear back is an unknown external outcome:
+    // the intent stays newer than any receipt and blocks blind retry.
+    let result = execute(call.arguments.clone()).await?;
+    let outcome = serde_json::json!({
+        "status": if result.is_error { "failed" } else { "succeeded" },
+        "result": bounded_result(&result.result),
+    });
+    let receipt = Receipt {
+        id: Uuid::new_v4(),
+        effect_class: effect_class.clone(),
+        command_digest,
+        tool: call.tool.to_string(),
+        purpose: purpose.to_string(),
+        cwd: String::new(),
+        argv: Vec::new(),
+        artifacts: Vec::new(),
+        party: parties.first().cloned(),
+        outcome,
+        success: !result.is_error,
+        actor: actor.to_string(),
+        idempotency_key: key.to_string(),
+        execution_no,
+        created_at: Utc::now(),
+        replayed: false,
+        repeat_of: repeat.clone(),
+        connection: Some(call.connection.to_string()),
+        arguments: Some(call.arguments),
+        parties: parties.clone(),
+    };
+    authority
+        .emit(&config.name, "effect", Some(actor), serde_json::to_value(&receipt)?)
+        .await?;
+    if let Some(earlier_key) = repeat {
+        authority.emit(&config.name, "effect_repeat_party", Some(actor), serde_json::json!({
+            "effect_class": effect_class, "parties": parties, "earlier_key": earlier_key, "this_key": key,
+        })).await?;
+    }
+    Ok(receipt)
+}
+
+fn bounded_result(result: &serde_json::Value) -> serde_json::Value {
+    let text = result.to_string();
+    if text.len() <= MAX_RECEIPT_RESULT_BYTES {
+        return result.clone();
+    }
+    serde_json::json!({
+        "truncated": true,
+        "bytes": text.len(),
+        "sha256": format!("{:x}", Sha256::digest(text.as_bytes())),
+        "structured": result.get("structuredContent").map(|value| {
+            let text = value.to_string();
+            if text.len() <= MAX_RECEIPT_RESULT_BYTES { value.clone() } else { serde_json::Value::Null }
+        }),
+    })
+}
+
+/// The owner's latest answer to this exact prepared call, if any.
+pub async fn tool_call_decision(
+    authority: &crate::authority::AuthorityStore,
+    company: &str,
+    key: &str,
+    command_digest: &str,
+) -> Result<Option<bool>> {
+    let approved = authority
+        .find_body(company, "tool_call_approved", "call_key", key)
+        .await?
+        .filter(|body| body.get("command_digest").and_then(serde_json::Value::as_str) == Some(command_digest));
+    let declined = authority
+        .find_body(company, "tool_call_declined", "call_key", key)
+        .await?
+        .filter(|body| body.get("command_digest").and_then(serde_json::Value::as_str) == Some(command_digest));
+    Ok(match (approved, declined) {
+        (_, Some(_)) => Some(false),
+        (Some(_), None) => Some(true),
+        (None, None) => None,
+    })
+}
+
+/// The owner answers one prepared `reserved` call. The answer binds the exact
+/// command digest, so a changed call under the same key asks again.
+pub async fn decide_tool_call(
+    authority: &crate::authority::AuthorityStore,
+    org: Option<&restless_orgintel::OrgIntel>,
+    company: &str,
+    key: &str,
+    approve: bool,
+    principal: &str,
+) -> Result<String> {
+    let request = authority
+        .find_body(company, "approval_required", "call_key", key)
+        .await?
+        .context("no prepared tool call is waiting under that key")?;
+    let digest = request
+        .get("command_digest")
+        .and_then(serde_json::Value::as_str)
+        .context("prepared tool call has no command digest")?;
+    if tool_call_decision(authority, company, key, digest).await?.is_some() {
+        bail!("this prepared call was already answered");
+    }
+    let tool = request.get("tool").and_then(serde_json::Value::as_str).unwrap_or("tool");
+    authority
+        .emit(
+            company,
+            if approve { "tool_call_approved" } else { "tool_call_declined" },
+            Some(principal),
+            serde_json::json!({
+                "call_key": key,
+                "command_digest": digest,
+                "effect_class": request.get("effect_class"),
+                "tool": tool,
+                "principal": principal,
+            }),
+        )
+        .await?;
+    crate::approval::announce_decisions(company, authority, org).await;
+    Ok(if approve {
+        format!("approved this {tool} call")
+    } else {
+        format!("declined this {tool} call")
+    })
+}
+
+/// Settle an unknown tool-call outcome with evidence: a read receipt on the
+/// same connection, observed after the intent started. `executed` writes a
+/// successful receipt that later replays; `not_executed` writes a failed one
+/// so the same key may run again.
+pub async fn settle_tool_effect(
+    authority: &crate::authority::AuthorityStore,
+    company: &str,
+    key: &str,
+    executed: bool,
+    read_receipt: Uuid,
+    external_ref: Option<&str>,
+    actor: &str,
+) -> Result<Receipt> {
+    let intent = authority
+        .find_body(company, "effect_intent", "idempotency_key", key)
+        .await?
+        .context("no effect intent under that key")?;
+    if intent.get("kind").and_then(serde_json::Value::as_str) != Some("tool_call") {
+        bail!("only tool-call effects settle through a governed read");
+    }
+    let stored = authority
+        .find_body(company, "effect", "idempotency_key", key)
+        .await?;
+    let intent_execution = execution_no(&intent);
+    if stored.as_ref().map(execution_no).unwrap_or(0) >= intent_execution {
+        bail!("effect {key:?} has no unknown outcome to settle");
+    }
+    let connection = intent
+        .get("connection")
+        .and_then(serde_json::Value::as_str)
+        .context("tool intent has no connection")?;
+    let started_at: DateTime<Utc> = serde_json::from_value(
+        intent.get("started_at").cloned().context("tool intent has no start time")?,
+    )?;
+    let evidence = crate::connections::read_receipt(authority.pool(), company, read_receipt)
+        .await?
+        .context("no read receipt with that id")?;
+    if evidence.connection != connection {
+        bail!("the evidence must be a read on {connection:?}");
+    }
+    if evidence.status != "complete" {
+        bail!("the evidence read did not complete");
+    }
+    if evidence.observed_at <= started_at {
+        bail!("the evidence read must happen after the call it settles");
+    }
+    let external_ref = external_ref.map(str::trim).filter(|value| !value.is_empty());
+    if external_ref.is_some_and(|value| value.chars().count() > 500) {
+        bail!("external reference is too long");
+    }
+    let parties = intent
+        .get("parties")
+        .cloned()
+        .map(serde_json::from_value::<Vec<String>>)
+        .transpose()?
+        .unwrap_or_default();
+    let command = intent.get("command").cloned().unwrap_or_default();
+    let receipt = Receipt {
+        id: Uuid::new_v4(),
+        effect_class: intent
+            .get("effect_class")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        command_digest: intent
+            .get("command_digest")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        tool: intent.get("tool").and_then(serde_json::Value::as_str).unwrap_or_default().to_string(),
+        purpose: intent.get("purpose").and_then(serde_json::Value::as_str).unwrap_or_default().to_string(),
+        cwd: String::new(),
+        argv: Vec::new(),
+        artifacts: Vec::new(),
+        party: parties.first().cloned(),
+        outcome: serde_json::json!({
+            "status": if executed { "reconciled_executed" } else { "reconciled_not_executed" },
+            "read_receipt": read_receipt,
+            "external_ref": external_ref,
+        }),
+        success: executed,
+        actor: actor.to_string(),
+        idempotency_key: key.to_string(),
+        execution_no: intent_execution,
+        created_at: Utc::now(),
+        replayed: false,
+        repeat_of: None,
+        connection: Some(connection.to_string()),
+        arguments: command.get("arguments").cloned(),
+        parties,
+    };
+    authority
+        .emit(company, "effect", Some(actor), serde_json::to_value(&receipt)?)
+        .await?;
+    Ok(receipt)
+}
+
 fn default_execution_no() -> i32 {
     1
 }
@@ -782,7 +1244,13 @@ pub async fn prior_effect_on(
         if class.and_then(serde_json::Value::as_str) != Some(effect_class) {
             continue;
         }
-        if event.body.get("party").and_then(serde_json::Value::as_str) != Some(party) {
+        let reached = event.body.get("party").and_then(serde_json::Value::as_str) == Some(party)
+            || event
+                .body
+                .get("parties")
+                .and_then(serde_json::Value::as_array)
+                .is_some_and(|parties| parties.iter().any(|value| value.as_str() == Some(party)));
+        if !reached {
             continue;
         }
         if !event

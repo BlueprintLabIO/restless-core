@@ -1443,7 +1443,7 @@ async fn scoped_connection(
     })
 }
 
-fn local_runtime_peer(ip: IpAddr) -> bool {
+pub(crate) fn local_runtime_peer(ip: IpAddr) -> bool {
     if ip.is_loopback() {
         return true;
     }
