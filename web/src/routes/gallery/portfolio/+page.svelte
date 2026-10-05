@@ -145,16 +145,24 @@
 		scenario === 'fleet' ? fleet : scenario === 'empty' ? [] : scenario === 'many' ? many : core
 	);
 
-	const tabs = $derived<AccountTab[]>([
-		{ label: 'Companies', href: '/gallery/portfolio', active: view === 'portfolio' },
-		{ label: 'Account', href: '/gallery/portfolio?view=account', active: view === 'account' }
-	]);
 	const sections: AccountSection[] = [
-		{ id: 'account', title: 'Account', tooltip: 'Your name and email' },
+		{ id: 'account', title: 'Profile', tooltip: 'Your name and email' },
 		{ id: 'security', title: 'Security', tooltip: 'Passkeys and two-factor sign-in' },
 		{ id: 'billing', title: 'Billing', tooltip: 'Your plan and payment method' },
 		{ id: 'support', title: 'Support', tooltip: 'Get help from the Restless team' }
 	];
+	const tabs = $derived<AccountTab[]>([
+		{ label: 'Home', href: '/gallery/portfolio', active: view === 'portfolio' },
+		{
+			label: 'Account',
+			href: '/gallery/portfolio?view=account',
+			active: view === 'account',
+			items: sections.map((section) => ({
+				label: section.title,
+				href: `/gallery/portfolio?view=account#${section.id}`
+			}))
+		}
+	]);
 </script>
 
 <svelte:head

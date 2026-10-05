@@ -53,8 +53,10 @@ branch `feat/account-sidebar` (`244eaf8`) and the live appliance.
 
 **Default pattern**
 
-- Account-level pages share the company app's top bar: wordmark, a Companies control, the profile
-  menu. There is no left sidebar anywhere.
+- Account-level pages sit beside a quiet left rail: wordmark, Home, Account with its sections, the
+  owner at the foot. It is mostly empty on purpose; account controls are expected to grow there. On a
+  phone it folds into the company app's top bar. (Revised 5 October 2026 by the owner, who chose a rail
+  over the top bar for that growth; the first cut shipped the top bar in 0.5.x.)
 - Rows and cards lead with state and the next action. Configuration hides behind the row.
 - Tooltips, not subtitles; no eyebrow labels; a skeleton instead of a blank canvas.
 
@@ -91,8 +93,8 @@ v2 once its Cloud release pins this Core, and Cloud deploys Fleet first. Field b
 - `CompanyPortfolio`: cards ordered *needs you → working → quiet → dormant*. Each card has the company
   mark, name, run state, one primary action, and the counts with their "as of" age when stale.
 - `CompanyMark`: a deterministic, content-free mark seeded from the company id.
-- `AccountShell`: the top-bar frame for account-level pages (replaces the sidebar from `def503e`), with
-  the profile menu and the mobile layout.
+- `AccountShell`: the rail frame for account-level pages (0.6.0; 0.5.x was a top bar), with Home, items
+  that may list their page's sections, the owner menu at the foot, and the phone top bar.
 - `AccountPage`: one page of titled sections with an in-page index once there are four or more.
 
 ### Core cockpit
@@ -173,3 +175,4 @@ Fleet Web's sidebar layout and the dead shadcn sidebar stack (from `244eaf8`).
 - [x] C58-T7 — Fleet API: accept and store projection v2; OpenAPI and client. *Cloud* (restless-cloud #30)
 - [x] C58-T8 — Fleet Web: adopt 0.5.0; portfolio mapping; single Account page; Compute/Service in card menus; delete the sidebar stack. *Cloud* (restless-cloud #31)
 - [x] C58-T9 — Cloud checks and `artifact:check` against the signed artifact. *Cloud* (#31 CI)
+- [ ] C58-T10 — Account rail (`@restless/ui` 0.6.0) in Core and Fleet Web; hosted planes keep one Home on the account issuer. *UI / Cloud*

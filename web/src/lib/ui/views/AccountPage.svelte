@@ -67,6 +67,12 @@
 		font-size: var(--t-label);
 		text-decoration: none;
 	}
+	/* Beside the account rail its sections are listed there already. */
+	@media (min-width: 761px) {
+		:global(.account-shell) .account-page-index {
+			display: none;
+		}
+	}
 	.account-page-index a:hover {
 		border-color: var(--border-strong);
 		color: var(--ink);

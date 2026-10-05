@@ -30,12 +30,17 @@
 
 	const path = $derived(page.url.pathname);
 	const tabs = $derived<AccountTab[]>([
-		{ label: 'Companies', href: home, active: path === '/' },
+		{ label: 'Home', href: home, active: path === '/', tooltip: 'Your companies' },
 		{
 			label: 'Account',
 			href: '/account',
 			active: path === '/account',
-			tooltip: 'Connections, AI apps and appearance, shared across your companies'
+			tooltip: 'Connections, AI apps and appearance, shared across your companies',
+			items: [
+				{ label: 'Connections', href: '/account#connections' },
+				{ label: 'AI apps', href: '/account#ai-apps' },
+				{ label: 'Appearance', href: '/account#appearance' }
+			]
 		}
 	]);
 </script>
