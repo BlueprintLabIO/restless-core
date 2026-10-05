@@ -9,10 +9,13 @@
 # appliance stays responsive, and the rest wait their turn. Where flock is
 # unavailable (macOS by default) the compiler simply runs.
 #
+# The lock is held by `flock LOCKFILE COMMAND`, never on a descriptor this
+# script opens: Cargo passes rustc its jobserver on inherited descriptors (for
+# example 3 and 9), and taking any of them breaks rustc's parallel codegen.
+#
 # Cargo invokes this as: rustc-wrapper <path-to-rustc> <args...>
 
-rustc="$1"
-shift
+busy=75
 
 if [ -z "${RESTLESS_RUSTC_DIRECT:-}" ] && command -v flock >/dev/null 2>&1; then
 	slots="${RESTLESS_RUSTC_SLOTS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}"
@@ -21,14 +24,10 @@ if [ -z "${RESTLESS_RUSTC_DIRECT:-}" ] && command -v flock >/dev/null 2>&1; then
 		while :; do
 			slot=1
 			while [ "$slot" -le "$slots" ]; do
-				# The lock is held on fd 9 through exec, so it is released
-				# exactly when this compiler and its linker exit. Redirect
-				# nothing else here: a redirection on a bare `exec` is
-				# permanent, and stderr is how Cargo receives every diagnostic.
-				exec 9>"$dir/$slot"
-				if flock -n 9; then
-					exec nice -n 5 "$rustc" "$@"
-				fi
+				# Exit $busy means the slot is taken; anything else is rustc's own result.
+				flock -n -E "$busy" "$dir/$slot" nice -n 5 "$@"
+				status=$?
+				[ "$status" -ne "$busy" ] && exit "$status"
 				slot=$((slot + 1))
 			done
 			sleep 0.1
@@ -36,4 +35,4 @@ if [ -z "${RESTLESS_RUSTC_DIRECT:-}" ] && command -v flock >/dev/null 2>&1; then
 	fi
 fi
 
-exec "$rustc" "$@"
+exec "$@"
