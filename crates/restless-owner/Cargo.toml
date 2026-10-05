@@ -9,6 +9,7 @@ The owner API: the cockpit's HTTP and WebSocket surface over restless-engine.
 """
 
 [dependencies]
+async-trait = "0.1"
 anyhow = "1"
 axum = { version = "0.8", features = ["ws", "multipart"] }
 chrono = "0.4"

@@ -62,7 +62,7 @@ export const COMPANY_PAGES: CompanyPage[] = [
 		group: 'Operations',
 		label: 'Limits',
 		path: '/resources',
-		keywords: 'spend budget authority email payments tools mcp'
+		keywords: 'spend budget authority email payments tools mcp telegram notifications'
 	},
 	{
 		key: 'computer',

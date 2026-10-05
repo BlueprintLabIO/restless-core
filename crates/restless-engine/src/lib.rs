@@ -67,6 +67,7 @@ pub mod schedule_test_proxy;
 pub mod skills;
 pub mod spend;
 pub mod staff;
+pub mod telegram;
 pub mod telemetry;
 pub mod transcript;
 pub mod wire;

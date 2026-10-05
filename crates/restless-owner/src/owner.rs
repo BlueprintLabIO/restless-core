@@ -47,6 +47,8 @@ mod sharing_api;
 pub mod sheets_api;
 #[path = "owner_skills.rs"]
 mod skills_api;
+#[path = "owner_telegram.rs"]
+mod telegram_api;
 #[path = "owner_tool_connections.rs"]
 mod tool_connections_api;
 
@@ -1116,6 +1118,8 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         plane_readiness,
     };
 
+    telegram_api::spawn(state.clone());
+
     // Resume a first native sign-in across a daemon restart. Explicit defaults
     // always win; the same write lock fences competing completed logins.
     if state.entry.network().is_none() {
@@ -1384,6 +1388,12 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route(
             "/companies/{company}/tool-connections/{name}/receipts",
             get(tool_connections_api::receipts),
+        )
+        .route(
+            "/companies/{company}/telegram",
+            get(telegram_api::status)
+                .post(telegram_api::start)
+                .delete(telegram_api::unpair),
         )
         .route("/companies/{company}/approvals/grant", post(grant))
         .route("/companies/{company}/approvals/decline", post(decline))
