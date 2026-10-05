@@ -12,6 +12,9 @@
 # Releases may reuse a separately qualified tool base by exact OCI digest.
 # Local builds still use the stage below, keeping one canonical image recipe.
 ARG RUNTIME_TOOLS_IMAGE=runtime-tools
+# Releases compile the Rust binaries once for every image (infra/rust-binaries) and pass them in
+# with RUST_BINARIES=prebuilt; a plain docker build compiles them in the cli stage below.
+ARG RUST_BINARIES=build
 
 # The coordination CLI (T10): the agents' channel to layer 2, built from this
 # workspace so the binary in the image always matches the source in the tree.
@@ -48,6 +51,11 @@ RUN --mount=type=cache,id=restless-cargo-registry-v1,target=/usr/local/cargo/reg
     && cargo build --release --locked --target "$target" -p restless -p restless-runtime-bridge \
     && install -Dm755 /src/target/$target/release/restless /out/restless \
     && install -Dm755 /src/target/$target/release/restless-runtime-bridge /out/restless-runtime-bridge
+
+FROM cli AS binaries-build
+FROM scratch AS binaries-prebuilt
+COPY prebuilt-rust/restless prebuilt-rust/restless-runtime-bridge /out/
+FROM binaries-${RUST_BINARIES} AS binaries
 
 FROM node:24-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe AS node-runtime
 
@@ -423,7 +431,7 @@ RUN set -eu; \
 # The coordination CLI, and where it finds the daemon from inside the
 # container (TCP: unix sockets do not cross the Docker Desktop file share —
 # probed in T10). RESTLESS_COMPANY is set per container at `docker run`.
-COPY --from=cli /out/restless /out/restless-runtime-bridge /usr/local/bin/
+COPY --from=binaries /out/restless /out/restless-runtime-bridge /usr/local/bin/
 ENV RESTLESS_COORDINATOR=host.docker.internal:7791
 
 # Release metadata changes with source, not with the pinned toolchain. Keep it

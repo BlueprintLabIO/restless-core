@@ -1,4 +1,5 @@
 /** The shared local/CI implementation of Core qualification and construction. */
+import { availableParallelism } from 'node:os';
 import { dag, Container, Directory, Platform, Secret, argument, object, func } from '@dagger.io/dagger';
 
 import { verifyRuntimeToolsImage, verifyCompanyRuntimeImage, verifyNativeDocumentsImage, verifyAccountPlaneImage } from './verify.js';
@@ -15,8 +16,12 @@ const ACCOUNT_INPUTS = ['infra/account-plane/Dockerfile', 'Cargo.toml', 'Cargo.l
   'services/native-sheets/src/**', 'services/native-sheets/NOTICE'];
 const RUNTIME_INPUTS = ['infra/company-image/**', 'Cargo.toml', 'Cargo.lock', 'crates/**',
   'tools/scenario/restless-scenario.mjs', 'tools/web-review/restless-web-review.mjs', 'tools/codex-runner/**'];
-// The x64 builder has 20 threads; two Rust builds run side by side. arm64 keeps the old bound.
-const cargoJobs = (platform: string = 'linux/amd64') => platform === 'linux/amd64' ? '8' : '2';
+const RUST_INPUTS = ['infra/rust-binaries/Dockerfile', 'Cargo.toml', 'Cargo.lock', 'crates/**',
+  'tools/codex-runner/**', 'tools/custom-harness/**', 'tools/harness-auth/**', 'tools/schedule-test-proxy.py',
+  'docs/COMPANY_OPERATING_RULES.md'];
+// One Rust compile at a time now uses every x64 builder thread: a release builds its binaries once
+// (rustBinaries) instead of two image builds sharing the machine. arm64 keeps the old bound.
+const cargoJobs = (platform: string = 'linux/amd64') => platform === 'linux/amd64' ? String(availableParallelism()) : '2';
 
 function project(source: Directory, path: string, base: Container = dag.container().from(NODE_IMAGE)): Container {
   const files = source.directory(path);
@@ -159,13 +164,29 @@ export class RestlessCore {
     return verifyRuntimeToolsImage(this.runtimeTools(source, platform), source.file('infra/company-image/verify-desktop.mjs'));
   }
 
+  /** Compile every release Rust binary once (restlessd, restless, restless-runtime-bridge) for all images. */
+  @func()
+  rustBinaries(
+    @argument({ ignore: ['**', '!infra/rust-binaries/Dockerfile', '!Cargo.toml', '!Cargo.lock', '!crates/**',
+      '!tools/codex-runner/**', '!tools/custom-harness/**', '!tools/harness-auth/**', '!tools/schedule-test-proxy.py',
+      '!docs/COMPANY_OPERATING_RULES.md', '**/target/**', '**/.env', '**/.env.*'] })
+    source: Directory, revision: string, platform: string = 'linux/amd64',
+  ): Directory {
+    checkPlatform(platform);
+    if (!/^[0-9a-f]{40}$/.test(revision)) throw new Error('release binaries require exact source provenance');
+    return dag.directory().withDirectory('/', source, { include: RUST_INPUTS, exclude: EXCLUDES })
+      .dockerBuild({ dockerfile: 'infra/rust-binaries/Dockerfile', platform,
+        buildArgs: [{ name: 'SOURCE_REVISION', value: revision }, { name: 'CARGO_BUILD_JOBS', value: cargoJobs(platform) }] })
+      .directory('/out');
+  }
+
   /** Construct the canonical Runtime, optionally reusing an admitted tool base. */
   @func()
   async companyRuntime(
     @argument({ ignore: ['**', '!Cargo.toml', '!Cargo.lock', '!crates/**', '!infra/company-image/**',
       '!tools/scenario/restless-scenario.mjs', '!tools/web-review/restless-web-review.mjs', '!tools/codex-runner/**',
       'infra/company-image/test_supervision_contract.py', '**/node_modules/**', '**/target/**', '**/__pycache__/**', '**/.env', '**/.env.*'] })
-    source: Directory, revision: string, platform: string = 'linux/amd64', toolsImage: string = '',
+    source: Directory, revision: string, platform: string = 'linux/amd64', toolsImage: string = '', binaries?: Directory,
   ): Promise<Container> {
     checkPlatform(platform);
     if (!/^[0-9a-f]{40}$/.test(revision)) throw new Error('company Runtime requires exact source provenance');
@@ -185,11 +206,14 @@ export class RestlessCore {
     ];
     // Composition metadata is configuration, not a toolchain or compiler input.
     // Keep it outside Dockerfile translation so a new revision reuses the image.
-    let image = dag.directory().withDirectory('/', source, {
+    let context = dag.directory().withDirectory('/', source, {
       include: RUNTIME_INPUTS, exclude: [...EXCLUDES, 'infra/company-image/test_supervision_contract.py'],
-    })
+    });
+    if (binaries) context = context.withDirectory('prebuilt-rust', binaries);
+    let image = context
       .dockerBuild({ dockerfile: 'infra/company-image/Dockerfile', platform,
         buildArgs: [{ name: 'CARGO_BUILD_JOBS', value: cargoJobs(platform) },
+          { name: 'RUST_BINARIES', value: binaries ? 'prebuilt' : 'build' },
           ...(toolsImage ? [{ name: 'RUNTIME_TOOLS_IMAGE', value: toolsImage }] : [])] });
     for (const [name, value] of values) {
       if (!value) throw new Error(`missing canonical release value: ${name}`);
@@ -206,9 +230,9 @@ export class RestlessCore {
     @argument({ ignore: ['**', '!Cargo.toml', '!Cargo.lock', '!crates/**', '!infra/company-image/**',
       '!tools/scenario/restless-scenario.mjs', '!tools/web-review/restless-web-review.mjs', '!tools/codex-runner/**',
       'infra/company-image/test_supervision_contract.py', '**/node_modules/**', '**/target/**', '**/__pycache__/**', '**/.env', '**/.env.*'] })
-    source: Directory, revision: string, platform: string = 'linux/amd64', toolsImage: string = '',
+    source: Directory, revision: string, platform: string = 'linux/amd64', toolsImage: string = '', binaries?: Directory,
   ): Promise<string> {
-    return verifyCompanyRuntimeImage(await this.companyRuntime(source, revision, platform, toolsImage), revision);
+    return verifyCompanyRuntimeImage(await this.companyRuntime(source, revision, platform, toolsImage, binaries), revision);
   }
 
   /** Run the current Core checks through the same functions used for builds. */
@@ -304,31 +328,33 @@ export class RestlessCore {
     const timings: Timing[] = [];
     await timed(timings, 'release contracts', () => this.verifyRelease(source));
     const toolsContext = source.filter({ include: ['infra/company-image/Dockerfile', 'infra/company-image/gtk-settings.ini', 'infra/company-image/browser-sbom.mjs'] });
-    let artifacts = await timed(timings, 'runtime-tools', () => publishImage('runtime-tools', revision, platform, toolsContext,
-      async () => this.runtimeTools(source, platform), async image => { console.log(await verifyRuntimeToolsImage(image, source.file('infra/company-image/verify-desktop.mjs'))); },
-      username, password, scanPeriod));
+    // The Rust binaries and the runtime tool base are independent: build them together.
+    const binaries = this.rustBinaries(source, revision, platform);
+    let [, artifacts] = await Promise.all([
+      timed(timings, 'rust binaries (restlessd, restless, runtime bridge)', () => binaries.sync()),
+      timed(timings, 'runtime-tools', () => publishImage('runtime-tools', revision, platform, toolsContext,
+        async () => this.runtimeTools(source, platform), async image => { console.log(await verifyRuntimeToolsImage(image, source.file('infra/company-image/verify-desktop.mjs'))); },
+        username, password, scanPeriod)),
+    ]);
     const tools = JSON.parse(await artifacts.file('images/runtime-tools.json').contents());
     const nativeContext = source.directory('services/native-documents-collaboration').filter({
       include: ['Dockerfile', 'package.json', 'package-lock.json', 'tsconfig.json', 'tsconfig.build.json', 'src/**'], exclude: EXCLUDES,
     });
     const tasks = [
       () => publishImage('account-plane', revision, platform, source.filter({ include: [...ACCOUNT_INPUTS, 'web/**'], exclude: EXCLUDES }),
-        async () => this.accountPlane(source, revision, platform), async image => { console.log(await verifyAccountPlaneImage(image)); },
+        async () => this.accountPlane(source, revision, platform, binaries), async image => { console.log(await verifyAccountPlaneImage(image)); },
         username, password, scanPeriod),
       () => publishImage('native-documents-collaboration', revision, platform, nativeContext,
         async () => this.nativeDocuments(source, revision, platform), async image => { console.log(await verifyNativeDocumentsImage(image)); },
         username, password, scanPeriod),
       () => publishImage('company-runtime', revision, platform, source.filter({
         include: RUNTIME_INPUTS, exclude: [...EXCLUDES, 'infra/company-image/test_supervision_contract.py'],
-      }), async () => this.companyRuntime(source, revision, platform, tools.reference),
+      }), async () => this.companyRuntime(source, revision, platform, tools.reference, binaries),
         async image => { console.log(await verifyCompanyRuntimeImage(image, revision)); }, username, password, scanPeriod),
     ];
-    // Bound independent work on the first builder instead of oversubscribing it.
-    for (let offset = 0; offset < tasks.length; offset += 2) {
-      const results = await timed(timings, `image round ${offset / 2 + 1}`,
-        () => Promise.all(tasks.slice(offset, offset + 2).map(task => task())));
-      for (const result of results) artifacts = artifacts.withDirectory('/', result);
-    }
+    // With the Rust compiled once above, the images only assemble layers: build all three at once.
+    const results = await timed(timings, 'images', () => Promise.all(tasks.map(task => task())));
+    for (const result of results) artifacts = artifacts.withDirectory('/', result);
     return artifacts.withNewFile('timings/publish.json', timingsFile(timings));
   }
 
@@ -409,14 +435,16 @@ export class RestlessCore {
       '!docs/COMPANY_OPERATING_RULES.md', '!infra/account-plane/Dockerfile', '!services/native-sheets/package.json',
       '!services/native-sheets/package-lock.json', '!services/native-sheets/src/**', '!services/native-sheets/NOTICE',
       '!web/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/.env', '**/.env.*'] })
-    source: Directory, revision: string, platform: string = 'linux/amd64',
+    source: Directory, revision: string, platform: string = 'linux/amd64', binaries?: Directory,
   ): Container {
     checkPlatform(platform);
     if (!/^[0-9a-f]{40}$/.test(revision)) throw new Error('account plane requires exact source provenance');
-    const context = dag.directory().withDirectory('/', source, { include: ACCOUNT_INPUTS, exclude: EXCLUDES })
+    let context = dag.directory().withDirectory('/', source, { include: ACCOUNT_INPUTS, exclude: EXCLUDES })
       .withDirectory('web/build', this.cockpit(source));
+    if (binaries) context = context.withDirectory('prebuilt-rust', binaries);
     return context.dockerBuild({ dockerfile: 'infra/account-plane/Dockerfile', platform,
-      buildArgs: [{ name: 'SOURCE_REVISION', value: revision }, { name: 'CARGO_BUILD_JOBS', value: cargoJobs(platform) }] })
+      buildArgs: [{ name: 'SOURCE_REVISION', value: revision }, { name: 'CARGO_BUILD_JOBS', value: cargoJobs(platform) },
+        { name: 'RUST_BINARIES', value: binaries ? 'prebuilt' : 'build' }] })
       .withLabel('org.opencontainers.image.revision', revision)
       .withLabel('org.opencontainers.image.source', 'https://github.com/BlueprintLabIO/restless-core');
   }
@@ -429,8 +457,8 @@ export class RestlessCore {
       '!docs/COMPANY_OPERATING_RULES.md', '!infra/account-plane/Dockerfile', '!services/native-sheets/package.json',
       '!services/native-sheets/package-lock.json', '!services/native-sheets/src/**', '!services/native-sheets/NOTICE',
       '!web/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/.env', '**/.env.*'] })
-    source: Directory, revision: string, platform: string = 'linux/amd64',
+    source: Directory, revision: string, platform: string = 'linux/amd64', binaries?: Directory,
   ): Promise<string> {
-    return verifyAccountPlaneImage(this.accountPlane(source, revision, platform));
+    return verifyAccountPlaneImage(this.accountPlane(source, revision, platform, binaries));
   }
 }

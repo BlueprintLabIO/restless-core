@@ -13,6 +13,10 @@
 # computer with a desktop, browser and toolchain; this one runs a single
 # credential-holding service and should stay as small as its job.
 
+# Releases compile the Rust binaries once for every image (infra/rust-binaries) and pass them in
+# with RUST_BINARIES=prebuilt; a plain docker build compiles them in the build stage below.
+ARG RUST_BINARIES=build
+
 FROM --platform=$BUILDPLATFORM rust:1-bookworm@sha256:59037199c44290f2befcdd58dcc540164763fc296950255aaefeef096a1866b0 AS build
 # Compile on the builder CPU; only the final image executes target binaries.
 # Debian's target GNU compiler/sysroot also serves Rust dependencies that build C.
@@ -67,6 +71,11 @@ RUN --mount=type=cache,id=restless-cargo-registry-v1,target=/usr/local/cargo/reg
 # A Cloud-managed owner VM runs this image in local Runtime mode, where the plane
 # starts company containers itself through the host's Docker socket. Only the
 # static client is copied; the image never runs a Docker daemon.
+FROM build AS binaries-build
+FROM scratch AS binaries-prebuilt
+COPY prebuilt-rust/restlessd prebuilt-rust/restless /out/
+FROM binaries-${RUST_BINARIES} AS binaries
+
 FROM docker:29.8.2-cli@sha256:b1805116a6a86cc591b5d5f60a910a0715cdcc9d18d866ad68b1457ead25c35c AS docker-cli
 FROM node:24-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe AS node-runtime
 FROM ubuntu:24.04@sha256:a853f94d226358a79c740cfc7bce0c289748f3fe3488d921d038ccd752c61b60
@@ -104,10 +113,10 @@ RUN npm install -g bun@1.3.14 \
     && npm cache clean --force \
     && omp --version
 
-COPY --from=build /out/restlessd /usr/local/bin/restlessd
+COPY --from=binaries /out/restlessd /usr/local/bin/restlessd
 # The owner CLI travels with the plane so scripts/install-core.sh can install a
 # self-hosted appliance from this exact signed image.
-COPY --from=build /out/restless /usr/local/bin/restless
+COPY --from=binaries /out/restless /usr/local/bin/restless
 COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 COPY services/native-sheets/package.json services/native-sheets/package-lock.json /opt/restless/native-sheets/
 RUN npm --prefix /opt/restless/native-sheets ci --omit=dev --no-audit --no-fund && npm cache clean --force
