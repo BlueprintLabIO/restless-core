@@ -617,6 +617,7 @@ mod tests {
             used,
             size: 256_000,
             cost_usd: cost,
+            ..Default::default()
         });
         transcript
     }

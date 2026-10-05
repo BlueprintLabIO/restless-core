@@ -143,6 +143,7 @@ struct Limits {
     cannot: Vec<LimitStatement>,
     approved_parties: Vec<String>,
     spend: SpendLimit,
+    native: NativeLimit,
     runtime: RuntimeLimit,
     money_envelopes: Vec<finance::MoneyEnvelope>,
 }
@@ -158,6 +159,23 @@ struct RuntimeLimit {
     monthly_runtime_cap_hours: Option<u32>,
     usage: Option<crate::runtime_usage::RuntimeUsage>,
     usage_status: &'static str,
+}
+
+/// Native-harness use this UTC month, beside metered spend.
+#[derive(Debug, Serialize)]
+struct NativeLimit {
+    month_utc: String,
+    turns: u64,
+    tokens: u64,
+    /// Turns whose harness reported no token count; `tokens` is then a floor.
+    turns_without_tokens: u64,
+    /// Sum of the prices harnesses reported, never a rate-table guess.
+    /// `None` when no turn reported one.
+    estimated_usd: Option<f64>,
+    turns_without_estimate: u64,
+    monthly_turn_limit: Option<u32>,
+    monthly_token_limit: Option<u64>,
+    status: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -365,6 +383,25 @@ pub async fn project(
         },
     };
 
+    let now = Utc::now();
+    let native_usage = daemon.spend.native_usage(&config.name, now);
+    let native = NativeLimit {
+        month_utc: now.format("%Y-%m").to_string(),
+        turns: native_usage.turns,
+        tokens: native_usage.tokens,
+        turns_without_tokens: native_usage.turns_without_tokens,
+        estimated_usd: (native_usage.turns > native_usage.turns_without_estimate)
+            .then(|| round_usd(native_usage.estimated_cost_micro_usd as f64 / 1_000_000.0)),
+        turns_without_estimate: native_usage.turns_without_estimate,
+        monthly_turn_limit: config.native_monthly_turn_limit,
+        monthly_token_limit: config.native_monthly_token_limit,
+        status: if crate::spend::native_limit_reason(config, &native_usage).is_some() {
+            "exhausted"
+        } else {
+            "available"
+        },
+    };
+
     let legal_identity = authority
         .as_ref()
         .and_then(|value| value.legal_profile.as_ref())
@@ -454,6 +491,7 @@ pub async fn project(
             .map(|value| value.approved_parties.clone())
             .unwrap_or_default(),
         spend,
+        native,
         runtime: RuntimeLimit {
             auto_sleep_after_minutes: config.auto_sleep_after_minutes,
             sleep_after_minutes: config.sleep_after().map(|after| after.as_secs() / 60),

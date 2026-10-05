@@ -1282,6 +1282,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(company_settings_api::save_runtime_policy),
         )
         .route(
+            "/companies/{company}/company/native-limit",
+            post(company_settings_api::save_native_limit),
+        )
+        .route(
             "/companies/{company}/company/harnesses",
             post(set_company_harnesses),
         )
