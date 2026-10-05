@@ -514,13 +514,14 @@ async fn run() -> Result<()> {
 
     // The owner API is useful during recovery for diagnosis and read-only
     // inspection. Mutation paths share LifecycleGate and remain closed until
-    // the asynchronous recovery task opens admission.
+    // the asynchronous recovery task opens admission. It is a required
+    // listener: if it cannot start (network-entry keys unavailable, port in
+    // use) or stops, the daemon exits non-zero like any other required boot
+    // failure, so a supervisor restarts it instead of a plane that answers
+    // nobody.
     let owner_daemon = std::sync::Arc::clone(&daemon);
-    tokio::spawn(async move {
-        if let Err(error) = owner::serve(owner_daemon, owner_config).await {
-            tracing::error!("owner gateway stopped: {error:#}");
-        }
-    });
+    let owner_gateway = tokio::spawn(owner::serve(owner_daemon, owner_config));
+    tokio::pin!(owner_gateway);
     // T6: the scheduler is what makes the company act without the owner
     // typing — time triggers (exec-set schedules + periodic tick) and
     // OrgIntel LISTEN/NOTIFY events share one loop. Product integration tests
@@ -670,6 +671,13 @@ async fn run() -> Result<()> {
             () = &mut shutdown => {
                 tracing::info!("shutdown requested; stopping supervised daemon children");
                 break;
+            }
+            stopped = &mut owner_gateway => {
+                return match stopped {
+                    Ok(Ok(())) => Err(anyhow::anyhow!("owner gateway stopped")),
+                    Ok(Err(error)) => Err(error.context("owner gateway stopped")),
+                    Err(error) => Err(anyhow::Error::new(error).context("owner gateway task failed")),
+                };
             }
         }
     }

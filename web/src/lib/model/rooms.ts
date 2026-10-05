@@ -413,7 +413,9 @@ export function sendRoomMessage(
 	body: string,
 	commandId: string,
 	parentMessageId: number | null,
-	mentions: NewRoomMention[] = []
+	mentions: NewRoomMention[] = [],
+	/** A mention of the sender this Thread reply answers. */
+	resolvesMentionId: string | null = null
 ): Promise<RoomMessageSendResult> {
 	const endpoint = parentMessageId
 		? `${roomPath(company, room)}/messages/${encodeURIComponent(parentMessageId)}/replies`
@@ -421,7 +423,12 @@ export function sendRoomMessage(
 	return roomJson(endpoint, {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify({ body, command_id: commandId, mentions })
+		body: JSON.stringify({
+			body,
+			command_id: commandId,
+			mentions,
+			...(resolvesMentionId ? { resolves_mention_id: resolvesMentionId } : {})
+		})
 	});
 }
 

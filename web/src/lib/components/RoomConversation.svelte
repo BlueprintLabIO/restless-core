@@ -243,11 +243,13 @@
 	const currentActorId = $derived(
 		principalProjection.view?.actor_id ?? readProjection?.actorId ?? ''
 	);
+	// Everyone who can author or be named here, the owner included: a member
+	// reads the owner's name, not the `owner` Actor id.
+	const roster = $derived(
+		ownerAccess ? (cockpitProjection.view?.people ?? []) : (collaboration.view?.people ?? [])
+	);
 	const people = $derived(
-		(ownerAccess
-			? (cockpitProjection.view?.people ?? [])
-			: (collaboration.view?.people ?? [])
-		).filter((person) => person.kind !== 'owner' && person.kind !== 'system')
+		roster.filter((person) => person.kind !== 'owner' && person.kind !== 'system')
 	);
 	const teams = $derived(
 		ownerAccess ? (cockpitProjection.view?.teams ?? []) : (collaboration.view?.teams ?? [])
@@ -640,15 +642,37 @@
 			});
 	});
 
+	function displayName(actorId: string): string {
+		return roster.find((person) => person.actor_id === actorId)?.display ?? actorId;
+	}
+
 	function actorName(actorId: string): string {
-		if (actorId === currentActorId) return 'You';
-		return people.find((person) => person.actor_id === actorId)?.display ?? actorId;
+		return actorId === currentActorId ? 'You' : displayName(actorId);
 	}
 
 	function actorIsAgent(actorId: string): boolean {
 		const kind = people.find((person) => person.actor_id === actorId)?.kind;
 		return actorId === 'exec' || kind === 'exec' || kind === 'staff';
 	}
+
+	// An open mention of the viewer in the open Thread: a reply there may
+	// answer it, which clears it from their attention.
+	const answerableMention = $derived(
+		threadRootId === null
+			? null
+			: ([...(roomProjection?.mentions ?? []), ...(threadProjection?.mentions ?? [])].find(
+					(mention) =>
+						mention.thread_root_message_id === threadRootId &&
+						mention.mentioned_actor_id === currentActorId &&
+						mention.resolution_message_id === null &&
+						mention.cancelled_event_id === null
+				) ?? null)
+	);
+	let resolvesMention = $state(true);
+	$effect(() => {
+		void answerableMention?.id;
+		resolvesMention = true;
+	});
 
 	function mentionsFor(messageId: number) {
 		const mentions = [...(roomProjection?.mentions ?? []), ...(threadProjection?.mentions ?? [])];
@@ -855,6 +879,8 @@
 			currentActorId === targetActor &&
 			threadRootId === parent;
 		const mentions = knownMentions(body);
+		const resolvesMentionId =
+			parent !== null && resolvesMention ? (answerableMention?.id ?? null) : null;
 		const followDirectReply =
 			!sendAsAccountableLead && parent === null && !!directPartner && actorIsAgent(directPartner);
 		writeRoomDraft(targetDraft, { body, commandId, updatedAt: new Date().toISOString() });
@@ -901,7 +927,8 @@
 					body,
 					commandId,
 					parent,
-					mentions
+					mentions,
+					resolvesMentionId
 				);
 				sentMessageId = result.message.id;
 				targetProjection?.accept(result);
@@ -1417,6 +1444,7 @@
 							? `search:${selectedRoomId}:${focusedMessageId}`
 							: exactTargetKey}
 						mentions={mentionsFor(message.id)}
+						nameFor={actorName}
 						thread
 						canEdit={message.id > 0 && !message.deleted_at && message.from_actor === currentActorId}
 						canDelete={mayDelete(message)}
@@ -1497,6 +1525,17 @@
 				{/if}
 			{/snippet}
 		</Composer>
+		{#if answerableMention}
+			<label
+				class="resolve-mention"
+				title={answerableMention.expected_response
+					? `Your reply answers the request: ${answerableMention.expected_response}`
+					: 'Your reply answers the request addressed to you in this Thread.'}
+			>
+				<input type="checkbox" bind:checked={resolvesMention} />
+				Answers the request
+			</label>
+		{/if}
 		{#if sendError}<p class="room-send-error" role="alert">{sendError}</p>{/if}
 		{#if sendNotice}<p class="room-send-notice" role="status">{sendNotice}</p>{/if}
 		{#if accountableDirect && composerFiles.length}<p class="room-draft-state">
@@ -1627,6 +1666,16 @@
 		font-size: var(--t-label);
 	}
 
+	.resolve-mention {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		margin: 6px 2px 0;
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+		white-space: nowrap;
+		cursor: pointer;
+	}
 	.rooms-screen {
 		width: 100%;
 		height: 100%;

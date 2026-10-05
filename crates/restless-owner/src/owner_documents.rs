@@ -355,6 +355,10 @@ async fn resolve_native_documents_company(
     }
 }
 
+/// The native Documents service's authentication close code
+/// (services/native-documents-collaboration/src/constants.ts).
+const NATIVE_DOCUMENTS_AUTHENTICATION_CLOSE_CODE: u16 = 4401;
+
 async fn proxy_native_documents_websocket(
     browser: WebSocket,
     company_id: Uuid,
@@ -393,7 +397,17 @@ async fn proxy_native_documents_websocket(
     let (mut sidecar_tx, mut sidecar_rx) = sidecar.split();
     loop {
         tokio::select! {
-            _ = optional_session_ended(session_lease.as_ref()) => break,
+            _ = optional_session_ended(session_lease.as_ref()) => {
+                // The Core session ended (sign-out or removal): say so with the
+                // Documents service's authentication code, not a bare drop.
+                let _ = browser_tx
+                    .send(AxumMessage::Close(Some(axum::extract::ws::CloseFrame {
+                        code: NATIVE_DOCUMENTS_AUTHENTICATION_CLOSE_CODE,
+                        reason: "Session ended".into(),
+                    })))
+                    .await;
+                break;
+            }
             incoming = browser_rx.next() => match incoming {
                 Some(Ok(message)) => {
                     let translated = match message {
@@ -414,7 +428,19 @@ async fn proxy_native_documents_websocket(
                         tungstenite::Message::Binary(value) => AxumMessage::Binary(value),
                         tungstenite::Message::Ping(value) => AxumMessage::Ping(value),
                         tungstenite::Message::Pong(value) => AxumMessage::Pong(value),
-                        tungstenite::Message::Close(_) => break,
+                        tungstenite::Message::Close(frame) => {
+                            // Relay the service's close code and reason (4401
+                            // signed out, 4403 forbidden, 4409 restored) so the
+                            // browser can tell them from a network drop.
+                            let frame = frame
+                                .filter(|frame| frame.code.is_allowed())
+                                .map(|frame| axum::extract::ws::CloseFrame {
+                                    code: frame.code.into(),
+                                    reason: frame.reason.as_str().into(),
+                                });
+                            let _ = browser_tx.send(AxumMessage::Close(frame)).await;
+                            break;
+                        }
                         tungstenite::Message::Frame(_) => continue,
                     };
                     browser_tx.send(translated).await?;
@@ -1959,6 +1985,77 @@ mod tests {
     use super::*;
     use axum::body::to_bytes;
     use tower::ServiceExt as _;
+
+    /// The browser must see the Documents service's own close code, or
+    /// "signed out" and "forbidden" look like a network drop and it retries.
+    #[tokio::test]
+    async fn collaboration_proxy_relays_documents_close_codes_to_the_browser() {
+        use tokio_tungstenite::tungstenite::protocol::{frame::coding::CloseCode, CloseFrame};
+
+        let root = std::env::temp_dir().join(format!("restless-docs-close-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("native-documents")).unwrap();
+        for (code, reason) in [(4401u16, "Unauthorized"), (4403, "Forbidden")] {
+            let sidecar = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let sidecar_port = sidecar.local_addr().unwrap().port();
+            tokio::spawn(async move {
+                let (stream, _) = sidecar.accept().await.unwrap();
+                let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+                socket
+                    .close(Some(CloseFrame {
+                        code: CloseCode::from(code),
+                        reason: reason.into(),
+                    }))
+                    .await
+                    .unwrap();
+                while socket.next().await.is_some() {}
+            });
+            let cell = Uuid::new_v4();
+            std::fs::write(
+                root.join("native-documents").join(format!("{cell}.json")),
+                serde_json::json!({ "cell_id": cell, "port": sidecar_port }).to_string(),
+            )
+            .unwrap();
+            let mut proxy = NativeDocumentsProxy::disabled_for_test();
+            proxy.use_local_services(root.clone());
+            let app = Router::new().route(
+                "/ws",
+                get(move |upgrade: WebSocketUpgrade| async move {
+                    upgrade.on_upgrade(move |socket| async move {
+                        proxy_native_documents_websocket(
+                            socket,
+                            Uuid::new_v4(),
+                            cell,
+                            Uuid::new_v4(),
+                            proxy,
+                            None,
+                        )
+                        .await
+                        .unwrap();
+                    })
+                }),
+            );
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move { axum::serve(listener, app).await });
+            let (mut browser, _) = tokio_tungstenite::connect_async(format!("ws://{address}/ws"))
+                .await
+                .unwrap();
+            let closed = tokio::time::timeout(Duration::from_secs(5), browser.next())
+                .await
+                .expect("the proxy closes the browser socket")
+                .expect("a close frame, not a dropped connection")
+                .expect("a close frame, not a transport error");
+            match closed {
+                tungstenite::Message::Close(Some(frame)) => {
+                    assert_eq!(u16::from(frame.code), code);
+                    assert_eq!(frame.reason.as_str(), reason);
+                }
+                other => panic!("expected close {code}, got {other:?}"),
+            }
+            server.abort();
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn collaboration_proxy_route_is_uuid_exact() {
