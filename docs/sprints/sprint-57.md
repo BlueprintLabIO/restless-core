@@ -283,3 +283,6 @@ what it deletes.
 - [ ] T9 ([ticket](sprint-57/s57-t9-plugin-import.md)) — Plugin bundle import (skills → Library, MCP servers → Connections). *Runtime/Cockpit*
 - [ ] T10 — Acceptance runs 1–7 on `_test` with dedicated accounts; T11 (stretch) the OpenAPI bridge
   and acceptance 8.
+- [ ] T12 ([ticket](sprint-57/s57-t12-telegram-attention.md)) — Telegram Attention channel: pairing,
+  delivery and approval buttons through the cockpit's decision functions. Built; open until a real
+  bot run on `_test`. *Kernel/Cockpit*
