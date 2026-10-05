@@ -552,6 +552,23 @@ enum ApplianceCommand {
     },
     /// Re-open work admission after an interrupted lifecycle operation.
     Resume,
+    /// Write one consistent archive (mode 0600; it holds secrets) of the state
+    /// root, the plane and company databases, and every company volume.
+    Backup {
+        /// Archive to create. An existing file is never replaced.
+        file: PathBuf,
+        /// Permit stopping the appliance after the bounded drain period.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Restore an archive from `appliance backup` onto a fresh install.
+    Restore {
+        file: PathBuf,
+        /// Replace existing company databases and volumes; the current state
+        /// directory is moved aside rather than deleted.
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -2457,6 +2474,16 @@ fn main() -> Result<()> {
             }
             ApplianceCommand::Resume => {
                 println!("{}", serde_json::to_string_pretty(&appliance::resume()?)?);
+                Ok(())
+            }
+            ApplianceCommand::Backup { file, force } => {
+                let report = appliance::backup::backup(file, force)?;
+                println!("{}", serde_json::to_string_pretty(&report)?);
+                Ok(())
+            }
+            ApplianceCommand::Restore { file, force } => {
+                let report = appliance::backup::restore(file, force)?;
+                println!("{}", serde_json::to_string_pretty(&report)?);
                 Ok(())
             }
         },

@@ -23,5 +23,7 @@ sha2 = "0.10"
 toml = "0.8"
 unicode-segmentation = "1"
 unicode-width = "0.2"
+percent-encoding = "2"
+tar = "0.4"
 url = "2"
 uuid = { version = "1", features = ["v4"] }
