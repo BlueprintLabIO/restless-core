@@ -1,10 +1,19 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
+import { chunkGroups } from './scripts/shared-chunk.mjs';
 
 const ownerGateway = process.env.RESTLESS_OWNER_URL ?? 'http://127.0.0.1:7788';
 
 export default defineConfig({
 	plugins: [sveltekit()],
+	build: {
+		rolldownOptions: {
+			output: {
+				// Fewer, larger chunks: see scripts/shared-chunk.mjs.
+				codeSplitting: { groups: chunkGroups(import.meta.dirname) }
+			}
+		}
+	},
 	server: {
 		port: 5173,
 		strictPort: true,

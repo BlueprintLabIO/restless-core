@@ -8,6 +8,9 @@
 		children
 	}: { label?: string; trigger?: Snippet; children: Snippet } = $props();
 	let panel: HTMLDivElement;
+	/* A menu sits on every message; its items render once someone reaches for
+	 * it (pointer or focus, before any open), not with every message. */
+	let reached = $state(false);
 	function place(node: HTMLDetailsElement) {
 		function position() {
 			if (!node.open || !panel) return;
@@ -17,6 +20,7 @@
 			panel.style.top = `${Math.max(8, trigger.bottom + bounds.height + 8 > innerHeight ? trigger.top - bounds.height - 4 : trigger.bottom + 4)}px`;
 		}
 		function toggle() {
+			reached = true;
 			if (!panel) return;
 			if (node.open) {
 				panel.showPopover();
@@ -68,11 +72,19 @@
 	}
 </script>
 
-<details class="action-menu" use:dismissable use:place>
+<details
+	class="action-menu"
+	use:dismissable
+	use:place
+	onpointerenter={() => (reached = true)}
+	onfocusin={() => (reached = true)}
+>
 	<summary aria-label={label} title={label}
 		>{#if trigger}{@render trigger()}{:else}<Ellipsis size={16} aria-hidden="true" />{/if}</summary
 	>
-	<div bind:this={panel} popover="manual" class="action-menu-panel">{@render children()}</div>
+	<div bind:this={panel} popover="manual" class="action-menu-panel">
+		{#if reached}{@render children()}{/if}
+	</div>
 </details>
 
 <style>

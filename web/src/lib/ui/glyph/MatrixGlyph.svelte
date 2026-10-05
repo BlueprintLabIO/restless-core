@@ -44,10 +44,16 @@
 		label?: string;
 	} = $props();
 
+	/* One path of circles rather than an element per dot: a glyph sits beside
+	 * every message, and a long transcript paid for each dot as its own node. */
 	const dots = $derived(
-		rows.flatMap((row, y) =>
-			[...row].flatMap((cell, x) => (cell === '1' ? [{ cx: 5 + x * 10, cy: 5 + y * 10 }] : []))
-		)
+		rows
+			.flatMap((row, y) =>
+				[...row].flatMap((cell, x) =>
+					cell === '1' ? [`M${1 + x * 10} ${5 + y * 10}a4 4 0 1 0 8 0a4 4 0 1 0-8 0`] : []
+				)
+			)
+			.join('')
 	);
 </script>
 
@@ -62,9 +68,7 @@
 	aria-hidden={label ? undefined : 'true'}
 	aria-label={label}
 >
-	{#each dots as dot (dot.cx + '-' + dot.cy)}
-		<circle cx={dot.cx} cy={dot.cy} r="4" />
-	{/each}
+	<path d={dots} />
 </svg>
 
 <style>
