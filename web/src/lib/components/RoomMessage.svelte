@@ -4,6 +4,10 @@
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { tick } from 'svelte';
 	import MessageCircle from '@lucide/svelte/icons/message-circle';
+	import Link from '@lucide/svelte/icons/link';
+	import Pin from '@lucide/svelte/icons/pin';
+	import ListPlus from '@lucide/svelte/icons/list-plus';
+	import { initials } from '$lib/model/initials';
 	import ConversationMessage from '$lib/primitives/ConversationMessage.svelte';
 	import SemanticMark from '$lib/ui/glyph/SemanticMark.svelte';
 	import type { MessageAttachment, ThreadMessage } from '$lib/model/view';
@@ -40,7 +44,13 @@
 		onhistory = null,
 		onloadhistory = null,
 		onedit = null,
-		ondelete = null
+		ondelete = null,
+		nameFor = null,
+		replies = null,
+		onjump = null,
+		pinned = false,
+		onpin = null,
+		onwork = null
 	}: {
 		message: RoomMessageRecord;
 		presentation?: ThreadMessage | null;
@@ -55,6 +65,7 @@
 		targeted?: boolean;
 		focusKey?: string;
 		mentions?: RoomMention[];
+		/** Names a mentioned Actor; defaults to its id. */
 		thread?: boolean;
 		/** Follows a message from the same author moments earlier. */
 		continued?: boolean;
@@ -71,7 +82,33 @@
 		onloadhistory?: (() => void) | null;
 		onedit?: ((body: string, commandId: string) => Promise<void>) | null;
 		ondelete?: ((commandId: string) => Promise<void>) | null;
+		/** A person's display name, so mentions read as names, not actor ids. */
+		nameFor?: ((actorId: string) => string) | null;
+		/** This root's Thread, when it has replies. */
+		replies?: { count: number; lastAt: string; repliers: string[] } | null;
+		/** Copies a link to this exact message. */
+		onjump?: (() => void) | null;
+		pinned?: boolean;
+		onpin?: (() => void) | null;
+		/** Asks the Exec to turn this message into Work. */
+		onwork?: (() => void) | null;
 	} = $props();
+
+	/* `@actor-id` in a body becomes the person's name, linked to their page. */
+	function withNames(text: string): string {
+		if (!nameFor) return text;
+		return text.replace(/(^|[\s(])@([\w-]+(?:[.:][\w-]+)*)/g, (whole, lead: string, id: string) => {
+			const name = nameFor!(id);
+			return name && name !== id
+				? `${lead}[@${name}](/${encodeURIComponent(companyId)}/people?person=${encodeURIComponent(id)})`
+				: whole;
+		});
+	}
+	const mentionNames = $derived(
+		mentions
+			.map((mention) => `@${nameFor?.(mention.mentioned_actor_id) ?? mention.mentioned_actor_id}`)
+			.join(', ')
+	);
 
 	let editing = $state(false);
 	let editBody = $state('');
@@ -231,7 +268,7 @@
 			{#if message.edited_at && !message.deleted_at}<span class="lifecycle">edited</span>{/if}
 			{#if mentions.length}
 				<span class="mention-receipt">
-					{mentions.map((mention) => `@${mention.mentioned_actor_id}`).join(', ')}
+					{mentionNames}
 				</span>
 			{/if}
 		</header>
@@ -256,7 +293,7 @@
 		<ConversationMessage
 			sender={isYou ? 'owner' : isAgent ? 'agent' : 'human'}
 			{author}
-			text={message.edited_at ? message.body : (presentation?.text ?? message.body)}
+			text={withNames(message.edited_at ? message.body : (presentation?.text ?? message.body))}
 			createdAt={message.created_at}
 			details={message.edited_at ? null : presentation?.details}
 			attachments={message.edited_at ? [] : (presentation?.attachments ?? [])}
@@ -273,7 +310,7 @@
 				{#if message.edited_at}<span class="lifecycle">edited</span>{/if}
 				{#if mentions.length}
 					<span class="mention-receipt">
-						{mentions.map((mention) => `@${mention.mentioned_actor_id}`).join(', ')}
+						{mentionNames}
 					</span>
 				{/if}
 			{/snippet}
@@ -284,6 +321,25 @@
 							<MessageCircle size={13} strokeWidth={2} aria-hidden="true" /> Reply
 						</button>
 					{/if}
+					{#if onpin}<button
+							type="button"
+							class:pinned
+							title={pinned ? 'Unpin' : 'Pin above the conversation'}
+							aria-label={pinned ? 'Unpin this message' : 'Pin this message'}
+							onclick={() => onpin?.()}><Pin size={12} aria-hidden="true" /></button
+						>{/if}
+					{#if onwork}<button
+							type="button"
+							title="Ask the Exec to turn this into Work"
+							aria-label="Turn this into Work"
+							onclick={() => onwork?.()}><ListPlus size={12} aria-hidden="true" /></button
+						>{/if}
+					{#if onjump}<button
+							type="button"
+							title="Copy a link to this message"
+							aria-label="Copy link to this message"
+							onclick={() => onjump?.()}><Link size={12} aria-hidden="true" /></button
+						>{/if}
 					{#if canEdit}<button type="button" onclick={beginEdit}>Edit</button>{/if}
 					{#if onhistory}
 						<button type="button" aria-expanded={historyOpen} onclick={() => onhistory?.()}>
@@ -304,6 +360,17 @@
 				</span>
 			{/snippet}
 		</ConversationMessage>
+	{/if}
+	{#if replies && replies.count > 0 && onthread && !thread}
+		<button type="button" class="thread-summary" onclick={() => onthread?.()}>
+			<span class="thread-faces" aria-hidden="true"
+				>{#each replies.repliers as replier (replier)}<span class="thread-face"
+						>{initials(nameFor?.(replier) ?? replier)}</span
+					>{/each}</span
+			>
+			<strong>{replies.count} {replies.count === 1 ? 'reply' : 'replies'}</strong>
+			<span class="thread-last">Last {formatMoment(new Date(replies.lastAt))}</span>
+		</button>
 	{/if}
 	{#if (message.deleted_at || editing) && onthread}
 		<div class="message-actions">
@@ -367,6 +434,52 @@
 </article>
 
 <style>
+	.thread-summary {
+		display: inline-flex;
+		align-items: center;
+		gap: 7px;
+		margin: 2px 0 6px 45px;
+		padding: 3px 8px 3px 4px;
+		border: 1px solid transparent;
+		border-radius: var(--radius-control);
+		background: transparent;
+		color: var(--intent-conversation);
+		font: var(--t-label) var(--font-ui);
+		cursor: pointer;
+	}
+	.thread-summary:hover {
+		border-color: var(--border);
+		background: var(--surface-raised);
+	}
+	.thread-summary strong {
+		font-weight: 600;
+	}
+	.thread-last {
+		color: var(--text-tertiary);
+	}
+	.thread-summary:not(:hover) .thread-last {
+		display: none;
+	}
+	.thread-faces {
+		display: inline-flex;
+	}
+	.thread-face {
+		width: 20px;
+		height: 20px;
+		display: grid;
+		place-items: center;
+		margin-right: -4px;
+		border-radius: 5px;
+		background: var(--surface-alt);
+		box-shadow: 0 0 0 1.5px var(--surface-pane);
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+		font-weight: 600;
+	}
+	.thread-faces:has(.thread-face) {
+		margin-right: 4px;
+	}
+
 	/* The row is only a frame for the message's own shape (see
 	 * ConversationMessage): no rules, no band for the owner. */
 	/* Long rooms render only what is on screen: the browser skips layout and

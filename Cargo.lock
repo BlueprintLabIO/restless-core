@@ -920,7 +920,7 @@ version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "10d60334b3b2e7c9d91ef8150abfb6fa4c1c39ebbcf4a81c2e346aad939fee3e"
 dependencies = [
- "thiserror",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -1127,6 +1127,16 @@ name = "fiat-crypto"
 version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28dea519a9695b9977216879a3ebfddf92f1c08c05d984f8996aecd6ecdc811d"
+
+[[package]]
+name = "filetime"
+version = "0.2.29"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c287a33c7f0a620c38e641e7f60827713987b3c0f26e8ddc9462cc69cf75759"
+dependencies = [
+ "cfg-if",
+ "libc",
+]
 
 [[package]]
 name = "find-msvc-tools"
@@ -1847,7 +1857,7 @@ dependencies = [
  "jni-sys",
  "log",
  "simd_cesu8",
- "thiserror",
+ "thiserror 2.0.20",
  "walkdir",
  "windows-link",
 ]
@@ -1913,7 +1923,7 @@ checksum = "bde5057d6143cc94e861d90f591b9303d6716c6b9602309150bd068853c10899"
 dependencies = [
  "hashbrown 0.16.1",
  "portable-atomic",
- "thiserror",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -2193,6 +2203,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5c7398b9c8b70908f6371f47ed36737907c87c52af34c268fed0bf0ceb92ead9"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "oauth2"
+version = "5.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "51e219e79014df21a225b1860a479e2dcd7cbd9130f4defd4bd0e191ea31d67d"
+dependencies = [
+ "base64 0.22.1",
+ "chrono",
+ "getrandom 0.2.17",
+ "http",
+ "rand 0.8.7",
+ "serde",
+ "serde_json",
+ "serde_path_to_error",
+ "sha2",
+ "thiserror 1.0.69",
+ "url",
 ]
 
 [[package]]
@@ -2484,7 +2513,7 @@ dependencies = [
  "rustc-hash",
  "rustls",
  "socket2",
- "thiserror",
+ "thiserror 2.0.20",
  "tokio",
  "tracing",
  "web-time",
@@ -2507,7 +2536,7 @@ dependencies = [
  "rustls",
  "rustls-pki-types",
  "slab",
- "thiserror",
+ "thiserror 2.0.20",
  "tinyvec",
  "tracing",
  "web-time",
@@ -2662,7 +2691,7 @@ dependencies = [
  "palette",
  "serde",
  "strum",
- "thiserror",
+ "thiserror 2.0.20",
  "unicode-segmentation",
  "unicode-truncate",
  "unicode-width",
@@ -2859,17 +2888,97 @@ dependencies = [
  "clap",
  "crossterm",
  "dotenvy",
+ "percent-encoding",
  "ratatui",
  "reqwest 0.12.28",
- "restlessd",
+ "restless-contracts",
  "serde",
  "serde_json",
  "sha2",
+ "tar",
  "toml",
  "unicode-segmentation",
  "unicode-width",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "restless-contracts"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "base64 0.23.1",
+ "chrono",
+ "dotenvy",
+ "fs2",
+ "futures-util",
+ "hmac",
+ "hyper",
+ "hyper-util",
+ "rcgen",
+ "reqwest 0.12.28",
+ "restless-orgintel",
+ "rustls",
+ "rustls-pemfile",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "tokio-rustls",
+ "tokio-tungstenite 0.26.2",
+ "uuid",
+]
+
+[[package]]
+name = "restless-engine"
+version = "0.0.0"
+dependencies = [
+ "agent-client-protocol",
+ "anyhow",
+ "async-trait",
+ "axum",
+ "base64 0.23.1",
+ "chrono",
+ "chrono-tz",
+ "derive_more",
+ "dotenvy",
+ "ed25519-dalek",
+ "either",
+ "futures-util",
+ "hashbrown 0.17.1",
+ "hmac",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "mio",
+ "rcgen",
+ "reqwest 0.12.28",
+ "reqwest 0.13.5",
+ "restless-contracts",
+ "restless-model-gateway",
+ "restless-orgintel",
+ "restless-runtime-bridge-protocol",
+ "rmcp",
+ "rustix",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "syn 3.0.3",
+ "tokio",
+ "tokio-util",
+ "toml",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "ts-rs",
+ "url",
+ "uuid",
+ "zip",
 ]
 
 [[package]]
@@ -2888,7 +2997,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
- "thiserror",
+ "thiserror 2.0.20",
  "tokio",
  "tower",
  "tracing",
@@ -2906,9 +3015,41 @@ dependencies = [
  "serde_json",
  "sha2",
  "sqlx",
- "thiserror",
+ "thiserror 2.0.20",
  "tokio",
  "ts-rs",
+ "uuid",
+]
+
+[[package]]
+name = "restless-owner"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "base64 0.23.1",
+ "chrono",
+ "ed25519-dalek",
+ "futures-util",
+ "hmac",
+ "reqwest 0.12.28",
+ "restless-contracts",
+ "restless-engine",
+ "restless-orgintel",
+ "rmcp",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "tokio",
+ "tokio-tungstenite 0.26.2",
+ "toml",
+ "tower",
+ "tower-http",
+ "tracing",
+ "ts-rs",
+ "url",
  "uuid",
 ]
 
@@ -2948,52 +3089,19 @@ dependencies = [
 name = "restlessd"
 version = "0.0.0"
 dependencies = [
- "agent-client-protocol",
  "anyhow",
- "axum",
- "base64 0.23.1",
- "chrono",
- "chrono-tz",
- "derive_more",
  "dotenvy",
- "ed25519-dalek",
- "either",
- "fs2",
- "futures-util",
- "hashbrown 0.17.1",
- "hmac",
- "http-body-util",
- "hyper",
- "hyper-util",
- "mio",
- "rcgen",
- "reqwest 0.12.28",
- "reqwest 0.13.5",
- "restless-model-gateway",
+ "restless-contracts",
+ "restless-engine",
  "restless-orgintel",
- "restless-runtime-bridge-protocol",
- "rmcp",
- "rustix",
- "rustls",
- "rustls-pemfile",
- "serde",
+ "restless-owner",
  "serde_json",
- "sha2",
  "sqlx",
  "syn 3.0.3",
  "tokio",
- "tokio-rustls",
- "tokio-tungstenite 0.26.2",
- "tokio-util",
- "toml",
- "tower",
- "tower-http",
  "tracing",
  "tracing-subscriber",
- "ts-rs",
- "url",
  "uuid",
- "zip",
 ]
 
 [[package]]
@@ -3025,6 +3133,7 @@ dependencies = [
  "http-body",
  "http-body-util",
  "indexmap 2.14.0",
+ "oauth2",
  "pastey",
  "pin-project-lite",
  "process-wrap",
@@ -3034,12 +3143,13 @@ dependencies = [
  "serde",
  "serde_json",
  "sse-stream",
- "thiserror",
+ "thiserror 2.0.20",
  "tokio",
  "tokio-stream",
  "tokio-util",
  "tower-service",
  "tracing",
+ "url",
  "uuid",
 ]
 
@@ -3156,7 +3266,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3598,7 +3708,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "smallvec",
- "thiserror",
+ "thiserror 2.0.20",
  "tokio",
  "tokio-stream",
  "tracing",
@@ -3683,7 +3793,7 @@ dependencies = [
  "smallvec",
  "sqlx-core",
  "stringprep",
- "thiserror",
+ "thiserror 2.0.20",
  "tracing",
  "uuid",
  "whoami",
@@ -3722,7 +3832,7 @@ dependencies = [
  "smallvec",
  "sqlx-core",
  "stringprep",
- "thiserror",
+ "thiserror 2.0.20",
  "tracing",
  "uuid",
  "whoami",
@@ -3748,7 +3858,7 @@ dependencies = [
  "serde",
  "serde_urlencoded",
  "sqlx-core",
- "thiserror",
+ "thiserror 2.0.20",
  "tracing",
  "url",
  "uuid",
@@ -3866,6 +3976,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "tar"
+version = "0.4.46"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f6221d9a6003c78398e3b239969f352578258df48c8eb051caadae0015bc840"
+dependencies = [
+ "filetime",
+ "libc",
+ "xattr",
+]
+
+[[package]]
 name = "tempfile"
 version = "3.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3889,11 +4010,31 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
+version = "1.0.69"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
+dependencies = [
+ "thiserror-impl 1.0.69",
+]
+
+[[package]]
+name = "thiserror"
 version = "2.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec86235f5fcc2a73650310756d2ac5b138a5780bbbdfae3eeccec992c435ba4f"
 dependencies = [
- "thiserror-impl",
+ "thiserror-impl 2.0.20",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "1.0.69"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -4240,7 +4381,7 @@ checksum = "756050066659291d47a554a9f558125db17428b073c5ffce1daf5dcb0f7231d8"
 dependencies = [
  "chrono",
  "serde_json",
- "thiserror",
+ "thiserror 2.0.20",
  "ts-rs-macros",
  "uuid",
 ]
@@ -4272,7 +4413,7 @@ dependencies = [
  "rustls",
  "rustls-pki-types",
  "sha1",
- "thiserror",
+ "thiserror 2.0.20",
  "utf-8",
 ]
 
@@ -4289,7 +4430,7 @@ dependencies = [
  "log",
  "rand 0.9.5",
  "sha1",
- "thiserror",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -4376,6 +4517,7 @@ dependencies = [
  "idna",
  "percent-encoding",
  "serde",
+ "serde_derive",
 ]
 
 [[package]]
@@ -4915,6 +5057,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
 
 [[package]]
+name = "xattr"
+version = "1.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32e45ad4206f6d2479085147f02bc2ef834ac85886624a23575ae137c8aa8156"
+dependencies = [
+ "libc",
+ "rustix",
+]
+
+[[package]]
 name = "yasna"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5039,7 +5191,7 @@ dependencies = [
  "flate2",
  "indexmap 2.14.0",
  "memchr",
- "thiserror",
+ "thiserror 2.0.20",
  "zopfli",
 ]
 

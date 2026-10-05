@@ -2348,3 +2348,28 @@ html[data-pane-resizing] .bridge-exrail {
 .bridge-root .attention-screen:has(> .pane-resizer:not([hidden])) {
 	transition: none;
 }
+
+/* The same conversation at full width, inside People. It fills its pane and
+ * keeps a readable measure instead of stretching messages edge to edge. The
+ * id outranks every rail placement above, including the phone overlay. */
+.bridge-root #bridge-exrail.wide {
+	position: relative;
+	inset: auto;
+	z-index: auto;
+	width: 100%;
+	height: 100%;
+	min-height: 0;
+	flex: 1 1 auto;
+	box-shadow: var(--bevel);
+}
+.bridge-root #bridge-exrail.wide .exr-inner {
+	width: 100%;
+}
+.bridge-root #bridge-exrail.wide .exr-chat {
+	width: 100%;
+	max-width: 860px;
+	margin-inline: auto;
+}
+.bridge-root #bridge-exrail.wide .pinned {
+	width: 100%;
+}

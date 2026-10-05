@@ -48,13 +48,14 @@ export function writeDraft(key: string, body: string) {
 	}
 }
 
-/* `#` links open Work and Goals as chips; `@` names a person by the actor id
+/* `#` links open Work, Goals and documents as chips; `@` names a person by the actor id
  * conversations route on. Built from projections the page already holds. */
 export function referenceOptions(
 	company: string,
 	work: { id: string; title: string; status: string; updated_at: string }[],
 	goals: { id: string; title: string; closed_at?: string | null }[],
-	people: { actor_id: string; display: string; role?: string; kind?: string }[]
+	people: { actor_id: string; display: string; role?: string; kind?: string }[],
+	documents: { id: string; title: string }[] = []
 ): ComposerOption[] {
 	const root = `/${encodeURIComponent(company)}`;
 	const slug = (value: string) => value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-');
@@ -79,6 +80,13 @@ export function referenceOptions(
 				description: item.status === 'completed' ? 'Done Work' : 'Work',
 				insert: `[${item.title}](${root}/work/${encodeURIComponent(item.id)}) `
 			})),
+		...documents.slice(0, 60).map((document) => ({
+			kind: 'reference' as const,
+			name: slug(document.title),
+			label: document.title,
+			description: 'Document',
+			insert: `[${document.title}](${root}/library/documents?document=${encodeURIComponent(document.id)}) `
+		})),
 		...people
 			.filter((person) => person.kind !== 'system')
 			.map((person) => ({

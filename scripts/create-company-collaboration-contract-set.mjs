@@ -199,8 +199,8 @@ export async function readCoreReleaseTuple({
   requireMatch(nativeDocumentsImage, OCI_DIGEST, 'native Documents image');
   const [cargo, release, entry, compose] = await Promise.all([
     readFile(join(sourceRoot, 'Cargo.toml'), 'utf8'),
-    readFile(join(sourceRoot, 'crates/restlessd/src/release.rs'), 'utf8'),
-    readFile(join(sourceRoot, 'crates/restlessd/src/entry.rs'), 'utf8'),
+    readFile(join(sourceRoot, 'crates/restless-engine/src/release.rs'), 'utf8'),
+    readFile(join(sourceRoot, 'crates/restless-engine/src/entry.rs'), 'utf8'),
     readFile(join(sourceRoot, 'infra/account-plane/cloud-compose.template.yaml')),
   ]);
   return Object.freeze({

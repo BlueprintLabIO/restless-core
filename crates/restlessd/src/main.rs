@@ -1,93 +1,17 @@
-//! restlessd — the stable coordination core (ARCHITECTURE.md §4.4).
-//!
-//! Sprint 01 slice: company environment lifecycle over a unix socket and the
-//! stable coordination core. JSON-lines protocol: one request line, one
-//! response line.
-
-mod acp;
-mod activity;
-mod airwallex;
-mod airwallex_ingress;
-mod approval;
-mod attention;
-mod authority;
-mod capability;
-mod capability_sourcing;
-mod cell;
-mod cell_wake;
-mod codex;
-mod collaboration_doctor;
-mod company;
-mod company_bootstrap;
-mod company_projection;
-mod connected_tool;
-mod coordination;
-mod context;
-mod credential;
-mod daemon;
-mod custom_harness;
-mod document_collaboration_token;
-mod document_commands;
-mod documents_service;
-mod email;
-mod effect;
-mod entry;
-mod exec;
-mod finance;
-mod health;
-mod inbound;
-mod ingress;
-mod launch;
-mod legal;
-mod local_documents;
-mod sheet_commands;
-use crate::authority as mandate;
-mod mcp_gateway;
-mod stdio_mcp;
-mod mentions;
-mod model_catalog;
-mod model_connections;
-mod model_gateway;
-mod native_harness;
-mod owner;
-mod owner_config;
-mod owner_brief;
-mod owner_cell_readiness;
-mod plane;
-mod publication;
-mod reconcile;
-mod release;
-mod room_commands;
-mod runtime;
-mod runtime_bridge;
-mod runtime_sleep;
-mod runtime_mode;
-mod runtime_usage;
-mod schedule;
-mod schedule_test;
-mod schedule_test_proxy;
-mod skills;
-mod spend;
-mod staff;
-mod telemetry;
-mod transcript;
-mod wire;
+//! restlessd: starts the Restless daemon. The engine (restless-engine) and
+//! the owner API (restless-owner) hold the code; this binary reads the plane
+//! configuration, starts both, and runs until it is told to stop.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use restless_orgintel::OrgIntel;
-use serde::{Deserialize, Serialize};
-use sqlx::{Connection as _, Executor as _, PgConnection};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use sqlx::{Connection as _, PgConnection};
 use tokio::net::UnixListener;
 
-#[cfg(test)]
-use wire::OWNER_ONLY;
-use wire::{authorize, Principal, Request, Response};
-pub(crate) use coordination::*;
-pub(crate) use daemon::*;
+use restless_engine::*;
+use restless_owner::owner;
 
 
 
@@ -142,6 +66,7 @@ async fn reconcile_owner_attachments(daemon: &Daemon, configs: &[runtime::Compan
 const RUNTIME_THREAD_STACK_BYTES: usize = 16 * 1024 * 1024;
 
 fn main() -> Result<()> {
+    release::set_source_revision(env!("RESTLESS_SOURCE_REVISION"));
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .thread_stack_size(RUNTIME_THREAD_STACK_BYTES)
@@ -151,7 +76,7 @@ fn main() -> Result<()> {
 }
 
 async fn run() -> Result<()> {
-    let machine_profile = restlessd::appliance::MachineProfile::from_env()?;
+    let machine_profile = restless_contracts::appliance::MachineProfile::from_env()?;
     // Local source checkouts conventionally keep bootstrap credentials in an
     // ignored `.env`. Load it before any subsystem reads configuration, while
     // preserving explicitly inherited service-manager variables. Infisical is
@@ -161,8 +86,8 @@ async fn run() -> Result<()> {
         Err(dotenvy::Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(error).context("load local .env"),
     }
-    restlessd::appliance::load_profile_environment(&machine_profile)?;
-    restlessd::appliance::load_release_environment()?;
+    restless_contracts::appliance::load_profile_environment(&machine_profile)?;
+    restless_contracts::appliance::load_release_environment()?;
     if matches!(std::env::args().nth(1).as_deref(), Some("--help" | "-h")) {
         println!(
             "restlessd\n\nThe supervised Restless account plane. Run it without arguments; use `restless appliance status` for lifecycle status."
@@ -184,7 +109,7 @@ async fn run() -> Result<()> {
     }
 
     if std::env::args().nth(1).as_deref() == Some("appliance-preflight") {
-        if machine_profile.kind != restlessd::appliance::ProfileKind::Stable {
+        if machine_profile.kind != restless_contracts::appliance::ProfileKind::Stable {
             anyhow::bail!("appliance preflight requires the stable profile");
         }
         let cockpit = std::env::var_os("RESTLESS_COCKPIT_DIR")
@@ -221,7 +146,7 @@ async fn run() -> Result<()> {
         .with_context(|| format!("create state root {}", root.display()))?;
     std::fs::create_dir_all(machine_profile.log_dir())?;
     std::fs::create_dir_all(machine_profile.launch_cache_dir())?;
-    let _singleton = restlessd::appliance::SingletonGuard::acquire(&machine_profile)?;
+    let _singleton = restless_contracts::appliance::SingletonGuard::acquire(&machine_profile)?;
     tracing::info!(
         profile = machine_profile.kind.as_str(),
         root = %machine_profile.state_root.display(),
@@ -355,8 +280,8 @@ async fn run() -> Result<()> {
         } else {
             runtime_bridge::RuntimeBridgeRegistry::default()
         },
-        lifecycle: restlessd::appliance::LifecycleGate::new(
-            restlessd::appliance::drain_marker_exists(&root),
+        lifecycle: restless_contracts::appliance::LifecycleGate::new(
+            restless_contracts::appliance::drain_marker_exists(&root),
         ),
         in_flight: std::sync::Arc::new(std::sync::Mutex::new(schedule::WakeClaims::default())),
         schedule_wake: std::sync::Arc::new(tokio::sync::Notify::new()),
@@ -387,7 +312,7 @@ async fn run() -> Result<()> {
 
     let model_capabilities = daemon.capabilities.clone();
     let model_spend = daemon.spend.clone();
-    let local_mcp_daemon = (!daemon.runtime_bridges.is_hosted())
+    let tool_gateway_daemon = (!daemon.runtime_bridges.is_hosted())
         .then(|| std::sync::Arc::clone(&daemon));
     let schedule_daemon = std::sync::Arc::clone(&daemon);
     let idle_daemon = std::sync::Arc::clone(&daemon);
@@ -415,7 +340,7 @@ async fn run() -> Result<()> {
                 &model_root,
                 model_capabilities.clone(),
                 model_spend.clone(),
-                local_mcp_daemon.clone(),
+                tool_gateway_daemon.clone(),
             )
             .await
             {
@@ -589,13 +514,14 @@ async fn run() -> Result<()> {
 
     // The owner API is useful during recovery for diagnosis and read-only
     // inspection. Mutation paths share LifecycleGate and remain closed until
-    // the asynchronous recovery task opens admission.
+    // the asynchronous recovery task opens admission. It is a required
+    // listener: if it cannot start (network-entry keys unavailable, port in
+    // use) or stops, the daemon exits non-zero like any other required boot
+    // failure, so a supervisor restarts it instead of a plane that answers
+    // nobody.
     let owner_daemon = std::sync::Arc::clone(&daemon);
-    tokio::spawn(async move {
-        if let Err(error) = owner::serve(owner_daemon, owner_config).await {
-            tracing::error!("owner gateway stopped: {error:#}");
-        }
-    });
+    let owner_gateway = tokio::spawn(owner::serve(owner_daemon, owner_config));
+    tokio::pin!(owner_gateway);
     // T6: the scheduler is what makes the company act without the owner
     // typing — time triggers (exec-set schedules + periodic tick) and
     // OrgIntel LISTEN/NOTIFY events share one loop. Product integration tests
@@ -746,6 +672,13 @@ async fn run() -> Result<()> {
                 tracing::info!("shutdown requested; stopping supervised daemon children");
                 break;
             }
+            stopped = &mut owner_gateway => {
+                return match stopped {
+                    Ok(Ok(())) => Err(anyhow::anyhow!("owner gateway stopped")),
+                    Ok(Err(error)) => Err(error.context("owner gateway stopped")),
+                    Err(error) => Err(anyhow::Error::new(error).context("owner gateway task failed")),
+                };
+            }
         }
     }
     Ok(())
@@ -766,497 +699,5 @@ async fn shutdown_signal() {
     #[cfg(not(unix))]
     {
         let _ = interrupt.await;
-    }
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn one_time_schedule_accepts_legacy_cli_default_without_accepting_recurring_policy() {
-        let mut payload = serde_json::json!({
-            "cmd":"schedule-add", "company":"schedule_test", "as_actor":"exec",
-            "reason":"Observe consent expiry", "fire_at":"2026-09-22T04:08:30Z",
-            "execution_requirement":"local-mac",
-        });
-        assert!(!has_recurring_schedule_fields(
-            &decoded_request(payload.clone()).orgintel
-        ));
-        payload["execution_requirement"] = serde_json::Value::Null;
-        assert!(!has_recurring_schedule_fields(
-            &decoded_request(payload.clone()).orgintel
-        ));
-        for (field, value) in [
-            ("execution_requirement", serde_json::json!("always-on")),
-            ("recurrence", serde_json::json!("weekdays")),
-            ("local_time", serde_json::json!("09:00")),
-            ("timezone", serde_json::json!("Australia/Sydney")),
-            ("missed_policy", serde_json::json!("skip")),
-            ("catch_up_grace_seconds", serde_json::json!(60)),
-        ] {
-            let mut recurring = payload.clone();
-            recurring[field] = value;
-            assert!(
-                has_recurring_schedule_fields(&decoded_request(recurring).orgintel),
-                "must not silently ignore {field}"
-            );
-        }
-    }
-
-    fn decoded_request(value: serde_json::Value) -> Request {
-        Request::decode(&value.to_string()).expect("decode request through the transport boundary")
-    }
-
-    #[test]
-    fn nonstable_profiles_default_to_distinct_authority_databases() {
-        let stable =
-            restlessd::appliance::MachineProfile::stable(Path::new("/Users/founder")).unwrap();
-        let dev = restlessd::appliance::MachineProfile {
-            kind: restlessd::appliance::ProfileKind::Dev,
-            state_root: PathBuf::from("/tmp/restless-dev-profile"),
-            port_offset: 1_200,
-            resource_namespace: "checkout_alpha".into(),
-        };
-        let test = restlessd::appliance::MachineProfile {
-            kind: restlessd::appliance::ProfileKind::Test,
-            state_root: PathBuf::from("/tmp/restless-test-profile"),
-            port_offset: 21_200,
-            resource_namespace: "checkout_alpha_test".into(),
-        };
-        let stable = OrgIntelConfig::default_for_profile(&stable);
-        let dev = OrgIntelConfig::default_for_profile(&dev);
-        let test = OrgIntelConfig::default_for_profile(&test);
-        assert_eq!(database_target(&stable.database_url).unwrap().2, "restless");
-        assert_eq!(
-            database_target(&dev.database_url).unwrap().2,
-            "restless_plane_checkout_alpha"
-        );
-        assert_eq!(
-            database_target(&test.database_url).unwrap().2,
-            "restless_plane_checkout_alpha_test"
-        );
-        assert_ne!(
-            database_target(&stable.database_url).unwrap(),
-            database_target(&dev.database_url).unwrap()
-        );
-        assert_ne!(
-            database_target(&dev.database_url).unwrap(),
-            database_target(&test.database_url).unwrap()
-        );
-    }
-
-    #[test]
-    fn hosted_plane_database_url_is_exact_password_authenticated_postgres() {
-        validate_plane_database_url(
-            "postgresql://restless:secret@plane-database:5432/restless?sslmode=require",
-        )
-        .unwrap();
-        for invalid in [
-            " postgres://restless:secret@plane-database/restless",
-            "postgres://restless@plane-database/restless",
-            "postgres://restless:secret@plane-database/",
-            "postgres://restless:secret@plane-database/one/two",
-            "https://restless:secret@plane-database/restless",
-            "postgres://restless:secret@plane-database/restless#credential-copy",
-        ] {
-            assert!(
-                validate_plane_database_url(invalid).is_err(),
-                "accepted invalid plane database URL shape"
-            );
-        }
-    }
-
-    #[tokio::test]
-    async fn an_unconfigured_company_cannot_recreate_a_destroyed_cell() {
-        let root =
-            std::env::temp_dir().join(format!("restless-cell-tombstone-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(root.join("companies")).unwrap();
-        let registry = OrgIntelRegistry {
-            database_url: "postgres://must-not-connect.invalid/restless".into(),
-            root: root.clone(),
-            handles: std::sync::Mutex::new(HashMap::new()),
-        };
-        let error = match registry.get("destroyed_test").await {
-            Ok(_) => panic!("an unconfigured company unexpectedly acquired an OrgIntel cell"),
-            Err(error) => error,
-        };
-        assert!(error.to_string().contains("not configured"));
-        assert!(!root.join("cells/destroyed_test/database.url").exists());
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[tokio::test]
-    async fn local_company_creation_persists_an_unconfigured_exec_without_launching() {
-        let Ok(database_url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
-            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping local creation scenario");
-            return;
-        };
-        let parsed = url::Url::parse(&database_url).unwrap();
-        assert!(
-            parsed.path().ends_with("_test"),
-            "local creation scenario requires a disposable test database"
-        );
-        let company = format!(
-            "unconfigured_create_{}_test",
-            &uuid::Uuid::new_v4().simple().to_string()[..10]
-        );
-        let root = std::env::temp_dir().join(&company);
-        std::fs::create_dir_all(root.join("companies")).unwrap();
-        let authority = authority::AuthorityStore::connect(&database_url)
-            .await
-            .unwrap();
-        let daemon = Daemon {
-            root: root.clone(),
-            capabilities: capability::CapabilityIssuer::open(&root).unwrap(),
-            spend: spend::SpendLedger::open(&root).unwrap(),
-            publication: publication::PublicationManager::new(&root, authority.clone()).unwrap(),
-            launch: launch::LaunchBroker::new(&root).unwrap(),
-            authority,
-            orgintel: OrgIntelRegistry {
-                database_url: database_url.clone(),
-                root: root.clone(),
-                handles: std::sync::Mutex::new(HashMap::new()),
-            },
-            staff: staff::StaffRegistry::default(),
-            activities: activity::AgentActivityStreams::default(),
-            cell_wakes: cell_wake::CellWakeHub::default(),
-            runtime_bridges: runtime_bridge::RuntimeBridgeRegistry::default(),
-            lifecycle: restlessd::appliance::LifecycleGate::default(),
-            in_flight: std::sync::Arc::new(std::sync::Mutex::new(schedule::WakeClaims::default())),
-            schedule_wake: std::sync::Arc::new(tokio::sync::Notify::new()),
-        };
-        let config: runtime::CompanyConfig = toml::from_str(&format!(
-            "name = {company:?}\nmission = \"Choose intelligence later\"\n"
-        ))
-        .unwrap();
-
-        create_local_company_inner(&daemon, config, false)
-            .await
-            .unwrap();
-        let restored = runtime::CompanyConfig::load(&root, &company).unwrap();
-        assert!(restored.model_candidates().unwrap().is_empty());
-        assert!(!restored.has_configured_model_route());
-        let org = daemon.orgintel.get(&company).await.unwrap();
-        assert_eq!(org.active_actor("exec").await.unwrap().unwrap().model, None);
-        assert!(!daemon.staff.is_actor_running(&company, "exec"));
-        let wake_error = schedule::run_exec_turn(
-            &daemon,
-            &restored,
-            &org,
-            "test wake must remain closed",
-            &tokio_util::sync::CancellationToken::new(),
-        )
-        .await
-        .unwrap_err();
-        assert!(wake_error.to_string().contains("Intelligence provider"));
-        assert!(!daemon.staff.is_actor_running(&company, "exec"));
-
-        org.close().await;
-        daemon.orgintel.forget(&company);
-        daemon
-            .authority
-            .delete_test_company(&company)
-            .await
-            .unwrap();
-        crate::cell::destroy_database(&root, &database_url, &company)
-            .await
-            .unwrap();
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn exec_fast_path_is_only_the_unambiguous_coherent_single_worker_route() {
-        let one_worker = vec!["product-builder".to_string()];
-        assert!(work_commission_is_admitted(
-            "exec",
-            "product-direction",
-            restless_orgintel::ProducingTopology::CoherentSingleWorker,
-            &one_worker,
-            "product-builder",
-        ));
-        assert!(!work_commission_is_admitted(
-            "exec",
-            "product-direction",
-            restless_orgintel::ProducingTopology::LocallyClosingParallelUnit,
-            &one_worker,
-            "product-builder",
-        ));
-        assert!(!work_commission_is_admitted(
-            "exec",
-            "product-direction",
-            restless_orgintel::ProducingTopology::CoherentSingleWorker,
-            &["product-builder".into(), "product-reviewer".into()],
-            "product-builder",
-        ));
-        assert!(work_commission_is_admitted(
-            "product-direction",
-            "product-direction",
-            restless_orgintel::ProducingTopology::LocallyClosingParallelUnit,
-            &[],
-            "product-builder",
-        ));
-    }
-
-    /// The hole this ticket closes: an agent inside the container asking for
-    /// the owner's authority act. `main.rs:215` accepted this with the expiry
-    /// "before any real external effect" — sprint 03 sent real email.
-    #[test]
-    fn the_company_may_not_perform_an_owner_authority_act() {
-        for cmd in OWNER_ONLY {
-            let refusal = authorize(Principal::CompanyExec, cmd)
-                .expect_err("company/exec must not perform {cmd}");
-            assert!(refusal.contains("owner authority"), "{cmd}: {refusal}");
-        }
-    }
-
-    /// Sprint 05's administrative-surface guard. The dispatcher remains an
-    /// intentionally ordinary match rather than a universal command algebra,
-    /// so this test reads that match and fails when a new coordination verb is
-    /// added without an owner CLI spelling. Open-ended Linux/browser work is
-    /// deliberately outside this enumeration (`attach` is its door).
-    /// ...and the gate must not break the agents' ordinary channel, which
-    /// would be a worse bug than the one it fixes.
-    #[test]
-    fn the_company_keeps_its_coordination_channel() {
-        for cmd in ["work", "message", "work-handoff-resolve", "effect", "inbox"] {
-            assert_eq!(
-                authorize(Principal::CompanyExec, cmd).unwrap(),
-                Principal::CompanyExec,
-                "{cmd} must stay open to the company"
-            );
-        }
-    }
-
-    /// TCP has no principal fallback. Local Unix derives owner identity from
-    /// its listener, but a Runtime must carry a valid capability.
-    #[test]
-    fn runtime_legacy_principal_spelling_cannot_claim_owner() {
-        assert!(Principal::legacy_runtime_claim(None).is_ok());
-        assert!(Principal::legacy_runtime_claim(Some("company/exec")).is_ok());
-        assert!(Principal::legacy_runtime_claim(Some("owner")).is_err());
-        assert!(Principal::legacy_runtime_claim(Some("root")).is_err());
-    }
-
-    #[test]
-    fn tcp_capability_derives_company_and_actor_before_dispatch() {
-        let root =
-            std::env::temp_dir().join(format!("restless-tcp-auth-test-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&root).unwrap();
-        let issuer = capability::CapabilityIssuer::open(&root).unwrap();
-        let token = issuer
-            .issue_actor_session("acme_test", "delivery-lead", "session_1", None, None)
-            .unwrap();
-
-        let mut valid = decoded_request(serde_json::json!({
-            "cmd": "message",
-            "company": "acme_test",
-            "principal": "company/exec",
-            "session_capability": token,
-            "from": "delivery-lead",
-            "to": "exec",
-            "body": "native result is ready"
-        }));
-        assert_eq!(
-            authenticate_request(&mut valid, &issuer, ConnectionOrigin::RuntimeTcp).unwrap(),
-            Principal::CompanyExec
-        );
-        assert_eq!(valid.company.as_deref(), Some("acme_test"));
-        assert_eq!(valid.common.from.as_deref(), Some("delivery-lead"));
-
-        for (command, field) in [
-            ("document-operation", "document_operation"),
-            ("sheet-operation", "sheet_operation"),
-            ("room-operation", "room_operation"),
-        ] {
-            let token = issuer
-                .issue_actor_session(
-                    "acme_test",
-                    "delivery-lead",
-                    "collaboration_session",
-                    None,
-                    None,
-                )
-                .unwrap();
-            let value = serde_json::json!({"cmd":command,"company":"acme_test","session_capability":token,field:{"operation":"list"}});
-            let mut collaboration = decoded_request(value.clone());
-            authenticate_request(&mut collaboration, &issuer, ConnectionOrigin::RuntimeTcp)
-                .unwrap();
-            assert_eq!(
-                collaboration.orgintel.actor.as_deref(),
-                Some("delivery-lead")
-            );
-            let mut forged = value;
-            forged["actor"] = serde_json::json!("owner");
-            assert!(authenticate_request(
-                &mut decoded_request(forged),
-                &issuer,
-                ConnectionOrigin::RuntimeTcp
-            )
-            .is_err());
-        }
-
-        let mut owner_claim = decoded_request(serde_json::json!({
-            "cmd": "approve",
-            "company": "acme_test",
-            "principal": "owner",
-            "session_capability": issuer
-                .issue_actor_session("acme_test", "delivery-lead", "session_2", None, None)
-                .unwrap()
-        }));
-        assert!(
-            authenticate_request(&mut owner_claim, &issuer, ConnectionOrigin::RuntimeTcp)
-                .unwrap_err()
-                .contains("may not claim owner")
-        );
-
-        let mut foreign_company = decoded_request(serde_json::json!({
-            "cmd": "message",
-            "company": "other_test",
-            "session_capability": issuer
-                .issue_actor_session("acme_test", "delivery-lead", "session_3", None, None)
-                .unwrap(),
-            "from": "delivery-lead",
-            "body": "forged"
-        }));
-        assert!(
-            authenticate_request(&mut foreign_company, &issuer, ConnectionOrigin::RuntimeTcp)
-                .is_err()
-        );
-
-        let mut foreign_actor = decoded_request(serde_json::json!({
-            "cmd": "message",
-            "company": "acme_test",
-            "session_capability": issuer
-                .issue_actor_session("acme_test", "delivery-lead", "session_4", None, None)
-                .unwrap(),
-            "from": "exec",
-            "body": "forged"
-        }));
-        assert!(
-            authenticate_request(&mut foreign_actor, &issuer, ConnectionOrigin::RuntimeTcp)
-                .unwrap_err()
-                .contains("cannot claim")
-        );
-
-        let work_id = uuid::Uuid::new_v4();
-        let attempt_id = uuid::Uuid::new_v4();
-        let document_id = uuid::Uuid::new_v4();
-        let named_version_id = uuid::Uuid::new_v4();
-        let command_id = uuid::Uuid::new_v4();
-        let scoped_token = issuer
-            .issue_actor_session(
-                "acme_test",
-                "delivery-lead",
-                "session_document",
-                Some(work_id),
-                Some(attempt_id),
-            )
-            .unwrap();
-        let document_request = |token: &str, requested_attempt: uuid::Uuid| {
-            decoded_request(serde_json::json!({
-                "cmd": "document-review-request",
-                "company": "acme_test",
-                "session_capability": token,
-                "document_id": document_id,
-                "expected_document_version": 3,
-                "named_version_id": named_version_id,
-                "document_work_id": work_id,
-                "document_attempt_id": requested_attempt,
-                "expected_work_revision": 1,
-                "reviewer_actor_id": "alex",
-                "review_summary": "Review this exact named version",
-                "document_command_id": command_id,
-            }))
-        };
-        let mut valid_document = document_request(&scoped_token, attempt_id);
-        assert_eq!(
-            authenticate_request(&mut valid_document, &issuer, ConnectionOrigin::RuntimeTcp,)
-                .unwrap(),
-            Principal::CompanyExec
-        );
-        assert_eq!(
-            valid_document.orgintel.actor.as_deref(),
-            Some("delivery-lead")
-        );
-        let mut mixed_attempt = document_request(&scoped_token, uuid::Uuid::new_v4());
-        assert!(
-            authenticate_request(&mut mixed_attempt, &issuer, ConnectionOrigin::RuntimeTcp,)
-                .unwrap_err()
-                .contains("do not match the signed ActorSession")
-        );
-        let bridge_token = issuer.issue_runtime_bridge("acme_test").unwrap();
-        let mut ambient_exec = document_request(&bridge_token, attempt_id);
-        assert!(
-            authenticate_request(&mut ambient_exec, &issuer, ConnectionOrigin::RuntimeTcp,)
-                .unwrap_err()
-                .contains("Work-bound ActorSession")
-        );
-        let mut human_document = document_request("unused", attempt_id);
-        assert!(
-            authenticate_request(&mut human_document, &issuer, ConnectionOrigin::LocalOwner,)
-                .unwrap_err()
-                .contains("hosted Runtime Attempt operation")
-        );
-
-        let mut local = decoded_request(serde_json::json!({
-            "cmd": "approve",
-            "company": "acme_test",
-            "principal": "company/exec"
-        }));
-        assert_eq!(
-            authenticate_request(&mut local, &issuer, ConnectionOrigin::LocalOwner).unwrap(),
-            Principal::Owner
-        );
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn the_owner_may_do_everything_the_company_may_and_more() {
-        for cmd in OWNER_ONLY {
-            assert_eq!(authorize(Principal::Owner, cmd).unwrap(), Principal::Owner);
-        }
-        assert_eq!(
-            authorize(Principal::Owner, "goals").unwrap(),
-            Principal::Owner
-        );
-    }
-
-    #[test]
-    fn runtime_attribution_fields_are_pinned_to_the_authenticated_actor() {
-        let mut request = decoded_request(serde_json::json!({
-            "cmd": "connected-tool-attach", "company": "acme_test",
-            "tool_name": "crm", "work_id": uuid::Uuid::new_v4().to_string()
-        }));
-        bind_runtime_actor(&mut request, "lead").unwrap();
-        assert_eq!(request.orgintel.actor.as_deref(), Some("lead"));
-        assert!(bind_runtime_actor(&mut request, "impostor").is_err());
-
-        let mut document = decoded_request(serde_json::json!({
-            "cmd": "document-operation",
-            "company": "acme_test",
-            "document_operation": {"operation":"list", "cursor":null, "archived":false}
-        }));
-        bind_runtime_actor(&mut document, "writer").unwrap();
-        assert_eq!(document.orgintel.actor.as_deref(), Some("writer"));
-        assert!(bind_runtime_actor(&mut document, "impostor").is_err());
     }
 }

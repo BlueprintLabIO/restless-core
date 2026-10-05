@@ -94,6 +94,25 @@ dev_worktree_claim_landed() {
     git -C "$dir" merge-base --is-ancestor "$head" origin/main 2>/dev/null
 }
 
+# Cargo keeps one incremental cache per crate variant (build, test harness,
+# check, each feature set) and never collects old ones, so a long-lived slot
+# grows without bound: one reached 42 GB in a day. Keep each crate's three most
+# recently used caches, which are what a warm rebuild reads. All regenerable.
+dev_worktree_trim_cache() {
+  local dir="$1" incremental crate before after
+  before="$(du -sk "$dir" 2>/dev/null | cut -f1)"
+  for incremental in "$dir/target/debug/incremental" "$dir/target-dev/debug/incremental"; do
+    [ -d "$incremental" ] || continue
+    # ls -t is portable (macOS has no find -printf); names are crate_hash.
+    for crate in $(ls -1 "$incremental" | sed -E 's/-[^-]+$//' | sort -u); do
+      ls -1dt "$incremental/$crate"-*/ 2>/dev/null | tail -n +4 \
+        | while IFS= read -r stale; do rm -rf -- "${stale%/}"; done
+    done
+  done
+  after="$(du -sk "$dir" 2>/dev/null | cut -f1)"
+  printf '%s\n' "$(( (before - after) / 1024 ))"
+}
+
 dev_worktree_slots() {
   local parent
   parent="$(dev_worktree_parent)"
@@ -142,6 +161,8 @@ dev_worktree_new() {
   fi
   printf '%s\t%s\t%s\n' "$name" "$(date +%s)" "$(git -C "$dir" rev-parse HEAD)" \
     > "$(dev_worktree_claim_file "$dir")"
+  # A warm slot's target holds tens of GB; keep macOS Spotlight out of it.
+  mkdir -p "$dir/target" && touch "$dir/target/.metadata_never_index"
 
   if [ "$reused" = 1 ]; then
     printf '\nWORKTREE %s (reused: its build cache is warm)\n' "$dir"
@@ -213,12 +234,14 @@ dev_worktree_prune() {
             case "$dir" in "$parent"/slot-*) slots_kept=$((slots_kept + 1)) ;; esac
           elif [[ "$dir" == "$parent"/slot-* ]] && [ "$slots_kept" -lt "$pool" ]; then
             slots_kept=$((slots_kept + 1))
+            local freed
+            freed="$(dev_worktree_trim_cache "$dir")"
             if [ -n "$claim" ]; then
               rm -f "$(dev_worktree_claim_file "$dir")"
-              printf 'RELEASED %s (%s landed; kept warm for the next task)\n' "$dir" "$claim"
+              printf 'RELEASED %s (%s landed; kept warm for the next task; %s MB of old caches trimmed)\n' "$dir" "$claim" "$freed"
               released=$((released + 1))
             else
-              printf 'IDLE     %s (warm, free for the next task)\n' "$dir"
+              printf 'IDLE     %s (warm, free for the next task; %s MB of old caches trimmed)\n' "$dir" "$freed"
             fi
           else
             git -C "$STACK_REPO_ROOT" worktree remove --force "$dir"

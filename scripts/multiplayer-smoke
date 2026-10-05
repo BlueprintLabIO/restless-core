@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# Multiplayer smoke: three real accounts (owner + two members) in one isolated
+# `_test` company over authenticated network entry with local company computers.
+#
+# Drives invite → accept → enter → concurrent document editing → room chat →
+# a member's mention → removal, in three separate browser contexts, with mail
+# captured by a loopback SMTP server. The runner (services/identity/test/run-core.mjs)
+# removes its company, containers, volume, databases and roles even on failure.
+#
+# Required:
+#   RESTLESS_TEST_DATABASE_URL_FILE  absolute 0600 file with a PostgreSQL admin URL
+#   RESTLESS_COMPANY_IMAGE           installed company image, repository@sha256:<digest>
+# Optional:
+#   RESTLESS_BROWSER_EXECUTABLE      Chromium; defaults to the one Playwright installed for web/
+#   RESTLESS_NATIVE_DOCUMENTS_IMAGE  installed Documents image; otherwise built from this checkout
+#   RESTLESS_IDENTITY_TEST_OUTPUT    new absolute directory to keep the evidence in
+#   --skip-build                     reuse target/debug/restlessd, web/build and node_modules
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+skip_build=0
+for argument in "$@"; do
+  case "$argument" in
+    --skip-build) skip_build=1 ;;
+    *) echo "usage: scripts/multiplayer-smoke [--skip-build]" >&2; exit 2 ;;
+  esac
+done
+
+fail() { echo "multiplayer-smoke: $*" >&2; exit 1; }
+[[ -n "${RESTLESS_TEST_DATABASE_URL_FILE:-}" ]] || fail "set RESTLESS_TEST_DATABASE_URL_FILE to a 0600 file holding a PostgreSQL admin URL"
+[[ "${RESTLESS_COMPANY_IMAGE:-}" =~ ^[^[:space:]]+@sha256:[0-9a-f]{64}$ ]] \
+  || fail "set RESTLESS_COMPANY_IMAGE to an installed company image pinned as repository@sha256:<digest>"
+docker image inspect "$RESTLESS_COMPANY_IMAGE" >/dev/null 2>&1 \
+  || fail "company image $RESTLESS_COMPANY_IMAGE is not installed on this host"
+# Core and the account service share plane.localhost on two ports, as a
+# Tailscale-shared host does; Core resolves it through the OS resolver.
+getent hosts plane.localhost | grep -Eq '^(127\.0\.0\.1|::1)[[:space:]]' \
+  || fail "plane.localhost must resolve to loopback (systemd-resolved does; otherwise add '127.0.0.1 plane.localhost' to /etc/hosts)"
+
+if (( ! skip_build )); then
+  "$root/scripts/restless-cargo" build -p restlessd
+  npm --prefix "$root/services/identity" ci --ignore-scripts
+  npm --prefix "$root/web" ci --ignore-scripts
+  npm --prefix "$root/web" run build
+fi
+
+built_documents_image=""
+if [[ -z "${RESTLESS_NATIVE_DOCUMENTS_IMAGE:-}" ]]; then
+  built_documents_image="restless-native-documents:multiplayer-smoke_test"
+  docker build --quiet --tag "$built_documents_image" "$root/services/native-documents-collaboration" >/dev/null
+  export RESTLESS_NATIVE_DOCUMENTS_IMAGE="$built_documents_image"
+fi
+cleanup() {
+  if [[ -n "$built_documents_image" ]]; then
+    docker image rm "$built_documents_image" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT
+
+if [[ -z "${RESTLESS_BROWSER_EXECUTABLE:-}" ]]; then
+  RESTLESS_BROWSER_EXECUTABLE="$(cd "$root/web" && node -e 'console.log(require("playwright").chromium.executablePath())')"
+  [[ -x "$RESTLESS_BROWSER_EXECUTABLE" ]] \
+    || fail "no Chromium for Playwright; run 'npx --prefix web playwright install chromium' or set RESTLESS_BROWSER_EXECUTABLE"
+  export RESTLESS_BROWSER_EXECUTABLE
+fi
+
+export RESTLESS_TEST_DAEMON="$root/target/debug/restlessd"
+export RESTLESS_TEST_JOURNEY=multiplayer-journey.mjs
+status=0
+(cd "$root/services/identity" && node test/run-core.mjs) || status=$?
+if [[ -x "$root/scripts/restless-reap" ]]; then
+  "$root/scripts/restless-reap" --check || true
+fi
+exit "$status"

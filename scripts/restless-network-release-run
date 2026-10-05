@@ -18,9 +18,9 @@ fi
 
 revision="$(git rev-parse HEAD)"
 version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
-api_contract="$(sed -n 's/.*API_CONTRACT_VERSION: u32 = \([0-9]*\);.*/\1/p' crates/restlessd/src/release.rs)"
-assertion_contract="$(sed -n 's/.*ASSERTION_CONTRACT_VERSION: u32 = \([0-9]*\);.*/\1/p' crates/restlessd/src/entry.rs)"
-schema_version="$(sed -n 's/.*SCHEMA_VERSION: u32 = \([0-9]*\);.*/\1/p' crates/restlessd/src/release.rs)"
+api_contract="$(sed -n 's/.*API_CONTRACT_VERSION: u32 = \([0-9]*\);.*/\1/p' crates/restless-engine/src/release.rs)"
+assertion_contract="$(sed -n 's/.*ASSERTION_CONTRACT_VERSION: u32 = \([0-9]*\);.*/\1/p' crates/restless-engine/src/entry.rs)"
+schema_version="$(sed -n 's/.*SCHEMA_VERSION: u32 = \([0-9]*\);.*/\1/p' crates/restless-engine/src/release.rs)"
 run_id="${RESTLESS_NETWORK_TEST_RUN_ID:-$$}"
 company="core27_network_${run_id}_test"
 registry_port="${RESTLESS_NETWORK_TEST_REGISTRY_PORT:-15000}"

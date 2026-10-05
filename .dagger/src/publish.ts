@@ -97,6 +97,22 @@ function scanner(image: string, prefix: string, username: string, password: Secr
     .withEnvVariable(`${prefix}_REGISTRY_AUTH_USERNAME`, username).withSecretVariable(`${prefix}_REGISTRY_AUTH_PASSWORD`, password);
 }
 
+/**
+ * Push to GHCR, retrying a dropped connection. Already uploaded blobs are
+ * skipped on the next attempt, so a retry only resends what was interrupted.
+ */
+async function publishWithRetry(image: Container, tag: string): Promise<string> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await image.publish(tag);
+    } catch (error) {
+      const transient = /(?:timed out|timeout|connection reset|broken pipe|unexpected EOF|network is unreachable|: 5\d\d)/i;
+      if (attempt >= 3 || !transient.test(String(error))) throw error;
+      console.log(`${tag}: push interrupted (attempt ${attempt}), retrying`);
+    }
+  }
+}
+
 /** Reuse a partial upload, then qualify the exact image before it can be sealed. */
 export async function publishImage(component: string, revision: string, platform: Platform, context: Directory,
   factory: () => Promise<Container>, verify: (image: Container) => Promise<void>, username: string, password: Secret,
@@ -116,7 +132,7 @@ export async function publishImage(component: string, revision: string, platform
     if (!/(?:manifest unknown|manifest_unknown|name_unknown|: not found|: 404)/i.test(String(error))) throw error;
     image = (await factory()).withLabel('io.restless.build-input-sha256', input).withLabel('io.restless.component', component)
       .withLabel('org.opencontainers.image.revision', revision).withRegistryAuth('ghcr.io', username, password);
-    reference = `${repository}@${(await image.publish(tag)).split('@')[1]}`;
+    reference = `${repository}@${(await publishWithRetry(image, tag)).split('@')[1]}`;
     image = dag.container({ platform }).withRegistryAuth('ghcr.io', username, password).from(reference);
   }
   if (!/^sha256:[0-9a-f]{64}$/.test(reference.split('@')[1])) throw new Error(`${component}: registry returned a mutable reference`);
@@ -135,8 +151,11 @@ export async function publishImage(component: string, revision: string, platform
   // Catalogue the exact image once. Include producer CycloneDX records: newer
   // Chrome binaries no longer match Syft's binary-string version classifier.
   // Grype consumes this same inventory rather than recataloguing the image.
+  // Syft reads the image the engine already pulled by digest: downloading it a
+  // second time from GHCR repeatedly broke off mid-layer on the release runner.
   const sbom = scanner(SYFT_IMAGE, 'SYFT', username, password).withNewFile('/reports/.keep', '')
-    .withExec([`registry:${reference}`, '--override-default-catalogers', 'image',
+    .withFile('/image.tar', image.asTarball())
+    .withExec(['oci-archive:/image.tar', '--source-name', reference, '--override-default-catalogers', 'image',
       '--override-default-catalogers', 'sbom-cataloger', '--output', 'syft-json=/reports/inventory.json',
       '--output', 'spdx-json=/reports/sbom.json'], { useEntrypoint: true });
   if (['runtime-tools', 'company-runtime'].includes(component)) {

@@ -1,0 +1,28 @@
+{
+  "contract": "restless-company-projection",
+  "version": 2,
+  "verify_at": 1790000010,
+  "hostname": "owner.example.test",
+  "plane_id": "00000000-0000-0000-0000-000000000001",
+  "company_id": "00000000-0000-0000-0000-000000000abc",
+  "expect": {
+    "decisions_waiting": 4,
+    "sequence": 1790000000000,
+    "people_working": 2,
+    "outcomes_last_day": 3,
+    "exec_ready": true
+  },
+  "jwks": {
+    "keys": [
+      {
+        "kty": "OKP",
+        "crv": "Ed25519",
+        "alg": "EdDSA",
+        "use": "sig",
+        "kid": "company-projection-7599776c3085e3f9da0d1307",
+        "x": "bnoc3Smwt4_ROvTFWY_v9O8qlxZuPKby5Pv8zYBQW_E"
+      }
+    ]
+  },
+  "token": "eyJhbGciOiJFZERTQSIsInR5cCI6InJlc3RsZXNzLWNvbXBhbnktcHJvamVjdGlvbitqd3QiLCJraWQiOiJjb21wYW55LXByb2plY3Rpb24tNzU5OTc3NmMzMDg1ZTNmOWRhMGQxMzA3In0.eyJpc3MiOiJodHRwczovL293bmVyLmV4YW1wbGUudGVzdCIsImF1ZCI6InJlc3RsZXNzLWZsZWV0IiwiY29udHJhY3RfdmVyc2lvbiI6Miwia2luZCI6ImF0dGVudGlvbiIsInBsYW5lX2lkIjoiMDAwMDAwMDAtMDAwMC0wMDAwLTAwMDAtMDAwMDAwMDAwMDAxIiwiY29tcGFueV9pZCI6IjAwMDAwMDAwLTAwMDAtMDAwMC0wMDAwLTAwMDAwMDAwMGFiYyIsInByb2plY3RlZF9hdCI6MTc5MDAwMDAwMCwic2VxdWVuY2UiOjE3OTAwMDAwMDAwMDAsImRlY2lzaW9uc193YWl0aW5nIjo0LCJsYXN0X2FjdGl2aXR5X2F0IjoxNzg5OTk5OTAwLCJwZW9wbGVfd29ya2luZyI6Miwib3V0Y29tZXNfbGFzdF9kYXkiOjMsImV4ZWNfcmVhZHkiOnRydWV9.6vj1DVUfW8rGH0MgA9vyZOUYe2lvWTfn1MHdjdJyWiDBjKGDnEdLi6srYNazrcDJ6fyYv0045MCkUSTdwjLDDA"
+}

@@ -252,13 +252,15 @@ try{
    const overflow=await page.evaluate(()=>document.documentElement.scrollWidth-document.documentElement.clientWidth);
    assert(overflow<=0,`${name} Members page scrolls horizontally by ${overflow}px`);
    if(name==='desktop'){
-    await page.getByPlaceholder('colleague@example.com').fill('browser-invite@restless-launch.test');
     await page.getByRole('button',{name:'Invite',exact:true}).click();
+    await page.getByLabel('Email to invite').fill('browser-invite@restless-launch.test');
+    await page.getByRole('button',{name:'Send invite'}).click();
     await page.getByText('Invitation sent to browser-invite@restless-launch.test.').waitFor();
     await page.getByText('browser-invite@restless-launch.test').first().waitFor();
     assert(messages.some(m=>m.to==='browser-invite@restless-launch.test'),'the cockpit invitation is emailed');
     await page.screenshot({path:evidence+`/members-network-${width}.png`,fullPage:true});
-    await page.getByRole('button',{name:'Cancel',exact:true}).click();
+    await page.locator('summary[aria-label="Invitation to browser-invite@restless-launch.test"]').click();
+    await page.getByRole('button',{name:'Cancel invitation'}).click();
     await page.getByText('Invitation cancelled.').waitFor();
    }else await page.screenshot({path:evidence+`/members-network-${width}.png`,fullPage:true});
    assert.deepEqual(errors,[]);await context.close();

@@ -85,11 +85,21 @@ export interface RoomMention {
 	cancelled_at: string | null;
 }
 
+export interface RoomThreadSummary {
+	root_message_id: number;
+	reply_count: number;
+	last_reply_at: string;
+	/** Distinct reply authors, most recent first, at most three. */
+	repliers: string[];
+}
+
 export interface RoomMessagePage {
 	messages: RoomMessage[];
 	mentions: RoomMention[];
 	next_before_message_id: number | null;
 	has_more: boolean;
+	/** Reply counts for roots in this page; absent on Thread pages. */
+	threads?: RoomThreadSummary[];
 }
 
 export interface RoomMessageRevision {
@@ -406,7 +416,9 @@ export function sendRoomMessage(
 	body: string,
 	commandId: string,
 	parentMessageId: number | null,
-	mentions: NewRoomMention[] = []
+	mentions: NewRoomMention[] = [],
+	/** A mention of the sender this Thread reply answers. */
+	resolvesMentionId: string | null = null
 ): Promise<RoomMessageSendResult> {
 	const endpoint = parentMessageId
 		? `${roomPath(company, room)}/messages/${encodeURIComponent(parentMessageId)}/replies`
@@ -414,7 +426,12 @@ export function sendRoomMessage(
 	return roomJson(endpoint, {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify({ body, command_id: commandId, mentions })
+		body: JSON.stringify({
+			body,
+			command_id: commandId,
+			mentions,
+			...(resolvesMentionId ? { resolves_mention_id: resolvesMentionId } : {})
+		})
 	});
 }
 

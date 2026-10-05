@@ -79,8 +79,13 @@
 	const statusLabel = $derived.by(() => {
 		if (!terminal && turn.transport === 'reconnecting') return `Reconnecting to ${participantName}`;
 		switch (phase) {
-			case 'acting':
-				return `${participantName} is working`;
+			case 'acting': {
+				/* Name what it is doing now, when a tool says so. */
+				const current = visibleActivity.findLast((item) => item.status === 'active');
+				return current?.label
+					? `${participantName} · ${current.label}`
+					: `${participantName} is working`;
+			}
 			case 'responding':
 				return `${participantName} is replying`;
 			case 'complete':
@@ -178,16 +183,21 @@
 		<span class="turn-status" class:shimmer={working} role="status" aria-live="polite"
 			>{statusLabel}</span
 		>
-		<time title={latestUpdate}>{elapsedLabel}</time>
+		<time
+			title={[latestUpdate, contextLabel, outputLabel && `${outputLabel} tokens`]
+				.filter(Boolean)
+				.join(' · ')}>{elapsedLabel}</time
+		>
 		{#if visibleActivity.length}
 			<span class="action-count"
 				>{visibleActivity.length} action{visibleActivity.length === 1 ? '' : 's'}</span
 			>
 		{/if}
-		{#if contextLabel}<span class="context-usage" title="Latest context-window usage"
+		<!-- Model usage is an internal; it shows only while the owner looks inside. -->
+		{#if expanded && contextLabel}<span class="context-usage" title="Latest context-window usage"
 				>{contextLabel}</span
 			>{/if}
-		{#if outputLabel}<span class="output-usage" title="Reported generated output tokens"
+		{#if expanded && outputLabel}<span class="output-usage" title="Reported generated output tokens"
 				>{outputLabel}</span
 			>{/if}
 		<span class="turn-chevron" aria-hidden="true">⌄</span>

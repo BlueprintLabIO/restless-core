@@ -11,6 +11,7 @@
     "test": "node --test test/*.test.mjs",
     "test:smtp": "node test/smtp-entrypoint.mjs",
     "test:core": "node test/run-core.mjs",
+    "test:multiplayer": "RESTLESS_TEST_JOURNEY=multiplayer-journey.mjs node test/run-core.mjs",
     "test:issuer": "node test/issuer.integration.mjs"
   },
   "dependencies": {

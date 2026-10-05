@@ -1,7 +1,7 @@
 // GENERATED — do not edit.
 //
-// Source: crates/restlessd/src/owner.rs, transcript.rs and activity.rs.
-// Regenerate: RESTLESS_WRITE_CONVERSATION_BINDINGS=1 cargo test -p restlessd conversation_typescript_bindings_match
+// Source: crates/restless-owner/src/owner.rs and crates/restless-engine/src/{transcript,activity}.rs.
+// Regenerate: RESTLESS_WRITE_CONVERSATION_BINDINGS=1 cargo test -p restless-owner conversation_typescript_bindings_match
 //
 // Shared owner conversation and live-turn response contract.
 
@@ -16,7 +16,13 @@ export type OwnerIntentReceipt = { kind: OwnerIntentKind, summary: string, outco
  * Up to three short answers the agent expects to `owner_need`. The
  * cockpit offers them as drafts; the owner still sends their own words.
  */
-ownerReplies?: Array<string>, };
+ownerReplies?: Array<string>,
+/**
+ * Up to four short labels for the separate facts an `owner_need`
+ * asks for ("Price paid", "Load test result"). The cockpit gives each
+ * one a field and sends the answers as ordinary text.
+ */
+ownerFields?: Array<string>, };
 
 export type ConversationActorView = { id: string, display: string, kind: string, role: string, };
 

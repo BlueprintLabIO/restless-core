@@ -1,0 +1,60 @@
+name: Multiplayer smoke
+
+# Nightly: three real accounts in one isolated `_test` company over authenticated
+# network entry with local company computers (scripts/multiplayer-smoke).
+#
+# Runs only on the self-hosted WSL runner. That host provides, as repository
+# variables naming things already on it:
+#   RESTLESS_SMOKE_DATABASE_URL_FILE  absolute 0600 file with a PostgreSQL admin URL
+#   RESTLESS_SMOKE_COMPANY_IMAGE      installed company image, repository@sha256:<digest>
+# plus Docker, Node 24, Rust, and plane.localhost resolving to loopback.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: multiplayer-smoke
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: [self-hosted, linux, x64, restless-core]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install Playwright Chromium
+        run: |
+          npm --prefix web ci --ignore-scripts
+          npx --prefix web playwright install chromium
+
+      - name: Run the multiplayer smoke
+        env:
+          RESTLESS_TEST_DATABASE_URL_FILE: ${{ vars.RESTLESS_SMOKE_DATABASE_URL_FILE }}
+          RESTLESS_COMPANY_IMAGE: ${{ vars.RESTLESS_SMOKE_COMPANY_IMAGE }}
+          RESTLESS_IDENTITY_TEST_OUTPUT: ${{ runner.temp }}/multiplayer-smoke-${{ github.run_id }}
+        run: scripts/multiplayer-smoke
+
+      - name: Keep the evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: multiplayer-smoke-${{ github.run_id }}
+          path: ${{ runner.temp }}/multiplayer-smoke-${{ github.run_id }}
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Remove the evidence from the runner
+        if: always()
+        run: rm -rf "${{ runner.temp }}/multiplayer-smoke-${{ github.run_id }}"

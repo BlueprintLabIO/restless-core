@@ -994,8 +994,9 @@ pub struct WorkGraphSnapshot {
 }
 
 /// The reactions a message may carry. A short fixed set keeps them meaningful
-/// as signals rather than decoration.
-pub const MESSAGE_REACTIONS: &[&str] = &["👍", "👀", "✅", "❤️", "🎉", "❓"];
+/// as signals rather than decoration. 📌 pins the message: the cockpit keeps
+/// a conversation's pinned messages in view above it.
+pub const MESSAGE_REACTIONS: &[&str] = &["👍", "👀", "✅", "❤️", "🎉", "❓", "📌"];
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
 pub struct MessageReactionRow {
@@ -1540,6 +1541,19 @@ pub struct RoomMessagePage {
     /// chronological so clients never have to reverse conversational order.
     pub next_before_message_id: Option<i64>,
     pub has_more: bool,
+    /// Reply counts for the top-level Messages in this page that have a
+    /// Thread, so a root can say it has replies without opening it. Empty on
+    /// Thread pages.
+    pub threads: Vec<RoomThreadSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct RoomThreadSummary {
+    pub root_message_id: i64,
+    pub reply_count: i64,
+    pub last_reply_at: DateTime<Utc>,
+    /// Distinct reply authors, most recent first, at most three.
+    pub repliers: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

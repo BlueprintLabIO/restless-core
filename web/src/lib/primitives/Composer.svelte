@@ -38,6 +38,8 @@
 		focusKey = 0,
 		options = [],
 		selectedSkills = $bindable<string[]>([]),
+		interruptible = false,
+		interrupt = $bindable(false),
 		controls
 	}: {
 		value?: string;
@@ -61,6 +63,11 @@
 		options?: ComposerOption[];
 		/** Skills explicitly selected for the next message, shown as removable chips. */
 		selectedSkills?: string[];
+		/** The recipient is mid-reply: Send queues the message, and a second
+		 * action (or Ctrl/Cmd+Enter) interrupts the reply with it instead. */
+		interruptible?: boolean;
+		/** Set just before submit: whether this send interrupts. */
+		interrupt?: boolean;
 	} = $props();
 
 	type Menu = import('$lib/primitives/composer-menu').ComposerTrigger;
@@ -72,6 +79,31 @@
 	);
 	const optionDescription = (name: string) =>
 		options.find((option) => option.kind === 'skill' && option.name === name)?.description ?? '';
+
+	let focused = $state(false);
+	/* The keys are shown above the field on the first few focuses on this
+	 * device, then only in tooltips and the shortcut sheet. */
+	const HINT_KEY = 'restless:composer-hint-seen';
+	let hintSessions = $state(5);
+	onMount(() => {
+		try {
+			hintSessions = 5 - (Number(localStorage.getItem(HINT_KEY)) || 0);
+		} catch {
+			hintSessions = 0;
+		}
+	});
+	let hintCounted = false;
+	function noteFocus() {
+		focused = true;
+		if (hintCounted || hintSessions <= 0) return;
+		hintCounted = true;
+		try {
+			localStorage.setItem(HINT_KEY, String(6 - hintSessions));
+		} catch {
+			/* A hint is a convenience. */
+		}
+	}
+	const showHint = $derived(focused && hintSessions > 0 && !value && !menu);
 
 	function refreshMenu() {
 		if (!inputEl || options.length === 0) {
@@ -224,6 +256,7 @@
 		if (composerKeyAction(event, composing) !== 'send') return;
 		event.preventDefault();
 		if (!sendable) return;
+		interrupt = interruptible && (event.metaKey || event.ctrlKey);
 		/* requestSubmit, never submit: submit() skips HTML validation. */
 		inputEl?.form?.requestSubmit();
 	}
@@ -346,7 +379,7 @@
 			aria-label={menu.trigger === '$'
 				? 'Skills'
 				: menu.trigger === '#'
-					? 'Work and Goals'
+					? 'Work, Goals and documents'
 					: menu.trigger === '@'
 						? 'People'
 						: 'Commands and skills'}
@@ -374,6 +407,11 @@
 	     ONE AttachmentPicker, not two: the file <input> lives inside its button, and a
 	     chips-only instance would have no input to rebuild on remove — the × would silently
 	     do nothing. Its chips take a full-width row inside the toolbar instead. -->
+	{#if showHint && !(menu && menuItems.length > 0)}<span class="hc-hint" aria-hidden="true"
+			>{interruptible
+				? 'Enter queues · Ctrl/Cmd+Enter interrupts'
+				: 'Enter sends · Shift+Enter adds a line'}</span
+		>{/if}
 	<div class="hc-field" data-send-state={sendability}>
 		{#if flareKey > 0}
 			{#key flareKey}<span class="hc-flare" aria-hidden="true"></span>{/key}
@@ -422,7 +460,11 @@
 			bind:value
 			oninput={refreshMenu}
 			onclick={refreshMenu}
-			onblur={() => (menu = null)}
+			onfocus={noteFocus}
+			onblur={() => {
+				menu = null;
+				focused = false;
+			}}
 			onkeydown={onKeydown}
 			oncompositionstart={() => (composing = true)}
 			oncompositionend={() => (composing = false)}
@@ -452,15 +494,25 @@
 					<Mic size={15} strokeWidth={2} aria-hidden="true" />
 				{/if}
 			</button>
-			<button
-				class="hc-send"
-				type="submit"
-				aria-label={sendLabel}
-				title={sendLabel}
-				disabled={!sendable}
-			>
-				<MatrixGlyph rows={GLYPHS.up} size={11} />
-			</button>
+			<div class="hc-sends">
+				{#if interruptible}<button
+						class="hc-interrupt"
+						type="submit"
+						title="Stop the current reply and send this now (Ctrl/Cmd+Enter)"
+						disabled={!sendable}
+						onclick={() => (interrupt = true)}>Interrupt</button
+					>{/if}
+				<button
+					class="hc-send"
+					type="submit"
+					aria-label={interruptible ? 'Queue for after the current reply' : sendLabel}
+					title={interruptible ? 'Queue for after the current reply (Enter)' : sendLabel}
+					disabled={!sendable}
+					onclick={() => (interrupt = false)}
+				>
+					<MatrixGlyph rows={GLYPHS.up} size={11} />
+				</button>
+			</div>
 		</div>
 	</div>
 </div>

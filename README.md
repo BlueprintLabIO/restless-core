@@ -283,6 +283,9 @@ to see how these features work.
 
 ## Getting started
 
+To run a published release as a service with upgrades and backups, follow
+[self-hosting](docs/self-hosting.md). To build from source:
+
 Three commands open the office. You need a **Linux host with Rust/Cargo, Node.js 24/npm,
 Docker with Compose v2, curl, jq and OpenSSL**, Docker running, and at least 30 GiB free for
 the source build and company image.
@@ -613,7 +616,10 @@ workflow gap and show the resulting output or behaviour.
 
 | Path | Contents |
 | --- | --- |
-| `crates/restlessd/` | Coordination daemon and owner APIs |
+| `crates/restlessd/` | Daemon binary: starts the engine and the owner API |
+| `crates/restless-engine/` | Everything beneath the owner API, including the coordination socket |
+| `crates/restless-owner/` | Owner HTTP and WebSocket API |
+| `crates/restless-contracts/` | Released contracts shared with the CLI |
 | `crates/restless/` | Operator CLI |
 | `crates/restless-orgintel/` | Recoverable company and work state |
 | `crates/restless-model-gateway/` | Model routing and spend accounting |

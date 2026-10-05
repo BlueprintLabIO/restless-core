@@ -4,7 +4,6 @@
 	import type { Snippet } from 'svelte';
 	import Check from '@lucide/svelte/icons/check';
 	import Copy from '@lucide/svelte/icons/copy';
-	import FileText from '@lucide/svelte/icons/file-text';
 	import AttachmentList from './AttachmentList.svelte';
 	import Markdown from './Markdown.svelte';
 	import ReferencePreview from './ReferencePreview.svelte';
@@ -60,7 +59,6 @@
 	} = $props();
 
 	let copyState = $state<'idle' | 'copied' | 'failed'>('idle');
-	let showWorkDetails = $state(false);
 	let copyTimer: number | undefined;
 
 	function timeLabel(value: Date | string): string {
@@ -163,26 +161,18 @@
 		<AttachmentList {attachments} {hrefFor} />
 		{#if onreact && sender !== 'system'}<MessageReactions {reactions} {onreact} />{/if}
 		{#if details && sender === 'agent'}
-			<details class="work-details" hidden={!showWorkDetails} open>
+			<!-- One disclosure: the evidence stays folded under the message until asked for. -->
+			<details class="work-details">
 				<summary>Work details</summary>
 				<div class="work-details-body"><Markdown text={details} /></div>
 			</details>
 		{/if}
 	</div>
 
-	{#if (copyable || (details && sender === 'agent')) && sender !== 'system'}
+	{#if copyable && sender !== 'system'}
 		<footer class="message-footer">
 			<div class="message-actions" aria-label="Message actions">
 				{@render actions?.()}
-				{#if details && sender === 'agent'}<button
-						type="button"
-						class="copy-message"
-						aria-label={showWorkDetails ? 'Hide Work details' : 'Show Work details'}
-						title="Work details"
-						aria-expanded={showWorkDetails}
-						onclick={() => (showWorkDetails = !showWorkDetails)}
-						><FileText size={12} aria-hidden="true" /></button
-					>{/if}
 				{#if copyable}
 					<button
 						type="button"
@@ -217,9 +207,6 @@
 </article>
 
 <style>
-	.work-details[hidden] {
-		display: none;
-	}
 	.conversation-message.fresh {
 		animation: message-arrive var(--motion-disclosure) var(--ease-out) both;
 	}

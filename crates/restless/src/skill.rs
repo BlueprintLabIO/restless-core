@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context as _, Result};
 use clap::Subcommand;
-use restlessd::skill_package::{self, ObservedSkill};
+use restless_contracts::skill_package::{self, ObservedSkill};
 
 #[derive(Subcommand)]
 pub(crate) enum SkillCommand {

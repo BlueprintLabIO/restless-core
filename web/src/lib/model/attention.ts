@@ -429,14 +429,14 @@ export function cockpitContextPath(
 export async function approvalAction(
 	company: string,
 	action: 'grant' | 'decline' | 'revoke',
-	party: string
+	target: string | { call_key: string }
 ): Promise<void> {
 	const response = await fetch(
 		`/api/companies/${encodeURIComponent(company)}/approvals/${action}`,
 		{
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ party }),
+			body: JSON.stringify(typeof target === 'string' ? { party: target } : target),
 			credentials: 'same-origin'
 		}
 	);

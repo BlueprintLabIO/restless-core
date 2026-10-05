@@ -1,7 +1,7 @@
 // GENERATED — do not edit.
 //
-// Source: crates/restlessd/src/owner.rs (the owner projection writer).
-// Regenerate: RESTLESS_WRITE_COCKPIT_BINDINGS=1 cargo test -p restlessd cockpit_typescript_bindings_match
+// Source: crates/restless-owner/src/owner.rs (the owner projection writer).
+// Regenerate: RESTLESS_WRITE_COCKPIT_BINDINGS=1 cargo test -p restless-owner cockpit_typescript_bindings_match
 //
 // This is the cockpit response contract, not a client-side view-model.
 

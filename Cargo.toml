@@ -2,6 +2,9 @@
 resolver = "2"
 members = [
     "crates/restlessd",
+    "crates/restless-contracts",
+    "crates/restless-engine",
+    "crates/restless-owner",
     "crates/restless",
     "crates/restless-model-gateway",
     "crates/restless-orgintel",

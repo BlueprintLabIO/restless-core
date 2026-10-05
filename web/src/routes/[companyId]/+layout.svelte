@@ -44,6 +44,9 @@
 	import { actorCanReceive } from '$lib/model/cockpit';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import { inPlace } from '$lib/transition';
+	import { pageContext } from '$lib/model/page-context.svelte';
+	import { provideReferencePreview } from '$lib/model/reference-preview';
+	import { documentsQuery } from '$lib/model/document-queries.svelte';
 
 	let { children } = $props();
 
@@ -63,7 +66,8 @@
 		return railLoading;
 	}
 	$effect(() => {
-		if (execRailOpen) void loadRail();
+		/* People shows the Exec and leads in the rail at full width. */
+		if (execRailOpen || wideActor) void loadRail();
 	});
 	onMount(() => {
 		const early = () => void loadRail();
@@ -76,6 +80,11 @@
 
 	/* People owns its selected-person conversation, and immersive computer pages
 	 * do not render the Exec rail. Do not keep shell-only rail state polling there. */
+	const peopleConversation = $derived(
+		ownerAccess &&
+			page.url.pathname === `/${companyId}/people` &&
+			page.url.searchParams.has('person')
+	);
 	const railVisible = $derived.by(() => {
 		if (!ownerAccess) return false;
 		const path = page.url.pathname;
@@ -87,7 +96,9 @@
 			(path === `/${companyId}` && page.url.searchParams.has('computer'))
 		);
 	});
-	const intelligence = $derived(intelligenceQuery(companyId, () => railVisible));
+	const intelligence = $derived(
+		intelligenceQuery(companyId, () => railVisible || peopleConversation)
+	);
 	onMount(() =>
 		watchIntelligenceChanges((changed) => {
 			if (affectsCompany(changed, companyId)) void intelligence.refresh();
@@ -247,6 +258,8 @@
 		}
 	}
 	const workRows = $derived(attention.view?.workGraph?.work ?? []);
+	/* Documents the composer offers after `#`. */
+	const libraryDocuments = $derived(documentsQuery(ownerAccess ? companyId : ''));
 	const workTitle = (id: string) => workRows.find((work) => work.id === id)?.title ?? 'Work';
 	function personName(actorId: string): string {
 		if (actorId === 'exec') return 'Exec';
@@ -261,6 +274,60 @@
 		);
 		return team?.lead_actor_id ?? owner;
 	}
+	/* People renders the wide conversation where its selected person goes. */
+	setContext('wide-conversation', {
+		get actor() {
+			return wideActor;
+		},
+		render: () => executiveRail
+	});
+	/* What a Work, Goal or person chip in a message names, for its hover card. */
+	provideReferencePreview((href) => {
+		let url: URL;
+		try {
+			url = new URL(href, window.location.origin);
+		} catch {
+			return null;
+		}
+		const root = `/${companyId}`;
+		const workId = url.pathname.match(new RegExp(`^${root}/work/([^/]+)$`))?.[1];
+		if (workId) {
+			const work = workRows.find((row) => row.id === decodeURIComponent(workId));
+			if (!work) return null;
+			const goal = cockpit?.goals.find((candidate) => candidate.id === work.goal_id)?.title;
+			return {
+				title: work.title,
+				lines: [
+					`${workStatusLabel(work.status)} · ${personName(work.owner_id)}`,
+					...(goal ? [`Goal: ${goal}`] : [])
+				]
+			};
+		}
+		const goalId = url.pathname === `${root}/work` ? url.searchParams.get('goal') : null;
+		if (goalId) {
+			const goal = cockpit?.goals.find((candidate) => candidate.id === goalId);
+			if (!goal) return null;
+			const open = workRows.filter(
+				(row) => row.goal_id === goalId && !['completed', 'abandoned'].includes(row.status)
+			).length;
+			return { title: goal.title, lines: [`Goal · ${open} open Work`] };
+		}
+		const personId = url.pathname === `${root}/people` ? url.searchParams.get('person') : null;
+		if (personId) {
+			const person = cockpit?.people.find((candidate) => candidate.actor_id === personId);
+			if (!person) return null;
+			const team = cockpit?.teams.find((candidate) => candidate.id === person.team_id)?.name;
+			return {
+				title: person.display,
+				lines: [
+					person.kind === 'exec'
+						? 'Executive'
+						: `${person.role.charAt(0).toUpperCase()}${person.role.slice(1)}${team ? ` · ${team}` : ''}`
+				]
+			};
+		}
+		return null;
+	});
 	const pageWorkId = $derived(
 		page.url.pathname.match(new RegExp(`^/${companyId}/work/([^/]+)$`))?.[1] ?? ''
 	);
@@ -304,10 +371,31 @@
 		url.searchParams.delete('talk');
 		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
 	});
+	/* People opens the Exec and team leads in this same conversation, full
+	 * width, instead of a second copy of it: one conversation, two sizes. */
+	const wideActor = $derived.by(() => {
+		if (!ownerAccess || page.url.searchParams.has('room')) return '';
+		const path = page.url.pathname;
+		if (path !== `/${companyId}/people`) return '';
+		const person = page.url.searchParams.get('person') ?? '';
+		if (person === 'exec') return person;
+		return cockpit?.teams.some((team) => team.lead_actor_id === person) ? person : '';
+	});
 	const railActorId = $derived(
-		focusedAttention?.responsibleActor?.id ?? chosenTopic?.actorId ?? 'exec'
+		wideActor || (focusedAttention?.responsibleActor?.id ?? chosenTopic?.actorId ?? 'exec')
 	);
-	const railWorkId = $derived(focusedAttention?.workId ?? chosenTopic?.workId);
+	const railWorkId = $derived(
+		wideActor ? undefined : (focusedAttention?.workId ?? chosenTopic?.workId)
+	);
+	const railTopicKey = $derived(
+		wideActor
+			? wideActor === 'exec'
+				? 'general'
+				: `${wideActor}:`
+			: chosenTopic
+				? `${chosenTopic.actorId}:${chosenTopic.workId ?? ''}`
+				: 'general'
+	);
 	const railTopicLabel = $derived(
 		focusedAttention
 			? ''
@@ -322,7 +410,7 @@
 			companyId,
 			railActorId,
 			railWorkId,
-			focusedAttention?.id,
+			wideActor ? undefined : focusedAttention?.id,
 			() => ownerAccess,
 			principal?.actor_id ?? 'owner'
 		)
@@ -354,12 +442,7 @@
 	});
 	const railConnected = $derived(railConnectionStatus === 'available');
 	const companyComputerSurface = $derived(page.url.pathname === `/${companyId}/company/computer`);
-	/* People already shows the Exec conversation full width; a second copy in
-	 * the rail would only repeat it, so the rail steps aside while it is open. */
-	const execConversationSurface = $derived(
-		page.url.pathname === `/${companyId}/people` && page.url.searchParams.get('person') === 'exec'
-	);
-	const railYields = $derived(companyComputerSurface || execConversationSurface);
+	const railYields = $derived(companyComputerSurface);
 	const immersiveComputer = $derived(
 		(companyComputerSurface && page.url.searchParams.get('focus') === 'desktop') ||
 			(page.url.pathname === `/${companyId}` && page.url.searchParams.has('computer'))
@@ -445,6 +528,7 @@
 		if (!ownerAccess) return { error: 'This company membership cannot send owner directions.' };
 		try {
 			const contextPath = includeContext ? cockpitContextPath(companyId, page.url) : undefined;
+			const busy = Boolean(railConversation.activeTurn);
 			const result = await railConversation.send(
 				text,
 				files,
@@ -461,9 +545,9 @@
 						: `The turn ended before interruption; your direction is queued for ${railActorName}.`
 				};
 			}
-			return includeContext && (!contextPath || result.contextOmitted)
-				? { notice: 'Message sent without the current-screen link.' }
-				: {};
+			if (includeContext && (!contextPath || result.contextOmitted))
+				return { notice: 'Message sent without the current-screen link.' };
+			return busy ? { notice: `Queued; ${railActorName} reads it after the current reply.` } : {};
 		} catch (cause) {
 			const status = (cause as { status?: unknown } | null)?.status;
 			// The conversation query retains this exact send's command ID for a safe retry.
@@ -507,16 +591,44 @@
 		void goto(`/${companyId}?item=${encodeURIComponent(focusedAttention.id)}`);
 	}
 
-	const currentContext = $derived.by(() => {
-		const path = page.url.pathname;
+	/* What the next rail message will be linked to, by name: the Work, Goal,
+	 * document or person on screen rather than the section it sits in. */
+	const currentContext = $derived.by((): { kind: string; label: string } => {
+		const url = page.url;
+		const path = url.pathname;
 		const root = `/${companyId}`;
-		if (path === `${root}/work` || path.startsWith(`${root}/work/`)) return 'Linked · Work';
-		if (path === `${root}/library` || path.startsWith(`${root}/library/`))
-			return 'Linked · Library';
-		if (path === `${root}/people` || path.startsWith(`${root}/people/`)) return 'Linked · People';
-		if (path === `${root}/company` || path.startsWith(`${root}/company/`))
-			return 'Linked · Company';
-		return 'Linked · Inbox';
+		const workId = path.match(new RegExp(`^${root}/work/([^/]+)$`))?.[1];
+		if (workId) return { kind: 'work', label: workTitle(decodeURIComponent(workId)) };
+		if (path === `${root}/work` || path.startsWith(`${root}/work/`)) {
+			const goal = url.searchParams.get('goal');
+			const title = goal ? cockpit?.goals.find((candidate) => candidate.id === goal)?.title : '';
+			return { kind: 'work', label: title || 'Work' };
+		}
+		if (path === `${root}/library` || path.startsWith(`${root}/library/`)) {
+			const fallback = path.endsWith('/documents')
+				? url.searchParams.has('document')
+					? 'Document'
+					: 'Documents'
+				: path.endsWith('/sheets')
+					? url.searchParams.has('sheet')
+						? 'Sheet'
+						: 'Sheets'
+					: 'Library';
+			return { kind: 'library', label: pageContext.title || fallback };
+		}
+		if (path === `${root}/people` || path.startsWith(`${root}/people/`)) {
+			const person = url.searchParams.get('person');
+			return { kind: 'people', label: person ? personName(person) : 'People' };
+		}
+		if (path === `${root}/company` || path.startsWith(`${root}/company/`)) {
+			const companyPage = COMPANY_PAGES.find(
+				(candidate) => path === `${root}/company${candidate.path}`
+			);
+			return { kind: 'company', label: companyPage?.label ?? 'Company' };
+		}
+		const item = url.searchParams.get('item');
+		const title = item ? liveNeedsYou.find((candidate) => candidate.id === item)?.title : '';
+		return { kind: 'inbox', label: title || 'Inbox' };
 	});
 
 	const tabs = $derived.by((): ShellTab[] => {
@@ -536,11 +648,17 @@
 	/* Others in this company's cockpit, and the signed-in person's circle. */
 	const others = presence(() => companyId);
 	let railFocusRequest = $state(0);
+	let railDraft = $state<{ text: string; key: number } | null>(null);
 	$effect(() => {
-		const ask = () => {
+		const ask = (event: Event) => {
 			chooseTopic(null);
 			execRailOpen = true;
 			railFocusRequest += 1;
+			const draft = (event as CustomEvent<{ draft?: string }>).detail?.draft;
+			if (draft) railDraft = { text: draft, key: railFocusRequest };
+			/* People has no side rail; the Exec opens there at full width. */
+			if (page.url.pathname.startsWith(`/${companyId}/people`) && wideActor !== 'exec')
+				void goto(`/${encodeURIComponent(companyId)}/people?person=exec`);
 		};
 		window.addEventListener(ASK_EXEC_EVENT, ask);
 		return () => window.removeEventListener(ASK_EXEC_EVENT, ask);
@@ -702,9 +820,11 @@
 
 <CompanyQueryPersistence {companyId} />
 
-{#snippet executiveRail()}
+{#snippet executiveRail(wide = false)}
 	{#if ExecutiveRail}
 		<ExecutiveRail
+			{wide}
+			focusMessage={wide ? Number(page.url.searchParams.get('focus')) || 0 : 0}
 			messages={railConversation.messages}
 			participantName={railActorName}
 			participantId={railActorId}
@@ -721,7 +841,8 @@
 				railRouteState === 'needs_connection' ||
 				railRouteState === 'unavailable'}
 			providerLabel={providerIssue ? startLinkLabel(providerIssue) : 'Connect intelligence'}
-			contextLabel={currentContext}
+			contextLabel={currentContext.label}
+			contextKind={currentContext.kind}
 			focusAfterMessageId={railConversation.focusAfterMessageId}
 			focusStartedAt={railConversation.focusStartedAt}
 			newFocusAvailable={railActorId === 'exec' &&
@@ -729,26 +850,31 @@
 				!railWorkId &&
 				railConnected}
 			topicLabel={railTopicLabel}
-			topics={focusedAttention ? [] : railTopics}
-			currentTopicKey={chosenTopic
-				? `${chosenTopic.actorId}:${chosenTopic.workId ?? ''}`
-				: 'general'}
+			topics={focusedAttention || wide ? [] : railTopics}
+			currentTopicKey={railTopicKey}
 			ontopic={chooseTopic}
 			viewerActorId={principal?.actor_id ?? 'owner'}
-			onclose={() => (execRailOpen = false)}
+			onclose={wide ? null : () => (execRailOpen = false)}
 			focusRequest={railFocusRequest}
+			draftRequest={railDraft}
 			references={ownerAccess
-				? referenceOptions(companyId, workRows, cockpit?.goals ?? [], cockpit?.people ?? [])
+				? referenceOptions(
+						companyId,
+						workRows,
+						cockpit?.goals ?? [],
+						cockpit?.people ?? [],
+						libraryDocuments.documents
+					)
 				: []}
-			open={execRailOpen}
+			open={wide || execRailOpen}
 			onask={askRail}
-			review={focusedReview
+			review={focusedReview && !wide
 				? {
 						onback: closeFocusedContext,
 						ondecide: decideFocusedReview
 					}
 				: null}
-			workContext={focusedAttention ? { onback: closeFocusedContext } : null}
+			workContext={focusedAttention && !wide ? { onback: closeFocusedContext } : null}
 		/>{/if}
 {/snippet}
 

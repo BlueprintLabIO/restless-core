@@ -1,6 +1,14 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import CompanyPortfolio from '$lib/ui/views/CompanyPortfolio.svelte';
+	import AccountShell from '$lib/ui/views/AccountShell.svelte';
+	import type { AccountNavGroup } from '$lib/ui/account';
+	import Building2 from '@lucide/svelte/icons/building-2';
+	import Cpu from '@lucide/svelte/icons/cpu';
+	import CreditCard from '@lucide/svelte/icons/credit-card';
+	import Plug from '@lucide/svelte/icons/plug';
+	import ServerCog from '@lucide/svelte/icons/server-cog';
+	import ShieldCheck from '@lucide/svelte/icons/shield-check';
 	import type { CompanyPortfolioEntry } from '$lib/ui/portfolio';
 
 	/* The shared Companies view on example data, one scenario per query: ?scenario=fleet (Cloud: setup
@@ -63,22 +71,67 @@
 	const companies = $derived(
 		scenario === 'core' ? core : scenario === 'empty' ? [] : scenario === 'many' ? many : fleet
 	);
+	/* The sidebar as Cloud composes it: companies with their setup pages, then account settings. */
+	const nav = $derived<AccountNavGroup[]>([
+		{ items: [{ label: 'Companies', href: '/gallery/portfolio', icon: Building2, active: true }] },
+		{
+			label: 'Your companies',
+			items: companies.slice(0, 4).map((company, index) => ({
+				key: company.id,
+				label: company.name,
+				href: '#' + company.id,
+				mark:
+					company.tone === 'presence'
+						? 'presence'
+						: company.tone === 'unavailable'
+							? 'unavailable'
+							: 'waiting',
+				children:
+					index === 0
+						? [
+								{ label: 'Service', href: '#service', icon: ServerCog },
+								{ label: 'Compute', href: '#compute', icon: Cpu }
+							]
+						: undefined
+			}))
+		},
+		{
+			label: 'Account',
+			items: [
+				{ label: 'Connections', href: '#connections', icon: Plug },
+				{ label: 'Plan', href: '#plan', icon: CreditCard },
+				{ label: 'Security', href: '#security', icon: ShieldCheck }
+			]
+		}
+	]);
 </script>
 
 <svelte:head><title>Companies review</title><meta name="robots" content="noindex" /></svelte:head>
 
-<CompanyPortfolio {companies} homeHref="/gallery/portfolio">
-	{#snippet feedback()}
-		{#if scenario === 'fleet'}
-			<p class="notice">
-				Your company is being prepared. You can leave this page; setup will continue.
-			</p>
-		{/if}
+<AccountShell
+	homeHref="/gallery/portfolio"
+	{nav}
+	account={{ name: 'Ada Lovelace', detail: 'ada@example.com' }}
+>
+	{#snippet accountMenu()}
+		<a href="#account">Account</a><a href="#security">Security</a>
+		<hr />
+		<button type="button">Sign out</button>
 	{/snippet}
-	{#snippet footer()}
-		<span>{companies.length} of 2 company spaces used</span><a href="#plan">View plan</a>
-	{/snippet}
-</CompanyPortfolio>
+	<CompanyPortfolio {companies} homeHref="/gallery/portfolio">
+		{#snippet actions()}<button class="btn primary" type="button">New company</button>{/snippet}
+		{#snippet feedback()}
+			{#if scenario === 'fleet'}
+				<p class="notice">
+					Your company is being prepared. You can leave this page; setup will continue.
+				</p>
+			{/if}
+		{/snippet}
+		{#snippet footer()}
+			<span>{companies.length} of 2 company spaces used</span><a href="#plan">View plan</a>
+		{/snippet}
+	</CompanyPortfolio>
+</AccountShell>
 
 <style>
 	.notice {

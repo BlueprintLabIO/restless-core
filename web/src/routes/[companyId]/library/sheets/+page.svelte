@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { namePageContext } from '$lib/model/page-context.svelte';
 	/* One sheet, full width, opened from the Library. History and sharing open
 	 * in a side panel; everything else lives in the header's More menu. */
 	import { page } from '$app/state';
@@ -201,6 +202,7 @@
 						? 'Opening…'
 						: ''
 	);
+	namePageContext(() => row?.title ?? '');
 </script>
 
 <svelte:head><title>{row?.title ?? 'Sheet'}</title></svelte:head>
@@ -390,7 +392,7 @@
 		font-size: var(--t-label);
 	}
 	.state-offline {
-		color: var(--state-warning);
+		color: var(--surface-attention);
 	}
 	.spacer {
 		flex: 1;

@@ -1,6 +1,5 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import AccountShell from './AccountShell.svelte';
 	import MatrixGlyph, { GLYPHS } from '../glyph/MatrixGlyph.svelte';
 	import SemanticMark from '../glyph/SemanticMark.svelte';
 	import Skeleton from '../feedback/Skeleton.svelte';
@@ -9,9 +8,8 @@
 	let {
 		companies,
 		loaded = true,
-		brandName = 'Restless',
 		homeHref = '/',
-		headerActions = null,
+		actions = null,
 		before = null,
 		feedback = null,
 		empty = null,
@@ -20,9 +18,9 @@
 	}: {
 		companies: CompanyPortfolioEntry[];
 		loaded?: boolean;
-		brandName?: string;
 		homeHref?: string;
-		headerActions?: Snippet | null;
+		/** Page actions beside the title, e.g. New company. */
+		actions?: Snippet | null;
 		before?: Snippet | null;
 		feedback?: Snippet | null;
 		empty?: Snippet | null;
@@ -71,132 +69,131 @@
 	}
 </script>
 
-<AccountShell {brandName} {homeHref} actions={headerActions}>
-	{#if !loaded}
-		<main class="portfolio-loading">
-			{#if feedback}{@render feedback()}{:else}<Skeleton
-					label="Loading companies"
-					variant="list"
-					count={3}
-				/>{/if}
-		</main>
-	{:else}
-		<main class="portfolio-main">
-			{#if before}{@render before()}{/if}
-			<header class="portfolio-head"><h1>Companies</h1></header>
-			{#if feedback}<div class="portfolio-feedback">{@render feedback()}</div>{/if}
-			<section class="portfolio-table" aria-label="Companies">
-				{#if companies.length}
-					<div class="portfolio-table-scroll">
-						<div class="portfolio-grid" style:--portfolio-cols={columns}>
-							<div class="portfolio-grid-head" aria-hidden="true">
-								<span>Name</span>{#if hasFocus}<span>Current focus</span>{/if}<span>Next</span
-								>{#if hasAttention}<span>Needs you</span>{/if}
-							</div>
-							{#each companies as company (company.id)}
-								<div
-									class="portfolio-company-row"
-									class:dormant={company.dormant}
-									data-company-id={company.id}
-									data-state={company.status}
-								>
-									{#if company.entry && 'href' in company.entry}
-										<a
-											class="portfolio-entry"
-											href={company.entry.href}
-											aria-label={entryLabel(company)}
-											title={company.issue || company.nextHint || company.focus || undefined}
-											><span class="sr-only">{entryLabel(company)}</span></a
-										>
-									{:else if company.entry && 'formAction' in company.entry}
-										<form
-											method="POST"
-											action={company.entry.formAction}
-											class="portfolio-entry-form"
-										>
-											{#each Object.entries(company.entry.fields) as [name, value]}<input
-													type="hidden"
-													{name}
-													{value}
-												/>{/each}
-											<button
-												class="portfolio-entry"
-												aria-label={entryLabel(company)}
-												title={company.issue || company.nextHint || company.focus || undefined}
-												><span class="sr-only">{entryLabel(company)}</span></button
-											>
-										</form>
-									{/if}
-									<span class="portfolio-company-cell">
-										<span
-											class="portfolio-mark"
-											class:working={(company.tone ?? 'waiting') === 'waiting' && !company.dormant}
-										>
-											<SemanticMark
-												meaning={company.tone ?? 'waiting'}
-												label={company.name + ': ' + company.status}
-											/>
-										</span>
-										<span class="portfolio-company-copy">
-											<strong>{company.name}</strong>
-											<small
-												class:portfolio-company-unstartable={!!company.issue}
-												title={company.issue || undefined}>{company.status}</small
-											>
-										</span>
-									</span>
-									{#if hasFocus}<span
-											class="portfolio-metric portfolio-focus"
-											title={company.focus || undefined}
-										>
-											<small class="portfolio-mobile-label">Current focus</small><strong
-												>{company.focus || 'Focus unavailable'}</strong
-											>
-										</span>{/if}
-									<span class="portfolio-metric portfolio-proof">
-										<small class="portfolio-mobile-label">Next</small><strong
-											title={company.nextHint || company.issue || undefined}
-											>{#if company.issue}<a
-													class="portfolio-fix"
-													href={company.entry && 'href' in company.entry
-														? company.entry.href
-														: homeHref}>{company.issue} →</a
-												>{:else}{company.next || 'Unavailable'}{/if}</strong
-										>
-									</span>
-									{#if hasAttention}<span class="portfolio-metric portfolio-attention">
-											<small class="portfolio-mobile-label">Needs you</small>
-											<strong class:urgent={!!company.issue || !!company.attentionCount}
-												>{company.needsYou ??
-													(company.issue
-														? 'Fix setup'
-														: company.attentionCount == null
-															? '—'
-															: company.attentionCount === 0
-																? 'Nothing now'
-																: company.attentionCount +
-																	' item' +
-																	(company.attentionCount === 1 ? '' : 's'))}</strong
-											>
-										</span>{/if}
-									{#if rowActions}<div class="portfolio-row-actions">
-											{@render rowActions(company)}
-										</div>{/if}
-								</div>
-							{/each}
+{#if !loaded}
+	<main class="portfolio-loading">
+		{#if feedback}{@render feedback()}{:else}<Skeleton
+				label="Loading companies"
+				variant="list"
+				count={3}
+			/>{/if}
+	</main>
+{:else}
+	<main class="portfolio-main">
+		{#if before}{@render before()}{/if}
+		<header class="portfolio-head">
+			<h1>Companies</h1>
+			{#if actions}<div class="portfolio-actions">{@render actions()}</div>{/if}
+		</header>
+		{#if feedback}<div class="portfolio-feedback">{@render feedback()}</div>{/if}
+		<section class="portfolio-table" aria-label="Companies">
+			{#if companies.length}
+				<div class="portfolio-table-scroll">
+					<div class="portfolio-grid" style:--portfolio-cols={columns}>
+						<div class="portfolio-grid-head" aria-hidden="true">
+							<span>Name</span>{#if hasFocus}<span>Current focus</span>{/if}<span>Next</span
+							>{#if hasAttention}<span>Needs you</span>{/if}
 						</div>
+						{#each companies as company (company.id)}
+							<div
+								class="portfolio-company-row"
+								class:dormant={company.dormant}
+								data-company-id={company.id}
+								data-state={company.status}
+							>
+								<!-- The entry covers the whole row, so it carries no title: a native tooltip
+								     would pop wherever the pointer rests, detached from the cell it describes. -->
+								{#if company.entry && 'href' in company.entry}
+									<a
+										class="portfolio-entry"
+										href={company.entry.href}
+										aria-label={entryLabel(company)}
+										><span class="sr-only">{entryLabel(company)}</span></a
+									>
+								{:else if company.entry && 'formAction' in company.entry}
+									<form
+										method="POST"
+										action={company.entry.formAction}
+										class="portfolio-entry-form"
+									>
+										{#each Object.entries(company.entry.fields) as [name, value]}<input
+												type="hidden"
+												{name}
+												{value}
+											/>{/each}
+										<button class="portfolio-entry" aria-label={entryLabel(company)}
+											><span class="sr-only">{entryLabel(company)}</span></button
+										>
+									</form>
+								{/if}
+								<span class="portfolio-company-cell">
+									<span
+										class="portfolio-mark"
+										class:working={(company.tone ?? 'waiting') === 'waiting' && !company.dormant}
+									>
+										<SemanticMark
+											meaning={company.tone ?? 'waiting'}
+											label={company.name + ': ' + company.status}
+										/>
+									</span>
+									<span class="portfolio-company-copy">
+										<strong>{company.name}</strong>
+										<small
+											class:portfolio-company-unstartable={!!company.issue}
+											title={company.issue || undefined}>{company.status}</small
+										>
+									</span>
+								</span>
+								{#if hasFocus}<span
+										class="portfolio-metric portfolio-focus"
+										title={company.focus || undefined}
+									>
+										<small class="portfolio-mobile-label">Current focus</small><strong
+											>{company.focus || 'Focus unavailable'}</strong
+										>
+									</span>{/if}
+								<span class="portfolio-metric portfolio-proof">
+									<small class="portfolio-mobile-label">Next</small><strong
+										title={company.nextHint || company.issue || undefined}
+										>{#if company.issue}<a
+												class="portfolio-fix"
+												href={company.entry && 'href' in company.entry
+													? company.entry.href
+													: homeHref}>{company.issue} →</a
+											>{:else}{company.next || 'Unavailable'}{/if}</strong
+									>
+								</span>
+								{#if hasAttention}<span class="portfolio-metric portfolio-attention">
+										<small class="portfolio-mobile-label">Needs you</small>
+										<strong class:urgent={!!company.issue || !!company.attentionCount}
+											>{company.needsYou ??
+												(company.issue
+													? 'Fix setup'
+													: company.attentionCount == null
+														? '—'
+														: company.attentionCount === 0
+															? 'Nothing now'
+															: company.attentionCount +
+																' item' +
+																(company.attentionCount === 1 ? '' : 's'))}</strong
+										>
+									</span>{/if}
+								{#if rowActions}<div class="portfolio-row-actions">
+										{@render rowActions(company)}
+									</div>{/if}
+							</div>
+						{/each}
 					</div>
-				{:else}
-					<div class="portfolio-empty">
-						<MatrixGlyph rows={GLYPHS.ring} size={14} />
-						{#if empty}{@render empty()}{:else}<h2>No companies yet</h2>{/if}
-					</div>
-				{/if}
-				{#if footer}<footer class="portfolio-footer">{@render footer()}</footer>{/if}
-			</section>
-		</main>
-	{/if}
-</AccountShell>
+				</div>
+			{:else}
+				<div class="portfolio-empty">
+					<MatrixGlyph rows={GLYPHS.ring} size={14} />
+					{#if empty}{@render empty()}{:else}<h2>No companies yet</h2>{/if}
+				</div>
+			{/if}
+			{#if footer}<footer class="portfolio-footer">{@render footer()}</footer>{/if}
+		</section>
+	</main>
+{/if}
 
 <style>
 	.portfolio-fix {
@@ -240,6 +237,17 @@
 		margin-inline: auto;
 	}
 
+	.portfolio-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 16px;
+	}
+	.portfolio-actions {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
 	.portfolio-head h1 {
 		margin: 0;
 		font-size: var(--t-hero);
