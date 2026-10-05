@@ -102,7 +102,7 @@
 		onclick={() => (drawerOpen = false)}
 	></button>
 
-	<aside class="account-sidebar" aria-label="Account">
+	<aside class="account-sidebar" aria-label="Account navigation">
 		<a class="account-brand" href={homeHref} aria-label={brandName + ' companies'}>
 			<span class="account-mark"><MatrixGlyph rows={GLYPHS.r} size={12} glow /></span>
 			<span class="account-name">{brandName}</span>
