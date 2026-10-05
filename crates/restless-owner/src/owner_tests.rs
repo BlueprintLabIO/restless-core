@@ -1810,6 +1810,36 @@
         assert_eq!(refusal.code, "no_session");
     }
 
+    /// One address (ADR 0007): the edge router reaches the plane by its own hostname, while the
+    /// browser's origin is the public address. The plane accepts that origin only when configured
+    /// with it, and never any other.
+    #[test]
+    fn a_plane_accepts_its_configured_public_origin_and_no_other() {
+        let write_from = |origin: &str| {
+            let mut headers = network_headers(PLANE_HOST);
+            headers.insert(ORIGIN, HeaderValue::from_str(origin).unwrap());
+            headers.insert("sec-fetch-site", HeaderValue::from_static("same-origin"));
+            headers
+        };
+        let owner = identity(crate::entry::CompanyScope::Owner);
+        let refused = |hosts: PlaneHosts<'_>, origin: &str| {
+            network_boundary_violation(
+                &Method::POST,
+                &write_from(origin),
+                "/api/companies/aris/conversation",
+                hosts,
+                Some(&owner),
+            )
+            .is_some_and(|refusal| refusal.code == "network_owner_boundary")
+        };
+        let public = PlaneHosts { own: PLANE_HOST, public: Some("app.restless.test") };
+        assert!(!refused(public, "https://app.restless.test"));
+        assert!(!refused(public, &format!("https://{PLANE_HOST}")));
+        assert!(refused(public, "https://evil.example.test"));
+        // Without a public address, the same origin is refused.
+        assert!(refused(PLANE_HOST.into(), "https://app.restless.test"));
+    }
+
     /// Only a page load re-enters through the issuer; the door, the APIs, assets and the health
     /// probe keep their own answers, so re-entry can never swallow a sign-in or hide a refusal.
     #[test]

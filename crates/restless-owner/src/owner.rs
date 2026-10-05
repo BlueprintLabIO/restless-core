@@ -104,6 +104,26 @@ use desktop_api::{ATTACH_COOKIE, ATTACH_TTL, AttachSession, AttachTicket, CONTRO
 use review_api::{REVIEW_TTL, ReviewSession, ReviewSource, issue_review_ticket, review_outcome, review_proxy};
 
 const SESSION_COOKIE: &str = "restless_session";
+
+/// A plane's session cookie carries its plane id, so one browser on one address can hold
+/// sessions for several planes and the edge router forwards each plane only its own (ADR 0007).
+fn session_cookie_name(network: &crate::entry::NetworkEntry) -> String {
+    format!("{SESSION_COOKIE}_{}", network.plane_id().simple())
+}
+
+/// The hostnames a plane answers browser requests for: its own, and the one public address an
+/// edge router serves it under. A plain `&str` is a plane with no public address.
+#[derive(Clone, Copy)]
+struct PlaneHosts<'a> {
+    own: &'a str,
+    public: Option<&'a str>,
+}
+
+impl<'a> From<&'a str> for PlaneHosts<'a> {
+    fn from(own: &'a str) -> Self {
+        Self { own, public: None }
+    }
+}
 const MEMBERSHIP_CONTROL_PATH: &str = "/internal/v1/membership-controls";
 const ROOM_EVENT_REPLAY_LIMIT: i64 = 100;
 const ROOM_EVENT_FALLBACK_INITIAL: Duration = Duration::from_secs(2);
@@ -1655,7 +1675,7 @@ async fn enforce_owner_boundary(
         }
         EntryMode::Network(network) => {
             let path = request.uri().path().to_string();
-            let session_token = cookie_value(request.headers(), SESSION_COOKIE);
+            let session_token = cookie_value(request.headers(), &session_cookie_name(&network));
             let session_lease = session_token
                 .as_deref()
                 .and_then(|token| state.sessions.resolve_lease(token));
@@ -1664,7 +1684,7 @@ async fn enforce_owner_boundary(
                 request.method(),
                 request.headers(),
                 &path,
-                network.host(),
+                PlaneHosts { own: network.host(), public: network.public_host() },
                 identity,
             ) {
                 return api_error(refusal.status, refusal.code, refusal.message);
@@ -1922,13 +1942,14 @@ fn owner_message_membership_violation(
 /// Kept separate from the middleware so the composition is testable, and kept
 /// in one place because two call sites that each decide scope is how one of
 /// them ends up deciding it differently.
-fn network_boundary_violation(
+fn network_boundary_violation<'a>(
     method: &Method,
     headers: &HeaderMap,
     path: &str,
-    expected_host: &str,
+    hosts: impl Into<PlaneHosts<'a>>,
     identity: Option<&crate::entry::VerifiedIdentity>,
 ) -> Option<BoundaryRefusal> {
+    let hosts = hosts.into();
     if path == documents_api::DOCUMENT_COLLABORATION_JWKS_PATH
         && matches!(*method, Method::GET | Method::HEAD)
     {
@@ -1952,7 +1973,7 @@ fn network_boundary_violation(
     // single-use signed credential is the CSRF defence here; the destination
     // Host must still be this exact account plane.
     if path == "/entry" || path == "/entry/account" || path == MEMBERSHIP_CONTROL_PATH {
-        if !network_host_matches(headers, expected_host) {
+        if !network_host_matches(headers, hosts.own) {
             return Some(BoundaryRefusal {
                 status: StatusCode::FORBIDDEN,
                 code: "network_owner_boundary",
@@ -1974,11 +1995,11 @@ fn network_boundary_violation(
         && headers
             .get("sec-fetch-dest")
             .is_some_and(|value| value == "document" || value == "empty")
-        && network_host_matches(headers, expected_host)
+        && network_host_matches(headers, hosts.own)
     {
         return None;
     }
-    if let Some(message) = network_origin_violation(method, headers, expected_host) {
+    if let Some(message) = network_origin_violation(method, headers, hosts) {
         return Some(BoundaryRefusal {
             status: StatusCode::FORBIDDEN,
             code: "network_owner_boundary",
@@ -2024,9 +2045,10 @@ fn network_boundary_violation(
 fn network_origin_violation(
     method: &Method,
     headers: &HeaderMap,
-    expected_host: &str,
+    hosts: PlaneHosts<'_>,
 ) -> Option<&'static str> {
-    if !network_host_matches(headers, expected_host) {
+    // Host stays the plane's own: the edge router reaches it by its tunnel hostname.
+    if !network_host_matches(headers, hosts.own) {
         return Some("owner request host is not this plane's configured hostname");
     }
 
@@ -2051,7 +2073,10 @@ fn network_origin_violation(
                 .unwrap_or(value)
                 .to_ascii_lowercase()
         });
-        if origin_host.as_deref() != Some(&expected_host.to_ascii_lowercase()) {
+        // The browser's origin is the plane's own hostname, or the one address it is served
+        // under.
+        let allowed = |host: &str| origin_host.as_deref() == Some(&host.to_ascii_lowercase());
+        if !allowed(hosts.own) && !hosts.public.is_some_and(allowed) {
             return Some("owner request origin does not match this plane's hostname");
         }
     }
@@ -2095,12 +2120,17 @@ async fn release_health() -> Response<Body> {
 /// Ordinary session revocation. ADR 0007 requires that a removed membership
 /// ends by revoking the session, not by waiting for an assertion to expire.
 async fn end_entry_session(State(state): State<OwnerState>, headers: HeaderMap) -> Response<Body> {
-    if let Some(token) = cookie_value(&headers, SESSION_COOKIE) {
+    let cookie_name = state
+        .entry
+        .network()
+        .map(|network| session_cookie_name(&network))
+        .unwrap_or_else(|| SESSION_COOKIE.to_string());
+    if let Some(token) = cookie_value(&headers, &cookie_name) {
         state.sessions.revoke(&token);
     }
     let mut response = Json(serde_json::json!({ "ended": true })).into_response();
     if let Ok(value) = HeaderValue::from_str(&format!(
-        "{SESSION_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0"
+        "{cookie_name}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0"
     )) {
         response.headers_mut().insert(SET_COOKIE, value);
     }
@@ -2498,7 +2528,8 @@ async fn consume_entry_assertion(
     } else { false };
 
     let cookie = format!(
-        "{SESSION_COOKIE}={token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age={}",
+        "{}={token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age={}",
+        session_cookie_name(&network),
         network.session_ttl().as_secs()
     );
     let mut response = if form_post {
@@ -2599,7 +2630,7 @@ async fn consume_account_entry_assertion(
     tracing::info!(owner = %access.owner_id, plane_id = %access.plane_id, "admitted a verified account-owner entry assertion");
     let ttl = network.session_ttl();
     let token = state.sessions.establish(identity, ttl);
-    let cookie = format!("{SESSION_COOKIE}={token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age={}", ttl.as_secs());
+    let cookie = format!("{}={token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age={}", session_cookie_name(&network), ttl.as_secs());
     let mut response = if form_post {
         Redirect::to(&request.target_company.as_ref()
             .map(|company| format!("/{company}/company"))

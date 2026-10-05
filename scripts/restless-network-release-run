@@ -157,12 +157,13 @@ entry_status="$(curl -sS --resolve "restless.localhost:${plane_port}:127.0.0.1" 
   echo "form entry exchange returned HTTP ${entry_status}, expected 303" >&2
   exit 1
 }
-session_token="$(sed -n 's/^[Ss]et-[Cc]ookie: restless_session=\([^;[:space:]]*\).*/\1/p' "$scratch/entry-headers.txt" | tail -1)"
-[[ -n "$session_token" ]] || { echo "entry exchange did not establish a browser session" >&2; exit 1; }
+# The plane names its session cookie after itself (restless_session_<plane-id>, ADR 0007).
+session_cookie="$(sed -n 's/^[Ss]et-[Cc]ookie: \(restless_session_[0-9a-f]\{32\}=[^;[:space:]]*\).*/\1/p' "$scratch/entry-headers.txt" | tail -1)"
+[[ -n "$session_cookie" ]] || { echo "entry exchange did not establish a browser session" >&2; exit 1; }
 # Production sessions are Secure. curl correctly refuses to replay that cookie
 # over this harness's loopback HTTP endpoint, so make the test-only replay
 # explicit instead of weakening the production cookie.
-session_header="Cookie: restless_session=${session_token}"
+session_header="Cookie: ${session_cookie}"
 
 replay_status="$(curl -sS --resolve "restless.localhost:${plane_port}:127.0.0.1" \
   -o "$scratch/entry-replay.json" -w '%{http_code}' \

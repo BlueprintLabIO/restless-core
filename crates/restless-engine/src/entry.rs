@@ -370,6 +370,9 @@ enum SignaturePolicy {
 /// Network-mode configuration. JWKS is loaded before the listener is exposed
 /// and refreshed when a new key id appears during key rotation.
 pub struct NetworkEntry {
+    /// The one address owners use (`app.restless.run`) when an edge router serves this plane under
+    /// it; None while the plane is reached only at its own hostname.
+    public_host: Option<String>,
     issuer: String,
     owner_id: Uuid,
     plane_id: Uuid,
@@ -394,6 +397,14 @@ impl NetworkEntry {
     }
     pub fn host(&self) -> &str {
         &self.host
+    }
+
+    pub fn public_host(&self) -> Option<&str> {
+        self.public_host.as_deref()
+    }
+
+    pub fn plane_id(&self) -> Uuid {
+        self.plane_id
     }
 
     /// The trusted issuer origin, without a trailing slash.
@@ -651,6 +662,7 @@ impl NetworkEntry {
     #[cfg(test)]
     fn for_test(signing_key: &SigningKey) -> Self {
         Self {
+            public_host: None,
             issuer: "https://cloud.restless.test".into(),
             owner_id: Uuid::parse_str("018f0000-0000-7000-8000-000000000001").unwrap(),
             plane_id: Uuid::parse_str("018f0000-0000-7000-8000-000000000002").unwrap(),
@@ -1059,7 +1071,18 @@ impl EntryMode {
                     Some(value) => Some(std::path::PathBuf::from(value)),
                 };
                 let client = entry_jwks_client(jwks_ca_file.as_deref())?;
+                // The one public address an edge router serves this plane under, if any.
+                let public_host = match std::env::var("RESTLESS_PUBLIC_ORIGIN") {
+                    Ok(value) if !value.trim().is_empty() => Some(
+                        canonical_service_url("RESTLESS_PUBLIC_ORIGIN", value.trim(), allow_insecure)?
+                            .host_str()
+                            .ok_or_else(|| anyhow::anyhow!("RESTLESS_PUBLIC_ORIGIN must name a host"))?
+                            .to_ascii_lowercase(),
+                    ),
+                    _ => None,
+                };
                 Ok(Self::Network(std::sync::Arc::new(NetworkEntry {
+                    public_host,
                     issuer: issuer.as_str().trim_end_matches('/').into(),
                     owner_id,
                     plane_id,
@@ -1888,6 +1911,7 @@ mod tests {
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         let issuer = format!("http://{address}");
         let entry = NetworkEntry {
+            public_host: None,
             issuer: issuer.clone(),
             owner_id: Uuid::parse_str("018f0000-0000-7000-8000-000000000001").unwrap(),
             plane_id: Uuid::parse_str("018f0000-0000-7000-8000-000000000002").unwrap(),
@@ -2247,6 +2271,7 @@ mod tests {
         let owner_id = Uuid::new_v4();
         let plane_id = Uuid::new_v4();
         let entry = NetworkEntry {
+            public_host: None,
             issuer: issuer.clone(),
             owner_id,
             plane_id,

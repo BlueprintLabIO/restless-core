@@ -36,11 +36,12 @@ traffic moves.
 
 ### P1 — Core accepts a public origin (*Plane*)
 
-- [ ] C60-T1 — The plane takes `RESTLESS_PUBLIC_ORIGIN` (`https://app.restless.run`): origin, host
+- [x] C60-T1 — The plane takes `RESTLESS_PUBLIC_ORIGIN` (`https://app.restless.run`): origin, host
   and `sec-fetch-site` checks accept it as well as the plane's own hostname, and the plane still
   refuses forwarded requests from anything but its tunnel.
-- [ ] C60-T2 — The session cookie is named `restless_session_<plane-id>`, and `/<company>/entry` is
-  accepted as the entry door, alongside `/entry`. Entry redirects land on `/<company>`.
+- [x] C60-T2 — The session cookie is named `restless_session_<plane-id>`. (`/<company>/entry` needs no
+  plane change: the router rewrites it to the plane's `/entry`, T5. Entry already lands on
+  `/<company>/…`.)
 - [ ] C60-T3 — A plane's Home and Account pages redirect to the public origin's `/` and `/account`
   on a hosted plane. The Sprint 59 re-entry redirect points at Fleet's `/enter?company=<key>`.
 - [ ] C60-T4 — Untrusted content audit: every surface that renders company-produced markup uses the
