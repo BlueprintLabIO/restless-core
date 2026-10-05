@@ -4,129 +4,98 @@ https://github.com/user-attachments/assets/3cbfd3ce-89a7-4155-bc3f-15505609dfcb
 
 **Work together.**
 
-Restless is an open-source office where your people and AI agents work side by side:
-rooms, shared documents, a board of work and a real Linux computer. People bring the
-taste and judgement that make the business theirs; agents carry the chores around it.
-Your attention goes only where it is needed, and the work keeps moving after you go home.
+An open-source office for people and AI agents. Share the work, keep the taste.
+
+Restless gives your team and its agents one place to work: rooms, shared documents, a board
+of work and a real Linux computer. People bring the taste and judgement that make the business
+theirs. Agents carry the chores around it. Only judgement reaches a person, and the work keeps
+moving after everyone goes home.
 
 `Apache 2.0` · `Self-hosted` · `Codex, Claude or any model` · `Development preview`
 
-[How a day works](#how-a-day-works) · [Why Restless](#why-restless) ·
-[OrgIntel](#orgintel-a-company-that-carries-the-work-forward) · [Features](#features) ·
-[Getting started](#getting-started) · [Product tour](#product-tour) ·
-[Alternatives](#alternatives) · [Architecture](#architecture) · [Contributing](#contributing)
+[restless.run](https://restless.run) · [Hosted waitlist](https://restless.run/cloud/#waitlist) ·
+[Blog](https://restless.run/blog/) · [Get started](#get-started)
 
-> **Development preview:** a runnable local company workspace under active development.
-> Start from a development checkout; interfaces are evolving.
+> **Development preview.** Restless runs today on your own Linux machine. Interfaces are
+> still moving, and we would rather hear what broke than have you guess.
 
-**Try it on a real piece of work:** [install Restless](#getting-started), then
+**Try it on a real piece of work:** [install Restless](#get-started), then
 [prepare your first client proposal](docs/first-outcome.md).
 [Get setup help](https://github.com/BlueprintLabIO/restless-core/issues/new?template=setup-help.yml)
 or [tell us what you want to run with it](https://github.com/BlueprintLabIO/restless-core/issues/new?template=founder-feedback.yml).
 
-## The short version
+[A day at the studio](#a-day-at-the-studio) · [Attention is the budget](#attention-is-the-budget) ·
+[People and agents](#people-bring-the-taste-agents-carry-the-chores) ·
+[OrgIntel](#orgintel-a-company-not-a-chat-log) · [Why a team](#why-a-team) ·
+[What's inside](#whats-inside) · [Any model](#bring-your-people-bring-any-model) ·
+[Get started](#get-started) · [Product tour](#product-tour) · [Alternatives](#alternatives) ·
+[Architecture](#architecture) · [Contributing](#contributing)
 
-- **Your attention is the budget.** Routine coordination stays with the leads. What reaches
-  you is a prepared decision: context, recommendation, the actual output, what happens next.
-- **Work together, people and agents.** Your cofounder, artist and reviewer work in the
-  same company as the agents, with their own accounts, rooms and shared documents. People
-  bring taste and judgement; agents carry the chores that are not the core of the business.
-- **Someone owns every outcome.** An accountable lead keeps the goal in view while a worker
-  does the work. Goals survive restarts, model switches and handoffs.
-- **A real computer.** Each company has a persistent Linux machine with files, Git, a browser
-  and a desktop you can take over.
-- **Authority in code, not in prompts.** You choose what agents may do alone and what needs
-  you. Budgets, a vault and a record of every external action.
-- **Bring any intelligence.** Native Codex and Claude harnesses, API providers or any
-  OpenAI-compatible gateway, chosen per agent if you like.
+## A day at the studio
 
-## How a day works
-
-[restless.run](https://restless.run) tells this as one scroll through a day on the company floor,
-using Lantern Studio, the example business below.
+[restless.run](https://restless.run) tells this as one scroll through a day on the company floor.
+**Lantern Studio** is the example business: a small studio making a two-player lighthouse game
+and preparing its first playtest.
 
 | Time | What happens |
 | --- | --- |
-| **09:10** | **Start together.** You and Rosa, the studio's artist, agree the week with Exec in a room. Direction comes out of a conversation. |
-| **10:30** | **Shape it together.** The brief is one shared document: you, Rosa and Marlow, the accountable lead agent, edit it live and argue in the comments. |
-| **13:00** | **The routine stays out of your way.** Marlow briefs the workers, chases retries and packages builds. The board moves; nobody interrupts you. |
-| **15:40** | **Review the real thing.** Play the build in the company computer. Jun retunes a puzzle; an agent replays it hundreds of times and reports where players stall. |
-| **17:30** | **Decide together.** One prepared decision reaches you, and the people it affects approve beside you. |
-| **Overnight** | **The office stays lit.** Agents keep building, checking and packaging. Morning arrives with receipts. |
+| **09:10** | **Start together.** You and Rosa, the artist, set the week in a room. Exec turns it into a goal: playtest-ready by Friday, owned by Marlow. |
+| **10:30** | **Shape it together.** One brief, three cursors. Rosa brings the taste; Marlow, the lead agent, turns it into work. |
+| **12:00** | **Agents do the legwork.** Theo's team compares five co-op launches. The answer lands in a document you can read, with every number linked to its source. |
+| **13:30** | **People read people.** Kit runs the playtest. Camille, an agent, sends the invitations and sorts the feedback. |
+| **15:00** | **The chores stay out of your way.** Builds, exports and retries happen on the board. Nobody pings you. |
+| **16:20** | **Review the real thing.** Jun moves a ladder in the puzzle. Ines replays it two hundred times on the company computer and shows where players stall. |
+| **17:30** | **Decide together.** One prepared decision reaches you. Rosa and Jun have already said yes. |
+| **18:30** | **Go home. The office stays lit.** The people clock off. The agents keep building, testing and drafting until morning, and anything that needs a person waits for one. |
 
-## Why Restless
+## Attention is the budget
 
-AI makes it easier to produce work. It can also hand you another organisation to manage:
-more conversations, handoffs, status reports and decisions competing for your attention.
+A busy day at the studio is roughly 143 events: commits, retries, handoffs, test runs, model
+switches. They belong to 9 outcomes, each with an owner. One of them needs a person.
 
-A business harness should help you **work with AI on the result**. The measure of success
-is useful output and the human attention it took to get there.
+Lead agents absorb the routine. What reaches you is a prepared decision: the context, a
+recommendation, the actual output, what is still uncertain and what happens next. The measure
+of success is useful output and the human attention it took to get there.
 
-### Human multiplayer, from the start
+## People bring the taste. Agents carry the chores.
 
-A business is usually run by several people, with AI contributing around them. Bring your
-cofounder, designer, operator or reviewer into the same company. People work alongside agents
-with their own accounts and permissions, discuss the work in rooms, edit shared documents and
-keep feedback beside the thing being improved.
+The vision, the art and the players stay human. The exports, retries and research go to agents.
+Everyone wears a tag: **NI** for natural intelligence, a person, and **AI** for an agent.
 
-### Your attention is part of the budget
+| Teammate | Tag | Brings |
+| --- | :---: | --- |
+| **You**, creative director | NI | What the game feels like, what to cut, and the call on what ships. |
+| **Rosa**, artist | NI | The look of the lighthouse and the warmth of its light. Ines exports every sprite she paints. |
+| **Jun**, puzzle designer | NI | Puzzles that are hard but fair. Ines replays them and shows where players stall. |
+| **Kit**, community and playtests | NI | Reading players in the room. Camille sends the invitations and sorts the feedback. |
+| **Marlow**, production lead | AI | Owns the outcome, briefs the workers and prepares the one decision. |
+| **Ines**, build and QA | AI | Builds, device checks, sprite exports and bug fixes on the company computer. |
+| **Theo**, research | AI | Market sizing, comparable games and store benchmarks. |
+| **Camille**, operations | AI | Store page, press kit, invitations and the books. |
 
-A decision should arrive prepared: the context, the recommendation, the relevant output and
-what happens next. Leads own their work and resolve routine coordination. Attention brings
-you in only where your judgement or participation matters.
+Your cofounder, artist and reviewer work in the same company as the agents, with their own
+accounts, rooms and permissions. The same loop fits a consultancy preparing a client proposal,
+a founder researching a market or an operations team fixing a process.
 
-### Work on the output, not about it
+## OrgIntel: a company, not a chat log
 
-Open the actual proposal, plan, page or prototype. Revise the document, leave a comment, ask
-a question or take over the company computer. The executive conversation stays alongside the
-work, so you can steer without rebuilding context in another tool.
+OrgIntel (organisational intelligence) is what lets the company carry work forward after a
+conversation ends.
 
-### Start with the smallest useful team
-
-One capable worker can often handle a whole piece of work. Add a specialist when their
-expertise, an independent check or parallel help improves the result, and make sure everyone
-knows what they own.
-
-This is measured, not assumed. In [EXP-17](experiment/coordination/experiments/EXP-17/RESULTS.md)
-the same Codex worker ran four kinds of work with and without a supervising lead (one valid
-pair per kind, so a small sample). Every result passed its checks and blind review either way,
-within the parity threshold; supervision took **2.34× the time and 2.53× the spend**. So Restless keeps the lead accountable but out of the way until judgement is needed.
-
-### Finish with something you can use
-
-Work should end in something usable: a document, a working page, a file or a live application.
-Feedback stays attached to the version you reviewed, so the team knows what to improve next.
-
-## OrgIntel: a company that carries the work forward
-
-Your company should remember its commitments, people, knowledge and unfinished work
-after a conversation ends. **OrgIntel — Organisational Intelligence — gives Restless
-that memory and continuity.** An agent can switch models, restart or hand work over
-without losing the goal, who owns it, what has been learned or what happens next.
-
-Its design spans four kinds of work:
-
-| Mode | What it means for the business |
-| --- | --- |
-| **Explore** | Investigate an uncertain market, compare approaches and decide which evidence would justify investment. |
-| **Execute** | Carry an agreed outcome through production, review and delivery with a clear owner. |
-| **Repair** | Respond to failed checks, broken tools, lost sessions or changed requirements while preserving useful work. |
-| **Evolve** | Turn experience into better company knowledge, examples and reusable practices. |
-
-These modes describe how we want a company to operate. Restless supports them by
-remembering goals and responsibilities, following up on a schedule or when something
-changes, tracking revisions, recovering interrupted work and using company guidelines
-you have approved.
-
-### Responsibility that outlives a model call
-
-**Keep the goal in view while agents work through the details.** An agent can get
-absorbed in fixing one problem and lose sight of why the work matters. Restless gives
-agents responsibility at different levels to help reduce this tunneling:
+- **You set direction with Exec.** Exec holds the company's priorities, so you never brief each
+  worker yourself.
+- **Every outcome gets one accountable lead.** A lead owns the whole outcome. Leads can be people,
+  like Kit, or agents.
+- **Leads brief. Workers make.** The lead stays out of production, so someone always keeps the
+  goal in view.
+- **Evidence comes back up.** Results return with their checks. Only judgement travels on to a
+  person.
+- **Goals outlive any session.** Swap a model, restart a worker or hand the work over. The goal
+  and its owner stay put.
 
 ```mermaid
 flowchart TB
-    humans["Humans<br/>Direction, judgement and collaboration"]
+    humans["People<br/>Direction, judgement and taste"]
     exec["Exec<br/>Company priorities"]
     lead["Accountable lead<br/>The whole outcome"]
     worker["Worker<br/>Focused production"]
@@ -140,86 +109,75 @@ flowchart TB
     output -.->|Evidence and material changes| lead
 ```
 
-The lead stays outside day-to-day production so it can question the approach while a
-worker concentrates on execution. Goals, briefs and decisions live beyond any one
-agent session. The team can change tactics or replace a stuck worker while keeping
-the agreed outcome and constraints visible.
+The design covers four kinds of work:
 
-For a tutoring business, a worker might prepare lesson materials. The lead asks
-whether those materials address the students’ learning needs; Exec balances that
-work with enrolment and operations. The human tutors bring their teaching judgement
-and can change the direction together.
-
-**Change the approach; keep the learning goal.** For example:
-
-```mermaid
-flowchart TB
-    goal["Goal<br/>Help students understand fractions"]
-    first["Worker prepares<br/>a practice worksheet"]
-    feedback["Tutor observes<br/>students need worked examples"]
-    revised["Lead redirects the worker<br/>Add worked examples before practice"]
-
-    goal --> first
-    first --> feedback
-    feedback --> revised
-    goal -.->|Same learning goal| revised
-```
-
-The feedback changes the brief. The learning goal remains available to the lead and
-worker, so producing more worksheets does not become the goal in itself.
-
-Start with one capable worker beneath each lead. Add researchers, reviewers or
-specialists when they help. Leads can talk directly when their work overlaps.
-
-**A lead can stay responsible without narrating every step.** For a clearly defined
-assignment, Restless can pass the brief to a worker and check the result automatically.
-The lead steps in when checks fail, requirements are unclear, a worker gets stuck or
-you change direction. Model calls go to the decisions that need them.
-
-### Quality is part of the brief
-
-Choose **Fast, Thorough, Exceptional or Frontier** as the company default or for a
-particular outcome. The standard guides how deeply agents investigate, develop and
-review the result. You set permissions and spending limits separately.
-
-Each review records the version you saw, the material it used, the checks it passed
-and the changes you requested. If that material changes, Restless can flag work that
-relied on the old version for another pass. Play the game, read the proposal, inspect
-the page: judge the thing your business will actually use.
-
-### A company that knows what it stands for
-
-Company Identity gives agents four distinct sources of direction:
-
-| Pillar | What it carries |
+| Mode | What it means for the business |
 | --- | --- |
-| **Truth** | Approved product facts, claims, evidence and the boundaries of what the company can say. |
-| **Voice** | Writing examples and guidance for different audiences and formats, with room for each human author to sound like themselves. |
-| **Visual language** | Design references, reusable elements, examples you like or dislike, and screenshots of the actual result. |
-| **Culture** | How the company handles disagreement, uncertainty, correction and customers, grounded in decisions and conduct. |
+| **Explore** | Investigate an uncertain market, compare approaches and decide which evidence would justify investment. |
+| **Execute** | Carry an agreed outcome through production, review and delivery with a clear owner. |
+| **Repair** | Respond to failed checks, broken tools, lost sessions or changed requirements while keeping useful work. |
+| **Evolve** | Turn experience into better company knowledge, examples and reusable practices. |
 
-Work that uses your company identity gets a saved version of its facts and guidelines.
-The outputs can record which facts and examples they used. When those change, Restless
-can flag the affected outputs so you can keep, update or remove them. Agents can
-suggest improvements to the guidelines, with supporting examples, for you to approve.
+Read the [OrgIntel specification](docs/specs/orgintel.md) and the
+[capability evidence guide](docs/product-capabilities.md) for how it works.
 
-For example, when you correct a product fact, Restless can flag the sales page that
-still uses the old claim. You can ask for that page to be updated. New work uses the
-correction, and you can still see which guidelines earlier work followed.
+## Why a team
 
-The [Company Identity run](docs/dogfood/company-identity/s35-run-report.md) exercises this
-across two different businesses. Read the [OrgIntel specification](docs/specs/orgintel.md)
-for the wider design, and the [capability evidence guide](docs/product-capabilities.md)
-to see how these features work.
+**One chat is fine. Until it isn't.**
 
-## Features
+1. **One task? A chat is perfect.** Ask, answer, done. For a single change, nothing beats it.
+2. **Then the work grows.** Research, art and a playtest join the same thread. Every tool result
+   lands in one context.
+3. **The thread starts to forget.** It runs out of room, summarises itself, and the first
+   instruction quietly goes.
+4. **A team keeps every goal with an owner.** Each ask lands with a lead who holds its goal, its
+   evidence and its checks. You get one decision.
+
+Restless agents run on Codex, Claude Code or an API model. The difference is the structure
+around them.
+
+Structure has a cost, and we measure it rather than assume it. In
+[EXP-17](experiment/coordination/experiments/EXP-17/RESULTS.md) the same Codex worker ran four
+kinds of work with and without a supervising lead (one valid pair per kind, so a small sample).
+Every result passed its checks and blind review either way; supervision took **2.34× the time
+and 2.53× the spend**. So Restless starts with one capable worker under each lead, keeps the
+lead out of the way until judgement is needed, and adds specialists only when they improve the
+result.
+
+## What's inside
+
+Built like a company, not a chat window.
+
+**Rooms for people and agents.** Talk one-to-one or in groups and choose which people and agents
+take part. Everyone has their own account, permissions and tag.
+
+**Shared documents.** Co-edit rich text live, comment on a passage, compare versions and carry
+feedback into the next revision. Built on Tiptap, Yjs and Hocuspocus.
+
+**Goals that survive restarts.** Switch models, restart a session or hand the work over. The goal,
+the owner and what comes next stay put.
+
+**A real company computer.** A persistent Linux machine with files, Git, a browser and a desktop
+you can take over. Sessions end. Models change. The machine, its files and its history stay.
+
+**Authority, enforced by code.** Decide what agents may do alone and what needs you. Budgets, a
+vault and a record of every external action.
+
+**A company that knows itself.** Approved facts, voice and visual language travel with the work.
+Change a fact and Restless flags what used the old one.
+
+**Quality is part of the brief.** Choose Fast, Thorough, Exceptional or Frontier for the company
+or for one outcome. It sets how deep agents go. Permissions and spending limits are separate.
+
+<details>
+<summary><b>Every capability, in detail</b></summary>
 
 ### Work together
 
 | Capability | What you can do |
 | --- | --- |
 | **Human multiplayer** | Bring cofounders and colleagues into the same workspace as your AI agents, with their own accounts and permissions. |
-| **Collaborative documents** | Co-edit rich-text documents with live sync, named versions and exports. Built on **Tiptap, Yjs and Hocuspocus**. |
+| **Collaborative documents** | Co-edit rich-text documents with live sync, named versions and exports. |
 | **Comments and document review** | Comment on a passage or the whole document, resolve discussions and compare proposed edits with the original. |
 | **Rooms and conversations** | Talk one-to-one or in groups, and choose which people and agents take part. |
 | **Attention** | Open the decisions, outcome reviews and requests that need your judgement, with the relevant work and evidence attached. |
@@ -249,7 +207,7 @@ to see how these features work.
 | **Know which version was checked** | Keep the reviewed version unchanged, with a record of the material it used and the checks run on it. |
 | **Revisions and related work** | Carry feedback into the next version and flag other work that relied on material you changed. |
 | **Independent review** | Give a separate reviewer the result and the information needed to check it. |
-| **Company Identity** | Save approved company facts, writing style, design guidance and ways of working, with a history of changes. |
+| **Company Identity** | Save approved company facts (Truth), writing style (Voice), design guidance (Visual language) and ways of working (Culture), with a history of changes. |
 | **Keep company content up to date** | Flag outputs that use outdated company facts or guidelines, decide what to update and approve lessons from the work. |
 | **Pick up interrupted work** | Keep files and work history, identify what went wrong and give the next session the information it needs to recover. |
 
@@ -261,7 +219,6 @@ to see how these features work.
 | **Embedded desktop** | Enter the company computer, inspect the result and take control to participate directly. |
 | **Persistent browser** | Research, inspect live pages and work through browser tools in the company environment. |
 | **Internal tools and services** | Build scripts, dashboards, prototypes and local applications with the tools the business needs. |
-| **Codex, Claude and API providers** | Connect native agent harnesses, model APIs and compatible gateways. |
 | **Per-agent intelligence** | Inherit a company model or choose a connection and model for a particular agent. |
 | **CLI and APIs** | Operate the company, inspect work and automate interactions from the terminal. |
 | **Multiple companies** | Switch between distinct businesses with their own work, people and company environments. |
@@ -273,22 +230,35 @@ to see how these features work.
 | **Permissions and ongoing approvals** | Choose what agents may do on their own and what needs your approval. Code enforces these rules. |
 | **Membership, roles and permissions** | Control who can enter the workspace, who is responsible for each job and who may act on connected services. |
 | **Budgets and spending** | Set model spending limits and see which requests used the budget or were stopped by the limit. |
-| **Vault — powered by Infisical** | Store credentials through an established secrets backend and keep secret references in company configuration. |
+| **Vault, powered by Infisical** | Store credentials through an established secrets backend and keep secret references in company configuration. |
 | **Records of external actions** | See what was authorised and what happened. If an action’s result is unclear, Restless requires it to be checked before retrying. |
 | **Resources and Doctor** | See which tools and services are available, when they were last checked and what needs fixing. |
-| **Work that survives agent sessions** | Keep company files when an agent stops. Restoring the computer does not erase records of actions already taken. |
 | **Company floor** | Explore colleagues and teams through an interactive spatial view of the same company. |
 
-[How these features work, with code and examples →](docs/product-capabilities.md)
+The [Company Identity run](docs/dogfood/company-identity/s35-run-report.md) exercises identity
+across two businesses. [How these features work, with code and examples →](docs/product-capabilities.md)
 
-## Getting started
+</details>
 
-To run a published release as a service with upgrades and backups, follow
-[self-hosting](docs/self-hosting.md). To build from source:
+## Bring your people. Bring any model.
 
-Three commands open the office. You need a **Linux host with Rust/Cargo, Node.js 24/npm,
-Docker with Compose v2, curl, jq and OpenSSL**, Docker running, and at least 30 GiB free for
-the source build and company image.
+Codex, Claude, any API provider or gateway. Each agent can use a different model: Theo researches
+on Gemini, Marlow leads on Claude, Ines builds on Codex.
+
+| Connection | Setup |
+| --- | --- |
+| **Codex** | Connect the native Codex harness using sign-in or an OpenAI API key. |
+| **Claude** | Connect the native Claude harness using sign-in or an Anthropic API key. |
+| **API providers** | OpenAI, Anthropic, Google Gemini, OpenRouter, Groq, Mistral, DeepSeek, xAI, Moonshot, Z.ai and other supported connections. |
+| **Custom endpoints** | Any OpenAI-compatible gateway, with your endpoint, model IDs and credentials. |
+
+API credentials can live in the Infisical vault, with only references kept in company settings.
+
+## Get started
+
+Three commands open the office. You need a **Linux host with Rust/Cargo, Node.js 24/npm, Docker
+with Compose v2, curl, jq and OpenSSL**, Docker running, and about 30 GiB free for the source
+build and company image.
 
 ```sh
 # 1. Get the source
@@ -298,142 +268,101 @@ git clone https://github.com/BlueprintLabIO/restless-core.git
 cd restless-core && npm --prefix web ci
 
 # 3. Open the office
-./scripts/restless-dev demo_test --reconcile
+./scripts/restless-dev my_company --reconcile
 ```
 
 The launcher builds the daemon and company image, installs its pinned model broker, and
-provisions PostgreSQL and an Infisical vault for a new development profile. Open the workspace
-address it prints, then connect **Codex, Claude or an API provider** in **Company → Intelligence**.
+provisions PostgreSQL and an Infisical vault for a new development profile. The first build takes
+a while. Open the workspace address it prints, then connect **Codex, Claude or an API provider**
+under **Company → Intelligence**.
 
-### Choose your intelligence
-
-| Connection | Setup |
-| --- | --- |
-| **Codex** | Connect the native Codex harness using sign-in or an OpenAI API key. |
-| **Claude** | Connect the native Claude harness using sign-in or an Anthropic API key. |
-| **API providers** | Use OpenAI, Anthropic, Google Gemini, OpenRouter, Groq, Mistral, DeepSeek, xAI, Moonshot, Z.ai and other supported connections. |
-| **Custom endpoints** | Configure an OpenAI-compatible gateway with your endpoint, model IDs and credentials. |
-
-You can also initialise an API-backed company with a model and a key already in your shell:
+To start a company already wired to an API model, export the model and a reference to its key
+first:
 
 ```sh
 export RESTLESS_DEV_MODEL=anthropic/claude-sonnet-4-6
 export RESTLESS_DEV_CREDENTIAL_REFERENCE=env:ANTHROPIC_API_KEY
-./scripts/restless-dev demo_test --reconcile
+./scripts/restless-dev my_company --reconcile
 ```
 
-Existing companies retain their saved configuration.
-
-In another terminal, verify setup:
+Existing companies keep their saved configuration. In another terminal, check the setup:
 
 ```sh
-./scripts/restless-dev doctor demo_test
+./scripts/restless-dev doctor my_company
 ```
 
-Ctrl-C stops the foreground host processes; company containers and volumes persist.
-See [web development](web/README.md) and [build storage](docs/BUILD_STORAGE.md) for details.
+Ctrl-C stops the foreground host processes; company containers and volumes persist. See
+[web development](web/README.md) and [build storage](docs/BUILD_STORAGE.md) for details.
 
-To start a new company with teammates, follow the [self-hosted accounts setup](services/identity/README.md).
-It provides separate sign-ins, email invitations and removal of member access.
+**Next steps**
 
-Try [your first useful outcome](docs/first-outcome.md): delegate a client proposal,
-review the shared document, and ask for a revision.
-
-## Example: a game studio, humans and AI together
-
-**Lantern Studio** is the example business in the walkthrough. Its brief: make a small
-co-op lighthouse game, find an audience and prepare the first playtest.
-
-People bring the taste and skills that make the studio theirs. Agents carry the chores that
-are not the core of the business.
-
-| Teammate | | Contribution |
-| --- | --- | --- |
-| **You**, creative director | Person | Decides what the game feels like, what to cut, and approves what ships. |
-| **Rosa**, artist | Person | The look of the lighthouse and its light. Agents export and package her sprites. |
-| **Jun**, puzzle designer | Person | Puzzles that are hard but fair. Agents replay them and report where players stall. |
-| **Kit**, community and playtests | Person | Reads players in the room. Agents send invitations and sort the feedback into themes. |
-| **Marlow**, production lead | AI | Owns the outcome, briefs the workers and brings prepared decisions to the people. |
-| **Ines**, build and QA | AI | Builds, device checks, packaging and bug fixes in the company computer. |
-| **Theo**, research | AI | Market sizing, comparable games and store-page benchmarks. |
-| **Camille**, operations | AI | Store page drafts, the press kit and the books. |
-
-1. **Shape the brief together.** Agree on the experience, scope and what makes it good.
-2. **Make the work.** Build the prototype, prepare the audience plan and draft the invitation.
-3. **Review the actual result.** Play the game and leave feedback beside the build and brief.
-4. **Revise and decide.** Improve the confusing parts, review the next version and approve the playtest.
-
-The same loop works for a consultancy preparing a client proposal, a founder researching
-a new market, or an operations team improving an internal process. The business changes;
-the shared workspace and the way people collaborate with AI stay familiar.
+- [Your first useful outcome](docs/first-outcome.md): delegate a client proposal, review the
+  shared document and ask for a revision.
+- [Self-hosted accounts](services/identity/README.md): separate sign-ins, email invitations and
+  removal of member access for teammates.
+- [Self-hosting a signed release](docs/self-hosting.md): run a published release as a service,
+  with upgrades and backups.
+- **Rather not run Docker?** [Restless Cloud](https://restless.run/cloud/) is the same office
+  with nothing to install. It is in private beta; [join the waitlist](https://restless.run/cloud/#waitlist).
 
 ## Product tour
 
-Real development UI, including the Lantern Studio example. Screenshots and video share
-a **1920 × 1080 (16:9)** frame. [Capture details and captions](docs/media/README.md).
+Real development UI with the Lantern Studio example. Screenshots and video share a
+**1920 × 1080 (16:9)** frame. [Capture details and captions](docs/media/README.md).
 
 ### Write and revise together
 
-Native documents bring the brief, working draft, comments and version history into one
-surface. Live sync keeps collaborators on the same document.
+The brief, working draft, comments and version history live in one document. Live sync keeps
+collaborators on the same page.
 
 ![Shared creative brief in the native document editor](docs/screenshots/restless-documents.jpg)
 
 ### Keep feedback attached to the result
 
-Discuss a document or a specific passage, resolve comments, and carry the requested
-changes into the next version. Review happens in the workspace where the work lives.
+Discuss a document or a passage, resolve comments and carry the requested changes into the next
+version.
 
 ![Document review with a saved comment and reply controls](docs/screenshots/restless-document-review.jpg)
 
 ### Share a room with the people and agents involved
 
-Direct and group rooms give ongoing discussions an explicit audience. Keep direction,
-questions and feedback together while documents and the company computer hold the work.
+Direct and group rooms give each discussion an explicit audience. Direction, questions and
+feedback stay together while documents and the company computer hold the work.
 
 ![Studio room with participant controls and shared discussion](docs/screenshots/restless-rooms.jpg)
 
 ### Enter the company computer
 
-Agents work in a persistent Linux environment with a browser, files and applications.
-Open its desktop inside Restless, inspect the result, and **Take control** when you
-want to participate directly. Here, the studio's playable prototype is open in the computer.
+Open the company's Linux desktop inside Restless, inspect the result and **Take control** when
+you want to step in. Here, the studio's playable prototype is running.
 
 ![Playable prototype inside the embedded company computer](docs/screenshots/restless-computer-game.jpg)
 
-### Set authority and permissions
+### Set authority and limits
 
-Choose what the company may do independently and which decisions require you.
-**Authority & limits** brings autonomy, outcome standards, model spend ceilings and
-standing grants into one visible surface.
+Choose what the company may do on its own and which decisions need you. **Authority & limits**
+brings autonomy, outcome standards, model spend ceilings and standing grants into one place.
 
 ![Authority boundaries, owner decisions and model spend ceiling](docs/screenshots/restless-authority.png)
 
-### Give roles clear accountability
+### See who owns what
 
-People connects each role to its current work and accountable lead. See who is producing,
-who owns the outcome and where to take a question.
+People connects each role to its current work and accountable lead.
 
 ![People view showing roles, accountable leads and work](docs/screenshots/restless-roles.png)
 
 ### Choose intelligence per agent
 
-A researcher, lead and reviewer can use different models and connections. Inherit the
-company choice or assign intelligence directly beside the person's role.
+A researcher, lead and reviewer can use different models and connections.
 
 ![Per-agent connection and model assignment](docs/screenshots/restless-agent-models.png)
-
-### Connect your preferred provider
-
-Native Codex and Claude connections sit alongside API providers and compatible gateways.
-API connections can store credentials in Infisical and keep only references in company settings.
 
 ![API provider setup and secure credential storage](docs/screenshots/restless-providers.png)
 
 ### Know what the company can use
 
-**Resources & access** reports available capabilities with their observed state, source
-and timestamp. Doctor checks the execution path so you can find and fix a broken boundary.
+**Resources & access** reports each capability with its observed state, source and time.
+Doctor checks the execution path so you can find and fix a broken link.
 
 ![Resource availability and timestamped evidence](docs/screenshots/restless-resources.png)
 
@@ -441,24 +370,22 @@ and timestamp. Doctor checks the execution path so you can find and fix a broken
 
 ### Keep credentials in a real vault
 
-**Vault is based on [Infisical](https://github.com/Infisical/infisical).** Restless uses
-its secret storage and machine identity through a host-side adapter. The owner can
-inspect credential inventory without displaying secret values. Restless owns the
-authority checks and controls how credentials reach the relevant provider or harness.
+Vault is based on [Infisical](https://github.com/Infisical/infisical). The owner can see the
+credential inventory without displaying secret values; Restless controls how credentials reach
+each provider or harness.
 
 ![Infisical connection and company credential inventory](docs/screenshots/restless-vault.png)
 
 ### Follow outcomes and revisions
 
-Use the work board for current state or the dependency map for relationships between
-outcomes. Keep the result, accountable lead and revision history connected.
+The work board shows current state; the dependency map shows how outcomes relate.
 
 ![Work board with outcome states](docs/screenshots/restless-work.png)
 
 ### See the company at a glance
 
-The company floor is an interactive view of colleagues and teams, connected to the
-same work available through Attention, Work, People and Company.
+The company floor is an interactive view of colleagues and teams, connected to the same work as
+Attention, Work, People and Company.
 
 ![Interactive company floor](docs/screenshots/restless-office.png)
 
@@ -466,37 +393,49 @@ same work available through Attention, Work, People and Company.
 
 ### Why choose Restless over Paperclip?
 
-**Choose Restless when you want to run the business alongside AI, with your team
-working directly on the output.**
+**Choose Restless when you want to run the business alongside AI, with your team working
+directly on the output.**
 
-[Paperclip](https://github.com/paperclipai/paperclip) organises an agent company through
-roles, goals, issues, budgets and agent runtimes. It is a strong fit when you want that
-agent-management model. Its [issue workflow](https://docs.paperclip.ing/guides/day-to-day/issues/)
-lets a CEO agent create and delegate work, with humans reviewing progress and approvals.
+[Paperclip](https://github.com/paperclipai/paperclip) organises an agent company through roles,
+goals, issues, budgets and agent runtimes. It is a strong fit if you want that agent-management
+model. Its [issue workflow](https://docs.paperclip.ing/guides/day-to-day/issues/) lets a CEO
+agent create and delegate work, with humans reviewing progress and approvals.
 
-Restless starts from a different question: **what useful work can we complete together,
-and where does human judgement improve it?**
+Restless starts from a different question: **what useful work can we finish together, and where
+does human judgement improve it?**
 
-- **Participate in the result.** Your cofounder can revise the brief, a colleague can
-  comment on the proposal, and you can enter the company computer to try the build.
-- **Make attention purposeful.** Bring the relevant output and a prepared decision to
-  the owner. Keep routine coordination with the accountable lead.
-- **Keep the team as simple as the work allows.** Start with a capable worker. Add
-  collaborators when they improve quality, provide an independent check or save time.
-- **Help agents understand your company.** Give them approved facts, writing style,
-  design guidance and ways of working. Track which guidance each output used.
-- **Make quality an operating choice.** Set an outcome standard, review the exact result
-  and carry feedback into the next version.
-- **Keep business context together.** Documents, rooms, work, roles and the computer
-  belong to the same ongoing company.
+- **Work on the result.** Your cofounder revises the brief, a colleague comments on the proposal,
+  and you enter the company computer to try the build.
+- **Spend attention on purpose.** The owner gets the output and a prepared decision; routine
+  coordination stays with the accountable lead.
+- **Keep the team as small as the work allows.** Start with one capable worker and add
+  collaborators when they improve quality, check independently or save time.
+- **Give agents the company's own facts, voice and taste,** and track which guidance each output
+  used.
+- **Make quality an operating choice.** Set an outcome standard, review the exact result and
+  carry feedback into the next version.
 
 Paperclip also offers [human membership](https://docs.paperclip.ing/guides/org/members-and-access/),
 [ranked attention](https://docs.paperclip.ing/reference/api/attention/) and
-[versioned issue documents](https://docs.paperclip.ing/guides/day-to-day/issues/).
-The choice is the working relationship you want: Restless puts collaborative production
-and the owner's attention at the centre of its design.
+[versioned issue documents](https://docs.paperclip.ing/guides/day-to-day/issues/). The choice is
+the working relationship you want.
 
-### Features at a glance
+### When another tool is a better fit
+
+| Alternative | Choose it for |
+| --- | --- |
+| [Paperclip](https://github.com/paperclipai/paperclip) | Managing an agent organisation through tasks, roles, budgets and bring-your-own runtimes. |
+| [OpenClaw](https://github.com/openclaw/openclaw) | A general assistant across devices, messaging channels and extensible tools. |
+| [Lindy](https://docs.lindy.ai/teammate/home) | A hosted business assistant connected to email, meetings and team tools. |
+| [Manus](https://manus.im/desktop) | Delegating general tasks with computer-based execution. |
+| [Relevance AI](https://relevanceai.com/workforce) | Configuring specialist agents and workflows into a workforce. |
+| [n8n](https://github.com/n8n-io/n8n) | Explicit, repeatable automation with visual workflows and integrations. |
+| [Dify](https://github.com/langgenius/dify) | Building AI applications, retrieval pipelines and agentic workflows. |
+| [OpenHands](https://github.com/OpenHands/OpenHands) / [Gas Town](https://github.com/gastownhall/gastown) | Software engineering and coordinating coding agents. |
+| [CrewAI](https://github.com/crewAIInc/crewAI) / [LangGraph](https://github.com/langchain-ai/langgraph) / [Microsoft Agent Framework](https://github.com/microsoft/agent-framework) | Building your own agent application and controlling its execution model. |
+
+<details>
+<summary><b>Features at a glance</b></summary>
 
 **✓** Built in · **◐** Related feature, or possible with setup or integrations ·
 **—** Not built in · **?** Not confirmed in the sources.
@@ -547,38 +486,13 @@ Features can vary by plan, connected tools or rollout. Sources checked **22 Sept
 | Store and manage API keys and credentials | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Control access to connected tools | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
-**The distinctions behind the ticks:**
+An alternative's ◐ credits related prompts, skills, knowledge or workflows. n8n, Dify and Lindy
+provide visual workflow building; Restless's work graph describes outcomes and revisions, and
+reusable automation lives in company tools and scripts. The
+[comparison notes and sources](docs/product-capabilities.md#comparison-notes-and-sources) explain
+each row. Corrections are welcome through an issue or PR.
 
-- **Collaboration:** Paperclip has versioned issue documents and artifact previews;
-  OpenClaw has file, browser and capability-dependent desktop panels; Lindy has team
-  files and hosted artifacts. Restless combines a native shared editor, rooms and the
-  company computer around the same ongoing work.
-- **Continuity:** schedules, memory and recovery are common strengths across this
-  category. Restless keeps track of who owns the work, what has been tried and what
-  needs your input. A lead stays responsible without a model call for every update.
-- **Quality and identity:** an alternative's ◐ credits related prompts, skills, knowledge
-  or workflows. Restless lets you set a quality standard, record which approved company
-  guidance each job used and flag content affected by changes to that guidance.
-- **Automation:** n8n, Dify and Lindy provide visual workflow building. Restless's work
-  graph describes outcomes and revisions; reusable automation lives in company tools
-  and scripts. It is not a general drag-and-drop workflow editor.
-
-The [comparison notes and sources](docs/product-capabilities.md#comparison-notes-and-sources)
-explain the scope of these rows. Corrections are welcome through an issue or PR.
-
-### When another tool is a better fit
-
-| Alternative | Choose it for |
-| --- | --- |
-| [Paperclip](https://github.com/paperclipai/paperclip) | Managing an agent organisation through tasks, roles, budgets and bring-your-own runtimes. |
-| [OpenClaw](https://github.com/openclaw/openclaw) | A general assistant across devices, messaging channels and extensible tools. |
-| [Lindy](https://docs.lindy.ai/teammate/home) | A hosted business assistant connected to email, meetings and team tools. |
-| [Manus](https://manus.im/desktop) | Delegating general tasks with computer-based execution. |
-| [Relevance AI](https://relevanceai.com/workforce) | Configuring specialist agents and workflows into a workforce. |
-| [n8n](https://github.com/n8n-io/n8n) | Explicit, repeatable automation with visual workflows and integrations. |
-| [Dify](https://github.com/langgenius/dify) | Building AI applications, retrieval pipelines and agentic workflows. |
-| [OpenHands](https://github.com/OpenHands/OpenHands) / [Gas Town](https://github.com/gastownhall/gastown) | Software engineering and coordinating coding agents. |
-| [CrewAI](https://github.com/crewAIInc/crewAI) / [LangGraph](https://github.com/langchain-ai/langgraph) / [Microsoft Agent Framework](https://github.com/microsoft/agent-framework) | Building your own agent application and controlling its execution model. |
+</details>
 
 ## Architecture
 
@@ -590,8 +504,8 @@ Restless separates three responsibilities:
 | **Organisational Intelligence (OrgIntel)** | Goals, accountable work, actors, context, review, company identity and coordination. |
 | **Company Linux Runtime** | The persistent computer where agents use tools, edit files and produce results. |
 
-The kernel bounds consequential actions. OrgIntel coordinates the work. The runtime
-provides the environment to do it.
+The kernel bounds consequential actions. OrgIntel coordinates the work. The runtime provides the
+environment to do it.
 
 ### Built on established tools
 
@@ -604,6 +518,7 @@ provides the environment to do it.
 | Rust | Daemon, CLI, coordination and model gateway. |
 | SvelteKit | The human workspace: Attention, Work, People and Company. |
 | Codex and Claude | Native agent harnesses, alongside Restless-managed API execution. |
+| [Pixel Agents](https://github.com/pixel-agents-hq/pixel-agents) | The company floor, with character art based on JIK-A-4's MetroCity pack. |
 
 Read [ARCHITECTURE.md](ARCHITECTURE.md) and [coordination theory](docs/COORDINATION_THEORY.md)
 for the responsibility boundaries and team design.
@@ -611,8 +526,8 @@ for the responsibility boundaries and team design.
 ## Contributing
 
 Start with the [working agreement](CLAUDE.md), [architecture](ARCHITECTURE.md), and the
-relevant [sprint](docs/sprints/README.md). The most useful contributions close a real
-workflow gap and show the resulting output or behaviour.
+relevant [sprint](docs/sprints/README.md). The most useful contributions close a real workflow
+gap and show the resulting output or behaviour.
 
 | Path | Contents |
 | --- | --- |
@@ -630,11 +545,10 @@ workflow gap and show the resulting output or behaviour.
 | `web/src/lib/office/` | The company floor. Packed with its engine and sprites as `@restless/office` (`npm run pack:office`) for restless.run |
 | `experiment/` | Experiment designs and recorded results |
 
-The hosted control plane and public website live in a separate private repository.
-This repository contains the local company core, architecture and experiment evidence.
+The hosted service and the public website live in a separate private repository. This
+repository contains the local company core, architecture and experiment evidence.
 
 ## License
 
-Restless Core is licensed under [Apache 2.0](LICENSE). The Restless name, marks,
-visual identity, hosted service and private cloud control plane are not licensed by
-this repository.
+Restless Core is licensed under [Apache 2.0](LICENSE). The Restless name, marks, visual
+identity, hosted service and private cloud control plane are not licensed by this repository.
