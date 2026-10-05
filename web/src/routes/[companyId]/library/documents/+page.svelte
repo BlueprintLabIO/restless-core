@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { namePageContext } from '$lib/model/page-context.svelte';
 	/* One document, full width, opened from the Library. Its discussion and
 	 * review open beside it on wide screens and in its place on narrow ones. */
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
@@ -66,6 +67,7 @@
 		if (!sameDocumentTarget(target, companyId, documentId)) return;
 		detail.accept(target, view);
 	}
+	namePageContext(() => documentView?.document.title ?? '');
 </script>
 
 <svelte:window bind:online />

@@ -7,6 +7,7 @@
 	import UserRound from '@lucide/svelte/icons/user-round';
 	import File from '@lucide/svelte/icons/file';
 	import Target from '@lucide/svelte/icons/target';
+	import { referencePreview } from '$lib/model/reference-preview';
 
 	let {
 		text,
@@ -19,6 +20,7 @@
 		onreference?: (path: string, label: string) => void;
 	} = $props();
 	const origin = typeof window === 'undefined' ? undefined : window.location.origin;
+	const preview = referencePreview();
 	// No raw HTML or model-supplied components: Markdown becomes Svelte nodes,
 	// with Streamdown's URL checks at the link/image boundary.
 	const theme = {
@@ -95,8 +97,17 @@
 		>
 	{:else if reference && reference.kind !== 'file'}
 		{@const Icon = ICONS[reference.kind]}
-		<a class="md-ref {reference.kind}" href={token.href} title={token.title ?? undefined}
-			><Icon size={13} strokeWidth={1.9} aria-hidden="true" />{@render children()}</a
+		{@const card = preview?.(token.href) ?? null}
+		<span class="md-ref-wrap"
+			><a
+				class="md-ref {reference.kind}"
+				href={token.href}
+				title={card ? undefined : (token.title ?? undefined)}
+				><Icon size={13} strokeWidth={1.9} aria-hidden="true" />{@render children()}</a
+			>{#if card}<span class="md-ref-card" role="tooltip"
+					><strong>{card.title}</strong>{#each card.lines as line (line)}<span>{line}</span
+						>{/each}</span
+				>{/if}</span
 		>
 	{:else}
 		<a
@@ -192,6 +203,47 @@
 		min-width: 0;
 		overflow-wrap: anywhere;
 	}
+	/* Hovering or focusing a chip shows what it is without leaving the message. */
+	.markdown :global(.md-ref-wrap) {
+		position: relative;
+		display: inline;
+	}
+	.markdown :global(.md-ref-card) {
+		position: absolute;
+		z-index: var(--z-raised, 5);
+		left: 0;
+		bottom: calc(100% + 6px);
+		display: none;
+		width: max-content;
+		max-width: 260px;
+		padding: 8px 10px;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-control);
+		background: var(--surface-raised);
+		box-shadow: var(--shadow-lift);
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+		font-weight: 400;
+		line-height: 1.45;
+		white-space: normal;
+		pointer-events: none;
+	}
+	.markdown :global(.md-ref-card strong) {
+		display: block;
+		color: var(--ink);
+		font-weight: 600;
+	}
+	.markdown :global(.md-ref-card span) {
+		display: block;
+	}
+	@media (hover: hover) {
+		.markdown :global(.md-ref-wrap:hover .md-ref-card) {
+			display: block;
+		}
+	}
+	.markdown :global(.md-ref-wrap:focus-within .md-ref-card) {
+		display: block;
+	}
 	.markdown :global(.md > *:first-child) {
 		margin-top: 0;
 	}
@@ -284,8 +336,8 @@
 		margin-bottom: 0;
 	}
 	.markdown :global(.md-callout[data-callout='needs']) {
-		border-color: color-mix(in srgb, var(--state-warning) 40%, var(--border));
-		background: color-mix(in srgb, var(--state-warning) 8%, var(--surface-raised));
+		border-color: color-mix(in srgb, var(--surface-attention) 40%, var(--border));
+		background: color-mix(in srgb, var(--surface-attention) 8%, var(--surface-raised));
 	}
 	.markdown :global(.md-callout[data-callout='blocked']) {
 		border-color: color-mix(in srgb, var(--state-danger) 36%, var(--border));

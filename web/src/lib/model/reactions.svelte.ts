@@ -5,6 +5,8 @@ import type { MessageReactionRow } from './generated/orgintel';
 import { ownerJson } from './failure';
 
 export const REACTIONS = ['👍', '👀', '✅', '❤️', '🎉', '❓'] as const;
+/** Pinning is a reaction too: stored, shared, and never a message. */
+export const PIN = '📌';
 
 export type ReactionSummary = { emoji: string; count: number; mine: boolean };
 
@@ -42,6 +44,12 @@ export function reactionsQuery(company: () => string, ids: () => number[], viewe
 				: [];
 		});
 	}
+	/** Messages in view someone has pinned. */
+	function pinned(): Set<number> {
+		return new Set(
+			(query.data ?? []).filter((row) => row.emoji === PIN).map((row) => row.message_id)
+		);
+	}
 	async function react(messageId: string | number, emoji: string, on: boolean) {
 		const response = await fetch(
 			`/api/companies/${encodeURIComponent(company())}/messages/${encodeURIComponent(String(messageId))}/reactions`,
@@ -54,5 +62,5 @@ export function reactionsQuery(company: () => string, ids: () => number[], viewe
 		await ownerJson(response);
 		await client.invalidateQueries({ queryKey: ['message-reactions', company()] });
 	}
-	return { summaryFor, react };
+	return { summaryFor, react, pinned };
 }

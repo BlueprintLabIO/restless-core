@@ -303,7 +303,7 @@
 .bridge-root .hc-toolbar {
 	min-width: 0;
 	display: grid;
-	grid-template-columns: 28px minmax(0, 1fr) 28px 28px;
+	grid-template-columns: 28px minmax(0, 1fr) 28px auto;
 	align-items: center;
 	gap: 4px;
 	padding: 4px;
@@ -440,8 +440,48 @@
 	cursor: not-allowed;
 }
 
-.bridge-root .hc-send {
+.bridge-root .hc-sends {
 	grid-column: 4;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.bridge-root .hc-hint {
+	position: absolute;
+	right: 8px;
+	bottom: calc(100% + 6px);
+	padding: 2px 8px;
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	background: var(--surface-raised);
+	color: var(--text-tertiary);
+	font: var(--t-label) var(--font-ui);
+	white-space: nowrap;
+	pointer-events: none;
+}
+
+.bridge-root .hc-interrupt {
+	height: 28px;
+	padding: 0 9px;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius-control);
+	background: var(--surface-raised);
+	color: var(--ink);
+	font: 500 var(--t-label) var(--font-ui);
+	cursor: pointer;
+}
+
+.bridge-root .hc-interrupt:hover:not(:disabled) {
+	background: var(--surface-hover);
+}
+
+.bridge-root .hc-interrupt:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+
+.bridge-root .hc-send {
 	width: 28px;
 	height: 28px;
 	flex: 0 0 auto;
