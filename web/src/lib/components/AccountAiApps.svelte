@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { Page, Section, Item, Notice, Empty } from '$lib/ui/page';
+	import { Section, Item, Notice, Empty } from '$lib/ui/page';
 	import { failureSentence } from '$lib/model/failure';
 	import {
 		claudeCodeCommand,
@@ -65,12 +65,7 @@
 	const when = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString() : 'never');
 </script>
 
-<svelte:head><title>AI apps — Account settings</title></svelte:head>
-
-<Page
-	title="AI apps"
-	info="Use Restless from Claude Code, Claude Desktop or Codex over MCP: read your Inbox, decide approvals and talk to Exec. A token acts as you, with exactly your access, and stops working the moment it is revoked or your membership changes."
->
+<div class="ai-apps">
 	{#if failure}<Notice tone="danger" title="That change was not made" details={failure} />{/if}
 
 	<form class="create" onsubmit={create}>
@@ -117,9 +112,13 @@
 			{/each}
 		{/if}
 	</Section>
-</Page>
+</div>
 
 <style>
+	.ai-apps {
+		display: grid;
+		gap: var(--space-4);
+	}
 	.create {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) auto;

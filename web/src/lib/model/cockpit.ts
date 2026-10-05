@@ -26,6 +26,17 @@ export interface CompanyCatalogEntry {
 	 * reason is resolved. Absent for every company that can start.
 	 */
 	unstartable_reason?: string;
+	/**
+	 * The portfolio card: the counts this plane would sign for Fleet (company projection v2).
+	 * Absent when the company's state could not be read in time; never a guessed zero.
+	 */
+	card?: {
+		decisions_waiting: number;
+		last_activity_at: string | null;
+		people_working: number;
+		outcomes_last_day: number;
+		exec_ready: boolean;
+	};
 }
 
 export async function getCompanies(): Promise<CompanyCatalogEntry[]> {

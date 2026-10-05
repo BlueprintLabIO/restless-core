@@ -88,7 +88,7 @@
 		)
 	);
 	let accountScope = $state<'account' | 'company'>('account');
-	let manageUrl = $state('/account/settings/connections');
+	let manageUrl = $state('/account#connections');
 	let loading = $state(true);
 	let error = $state('');
 	let addOpen = $state(false);
@@ -149,7 +149,7 @@
 			)
 				void catalog.refreshConnected();
 			accountScope = body.scope === 'company' ? 'company' : 'account';
-			manageUrl = body.manage_url ?? '/account/settings/connections';
+			manageUrl = body.manage_url ?? '/account#connections';
 			if (statusRefreshTimer) clearTimeout(statusRefreshTimer);
 			if (connections.some((connection) => connection.status === 'checking')) {
 				statusRefreshAttempts = Math.min(statusRefreshAttempts + 1, 12);
@@ -690,12 +690,8 @@
 	{/if}
 {/snippet}
 
-<main class="account-connections">
-	<header class="page-head">
-		<h1>Connections</h1>
-		<InfoTip
-			text="Connect a model account once, then give individual companies access. Each company keeps its own model choice."
-		/>
+<div class="account-connections">
+	<div class="page-head">
 		<span class="page-head-actions">
 			{#if accountScope === 'account'}<button
 					class="btn small"
@@ -705,7 +701,7 @@
 					>Open account ↗</a
 				>{/if}
 		</span>
-	</header>
+	</div>
 
 	{#if error}<div class="error" role="alert">
 			{error}<button class="btn small" onclick={() => void refresh()}>Try again</button>
@@ -902,30 +898,25 @@
 				>
 			</div>
 		</details>{/if}
-</main>
+</div>
 
 <style>
 	.account-connections {
-		width: min(920px, 100%);
-		margin: 0;
-		padding: 34px clamp(18px, 4vw, 44px) 48px;
-		box-sizing: border-box;
+		min-width: 0;
 	}
 	.page-head {
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-		margin-bottom: 22px;
+		margin-bottom: 14px;
+	}
+	.page-head:not(:has(.btn)) {
+		display: none;
 	}
 	.page-head-actions {
 		margin-left: auto;
 		display: flex;
 		gap: var(--space-2);
-	}
-	h1 {
-		margin: 0;
-		font-size: var(--t-title);
-		letter-spacing: -0.035em;
 	}
 
 	/* What blocks a company comes first, as one row and one action each. */
@@ -1350,9 +1341,6 @@
 		}
 	}
 	@media (max-width: 620px) {
-		.account-connections {
-			padding: 20px 14px 32px;
-		}
 		.form-grid {
 			grid-template-columns: 1fr;
 		}

@@ -13,26 +13,26 @@
 	import CreateCompany from '$lib/components/CreateCompany.svelte';
 	import AccountFrame from '$lib/components/AccountFrame.svelte';
 	import { getApplianceStatus, type ApplianceStatus } from '$lib/model/appliance';
-	import {
-		companiesQuery,
-		portfolioQuery,
-		type PortfolioProjection
-	} from '$lib/model/queries.svelte';
+	import { companiesQuery } from '$lib/model/queries.svelte';
 	import {
 		accountGrantFix,
 		getAccountConnections,
 		startFixHref,
-		startLinkLabel,
+		startGuidance,
 		type AccountConnectionSummary
 	} from '$lib/model/company-start';
-	import { plainText } from '$lib/ui/text';
+	import type { CompanyCatalogEntry } from '$lib/model/cockpit';
 
 	const companyCatalog = companiesQuery();
-	const portfolio = portfolioQuery();
 	const companies = $derived(companyCatalog.view);
-	const projections = $derived(
-		portfolio.view?.projections ?? ({} as Record<string, PortfolioProjection>)
-	);
+
+	const RUN_STATE: Record<CompanyCatalogEntry['runtime_status'], string> = {
+		running: 'Running',
+		asleep: 'Asleep',
+		stopped: 'Stopped',
+		absent: 'Not started',
+		unavailable: 'Unavailable'
+	};
 	const loaded = $derived(companyCatalog.status !== 'unknown');
 	let redirected = $state(false);
 	let appliance = $state<ApplianceStatus | null>(null);
@@ -125,8 +125,6 @@
 					name: company.name,
 					status: 'Archived',
 					tone: 'waiting',
-					focus: plainText(company.mission, { dropTitle: true }) || 'Focus not set',
-					next: 'Restore it to open it again',
 					entry: null,
 					dormant: true
 				}))
@@ -134,29 +132,37 @@
 	);
 	const rows = $derived([
 		...activeCompanies.map((company): CompanyPortfolioEntry => {
-			const projection = projections[company.id];
 			const reason = company.unstartable_reason ?? '';
 			const grant = reason ? accountGrantFix(reason, company.id, accountConnections) : null;
-			const issue = grant?.label ?? (reason ? startLinkLabel(reason) : '');
+			const card = company.card;
 			return {
 				id: company.id,
 				name: company.name,
-				status: issue ? 'Can’t start' : company.runtime_status,
+				status: reason ? 'Can’t start' : RUN_STATE[company.runtime_status],
 				tone:
-					issue || company.runtime_status === 'unavailable'
+					reason || company.runtime_status === 'unavailable'
 						? 'unavailable'
 						: company.runtime_status === 'running'
 							? 'presence'
 							: 'waiting',
-				focus: plainText(company.mission, { dropTitle: true }) || 'Focus not set',
-				next: projection?.nextProof || 'Checking work…',
-				nextHint: projection?.nextProofDetail,
-				attentionCount: projection?.attentionCount,
-				needsYou: projection?.attentionCount == null && !issue ? 'Checking…' : undefined,
-				issue,
-				entry: {
-					href: grant?.href ?? (issue ? startFixHref(company.id) : `/${company.id}`)
-				}
+				card: card
+					? {
+							decisionsWaiting: card.decisions_waiting,
+							peopleWorking: card.people_working,
+							outcomesLastDay: card.outcomes_last_day,
+							execReady: card.exec_ready,
+							lastActivityAt: card.last_activity_at
+						}
+					: null,
+				...(reason
+					? {
+							issue: grant
+								? `Exec can’t start until you share your ${grant.connection.label} sign-in with it.`
+								: `Exec can’t start. ${startGuidance(reason)}`,
+							issueAction: grant ? 'Give access' : 'Fix setup'
+						}
+					: {}),
+				entry: { href: grant?.href ?? (reason ? startFixHref(company.id) : `/${company.id}`) }
 			};
 		}),
 		...archivedRows
@@ -200,7 +206,7 @@
 					>{#if archivedSet.has(company.id)}<button
 							disabled={!!busy}
 							onclick={() => restore(company.id)}>Restore company</button
-						>{:else}<a href={`/${company.id}`}>Open</a><a href={`/${company.id}/company`}>Rename</a
+						>{:else}<a href={`/${company.id}`}>Open</a><a href={`/${company.id}/company`}>Company</a
 						><a href={`/${company.id}/company/provider`}>Intelligence</a><button
 							disabled={!!busy}
 							onclick={() => archive(company.id)}>Archive company</button

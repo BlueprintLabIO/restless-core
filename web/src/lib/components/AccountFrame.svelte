@@ -1,17 +1,13 @@
 <script lang="ts">
-	/* The account area every non-company page shares: the left sidebar with the
-	 * companies and account settings, then the page. Locally the account is this
-	 * computer, so its foot says which appliance it is rather than an email. */
+	/* The frame every non-company page shares: the account bar (your companies, your account) and
+	 * the page. Locally the account is this computer, so the menu says which appliance it is
+	 * rather than an email. */
 	import type { Snippet } from 'svelte';
 	import { page } from '$app/state';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import AccountShell from '$lib/ui/views/AccountShell.svelte';
-	import type { AccountNavGroup } from '$lib/ui/account';
+	import type { AccountTab } from '$lib/ui/account';
 	import { getApplianceStatus, type ApplianceStatus } from '$lib/model/appliance';
-	import Building2 from '@lucide/svelte/icons/building-2';
-	import Palette from '@lucide/svelte/icons/palette';
-	import Plug from '@lucide/svelte/icons/plug';
-	import Bot from '@lucide/svelte/icons/bot';
 
 	let { appliance = null, children }: { appliance?: ApplianceStatus | null; children: Snippet } =
 		$props();
@@ -31,38 +27,19 @@
 		void getApplianceStatus(controller.signal)
 			.then((value) => (observed = value))
 			.catch(() => {
-				// The sidebar still works without the profile name.
+				// The bar still works without the profile name.
 			});
 		return () => controller.abort();
 	});
 
 	const path = $derived(page.url.pathname);
-	const nav = $derived<AccountNavGroup[]>([
-		{ items: [{ label: 'Companies', href: '/', icon: Building2, active: path === '/' }] },
+	const tabs = $derived<AccountTab[]>([
+		{ label: 'Companies', href: '/', active: path === '/' },
 		{
-			label: 'Settings',
-			items: [
-				{
-					label: 'Connections',
-					href: '/account/settings/connections',
-					icon: Plug,
-					tooltip: 'Model sign-ins and connections shared across your companies',
-					active: path === '/account/settings/connections'
-				},
-				{
-					label: 'AI apps',
-					href: '/account/settings/ai-apps',
-					icon: Bot,
-					tooltip: 'Use Restless from Claude Code, Claude Desktop or Codex',
-					active: path === '/account/settings/ai-apps'
-				},
-				{
-					label: 'Appearance',
-					href: '/account/settings/appearance',
-					icon: Palette,
-					active: path === '/account/settings/appearance'
-				}
-			]
+			label: 'Account',
+			href: '/account',
+			active: path === '/account',
+			tooltip: 'Connections, AI apps and appearance, shared across your companies'
 		}
 	]);
 </script>
@@ -70,8 +47,13 @@
 <AccountShell
 	brandName={PRODUCT_NAME}
 	homeHref="/"
-	{nav}
+	{tabs}
 	account={{ name: 'You', detail: `${profile} · this computer` }}
 >
+	{#snippet accountMenu()}
+		<a href="/account#connections">Connections</a>
+		<a href="/account#ai-apps">AI apps</a>
+		<a href="/account#appearance">Appearance</a>
+	{/snippet}
 	{@render children()}
 </AccountShell>

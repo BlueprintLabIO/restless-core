@@ -45,7 +45,6 @@ function queryEnabled(value: QueryEnabled): boolean {
 
 export const queryKeys = {
 	companies: ['companies'] as const,
-	portfolio: ['portfolio'] as const,
 	principal: (company: string) => ['company-principal', company] as const,
 	collaboration: (company: string, principal: CompanyPrincipal | null | undefined) =>
 		[
@@ -218,90 +217,13 @@ export function companiesQuery(enabled: QueryEnabled = true) {
 		enabled: queryEnabled(enabled),
 		staleTime: STALE_MS,
 		gcTime: RETAIN_MS,
-		refetchInterval: 60_000,
-		refetchIntervalInBackground: false
-	}));
-	return {
-		get view() {
-			return query.data ?? [];
-		},
-		get status() {
-			return statusOf(query);
-		},
-		get failure() {
-			return (query.error as (Error & { status?: number }) | null) ?? null;
-		},
-		refresh: () => refresh(query)
-	};
-}
-
-export type PortfolioProjection = {
-	attentionCount: number | null;
-	nextProof: string;
-	nextProofDetail: string;
-};
-
-export type PortfolioView = {
-	companies: CompanyCatalogEntry[];
-	projections: Record<string, PortfolioProjection>;
-};
-
-async function getPortfolio(client: QueryClient): Promise<PortfolioView> {
-	const companies = await client.fetchQuery({
-		queryKey: queryKeys.companies,
-		queryFn: getCompanies,
-		staleTime: STALE_MS
-	});
-	const active = companies.filter((company) => company.lifecycle_status === 'active');
-	const entries = await Promise.all(
-		active.map(async (company): Promise<[string, PortfolioProjection]> => {
-			const attention = await client
-				.fetchQuery({
-					queryKey: queryKeys.attention(company.id),
-					queryFn: () => getAttention(company.id),
-					staleTime: STALE_MS
-				})
-				.catch(() => null);
-			const work = attention?.workGraph?.work ?? [];
-			const next =
-				work.find((item) => item.status === 'active') ??
-				work.find((item) => item.status === 'blocked') ??
-				work.find((item) => item.status === 'proposed') ??
-				null;
-			return [
-				company.id,
-				{
-					attentionCount: attention ? attention.items.length : null,
-					nextProof: next?.title ?? (attention ? 'No next item recorded' : 'Work unavailable'),
-					nextProofDetail: next
-						? next.expected_artifact || next.outcome || workState(next.status)
-						: attention
-							? 'No open Work is recorded.'
-							: 'Work projection unavailable.'
-				}
-			];
-		})
-	);
-	return { companies, projections: Object.fromEntries(entries) };
-}
-
-function workState(value: string): string {
-	return value.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-export function portfolioQuery() {
-	const client = useQueryClient();
-	const query = createQuery(() => ({
-		queryKey: queryKeys.portfolio,
-		queryFn: () => getPortfolio(client),
-		staleTime: STALE_MS,
-		gcTime: RETAIN_MS,
+		// The list carries each company's card, so it refreshes as often as the portfolio did.
 		refetchInterval: 30_000,
 		refetchIntervalInBackground: false
 	}));
 	return {
 		get view() {
-			return (query.data as PortfolioView | undefined) ?? null;
+			return query.data ?? [];
 		},
 		get status() {
 			return statusOf(query);

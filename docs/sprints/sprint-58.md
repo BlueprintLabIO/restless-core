@@ -164,12 +164,12 @@ Fleet Web's sidebar layout and the dead shadcn sidebar stack (from `244eaf8`).
 
 ## Tickets
 
-- [ ] C58-T1 — Projection v2: claims, summariser, fixture, tests. *Plane*
-- [ ] C58-T2 — Local companies endpoint carries the card. *Plane*
-- [ ] C58-T3 — `@restless/ui` 0.5.0: portfolio cards, company mark, top-bar account shell, account page. *UI*
-- [ ] C58-T4 — Core root page and `/account` single page with redirects. *Cockpit*
-- [ ] C58-T5 — Company overview; delete the settings sidebar. *Cockpit*
+- [x] C58-T1 — Projection v2: claims, summariser, fixture, tests. *Plane*
+- [x] C58-T2 — Local companies endpoint carries the card. *Plane*
+- [x] C58-T3 — `@restless/ui` 0.5.0: portfolio cards, company mark, top-bar account shell, account page. *UI*
+- [x] C58-T4 — Core root page and `/account` single page with redirects. *Cockpit*
+- [x] C58-T5 — Company overview; delete the settings sidebar. *Cockpit*
 - [ ] C58-T6 — Visual pass: desktop, phone, dark; Beautiful UI / Cult UI bar plus one source-first reference. *Cockpit*
-- [ ] C58-T7 — Fleet API: accept and store projection v2; OpenAPI and client. *Cloud*
+- [ ] C58-T7 — Fleet API: accept and store projection v2; OpenAPI and client. *Cloud* (in review: restless-cloud PR #30)
 - [ ] C58-T8 — Fleet Web: adopt 0.5.0; portfolio mapping; single Account page; Compute/Service in card menus; delete the sidebar stack. *Cloud*
 - [ ] C58-T9 — Cloud checks and `artifact:check` against the signed artifact. *Cloud*

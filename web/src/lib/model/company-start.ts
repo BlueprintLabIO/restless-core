@@ -89,7 +89,7 @@ export function accountGrantFix(
 	const name = harness === 'codex' ? 'ChatGPT / Codex' : 'Claude';
 	return {
 		label: `Use your ${name} sign-in`,
-		href: `/account/settings/connections?grant=${encodeURIComponent(companyId)}&connection=${encodeURIComponent(connection.id)}`,
+		href: `/account?grant=${encodeURIComponent(companyId)}&connection=${encodeURIComponent(connection.id)}#connections`,
 		connection
 	};
 }

@@ -7,45 +7,28 @@
 	];
 </script>
 
-<svelte:head><title>Appearance — Account settings</title></svelte:head>
-
-<main class="appearance-page">
-	<h1>Appearance</h1>
-	<div class="appearance-choices" role="radiogroup" aria-label="Appearance">
-		{#each choices as choice (choice.value)}
-			<button
-				type="button"
-				role="radio"
-				class="appearance-choice"
-				aria-checked={theme.preference === choice.value}
-				onclick={() => theme.set(choice.value)}
-			>
-				<span class="preview preview-{choice.value}" aria-hidden="true">
-					<i class="half light"><b></b><b></b><b></b></i>
-					<i class="half dark"><b></b><b></b><b></b></i>
-				</span>
-				<span class="choice-copy">
-					<strong>{choice.label}</strong>
-					<small>{choice.detail}</small>
-				</span>
-			</button>
-		{/each}
-	</div>
-</main>
+<div class="appearance-choices" role="radiogroup" aria-label="Appearance">
+	{#each choices as choice (choice.value)}
+		<button
+			type="button"
+			role="radio"
+			class="appearance-choice"
+			aria-checked={theme.preference === choice.value}
+			onclick={() => theme.set(choice.value)}
+		>
+			<span class="preview preview-{choice.value}" aria-hidden="true">
+				<i class="half light"><b></b><b></b><b></b></i>
+				<i class="half dark"><b></b><b></b><b></b></i>
+			</span>
+			<span class="choice-copy">
+				<strong>{choice.label}</strong>
+				<small>{choice.detail}</small>
+			</span>
+		</button>
+	{/each}
+</div>
 
 <style>
-	/* The same page frame and title as Connections, so moving between the two
-	 * settings pages changes only the content. */
-	.appearance-page {
-		width: min(920px, 100%);
-		padding: 34px clamp(18px, 4vw, 44px) 48px;
-		box-sizing: border-box;
-	}
-	.appearance-page h1 {
-		margin: 0 0 22px;
-		font-size: var(--t-title);
-		letter-spacing: -0.035em;
-	}
 	.appearance-choices {
 		display: grid;
 		grid-template-columns: repeat(3, minmax(0, 200px));
@@ -129,11 +112,6 @@
 	.choice-copy small {
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
-	}
-	@media (max-width: 620px) {
-		.appearance-page {
-			padding: 26px 20px 36px;
-		}
 	}
 	@media (max-width: 760px) {
 		.appearance-choices {

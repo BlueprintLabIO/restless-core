@@ -47,7 +47,7 @@
 			<strong>{name}</strong>
 			<small>{role}</small>
 		</div>
-		<a href="/account/settings">Account settings</a>
+		<a href="/account">Account</a>
 		<div class="group" role="group" aria-label="Appearance">
 			{#each ['system', 'light', 'dark'] as const as choice (choice)}
 				<button type="button" onclick={() => theme.set(choice)}

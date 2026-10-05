@@ -1,22 +1,16 @@
-import type { Component } from 'svelte';
-
-/** One entry in the account sidebar: a link, or a native form POST for signed handoffs. */
-export interface AccountNavItem {
+/** One tab in the account bar: a link, or a native form POST where entry needs a signed handoff. */
+export interface AccountTab {
 	label: string;
-	key?: string;
 	href?: string;
 	form?: { action: string; fields?: Record<string, string> };
-	icon?: Component<Record<string, unknown>>;
-	/** A status dot instead of an icon, in the portfolio's tones. */
-	mark?: 'presence' | 'waiting' | 'unavailable';
 	active?: boolean;
 	tooltip?: string;
-	badge?: string | number;
-	children?: AccountNavItem[];
 }
 
-export interface AccountNavGroup {
-	label?: string;
+/** One section of the account page. The host decides which sections exist; absent means absent. */
+export interface AccountSection {
+	id: string;
+	title: string;
+	/** The section's explanation, shown on hover rather than as a subtitle. */
 	tooltip?: string;
-	items: AccountNavItem[];
 }

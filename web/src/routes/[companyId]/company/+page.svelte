@@ -1,427 +1,293 @@
 <script lang="ts">
-	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
-	import { formatRelative, formatMoment } from '$lib/ui/time';
-	import { Page, Section, Row, Item, Notice, Empty } from '$lib/ui/page';
-	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
-	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
-	import { failureSentence } from '$lib/model/failure';
-	import { beforeNavigate } from '$app/navigation';
+	/* Company is an overview: a status line, then one row per area with its current value. Each row
+	 * opens the area's own page; a value that could not be read says so rather than guessing. */
 	import { page } from '$app/state';
-	import { tick } from 'svelte';
-	import CompanyNameField from '$lib/components/CompanyNameField.svelte';
-	import CopyCompanySetting from '$lib/components/CopyCompanySetting.svelte';
-	import { reviseCompanyCharter } from '$lib/model/company';
-	import Markdown from '$lib/primitives/Markdown.svelte';
-	import { companyQuery } from '$lib/model/queries.svelte';
-	import ArrowRight from '@lucide/svelte/icons/arrow-right';
-	import Target from '@lucide/svelte/icons/target';
+	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
+	import { Page, Section, Item } from '$lib/ui/page';
+	import { formatRelative } from '$lib/ui/time';
+	import {
+		companiesQuery,
+		companyPrincipalQuery,
+		companyQuery,
+		identityQuery
+	} from '$lib/model/queries.svelte';
+	import { intelligenceQuery } from '$lib/model/intelligence.svelte';
+	import { fetchConnections } from '$lib/model/connections';
+	import { fetchSkillLibrary, monitorSchedules } from '$lib/model/skills';
+	import { getCoreMembers } from '$lib/model/members';
+	import { companyPageHref, COMPANY_PAGES } from '$lib/model/company-pages';
+	import BookOpen from '@lucide/svelte/icons/book-open';
+	import Brain from '@lucide/svelte/icons/brain';
+	import CalendarClock from '@lucide/svelte/icons/calendar-clock';
+	import ChevronRight from '@lucide/svelte/icons/chevron-right';
+	import Fingerprint from '@lucide/svelte/icons/fingerprint';
+	import Gauge from '@lucide/svelte/icons/gauge';
+	import KeyRound from '@lucide/svelte/icons/key-round';
+	import Monitor from '@lucide/svelte/icons/monitor';
+	import Plug from '@lucide/svelte/icons/plug';
+	import Sparkles from '@lucide/svelte/icons/sparkles';
+	import Users from '@lucide/svelte/icons/users';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
+	const principal = $derived(companyPrincipalQuery(companyId).view);
+	const owner = $derived(principal?.membership_role === 'owner');
+	const catalog = companiesQuery();
+	const entry = $derived(catalog.view.find((company) => company.id === companyId));
 	const source = $derived(companyQuery(companyId));
-	$effect(() => source.attach());
-	const view = $derived(source.view);
-	const charterText = $derived(
-		view ? withoutDocumentTitle(view.charter.purpose, view.company.name) : ''
-	);
-	const LONG_CHARTER = 900;
-	let charterExpanded = $state(false);
-	let historyOpen = $state(false);
-	let historyBusy = $state(false);
-	let historyError = $state('');
-	let history = $state<
-		{ revision: string; markdown: string; saved_at: string | null; author: string }[]
-	>([]);
-	let editing = $state(false);
-	let nameVersion = $state(0);
-	let saving = $state(false);
-	let draft = $state('');
-	let openedMarkdown = $state('');
-	let baseRevision = $state('');
-	let editor = $state<HTMLTextAreaElement>();
-	let notice = $state('');
-	let failure = $state('');
-	const changed = $derived(editing && draft !== openedMarkdown);
-
-	async function toggleHistory() {
-		historyOpen = !historyOpen;
-		if (!historyOpen) return;
-		historyBusy = true;
-		historyError = '';
-		try {
-			const response = await fetch(
-				`/api/companies/${encodeURIComponent(companyId)}/company/charter`,
-				{ cache: 'no-store' }
-			);
-			if (!response.ok) throw new Error('Could not read charter history. Try again.');
-			history = (await response.json()).revisions;
-		} catch (cause) {
-			historyError = failureSentence(cause, 'Could not read charter history.');
-		} finally {
-			historyBusy = false;
-		}
-	}
-
-	beforeNavigate((navigation) => {
-		if (
-			changed &&
-			!navigation.willUnload &&
-			!window.confirm('Discard your unsaved charter changes?')
-		)
-			navigation.cancel();
-	});
-
-	function beginEditing() {
-		if (!view) return;
-		draft = view.charter.purpose;
-		openedMarkdown = view.charter.purpose;
-		baseRevision = view.charter.revision;
-		failure = '';
-		notice = '';
-		editing = true;
-		void tick().then(() => editor?.focus());
-	}
-
-	function cancelEditing() {
-		editing = false;
-		draft = '';
-		openedMarkdown = '';
-		baseRevision = '';
-		failure = '';
-	}
-
-	async function saveCharter() {
-		if (!changed || saving) return;
-		saving = true;
-		failure = '';
-		notice = '';
-		try {
-			const outcome = await reviseCompanyCharter(companyId, draft, baseRevision);
-			source.accept(outcome.company);
-			nameVersion += 1;
-			notice = outcome.message;
-			if (outcome.evidence_status === 'incomplete')
-				notice += ' Authority recorded the request but could not confirm its final evidence.';
-			cancelEditing();
-		} catch (cause) {
-			failure = failureSentence(cause, 'The charter was not saved.');
-			if ((cause as Error & { status?: number })?.status === 409) await source.refresh();
-		} finally {
-			saving = false;
-		}
-	}
-
 	$effect(() => {
-		if (!changed) return;
-		const warn = (event: BeforeUnloadEvent) => event.preventDefault();
-		window.addEventListener('beforeunload', warn);
-		return () => window.removeEventListener('beforeunload', warn);
+		if (owner) source.attach();
+	});
+	const view = $derived(owner ? source.view : null);
+	const identity = $derived(identityQuery(companyId));
+	const intelligence = $derived(intelligenceQuery(companyId, () => owner));
+
+	/* The small counts that have no shared query: read once per visit, each on its own. */
+	type Count = number | 'unavailable' | null;
+	let tools = $state<Count>(null);
+	let skills = $state<Count>(null);
+	let schedules = $state<Count>(null);
+	let secrets = $state<Count>(null);
+	let members = $state<Count>(null);
+	$effect(() => {
+		const company = companyId;
+		const read = (load: () => Promise<number>, set: (value: Count) => void) =>
+			void load().then(set, () => set('unavailable'));
+		read(
+			async () => (await getCoreMembers(company)).members.length,
+			(value) => (members = value)
+		);
+		if (!owner) return;
+		read(
+			async () =>
+				(await fetchConnections(company)).filter((row) => row.status === 'working').length,
+			(value) => (tools = value)
+		);
+		read(
+			async () =>
+				(await fetchSkillLibrary(company)).skills.filter((row) => row.disposition === 'accepted')
+					.length,
+			(value) => (skills = value)
+		);
+		read(
+			async () =>
+				(await monitorSchedules(company)).filter(
+					(row) => !row.schedule.cancelled_at && !row.schedule.paused_at
+				).length,
+			(value) => (schedules = value)
+		);
+		read(
+			async () => {
+				const response = await fetch(`/api/companies/${encodeURIComponent(company)}/vault`, {
+					cache: 'no-store'
+				});
+				if (!response.ok) throw new Error('vault');
+				const body: { references?: unknown[] } = await response.json();
+				return body.references?.length ?? 0;
+			},
+			(value) => (secrets = value)
+		);
 	});
 
-	function editorKeys(event: KeyboardEvent) {
-		if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-			event.preventDefault();
-			void saveCharter();
-		}
-		if (event.key === 'Escape' && !changed) cancelEditing();
+	const plural = (count: number, one: string, many = `${one}s`) =>
+		`${count} ${count === 1 ? one : many}`;
+	function counted(value: Count, one: string, none: string, many?: string): string {
+		if (value === null) return '…';
+		if (value === 'unavailable') return 'Unavailable right now';
+		return value ? plural(value, one, many) : none;
 	}
+	const money = (usd: number) =>
+		usd.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
 
-	function withoutDocumentTitle(markdown: string, companyName: string): string {
-		const trimmed = markdown.trim();
-		const title = `# ${companyName}`;
-		return trimmed === title
-			? ''
-			: trimmed.startsWith(`${title}\n`)
-				? trimmed.slice(title.length).trimStart()
-				: trimmed;
-	}
+	const model = $derived.by(() => {
+		if (entry?.unstartable_reason) return 'Needs a model connection';
+		const value = intelligence.view;
+		if (intelligence.error) return 'Unavailable right now';
+		if (!value) return '…';
+		const exec = value.agents.find((agent) => agent.role === 'exec') ?? value.agents[0];
+		const chosen = value.default?.model ?? exec?.effective_model;
+		return chosen ? chosen.split('/').pop()! : 'Not chosen yet';
+	});
+	const charter = $derived.by(() => {
+		if (!view) return source.failure ? 'Unavailable right now' : '…';
+		if (!view.charter.purpose.trim()) return 'Not written yet';
+		return (
+			view.charter.current_direction?.title ??
+			`Saved ${formatRelative(view.charter.effective_at, 'earlier')}`
+		);
+	});
+	const identityValue = $derived.by(() => {
+		const value = identity.view;
+		if (identity.failure) return 'Unavailable right now';
+		if (!value) return '…';
+		if (value.pending_proposals.length)
+			return `${plural(value.pending_proposals.length, 'proposal')} waiting`;
+		return value.current_release ? 'Published' : 'Not set yet';
+	});
+	const limits = $derived.by(() => {
+		if (!view) return source.failure ? 'Unavailable right now' : '…';
+		const asks = view.limits.asks_owner.map((limit) => limit.title.toLowerCase());
+		return asks.length
+			? `Asks you before ${asks.slice(0, 2).join(', ')}${asks.length > 2 ? '…' : ''}`
+			: 'Set what it may do alone';
+	});
+	const computer = $derived.by(() => {
+		if (!view) return source.failure ? 'Unavailable right now' : '…';
+		const runtime = view.limits.runtime;
+		if (runtime.asleep) return 'Asleep · wakes when work is owed';
+		return runtime.sleep_after_minutes
+			? `Running · sleeps after ${runtime.sleep_after_minutes} minutes idle`
+			: 'Running · never sleeps';
+	});
 
-	const when = (value?: Date | string) => formatRelative(value, 'Not yet');
+	/* The status line: what the owner would otherwise open four pages to learn. */
+	const health = $derived(view?.computer.doctor.status);
+	const spend = $derived(view?.limits.spend);
+	const working = $derived(entry?.card?.people_working);
+	const href = (key: string) => {
+		const target = COMPANY_PAGES.find((candidate) => candidate.key === key);
+		return target ? companyPageHref(companyId, target) : `/${companyId}/company`;
+	};
+
+	const rows = $derived(
+		[
+			{ key: 'charter', label: 'Charter', value: charter, icon: BookOpen },
+			{ key: 'identity', label: 'Identity', value: identityValue, icon: Fingerprint },
+			{ key: 'provider', label: 'Intelligence', value: model, icon: Brain },
+			{
+				key: 'connections',
+				label: 'Connections',
+				value: counted(tools, 'tool connected', 'No tools connected', 'tools connected'),
+				icon: Plug
+			},
+			{
+				key: 'skills',
+				label: 'Skills',
+				value: counted(skills, 'skill', 'No skills yet'),
+				icon: Sparkles
+			},
+			{
+				key: 'vault',
+				label: 'Vault',
+				value: counted(secrets, 'secret', 'No secrets stored'),
+				icon: KeyRound
+			},
+			{
+				key: 'schedules',
+				label: 'Schedules',
+				value: counted(schedules, 'active schedule', 'Nothing scheduled'),
+				icon: CalendarClock
+			},
+			{ key: 'limits', label: 'Limits', value: limits, icon: Gauge },
+			{
+				key: 'members',
+				label: 'Members',
+				value: counted(members, 'person', 'Only you', 'people'),
+				icon: Users
+			},
+			{ key: 'computer', label: 'Computer', value: computer, icon: Monitor }
+		].filter((row) => owner || row.key === 'members')
+	);
 </script>
 
-<CompanyTitle title="General" {companyId} />
+<CompanyTitle title="Company" {companyId} />
 
 <Page
-	title="General"
-	info="Who the company is and why it exists. The charter is its purpose and operating rules, not its legal constitution or its current plan."
+	title={entry?.name ?? 'Company'}
+	info="How this company is set up. Each row shows its current value and opens its own page."
 >
-	{#if view}
-		{#if source.status === 'stale'}<Notice
-				tone="warning"
-				title="Showing the last saved charter"
-				details={source.failure ? failureSentence(source.failure, '') : null}
+	{#if owner}
+		<nav class="company-status" aria-label="Company status">
+			<a
+				href={href('health')}
+				class:alert={health && health !== 'healthy'}
+				title="Checks on the company computer, model and tools"
+				><i aria-hidden="true" class="dot {health ?? 'unknown'}"></i>{health === 'healthy'
+					? 'Healthy'
+					: health
+						? 'Needs attention'
+						: 'Checking…'}</a
 			>
-				{#snippet actions()}<button class="btn small" onclick={() => source.refresh()}>Retry</button
-					>{/snippet}
-			</Notice>{/if}
-		{#if failure}<Notice tone="danger" title="The charter was not saved" details={failure} />{/if}
-		{#if notice}<Notice tone="success" title="Charter saved">{notice}</Notice>{/if}
-
-		<Section title="Company">
-			<Row label="Name">
-				{#key `${companyId}:${nameVersion}`}<CompanyNameField {companyId} />{/key}
-				<CopyCompanySetting
-					{companyId}
-					setting="name"
-					label="Company name"
-					oncopied={async () => {
-						nameVersion += 1;
-						await source.refresh();
-					}}
-				/>
-			</Row>
-		</Section>
-
-		<Section
-			title="Charter"
-			info="The owner-authorised purpose and rules every agent works under. Each save is a new revision."
-			group={false}
-		>
-			{#snippet actions()}
-				{#if editing}
-					<span class="edit-state" class:changed>{changed ? 'Unsaved changes' : 'Editing'}</span>
-					<button class="btn small" type="button" disabled={saving} onclick={cancelEditing}
-						>Cancel</button
-					>
-					<button
-						class="btn primary small"
-						type="button"
-						disabled={!changed || saving}
-						title="Save (⌘/Ctrl + Enter)"
-						onclick={saveCharter}>{saving ? 'Saving…' : 'Save'}</button
-					>
-				{:else}
-					<button
-						type="button"
-						class="text-link"
-						onclick={toggleHistory}
-						aria-expanded={historyOpen}
-						title={`Owner authorised ${formatMoment(view.charter.effective_at)} · revision ${view.charter.revision}`}
-						>Saved {when(view.charter.effective_at)}</button
-					>
-					<button class="btn small" type="button" onclick={beginEditing}>Edit</button>
-					<CopyCompanySetting
-						{companyId}
-						setting="purpose"
-						label="Purpose"
-						oncopied={() => source.refresh()}
-					/>
-				{/if}
-			{/snippet}
-			<div class="charter-card">
-				{#if editing}
-					<textarea
-						class="charter-editor"
-						bind:this={editor}
-						bind:value={draft}
-						aria-label="Company charter in Markdown"
-						title="Markdown: # for headings, - for lists, a blank line between paragraphs."
-						spellcheck="true"
-						onkeydown={editorKeys}></textarea>
-				{:else if charterText}
-					<div
-						class="charter-text"
-						class:collapsed={!charterExpanded && charterText.length > LONG_CHARTER}
-					>
-						<Markdown text={charterText} />
-					</div>
-					{#if charterText.length > LONG_CHARTER}<button
-							class="text-link expand"
-							onclick={() => (charterExpanded = !charterExpanded)}
-							>{charterExpanded ? 'Show less' : 'Show the full charter'}</button
-						>{/if}
-				{:else}
-					<Empty
-						compact
-						title="No charter yet"
-						info="Write the company's purpose, or agree it with Exec and save it here."
-					>
-						{#snippet action()}<button class="btn primary small" onclick={beginEditing}
-								>Write charter</button
-							>{/snippet}
-					</Empty>
-				{/if}
-			</div>
-		</Section>
-
-		{#if historyOpen}
-			<Section title="Charter history" count={history.length || null}>
-				{#if historyBusy}<Empty compact title="Loading revisions…" />
-				{:else if historyError}<Notice tone="danger" title="Could not read charter history"
-						>{historyError}
-						{#snippet actions()}<button
-								class="btn small"
-								onclick={() => {
-									historyOpen = false;
-									void toggleHistory();
-								}}>Retry</button
-							>{/snippet}</Notice
-					>
-				{:else}
-					{#each history as revision, index (`${revision.revision}:${index}`)}
-						<details class="revision">
-							<summary>
-								<span
-									>{revision.revision === view.charter.revision ? 'Current' : 'Earlier'} · {revision.author}</span
-								>
-								<time title={revision.saved_at ? formatMoment(revision.saved_at) : undefined}
-									>{revision.saved_at ? when(revision.saved_at) : ''}</time
-								>
-							</summary>
-							<div class="revision-text"><Markdown text={revision.markdown} /></div>
-						</details>
-					{/each}
-				{/if}
-			</Section>
-		{/if}
-
-		<Section
-			title="Current direction"
-			info="What the company is working toward now. It changes as work moves; the charter does not."
-		>
-			{#if view.charter.current_direction}
-				<Item
-					title={view.charter.current_direction.title}
-					meta={view.charter.current_direction.body}
-					href={view.charter.current_direction.href}
-				>
-					{#snippet leading()}<Target size={15} strokeWidth={1.8} />{/snippet}
-					{#snippet trailing()}<ArrowRight
-							size={14}
-							strokeWidth={1.8}
-							aria-hidden="true"
-						/>{/snippet}
-				</Item>
-			{:else if view.charter.current_direction_status !== 'available'}
-				<Empty compact title="Current direction is unavailable right now" />
-			{:else}
-				<Empty compact title="No open company goal" />
-			{/if}
-		</Section>
-
-		<Section
-			title="Legal profile"
-			info="Legal details approved for use in company output. Supporting evidence stays private."
-		>
-			{#if view.sources.authority.status !== 'available'}
-				<Empty compact title="Legal details are unavailable right now" />
-			{:else if view.charter.legal_identity}
-				<Row label="Legal name">{view.charter.legal_identity.legal_name}</Row>
-				{#if view.charter.legal_identity.trading_name}<Row label="Trading as"
-						>{view.charter.legal_identity.trading_name}</Row
-					>{/if}
-				<Row label="Form">{view.charter.legal_identity.entity_type}</Row>
-				<Row label="Jurisdiction">{view.charter.legal_identity.jurisdiction}</Row>
-			{:else}
-				<Empty compact title="No legal details yet" />
-			{/if}
-		</Section>
-	{:else if source.failure}
-		<FailureNotice
-			error={source.failure}
-			subject="the charter"
-			variant="block"
-			onretry={source.refresh}
-		/>
-	{:else}
-		<Skeleton label="Reading the charter…" variant="page" count={4} />
+			<a href={href('limits')} title="Model spend this month against the company's ceiling"
+				>{spend
+					? spend.status === 'metering_unknown'
+						? 'Spend not metered'
+						: `${money(spend.accounted_usd)} of ${money(spend.ceiling_usd)} this month`
+					: 'Spend …'}</a
+			>
+			<a href={`/${companyId}/people`} title="People working for this company right now"
+				>{working == null
+					? 'People …'
+					: working
+						? `${plural(working, 'person', 'people')} working`
+						: 'Nobody working now'}</a
+			>
+			<a href={href('activity')} title="Decisions, receipts and external actions">Activity</a>
+		</nav>
 	{/if}
+
+	<Section title="Setup" group>
+		{#each rows as row (row.key)}
+			{@const Icon = row.icon}
+			<Item title={row.label} href={href(row.key)}>
+				{#snippet leading()}<Icon size={15} strokeWidth={1.8} aria-hidden="true" />{/snippet}
+				{#snippet trailing()}<span class="row-value" title={row.value}>{row.value}</span
+					><ChevronRight size={14} strokeWidth={1.8} aria-hidden="true" />{/snippet}
+			</Item>
+		{/each}
+	</Section>
 </Page>
 
 <style>
-	.charter-card {
-		padding: 18px 20px;
-		border: 1px solid var(--border-strong);
-		border-radius: var(--radius-lg);
-		background: var(--surface-raised);
-		box-shadow: var(--shadow-soft);
-	}
-	.charter-text {
-		color: var(--ink);
-		font-size: var(--t-body);
-		line-height: 1.65;
-	}
-	.charter-text :global(.md > :first-child) {
-		margin-top: 0;
-	}
-	.charter-text :global(.md > :last-child) {
-		margin-bottom: 0;
-	}
-	.charter-text.collapsed {
-		max-height: 15rem;
+	/* The current value sits beside the chevron, so it survives on phones where row meta hides. */
+	.row-value {
+		max-width: min(46ch, 44vw);
 		overflow: hidden;
-		mask-image: linear-gradient(#000 75%, transparent);
-	}
-	.charter-editor {
-		width: 100%;
-		min-height: 360px;
-		border: 0;
-		padding: 0;
-		background: transparent;
-		font: var(--t-body) / 1.65 var(--font-mono);
-		resize: vertical;
-		box-shadow: none;
-	}
-	.charter-editor:focus-visible {
-		outline: none;
-	}
-	.charter-card:has(.charter-editor:focus-visible) {
-		border-color: color-mix(in srgb, var(--intent-conversation) 55%, var(--border));
-	}
-	.edit-state {
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	.edit-state.changed {
-		color: var(--intent-authority);
-	}
-	.text-link {
-		padding: 4px 6px;
-		border: 0;
-		border-radius: var(--radius-control);
-		background: transparent;
-		color: var(--text-tertiary);
-		font: inherit;
-		font-size: var(--t-label);
-		cursor: pointer;
-	}
-	.text-link:hover {
-		background: var(--surface-alt);
-		color: var(--ink);
-	}
-	.expand {
-		margin: 10px 0 0 -6px;
-		font-size: var(--t-body);
 		color: var(--text-secondary);
+		font-size: var(--t-body);
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
-	.revision summary {
+	.company-status {
 		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+		margin-bottom: 4px;
+	}
+	.company-status a {
+		display: inline-flex;
 		align-items: center;
-		gap: var(--space-3);
-		min-height: 44px;
-		padding: 0 16px;
-		color: var(--ink);
-		font-size: var(--t-body);
-		cursor: pointer;
-		list-style: none;
-	}
-	.revision summary::-webkit-details-marker {
-		display: none;
-	}
-	.revision summary::before {
-		content: none !important;
-	}
-	.revision summary:hover {
-		background: var(--surface-hover);
-	}
-	.revision time {
-		margin-left: auto;
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-	}
-	.revision-text {
-		padding: 4px 16px 16px;
+		gap: 7px;
+		min-height: 30px;
+		padding: 0 12px;
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		background: var(--surface-raised);
 		color: var(--text-secondary);
-		font-size: var(--t-body);
-		line-height: 1.6;
+		font-size: var(--t-label);
+		text-decoration: none;
+		transition:
+			border-color var(--motion-state) var(--ease-standard),
+			color var(--motion-state) var(--ease-standard);
+	}
+	.company-status a:hover {
+		border-color: var(--border-strong);
+		color: var(--ink);
+	}
+	.company-status a.alert {
+		border-color: color-mix(in srgb, var(--state-danger) 40%, var(--border));
+		color: var(--ink);
+	}
+	.dot {
+		width: 7px;
+		height: 7px;
+		border-radius: 50%;
+		background: var(--text-tertiary);
+	}
+	.dot.healthy {
+		background: var(--state-success, var(--intent-presence));
+	}
+	.dot.degraded,
+	.dot.unavailable {
+		background: var(--state-danger);
 	}
 </style>

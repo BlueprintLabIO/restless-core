@@ -1,6 +1,5 @@
-/* The Company area's pages, in navigation order. The settings navigation and
- * the command menu both read this list, so a page cannot be reachable from one
- * and missing from the other. */
+/* The Company area's pages. The overview and the command menu both read this
+ * list, so a page cannot be reachable from one and missing from the other. */
 export type CompanyPage = {
 	key: string;
 	group: 'Company' | 'Capabilities' | 'Operations' | 'Records';
@@ -13,12 +12,19 @@ export type CompanyPage = {
 
 export const COMPANY_PAGES: CompanyPage[] = [
 	{
-		key: 'general',
+		key: 'overview',
 		group: 'Company',
-		label: 'General',
+		label: 'Overview',
 		path: '',
 		exact: true,
-		keywords: 'charter mission name quality legal profile direction'
+		keywords: 'settings setup status'
+	},
+	{
+		key: 'charter',
+		group: 'Company',
+		label: 'Charter',
+		path: '/charter',
+		keywords: 'mission name purpose quality legal profile direction'
 	},
 	{
 		key: 'identity',

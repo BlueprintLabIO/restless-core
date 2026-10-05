@@ -1,34 +1,29 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import MatrixGlyph, { GLYPHS } from '../glyph/MatrixGlyph.svelte';
+	import Wordmark from '../glyph/Wordmark.svelte';
 	import { dismissable } from '../controls/dismissable';
-	import type { AccountNavGroup, AccountNavItem } from '../account';
+	import type { AccountTab } from '../account';
 
-	/* The account area outside any one company: a left sidebar that carries navigation, the owner's
-	 * identity at its foot, and one raised pane for the page. Below 760px the sidebar becomes a
-	 * drawer behind a compact bar, so the page keeps the whole width. Consumers supply the groups;
-	 * an item is a link, or a native form POST where entry needs a signed handoff. */
+	/* The frame for every page outside one company: the same top bar the company app wears
+	 * (wordmark, a few tabs, the owner's menu) and the page beneath it at full width. There is
+	 * no sidebar; the account area is small enough that tabs and one Account page cover it. */
 	let {
 		brandName = 'Restless',
 		homeHref = '/',
-		nav = [],
-		primary = null,
+		tabs = [],
 		account = null,
 		accountMenu = null,
 		children
 	}: {
 		brandName?: string;
 		homeHref?: string;
-		nav?: AccountNavGroup[];
-		/** The one creating action, at the top of the sidebar (e.g. New company). */
-		primary?: Snippet | null;
+		tabs?: AccountTab[];
 		account?: { name: string; detail?: string } | null;
-		/** Menu items shown above the account button when it is opened. */
+		/** Items in the owner's menu, below their name. */
 		accountMenu?: Snippet | null;
 		children: Snippet;
 	} = $props();
 
-	let drawerOpen = $state(false);
 	const initials = $derived(
 		(account?.name || '?')
 			.split(/\s+/)
@@ -39,369 +34,193 @@
 	);
 </script>
 
-<svelte:window onkeydown={(event) => event.key === 'Escape' && (drawerOpen = false)} />
-
-{#snippet itemBody(item: AccountNavItem)}
-	{#if item.mark}<span class="account-nav-dot" data-tone={item.mark} aria-hidden="true"
-		></span>{:else if item.icon}{@const Icon = item.icon}<Icon
-			size={15}
-			strokeWidth={1.8}
-			aria-hidden="true"
-		/>{/if}
-	<span class="account-nav-label">{item.label}</span>
-	{#if item.badge != null}<span class="account-nav-badge">{item.badge}</span>{/if}
-{/snippet}
-
-{#snippet navItem(item: AccountNavItem, sub: boolean)}
-	{#if item.form}
-		<form method="POST" action={item.form.action}>
-			{#each Object.entries(item.form.fields ?? {}) as [name, value]}<input
-					type="hidden"
-					{name}
-					{value}
-				/>{/each}
-			<button class="account-nav-item" class:sub title={item.tooltip}
-				>{@render itemBody(item)}</button
-			>
-		</form>
-	{:else}
-		<a
-			class="account-nav-item"
-			class:sub
-			href={item.href}
-			title={item.tooltip}
-			aria-current={item.active ? 'page' : undefined}
-			onclick={() => (drawerOpen = false)}>{@render itemBody(item)}</a
-		>
-	{/if}
-{/snippet}
-
-<div class="bridge-tokens bridge-root portfolio-root account-shell" class:drawer-open={drawerOpen}>
+<div class="bridge-tokens account-shell">
 	<header class="account-bar">
-		<button
-			class="account-bar-toggle"
-			type="button"
-			aria-label="Open navigation"
-			aria-expanded={drawerOpen}
-			onclick={() => (drawerOpen = true)}
-			><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"
-				><path d="M2.5 4h11M2.5 8h11M2.5 12h11" stroke="currentColor" stroke-width="1.5" /></svg
-			></button
-		>
-		<a class="account-brand" href={homeHref} aria-label={brandName + ' companies'}>
-			<span class="account-mark"><MatrixGlyph rows={GLYPHS.r} size={12} glow /></span>
-			<span class="account-name">{brandName}</span>
+		<a class="account-brand" href={homeHref} aria-label={brandName + ': your companies'}>
+			<Wordmark name={brandName} size={16} />
 		</a>
-	</header>
-
-	<button
-		class="account-scrim"
-		type="button"
-		tabindex="-1"
-		aria-label="Close navigation"
-		onclick={() => (drawerOpen = false)}
-	></button>
-
-	<aside class="account-sidebar" aria-label="Account navigation">
-		<a class="account-brand" href={homeHref} aria-label={brandName + ' companies'}>
-			<span class="account-mark"><MatrixGlyph rows={GLYPHS.r} size={12} glow /></span>
-			<span class="account-name">{brandName}</span>
-		</a>
-		{#if primary}<div class="account-primary">{@render primary()}</div>{/if}
-
-		<nav class="account-nav">
-			{#each nav as group, index (group.label ?? index)}
-				<section class="account-nav-group">
-					{#if group.label}<h2 title={group.tooltip}>{group.label}</h2>{/if}
-					<ul>
-						{#each group.items as item (item.key ?? item.href ?? item.label)}
-							<li class:active={item.active}>
-								{@render navItem(item, false)}
-								{#if item.children?.length}
-									<ul class="account-nav-sub">
-										{#each item.children as child (child.key ?? child.href ?? child.label)}
-											<li class:active={child.active}>{@render navItem(child, true)}</li>
-										{/each}
-									</ul>
-								{/if}
-							</li>
-						{/each}
-					</ul>
-				</section>
-			{/each}
-		</nav>
-
-		{#if account}
-			<div class="account-foot">
-				{#if accountMenu}
-					<details class="account-menu" use:dismissable>
-						<summary class="account-button" title={account.detail}>
-							<span class="account-avatar" aria-hidden="true">{initials}</span>
-							<span class="account-copy"
-								><strong>{account.name}</strong>{#if account.detail}<small>{account.detail}</small
-									>{/if}</span
+		{#if tabs.length}
+			<nav class="account-tabs" aria-label="Account navigation">
+				{#each tabs as tab (tab.href ?? tab.label)}
+					{#if tab.form}
+						<form method="POST" action={tab.form.action}>
+							{#each Object.entries(tab.form.fields ?? {}) as [name, value]}<input
+									type="hidden"
+									{name}
+									{value}
+								/>{/each}
+							<button class="account-tab" class:active={tab.active} title={tab.tooltip}
+								>{tab.label}</button
 							>
-						</summary>
-						<div class="account-menu-panel">{@render accountMenu()}</div>
-					</details>
-				{:else}
-					<div class="account-button static" title={account.detail}>
-						<span class="account-avatar" aria-hidden="true">{initials}</span>
-						<span class="account-copy"
-							><strong>{account.name}</strong>{#if account.detail}<small>{account.detail}</small
-								>{/if}</span
+						</form>
+					{:else}
+						<a
+							class="account-tab"
+							class:active={tab.active}
+							href={tab.href}
+							title={tab.tooltip}
+							aria-current={tab.active ? 'page' : undefined}>{tab.label}</a
 						>
-					</div>
-				{/if}
-			</div>
+					{/if}
+				{/each}
+			</nav>
 		{/if}
-	</aside>
-
-	<div class="account-content">{@render children()}</div>
+		{#if account}
+			<details class="account-menu" use:dismissable>
+				<summary class="account-avatar" title={account.name} aria-label="Your account">
+					{initials}
+				</summary>
+				<div class="account-menu-panel" role="menu">
+					<div class="account-menu-who">
+						<strong>{account.name}</strong>
+						{#if account.detail}<small>{account.detail}</small>{/if}
+					</div>
+					{#if accountMenu}<div class="account-menu-items">{@render accountMenu()}</div>{/if}
+				</div>
+			</details>
+		{/if}
+	</header>
+	<div class="account-page">{@render children()}</div>
 </div>
 
 <style>
 	.account-shell {
-		--account-sidebar-w: 236px;
-		display: grid;
-		grid-template-columns: var(--account-sidebar-w) minmax(0, 1fr);
-		grid-template-rows: minmax(0, 1fr);
-		height: 100vh;
-		height: 100dvh;
-		padding: max(var(--app-gutter, 8px), env(safe-area-inset-top))
-			max(var(--app-gutter, 8px), env(safe-area-inset-right)) var(--app-gutter, 8px) 0;
-		box-sizing: border-box;
-		isolation: isolate;
+		min-height: 100vh;
+		min-height: 100dvh;
+		background: var(--bg-app);
+		color: var(--ink);
 	}
-	.account-bar,
-	.account-scrim {
-		display: none;
-	}
-
-	.account-sidebar {
+	.account-bar {
 		position: sticky;
-		top: var(--app-gutter, 8px);
+		top: 0;
+		z-index: var(--z-sticky, 20);
 		display: flex;
-		flex-direction: column;
-		gap: 14px;
-		height: calc(100vh - 2 * var(--app-gutter, 8px));
-		min-height: 0;
-		padding: 6px 10px 4px max(10px, env(safe-area-inset-left));
-		box-sizing: border-box;
+		align-items: center;
+		gap: 20px;
+		height: var(--topbar-h, 52px);
+		padding: 0 max(14px, env(safe-area-inset-right)) 0 max(14px, env(safe-area-inset-left));
+		border-bottom: 1px solid var(--border);
+		background: var(--glass);
+		backdrop-filter: blur(18px) saturate(1.4);
+		-webkit-backdrop-filter: blur(18px) saturate(1.4);
 	}
 	.account-brand {
 		display: inline-flex;
 		align-items: center;
-		gap: 9px;
-		min-height: 32px;
-		padding: 0 8px;
 		color: inherit;
 		text-decoration: none;
 	}
-	.account-mark {
-		color: var(--intent-direction);
-	}
-	.account-name {
-		font: 400 var(--t-head) var(--font-mark);
-		letter-spacing: 0.02em;
-	}
-	.account-primary {
-		display: grid;
-	}
-
-	.account-nav {
-		display: grid;
-		align-content: start;
-		gap: 18px;
-		flex: 1;
-		min-width: 0;
-		min-height: 0;
-		overflow: hidden auto;
-		scrollbar-width: thin;
-	}
-	.account-nav-group h2 {
-		margin: 0 0 4px;
-		padding: 0 8px;
-		color: var(--text-tertiary);
-		font: 500 var(--t-label) / 1.4 var(--font-ui);
-	}
-	.account-nav ul {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr);
-		gap: 1px;
-		margin: 0;
-		padding: 0;
-		list-style: none;
-	}
-	.account-nav form {
-		display: contents;
-	}
-	.account-nav-item {
+	.account-tabs {
 		display: flex;
 		align-items: center;
-		gap: 9px;
-		width: 100%;
-		min-height: 30px;
-		padding: 0 8px;
+		gap: 2px;
+		margin-right: auto;
+	}
+	.account-tabs form {
+		display: contents;
+	}
+	.account-tab {
+		padding: 6px 10px;
 		border: 0;
 		border-radius: var(--radius-control);
 		background: transparent;
 		color: var(--text-secondary);
-		font: 450 var(--t-body) / 1.2 var(--font-ui);
-		text-align: left;
+		font: inherit;
+		font-size: var(--t-body);
 		text-decoration: none;
 		cursor: pointer;
-		box-sizing: border-box;
-		transition:
-			background-color var(--motion-state) var(--ease-standard),
-			color var(--motion-state) var(--ease-standard);
+		transition: background var(--motion-state) var(--ease-standard);
 	}
-	.account-nav-item :global(svg) {
-		flex: none;
-		color: var(--text-tertiary);
-	}
-	.account-nav-item:hover {
-		background: var(--wash-hover, var(--surface-hover));
+	.account-tab:hover {
+		background: var(--wash-hover, var(--surface-alt));
 		color: var(--ink);
 	}
-	.active > .account-nav-item,
-	.active > form > .account-nav-item {
+	.account-tab.active {
 		background: var(--surface-raised);
+		box-shadow: 0 0 0 1px var(--border);
 		color: var(--ink);
-		box-shadow:
-			0 0 0 1px var(--border),
-			0 1px 2px rgba(41, 50, 68, 0.06);
+		font-weight: 500;
 	}
-	.active > .account-nav-item :global(svg) {
-		color: var(--ink);
-	}
-	.account-nav-item:focus-visible {
+	.account-tab:focus-visible,
+	.account-avatar:focus-visible {
 		outline: 2px solid var(--intent-conversation);
-		outline-offset: 1px;
-	}
-	.account-nav-label {
-		flex: 1;
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.account-nav-badge {
-		color: var(--text-tertiary);
-		font: 500 var(--t-label) var(--font-mono);
-	}
-	.account-nav-sub {
-		margin: 1px 0 4px 15px !important;
-		padding-left: 9px !important;
-		border-left: 1px solid var(--border);
-	}
-	.account-nav-item.sub {
-		min-height: 27px;
-		font-size: var(--t-label);
-	}
-	.account-nav-dot {
-		width: 7px;
-		height: 7px;
-		flex: none;
-		margin: 0 4px;
-		border-radius: 50%;
-		background: var(--intent-authority);
-	}
-	.account-nav-dot[data-tone='presence'] {
-		background: var(--state-success);
-	}
-	.account-nav-dot[data-tone='unavailable'] {
-		background: var(--state-danger);
-	}
-
-	.account-foot {
-		padding-top: 8px;
-		border-top: 1px solid var(--border);
+		outline-offset: 2px;
 	}
 	.account-menu {
 		position: relative;
+		margin-left: auto;
 	}
-	.account-button {
-		display: flex;
-		align-items: center;
-		gap: 9px;
-		min-width: 0;
-		padding: 6px 8px;
-		border-radius: var(--radius-control);
-		list-style: none;
-		cursor: pointer;
-		transition: background-color var(--motion-state) var(--ease-standard);
-	}
-	.account-button.static {
-		cursor: default;
-	}
-	summary.account-button::-webkit-details-marker {
-		display: none;
-	}
-	summary.account-button::before {
-		content: none !important;
-	}
-	summary.account-button:hover,
-	.account-menu[open] > summary.account-button {
-		background: var(--wash-hover, var(--surface-hover));
+	.account-tabs + .account-menu {
+		margin-left: 0;
 	}
 	.account-avatar {
-		width: 26px;
-		height: 26px;
 		display: grid;
-		flex: none;
 		place-items: center;
+		width: 30px;
+		height: 30px;
 		border-radius: 50%;
 		background: var(--ink);
-		color: var(--text-inverse);
-		font: 600 var(--t-label)/1 var(--font-mono);
-	}
-	.account-copy {
-		display: grid;
-		min-width: 0;
-		line-height: 1.25;
-	}
-	.account-copy strong,
-	.account-copy small {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.account-copy strong {
-		font-size: var(--t-body);
-		font-weight: 550;
-	}
-	.account-copy small {
-		color: var(--text-tertiary);
+		color: var(--surface-raised);
 		font-size: var(--t-label);
+		font-weight: 600;
+		list-style: none;
+		cursor: pointer;
+	}
+	.account-avatar {
+		position: relative;
+		min-width: 0;
+		min-height: 0;
+		aspect-ratio: 1;
+	}
+	/* A 30px circle, but a 44px target for a thumb. */
+	.account-avatar::after {
+		content: '';
+		position: absolute;
+		inset: -7px;
+	}
+	.account-avatar::-webkit-details-marker,
+	.account-avatar::marker {
+		display: none;
+		content: none;
+	}
+	.account-avatar::before {
+		display: none;
 	}
 	.account-menu-panel {
 		position: absolute;
-		bottom: calc(100% + 6px);
-		left: 0;
+		top: calc(100% + 8px);
 		right: 0;
-		z-index: 40;
-		display: grid;
-		gap: 1px;
-		padding: 5px;
-		border: 1px solid var(--border-strong);
-		border-radius: 8px;
+		min-width: 240px;
+		padding: 6px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-lg);
 		background: var(--surface-raised);
-		box-shadow: 0 8px 28px #18243a18;
-		transform-origin: bottom left;
-		animation: account-menu-in var(--motion-disclosure, 320ms) var(--ease-spring, ease) both;
+		box-shadow: var(--shadow-float);
+		animation: bridge-popover-in var(--motion-disclosure, 160ms) var(--ease-spring, ease-out) both;
 	}
 	.account-menu:global([data-closing]) .account-menu-panel {
-		animation: account-menu-out var(--motion-state, 180ms) var(--ease-standard, ease) both;
-		pointer-events: none;
+		animation: bridge-popover-out var(--motion-state, 120ms) var(--ease-standard, ease-in) both;
 	}
-	.account-menu-panel :global(:is(a, button)) {
+	.account-menu-who {
+		display: grid;
+		gap: 2px;
+		padding: 8px 10px 10px;
+		border-bottom: 1px solid var(--border);
+	}
+	.account-menu-who small {
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+	.account-menu-items {
+		display: grid;
+		padding-top: 6px;
+	}
+	.account-menu-items :global(:is(a, button)) {
 		display: flex;
 		align-items: center;
-		gap: 9px;
+		gap: 8px;
 		width: 100%;
-		min-height: 30px;
-		padding: 0 8px;
+		padding: 7px 10px;
 		border: 0;
 		border-radius: var(--radius-control);
 		background: transparent;
@@ -412,114 +231,38 @@
 		text-decoration: none;
 		cursor: pointer;
 	}
-	.account-menu-panel :global(:is(a, button):hover) {
-		background: var(--wash-hover, var(--surface-hover));
+	.account-menu-items :global(:is(a, button):hover) {
+		background: var(--wash-hover, var(--surface-alt));
 	}
-	.account-menu-panel :global(form) {
-		display: contents;
+	.account-page {
+		min-width: 0;
 	}
-	.account-menu-panel :global(hr) {
-		width: 100%;
-		margin: 4px 0;
-		border: 0;
-		border-top: 1px solid var(--border);
-	}
-	@keyframes account-menu-in {
-		from {
-			opacity: 0;
-			transform: translateY(4px) scale(0.985);
-		}
-	}
-	@keyframes account-menu-out {
-		to {
-			opacity: 0;
-			transform: translateY(3px) scale(0.985);
-		}
-	}
-
-	.account-content {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr);
-		grid-template-rows: minmax(0, 1fr);
+	/* Phones give every control a 44px reach (primitives.css); keep that reach as an invisible hit
+	 * area and the bar's proportions as drawn. */
+	.account-bar .account-tab,
+	.account-menu > .account-avatar {
 		min-width: 0;
 		min-height: 0;
-		overflow: auto;
-		background: color-mix(in srgb, var(--highlight) 70%, transparent);
-		border: 1px solid rgba(57, 66, 84, 0.14);
-		border-radius: var(--radius-pane);
-		box-shadow: var(--shadow-soft);
 	}
-
-	@media (max-width: 760px) {
-		.account-shell {
-			--app-gutter: 4px;
-			grid-template-columns: minmax(0, 1fr);
-			grid-template-rows: auto minmax(0, 1fr);
-			gap: 4px;
-			padding-left: max(var(--app-gutter), env(safe-area-inset-left));
-		}
+	.account-menu > .account-avatar {
+		width: 30px;
+		height: 30px;
+		padding: 0;
+	}
+	.account-tab {
+		position: relative;
+	}
+	.account-tab::after {
+		content: '';
+		position: absolute;
+		inset: -8px 0;
+	}
+	@media (max-width: 520px) {
 		.account-bar {
-			display: flex;
-			align-items: center;
-			gap: 4px;
-			min-height: 44px;
-			padding: 0 4px;
+			gap: 10px;
 		}
-		.account-bar-toggle {
-			display: grid;
-			width: 36px;
-			height: 36px;
-			place-items: center;
-			border: 0;
-			border-radius: var(--radius-control);
-			background: transparent;
-			color: var(--ink);
-			cursor: pointer;
-		}
-		.account-bar .account-brand {
-			padding-left: 2px;
-		}
-		.account-sidebar {
-			position: fixed;
-			inset: 0 auto 0 0;
-			z-index: 60;
-			width: min(280px, 86vw);
-			height: 100%;
-			padding: max(12px, env(safe-area-inset-top)) 10px max(10px, env(safe-area-inset-bottom))
-				max(10px, env(safe-area-inset-left));
-			background: var(--surface-raised);
-			border-right: 1px solid var(--border);
-			box-shadow: var(--shadow-float, 0 18px 48px #18243a29);
-			transform: translateX(-104%);
-			transition: transform var(--motion-disclosure, 320ms) var(--ease-spring, ease);
-		}
-		.drawer-open .account-sidebar {
-			transform: none;
-		}
-		.account-scrim {
-			display: block;
-			position: fixed;
-			inset: 0;
-			z-index: 59;
-			border: 0;
-			background: rgba(24, 36, 58, 0.22);
-			opacity: 0;
-			pointer-events: none;
-			transition: opacity var(--motion-state, 180ms) var(--ease-standard, ease);
-		}
-		.drawer-open .account-scrim {
-			opacity: 1;
-			pointer-events: auto;
-		}
-		.account-nav-item {
-			min-height: 38px;
-		}
-	}
-	@media (prefers-reduced-motion: reduce) {
-		.account-sidebar,
-		.account-menu-panel {
-			transition: none;
-			animation: none;
+		.account-brand :global(.wm-name) {
+			display: none;
 		}
 	}
 </style>

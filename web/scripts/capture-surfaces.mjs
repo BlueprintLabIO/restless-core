@@ -42,8 +42,7 @@ const routes = [
 	['company-doctor', `/${company}/company/doctor`],
 	['company-computer', `/${company}/company/computer`],
 	['company-authority', `/${company}/company/authority`],
-	['account', '/account/settings'],
-	['connections', '/account/settings/connections'],
+	['account', '/account'],
 	['not-found', `/${company}/no-such-surface`]
 ].filter(([name]) => !only || only.includes(name));
 

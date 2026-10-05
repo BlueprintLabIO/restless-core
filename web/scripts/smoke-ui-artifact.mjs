@@ -57,12 +57,12 @@ try {
 		`<script>
 	import { Wordmark, WorkBoard, OutcomeFolio, HoldApprove, SemanticMark, AccountShell, CompanyPortfolio, STUDIO_BOARD, STUDIO_FOLIO } from '@restless/ui';
 const companies = [
-	{ id: 'local-ready', name: 'Local Company', status: 'running', tone: 'presence', focus: 'A real company focus', next: 'Review a prepared result', attentionCount: 0, entry: { href: '/local-ready' } },
-	{ id: 'cloud-ready', name: 'Hosted Company', status: 'Ready', tone: 'presence', attentionCount: null, entry: { formAction: '?/enterCockpit', fields: { organization_id: 'cloud-ready' } } },
-	{ id: 'pending-company', name: 'Pending Company', status: 'Setting up', next: 'Preparing its private workspace', attentionCount: null }
+	{ id: 'local-ready', name: 'Local Company', status: 'Running', tone: 'presence', card: { decisionsWaiting: 2, peopleWorking: 3, outcomesLastDay: 0, execReady: true }, entry: { href: '/local-ready' } },
+	{ id: 'cloud-ready', name: 'Hosted Company', status: 'Ready', tone: 'presence', card: null, entry: { formAction: '?/enterCockpit', fields: { organization_id: 'cloud-ready' } } },
+	{ id: 'pending-company', name: 'Pending Company', status: 'Setting up', card: null }
 ];
 </script>
-<AccountShell><CompanyPortfolio {companies} /></AccountShell>
+<AccountShell tabs={[{ label: 'Companies', href: '/', active: true }]}><CompanyPortfolio {companies} /></AccountShell>
 <div class="bridge-tokens">
 	<Wordmark />
 	<SemanticMark meaning="attention" />
@@ -107,12 +107,13 @@ export default {
 		[html, 'Approve the playable demo', 'outcome folio title'],
 		[html, 'Approve and publish', 'hold-to-approve'],
 		[html, 'class="bridge-tokens"', 'token scope'],
+		[html, 'Your companies', 'shared portfolio title'],
 		[html, 'aria-label="Account navigation"', 'shared account header'],
 		[html, 'href="/local-ready"', 'self-hosted adapter navigation'],
 		[html, 'action="?/enterCockpit"', 'hosted native POST entry'],
 		[html, 'name="organization_id" value="cloud-ready"', 'entry identity supplied by the adapter'],
-		[html, 'Focus unavailable', 'unknown focus remains unknown'],
-		[html, 'Nothing now', 'observed zero attention'],
+		[html, '2 decisions waiting', 'observed decisions lead the card'],
+		[html, '3 people working', 'observed work reads as people'],
 		[css, '--intent-direction', 'tokens stylesheet'],
 		[String(imports.length), '4', 'the four design stylesheets, and not the document reset'],
 		[String(imports.includes('./base.css')), 'false', 'style.css leaves the host document alone']
@@ -121,11 +122,12 @@ export default {
 		html.split('data-company-id="cloud-ready"')[1]?.split('data-company-id="pending-company"')[0] ??
 		'';
 	const pending = html.split('data-company-id="pending-company"')[1]?.split('</section>')[0] ?? '';
-	const hostedAttention =
-		hosted.match(/<span class="[^"]*\bportfolio-attention\b[^"]*">([\s\S]*?)<\/span>/)?.[1] ?? '';
 	expect.push(
-		[hostedAttention, '—', 'unknown attention remains unknown in its own row'],
-		[String(hosted.includes('Nothing now')), 'false', 'hosted unknown attention never claims zero'],
+		[
+			String(/Quiet|working|decision/.test(hosted)),
+			'false',
+			'a company without a card never claims quiet or zero'
+		],
 		[
 			String(/class="[^"]*\bportfolio-entry\b/.test(pending)),
 			'false',
