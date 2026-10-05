@@ -6,6 +6,8 @@
 	import { page } from '$app/state';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import AccountShell from '$lib/ui/views/AccountShell.svelte';
+	import House from '@lucide/svelte/icons/house';
+	import UserRound from '@lucide/svelte/icons/user-round';
 	import type { AccountTab } from '$lib/ui/account';
 	import { getApplianceStatus, planeLabel, type ApplianceStatus } from '$lib/model/appliance';
 
@@ -30,12 +32,13 @@
 
 	const path = $derived(page.url.pathname);
 	const tabs = $derived<AccountTab[]>([
-		{ label: 'Home', href: home, active: path === '/', tooltip: 'Your companies' },
+		{ label: 'Home', href: home, active: path === '/', tooltip: 'Your companies', icon: House },
 		{
 			label: 'Account',
 			href: '/account',
 			active: path === '/account',
 			tooltip: 'Connections, AI apps and appearance, shared across your companies',
+			icon: UserRound,
 			items: [
 				{ label: 'Connections', href: '/account#connections' },
 				{ label: 'AI apps', href: '/account#ai-apps' },

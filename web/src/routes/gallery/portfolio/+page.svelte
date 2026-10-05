@@ -4,6 +4,8 @@
 	import AccountShell from '$lib/ui/views/AccountShell.svelte';
 	import AccountPage from '$lib/ui/views/AccountPage.svelte';
 	import type { AccountSection, AccountTab } from '$lib/ui/account';
+	import House from '@lucide/svelte/icons/house';
+	import UserRound from '@lucide/svelte/icons/user-round';
 	import type { CompanyPortfolioEntry, PortfolioCard } from '$lib/ui/portfolio';
 
 	/* The shared account views on example data. ?scenario= core (the local root's mapping), fleet
@@ -152,11 +154,12 @@
 		{ id: 'support', title: 'Support', tooltip: 'Get help from the Restless team' }
 	];
 	const tabs = $derived<AccountTab[]>([
-		{ label: 'Home', href: '/gallery/portfolio', active: view === 'portfolio' },
+		{ label: 'Home', href: '/gallery/portfolio', active: view === 'portfolio', icon: House },
 		{
 			label: 'Account',
 			href: '/gallery/portfolio?view=account',
 			active: view === 'account',
+			icon: UserRound,
 			items: sections.map((section) => ({
 				label: section.title,
 				href: `/gallery/portfolio?view=account#${section.id}`

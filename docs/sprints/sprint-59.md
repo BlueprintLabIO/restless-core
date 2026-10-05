@@ -62,9 +62,9 @@ Dispositions follow `LLM_CURE.md`: fix now, accepted, or decision needed.
 
 ## Tickets
 
-- [ ] C59-T1 — Re-entry (a stopgap until Sprint 60 deletes the second address): navigations without a session go Home on the issuer; API 401s reload once. *Plane / Cockpit*
-- [ ] C59-T2 — Hosted identity and wording: the owner's name in the rail (company entry carries it now; account entry accepts it once Fleet signs it); C1, C3 and C4 worded by host. *Cockpit*
-- [ ] C59-T3 — Account rail 0.7.0: icons, collapse with ⌘B and an edge toggle, drag to resize, persisted, tooltips when collapsed. *UI*
+- [x] C59-T1 — Re-entry (a stopgap until Sprint 60 deletes the second address): navigations without a session go Home on the issuer; API 401s reload once. *Plane / Cockpit*
+- [x] C59-T2 — Hosted identity and wording: the owner's name in the rail (company entry carries it now; account entry accepts it once Fleet signs it); C1, C3 and C4 worded by host. *Cockpit*
+- [x] C59-T3 — Account rail 0.7.0: icons, collapse with ⌘B and an edge toggle, drag to resize, persisted, tooltips when collapsed. *UI*
 - [ ] C59-T4 — Fleet Web: lifecycle words (D1–D3), a real name at sign-up (A3), the display name in the account assertion, 0.7.0. *Cloud*
 - [ ] C59-T5 — Decide B2 (rename reaches Fleet). *Owner*
 

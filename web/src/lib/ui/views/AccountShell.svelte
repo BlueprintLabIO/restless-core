@@ -1,13 +1,15 @@
 <script lang="ts">
-	import type { Snippet } from 'svelte';
+	import { onMount, type Snippet } from 'svelte';
+	import PanelLeft from '@lucide/svelte/icons/panel-left';
 	import Wordmark from '../glyph/Wordmark.svelte';
 	import { dismissable } from '../controls/dismissable';
 	import type { AccountTab } from '../account';
 
 	/* The frame for every page outside one company: a quiet left rail (wordmark, Home, Account and
 	 * whatever account controls a host adds, the owner at the foot) and the page beside it. The rail
-	 * is mostly empty on purpose; it is where account-level controls grow. On a phone it folds into
-	 * the top bar the company app wears. */
+	 * is mostly empty on purpose; it is where account-level controls grow. It collapses to icons
+	 * (⌘B, the button, or a click on its edge), resizes by dragging its edge, and remembers both in
+	 * this browser. On a phone it folds into the top bar the company app wears. */
 	let {
 		brandName = 'Restless',
 		homeHref = '/',
@@ -26,6 +28,71 @@
 		children: Snippet;
 	} = $props();
 
+	const MIN = 200;
+	const MAX = 340;
+	const DEFAULT = 232;
+	const KEY = 'restless:account-rail';
+	let width = $state(DEFAULT);
+	let collapsed = $state(false);
+	let resizing = $state(false);
+
+	/* Per-browser conveniences only: absent or blocked storage leaves the defaults. */
+	onMount(() => {
+		try {
+			const saved = JSON.parse(localStorage.getItem(KEY) ?? 'null') as {
+				width?: number;
+				collapsed?: boolean;
+			} | null;
+			if (saved?.width) width = Math.min(MAX, Math.max(MIN, saved.width));
+			if (saved?.collapsed) collapsed = true;
+		} catch {
+			// Defaults stand.
+		}
+	});
+	function remember() {
+		try {
+			localStorage.setItem(KEY, JSON.stringify({ width, collapsed }));
+		} catch {
+			// Not remembered; the rail still works.
+		}
+	}
+	function toggle() {
+		collapsed = !collapsed;
+		remember();
+	}
+	function keydown(event: KeyboardEvent) {
+		if (event.key.toLowerCase() === 'b' && (event.metaKey || event.ctrlKey) && !event.altKey) {
+			const target = event.target as HTMLElement | null;
+			if (target?.closest('input, textarea, [contenteditable]')) return;
+			event.preventDefault();
+			toggle();
+		}
+	}
+
+	/* The edge: drag to resize, click to collapse or expand. */
+	let dragFrom: { x: number; width: number; moved: boolean } | null = null;
+	function edgeDown(event: PointerEvent) {
+		if (event.button !== 0) return;
+		dragFrom = { x: event.clientX, width, moved: false };
+		(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+	}
+	function edgeMove(event: PointerEvent) {
+		if (!dragFrom) return;
+		const delta = event.clientX - dragFrom.x;
+		if (Math.abs(delta) < 3 && !dragFrom.moved) return;
+		dragFrom.moved = true;
+		resizing = true;
+		if (collapsed && delta > 24) collapsed = false;
+		if (!collapsed) width = Math.min(MAX, Math.max(MIN, dragFrom.width + delta));
+	}
+	function edgeUp() {
+		if (!dragFrom) return;
+		if (!dragFrom.moved) collapsed = !collapsed;
+		dragFrom = null;
+		resizing = false;
+		remember();
+	}
+
 	const initials = $derived(
 		(account?.name || '?')
 			.split(/\s+/)
@@ -36,7 +103,10 @@
 	);
 </script>
 
+<svelte:window onkeydown={keydown} />
+
 {#snippet item(tab: AccountTab, sub: boolean)}
+	{@const Icon = tab.icon}
 	{#if tab.form}
 		<form method="POST" action={tab.form.action}>
 			{#each Object.entries(tab.form.fields ?? {}) as [name, value]}<input
@@ -44,8 +114,15 @@
 					{name}
 					{value}
 				/>{/each}
-			<button class="account-tab" class:sub class:active={tab.active} title={tab.tooltip}
-				>{tab.label}</button
+			<button
+				class="account-tab"
+				class:sub
+				class:active={tab.active}
+				title={collapsed ? tab.label : tab.tooltip}
+				aria-label={tab.label}
+				>{#if Icon}<Icon size={16} strokeWidth={1.75} aria-hidden="true" />{/if}<span
+					class="account-tab-label">{tab.label}</span
+				></button
 			>
 		</form>
 	{:else}
@@ -54,22 +131,42 @@
 			class:sub
 			class:active={tab.active}
 			href={tab.href}
-			title={tab.tooltip}
-			aria-current={tab.active ? 'page' : undefined}>{tab.label}</a
+			title={collapsed ? tab.label : tab.tooltip}
+			aria-label={tab.label}
+			aria-current={tab.active ? 'page' : undefined}
+			>{#if Icon}<Icon size={16} strokeWidth={1.75} aria-hidden="true" />{/if}<span
+				class="account-tab-label">{tab.label}</span
+			></a
 		>
 	{/if}
 {/snippet}
 
-<div class="bridge-tokens account-shell">
+<div
+	class="bridge-tokens account-shell"
+	class:collapsed
+	class:resizing
+	style:--account-rail-w={collapsed ? '56px' : `${width}px`}
+>
 	<header class="account-bar">
-		<a class="account-brand" href={homeHref} aria-label={brandName + ': your companies'}>
-			<Wordmark name={brandName} size={16} />
-		</a>
+		<div class="account-head">
+			<a class="account-brand" href={homeHref} aria-label={brandName + ': your companies'}>
+				<Wordmark name={brandName} size={16} />
+			</a>
+			<button
+				class="account-collapse"
+				type="button"
+				onclick={toggle}
+				aria-expanded={!collapsed}
+				aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+				title={collapsed ? 'Expand sidebar (⌘B)' : 'Collapse sidebar (⌘B)'}
+				><PanelLeft size={16} strokeWidth={1.75} aria-hidden="true" /></button
+			>
+		</div>
 		{#if tabs.length}
 			<nav class="account-tabs" aria-label="Account navigation">
 				{#each tabs as tab (tab.href ?? tab.label)}
 					{@render item(tab, false)}
-					{#if tab.items?.length}
+					{#if tab.items?.length && !collapsed}
 						<div class="account-subtabs">
 							{#each tab.items as subtab (subtab.href ?? subtab.label)}{@render item(
 									subtab,
@@ -84,7 +181,7 @@
 			<details class="account-menu" use:dismissable>
 				<summary
 					class="account-who"
-					title={account.detail ?? account.name}
+					title={collapsed ? account.name : (account.detail ?? account.name)}
 					aria-label="Your account"
 				>
 					<span class="account-avatar" aria-hidden="true">{initials}</span>
@@ -99,19 +196,33 @@
 				</div>
 			</details>
 		{/if}
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			class="account-edge"
+			title={collapsed ? 'Click to expand' : 'Drag to resize · click to collapse'}
+			onpointerdown={edgeDown}
+			onpointermove={edgeMove}
+			onpointerup={edgeUp}
+			onpointercancel={edgeUp}
+		></div>
 	</header>
 	<div class="account-page">{@render children()}</div>
 </div>
 
 <style>
 	.account-shell {
-		--account-rail-w: 232px;
 		display: grid;
-		grid-template-columns: var(--account-rail-w) minmax(0, 1fr);
+		grid-template-columns: var(--account-rail-w, 232px) minmax(0, 1fr);
 		min-height: 100vh;
 		min-height: 100dvh;
 		background: var(--bg-app);
 		color: var(--ink);
+		transition: grid-template-columns var(--motion-disclosure, 180ms) var(--ease-standard, ease);
+	}
+	.account-shell.resizing {
+		transition: none;
+		cursor: col-resize;
+		user-select: none;
 	}
 	.account-bar {
 		position: sticky;
@@ -119,20 +230,58 @@
 		z-index: var(--z-sticky, 20);
 		display: flex;
 		flex-direction: column;
-		gap: 18px;
+		gap: 14px;
+		min-width: 0;
 		height: 100vh;
 		height: 100dvh;
-		padding: 16px 10px 12px;
+		padding: 12px 8px 10px;
 		border-right: 1px solid var(--border);
 		background: var(--surface-rail, var(--bg-app));
+	}
+	.account-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 6px;
+		min-height: 32px;
+		padding-left: 8px;
 	}
 	.account-brand {
 		display: inline-flex;
 		align-items: center;
-		align-self: flex-start;
-		padding: 2px 8px;
+		min-width: 0;
+		overflow: hidden;
 		color: inherit;
 		text-decoration: none;
+	}
+	.account-collapse {
+		display: grid;
+		flex: none;
+		place-items: center;
+		width: 28px;
+		height: 28px;
+		min-width: 0;
+		min-height: 0;
+		padding: 0;
+		border: 0;
+		border-radius: var(--radius-control);
+		background: transparent;
+		color: var(--text-tertiary);
+		cursor: pointer;
+		opacity: 0;
+		transition:
+			opacity var(--motion-state) var(--ease-standard),
+			background var(--motion-state) var(--ease-standard);
+	}
+	/* Quiet until wanted, like Linear: the toggle shows when the rail is hovered or focused. */
+	.account-bar:hover .account-collapse,
+	.account-collapse:focus-visible,
+	.collapsed .account-collapse {
+		opacity: 1;
+	}
+	.account-collapse:hover {
+		background: var(--wash-hover, var(--surface-alt));
+		color: var(--ink);
 	}
 	.account-tabs {
 		display: grid;
@@ -140,6 +289,7 @@
 		align-content: start;
 		flex: 1 1 auto;
 		min-height: 0;
+		overflow-x: hidden;
 		overflow-y: auto;
 	}
 	.account-tabs form {
@@ -148,14 +298,17 @@
 	.account-subtabs {
 		display: grid;
 		gap: 1px;
-		margin: 1px 0 6px;
+		margin: 2px 0 8px;
+		padding-left: 17px;
 	}
 	.account-tab {
 		position: relative;
 		display: flex;
 		align-items: center;
-		min-height: 30px;
-		padding: 0 10px;
+		gap: 9px;
+		min-width: 0;
+		height: 30px;
+		padding: 0 8px;
 		border: 0;
 		border-radius: var(--radius-control);
 		background: transparent;
@@ -164,14 +317,27 @@
 		font-size: var(--t-body);
 		text-align: left;
 		text-decoration: none;
+		white-space: nowrap;
 		cursor: pointer;
 		transition:
 			background var(--motion-state) var(--ease-standard),
 			color var(--motion-state) var(--ease-standard);
 	}
+	.account-tab :global(svg) {
+		flex: none;
+		color: var(--text-tertiary);
+		transition: color var(--motion-state) var(--ease-standard);
+	}
+	.account-tab-label {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
 	.account-tab.sub {
-		min-height: 26px;
-		padding-left: 22px;
+		height: 28px;
+		padding-left: 12px;
+		border-left: 1px solid var(--border);
+		border-radius: 0 var(--radius-control) var(--radius-control) 0;
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 	}
@@ -179,17 +345,74 @@
 		background: var(--wash-hover, var(--surface-alt));
 		color: var(--ink);
 	}
+	.account-tab:hover :global(svg),
+	.account-tab.active :global(svg) {
+		color: var(--ink);
+	}
 	.account-tab.active {
-		background: var(--surface-raised);
-		box-shadow: var(--control-depth, 0 0 0 1px var(--border));
+		background: var(--wash-active, var(--surface-alt));
 		color: var(--ink);
 		font-weight: 500;
 	}
-	.account-tab:focus-visible,
-	.account-who:focus-visible {
-		outline: 2px solid var(--intent-conversation);
-		outline-offset: 2px;
+	.account-tab.sub.active {
+		border-left-color: var(--ink);
+		background: transparent;
 	}
+	.account-tab:focus-visible,
+	.account-who:focus-visible,
+	.account-collapse:focus-visible {
+		outline: 2px solid var(--intent-conversation);
+		outline-offset: -2px;
+	}
+
+	/* Collapsed: icons only, centred; labels, sections and the name step out. */
+	.collapsed .account-head {
+		flex-direction: column;
+		gap: 8px;
+		padding-left: 0;
+	}
+	.collapsed .account-brand :global(.wm-name),
+	.collapsed .account-tab-label,
+	.collapsed .account-name {
+		display: none;
+	}
+	.collapsed .account-tab {
+		justify-content: center;
+		padding: 0;
+	}
+	.collapsed .account-who {
+		justify-content: center;
+		padding-inline: 0;
+	}
+
+	/* The edge: a hairline that thickens under the pointer. */
+	.account-edge {
+		position: absolute;
+		top: 0;
+		right: -4px;
+		bottom: 0;
+		width: 8px;
+		cursor: col-resize;
+		touch-action: none;
+	}
+	.account-edge::after {
+		content: '';
+		position: absolute;
+		top: 0;
+		bottom: 0;
+		left: 3px;
+		width: 2px;
+		background: transparent;
+		transition: background var(--motion-state) var(--ease-standard);
+	}
+	.account-edge:hover::after,
+	.resizing .account-edge::after {
+		background: var(--border-strong);
+	}
+	.collapsed .account-edge {
+		cursor: e-resize;
+	}
+
 	.account-menu {
 		position: relative;
 	}
@@ -197,6 +420,7 @@
 		display: flex;
 		align-items: center;
 		gap: 10px;
+		min-width: 0;
 		padding: 6px 8px;
 		border-radius: var(--radius-control);
 		list-style: none;
@@ -217,8 +441,8 @@
 		display: grid;
 		flex: none;
 		place-items: center;
-		width: 26px;
-		height: 26px;
+		width: 24px;
+		height: 24px;
 		border-radius: 50%;
 		background: var(--ink);
 		color: var(--surface-raised);
@@ -237,6 +461,7 @@
 		position: absolute;
 		bottom: calc(100% + 6px);
 		left: 0;
+		z-index: 30;
 		min-width: 240px;
 		padding: 6px;
 		border: 1px solid var(--border);
@@ -284,6 +509,11 @@
 	.account-page {
 		min-width: 0;
 	}
+	@media (prefers-reduced-motion: reduce) {
+		.account-shell {
+			transition: none;
+		}
+	}
 
 	/* A phone: the rail folds into a top bar (wordmark, items, avatar), as the company app wears it. */
 	@media (max-width: 760px) {
@@ -309,21 +539,27 @@
 			backdrop-filter: blur(18px) saturate(1.4);
 			-webkit-backdrop-filter: blur(18px) saturate(1.4);
 		}
-		.account-brand {
-			align-self: center;
+		.account-head {
 			padding: 0;
+		}
+		.account-collapse,
+		.account-edge,
+		.account-subtabs,
+		.account-name,
+		.account-tab :global(svg) {
+			display: none;
+		}
+		.collapsed .account-brand,
+		.collapsed .account-tab-label {
+			display: initial;
 		}
 		.account-tabs {
 			display: flex;
 			gap: 2px;
 			overflow: visible;
 		}
-		.account-subtabs,
-		.account-name {
-			display: none;
-		}
 		.account-tab {
-			min-height: 0;
+			height: auto;
 			padding: 6px 10px;
 		}
 		.account-tab::after {
