@@ -94,9 +94,10 @@
 					authenticated entry is activated.
 				</p>
 				<p>
-					For private access, both HTTPS addresses must resolve inside the team's private network.
-					SSH can carry browser traffic through a SOCKS tunnel while preserving the configured
-					addresses and individual sign-in.
+					For private access, Tailscale is recommended: run
+					<code>restless appliance tailscale-addresses</code> for the two addresses, then activate with
+					<code>enable-sharing --tailscale</code>. Without Tailscale, SSH can carry browser traffic
+					through a SOCKS tunnel while preserving the configured addresses and individual sign-in.
 				</p>
 			</details>
 			<div class="sharing-actions">

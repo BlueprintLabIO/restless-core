@@ -119,9 +119,17 @@ procedure. The lower-level `scripts/configure.mjs` remains available for a
 fresh, explicitly single-company deployment; the cockpit setup is the supported
 way to include every company when sharing an existing local host.
 
-### SSH access
+### Tailscale access (recommended)
 
-SSH is an optional operator transport. An OpenSSH SOCKS tunnel, for example
+Use `restless appliance tailscale-addresses` for the two addresses to prepare,
+then activate with `restless appliance enable-sharing --tailscale --environment
+…/core-entry.env` instead of step 3's HTTPS routing and step 4. Tailscale
+serves both on the host's `*.ts.net` name. See
+[Sharing over Tailscale](../../docs/self-hosted-network-entry.md#sharing-over-tailscale-recommended).
+
+### SSH access (fallback)
+
+Without Tailscale, an OpenSSH SOCKS tunnel, for example
 `ssh -N -D 127.0.0.1:1080 user@host`, can carry a browser configured to use that
 proxy with proxy DNS. Open the configured HTTPS account and company addresses
 through it. Individual sign-in, exact host validation and company permissions
@@ -209,6 +217,12 @@ company's **Members** page (local and network mode, desktop and mobile), using P
 Core journey evidence there; otherwise the runner creates an evidence directory
 and prints its path. `RESTLESS_COCKPIT_DIR` may name an existing production web
 build when the daemon does not use its default location.
+
+`npm run test:multiplayer` runs the same isolated plane with three verified
+accounts in separate browser contexts (owner and two members), the production
+entrypoint and a loopback SMTP catcher; it needs `RESTLESS_BROWSER_EXECUTABLE`
+and `plane.localhost` resolving to loopback. `scripts/multiplayer-smoke` builds
+and runs it, and runs nightly on the self-hosted runner.
 
 The SMTP journey drives HTTP directly. The Core journey also drives HTTP and
 WebSocket protocols; its optional browser pass exercises sharing preparation,
