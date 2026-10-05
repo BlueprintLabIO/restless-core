@@ -152,8 +152,13 @@ export async function publishImage(component: string, revision: string, platform
   let reference: string;
   let reused = false;
   try {
-    image = dag.container({ platform }).withRegistryAuth('ghcr.io', username, password).from(tag);
-    reference = `${repository}@${(await timed(timings, 'reuse lookup', () => image.imageRef())).split('@')[1]}`;
+    // A registry or DNS hiccup is retried; "not found" is not transient and falls through to a build.
+    const found = await timed(timings, 'reuse lookup', () => withRetry(`${component}: reuse lookup`, async () => {
+      const candidate = dag.container({ platform }).withRegistryAuth('ghcr.io', username, password).from(tag);
+      return { candidate, ref: await candidate.imageRef() };
+    }));
+    image = found.candidate;
+    reference = `${repository}@${found.ref.split('@')[1]}`;
     reused = true;
   } catch (error) {
     if (!/(?:manifest unknown|manifest_unknown|name_unknown|: not found|: 404)/i.test(String(error))) throw error;
