@@ -210,11 +210,26 @@ export class RestlessCore {
       include: RUNTIME_INPUTS, exclude: [...EXCLUDES, 'infra/company-image/test_supervision_contract.py'],
     });
     if (binaries) context = context.withDirectory('prebuilt-rust', binaries);
-    let image = context
-      .dockerBuild({ dockerfile: 'infra/company-image/Dockerfile', platform,
-        buildArgs: [{ name: 'CARGO_BUILD_JOBS', value: cargoJobs(platform) },
-          { name: 'RUST_BINARIES', value: binaries ? 'prebuilt' : 'build' },
-          ...(toolsImage ? [{ name: 'RUNTIME_TOOLS_IMAGE', value: toolsImage }] : [])] });
+    let image: Container;
+    if (toolsImage && binaries) {
+      // Release path: build only the small runtime layer, then lay it onto the published tool base in
+      // one native step. Translating the full stage re-checksummed the multi-GB tool filesystem for
+      // every instruction (37 times, ~9 of the release's minutes). The layer stage carries the Runtime's
+      // own environment and entrypoint, so they are read from it rather than restated here.
+      const layer = context.dockerBuild({ dockerfile: 'infra/company-image/Dockerfile', platform, target: 'runtime-layer',
+        buildArgs: [{ name: 'RUST_BINARIES', value: 'prebuilt' }] });
+      image = dag.container({ platform }).from(toolsImage).withDirectory('/', layer.rootfs());
+      for (const variable of await layer.envVariables()) {
+        image = image.withEnvVariable(await variable.name(), await variable.value());
+      }
+      image = image.withEntrypoint(await layer.entrypoint());
+    } else {
+      image = context
+        .dockerBuild({ dockerfile: 'infra/company-image/Dockerfile', platform,
+          buildArgs: [{ name: 'CARGO_BUILD_JOBS', value: cargoJobs(platform) },
+            { name: 'RUST_BINARIES', value: binaries ? 'prebuilt' : 'build' },
+            ...(toolsImage ? [{ name: 'RUNTIME_TOOLS_IMAGE', value: toolsImage }] : [])] });
+    }
     for (const [name, value] of values) {
       if (!value) throw new Error(`missing canonical release value: ${name}`);
       image = image.withEnvVariable(name, value);

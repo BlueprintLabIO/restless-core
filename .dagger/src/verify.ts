@@ -28,8 +28,20 @@ export async function verifyRuntimeToolsImage(image: Container, desktopProbe: Fi
 }
 
 export async function verifyCompanyRuntimeImage(image: Container, revision: string): Promise<string> {
+    // A release assembles the image from the runtime layer rather than the Dockerfile's last stage;
+    // both must start the same init with the same Runtime configuration.
+    const entrypoint = await image.entrypoint();
+    if (JSON.stringify(entrypoint) !== JSON.stringify(['/usr/local/bin/company-init'])) {
+      throw new Error(`company Runtime entrypoint is ${JSON.stringify(entrypoint)}, not company-init`);
+    }
     const checked = image.withEnvVariable('EXPECTED_REVISION', revision).withExec(['/bin/sh', '-ec',
-      'restless --help; links="$(ldd /usr/local/bin/restless-runtime-bridge)"; '
+      'test "$RESTLESS_COORDINATOR" = host.docker.internal:7791; test -s "$RESTLESS_CODEX_GPT6_SOL_CATALOG"; '
+      + 'test -x /usr/local/bin/restless-scenario; test -x /usr/local/bin/restless-codex-runner; '
+      + 'test "$(stat -c %a /usr/local/bin/company-init)" = 555; test -s /etc/supervisor/conf.d/company.conf; '
+      + 'test "$(stat -c %a /etc/supervisor/conf.d/company.conf)" = 444; '
+      + 'test "$(stat -c %u:%g /usr/local/bin)" = 0:0; test "$(stat -c %a /usr/local/bin)" = 755; '
+      + 'test "$(stat -c %a /etc/supervisor/conf.d)" = 755; test "$(stat -c %a /opt/restless/skills)" = 555; '
+      + 'restless --help; links="$(ldd /usr/local/bin/restless-runtime-bridge)"; '
       + 'printf "%s\\n" "$links"; ! printf "%s" "$links" | grep -q "not found"; '
       + 'test "$RESTLESS_SOURCE_REVISION" = "$EXPECTED_REVISION"; '
       + 'test -x /usr/local/bin/company-init; test -x /usr/local/bin/start-runtime-bridge; '

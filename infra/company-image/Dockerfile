@@ -343,10 +343,14 @@ RUN install -d -m 0755 /usr/local/share/restless \
 
 # Startup code and Core binaries change more often than the installed tools.
 # An external tool base must be the exact artifact selected by the release.
-FROM ${RUNTIME_TOOLS_IMAGE} AS company-runtime
-
-# Group immutable assets so the Dockerfile frontend does not construct a large
-# intermediate Runtime filesystem for every individual file.
+# Everything the company Runtime adds on top of the tool base, staged under /layer and kept small.
+# A release lays this layer onto the published tool base in one native step
+# (.dagger/src/index.ts companyRuntime): there each Dockerfile instruction on the multi-GB tool base
+# costs a full filesystem checksum, 37 of them about nine minutes. The company-runtime stage below
+# applies the same layer, so local builds and releases ship the same files.
+FROM ubuntu:24.04@sha256:a853f94d226358a79c740cfc7bce0c289748f3fe3488d921d038ccd752c61b60 AS runtime-layer-build
+# Group immutable assets so the Dockerfile frontend does not construct an
+# intermediate filesystem for every individual file.
 COPY infra/company-image/entrypoint.sh \
     infra/company-image/company-volume-init.sh \
     infra/company-image/assert-runtime-privileges.py \
@@ -373,7 +377,7 @@ COPY infra/company-image/entrypoint.sh \
     infra/company-image/supervisord.conf \
     infra/company-image/company-supervisord.conf \
     /tmp/restless-runtime-assets/
-COPY infra/company-image/skills /opt/restless/skills
+COPY infra/company-image/skills /layer/opt/restless/skills
 COPY tools/scenario/restless-scenario.mjs \
     tools/web-review/restless-web-review.mjs \
     tools/codex-runner/restless-codex-runner.mjs \
@@ -381,9 +385,11 @@ COPY tools/scenario/restless-scenario.mjs \
     tools/codex-runner/restless-codex-parity-preflight.mjs \
     tools/codex-runner/restless-codex-task-run.mjs \
     tools/codex-runner/restless-codex-longitudinal-run.mjs \
-    /usr/local/lib/restless/
-ENV RESTLESS_CODEX_GPT6_SOL_CATALOG=/usr/local/lib/restless/gpt-6-sol-0.156.1-model-catalog.json
+    /layer/usr/local/lib/restless/
+# The coordination CLI and the Runtime bridge.
+COPY --from=binaries /out/restless /out/restless-runtime-bridge /layer/usr/local/bin/
 RUN set -eu; \
+    layer=/layer; \
     for mapping in \
         entrypoint.sh:company-init \
         company-volume-init.sh:company-volume-init \
@@ -401,7 +407,7 @@ RUN set -eu; \
         validate-company-supervisor-config.py:validate-company-supervisor-config \
         refresh-desktop-launchers.sh:refresh-company-desktop-launchers \
         git-credential-restless:git-credential-restless; do \
-        install -Dm0555 "/tmp/restless-runtime-assets/${mapping%%:*}" "/usr/local/bin/${mapping#*:}"; \
+        install -Dm0555 "/tmp/restless-runtime-assets/${mapping%%:*}" "$layer/usr/local/bin/${mapping#*:}"; \
     done; \
     for mapping in \
         tint2rc:/etc/restless/tint2rc \
@@ -413,26 +419,36 @@ RUN set -eu; \
         release-health.mjs:/usr/local/lib/restless/release-health.mjs \
         supervisord.conf:/etc/supervisor/conf.d/restless.conf \
         company-supervisord.conf:/etc/supervisor/conf.d/company.conf; do \
-        install -Dm0444 "/tmp/restless-runtime-assets/${mapping%%:*}" "${mapping#*:}"; \
+        install -Dm0444 "/tmp/restless-runtime-assets/${mapping%%:*}" "$layer${mapping#*:}"; \
     done; \
-    chmod 0555 /usr/local/lib/restless/restless-scenario.mjs \
-        /usr/local/lib/restless/restless-web-review.mjs \
-        /usr/local/lib/restless/restless-codex-runner.mjs \
-        /usr/local/lib/restless/restless-codex-parity-preflight.mjs \
-        /usr/local/lib/restless/restless-codex-task-run.mjs \
-        /usr/local/lib/restless/restless-codex-longitudinal-run.mjs; \
-    chmod 0444 /usr/local/lib/restless/gpt-6-sol-0.156.1-model-catalog.json; \
-    chmod -R a=rX /opt/restless/skills; \
-    ln -s /usr/local/lib/restless/restless-scenario.mjs /usr/local/bin/restless-scenario; \
-    ln -s /usr/local/lib/restless/restless-web-review.mjs /usr/local/bin/restless-web-review; \
-    ln -s /usr/local/lib/restless/restless-codex-runner.mjs /usr/local/bin/restless-codex-runner; \
+    chmod 0555 "$layer/usr/local/lib/restless/restless-scenario.mjs" \
+        "$layer/usr/local/lib/restless/restless-web-review.mjs" \
+        "$layer/usr/local/lib/restless/restless-codex-runner.mjs" \
+        "$layer/usr/local/lib/restless/restless-codex-parity-preflight.mjs" \
+        "$layer/usr/local/lib/restless/restless-codex-task-run.mjs" \
+        "$layer/usr/local/lib/restless/restless-codex-longitudinal-run.mjs"; \
+    chmod 0444 "$layer/usr/local/lib/restless/gpt-6-sol-0.156.1-model-catalog.json"; \
+    chmod 0755 "$layer/usr/local/bin/restless" "$layer/usr/local/bin/restless-runtime-bridge"; \
+    chmod -R a=rX "$layer/opt/restless/skills"; \
+    ln -s /usr/local/lib/restless/restless-scenario.mjs "$layer/usr/local/bin/restless-scenario"; \
+    ln -s /usr/local/lib/restless/restless-web-review.mjs "$layer/usr/local/bin/restless-web-review"; \
+    ln -s /usr/local/lib/restless/restless-codex-runner.mjs "$layer/usr/local/bin/restless-codex-runner"; \
     rm -rf /tmp/restless-runtime-assets
 
-# The coordination CLI, and where it finds the daemon from inside the
-# container (TCP: unix sockets do not cross the Docker Desktop file share —
-# probed in T10). RESTLESS_COMPANY is set per container at `docker run`.
-COPY --from=binaries /out/restless /out/restless-runtime-bridge /usr/local/bin/
-ENV RESTLESS_COORDINATOR=host.docker.internal:7791
+# The layer's own configuration is the Runtime's: a release reads these from this stage rather than
+# restating them. RESTLESS_COMPANY is set per container at `docker run`; the CLI reaches the daemon
+# over TCP because unix sockets do not cross the Docker Desktop file share (probed in T10).
+FROM scratch AS runtime-layer
+COPY --from=runtime-layer-build /layer/ /
+ENV RESTLESS_CODEX_GPT6_SOL_CATALOG=/usr/local/lib/restless/gpt-6-sol-0.156.1-model-catalog.json \
+    RESTLESS_COORDINATOR=host.docker.internal:7791
+# PID 1 is the seed + long-lived init. Agents never enter this path.
+ENTRYPOINT ["/usr/local/bin/company-init"]
+
+FROM ${RUNTIME_TOOLS_IMAGE} AS company-runtime
+COPY --from=runtime-layer / /
+ENV RESTLESS_CODEX_GPT6_SOL_CATALOG=/usr/local/lib/restless/gpt-6-sol-0.156.1-model-catalog.json \
+    RESTLESS_COORDINATOR=host.docker.internal:7791
 
 # Release metadata changes with source, not with the pinned toolchain. Keep it
 # last so a new revision can reuse the large browser and agent installation layers.
