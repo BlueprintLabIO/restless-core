@@ -1629,6 +1629,23 @@ pub async fn session_servers(
             other => bail!("unknown local MCP transport {other:?}"),
         }
     }
+    // Every granted connection reaches the actor through one gateway server.
+    if !crate::connections::usable_tools(pool, company, actor).await?.is_empty() {
+        let (work_id, attempt_id) = match (work_id, attempt_id) {
+            (Some(work_id), Some(attempt_id)) => (Some(work_id), Some(attempt_id)),
+            _ => (None, None),
+        };
+        let grant = capabilities.issue_tool_session(company, actor, work_id, attempt_id)?;
+        let url = format!(
+            "{}?launch={}",
+            crate::tool_gateway::runtime_url(company),
+            Uuid::new_v4().simple()
+        );
+        servers.push(McpServer::Http(
+            McpServerHttp::new("restless-tools", url)
+                .headers(vec![HttpHeader::new("Authorization", format!("Bearer {grant}"))]),
+        ));
+    }
     Ok(servers)
 }
 

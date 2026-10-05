@@ -107,6 +107,11 @@ pub async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcome> {
         matches!(run.worker_harness, crate::runtime::AgentHarness::Codex),
     )
     .await?;
+    let connected_tools =
+        crate::connections::context_summary(run.authority.pool(), &run.company, &run.actor)
+            .await
+            .ok()
+            .flatten();
 
     for (index, model) in run.candidates.iter().enumerate() {
         let auth = match crate::exec::agent_auth_for_model(
@@ -295,7 +300,10 @@ pub async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcome> {
                 attempt_id: run.attempt_id,
                 org: run.org.clone(),
                 name: run.name.clone(),
-                task: run.task.clone(),
+                task: match &connected_tools {
+                    Some(tools) => format!("{}\n\n# Connected tools [Authority grant]\n{tools}", run.task),
+                    None => run.task.clone(),
+                },
                 turn_prompt: run.turn_prompt.clone(),
                 role: run.role.clone(),
                 spine,

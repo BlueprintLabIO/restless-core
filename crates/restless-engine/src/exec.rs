@@ -199,7 +199,13 @@ pub async fn wake(
         hosted_identity.as_ref().map(|_| (String::new(), None)),
     )
     .await?;
-    let package = context::assemble(&snapshot);
+    let mut package = context::assemble(&snapshot);
+    if let Ok(Some(tools)) =
+        crate::connections::context_summary(authority.pool(), &config.name, "exec").await
+    {
+        package.system_prompt.push_str("\n\n# Connected tools [Authority grant]\n");
+        package.system_prompt.push_str(&tools);
+    }
     let candidates = crate::model_gateway::available_candidates(
         config,
         config.agent_preference("exec", exec_model.as_deref()),

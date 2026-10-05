@@ -41,6 +41,7 @@ enum CapabilityKind {
     ActorSession,
     ModelSession,
     McpSession,
+    ToolSession,
 }
 
 /// The intentionally fixed claim shape. It is internal to this module so a
@@ -137,6 +138,18 @@ pub struct McpGrant {
     pub attempt_id: Uuid,
     pub recurring_schedule_id: Option<Uuid>,
     pub recurring_policy_revision: Option<Uuid>,
+}
+
+/// One actor session's access to the company tool gateway. Grants are read
+/// live on every call, so the token carries only who is calling and from
+/// which productive coordinates; it never names a tool or a connection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolGrant {
+    pub company: String,
+    pub actor: String,
+    pub session: String,
+    pub work_id: Option<Uuid>,
+    pub attempt_id: Option<Uuid>,
 }
 
 /// Exact deployment identity bound into the hosted Runtime bridge grant.
@@ -454,6 +467,67 @@ impl CapabilityIssuer {
         })
     }
 
+    /// The company tool gateway for one actor session. Exec conversations have
+    /// no Work; Staff sessions carry their Work and Attempt so receipts and
+    /// liveness checks can name them.
+    pub fn issue_tool_session(
+        &self,
+        company: &str,
+        actor: &str,
+        work_id: Option<Uuid>,
+        attempt_id: Option<Uuid>,
+    ) -> Result<String> {
+        if work_id.is_some() != attempt_id.is_some() {
+            bail!("a tool session names both Work and Attempt or neither");
+        }
+        self.issue(Claims {
+            version: 1,
+            kind: CapabilityKind::ToolSession,
+            company: company.to_string(),
+            actor: Some(actor.to_string()),
+            provider: None,
+            model: None,
+            mcp_name: None,
+            mcp_pin: None,
+            mcp_recurring_schedule_id: None,
+            mcp_recurring_policy_revision: None,
+            billing: None,
+            responsibility: None,
+            work_id,
+            attempt_id,
+            owner_id: None,
+            plane_id: None,
+            company_id: None,
+            cell_id: None,
+            runtime_id: None,
+            runtime_generation: None,
+            credential_epoch: None,
+            runtime_image: None,
+            volume_name: None,
+            source_revision: None,
+            model_credential_reference: None,
+            session: format!("tools-{}", Uuid::new_v4().simple()),
+            expires_at: Utc::now() + SESSION_TTL,
+        })
+    }
+
+    pub fn verify_tool_session(&self, token: &str) -> Result<ToolGrant> {
+        let claims = self.verify(token)?;
+        if claims.kind != CapabilityKind::ToolSession {
+            bail!("only a tool-session capability can call the tool gateway");
+        }
+        if claims.work_id.is_some() != claims.attempt_id.is_some() {
+            bail!("incomplete tool-session Work coordinates");
+        }
+        Ok(ToolGrant {
+            company: claims.company,
+            actor: claims.actor.context("tool session has no actor")?,
+            session: claims.session,
+            work_id: claims.work_id,
+            attempt_id: claims.attempt_id,
+        })
+    }
+
     pub fn verify_mcp(&self, token: &str) -> Result<McpGrant> {
         let claims = self.verify(token)?;
         if claims.kind != CapabilityKind::McpSession {
@@ -550,6 +624,7 @@ impl CapabilityIssuer {
                 .context("actor session capability is missing its actor")?,
             CapabilityKind::ModelSession => bail!("a model capability cannot call coordination"),
             CapabilityKind::McpSession => bail!("an MCP capability cannot call coordination"),
+            CapabilityKind::ToolSession => bail!("a tool-session capability cannot call coordination"),
         };
         Ok(CoordinationGrant {
             company: claims.company,
@@ -805,6 +880,22 @@ fn validate_claims(claims: &Claims) -> Result<()> {
                 bail!("MCP capability has an invalid scope");
             }
         }
+        CapabilityKind::ToolSession => {
+            if claims.actor.is_none()
+                || claims.mcp_name.is_some()
+                || claims.mcp_pin.is_some()
+                || claims.mcp_recurring_schedule_id.is_some()
+                || claims.provider.is_some()
+                || claims.model.is_some()
+                || claims.billing.is_some()
+                || claims.responsibility.is_some()
+                || claims.model_credential_reference.is_some()
+                || claims.work_id.is_some() != claims.attempt_id.is_some()
+                || any_hosted
+            {
+                bail!("tool-session capability has an invalid scope");
+            }
+        }
     }
     Ok(())
 }
@@ -818,6 +909,12 @@ fn validate_bounded_text(label: &str, value: &str, max_len: usize) -> Result<()>
         bail!("capability {label} is invalid");
     }
     Ok(())
+}
+
+impl CapabilityIssuer {
+    pub fn validate_actor_name(actor: &str) -> Result<()> {
+        validate_identifier("actor", actor)
+    }
 }
 
 fn validate_identifier(label: &str, value: &str) -> Result<()> {

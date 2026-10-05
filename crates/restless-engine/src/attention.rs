@@ -122,6 +122,10 @@ pub struct AttentionSource {
     /// the projection id.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub party: Option<String>,
+    /// A `reserved` tool call's idempotency key: the owner answers this one
+    /// prepared call, not a standing party.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub call_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -230,6 +234,7 @@ async fn conversation_requests(
                     kind: "conversation_owner_need".into(),
                     reference: message_id.to_string(),
                     party: None,
+                    call_key: None,
                 },
                 category: "conversation".into(),
                 title: format!("{} needs you", actor.display),
@@ -331,6 +336,28 @@ pub async fn project(
         latest.insert((capability.to_string(), party), event);
     }
 
+    // Reserved tool calls ask about one prepared call each, keyed by the
+    // call's idempotency key. An answer or a later receipt closes it.
+    let mut calls: BTreeMap<String, &crate::authority::AuthorityRecord> = BTreeMap::new();
+    for event in &approvals {
+        let Some(key) = event.body.get("call_key").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        let digest = event
+            .body
+            .get("command_digest")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        if crate::effect::tool_call_decision(authority, &config.name, key, digest)
+            .await?
+            .is_some()
+        {
+            calls.remove(key);
+            continue;
+        }
+        calls.insert(key.to_string(), event);
+    }
+
     let (actors, accountable_actors, conversation_actors) = match org {
         Some(org) => {
             let rows = org.list_actors().await.unwrap_or_default();
@@ -422,6 +449,7 @@ pub async fn project(
                 kind: "approval_required".into(),
                 reference: event.id.to_string(),
                 party: Some(party.clone()),
+                call_key: None,
             },
             category: "approval".into(),
             title: format!("First contact: {party}"),
@@ -460,6 +488,77 @@ pub async fn project(
                     role: "decision",
                     consequence: "Leaves this party unapproved and closes this request.".into(),
                     next_state: "Nothing is sent to this party. Other independent work may continue.".into(),
+                    href: None,
+                },
+            ],
+            preparing: false,
+            can_continue: true,
+            created_at: event.created_at,
+        });
+    }
+
+    for (key, event) in calls {
+        let prepared_by = event.actor_id.as_deref().unwrap_or("a company actor");
+        let tool = event.body.get("tool").and_then(serde_json::Value::as_str).unwrap_or("a tool");
+        let connection = event
+            .body
+            .get("connection")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("a connection");
+        let purpose = event.body.get("purpose").and_then(serde_json::Value::as_str).unwrap_or("");
+        let command = event.body.get("prepared_command").cloned().unwrap_or_default();
+        items.push(AttentionItem {
+            id: format!("authority:tool-call:{key}"),
+            work_id: None,
+            source: AttentionSource {
+                plane: "authority",
+                kind: "approval_required".into(),
+                reference: event.id.to_string(),
+                party: None,
+                call_key: Some(key.clone()),
+            },
+            category: "approval".into(),
+            title: format!("Allow {tool} on {connection}?"),
+            what_happened: format!("{prepared_by} prepared this call and stopped: you asked to approve every {tool} call."),
+            why_it_matters: if purpose.is_empty() {
+                format!("{tool} is reserved because it can change or remove things on {connection}.")
+            } else {
+                purpose.to_string()
+            },
+            recommendation: "Check the exact arguments, then allow or decline this one call.".into(),
+            requested_action: format!("Allow or decline this {tool} call."),
+            if_no_action: "Nothing runs. The company may continue work that does not depend on it.".into(),
+            uncertainty: None,
+            deadline: None,
+            brief_status: "source-authored",
+            brief_author: event.actor_id.as_deref().and_then(|actor| actors.get(actor)).cloned(),
+            briefed_at: Some(event.created_at),
+            evidence: vec![AttentionEvidence {
+                label: "Prepared call".into(),
+                uri: None,
+                content: Some(command.to_string()),
+                kind: "command",
+            }],
+            review_sources: Vec::new(),
+            responsible_actor: None,
+            runtime_attach: None,
+            review_target: None,
+            native_document: None,
+            actions: vec![
+                AttentionAction {
+                    id: "grant".into(),
+                    label: "Allow this call".into(),
+                    role: "decision",
+                    consequence: "Runs exactly this call once. Later calls still ask.".into(),
+                    next_state: "The company may retry this exact call.".into(),
+                    href: None,
+                },
+                AttentionAction {
+                    id: "decline".into(),
+                    label: "Decline".into(),
+                    role: "decision",
+                    consequence: "This call never runs.".into(),
+                    next_state: "The company is told and finds another route or stops.".into(),
                     href: None,
                 },
             ],
@@ -1007,6 +1106,7 @@ pub async fn project(
                 kind: "owner_handoff".into(),
                 reference: handoff.id.to_string(),
                 party: None,
+                call_key: None,
             },
             category: category.into(),
             title: projected_handoff_title(
@@ -1094,6 +1194,7 @@ pub async fn project(
                     kind: format!("document_{}", request.kind),
                     reference: request.id.to_string(),
                     party: None,
+                    call_key: None,
                 },
                 category: if review { "review" } else { "collaboration" }.into(),
                 title: request.title.clone(),
@@ -1190,6 +1291,7 @@ pub async fn project(
                                         kind: "exec_startup_blocked".into(),
                                         reference: event.id.to_string(),
                                         party: None,
+                                        call_key: None,
                                     },
                                     category: "blocker".into(),
                                     title: provider_issue.split(". ").next().unwrap_or(&provider_issue).into(),
@@ -1238,7 +1340,7 @@ pub async fn project(
         let proposer = record.actor_id.as_deref().unwrap_or("a company actor");
         items.push(AttentionItem {
             id: format!("authority:email_mandate_proposal:{proposal_id}"), work_id: None,
-            source: AttentionSource { plane: "authority", kind: "email_mandate_proposal".into(), reference: proposal_id.to_string(), party: None },
+            source: AttentionSource { plane: "authority", kind: "email_mandate_proposal".into(), reference: proposal_id.to_string(), party: None, call_key: None },
             category: "approval".into(), title: "Review proposed email mandate".into(),
             what_happened: format!("{proposer} proposed permission to send email within the exact limits below."),
             why_it_matters: "Approving grants a real sending mandate to the company.".into(),
@@ -1450,6 +1552,7 @@ pub async fn project(
                         kind: "overdue_dispatch_blocked".into(),
                         reference: due.to_rfc3339(),
                         party: None,
+                        call_key: None,
                     },
                     category: "blocker".into(),
                     title: "Overdue scheduled work cannot run".into(),

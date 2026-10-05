@@ -125,7 +125,7 @@ pub fn finish_startup_recovery() {
 /// Local appliance development keeps the historical local tag. A hosted
 /// plane supplies the exact manifest digest through `RESTLESS_COMPANY_IMAGE`;
 /// the plane never resolves a release tag or builds Core source itself.
-fn company_image() -> String {
+pub(crate) fn company_image() -> String {
     resolve_company_image(std::env::var(COMPANY_IMAGE_ENV).ok().as_deref())
 }
 

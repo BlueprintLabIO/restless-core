@@ -1327,7 +1327,9 @@ async fn start_runtime_relay(
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
         .with_state(state);
     let app = match local_mcp_daemon {
-        Some(daemon) => model_app.merge(crate::mcp_gateway::router(daemon)),
+        Some(daemon) => model_app
+            .merge(crate::mcp_gateway::router(daemon.clone()))
+            .merge(crate::tool_gateway::router(daemon)),
         None => model_app,
     };
     Ok(tokio::spawn(async move {

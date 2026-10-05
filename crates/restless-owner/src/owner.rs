@@ -47,6 +47,8 @@ mod sharing_api;
 pub mod sheets_api;
 #[path = "owner_skills.rs"]
 mod skills_api;
+#[path = "owner_tool_connections.rs"]
+mod tool_connections_api;
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::convert::Infallible;
@@ -227,7 +229,11 @@ impl RoomApiState {
 
 #[derive(Debug, Deserialize)]
 struct PartyAction {
+    #[serde(default)]
     party: String,
+    /// A prepared `reserved` tool call to answer instead of a party.
+    #[serde(default)]
+    call_key: Option<String>,
 }
 
 #[derive(Default)]
@@ -1343,6 +1349,38 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             "/companies/{company}/handoffs/{handoff}/complete",
             post(complete_human_step),
         )
+        .route(
+            "/companies/{company}/tool-connections",
+            get(tool_connections_api::list).post(tool_connections_api::add),
+        )
+        .route(
+            "/companies/{company}/tool-connections/{name}/probe",
+            post(tool_connections_api::probe),
+        )
+        .route(
+            "/companies/{company}/tool-connections/{name}/sign-in",
+            post(tool_connections_api::sign_in),
+        )
+        .route(
+            "/companies/{company}/tool-connections/{name}/grant",
+            post(tool_connections_api::grant),
+        )
+        .route(
+            "/companies/{company}/tool-connections/{name}/revoke",
+            post(tool_connections_api::revoke),
+        )
+        .route(
+            "/companies/{company}/tool-connections/{name}/freeze",
+            post(tool_connections_api::freeze),
+        )
+        .route(
+            "/companies/{company}/tool-connections/{name}/disconnect",
+            post(tool_connections_api::disconnect),
+        )
+        .route(
+            "/companies/{company}/tool-connections/{name}/receipts",
+            get(tool_connections_api::receipts),
+        )
         .route("/companies/{company}/approvals/grant", post(grant))
         .route("/companies/{company}/approvals/decline", post(decline))
         .route("/companies/{company}/approvals/revoke", post(revoke))
@@ -1455,6 +1493,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             crate::model_gateway::HOSTED_MODEL_GATEWAY_PREFIX,
             crate::model_gateway::hosted_routes::<OwnerState>(),
         )
+        .route(
+            tool_connections_api::OAUTH_CALLBACK_PATH,
+            get(tool_connections_api::oauth_callback),
+        )
         .route("/entry", post(consume_entry_assertion))
         .route("/entry/account", post(consume_account_entry_assertion))
         .route("/entry/logout", post(end_entry_session))
@@ -1549,6 +1591,14 @@ async fn enforce_owner_boundary(
         // Fleet's dedicated read-only bearer, exact Host and exact cell tuple
         // are checked by the handler. This is a machine lifecycle route, not
         // an owner browser session route.
+        return next.run(request).await;
+    }
+    if request.uri().path() == tool_connections_api::OAUTH_CALLBACK_PATH
+        && request.method() == Method::GET
+    {
+        // A provider's redirect is a cross-site top-level navigation. The
+        // single-use OAuth state of a sign-in the owner started is its
+        // authority; the handler completes nothing else.
         return next.run(request).await;
     }
     if plane_readiness::is_plane_readiness_path(request.uri().path()) {
@@ -8890,6 +8940,21 @@ async fn grant(
         return refusal;
     }
     let org = state.daemon.orgintel.get(&company).await.ok();
+    if let Some(key) = input.call_key.as_deref() {
+        return match crate::effect::decide_tool_call(
+            &state.daemon.authority,
+            org.as_ref(),
+            &company,
+            key,
+            true,
+            principal.actor_id(),
+        )
+        .await
+        {
+            Ok(message) => Json(serde_json::json!({ "message": message })).into_response(),
+            Err(error) => api_error(StatusCode::BAD_REQUEST, "approval", format!("{error:#}")),
+        };
+    }
     match approval::grant(
         &state.daemon.root,
         &company,
@@ -8915,6 +8980,21 @@ async fn decline(
         return refusal;
     }
     let org = state.daemon.orgintel.get(&company).await.ok();
+    if let Some(key) = input.call_key.as_deref() {
+        return match crate::effect::decide_tool_call(
+            &state.daemon.authority,
+            org.as_ref(),
+            &company,
+            key,
+            false,
+            principal.actor_id(),
+        )
+        .await
+        {
+            Ok(message) => Json(serde_json::json!({ "message": message })).into_response(),
+            Err(error) => api_error(StatusCode::BAD_REQUEST, "approval", format!("{error:#}")),
+        };
+    }
     match approval::decline(
         &state.daemon.root,
         &company,
