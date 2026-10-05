@@ -2869,6 +2869,7 @@
                     next_step: Some("Exec checks the prepared plan.".into()),
                     owner_need: None,
                     owner_replies: Vec::new(),
+                    owner_fields: Vec::new(),
                 }),
                 context_path: Some("/demo_test/company".into()),
                 created_at: at,

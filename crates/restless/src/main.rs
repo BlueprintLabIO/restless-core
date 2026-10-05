@@ -361,7 +361,7 @@ enum Command {
         as_actor: Option<String>,
         #[arg(long)]
         message: i64,
-        /// One of 👍 👀 ✅ ❤️ 🎉 ❓.
+        /// One of 👍 👀 ✅ ❤️ 🎉 ❓, or 📌 to pin the message for the owner.
         #[arg(long)]
         emoji: String,
         /// Remove the reaction instead of adding it.

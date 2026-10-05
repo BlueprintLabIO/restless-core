@@ -59,6 +59,11 @@ pub struct OwnerIntentReceipt {
     /// cockpit offers them as drafts; the owner still sends their own words.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub owner_replies: Vec<String>,
+    /// Up to four short labels for the separate facts an `owner_need`
+    /// asks for ("Price paid", "Load test result"). The cockpit gives each
+    /// one a field and sends the answers as ordinary text.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub owner_fields: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -138,6 +143,17 @@ pub fn split_intent_receipt(body: &str) -> (&str, Option<OwnerIntentReceipt>) {
                     .map(|reply| reply.trim().to_string())
                     .filter(|reply| !reply.is_empty() && reply.chars().count() <= 80)
                     .take(3)
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            receipt.owner_fields = if receipt.owner_need.is_some() {
+                receipt
+                    .owner_fields
+                    .iter()
+                    .map(|field| field.trim().to_string())
+                    .filter(|field| !field.is_empty() && field.chars().count() <= 40)
+                    .take(4)
                     .collect()
             } else {
                 Vec::new()
@@ -265,16 +281,25 @@ mod tests {
         );
         let receipt = split_intent_receipt(suggested).1.expect("replies parse");
         assert_eq!(receipt.owner_replies, vec!["Yes, list it", "Not yet", "Hold"]);
+        let fielded = concat!(
+            "Need numbers.",
+            "\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Asks for numbers.\",",
+            "\"ownerNeed\":\"What did the tower cost and did it pass the load test?\",",
+            "\"ownerFields\":[\"Price paid\",\"\",\"Load test result\",\"CPU\",\"GPU\",\"RAM\"]}-->"
+        );
+        let receipt = split_intent_receipt(fielded).1.expect("fields parse");
+        assert_eq!(
+            receipt.owner_fields,
+            vec!["Price paid", "Load test result", "CPU", "GPU"]
+        );
         let without_question = concat!(
             "Done.",
             "\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Done.\",",
-            "\"ownerReplies\":[\"Thanks\"]}-->"
+            "\"ownerReplies\":[\"Thanks\"],\"ownerFields\":[\"Price\"]}-->"
         );
-        assert!(split_intent_receipt(without_question)
-            .1
-            .expect("parses")
-            .owner_replies
-            .is_empty());
+        let receipt = split_intent_receipt(without_question).1.expect("parses");
+        assert!(receipt.owner_replies.is_empty());
+        assert!(receipt.owner_fields.is_empty());
 
         let malformed = "Reply\n\n<!--restless-intent:{\"kind\":\"whatever\",\"summary\":\"x\"}-->";
         assert_eq!(split_intent_receipt(malformed).0, "Reply");
