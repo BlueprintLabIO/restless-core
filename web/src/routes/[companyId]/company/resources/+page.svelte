@@ -1,5 +1,6 @@
 <script lang="ts">
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
+	import { hostPlace, planeStatus } from '$lib/model/appliance';
 	import { Page, Section, Item, Notice, Empty } from '$lib/ui/page';
 	import AppWindow from '@lucide/svelte/icons/app-window';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
@@ -48,7 +49,7 @@
 			} else {
 				nativeNotice = outcome.reused
 					? `${item.label} is already running.`
-					: `${item.label} launched on this computer.`;
+					: `${item.label} launched ${hostPlace(await planeStatus())}.`;
 			}
 		} catch (error) {
 			launchError = failureSentence(error, 'The resource could not be opened.');

@@ -1669,6 +1669,12 @@ async fn enforce_owner_boundary(
             ) {
                 return api_error(refusal.status, refusal.code, refusal.message);
             }
+            // The shell is inert without a session, so a page load without one goes Home on
+            // the account issuer, which signs the owner in again, instead of drawing a page
+            // whose every section is refused.
+            if identity.is_none() && is_signed_out_page_load(request.method(), request.headers(), &path) {
+                return Redirect::to(&network.account_portfolio_url()).into_response();
+            }
             if path.starts_with("/api/") || path.starts_with("/desktop/") {
                 if let Some(identity) = identity {
                     match network_session_is_current(&state, identity).await {
@@ -1833,6 +1839,18 @@ fn is_attachment_download_route(method: &Method, path: &str) -> bool {
             .and_then(|attachment| Uuid::parse_str(attachment).ok())
             .is_some()
         && segments.next().is_none()
+}
+
+/// A browser navigation to a page (not an API call, asset or health probe).
+fn is_signed_out_page_load(method: &Method, headers: &HeaderMap, path: &str) -> bool {
+    matches!(*method, Method::GET | Method::HEAD)
+        && !is_owner_data_surface(path)
+        && !path.starts_with("/_app/")
+        && path != "/health"
+        && headers
+            .get(axum::http::header::ACCEPT)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|accept| accept.contains("text/html"))
 }
 
 fn is_owner_data_surface(path: &str) -> bool {
@@ -2402,6 +2420,7 @@ async fn consume_entry_assertion(
         cell_id: Some(access.cell_id),
         membership_id: Some(binding.membership_id),
         membership_version: Some(binding.membership_version),
+        display_name: access.display_name.clone(),
     };
 
     tracing::info!(
@@ -2575,6 +2594,7 @@ async fn consume_account_entry_assertion(
         cell_id: None,
         membership_id: None,
         membership_version: None,
+        display_name: access.display_name.clone(),
     };
     tracing::info!(owner = %access.owner_id, plane_id = %access.plane_id, "admitted a verified account-owner entry assertion");
     let ttl = network.session_ttl();
@@ -4892,9 +4912,14 @@ struct ApplianceStatus {
     /// account issuer, and there is no host for the owner to repair.
     hosted: bool,
     home_url: Option<String>,
+    /// The signed-in person's name on a hosted plane, as the account issuer signed it.
+    viewer_name: Option<String>,
 }
 
-async fn appliance_status(State(state): State<OwnerState>) -> impl IntoResponse {
+async fn appliance_status(
+    State(state): State<OwnerState>,
+    session_lease: Option<Extension<SessionLease>>,
+) -> impl IntoResponse {
     let profile = match restless_contracts::appliance::MachineProfile::from_env() {
         Ok(profile) => profile,
         Err(error) => {
@@ -5045,6 +5070,7 @@ async fn appliance_status(State(state): State<OwnerState>) -> impl IntoResponse 
             .entry
             .network()
             .map(|network| network.account_portfolio_url()),
+        viewer_name: session_lease.and_then(|Extension(lease)| lease.identity.display_name),
     })
     .into_response()
 }

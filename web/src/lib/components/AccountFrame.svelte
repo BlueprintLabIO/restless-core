@@ -49,7 +49,10 @@
 	brandName={PRODUCT_NAME}
 	homeHref={home}
 	{tabs}
-	account={{ name: 'You', detail: status?.hosted ? profile : `${profile} · this computer` }}
+	account={{
+		name: status?.viewer_name || 'You',
+		detail: status?.hosted ? profile : `${profile} · this computer`
+	}}
 >
 	{#snippet accountMenu()}
 		<a href="/account#connections">Connections</a>

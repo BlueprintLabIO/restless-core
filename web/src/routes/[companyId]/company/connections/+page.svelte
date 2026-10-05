@@ -1,5 +1,6 @@
 <script lang="ts">
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
+	import { hostPlace, planeStatus, type ApplianceStatus } from '$lib/model/appliance';
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import { Page, Section, Item, Notice, Empty, Toggle, Segmented, Dot } from '$lib/ui/page';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
@@ -27,6 +28,8 @@
 		type ToolConnection,
 		type ToolReceipts
 	} from '$lib/model/connections';
+	let plane = $state<ApplianceStatus | null>(null);
+	void planeStatus().then((value) => (plane = value));
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	let connections = $state<ToolConnection[] | null>(null);
@@ -385,7 +388,7 @@
 
 <Page
 	title="Connections"
-	info="Services your agents use through MCP. Restless holds every sign-in on this computer, never in the company computer, and governs each tool by what it can do."
+	info={`Services your agents use through MCP. Restless holds every sign-in ${hostPlace(plane)}, never in the company computer, and governs each tool by what it can do.`}
 >
 	{#snippet actions()}
 		{#if !adding}<button class="btn small primary" type="button" onclick={() => openAdd('url')}
@@ -407,7 +410,7 @@
 						{
 							value: 'command',
 							label: 'Command',
-							title: 'A local MCP server, run on this computer outside the company computer.'
+							title: `A local MCP server, run ${hostPlace(plane)} outside the company computer.`
 						},
 						{
 							value: 'plugin',

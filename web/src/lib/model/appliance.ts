@@ -10,6 +10,8 @@ export interface ApplianceStatus {
 	/** A hosted plane: its owner's Home (the one company list) is `home_url`, on the account issuer. */
 	hosted?: boolean;
 	home_url?: string | null;
+	/** The signed-in person's name on a hosted plane, as the account issuer signed it. */
+	viewer_name?: string | null;
 }
 
 /** Where this plane runs, in the owner's words. */
@@ -18,6 +20,19 @@ export function planeLabel(status: ApplianceStatus | null): string {
 	if (status?.profile === 'dev') return 'Development profile';
 	if (status?.profile === 'test') return 'Test profile';
 	return 'Local appliance';
+}
+
+let shared: Promise<ApplianceStatus | null> | null = null;
+
+/** This plane's status, read once per page load and shared by every reader. */
+export function planeStatus(): Promise<ApplianceStatus | null> {
+	shared ??= getApplianceStatus().catch(() => null);
+	return shared;
+}
+
+/** Where Restless keeps sign-ins and runs local tools, in the owner's words. */
+export function hostPlace(status: ApplianceStatus | null): string {
+	return status?.hosted ? 'in your account' : 'on this computer';
 }
 
 export async function getApplianceStatus(signal?: AbortSignal): Promise<ApplianceStatus> {

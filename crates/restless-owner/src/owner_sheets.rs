@@ -500,6 +500,7 @@ mod tests {
             cell_id: Some(Uuid::new_v4()),
             membership_id: Some("membership-alice".into()),
             membership_version: Some(1),
+            display_name: None,
         };
         let token = sessions.establish(identity, Duration::from_secs(60));
         let mut handles = HashMap::new();

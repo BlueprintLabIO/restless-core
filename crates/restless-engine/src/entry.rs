@@ -161,6 +161,10 @@ pub struct AccountAssertionClaims {
     pub owner_id: Uuid,
     pub plane_id: Uuid,
     pub assertion_version: u32,
+    /// The person's name, for display only. Optional so a plane accepts an issuer that does
+    /// not send it yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -170,6 +174,7 @@ pub struct VerifiedAccountAccess {
     pub assertion_id: Uuid,
     pub owner_id: Uuid,
     pub plane_id: Uuid,
+    pub display_name: Option<String>,
 }
 
 /// Exact signed terminal-membership command contract. It is intentionally a
@@ -273,6 +278,8 @@ pub struct VerifiedIdentity {
     pub cell_id: Option<Uuid>,
     pub membership_id: Option<String>,
     pub membership_version: Option<i64>,
+    /// The person's name as the account issuer signed it, for display only.
+    pub display_name: Option<String>,
 }
 
 /// Handler-facing principal. The browser never supplies this value.
@@ -529,6 +536,10 @@ impl NetworkEntry {
             return Err(Refusal::TooLongLived);
         }
         Ok(VerifiedAccountAccess {
+            display_name: claims
+                .display_name
+                .map(|name| name.trim().to_owned())
+                .filter(|name| !name.is_empty() && name.len() <= 256 && !name.chars().any(char::is_control)),
             issuer: claims.iss.trim_end_matches('/').to_owned(),
             subject: claims.sub,
             assertion_id: claims.jti,
@@ -2043,6 +2054,7 @@ mod tests {
             cell_id: Some(Uuid::new_v4()),
             membership_id: Some("membership-1".into()),
             membership_version: Some(2),
+            display_name: None,
         };
         let principal = RequestPrincipal::from_verified(&scoped).unwrap();
         assert_eq!(principal.actor_id(), "human-1");
@@ -2102,6 +2114,7 @@ mod tests {
             cell_id: None,
             membership_id: None,
             membership_version: None,
+            display_name: None,
         };
         let token = store.establish(identity, Duration::from_secs(60));
         assert!(store.resolve_lease(&token).is_some());
@@ -2160,6 +2173,7 @@ mod tests {
             cell_id: Some(Uuid::new_v4()),
             membership_id: Some(membership.into()),
             membership_version: Some(version),
+            display_name: None,
         };
         let covered = store.establish(
             identity("https://cloud.restless.test", "membership-1", 4),

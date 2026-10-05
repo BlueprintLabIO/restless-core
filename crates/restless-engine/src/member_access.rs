@@ -190,6 +190,7 @@ mod tests {
             cell_id: Some(Uuid::new_v4()),
             membership_id: Some("m1".into()),
             membership_version: Some(3),
+            display_name: None,
         }
     }
 

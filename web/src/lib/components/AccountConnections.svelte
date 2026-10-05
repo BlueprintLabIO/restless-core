@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { failureSentence } from '$lib/model/failure';
+	import { hostPlace, planeStatus, type ApplianceStatus } from '$lib/model/appliance';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { onMount } from 'svelte';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
@@ -13,6 +14,8 @@
 		announceIntelligenceChange,
 		watchIntelligenceChanges
 	} from '$lib/model/intelligence-events';
+	let plane = $state<ApplianceStatus | null>(null);
+	void planeStatus().then((value) => (plane = value));
 	const catalog = modelCatalog();
 	type CompanyUse = { id: string; name: string; in_use?: boolean };
 	type AccountConnection = {
@@ -668,7 +671,9 @@
 				>{/if}
 			{#if provider === 'claude' && oauthUrl && oauthState === 'waiting'}<label
 					class="callback-label"
-					title="If your browser cannot reach the callback on this computer, copy its final localhost URL and paste it here."
+					title={plane?.hosted
+						? 'Sign-in finishes on a localhost address your browser cannot open from here. After you approve, copy that address from the browser bar and paste it here.'
+						: 'If your browser cannot reach the callback on this computer, copy its final localhost URL and paste it here.'}
 					><span>Callback URL</span><input
 						type="url"
 						bind:value={oauthCallback}

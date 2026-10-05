@@ -684,6 +684,7 @@ mod tests {
             cell_id: Some(Uuid::new_v4()),
             membership_id: Some(format!("membership-{actor}")),
             membership_version: Some(1),
+            display_name: None,
         })
         .expect("verified fixture principal")
     }

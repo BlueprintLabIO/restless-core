@@ -17,6 +17,7 @@
 	import { fade } from 'svelte/transition';
 	import { connection, observeFailure, observeSuccess } from '$lib/model/connection.svelte';
 	import { isRetryable } from '$lib/model/failure';
+	import { observeSessionEnd } from '$lib/model/session-reentry';
 
 	let { children } = $props();
 
@@ -103,6 +104,9 @@
 	function reconnectNow() {
 		void queryClient.refetchQueries({ type: 'active' });
 	}
+
+	/* A hosted session that ends mid-use re-enters through the account issuer. */
+	onMount(observeSessionEnd);
 
 	onMount(() => {
 		let backgrounded = document.visibilityState === 'hidden';

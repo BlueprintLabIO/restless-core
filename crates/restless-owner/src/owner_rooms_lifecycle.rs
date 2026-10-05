@@ -667,6 +667,7 @@ mod tests {
                 cell_id: None,
                 membership_id: None,
                 membership_version: None,
+                display_name: None,
             }
         }
 

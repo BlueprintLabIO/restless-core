@@ -34,6 +34,7 @@
             cell_id: Some(Uuid::new_v4()),
             membership_id: Some("membership-1".into()),
             membership_version: Some(4),
+            display_name: None,
         })
         .expect("verified human principal");
         let expected_partition = principal.cache_partition().to_string();
@@ -135,6 +136,7 @@
                 cell_id: None,
                 membership_id: None,
                 membership_version: None,
+                display_name: None,
             }
         }
 
@@ -1765,6 +1767,7 @@
             cell_id: None,
             membership_id: None,
             membership_version: None,
+            display_name: None,
         }
     }
 
@@ -1805,6 +1808,31 @@
         .expect("no session is refused");
         assert_eq!(refusal.status, StatusCode::UNAUTHORIZED);
         assert_eq!(refusal.code, "no_session");
+    }
+
+    /// Only a page load re-enters through the issuer; the door, the APIs, assets and the health
+    /// probe keep their own answers, so re-entry can never swallow a sign-in or hide a refusal.
+    #[test]
+    fn only_a_signed_out_page_load_goes_home_to_re_enter() {
+        let html = {
+            let mut headers = network_headers(PLANE_HOST);
+            headers.insert(axum::http::header::ACCEPT, HeaderValue::from_static("text/html,application/xhtml+xml"));
+            headers
+        };
+        let json = {
+            let mut headers = network_headers(PLANE_HOST);
+            headers.insert(axum::http::header::ACCEPT, HeaderValue::from_static("application/json"));
+            headers
+        };
+        assert!(is_signed_out_page_load(&Method::GET, &html, "/"));
+        assert!(is_signed_out_page_load(&Method::GET, &html, "/account"));
+        assert!(is_signed_out_page_load(&Method::GET, &html, "/aris/company"));
+        assert!(!is_signed_out_page_load(&Method::POST, &html, "/entry"));
+        assert!(!is_signed_out_page_load(&Method::GET, &html, "/api/companies"));
+        assert!(!is_signed_out_page_load(&Method::GET, &html, "/desktop/aris"));
+        assert!(!is_signed_out_page_load(&Method::GET, &html, "/_app/immutable/entry.js"));
+        assert!(!is_signed_out_page_load(&Method::GET, &html, "/health"));
+        assert!(!is_signed_out_page_load(&Method::GET, &json, "/account"));
     }
 
     #[test]
@@ -2072,6 +2100,7 @@
             cell_id: Some(cell_id),
             membership_id: Some("membership-1".into()),
             membership_version: Some(version),
+            display_name: None,
         };
         let stale_v4 = sessions.establish(session(4), Duration::from_secs(60));
         let stale_v5 = sessions.establish(session(5), Duration::from_secs(60));
@@ -2141,6 +2170,7 @@
             cell_id: Some(cell_id),
             membership_id: Some(membership.into()),
             membership_version: Some(version),
+            display_name: None,
         };
         let stale_version =
             sessions.establish(active("membership-1", "member", 5), Duration::from_secs(60));
@@ -2227,6 +2257,7 @@
                 cell_id: Some(cell_id),
                 membership_id: Some(initial.membership_id.clone()),
                 membership_version: Some(initial.membership_version),
+                display_name: None,
             },
             Duration::from_secs(60),
         );
@@ -2308,6 +2339,7 @@
                 cell_id: Some(cell_id),
                 membership_id: Some(binding.membership_id),
                 membership_version: Some(binding.membership_version),
+                display_name: None,
             };
             reconcile_active_entry_session(
                 &stale_sessions,
@@ -2372,6 +2404,7 @@
                 cell_id: Some(cell_id),
                 membership_id: Some(binding.membership_id),
                 membership_version: Some(binding.membership_version),
+                display_name: None,
             };
             reconcile_active_entry_session(
                 &active_sessions,
@@ -2537,6 +2570,7 @@
             cell_id: Some(Uuid::new_v4()),
             membership_id: Some("membership-1".into()),
             membership_version: Some(1),
+            display_name: None,
         };
         let principal = RequestPrincipal::from_verified(&identity).unwrap();
         for role in ["member", "admin"] {
