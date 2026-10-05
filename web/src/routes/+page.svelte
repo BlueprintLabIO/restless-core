@@ -11,7 +11,7 @@
 	import { page } from '$app/state';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import CreateCompany from '$lib/components/CreateCompany.svelte';
-	import AccountNavigation from '$lib/components/AccountNavigation.svelte';
+	import AccountFrame from '$lib/components/AccountFrame.svelte';
 	import { getApplianceStatus, type ApplianceStatus } from '$lib/model/appliance';
 	import {
 		companiesQuery,
@@ -187,70 +187,73 @@
 {/snippet}
 
 <div use:tooltips use:selectMenu>
-	<CompanyPortfolio
-		companies={rows}
-		{loaded}
-		brandName={PRODUCT_NAME}
-		feedback={companyCatalog.failure || actionError || notice ? feedback : null}
-	>
-		{#snippet headerActions()}
-			{#if loaded}<CreateCompany />{/if}
-			<AccountNavigation {appliance} />
-		{/snippet}
-		{#snippet rowActions(company)}<ActionMenu label={`${company.name} options`}
-				>{#if archivedSet.has(company.id)}<button
-						disabled={!!busy}
-						onclick={() => restore(company.id)}>Restore company</button
-					>{:else}<a href={`/${company.id}`}>Open</a><a href={`/${company.id}/company`}>Rename</a><a
-						href={`/${company.id}/company/provider`}>Intelligence</a
-					><button disabled={!!busy} onclick={() => archive(company.id)}>Archive company</button
-					>{/if}</ActionMenu
-			>{/snippet}
-		{#snippet footer()}
-			<span
-				>{activeCompanies.length}
-				{activeCompanies.length === 1 ? 'company' : 'companies'} · {appliance?.profile === 'dev'
-					? 'Development profile'
-					: appliance?.profile === 'test'
-						? 'Test profile'
-						: 'Local appliance'}</span
-			>
-			{#if archivedCompanies.length}<button
-					class="portfolio-archived-toggle"
-					type="button"
-					aria-pressed={showArchived}
-					onclick={() => (showArchived = !showArchived)}
-					>{showArchived ? 'Hide archived' : `Show archived (${archivedCompanies.length})`}</button
-				>{/if}
-		{/snippet}
-		{#snippet before()}
-			{#if appliance?.state === 'recovering'}
-				<div class="appliance-notice" role="status">
-					<span>Restoring runtime safety.</span>
-					<p>{appliance.repair}</p>
-				</div>
-			{:else if appliance?.state === 'draining'}
-				<div class="appliance-notice" role="status">
-					<span>Work admission is paused.</span>
-					<p>{appliance.repair}</p>
-				</div>
-			{:else if appliance?.state === 'degraded'}
-				<div class="appliance-notice" role="status">
-					<span>Schedule wake needs repair.</span>
-					<p>{appliance.repair}</p>
-				</div>
-			{/if}
-		{/snippet}
+	<AccountFrame {appliance}>
+		<CompanyPortfolio
+			companies={rows}
+			{loaded}
+			feedback={companyCatalog.failure || actionError || notice ? feedback : null}
+		>
+			{#snippet actions()}
+				{#if loaded}<CreateCompany />{/if}
+			{/snippet}
+			{#snippet rowActions(company)}<ActionMenu label={`${company.name} options`}
+					>{#if archivedSet.has(company.id)}<button
+							disabled={!!busy}
+							onclick={() => restore(company.id)}>Restore company</button
+						>{:else}<a href={`/${company.id}`}>Open</a><a href={`/${company.id}/company`}>Rename</a
+						><a href={`/${company.id}/company/provider`}>Intelligence</a><button
+							disabled={!!busy}
+							onclick={() => archive(company.id)}>Archive company</button
+						>{/if}</ActionMenu
+				>{/snippet}
+			{#snippet footer()}
+				<span
+					>{activeCompanies.length}
+					{activeCompanies.length === 1 ? 'company' : 'companies'} · {appliance?.profile === 'dev'
+						? 'Development profile'
+						: appliance?.profile === 'test'
+							? 'Test profile'
+							: 'Local appliance'}</span
+				>
+				{#if archivedCompanies.length}<button
+						class="portfolio-archived-toggle"
+						type="button"
+						aria-pressed={showArchived}
+						onclick={() => (showArchived = !showArchived)}
+						>{showArchived
+							? 'Hide archived'
+							: `Show archived (${archivedCompanies.length})`}</button
+					>{/if}
+			{/snippet}
+			{#snippet before()}
+				{#if appliance?.state === 'recovering'}
+					<div class="appliance-notice" role="status">
+						<span>Restoring runtime safety.</span>
+						<p>{appliance.repair}</p>
+					</div>
+				{:else if appliance?.state === 'draining'}
+					<div class="appliance-notice" role="status">
+						<span>Work admission is paused.</span>
+						<p>{appliance.repair}</p>
+					</div>
+				{:else if appliance?.state === 'degraded'}
+					<div class="appliance-notice" role="status">
+						<span>Schedule wake needs repair.</span>
+						<p>{appliance.repair}</p>
+					</div>
+				{/if}
+			{/snippet}
 
-		{#snippet empty()}
-			<h2>No companies yet</h2>
-			<p>
-				{archivedCompanies.length
-					? 'Use New company to start one.'
-					: 'Tell Exec what to build with New company.'}
-			</p>
-		{/snippet}
-	</CompanyPortfolio>
+			{#snippet empty()}
+				<h2>No companies yet</h2>
+				<p>
+					{archivedCompanies.length
+						? 'Use New company to start one.'
+						: 'Tell Exec what to build with New company.'}
+				</p>
+			{/snippet}
+		</CompanyPortfolio>
+	</AccountFrame>
 </div>
 
 <style>
