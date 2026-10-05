@@ -2,7 +2,7 @@
 import { dag, Container, Directory, Platform, Secret, argument, object, func } from '@dagger.io/dagger';
 
 import { verifyRuntimeToolsImage, verifyCompanyRuntimeImage, verifyNativeDocumentsImage, verifyAccountPlaneImage } from './verify.js';
-import { publishImage, node, verifyBuildInputs, verifyImageInspection } from './publish.js';
+import { publishImage, node, timed, timingsFile, verifyBuildInputs, verifyImageInspection, type Timing } from './publish.js';
 import { sealRelease } from './release.js';
 import { library, publishLibrary, reuseLibrary, sealLibrary } from './libraries.js';
 
@@ -217,21 +217,23 @@ export class RestlessCore {
     @argument({ ignore: ['**/.git', '**/.git/**', '**/node_modules/**', '**/.svelte-kit/**', '**/build/**', '**/dist/**', '**/target/**', '**/.env', '**/.env.*'] })
     source: Directory,
   ): Promise<string> {
+    const timings: Timing[] = [];
     await Promise.all([
-      rust(source).withExec(['cargo', 'check', '--workspace', '--locked'])
+      timed(timings, 'rust check and boundary tests', () => rust(source).withExec(['cargo', 'check', '--workspace', '--locked'])
         .withExec(['cargo', 'test', '--locked', '-p', 'restlessd', 'company_projection::tests'])
-        .withExec(['cargo', 'test', '--locked', '-p', 'restlessd', 'public_jwks_routes_are_method_and_path_exact']).sync(),
-      cockpit(source).sync(),
-      this.verifyOverlays(source).sync(),
-      this.verifyUiArtifact(source).sync(),
-      project(source, 'services/native-documents-collaboration')
-        .withExec(['npm', 'run', 'check']).withExec(['npm', 'run', 'build']).sync(),
-      project(source, 'services/native-sheets').withExec(['npm', 'test']).sync(),
-      this.verifyWorkflow(source).sync(),
-      this.issuer(source).sync(),
-      this.verifyRelease(source),
+        .withExec(['cargo', 'test', '--locked', '-p', 'restlessd', 'public_jwks_routes_are_method_and_path_exact']).sync()),
+      timed(timings, 'cockpit check and build', () => cockpit(source).sync()),
+      timed(timings, 'browser overlays', () => this.verifyOverlays(source).sync()),
+      timed(timings, 'ui artifact consumer', () => this.verifyUiArtifact(source).sync()),
+      timed(timings, 'native documents check and build', () => project(source, 'services/native-documents-collaboration')
+        .withExec(['npm', 'run', 'check']).withExec(['npm', 'run', 'build']).sync()),
+      timed(timings, 'native sheets tests', () => project(source, 'services/native-sheets').withExec(['npm', 'test']).sync()),
+      timed(timings, 'workflow lint', () => this.verifyWorkflow(source).sync()),
+      timed(timings, 'issuer artifact', () => this.issuer(source).sync()),
+      timed(timings, 'release contracts', () => this.verifyRelease(source)),
     ]);
-    return 'Core qualification passed: Rust workspace, projection contract and public-key boundary tests, cockpit check/build and browser overlays, clean-project UI artifact consumer, native Documents check/build, pinned native Sheets engine, issuer artifact imports, workflow lint and versioned release contracts';
+    return 'Core qualification passed: Rust workspace, projection contract and public-key boundary tests, cockpit check/build and browser overlays, clean-project UI artifact consumer, native Documents check/build, pinned native Sheets engine, issuer artifact imports, workflow lint and versioned release contracts\n'
+      + `timings ${JSON.stringify(timings)}`;
   }
 
   /** Check workflow wiring with the same pinned tool used by Cloud. */
@@ -299,11 +301,12 @@ export class RestlessCore {
     checkPlatform(platform);
     if (!/^[0-9a-f]{40}$/.test(revision)) throw new Error('Core publication requires exact source provenance');
     if (scanPeriod !== new Date().toISOString().slice(0, 10)) throw new Error('pass the current UTC scan day');
-    await this.verifyRelease(source);
+    const timings: Timing[] = [];
+    await timed(timings, 'release contracts', () => this.verifyRelease(source));
     const toolsContext = source.filter({ include: ['infra/company-image/Dockerfile', 'infra/company-image/gtk-settings.ini', 'infra/company-image/browser-sbom.mjs'] });
-    let artifacts = await publishImage('runtime-tools', revision, platform, toolsContext,
+    let artifacts = await timed(timings, 'runtime-tools', () => publishImage('runtime-tools', revision, platform, toolsContext,
       async () => this.runtimeTools(source, platform), async image => { console.log(await verifyRuntimeToolsImage(image, source.file('infra/company-image/verify-desktop.mjs'))); },
-      username, password, scanPeriod);
+      username, password, scanPeriod));
     const tools = JSON.parse(await artifacts.file('images/runtime-tools.json').contents());
     const nativeContext = source.directory('services/native-documents-collaboration').filter({
       include: ['Dockerfile', 'package.json', 'package-lock.json', 'tsconfig.json', 'tsconfig.build.json', 'src/**'], exclude: EXCLUDES,
@@ -322,10 +325,11 @@ export class RestlessCore {
     ];
     // Bound independent work on the first builder instead of oversubscribing it.
     for (let offset = 0; offset < tasks.length; offset += 2) {
-      const results = await Promise.all(tasks.slice(offset, offset + 2).map(task => task()));
+      const results = await timed(timings, `image round ${offset / 2 + 1}`,
+        () => Promise.all(tasks.slice(offset, offset + 2).map(task => task())));
       for (const result of results) artifacts = artifacts.withDirectory('/', result);
     }
-    return artifacts;
+    return artifacts.withNewFile('timings/publish.json', timingsFile(timings));
   }
 
   /** Seal publication through the trusted Core main workflow. */

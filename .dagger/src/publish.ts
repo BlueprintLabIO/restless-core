@@ -10,6 +10,42 @@ export const CORE_WORKFLOW = 'BlueprintLabIO/restless-core/.github/workflows/imm
 export const EXCLUDES = ['**/.git/**', '**/node_modules/**', '**/target/**', '**/build/**', '**/.svelte-kit/**', '**/dist/**', '**/.env', '**/.env.*', '**/__pycache__/**'];
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 
+/**
+ * Release timings by named phase. CI runs Dagger with --silent so runner inventory never reaches the log;
+ * these numbers name only our own phases, so they can go in the run summary.
+ */
+export type Timing = { step: string; seconds: number };
+
+export async function timed<T>(timings: Timing[], step: string, work: () => Promise<T>): Promise<T> {
+  const started = Date.now();
+  try {
+    return await work();
+  } finally {
+    timings.push({ step, seconds: Math.round((Date.now() - started) / 100) / 10 });
+  }
+}
+
+export const timingsFile = (timings: Timing[]) => `${JSON.stringify(timings, null, 2)}\n`;
+
+/** Failures a repeat can clear: registry and transparency-log calls that hang or drop. */
+export const TRANSIENT = /(?:timed out|timeout|deadline exceeded|connection reset|broken pipe|unexpected EOF|network is unreachable|TLS handshake|: 5\d\d|giving up after)/i;
+
+/**
+ * Repeat a network-bound step that is safe to repeat (push, sign, attest, verify). `run` gets the attempt
+ * number so callers can make each attempt a distinct Dagger operation instead of a cached failure.
+ */
+export async function withRetry<T>(label: string, run: (attempt: number) => Promise<T>, attempts = 3): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await run(attempt);
+    } catch (error) {
+      if (attempt >= attempts || !TRANSIENT.test(String(error))) throw error;
+      console.log(`${label}: transient failure (attempt ${attempt}), retrying`);
+      await new Promise((resolve) => setTimeout(resolve, 5_000 * attempt));
+    }
+  }
+}
+
 async function inspectPlatform(reference: string, platform: string, oras: Container, flags: string[] = []): Promise<void> {
   const manifest = JSON.parse(await oras.withExec(['manifest', 'fetch', ...flags, reference], { useEntrypoint: true }).stdout());
   if (!manifest.config?.digest || manifest.manifests) throw new Error('expected one platform-scoped image manifest');
@@ -101,23 +137,14 @@ function scanner(image: string, prefix: string, username: string, password: Secr
  * Push to GHCR, retrying a dropped connection. Already uploaded blobs are
  * skipped on the next attempt, so a retry only resends what was interrupted.
  */
-async function publishWithRetry(image: Container, tag: string): Promise<string> {
-  for (let attempt = 1; ; attempt += 1) {
-    try {
-      return await image.publish(tag);
-    } catch (error) {
-      const transient = /(?:timed out|timeout|connection reset|broken pipe|unexpected EOF|network is unreachable|: 5\d\d)/i;
-      if (attempt >= 3 || !transient.test(String(error))) throw error;
-      console.log(`${tag}: push interrupted (attempt ${attempt}), retrying`);
-    }
-  }
-}
+const publishWithRetry = (image: Container, tag: string) => withRetry(`${tag}: push`, () => image.publish(tag));
 
 /** Reuse a partial upload, then qualify the exact image before it can be sealed. */
 export async function publishImage(component: string, revision: string, platform: Platform, context: Directory,
   factory: () => Promise<Container>, verify: (image: Container) => Promise<void>, username: string, password: Secret,
   scanPeriod: string): Promise<Directory> {
   if (scanPeriod !== new Date().toISOString().slice(0, 10)) throw new Error('Core scans must use the current UTC vulnerability refresh day');
+  const timings: Timing[] = [];
   const repository = `ghcr.io/blueprintlabio/restless-${component}`;
   const input = await inputIdentity(context, platform);
   const tag = `${repository}:${component === 'runtime-tools' ? `inputs-${input}` : revision}-${platform.split('/')[1]}`;
@@ -126,13 +153,13 @@ export async function publishImage(component: string, revision: string, platform
   let reused = false;
   try {
     image = dag.container({ platform }).withRegistryAuth('ghcr.io', username, password).from(tag);
-    reference = `${repository}@${(await image.imageRef()).split('@')[1]}`;
+    reference = `${repository}@${(await timed(timings, 'reuse lookup', () => image.imageRef())).split('@')[1]}`;
     reused = true;
   } catch (error) {
     if (!/(?:manifest unknown|manifest_unknown|name_unknown|: not found|: 404)/i.test(String(error))) throw error;
     image = (await factory()).withLabel('io.restless.build-input-sha256', input).withLabel('io.restless.component', component)
       .withLabel('org.opencontainers.image.revision', revision).withRegistryAuth('ghcr.io', username, password);
-    reference = `${repository}@${(await publishWithRetry(image, tag)).split('@')[1]}`;
+    reference = `${repository}@${(await timed(timings, 'build and push', () => publishWithRetry(image, tag))).split('@')[1]}`;
     image = dag.container({ platform }).withRegistryAuth('ghcr.io', username, password).from(reference);
   }
   if (!/^sha256:[0-9a-f]{64}$/.test(reference.split('@')[1])) throw new Error(`${component}: registry returned a mutable reference`);
@@ -144,10 +171,10 @@ export async function publishImage(component: string, revision: string, platform
     || !/^[0-9a-f]{40}$/.test(actualRevision) || (component !== 'runtime-tools' && actualRevision !== revision)) {
     throw new Error(`${component}: existing artifact does not bind the requested inputs/source`);
   }
-  await verify(image);
+  await timed(timings, 'verify image', () => verify(image));
   const config = await registryConfig(username, password);
   // Inspect actual registry config, not a requested SDK platform hint.
-  await inspectPlatform(reference, platform, tool(ORAS_IMAGE, config));
+  await timed(timings, 'inspect platform', () => inspectPlatform(reference, platform, tool(ORAS_IMAGE, config)));
   // Catalogue the exact image once. Include producer CycloneDX records: newer
   // Chrome binaries no longer match Syft's binary-string version classifier.
   // Grype consumes this same inventory rather than recataloguing the image.
@@ -158,6 +185,7 @@ export async function publishImage(component: string, revision: string, platform
     .withExec(['oci-archive:/image.tar', '--source-name', reference, '--override-default-catalogers', 'image',
       '--override-default-catalogers', 'sbom-cataloger', '--output', 'syft-json=/reports/inventory.json',
       '--output', 'spdx-json=/reports/sbom.json'], { useEntrypoint: true });
+  await timed(timings, 'inventory (syft)', () => sbom.sync());
   if (['runtime-tools', 'company-runtime'].includes(component)) {
     const inventory = JSON.parse(await sbom.file('/reports/inventory.json').contents());
     const browser = JSON.parse(await image.file('/usr/local/share/restless/browser.cdx.json').contents()).components?.[0];
@@ -180,7 +208,7 @@ export async function publishImage(component: string, revision: string, platform
     // tens of megabytes and obscured diagnosis of an unrelated runner hang.
     .withExec(['sbom:/reports/inventory.json', '--config', '/reports/grype.yaml', '--fail-on', 'high', '--output', 'json',
       '--file', '/reports/scan.json'], { useEntrypoint: true, expect: ReturnType.Any });
-  const status = await scan.exitCode();
+  const status = await timed(timings, 'vulnerability scan (grype)', () => scan.exitCode());
   if (status !== 0) {
     let findings = '';
     if (status === 2) {
@@ -199,5 +227,6 @@ export async function publishImage(component: string, revision: string, platform
   return dag.directory().withNewFile(`images/${component}.json`, `${JSON.stringify({ component, reference, platform,
     source_revision: actualRevision, input_sha256: input, scan_sha256: hash(scanBytes), sbom_sha256: hash(sbomBytes) }, null, 2)}\n`)
     .withFile(`scans/${component}.json`, scan.file('/reports/scan.json')).withFile(`sboms/${component}.json`, sbom.file('/reports/sbom.json'))
-    .withNewFile(`provenance/${component}.json`, `${JSON.stringify(provenance, null, 2)}\n`);
+    .withNewFile(`provenance/${component}.json`, `${JSON.stringify(provenance, null, 2)}\n`)
+    .withNewFile(`timings/${component}.json`, timingsFile(timings));
 }

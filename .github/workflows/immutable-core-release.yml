@@ -22,11 +22,14 @@ permissions:
   id-token: write
   packages: write
 
+# Three jobs, so "Re-run failed jobs" repeats only the phase that failed: a dropped signing call no
+# longer costs the qualify and publish work before it. Publish hands its exact records to seal as a
+# short-lived artifact. Each job writes its own phase timings to the run summary.
 jobs:
-  candidate:
-    name: Deliver exact candidate
+  qualify:
+    name: Qualify exact candidate
     runs-on: ${{ fromJSON(inputs.platform == 'linux/arm64' && '["self-hosted","linux","arm64","restless-core"]' || '["self-hosted","linux","x64","restless-core"]') }}
-    timeout-minutes: 165
+    timeout-minutes: 60
     env:
       DAGGER_NO_NAG: "1"
     steps:
@@ -47,9 +50,30 @@ jobs:
         run: scripts/release/install-dagger.sh
       - name: Qualify the exact source through the shared pipeline
         run: |
-          "$HOME/.local/bin/dagger" --silent call qualify --source=.
+          result="$("$HOME/.local/bin/dagger" --silent call qualify --source=.)"
+          printf '%s\n' "$result"
+          node scripts/release/timings-summary.mjs qualify <<<"$result" >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    name: Publish exact platform artifacts
+    needs: qualify
+    if: inputs.publish
+    runs-on: ${{ fromJSON(inputs.platform == 'linux/arm64' && '["self-hosted","linux","arm64","restless-core"]' || '["self-hosted","linux","x64","restless-core"]') }}
+    timeout-minutes: 75
+    env:
+      DAGGER_NO_NAG: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Validate the publication identity
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_REF" = refs/heads/main
+      - name: Install the pinned Dagger CLI
+        run: scripts/release/install-dagger.sh
       - name: Prepare job-scoped registry access for Dockerfile base resolution
-        if: inputs.publish
         env:
           DOCKER_CONFIG: ${{ runner.temp }}/restless-core/docker
           RESTLESS_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
@@ -59,43 +83,73 @@ jobs:
           printf '%s' "$RESTLESS_REGISTRY_PASSWORD" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
           printf 'DOCKER_CONFIG=%s\n' "$DOCKER_CONFIG" >> "$GITHUB_ENV"
       - name: Publish and exercise the exact platform artifacts
-        if: inputs.publish
         timeout-minutes: 60
         env:
           RESTLESS_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
           PLATFORM: ${{ inputs.platform }}
         run: |
-          exec "$HOME/.local/bin/dagger" --silent call publish --source=. --revision="$GITHUB_SHA" \
+          rm -rf "$RUNNER_TEMP/core-release-artifacts"
+          "$HOME/.local/bin/dagger" --silent call publish --source=. --revision="$GITHUB_SHA" \
             --username="$GITHUB_ACTOR" --password=env:RESTLESS_REGISTRY_PASSWORD \
             --platform="$PLATFORM" --scan-period="$(date -u +%F)" \
             export --path="$RUNNER_TEMP/core-release-artifacts"
+          node scripts/release/timings-summary.mjs publish "$RUNNER_TEMP/core-release-artifacts/timings" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: core-release-artifacts-${{ github.sha }}-${{ inputs.platform == 'linux/arm64' && 'arm64' || 'amd64' }}
+          path: ${{ runner.temp }}/core-release-artifacts/
+          if-no-files-found: error
+          retention-days: 2
+      - name: Remove the job's temporary registry credentials
+        if: always()
+        run: rm -f "$RUNNER_TEMP/restless-core/docker/config.json"
+
+  seal:
+    name: Seal and verify the Core contract
+    needs: publish
+    if: inputs.publish
+    runs-on: ${{ fromJSON(inputs.platform == 'linux/arm64' && '["self-hosted","linux","arm64","restless-core"]' || '["self-hosted","linux","x64","restless-core"]') }}
+    timeout-minutes: 30
+    env:
+      DAGGER_NO_NAG: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Validate the publication identity
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_REF" = refs/heads/main
+      - name: Install the pinned Dagger CLI
+        run: scripts/release/install-dagger.sh
+      - uses: actions/download-artifact@v4
+        with:
+          name: core-release-artifacts-${{ github.sha }}-${{ inputs.platform == 'linux/arm64' && 'arm64' || 'amd64' }}
+          path: ${{ runner.temp }}/core-release-artifacts
       - name: Seal and verify the existing Core contract with this workflow identity
-        if: inputs.publish
-        timeout-minutes: 15
+        timeout-minutes: 20
         env:
           RESTLESS_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
           PLATFORM: ${{ inputs.platform }}
         run: |
-          exec "$HOME/.local/bin/dagger" --silent call seal --source=. --artifacts="$RUNNER_TEMP/core-release-artifacts" \
+          rm -rf "$RUNNER_TEMP/core-release"
+          "$HOME/.local/bin/dagger" --silent call seal --source=. --artifacts="$RUNNER_TEMP/core-release-artifacts" \
             --revision="$GITHUB_SHA" --username="$GITHUB_ACTOR" --password=env:RESTLESS_REGISTRY_PASSWORD \
             --platform="$PLATFORM" --oidc-request-url="$ACTIONS_ID_TOKEN_REQUEST_URL" \
             --oidc-request-token=env:ACTIONS_ID_TOKEN_REQUEST_TOKEN --workflow-ref="$GITHUB_WORKFLOW_REF" \
             export --path="$RUNNER_TEMP/core-release"
+          node scripts/release/timings-summary.mjs seal "$RUNNER_TEMP/core-release/timings" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
-        if: inputs.publish
         with:
           name: restless-core-release-${{ github.sha }}-${{ inputs.platform == 'linux/arm64' && 'arm64' || 'amd64' }}
           path: ${{ runner.temp }}/core-release/
           if-no-files-found: error
           retention-days: 7
       - name: Release summary
-        if: inputs.publish
         env:
           PLATFORM: ${{ inputs.platform }}
         run: |
           reference="$(jq -er .bundle "$RUNNER_TEMP/core-release/core-release-handoff.json")"
           printf '### Qualified Core candidate\n\nSource: %s\n\nPlatform: %s\n\nBundle: %s\n' \
             "$GITHUB_SHA" "$PLATFORM" "$reference" >> "$GITHUB_STEP_SUMMARY"
-      - name: Remove the job's temporary registry credentials
-        if: always()
-        run: rm -f "$RUNNER_TEMP/restless-core/docker/config.json"
