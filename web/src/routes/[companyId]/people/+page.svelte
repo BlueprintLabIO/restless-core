@@ -232,7 +232,12 @@
 		const latest = rows[0]?.person ?? directoryExec?.actor_id;
 		if (latest) void goto(href(latest), { replaceState: true, noScroll: true, keepFocus: true });
 	});
-	const recentRows = $derived(search.trim() ? [] : rows.slice(0, 5));
+	/* The Exec always sits directly below Recent, so Recent does not repeat it. */
+	const recentRows = $derived(
+		search.trim()
+			? []
+			: rows.filter((row) => row.room || row.person !== directoryExec?.actor_id).slice(0, 5)
+	);
 	/* A hit in a conversation with the Exec or a lead opens that conversation
 	 * (the full-width rail) at the message; anything else opens its room. */
 	function searchHref(message: {

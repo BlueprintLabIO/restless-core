@@ -2014,8 +2014,9 @@
 		.room-head {
 			flex-wrap: wrap;
 		}
+		/* The title truncates; its actions stay on the same row. */
 		.room-head-copy {
-			flex: 1 0 100%;
+			flex: 1 1 0;
 		}
 		.room-contact {
 			max-width: 100%;
