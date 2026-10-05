@@ -10,9 +10,10 @@ export type PortfolioAction =
  */
 export interface PortfolioCard {
 	decisionsWaiting: number;
-	peopleWorking: number;
-	outcomesLastDay: number;
-	execReady: boolean;
+	/** Null when the company's plane shares only decisions (projection v1): unknown, never zero. */
+	peopleWorking: number | null;
+	outcomesLastDay: number | null;
+	execReady: boolean | null;
 	/** ISO time work last moved. */
 	lastActivityAt?: string | null;
 	/** ISO time the plane computed the card, when it travelled (Cloud). */
@@ -84,14 +85,15 @@ export function portfolioSignal(company: CompanyPortfolioEntry, now = Date.now()
 	const card = company.card;
 	if (!card) return '';
 	const parts: string[] = [];
-	if (card.peopleWorking > 0)
+	const since = ago(card.lastActivityAt, now);
+	if (card.peopleWorking == null) {
+		// Only decisions were shared: say when work last moved, never that the company is quiet.
+		if (since) parts.push(`Last activity ${since}`);
+	} else if (card.peopleWorking > 0)
 		parts.push(plural(card.peopleWorking, 'person', 'people') + ' working');
-	else {
-		const since = ago(card.lastActivityAt, now);
-		parts.push(since ? `Quiet · last activity ${since}` : 'Quiet');
-	}
-	if (card.outcomesLastDay > 0)
-		parts.push(plural(card.outcomesLastDay, 'outcome') + ' in the last day');
+	else parts.push(since ? `Quiet · last activity ${since}` : 'Quiet');
+	if ((card.outcomesLastDay ?? 0) > 0)
+		parts.push(plural(card.outcomesLastDay!, 'outcome') + ' in the last day');
 	if (card.stale && card.asOf) parts.push(`as of ${ago(card.asOf, now)}`);
 	return parts.join(' · ');
 }

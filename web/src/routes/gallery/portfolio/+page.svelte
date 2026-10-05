@@ -102,6 +102,22 @@
 			entry: { formAction: '?/enterCockpit', fields: { organization_id: 'harbour' } }
 		},
 		{
+			id: 'v1',
+			name: 'Older plane',
+			status: 'Ready',
+			tone: 'presence',
+			// A plane on projection v1 shares decisions only: the rest is unknown, not zero.
+			card: {
+				decisionsWaiting: 1,
+				peopleWorking: null,
+				outcomesLastDay: null,
+				execReady: null,
+				lastActivityAt: minutesAgo(40),
+				asOf: minutesAgo(3)
+			},
+			entry: { formAction: '?/enterCockpit', fields: { organization_id: 'v1' } }
+		},
+		{
 			id: 'new',
 			name: 'New company',
 			status: 'Setting up',
