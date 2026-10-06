@@ -121,7 +121,7 @@
 	{#if feedback}<div class="home-feedback">{@render feedback()}</div>{/if}
 	<div class="ruled">
 		<section class="band hello" style:--i="0">
-			<MatrixField />
+			<div class="hello-texture"><MatrixField /></div>
 			<h1>{greeting}</h1>
 			<p>{lead}</p>
 			<div class="hello-actions">
@@ -371,8 +371,15 @@
 		padding: 22px 24px;
 	}
 
-	.hello {
+	/* Only the texture is clipped, so a popover from the hero's actions can open past the band. */
+	.hello-texture {
+		position: absolute;
+		inset: 0;
 		overflow: hidden;
+		pointer-events: none;
+	}
+	.hello {
+		z-index: 2;
 		padding: 32px 28px 26px;
 		background: var(--surface-pane);
 	}

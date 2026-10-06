@@ -2021,6 +2021,20 @@
 		content: '';
 	}
 
+	/* The same day divider as the Exec rail (design/chat.css): an outlined label on a fading rule. */
+	.room-day::before {
+		background: linear-gradient(90deg, transparent, var(--border-strong));
+	}
+	.room-day::after {
+		background: linear-gradient(90deg, var(--border-strong), transparent);
+	}
+	.room-day span {
+		padding: 1px 9px;
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		background: var(--surface-pane);
+	}
+
 	.unread-rule {
 		color: var(--intent-conversation);
 	}

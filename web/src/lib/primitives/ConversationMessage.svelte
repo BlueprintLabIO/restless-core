@@ -3,6 +3,7 @@
 	import { onDestroy, untrack } from 'svelte';
 	import type { Snippet } from 'svelte';
 	import Check from '@lucide/svelte/icons/check';
+	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import Copy from '@lucide/svelte/icons/copy';
 	import AttachmentList from './AttachmentList.svelte';
 	import Markdown from './Markdown.svelte';
@@ -75,6 +76,13 @@
 		() => embedded && sender !== 'owner' && Date.now() - new Date(createdAt).getTime() < 15_000
 	);
 	const timestamp = $derived(timeLabel(createdAt));
+	/* A message in a run has no header; its time waits in the gutter until pointed at. */
+	const gutterTime = $derived.by(() => {
+		const date = createdAt instanceof Date ? createdAt : new Date(createdAt);
+		return Number.isNaN(date.getTime())
+			? ''
+			: date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: false });
+	});
 	const messageDate = $derived(new Date(createdAt));
 	const validDate = $derived(!Number.isNaN(messageDate.getTime()));
 	const displayAuthor = $derived(author === 'The Exec' ? 'Exec' : author);
@@ -145,6 +153,11 @@
 		{@render headerExtra?.()}
 	</header>
 
+	{#if continued && sender !== 'owner' && gutterTime}<time
+			class="gutter-time"
+			datetime={validDate ? messageDate.toISOString() : undefined}
+			title={validDate ? formatMoment(messageDate) : undefined}>{gutterTime}</time
+		>{/if}
 	<div class="message-body">
 		{#if takeaway}<p class="takeaway">{takeaway}</p>{/if}
 		<div class="message-text" class:folded class:after-takeaway={!!takeaway}>
@@ -155,8 +168,17 @@
 					: undefined}
 			/>
 		</div>
-		{#if long}<button type="button" class="fold-toggle" onclick={() => (expanded = !expanded)}
-				>{expanded ? 'Show less' : 'Show more'}</button
+		{#if long}<button
+				type="button"
+				class="fold-toggle"
+				class:expanded
+				aria-expanded={expanded}
+				onclick={() => (expanded = !expanded)}
+				>{expanded ? 'Show less' : 'Show more'}<ChevronDown
+					size={12}
+					strokeWidth={2}
+					aria-hidden="true"
+				/></button
 			>{/if}
 		<AttachmentList {attachments} {hrefFor} />
 		{#if onreact && sender !== 'system'}<MessageReactions {reactions} {onreact} />{/if}
@@ -309,12 +331,29 @@
 		display: none;
 	}
 
+	/* The owner's words: a soft bubble whose tail corner points at the rail's edge they came from. */
 	.conversation-message.owner .message-body {
 		max-width: 72ch;
 		padding: 8px 12px;
-		border-radius: 12px;
+		border-radius: 14px 14px 4px 14px;
 		background: var(--chat-owner-bg);
+		box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 5%, transparent);
 		color: var(--ink);
+	}
+	.conversation-message.owner.continued .message-body {
+		border-top-right-radius: 4px;
+	}
+
+	/* Pointing at someone else's message washes its row, as Linear and Slack do, so the floating
+	 * actions read as belonging to that message. */
+	@media (hover: hover) and (pointer: fine) {
+		.conversation-message:not(.owner):not(.embedded):not(.system) {
+			border-radius: var(--radius-md);
+			transition: background var(--motion-state) var(--ease-standard);
+		}
+		.conversation-message:not(.owner):not(.embedded):not(.system):hover {
+			background: color-mix(in srgb, var(--ink) 2.5%, transparent);
+		}
 	}
 
 	.conversation-message.system {
@@ -479,17 +518,54 @@
 	.message-text.folded.after-takeaway {
 		max-height: 4.6em;
 	}
+	/* Folding is a small pill with a chevron that turns, so a long message reads as folded on
+	 * purpose rather than cut off. */
 	.fold-toggle {
-		margin-top: 2px;
-		padding: 0;
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		margin: 4px 0 0 -7px;
+		padding: 2px 7px;
 		border: 0;
+		border-radius: 999px;
 		background: transparent;
 		color: var(--text-tertiary);
 		font: 500 var(--t-label) var(--font-ui);
 		cursor: pointer;
+		transition:
+			background var(--motion-state) var(--ease-standard),
+			color var(--motion-state) var(--ease-standard);
 	}
 	.fold-toggle:hover {
+		background: color-mix(in srgb, var(--ink) 6%, transparent);
 		color: var(--ink);
+	}
+	.fold-toggle :global(svg) {
+		transition: transform var(--motion-state) var(--ease-out);
+	}
+	.fold-toggle.expanded :global(svg) {
+		transform: rotate(180deg);
+	}
+	.gutter-time {
+		position: absolute;
+		top: 3px;
+		left: 6px;
+		width: 34px;
+		color: var(--text-tertiary);
+		font: 500 var(--t-label) var(--font-ui);
+		font-variant-numeric: tabular-nums;
+		text-align: right;
+		opacity: 0;
+		transition: opacity var(--motion-state) var(--ease-standard);
+	}
+	.conversation-message:hover .gutter-time,
+	.conversation-message:focus-within .gutter-time {
+		opacity: 1;
+	}
+	@media (hover: none) {
+		.gutter-time {
+			display: none;
+		}
 	}
 	.work-details {
 		margin-top: 9px;
