@@ -99,8 +99,11 @@
 			timeZone: 'UTC'
 		});
 	const doneCount = $derived(security?.filter((item) => item.done).length ?? 0);
-	const usedFraction = $derived(
-		usage && usage.allowanceMicros > 0 ? usage.usedMicros / usage.allowanceMicros : 0
+	/* What is left, as the rail's ring and the plan page show it: one reading everywhere. */
+	const leftFraction = $derived(
+		usage && usage.allowanceMicros > 0
+			? Math.max(0, usage.availableMicros) / usage.allowanceMicros
+			: 0
 	);
 </script>
 
@@ -242,13 +245,13 @@
 						/>
 						<div class="meter">
 							<Meter
-								fraction={usedFraction}
+								fraction={leftFraction}
 								tone={usage.availableMicros <= 0
 									? 'danger'
-									: usedFraction > 0.8
+									: leftFraction < 0.2
 										? 'warning'
 										: 'conversation'}
-								label="AI credit used this month"
+								label="AI credit left this month"
 							/>
 							<div class="meter-line">
 								<span><b>{usd(usage.availableMicros)}</b> left · renews {resets(usage.resets)}</span

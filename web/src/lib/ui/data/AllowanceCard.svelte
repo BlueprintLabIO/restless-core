@@ -41,7 +41,7 @@
 			<small>of {format(total)} {unit}{renews ? ` · renews ${renews}` : ''}</small>
 		</span>
 	</a>
-	{@render action?.()}
+	{#if action}<div class="allowance-action">{@render action()}</div>{/if}
 </div>
 
 <style>
@@ -73,7 +73,7 @@
 		line-height: 1.35;
 	}
 	/* The one action, whatever the host renders it as, is a full-width quiet button. */
-	.allowance > :global(:is(a, button, form)) {
+	.allowance-action > :global(:is(a, button, form)) {
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -93,17 +93,17 @@
 			transform var(--motion-press) var(--ease-standard),
 			box-shadow var(--motion-state) var(--ease-standard);
 	}
-	.allowance > :global(form) {
+	.allowance-action > :global(form) {
 		padding: 0;
 		border: 0;
 	}
-	.allowance > :global(form button) {
+	.allowance-action > :global(form button) {
 		width: 100%;
 	}
-	.allowance > :global(:is(a, button):hover) {
+	.allowance-action > :global(:is(a, button):hover) {
 		box-shadow: 0 1px 3px rgba(20, 30, 50, 0.1);
 	}
-	.allowance > :global(:is(a, button):active) {
+	.allowance-action > :global(:is(a, button):active) {
 		transform: scale(0.97);
 	}
 </style>
