@@ -10,6 +10,13 @@ use std::{
 use uuid::Uuid;
 
 /// Core history maintenance continues even while company computers sleep.
+/// [`maintain_history`] as a [`crate::DaemonTask`], compiled here rather than again in restlessd.
+pub fn maintain_history_task(
+    daemon: std::sync::Arc<crate::Daemon>,
+) -> crate::DaemonTask<'static, ()> {
+    Box::pin(maintain_history(daemon))
+}
+
 pub async fn maintain_history(daemon: std::sync::Arc<crate::Daemon>) {
     let mut interval = tokio::time::interval(Duration::from_secs(10));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);

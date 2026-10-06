@@ -306,7 +306,7 @@ async fn run() -> Result<()> {
     let (recovery_ready_tx, mut recovery_ready_rx) = tokio::sync::watch::channel(false);
     let model_configs = company_configs.clone();
     let model_root = root.clone();
-    tokio::spawn(local_documents::maintain_history(std::sync::Arc::clone(
+    tokio::spawn(local_documents::maintain_history_task(std::sync::Arc::clone(
         &daemon,
     )));
 
@@ -323,7 +323,7 @@ async fn run() -> Result<()> {
                 return;
             }
         }
-        runtime_sleep::run(idle_daemon).await;
+        runtime_sleep::run_task(idle_daemon).await;
     });
 
     tokio::spawn(async move {
@@ -410,7 +410,7 @@ async fn run() -> Result<()> {
         if test_scheduler_disabled {
             tracing::warn!("automatic scheduler disabled for an isolated test plane");
         } else {
-            tokio::spawn(schedule::run(std::sync::Arc::clone(&schedule_daemon)));
+            tokio::spawn(schedule::run_task(std::sync::Arc::clone(&schedule_daemon)));
         }
     });
 
@@ -510,7 +510,7 @@ async fn run() -> Result<()> {
             for config in &recovery_configs {
                 match recovery_daemon.orgintel.get(&config.name).await {
                     Ok(org) => {
-                        tokio::spawn(native_harness::startup_doctor(
+                        tokio::spawn(native_harness::startup_doctor_task(
                             recovery_daemon.root.clone(),
                             config.clone(),
                             recovery_daemon.capabilities.clone(),
@@ -539,7 +539,7 @@ async fn run() -> Result<()> {
     // failure, so a supervisor restarts it instead of a plane that answers
     // nobody.
     let owner_daemon = std::sync::Arc::clone(&daemon);
-    let owner_gateway = tokio::spawn(owner::serve(owner_daemon, owner_config));
+    let owner_gateway = tokio::spawn(owner::serve_task(owner_daemon, owner_config));
     tokio::pin!(owner_gateway);
     // T6: the scheduler is what makes the company act without the owner
     // typing — time triggers (exec-set schedules + periodic tick) and
@@ -588,7 +588,7 @@ async fn run() -> Result<()> {
                             let daemon = std::sync::Arc::clone(&tcp_daemon);
                             tokio::spawn(async move {
                                 if let Err(error) =
-                                    serve(stream, &daemon, ConnectionOrigin::RuntimeTcp).await
+                                    coordination::serve_tcp(stream, &daemon, ConnectionOrigin::RuntimeTcp).await
                                 {
                                     tracing::warn!("tcp connection error: {error:#}");
                                 }
@@ -662,7 +662,7 @@ async fn run() -> Result<()> {
     // other or the scheduler.
     let finance_daemon = std::sync::Arc::clone(&daemon);
     tokio::spawn(async move {
-        if let Err(error) = airwallex_ingress::serve(finance_daemon).await {
+        if let Err(error) = airwallex_ingress::serve_task(finance_daemon).await {
             tracing::error!("Airwallex event ingress stopped: {error:#}");
         }
     });
@@ -681,7 +681,7 @@ async fn run() -> Result<()> {
                 let daemon = std::sync::Arc::clone(&daemon);
                 tokio::spawn(async move {
                     if let Err(error) =
-                        serve(stream, &daemon, ConnectionOrigin::LocalOwner).await
+                        coordination::serve_unix(stream, &daemon, ConnectionOrigin::LocalOwner).await
                     {
                         tracing::warn!("connection error: {error:#}");
                     }

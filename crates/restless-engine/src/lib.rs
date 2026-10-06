@@ -86,4 +86,11 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use wire::OWNER_ONLY;
 use wire::{authorize, Principal, Request, Response};
 pub use coordination::*;
+
+/// A daemon task boxed in the crate that defines it. A release build compiles an awaited
+/// `async fn`'s state machine again in every crate that awaits it, so restlessd recompiled about
+/// 4.9M LLVM lines of upstream code (140s, alone at the end of the build). Handing restlessd
+/// these boxed tasks keeps each state machine compiled once, in its own crate.
+pub type DaemonTask<'a, T> =
+    std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
 pub use daemon::*;

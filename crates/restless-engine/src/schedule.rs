@@ -215,6 +215,11 @@ impl Drop for WakeGuard {
     }
 }
 
+/// [`run`] as a [`crate::DaemonTask`], so it is compiled here rather than again in restlessd.
+pub fn run_task(daemon: Arc<Daemon>) -> crate::DaemonTask<'static, ()> {
+    Box::pin(run(daemon))
+}
+
 pub async fn run(daemon: Arc<Daemon>) {
     let in_flight = Arc::clone(&daemon.in_flight);
     // The daemon owns one listener per cell and fans body-free hints out to

@@ -13,6 +13,11 @@ use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _, Buf
 pub const AIRWALLEX_INGRESS_PORT: u16 = 7795;
 const MAX_BODY: usize = 256 * 1024;
 
+/// [`serve`] as a [`crate::DaemonTask`], compiled here rather than again in restlessd.
+pub fn serve_task(daemon: Arc<crate::Daemon>) -> crate::DaemonTask<'static, Result<()>> {
+    Box::pin(serve(daemon))
+}
+
 pub async fn serve(daemon: Arc<crate::Daemon>) -> Result<()> {
     let address = format!(
         "0.0.0.0:{}",

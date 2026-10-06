@@ -1044,6 +1044,14 @@ where
 }
 
 
+/// [`serve`] as a [`restless_engine::DaemonTask`], compiled here rather than again in restlessd.
+pub fn serve_task(
+    daemon: Arc<Daemon>,
+    config: OwnerConfig,
+) -> restless_engine::DaemonTask<'static, Result<()>> {
+    Box::pin(serve(daemon, config))
+}
+
 pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
     let OwnerConfig {
         address,

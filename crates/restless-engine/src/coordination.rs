@@ -5,6 +5,24 @@
 #[allow(unused_imports)]
 use crate::*;
 
+/// [`serve`] for a Runtime TCP connection, as a [`DaemonTask`].
+pub fn serve_tcp(
+    stream: tokio::net::TcpStream,
+    daemon: &Daemon,
+    origin: ConnectionOrigin,
+) -> DaemonTask<'_, Result<()>> {
+    Box::pin(serve(stream, daemon, origin))
+}
+
+/// [`serve`] for a local owner socket connection, as a [`DaemonTask`].
+pub fn serve_unix(
+    stream: tokio::net::UnixStream,
+    daemon: &Daemon,
+    origin: ConnectionOrigin,
+) -> DaemonTask<'_, Result<()>> {
+    Box::pin(serve(stream, daemon, origin))
+}
+
 pub async fn serve<S>(stream: S, daemon: &Daemon, origin: ConnectionOrigin) -> Result<()>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,

@@ -147,6 +147,11 @@ async fn is_quiet(daemon: &Daemon, company: &str) -> Result<bool> {
 /// admission. Restarting the owner plane starts a fresh quiet period rather
 /// than guessing when an unobserved company became quiet. Any observation
 /// failure keeps the computer awake.
+/// [`run`] as a [`crate::DaemonTask`], so it is compiled here rather than again in restlessd.
+pub fn run_task(daemon: Arc<Daemon>) -> crate::DaemonTask<'static, ()> {
+    Box::pin(run(daemon))
+}
+
 pub async fn run(daemon: Arc<Daemon>) {
     if daemon.runtime_bridges.is_hosted() {
         tracing::info!("hosted cell: Fleet performs sleep and wake from Core's demand");

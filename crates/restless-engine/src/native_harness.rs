@@ -233,6 +233,16 @@ pub async fn session_access(
     })
 }
 /// Runs independently for every company at startup/creation; one failure never blocks others.
+/// [`startup_doctor`] as a [`crate::DaemonTask`], compiled here rather than again in restlessd.
+pub fn startup_doctor_task(
+    root: std::path::PathBuf,
+    config: runtime::CompanyConfig,
+    capabilities: crate::capability::CapabilityIssuer,
+    org: restless_orgintel::OrgIntel,
+) -> crate::DaemonTask<'static, ()> {
+    Box::pin(startup_doctor(root, config, capabilities, org))
+}
+
 pub async fn startup_doctor(
     root: std::path::PathBuf,
     config: runtime::CompanyConfig,
