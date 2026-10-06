@@ -10,8 +10,7 @@ import {
 	identityQuery
 } from '$lib/model/queries.svelte';
 import { intelligenceQuery } from '$lib/model/intelligence.svelte';
-import { fetchConnections } from '$lib/model/connections';
-import { fetchSkillLibrary, monitorSchedules } from '$lib/model/skills';
+import { monitorSchedules } from '$lib/model/skills';
 import { getCoreMembers } from '$lib/model/members';
 import { companyPageHref, COMPANY_PAGES } from '$lib/model/company-pages';
 import BookOpen from '@lucide/svelte/icons/book-open';
@@ -21,8 +20,6 @@ import Fingerprint from '@lucide/svelte/icons/fingerprint';
 import Gauge from '@lucide/svelte/icons/gauge';
 import KeyRound from '@lucide/svelte/icons/key-round';
 import Monitor from '@lucide/svelte/icons/monitor';
-import Plug from '@lucide/svelte/icons/plug';
-import Sparkles from '@lucide/svelte/icons/sparkles';
 import Users from '@lucide/svelte/icons/users';
 
 /** 'refused': this plane does not keep the area (a hosted plane's vault lives with the account). */
@@ -70,8 +67,6 @@ export function createCompanySetup(companyIdOf: () => string) {
 	const intelligence = $derived(intelligenceQuery(companyId, () => owner));
 
 	/* The small counts that have no shared query: read once per visit, each on its own. */
-	let tools = $state<Count>(null);
-	let skills = $state<Count>(null);
 	let schedules = $state<Count>(null);
 	let secrets = $state<Count>(null);
 	let members = $state<Count>(null);
@@ -84,17 +79,6 @@ export function createCompanySetup(companyIdOf: () => string) {
 			(value) => (members = value)
 		);
 		if (!owner) return;
-		read(
-			async () =>
-				(await fetchConnections(company)).filter((row) => row.status === 'working').length,
-			(value) => (tools = value)
-		);
-		read(
-			async () =>
-				(await fetchSkillLibrary(company)).skills.filter((row) => row.disposition === 'accepted')
-					.length,
-			(value) => (skills = value)
-		);
 		read(
 			async () =>
 				(await monitorSchedules(company)).filter(
@@ -193,13 +177,6 @@ export function createCompanySetup(companyIdOf: () => string) {
 				proposals ? 'Review the identity proposals' : 'Set the company identity'
 			),
 			row('provider', 'Intelligence', model, Brain, modelMissing ? 1 : 0, 'Choose a model'),
-			row(
-				'connections',
-				'Connections',
-				counted(tools, 'tool connected', 'No tools connected', 'tools connected'),
-				Plug
-			),
-			row('skills', 'Skills', counted(skills, 'skill', 'No skills yet'), Sparkles),
 			row('vault', 'Vault', counted(secrets, 'secret', 'No secrets stored'), KeyRound),
 			row(
 				'schedules',

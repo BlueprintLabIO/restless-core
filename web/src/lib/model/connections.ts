@@ -125,40 +125,6 @@ export const CLASS_LABEL: Record<ToolClass, { label: string; title: string }> = 
 	}
 };
 
-/* Known endpoints, not curated adapters: the probe decides whether they work. */
-export const SUGGESTIONS: { label: string; name: string; endpoint: string; title: string }[] = [
-	{
-		label: 'GitHub',
-		name: 'github',
-		endpoint: 'https://api.githubcopilot.com/mcp/',
-		title: "GitHub's hosted MCP server. Uses a personal access token from your Vault."
-	},
-	{
-		label: 'Linear',
-		name: 'linear',
-		endpoint: 'https://mcp.linear.app/mcp',
-		title: "Linear's hosted MCP server. You sign in with Linear."
-	},
-	{
-		label: 'Notion',
-		name: 'notion',
-		endpoint: 'https://mcp.notion.com/mcp',
-		title: "Notion's hosted MCP server. You sign in with Notion."
-	},
-	{
-		label: 'Stripe',
-		name: 'stripe',
-		endpoint: 'https://mcp.stripe.com',
-		title: "Stripe's hosted MCP server. You sign in with Stripe."
-	},
-	{
-		label: 'Sentry',
-		name: 'sentry',
-		endpoint: 'https://mcp.sentry.dev/mcp',
-		title: "Sentry's hosted MCP server. You sign in with Sentry."
-	}
-];
-
 function path(company: string, rest = ''): string {
 	return `/api/companies/${encodeURIComponent(company)}/tool-connections${rest}`;
 }

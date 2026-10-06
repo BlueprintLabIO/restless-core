@@ -1985,7 +1985,12 @@ async fn answers_sign_in_required(
                     .headers()
                     .get("www-authenticate")
                     .and_then(|value| value.to_str().ok())
-                    .is_some_and(|value| value.trim_start().to_ascii_lowercase().starts_with("bearer"))
+                    .is_some_and(|value| {
+                        value
+                            .trim_start()
+                            .to_ascii_lowercase()
+                            .starts_with("bearer")
+                    })
         }
         _ => false,
     }

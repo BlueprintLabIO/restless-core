@@ -590,6 +590,18 @@ pub async fn project(
         .into_iter()
         .map(|payment| (payment.request.owner_handoff_id, payment))
         .collect::<HashMap<_, _>>();
+    // An app request is a sign-in handoff that names its app: the owner's step
+    // is "Add Stripe", not a generic identity confirmation.
+    let app_titles = match org {
+        Some(org) => org
+            .app_requests()
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|request| (request.handoff_id, app_request_title(&request.app)))
+            .collect::<HashMap<_, _>>(),
+        None => HashMap::new(),
+    };
     for handoff in work_graph
         .as_ref()
         .map(|graph| graph.handoffs.clone())
@@ -1053,7 +1065,10 @@ pub async fn project(
             restless_orgintel::OwnerBriefKind::Contradiction => "contradiction",
             restless_orgintel::OwnerBriefKind::HumanStep => "human_step",
         });
-        let fallback_title = human_step_title(handoff.category);
+        let fallback_title = app_titles
+            .get(&handoff.id)
+            .map(String::as_str)
+            .unwrap_or_else(|| human_step_title(handoff.category));
         let payment_title = payment.map(|payment| {
             format!(
                 "Approve {} {} to {}",
@@ -1704,6 +1719,19 @@ fn exec_startup_failure(reason: &str) -> Option<bool> {
         Some(crate::health::BlockKind::Container | crate::health::BlockKind::Disk) => Some(false),
         _ if reason.starts_with("[runtime] ") => Some(false),
         _ => None,
+    }
+}
+
+/// "Add Stripe" for a catalogue key, "Add an app" for an address.
+fn app_request_title(app: &str) -> String {
+    if app.contains("://") || app.contains('/') {
+        return "Add an app".into();
+    }
+    let words = app.replace(['-', '_'], " ");
+    let mut letters = words.chars();
+    match letters.next() {
+        Some(first) => format!("Add {}{}", first.to_uppercase(), letters.as_str()),
+        None => "Add an app".into(),
     }
 }
 

@@ -2470,6 +2470,12 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                     "owner_judgement" => restless_orgintel::OwnerHandoffCategory::OwnerJudgement,
                     _ => return Response::err(format!("unsupported handoff category {category:?}")),
                 };
+                let app = request.owner.app.as_deref().map(str::trim).filter(|app| !app.is_empty());
+                if app.is_some() && category != restless_orgintel::OwnerHandoffCategory::Identity {
+                    return Response::err(
+                        "--app names the service the owner signs in to; use it with --category identity",
+                    );
+                }
                 match daemon.orgintel.get(company).await {
                     Ok(org) => match org
                         .request_owner_handoff(restless_orgintel::NewOwnerHandoff {
@@ -2483,7 +2489,15 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                         })
                         .await
                     {
-                        Ok(id) => Response::ok(serde_json::json!({ "handoff_id": id })),
+                        Ok(id) => match app {
+                            None => Response::ok(serde_json::json!({ "handoff_id": id })),
+                            Some(app) => match org.attach_app_to_handoff(id, app).await {
+                                Ok(()) => Response::ok(serde_json::json!({ "handoff_id": id, "app": app })),
+                                Err(error) => Response::err(format!(
+                                    "handoff {id} was created, but its app was not recorded: {error:#}"
+                                )),
+                            },
+                        },
                         Err(error) => Response::err(format!("{error:#}")),
                     },
                     Err(error) => Response::err(format!("{error:#}")),

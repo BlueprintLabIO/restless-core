@@ -63,8 +63,9 @@ These are product soul, not legacy mechanics. They survive the rebuild.
   resume it. Human participation and approval are separate authority boundaries.
 - **Primary experience:** a calm main work surface plus a right-hand executive chat that can focus,
   explain, and act on the main surface. A top navigation bar is allowed and expected (company
-  switcher, the five surfaces — Inbox, Work, Library, People, Company — an Inbox badge, ⌘K); it
-  carries navigation only. The rule that
+  switcher, the six surfaces — Inbox, Work, Library, People, Apps, Company — an Inbox badge, ⌘K); it
+  carries navigation only. Apps is where the company gains abilities (services it connects and
+  know-how it follows); Company keeps what configures the company itself. The rule that
   remains is that the product must never become an agent/task administration dashboard: no
   roster-of-agents panels, no status walls. Show outcomes, decisions, risk, and next actions first; reveal roles, prompts, skills, permissions,
   spend detail, workflow IDs, and logs only on request.

@@ -285,8 +285,83 @@ pub(super) async fn grant(
     )
     .await
     {
-        Ok(grant) => Json(serde_json::json!({ "grant": grant })).into_response(),
+        Ok(grant) => {
+            let resumed = resolve_app_requests(&state, &company, &name).await;
+            Json(serde_json::json!({ "grant": grant, "resumed_requests": resumed })).into_response()
+        }
         Err(error) => connection_error(error),
+    }
+}
+
+/// Allowing an app is the observable resume condition of every pending app
+/// request it satisfies: resolve them as an observation, so the Work resumes
+/// and the owner never reports that the sign-in is done. A failure here never
+/// undoes the grant; the request stays visible in Apps.
+async fn resolve_app_requests(state: &OwnerState, company: &str, name: &str) -> usize {
+    let Ok(connection) = connections::require(state.daemon.authority.pool(), company, name).await
+    else {
+        return 0;
+    };
+    if connection.status != "working" {
+        return 0;
+    }
+    let mut names = vec![connection.name.clone()];
+    if let Some(endpoint) = connection.endpoint.as_deref() {
+        names.push(endpoint.to_string());
+        names.push(endpoint.trim_end_matches('/').to_string());
+    }
+    if let Some(key) = connection
+        .source
+        .as_deref()
+        .and_then(|source| source.strip_prefix("catalogue:"))
+    {
+        names.push(key.to_string());
+    }
+    let Ok(org) = state.daemon.orgintel.get(company).await else {
+        return 0;
+    };
+    let Ok(requests) = org.app_requests_for(&names).await else {
+        return 0;
+    };
+    let mut resolved = 0;
+    for id in requests {
+        let outcome = org
+            .resolve_observed_handoff(
+                id,
+                "daemon",
+                &format!(
+                    "The owner added {} and allowed what the company may do with it. New sessions receive its tools.",
+                    connection.name
+                ),
+            )
+            .await;
+        match outcome {
+            Ok(true) => resolved += 1,
+            Ok(false) => {}
+            Err(error) => {
+                tracing::warn!(company, handoff = %id, error = %error, "app request was not resolved")
+            }
+        }
+    }
+    resolved
+}
+
+/// Pending sign-in handoffs that name an app: Exec's requests in Apps.
+pub(super) async fn app_requests(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+) -> Response<Body> {
+    if let Err(refusal) = owner_gate(&state, &company, &principal).await {
+        return refusal;
+    }
+    let requests = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org.app_requests().await.map_err(anyhow::Error::from),
+        Err(error) => Err(error),
+    };
+    match requests {
+        Ok(requests) => Json(serde_json::json!({ "requests": requests })).into_response(),
+        Err(error) => api_error(StatusCode::SERVICE_UNAVAILABLE, "apps", format!("{error:#}")),
     }
 }
 

@@ -26,6 +26,7 @@
 	import Markdown from '$lib/primitives/Markdown.svelte';
 	import { Fold, Notice } from '$lib/ui/page';
 	import { formatMoment } from '$lib/ui/time';
+	import { fetchAppRequests, type AppRequest } from '$lib/model/app-requests';
 
 	let {
 		companyId,
@@ -66,6 +67,23 @@
 	const navigation = $derived(
 		item.actions.filter((candidate) => candidate.href && candidate.role !== 'conversation')
 	);
+	/* An app request (Sprint 63): a sign-in handoff that names the app to add.
+	 * Adding and allowing it is the resume condition, so there is no "Mark done". */
+	let appRequest = $state<AppRequest | null>(null);
+	$effect(() => {
+		appRequest = null;
+		if (item.source.kind !== 'owner_handoff') return;
+		const reference = item.source.reference;
+		let current = true;
+		void fetchAppRequests(companyId)
+			.then((requests) => {
+				if (current) appRequest = requests.find((row) => row.handoff_id === reference) ?? null;
+			})
+			.catch(() => {});
+		return () => {
+			current = false;
+		};
+	});
 	/* Older daemons put a verification link only in the instructions. */
 	const instructionLink = $derived.by(() => {
 		if (item.preparing || item.category !== 'human_step' || item.actions.some((a) => a.href))
@@ -164,8 +182,7 @@
 				const target = item.source.call_key
 					? { call_key: item.source.call_key }
 					: item.source.party;
-				if (!target)
-					throw new Error('This request has no approval target. Refresh and try again.');
+				if (!target) throw new Error('This request has no approval target. Refresh and try again.');
 				await approvalAction(companyId, kind, target);
 				await removeConfirmedAttention(client, companyId, item.id);
 			},
@@ -207,7 +224,9 @@
 	}
 	async function copyReference() {
 		try {
-			await navigator.clipboard.writeText(`${item.source.plane}:${item.source.kind}:${item.source.reference}`);
+			await navigator.clipboard.writeText(
+				`${item.source.plane}:${item.source.kind}:${item.source.reference}`
+			);
 		} catch {
 			/* The reference stays visible in Evidence. */
 		}
@@ -240,7 +259,8 @@
 		<ActionMenu label="More">
 			{#if discuss}<a href={`${base}&conversation=${encodeURIComponent(item.id)}`}>Discuss</a>{/if}
 			<a href={conversationHref}>Open conversation with {asker}</a>
-			{#if item.workId}<a href={`/${encodeURIComponent(companyId)}/work/${encodeURIComponent(item.workId)}`}
+			{#if item.workId}<a
+					href={`/${encodeURIComponent(companyId)}/work/${encodeURIComponent(item.workId)}`}
 					>Open the work</a
 				>{/if}
 			{#each navigation.slice(1) as extra (extra.id)}<a
@@ -294,7 +314,9 @@
 				<div class="prose evidence">
 					<p class="credit">
 						Prepared by <strong>{item.briefAuthor?.display ?? asker}</strong>{#if item.briefedAt}
-							· <time title={formatMoment(item.briefedAt)}><RelativeTime value={item.briefedAt} /></time>{/if}
+							· <time title={formatMoment(item.briefedAt)}
+								><RelativeTime value={item.briefedAt} /></time
+							>{/if}
 					</p>
 					{#each item.evidence as evidence, index (`${evidence.kind}:${evidence.label}:${index}`)}
 						{#if evidence.content}
@@ -319,7 +341,10 @@
 	<footer class="inbox-composer">
 		{#if error}<Notice tone="danger" title={error} />{/if}
 		{#if approveMandate}
-			<p class="note" title="Exec judges whether each recipient and message fits the mandate. The system enforces the mechanical limits.">
+			<p
+				class="note"
+				title="Exec judges whether each recipient and message fits the mandate. The system enforces the mechanical limits."
+			>
 				Approving gives Exec bounded sending authority.
 			</p>
 		{/if}
@@ -330,13 +355,14 @@
 				aria-label="Why not"
 				placeholder={`Why not? ${asker} will see this.`}
 				disabled={acting}
-				onkeydown={(event) => keys(event, sendDecline)}
-			></textarea>
+				onkeydown={(event) => keys(event, sendDecline)}></textarea>
 			<div class="bar">
 				<button class="btn primary small" disabled={acting || !reason.trim()} onclick={sendDecline}
 					>{acting ? 'Sending…' : 'Decline'}</button
 				>
-				<button class="btn small ghost" disabled={acting} onclick={() => (declining = false)}>Back</button>
+				<button class="btn small ghost" disabled={acting} onclick={() => (declining = false)}
+					>Back</button
+				>
 				<span class="hint">⌘ ↵</span>
 			</div>
 		{:else if record}
@@ -353,7 +379,11 @@
 											value={option}>{option}</option
 										>{/each}</select
 								>{:else}<input
-									type={field.type === 'date' ? 'date' : field.type === 'amount' ? 'number' : 'text'}
+									type={field.type === 'date'
+										? 'date'
+										: field.type === 'amount'
+											? 'number'
+											: 'text'}
 									step={field.type === 'amount' ? '0.01' : undefined}
 									bind:value={fieldValues[field.id]}
 									required={field.required}
@@ -368,18 +398,22 @@
 				aria-label={`Reply to ${asker}`}
 				placeholder={fields.length ? 'Anything else (optional)' : `Reply to ${asker}…`}
 				disabled={acting}
-				onkeydown={(event) => keys(event, sendReply)}
-			></textarea>
+				onkeydown={(event) => keys(event, sendReply)}></textarea>
 			<div class="bar">
 				<button
 					class="btn primary small"
 					disabled={acting || !replyReady}
-					title={replyReady ? `${record.consequence} ${record.nextState}` : 'Write your answer first'}
+					title={replyReady
+						? `${record.consequence} ${record.nextState}`
+						: 'Write your answer first'}
 					onclick={sendReply}>{acting ? 'Sending…' : 'Send'}</button
 				>
-				<button class="btn small" disabled={acting} onclick={() => (declining = true)}>Not doing this</button>
-				{#if discuss}<a class="btn small ghost" href={`${base}&conversation=${encodeURIComponent(item.id)}`}
-						>Discuss</a
+				<button class="btn small" disabled={acting} onclick={() => (declining = true)}
+					>Not doing this</button
+				>
+				{#if discuss}<a
+						class="btn small ghost"
+						href={`${base}&conversation=${encodeURIComponent(item.id)}`}>Discuss</a
 					>{/if}
 				<span class="hint" title={`Goes to ${asker} as a message in your conversation`}
 					>To {asker} · ⌘ ↵</span
@@ -415,15 +449,29 @@
 							onapprove={() => void decideMandate('approve')}
 						/>
 					{/key}
-					{#if declineMandate}<button class="btn small" disabled={acting} onclick={() => decideMandate('decline')}
-							>{declineMandate.label}</button
+					{#if declineMandate}<button
+							class="btn small"
+							disabled={acting}
+							onclick={() => decideMandate('decline')}>{declineMandate.label}</button
 						>{/if}
 				{:else if documentRequest && (item.nativeDocument || onopenDocument)}
 					{#if item.nativeDocument}<a class="btn primary small" href={base} title={item.ifNoAction}
-							>{item.source.kind === 'document_review' ? 'Review this version' : 'Open and edit together'}</a
+							>{item.source.kind === 'document_review'
+								? 'Review this version'
+								: 'Open and edit together'}</a
 						>{:else}<button class="btn primary small" disabled={acting} onclick={openDocument}
 							>{acting ? 'Opening…' : 'Open the document'}</button
 						>{/if}
+				{:else if appRequest && humanStep}
+					<a
+						class="btn primary small"
+						href={appRequest.href(companyId)}
+						title="Opens the app with this request attached. Allowing it resumes the work on its own."
+						>Add {appRequest.name}</a
+					>
+					<button class="btn small ghost" disabled={acting} onclick={() => (declining = true)}
+						>Not doing this</button
+					>
 				{:else if humanStep}
 					{#if instructionLink}<a
 							class="btn primary small"
@@ -462,10 +510,13 @@
 						href={navigation[0].href}
 						target={navigation[0].href?.startsWith('/') ? undefined : '_blank'}
 						rel="noreferrer"
-						title={`${navigation[0].consequence} ${navigation[0].nextState}`}>{navigation[0].label}</a
+						title={`${navigation[0].consequence} ${navigation[0].nextState}`}
+						>{navigation[0].label}</a
 					>
 				{:else if item.source.kind === 'conversation_owner_need'}
-					<a class="btn primary small" href={action('continue-conversation')?.href ?? conversationHref}
+					<a
+						class="btn primary small"
+						href={action('continue-conversation')?.href ?? conversationHref}
 						>Reply in conversation</a
 					>
 				{/if}

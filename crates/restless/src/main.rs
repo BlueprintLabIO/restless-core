@@ -1716,6 +1716,11 @@ enum WorkCommand {
         prepared: String,
         #[arg(long)]
         resume_when: String,
+        /// With --category identity: the app the owner adds to unblock this
+        /// Work, as an Apps catalogue key (stripe, linear…) or its MCP address.
+        /// Allowing that app resolves the handoff; nobody reports it done.
+        #[arg(long)]
+        app: Option<String>,
     },
     /// Replace stale prepared evidence on an outstanding handoff without
     /// resolving it or creating a second owner request.
@@ -3448,10 +3453,11 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 action,
                 prepared,
                 resume_when,
+                app,
             } => serde_json::json!({
                 "cmd": "work-handoff", "company": company, "id": work, "attempt": attempt,
                 "category": category, "action": action, "prepared": prepared,
-                "resume_when": resume_when,
+                "resume_when": resume_when, "app": app,
                 "actor": std::env::var("RESTLESS_ACTOR").unwrap_or_else(|_| "owner".to_string()),
             }),
             WorkCommand::RefreshHandoff {

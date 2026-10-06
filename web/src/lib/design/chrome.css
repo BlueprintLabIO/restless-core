@@ -190,6 +190,19 @@
 	animation: bridge-badge-in var(--motion-state) var(--ease-spring) backwards;
 }
 
+/* "Look here", without a number: the Inbox owns the count. */
+.bridge-root .tb-dot {
+	position: absolute;
+	top: -2px;
+	right: -4px;
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: var(--intent-authority);
+	box-shadow: 0 0 0 2px var(--surface-pane);
+	animation: bridge-badge-in var(--motion-state) var(--ease-spring) backwards;
+}
+
 .bridge-root .tb-search {
 	height: 30px;
 	display: inline-flex;
@@ -424,7 +437,8 @@
 		background: color-mix(in srgb, var(--tab-tone) 14%, transparent);
 	}
 
-	.bridge-dock .tb-badge {
+	.bridge-dock .tb-badge,
+	.bridge-dock .tb-dot {
 		position: absolute;
 		top: 4px;
 		left: calc(50% + 6px);

@@ -241,15 +241,16 @@ class Smoke:
         text = '\n'.join(block.get('text', '') for block in result.get('content', []))
         return {'is_error': bool(result.get('isError')), 'text': text}
 
-    def sign_in(self):
-        status, started = self.owner(f'/tool-connections/{self.connection}/sign-in', {})
+    def sign_in(self, name=None):
+        name = name or self.connection
+        status, started = self.owner(f'/tool-connections/{name}/sign-in', {})
         expect(status == 200 and 'authorization_url' in started, f'sign-in did not start: {status} {started}')
         callback, landed, page = follow_owner_browser(started['authorization_url'])
         expect(callback.startswith(self.plane.owner_origin + '/connections/tools/oauth/callback'),
                f'the provider returned the browser to {callback}')
         expect(landed == 200, f'the plane callback answered {landed}: {page}')
         for _ in range(60):
-            view = self.connection_view()
+            view = self.connection_view(name)
             if view and view['status'] == 'working':
                 return view, callback.split('?')[0]
             time.sleep(0.5)
@@ -365,6 +366,8 @@ class Smoke:
                 'command not found after replacement', self.a18_persisted, needs=[18, 13])
         e.check(10, 'Refresh and reconnect', 'an expired access token refreshes host-side with no owner action; a revoked refresh token shows sign-in needed without looping',
                 'a failed read after expiry, or repeated sign-in prompts', self.a10_refresh, needs=[4])
+        e.check(21, 'App request resumes Work', "a lead's sign-in handoff naming an app is listed for the owner; adding and allowing that app resolves it and releases the Work, with no owner message",
+                'a request that stays pending after the app is allowed, or Work that stays blocked', self.a21_app_request)
         e.check(11, 'No token in the Runtime', 'no access or refresh token the provider issued appears in the company container (filesystem, environment, process arguments); the planted canary is found',
                 'any token match, or a canary the search failed to find', self.a11_tokens, needs=[1])
         e.check(14, 'Disconnect', 'the credential is cleared, every grant revoked, and the actor sees no fixture tools',
@@ -658,6 +661,51 @@ class Smoke:
         result = docker('exec', '-u', 'company', self.plane.container(self.company), path, '--version', check=False)
         expect(result.returncode == 0 and result.stdout.strip() == version, f'after replacement: {result.returncode} {result.stdout} {result.stderr}')
         return {'path': path, 'version': version}
+
+    def a21_app_request(self):
+        """Sprint 63: an app request is an identity handoff naming an app, and
+        allowing that app is its observable resume condition."""
+        for actor, role in [('notes-direction', 'lead'), ('notes-writing', 'writer')]:
+            self.plane.raw(self.company, {'cmd': 'actor-create', 'as_actor': actor, 'role': role, 'name': 'auto',
+                                          'model': MODEL, 'reason': 'Connections smoke app request', 'actor': 'owner'})
+        self.plane.raw(self.company, {'cmd': 'team-create', 'name': 'Notes team', 'to': 'notes-direction',
+                                      'body': 'Read the notes', 'actor': 'owner'})
+        self.plane.raw(self.company, {'cmd': 'team-assign', 'as_actor': 'notes-writing', 'name': 'Notes team',
+                                      'actor': 'owner', 'reason': 'Connections smoke app request'})
+        cli = str(repo / 'target' / 'debug' / 'restless')
+        token = self.plane.capability({'kind': 'actor_session', 'company': self.company, 'actor': 'notes-direction',
+                                       'session': 'connections_smoke_lead'})
+        env = {**os.environ, 'RESTLESS_COMPANY': self.company, 'RESTLESS_COORDINATOR': self.plane.coordinator,
+               'RESTLESS_ACTOR': 'notes-direction', 'RESTLESS_SESSION_CAPABILITY': token}
+
+        def run(*args):
+            result = subprocess.run([cli, *args], env=env, capture_output=True, text=True, timeout=60)
+            expect(result.returncode == 0, f'restless {" ".join(args[:2])}: {result.stderr.strip()[-400:]}')
+            return result.stdout
+
+        added = json.loads(run('work', 'add', '--owner', 'notes-writing', '--role', 'writer', '--title', 'Summarise the notes',
+                               '--outcome', 'A one-paragraph summary of the Fixture Notes'))
+        work_id = added.get('work_id') or added.get('id')
+        app = 'fixture-req'
+        handoff = json.loads(run('work', 'handoff', '--work', work_id, '--category', 'identity', '--app', app,
+                                 '--action', 'Add Fixture Notes so the worker can read the notes',
+                                 '--prepared', 'The brief and the summary outline are ready',
+                                 '--resume-when', f'{app} is added and allowed'))
+        status, listed = self.owner('/app-requests')
+        expect(status == 200 and [r['app'] for r in listed['requests']] == [app], f'app requests: {status} {listed}')
+        status, body = self.owner('/tool-connections', {'kind': 'remote', 'name': app, 'endpoint': self.fixture.mcp_url})
+        expect(status == 200, f'add {app}: {status} {body}')
+        self.sign_in(app)
+        status, granted = self.owner(f'/tool-connections/{app}/grant',
+                                     {'grantee': '*', 'tools': [{'tool': 'list_notes', 'class': 'reads'}]})
+        expect(status == 200 and granted.get('resumed_requests') == 1, f'allow {app}: {status} {granted}')
+        status, listed = self.owner('/app-requests')
+        expect(status == 200 and listed['requests'] == [], f'requests after allowing: {listed}')
+        cell = urllib.parse.urlparse((self.plane.root / 'cells' / self.company / 'database.url').read_text().strip()).path[1:]
+        state = self.plane.sql(f"SELECT state FROM \"{self.company}\".owner_handoffs WHERE id='{handoff['handoff_id']}'", cell)
+        work = self.plane.sql(f"SELECT status FROM \"{self.company}\".work WHERE id='{work_id}'", cell)
+        expect(state == 'resolved' and work != 'blocked', f'handoff {state}, work {work}')
+        return {'handoff': state, 'work_status': work, 'resumed_requests': granted['resumed_requests']}
 
     def a17_skills(self):
         if not self.args.with_skills:

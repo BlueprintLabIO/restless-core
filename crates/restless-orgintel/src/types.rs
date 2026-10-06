@@ -769,6 +769,20 @@ pub struct NewGateRunEvidence<'a> {
     pub leaked_processes: i32,
 }
 
+/// A pending sign-in handoff that names the app which would unblock its Work.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct AppRequestRow {
+    pub handoff_id: Uuid,
+    pub app: String,
+    pub requested_action: String,
+    pub requested_by: String,
+    /// The requester's display name, as the Inbox shows it.
+    pub requested_by_display: String,
+    pub work_id: Uuid,
+    pub work_title: String,
+    pub created_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
 pub struct OwnerHandoffRow {
     pub id: Uuid,

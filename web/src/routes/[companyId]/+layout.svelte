@@ -47,6 +47,9 @@
 	import { pageContext } from '$lib/model/page-context.svelte';
 	import { provideReferencePreview } from '$lib/model/reference-preview';
 	import { documentsQuery } from '$lib/model/document-queries.svelte';
+	import { fetchConnections } from '$lib/model/connections';
+	import { fetchAppRequests } from '$lib/model/app-requests';
+	import { CATALOGUE, buildApps } from '$lib/model/apps';
 
 	let { children } = $props();
 
@@ -639,8 +642,45 @@
 			attention.status === 'unknown' ? undefined : liveNeedsYou.length
 		);
 		return routes.map((tab) =>
-			tab.key === 'company' && providerIssue ? { ...tab, badge: 1 } : tab
+			tab.key === 'company' && providerIssue
+				? { ...tab, badge: 1 }
+				: tab.key === 'apps' && appsAttention
+					? { ...tab, dot: appsAttention }
+					: tab
 		);
+	});
+
+	/* The Apps dot: a sign-in to renew, a tool to review, or an app Exec asked
+	 * for. Checked on arrival, on every move and once a minute. Know-how
+	 * candidates are counted on the Apps page itself, not here, because reading
+	 * the skill library scans the company computer. */
+	let appsAttention = $state('');
+	$effect(() => {
+		if (!ownerAccess) return;
+		const id = companyId;
+		void page.url.pathname;
+		let stopped = false;
+		const check = async () => {
+			try {
+				const [tools, asked] = await Promise.all([
+					fetchConnections(id),
+					fetchAppRequests(id).catch(() => [])
+				]);
+				if (stopped) return;
+				const count =
+					buildApps(tools, null).mine.filter((app) => app.state === 'needs_you').length +
+					asked.length;
+				appsAttention = !count ? '' : count === 1 ? '1 app needs you' : `${count} apps need you`;
+			} catch {
+				/* A failed check leaves the dot as it was; Apps shows the failure. */
+			}
+		};
+		void check();
+		const timer = setInterval(() => void check(), 60_000);
+		return () => {
+			stopped = true;
+			clearInterval(timer);
+		};
 	});
 
 	/* Owner-only destinations for the command menu. Collaborators keep the
@@ -728,6 +768,21 @@
 					execRailOpen = true;
 				}
 			},
+			{
+				id: 'action:add-app',
+				group: 'Actions',
+				label: 'Add an app',
+				keywords: 'connect connector integration plugin skill mcp tool',
+				href: `${root}/apps`
+			},
+			...CATALOGUE.map((entry) => ({
+				id: `app:${entry.key}`,
+				group: 'Apps',
+				label: `Add ${entry.name}`,
+				hint: entry.category,
+				keywords: `connect ${entry.key} ${entry.description}`,
+				href: `${root}/apps/${encodeURIComponent(entry.key)}`
+			})),
 			...leads.map((lead) => ({
 				id: `action:ask:${lead.actor_id}`,
 				group: 'Actions',

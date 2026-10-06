@@ -283,9 +283,12 @@ what it deletes.
   company image. No migration: the owner deprecated Clapping Hands, and Restless carries no bespoke
   connectors. Legacy Authority tables are left orphaned rather than dropped.
 - [ ] T7 — Exec classification proposal and connection proposals as prepared handoffs; connections
-  in Exec context. *OrgIntel*
-- [ ] T8 ([ticket](sprint-57/s57-t8-connections-page.md)) — Company → Connections: suggestions, add by URL, command or plugin, probe status,
-  three-class grant, receipts, freeze, disconnect. *Cockpit*
+  in Exec context. *OrgIntel* Connection proposals are done as Sprint 63 app requests
+  (`restless work handoff --category identity --app`, resolved when the owner allows the app).
+  Exec's classification proposal and connections in Exec context remain.
+- [x] T8 ([ticket](sprint-57/s57-t8-connections-page.md)) — Company → Connections: suggestions, add by URL, command or plugin, probe status,
+  three-class grant, receipts, freeze, disconnect. *Cockpit* Superseded by Sprint 63's Apps surface,
+  which carries every part of it; the page now redirects there.
 - [x] T9 ([ticket](sprint-57/s57-t9-plugin-import.md)) — Plugin bundle import (skills → Library, MCP servers → Connections). *Runtime/Cockpit*
   Live evidence: Sprint 61 assertion 16 (a Git clone over https, the server added with its `plugin:`
   source, and the skill reaching candidacy through `restless skill add`). Exec's own skill step

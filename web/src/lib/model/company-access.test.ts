@@ -36,7 +36,7 @@ test('navigation stays empty until a principal has been authenticated', () => {
 	assert.deepEqual(companyShellTabs('acme', '/acme', null), []);
 });
 
-test('owner navigation keeps the five canonical company areas', () => {
+test('owner navigation keeps the six canonical company areas', () => {
 	const tabs = companyShellTabs('acme', '/acme/company/computer', principal('owner'), 3);
 	assert.deepEqual(
 		tabs.map(({ key, on, badge }) => ({ key, on, badge })),
@@ -45,9 +45,11 @@ test('owner navigation keeps the five canonical company areas', () => {
 			{ key: 'work', on: false, badge: undefined },
 			{ key: 'library', on: false, badge: undefined },
 			{ key: 'people', on: false, badge: undefined },
+			{ key: 'apps', on: false, badge: undefined },
 			{ key: 'company', on: true, badge: undefined }
 		]
 	);
+	assert.equal(companyShellTabs('acme', '/acme/apps/c-linear', principal('owner'))[4].on, true);
 });
 
 test('non-owner route admission matches only collaboration route families', () => {

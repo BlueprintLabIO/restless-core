@@ -1,6 +1,7 @@
 # Sprint 63 — Apps: one place for everything that gives the company an ability
 
-**Status:** draft for founder alignment
+**Status:** built and verified on Core; Cloud acceptance and the model-driven dogfood run remain
+(see Results)
 **Programme:** company extensibility (connectors, tools, plugins)
 **Depends on:** Sprint 57's one gateway and Connections page (ADR 0014), Sprint 55's skill library and
 candidates, S57-T7 (connection proposals as prepared handoffs, open), Sprint 61 Tier A (the
@@ -138,11 +139,14 @@ These amendments land in the same change as the navigation, after founder alignm
 
 - Replace `SUGGESTIONS` with a small data file of popular apps: key, name, plain description, job
   category, interface, address and sign-in kind. It is a list of known addresses, not adapters, and
-  it ships with the cockpit build. An entry is added only after one live connection to it has
-  succeeded on a `_test` company, and that check is recorded in the file's history.
-- Start with the services Sprint 57 named (Gmail, Google Calendar and Drive, Slack, Notion, Linear,
-  GitHub, Stripe, Shopify, Xero, Sentry), each live-checked or left out, plus the company image's
-  built-in skills.
+  it ships with the cockpit build. An entry is added only after a live probe of its address passes.
+  **As built:** an agent cannot sign in to third-party accounts, so the probe is an unauthenticated
+  MCP `initialize` that must answer with an MCP sign-in challenge (401 + Bearer) or a result. That
+  proves the address speaks MCP, not that a signed-in run works; signed-in checks are Tier B.
+- Built with 26 services that passed on 6 October 2026 (`web/src/lib/model/apps.ts`). Calendly
+  answered 404 and is left out. Gmail and Google Workspace have no hosted MCP address to probe and
+  stay out until Sprint 57 T1 decides their path; Shopify's MCP is per store and needs its own add
+  flow.
 
 ## Acceptance
 
@@ -194,29 +198,65 @@ entries; the Company overview's Connections and Skills rows; the transport picke
 | Apps becomes a second home for Company configuration | **Guarded.** Only what gives the company an ability moves. Intelligence, Vault and Limits stay in Company |
 | Members see apps they cannot add | **Accepted** for V0: Apps is owner-only, like Connections today |
 
-## Open questions for founders
+## Decisions (6 October 2026)
 
-1. Is a sixth top-level surface right, or should Apps replace Company's entry point instead?
-2. Does the composer's `$` menu keep saying "skills", or use the app's name and know-how wording?
-3. Should the Telegram Attention channel (Sprint 57 T12) be an app, since it is something the owner
-   adds and signs in to?
+1. Apps is a sixth surface, between People and Company. Company keeps configuration.
+2. The composer's `$` menu keeps saying "skills" for now: it is where agents' methods are chosen
+   for a message, a narrower job than Apps. Revisit if owners look for apps there.
+3. The Telegram Attention channel stays in Company → Limits: it is how the company reaches the
+   owner, not an ability the company gains.
+
+## Deviations from the plan
+
+- **No connection `origin` column was needed.** `connections.source` already records
+  `plugin:<url>@<commit>`, and the cockpit adds catalogue apps with `source: "catalogue:<key>"`.
+- **App requests are a column on owner handoffs, not a new record.** `owner_handoffs.app` (migration
+  0077) is set only on a pending **identity** handoff through `restless work handoff --app`.
+  Allowing a matching app resolves it as a daemon observation (`resolve_observed_handoff`), so the
+  Work is released without the owner reporting anything. Know-how needs no request: an agent's
+  `restless skill add` already arrives in Apps as a candidate.
+- **Exec's classification proposal (the other half of S57-T7) is not built.** The grant step shows
+  the gateway's annotation-based suggestion, labelled as a suggestion.
+- **Built-in know-how is folded** under "Comes with Restless" so it does not crowd what the owner
+  added.
+
+## Results (6 October 2026)
+
+- `scripts/connections-smoke --target core --with-skills` passes all 21 assertions on this tree,
+  including the new assertion 21: a lead's `restless work handoff --category identity --app
+  fixture-req` is listed by `GET /app-requests`; adding and allowing that app returns
+  `resumed_requests: 1`, the handoff is `resolved` and the Work moves from `blocked` to `active`.
+- The Inbox titles an app request "Add Stripe" and offers **Add Stripe** instead of "Mark done".
+- Inspected live on a seeded `_test` plane at desktop width and 375 px: the Apps tab and dot, Exec
+  recommends, In use, Browse by category, an app page with permission levels and Freeze, the
+  request banner, and the Inbox card. Phone fixes: one scrolling chip row, search in the body.
+- svelte-check: 0 errors, 0 warnings. `apps.test.ts` covers plugin grouping, requested apps leaving
+  Browse, owner words without mechanism nouns, and link classification.
+
+Not done:
+
+- **Acceptance 2 on Cloud.** It needs a signed-in Cloud test owner (Sprint 61 T5).
+- **Acceptance 5 (Exec recommends under a real model).** The mechanism is verified without a model;
+  a dogfood run where Exec itself raises the request is still owed.
+- **Acceptance 4's skill link.** A GitHub link is imported as a plugin, which handles a repository
+  holding only skills; a `#path` link to one skill inside a larger repository is not yet recognised.
 
 ## Tickets
 
-Ticket files are written at breakdown, after alignment. Each will cite the friction above, name its
-layer and state what it deletes.
+Built directly from this spec without separate ticket files, since the founder alignment step no
+longer applies.
 
-- [ ] T1 — Navigation contract: amend `CLAUDE.md` and `owner-cockpit.md` §3.1; add the Apps tab,
-  shortcut, dot and mobile dock entry. *Cockpit, docs*
-- [ ] T2 — The Apps projection: one owner read model joining connections, skills, plugin origin and
-  built-ins with live state. Includes the connection `origin` column. *Cockpit, Authority*
-- [ ] T3 — The Apps surface (Exec recommends, In use, Browse) and the catalogue file, replacing
+- [x] T1 — Navigation contract: amend `CLAUDE.md` and `owner-cockpit.md` §3.1; add the Apps tab,
+  shortcut (G then A), dot and mobile dock entry. *Cockpit, docs*
+- [x] T2 — The Apps projection (`web/src/lib/model/apps.ts`): one owner read model joining
+  connections, skills and plugin origin with live state. *Cockpit*
+- [x] T3 — The Apps surface (Exec recommends, In use, Browse) and the probed catalogue, replacing
   `SUGGESTIONS`. *Cockpit*
-- [ ] T4 — The app page and the grant step, moved from Connections and Skills; redirects; delete the
-  old pages. *Cockpit*
-- [ ] T5 — Add from a link: one field that recognises an MCP address, a plugin link, a skill link and
-  a command. *Cockpit, Gateway*
-- [ ] T6 — App recommendations (finishes S57-T7): an Exec handoff naming an app, rendered in the
-  Inbox and in Exec recommends; adding resumes the Work. *OrgIntel, Cockpit*
-- [ ] T7 — Acceptance runs 1–8 on `_test`, Core and Cloud; final visual pass against
-  `FRONTEND_DESIGN_REFERENCES.md`. *Verification*
+- [x] T4 — The app page and the grant step, moved from Connections and Skills; redirects; the old
+  pages, their Company rows and `COMPANY_PAGES` entries deleted. *Cockpit*
+- [x] T5 — Add from a link: one field that reads an MCP address, a Git repository (plugin or skills)
+  or a command. *Cockpit*
+- [x] T6 — App requests (finishes the request half of S57-T7): `--app` on identity handoffs, the
+  owner list, the Inbox card, and resolution on allow. *OrgIntel, Kernel, Cockpit*
+- [ ] T7 — Acceptance: Core and visual pass done; Cloud and the model-driven run remain.
+  *Verification*

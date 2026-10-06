@@ -3,6 +3,8 @@
 		key: string;
 		label: string;
 		badge?: number;
+		/** Something on this surface needs the owner: a dot, never a count. */
+		dot?: string;
 		href: string;
 		on?: boolean;
 	};
@@ -101,6 +103,7 @@
 		work: GLYPHS.briefcase,
 		library: GLYPHS.rules,
 		people: GLYPHS.group,
+		apps: GLYPHS.apps,
 		company: GLYPHS.key
 	};
 	const RUNTIME_LABEL: Record<string, string> = {
@@ -116,6 +119,7 @@
 		work: 'w',
 		library: 'l',
 		people: 'p',
+		apps: 'a',
 		company: 'c'
 	};
 	const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
@@ -407,16 +411,23 @@
 			data-surface={tab.key}
 			href={tab.href}
 			aria-current={tab.on ? 'page' : undefined}
-			aria-label={tab.badge ? `${tab.label}, ${tab.badge} items` : tab.label}
-			title={tabKeys[tab.key]
-				? `${tab.label} · G then ${tabKeys[tab.key].toUpperCase()}`
-				: tab.label}
+			aria-label={tab.badge
+				? `${tab.label}, ${tab.badge} items`
+				: tab.dot
+					? `${tab.label}, ${tab.dot}`
+					: tab.label}
+			title={tab.dot
+				? `${tab.label}: ${tab.dot}`
+				: tabKeys[tab.key]
+					? `${tab.label} · G then ${tabKeys[tab.key].toUpperCase()}`
+					: tab.label}
 		>
 			<span class="tb-tab-mark" aria-hidden="true">
 				<MatrixGlyph rows={tabGlyphs[tab.key] ?? GLYPHS.square} size={12} />
 			</span>
 			<span class="tb-tab-label" aria-hidden="true">{tab.label}</span>
-			{#if tab.badge}<span class="tb-badge" aria-hidden="true">{tab.badge}</span>{/if}
+			{#if tab.badge}<span class="tb-badge" aria-hidden="true">{tab.badge}</span>
+			{:else if tab.dot}<span class="tb-dot" aria-hidden="true"></span>{/if}
 		</a>
 	{/snippet}
 

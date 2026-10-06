@@ -499,6 +499,10 @@ pub struct OwnerInput {
     pub prepared: Option<String>,
     #[serde(default)]
     pub resume_when: Option<String>,
+    /// The app (catalogue key or address) whose addition resolves a sign-in
+    /// handoff.
+    #[serde(default)]
+    pub app: Option<String>,
     #[serde(default)]
     pub owner_kind: Option<String>,
     #[serde(default)]
@@ -899,6 +903,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
             "action",
             "prepared",
             "resume_when",
+            "app",
             "actor",
         ],
         "work-artifact-retire" => &["id", "reason", "actor"],

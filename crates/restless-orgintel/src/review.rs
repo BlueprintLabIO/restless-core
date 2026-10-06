@@ -852,6 +852,59 @@ impl OrgIntel {
         Ok(())
     }
 
+    /// Name the app that would unblock a pending sign-in handoff. Only an
+    /// identity step can be an app request: allowing an app is observable, so
+    /// it resolves as an observation rather than an owner judgement.
+    pub async fn attach_app_to_handoff(&self, id: Uuid, app: &str) -> Result<()> {
+        let app = app.trim();
+        if app.is_empty() || app.len() > 512 || app.chars().any(char::is_whitespace) {
+            return Err(OrgIntelError::InvalidWork(
+                "an app is one catalogue key or address, without spaces".into(),
+            ));
+        }
+        let updated = sqlx::query(
+            "UPDATE owner_handoffs SET app=$2 \
+             WHERE id=$1 AND state IN ('pending','preparing') AND category='identity'",
+        )
+        .bind(id)
+        .bind(app)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        if updated == 0 {
+            return Err(OrgIntelError::InvalidWork(
+                "only a pending identity handoff can name an app".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Pending app requests, oldest first, with the Work they unblock.
+    pub async fn app_requests(&self) -> Result<Vec<AppRequestRow>> {
+        Ok(sqlx::query_as(
+            "SELECT h.id AS handoff_id, h.app, h.requested_action, h.requested_by, \
+                    COALESCE(NULLIF(a.display, ''), h.requested_by) AS requested_by_display, \
+                    h.work_id, w.title AS work_title, h.created_at \
+             FROM owner_handoffs h JOIN work w ON w.id = h.work_id \
+             LEFT JOIN actors a ON a.id = h.requested_by \
+             WHERE h.state = 'pending' AND h.app IS NOT NULL AND h.assigned_to IS NULL \
+             ORDER BY h.created_at, h.id",
+        )
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    /// The pending app requests that any of these names satisfies.
+    pub async fn app_requests_for(&self, names: &[String]) -> Result<Vec<Uuid>> {
+        Ok(sqlx::query_scalar(
+            "SELECT id FROM owner_handoffs \
+             WHERE state = 'pending' AND app = ANY($1) ORDER BY created_at, id",
+        )
+        .bind(names)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
     pub async fn list_owner_handoffs(&self) -> Result<Vec<OwnerHandoffRow>> {
         Ok(sqlx::query_as(
             "SELECT id, work_id, attempt_id, requested_by, category, requested_action, \

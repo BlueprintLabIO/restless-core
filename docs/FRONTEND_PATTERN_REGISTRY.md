@@ -61,6 +61,42 @@ implements. If no native semantic job can be named, do not import it.
 | [Origin UI Svelte](https://originui-svelte.pages.dev/) | Candidate | polished conventional controls and interaction details | Preserve accessibility, replace visual styling with Bridge controls |
 | [Svelte Animations source](https://github.com/SikandarJODD/animations) | Candidate | inspectable implementation source | Pin the exact file/commit before adaptation |
 
+## Sprint 63 adoption — Apps
+
+Pattern ID: `apps-surface`
+
+Outcome/route: `web/src/routes/[companyId]/apps/` (the surface, `AppTile.svelte` and the app page)
+and the app-request branch of `InboxDetail.svelte`.
+
+Native semantic source: Bridge Light `Item` rows for anything the company already has or that
+needs the owner; one restrained tile grid only for Browse, where comparison across many unowned
+apps is the job. The Sprint 38 launcher rejected an app-store grid for launching owned artifacts;
+here the grid is limited to discovery, and owned apps stay in rows.
+
+Beautiful UI reference: [Recommendation Card](https://www.beautifului.dev/), inspected 6 October
+2026. The agent's suggestion leads with the ask and offers one primary action; Restless keeps that
+order for Exec's app requests (reason first, **Add** last) and drops the confidence meter, because
+an app request is a sign-in step, not a judgement. No source copied.
+
+Cult UI reference: [Minimal Card](https://www.cult-ui.com/docs/components/minimal-card), inspected
+6 October 2026. Borrowed the restraint: one border, a soft shadow only on hover or focus, no
+gradient or texture. The Agent Suggest Card Stack was rejected as decorative motion for a
+rarely-used surface.
+
+Keyboard/touch observation: tiles and rows are native links and buttons; category chips are
+buttons with `aria-pressed`; the chip row scrolls sideways on phones instead of stacking; every
+action is reachable without hover.
+
+Reduced-motion observation: the tile's hover transition is removed under
+`prefers-reduced-motion`; the Apps dot reuses the existing badge entrance.
+
+Desktop/mobile evidence: inspected live on a seeded `_test` plane on 6 October 2026 at desktop
+width and 375 px (Inbox app request, Apps, an app page with permission levels, Browse).
+
+Elements removed during final restraint pass: built-in know-how from the main In use list (now
+folded under "Comes with Restless"), a requested app's duplicate tile in Browse, "Sign in again"
+on apps that were never signed in, and the search box from the title row on phones.
+
 ## Rejected patterns
 
 | Pattern | Reason |

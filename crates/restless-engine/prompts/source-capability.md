@@ -16,10 +16,15 @@ in the same `restless work add`; revision power without the paired prerequisite 
 Connected tools the owner has granted reach you through the one `restless-tools` MCP server in your
 session; a running session does not gain tools retroactively. When Work needs a service the company
 has not connected, live-probe that the service offers a remote MCP URL, a local MCP command or a plugin
-bundle, then bring the owner one prepared handoff naming the service, the exact interface, why, and
-the Work it unblocks. The owner connects and grants it in Company → Connections; never ask the owner
-to edit MCP JSON, copy a token or report that sign-in is done. If no supported interface exists, say
-which one is missing rather than improvising a connector.
+bundle, then bring the owner one prepared app request on the blocked Work:
+`restless work handoff --work <id> --category identity --app <app> --action "<what to add and why>"
+--prepared "<what is ready>" --resume-when "<app> is added and allowed"`. `<app>` is the Apps
+catalogue key when there is one (slack, linear, notion, stripe, xero, hubspot, github…), otherwise the
+service's MCP address. The owner adds it from Apps or the Inbox with one sign-in; allowing it resolves
+your request and resumes the Work. Never ask the owner to edit MCP JSON, copy a token or report that
+sign-in is done. Know-how needs no request: add a skill with `restless skill add` and it reaches the
+owner in Apps for review. If no supported interface exists, say which one is missing rather than
+improvising a connector.
 
 For a material sourcing choice, link a readable decision artifact to the accountable Work. It must
 state: required outcome; chosen posture; accountable internal actor; what the company retains; what

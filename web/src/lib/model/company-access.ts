@@ -8,6 +8,8 @@ export type CompanyShellTab = {
 	href: string;
 	on: boolean;
 	badge?: number;
+	/** Something here needs the owner; a dot, never a count (the Inbox counts). */
+	dot?: string;
 };
 
 export function hasOwnerSurfaceAccess(
@@ -73,11 +75,11 @@ export function companyShellTabs(
 				on: pathname === `${root}/work` || pathname.startsWith(`${root}/work/`)
 			},
 			{
-			key: 'library',
-			label: 'Library',
-			href: `${root}/library`,
-			on: pathname === `${root}/library` || pathname.startsWith(`${root}/library/`)
-		},
+				key: 'library',
+				label: 'Library',
+				href: `${root}/library`,
+				on: pathname === `${root}/library` || pathname.startsWith(`${root}/library/`)
+			},
 			{
 				key: 'people',
 				label: 'People',
@@ -112,6 +114,12 @@ export function companyShellTabs(
 			label: 'People',
 			href: `${root}/people`,
 			on: pathname === `${root}/people` || pathname.startsWith(`${root}/people/`)
+		},
+		{
+			key: 'apps',
+			label: 'Apps',
+			href: `${root}/apps`,
+			on: pathname === `${root}/apps` || pathname.startsWith(`${root}/apps/`)
 		},
 		{
 			key: 'company',

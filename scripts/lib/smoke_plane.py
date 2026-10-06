@@ -20,12 +20,16 @@ def b64(value):
     return base64.urlsafe_b64encode(value).rstrip(b'=').decode()
 
 
-def reserve_offset(start=25000, stop=40000):
-    """A block of ports the daemon derives from its offset, all free now."""
+def reserve_offset(start=20000, stop=24900):
+    """A block of ports the daemon derives from its offset, all free now.
+
+    The test profile requires an offset of at least 20000, and the block stays
+    below 32768: Linux hands out ephemeral ports from there up, so an outgoing
+    connection could take a daemon port between this check and the bind."""
     for offset in range(start, stop, 100):
         held = []
         try:
-            for base in range(7788, 7797):
+            for base in range(7788, 7800):
                 probe = socket.socket()
                 probe.bind(('127.0.0.1', offset + base))
                 held.append(probe)

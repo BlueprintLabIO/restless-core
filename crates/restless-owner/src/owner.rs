@@ -1383,6 +1383,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(tool_connections_api::import_plugin),
         )
         .route(
+            "/companies/{company}/app-requests",
+            get(tool_connections_api::app_requests),
+        )
+        .route(
             "/companies/{company}/tool-connections/{name}/probe",
             post(tool_connections_api::probe),
         )

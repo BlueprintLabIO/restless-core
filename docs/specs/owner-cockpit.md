@@ -267,23 +267,28 @@ The absence of attention items should communicate:
 
 **Core contract**
 
-The cockpit has four primary product areas:
+The cockpit has six primary product areas, in this order:
 
-1. **Attention** — the priority stack requiring owner awareness or action.
+1. **Inbox** — the attention stack: what needs the owner's awareness, judgement or action.
 2. **Work** — goals, milestones, Work nodes, tasks, evidence, and outcomes.
-3. **People** — the durable organisation, accountable contacts, Staff Work and evidence.
-4. **Company** — the stable owner shell for charter, authority and limits, resources and access,
-   external actions, and the Company computer.
+3. **Library** — the company's native documents and sheets.
+4. **People** — the durable organisation, accountable contacts, Staff Work and evidence.
+5. **Apps** — what gives the company abilities: services it can use and know-how it can apply,
+   with exactly what each may do. Exec's app requests lead; browsing follows. An app is a
+   projection over Authority connections and the skill library, never a second record of either.
+6. **Company** — the stable owner shell for charter, identity, members, intelligence, Vault,
+   authority and limits, schedules, and the Company computer.
 
 ```text
-┌─────────────────────────────────────────────────────────────┐
-│ Company · Phase · Health · Runtime · Spend · Authority      │
-├────────────┬────────────┬────────────┬───────────────────────┤
-│ Attention  │ Work       │ People     │ Company               │
-└────────────┴────────────┴────────────┴───────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│ Company switcher                                     Search · Exec   │
+├─────────┬────────┬──────────┬──────────┬────────┬────────────────────┤
+│ Inbox   │ Work   │ Library  │ People   │ Apps   │ Company            │
+└─────────┴────────┴──────────┴──────────┴────────┴────────────────────┘
 ```
 
-The four areas should remain recognisable even as features grow.
+The six areas should remain recognisable even as features grow. The bar carries navigation only:
+the Inbox carries a count, Apps at most a dot when an app needs the owner.
 
 Rooms are reached from People, actor and Work context; native Documents are reached from Work,
 search and linked context. They do not introduce a second top-level navigation hierarchy or a
