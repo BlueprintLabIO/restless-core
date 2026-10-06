@@ -1,97 +1,66 @@
 <script lang="ts">
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
-	import { Page, Section, Item, Notice, Empty, Dot, Fold } from '$lib/ui/page';
+	import { Page, Section, Item, Notice, Empty, Dot } from '$lib/ui/page';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
-	import {
-		addConnection,
-		fetchConnections,
-		importPlugin,
-		type ToolConnection
-	} from '$lib/model/connections';
-	import { fetchSkillLibrary, type SkillLibrary } from '$lib/model/skills';
-	import {
-		BROWSE_CATEGORIES,
-		buildApps,
-		builtIn,
-		classifyLink,
-		nameForLink,
-		type App,
-		type AppCategory
-	} from '$lib/model/apps';
-	import { fetchAppRequests, type AppRequest } from '$lib/model/app-requests';
+	import { addConnection, importPlugin } from '$lib/model/connections';
+	import { classifyLink, nameForLink, type App } from '$lib/model/apps';
+	import { useAppsData, viewFrom, type AppsView } from '$lib/model/apps-data.svelte';
 	import AppTile from './AppTile.svelte';
 	import AppMark from '$lib/primitives/AppMark.svelte';
 
+	const data = useAppsData();
 	const companyId = $derived(page.params.companyId ?? 'aris');
-	let connections = $state<ToolConnection[] | null>(null);
-	let library = $state<SkillLibrary | null>(null);
-	let requests = $state<AppRequest[]>([]);
-	let failure = $state('');
 	let notice = $state('');
+	let actionFailure = $state('');
 	let busy = $state('');
 	let search = $state('');
-	let category = $state<AppCategory | 'Popular'>('Popular');
 	let linking = $state(false);
 	let link = $state('');
 
-	async function load() {
-		failure = '';
-		const [tools, skills, asked] = await Promise.allSettled([
-			fetchConnections(companyId),
-			fetchSkillLibrary(companyId),
-			fetchAppRequests(companyId)
-		]);
-		if (tools.status === 'fulfilled') connections = tools.value;
-		else failure = failureSentence(tools.reason, 'Apps could not be read.');
-		if (skills.status === 'fulfilled') library = skills.value;
-		requests = asked.status === 'fulfilled' ? asked.value : [];
-	}
-
-	$effect(() => {
-		void companyId;
-		void load();
-	});
-
-	const apps = $derived(
-		connections
-			? buildApps(
-					connections,
-					library,
-					requests.map((request) => request.app)
-				)
-			: null
+	const view = $derived<AppsView>(
+		viewFrom(page.url.searchParams.get('view')) ??
+			(data.waiting || data.added.length ? 'in-use' : 'all')
 	);
+	const query = $derived(search.trim().toLowerCase());
 	const matches = (app: App) =>
-		!search || `${app.name} ${app.description}`.toLowerCase().includes(search.toLowerCase());
-	const needsYou = $derived(
-		apps?.mine.filter((app) => app.state === 'needs_you' && matches(app)) ?? []
+		!query || `${app.name} ${app.description}`.toLowerCase().includes(query);
+
+	/* A search looks everywhere; otherwise the pane shows the view the list selected. */
+	const title = $derived(
+		query ? 'Search' : view === 'in-use' ? 'In use' : view === 'all' ? 'All apps' : view
 	);
-	const inUse = $derived(
-		apps?.mine.filter((app) => app.state !== 'needs_you' && !builtIn(app) && matches(app)) ?? []
+	const tiles = $derived(
+		query
+			? data.browse.filter(matches)
+			: view === 'all'
+				? data.browse
+				: view === 'in-use'
+					? []
+					: data.inCategory(view)
 	);
-	const included = $derived(
-		apps?.mine.filter((app) => app.state !== 'needs_you' && builtIn(app) && matches(app)) ?? []
+	const showInUse = $derived(!!query || view === 'in-use');
+	const requests = $derived(
+		data.requests.filter((request) => !query || request.name.toLowerCase().includes(query))
 	);
-	const browse = $derived(
-		apps?.browse.filter(
-			(app) => matches(app) && (category === 'Popular' || app.category === category)
-		) ?? []
-	);
+	const needsYou = $derived(data.needsYou.filter(matches));
+	const added = $derived(data.added.filter(matches));
+	const included = $derived(data.included.filter(matches));
 	const route = (key: string) =>
 		`/${encodeURIComponent(companyId)}/apps/${encodeURIComponent(key)}`;
+	const failure = $derived(actionFailure || data.failure);
 
 	async function act(key: string, action: () => Promise<unknown>) {
 		if (busy) return;
 		busy = key;
-		failure = '';
+		actionFailure = '';
 		notice = '';
 		try {
 			await action();
 		} catch (cause) {
-			failure = failureSentence(cause, 'That app was not added.');
+			actionFailure = failureSentence(cause, 'That app was not added.');
 		} finally {
 			busy = '';
 		}
@@ -133,7 +102,7 @@
 				notice = `${result.import.plugin} added${parts.length ? `: ${parts.join(' and ')}` : ''}.`;
 				linking = false;
 				link = '';
-				await load();
+				await data.load();
 				return;
 			}
 			const name = nameForLink(value);
@@ -158,7 +127,7 @@
 
 <CompanyTitle title="Apps" {companyId} />
 
-{#snippet tile(app: App)}
+{#snippet mark(app: App)}
 	<AppMark
 		name={app.name}
 		catalogueKey={app.catalogue?.key}
@@ -167,11 +136,28 @@
 	/>
 {/snippet}
 
+{#snippet row(app: App)}
+	<Item title={app.name} meta={app.description} href={route(app.key)} dim={app.state === 'paused'}>
+		{#snippet leading()}{@render mark(app)}{/snippet}
+		{#snippet trailing()}
+			<span title={app.howTip}><Dot tone={tone(app)} label={app.attention ?? 'In use'} show /></span
+			>
+		{/snippet}
+	</Item>
+{/snippet}
+
 <Page
-	title="Apps"
+	{title}
 	info="Apps give the company new abilities: services it can use and know-how it can follow. Each one shows exactly what it may do, and you can freeze or remove it at any time."
 >
 	{#snippet actions()}
+		<input
+			class="search"
+			type="search"
+			bind:value={search}
+			placeholder="Search apps"
+			aria-label="Search apps"
+		/>
 		{#if !linking}<button
 				class="btn small"
 				type="button"
@@ -180,8 +166,9 @@
 			>{/if}
 	{/snippet}
 
+	<!-- On a phone the title keeps the header; the search moves into the page. -->
 	<input
-		class="search"
+		class="search narrow"
 		type="search"
 		bind:value={search}
 		placeholder="Search apps"
@@ -192,10 +179,12 @@
 
 	{#if linking}
 		<form class="link" onsubmit={addLink}>
+			<!-- svelte-ignore a11y_autofocus -->
 			<input
 				aria-label="Link to an app"
 				placeholder="https://mcp.example.com/mcp, a GitHub link, or a command"
 				autocomplete="off"
+				autofocus
 				required
 				bind:value={link}
 			/>
@@ -207,127 +196,115 @@
 		</form>
 	{/if}
 
-	{#if !apps}
-		{#if !failure}<Skeleton label="Reading apps…" variant="page" count={4} />{/if}
+	{#if !data.ready}
+		{#if !data.failure}<Skeleton label="Reading apps…" variant="page" count={4} />{/if}
 	{:else}
-		{#if requests.length || needsYou.length}
-			<Section
-				title="Exec recommends"
-				count={requests.length + needsYou.length}
-				info="Apps waiting on you: ones Exec asked for to unblock work, and ones that need a sign-in, a review or a decision."
-			>
-				{#each requests as request (request.handoff_id)}
-					<Item title={request.name} meta={request.reason} href={request.href(companyId)} unread>
-						{#snippet leading()}<AppMark
-								name={request.name}
-								catalogueKey={request.catalogueKey}
-								size={24}
-							/>{/snippet}
-						{#snippet trailing()}
-							<span
-								class="asked"
-								title={request.work_title ? `For “${request.work_title}”` : undefined}
-								>{request.asker} asked</span
-							>
-							<a class="btn small primary" href={request.href(companyId)}>Add</a>
-						{/snippet}
-					</Item>
-				{/each}
-				{#each needsYou as app (app.key)}
-					<Item title={app.name} meta={app.description} href={route(app.key)} unread>
-						{#snippet leading()}{@render tile(app)}{/snippet}
-						{#snippet trailing()}
-							<span title={app.howTip}
-								><Dot tone="warning" label={app.attention ?? 'Needs you'} show /></span
-							>
-						{/snippet}
-					</Item>
-				{/each}
-			</Section>
-		{/if}
-
-		<!-- Know-how that ships with Restless is in use too, so it counts, and an
-		     empty state only appears when there is genuinely nothing. -->
-		<Section title="In use" count={inUse.length + included.length}>
-			{#each inUse as app (app.key)}
-				<Item
-					title={app.name}
-					meta={app.description}
-					href={route(app.key)}
-					dim={app.state === 'paused'}
+		{#if showInUse}
+			{#if requests.length || needsYou.length}
+				<Section
+					title="Waiting on you"
+					count={requests.length + needsYou.length}
+					info="Apps Exec asked for to unblock work, and ones that need a sign-in, a review or a decision."
 				>
-					{#snippet leading()}{@render tile(app)}{/snippet}
-					{#snippet trailing()}
-						<span title={app.howTip}
-							><Dot tone={tone(app)} label={app.attention ?? 'In use'} show /></span
-						>
-					{/snippet}
-				</Item>
-			{:else}
-				{#if !included.length}
-					<Empty
-						compact
-						title={search ? 'No apps match your search' : 'No apps yet'}
-						info="Add one below, or ask Exec: it finds what the work needs and brings it here."
-					/>
-				{/if}
-			{/each}
-			{#if included.length}
-				<Fold label="Comes with Restless" count={included.length} open={!inUse.length && !!search}>
-					{#each included as app (app.key)}
-						<Item
-							title={app.name}
-							meta={app.description}
-							href={route(app.key)}
-							dim={app.state === 'paused'}
-						>
-							{#snippet leading()}{@render tile(app)}{/snippet}
+					{#each requests as request (request.handoff_id)}
+						<Item title={request.name} meta={request.reason} href={request.href(companyId)} unread>
+							{#snippet leading()}<AppMark
+									name={request.name}
+									catalogueKey={request.catalogueKey}
+									size={24}
+								/>{/snippet}
+							{#snippet trailing()}
+								<span
+									class="asked"
+									title={request.work_title ? `For “${request.work_title}”` : undefined}
+									>{request.asker} asked</span
+								>
+								<a class="btn small primary" href={request.href(companyId)}>Add</a>
+							{/snippet}
+						</Item>
+					{/each}
+					{#each needsYou as app (app.key)}
+						<Item title={app.name} meta={app.description} href={route(app.key)} unread>
+							{#snippet leading()}{@render mark(app)}{/snippet}
 							{#snippet trailing()}
 								<span title={app.howTip}
-									><Dot tone={tone(app)} label={app.attention ?? 'In use'} show /></span
+									><Dot tone="warning" label={app.attention ?? 'Needs you'} show /></span
 								>
 							{/snippet}
 						</Item>
 					{/each}
-				</Fold>
+				</Section>
 			{/if}
-		</Section>
 
-		<Section title="Browse" count={browse.length} group={false}>
-			<div class="categories" role="group" aria-label="Categories">
-				{#each ['Popular', ...BROWSE_CATEGORIES] as name (name)}
-					<button
-						type="button"
-						class="chip"
-						aria-pressed={category === name}
-						onclick={() => (category = name as AppCategory | 'Popular')}>{name}</button
-					>
-				{/each}
-			</div>
-			<div class="grid">
-				{#each browse as app (app.key)}
-					<AppTile
-						{app}
-						href={route(app.key)}
-						busy={busy === `add:${app.key}`}
-						disabled={!!busy}
-						onadd={() => void addCatalogue(app)}
-					/>
-				{:else}
-					<Empty
-						compact
-						title="Nothing here yet"
-						info="Try another category, or add one from a link."
-					/>
-				{/each}
-			</div>
-		</Section>
+			{#if added.length || !query}
+				<Section
+					title="Added"
+					count={added.length}
+					info="Services and know-how the company added. Each shows what it may do."
+				>
+					{#each added as app (app.key)}{@render row(app)}{:else}
+						<Empty
+							compact
+							title="Nothing added yet"
+							info="Browse the apps in the list, or ask Exec: it finds what the work needs and brings it here."
+						>
+							{#snippet action()}<a class="btn small" href="?view=all">Browse apps</a>{/snippet}
+						</Empty>
+					{/each}
+				</Section>
+			{/if}
+
+			{#if included.length}
+				<Section
+					title="Comes with Restless"
+					count={included.length}
+					info="Know-how every company starts with. It needs no sign-in."
+				>
+					{#each included as app (app.key)}{@render row(app)}{/each}
+				</Section>
+			{/if}
+		{/if}
+
+		{#if tiles.length || !showInUse}
+			<Section
+				title={query ? 'Add' : undefined}
+				count={query ? tiles.length : undefined}
+				group={false}
+			>
+				<div class="grid">
+					{#each tiles as app (app.key)}
+						<AppTile
+							{app}
+							href={route(app.key)}
+							busy={busy === `add:${app.key}`}
+							disabled={!!busy}
+							onadd={() => void addCatalogue(app)}
+						/>
+					{:else}
+						<Empty compact title="Nothing here yet" info="Add one from a link instead." />
+					{/each}
+				</div>
+			</Section>
+		{/if}
+
+		{#if query && !requests.length && !needsYou.length && !added.length && !included.length && !tiles.length}
+			<Empty
+				compact
+				title="No apps match your search"
+				info="Try another word, or add one from a link."
+			/>
+		{/if}
 	{/if}
 </Page>
 
 <style>
 	.search {
-		width: min(320px, 100%);
+		width: 200px;
+		height: 30px;
+	}
+	.search.narrow {
+		display: none;
+		width: 100%;
 	}
 	.link {
 		display: grid;
@@ -343,39 +320,6 @@
 	.asked {
 		color: var(--intent-authority);
 	}
-	/* Every category is visible at once; a phone scrolls the row sideways,
-	 * with the edge fading so the hidden ones read as more, not as cut off. */
-	.categories {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 6px;
-		margin-bottom: 12px;
-	}
-	.chip {
-		flex-shrink: 0;
-		height: 28px;
-		padding: 0 11px;
-		border: 1px solid var(--border);
-		border-radius: 14px;
-		background: var(--surface);
-		color: var(--text-secondary);
-		font: inherit;
-		font-size: var(--t-body);
-		cursor: pointer;
-		transition:
-			background var(--motion-state) var(--ease-standard),
-			border-color var(--motion-state) var(--ease-standard),
-			color var(--motion-state) var(--ease-standard);
-	}
-	.chip:hover {
-		border-color: var(--border-strong);
-		color: var(--ink);
-	}
-	.chip[aria-pressed='true'] {
-		background: var(--accent-strong);
-		border-color: var(--accent-strong);
-		color: var(--text-inverse);
-	}
 	.grid {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
@@ -383,19 +327,13 @@
 	}
 	@container page (max-width: 560px) {
 		.search {
-			width: 100%;
+			display: none;
+		}
+		.search.narrow {
+			display: block;
 		}
 		.link {
 			grid-template-columns: 1fr;
-		}
-		.categories {
-			flex-wrap: nowrap;
-			overflow-x: auto;
-			scrollbar-width: none;
-			mask-image: linear-gradient(to right, black 85%, transparent);
-		}
-		.categories::-webkit-scrollbar {
-			display: none;
 		}
 	}
 </style>

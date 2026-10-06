@@ -815,9 +815,11 @@
 									><SemanticMark
 										meaning={participantId === 'exec' ? 'executive' : 'work'}
 										size="small"
-									/><strong class="exr-name">{participantName}</strong>{#if topicLabel}<span
-											class="topic-label">{topicLabel}</span
-										>{/if}{#if anyTopicNew}<i
+									/><span class="topic-text"
+										><strong class="exr-name">{participantName}</strong>{#if topicLabel}<span
+												class="topic-label">{topicLabel}</span
+											>{/if}</span
+									>{#if anyTopicNew}<i
 											class="topic-new"
 											title="Something new in another conversation"
 										></i>{/if}<ChevronDown size={14} aria-hidden="true" /></span
@@ -1589,6 +1591,14 @@
 	.topic-face :global(svg) {
 		flex: none;
 		color: var(--text-tertiary);
+	}
+	/* The name and its topic are two sizes on one line: they share a baseline, while the mark
+	 * and chevron stay centred on the row. */
+	.topic-text {
+		display: flex;
+		align-items: baseline;
+		gap: 6px;
+		min-width: 0;
 	}
 	.topic-face .exr-name {
 		flex: none;
