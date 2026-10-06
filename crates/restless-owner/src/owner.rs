@@ -4945,6 +4945,9 @@ struct ApplianceStatus {
     home_url: Option<String>,
     /// The signed-in person's name on a hosted plane, as the account issuer signed it.
     viewer_name: Option<String>,
+    /// This plane's own origin on a hosted plane. Tools that are not browsers (an MCP client) reach
+    /// the plane here, not through the one address the owner's browser uses.
+    plane_origin: Option<String>,
 }
 
 async fn appliance_status(
@@ -5102,6 +5105,10 @@ async fn appliance_status(
             .network()
             .map(|network| network.account_portfolio_url()),
         viewer_name: session_lease.and_then(|Extension(lease)| lease.identity.display_name),
+        plane_origin: state
+            .entry
+            .network()
+            .map(|network| format!("https://{}", network.host())),
     })
     .into_response()
 }

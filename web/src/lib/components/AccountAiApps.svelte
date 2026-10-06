@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { Section, Item, Notice, Empty } from '$lib/ui/page';
 	import { failureSentence } from '$lib/model/failure';
+	import { planeStatus } from '$lib/model/appliance';
 	import {
 		claudeCodeCommand,
 		fetchTokens,
@@ -39,7 +40,11 @@
 			const issued = await issueToken(label.trim());
 			fresh = {
 				label: issued.token.label,
-				command: claudeCodeCommand(window.location.origin, issued.secret)
+				// An MCP client is not a browser: on Cloud it talks to the plane's own address.
+				command: claudeCodeCommand(
+					(await planeStatus())?.plane_origin ?? window.location.origin,
+					issued.secret
+				)
 			};
 			label = '';
 			await load();

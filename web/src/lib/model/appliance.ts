@@ -12,6 +12,8 @@ export interface ApplianceStatus {
 	home_url?: string | null;
 	/** The signed-in person's name on a hosted plane, as the account issuer signed it. */
 	viewer_name?: string | null;
+	/** This plane's own origin on a hosted plane: where tools that are not browsers reach it. */
+	plane_origin?: string | null;
 }
 
 /** Where this plane runs, in the owner's words. */
