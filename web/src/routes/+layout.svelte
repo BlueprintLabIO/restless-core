@@ -18,6 +18,8 @@
 	import { connection, observeFailure, observeSuccess } from '$lib/model/connection.svelte';
 	import { isRetryable } from '$lib/model/failure';
 	import { observeSessionEnd } from '$lib/model/session-reentry';
+	import { registerServiceWorkerWhereLocal } from '$lib/model/service-worker-registration';
+	import { dev } from '$app/environment';
 
 	let { children } = $props();
 
@@ -107,6 +109,9 @@
 
 	/* A hosted session that ends mid-use re-enters through the account issuer. */
 	onMount(observeSessionEnd);
+	onMount(() => {
+		if (!dev) void registerServiceWorkerWhereLocal().catch(() => {});
+	});
 
 	onMount(() => {
 		let backgrounded = document.visibilityState === 'hidden';

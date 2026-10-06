@@ -11,6 +11,9 @@ const config = {
 	preprocess: vitePreprocess(),
 	kit: {
 		adapter: adapter({ fallback: 'index.html' }),
+		// Registered by the root layout only on a local appliance: on Cloud's one address a cockpit
+		// service worker would control Fleet's pages too (ADR 0007).
+		serviceWorker: { register: false },
 		prerender: { entries: [] },
 		alias: {
 			$lib: 'src/lib'
