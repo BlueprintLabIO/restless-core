@@ -1786,11 +1786,46 @@ pub async fn roll_forward_runtimes(daemon: &Daemon, configs: &[runtime::CompanyC
     }
 }
 
+/// Each company's latest roll-forward look on this plane, for the plane's /health: what it saw and
+/// did. Process memory only; a restarted plane starts empty and looks again.
+static ROLL_FORWARD: std::sync::LazyLock<std::sync::Mutex<std::collections::BTreeMap<String, serde_json::Value>>> =
+    std::sync::LazyLock::new(Default::default);
+
+pub fn roll_forward_report() -> serde_json::Value {
+    ROLL_FORWARD
+        .lock()
+        .map(|report| serde_json::json!(*report))
+        .unwrap_or(serde_json::Value::Null)
+}
+
+fn note_roll_forward(company: &str, outcome: &str, detail: Option<String>) {
+    if let Ok(mut report) = ROLL_FORWARD.lock() {
+        report.insert(
+            company.to_string(),
+            serde_json::json!({ "at": Utc::now(), "outcome": outcome, "detail": detail }),
+        );
+    }
+}
+
 async fn roll_forward_once(daemon: &Daemon, configs: &[runtime::CompanyConfig]) {
     for config in configs {
         let drifted = match runtime::doctor(&config.name).await {
-            Ok(doctor) => runtime_image_drifted(&doctor),
+            Ok(doctor) => {
+                let drifted = runtime_image_drifted(&doctor);
+                if !drifted {
+                    note_roll_forward(
+                        &config.name,
+                        "current",
+                        Some(format!(
+                            "container {:?} {:?}, target {:?}",
+                            doctor.container, doctor.container_image_id, doctor.target_image_id
+                        )),
+                    );
+                }
+                drifted
+            }
             Err(error) => {
+                note_roll_forward(&config.name, "not_inspected", Some(format!("{error:#}")));
                 tracing::warn!(company = %config.name, "release roll-forward could not inspect the computer: {error:#}");
                 continue;
             }
@@ -1800,8 +1835,12 @@ async fn roll_forward_once(daemon: &Daemon, configs: &[runtime::CompanyConfig]) 
         }
         tracing::info!(company = %config.name, "rebuilding the company computer on this plane's release");
         match recover(daemon, config, RecoveryAction::Reconcile, "daemon").await {
-            Ok(_) => tracing::info!(company = %config.name, "company computer rebuilt on this plane's release"),
+            Ok(_) => {
+                note_roll_forward(&config.name, "rebuilt", None);
+                tracing::info!(company = %config.name, "company computer rebuilt on this plane's release")
+            }
             Err(error) => {
+                note_roll_forward(&config.name, "failed", Some(format!("{error:#}")));
                 tracing::error!(company = %config.name, "release roll-forward failed; the owner's Rebuild remains: {error:#}")
             }
         }

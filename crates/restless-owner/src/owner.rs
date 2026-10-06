@@ -2134,6 +2134,9 @@ async fn release_health() -> Response<Body> {
     Json(serde_json::json!({
         "status": "ok",
         "release": crate::release::ReleaseIdentity::current(),
+        // What this plane runs company computers on, and what its roll-forward last saw and did.
+        "company_image": crate::runtime::company_image(),
+        "roll_forward": crate::company::roll_forward_report(),
     }))
     .into_response()
 }
