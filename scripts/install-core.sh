@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Install or upgrade the Restless appliance from one published Core release.
 #
-#   curl -fsSL https://raw.githubusercontent.com/BlueprintLabIO/restless-core/<revision>/scripts/install-core.sh \
-#     | bash -s -- <revision> [--environment <file>] [--force]
+#   curl -fsSL https://raw.githubusercontent.com/BlueprintLabIO/restless-core/main/scripts/install-core.sh | bash
+#
+# Or, for one exact release: ... | bash -s -- [<revision>] [--environment <file>] [--force]
 #
 # <revision> is the 40-character source commit of a release published by the
-# "Immutable Core release" workflow. The script:
+# "Immutable Core release" workflow; without one, the newest such release on
+# main. A fresh install on a host with no PostgreSQL and no
+# ~/.restless/orgintel.toml runs its own PostgreSQL in a container. The script:
 #   1. fetches that release's bundle from the registry and checks every byte
 #      against its sha256 digest;
 #   2. verifies the bundle's signed release manifest with Sigstore, accepting
@@ -21,6 +24,11 @@
 # and GHCR_TOKEN (a token with read:packages) in the environment.
 set -euo pipefail
 
+GITHUB_REPOSITORY="BlueprintLabIO/restless-core"
+# The bundled database: the official image's multi-arch index, pinned.
+POSTGRES_IMAGE='postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24'
+POSTGRES_CONTAINER='restless-stable-postgres'
+POSTGRES_PORT=7797
 REGISTRY="ghcr.io"
 REPOSITORY="blueprintlabio/restless-core-release"
 # The same pinned verifier the release workflow signs and verifies with.
@@ -34,7 +42,7 @@ step() { printf '\n==> %s\n' "$*" >&2; }
 
 usage() {
   sed -n '2,5p' "${BASH_SOURCE[0]:-/dev/null}" 2>/dev/null >&2 || true
-  printf 'usage: install-core.sh <revision> [--environment <file>] [--force]\n' >&2
+  printf 'usage: install-core.sh [<revision>] [--environment <file>] [--force]\n' >&2
   exit 2
 }
 
@@ -53,6 +61,59 @@ host_platform() {
     aarch64 | arm64) printf 'arm64\n' ;;
     *) fail "unsupported CPU architecture $(uname -m)" ;;
   esac
+}
+
+# The newest successful release on main: the source commit its workflow run built.
+latest_revision() {
+  curl -fsS "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/immutable-core-release.yml/runs?branch=main&status=success&per_page=1" \
+    | jq -er '.workflow_runs[0].head_sha' \
+    || fail "could not find the latest release; pass a revision"
+}
+
+# A fresh install on a host with no database of its own gets one: PostgreSQL in a
+# container on 127.0.0.1:7797, restarted with Docker, its data in a named volume
+# and its password only in ~/.restless (mode 0600). An existing orgintel.toml,
+# RESTLESS_PLANE_DATABASE_URL or a server on localhost:5432 (the appliance's
+# default) is kept as it is.
+ensure_database() {
+  local state="${HOME}/.restless" password attempt
+  if [ -n "${RESTLESS_PLANE_DATABASE_URL:-}" ] || [ -f "$state/orgintel.toml" ]; then return 0; fi
+  if (exec 3<>/dev/tcp/127.0.0.1/5432) 2>/dev/null; then
+    printf 'using the PostgreSQL on localhost:5432\n' >&2
+    return 0
+  fi
+  mkdir -p "$state" && chmod 700 "$state"
+  if ! docker container inspect "$POSTGRES_CONTAINER" >/dev/null 2>&1; then
+    password="$(od -An -tx1 -N32 /dev/urandom | tr -d ' \n')"
+    (umask 077 && printf 'POSTGRES_USER=restless\nPOSTGRES_DB=restless\nPOSTGRES_PASSWORD=%s\n' "$password" >"$state/postgres.env")
+    docker run --detach --name "$POSTGRES_CONTAINER" --restart unless-stopped \
+      --label io.restless.profile=stable \
+      --publish "127.0.0.1:${POSTGRES_PORT}:5432" \
+      --env-file "$state/postgres.env" \
+      --volume "${POSTGRES_CONTAINER}-data:/var/lib/postgresql/data" \
+      "$POSTGRES_IMAGE" >/dev/null
+  else
+    docker start "$POSTGRES_CONTAINER" >/dev/null
+    password="$(sed -n 's/^POSTGRES_PASSWORD=//p' "$state/postgres.env" 2>/dev/null || true)"
+    [ -n "$password" ] || fail "${POSTGRES_CONTAINER} exists but ~/.restless/postgres.env does not; remove the container or write orgintel.toml"
+  fi
+  for ((attempt = 0; attempt < 120; attempt += 1)); do
+    if docker exec "$POSTGRES_CONTAINER" pg_isready -h 127.0.0.1 -U restless -d restless >/dev/null 2>&1; then
+      (umask 077 && printf 'database_url = "postgres://restless:%s@127.0.0.1:%s/restless"\n' "$password" "$POSTGRES_PORT" >"$state/orgintel.toml")
+      printf 'PostgreSQL is ready (container %s)\n' "$POSTGRES_CONTAINER" >&2
+      return 0
+    fi
+    sleep 0.5
+  done
+  fail "PostgreSQL did not become ready; inspect: docker logs ${POSTGRES_CONTAINER}"
+}
+
+# Keep the user service running after logout. Usually allowed for one's own
+# user; otherwise say the one command that does it.
+ensure_linger() {
+  [ "$(loginctl show-user "$USER" --property=Linger --value 2>/dev/null)" = yes ] && return 0
+  loginctl enable-linger "$USER" 2>/dev/null && return 0
+  printf 'note: Restless stops when you log out until you run: sudo loginctl enable-linger %s\n' "$USER" >&2
 }
 
 # A bearer token for pulling from the registry: anonymous for public packages,
@@ -173,8 +234,13 @@ main() {
     esac
     shift
   done
-  [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || usage
   require_tools
+  if [ -z "$revision" ]; then
+    step "Finding the latest release"
+    revision="$(latest_revision)"
+    printf 'latest is %s\n' "$revision" >&2
+  fi
+  [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || usage
   local platform work bundle manifest tools image
   platform="$(host_platform)"
   work="$(mktemp -d)"
@@ -202,6 +268,11 @@ main() {
 
   local verb=install
   [ -e "${HOME}/.local/lib/restless/current" ] && verb=upgrade
+  if [ "$verb" = install ]; then
+    step "Preparing the database"
+    ensure_database
+    ensure_linger
+  fi
   step "Activating (appliance ${verb})"
   env -u RESTLESS_HOME -u RESTLESS_PORT_OFFSET -u RESTLESS_RESOURCE_NAMESPACE \
     -u RESTLESS_COMPANY_IMAGE -u RESTLESS_NATIVE_DOCUMENTS_IMAGE -u RESTLESS_OWNER_URL \

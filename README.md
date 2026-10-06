@@ -256,25 +256,33 @@ API credentials can live in the Infisical vault, with only references kept in co
 
 ## Get started
 
-Three commands open the office. You need a **Linux host with Rust/Cargo, Node.js 24/npm, Docker
+On a Linux machine with Docker, one command installs the newest signed release as a service:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/BlueprintLabIO/restless-core/main/scripts/install-core.sh | bash
+restless open
+```
+
+It verifies the release's signature, brings its own PostgreSQL if the machine has none, and
+starts Restless at `http://127.0.0.1:7788`. Connect **Codex, Claude or an API provider** under
+**Company → Intelligence**. Upgrades, backups and restores are in
+[self-hosting](docs/self-hosting.md).
+
+### From source
+
+To work on Restless itself you need a **Linux host with Rust/Cargo, Node.js 24/npm, Docker
 with Compose v2, curl, jq and OpenSSL**, Docker running, and about 30 GiB free for the source
 build and company image.
 
 ```sh
-# 1. Get the source
 git clone https://github.com/BlueprintLabIO/restless-core.git
-
-# 2. Install the workspace
 cd restless-core && npm --prefix web ci
-
-# 3. Open the office
 ./scripts/restless-dev my_company --reconcile
 ```
 
 The launcher builds the daemon and company image, installs its pinned model broker, and
 provisions PostgreSQL and an Infisical vault for a new development profile. The first build takes
-a while. Open the workspace address it prints, then connect **Codex, Claude or an API provider**
-under **Company → Intelligence**.
+a while. Open the workspace address it prints.
 
 To start a company already wired to an API model, export the model and a reference to its key
 first:
@@ -300,8 +308,7 @@ Ctrl-C stops the foreground host processes; company containers and volumes persi
   shared document and ask for a revision.
 - [Self-hosted accounts](services/identity/README.md): separate sign-ins, email invitations and
   removal of member access for teammates.
-- [Self-hosting a signed release](docs/self-hosting.md): run a published release as a service,
-  with upgrades and backups.
+- [Self-hosting](docs/self-hosting.md): upgrades, backups and restores of the installed service.
 - **Rather not run Docker?** [Restless Cloud](https://restless.run/cloud/) is the same office
   with nothing to install. It is in private beta; [join the waitlist](https://restless.run/cloud/#waitlist).
 

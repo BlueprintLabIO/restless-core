@@ -198,8 +198,9 @@ async fn run() -> Result<()> {
     // that cannot describe how it verifies fails here rather than serving.
     let owner_config = owner_config::OwnerConfig::from_env()?;
     runtime::validate_company_image_config(owner_config.is_network())?;
-    // A Cloud plane rolls its companies' computers forward with its own release (see below).
-    let release_plane = owner_config.is_network();
+    // A plane on a pinned release (Cloud, or an installed appliance after an upgrade) rolls its
+    // companies' computers forward with that release (see below). A development profile does not.
+    let release_plane = runtime::company_image_is_pinned();
 
     // Open authoritative charged-use accounting before the model relay. The
     // relay receives this exact ledger and is the only model path permitted to

@@ -625,7 +625,19 @@ fn database_name(url: &str) -> Result<String> {
 
 /// libpq programs read the password from the environment, so it never
 /// appears in a process listing.
-fn libpq(program: &str, url: &str) -> Result<Command> {
+/// The PostgreSQL that install-core.sh provisions when the host has none. Its client tools run
+/// inside its own container, so a host with no `pg_dump` can still back up and restore.
+const BUNDLED_DATABASE: &str = "restless-stable-postgres";
+
+fn on_path(program: &str) -> bool {
+    std::env::var_os("PATH").is_some_and(|paths| {
+        std::env::split_paths(&paths).any(|dir| dir.join(program).is_file())
+    })
+}
+
+/// A libpq client for `url`, and whether it runs inside the bundled database's container (files
+/// then travel over stdin and stdout rather than by path).
+fn libpq(program: &str, url: &str) -> Result<(Command, bool)> {
     let mut parsed = url::Url::parse(url).context("parse a database URL")?;
     let password = parsed.password().map(|value| {
         percent_encoding::percent_decode_str(value)
@@ -633,18 +645,30 @@ fn libpq(program: &str, url: &str) -> Result<Command> {
             .into_owned()
     });
     let _ = parsed.set_password(None);
-    let mut command = Command::new(program);
+    let bundled =
+        !on_path(program) && docker_ok(&["container", "inspect", BUNDLED_DATABASE]).unwrap_or(false);
+    let mut command = if bundled {
+        // Inside the container the server is on its own loopback, at the default port.
+        let _ = parsed.set_host(Some("127.0.0.1"));
+        let _ = parsed.set_port(Some(5432));
+        let mut command = Command::new("docker");
+        command.args(["exec", "-i", "-e", "PGPASSWORD", BUNDLED_DATABASE, program]);
+        command
+    } else {
+        Command::new(program)
+    };
     command.arg(format!("--dbname={parsed}"));
     command.env_remove("PGPASSWORD");
     if let Some(password) = password {
         command.env("PGPASSWORD", password);
     }
-    Ok(command)
+    Ok((command, bundled))
 }
 
+/// Runs the command to completion. Stdin is empty unless the caller gave the command a file
+/// (output() never inherits it), and a stdout the caller set is kept rather than captured.
 fn run_checked(mut command: Command, what: &str) -> Result<String> {
     let output = command
-        .stdin(Stdio::null())
         .output()
         .with_context(|| format!("{what}: start {:?}", command.get_program()))?;
     if !output.status.success() {
@@ -657,7 +681,7 @@ fn run_checked(mut command: Command, what: &str) -> Result<String> {
 }
 
 fn psql(url: &str, sql: &str, what: &str) -> Result<String> {
-    let mut command = libpq("psql", url)?;
+    let (mut command, _) = libpq("psql", url)?;
     command.args(["-X", "-q", "-A", "-t", "-v", "ON_ERROR_STOP=1"]);
     let mut child = command
         .stdin(Stdio::piped())
@@ -681,26 +705,32 @@ fn psql(url: &str, sql: &str, what: &str) -> Result<String> {
 }
 
 fn pg_dump(url: &str, destination: &Path) -> Result<()> {
-    let mut command = libpq("pg_dump", url)?;
-    command
-        .args(["--format=custom", "--no-password", "--file"])
-        .arg(destination);
+    let (mut command, bundled) = libpq("pg_dump", url)?;
+    command.args(["--format=custom", "--no-password"]);
+    if bundled {
+        command.stdout(std::fs::File::create(destination)?);
+    } else {
+        command.arg("--file").arg(destination);
+    }
     run_checked(command, &format!("pg_dump {}", database_name(url)?))?;
     Ok(())
 }
 
 fn pg_restore(url: &str, dump: &Path) -> Result<()> {
-    let mut command = libpq("pg_restore", url)?;
+    let (mut command, bundled) = libpq("pg_restore", url)?;
     // Ownership follows the connecting role; grants Core re-applies at start.
-    command
-        .args([
-            "--no-owner",
-            "--no-acl",
-            "--exit-on-error",
-            "--single-transaction",
-            "--no-password",
-        ])
-        .arg(dump);
+    command.args([
+        "--no-owner",
+        "--no-acl",
+        "--exit-on-error",
+        "--single-transaction",
+        "--no-password",
+    ]);
+    if bundled {
+        command.stdin(std::fs::File::open(dump)?);
+    } else {
+        command.arg(dump);
+    }
     run_checked(command, &format!("pg_restore {}", database_name(url)?))?;
     Ok(())
 }

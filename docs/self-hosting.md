@@ -4,30 +4,56 @@ This page installs a published Core release as a per-user service, upgrades it,
 and backs it up and restores it. For a development checkout, use the
 [README's source setup](../README.md#getting-started) instead.
 
-## Requirements
+## Install
+
+On a Linux machine with Docker:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/BlueprintLabIO/restless-core/main/scripts/install-core.sh | bash
+restless open
+```
+
+That installs the newest release. To install one exact release instead, pass its
+revision, the 40-character commit of a successful **Immutable Core release** run
+on `main`: `... | bash -s -- <revision>`.
+
+The installer:
+
+1. checks the release bundle's SHA-256 digests;
+2. verifies the signature on its release manifest, accepting only the
+   repository's release workflow on `main` as the signer;
+3. pulls each image by the digest in that signed manifest;
+4. on a first install, prepares the database (below) and keeps the service
+   running after you log out (`loginctl enable-linger`; if your system does not
+   allow that without `sudo`, it prints the command); and
+5. runs `restless appliance install`. This starts the user service and waits for
+   it to become ready.
+
+`--environment <file>` imports provider credentials that your companies
+reference from a dotenv file.
+
+### Requirements
 
 - Linux on x86_64 or arm64 with `systemd --user`. Release binaries are built on
   Debian 12, so the host needs glibc 2.36 or newer (Debian 12, Ubuntu 24.04 or
   later).
 - Docker, usable by your user. Company computers run as containers.
 - `curl`, `jq`, `tar` and `sha256sum`.
-- PostgreSQL 16 or newer, plus `psql`, `pg_dump` and `pg_restore` at the server's
-  major version or newer.
-- Keep services running after you log out:
-  `sudo loginctl enable-linger "$USER"`.
 
 ### Database
 
-Core connects with the URL in `~/.restless/orgintel.toml`. Without that file it
-uses `postgres://$USER@localhost/restless`. Core creates one database and login
-role for each company, so this role needs `CREATEDB` and `CREATEROLE`:
+You do not need to install PostgreSQL. If the machine has none, a first install
+runs PostgreSQL 17 in a container named `restless-stable-postgres`. It listens
+only on `127.0.0.1:7797`, restarts with Docker, keeps its data in the
+`restless-stable-postgres-data` volume, and its generated password lives only in
+`~/.restless` (mode `0600`). Backups use the client tools inside that container.
 
-```sh
-sudo -u postgres createuser --createdb --createrole "$USER"
-createdb restless
-```
+To use your own server instead, do one of these before installing:
 
-To use another server, write the file before installing:
+- run PostgreSQL 16 or newer on `localhost:5432` with a role for your user that
+  has `CREATEDB` and `CREATEROLE` (Core creates one database and role per
+  company); or
+- write its URL to `~/.restless/orgintel.toml`:
 
 ```sh
 mkdir -p ~/.restless && chmod 700 ~/.restless
@@ -35,43 +61,24 @@ printf 'database_url = "postgres://restless:<password>@db.internal:5432/restless
 chmod 600 ~/.restless/orgintel.toml
 ```
 
-## Install
-
-Choose a release. Its revision is the 40-character commit of a successful
-**Immutable Core release** run on `main`. Then run:
-
-```sh
-REVISION=<revision>
-curl -fsSL "https://raw.githubusercontent.com/BlueprintLabIO/restless-core/$REVISION/scripts/install-core.sh" \
-  | bash -s -- "$REVISION"
-restless open
-```
-
-The installer:
-
-1. checks the release bundle's SHA-256 digests;
-2. verifies the signature on its release manifest, accepting only the
-   repository's release workflow on `main` as the signer;
-3. pulls each image by the digest in that signed manifest; and
-4. runs `restless appliance install`. This starts the user service and waits for
-   it to become ready.
-
-`--environment <file>` imports provider credentials that your companies
-reference from a dotenv file.
-
-**Private packages.** If the release packages are private, run
-`docker login ghcr.io` and export `GHCR_TOKEN`. Use a token with `read:packages`.
+With your own server, backups need `psql`, `pg_dump` and `pg_restore` at the
+server's major version or newer.
 
 ## Upgrade and roll back
 
-To upgrade, run the same command with a newer revision. When a release is
-already installed, the installer runs `restless appliance upgrade`, which:
+To upgrade, run the same command again (or pass a newer revision). When a
+release is already installed, the installer runs `restless appliance upgrade`,
+which:
 
 - closes work admission and waits up to 30 seconds for active work to finish.
   If work is still running, it stops without interrupting anything. `--force`
   accepts the interruption.
 - activates the new release and waits up to 30 seconds for it to become ready.
 - puts the previous release back if the new one does not become ready.
+
+After an upgrade, each company computer still on the previous release's image is
+rebuilt on the new one when the service starts. Company files live on the
+company's volume and are kept.
 
 Company data is never stored in the release directory, so an upgrade does not
 copy or migrate files. To return to the previous release at any time:
@@ -118,7 +125,7 @@ Not included:
 Restore onto a new installation of the same release, or a newer one:
 
 ```sh
-# 1. Prepare PostgreSQL as above, then install the release.
+# 1. Install the release (it prepares the database as above).
 # 2. Stop the service and restore.
 restless appliance stop
 restless appliance restore ~/restless-2026-10-05.tar

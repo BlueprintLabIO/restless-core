@@ -148,6 +148,13 @@ fn is_immutable_image_digest(image: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
+/// The plane runs a release's own company image, pinned by digest: every Cloud plane and every
+/// installed appliance (install-core.sh writes the pin). A development profile builds a mutable tag
+/// instead. A pinned plane rebuilds company computers left on an earlier release's image at boot.
+pub fn company_image_is_pinned() -> bool {
+    is_immutable_image_digest(company_image().trim())
+}
+
 /// A network-reachable account plane is a Cloud release consumer. Refuse to
 /// start unless Fleet supplied the immutable Runtime artifact from its lock.
 pub fn validate_company_image_config(network_mode: bool) -> Result<()> {
