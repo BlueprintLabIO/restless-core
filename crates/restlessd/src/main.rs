@@ -428,6 +428,9 @@ async fn run() -> Result<()> {
     tokio::spawn(async move {
         let recovery_started = std::time::Instant::now();
         let hosted_runtime = recovery_daemon.runtime_bridges.is_hosted();
+        if release_plane {
+            company::note_roll_forward_stage("waiting_for_startup_recovery", None);
+        }
         let running_companies = if hosted_runtime {
             Vec::new()
         } else {
@@ -443,6 +446,12 @@ async fn run() -> Result<()> {
                         break companies;
                     }
                     Err(error) => {
+                        if release_plane {
+                            company::note_roll_forward_stage(
+                                "waiting_for_startup_recovery",
+                                Some(format!("Docker inventory deferred: {error:#}")),
+                            );
+                        }
                         tracing::warn!(
                             elapsed_ms = attempt_started.elapsed().as_millis(),
                             "runtime recovery inventory deferred: {error:#}"
@@ -510,6 +519,7 @@ async fn run() -> Result<()> {
             "startup recovery barrier opened"
         );
         if release_plane && !hosted_runtime {
+            company::note_roll_forward_waiting();
             // In its own task: a rebuild can take a while and must not hold up startup.
             let roll_daemon = std::sync::Arc::clone(&recovery_daemon);
             let roll_configs = recovery_configs.clone();

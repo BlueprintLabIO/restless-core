@@ -1773,17 +1773,21 @@ pub fn runtime_image_drifted(doctor: &runtime::RuntimeDoctor) -> bool {
 pub async fn roll_forward_runtimes(daemon: &Daemon, configs: &[runtime::CompanyConfig]) {
     // Without the target image locally its id is unknown and every computer would look current.
     // Observed on Cloud, 6 October: a plane booted on 800d207 skipped its rebuild for this reason.
+    note_roll_forward_stage("fetching_image", None);
     if let Err(error) = runtime::fetch_company_image().await {
+        note_roll_forward_stage("fetch_failed", Some(format!("{error:#}")));
         tracing::warn!("release roll-forward could not fetch this release's company image: {error:#}");
         return;
     }
     // Look again after a rollout settles. A rolling deploy briefly runs the previous plane beside
     // this one: it can replace a computer onto its own image while this boot's look finds the
     // container mid-replacement (absent, so not lagging). Observed on Cloud, 6 October 22:29.
-    for delay in [0u64, 60, 300] {
+    for (look, delay) in [0u64, 60, 300].into_iter().enumerate() {
         tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
+        note_roll_forward_stage("looking", Some(format!("look {} of 3, {} companies", look + 1, configs.len())));
         roll_forward_once(daemon, configs).await;
     }
+    note_roll_forward_stage("done", None);
 }
 
 /// Each company's latest roll-forward look on this plane, for the plane's /health: what it saw and
@@ -1791,11 +1795,31 @@ pub async fn roll_forward_runtimes(daemon: &Daemon, configs: &[runtime::CompanyC
 static ROLL_FORWARD: std::sync::LazyLock<std::sync::Mutex<std::collections::BTreeMap<String, serde_json::Value>>> =
     std::sync::LazyLock::new(Default::default);
 
+/// Where the plane's roll-forward is: started, fetching the image, failed to fetch, looking, done.
+static ROLL_FORWARD_STAGE: std::sync::Mutex<Option<serde_json::Value>> = std::sync::Mutex::new(None);
+
+pub fn note_roll_forward_stage(stage: &str, detail: Option<String>) {
+    if let Ok(mut current) = ROLL_FORWARD_STAGE.lock() {
+        *current = Some(serde_json::json!({ "stage": stage, "at": Utc::now(), "detail": detail }));
+    }
+}
+
+/// The plane has opened its startup barrier and is about to start rolling forward.
+pub fn note_roll_forward_waiting() {
+    note_roll_forward_stage("started", None);
+}
+
 pub fn roll_forward_report() -> serde_json::Value {
-    ROLL_FORWARD
+    let companies = ROLL_FORWARD
         .lock()
         .map(|report| serde_json::json!(*report))
-        .unwrap_or(serde_json::Value::Null)
+        .unwrap_or(serde_json::Value::Null);
+    let stage = ROLL_FORWARD_STAGE
+        .lock()
+        .ok()
+        .and_then(|stage| stage.clone())
+        .unwrap_or(serde_json::Value::Null);
+    serde_json::json!({ "stage": stage, "companies": companies })
 }
 
 fn note_roll_forward(company: &str, outcome: &str, detail: Option<String>) {
