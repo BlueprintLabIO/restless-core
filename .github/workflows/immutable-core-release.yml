@@ -56,18 +56,34 @@ jobs:
       # Connections are what let a company act through its owner's tools. A
       # release that cannot connect, govern and recover them is not qualified.
       - name: Connections smoke on the exact candidate
+        # Both caches below are the runner's own, outside the checkout that actions/checkout wipes.
+        # A fresh target rebuilt all 358 crates (2m18s); this one rebuilds only workspace crates.
+        # One image tag stays warm: with containerd's snapshotter, deleting the last image that
+        # holds the tool layers made the next build unpack them again (~2 min, every run).
         env:
-          IMAGE: restless-company-image:release-connections-${{ github.run_id }}
+          IMAGE: restless-company-image:release-connections
           EVIDENCE: ${{ runner.temp }}/release-connections-smoke-${{ github.run_id }}
+          CARGO_INCREMENTAL: "0"
         run: |
-          trap 'docker image rm "$IMAGE" >/dev/null 2>&1 || true; rm -rf "$EVIDENCE"' EXIT
+          trap 'rm -rf "$EVIDENCE"' EXIT
           # The runner service does not inherit a login PATH; rustup lives here.
           export PATH="$HOME/.cargo/bin:$PATH"
+          export CARGO_TARGET_DIR="$HOME/.cache/restless-runner/release-connections-target"
+          # docs/BUILD_STORAGE.md: clean a persistent target above 30 GiB.
+          if [[ -d "$CARGO_TARGET_DIR" ]] && (( $(du -s --block-size=1G "$CARGO_TARGET_DIR" | cut -f1) > 30 )); then
+            cargo clean --target-dir "$CARGO_TARGET_DIR"
+          fi
           scripts/restless-cargo build -p restlessd -p restless
           npm --prefix infra/host-tools ci --no-audit --no-fund
+          previous="$(docker image inspect --format '{{.Id}}' "$IMAGE" 2>/dev/null || true)"
           source scripts/lib/dev-release.sh
           dev_build_company_image "$PWD" "$IMAGE" "$GITHUB_SHA"
-          RESTLESS_COMPANY_IMAGE="$IMAGE" python3 scripts/connections-smoke --target core --output "$EVIDENCE"
+          # Remove only the exact image this build replaced; a container still using it keeps it.
+          if [[ -n "$previous" && "$previous" != "$(docker image inspect --format '{{.Id}}' "$IMAGE")" ]]; then
+            docker image rm "$previous" >/dev/null 2>&1 || true
+          fi
+          RESTLESSD_BIN="$CARGO_TARGET_DIR/debug/restlessd" RESTLESS_CLI_BIN="$CARGO_TARGET_DIR/debug/restless" \
+            RESTLESS_COMPANY_IMAGE="$IMAGE" python3 scripts/connections-smoke --target core --output "$EVIDENCE"
 
   publish:
     name: Publish exact platform artifacts
