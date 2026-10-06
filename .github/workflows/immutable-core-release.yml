@@ -61,6 +61,8 @@ jobs:
           EVIDENCE: ${{ runner.temp }}/release-connections-smoke-${{ github.run_id }}
         run: |
           trap 'docker image rm "$IMAGE" >/dev/null 2>&1 || true; rm -rf "$EVIDENCE"' EXIT
+          # The runner service does not inherit a login PATH; rustup lives here.
+          export PATH="$HOME/.cargo/bin:$PATH"
           scripts/restless-cargo build -p restlessd -p restless
           npm --prefix infra/host-tools ci --no-audit --no-fund
           source scripts/lib/dev-release.sh

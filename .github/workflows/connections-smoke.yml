@@ -37,8 +37,11 @@ jobs:
     env:
       IMAGE: restless-company-image:ci-connections-${{ github.run_id }}
     steps:
-      - name: Choose the evidence directory
-        run: echo "EVIDENCE=$RUNNER_TEMP/connections-smoke-$GITHUB_RUN_ID" >> "$GITHUB_ENV"
+      - name: Choose the evidence directory and the host's Rust toolchain
+        run: |
+          echo "EVIDENCE=$RUNNER_TEMP/connections-smoke-$GITHUB_RUN_ID" >> "$GITHUB_ENV"
+          # The runner service does not inherit a login PATH; rustup lives here.
+          test -x "$HOME/.cargo/bin/cargo" && echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - uses: actions/checkout@v4
         with:
