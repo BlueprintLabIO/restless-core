@@ -35,8 +35,9 @@ Each item was read on 6 October 2026 from `main` at `30657f5`.
 |---|---|
 | Nothing checks the connection lifecycle end to end | Sprint 57 records unit evidence only: T9 says "The Git clone and Exec's skill step have not run live"; T10, the acceptance runs, is open. No script under `scripts/` exercises `tool_gateway.rs` or `owner_tool_connections.rs` |
 | Cloud has never been exercised for connections | Sprint 57's acceptance is Core-only. Sprint 60 moved Cloud to one address after Sprint 57 shipped |
-| The OAuth callback may not route under one address (**suspected, unverified**) | `owner_tool_connections.rs` builds `redirect_uri` from the request `Origin` plus the root path `/connections/tools/oauth/callback`. On Cloud the origin is now `https://app.restless.run`, and Sprint 60's router table sends only `/`, `/account/**`, `/auth/**`, `/_fleet/**`, `/<company>/**` and company APIs to planes. A root `/connections/**` path is in none of these. It would match `/<company>/**` with company `connections` |
-| How a hosted Runtime reaches the gateway is unproven | `tool_gateway.rs` gives actors `http://host.docker.internal:{port}/tools/{company}`. That holds when the Runtime is a container beside the plane. Cloud ADR 0002 puts Runtimes under a host supervisor and denies planes the Docker socket |
+| ~~The OAuth callback may not route under one address~~ | **Refuted by T1.** `restless-cloud` `ae1b997` routes `/connections/tools/oauth/callback` to the owner's plane, and a live probe shows the deployed router takes that branch |
+| ~~How a Cloud Runtime reaches the gateway is unproven~~ | **Refuted by T1.** Cloud ADR 0006 runs the Linux Core appliance topology per owner VM; the gateway shares the model relay's listener |
+| Hosted Runtime mode hands actors a gateway it does not serve | **Found by T1.** `restlessd` mounts the gateway only for non-hosted bridges, but `session_servers` is called regardless. Pending founder decision; see the T1 ticket |
 | Self-supply is only partly exercised | `skill-compatibility-smoke` covers `restless skill add` and candidates. Plugin import (`POST /tool-connections/plugins`), the local stdio worker (S57-T5, open) and persistence of user-space CLIs across container replacement have no end-to-end check |
 | Every ticket in Sprint 57 still needs its own live run | A shared fixture provider and runner make each later acceptance cheap rather than bespoke |
 
@@ -159,9 +160,8 @@ Sprint 57 built. A fix found by the smoke lands in its owning module.
 
 ### Gateway / Engine
 
-- Fix whatever T1 finds about the callback route and Runtime-to-gateway reachability on Cloud. The
-  likely shape is a company-scoped callback path (`/<company>/connections/tools/oauth/callback`) so
-  the one-address router needs no new rule. T1 decides.
+- T1 found no Cloud fix needed. Once founders decide, either make hosted Runtime mode refuse
+  connected tools honestly or delete the mode.
 - No test-only branches in `connections.rs` or `tool_gateway.rs`.
 
 ### Runtime
@@ -240,9 +240,11 @@ Sprint 57 built. A fix found by the smoke lands in its owning module.
 
 ## Tickets
 
-- [ ] T1 ([ticket](sprint-61/s61-t1-cloud-probe.md)) — Probe the two Cloud suspects (callback route
+- [x] T1 ([ticket](sprint-61/s61-t1-cloud-probe.md)) — Probe the two Cloud suspects (callback route
   under one address, Runtime-to-gateway reachability) on a Cloud test plane, and fix or file what
-  fails. *Gateway/Cloud*
+  fails. *Gateway/Cloud* Both refuted from source and one live router probe; no fix needed. The
+  signed-in end-to-end path is acceptance 3 (T5). Found instead: hosted Runtime mode has no tool
+  gateway (founder decision).
 - [ ] T2 ([ticket](sprint-61/s61-t2-fixture-provider.md)) — The fixture MCP provider: OAuth 2.1 with
   DCR, PKCE and refresh, four tools, control endpoints, stdio mode, plugin bundle. *Tooling*
 - [ ] T3 ([ticket](sprint-61/s61-t3-core-smoke.md)) — `scripts/connections-smoke --target core`:
