@@ -1693,7 +1693,16 @@ async fn enforce_owner_boundary(
             // the account issuer, which signs the owner in again, instead of drawing a page
             // whose every section is refused.
             if identity.is_none() && is_signed_out_page_load(request.method(), request.headers(), &path) {
-                return Redirect::to(&network.account_portfolio_url()).into_response();
+                // Carry where the owner was going, so Home can sign them straight back in there
+                // (an emailed deep link, a bookmark, a lapsed session).
+                let wanted = request
+                    .uri()
+                    .path_and_query()
+                    .map(|value| value.as_str())
+                    .filter(|value| *value != "/")
+                    .map(|value| format!("?return={}", url::form_urlencoded::byte_serialize(value.as_bytes()).collect::<String>()))
+                    .unwrap_or_default();
+                return Redirect::to(&format!("{}{wanted}", network.account_portfolio_url())).into_response();
             }
             if path.starts_with("/api/") || path.starts_with("/desktop/") {
                 if let Some(identity) = identity {
@@ -2147,6 +2156,23 @@ struct EntryRequest {
     opening_message: Option<String>,
     #[serde(default)]
     opening_command_id: Option<Uuid>,
+    /// Where to land after entry: a path inside the company being entered (a deep link that
+    /// survived sign-in). Anything else lands on the company.
+    #[serde(default)]
+    return_to: Option<String>,
+}
+
+/// A post-entry landing must stay inside the company just entered: this origin, this company's
+/// pages, no scheme, no authority, no control characters.
+fn entry_return_path_belongs(path: &str, company: &str) -> bool {
+    let inside = path == format!("/{company}")
+        || path.starts_with(&format!("/{company}/"))
+        || path.starts_with(&format!("/{company}?"));
+    inside
+        && path.len() <= 2048
+        && !path.contains("//")
+        && !path.contains('\\')
+        && !path.chars().any(char::is_control)
 }
 
 #[derive(Deserialize)]
@@ -2535,7 +2561,17 @@ async fn consume_entry_assertion(
     let mut response = if form_post {
         // The verified company is also the member's landing page. The global
         // portfolio requires owner access and is not an invitation destination.
-        Redirect::to(&if opened_with_message { format!("/{company}/people?person=exec") } else { format!("/{company}") }).into_response()
+        Redirect::to(&if opened_with_message {
+            format!("/{company}/people?person=exec")
+        } else {
+            request
+                .return_to
+                .as_deref()
+                .filter(|path| entry_return_path_belongs(path, &company))
+                .map(str::to_owned)
+                .unwrap_or_else(|| format!("/{company}"))
+        })
+        .into_response()
     } else {
         Json(serde_json::json!({
             "entered": true,
@@ -2707,7 +2743,7 @@ fn parse_entry_request(
                 _ => Err("entry form has a repeated field"),
             }
         };
-        if values.iter().any(|(key, _)| !matches!(key.as_str(), "assertion" | "target_company" | "opening_message" | "opening_command_id")) {
+        if values.iter().any(|(key, _)| !matches!(key.as_str(), "assertion" | "target_company" | "opening_message" | "opening_command_id" | "return_to")) {
             return Err("entry form has an unsupported field");
         }
         let assertion = one("assertion")?.filter(|value| !value.is_empty())
@@ -2722,7 +2758,8 @@ fn parse_entry_request(
         {
             return Err("opening message and command ID must be one bounded pair");
         }
-        return Ok((EntryRequest { assertion, target_company, opening_message, opening_command_id }, true));
+        let return_to = one("return_to")?;
+        return Ok((EntryRequest { assertion, target_company, opening_message, opening_command_id, return_to }, true));
     }
     if content_type.is_empty() || content_type == "application/json" {
         let request: EntryRequest =

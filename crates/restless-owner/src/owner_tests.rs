@@ -1840,6 +1840,33 @@
         assert!(refused(PLANE_HOST.into(), "https://app.restless.test"));
     }
 
+    /// A deep link survives sign-in only inside the company just entered: never another company,
+    /// another origin, or a path that a browser could read as one.
+    #[test]
+    fn an_entry_lands_on_its_return_path_only_inside_the_company() {
+        let company = "company_01a1099254287140b24b3202429a3f01";
+        for good in [
+            format!("/{company}"),
+            format!("/{company}/inbox"),
+            format!("/{company}/people?person=exec"),
+            format!("/{company}?item=42"),
+        ] {
+            assert!(entry_return_path_belongs(&good, company), "{good}");
+        }
+        for bad in [
+            "/company_ffffffffffffffffffffffffffffffff/inbox".to_owned(),
+            format!("/{company}x/inbox"),
+            "https://evil.test/".to_owned(),
+            "//evil.test/x".to_owned(),
+            format!("/{company}//evil.test"),
+            format!("/{company}/\\evil"),
+            format!("/{company}/in\nbox"),
+            "/account".to_owned(),
+        ] {
+            assert!(!entry_return_path_belongs(&bad, company), "{bad}");
+        }
+    }
+
     /// Only a page load re-enters through the issuer; the door, the APIs, assets and the health
     /// probe keep their own answers, so re-entry can never swallow a sign-in or hide a refusal.
     #[test]
