@@ -393,13 +393,14 @@
 	.work {
 		display: flex;
 		flex: 1 1 auto;
-		gap: var(--pane-gap);
+		gap: 8px;
 		width: 100%;
 		min-width: 0;
 		min-height: 0;
 		overflow: hidden;
 	}
-	.goals,
+	/* The goals list is a flat sidebar on the page, like Company, Apps and Library; only the
+	 * Work itself sits in a pane. */
 	.stage {
 		min-height: 0;
 		border: 1px solid var(--border-strong);
@@ -409,17 +410,19 @@
 	.goals {
 		display: grid;
 		align-content: start;
-		gap: 2px;
+		gap: 1px;
 		flex: none;
-		width: 240px;
-		padding: 14px 8px;
+		width: 208px;
+		min-height: 0;
+		padding: 6px 4px;
 		overflow: auto;
-		background: var(--surface-rail);
 	}
 	h2 {
-		margin: 0 8px 10px;
-		font-size: var(--t-head);
-		font-weight: 600;
+		margin: 0;
+		padding: 0 8px 4px;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+		font-weight: 500;
 	}
 	.goal {
 		display: grid;
@@ -441,8 +444,7 @@
 		color: var(--ink);
 	}
 	.goal.active {
-		background: var(--surface-raised);
-		box-shadow: var(--control-depth);
+		background: var(--wash-active, var(--wash-hover));
 		color: var(--ink);
 		font-weight: 500;
 	}

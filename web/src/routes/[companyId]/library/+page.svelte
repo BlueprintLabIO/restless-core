@@ -6,6 +6,9 @@
 	import { Item, Notice, Empty, Dot } from '$lib/ui/page';
 	import RelativeTime from '$lib/ui/RelativeTime.svelte';
 	import CompanyTitle from '$lib/primitives/CompanyTitle.svelte';
+	import SidebarShell from '$lib/ui/views/SidebarShell.svelte';
+	import SidebarRow from '$lib/ui/views/SidebarRow.svelte';
+	import { personName } from '$lib/model/initials';
 	import LibraryNew from '$lib/components/LibraryNew.svelte';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
 	import FileText from '@lucide/svelte/icons/file-text';
@@ -140,10 +143,13 @@
 		{ key: 'review', label: 'Needs your review', icon: Eye }
 	];
 
+	const filterHref = (key: Filter) =>
+		key === 'all' ? `${root}/library` : `${root}/library?show=${key}`;
+
 	function name(actorId: string): string {
 		if (actorId === 'owner') return 'You';
 		return (
-			people.find((person) => person.actor_id === actorId)?.display ??
+			personName(people.find((person) => person.actor_id === actorId)?.display ?? '') ||
 			actorId.replaceAll('-', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
 		);
 	}
@@ -155,205 +161,168 @@
 
 <CompanyTitle title="Library" {companyId} />
 
-<div class="library">
-	<nav class="library-nav" aria-label="Library">
-		<h2>Library</h2>
+<!-- The same sidebar as Company and Apps: one way to move between views of an area. -->
+<SidebarShell label="Library">
+	{#snippet nav()}
 		{#each FILTERS as item (item.key)}
-			{@const Icon = item.icon}
-			<a
-				href={item.key === 'all' ? `${root}/library` : `${root}/library?show=${item.key}`}
-				class:active={filter === item.key}
-				aria-current={filter === item.key ? 'page' : undefined}
-				><Icon size={15} strokeWidth={1.8} aria-hidden="true" /><span>{item.label}</span
-				>{#if counts[item.key]}<span class="count">{counts[item.key]}</span>{/if}</a
-			>
+			<SidebarRow
+				href={filterHref(item.key)}
+				label={item.label}
+				icon={item.icon}
+				active={filter === item.key}
+				count={counts[item.key] || null}
+				todo={item.key === 'review'}
+			/>
 		{/each}
-	</nav>
-
-	<main class="library-main">
-		<div class="page">
-			<header class="head">
-				<h1>{FILTERS.find((item) => item.key === filter)?.label ?? 'All'}</h1>
-				<span class="head-count">{shown.length || ''}</span>
-				<span class="spacer"></span>
-				<input
-					class="search"
-					type="search"
-					bind:value={search}
-					placeholder="Search"
-					aria-label="Search the Library"
-				/>
-				<!-- One action, the one this view is about; All offers both behind one button. -->
-				{#if filter === 'docs' || filter === 'sheets'}
-					{@const kind = filter === 'docs' ? 'doc' : 'sheet'}
-					<button
-						class="btn small primary new"
-						type="button"
-						title={kind === 'doc' ? 'Start an untitled document' : 'Start an untitled sheet'}
-						onclick={() => creator?.open(kind)}
-						><Plus size={14} strokeWidth={2} aria-hidden="true" /><span
-							>{kind === 'doc' ? 'New document' : 'New sheet'}</span
-						></button
-					>
-				{:else}
-					<div class="new-menu">
-						<ActionMenu label="New">
-							{#snippet trigger()}<span class="new-trigger"
-									><Plus size={14} strokeWidth={2} aria-hidden="true" /><span>New</span><ChevronDown
-										size={13}
-										strokeWidth={2}
-										aria-hidden="true"
-									/></span
-								>{/snippet}
-							<button type="button" onclick={() => creator?.open('doc')}
-								><FileText size={14} strokeWidth={1.8} aria-hidden="true" />Document</button
-							>
-							<button type="button" onclick={() => creator?.open('sheet')}
-								><Sheet size={14} strokeWidth={1.8} aria-hidden="true" />Sheet</button
-							>
-						</ActionMenu>
-					</div>
-				{/if}
-			</header>
-
-			<div class="body">
-				{#if documents.failure}<Notice
-						tone="danger"
-						title="Documents could not be read"
-						details={documents.failure.message}
-					>
-						{#snippet actions()}<button class="btn small" onclick={() => documents.refresh()}
-								>Retry</button
+	{/snippet}
+	{#snippet narrow()}
+		<nav class="library-filters" aria-label="Library">
+			{#each FILTERS as item (item.key)}
+				<a
+					href={filterHref(item.key)}
+					class:active={filter === item.key}
+					aria-current={filter === item.key ? 'page' : undefined}>{item.label}</a
+				>
+			{/each}
+		</nav>
+	{/snippet}
+	<div class="page">
+		<header class="head">
+			<h1>{FILTERS.find((item) => item.key === filter)?.label ?? 'All'}</h1>
+			<span class="head-count">{shown.length || ''}</span>
+			<span class="spacer"></span>
+			<input
+				class="search"
+				type="search"
+				bind:value={search}
+				placeholder="Search"
+				aria-label="Search the Library"
+			/>
+			<!-- One action, the one this view is about; All offers both behind one button. -->
+			{#if filter === 'docs' || filter === 'sheets'}
+				{@const kind = filter === 'docs' ? 'doc' : 'sheet'}
+				<button
+					class="btn small primary new"
+					type="button"
+					title={kind === 'doc' ? 'Start an untitled document' : 'Start an untitled sheet'}
+					onclick={() => creator?.open(kind)}
+					><Plus size={14} strokeWidth={2} aria-hidden="true" /><span
+						>{kind === 'doc' ? 'New document' : 'New sheet'}</span
+					></button
+				>
+			{:else}
+				<div class="new-menu">
+					<ActionMenu label="New">
+						{#snippet trigger()}<span class="new-trigger"
+								><Plus size={14} strokeWidth={2} aria-hidden="true" /><span>New</span><ChevronDown
+									size={13}
+									strokeWidth={2}
+									aria-hidden="true"
+								/></span
 							>{/snippet}
-					</Notice>{/if}
-				{#if sheetsFailure}<Notice
-						tone="warning"
-						title="Sheets could not be read"
-						details={sheetsFailure}
-					/>{/if}
-				{#if loading && !entries.length}
-					<Skeleton label="Loading the Library" variant="list" count={5} />
-				{:else if shown.length}
-					<div class="table" role="list">
-						<div class="table-head" aria-hidden="true">
-							<span>Name</span><span>Owner</span><span>Updated</span>
-						</div>
-						{#each shown as entry (entry.kind + entry.id)}
-							<Item title={entry.title} meta={entry.owner} href={entry.href} unread={entry.review}>
-								{#snippet leading()}{#if entry.kind === 'doc'}<FileText
-											size={15}
-											strokeWidth={1.8}
-											aria-label="Document"
-										/>{:else}<Sheet size={15} strokeWidth={1.8} aria-label="Sheet" />{/if}{/snippet}
-								{#snippet trailing()}
-									{#if entry.review}<span class="review">Needs review</span
-										>{:else if statusLabel(entry.status)}<Dot
-											show
-											tone={statusTone(entry.status)}
-											label={statusLabel(entry.status)}
-										/>{/if}
-									<RelativeTime value={entry.updatedAt} />
-								{/snippet}
-							</Item>
-						{/each}
-						{#if documents.hasMore && filter !== 'sheets'}<button
-								class="more"
-								disabled={documents.loadingMore}
-								onclick={() => documents.loadMore()}
-								>{documents.loadingMore ? 'Loading…' : 'Load more documents'}</button
-							>{/if}
+						<button type="button" onclick={() => creator?.open('doc')}
+							><FileText size={14} strokeWidth={1.8} aria-hidden="true" />Document</button
+						>
+						<button type="button" onclick={() => creator?.open('sheet')}
+							><Sheet size={14} strokeWidth={1.8} aria-hidden="true" />Sheet</button
+						>
+					</ActionMenu>
+				</div>
+			{/if}
+		</header>
+
+		<div class="body">
+			{#if documents.failure}<Notice
+					tone="danger"
+					title="Documents could not be read"
+					details={documents.failure.message}
+				>
+					{#snippet actions()}<button class="btn small" onclick={() => documents.refresh()}
+							>Retry</button
+						>{/snippet}
+				</Notice>{/if}
+			{#if sheetsFailure}<Notice
+					tone="warning"
+					title="Sheets could not be read"
+					details={sheetsFailure}
+				/>{/if}
+			{#if loading && !entries.length}
+				<Skeleton label="Loading the Library" variant="list" count={5} />
+			{:else if shown.length}
+				<div class="table" role="list">
+					<div class="table-head" aria-hidden="true">
+						<span>Name</span><span>Owner</span><span>Updated</span>
 					</div>
-				{:else}
-					<Empty
-						title={search
-							? 'Nothing matches that search'
-							: filter === 'review'
-								? 'Nothing is waiting for your review'
-								: 'Nothing here yet'}
-						info="Documents and sheets the company writes appear here. Agents add to it as they work."
-					>
-						{#snippet action()}{#if !search && filter !== 'review'}<button
-									class="btn small"
-									type="button"
-									onclick={() => creator?.open(filter === 'sheets' ? 'sheet' : 'doc')}
-									>{filter === 'sheets' ? 'New sheet' : 'New document'}</button
-								>{/if}{/snippet}
-					</Empty>
-				{/if}
-			</div>
+					{#each shown as entry (entry.kind + entry.id)}
+						<Item title={entry.title} meta={entry.owner} href={entry.href} unread={entry.review}>
+							{#snippet leading()}{#if entry.kind === 'doc'}<FileText
+										size={15}
+										strokeWidth={1.8}
+										aria-label="Document"
+									/>{:else}<Sheet size={15} strokeWidth={1.8} aria-label="Sheet" />{/if}{/snippet}
+							{#snippet trailing()}
+								{#if entry.review}<span class="review">Needs review</span
+									>{:else if statusLabel(entry.status)}<Dot
+										show
+										tone={statusTone(entry.status)}
+										label={statusLabel(entry.status)}
+									/>{/if}
+								<RelativeTime value={entry.updatedAt} />
+							{/snippet}
+						</Item>
+					{/each}
+					{#if documents.hasMore && filter !== 'sheets'}<button
+							class="more"
+							disabled={documents.loadingMore}
+							onclick={() => documents.loadMore()}
+							>{documents.loadingMore ? 'Loading…' : 'Load more documents'}</button
+						>{/if}
+				</div>
+			{:else}
+				<Empty
+					title={search
+						? 'Nothing matches that search'
+						: filter === 'review'
+							? 'Nothing is waiting for your review'
+							: 'Nothing here yet'}
+					info="Documents and sheets the company writes appear here. Agents add to it as they work."
+				>
+					{#snippet action()}{#if !search && filter !== 'review'}<button
+								class="btn small"
+								type="button"
+								onclick={() => creator?.open(filter === 'sheets' ? 'sheet' : 'doc')}
+								>{filter === 'sheets' ? 'New sheet' : 'New document'}</button
+							>{/if}{/snippet}
+				</Empty>
+			{/if}
 		</div>
-	</main>
-</div>
+	</div>
+</SidebarShell>
 
 <LibraryNew bind:this={creator} {companyId} />
 
 <style>
-	.library {
+	/* On a narrow pane the sidebar steps out for a row of the same views. */
+	.library-filters {
 		display: flex;
-		flex: 1 1 auto;
-		gap: var(--pane-gap);
-		width: 100%;
-		min-width: 0;
-		min-height: 0;
-		overflow: hidden;
+		gap: 2px;
+		padding: 6px 8px;
+		overflow-x: auto;
+		border-bottom: 1px solid var(--border);
+		scrollbar-width: none;
 	}
-	.library-nav,
-	.library-main {
-		min-height: 0;
-		border: 1px solid var(--border-strong);
-		border-radius: var(--radius-pane);
-		box-shadow: var(--bevel), var(--shadow-soft);
-	}
-	.library-nav {
-		display: grid;
-		align-content: start;
-		gap: 1px;
+	.library-filters a {
 		flex: none;
-		width: 220px;
-		padding: 14px 8px;
-		background: var(--surface-rail);
-	}
-	h2 {
-		margin: 0 8px 10px;
-		font-size: var(--t-head);
-		font-weight: 600;
-	}
-	.library-nav a {
-		display: flex;
-		align-items: center;
-		gap: 9px;
-		min-height: 30px;
-		padding: 0 8px;
+		padding: 5px 10px;
 		border-radius: var(--radius-control);
 		color: var(--text-secondary);
 		font-size: var(--t-body);
 		text-decoration: none;
 	}
-	.library-nav a :global(svg) {
-		color: var(--text-tertiary);
-	}
-	.library-nav a:hover {
-		background: var(--wash-hover);
-		color: var(--ink);
-	}
-	.library-nav a.active {
-		background: var(--surface-raised);
-		box-shadow: var(--control-depth);
+	.library-filters a.active {
+		background: var(--wash-active, var(--wash-hover));
 		color: var(--ink);
 		font-weight: 500;
-	}
-	.count {
-		margin-left: auto;
-		color: var(--text-tertiary);
-		font-size: var(--t-label);
-		font-variant-numeric: tabular-nums;
-	}
-	.library-main {
-		display: flex;
-		flex: 1 1 auto;
-		min-width: 0;
-		overflow: hidden;
-		background: var(--surface-pane);
 	}
 	.page {
 		container: page / inline-size;
@@ -428,16 +397,14 @@
 	.body {
 		min-height: 0;
 		overflow: auto;
-		padding: 12px 12px 24px;
+		padding: 4px 8px 24px;
 	}
 	.body > :global(.notice) {
 		margin-bottom: 10px;
 	}
+	/* Rows sit on the pane itself, on hairlines, as Linear's lists do: no card inside the card. */
 	.table {
 		overflow: hidden;
-		border: 1px solid var(--border-strong);
-		border-radius: var(--radius-lg);
-		background: var(--surface-raised);
 	}
 	.table > :global(* + *) {
 		border-top: 1px solid var(--border);
@@ -445,6 +412,7 @@
 	.table-head {
 		display: flex;
 		gap: 10px;
+		border-bottom: 1px solid var(--border);
 		padding: 8px 16px 8px 44px;
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
@@ -471,22 +439,6 @@
 		background: var(--surface-hover);
 	}
 	@media (max-width: 760px) {
-		.library {
-			flex-direction: column;
-		}
-		.library-nav {
-			display: flex;
-			width: auto;
-			overflow-x: auto;
-			padding: 4px;
-		}
-		.library-nav h2,
-		.count {
-			display: none;
-		}
-		.library-nav a {
-			flex: none;
-		}
 		.search {
 			width: 120px;
 		}

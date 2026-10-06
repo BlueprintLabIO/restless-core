@@ -1,6 +1,6 @@
 <script lang="ts">
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
-	import { initials } from '$lib/model/initials';
+	import { initials, personName } from '$lib/model/initials';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import Search from '@lucide/svelte/icons/search';
@@ -8,7 +8,6 @@
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 	import LoaderCircle from '@lucide/svelte/icons/loader-circle';
 	import MessageCircleQuestion from '@lucide/svelte/icons/message-circle-question';
-	import Bell from '@lucide/svelte/icons/bell';
 	import RoomConversation from '$lib/components/RoomConversation.svelte';
 	import RoomManager from '$lib/components/RoomManager.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/ui/glyph/MatrixGlyph.svelte';
@@ -168,7 +167,7 @@
 			return [
 				{
 					key: `room:${conversation.room_id}`,
-					name: person.display,
+					name: personName(person.display),
 					person: person.actor_id,
 					room: contact ? '' : conversation.room_id,
 					hint: teams.find((team) => team.id === person.team_id)?.name ?? person.role
@@ -267,7 +266,7 @@
 	></svelte:head
 >
 <div class="conversation-workspace" class:selected={explicitSelection}>
-	<aside class="conversation-index cockpit-pane" aria-label="Conversations">
+	<aside class="conversation-index" aria-label="Conversations">
 		<header class="cockpit-pane-head">
 			<h1>People</h1>
 			<RoomManager
@@ -305,7 +304,7 @@
 								class="row-status attention"
 								title={`${name} needs your attention`}
 								aria-label={`${name} needs your attention`}
-								><Bell size={14} aria-hidden="true" /></span
+								><i class="attention-dot" aria-hidden="true"></i></span
 							>{/if}</span
 					>{/if}
 			{/snippet}
@@ -322,15 +321,18 @@
 					<span class="avatar">{initials(person.display)}</span>
 					<span class="directory-person-copy"
 						><span class="person-lines"
-							><span class="name">{person.display}</span>{#if doing(person.actor_id)}<small
-									class="doing"
-									title={doing(person.actor_id)}>{doing(person.actor_id)}</small
+							><span class="name">{personName(person.display)}</span
+							>{#if doing(person.actor_id)}<small class="doing" title={doing(person.actor_id)}
+									>{doing(person.actor_id)}</small
 								>{/if}</span
 						>{#if hasNew(person.actor_id) && personId !== person.actor_id}<span
 								class="new-dot"
 								title="Something new since you last looked"
 								aria-label="New messages"
-							></span>{/if}{@render personStatuses(person.actor_id, person.display)}</span
+							></span>{/if}{@render personStatuses(
+							person.actor_id,
+							personName(person.display)
+						)}</span
 					>
 				</a>
 			{/snippet}
@@ -405,7 +407,7 @@
 				{#each messageSearch.messages.filter( (message) => recent.conversations.some((conversation) => conversation.room_id === message.room_id) ) as message (message.id)}
 					<a class="search-result" href={searchHref(message)}
 						><strong
-							>{people.find((p) => p.actor_id === message.from_actor)?.display ??
+							>{personName(people.find((p) => p.actor_id === message.from_actor)?.display ?? '') ||
 								message.from_actor}</strong
 						><span>{message.snippet}</span></a
 					>
@@ -438,7 +440,7 @@
 				<p>Pick a lead or teammate on the left, or start with the Exec.</p>
 				{#if directoryExec}
 					<a class="btn primary" href={href(directoryExec.actor_id)}>
-						Message {directoryExec.display.replace(/^The /, 'the ')}
+						Message {personName(directoryExec.display)}
 					</a>
 				{/if}
 			</div>
@@ -645,10 +647,15 @@
 	.row-status.working :global(svg) {
 		animation: status-spin 1.1s linear infinite;
 	}
-	.row-status.reply,
-	.row-status.attention {
+	.row-status.reply {
 		color: var(--intent-authority);
 		background: color-mix(in srgb, var(--intent-authority) 12%, transparent);
+	}
+	.attention-dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: var(--intent-authority);
 	}
 	@keyframes status-spin {
 		to {

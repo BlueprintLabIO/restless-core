@@ -1050,6 +1050,29 @@
 						{#if openQuestion && i === visibleMessages.length - 1}
 							<div class="open-question" role="group" aria-label={`${participantName} is asking`}>
 								<p>{openQuestion}</p>
+								{#if openReplies.length}
+									<!-- Beautiful UI's approval card: each likely answer is a row, and the last row
+									     hands the answer to the composer. A tap sends after a moment's Undo. -->
+									<div class="open-replies">
+										{#each openReplies as reply (reply)}
+											<button
+												type="button"
+												class:chosen={pendingAnswer?.text === reply}
+												disabled={!canOperate || sending || !!pendingAnswer}
+												title="Send this answer"
+												onclick={() => tapReply(reply)}
+												><i aria-hidden="true"></i><span>{reply}</span></button
+											>
+										{/each}
+										{#if !pendingAnswer}<button
+												type="button"
+												class="other"
+												disabled={!canOperate}
+												onclick={() => (composerFocusKey += 1)}
+												><i aria-hidden="true"></i><span>Something else…</span></button
+											>{/if}
+									</div>
+								{/if}
 								{#if pendingAnswer}
 									<p class="answer-pending" role="status">
 										<span>Sending “{pendingAnswer.text}”</span><button
@@ -1057,17 +1080,6 @@
 											onclick={undoReply}>Undo</button
 										>
 									</p>
-								{:else if openReplies.length}
-									<div class="open-replies">
-										{#each openReplies as reply (reply)}
-											<button
-												type="button"
-												disabled={!canOperate || sending}
-												title="Send this answer"
-												onclick={() => tapReply(reply)}>{reply}</button
-											>
-										{/each}
-									</div>
 								{/if}
 								{#if openFields.length && !pendingAnswer}
 									<form class="open-fields" onsubmit={answerWithFields}>
@@ -1362,15 +1374,31 @@
 	.open-question {
 		display: grid;
 		gap: 8px;
-		margin: 2px 14px 10px 45px;
-		padding: 8px 0 0 12px;
-		border-left: 2px solid color-mix(in srgb, var(--surface-attention) 70%, transparent);
+		margin: 4px 14px 12px 45px;
+		padding: 10px 6px 6px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-lg);
+		background: var(--surface-raised);
+		box-shadow: var(--shadow-soft);
+		animation: question-in var(--motion-disclosure, 180ms) var(--ease-standard, ease-out) both;
 	}
 	.open-question > p {
 		margin: 0;
+		padding: 0 6px;
 		color: var(--ink);
 		font-weight: 500;
 		line-height: 1.4;
+	}
+	@keyframes question-in {
+		from {
+			opacity: 0;
+			transform: translateY(4px);
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.open-question {
+			animation: none;
+		}
 	}
 	.answer-pending {
 		display: flex;
@@ -1380,6 +1408,7 @@
 		font-size: var(--t-label);
 	}
 	.open-question > .answer-pending {
+		padding: 0 6px 4px;
 		font-weight: 400;
 	}
 	.answer-pending button {
@@ -1422,28 +1451,63 @@
 		text-decoration: underline;
 	}
 	.open-replies {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 6px;
+		display: grid;
+		gap: 1px;
 	}
 	.open-replies button {
-		padding: 3px 10px;
-		border: 1px solid var(--border-strong);
-		border-radius: 999px;
-		background: var(--surface-raised);
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		width: 100%;
+		min-height: 30px;
+		padding: 4px 6px;
+		border: 0;
+		border-radius: var(--radius-control);
+		background: transparent;
 		color: var(--ink);
 		font: inherit;
-		font-size: var(--t-label);
+		font-size: var(--t-body);
+		text-align: left;
 		cursor: pointer;
+		transition: background-color var(--motion-state) var(--ease-standard);
+	}
+	/* The radio ring: empty until chosen, then filled while the answer is on its way. */
+	.open-replies i {
+		flex: none;
+		width: 14px;
+		height: 14px;
+		border: 1.5px solid var(--border-strong);
+		border-radius: 50%;
+		transition:
+			border-color var(--motion-state) var(--ease-standard),
+			box-shadow var(--motion-state) var(--ease-standard);
 	}
 	.open-replies button:hover:not(:disabled) {
-		border-color: var(--ink);
-		background: var(--surface-hover);
+		background: var(--wash-hover);
 	}
-	.open-replies button:disabled {
+	.open-replies button:hover:not(:disabled) i {
+		border-color: var(--ink);
+	}
+	.open-replies button.chosen i {
+		border-color: var(--ink);
+		box-shadow:
+			inset 0 0 0 3px var(--surface-raised),
+			inset 0 0 0 7px var(--ink);
+	}
+	.open-replies button.other {
+		color: var(--text-tertiary);
+	}
+	.open-replies button.other i {
+		border-style: dashed;
+	}
+	.open-replies button:disabled:not(.chosen) {
 		opacity: 0.5;
 		cursor: default;
 	}
+	.open-replies button.chosen {
+		cursor: default;
+	}
+
 	.quoting {
 		display: flex;
 		align-items: center;

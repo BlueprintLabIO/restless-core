@@ -142,7 +142,7 @@
 		background: var(--state-danger);
 	}
 	/* Beside the section list, the overview need not repeat it. */
-	@container company (min-width: 761px) {
+	@container sidebar (min-width: 761px) {
 		.setup-all {
 			display: none;
 		}
