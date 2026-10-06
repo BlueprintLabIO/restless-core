@@ -1,6 +1,7 @@
 # Sprint 61 — Prove connections hold, in Core and in Cloud
 
-**Status:** draft for founder alignment
+**Status:** Core target done and gating promotion and release; the Cloud target (T5) needs a
+signed-in test owner on a Cloud plane
 **Programme:** company extensibility (connectors, tools, plugins)
 **Depends on:** Sprint 57's one gateway (ADR 0014: `connections.rs`, `tool_gateway.rs`,
 `owner_tool_connections.rs`), Sprint 55's skills and `scripts/skill-compatibility-smoke`, Sprint 60's
@@ -230,13 +231,37 @@ Sprint 57 built. A fix found by the smoke lands in its owning module.
 | A flaky smoke gets ignored | **Guarded.** A flaky assertion is a bug in the smoke or the product. It is fixed or removed in the same week, never retried into green |
 | Making the Core run a required promote step slows promotion | **Accepted.** Image build dominates and is already paid by promote. The smoke itself should take a few minutes |
 
-## Open questions for founders
+## Decisions (6 October 2026)
 
-1. Should the Core run block `restless-dev promote`, or only warn, for the first two weeks while it
-   settles?
-2. Where should the Cloud test plane live: a permanent `_test` plane, or one provisioned per run?
-3. Is the CLI-as-connection / one Add flow question worth a design spike now, in parallel, or only
-   after Tier A is green on both targets?
+1. The Core run **blocks** `restless-dev promote`; `--skip-smoke` overrides it loudly. A flaky
+   assertion is fixed, not tolerated.
+2. The Cloud test plane is **provisioned per run**, so no standing Cloud resources accumulate.
+3. The one Add flow is Sprint 63 (Apps). CLI apps follow it.
+
+## Results (6 October 2026)
+
+`scripts/connections-smoke --target core` on this commit's company image
+(`restless-company-image:s61-smoke`), with `RESTLESS_UPGRADE_IMAGE` and `--with-skills`: assertions
+1–16, 18 and 20 pass; 17 (the skills smoke) passes on its own run. T4 showed each guarded behaviour
+fails its assertion when broken. A run takes about three minutes.
+
+The smoke found five product defects on its first runs. Three are fixed here:
+
+| Defect | Effect on an owner | Fix |
+|---|---|---|
+| A 401 from an MCP server was classified as `handshake_failed` | Adding Linear, Notion or Stripe by URL showed "not working" instead of "sign in" | Probe the server directly for a Bearer challenge when the handshake fails |
+| Pooled upstream sessions carried a fixed OAuth header | After a provider's access token expired, every call through that connection failed until the pool happened to drop it | Sessions record their token's expiry and reopen before it, which refreshes the token |
+| Destroying a company left its local-MCP worker and package-cache volume behind | Leaked containers and disk; two dev profiles shared one cache name | The cache is namespaced like the Runtime volume; destroy ends the workers and removes it |
+
+Recorded, not fixed in this sprint:
+
+- **Creating any company restarts the shared model relay**, which also serves every company's tool
+  gateway. In-flight tool and model calls of other companies fail during the restart. This breaks the
+  cell rule that one company's configuration must not disturb another. Filed separately.
+- **A connection's `account` stays empty**, so the owner cannot see which account a connection uses.
+- **Disconnect does not revoke the token at the provider** (RFC 7009); it only deletes it locally.
+- **Losing a sign-in raises nothing in Attention.** Sprint 63's Apps dot and "Sign in again" item
+  cover the owner-facing half.
 
 ## Tickets
 
@@ -245,14 +270,17 @@ Sprint 57 built. A fix found by the smoke lands in its owning module.
   fails. *Gateway/Cloud* Both refuted from source and one live router probe; no fix needed. The
   signed-in end-to-end path is acceptance 3 (T5). Found instead: hosted Runtime mode has no tool
   gateway (founder decision).
-- [ ] T2 ([ticket](sprint-61/s61-t2-fixture-provider.md)) — The fixture MCP provider: OAuth 2.1 with
+- [x] T2 ([ticket](sprint-61/s61-t2-fixture-provider.md)) — The fixture MCP provider: OAuth 2.1 with
   DCR, PKCE and refresh, four tools, control endpoints, stdio mode, plugin bundle. *Tooling*
-- [ ] T3 ([ticket](sprint-61/s61-t3-core-smoke.md)) — `scripts/connections-smoke --target core`:
+- [x] T3 ([ticket](sprint-61/s61-t3-core-smoke.md)) — `scripts/connections-smoke --target core`:
   assertions 1–18 and 20, scripted owner browser, evidence JSON, cleanup, shared setup in
   `scripts/lib/`. *Tooling across all layers*
-- [ ] T4 ([ticket](sprint-61/s61-t4-break-each-check.md)) — Show each representative assertion fails
+- [x] T4 ([ticket](sprint-61/s61-t4-break-each-check.md)) — Show each representative assertion fails
   when broken (acceptance 2). *Verification*
 - [ ] T5 ([ticket](sprint-61/s61-t5-cloud-target.md)) — `--target cloud` and the paired
-  `restless-cloud` test plane and fixture address. *Cloud*
-- [ ] T6 ([ticket](sprint-61/s61-t6-gate.md)) — Wire the Core run into `restless-dev promote` and the
-  release workflow, document it, and re-point Sprint 57's carried acceptance items. *Operations*
+  `restless-cloud` test plane and fixture address. *Cloud* Blocked on a signed-in Cloud test owner,
+  which an agent may not create; the runner refuses `--target cloud` with that reason.
+- [x] T6 ([ticket](sprint-61/s61-t6-gate.md)) — Wire the Core run into `restless-dev promote` and the
+  release workflow, document it ([operations](../operations/connections-smoke.md)), and re-point
+  Sprint 57's carried acceptance items. *Operations* The promote step is syntax-checked but has not
+  run, because running it upgrades the owner's live appliance.

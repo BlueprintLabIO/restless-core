@@ -1,0 +1,72 @@
+name: Connections smoke
+
+# Sprint 61 Tier A: do connections hold on this commit? A real isolated daemon,
+# PostgreSQL and company Runtime against the fixture MCP provider
+# (scripts/connections-smoke). No model, no third-party account.
+#
+# Runs on the self-hosted WSL runner, which provides Docker, Node 24 and Rust.
+# The company image is built from this commit and removed afterwards.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "crates/**"
+      - "infra/company-image/**"
+      - "tools/fixture-mcp-provider/**"
+      - "scripts/connections-smoke"
+      - "scripts/lib/smoke_plane.py"
+      - ".github/workflows/connections-smoke.yml"
+  schedule:
+    - cron: "41 2 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: connections-smoke
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: [self-hosted, linux, x64, restless-core]
+    timeout-minutes: 75
+    env:
+      IMAGE: restless-company-image:ci-connections-${{ github.run_id }}
+      EVIDENCE: ${{ runner.temp }}/connections-smoke-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Build the daemon, model broker and company image from this commit
+        run: |
+          scripts/restless-cargo build -p restlessd
+          npm --prefix infra/host-tools ci --no-audit --no-fund
+          source scripts/lib/dev-release.sh
+          dev_build_company_image "$PWD" "$IMAGE" "$GITHUB_SHA"
+
+      - name: Run the connections smoke (with the skills smoke)
+        env:
+          RESTLESS_COMPANY_IMAGE: ${{ env.IMAGE }}
+        run: python3 scripts/connections-smoke --target core --with-skills --output "$EVIDENCE"
+
+      - name: Keep the evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: connections-smoke-${{ github.run_id }}
+          path: ${{ env.EVIDENCE }}
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Remove the image and evidence from the runner
+        if: always()
+        run: |
+          docker image rm "$IMAGE" >/dev/null 2>&1 || true
+          rm -rf "$EVIDENCE"

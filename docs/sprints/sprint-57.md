@@ -272,8 +272,10 @@ what it deletes.
   first-contact rule applied to declared parties. *Kernel*
 - [x] T4 ([ticket](sprint-57/s57-t4-one-gateway.md)) — One gateway path: host-side remote MCP with MCP authorization, credential resolution,
   class enforcement and routing through the effect runner. *Gateway*
-- [ ] T5 ([ticket](sprint-57/s57-t5-local-worker.md)) — Host-side local MCP worker (generalised `stdio_mcp`), networkable, with credential
-  references. *Gateway/Runtime*
+- [x] T5 ([ticket](sprint-57/s57-t5-local-worker.md)) — Host-side local MCP worker (generalised `stdio_mcp`), networkable, with credential
+  references. *Gateway/Runtime* Live evidence: Sprint 61 connections smoke assertion 15 (a local
+  command connection with an `env:` credential reference, read through the gateway). Destroying a
+  company now also ends its workers and removes their cache.
 - [x] T6 — Launch contract: one gateway MCP server per actor, scoped to granted tools; retire
   in-Runtime `mcp-remote` and legacy stdio. *Runtime* Done by deletion: `connected_tool.rs`,
   `mcp_gateway.rs`, `stdio_mcp.rs`, the `connected-tool` and `local-mcp` commands, the owner
@@ -284,9 +286,14 @@ what it deletes.
   in Exec context. *OrgIntel*
 - [ ] T8 ([ticket](sprint-57/s57-t8-connections-page.md)) — Company → Connections: suggestions, add by URL, command or plugin, probe status,
   three-class grant, receipts, freeze, disconnect. *Cockpit*
-- [ ] T9 ([ticket](sprint-57/s57-t9-plugin-import.md)) — Plugin bundle import (skills → Library, MCP servers → Connections). *Runtime/Cockpit*
+- [x] T9 ([ticket](sprint-57/s57-t9-plugin-import.md)) — Plugin bundle import (skills → Library, MCP servers → Connections). *Runtime/Cockpit*
+  Live evidence: Sprint 61 assertion 16 (a Git clone over https, the server added with its `plugin:`
+  source, and the skill reaching candidacy through `restless skill add`). Exec's own skill step
+  still needs a model run.
 - [ ] T10 — Acceptance runs 1–7 on `_test` with dedicated accounts; T11 (stretch) the OpenAPI bridge
-  and acceptance 8.
+  and acceptance 8. Acceptance 2 (no token in the Runtime), 3 (arbitrary MCP, local stdio and a
+  changed contract), 4 (plugin bundle) and 7 (deletion) are carried by Sprint 61's connections smoke
+  against a fixture provider. Acceptance 1 (Gmail) and 5 (two harnesses under a model) remain.
 - [ ] T12 ([ticket](sprint-57/s57-t12-telegram-attention.md)) — Telegram Attention channel: pairing,
   delivery and approval buttons through the cockpit's decision functions. Built; open until a real
   bot run on `_test`. *Kernel/Cockpit*

@@ -53,6 +53,19 @@ jobs:
           result="$("$HOME/.local/bin/dagger" --silent call qualify --source=.)"
           printf '%s\n' "$result"
           node scripts/release/timings-summary.mjs qualify <<<"$result" >> "$GITHUB_STEP_SUMMARY"
+      # Connections are what let a company act through its owner's tools. A
+      # release that cannot connect, govern and recover them is not qualified.
+      - name: Connections smoke on the exact candidate
+        env:
+          IMAGE: restless-company-image:release-connections-${{ github.run_id }}
+          EVIDENCE: ${{ runner.temp }}/release-connections-smoke-${{ github.run_id }}
+        run: |
+          trap 'docker image rm "$IMAGE" >/dev/null 2>&1 || true; rm -rf "$EVIDENCE"' EXIT
+          scripts/restless-cargo build -p restlessd
+          npm --prefix infra/host-tools ci --no-audit --no-fund
+          source scripts/lib/dev-release.sh
+          dev_build_company_image "$PWD" "$IMAGE" "$GITHUB_SHA"
+          RESTLESS_COMPANY_IMAGE="$IMAGE" python3 scripts/connections-smoke --target core --output "$EVIDENCE"
 
   publish:
     name: Publish exact platform artifacts

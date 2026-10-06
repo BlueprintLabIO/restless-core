@@ -177,10 +177,10 @@ def main():
             assert status == 200 and cancelled['cancelled']
             status, closed = owner(f"/goals/{goal['goal_id']}/close", method='POST')
             assert status == 200 and closed['closed']
-            interval = json.loads(cli('pricing-direction', 'schedule', 'add', '--every', '2h', '--reason', 'Check the pricing experiment').stdout)
-            assert interval['recurrence'] == 'interval' and interval['interval_seconds'] == 7200, interval
-            cli('pricing-copywriting', 'schedule', 'add', '--every', '2h', '--reason', 'Staff may not loop', success=False)
-            print('PASS /goal and /loop: Goal created and closed; Exec interval schedule idempotent and cancellable; leads may loop, Staff may not')
+            # Actor-created recurring wakes are responsibility-bound since 4423d51
+            # (`restless schedule create-responsibility`); restless-orgintel's
+            # schedule_controls tests cover them, so this smoke no longer does.
+            print('PASS /goal and /loop: Goal created and closed; Exec interval schedule idempotent and cancellable')
 
             # 6. Zero-day corpus through the real import path.
             for entry in corpus['skills']:

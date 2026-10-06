@@ -23,3 +23,19 @@ First extract the daemon, database and company setup that the two existing smoke
 `scripts/lib/`. Then move both of them onto it in the same change.
 
 **Deletes:** the duplicated setup code in `skill-compatibility-smoke` and `multiplayer-smoke`.
+
+## As built (6 October 2026)
+
+- The owner's browser leg is an HTTP client that follows the provider's consent page and redirect to
+  the plane callback, the same requests a browser makes. Sign-in starts through the owner API rather
+  than a cockpit click, because Sprint 63 replaces the Connections page; Sprint 63's acceptance
+  covers the page.
+- Tool-session and actor-session capabilities are minted with the installation key in the daemon's
+  own `r1.` encoding, as the skills smoke already did; the gateway's verification path is the real
+  one.
+- `scripts/lib/smoke_plane.py` carries the shared plane, and `skill-compatibility-smoke` now uses it
+  (it no longer needs the shared `restless-local-postgres` container). `multiplayer-smoke` is Node and
+  keeps its own runner.
+- The skills smoke's interval-schedule CLI check was stale on `main`: recurring wakes became
+  responsibility-bound in `4423d51`, and `restless-orgintel/tests/schedule_controls.rs` covers them.
+  It was removed.

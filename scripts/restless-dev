@@ -85,7 +85,7 @@ usage:
   restless-dev [company] [--reconcile]
   restless-dev doctor [company]
   restless-dev worktree new <name> | stale | prune
-  restless-dev promote [ref] [--build-only] [--force]
+  restless-dev promote [ref] [--build-only] [--force] [--skip-smoke]
   restless-dev reap-timer install | remove
 
 dev owns the foreground daemon and Vite processes it starts. Ctrl-C stops
@@ -109,7 +109,8 @@ unused; RESTLESS_WORKTREE_POOL_SIZE (default 4) slots are kept warm.
 promote builds one origin/main commit (default: origin/main) in a clean build
 worktree and installs it as the owner's stable appliance through
 `restless appliance upgrade`, which drains work and rolls back on failure. It
-refuses any commit that is not on origin/main.
+refuses any commit that is not on origin/main, and any build that fails
+scripts/connections-smoke (--skip-smoke overrides, loudly).
 
 reap-timer installs an hourly `restless-reap --check` (systemd on Linux).
 EOF
@@ -413,11 +414,12 @@ report_resource_debt() {
 # Build one origin/main commit and hand it to the appliance. The appliance owns
 # activation, drain and rollback; this only produces the exact artifacts.
 promote() {
-  local ref="origin/main" build_only=false
+  local ref="origin/main" build_only=false skip_smoke=false
   local appliance_args=()
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --build-only) build_only=true ;;
+      --skip-smoke) skip_smoke=true ;;
       --force) appliance_args+=("--force") ;;
       -*) printf 'unknown promote option %s\n' "$1" >&2; return 2 ;;
       *) ref="$1" ;;
@@ -461,6 +463,23 @@ promote() {
   dev_build_company_image "$source" "restless-company-image:${short}" "$commit"
   docker build --tag "restless-native-documents:${short}" \
     "${source}/services/native-documents-collaboration"
+
+  # Connections are what let the company act through the owner's tools; prove
+  # they hold on these exact binaries and image before anything is activated.
+  if [ "$skip_smoke" = true ]; then
+    printf '\nWARNING: --skip-smoke: promoting %s without the connections smoke.\n' "$short" >&2
+  elif [ -x "${source}/scripts/connections-smoke" ]; then
+    printf '\nChecking connections on this build…\n'
+    if ! RESTLESSD_BIN="${build_root}/target/release/restlessd" \
+         RESTLESS_COMPANY_IMAGE="restless-company-image:${short}" \
+         RESTLESS_OMP_BIN="${tools}/omp-source" \
+         python3 "${source}/scripts/connections-smoke" --target core \
+           --output "${build_root}/connections-smoke-${short}"; then
+      printf 'The connections smoke failed on %s; nothing was activated. Evidence: %s\n' \
+        "$short" "${build_root}/connections-smoke-${short}/evidence.json" >&2
+      return 1
+    fi
+  fi
 
   local release_env="${build_root}/release.env"
   cat >"$release_env" <<EOF_RELEASE

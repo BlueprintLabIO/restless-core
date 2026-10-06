@@ -662,7 +662,10 @@ class Smoke:
     def a17_skills(self):
         if not self.args.with_skills:
             raise Skip('run with --with-skills to include scripts/skill-compatibility-smoke (it builds its own plane)')
-        env = {**os.environ, 'RESTLESSD_BIN': self.plane.daemon_bin, 'RESTLESS_SMOKE_IMAGE': self.plane.image}
+        # The image under test, even if the restart step moved the Runtime to
+        # RESTLESS_UPGRADE_IMAGE.
+        env = {**os.environ, 'RESTLESSD_BIN': self.plane.daemon_bin,
+               'RESTLESS_SMOKE_IMAGE': os.environ['RESTLESS_COMPANY_IMAGE']}
         result = subprocess.run([sys.executable, str(repo / 'scripts' / 'skill-compatibility-smoke')], env=env,
                                 capture_output=True, text=True, timeout=1800)
         expect(result.returncode == 0, f'skills smoke failed: {result.stdout[-1500:]} {result.stderr[-1500:]}')
