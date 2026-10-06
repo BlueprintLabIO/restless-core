@@ -355,8 +355,8 @@ class Smoke:
         e.check(8, 'Freeze', 'freeze refuses acting calls at once; reads keep working', 'a send while frozen, or reads refused', self.a8_freeze, needs=[5])
         e.check(9, 'Contract change', "only the changed tool leaves the actor's list until it is granted again", 'all tools gone, or the changed tool still callable', self.a9_contract, needs=[3])
         e.check(18, 'User-space CLI persists (install)', 'a pinned CLI installs as the company user without root', 'a permission error, or an install that needs root', self.a18_install)
-        e.check(12, 'Isolation', "a second company sees none of the first's connections or tools, and cannot call its gateway path",
-                'any connection, tool or successful call across companies', self.a12_isolation, needs=[3])
+        e.check(12, 'Isolation', "creating a second company leaves the first's relay and tools untouched; the second sees none of the first's connections or tools, and cannot call its gateway path",
+                'a relay restart, or any connection, tool or successful call across companies', self.a12_isolation, needs=[3])
         e.check(15, 'Local stdio connection', 'a local command connection runs on the host-side worker with its credential reference resolved; reads work through the gateway',
                 'a worker failure, or an unresolved credential', self.a15_local)
         e.check(16, 'Plugin import', "a plugin's server becomes a connection awaiting grant with its plugin source; its skill becomes a candidate",
@@ -365,13 +365,13 @@ class Smoke:
                 'a connection that needs sign-in again, or tools missing after restart', self.a13_restart, needs=[4])
         e.check(18.5, 'User-space CLI persists (after replacement)', 'the CLI is at the same path and version after the Runtime was replaced',
                 'command not found after replacement', self.a18_persisted, needs=[18, 13])
-        e.check(10, 'Refresh and reconnect', 'an expired access token refreshes host-side with no owner action; a revoked refresh token shows sign-in needed without looping',
-                'a failed read after expiry, or repeated sign-in prompts', self.a10_refresh, needs=[4])
+        e.check(10, 'Refresh and reconnect', 'an expired access token refreshes host-side with no owner action; a revoked one raises exactly one "sign in again" Inbox item, which clears after signing in',
+                'a failed read after expiry, no Inbox item, or one per probe', self.a10_refresh, needs=[4])
         e.check(21, 'App request resumes Work', "a lead's sign-in handoff naming an app is listed for the owner; adding and allowing that app resolves it and releases the Work, with no owner message",
                 'a request that stays pending after the app is allowed, or Work that stays blocked', self.a21_app_request)
         e.check(11, 'No token in the Runtime', 'no access or refresh token the provider issued appears in the company container (filesystem, environment, process arguments); the planted canary is found',
                 'any token match, or a canary the search failed to find', self.a11_tokens, needs=[1])
-        e.check(14, 'Disconnect', 'the credential is cleared, every grant revoked, and the actor sees no fixture tools',
+        e.check(14, 'Disconnect', 'the provider is asked to revoke the tokens, the credential is cleared, every grant revoked, and the actor sees no fixture tools',
                 'tools still listed, or a grant still present', self.a14_disconnect, needs=[3])
         e.check(17, 'Skills smoke', 'scripts/skill-compatibility-smoke passes unchanged as a sub-step', 'any skills failure', self.a17_skills)
 
@@ -525,15 +525,24 @@ class Smoke:
         self.fixture.control('/revoke-refresh')
         failed = [self.call('fixture__list_notes', {}) for _ in range(2)]
         expect(all(attempt.get('is_error') or attempt.get('error') for attempt in failed), f'reads after revocation: {failed}')
-        status, probed = self.owner(f'/tool-connections/{self.connection}/probe', {})
+        for _ in range(2):  # probing twice must not raise a second Inbox item
+            self.owner(f'/tool-connections/{self.connection}/probe', {})
         view = self.connection_view()
         expect(view['status'] == 'awaiting_sign_in', f'status after revocation: {view["status"]} ({view.get("failure")})')
-        status, attention = self.owner('/attention')
-        mentions = json.dumps(attention).count(self.connection) if status == 200 else None
+
+        def sign_in_items():
+            status, attention = self.owner('/attention')
+            expect(status == 200, f'attention: {status}')
+            return [item for item in attention.get('items', [])
+                    if item['source']['kind'] == 'connection_sign_in' and item['source']['reference'] == self.connection]
+
+        raised = sign_in_items()
+        expect(len(raised) == 1, f'expected one "sign in again" Inbox item, found {len(raised)}')
         self.sign_in()
         self.grant_all()
+        expect(sign_in_items() == [], 'the Inbox item stayed after signing in again')
         return {'access_tokens_before': issued, 'after_refresh': refreshed, 'status_after_revocation': 'awaiting_sign_in',
-                'attention_mentions_of_connection': mentions}
+                'inbox_item': raised[0]['title']}
 
     def a11_tokens(self):
         state = self.fixture.state()
@@ -557,18 +566,15 @@ class Smoke:
         return {'tokens_searched': len(tokens), 'canary_found': True, 'hits': 0}
 
     def a12_isolation(self):
-        # Creating a company restarts the shared model relay, which also
-        # serves every company's tool gateway. Wait for it to come back.
+        # The shared relay also serves every company's tool gateway, so a new
+        # company that brings no new provider must not restart it.
         ready = self.plane.log_path.read_text().count('model gateway ready')
         self.plane.create_company(self.other, f'name = "{self.other}"\nmodel = "{MODEL}"\nspend_ceiling_usd = 0\n')
-        for _ in range(120):
-            if self.plane.log_path.read_text().count('model gateway ready') > ready:
-                break
-            time.sleep(0.5)
-        else:
-            raise AssertionError('the model relay did not restart after a company was created')
-        self.plane.wait_for_port(self.plane.relay_port, 60)
-        self.relay_restarted_on_company_create = True
+        time.sleep(12)  # the reload loop looks every 5 s
+        restarts = self.plane.log_path.read_text().count('model gateway ready') - ready
+        expect(restarts == 0, f'creating a company restarted the shared relay {restarts} time(s)')
+        during = self.call('fixture__list_notes', {})
+        expect(not during.get('is_error'), f"the first company's tools failed after another company was created: {during}")
         status, body = self.owner('/tool-connections', company=self.other)
         expect(status == 200 and body['connections'] == [], f'other company connections: {status} {body}')
         other_token = self.plane.tool_session(self.other, 'exec')
@@ -604,7 +610,8 @@ class Smoke:
         names = self.tool_names()
         expect(not any(name.startswith('fixture__') for name in names), f'actor still sees {names}')
         revoked = self.fixture.state()['revoked']
-        return {'status': view['status'], 'actor_tools': names, 'provider_saw_revocation': bool(revoked)}
+        expect(revoked, 'the provider was never asked to revoke the tokens (RFC 7009)')
+        return {'status': view['status'], 'actor_tools': names, 'provider_revocations': len(revoked)}
 
     def a15_local(self):
         source = (fixture_dir / 'stdio.cjs').read_text()

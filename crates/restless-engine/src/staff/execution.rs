@@ -96,20 +96,30 @@ pub async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcome> {
         None
     };
     let mut continuity_note: Option<String> = None;
-    let mcp_servers = crate::tool_gateway::session_servers(
-        run.authority.pool(),
-        &run.capabilities,
-        &run.company,
-        &run.actor,
-        run.work_id,
-        run.attempt_id,
-    )
-    .await?;
-    let connected_tools =
+    // A hosted Runtime has no tool gateway on this plane, so it is given none
+    // (and its brief claims none) rather than a server that never answers.
+    let gateway_served = !run.runtime_bridges.is_hosted();
+    let mcp_servers = if gateway_served {
+        crate::tool_gateway::session_servers(
+            run.authority.pool(),
+            &run.capabilities,
+            &run.company,
+            &run.actor,
+            run.work_id,
+            run.attempt_id,
+        )
+        .await?
+    } else {
+        Vec::new()
+    };
+    let connected_tools = if gateway_served {
         crate::connections::context_summary(run.authority.pool(), &run.company, &run.actor)
             .await
             .ok()
-            .flatten();
+            .flatten()
+    } else {
+        None
+    };
 
     for (index, model) in run.candidates.iter().enumerate() {
         let auth = match crate::exec::agent_auth_for_model(

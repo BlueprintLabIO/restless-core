@@ -177,6 +177,62 @@ fn set_unstartable(unstartable: BTreeMap<String, String>) {
 
 /// What the gateway was started from: each company's model route and the
 /// credential references it names (references, never secret values).
+/// The providers the running gateway loaded, for re-admitting companies
+/// without restarting it.
+static LOADED_PROVIDERS: RwLock<BTreeSet<String>> = RwLock::new(BTreeSet::new());
+
+/// What the running broker, gateway and Runtime relay actually load: each
+/// provider with its credential reference, and the catalogue models pinned
+/// into the launch contract. Company names and routes are not in it, so a
+/// new company that uses an already-loaded provider does not restart the
+/// relay that every company's model and tool calls go through.
+pub fn gateway_fingerprint(configs: &[CompanyConfig]) -> String {
+    let mut loaded = BTreeSet::new();
+    for config in configs {
+        let primary = config
+            .for_agent("exec")
+            .configured_model()
+            .and_then(|model| split_model(model).ok())
+            .map(|(provider, _)| provider.to_string());
+        for provider in configured_provider_ids(config).unwrap_or_default() {
+            let reference = config
+                .credentials
+                .get(&format!("model.inference.{provider}"))
+                .or_else(|| {
+                    (Some(&provider) == primary.as_ref())
+                        .then(|| config.credentials.get("model.inference"))
+                        .flatten()
+                });
+            if let Some(reference) = reference {
+                loaded.insert(format!("{provider}={reference}"));
+            }
+        }
+    }
+    let configs = configs.iter().collect::<Vec<_>>();
+    for model in runtime_pinned_models(&configs).unwrap_or_default() {
+        loaded.insert(format!("pinned:{model}"));
+    }
+    loaded.into_iter().collect::<Vec<_>>().join("\n")
+}
+
+/// Recompute which companies can start against the providers the running
+/// gateway already loaded: the change a new company or a model switch within
+/// a loaded provider needs, without dropping anyone's in-flight calls.
+pub fn readmit(configs: &[CompanyConfig]) -> Result<()> {
+    let loaded = LOADED_PROVIDERS
+        .read()
+        .map_err(|_| anyhow::anyhow!("loaded provider state lock is poisoned"))?
+        .clone();
+    set_unstartable(admit(configs, &loaded)?.unstartable);
+    Ok(())
+}
+
+fn remember_loaded_providers(providers: BTreeSet<String>) {
+    if let Ok(mut loaded) = LOADED_PROVIDERS.write() {
+        *loaded = providers;
+    }
+}
+
 pub fn provider_fingerprint(configs: &[CompanyConfig]) -> String {
     let mut routes = configs
         .iter()
@@ -630,6 +686,7 @@ pub async fn start(
         // Refusing to boot here would make a freshly provisioned hosted plane
         // unstartable until its first company existed, which inverts Cloud's
         // provisioning order: Fleet creates the plane, then the cell.
+        remember_loaded_providers(provider_credentials.keys().cloned().collect());
         let admission = admit(configs, &provider_credentials)?;
         for (company, reason) in &admission.unstartable {
             tracing::warn!(company, reason, "company cannot start: {reason}");
@@ -743,6 +800,7 @@ pub async fn start(
     .await?;
     provider_credentials.retain(|provider, _| !unadmitted.contains(provider));
     if provider_credentials.is_empty() {
+        remember_loaded_providers(provider_credentials.keys().cloned().collect());
         let admission = admit(configs, &provider_credentials)?;
         set_unstartable(admission.unstartable);
         uninstall();
@@ -759,6 +817,7 @@ pub async fn start(
             marker: model_children_path(root),
         }));
     }
+    remember_loaded_providers(provider_credentials.keys().cloned().collect());
     let admission = admit(configs, &provider_credentials)?;
     for (company, reason) in &admission.unstartable {
         tracing::warn!(company, reason, "company cannot start: {reason}");
@@ -3218,10 +3277,25 @@ async fn provider_credentials(
 /// *failover* candidate is not fatal — the chain is a fallback, not a
 /// requirement — so it is dropped with a warning and the company still starts
 /// on the route it does have.
-fn admit(
-    configs: &[CompanyConfig],
-    credentials: &BTreeMap<String, ProviderCredential>,
-) -> Result<Admission> {
+/// The providers available to admission: the gateway's resolved credentials
+/// at start, or the set it loaded when companies are re-admitted later.
+trait ProviderSet {
+    fn has(&self, provider: &str) -> bool;
+}
+
+impl<V> ProviderSet for BTreeMap<String, V> {
+    fn has(&self, provider: &str) -> bool {
+        self.contains_key(provider)
+    }
+}
+
+impl ProviderSet for BTreeSet<String> {
+    fn has(&self, provider: &str) -> bool {
+        self.contains(provider)
+    }
+}
+
+fn admit<P: ProviderSet>(configs: &[CompanyConfig], credentials: &P) -> Result<Admission> {
     let mut unstartable = BTreeMap::<String, String>::new();
     for config in configs {
         let effective = config.for_agent("exec");
@@ -3242,7 +3316,7 @@ fn admit(
             continue;
         };
         let (primary_provider, _) = split_model(model)?;
-        if !credentials.contains_key(primary_provider) {
+        if !credentials.has(primary_provider) {
             unstartable.insert(
                 config.name.clone(),
                 format!(
@@ -3254,7 +3328,7 @@ fn admit(
         }
         if [config.coordination_harness, config.worker_harness]
             .contains(&crate::runtime::AgentHarness::ClaudeAgent)
-            && !credentials.contains_key("anthropic")
+            && !credentials.has("anthropic")
         {
             unstartable.insert(
                 config.name.clone(),
@@ -3265,7 +3339,7 @@ fn admit(
         }
         for model in config.model_candidates()?.into_iter().skip(1) {
             let (provider, _) = split_model(model)?;
-            if !credentials.contains_key(provider) {
+            if !credentials.has(provider) {
                 tracing::warn!(
                     company = %config.name,
                     model,
@@ -3551,7 +3625,7 @@ mission = "Choose native intelligence"
                 .as_deref(),
             Some("native-codex-oauth/gpt-5")
         );
-        assert!(admit(&[config], &BTreeMap::new())
+        assert!(admit(&[config], &BTreeMap::<String, ProviderCredential>::new())
             .unwrap()
             .unstartable
             .is_empty());

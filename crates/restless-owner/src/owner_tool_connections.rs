@@ -30,6 +30,21 @@ async fn owner_gate(
     require_authority_owner(state, company, principal).await
 }
 
+/// Connected tools reach agents through the tool gateway on this plane's
+/// Runtime relay, which a hosted (externally managed) Runtime does not use.
+/// Say so instead of adding an app that no agent could ever call.
+fn refuse_when_hosted(state: &OwnerState) -> Result<(), Response<Body>> {
+    if state.daemon.runtime_bridges.is_hosted() {
+        return Err(api_error(
+            StatusCode::CONFLICT,
+            "connection",
+            "Apps that connect services need a company computer this plane runs \
+             (RESTLESS_RUNTIME_MODE=local). This plane uses an externally managed one.",
+        ));
+    }
+    Ok(())
+}
+
 #[derive(Serialize)]
 struct ConnectionView {
     #[serde(flatten)]
@@ -95,6 +110,9 @@ pub(super) async fn add(
     Json(input): Json<NewConnection>,
 ) -> Response<Body> {
     if let Err(refusal) = owner_gate(&state, &company, &principal).await {
+        return refusal;
+    }
+    if let Err(refusal) = refuse_when_hosted(&state) {
         return refusal;
     }
     let pool = state.daemon.authority.pool();
@@ -503,6 +521,9 @@ pub(super) async fn import_plugin(
     Json(input): Json<PluginInput>,
 ) -> Response<Body> {
     if let Err(refusal) = owner_gate(&state, &company, &principal).await {
+        return refusal;
+    }
+    if let Err(refusal) = refuse_when_hosted(&state) {
         return refusal;
     }
     let pool = state.daemon.authority.pool();

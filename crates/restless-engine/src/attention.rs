@@ -568,6 +568,61 @@ pub async fn project(
         });
     }
 
+    // A connection that worked and now needs sign-in has quietly stopped the
+    // company acting through it. That is the owner's step, so it reaches the
+    // Inbox; a connection never signed in waits in Apps instead.
+    for connection in crate::connections::list(authority.pool(), &config.name)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|connection| connection.status == "awaiting_sign_in" && !connection.tools.is_empty())
+    {
+        let name = connection.name.clone();
+        items.push(AttentionItem {
+            id: format!("authority:connection:{name}:sign-in"),
+            work_id: None,
+            source: AttentionSource {
+                plane: "authority",
+                kind: "connection_sign_in".into(),
+                reference: name.clone(),
+                party: None,
+                call_key: None,
+            },
+            category: "human_step".into(),
+            title: format!("Sign in to {name} again"),
+            what_happened: format!(
+                "{name} stopped accepting the company's sign-in, so its tools are unavailable to every agent."
+            ),
+            why_it_matters: "Work that reads or acts through it fails until you sign in again.".into(),
+            recommendation: "Sign in again; what the company may do with it stays as you set it.".into(),
+            requested_action: format!("Sign in to {name} again."),
+            if_no_action: format!("Agents keep working without {name}."),
+            uncertainty: None,
+            deadline: None,
+            brief_status: "source-authored",
+            brief_author: None,
+            briefed_at: connection.last_probe_at,
+            evidence: Vec::new(),
+            review_sources: Vec::new(),
+            responsible_actor: None,
+            runtime_attach: None,
+            review_target: None,
+            native_document: None,
+            actions: vec![AttentionAction {
+                id: "open-app".into(),
+                label: "Sign in again".into(),
+                role: "human_step",
+                consequence: format!("Opens {name} in Apps, where you sign in with the provider."),
+                next_state: "Its tools return to new agent sessions as soon as the sign-in completes.".into(),
+                // Company and connection names are validated slugs.
+                href: Some(format!("/{}/apps/c-{name}", config.name)),
+            }],
+            preparing: false,
+            can_continue: true,
+            created_at: connection.last_probe_at.unwrap_or_else(Utc::now),
+        });
+    }
+
     let (work_graph, mut orgintel_health) = match org {
         Some(org) => match org.work_graph_snapshot().await {
             Ok(graph) => (Some(graph), "available".to_string()),

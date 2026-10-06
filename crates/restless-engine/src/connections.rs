@@ -926,7 +926,22 @@ pub async fn disconnect(
     by: &str,
 ) -> Result<Connection> {
     let connection = require(pool, company, name).await?;
+    let mut revoked_at_provider = false;
     if let ConnectionAuth::Oauth { credential, .. } = &connection.auth {
+        // Best effort and bounded: an unreachable provider must not stop the
+        // owner from disconnecting; the local token is cleared regardless.
+        match tokio::time::timeout(
+            Duration::from_secs(20),
+            revoke_at_provider(root, company, &connection),
+        )
+        .await
+        {
+            Ok(Ok(revoked)) => revoked_at_provider = revoked,
+            Ok(Err(error)) => {
+                tracing::warn!(company, name, %error, "provider did not revoke the connection's tokens")
+            }
+            Err(_) => tracing::warn!(company, name, "provider token revocation timed out"),
+        }
         if let Err(error) = token_store(root, company, name, credential).clear().await {
             tracing::warn!(company, name, %error, "connection token could not be cleared");
         }
@@ -956,10 +971,99 @@ pub async fn disconnect(
             company,
             "connection_disconnected",
             Some(by),
-            serde_json::json!({ "connection": name }),
+            serde_json::json!({ "connection": name, "revoked_at_provider": revoked_at_provider }),
         )
         .await?;
     require(pool, company, name).await
+}
+
+/// RFC 7009: ask the provider to revoke the refresh and access tokens, so a
+/// disconnected app stops working at the provider as well as here. Returns
+/// whether the provider accepted at least one revocation; `false` when it
+/// offers no revocation endpoint or no token is stored.
+async fn revoke_at_provider(root: &Path, company: &str, connection: &Connection) -> Result<bool> {
+    let ConnectionAuth::Oauth {
+        credential,
+        client_secret,
+        ..
+    } = &connection.auth
+    else {
+        return Ok(false);
+    };
+    let endpoint = connection
+        .endpoint
+        .as_deref()
+        .context("OAuth connection has no endpoint")?;
+    let Some(stored) = OauthCredentialStore(Arc::new(token_store(
+        root,
+        company,
+        &connection.name,
+        credential,
+    )))
+    .load()
+    .await
+    .ok()
+    .flatten() else {
+        return Ok(false);
+    };
+    let Some(tokens) = stored
+        .token_response
+        .as_ref()
+        .and_then(|response| serde_json::to_value(response).ok())
+    else {
+        return Ok(false);
+    };
+    let manager = AuthorizationManager::new(endpoint)
+        .await
+        .map_err(|error| anyhow::anyhow!("authorization discovery failed: {error}"))?;
+    let resolution = manager
+        .resolve_metadata()
+        .await
+        .map_err(|error| anyhow::anyhow!("authorization discovery failed: {error}"))?;
+    let Some(revocation) = resolution
+        .metadata
+        .additional_fields
+        .get("revocation_endpoint")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+    else {
+        return Ok(false);
+    };
+    validate_endpoint(&revocation).context("revocation endpoint")?;
+    let client = reqwest_mcp::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(10))
+        .redirect(reqwest_mcp::redirect::Policy::none())
+        .build()
+        .context("build revocation client")?;
+    let mut revoked = false;
+    // The refresh token first: revoking it usually revokes its access tokens.
+    for kind in ["refresh_token", "access_token"] {
+        let Some(token) = tokens.get(kind).and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        // Finished before the await: the serializer is not `Send`.
+        let body = {
+            let mut form = url::form_urlencoded::Serializer::new(String::new());
+            form.append_pair("token", token)
+                .append_pair("token_type_hint", kind)
+                .append_pair("client_id", &stored.client_id);
+            if let Some(secret) = client_secret.as_deref() {
+                form.append_pair("client_secret", secret);
+            }
+            form.finish()
+        };
+        let response = client
+            .post(&revocation)
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(body)
+            .send()
+            .await;
+        if response.is_ok_and(|response| response.status().is_success()) {
+            revoked = true;
+        }
+    }
+    Ok(revoked)
 }
 
 /// The tools an actor may use right now. A tool whose upstream definition

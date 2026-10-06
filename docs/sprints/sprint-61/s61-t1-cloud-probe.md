@@ -58,3 +58,10 @@ Disposition: **pending founder decision.** Either the Connections page and `sess
 say plainly that hosted Runtimes cannot use connected tools yet, or, if nothing runs hosted mode since
 ADR 0006, the mode itself is a deletion candidate. The smoke covers only `local` placement until this
 is decided.
+
+**Disposition of finding 3 (6 October 2026): fixed by refusal.** Hosted mode now gives actor
+sessions no tool gateway and their brief no connected tools, and the owner API refuses to add an
+app with the reason (`refuse_when_hosted`). Deleting hosted mode was not chosen: it is still the
+documented default for network entry without `RESTLESS_RUNTIME_MODE`, and removing it needs its own
+look at who runs it. The hosted branch compiles and the local branch is covered by the smoke; the
+hosted branch itself has not run, because it needs a network-entry plane with an identity issuer.

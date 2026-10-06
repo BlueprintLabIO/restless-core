@@ -253,15 +253,19 @@ The smoke found five product defects on its first runs. Three are fixed here:
 | Pooled upstream sessions carried a fixed OAuth header | After a provider's access token expired, every call through that connection failed until the pool happened to drop it | Sessions record their token's expiry and reopen before it, which refreshes the token |
 | Destroying a company left its local-MCP worker and package-cache volume behind | Leaked containers and disk; two dev profiles shared one cache name | The cache is namespaced like the Runtime volume; destroy ends the workers and removes it |
 
-Recorded, not fixed in this sprint:
+Found later in the sprint and fixed after Sprint 63 landed (each now asserted by the smoke):
 
-- **Creating any company restarts the shared model relay**, which also serves every company's tool
-  gateway. In-flight tool and model calls of other companies fail during the restart. This breaks the
-  cell rule that one company's configuration must not disturb another. Filed separately.
-- **A connection's `account` stays empty**, so the owner cannot see which account a connection uses.
-- **Disconnect does not revoke the token at the provider** (RFC 7009); it only deletes it locally.
-- **Losing a sign-in raises nothing in Attention.** Sprint 63's Apps dot and "Sign in again" item
-  cover the owner-facing half.
+| Defect | Fix | Assertion |
+|---|---|---|
+| Creating any company restarted the shared model relay, which also serves every company's tool gateway, so other companies' in-flight calls failed. This broke the cell rule that one company's configuration must not disturb another | The relay restarts only when what it loads changes (provider credential references, pinned catalogue models, account sign-ins). A new company or a model switch within loaded providers is re-admitted in place | 12 |
+| Disconnect deleted the token locally but left it valid at the provider | Disconnect asks the provider to revoke the refresh and access tokens (RFC 7009), bounded and best effort, before clearing them | 14 |
+| A connection that lost its sign-in raised nothing for the owner | It raises one "Sign in to <app> again" Inbox item linking to the app, which clears after the sign-in | 10 |
+| Hosted Runtime mode handed actors a tool gateway it does not serve (T1) | Hosted mode gives actors no gateway and their brief no tools, and adding an app is refused with the reason. The hosted branch has not run live: it needs a network-entry plane with an identity issuer | none |
+
+Still open: **a connection's `account` stays empty.** MCP has no standard way to name the signed-in
+account, so filling it needs either a provider-specific read (which ADR 0014 rules out) or an
+optional `whoami`-style convention. Accepted for now; the app page shows the status without it.
+A new company that brings a *new* provider still reloads the relay; that is rarer and accepted.
 
 ## Tickets
 

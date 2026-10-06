@@ -333,15 +333,21 @@ pub async fn wake(
             .unwrap_or_default();
         let metered = auth.billing == crate::model_gateway::ModelBilling::MeteredApi;
         let harness = config.coordination_harness;
-        let mcp_servers = crate::tool_gateway::session_servers(
-            authority.pool(),
-            capabilities,
-            &config.name,
-            "exec",
-            None,
-            None,
-        )
-        .await?;
+        // A hosted Runtime has no tool gateway on this plane (it is served by
+        // the local Runtime relay), so it is given none rather than a dead one.
+        let mcp_servers = if runtime_bridges.is_hosted() {
+            Vec::new()
+        } else {
+            crate::tool_gateway::session_servers(
+                authority.pool(),
+                capabilities,
+                &config.name,
+                "exec",
+                None,
+                None,
+            )
+            .await?
+        };
         let outcome = match harness {
             crate::runtime::AgentHarness::RestlessManaged
             | crate::runtime::AgentHarness::ClaudeAgent
