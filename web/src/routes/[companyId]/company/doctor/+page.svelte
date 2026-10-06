@@ -130,7 +130,18 @@
 		>
 	{/snippet}
 
-	{#if error}<Notice tone="danger" title="Recovery did not complete" details={error} />{/if}
+	{#if error}<Notice
+			tone="danger"
+			title="Recovery did not complete"
+			details={error}
+		/>{:else if view?.computer.last_recovery?.state === 'failed'}
+		<!-- The newest recovery failed, whoever asked: say so after a reload too, with its reason. -->
+		<Notice
+			tone="danger"
+			title={`The last ${view.computer.last_recovery.actor === 'daemon' ? 'automatic rebuild' : 'recovery'} did not complete${view.computer.last_recovery.recorded_at ? `, ${when(view.computer.last_recovery.recorded_at)}` : ''}`}
+			details={view.computer.last_recovery.error ?? null}
+		/>
+	{/if}
 	{#if notice}<Notice tone="success" title={notice} />{/if}
 	{#if startupError || startup.error || startup.setup_failed}
 		<Notice

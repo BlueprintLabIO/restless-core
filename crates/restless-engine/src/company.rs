@@ -267,6 +267,10 @@ struct ExternalActionRow {
 #[derive(Debug, Serialize)]
 struct CompanyComputer {
     doctor: CompanyDoctor,
+    /// The newest recovery of this computer (owner Rebuild or a plane's release roll-forward):
+    /// what was asked, how it ended, and the error if it failed, so a failure is never silent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_recovery: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     runtime: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -321,6 +325,20 @@ pub async fn project(
     probe_credentials: bool,
 ) -> CompanyView {
     let observed_at = Utc::now();
+    let last_recovery = daemon
+        .authority
+        .recent_records_of_kind(&config.name, "lifecycle", 1)
+        .await
+        .ok()
+        .and_then(|records| records.into_iter().next())
+        .map(|record| {
+            let mut body = record.body;
+            if let Some(object) = body.as_object_mut() {
+                object.insert("recorded_at".into(), serde_json::json!(record.created_at));
+                object.insert("actor".into(), serde_json::json!(record.actor_id));
+            }
+            body
+        });
 
     let org_result = match daemon.orgintel.get(&config.name).await {
         Ok(org) => tokio::try_join!(
@@ -575,6 +593,7 @@ pub async fn project(
         external_actions,
         computer: CompanyComputer {
             doctor: company_doctor,
+            last_recovery,
             runtime: runtime_json,
             generation,
         },

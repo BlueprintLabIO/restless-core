@@ -99,6 +99,14 @@ export interface CompanyView {
 	};
 	computer: {
 		doctor: CompanyDoctor;
+		/** The newest recovery of the computer: an owner Rebuild or a plane's release roll-forward. */
+		last_recovery?: {
+			action?: string;
+			state?: 'requested' | 'failed' | 'succeeded';
+			error?: string;
+			recorded_at?: string;
+			actor?: string | null;
+		};
 		runtime?: RuntimeDoctor;
 		generation?: string;
 	};
