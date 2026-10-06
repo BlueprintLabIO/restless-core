@@ -2843,6 +2843,12 @@ pub async fn write_browser_control(company: &str, state: &serde_json::Value) -> 
 /// Ensure the release artifact selected by Fleet is present. This function is
 /// intentionally incapable of building from a source checkout: doing that in
 /// the plane would make the deployed Runtime differ from the pinned manifest.
+/// Pull the plane's pinned company image if it is not here yet. A fresh plane boots before its
+/// image is pulled, and a computer cannot be found to lag behind an image the host does not have.
+pub async fn fetch_company_image() -> Result<bool> {
+    ensure_image_available(&company_image()).await
+}
+
 async fn ensure_image_available(image: &str) -> Result<bool> {
     if inspect_value(&["image", "inspect", "-f", "{{.Id}}", image])
         .await?

@@ -1266,7 +1266,7 @@ async fn run_exec_turn_with_lease(
                     .filter(|_| report.termination == exec::Termination::Blocked)
                     .map(|reason| {
                         let notice = format!(
-                            "Restless could not verify this turn's completion status: {reason}. Review the preserved work and artifacts before retrying; no automatic replay was scheduled."
+                            "This turn may not have finished: {reason}. Everything it did is kept, and nothing will be retried automatically. Ask Exec to check and carry on."
                         );
                         match reply {
                             Some(reply) => format!("{reply}\n\n{notice}"),
@@ -1314,7 +1314,7 @@ async fn run_exec_turn_with_lease(
                                 .strip_prefix(exec::COMPLETION_PROTOCOL_PREFIX)
                                 .map(|reason| {
                                     format!(
-                                        "Restless could not verify this turn's completion status: {reason}. Review the preserved work and artifacts before retrying; no automatic replay was scheduled."
+                                        "This turn may not have finished: {reason}. Everything it did is kept, and nothing will be retried automatically. Ask Exec to check and carry on."
                                     )
                                 })
                         })

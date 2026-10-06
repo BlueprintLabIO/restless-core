@@ -1771,6 +1771,12 @@ pub fn runtime_image_drifted(doctor: &runtime::RuntimeDoctor) -> bool {
 /// bridge refuse it, and the Exec stops answering. Observed on owner-ee54fb58bcde23cf, 2026-10-06.
 /// One company failing is logged and never blocks another or the plane.
 pub async fn roll_forward_runtimes(daemon: &Daemon, configs: &[runtime::CompanyConfig]) {
+    // Without the target image locally its id is unknown and every computer would look current.
+    // Observed on Cloud, 6 October: a plane booted on 800d207 skipped its rebuild for this reason.
+    if let Err(error) = runtime::fetch_company_image().await {
+        tracing::warn!("release roll-forward could not fetch this release's company image: {error:#}");
+        return;
+    }
     for config in configs {
         let drifted = match runtime::doctor(&config.name).await {
             Ok(doctor) => runtime_image_drifted(&doctor),

@@ -1192,7 +1192,7 @@ async fn termination_decision(
             "termination decision timed out; preserving completed work turn"
         );
         return protocol_blocked(format!(
-            "Exec completion protocol timed out after {}s; the productive turn is preserved for accountable review",
+            "Exec did not say whether it had finished within {}s",
             TERMINATION_TIMEOUT.as_secs()
         ));
     };
