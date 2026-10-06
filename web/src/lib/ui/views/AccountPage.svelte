@@ -59,9 +59,10 @@
 		align-items: center;
 		gap: 8px;
 		margin: 0;
-		font-size: var(--t-hero);
-		line-height: 1.1;
-		letter-spacing: -0.03em;
+		font-size: var(--t-title);
+		font-weight: 600;
+		line-height: 1.2;
+		letter-spacing: -0.02em;
 	}
 	.account-page-index {
 		display: flex;

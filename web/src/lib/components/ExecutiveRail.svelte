@@ -43,7 +43,7 @@
 	import { markSeen, seenThrough as roomSeenThrough } from '$lib/model/conversation-seen';
 	import { composerOptions, readDraft, writeDraft } from '$lib/model/composer-options.svelte';
 	import { agentExchangesQuery, type AgentExchange } from '$lib/model/exchanges.svelte';
-	import HandoffReceipt from '$lib/primitives/HandoffReceipt.svelte';
+	import HandoffGroup from '$lib/primitives/HandoffGroup.svelte';
 
 	let {
 		messages = [],
@@ -474,10 +474,66 @@
 	const openReplies = $derived.by(() =>
 		openQuestion ? (visibleMessages.at(-1)?.intent?.ownerReplies ?? []).slice(0, 3) : []
 	);
-	function draftReply(text: string) {
-		composer = text;
-		quote(participantName, openQuestion, 'answer');
-		composerFocusKey += 1;
+	/* A likely answer sends on tap, as a message would, after a moment in which it can be taken
+	 * back. The composer stays the owner's: a draft there is never replaced. */
+	const UNDO_MS = 2_000;
+	let pendingAnswer = $state<{ text: string; timer: number } | null>(null);
+	function tapReply(text: string) {
+		if (pendingAnswer) window.clearTimeout(pendingAnswer.timer);
+		const timer = window.setTimeout(() => {
+			pendingAnswer = null;
+			void sendAnswer(text);
+		}, UNDO_MS);
+		pendingAnswer = { text, timer };
+	}
+	function undoReply() {
+		if (!pendingAnswer) return;
+		window.clearTimeout(pendingAnswer.timer);
+		pendingAnswer = null;
+	}
+	$effect(() => () => {
+		if (pendingAnswer) window.clearTimeout(pendingAnswer.timer);
+	});
+	/* An answer travels as an ordinary reply quoting the question, so the thread reads the same
+	 * whether it was tapped, filled in or typed. */
+	async function sendAnswer(text: string) {
+		const answer = text.trim();
+		if (
+			!answer ||
+			sending ||
+			deciding ||
+			!onask ||
+			needsProvider ||
+			connectionStatus !== 'available'
+		)
+			return;
+		scrollReset += 1;
+		sending = true;
+		askError = '';
+		askNotice = '';
+		const outgoing = `> ${participantName}: ${excerptOf(openQuestion)}\n\n${answer}`;
+		try {
+			const outcome = await onask(
+				outgoing,
+				[],
+				includeContext,
+				newFocusPending,
+				!!turn && interruptNext,
+				undefined,
+				[]
+			);
+			if (outcome.error) {
+				askError = outcome.error;
+			} else {
+				fieldValues = {};
+				newFocusPending = false;
+				askNotice = outcome.notice ?? '';
+			}
+		} catch (cause) {
+			askError = failureSentence(cause, 'Your answer was not delivered.');
+		} finally {
+			sending = false;
+		}
 	}
 	/* The separate facts the question asks for, each with its own field. The
 	 * answer travels as ordinary text, one line per fact. */
@@ -500,10 +556,7 @@
 	);
 	function answerWithFields(event: SubmitEvent) {
 		event.preventDefault();
-		if (!fieldAnswer) return;
-		quote(participantName, openQuestion, 'answer');
-		composer = composer.trim() ? `${fieldAnswer}\n\n${composer.trim()}` : fieldAnswer;
-		void deliver();
+		if (fieldAnswer) void sendAnswer(fieldAnswer);
 	}
 	/* When the owner replied to an agent's question, the question folds to a
 	 * receipt under it instead of staying open. */
@@ -521,17 +574,16 @@
 	/* Replying to one message quotes it, so a reply to a long message says
 	 * which point it answers. The quote travels as ordinary Markdown. */
 	let quoting = $state<{ author: string; excerpt: string; answer?: boolean } | null>(null);
-	function quote(author: string, text: string, mode: 'reply' | 'answer' = 'reply') {
+	function excerptOf(text: string): string {
 		const plain = text
 			.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
 			.replace(/[*_`>#]/g, '')
 			.replace(/\s+/g, ' ')
 			.trim();
-		quoting = {
-			author,
-			excerpt: plain.length > 180 ? `${plain.slice(0, 180)}…` : plain,
-			answer: mode === 'answer'
-		};
+		return plain.length > 180 ? `${plain.slice(0, 180)}…` : plain;
+	}
+	function quote(author: string, text: string, mode: 'reply' | 'answer' = 'reply') {
+		quoting = { author, excerpt: excerptOf(text), answer: mode === 'answer' };
 		composerFocusKey += 1;
 	}
 
@@ -931,10 +983,11 @@
 								>
 							</div>
 						{/if}
-						{#each handoffsBefore(i) as exchange (exchange.id)}<HandoffReceipt
-								{exchange}
-								name={exchanges.name}
-							/>{/each}
+						<HandoffGroup
+							exchanges={handoffsBefore(i)}
+							name={exchanges.name}
+							host={participantId}
+						/>
 						{#if i === 0 || dayOf(message.createdAt) !== dayOf(visibleMessages[i - 1].createdAt)}
 							<div class="day-sep" aria-hidden="true">
 								<span>{dayLabel(message.createdAt)}</span>
@@ -992,6 +1045,47 @@
 										><Reply size={12} aria-hidden="true" /></button
 									>{/if}{/snippet}
 						</ConversationMessage>
+						{#if openQuestion && i === visibleMessages.length - 1}
+							<div class="open-question" role="group" aria-label={`${participantName} is asking`}>
+								<p>{openQuestion}</p>
+								{#if pendingAnswer}
+									<p class="answer-pending" role="status">
+										<span>Sending “{pendingAnswer.text}”</span><button
+											type="button"
+											onclick={undoReply}>Undo</button
+										>
+									</p>
+								{:else if openReplies.length}
+									<div class="open-replies">
+										{#each openReplies as reply (reply)}
+											<button
+												type="button"
+												disabled={!canOperate || sending}
+												title="Send this answer"
+												onclick={() => tapReply(reply)}>{reply}</button
+											>
+										{/each}
+									</div>
+								{/if}
+								{#if openFields.length && !pendingAnswer}
+									<form class="open-fields" onsubmit={answerWithFields}>
+										{#each openFields as field (field)}
+											<label
+												><span>{field}</span><input
+													bind:value={fieldValues[field]}
+													disabled={!canOperate || sending}
+												/></label
+											>
+										{/each}
+										<button
+											class="btn small primary"
+											disabled={!fieldAnswer || sending || !canOperate}
+											title="Send these as your answer">Send</button
+										>
+									</form>
+								{/if}
+							</div>
+						{/if}
 						{#if answeredAt(i)}<p class="answered" title={message.intent?.ownerNeed ?? ''}>
 								<Check size={12} aria-hidden="true" /> You answered · {answeredAt(i)}
 							</p>{/if}
@@ -1052,10 +1146,7 @@
 							<p class="conversation-capability-hint">{capabilityHint}</p>
 						{/if}
 					{/if}
-					{#each handoffsSinceLast as exchange (exchange.id)}<HandoffReceipt
-							{exchange}
-							name={exchanges.name}
-						/>{/each}
+					<HandoffGroup exchanges={handoffsSinceLast} name={exchanges.name} host={participantId} />
 					{#if receipt}<p class="receipt" role="status">
 							{#if retractable}<button
 									type="button"
@@ -1101,49 +1192,6 @@
 						>
 					{/if}
 				{:else}
-					{#if openQuestion}
-						<div class="open-question" role="note">
-							<span>{participantName} is asking</span>
-							<p>{openQuestion}</p>
-							{#if !openFields.length}<button
-									type="button"
-									class="btn small"
-									onclick={() => {
-										quote(participantName, openQuestion, 'answer');
-										composerFocusKey += 1;
-									}}>Answer</button
-								>{/if}
-							{#if openFields.length}
-								<form class="open-fields" onsubmit={answerWithFields}>
-									{#each openFields as field (field)}
-										<label
-											><span>{field}</span><input
-												bind:value={fieldValues[field]}
-												disabled={!canOperate || sending}
-											/></label
-										>
-									{/each}
-									<button
-										class="btn small primary"
-										disabled={!fieldAnswer || sending || !canOperate}
-										title="Send these as your answer, with anything you typed below"
-										>Send answer</button
-									>
-								</form>
-							{/if}
-							{#if openReplies.length}
-								<div class="open-replies">
-									{#each openReplies as reply (reply)}
-										<button
-											type="button"
-											title="Put this in your reply; edit before sending"
-											onclick={() => draftReply(reply)}>{reply}</button
-										>
-									{/each}
-								</div>
-							{/if}
-						</div>
-					{/if}
 					<form class="exr-composer" onsubmit={submitAsk}>
 						{#if quoting}
 							<div class="quoting">
@@ -1173,9 +1221,11 @@
 								!onask ||
 								connectionStatus !== 'available'}
 							minlength={1}
-							placeholder={review || workContext || participantId !== 'exec'
-								? `Message ${participantName}…`
-								: 'Ask, redirect, or make a judgement…'}
+							placeholder={openQuestion
+								? `Answer ${participantName}, or ask anything…`
+								: review || workContext || participantId !== 'exec'
+									? `Message ${participantName}…`
+									: 'Ask, redirect, or make a judgement…'}
 							ariaLabel={review || workContext
 								? `Message ${participantName}`
 								: `Ask ${participantName}`}
@@ -1305,27 +1355,42 @@
 		content: '';
 		background: color-mix(in srgb, var(--intent-conversation) 30%, transparent);
 	}
+	/* The open question sits under the message that asks it, in the conversation's flow: the
+	 * composer below stays free, and typing there answers it too. */
 	.open-question {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto;
-		align-items: center;
-		gap: 2px 10px;
-		margin: 0 12px 8px;
-		padding: 10px 12px;
-		border: 1px solid color-mix(in srgb, var(--surface-attention) 40%, var(--border));
-		border-radius: var(--radius-lg);
-		background: color-mix(in srgb, var(--surface-attention) 8%, var(--surface-raised));
-	}
-	.open-question > span {
-		grid-column: 1;
-		color: var(--text-secondary);
-		font: 500 var(--t-label) var(--font-ui);
+		gap: 8px;
+		margin: 2px 14px 10px 45px;
+		padding: 8px 0 0 12px;
+		border-left: 2px solid color-mix(in srgb, var(--surface-attention) 70%, transparent);
 	}
 	.open-question > p {
-		grid-column: 1;
 		margin: 0;
 		color: var(--ink);
+		font-weight: 500;
 		line-height: 1.4;
+	}
+	.answer-pending {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+	}
+	.open-question > .answer-pending {
+		font-weight: 400;
+	}
+	.answer-pending button {
+		padding: 0;
+		border: 0;
+		background: transparent;
+		color: var(--intent-conversation);
+		font: inherit;
+		font-weight: 500;
+		cursor: pointer;
+	}
+	.answer-pending button:hover {
+		text-decoration: underline;
 	}
 	.topic-new {
 		width: 7px;
@@ -1358,8 +1423,6 @@
 		display: flex;
 		flex-wrap: wrap;
 		gap: 6px;
-		grid-column: 1 / -1;
-		margin-top: 6px;
 	}
 	.open-replies button {
 		padding: 3px 10px;
@@ -1371,8 +1434,13 @@
 		font-size: var(--t-label);
 		cursor: pointer;
 	}
-	.open-replies button:hover {
+	.open-replies button:hover:not(:disabled) {
+		border-color: var(--ink);
 		background: var(--surface-hover);
+	}
+	.open-replies button:disabled {
+		opacity: 0.5;
+		cursor: default;
 	}
 	.quoting {
 		display: flex;
@@ -1407,18 +1475,10 @@
 		color: var(--text-tertiary);
 		cursor: pointer;
 	}
-	/* On the card's first line, beside who is asking: centred against a long question it floats. */
-	.open-question > .btn {
-		grid-column: 2;
-		grid-row: 1 / 3;
-		align-self: start;
-	}
 	.open-fields {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-		grid-column: 1 / -1;
 		gap: 6px;
-		margin-top: 8px;
 	}
 	.open-fields label {
 		display: grid;

@@ -600,7 +600,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          atomically persists that final response with the exact consumed inputs; do not use \
          `restless message` to reply to the owner. Follow the shared conversation contract below, \
          then end the response with exactly one machine-readable line:\n\
-         <!--restless-intent:{{\"kind\":\"conversation|work_feedback|direction|authority\",\"summary\":\"one short plain-language interpretation\",\"outcome\":\"optional concrete result\",\"nextStep\":\"optional next owner and action\",\"ownerNeed\":\"optional exact owner input\"}}-->\n\
+         <!--restless-intent:{{\"kind\":\"conversation|work_feedback|direction|authority\",\"summary\":\"your one-line takeaway, written to the owner as you\",\"outcome\":\"optional concrete result\",\"nextStep\":\"optional next owner and action\",\"ownerNeed\":\"optional exact owner input\"}}-->\n\
          Choose one real kind, not the pipe-separated example. If direction changed the plan, update \
          `/company/org/exec/current-plan.md` before claiming that it did. Conversational agreement \
          never substitutes for an explicit cockpit approval or owner-judgement action. Omit each \

@@ -51,7 +51,7 @@ export * from './showcase/lanternSurfaces';
 
 export { default as AccountShell } from './views/AccountShell.svelte';
 export { default as AccountPage } from './views/AccountPage.svelte';
-export type { AccountSection, AccountTab } from './account';
+export type { AccountGroup, AccountSection, AccountTab } from './account';
 export { default as CompanyPortfolio } from './views/CompanyPortfolio.svelte';
 export type { CompanyPortfolioEntry, PortfolioAction, PortfolioCard } from './portfolio';
 export {

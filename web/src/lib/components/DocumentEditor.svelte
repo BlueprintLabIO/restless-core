@@ -2,6 +2,7 @@
 	import { failureSentence } from '$lib/model/failure';
 	import { browser } from '$app/environment';
 	import { tick, untrack, type Snippet } from 'svelte';
+	import { page } from '$app/state';
 	import DocumentActions from './DocumentActions.svelte';
 	import { Editor } from '@tiptap/core';
 	import { HocuspocusProvider } from '@hocuspocus/provider';
@@ -562,26 +563,29 @@
 		metadataCommand = null;
 		void saveTitle();
 	}
+	/* A document made a moment ago opens with its untitled name selected, ready to type over. */
+	let titleInput: HTMLInputElement | undefined = $state();
+	let focusTitlePending = $state(
+		browser && untrack(() => page.url.searchParams.get('new') === '1')
+	);
+	$effect(() => {
+		if (!focusTitlePending || !titleInput || !canWriteLive) return;
+		focusTitlePending = false;
+		const url = new URL(page.url);
+		url.searchParams.delete('new');
+		history.replaceState(history.state, '', url);
+		void tick().then(() => {
+			titleInput?.focus();
+			titleInput?.select();
+		});
+	});
 </script>
 
 <section class="document-editor" aria-label="Document editor">
 	<header class="editor-head">
 		<div class="document-title-field">
 			{@render leading?.()}
-			<label for="document-title">Document title</label>
-			<input
-				id="document-title"
-				onblur={() => void saveTitle()}
-				onkeydown={(event) => {
-					if (event.key === 'Enter') event.currentTarget.blur();
-				}}
-				value={title}
-				disabled={!canWriteLive || view.document.owner_actor_id !== principalActorId}
-				oninput={(event) => {
-					title = event.currentTarget.value;
-					updateMetadataDirty();
-				}}
-			/>
+			<span class="head-title" {title}>{title.trim() || 'Untitled'}</span>
 		</div>
 		<div
 			class="collaboration-state state-{collaborationState}"
@@ -809,6 +813,29 @@
 
 	<div class="paper" class:read-only={!canWriteLive}>
 		<div class="paper-rule" aria-hidden="true"></div>
+		<!-- The title is the page's first line, as Notion's is: large, borderless, typed in place. -->
+		<div class="paper-title">
+			<label for="document-title">Document title</label>
+			<input
+				id="document-title"
+				bind:this={titleInput}
+				onblur={() => void saveTitle()}
+				onkeydown={(event) => {
+					if (event.key === 'Enter') {
+						event.preventDefault();
+						event.currentTarget.blur();
+						editor?.commands.focus('start');
+					}
+				}}
+				value={title}
+				placeholder="Untitled"
+				disabled={!canWriteLive || view.document.owner_actor_id !== principalActorId}
+				oninput={(event) => {
+					title = event.currentTarget.value;
+					updateMetadataDirty();
+				}}
+			/>
+		</div>
 		{#if collaborationState === 'synced' || collaborationState === 'read-only' || editor}
 			<div class="editor-mount" bind:this={editorElement}></div>
 		{:else}
@@ -845,7 +872,20 @@
 		padding: var(--space-2) var(--space-4);
 		border-bottom: 1px solid var(--border);
 	}
-	.document-title-field label {
+	.head-title {
+		min-width: 0;
+		overflow: hidden;
+		color: var(--text-secondary);
+		font: 500 var(--t-body) / 1.3 var(--font-ui);
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.paper-title {
+		position: relative;
+		max-width: 840px;
+		margin: 0 auto var(--space-4);
+	}
+	.paper-title label {
 		position: absolute;
 		width: 1px;
 		height: 1px;
@@ -853,25 +893,23 @@
 		clip: rect(0 0 0 0);
 		white-space: nowrap;
 	}
-	.document-title-field input {
-		flex: 1;
-		min-width: 0;
+	.paper-title input {
 		width: 100%;
-		padding: 3px 1px;
+		padding: 0;
 		border: 0;
-		border-bottom: 1px solid transparent;
 		background: transparent;
 		color: var(--ink);
-		font: 600 var(--t-head) / 1.25 var(--font-ui);
+		font: 700 var(--t-hero) / 1.2 var(--font-ui);
+		letter-spacing: -0.02em;
 	}
-	.document-title-field input:hover:not(:disabled),
-	.document-title-field input:focus {
-		border-bottom-color: var(--border-strong);
+	.paper-title input::placeholder {
+		color: var(--text-tertiary);
 	}
-	.document-title-field input:focus {
+	.paper-title input:focus,
+	.paper-title input:focus-visible {
 		outline: none;
 	}
-	.document-title-field input:disabled {
+	.paper-title input:disabled {
 		opacity: 1;
 	}
 	.editor-actions {
@@ -1064,6 +1102,11 @@
 		padding: 0 2px 64px;
 		color: var(--ink);
 		font: 400 var(--t-body) / 1.72 var(--font-ui);
+		outline: none;
+	}
+	/* The body is a page, not a field: the app's focus ring (for controls) never draws around it. */
+	:global(.native-document-body.native-document-body.native-document-body:focus-visible),
+	:global(.native-document-body.native-document-body.native-document-body:focus) {
 		outline: none;
 	}
 	:global(.native-document-body > *) {

@@ -1,7 +1,7 @@
 <script lang="ts">
 	/* The Library: what the company has written and built, in one place. Docs
 	 * and sheets share one table, filtered from the side; each opens in its
-	 * editor. New items are named here and open straight into their editor. */
+	 * editor. A new item is made untitled and opens straight into its editor. */
 	import { page } from '$app/state';
 	import { Item, Notice, Empty, Dot } from '$lib/ui/page';
 	import RelativeTime from '$lib/ui/RelativeTime.svelte';
@@ -13,6 +13,8 @@
 	import Library from '@lucide/svelte/icons/library';
 	import Eye from '@lucide/svelte/icons/eye';
 	import Plus from '@lucide/svelte/icons/plus';
+	import ChevronDown from '@lucide/svelte/icons/chevron-down';
+	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import { documentsQuery } from '$lib/model/document-queries.svelte';
 	import { sheetJson, type SheetRow } from '$lib/model/sheets';
 	import {
@@ -181,17 +183,37 @@
 					placeholder="Search"
 					aria-label="Search the Library"
 				/>
-				<button class="btn small new-sheet" type="button" onclick={() => creator?.open('sheet')}
-					>New sheet</button
-				>
-				<button
-					class="btn small primary new"
-					type="button"
-					aria-label="New document"
-					title="New document"
-					onclick={() => creator?.open(filter === 'sheets' ? 'sheet' : 'doc')}
-					><Plus size={14} strokeWidth={2} aria-hidden="true" /><span>New document</span></button
-				>
+				<!-- One action, the one this view is about; All offers both behind one button. -->
+				{#if filter === 'docs' || filter === 'sheets'}
+					{@const kind = filter === 'docs' ? 'doc' : 'sheet'}
+					<button
+						class="btn small primary new"
+						type="button"
+						title={kind === 'doc' ? 'Start an untitled document' : 'Start an untitled sheet'}
+						onclick={() => creator?.open(kind)}
+						><Plus size={14} strokeWidth={2} aria-hidden="true" /><span
+							>{kind === 'doc' ? 'New document' : 'New sheet'}</span
+						></button
+					>
+				{:else}
+					<div class="new-menu">
+						<ActionMenu label="New">
+							{#snippet trigger()}<span class="new-trigger"
+									><Plus size={14} strokeWidth={2} aria-hidden="true" /><span>New</span><ChevronDown
+										size={13}
+										strokeWidth={2}
+										aria-hidden="true"
+									/></span
+								>{/snippet}
+							<button type="button" onclick={() => creator?.open('doc')}
+								><FileText size={14} strokeWidth={1.8} aria-hidden="true" />Document</button
+							>
+							<button type="button" onclick={() => creator?.open('sheet')}
+								><Sheet size={14} strokeWidth={1.8} aria-hidden="true" />Sheet</button
+							>
+						</ActionMenu>
+					</div>
+				{/if}
 			</header>
 
 			<div class="body">
@@ -360,11 +382,48 @@
 	.spacer {
 		flex: 1;
 	}
+	/* Search stays small until it is used. */
 	.search {
-		width: 200px;
+		width: 160px;
+		transition: width var(--motion-disclosure) var(--ease-standard);
+	}
+	.search:focus,
+	.search:not(:placeholder-shown) {
+		width: 240px;
 	}
 	.new {
 		gap: 6px;
+	}
+	/* New ▾ wears the primary button: the menu's own trigger is an icon square. */
+	.new-menu :global(summary) {
+		display: inline-flex;
+		align-items: center;
+		width: auto;
+		height: 28px;
+		padding: 0 10px;
+		border: 1px solid var(--primary-edge);
+		border-radius: var(--radius-control);
+		background: linear-gradient(
+			180deg,
+			color-mix(in srgb, var(--primary) 88%, #fff),
+			var(--primary)
+		);
+		box-shadow:
+			inset 0 1px 0 color-mix(in srgb, var(--highlight) 20%, transparent),
+			0 1px 2px rgba(20, 32, 52, 0.22);
+		color: var(--on-primary);
+		font-size: var(--t-body);
+		font-weight: 500;
+	}
+	.new-trigger {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+	}
+	.new-menu :global(.action-menu-panel button) {
+		display: flex;
+		align-items: center;
+		gap: 8px;
 	}
 	.body {
 		min-height: 0;
@@ -431,8 +490,8 @@
 		.search {
 			width: 120px;
 		}
-		.new-sheet,
-		.new span {
+		.new span,
+		.new-trigger > span {
 			display: none;
 		}
 		.new {

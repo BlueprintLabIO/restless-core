@@ -11,6 +11,18 @@ export interface AccountTab {
 	icon?: Component<{ size?: number; strokeWidth?: number; 'aria-hidden'?: 'true' }>;
 	/** Listed beneath it in the rail, such as the sections of its page. Hidden in the phone bar. */
 	items?: AccountTab[];
+	/** A small count at the row's end, such as decisions waiting. Zero or absent shows nothing. */
+	count?: number;
+	/** A status dot before the label, in the portfolio's tones. */
+	tone?: 'presence' | 'waiting' | 'unavailable';
+}
+
+/** A labelled run of rail rows, such as Companies or a settings group, with an optional add action. */
+export interface AccountGroup {
+	label: string;
+	items: AccountTab[];
+	/** A small `+` beside the label, such as New company. */
+	action?: AccountTab;
 }
 
 /** One section of the account page. The host decides which sections exist; absent means absent. */

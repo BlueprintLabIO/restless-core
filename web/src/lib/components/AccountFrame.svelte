@@ -1,16 +1,17 @@
 <script lang="ts">
-	/* The frame every non-company page shares: the account rail (Home, your Account) and the page.
-	 * Locally the account is this computer, so the menu says which appliance it is rather than an
-	 * email. On Cloud, Account also lists the sections the account service owns (Profile, Security,
-	 * Plan, Support), so the rail is the same whichever page you are on (ADR 0007). */
+	/* The frame every non-company page shares, after Linear. Home is the rail's one row, then the
+	 * owner's companies; the owner's menu at the top-left is the one account menu. The account's
+	 * pages are settings mode: a way back and the sections, grouped. On Cloud the account service
+	 * owns Profile, Security, Plan and Support, so they sit in the same groups (ADR 0007). Locally
+	 * the account is this computer, so the menu says which appliance it is rather than an email. */
 	import type { Snippet } from 'svelte';
 	import { page } from '$app/state';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import AccountShell from '$lib/ui/views/AccountShell.svelte';
 	import House from '@lucide/svelte/icons/house';
-	import UserRound from '@lucide/svelte/icons/user-round';
-	import type { AccountTab } from '$lib/ui/account';
+	import type { AccountGroup, AccountTab } from '$lib/ui/account';
 	import { getApplianceStatus, planeLabel, type ApplianceStatus } from '$lib/model/appliance';
+	import { companiesQuery } from '$lib/model/queries.svelte';
 
 	let { appliance = null, children }: { appliance?: ApplianceStatus | null; children: Snippet } =
 		$props();
@@ -33,47 +34,83 @@
 		return () => controller.abort();
 	});
 
+	const catalog = companiesQuery();
 	const path = $derived(page.url.pathname);
+	const settings = $derived(path.startsWith('/account'));
 	const own = (label: string, href: string): AccountTab => ({ label, href, active: path === href });
-	const tabs = $derived<AccountTab[]>([
-		{ label: 'Home', href: home, active: path === '/', tooltip: 'Your companies', icon: House },
-		{
-			label: 'Account',
-			href: '/account/connections',
-			active: path.startsWith('/account'),
-			tooltip: issuer
-				? 'Your profile, security, plan, support, connections, AI apps and appearance'
-				: 'Connections, AI apps and appearance, shared across your companies',
-			icon: UserRound,
-			items: [
-				...(issuer
-					? [
-							{ label: 'Profile', href: `${issuer}/account/settings#account` },
-							{ label: 'Security', href: `${issuer}/account/settings#security` },
-							{ label: 'Plan', href: `${issuer}/account/settings#billing` },
-							{ label: 'Support', href: `${issuer}/account/settings#support` }
+	const issued = (label: string, hash: string): AccountTab[] =>
+		issuer ? [{ label, href: `${issuer}/account/settings#${hash}` }] : [];
+
+	const tabs = $derived<AccountTab[]>(
+		settings
+			? []
+			: [
+					{
+						label: 'Home',
+						href: home,
+						active: path === '/',
+						tooltip: 'Your companies',
+						icon: House
+					}
+				]
+	);
+	const groups = $derived<AccountGroup[]>(
+		settings
+			? [
+					{
+						label: 'Account',
+						items: [
+							...issued('Profile', 'account'),
+							...issued('Security', 'security'),
+							own('Appearance', '/account/appearance')
 						]
-					: []),
-				own('Connections', '/account/connections'),
-				own('AI apps', '/account/ai-apps'),
-				own('Appearance', '/account/appearance')
-			]
-		}
-	]);
+					},
+					...(issuer ? [{ label: 'Billing', items: issued('Plan', 'billing') }] : []),
+					{
+						label: 'Integrations',
+						items: [own('Connections', '/account/connections'), own('AI apps', '/account/ai-apps')]
+					},
+					...(issuer ? [{ label: 'Help', items: issued('Support', 'support') }] : [])
+				]
+			: [
+					{
+						label: 'Companies',
+						items: catalog.view
+							.filter((company) => company.lifecycle_status === 'active')
+							.map((company) => ({
+								label: company.name,
+								href: `/${company.id}`,
+								count: company.card?.decisions_waiting,
+								tone:
+									company.runtime_status === 'unavailable' || company.unstartable_reason
+										? 'unavailable'
+										: undefined
+							}))
+					}
+				]
+	);
 </script>
 
 <AccountShell
 	brandName={PRODUCT_NAME}
 	homeHref={home}
 	{tabs}
+	{groups}
+	back={settings ? { label: 'Back', href: home, tooltip: 'Back to your companies' } : null}
 	account={{
 		name: status?.viewer_name || 'You',
 		detail: status?.hosted ? profile : `${profile} · this computer`
 	}}
 >
 	{#snippet accountMenu()}
-		{#if issuer}<a href={`${issuer}/account/settings#account`}>Profile</a>{/if}
-		<a href="/account/connections">Connections</a>
+		<a href="/account/connections">Settings</a>
+		{#if issuer}
+			<a href={`${issuer}/account/settings#support`}>Support</a>
+			{#if issuer === page.url.origin}
+				<hr />
+				<form method="POST" action="/account?/signOut"><button>Sign out</button></form>
+			{/if}
+		{/if}
 	{/snippet}
 	{@render children()}
 </AccountShell>

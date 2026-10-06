@@ -90,7 +90,15 @@
 {/if}
 
 <style>
+	.chip,
+	.chip :global(.action-menu) {
+		flex: 0 1 auto;
+		min-width: 0;
+	}
 	.chip :global(summary) {
+		display: flex;
+		max-width: 100%;
+		overflow: hidden;
 		width: auto;
 		height: 24px;
 		padding: 0 8px;
@@ -108,10 +116,13 @@
 		color: var(--ink);
 	}
 	.face {
-		display: inline-flex;
-		align-items: center;
-		gap: 5px;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+	.face i {
+		margin: 0 4px;
 	}
 	.face i {
 		color: var(--text-tertiary);

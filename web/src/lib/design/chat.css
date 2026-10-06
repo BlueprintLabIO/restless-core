@@ -326,6 +326,8 @@
 	background: transparent;
 }
 
+/* The slot shrinks before anything beside it moves: its chips ellipsize rather than draw over the
+ * microphone or the send buttons. Menus open in the top layer, so clipping here never cuts them. */
 .bridge-root .hc-slot {
 	grid-column: 2;
 	min-width: 0;
@@ -333,6 +335,7 @@
 	min-height: 28px;
 	display: flex;
 	align-items: center;
+	overflow: hidden;
 	padding: 0;
 }
 

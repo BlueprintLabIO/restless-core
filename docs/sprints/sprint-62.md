@@ -1,6 +1,6 @@
 # Sprint 62 — Linear-level polish on the hosted owner path
 
-**Status:** notes and proposals for founder alignment. No tickets yet.
+**Status:** building. Founder decisions taken 2026-10-06 (below); the tickets are the checklist.
 **Depends on:** Sprint 60's one address (live on `app.restless.run` since 2026-10-06).
 
 ## Outcome
@@ -163,7 +163,52 @@ Run one walk through every owner surface, at 1440 and 390, signed in on Cloud, a
 
 Compare against Linear and Notion, and the references in `docs/FRONTEND_DESIGN_REFERENCES.md`.
 
+## Decisions (founder, 2026-10-06)
+
+- **A choice sends on tap.** It sends after a two-second Undo. Approvals of consequential effects keep their own
+  confirmation.
+- **Companies sit in the rail as well as on Home.**
+
+## Tickets
+
+Ticket status lives only here.
+
+- [x] S62-T1 — One account rail (`@restless/ui` 0.8.0, Core and Fleet).
+  - The owner's menu moves to the top-left and holds Settings, Support and Sign out. The bottom popover is deleted.
+  - The rail lists Home, then the companies, each with a waiting-decisions count and a status dot, plus a `+` for New company.
+  - Settings is its own mode: Back, then Account, Billing, Integrations and Help.
+  - One 13px/30px row scale; the monospace wordmark leaves the rail.
+- [x] S62-T2 — Home is a light list, not cards.
+  - Title at `--t-title`; hairline rows with hover wash.
+  - The decision count is text, and the row menu shows on hover.
+  - Fleet's name prompt leaves Home for an editable Profile name.
+- [x] S62-T3 — Exec questions.
+  - A question renders under the message that asks it, never docked above the composer.
+  - A reply chip sends on tap with Undo, without touching a draft.
+  - Fields render inline with Send, and the composer placeholder says it answers too.
+  - Agent coordination folds into one "Exec coordinated with …" line.
+  - The composer's model chip ellipsizes instead of drawing over the microphone.
+- [x] S62-T4 — Exec voice: the reply contract.
+  - `converse-with-owner.md` and the intent marker tell Exec to write to the owner as "you", never narrate the reply, apply what it can, and ask one thing at a time.
+  - `ownerFields` is for exact values only.
+  - Not yet observed on a live model: the local GPT route is not provisioned on this host.
+- [x] S62-T5 — Company area: the section navigation returns, with to-do counts per row and a problem dot.
+  - The overview becomes a facts line plus "N to finish setting up".
+  - Narrow panes and phones list the sections on the overview instead.
+  - Generated handles read "New company" everywhere: one display-name mapping.
+  - A plane that refuses the Vault (hosted) no longer shows a dead Vault row.
+- [x] S62-T6 — Library and documents.
+  - The primary action follows the view, with one "New ▾" in All.
+  - New opens an untitled document or sheet at once, with its title selected; the naming dialog is deleted.
+  - The title is the page's first line.
+  - The app focus ring no longer draws around the document body.
+- [ ] S62-T7 — The company name on Cloud. Needs a founder decision before building (see Open questions).
+- [ ] S62-T8 — The hosted Vault: the plane refuses it and the account host has no vault page yet.
+- [ ] S62-T9 — The signed-in founder walk on Cloud at 1440 and 390, after deploy.
+
 ## Open questions
 
-- Should a choice send immediately with Undo, or after a confirm tap for consequential answers? The proposal is to send immediately for answers, and to keep approvals of consequential effects behind their existing confirmation.
-- Should Home list companies in the rail as well as in the page body, or only in the rail once the account has more than one?
+- **Who owns a Cloud company's name?**
+  - Today nobody can change it. The plane refuses setup edits when hosted, and Fleet has no rename.
+  - Exec can only record "Blueprint Lab", and the projection to Fleet is content-free by design, so a plane cannot carry a name to Fleet.
+  - Proposal: Fleet owns the name on Cloud. Add Rename to the company's menu and pass the name to the plane on entry, as the viewer's name already travels. Exec's confirm question then links to that one field.

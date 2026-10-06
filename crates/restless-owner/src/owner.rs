@@ -9811,18 +9811,9 @@ fn cookie(headers: &HeaderMap, name: &str) -> Option<String> {
         })
 }
 
+/// One mapping for a company's shown name: a generated handle reads "New company", never its id.
 fn company_display_name(name: &str) -> String {
-    name.split('_')
-        .filter(|part| !part.is_empty())
-        .map(|part| {
-            let mut characters = part.chars();
-            characters
-                .next()
-                .map(|first| first.to_uppercase().collect::<String>() + characters.as_str())
-                .unwrap_or_default()
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
+    restless_engine::company::display_name(name)
 }
 
 fn lease_is_live(value: &serde_json::Value) -> bool {

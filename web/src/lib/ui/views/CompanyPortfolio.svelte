@@ -90,7 +90,7 @@
 							</form>
 						{/if}
 						<span class="portfolio-mark" aria-hidden="true">
-							<MatrixGlyph rows={companyMarkRows(company.id)} size={20} />
+							<MatrixGlyph rows={companyMarkRows(company.id)} size={16} />
 						</span>
 						<span class="portfolio-copy">
 							<span class="portfolio-title">
@@ -129,9 +129,10 @@
 	}
 	.portfolio-head h1 {
 		margin: 0;
-		font-size: var(--t-hero);
-		line-height: 1.1;
-		letter-spacing: -0.03em;
+		font-size: var(--t-title);
+		font-weight: 600;
+		line-height: 1.2;
+		letter-spacing: -0.02em;
 	}
 	.portfolio-actions {
 		display: flex;
@@ -141,11 +142,14 @@
 	.portfolio-feedback {
 		margin-bottom: 16px;
 	}
+	/* One quiet list, like Linear's: rows on hairlines, a wash under the pointer, no cards. */
 	.portfolio-cards {
 		display: grid;
-		gap: 10px;
 		margin: 0;
-		padding: 0;
+		padding: 4px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-lg);
+		background: var(--surface-raised);
 		list-style: none;
 	}
 	.portfolio-card {
@@ -153,26 +157,27 @@
 		display: grid;
 		grid-template-columns: auto minmax(0, 1fr) auto;
 		align-items: center;
-		gap: 16px;
-		min-height: 76px;
-		padding: 14px 52px 14px 16px;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-lg);
-		background: var(--surface-raised);
-		transition:
-			border-color var(--motion-state) var(--ease-standard),
-			box-shadow var(--motion-state) var(--ease-standard),
-			transform var(--motion-state) var(--ease-standard);
+		gap: 12px;
+		min-height: 56px;
+		padding: 8px 48px 8px 10px;
+		border-radius: var(--radius-control);
+		transition: background var(--motion-state) var(--ease-standard);
+	}
+	.portfolio-card + .portfolio-card::before {
+		content: '';
+		position: absolute;
+		top: 0;
+		right: 10px;
+		left: 54px;
+		height: 1px;
+		background: var(--border);
 	}
 	.portfolio-card:hover {
-		border-color: var(--border-strong);
-		box-shadow: var(--shadow-soft);
+		background: var(--wash-hover, var(--surface-alt));
 	}
-	.portfolio-card:active {
-		transform: translateY(1px);
-	}
-	.portfolio-card.blocked {
-		border-color: color-mix(in srgb, var(--state-danger) 35%, var(--border));
+	.portfolio-card:hover::before,
+	.portfolio-card:hover + .portfolio-card::before {
+		background: transparent;
 	}
 	.portfolio-card.dormant {
 		background: transparent;
@@ -201,8 +206,8 @@
 	.portfolio-mark {
 		display: grid;
 		place-items: center;
-		width: 44px;
-		height: 44px;
+		width: 32px;
+		height: 32px;
 		border-radius: var(--radius-control);
 		background: var(--surface-alt);
 		color: var(--text-secondary);
@@ -227,8 +232,8 @@
 	}
 	.portfolio-title strong {
 		overflow: hidden;
-		font-size: var(--t-head);
-		letter-spacing: -0.02em;
+		font-size: var(--t-body);
+		font-weight: 500;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
@@ -255,8 +260,8 @@
 	}
 	.portfolio-signal {
 		overflow: hidden;
-		color: var(--text-secondary);
-		font-size: var(--t-body);
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
@@ -265,26 +270,33 @@
 	}
 	.portfolio-primary {
 		flex: none;
-		padding: 5px 11px;
-		border: 1px solid color-mix(in srgb, var(--intent-authority) 35%, transparent);
-		border-radius: 999px;
-		background: color-mix(in srgb, var(--intent-authority) 10%, transparent);
 		color: var(--intent-authority);
 		font-size: var(--t-label);
-		font-weight: 600;
+		font-weight: 500;
 		white-space: nowrap;
 	}
 	.portfolio-card.blocked .portfolio-primary {
-		border-color: color-mix(in srgb, var(--state-danger) 35%, transparent);
-		background: color-mix(in srgb, var(--state-danger) 10%, transparent);
 		color: var(--state-danger);
 	}
+	/* The row's menu appears with the row, as Linear's do; a keyboard or an open menu keeps it. */
 	.portfolio-menu {
 		position: absolute;
 		top: 50%;
-		right: 10px;
+		right: 8px;
 		z-index: 2;
 		transform: translateY(-50%);
+		opacity: 0;
+		transition: opacity var(--motion-state) var(--ease-standard);
+	}
+	.portfolio-card:hover .portfolio-menu,
+	.portfolio-menu:focus-within,
+	.portfolio-menu:has(:global([open])) {
+		opacity: 1;
+	}
+	@media (hover: none) {
+		.portfolio-menu {
+			opacity: 1;
+		}
 	}
 	.portfolio-empty {
 		padding: 56px 16px;
@@ -315,9 +327,6 @@
 	@media (prefers-reduced-motion: reduce) {
 		.portfolio-card {
 			transition: none;
-		}
-		.portfolio-card:active {
-			transform: none;
 		}
 	}
 	@media (max-width: 560px) {
