@@ -198,6 +198,8 @@ async fn run() -> Result<()> {
     // that cannot describe how it verifies fails here rather than serving.
     let owner_config = owner_config::OwnerConfig::from_env()?;
     runtime::validate_company_image_config(owner_config.is_network())?;
+    // A Cloud plane rolls its companies' computers forward with its own release (see below).
+    let release_plane = owner_config.is_network();
 
     // Open authoritative charged-use accounting before the model relay. The
     // relay receives this exact ledger and is the only model path permitted to
@@ -506,6 +508,14 @@ async fn run() -> Result<()> {
             elapsed_ms = recovery_started.elapsed().as_millis(),
             "startup recovery barrier opened"
         );
+        if release_plane && !hosted_runtime {
+            // In its own task: a rebuild can take a while and must not hold up startup.
+            let roll_daemon = std::sync::Arc::clone(&recovery_daemon);
+            let roll_configs = recovery_configs.clone();
+            tokio::spawn(async move {
+                company::roll_forward_runtimes(&roll_daemon, &roll_configs).await;
+            });
+        }
         if !hosted_runtime && !test_scheduler_disabled {
             for config in &recovery_configs {
                 match recovery_daemon.orgintel.get(&config.name).await {

@@ -1735,6 +1735,44 @@ fn action_copy(action: RecoveryAction) -> DoctorAction {
     }
 }
 
+/// Whether a company computer runs a different release image than this plane's target. Only an
+/// exact image-ID difference counts: a missing computer, an unknown image or a local source-build
+/// drift is not a release roll and stays with the owner's recovery.
+pub fn runtime_image_drifted(doctor: &runtime::RuntimeDoctor) -> bool {
+    doctor.container != runtime::ContainerStatus::Absent
+        && matches!(
+            (&doctor.container_image_id, &doctor.target_image_id),
+            (Some(container), Some(target)) if container != target
+        )
+}
+
+/// After a plane rolls to a new release, rebuild each company computer still running the previous
+/// release's image, as the owner's Reconcile would (company files stay on the volume). Without this
+/// a computer survives plane upgrades on an old Runtime until a schema or contract change makes the
+/// bridge refuse it, and the Exec stops answering. Observed on owner-ee54fb58bcde23cf, 2026-10-06.
+/// One company failing is logged and never blocks another or the plane.
+pub async fn roll_forward_runtimes(daemon: &Daemon, configs: &[runtime::CompanyConfig]) {
+    for config in configs {
+        let drifted = match runtime::doctor(&config.name).await {
+            Ok(doctor) => runtime_image_drifted(&doctor),
+            Err(error) => {
+                tracing::warn!(company = %config.name, "release roll-forward could not inspect the computer: {error:#}");
+                continue;
+            }
+        };
+        if !drifted {
+            continue;
+        }
+        tracing::info!(company = %config.name, "rebuilding the company computer on this plane's release");
+        match recover(daemon, config, RecoveryAction::Reconcile, "daemon").await {
+            Ok(_) => tracing::info!(company = %config.name, "company computer rebuilt on this plane's release"),
+            Err(error) => {
+                tracing::error!(company = %config.name, "release roll-forward failed; the owner's Rebuild remains: {error:#}")
+            }
+        }
+    }
+}
+
 pub async fn recover(
     daemon: &Daemon,
     config: &runtime::CompanyConfig,
@@ -1898,6 +1936,24 @@ mod tests {
             body,
             created_at: Utc::now(),
         }
+    }
+
+    #[test]
+    fn only_a_running_or_stopped_computer_on_another_release_image_is_rolled_forward() {
+        let with = |container, current: Option<&str>, target: Option<&str>| {
+            let mut value = doctor(container, runtime::ReconciliationStatus::Required, None, None, None);
+            value.container_image_id = current.map(Into::into);
+            value.target_image_id = target.map(Into::into);
+            value
+        };
+        use runtime::ContainerStatus::{Absent, Running, Stopped};
+        assert!(runtime_image_drifted(&with(Running, Some("sha256:old"), Some("sha256:new"))));
+        assert!(runtime_image_drifted(&with(Stopped, Some("sha256:old"), Some("sha256:new"))));
+        // Same image, an absent computer, or an image Docker cannot name: the owner decides.
+        assert!(!runtime_image_drifted(&with(Running, Some("sha256:new"), Some("sha256:new"))));
+        assert!(!runtime_image_drifted(&with(Absent, None, Some("sha256:new"))));
+        assert!(!runtime_image_drifted(&with(Running, None, Some("sha256:new"))));
+        assert!(!runtime_image_drifted(&with(Running, Some("sha256:old"), None)));
     }
 
     fn doctor(
