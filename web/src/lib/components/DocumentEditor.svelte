@@ -564,7 +564,7 @@
 		void saveTitle();
 	}
 	/* A document made a moment ago opens with its untitled name selected, ready to type over. */
-	let titleInput: HTMLInputElement | undefined = $state();
+	let titleInput: HTMLTextAreaElement | undefined = $state();
 	let focusTitlePending = $state(
 		browser && untrack(() => page.url.searchParams.get('new') === '1')
 	);
@@ -816,8 +816,10 @@
 		<!-- The title is the page's first line, as Notion's is: large, borderless, typed in place. -->
 		<div class="paper-title">
 			<label for="document-title">Document title</label>
-			<input
+			<!-- A long title wraps, as Notion's does; it grows with its text and never takes a newline. -->
+			<textarea
 				id="document-title"
+				rows="1"
 				bind:this={titleInput}
 				onblur={() => void saveTitle()}
 				onkeydown={(event) => {
@@ -831,10 +833,9 @@
 				placeholder="Untitled"
 				disabled={!canWriteLive || view.document.owner_actor_id !== principalActorId}
 				oninput={(event) => {
-					title = event.currentTarget.value;
+					title = event.currentTarget.value.replace(/\s*\n\s*/g, ' ');
 					updateMetadataDirty();
-				}}
-			/>
+				}}></textarea>
 		</div>
 		{#if collaborationState === 'synced' || collaborationState === 'read-only' || editor}
 			<div class="editor-mount" bind:this={editorElement}></div>
@@ -893,23 +894,27 @@
 		clip: rect(0 0 0 0);
 		white-space: nowrap;
 	}
-	.paper-title input {
+	.paper-title textarea {
+		display: block;
 		width: 100%;
 		padding: 0;
+		overflow: hidden;
+		resize: none;
+		field-sizing: content;
 		border: 0;
 		background: transparent;
 		color: var(--ink);
 		font: 700 var(--t-hero) / 1.2 var(--font-ui);
 		letter-spacing: -0.02em;
 	}
-	.paper-title input::placeholder {
+	.paper-title textarea::placeholder {
 		color: var(--text-tertiary);
 	}
-	.paper-title input:focus,
-	.paper-title input:focus-visible {
+	.paper-title textarea:focus,
+	.paper-title textarea:focus-visible {
 		outline: none;
 	}
-	.paper-title input:disabled {
+	.paper-title textarea:disabled {
 		opacity: 1;
 	}
 	.editor-actions {

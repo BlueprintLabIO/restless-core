@@ -785,10 +785,24 @@
 .bridge-root .attention-focus {
 	position: relative;
 	overflow: auto;
-	background:
-		radial-gradient(circle at 88% 2%, var(--surface-attention-soft), transparent 34%),
-		radial-gradient(circle at 6% 96%, var(--intent-feedback-soft), transparent 32%),
-		var(--glass-pane);
+	background: var(--surface-pane);
+}
+
+/* With a queue, list and item are one surface split by a hairline, as Linear's Inbox is, rather
+ * than two cards. A clear queue still folds the list away (above). */
+@media (min-width: 761px) {
+	.bridge-root .attention-screen:not(.queue-clear) {
+		gap: 0;
+	}
+	.bridge-root .attention-screen:not(.queue-clear) > .attention-index {
+		border-top-right-radius: 0;
+		border-bottom-right-radius: 0;
+	}
+	.bridge-root .attention-screen:not(.queue-clear) > .attention-focus {
+		border-left: 0;
+		border-top-left-radius: 0;
+		border-bottom-left-radius: 0;
+	}
 }
 
 .bridge-root .attention-focus.office-focus {
