@@ -127,16 +127,24 @@ export function node(source: Directory): Container {
  * has shipped or the exception is renewed on purpose.
  */
 const SCAN_EXCEPTIONS = [
-  // Bundled npm HTTP cache dependency in runtime-tools; no patched release (2026-10-04).
-  { id: 'GHSA-ch52-4w7c-c8xp', name: 'http-cache-semantics', version: '4.2.0', until: '2026-10-18' },
+  // Not reachable, reviewed 2026-10-06. The flaw serves a security-zeroed Set-Cookie entry under
+  // max-stale, and that zeroing only exists for shared caches. These two copies are bundled by npm
+  // 11.21.0 and pnpm 10.34.6, whose only consumer, make-fetch-happen, builds every policy with
+  // `shared: false`. 4.3.0 is outside the advisory's range but leaves max-stale unchanged, so
+  // upgrading would only silence the scanner. Pinned to these paths: a copy anywhere else fails.
+  { id: 'GHSA-ch52-4w7c-c8xp', name: 'http-cache-semantics', version: '4.2.0', until: '2027-01-06', locations: [
+    '/usr/local/lib/node_modules/npm/node_modules/http-cache-semantics/package.json',
+    '/usr/local/lib/node_modules/pnpm/dist/node_modules/http-cache-semantics/package.json',
+  ] },
 ];
 
-/** Grype config that ignores the exceptions still in force on the scan day. */
+/** Grype config that ignores the exceptions still in force on the scan day, at their exact paths. */
 export function scanConfig(scanPeriod: string): string {
   const active = SCAN_EXCEPTIONS.filter((exception) => scanPeriod <= exception.until);
   if (!active.length) return 'ignore: []\n';
-  return `ignore:\n${active.map((exception) => `  - vulnerability: ${exception.id}\n    package:\n`
-    + `      name: ${exception.name}\n      version: ${exception.version}\n`).join('')}`;
+  return `ignore:\n${active.flatMap((exception) => exception.locations.map((location) =>
+    `  - vulnerability: ${exception.id}\n    package:\n      name: ${exception.name}\n`
+    + `      version: ${exception.version}\n      location: ${JSON.stringify(location)}\n`)).join('')}`;
 }
 
 function scanner(image: string, prefix: string, username: string, password: Secret): Container {
