@@ -79,6 +79,12 @@ traffic moves.
   with a Core release at or after `e4ff8f9`. Every owner moves to `app.restless.run`. A browser on `owner-<hex>.restless.run` is
   sent to the matching `app.restless.run` path. Verified on the founder's account: sign in once,
   Home, a company, Account, a lapsed session, and a member of another owner's company.
+  Deployed 2026-10-06, restless-cloud run 37396115400 with Core `47b98a2`. Signed-out checks observed:
+  - The route lookup works.
+  - A company page and an old `owner-<hex>` link both 303 to `/account?return=<path>`.
+  - API calls return 401 `no_session` / `no_account_plane`.
+  - Assets are served via Referer.
+  The founder's signed-in checks are still open.
 - [ ] C60-T11 — Delete: the cross-origin entry page, the plane Home redirect, account-entry
   assertions used only for the second Account page, and the Sprint 59 stopgaps the router makes
   unreachable.
