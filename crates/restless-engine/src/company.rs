@@ -1777,6 +1777,16 @@ pub async fn roll_forward_runtimes(daemon: &Daemon, configs: &[runtime::CompanyC
         tracing::warn!("release roll-forward could not fetch this release's company image: {error:#}");
         return;
     }
+    // Look again after a rollout settles. A rolling deploy briefly runs the previous plane beside
+    // this one: it can replace a computer onto its own image while this boot's look finds the
+    // container mid-replacement (absent, so not lagging). Observed on Cloud, 6 October 22:29.
+    for delay in [0u64, 60, 300] {
+        tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
+        roll_forward_once(daemon, configs).await;
+    }
+}
+
+async fn roll_forward_once(daemon: &Daemon, configs: &[runtime::CompanyConfig]) {
     for config in configs {
         let drifted = match runtime::doctor(&config.name).await {
             Ok(doctor) => runtime_image_drifted(&doctor),
