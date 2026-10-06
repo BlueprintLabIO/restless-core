@@ -144,6 +144,35 @@ function scanner(image: string, prefix: string, username: string, password: Secr
     .withEnvVariable(`${prefix}_REGISTRY_AUTH_USERNAME`, username).withSecretVariable(`${prefix}_REGISTRY_AUTH_PASSWORD`, password);
 }
 
+const SBOM_CACHE = 'restless-core-sbom-v1';
+
+/**
+ * Syft's inventory of an exact image digest never changes, yet cataloguing a reused multi-GB image
+ * cost minutes, most of it exporting the image as a tarball. Keep each inventory on the runner by
+ * digest and scanner version; Grype still matches it against the current day's database. A lost
+ * cache only means cataloguing again.
+ */
+async function inventoryFor(reference: string, image: Container, username: string, password: Secret): Promise<Directory> {
+  const key = hash(JSON.stringify({ syft: SYFT_IMAGE, reference }));
+  // The timestamp keeps Dagger from replaying an earlier lookup that predates the stored entry.
+  const cache = () => dag.container().from(NODE_IMAGE).withMountedCache('/cache', dag.cacheVolume(SBOM_CACHE))
+    .withEnvVariable('RESTLESS_CACHE_AT', String(Date.now()));
+  const cached = cache().withExec(['sh', '-ec', `mkdir -p /reports; if test -s /cache/${key}/inventory.json && `
+    + `test -s /cache/${key}/sbom.json; then cp /cache/${key}/inventory.json /cache/${key}/sbom.json /reports/; fi`]).directory('/reports');
+  if ((await cached.entries()).length === 2) return cached;
+  // Syft reads the image the engine already pulled by digest: downloading it a second time from
+  // GHCR repeatedly broke off mid-layer on the release runner.
+  const reports = scanner(SYFT_IMAGE, 'SYFT', username, password).withNewFile('/reports/.keep', '')
+    .withFile('/image.tar', image.asTarball())
+    .withExec(['oci-archive:/image.tar', '--source-name', reference, '--override-default-catalogers', 'image',
+      '--override-default-catalogers', 'sbom-cataloger', '--output', 'syft-json=/reports/inventory.json',
+      '--output', 'spdx-json=/reports/sbom.json'], { useEntrypoint: true }).directory('/reports');
+  await cache().withMountedDirectory('/reports', reports).withExec(['sh', '-ec', `rm -rf /cache/${key}.partial; `
+    + `mkdir /cache/${key}.partial; cp /reports/inventory.json /reports/sbom.json /cache/${key}.partial/; `
+    + `rm -rf /cache/${key}; mv /cache/${key}.partial /cache/${key}`]).sync();
+  return reports;
+}
+
 /**
  * Push to GHCR, retrying a dropped connection. Already uploaded blobs are
  * skipped on the next attempt, so a retry only resends what was interrupted.
@@ -194,16 +223,9 @@ export async function publishImage(component: string, revision: string, platform
   // Catalogue the exact image once. Include producer CycloneDX records: newer
   // Chrome binaries no longer match Syft's binary-string version classifier.
   // Grype consumes this same inventory rather than recataloguing the image.
-  // Syft reads the image the engine already pulled by digest: downloading it a
-  // second time from GHCR repeatedly broke off mid-layer on the release runner.
-  const sbom = scanner(SYFT_IMAGE, 'SYFT', username, password).withNewFile('/reports/.keep', '')
-    .withFile('/image.tar', image.asTarball())
-    .withExec(['oci-archive:/image.tar', '--source-name', reference, '--override-default-catalogers', 'image',
-      '--override-default-catalogers', 'sbom-cataloger', '--output', 'syft-json=/reports/inventory.json',
-      '--output', 'spdx-json=/reports/sbom.json'], { useEntrypoint: true });
-  await timed(timings, 'inventory (syft)', () => sbom.sync());
+  const sbom = await timed(timings, 'inventory (syft)', () => inventoryFor(reference, image, username, password));
   if (['runtime-tools', 'company-runtime'].includes(component)) {
-    const inventory = JSON.parse(await sbom.file('/reports/inventory.json').contents());
+    const inventory = JSON.parse(await sbom.file('inventory.json').contents());
     const browser = JSON.parse(await image.file('/usr/local/share/restless/browser.cdx.json').contents()).components?.[0];
     const expectedCpe = `cpe:2.3:a:google:chrome:${browser?.version}:*:*:*:*:*:*:*`;
     const found = (inventory.artifacts ?? []).filter((p: any) => p.name === 'chrome');
@@ -217,7 +239,7 @@ export async function publishImage(component: string, revision: string, platform
     .withMountedCache('/cache', dag.cacheVolume('restless-core-grype-v0.119.0'))
     .withEnvVariable('GRYPE_DB_CACHE_DIR', '/cache').withEnvVariable('GRYPE_CHECK_FOR_APP_UPDATE', 'false')
     .withEnvVariable('RESTLESS_SCAN_PERIOD', scanPeriod)
-    .withFile('/reports/inventory.json', sbom.file('/reports/inventory.json'))
+    .withFile('/reports/inventory.json', sbom.file('inventory.json'))
     .withNewFile('/reports/grype.yaml', scanConfig(scanPeriod))
     // Ask Grype to own the report file. Dagger's progress stream can still
     // mirror redirected stdout, which previously inflated one Actions log by
@@ -234,7 +256,7 @@ export async function publishImage(component: string, revision: string, platform
     }
     throw new Error(`${component}: exact Core artifact scan failed (exit ${status})\n${findings}\n${await scan.stderr()}`);
   }
-  const [scanBytes, sbomBytes] = await Promise.all([scan.file('/reports/scan.json').contents(), sbom.file('/reports/sbom.json').contents()]);
+  const [scanBytes, sbomBytes] = await Promise.all([scan.file('/reports/scan.json').contents(), sbom.file('sbom.json').contents()]);
   const provenance = { buildDefinition: { buildType: 'https://github.com/BlueprintLabIO/restless-core/tree/main/.dagger',
     externalParameters: { component, platform, source: { repository: 'BlueprintLabIO/restless-core', revision: actualRevision }, input_sha256: input },
     resolvedDependencies: [{ uri: `git+https://github.com/BlueprintLabIO/restless-core@${actualRevision}`, digest: { gitCommit: actualRevision } }] },
@@ -242,7 +264,7 @@ export async function publishImage(component: string, revision: string, platform
   console.log(`${component}: ${reused ? 'reused' : 'built'} ${reference}; ${platform}; scan passed`);
   return dag.directory().withNewFile(`images/${component}.json`, `${JSON.stringify({ component, reference, platform,
     source_revision: actualRevision, input_sha256: input, scan_sha256: hash(scanBytes), sbom_sha256: hash(sbomBytes) }, null, 2)}\n`)
-    .withFile(`scans/${component}.json`, scan.file('/reports/scan.json')).withFile(`sboms/${component}.json`, sbom.file('/reports/sbom.json'))
+    .withFile(`scans/${component}.json`, scan.file('/reports/scan.json')).withFile(`sboms/${component}.json`, sbom.file('sbom.json'))
     .withNewFile(`provenance/${component}.json`, `${JSON.stringify(provenance, null, 2)}\n`)
     .withNewFile(`timings/${component}.json`, timingsFile(timings));
 }

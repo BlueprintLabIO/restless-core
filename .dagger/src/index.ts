@@ -53,6 +53,21 @@ function checkPlatform(platform: string): asserts platform is Platform {
   if (!['linux/amd64', 'linux/arm64'].includes(platform)) throw new Error('Core artifacts support linux/amd64 and linux/arm64');
 }
 
+/**
+ * The runtime-tools build context: only the tool stages of the one canonical company Dockerfile,
+ * plus the files they copy. The stage slice is both what is built and the reuse identity, so an
+ * edit to the company layer below it no longer rebuilds, re-verifies and re-scans the tool base.
+ */
+export async function runtimeToolsContext(source: Directory): Promise<Directory> {
+  const dockerfile = await source.file('infra/company-image/Dockerfile').contents();
+  const start = dockerfile.search(/^FROM \S+ AS node-runtime$/m);
+  const end = dockerfile.search(/^FROM .* AS runtime-layer-build$/m);
+  if (start < 0 || end <= start) throw new Error('company Dockerfile no longer has the expected runtime-tools stages');
+  return dag.directory().withDirectory('/', source, {
+    include: ['infra/company-image/gtk-settings.ini', 'infra/company-image/browser-sbom.mjs'],
+  }).withNewFile('infra/company-image/Dockerfile', dockerfile.slice(start, end));
+}
+
 @object()
 export class RestlessCore {
   /** One bounded local/CI delivery call for the complete product library set. */
@@ -147,12 +162,11 @@ export class RestlessCore {
   runtimeTools(
     @argument({ ignore: ['**', '!infra/company-image/Dockerfile', '!infra/company-image/gtk-settings.ini', '!infra/company-image/browser-sbom.mjs'] })
     source: Directory, platform: string = 'linux/amd64',
-  ): Container {
+  ): Promise<Container> {
     checkPlatform(platform);
-    return dag.directory().withDirectory('/', source, {
-      include: ['infra/company-image/Dockerfile', 'infra/company-image/gtk-settings.ini', 'infra/company-image/browser-sbom.mjs'],
-    }).dockerBuild({ dockerfile: 'infra/company-image/Dockerfile', target: 'runtime-tools', platform })
-      .withLabel('org.opencontainers.image.source', 'https://github.com/BlueprintLabIO/restless-core');
+    return runtimeToolsContext(source).then((context) => context
+      .dockerBuild({ dockerfile: 'infra/company-image/Dockerfile', target: 'runtime-tools', platform })
+      .withLabel('org.opencontainers.image.source', 'https://github.com/BlueprintLabIO/restless-core'));
   }
 
   /** Exercise installed tools in the isolated builder; no appliance is mounted. */
@@ -161,7 +175,7 @@ export class RestlessCore {
     @argument({ ignore: ['**', '!infra/company-image/Dockerfile', '!infra/company-image/gtk-settings.ini', '!infra/company-image/browser-sbom.mjs', '!infra/company-image/verify-desktop.mjs'] })
     source: Directory, platform: string = 'linux/amd64',
   ): Promise<string> {
-    return verifyRuntimeToolsImage(this.runtimeTools(source, platform), source.file('infra/company-image/verify-desktop.mjs'));
+    return verifyRuntimeToolsImage(await this.runtimeTools(source, platform), source.file('infra/company-image/verify-desktop.mjs'));
   }
 
   /** Compile every release Rust binary once (restlessd, restless, restless-runtime-bridge) for all images. */
@@ -342,13 +356,13 @@ export class RestlessCore {
     assertScanPeriod(scanPeriod, 'pass the current UTC scan day');
     const timings: Timing[] = [];
     await timed(timings, 'release contracts', () => this.verifyRelease(source));
-    const toolsContext = source.filter({ include: ['infra/company-image/Dockerfile', 'infra/company-image/gtk-settings.ini', 'infra/company-image/browser-sbom.mjs'] });
+    const toolsContext = await runtimeToolsContext(source);
     // The Rust binaries and the runtime tool base are independent: build them together.
     const binaries = this.rustBinaries(source, revision, platform);
     let [, artifacts] = await Promise.all([
       timed(timings, 'rust binaries (restlessd, restless, runtime bridge)', () => binaries.sync()),
       timed(timings, 'runtime-tools', () => publishImage('runtime-tools', revision, platform, toolsContext,
-        async () => this.runtimeTools(source, platform), async image => { console.log(await verifyRuntimeToolsImage(image, source.file('infra/company-image/verify-desktop.mjs'))); },
+        () => this.runtimeTools(source, platform), async image => { console.log(await verifyRuntimeToolsImage(image, source.file('infra/company-image/verify-desktop.mjs'))); },
         username, password, scanPeriod)),
     ]);
     const tools = JSON.parse(await artifacts.file('images/runtime-tools.json').contents());
