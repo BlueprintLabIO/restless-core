@@ -21,6 +21,7 @@
 		back = null,
 		account = null,
 		accountMenu = null,
+		footer = null,
 		children
 	}: {
 		brandName?: string;
@@ -34,6 +35,9 @@
 		account?: { name: string; detail?: string } | null;
 		/** Items in the owner's menu, below their name. */
 		accountMenu?: Snippet | null;
+		/** Pinned to the rail's foot when it is open, such as what is left of a monthly allowance.
+		 * A collapsed rail and a phone's top bar leave it out; the same facts live on Home. */
+		footer?: Snippet | null;
 		children: Snippet;
 	} = $props();
 
@@ -252,6 +256,7 @@
 				</div>
 			{/each}
 		</nav>
+		{#if footer && !collapsed}<div class="account-foot">{@render footer()}</div>{/if}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			class="account-edge"
@@ -378,6 +383,16 @@
 		padding-left: 32px;
 	}
 
+	.account-foot {
+		flex: none;
+		animation: account-foot-in var(--motion-disclosure) var(--ease-out) both;
+	}
+	@keyframes account-foot-in {
+		from {
+			opacity: 0;
+			transform: translateY(4px);
+		}
+	}
 	.account-tabs {
 		display: grid;
 		gap: 1px;
@@ -714,6 +729,9 @@
 		}
 		.collapsed .account-tab-label {
 			display: initial;
+		}
+		.account-foot {
+			display: none;
 		}
 		.account-tabs {
 			display: flex;

@@ -52,6 +52,23 @@ export * from './showcase/lanternSurfaces';
 export { default as AccountShell } from './views/AccountShell.svelte';
 export { default as AccountPage } from './views/AccountPage.svelte';
 export type { AccountGroup, AccountSection, AccountTab } from './account';
+export { default as AccountHome } from './views/AccountHome.svelte';
+export type {
+	AccountHomeCheck,
+	AccountHomePlan,
+	AccountHomeUsage
+} from './views/AccountHome.svelte';
+export { default as SidebarShell } from './views/SidebarShell.svelte';
+export { default as SidebarGroup } from './views/SidebarGroup.svelte';
+export { default as SidebarRow } from './views/SidebarRow.svelte';
+export { default as CountUp } from './data/CountUp.svelte';
+export { default as LiveDot } from './data/LiveDot.svelte';
+export { default as Meter } from './data/Meter.svelte';
+export { default as UsageChart } from './data/UsageChart.svelte';
+export type { UsageDay } from './data/UsageChart.svelte';
+export { default as AllowanceCard } from './data/AllowanceCard.svelte';
+export { default as CopyButton } from './controls/CopyButton.svelte';
+export { default as MatrixField } from './glyph/MatrixField.svelte';
 export { default as CompanyPortfolio } from './views/CompanyPortfolio.svelte';
 export type { CompanyPortfolioEntry, PortfolioAction, PortfolioCard } from './portfolio';
 export {
