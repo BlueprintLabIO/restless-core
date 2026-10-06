@@ -3,7 +3,7 @@ import { availableParallelism } from 'node:os';
 import { dag, Container, Directory, Platform, Secret, argument, object, func } from '@dagger.io/dagger';
 
 import { verifyRuntimeToolsImage, verifyCompanyRuntimeImage, verifyNativeDocumentsImage, verifyAccountPlaneImage } from './verify.js';
-import { publishImage, node, timed, timingsFile, verifyBuildInputs, verifyImageInspection, type Timing } from './publish.js';
+import { assertScanPeriod, publishImage, node, timed, timingsFile, verifyBuildInputs, verifyImageInspection, type Timing } from './publish.js';
 import { sealRelease } from './release.js';
 import { library, publishLibrary, reuseLibrary, sealLibrary } from './libraries.js';
 
@@ -339,7 +339,7 @@ export class RestlessCore {
   ): Promise<Directory> {
     checkPlatform(platform);
     if (!/^[0-9a-f]{40}$/.test(revision)) throw new Error('Core publication requires exact source provenance');
-    if (scanPeriod !== new Date().toISOString().slice(0, 10)) throw new Error('pass the current UTC scan day');
+    assertScanPeriod(scanPeriod, 'pass the current UTC scan day');
     const timings: Timing[] = [];
     await timed(timings, 'release contracts', () => this.verifyRelease(source));
     const toolsContext = source.filter({ include: ['infra/company-image/Dockerfile', 'infra/company-image/gtk-settings.ini', 'infra/company-image/browser-sbom.mjs'] });

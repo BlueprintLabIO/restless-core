@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { dag, Container, Directory, Secret, ReturnType } from '@dagger.io/dagger';
-import { NODE_IMAGE, SYFT_IMAGE, GRYPE_IMAGE, ORAS_IMAGE, COSIGN_IMAGE, registryConfig, tool, EXCLUDES } from './publish.js';
+import { assertScanPeriod, NODE_IMAGE, SYFT_IMAGE, GRYPE_IMAGE, ORAS_IMAGE, COSIGN_IMAGE, registryConfig, tool, EXCLUDES } from './publish.js';
 
 export const LIBRARY_WORKFLOW = 'BlueprintLabIO/restless-core/.github/workflows/ui-artifact-release.yml@refs/heads/main';
 /* Packages published before main became the release line were signed from dev (now locked);
@@ -39,7 +39,7 @@ async function libraryInput(source: Directory, kind: string): Promise<{input_sha
  * A failed/unsigned earlier publication cannot suppress the next real build. */
 export async function reuseLibrary(source: Directory, kind: string, scanPeriod: string,
   username: string, password: Secret): Promise<Directory | null> {
-  if (scanPeriod !== new Date().toISOString().slice(0, 10)) throw new Error('library requires the current UTC scan day');
+  assertScanPeriod(scanPeriod, 'library requires the current UTC scan day');
   const input = await libraryInput(source, kind);
   const config = await registryConfig(username, password);
   const oras = tool(ORAS_IMAGE, config);
@@ -69,7 +69,7 @@ export async function reuseLibrary(source: Directory, kind: string, scanPeriod: 
 export async function library(source: Directory, kind: string, revision: string, epoch: string, scanPeriod: string): Promise<Directory> {
   checkKind(kind);
   if (!/^[0-9a-f]{40}$/.test(revision) || !/^\d+$/.test(epoch)) throw new Error('library requires exact checkout revision/epoch');
-  if (scanPeriod !== new Date().toISOString().slice(0, 10)) throw new Error('library requires the current UTC scan day');
+  assertScanPeriod(scanPeriod, 'library requires the current UTC scan day');
   const input = await libraryInput(source, kind);
   let project = dag.container().from(NODE_IMAGE)
     .withEnvVariable('NODE_OPTIONS', '--no-network-family-autoselection')

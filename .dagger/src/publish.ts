@@ -27,6 +27,17 @@ export async function timed<T>(timings: Timing[], step: string, work: () => Prom
 
 export const timingsFile = (timings: Timing[]) => `${JSON.stringify(timings, null, 2)}\n`;
 
+/**
+ * Scans use the UTC day the job started on. A job that crosses midnight keeps that day for a bounded
+ * grace (release 37391194602 failed half-way at 00:03 UTC); an older scan day is still refused.
+ */
+export function assertScanPeriod(scanPeriod: string, message: string): void {
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+  const yesterday = new Date(now.getTime() - 86_400_000).toISOString().slice(0, 10);
+  if (scanPeriod !== today && !(now.getUTCHours() < 4 && scanPeriod === yesterday)) throw new Error(message);
+}
+
 /** Failures a repeat can clear: registry and transparency-log calls that hang or drop. */
 export const TRANSIENT = /(?:timed out|timeout|deadline exceeded|connection reset|broken pipe|unexpected EOF|network is unreachable|TLS handshake|: 5\d\d|giving up after)/i;
 
@@ -143,7 +154,7 @@ const publishWithRetry = (image: Container, tag: string) => withRetry(`${tag}: p
 export async function publishImage(component: string, revision: string, platform: Platform, context: Directory,
   factory: () => Promise<Container>, verify: (image: Container) => Promise<void>, username: string, password: Secret,
   scanPeriod: string): Promise<Directory> {
-  if (scanPeriod !== new Date().toISOString().slice(0, 10)) throw new Error('Core scans must use the current UTC vulnerability refresh day');
+  assertScanPeriod(scanPeriod, 'Core scans must use the current UTC vulnerability refresh day');
   const timings: Timing[] = [];
   const repository = `ghcr.io/blueprintlabio/restless-${component}`;
   const input = await inputIdentity(context, platform);
