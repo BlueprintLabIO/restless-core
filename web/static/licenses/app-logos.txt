@@ -1,0 +1,18 @@
+App logos (web/src/lib/assets/app-logos)
+
+These marks identify the third-party services the Apps catalogue connects to.
+Each mark and name remains the trademark of its owner; its use here does not
+imply endorsement.
+
+Simple Icons 16.34.0, CC0-1.0 (https://github.com/simple-icons/simple-icons):
+  airtable, asana, atlassian, box, cloudflare, figma, github, hubspot,
+  intercom, linear, notion, paypal, sentry, square, stripe, vercel, webflow,
+  wix, xero. Each path is filled with the brand colour Simple Icons records,
+  except intercom, drawn in black as its current mark is.
+
+svgl, MIT, Copyright (c) 2022 Pablo Hdez (https://github.com/pheralb/svgl):
+  slack, canva.
+
+The service's own published site icon, fetched 2026-10-06:
+  monday (monday.com), klaviyo (klaviyo.com), context7 (context7.com),
+  deepwiki (deepwiki.com), gamma (gamma.app).

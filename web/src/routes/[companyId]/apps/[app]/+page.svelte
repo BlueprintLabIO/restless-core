@@ -30,7 +30,8 @@
 		type SkillLibrary,
 		type SkillRow
 	} from '$lib/model/skills';
-	import { buildApps, monogram, nameForLink, skillName, type App } from '$lib/model/apps';
+	import { buildApps, nameForLink, skillName, type App } from '$lib/model/apps';
+	import AppMark from '$lib/primitives/AppMark.svelte';
 	import { fetchAppRequests, type AppRequest } from '$lib/model/app-requests';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
@@ -410,6 +411,14 @@
 		title={app?.name ?? pendingLink}
 		info={app ? `${app.description} ${app.howTip}` : `An MCP server at ${pendingLink}.`}
 	>
+		{#snippet leading()}
+			<AppMark
+				name={app?.name ?? pendingLink}
+				catalogueKey={app?.catalogue?.key}
+				knowHow={app?.category === 'Know-how'}
+				size={32}
+			/>
+		{/snippet}
 		{#snippet actions()}
 			{#if app?.connections.some((connection) => connection.status !== 'disconnected')}
 				<button
@@ -444,7 +453,6 @@
 		{#if app && app.state === 'available'}
 			<Section title="Add">
 				<div class="status">
-					<span class="mono" aria-hidden="true">{monogram(app.name)}</span>
 					<span title={app.howTip}>{app.how}</span>
 					<span class="spacer"></span>
 					{#if app.catalogue?.auth === 'token'}
@@ -531,18 +539,6 @@
 	.quiet {
 		color: var(--text-tertiary);
 		font-size: var(--t-body);
-	}
-	.mono {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 28px;
-		height: 28px;
-		border-radius: 8px;
-		background: var(--accent-soft);
-		color: var(--accent-strong);
-		font-size: var(--t-label);
-		font-weight: 600;
 	}
 	h4 {
 		margin: 0;

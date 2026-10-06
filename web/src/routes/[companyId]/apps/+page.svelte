@@ -17,13 +17,13 @@
 		buildApps,
 		builtIn,
 		classifyLink,
-		monogram,
 		nameForLink,
 		type App,
 		type AppCategory
 	} from '$lib/model/apps';
 	import { fetchAppRequests, type AppRequest } from '$lib/model/app-requests';
 	import AppTile from './AppTile.svelte';
+	import AppMark from '$lib/primitives/AppMark.svelte';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	let connections = $state<ToolConnection[] | null>(null);
@@ -159,7 +159,12 @@
 <CompanyTitle title="Apps" {companyId} />
 
 {#snippet tile(app: App)}
-	<span class="mono" data-category={app.category} aria-hidden="true">{monogram(app.name)}</span>
+	<AppMark
+		name={app.name}
+		catalogueKey={app.catalogue?.key}
+		knowHow={app.category === 'Know-how'}
+		size={24}
+	/>
 {/snippet}
 
 <Page
@@ -213,8 +218,11 @@
 			>
 				{#each requests as request (request.handoff_id)}
 					<Item title={request.name} meta={request.reason} href={request.href(companyId)} unread>
-						{#snippet leading()}<span class="mono" aria-hidden="true">{monogram(request.name)}</span
-							>{/snippet}
+						{#snippet leading()}<AppMark
+								name={request.name}
+								catalogueKey={request.catalogueKey}
+								size={24}
+							/>{/snippet}
 						{#snippet trailing()}
 							<span
 								class="asked"
@@ -238,7 +246,9 @@
 			</Section>
 		{/if}
 
-		<Section title="In use" count={inUse.length}>
+		<!-- Know-how that ships with Restless is in use too, so it counts, and an
+		     empty state only appears when there is genuinely nothing. -->
+		<Section title="In use" count={inUse.length + included.length}>
 			{#each inUse as app (app.key)}
 				<Item
 					title={app.name}
@@ -254,14 +264,16 @@
 					{/snippet}
 				</Item>
 			{:else}
-				<Empty
-					compact
-					title={search ? 'No apps match your search' : 'No apps yet'}
-					info="Add one below, or ask Exec: it finds what the work needs and brings it here."
-				/>
+				{#if !included.length}
+					<Empty
+						compact
+						title={search ? 'No apps match your search' : 'No apps yet'}
+						info="Add one below, or ask Exec: it finds what the work needs and brings it here."
+					/>
+				{/if}
 			{/each}
 			{#if included.length}
-				<Fold label={`Comes with Restless · ${included.length}`}>
+				<Fold label="Comes with Restless" count={included.length} open={!inUse.length && !!search}>
 					{#each included as app (app.key)}
 						<Item
 							title={app.name}
@@ -281,7 +293,7 @@
 			{/if}
 		</Section>
 
-		<Section title="Browse" count={browse.length}>
+		<Section title="Browse" count={browse.length} group={false}>
 			<div class="categories" role="group" aria-label="Categories">
 				{#each ['Popular', ...BROWSE_CATEGORIES] as name (name)}
 					<button
@@ -296,6 +308,7 @@
 				{#each browse as app (app.key)}
 					<AppTile
 						{app}
+						href={route(app.key)}
 						busy={busy === `add:${app.key}`}
 						disabled={!!busy}
 						onadd={() => void addCatalogue(app)}
@@ -327,50 +340,36 @@
 		background: var(--surface-raised);
 		box-shadow: var(--shadow-soft);
 	}
-	.mono {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 24px;
-		height: 24px;
-		border-radius: 7px;
-		background: var(--accent-soft);
-		color: var(--accent-strong);
-		font-size: var(--t-label);
-		font-weight: 600;
-		flex-shrink: 0;
-	}
-	.mono[data-category='Know-how'] {
-		background: var(--intent-feedback-soft);
-		color: var(--intent-feedback);
-	}
 	.asked {
 		color: var(--intent-authority);
 	}
-	/* One row that scrolls sideways on a phone rather than stacking. */
+	/* Every category is visible at once; a phone scrolls the row sideways,
+	 * with the edge fading so the hidden ones read as more, not as cut off. */
 	.categories {
 		display: flex;
+		flex-wrap: wrap;
 		gap: 6px;
-		margin-bottom: var(--space-2);
-		overflow-x: auto;
-		scrollbar-width: none;
-	}
-	.categories::-webkit-scrollbar {
-		display: none;
+		margin-bottom: 12px;
 	}
 	.chip {
 		flex-shrink: 0;
-	}
-	.chip {
 		height: 28px;
-		padding: 0 10px;
-		border: 1px solid var(--border-strong);
+		padding: 0 11px;
+		border: 1px solid var(--border);
 		border-radius: 14px;
 		background: var(--surface);
 		color: var(--text-secondary);
 		font: inherit;
 		font-size: var(--t-body);
 		cursor: pointer;
+		transition:
+			background var(--motion-state) var(--ease-standard),
+			border-color var(--motion-state) var(--ease-standard),
+			color var(--motion-state) var(--ease-standard);
+	}
+	.chip:hover {
+		border-color: var(--border-strong);
+		color: var(--ink);
 	}
 	.chip[aria-pressed='true'] {
 		background: var(--accent-strong);
@@ -379,8 +378,8 @@
 	}
 	.grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-		gap: var(--space-2);
+		grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+		gap: 10px;
 	}
 	@container page (max-width: 560px) {
 		.search {
@@ -388,6 +387,15 @@
 		}
 		.link {
 			grid-template-columns: 1fr;
+		}
+		.categories {
+			flex-wrap: nowrap;
+			overflow-x: auto;
+			scrollbar-width: none;
+			mask-image: linear-gradient(to right, black 85%, transparent);
+		}
+		.categories::-webkit-scrollbar {
+			display: none;
 		}
 	}
 </style>

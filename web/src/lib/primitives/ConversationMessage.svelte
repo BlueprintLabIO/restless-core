@@ -276,10 +276,12 @@
 		}
 	}
 
-	/* The owner's bubble sits right; its copy action waits beside it rather
-	 * than reserving a row beneath, so a run of bubbles stays tight. */
+	/* The owner's bubble sits right; its actions wait beside it rather than
+	 * reserving a row beneath, so a run of bubbles stays tight. Their column is
+	 * never narrower than the actions: a wide bubble gives way instead of
+	 * pushing them past the rail's edge. */
 	.conversation-message.owner {
-		grid-template-columns: minmax(15%, 1fr) minmax(0, auto);
+		grid-template-columns: minmax(max-content, 1fr) minmax(0, auto);
 		column-gap: 6px;
 	}
 

@@ -13,6 +13,7 @@
 		info,
 		count,
 		variant = 'settings',
+		leading,
 		actions,
 		toolbar,
 		children
@@ -22,6 +23,8 @@
 		info?: string;
 		count?: number | string | null;
 		variant?: 'settings' | 'list';
+		/** A mark before the title, such as an app's logo. */
+		leading?: Snippet;
 		actions?: Snippet;
 		/** List pages only: filters or view switches under the title row. */
 		toolbar?: Snippet;
@@ -32,6 +35,7 @@
 <div class="page {variant}">
 	<header class="page-head">
 		<div class="page-title">
+			{@render leading?.()}
 			<h1>{title}</h1>
 			{#if count != null && count !== ''}<span class="page-count">{count}</span>{/if}
 			{#if info}<InfoTip text={info} />{/if}

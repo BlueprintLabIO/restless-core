@@ -19,6 +19,8 @@ type AppRequestRow = {
 export type AppRequest = AppRequestRow & {
 	/** The app's display name: a catalogue name, or the link as given. */
 	name: string;
+	/** The catalogue entry it names, when it names one. */
+	catalogueKey?: string;
 	/** Who asked, in words: Exec, or the lead or worker by role. */
 	asker: string;
 	/** Why, in the requester's words. */
@@ -34,6 +36,7 @@ function toRequest(row: AppRequestRow): AppRequest {
 	return {
 		...row,
 		name: entry?.name ?? row.app,
+		catalogueKey: entry?.key,
 		asker:
 			row.requested_by === 'exec'
 				? 'Exec'
