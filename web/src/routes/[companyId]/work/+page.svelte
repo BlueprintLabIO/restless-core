@@ -318,15 +318,16 @@
 						>{/if}
 				{/if}
 				<span class="spacer"></span>
-				<select
-					class="goal-picker"
-					aria-label="Goal"
-					value={selectedGoal}
-					onchange={(event) => setQuery('goal', event.currentTarget.value)}
-				>
-					<option value="">All work</option>
-					{#each goals as goal (goal.id)}<option value={goal.id}>{goal.title}</option>{/each}
-				</select>
+				<!-- With no goals there is nothing to pick, and "All work" is already the title. -->
+				{#if goals.length}<select
+						class="goal-picker"
+						aria-label="Goal"
+						value={selectedGoal}
+						onchange={(event) => setQuery('goal', event.currentTarget.value)}
+					>
+						<option value="">All work</option>
+						{#each goals as goal (goal.id)}<option value={goal.id}>{goal.title}</option>{/each}
+					</select>{/if}
 				<Segmented
 					label="View"
 					value={view}

@@ -12,7 +12,12 @@
 				.split('\n')
 				.map((part) => part.replace(/[#>*_`]/g, '').trim())
 				.find(Boolean) ?? '';
-		return first.length > 90 ? `${first.slice(0, 90)}…` : first;
+		/* Record IDs belong to the message, not its one-line gist. */
+		const gist = first
+			.replace(/\b[0-9a-f]{8}(?:-[0-9a-f]{0,12})+…?/gi, '')
+			.replace(/\s{2,}/g, ' ')
+			.trim();
+		return gist.length > 90 ? `${gist.slice(0, 90)}…` : gist;
 	});
 	const time = $derived(
 		new Date(exchange.created_at).toLocaleTimeString(undefined, {

@@ -2239,9 +2239,9 @@
 	.bridge-root .attention-index {
 		display: grid;
 	}
+	/* The empty Inbox already says nothing needs the owner; on a phone the pill only repeated it. */
 	.bridge-root .attention-clear-control {
-		top: 8px;
-		left: 8px;
+		display: none;
 	}
 
 	.bridge-root .work-detail-head {

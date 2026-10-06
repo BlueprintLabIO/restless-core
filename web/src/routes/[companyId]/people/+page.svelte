@@ -1,6 +1,6 @@
 <script lang="ts">
 	import FailureNotice from '$lib/primitives/FailureNotice.svelte';
-	import { initials, personName } from '$lib/model/initials';
+	import { initials, personName, teamName } from '$lib/model/initials';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import Search from '@lucide/svelte/icons/search';
@@ -170,7 +170,9 @@
 					name: personName(person.display),
 					person: person.actor_id,
 					room: contact ? '' : conversation.room_id,
-					hint: teams.find((team) => team.id === person.team_id)?.name ?? person.role
+					hint: ((name) => (name ? teamName(name, companyId) : person.role))(
+						teams.find((team) => team.id === person.team_id)?.name
+					)
 				}
 			];
 		});
@@ -368,9 +370,14 @@
 				</section>
 			{/if}
 			{#each directoryTeams as entry (entry.team.id)}
-				<section class="directory-section team-section" aria-label={entry.team.name}>
+				<section
+					class="directory-section team-section"
+					aria-label={teamName(entry.team.name, companyId)}
+				>
 					<header class="team-directory-head" title={entry.team.brief}>
-						<span><Users size={14} aria-hidden="true" /> {entry.team.name}</span>
+						<span
+							><Users size={14} aria-hidden="true" /> {teamName(entry.team.name, companyId)}</span
+						>
 					</header>
 					{#if entry.lead}{@render directoryPerson(entry.lead, 'lead')}{/if}
 					{#each entry.members.filter((member) => entry.teamMatches || matchesDirectory(member, search

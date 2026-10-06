@@ -174,7 +174,11 @@
 		placeholder="Search apps"
 		aria-label="Search apps"
 	/>
-	{#if failure}<Notice tone="danger" title="That did not work" details={failure} />{/if}
+	{#if failure}<Notice
+			tone="danger"
+			title={actionFailure ? 'That app was not added' : 'Apps could not be read'}
+			details={failure}
+		/>{/if}
 	{#if notice}<Notice tone="success" title={notice} />{/if}
 
 	{#if linking}

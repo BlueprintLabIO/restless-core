@@ -87,6 +87,13 @@
 			opacity: 1;
 		}
 	}
+	/* Without hover there is no quiet place for it: over a message it sat on the text. A message
+	 * that already has reactions keeps the control beside its pills. */
+	@media (hover: none), (pointer: coarse) {
+		.reactions.empty {
+			display: none;
+		}
+	}
 	.reactions.empty {
 		height: 0;
 		margin: 0;
