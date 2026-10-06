@@ -1,20 +1,30 @@
 <script lang="ts">
-	/* The frame every non-company page shares, after Linear. Home is the rail's one row, then the
-	 * owner's companies; the owner's menu at the top-left is the one account menu. The account's
-	 * pages are settings mode: a way back and the sections, grouped. On Cloud the account service
-	 * owns Profile, Security, Plan and Support, so they sit in the same groups (ADR 0007). Locally
-	 * the account is this computer, so the menu says which appliance it is rather than an email. */
+	/* The frame every non-company page shares, after Firecrawl's. The rail is the same on every
+	 * page: Home, the owner's companies, then Settings and Help, with the owner's menu at the foot.
+	 * A settings page lists settings' own sections in the page (`settings` receives them). On Cloud
+	 * the account service owns Profile, Security, Plan and Support, so they sit in the same list
+	 * (ADR 0007). Locally the account is this computer, so the menu says which appliance it is. */
 	import type { Snippet } from 'svelte';
 	import { page } from '$app/state';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import AccountShell from '$lib/ui/views/AccountShell.svelte';
 	import House from '@lucide/svelte/icons/house';
+	import Settings from '@lucide/svelte/icons/settings';
+	import CircleHelp from '@lucide/svelte/icons/circle-help';
 	import type { AccountGroup, AccountTab } from '$lib/ui/account';
 	import { getApplianceStatus, planeLabel, type ApplianceStatus } from '$lib/model/appliance';
 	import { companiesQuery } from '$lib/model/queries.svelte';
 
-	let { appliance = null, children }: { appliance?: ApplianceStatus | null; children: Snippet } =
-		$props();
+	let {
+		appliance = null,
+		settings: settingsPage = null,
+		children = null
+	}: {
+		appliance?: ApplianceStatus | null;
+		/** A settings page, given settings' own sections for its in-page list. */
+		settings?: Snippet<[AccountGroup[]]> | null;
+		children?: Snippet | null;
+	} = $props();
 	let observed = $state<ApplianceStatus | null>(null);
 	const status = $derived(appliance ?? observed);
 	const profile = $derived(planeLabel(status));
@@ -41,54 +51,70 @@
 	const issued = (label: string, hash: string): AccountTab[] =>
 		issuer ? [{ label, href: `${issuer}/account/settings#${hash}` }] : [];
 
-	const tabs = $derived<AccountTab[]>(
-		settings
-			? []
-			: [
-					{
-						label: 'Home',
-						href: home,
-						active: path === '/',
-						tooltip: 'Your companies',
-						icon: House
-					}
-				]
-	);
-	const groups = $derived<AccountGroup[]>(
-		settings
-			? [
-					{
-						label: 'Account',
-						items: [
-							...issued('Profile', 'account'),
-							...issued('Security', 'security'),
-							own('Appearance', '/account/appearance')
+	const tabs = $derived<AccountTab[]>([
+		{
+			label: 'Home',
+			href: home,
+			active: path === '/',
+			tooltip: 'Your companies',
+			icon: House
+		}
+	]);
+	const groups = $derived<AccountGroup[]>([
+		{
+			label: 'Companies',
+			items: catalog.view
+				.filter((company) => company.lifecycle_status === 'active')
+				.map((company) => ({
+					label: company.name,
+					href: `/${company.id}`,
+					count: company.card?.decisions_waiting,
+					tone:
+						company.runtime_status === 'unavailable' || company.unstartable_reason
+							? 'unavailable'
+							: undefined
+				}))
+		},
+		{
+			label: 'Account',
+			items: [
+				{
+					label: 'Settings',
+					href: '/account/connections',
+					active: settings,
+					tooltip: 'Connections, AI apps and appearance',
+					icon: Settings
+				},
+				...(issuer
+					? [
+							{
+								label: 'Help',
+								href: `${issuer}/account/settings#support`,
+								tooltip: 'Support for entry and service health',
+								icon: CircleHelp
+							}
 						]
-					},
-					...(issuer ? [{ label: 'Billing', items: issued('Plan', 'billing') }] : []),
-					{
-						label: 'Integrations',
-						items: [own('Connections', '/account/connections'), own('AI apps', '/account/ai-apps')]
-					},
-					...(issuer ? [{ label: 'Help', items: issued('Support', 'support') }] : [])
-				]
-			: [
-					{
-						label: 'Companies',
-						items: catalog.view
-							.filter((company) => company.lifecycle_status === 'active')
-							.map((company) => ({
-								label: company.name,
-								href: `/${company.id}`,
-								count: company.card?.decisions_waiting,
-								tone:
-									company.runtime_status === 'unavailable' || company.unstartable_reason
-										? 'unavailable'
-										: undefined
-							}))
-					}
-				]
-	);
+					: [])
+			]
+		}
+	]);
+	/* Settings' own list, shown in the page beside the section. */
+	const settingsNav = $derived<AccountGroup[]>([
+		{
+			label: 'Account',
+			items: [
+				...issued('Profile', 'account'),
+				...issued('Security', 'security'),
+				own('Appearance', '/account/appearance')
+			]
+		},
+		...(issuer ? [{ label: 'Billing', items: issued('Plan & credit', 'billing') }] : []),
+		{
+			label: 'Integrations',
+			items: [own('Connections', '/account/connections'), own('AI apps', '/account/ai-apps')]
+		},
+		...(issuer ? [{ label: 'Help', items: issued('Support', 'support') }] : [])
+	]);
 </script>
 
 <AccountShell
@@ -96,7 +122,6 @@
 	homeHref={home}
 	{tabs}
 	{groups}
-	back={settings ? { label: 'Back', href: home, tooltip: 'Back to your companies' } : null}
 	account={{
 		name: status?.viewer_name || 'You',
 		detail: status?.hosted ? profile : `${profile} · this computer`
@@ -112,5 +137,5 @@
 			{/if}
 		{/if}
 	{/snippet}
-	{@render children()}
+	{#if settingsPage}{@render settingsPage(settingsNav)}{:else}{@render children?.()}{/if}
 </AccountShell>

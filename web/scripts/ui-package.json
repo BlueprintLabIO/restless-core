@@ -1,6 +1,6 @@
 {
 	"name": "@restless/ui",
-	"version": "0.9.2",
+	"version": "0.9.3",
 	"description": "Restless design system: tokens, pixel marks and the views the owner workspace is made of, rendered from props.",
 	"license": "Apache-2.0",
 	"type": "module",

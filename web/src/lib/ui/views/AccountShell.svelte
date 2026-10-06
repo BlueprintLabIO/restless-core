@@ -1,24 +1,23 @@
 <script lang="ts">
 	import { onMount, type Snippet } from 'svelte';
-	import PanelLeft from '@lucide/svelte/icons/panel-left';
-	import ChevronDown from '@lucide/svelte/icons/chevron-down';
+	import ChevronsUpDown from '@lucide/svelte/icons/chevrons-up-down';
 	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
 	import Plus from '@lucide/svelte/icons/plus';
 	import { dismissable } from '../controls/dismissable';
 	import type { AccountGroup, AccountTab } from '../account';
 
-	/* The frame for every page outside one company, after Linear: the owner's menu at the top-left
-	 * (the one account menu), then the rail's rows (Home), then labelled groups (the companies).
-	 * Settings is its own mode: `back` replaces the owner's menu with a way back and the groups
-	 * become the settings sections. The rail collapses to icons (⌘B, the button, or a click on its
-	 * edge), resizes by dragging its edge, and remembers both in this browser. On a phone it folds
-	 * into a top bar. */
+	/* The frame for every page outside one company, after Firecrawl's: the product at the top, the
+	 * rail's rows (Home), labelled groups (the companies, then the account's own rows such as
+	 * Settings and Help), and the owner at the foot with the one account menu, opening upward.
+	 * The rail never changes shape between pages: a settings page lists its sections in the page,
+	 * so the rail stays where the owner left it. It collapses to icons (⌘B, the Collapse row, or a
+	 * click on its edge), resizes by dragging its edge, and remembers both in this browser. On a
+	 * phone it folds into a top bar. */
 	let {
 		brandName = 'Restless',
 		homeHref = '/',
 		tabs = [],
 		groups = [],
-		back = null,
 		account = null,
 		accountMenu = null,
 		footer = null,
@@ -28,10 +27,8 @@
 		homeHref?: string;
 		/** The rail's top rows, in order, such as Home. */
 		tabs?: AccountTab[];
-		/** Labelled groups beneath them: the companies, or a settings page's sections. */
+		/** Labelled groups beneath them: the companies, then the account's rows (Settings, Help). */
 		groups?: AccountGroup[];
-		/** Settings mode: a way back to the app in place of the owner's menu. */
-		back?: AccountTab | null;
 		account?: { name: string; detail?: string } | null;
 		/** Items in the owner's menu, below their name. */
 		accountMenu?: Snippet | null;
@@ -167,52 +164,17 @@
 	class="bridge-tokens account-shell"
 	class:collapsed
 	class:resizing
-	class:settings={!!back}
 	style:--account-rail-w={collapsed ? '56px' : `${width}px`}
 >
 	<header class="account-bar">
 		<div class="account-head">
-			{#if back}
-				<a class="account-back" href={back.href} title={back.tooltip} aria-label={back.label}
-					><ChevronLeft size={16} strokeWidth={1.75} aria-hidden="true" /><span
-						class="account-tab-label">{back.label}</span
-					></a
-				>
-			{:else if account}
-				<details class="account-menu" use:dismissable>
-					<summary
-						class="account-who"
-						title={collapsed ? account.name : account.detail}
-						aria-label={`${account.name}: account menu`}
-					>
-						<span class="account-avatar" aria-hidden="true">{initials}</span>
-						<span class="account-name">{account.name}</span>
-						<ChevronDown size={14} strokeWidth={1.75} aria-hidden="true" />
-					</summary>
-					<div class="account-menu-panel" role="menu">
-						<div class="account-menu-who">
-							<strong>{account.name}</strong>
-							{#if account.detail}<small>{account.detail}</small>{/if}
-						</div>
-						{#if accountMenu}<div class="account-menu-items">{@render accountMenu()}</div>{/if}
-					</div>
-				</details>
-			{:else}
-				<a class="account-back" href={homeHref} aria-label={brandName}
-					><span class="account-tab-label">{brandName}</span></a
-				>
-			{/if}
-			<button
-				class="account-collapse"
-				type="button"
-				onclick={toggle}
-				aria-expanded={!collapsed}
-				aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-				title={collapsed ? 'Expand sidebar (⌘B)' : 'Collapse sidebar (⌘B)'}
-				><PanelLeft size={16} strokeWidth={1.75} aria-hidden="true" /></button
+			<a class="account-brand" href={homeHref} title={collapsed ? brandName : undefined}
+				><span class="account-brand-mark" aria-hidden="true">{brandName.slice(0, 1)}</span><span
+					class="account-tab-label">{brandName}</span
+				></a
 			>
 		</div>
-		<nav class="account-tabs" aria-label={back ? 'Settings' : 'Account navigation'}>
+		<nav class="account-tabs" aria-label="Account navigation">
 			{#each tabs as tab (tab.href ?? tab.label)}
 				{@render row(tab, 'tab')}
 				{#if tab.items?.length && !collapsed}
@@ -251,12 +213,42 @@
 					</div>
 					{#each group.items as item (item.href ?? item.label + (item.form?.fields?.organization_id ?? ''))}{@render row(
 							item,
-							back ? 'tab' : 'company'
+							'company'
 						)}{/each}
 				</div>
 			{/each}
 		</nav>
 		{#if footer && !collapsed}<div class="account-foot">{@render footer()}</div>{/if}
+		{#if account}
+			<details class="account-menu" use:dismissable>
+				<summary
+					class="account-who"
+					title={collapsed ? account.name : account.detail}
+					aria-label={`${account.name}: account menu`}
+				>
+					<span class="account-avatar" aria-hidden="true">{initials}</span>
+					<span class="account-name">{account.name}</span>
+					<ChevronsUpDown size={14} strokeWidth={1.75} aria-hidden="true" />
+				</summary>
+				<div class="account-menu-panel" role="menu">
+					<div class="account-menu-who">
+						<strong>{account.name}</strong>
+						{#if account.detail}<small>{account.detail}</small>{/if}
+					</div>
+					{#if accountMenu}<div class="account-menu-items">{@render accountMenu()}</div>{/if}
+				</div>
+			</details>
+		{/if}
+		<button
+			class="account-collapse"
+			type="button"
+			onclick={toggle}
+			aria-expanded={!collapsed}
+			title={collapsed ? 'Expand (⌘B)' : '⌘B'}
+			><ChevronLeft size={16} strokeWidth={1.75} aria-hidden="true" /><span
+				class="account-tab-label">Collapse</span
+			></button
+		>
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			class="account-edge"
@@ -309,7 +301,8 @@
 
 	/* One row height, one size, one weight ramp: 13px labels at 30px, like Linear's sidebar. */
 	.account-tab,
-	.account-back,
+	.account-brand,
+	.account-collapse,
 	.account-who {
 		position: relative;
 		display: flex;
@@ -333,7 +326,7 @@
 			color var(--motion-state) var(--ease-standard);
 	}
 	.account-tab :global(svg),
-	.account-back :global(svg) {
+	.account-collapse :global(svg) {
 		flex: none;
 		color: var(--text-tertiary);
 		transition: color var(--motion-state) var(--ease-standard);
@@ -345,13 +338,15 @@
 		text-overflow: ellipsis;
 	}
 	.account-tab:hover,
-	.account-back:hover,
-	.account-who:hover {
+	.account-brand:hover,
+	.account-collapse:hover,
+	.account-who:hover,
+	.account-menu[open] > .account-who {
 		background: var(--wash-hover, var(--surface-alt));
 		color: var(--ink);
 	}
 	.account-tab:hover :global(svg),
-	.account-back:hover :global(svg),
+	.account-collapse:hover :global(svg),
 	.account-tab.active :global(svg) {
 		color: var(--ink);
 	}
@@ -361,17 +356,30 @@
 		font-weight: 500;
 	}
 	.account-tab:focus-visible,
-	.account-back:focus-visible,
+	.account-brand:focus-visible,
 	.account-who:focus-visible,
 	.account-collapse:focus-visible,
 	.account-group-add:focus-visible {
 		outline: 2px solid var(--intent-conversation);
 		outline-offset: -2px;
 	}
-	.account-back {
+	.account-brand {
 		flex: 1 1 auto;
 		color: var(--ink);
-		font-weight: 500;
+		font-weight: 600;
+		letter-spacing: -0.01em;
+	}
+	.account-brand-mark {
+		display: grid;
+		flex: none;
+		place-items: center;
+		width: 18px;
+		height: 18px;
+		border-radius: 5px;
+		background: var(--ink);
+		color: var(--surface-raised);
+		font-size: var(--t-label);
+		font-weight: 700;
 	}
 
 	.account-subtabs {
@@ -487,45 +495,33 @@
 	}
 
 	.account-collapse {
-		display: grid;
 		flex: none;
-		place-items: center;
-		width: 28px;
-		height: 28px;
-		min-width: 0;
-		min-height: 0;
-		padding: 0;
-		border: 0;
-		border-radius: var(--radius-control);
-		background: transparent;
+		width: 100%;
 		color: var(--text-tertiary);
-		cursor: pointer;
-		opacity: 0;
-		transition:
-			opacity var(--motion-state) var(--ease-standard),
-			background var(--motion-state) var(--ease-standard);
 	}
-	/* Quiet until wanted, like Linear: the toggle shows when the rail is hovered or focused. */
-	.account-bar:hover .account-collapse,
-	.account-collapse:focus-visible,
-	.collapsed .account-collapse {
-		opacity: 1;
+	.account-collapse :global(svg) {
+		transition: transform var(--motion-disclosure, 180ms) var(--ease-standard, ease);
 	}
-	.account-collapse:hover {
-		background: var(--wash-hover, var(--surface-alt));
-		color: var(--ink);
+	.collapsed .account-collapse :global(svg) {
+		transform: rotate(180deg);
 	}
 
-	/* The owner's menu: the one place for the account, at the top-left. */
+	/* The owner's menu: the one place for the account, at the rail's foot, opening upward. */
 	.account-menu {
 		position: relative;
-		flex: 1 1 auto;
+		flex: none;
 		min-width: 0;
+		margin-top: auto;
+	}
+	.account-foot + .account-menu {
+		margin-top: 0;
 	}
 	.account-who {
 		color: var(--ink);
-		font-weight: 500;
 		list-style: none;
+	}
+	.account-who > :global(svg) {
+		margin-left: auto;
 	}
 	.account-who :global(svg) {
 		flex: none;
@@ -557,12 +553,15 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
+	/* As wide as the rail and no wider: the menu belongs to the row it opens from. */
 	.account-menu-panel {
 		position: absolute;
-		top: calc(100% + 4px);
+		bottom: calc(100% + 4px);
 		left: 0;
 		z-index: 30;
-		min-width: 240px;
+		width: 100%;
+		min-width: 188px;
+		max-width: 232px;
 		padding: 4px;
 		border: 1px solid var(--border);
 		border-radius: var(--radius-lg);
@@ -576,8 +575,14 @@
 	.account-menu-who {
 		display: grid;
 		gap: 2px;
+		min-width: 0;
 		padding: 8px 10px;
 		border-bottom: 1px solid var(--border);
+	}
+	.account-menu-who > * {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.account-menu-who strong {
 		font-size: var(--t-body);
@@ -605,7 +610,7 @@
 		align-items: center;
 		gap: 8px;
 		width: 100%;
-		height: 30px;
+		height: 28px;
 		min-height: 0;
 		padding: 0 10px;
 		border: 0;
@@ -623,13 +628,9 @@
 	}
 
 	/* Collapsed: icons only, centred; labels, groups' names and the owner's name step out. */
-	.collapsed .account-head {
-		flex-direction: column;
-		gap: 8px;
-	}
 	.collapsed .account-tab-label,
 	.collapsed .account-name,
-	.collapsed .account-who :global(svg),
+	.collapsed .account-who > :global(svg),
 	.collapsed .account-count,
 	.collapsed .account-dot,
 	.collapsed .account-group-head,
@@ -637,10 +638,16 @@
 		display: none;
 	}
 	.collapsed .account-tab,
-	.collapsed .account-back,
+	.collapsed .account-brand,
+	.collapsed .account-collapse,
 	.collapsed .account-who {
 		justify-content: center;
 		padding: 0;
+	}
+	.collapsed .account-menu-panel {
+		bottom: 0;
+		left: calc(100% + 8px);
+		width: 220px;
 	}
 	.collapsed .account-group {
 		margin-top: 8px;
@@ -677,6 +684,7 @@
 	}
 	.account-page {
 		min-width: 0;
+		container: account-page / inline-size;
 	}
 	@media (prefers-reduced-motion: reduce) {
 		.account-shell {
@@ -690,7 +698,7 @@
 		/* Phones give every control a 44px reach (primitives.css); the bar keeps its drawn
 		 * proportions and carries the reach as an invisible hit area instead. */
 		.account-bar .account-tab,
-		.account-bar .account-back,
+		.account-bar .account-brand,
 		.account-menu > .account-who {
 			min-width: 0;
 			min-height: 0;
@@ -713,8 +721,20 @@
 		.account-head {
 			flex: none;
 		}
+		.account-brand .account-tab-label {
+			display: none;
+		}
 		.account-menu {
 			flex: none;
+			order: 9;
+			margin-left: auto;
+		}
+		.account-menu-panel {
+			top: calc(100% + 6px);
+			right: 0;
+			bottom: auto;
+			left: auto;
+			width: 220px;
 		}
 		.account-collapse,
 		.account-edge,
@@ -724,8 +744,9 @@
 		.account-group-head {
 			display: none;
 		}
-		.account-shell:not(.settings) .account-group {
-			display: none;
+		/* Companies stay on Home's list; Settings and Help are in the owner's menu. */
+		.account-group {
+			display: none !important;
 		}
 		.collapsed .account-tab-label {
 			display: initial;
@@ -765,6 +786,9 @@
 		}
 		.account-who {
 			padding: 0 4px;
+		}
+		.account-who > :global(svg) {
+			display: none;
 		}
 	}
 </style>

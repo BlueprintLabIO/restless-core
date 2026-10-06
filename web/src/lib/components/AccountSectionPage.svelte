@@ -40,11 +40,13 @@
 
 <div use:tooltips use:selectMenu>
 	<AccountFrame>
-		<AccountPage sections={[current]}>
-			{#snippet section()}
-				{#if id === 'connections'}<AccountConnections />{:else if id === 'ai-apps'}<AccountAiApps
-					/>{:else}<AccountAppearance />{/if}
-			{/snippet}
-		</AccountPage>
+		{#snippet settings(nav)}
+			<AccountPage title="Settings" sections={[current]} {nav}>
+				{#snippet section()}
+					{#if id === 'connections'}<AccountConnections />{:else if id === 'ai-apps'}<AccountAiApps
+						/>{:else}<AccountAppearance />{/if}
+				{/snippet}
+			</AccountPage>
+		{/snippet}
 	</AccountFrame>
 </div>
