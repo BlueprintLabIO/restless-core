@@ -471,6 +471,11 @@ pub async fn record_cooldown(
         crate::health::BlockKind::Credential | crate::health::BlockKind::Model => {
             chrono::Duration::hours(24)
         }
+        // A hosted plane's own AI credit: the relay refuses before any provider is called, so
+        // checking again is free, and a top-up should be noticed within minutes, not an hour.
+        crate::health::BlockKind::Quota if reason.contains("AI credit is used up") => {
+            chrono::Duration::minutes(10)
+        }
         crate::health::BlockKind::Quota => chrono::Duration::hours(1),
         crate::health::BlockKind::NoOp => chrono::Duration::minutes(15),
         crate::health::BlockKind::Transport => chrono::Duration::minutes(2),
@@ -1543,7 +1548,7 @@ async fn relay_pi_stream(
             upstream_status = %status,
             "host model gateway refused Runtime request"
         );
-        return relay_error(status, "host model gateway refused the model request");
+        return relay_error(status, &refusal_message(status, upstream).await);
     }
 
     let status = upstream.status();
@@ -1760,7 +1765,7 @@ async fn relay_responses(
             upstream_status = %status,
             "host model gateway refused Runtime Responses request"
         );
-        return relay_error(status, "host model gateway refused the model request");
+        return relay_error(status, &refusal_message(status, upstream).await);
     }
 
     let status = upstream.status();
@@ -2335,6 +2340,32 @@ pub async fn verify_owner_model_account(
     };
     live_company_model_grant(root, &grant).await?;
     Ok(())
+}
+
+/// The words to pass on for an upstream refusal. A 402 carries what the owner must do (a hosted
+/// plane's AI credit is used up, with where to top up), so its message travels on, bounded; any
+/// other refusal keeps the plain message.
+async fn refusal_message(status: StatusCode, upstream: reqwest::Response) -> String {
+    const PLAIN: &str = "host model gateway refused the model request";
+    if status != StatusCode::PAYMENT_REQUIRED {
+        return PLAIN.into();
+    }
+    let Ok(bytes) = upstream.bytes().await else {
+        return PLAIN.into();
+    };
+    let message = serde_json::from_slice::<serde_json::Value>(&bytes[..bytes.len().min(8192)])
+        .ok()
+        .and_then(|body| {
+            let error = body.get("error")?;
+            error
+                .get("message")
+                .and_then(serde_json::Value::as_str)
+                .or_else(|| error.as_str())
+                .map(str::to_owned)
+        })
+        .filter(|text| !text.trim().is_empty())
+        .map(|text| text.chars().filter(|c| !c.is_control()).take(400).collect::<String>());
+    message.map_or_else(|| format!("402 {PLAIN}"), |text| format!("402 {text}"))
 }
 
 fn relay_error(status: StatusCode, message: &str) -> Response<Body> {
@@ -4848,6 +4879,34 @@ mission = "Choose native intelligence"
         )
         .unwrap();
         assert_eq!(available, ["anthropic/claude-sonnet-4-5"]);
+    }
+
+    #[tokio::test]
+    async fn a_hosted_credit_refusal_reaches_the_owner_with_where_to_top_up() {
+        let refusal = |status: u16, body: &str| {
+            reqwest::Response::from(
+                axum::http::Response::builder().status(status).body(body.to_owned()).unwrap(),
+            )
+        };
+        let relay = r#"{"error":{"code":"ai_credit_exhausted","message":"AI credit is used up. Top up to continue: https://app.restless.run/account/settings#billing"}}"#;
+        let message = refusal_message(StatusCode::PAYMENT_REQUIRED, refusal(402, relay)).await;
+        assert_eq!(
+            message,
+            "402 AI credit is used up. Top up to continue: https://app.restless.run/account/settings#billing"
+        );
+        // It reads as a quota block, owner action required, and keeps the link.
+        let blocked = crate::health::classify_provider_error(&message).expect("classified");
+        assert_eq!(blocked.kind, crate::health::BlockKind::Quota);
+        assert!(blocked.message().contains("account/settings#billing"));
+        // Other refusals, and a 402 without a readable message, keep the plain words.
+        assert_eq!(
+            refusal_message(StatusCode::FORBIDDEN, refusal(403, relay)).await,
+            "host model gateway refused the model request"
+        );
+        assert_eq!(
+            refusal_message(StatusCode::PAYMENT_REQUIRED, refusal(402, "not json")).await,
+            "402 host model gateway refused the model request"
+        );
     }
 
     #[test]
