@@ -159,7 +159,9 @@ verify_release() {
   case "$manifest$signature" in *..* | /*) fail "the bundle index names an unsafe path" ;; esac
   [ "sha256:$(sha256sum "$bundle/$manifest" | cut -d' ' -f1)" = "$expected" ] \
     || fail "the release manifest does not match the bundle index"
-  docker run --rm -v "$bundle:/work:ro" "$COSIGN_IMAGE" verify-blob \
+  # As this user: the bundle sits in a private (0700) temporary directory that
+  # the image's own non-root user cannot read.
+  docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$bundle:/work:ro" "$COSIGN_IMAGE" verify-blob \
     --bundle "/work/$signature" --certificate-identity "$SIGNER" --certificate-oidc-issuer "$ISSUER" \
     "/work/$manifest" >&2 \
     || fail "the release manifest signature did not verify against ${SIGNER}"
