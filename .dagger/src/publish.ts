@@ -205,7 +205,13 @@ export async function publishImage(component: string, revision: string, platform
     image = (await factory()).withLabel('io.restless.build-input-sha256', input).withLabel('io.restless.component', component)
       .withLabel('org.opencontainers.image.revision', revision).withRegistryAuth('ghcr.io', username, password);
     reference = `${repository}@${(await timed(timings, 'build and push', () => publishWithRetry(image, tag))).split('@')[1]}`;
-    image = dag.container({ platform }).withRegistryAuth('ghcr.io', username, password).from(reference);
+    // Resolving the pushed digest needs a fresh registry token; a DNS timeout here failed a publish.
+    const pushed = reference;
+    image = await withRetry(`${component}: resolve pushed image`, async () => {
+      const candidate = dag.container({ platform }).withRegistryAuth('ghcr.io', username, password).from(pushed);
+      await candidate.sync();
+      return candidate;
+    });
   }
   if (!/^sha256:[0-9a-f]{64}$/.test(reference.split('@')[1])) throw new Error(`${component}: registry returned a mutable reference`);
   const [actualInput, actualComponent, actualRevision, actualSource] = await Promise.all([
