@@ -81,8 +81,10 @@
 		};
 	});
 
-	/* People owns its selected-person conversation, and immersive computer pages
-	 * do not render the Exec rail. Do not keep shell-only rail state polling there. */
+	/* People owns its selected-person conversation, and the immersive desktop does
+	 * not render the Exec rail. The Company browser keeps it: a page Exec brings to
+	 * the owner is discussed beside it, as an Attention item's live browser is.
+	 * Do not keep shell-only rail state polling where it is hidden. */
 	const peopleConversation = $derived(
 		ownerAccess &&
 			page.url.pathname === `/${companyId}/people` &&
@@ -95,7 +97,8 @@
 		return !(
 			path === people ||
 			path.startsWith(`${people}/`) ||
-			path === `/${companyId}/company/computer` ||
+			(path === `/${companyId}/company/computer` &&
+				page.url.searchParams.get('focus') === 'desktop') ||
 			(path === `/${companyId}` && page.url.searchParams.has('computer'))
 		);
 	});
@@ -445,11 +448,11 @@
 	});
 	const railConnected = $derived(railConnectionStatus === 'available');
 	const companyComputerSurface = $derived(page.url.pathname === `/${companyId}/company/computer`);
-	const railYields = $derived(companyComputerSurface);
 	const immersiveComputer = $derived(
 		(companyComputerSurface && page.url.searchParams.get('focus') === 'desktop') ||
 			(page.url.pathname === `/${companyId}` && page.url.searchParams.has('computer'))
 	);
+	const railYields = $derived(immersiveComputer);
 	$effect(() => railConversation.attach());
 	$effect(() => {
 		const authenticated = principal;

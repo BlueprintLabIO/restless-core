@@ -18,9 +18,11 @@
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	const overview = $derived(`/${companyId}/company`);
 	const detail = $derived(page.url.pathname !== overview);
+	/* The desktop and the Company browser take the area's full width; the section
+	 * list steps aside for them. */
 	const desktopFocus = $derived(
 		page.url.pathname === `/${companyId}/company/computer` &&
-			page.url.searchParams.get('focus') === 'desktop'
+			['desktop', 'browser'].includes(page.url.searchParams.get('focus') ?? '')
 	);
 	const setup = createCompanySetup(() => companyId);
 	provideCompanySetup(setup);
