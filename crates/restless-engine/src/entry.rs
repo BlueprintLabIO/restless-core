@@ -129,6 +129,10 @@ pub struct AssertionClaims {
     /// Optional presentation metadata; never used for identity or authority.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
+    /// The company's name as the account issuer holds it, for display only. On Cloud the issuer
+    /// owns a company's name; the plane shows what the latest entry carried.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub company_name: Option<String>,
     pub iss: String,
     pub aud: String,
     pub sub: String,
@@ -231,6 +235,7 @@ struct Jwk {
 #[derive(Debug, Clone)]
 pub struct VerifiedAccessContext {
     pub display_name: Option<String>,
+    pub company_name: Option<String>,
     pub issuer: String,
     pub subject: String,
     pub assertion_id: Uuid,
@@ -838,6 +843,13 @@ fn validate_claims(
             "display name must contain 1–256 bytes of plain text",
         ));
     }
+    if claims.company_name.as_ref().is_some_and(|name| {
+        name.trim().is_empty() || name.len() > 512 || name.chars().any(char::is_control)
+    }) {
+        return Err(Refusal::Malformed(
+            "company name must contain 1–512 bytes of plain text",
+        ));
+    }
     if claims.iat > now.timestamp() + MAX_CLOCK_SKEW_SECONDS {
         return Err(Refusal::NotYetValid);
     }
@@ -855,6 +867,7 @@ fn validate_claims(
         .ok_or(Refusal::Malformed("expiry is out of range"))?;
     Ok(VerifiedAccessContext {
         display_name: claims.display_name,
+        company_name: claims.company_name.map(|name| name.trim().to_owned()),
         issuer: claims.iss.trim_end_matches('/').to_string(),
         subject: claims.sub,
         assertion_id: claims.jti,
@@ -1522,6 +1535,7 @@ pub fn mint_from_env() -> anyhow::Result<String> {
     }
     let claims = AssertionClaims {
         display_name: None,
+        company_name: None,
         iss: required("RESTLESS_ENTRY_ISSUER")?
             .trim_end_matches('/')
             .into(),
@@ -1571,6 +1585,7 @@ mod tests {
     fn claims() -> AssertionClaims {
         AssertionClaims {
             display_name: None,
+            company_name: None,
             iss: "https://cloud.restless.test".into(),
             aud: HANDOFF_AUDIENCE.into(),
             sub: "user-1".into(),
@@ -1682,6 +1697,17 @@ mod tests {
             "Name\nOwner".into(),
         ] {
             candidate.display_name = Some(invalid);
+            assert!(matches!(refusal(&candidate).await, Refusal::Malformed(_)));
+        }
+        candidate.display_name = None;
+        candidate.company_name = Some(" Blueprint Lab ".into());
+        let verified = entry
+            .verify_at(&token(&candidate), at(1_000), SignaturePolicy::Enforce)
+            .await
+            .unwrap();
+        assert_eq!(verified.company_name.as_deref(), Some("Blueprint Lab"));
+        for invalid in ["".to_string(), "a".repeat(513), "Blue\nprint".into()] {
+            candidate.company_name = Some(invalid);
             assert!(matches!(refusal(&candidate).await, Refusal::Malformed(_)));
         }
     }

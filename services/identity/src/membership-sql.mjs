@@ -94,6 +94,7 @@ export async function createSqlMembershipStore({
       await client.query(
         `SELECT member.id AS membership_id, member."userId" AS user_id,
                 member."organizationId" AS organization_id, member.role,
+                (SELECT name FROM organization WHERE id = member."organizationId") AS company_name,
                 state.status, state.version,
                 EXISTS (SELECT 1 FROM restless_membership_controls control
                          WHERE control.membership_id = member.id
@@ -256,6 +257,10 @@ export async function createSqlMembershipStore({
           membership_role: member.role,
           membership_version: member.version,
           ...(user.name ? { display_name: user.name } : {}),
+          // The company's name as the account holds it; the plane shows it (display only).
+          ...(member.company_name?.trim()
+            ? { company_name: member.company_name.trim().slice(0, 120) }
+            : {}),
         },
         "JWT",
       ),

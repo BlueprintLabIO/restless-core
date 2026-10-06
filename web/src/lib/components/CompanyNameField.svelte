@@ -4,6 +4,7 @@
 	 * as the server holds them so a name edit can never change either. A draft
 	 * survives a reload, and a stale revision is reported instead of overwriting. */
 	import { failureSentence } from '$lib/model/failure';
+	import { getApplianceStatus } from '$lib/model/appliance';
 	import { beforeNavigate } from '$app/navigation';
 	import { getContext, onMount } from 'svelte';
 	import { attentionQuery, companiesQuery, companyQuery } from '$lib/model/queries.svelte';
@@ -113,37 +114,56 @@
 		return inFlight;
 	}
 
+	/* On Cloud the account owns the name: it shows here and is renamed from Home. */
+	let hostedHome = $state<string | null>(null);
+	$effect(() => {
+		const controller = new AbortController();
+		void getApplianceStatus(controller.signal)
+			.then((status) => (hostedHome = status.hosted ? (status.home_url ?? null) : null))
+			.catch(() => {});
+		return () => controller.abort();
+	});
+
 	beforeNavigate((navigation) => {
 		if (!navigation.willUnload && dirty) void save();
 	});
 </script>
 
-<span class="name-field">
-	<input
-		aria-label="Company name"
-		bind:value={name}
-		oninput={queue}
-		onblur={() => void save()}
-		maxlength="120"
-		autocomplete="organization"
-		disabled={!ready}
-		aria-invalid={!!error}
-	/>
-	<span
-		class="name-state"
-		class:failed={!!error}
-		role="status"
-		aria-live="polite"
-		title={error || undefined}
-		>{error
-			? 'Not saved'
-			: saving
-				? 'Saving…'
-				: saveState === 'saved' && !dirty
-					? 'Saved'
-					: ''}</span
-	>
-</span>
+{#if hostedHome}
+	<span class="name-field">
+		<span class="name-read">{name || 'New company'}</span>
+		<a class="name-state" href={hostedHome} title="On Cloud, rename a company from its menu on Home"
+			>Rename on Home</a
+		>
+	</span>
+{:else}
+	<span class="name-field">
+		<input
+			aria-label="Company name"
+			bind:value={name}
+			oninput={queue}
+			onblur={() => void save()}
+			maxlength="120"
+			autocomplete="organization"
+			disabled={!ready}
+			aria-invalid={!!error}
+		/>
+		<span
+			class="name-state"
+			class:failed={!!error}
+			role="status"
+			aria-live="polite"
+			title={error || undefined}
+			>{error
+				? 'Not saved'
+				: saving
+					? 'Saving…'
+					: saveState === 'saved' && !dirty
+						? 'Saved'
+						: ''}</span
+		>
+	</span>
+{/if}
 
 <style>
 	.name-field {
@@ -162,6 +182,16 @@
 		color: var(--text-tertiary);
 		font-size: var(--t-label);
 		white-space: nowrap;
+	}
+	.name-read {
+		color: var(--ink);
+	}
+	a.name-state {
+		color: var(--intent-conversation);
+		text-decoration: none;
+	}
+	a.name-state:hover {
+		text-decoration: underline;
 	}
 	.name-state:empty {
 		display: none;

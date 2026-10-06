@@ -202,13 +202,14 @@ Ticket status lives only here.
   - New opens an untitled document or sheet at once, with its title selected; the naming dialog is deleted.
   - The title is the page's first line.
   - The app focus ring no longer draws around the document body.
-- [ ] S62-T7 — The company name on Cloud. Needs a founder decision before building (see Open questions).
+- [x] S62-T7 — The company name on Cloud: the account owns it (founder decision, 2026-10-06).
+  - Home's company menu has Rename, for owners. It updates the organization and Fleet's company row.
+  - Core's issuer signs the name into each company handoff as optional `company_name` (display only, up to 120 characters). The plane adopts it on entry.
+  - A hosted Charter shows the name read-only, with "Rename on Home".
 - [ ] S62-T8 — The hosted Vault: the plane refuses it and the account host has no vault page yet.
 - [ ] S62-T9 — The signed-in founder walk on Cloud at 1440 and 390, after deploy.
 
 ## Open questions
 
-- **Who owns a Cloud company's name?**
-  - Today nobody can change it. The plane refuses setup edits when hosted, and Fleet has no rename.
-  - Exec can only record "Blueprint Lab", and the projection to Fleet is content-free by design, so a plane cannot carry a name to Fleet.
-  - Proposal: Fleet owns the name on Cloud. Add Rename to the company's menu and pass the name to the plane on entry, as the viewer's name already travels. Exec's confirm question then links to that one field.
+- **Can Exec rename a Cloud company itself?** It cannot today: the projection to Fleet is content-free by design. For now Exec asks, and the owner renames from Home in one step.
+  - Accepted risk: during a deploy, a plane still on older Core refuses handoffs that carry `company_name`, until it restarts on the new release (about a minute).

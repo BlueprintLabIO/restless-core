@@ -2455,6 +2455,10 @@ async fn consume_entry_assertion(
             );
         }
     };
+    // On Cloud the account issuer owns the company's name; an entry carries the current one.
+    if let Some(name) = access.company_name.as_deref() {
+        adopt_issued_company_name(&state, &company, name).await;
+    }
     if binding.owner_claimed {
         // The bootstrap binding of membership owner to the existing owner
         // Actor is an Authority fact; it transfers no capability or mandate.
@@ -9821,6 +9825,26 @@ fn cookie(headers: &HeaderMap, name: &str) -> Option<String> {
             let (key, value) = pair.trim().split_once('=')?;
             (key == name).then(|| value.to_string())
         })
+}
+
+/// The name the account issuer signed into an entry becomes the company's shown name. It is
+/// display only, so a failure to save it is logged and never refuses the entry.
+async fn adopt_issued_company_name(state: &OwnerState, company: &str, name: &str) {
+    let _write = state.charter_writes.lock().await;
+    let mut config = match runtime::CompanyConfig::load(&state.daemon.root, company) {
+        Ok(config) => config,
+        Err(error) => {
+            tracing::warn!(%error, "could not read the company to adopt its issued name");
+            return;
+        }
+    };
+    if config.display_name.as_deref() == Some(name) {
+        return;
+    }
+    config.display_name = Some(name.to_string());
+    if let Err(error) = runtime::CompanyConfig::save(&state.daemon.root, &config) {
+        tracing::warn!(%error, "could not save the company's issued name");
+    }
 }
 
 /// One mapping for a company's shown name: a generated handle reads "New company", never its id.
