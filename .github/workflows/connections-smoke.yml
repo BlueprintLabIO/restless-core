@@ -32,10 +32,14 @@ jobs:
   smoke:
     runs-on: [self-hosted, linux, x64, restless-core]
     timeout-minutes: 75
+    # `runner` is not available in job-level env, so the evidence path is set
+    # in the first step and shared through GITHUB_ENV.
     env:
       IMAGE: restless-company-image:ci-connections-${{ github.run_id }}
-      EVIDENCE: ${{ runner.temp }}/connections-smoke-${{ github.run_id }}
     steps:
+      - name: Choose the evidence directory
+        run: echo "EVIDENCE=$RUNNER_TEMP/connections-smoke-$GITHUB_RUN_ID" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
@@ -46,7 +50,7 @@ jobs:
 
       - name: Build the daemon, model broker and company image from this commit
         run: |
-          scripts/restless-cargo build -p restlessd
+          scripts/restless-cargo build -p restlessd -p restless
           npm --prefix infra/host-tools ci --no-audit --no-fund
           source scripts/lib/dev-release.sh
           dev_build_company_image "$PWD" "$IMAGE" "$GITHUB_SHA"

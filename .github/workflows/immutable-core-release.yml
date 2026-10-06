@@ -61,7 +61,7 @@ jobs:
           EVIDENCE: ${{ runner.temp }}/release-connections-smoke-${{ github.run_id }}
         run: |
           trap 'docker image rm "$IMAGE" >/dev/null 2>&1 || true; rm -rf "$EVIDENCE"' EXIT
-          scripts/restless-cargo build -p restlessd
+          scripts/restless-cargo build -p restlessd -p restless
           npm --prefix infra/host-tools ci --no-audit --no-fund
           source scripts/lib/dev-release.sh
           dev_build_company_image "$PWD" "$IMAGE" "$GITHUB_SHA"

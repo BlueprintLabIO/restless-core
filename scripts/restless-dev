@@ -471,6 +471,7 @@ promote() {
   elif [ -x "${source}/scripts/connections-smoke" ]; then
     printf '\nChecking connections on this build…\n'
     if ! RESTLESSD_BIN="${build_root}/target/release/restlessd" \
+         RESTLESS_CLI_BIN="${build_root}/target/release/restless" \
          RESTLESS_COMPANY_IMAGE="restless-company-image:${short}" \
          RESTLESS_OMP_BIN="${tools}/omp-source" \
          python3 "${source}/scripts/connections-smoke" --target core \

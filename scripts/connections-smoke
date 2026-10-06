@@ -15,6 +15,7 @@ usage: scripts/connections-smoke --target core [--output DIR] [--only 1,2,3]
 
 Environment:
   RESTLESSD_BIN            built daemon (default: target/debug/restlessd)
+  RESTLESS_CLI_BIN         built `restless` CLI (default: target/debug/restless)
   RESTLESS_COMPANY_IMAGE   company image to run (required)
   RESTLESS_UPGRADE_IMAGE   a second company image; the restart step replaces the
                            Runtime with it to prove installed CLIs survive an
@@ -672,7 +673,7 @@ class Smoke:
                                       'body': 'Read the notes', 'actor': 'owner'})
         self.plane.raw(self.company, {'cmd': 'team-assign', 'as_actor': 'notes-writing', 'name': 'Notes team',
                                       'actor': 'owner', 'reason': 'Connections smoke app request'})
-        cli = str(repo / 'target' / 'debug' / 'restless')
+        cli = os.environ.get('RESTLESS_CLI_BIN', str(repo / 'target' / 'debug' / 'restless'))
         token = self.plane.capability({'kind': 'actor_session', 'company': self.company, 'actor': 'notes-direction',
                                        'session': 'connections_smoke_lead'})
         env = {**os.environ, 'RESTLESS_COMPANY': self.company, 'RESTLESS_COORDINATOR': self.plane.coordinator,
