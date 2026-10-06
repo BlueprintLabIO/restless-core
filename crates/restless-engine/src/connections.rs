@@ -1586,7 +1586,13 @@ async fn oauth_manager(
     Ok(manager)
 }
 
-async fn oauth_access_token(root: &Path, company: &str, connection: &Connection) -> Result<String> {
+/// A current access token (refreshed when it is near expiry) and the epoch
+/// second it expires, when the provider said.
+async fn oauth_access_token(
+    root: &Path,
+    company: &str,
+    connection: &Connection,
+) -> Result<(String, Option<u64>)> {
     let ConnectionAuth::Oauth { credential, .. } = &connection.auth else {
         bail!("connection does not use OAuth");
     };
@@ -1602,7 +1608,7 @@ async fn oauth_access_token(root: &Path, company: &str, connection: &Connection)
     if !present {
         bail!("sign-in required (AuthorizationRequired)");
     }
-    manager
+    let token = manager
         .get_access_token()
         .await
         .map_err(|error| match error {
@@ -1610,7 +1616,37 @@ async fn oauth_access_token(root: &Path, company: &str, connection: &Connection)
                 anyhow::anyhow!("sign-in required (AuthorizationRequired)")
             }
             other => anyhow::anyhow!("token refresh failed: {other}"),
-        })
+        })?;
+    let stored = OauthCredentialStore(Arc::new(token_store(
+        root,
+        company,
+        &connection.name,
+        credential,
+    )))
+    .load()
+    .await
+    .ok()
+    .flatten();
+    let expires_at = stored.and_then(|stored| {
+        let received = stored.token_received_at?;
+        let expires_in = serde_json::to_value(stored.token_response?)
+            .ok()?
+            .get("expires_in")?
+            .as_u64()?;
+        Some(received + expires_in)
+    });
+    Ok((token, expires_at))
+}
+
+/// Reopen a pooled OAuth session this long before its token expires, so the
+/// next session starts with a refreshed token rather than a rejected one.
+const TOKEN_REFRESH_MARGIN_SECS: u64 = 30;
+
+fn epoch_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs())
+        .unwrap_or_default()
 }
 
 struct PendingSignIn {
@@ -1769,6 +1805,9 @@ struct PooledUpstream {
     revision: Uuid,
     client: Upstream,
     last_used: Instant,
+    /// The OAuth token this session sends expires at this epoch second. The
+    /// session carries a fixed header, so it is reopened before then.
+    token_expires_at: Option<u64>,
 }
 
 static UPSTREAMS: LazyLock<tokio::sync::Mutex<HashMap<(String, String), PooledUpstream>>> =
@@ -1791,7 +1830,10 @@ pub async fn upstream(root: &Path, company: &str, connection: &Connection) -> Re
         }
     }
     if let Some(entry) = pool.get_mut(&key) {
-        if entry.revision == connection.revision && !entry.client.is_closed() {
+        let token_current = entry
+            .token_expires_at
+            .is_none_or(|expires_at| epoch_now() + TOKEN_REFRESH_MARGIN_SECS < expires_at);
+        if entry.revision == connection.revision && !entry.client.is_closed() && token_current {
             entry.last_used = Instant::now();
             return Ok(entry.client.clone());
         }
@@ -1800,16 +1842,34 @@ pub async fn upstream(root: &Path, company: &str, connection: &Connection) -> Re
         }
     }
     drop(pool);
-    let client = Arc::new(open_upstream(root, company, connection).await?);
+    let (client, token_expires_at) = open_upstream_session(root, company, connection).await?;
+    let client = Arc::new(client);
     UPSTREAMS.lock().await.insert(
         key,
         PooledUpstream {
             revision: connection.revision,
             client: client.clone(),
             last_used: Instant::now(),
+            token_expires_at,
         },
     );
     Ok(client)
+}
+
+/// Close every pooled session of one company, which also ends its local
+/// workers' stdio. Used when the company is destroyed.
+pub async fn forget_company_upstreams(company: &str) {
+    let mut pool = UPSTREAMS.lock().await;
+    let keys = pool
+        .keys()
+        .filter(|(owner, _)| owner == company)
+        .cloned()
+        .collect::<Vec<_>>();
+    for key in keys {
+        if let Some(entry) = pool.remove(&key) {
+            entry.client.cancellation_token().cancel();
+        }
+    }
 }
 
 pub async fn forget_upstream(company: &str, name: &str) {
@@ -1827,19 +1887,31 @@ async fn open_upstream(
     company: &str,
     connection: &Connection,
 ) -> Result<RunningService<RoleClient, ()>> {
+    Ok(open_upstream_session(root, company, connection).await?.0)
+}
+
+/// A new session, and when its OAuth token (if any) expires.
+async fn open_upstream_session(
+    root: &Path,
+    company: &str,
+    connection: &Connection,
+) -> Result<(RunningService<RoleClient, ()>, Option<u64>)> {
     match connection.kind.as_str() {
         "remote" => {
             let endpoint = connection
                 .endpoint
                 .as_deref()
                 .context("remote connection has no endpoint")?;
+            let mut token_expires_at = None;
             let token = match &connection.auth {
                 ConnectionAuth::None => None,
                 ConnectionAuth::Bearer { credential } => {
                     Some(resolve_credential(root, company, credential).await?)
                 }
                 ConnectionAuth::Oauth { .. } => {
-                    Some(oauth_access_token(root, company, connection).await?)
+                    let (token, expires_at) = oauth_access_token(root, company, connection).await?;
+                    token_expires_at = expires_at;
+                    Some(token)
                 }
             };
             let client = reqwest_mcp::Client::builder()
@@ -1849,24 +1921,73 @@ async fn open_upstream(
                 .context("build MCP HTTP client")?;
             let mut config = StreamableHttpClientTransportConfig::with_uri(endpoint.to_string())
                 .max_sse_event_size(MAX_RESULT_BYTES);
-            if let Some(token) = token {
+            if let Some(token) = token.clone() {
                 config = config.auth_header(token);
             }
-            let transport = StreamableHttpClientTransport::with_client(client, config);
-            tokio::time::timeout(PROBE_TIMEOUT, ().serve(transport))
+            let transport = StreamableHttpClientTransport::with_client(client.clone(), config);
+            let served = tokio::time::timeout(PROBE_TIMEOUT, ().serve(transport))
                 .await
-                .context("remote MCP handshake timed out")?
-                .map_err(|error| {
-                    let text = error.to_string();
-                    if text.contains("401") || text.contains("Unauthorized") {
-                        anyhow::anyhow!("remote MCP handshake failed: sign-in required (401)")
-                    } else {
-                        anyhow::anyhow!("remote MCP handshake failed")
+                .context("remote MCP handshake timed out")?;
+            match served {
+                Ok(running) => Ok((running, token_expires_at)),
+                // rmcp reports a 401 inside its transport worker, so the
+                // handshake error alone cannot say why it failed. Ask the
+                // server directly instead of guessing from error text.
+                Err(error) => {
+                    let text = format!("{error:?}");
+                    if text.contains("401")
+                        || text.contains("Unauthorized")
+                        || text.contains("AuthRequired")
+                        || answers_sign_in_required(&client, endpoint, token.as_deref()).await
+                    {
+                        bail!("remote MCP handshake failed: sign-in required (401)")
                     }
-                })
+                    bail!("remote MCP handshake failed")
+                }
+            }
         }
-        "local" => open_local_worker(root, company, connection).await,
+        "local" => Ok((open_local_worker(root, company, connection).await?, None)),
         other => bail!("unknown connection kind {other:?}"),
+    }
+}
+
+/// Whether a remote MCP server answers an `initialize` with 401 and a Bearer
+/// challenge, which is how MCP authorization says "sign in first".
+async fn answers_sign_in_required(
+    client: &reqwest_mcp::Client,
+    endpoint: &str,
+    token: Option<&str>,
+) -> bool {
+    let mut request = client
+        .post(endpoint)
+        .header("content-type", "application/json")
+        .header("accept", "application/json, text/event-stream")
+        .body(
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 0,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "restless", "version": env!("CARGO_PKG_VERSION")}
+                }
+            })
+            .to_string(),
+        );
+    if let Some(token) = token {
+        request = request.bearer_auth(token);
+    }
+    match tokio::time::timeout(Duration::from_secs(10), request.send()).await {
+        Ok(Ok(response)) => {
+            response.status() == reqwest_mcp::StatusCode::UNAUTHORIZED
+                && response
+                    .headers()
+                    .get("www-authenticate")
+                    .and_then(|value| value.to_str().ok())
+                    .is_some_and(|value| value.trim_start().to_ascii_lowercase().starts_with("bearer"))
+        }
+        _ => false,
     }
 }
 
@@ -1897,7 +2018,7 @@ async fn open_local_worker(
         connection.name,
         Uuid::new_v4().simple()
     );
-    let cache = format!("restless-mcp-cache-{company}");
+    let cache = crate::runtime::mcp_cache_volume_name(company);
     let mut docker = tokio::process::Command::new("docker");
     docker.env_clear();
     docker
@@ -1917,6 +2038,11 @@ async fn open_local_worker(
         "io.restless.mcp-worker=true",
         "--label",
         &format!("io.restless.company={company}"),
+        "--label",
+        &format!(
+            "io.restless.namespace={}",
+            std::env::var("RESTLESS_RESOURCE_NAMESPACE").unwrap_or_default()
+        ),
         "--cap-drop",
         "ALL",
         "--security-opt",

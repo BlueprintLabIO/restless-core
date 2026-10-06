@@ -982,6 +982,18 @@ pub fn volume_name(company: &str) -> String {
     }
 }
 
+/// The package cache shared by a company's host-side local MCP workers. It is
+/// company data like the Runtime volume, so it is namespaced the same way and
+/// removed with the company.
+pub fn mcp_cache_volume_name(company: &str) -> String {
+    match std::env::var("RESTLESS_RESOURCE_NAMESPACE") {
+        Ok(namespace) if !namespace.is_empty() => {
+            format!("restless-{namespace}-mcp-cache-{company}")
+        }
+        _ => format!("restless-mcp-cache-{company}"),
+    }
+}
+
 /// A company computer with no demand sleeps after this long unless its owner
 /// chose another timeout. Sleep keeps the volume; demand wakes it.
 pub const DEFAULT_SLEEP_AFTER_MINUTES: u16 = 30;
@@ -3116,6 +3128,54 @@ pub async fn destroy(
     {
         run_ok(&["volume", "rm", &volume]).await?;
         removed.push("volume");
+    }
+    // Local MCP workers hold the package cache open; end them first.
+    crate::connections::forget_company_upstreams(company).await;
+    let company_label = format!("label=io.restless.company={company}");
+    let namespace_label = format!(
+        "label=io.restless.namespace={}",
+        std::env::var("RESTLESS_RESOURCE_NAMESPACE").unwrap_or_default()
+    );
+    let workers = docker_observe(&[
+        "ps",
+        "-aq",
+        "--filter",
+        "label=io.restless.mcp-worker=true",
+        "--filter",
+        &company_label,
+        "--filter",
+        &namespace_label,
+    ])
+    .await?;
+    let workers = String::from_utf8_lossy(&workers.stdout).to_string();
+    for worker in workers.split_whitespace() {
+        // A closed session lets an `--rm` worker remove itself, so this may
+        // race its own removal; the volume check below waits for both.
+        let _ = docker_observe(&["rm", "-f", worker]).await;
+        removed.push("local MCP worker");
+    }
+    let cache = mcp_cache_volume_name(company);
+    if docker_observe(&["volume", "inspect", &cache])
+        .await?
+        .status
+        .success()
+    {
+        let mut attempts = 0;
+        loop {
+            let output = docker_observe(&["volume", "rm", &cache]).await?;
+            if output.status.success() {
+                break;
+            }
+            attempts += 1;
+            if attempts >= 40 {
+                bail!(
+                    "remove local MCP cache {cache}: {}",
+                    String::from_utf8_lossy(&output.stderr).trim()
+                );
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+        removed.push("local MCP cache");
     }
 
     // A cell is a database and role, not only a schema. Closing the shared

@@ -1,0 +1,7 @@
+{
+  "name": "fixture-notes",
+  "version": "1.0.0",
+  "description": "Fixture Notes for Restless's connections smoke: one MCP server and one skill.",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json"
+}

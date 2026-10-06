@@ -1,0 +1,15 @@
+{
+  "name": "@restless/fixture-mcp-provider",
+  "private": true,
+  "version": "0.0.0",
+  "description": "A real MCP server with real MCP authorization, for Restless's connections smoke. Never a product dependency.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "express": "5.2.1",
+    "zod": "4.6.5"
+  }
+}

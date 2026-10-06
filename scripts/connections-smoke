@@ -1,0 +1,691 @@
+#!/usr/bin/env python3
+"""Sprint 61 Tier A: do connections hold on this build?
+
+A real isolated daemon, PostgreSQL and company Runtime, the owner HTTP API, and
+the tool gateway reached from inside the company computer with a real
+tool-session capability. Only the provider is a fixture
+(`tools/fixture-mcp-provider`), and it speaks real MCP authorization, so
+Restless connects it exactly as it connects any service. No model is called.
+
+Each assertion records what was sent, what was observed, what was expected and
+what a broken system would show instead. Everything created is `_test` and is
+removed before exit, including after a failure.
+
+usage: scripts/connections-smoke --target core [--output DIR] [--only 1,2,3]
+
+Environment:
+  RESTLESSD_BIN            built daemon (default: target/debug/restlessd)
+  RESTLESS_COMPANY_IMAGE   company image to run (required)
+  RESTLESS_UPGRADE_IMAGE   a second company image; the restart step replaces the
+                           Runtime with it to prove installed CLIs survive an
+                           image upgrade (optional; the step is skipped without it)
+  RESTLESS_OMP_BIN         model broker (default: infra/host-tools/omp-source)
+"""
+import argparse, datetime, http.client, json, os, pathlib, re, secrets, shutil, subprocess, sys, tempfile, time
+import traceback, urllib.error, urllib.parse, urllib.request
+
+repo = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(repo / 'scripts' / 'lib'))
+from smoke_plane import Plane, docker, free_port  # noqa: E402
+
+fixture_dir = repo / 'tools' / 'fixture-mcp-provider'
+MODEL = 'openai/gpt-4.1-mini'
+CANARY = 'fx_canary_' + secrets.token_hex(12)
+
+
+class Evidence:
+    def __init__(self, only):
+        self.only = only
+        self.rows = []
+
+    def check(self, number, title, expected, broken, action, needs=()):
+        if self.only and number not in self.only:
+            return None
+        missing = [n for n in needs if not self.passed(n)]
+        row = {'id': number, 'title': title, 'expected': expected, 'broken_would_show': broken}
+        if missing:
+            row.update(status='skipped', reason=f'depends on failed or skipped assertion(s) {missing}')
+            print(f'SKIP {number:>2} {title}: {row["reason"]}')
+            self.rows.append(row)
+            return None
+        started = time.monotonic()
+        try:
+            observed = action()
+            row.update(status='pass', observed=observed)
+            print(f'PASS {number:>2} {title}')
+        except Skip as skip:
+            row.update(status='skipped', reason=str(skip))
+            print(f'SKIP {number:>2} {title}: {skip}')
+        except Exception as error:  # noqa: BLE001 - a failed check is evidence, not a crash
+            row.update(status='fail', error=f'{error}', trace=traceback.format_exc()[-2500:])
+            print(f'FAIL {number:>2} {title}: {error}')
+        row['seconds'] = round(time.monotonic() - started, 2)
+        self.rows.append(row)
+        return row.get('observed')
+
+    def passed(self, number):
+        return any(row['id'] == number and row['status'] == 'pass' for row in self.rows)
+
+
+class Skip(Exception):
+    pass
+
+
+def expect(condition, message):
+    if not condition:
+        raise AssertionError(message)
+
+
+class Fixture:
+    """The provider: remote MCP with OAuth, a control port, and a static https
+    host serving the plugin bundle as a Git repository."""
+
+    def __init__(self, root):
+        if not (fixture_dir / 'node_modules' / '@modelcontextprotocol').exists():
+            subprocess.run(['npm', 'ci', '--ignore-scripts', '--no-audit', '--no-fund'], cwd=fixture_dir, check=True)
+        self.root = root
+        self.port, self.control_port, self.static_port = free_port(), free_port(), free_port()
+        self.token = secrets.token_hex(16)
+        self.cert, self.key = root / 'fixture-ca.pem', root / 'fixture-ca.key'
+        subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=fixture',
+                        '-addext', 'subjectAltName=IP:127.0.0.1,IP:172.17.0.1,DNS:host.docker.internal',
+                        '-keyout', str(self.key), '-out', str(self.cert)], check=True, capture_output=True)
+        self.static = root / 'static'
+        self.static.mkdir()
+        self.mcp_url = f'http://127.0.0.1:{self.port}/mcp'
+        self._publish_plugin()
+        self.log = (root / 'fixture.log').open('w')
+        self.process = subprocess.Popen(
+            ['node', 'server.mjs', '--port', str(self.port), '--control-port', str(self.control_port),
+             '--static-https-port', str(self.static_port), '--static-dir', str(self.static),
+             '--tls-cert', str(self.cert), '--tls-key', str(self.key)],
+            cwd=fixture_dir, env={**os.environ, 'FIXTURE_CONTROL_TOKEN': self.token},
+            stdout=self.log, stderr=subprocess.STDOUT, start_new_session=True)
+        for _ in range(80):
+            try:
+                self.state()
+                return
+            except OSError:
+                time.sleep(0.25)
+        raise RuntimeError('fixture provider did not start: ' + (root / 'fixture.log').read_text()[-2000:])
+
+    def _publish_plugin(self):
+        work = self.root / 'plugin-work'
+        shutil.copytree(fixture_dir / 'fixtures' / 'plugin', work)
+        mcp = work / '.mcp.json'
+        mcp.write_text(mcp.read_text().replace('http://127.0.0.1:9100/mcp', f'http://127.0.0.1:{self.port}/mcp'))
+        git = ['git', '-c', 'user.name=smoke', '-c', 'user.email=smoke@example.test', '-c', 'init.defaultBranch=main']
+        subprocess.run([*git, 'init', '-q', str(work)], check=True)
+        subprocess.run([*git, '-C', str(work), 'add', '-A'], check=True)
+        subprocess.run([*git, '-C', str(work), 'commit', '-qm', 'fixture plugin'], check=True)
+        bare = self.static / 'fixture-notes.git'
+        subprocess.run(['git', 'clone', '-q', '--bare', str(work), str(bare)], check=True)
+        subprocess.run(['git', '--git-dir', str(bare), 'update-server-info'], check=True)
+        self.plugin_url = f'https://127.0.0.1:{self.static_port}/fixture-notes.git'
+
+    def control(self, path, data=None, method='POST'):
+        request = urllib.request.Request(f'http://127.0.0.1:{self.control_port}{path}', method=method,
+                                         data=json.dumps(data or {}).encode() if method == 'POST' else None,
+                                         headers={'x-fixture-control': self.token, 'Content-Type': 'application/json'})
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return json.load(response)
+
+    def state(self):
+        return self.control('/state', method='GET')
+
+    def close(self):
+        if self.process.poll() is None:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+        self.log.close()
+
+
+def follow_owner_browser(authorization_url):
+    """What the owner's browser does: open the provider's page, approve, and
+    follow the redirect to the plane's callback."""
+    page = urllib.request.urlopen(authorization_url, timeout=30).read().decode()
+    consent = re.search(r'name="id" value="([^"]+)"', page)
+    expect(consent, f'the provider did not show a consent page: {page[:300]}')
+    provider = urllib.parse.urlparse(authorization_url)
+    connection = http.client.HTTPConnection(provider.hostname, provider.port, timeout=30)
+    connection.request('POST', '/consent', urllib.parse.urlencode({'id': consent.group(1), 'decision': 'approve'}),
+                       {'Content-Type': 'application/x-www-form-urlencoded'})
+    response = connection.getresponse()
+    expect(response.status == 302, f'consent did not redirect: {response.status}')
+    callback = response.getheader('Location')
+    try:
+        with urllib.request.urlopen(callback, timeout=60) as landed:
+            return callback, landed.status, landed.read().decode()[:400]
+    except urllib.error.HTTPError as error:
+        return callback, error.code, error.read().decode()[:400]
+
+
+IN_CONTAINER_MCP = r"""
+const calls = JSON.parse(process.env.SMOKE_CALLS);
+const out = [];
+let id = 0;
+for (const [method, params] of calls) {
+  try {
+    const response = await fetch(process.env.SMOKE_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream',
+                 authorization: 'Bearer ' + process.env.SMOKE_TOKEN },
+      body: JSON.stringify({ jsonrpc: '2.0', id: ++id, method, params }),
+    });
+    const text = await response.text();
+    let body;
+    try { body = JSON.parse(text); } catch { body = text; }
+    out.push({ status: response.status, body });
+  } catch (error) {
+    out.push({ status: 0, body: String(error) });
+  }
+}
+console.log(JSON.stringify(out));
+"""
+
+INIT = ['initialize', {'protocolVersion': '2025-06-18', 'capabilities': {}, 'clientInfo': {'name': 'connections-smoke', 'version': '1'}}]
+
+
+class Smoke:
+    def __init__(self, args):
+        self.args = args
+        self.nonce = secrets.token_hex(4)
+        self.namespace = f'cs{self.nonce}_test'
+        self.company = f'conn_{self.nonce}_test'
+        self.other = f'conn2_{self.nonce}_test'
+        self.evidence = Evidence(args.only)
+        self.connection = 'fixture'
+
+    # -- helpers --------------------------------------------------------------
+    def owner(self, path, data=None, method=None, company=None):
+        return self.plane.owner(company or self.company, path, data, method)
+
+    def connection_view(self, name=None, company=None):
+        status, body = self.owner('/tool-connections', company=company)
+        expect(status == 200, f'list connections: {status} {body}')
+        for view in body['connections']:
+            if view['name'] == (name or self.connection):
+                return view
+        return None
+
+    def gateway(self, calls, actor='exec', company=None, token=None, path_company=None):
+        """MCP calls from inside the company computer, at the address the
+        launch contract hands an actor."""
+        company = company or self.company
+        token = token or self.plane.tool_session(company, actor)
+        url = f'http://host.docker.internal:{self.plane.relay_port}/tools/{path_company or company}'
+        result = docker('exec', '-i', '-u', 'company', '-e', f'SMOKE_URL={url}', '-e', f'SMOKE_TOKEN={token}',
+                        '-e', 'SMOKE_CALLS=' + json.dumps([INIT, *calls]), self.plane.container(self.company),
+                        'node', '--input-type=module', '-', input=IN_CONTAINER_MCP, check=False, timeout=240)
+        expect(result.returncode == 0, f'in-container MCP client failed: {result.stderr[-800:]}')
+        responses = json.loads(result.stdout.strip().splitlines()[-1])
+        return responses[1:], responses[0]
+
+    def tool_names(self, **kwargs):
+        responses, init = self.gateway([['tools/list', {}]], **kwargs)
+        listed = responses[0]
+        expect(listed['status'] == 200, f'tools/list: {listed}')
+        return sorted(tool['name'] for tool in listed['body']['result']['tools'])
+
+    def call(self, tool, arguments, **kwargs):
+        responses, _ = self.gateway([['tools/call', {'name': tool, 'arguments': arguments}]], **kwargs)
+        response = responses[0]
+        expect(response['status'] == 200, f'{tool}: HTTP {response["status"]} {str(response["body"])[:400]}')
+        body = response['body']
+        if 'error' in body:
+            return {'error': body['error'], 'text': json.dumps(body['error'])}
+        result = body['result']
+        text = '\n'.join(block.get('text', '') for block in result.get('content', []))
+        return {'is_error': bool(result.get('isError')), 'text': text}
+
+    def sign_in(self):
+        status, started = self.owner(f'/tool-connections/{self.connection}/sign-in', {})
+        expect(status == 200 and 'authorization_url' in started, f'sign-in did not start: {status} {started}')
+        callback, landed, page = follow_owner_browser(started['authorization_url'])
+        expect(callback.startswith(self.plane.owner_origin + '/connections/tools/oauth/callback'),
+               f'the provider returned the browser to {callback}')
+        expect(landed == 200, f'the plane callback answered {landed}: {page}')
+        for _ in range(60):
+            view = self.connection_view()
+            if view and view['status'] == 'working':
+                return view, callback.split('?')[0]
+            time.sleep(0.5)
+        raise AssertionError(f'connection did not become working: {view}')
+
+    def grant_all(self, view=None):
+        view = view or self.connection_view()
+        tools = [{'tool': 'whoami', 'class': 'reads'}, {'tool': 'list_notes', 'class': 'reads'},
+                 {'tool': 'send_note', 'class': 'acts', 'party_args': ['to']},
+                 {'tool': 'delete_note', 'class': 'reserved'}]
+        status, body = self.owner(f'/tool-connections/{self.connection}/grant', {'grantee': '*', 'tools': tools})
+        expect(status == 200, f'grant: {status} {body}')
+        return body
+
+    def receipt(self, text, pattern=r'restless read receipt ([0-9a-f-]{36})'):
+        found = re.search(pattern, text)
+        expect(found, f'no receipt in: {text[:300]}')
+        return found.group(1)
+
+    # -- the run --------------------------------------------------------------
+    def run(self):
+        image = os.environ.get('RESTLESS_COMPANY_IMAGE')
+        if not image:
+            raise SystemExit('set RESTLESS_COMPANY_IMAGE to an installed company image')
+        docker('image', 'inspect', image)
+        daemon_bin = os.environ.get('RESTLESSD_BIN', str(repo / 'target' / 'debug' / 'restlessd'))
+        omp = os.environ.get('RESTLESS_OMP_BIN', str(repo / 'infra' / 'host-tools' / 'omp-source'))
+        output = pathlib.Path(self.args.output or tempfile.mkdtemp(prefix='restless-connections-smoke-'))
+        output.mkdir(parents=True, exist_ok=True)
+        started = datetime.datetime.now(datetime.timezone.utc)
+        with tempfile.TemporaryDirectory(prefix='restless-connections-smoke-') as directory:
+            root = pathlib.Path(directory)
+            (root / 'plane').mkdir()
+            self.fixture = Fixture(root)
+            self.plane = Plane(root / 'plane', self.namespace, daemon_bin, image, {
+                'RESTLESS_OMP_BIN': omp,
+                'RESTLESS_SOURCE_ROOT': str(repo),
+                'RESTLESS_SMOKE_MODEL_KEY': 'sk-smoke-' + secrets.token_hex(8),
+                'RESTLESS_SMOKE_FIXTURE_TOKEN': 'fixture-stdio-' + secrets.token_hex(8),
+                # Trust the fixture's plugin host only in the process under test.
+                'GIT_SSL_CAINFO': str(self.fixture.cert),
+            })
+            problems = []
+            try:
+                self.plane.start_database()
+                self.plane.start()
+                self.assertions()
+            except Exception:  # noqa: BLE001
+                traceback.print_exc()
+                self.evidence.rows.append({'id': 0, 'title': 'harness', 'status': 'fail', 'error': traceback.format_exc()[-3000:]})
+            finally:
+                if self.plane.log_path.exists():
+                    shutil.copy(self.plane.log_path, output / 'daemon.log')
+                shutil.copy(root / 'fixture.log', output / 'fixture.log')
+                problems = self.plane.close()
+                self.fixture.close()
+                for path in root.rglob('*'):
+                    try:
+                        path.chmod(0o700 if path.is_dir() else 0o600)
+                    except OSError:
+                        pass
+            self.evidence.check(20, 'Clean exit', 'no _test company, container, volume or database remains',
+                                'a leaked container, volume or PostgreSQL', lambda: self.clean_exit(problems))
+        report = {'target': self.args.target, 'started_at': started.isoformat(),
+                  'finished_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                  'company_image': image, 'source_revision': git_revision(), 'assertions': self.evidence.rows}
+        (output / 'evidence.json').write_text(json.dumps(report, indent=2) + '\n')
+        counts = {status: sum(row['status'] == status for row in self.evidence.rows) for status in ('pass', 'fail', 'skipped')}
+        print(f"\n{counts['pass']} passed, {counts['fail']} failed, {counts['skipped']} skipped · evidence {output / 'evidence.json'}")
+        return 1 if counts['fail'] else 0
+
+    def clean_exit(self, problems):
+        expect(not problems, '; '.join(problems))
+        reap = repo / 'scripts' / 'restless-reap'
+        report = subprocess.run([str(reap), '--check'], capture_output=True, text=True) if reap.exists() else None
+        named = [line for line in (report.stdout.splitlines() if report else []) if self.nonce in line]
+        expect(not named, f'restless-reap still sees this run: {named}')
+        return {'reap_check_exit': report.returncode if report else None}
+
+    def assertions(self):
+        e = self.evidence
+        body = (f'name = "{self.company}"\nmodel = "{MODEL}"\nspend_ceiling_usd = 0\n\n'
+                '[credentials]\n"model.inference" = "env:RESTLESS_SMOKE_MODEL_KEY"\n')
+        self.plane.create_company(self.company, body)
+        self.plane.wait_for_port(self.plane.relay_port, 120)
+        self.plane.raw(self.company, {'cmd': 'up'}, timeout=600)
+        self.wait_running()
+
+        e.check(1, 'Connect', 'an unauthenticated URL asks for sign-in; the provider redirect lands on the plane callback; the connection becomes working with the four observed tools',
+                'a 404 or error page at the callback, or a connection stuck awaiting sign-in', self.a1_connect)
+        e.check(2, 'Grant by class', 'each tool granted with its class and its contract digest',
+                'a grant without digests, or a class that did not stick', self.a2_grant, needs=[1])
+        e.check(3, 'Actor view', 'an actor in the company computer lists exactly the four namespaced tools plus reconcile',
+                'missing tools, extra tools, or the gateway refusing the Runtime', self.a3_actor_view, needs=[2])
+        e.check(4, 'Reads', 'list_notes returns notes with a read receipt', 'no receipt, or an upstream error', self.a4_reads, needs=[3])
+        e.check(5, 'Acts and first contact', 'a send to a new party waits and does not reach the provider; after approval it runs once with a receipt; the next send to that party needs no approval',
+                'the provider receiving the first send before approval, or a second approval', self.a5_acts, needs=[3])
+        e.check(6, 'Reserved', 'delete_note waits for approval of the exact call, then runs once', 'a delete without approval', self.a6_reserved, needs=[3])
+        e.check(7, 'Unknown outcome', 'a lost response is unknown; a retry is refused until a later read settles it; the provider executed exactly once',
+                'two sends at the provider, or a retry that ran', self.a7_unknown, needs=[5])
+        e.check(8, 'Freeze', 'freeze refuses acting calls at once; reads keep working', 'a send while frozen, or reads refused', self.a8_freeze, needs=[5])
+        e.check(9, 'Contract change', "only the changed tool leaves the actor's list until it is granted again", 'all tools gone, or the changed tool still callable', self.a9_contract, needs=[3])
+        e.check(18, 'User-space CLI persists (install)', 'a pinned CLI installs as the company user without root', 'a permission error, or an install that needs root', self.a18_install)
+        e.check(12, 'Isolation', "a second company sees none of the first's connections or tools, and cannot call its gateway path",
+                'any connection, tool or successful call across companies', self.a12_isolation, needs=[3])
+        e.check(15, 'Local stdio connection', 'a local command connection runs on the host-side worker with its credential reference resolved; reads work through the gateway',
+                'a worker failure, or an unresolved credential', self.a15_local)
+        e.check(16, 'Plugin import', "a plugin's server becomes a connection awaiting grant with its plugin source; its skill becomes a candidate",
+                'nothing imported, or a skill that skipped candidacy', self.a16_plugin)
+        e.check(13, 'Survives restart and Runtime replacement', 'after a daemon restart and a new Runtime container, actor view and reads still work with no sign-in',
+                'a connection that needs sign-in again, or tools missing after restart', self.a13_restart, needs=[4])
+        e.check(18.5, 'User-space CLI persists (after replacement)', 'the CLI is at the same path and version after the Runtime was replaced',
+                'command not found after replacement', self.a18_persisted, needs=[18, 13])
+        e.check(10, 'Refresh and reconnect', 'an expired access token refreshes host-side with no owner action; a revoked refresh token shows sign-in needed without looping',
+                'a failed read after expiry, or repeated sign-in prompts', self.a10_refresh, needs=[4])
+        e.check(11, 'No token in the Runtime', 'no access or refresh token the provider issued appears in the company container (filesystem, environment, process arguments); the planted canary is found',
+                'any token match, or a canary the search failed to find', self.a11_tokens, needs=[1])
+        e.check(14, 'Disconnect', 'the credential is cleared, every grant revoked, and the actor sees no fixture tools',
+                'tools still listed, or a grant still present', self.a14_disconnect, needs=[3])
+        e.check(17, 'Skills smoke', 'scripts/skill-compatibility-smoke passes unchanged as a sub-step', 'any skills failure', self.a17_skills)
+
+    def wait_running(self):
+        for _ in range(240):
+            state = docker('inspect', '--format', '{{.State.Running}}', self.plane.container(self.company), check=False).stdout.strip()
+            if state == 'true':
+                ready = docker('exec', '-u', 'company', self.plane.container(self.company), 'node', '--version', check=False)
+                if ready.returncode == 0:
+                    return
+            time.sleep(0.5)
+        raise RuntimeError('company Runtime did not start')
+
+    # -- 1..18 --------------------------------------------------------------
+    def a1_connect(self):
+        status, added = self.owner('/tool-connections', {'kind': 'remote', 'name': self.connection, 'endpoint': self.fixture.mcp_url})
+        expect(status == 200, f'add: {status} {added}')
+        before = added['connection']['status']
+        expect(before == 'awaiting_sign_in', f'an OAuth-protected URL should ask for sign-in, got {before} ({added["connection"].get("failure")})')
+        view, callback = self.sign_in()
+        names = sorted(tool['name'] for tool in view['tools'])
+        expect(names == ['delete_note', 'list_notes', 'send_note', 'whoami'], f'observed tools: {names}')
+        return {'status_after_add': before, 'callback': callback, 'status': view['status'], 'account': view.get('account'),
+                'tools': names, 'clients_registered': self.fixture.state()['clients']}
+
+    def a2_grant(self):
+        self.grant_all()
+        view = self.connection_view()
+        grants = view['grants']
+        expect(len(grants) == 1 and grants[0]['grantee'] == '*', f'grants: {grants}')
+        granted = {tool['tool']: (tool['class'], tool['digest'], tool.get('party_args')) for tool in grants[0]['tools']}
+        expect(granted['send_note'][0] == 'acts' and granted['send_note'][2] == ['to'], f'send_note grant: {granted["send_note"]}')
+        expect(granted['delete_note'][0] == 'reserved', f'delete_note grant: {granted["delete_note"]}')
+        expect(all(digest for _, digest, _ in granted.values()), f'missing digests: {granted}')
+        observed = {tool['name']: tool['digest'] for tool in view['tools']}
+        expect(all(granted[name][1] == observed[name] for name in granted), 'grant digests differ from observed contracts')
+        return {tool: cls for tool, (cls, _, _) in granted.items()}
+
+    def a3_actor_view(self, other_connections=()):
+        names = self.tool_names()
+        wanted = ['fixture__delete_note', 'fixture__list_notes', 'fixture__send_note', 'fixture__whoami', 'restless_reconcile_effect']
+        unexpected = [name for name in names if name not in wanted and not name.startswith(tuple(f'{c}__' for c in other_connections))]
+        expect(all(name in names for name in wanted) and not unexpected, f'actor sees {names}')
+        return {'tools': names}
+
+    def a4_reads(self):
+        result = self.call('fixture__list_notes', {})
+        expect(not result.get('is_error') and 'Kickoff notes' in result['text'], f'list_notes: {result}')
+        return {'read_receipt': self.receipt(result['text'])}
+
+    def a5_acts(self):
+        party = f'new-{secrets.token_hex(3)}@example.test'
+        self.party = party
+        sends = len(self.fixture.state()['sends'])
+        first = {'to': party, 'body': 'Hello from the smoke', '_restless': {'purpose': 'Connections smoke first contact', 'key': f'send-{self.nonce}-1'}}
+        waiting = self.call('fixture__send_note', first)
+        expect(waiting.get('is_error'), f'a first contact ran without approval: {waiting}')
+        expect(len(self.fixture.state()['sends']) == sends, 'the provider received the send before approval')
+        status, approved = self.owner('/approvals/grant', {'party': party})
+        expect(status == 200, f'approve party: {status} {approved}')
+        sent = self.call('fixture__send_note', first)
+        expect(not sent.get('is_error') and 'message_id' in sent['text'] and 'restless receipt' in sent['text'], f'approved send: {sent}')
+        second = {'to': party, 'body': 'Second note', '_restless': {'purpose': 'Connections smoke follow-up', 'key': f'send-{self.nonce}-2'}}
+        follow = self.call('fixture__send_note', second)
+        expect(not follow.get('is_error'), f'a known party needed approval again: {follow}')
+        after = self.fixture.state()['sends']
+        expect(len(after) == sends + 2, f'provider sends: {len(after) - sends}')
+        return {'waiting_text': waiting['text'][:200], 'receipt': self.receipt(sent['text'], r'restless receipt ([0-9a-f-]{36})'),
+                'provider_sends': len(after) - sends}
+
+    def a6_reserved(self):
+        key = f'delete-{self.nonce}-1'
+        call = {'id': 'n2', '_restless': {'purpose': 'Connections smoke reserved call', 'key': key}}
+        waiting = self.call('fixture__delete_note', call)
+        expect(waiting.get('is_error'), f'a reserved call ran without approval: {waiting}')
+        expect(self.fixture.state()['deletes'] == [], 'the provider deleted before approval')
+        status, approved = self.owner('/approvals/grant', {'call_key': key})
+        expect(status == 200, f'approve call: {status} {approved}')
+        done = self.call('fixture__delete_note', call)
+        expect(not done.get('is_error') and 'deleted' in done['text'], f'approved delete: {done}')
+        expect(self.fixture.state()['deletes'] == ['n2'], f'provider deletes: {self.fixture.state()["deletes"]}')
+        return {'waiting_text': waiting['text'][:200]}
+
+    def a7_unknown(self):
+        key = f'send-{self.nonce}-lost'
+        body = f'Lost note {self.nonce}'
+        self.fixture.control('/drop-next-send')
+        call = {'to': self.party, 'body': body, '_restless': {'purpose': 'Connections smoke lost response', 'key': key}}
+        lost = self.call('fixture__send_note', call)
+        expect(lost.get('is_error') and 'unknown' in lost['text'], f'a lost response was not unknown: {lost}')
+        retry = self.call('fixture__send_note', call)
+        expect(retry.get('is_error'), f'a retry of an unknown call was not refused: {retry}')
+        executed = [send for send in self.fixture.state()['sends'] if send['body'] == body]
+        expect(len(executed) == 1, f'provider executed the lost call {len(executed)} times')
+        read = self.call('fixture__list_notes', {})
+        settled = self.call('restless_reconcile_effect', {'key': key, 'executed': True,
+                                                          'read_receipt': self.receipt(read['text']),
+                                                          'external_ref': executed[0]['id']})
+        expect(not settled.get('is_error'), f'reconcile: {settled}')
+        again = self.call('fixture__send_note', call)
+        executed = [send for send in self.fixture.state()['sends'] if send['body'] == body]
+        expect(len(executed) == 1, f'after reconcile the provider executed it {len(executed)} times')
+        return {'lost': lost['text'][:200], 'retry': retry['text'][:200], 'after_reconcile': again['text'][:200]}
+
+    def a8_freeze(self):
+        status, body = self.owner(f'/tool-connections/{self.connection}/freeze', {'frozen': True})
+        expect(status == 200, f'freeze: {status} {body}')
+        try:
+            sends = len(self.fixture.state()['sends'])
+            refused = self.call('fixture__send_note', {'to': self.party, 'body': 'While frozen',
+                                                       '_restless': {'purpose': 'Smoke freeze', 'key': f'frozen-{self.nonce}'}})
+            expect(refused.get('is_error') and 'frozen' in refused['text'], f'frozen send: {refused}')
+            expect(len(self.fixture.state()['sends']) == sends, 'the provider received a send while frozen')
+            read = self.call('fixture__list_notes', {})
+            expect(not read.get('is_error'), f'reads refused while frozen: {read}')
+        finally:
+            self.owner(f'/tool-connections/{self.connection}/freeze', {'frozen': False})
+        return {'refused': refused['text'][:200]}
+
+    def a9_contract(self):
+        self.fixture.control('/mutate-send-schema')
+        status, probed = self.owner(f'/tool-connections/{self.connection}/probe', {})
+        expect(status == 200, f'probe: {status} {probed}')
+        names = self.tool_names()
+        expect('fixture__send_note' not in names and 'fixture__list_notes' in names and 'fixture__delete_note' in names,
+               f'after a contract change the actor sees {names}')
+        changed = self.connection_view()['changed']
+        expect(changed == ['send_note'], f'changed tools: {changed}')
+        self.grant_all()
+        restored = self.tool_names()
+        expect('fixture__send_note' in restored, f're-grant did not restore send_note: {restored}')
+        return {'withheld_until_regrant': ['fixture__send_note'], 'changed': changed}
+
+    def a10_refresh(self):
+        # A provider issuing short-lived access tokens: sign in again so the
+        # current token lives 40 s, use it, then use the connection again after
+        # it has expired at the provider.
+        self.fixture.control('/set-access-seconds', {'seconds': 40})
+        self.sign_in()
+        self.grant_all()
+        read = self.call('fixture__list_notes', {})
+        expect(not read.get('is_error'), f'read with a fresh token: {read}')
+        issued = len(self.fixture.state()['issued']['access'])
+        time.sleep(45)
+        read = self.call('fixture__list_notes', {})
+        expect(not read.get('is_error'), f'read after the access token expired: {read}')
+        refreshed = len(self.fixture.state()['issued']['access'])
+        expect(refreshed > issued, 'the read succeeded without a new access token, so expiry was not exercised')
+        self.fixture.control('/set-access-seconds', {'seconds': 3600})
+        # The provider then revokes everything, as after a password change.
+        self.fixture.control('/revoke-refresh')
+        failed = [self.call('fixture__list_notes', {}) for _ in range(2)]
+        expect(all(attempt.get('is_error') or attempt.get('error') for attempt in failed), f'reads after revocation: {failed}')
+        status, probed = self.owner(f'/tool-connections/{self.connection}/probe', {})
+        view = self.connection_view()
+        expect(view['status'] == 'awaiting_sign_in', f'status after revocation: {view["status"]} ({view.get("failure")})')
+        status, attention = self.owner('/attention')
+        mentions = json.dumps(attention).count(self.connection) if status == 200 else None
+        self.sign_in()
+        self.grant_all()
+        return {'access_tokens_before': issued, 'after_refresh': refreshed, 'status_after_revocation': 'awaiting_sign_in',
+                'attention_mentions_of_connection': mentions}
+
+    def a11_tokens(self):
+        state = self.fixture.state()
+        tokens = state['issued']['access'] + state['issued']['refresh']
+        expect(tokens, 'the provider issued no tokens, so there is nothing to search for')
+        container = self.plane.container(self.company)
+        docker('exec', '-u', 'root', container, 'sh', '-c', f'printf %s {CANARY} > /var/tmp/smoke-canary')
+        patterns = '\n'.join([*tokens, CANARY]) + '\n'
+        search = docker('exec', '-i', '-u', 'root', container, 'sh', '-c',
+                        'cat > /tmp/.smoke-patterns; '
+                        'grep -rlsF -f /tmp/.smoke-patterns / --exclude-dir=proc --exclude-dir=sys --exclude-dir=dev 2>/dev/null; '
+                        'for f in /proc/[0-9]*/environ /proc/[0-9]*/cmdline; do grep -qsaF -f /tmp/.smoke-patterns "$f" && echo "$f"; done; '
+                        'rm -f /tmp/.smoke-patterns', input=patterns, check=False, timeout=900)
+        hits = [line for line in search.stdout.split() if line != '/tmp/.smoke-patterns']
+        expect('/var/tmp/smoke-canary' in hits, f'the search did not find its own canary; hits: {hits}')
+        leaks = [hit for hit in hits if hit != '/var/tmp/smoke-canary']
+        inspect_env = docker('inspect', '--format', '{{json .Config.Env}}', container).stdout
+        env_leaks = [token[:12] for token in tokens if token in inspect_env]
+        expect(not leaks and not env_leaks, f'tokens found in the Runtime: files/processes {leaks}, container env {env_leaks}')
+        docker('exec', '-u', 'root', container, 'rm', '-f', '/var/tmp/smoke-canary', check=False)
+        return {'tokens_searched': len(tokens), 'canary_found': True, 'hits': 0}
+
+    def a12_isolation(self):
+        # Creating a company restarts the shared model relay, which also
+        # serves every company's tool gateway. Wait for it to come back.
+        ready = self.plane.log_path.read_text().count('model gateway ready')
+        self.plane.create_company(self.other, f'name = "{self.other}"\nmodel = "{MODEL}"\nspend_ceiling_usd = 0\n')
+        for _ in range(120):
+            if self.plane.log_path.read_text().count('model gateway ready') > ready:
+                break
+            time.sleep(0.5)
+        else:
+            raise AssertionError('the model relay did not restart after a company was created')
+        self.plane.wait_for_port(self.plane.relay_port, 60)
+        self.relay_restarted_on_company_create = True
+        status, body = self.owner('/tool-connections', company=self.other)
+        expect(status == 200 and body['connections'] == [], f'other company connections: {status} {body}')
+        other_token = self.plane.tool_session(self.other, 'exec')
+        own = self.tool_names(company=self.other, token=other_token)
+        expect(not any(name.startswith('fixture__') for name in own), f'other company sees {own}')
+        responses, init = self.gateway([['tools/list', {}]], company=self.other, token=other_token, path_company=self.company)
+        expect(init['status'] == 403 and responses[0]['status'] == 403, f'cross-company gateway call: {init["status"]}/{responses[0]["status"]}')
+        return {'other_company_tools': own, 'cross_company_status': init['status']}
+
+    def a13_restart(self):
+        self.plane.stop()
+        replacement = os.environ.get('RESTLESS_UPGRADE_IMAGE')
+        if replacement:
+            docker('image', 'inspect', replacement)
+            self.plane.image = replacement
+        self.plane.start()
+        self.plane.wait_for_port(self.plane.relay_port, 120)
+        docker('rm', '-f', self.plane.container(self.company))
+        self.plane.raw(self.company, {'cmd': 'up'}, timeout=600)
+        self.wait_running()
+        view = self.connection_view()
+        expect(view['status'] == 'working', f'after restart: {view["status"]}')
+        self.a3_actor_view(other_connections=['notes-local'])
+        receipt = self.a4_reads()
+        running_image = docker('inspect', '--format', '{{.Config.Image}}', self.plane.container(self.company)).stdout.strip()
+        return {'status': view['status'], 'read': receipt, 'runtime_image': running_image, 'image_upgraded': bool(replacement)}
+
+    def a14_disconnect(self):
+        status, body = self.owner(f'/tool-connections/{self.connection}/disconnect', {})
+        expect(status == 200, f'disconnect: {status} {body}')
+        view = self.connection_view()
+        expect(view['status'] == 'disconnected' and view['grants'] == [], f'after disconnect: {view["status"]} grants {view["grants"]}')
+        names = self.tool_names()
+        expect(not any(name.startswith('fixture__') for name in names), f'actor still sees {names}')
+        revoked = self.fixture.state()['revoked']
+        return {'status': view['status'], 'actor_tools': names, 'provider_saw_revocation': bool(revoked)}
+
+    def a15_local(self):
+        source = (fixture_dir / 'stdio.cjs').read_text()
+        status, added = self.owner('/tool-connections', {'kind': 'local', 'name': 'notes-local', 'command': 'node',
+                                                         'args': ['-e', source],
+                                                         'env': {'FIXTURE_TOKEN': 'env:RESTLESS_SMOKE_FIXTURE_TOKEN'}})
+        expect(status == 200, f'add local: {status} {added}')
+        connection = added['connection']
+        expect(connection['status'] == 'working', f'local connection: {connection["status"]} ({connection.get("failure")})')
+        status, granted = self.owner('/tool-connections/notes-local/grant',
+                                     {'grantee': '*', 'tools': [{'tool': 'whoami', 'class': 'reads'}]})
+        expect(status == 200, f'grant local: {status} {granted}')
+        result = self.call('notes-local__whoami', {})
+        expect(not result.get('is_error') and '"transport":"stdio"' in result['text'], f'local whoami: {result}')
+        return {'status': connection['status'], 'whoami': result['text'][:120]}
+
+    def a16_plugin(self):
+        status, response = self.owner('/tool-connections/plugins', {'url': self.fixture.plugin_url})
+        expect(status == 200, f'plugin import: {status} {response}')
+        imported = response['import']
+        connections = imported['connections']
+        found = [c for c in connections if c.get('source', '').startswith(f'plugin:{self.fixture.plugin_url}@')]
+        expect(found, f'no plugin connection with a plugin source: {imported}')
+        skills = imported['skills']
+        expect(any('fixture-note-etiquette' in skill for skill in skills), f'plugin skills: {skills}')
+        # Exec's step, performed by the runner because no model runs: add the
+        # skill as a candidate from inside the company computer.
+        container = self.plane.container(self.company)
+        docker('cp', str(self.fixture.cert), f'{container}:/tmp/fixture-ca.pem')
+        docker('exec', '-u', 'root', container, 'chmod', '644', '/tmp/fixture-ca.pem')
+        skill_url = skills[0].replace('https://127.0.0.1:', 'https://host.docker.internal:')
+        token = self.plane.capability({'kind': 'actor_session', 'company': self.company, 'actor': 'exec', 'session': 'connections_smoke'})
+        added = docker('exec', '-u', 'company', '-w', '/company', '-e', f'RESTLESS_COMPANY={self.company}',
+                       '-e', 'GIT_SSL_CAINFO=/tmp/fixture-ca.pem', '-e', 'RESTLESS_ACTOR=exec',
+                       '-e', f'RESTLESS_SESSION_CAPABILITY={token}', container, 'restless', 'skill', 'add', skill_url,
+                       check=False, timeout=180)
+        expect(added.returncode == 0, f'restless skill add {skill_url}: {added.stderr.strip()[-500:]}')
+        status, library = self.owner('/skills')
+        row = next((row for row in library.get('skills', []) if row['name'] == 'fixture-note-etiquette'), None)
+        expect(row and row['disposition'] == 'candidate', f'skill row: {row}')
+        return {'connection': found[0]['name'], 'source': found[0]['source'], 'skill': row['name'], 'disposition': row['disposition']}
+
+    def a18_install(self):
+        container = self.plane.container(self.company)
+        result = docker('exec', '-u', 'company', container, 'sh', '-c',
+                        'npm install -g --prefix "$HOME/.local" --no-audit --no-fund cowsay@1.6.0 >/dev/null 2>&1 && '
+                        '"$HOME/.local/bin/cowsay" --version', check=False, timeout=300)
+        expect(result.returncode == 0, f'install as company: {result.stdout[-300:]} {result.stderr[-300:]}')
+        home = docker('exec', '-u', 'company', container, 'sh', '-c', 'echo $HOME').stdout.strip()
+        self.cli = (f'{home}/.local/bin/cowsay', result.stdout.strip())
+        return {'path': self.cli[0], 'version': self.cli[1], 'root_used': False}
+
+    def a18_persisted(self):
+        path, version = self.cli
+        result = docker('exec', '-u', 'company', self.plane.container(self.company), path, '--version', check=False)
+        expect(result.returncode == 0 and result.stdout.strip() == version, f'after replacement: {result.returncode} {result.stdout} {result.stderr}')
+        return {'path': path, 'version': version}
+
+    def a17_skills(self):
+        if not self.args.with_skills:
+            raise Skip('run with --with-skills to include scripts/skill-compatibility-smoke (it builds its own plane)')
+        env = {**os.environ, 'RESTLESSD_BIN': self.plane.daemon_bin, 'RESTLESS_SMOKE_IMAGE': self.plane.image}
+        result = subprocess.run([sys.executable, str(repo / 'scripts' / 'skill-compatibility-smoke')], env=env,
+                                capture_output=True, text=True, timeout=1800)
+        expect(result.returncode == 0, f'skills smoke failed: {result.stdout[-1500:]} {result.stderr[-1500:]}')
+        return {'passes': [line for line in result.stdout.splitlines() if line.startswith('PASS')]}
+
+
+def git_revision():
+    result = subprocess.run(['git', '-C', str(repo), 'rev-parse', 'HEAD'], capture_output=True, text=True)
+    return result.stdout.strip() or None
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('--target', choices=['core', 'cloud'], required=True)
+    parser.add_argument('--output')
+    parser.add_argument('--only', help='comma-separated assertion numbers')
+    parser.add_argument('--with-skills', action='store_true')
+    args = parser.parse_args()
+    if args.target == 'cloud':
+        raise SystemExit('the Cloud target needs a signed-in test owner on a Cloud plane (S61-T5); not available yet')
+    args.only = {float(n) for n in args.only.split(',')} if args.only else None
+    return Smoke(args).run()
+
+
+if __name__ == '__main__':
+    sys.exit(main())
