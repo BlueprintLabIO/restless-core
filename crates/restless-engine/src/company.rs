@@ -1773,21 +1773,36 @@ pub fn runtime_image_drifted(doctor: &runtime::RuntimeDoctor) -> bool {
 pub async fn roll_forward_runtimes(daemon: &Daemon, configs: &[runtime::CompanyConfig]) {
     // Without the target image locally its id is unknown and every computer would look current.
     // Observed on Cloud, 6 October: a plane booted on 800d207 skipped its rebuild for this reason.
-    note_roll_forward_stage("fetching_image", None);
-    if let Err(error) = runtime::fetch_company_image().await {
-        note_roll_forward_stage("fetch_failed", Some(format!("{error:#}")));
-        tracing::warn!("release roll-forward could not fetch this release's company image: {error:#}");
-        return;
-    }
+    //
     // Look again after a rollout settles. A rolling deploy briefly runs the previous plane beside
     // this one: it can replace a computer onto its own image while this boot's look finds the
     // container mid-replacement (absent, so not lagging). Observed on Cloud, 6 October 22:29.
-    for (look, delay) in [0u64, 60, 300].into_iter().enumerate() {
+    //
+    // Each look first makes sure the image is here. If this plane cannot pull it (on Cloud the VM
+    // agent prefetches it with registry credentials the plane does not hold), a later look finds it
+    // once it lands. Observed on Cloud, 7 October: a private image failed the plane's only pull.
+    const DELAYS: [u64; 4] = [0, 60, 300, 900];
+    let mut fetched = false;
+    for (look, delay) in DELAYS.into_iter().enumerate() {
         tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
-        note_roll_forward_stage("looking", Some(format!("look {} of 3, {} companies", look + 1, configs.len())));
+        note_roll_forward_stage("fetching_image", Some(format!("look {} of {}", look + 1, DELAYS.len())));
+        if let Err(error) = runtime::fetch_company_image().await {
+            note_roll_forward_stage("fetch_failed", Some(format!("look {} of {}: {error:#}", look + 1, DELAYS.len())));
+            tracing::warn!("release roll-forward could not fetch this release's company image: {error:#}");
+            fetched = false;
+            continue;
+        }
+        fetched = true;
+        note_roll_forward_stage(
+            "looking",
+            Some(format!("look {} of {}, {} companies", look + 1, DELAYS.len(), configs.len())),
+        );
         roll_forward_once(daemon, configs).await;
     }
-    note_roll_forward_stage("done", None);
+    // A last look that could not fetch keeps its fetch_failed stage, with the reason.
+    if fetched {
+        note_roll_forward_stage("done", None);
+    }
 }
 
 /// Each company's latest roll-forward look on this plane, for the plane's /health: what it saw and
