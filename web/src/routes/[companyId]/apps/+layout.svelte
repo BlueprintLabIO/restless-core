@@ -1,8 +1,15 @@
 <script lang="ts">
-	/* Apps is a settings area too: what the company uses, then everything it could add by
-	 * category, beside one pane. Counts come from the same read as the page, so they agree. */
+	/* Apps, ask first: the sidebar is where power users go straight to something. Ask (the
+	 * default), what waits on the owner, what is in use by kind, and everything to add by category.
+	 * Counts come from the same read as the page, so they agree. */
 	import { page } from '$app/state';
-	import CircleCheck from '@lucide/svelte/icons/circle-check';
+	import Sparkles from '@lucide/svelte/icons/sparkles';
+	import Inbox from '@lucide/svelte/icons/inbox';
+	import Globe2 from '@lucide/svelte/icons/cloud';
+	import Terminal from '@lucide/svelte/icons/terminal';
+	import BookOpen from '@lucide/svelte/icons/book-open';
+	import Package from '@lucide/svelte/icons/package';
+	import Link2 from '@lucide/svelte/icons/link-2';
 	import LayoutGrid from '@lucide/svelte/icons/layout-grid';
 	import MessageSquare from '@lucide/svelte/icons/message-square';
 	import Kanban from '@lucide/svelte/icons/kanban';
@@ -15,7 +22,14 @@
 	import SidebarShell from '$lib/ui/views/SidebarShell.svelte';
 	import SidebarGroup from '$lib/ui/views/SidebarGroup.svelte';
 	import SidebarRow from '$lib/ui/views/SidebarRow.svelte';
-	import { BROWSE_CATEGORIES, type AppCategory } from '$lib/model/apps';
+	import {
+		APP_KINDS,
+		BROWSE_CATEGORIES,
+		KIND_INFO,
+		KIND_SECTION,
+		type AppCategory,
+		type AppKind
+	} from '$lib/model/apps';
 	import {
 		createAppsData,
 		provideAppsData,
@@ -39,63 +53,109 @@
 		Documents: FileText,
 		Websites: Globe
 	};
+	const KIND_ICONS: Record<AppKind, typeof LayoutGrid> = {
+		service: Globe2,
+		local: Terminal,
+		skill: BookOpen,
+		bundle: Package
+	};
 
 	const index = $derived(`/${encodeURIComponent(companyId)}/apps`);
-	const href = (view: AppsView) => `${index}?view=${viewKey(view)}`;
+	const href = (view: AppsView) => (view === 'ask' ? index : `${index}?view=${viewKey(view)}`);
 	/* Only the index shows a view; an app's own page leaves the list without a selection. */
 	const current = $derived<AppsView | null>(
 		page.url.pathname.replace(/\/$/, '') === index
-			? (viewFrom(page.url.searchParams.get('view')) ??
-					(data.waiting || data.added.length ? 'in-use' : 'all'))
+			? (viewFrom(page.url.searchParams.get('view')) ?? 'ask')
 			: null
 	);
-	const views = $derived<
-		{ view: AppsView; label: string; count: number; icon: typeof LayoutGrid }[]
-	>([
-		{
-			view: 'in-use',
-			label: 'In use',
-			count: data.added.length + data.included.length,
-			icon: CircleCheck
-		},
-		{ view: 'all', label: 'All apps', count: data.browse.length, icon: LayoutGrid },
-		...BROWSE_CATEGORIES.map((category: AppCategory) => ({
+	const kinds = $derived(
+		APP_KINDS.map((kind) => ({ kind, count: data.ofKind(kind).length })).filter(
+			(row) => row.count > 0 || row.kind === 'service'
+		)
+	);
+	const categories = $derived(
+		BROWSE_CATEGORIES.map((category: AppCategory) => ({
 			view: category,
-			label: category,
-			count: data.inCategory(category).length,
-			icon: ICONS[category]
+			count: data.inCategory(category).length
 		}))
+	);
+	/* The phone row: the same places, fewest first. */
+	const narrowViews = $derived<{ view: AppsView; label: string }[]>([
+		{ view: 'ask', label: 'Ask' },
+		...(data.waiting ? [{ view: 'waiting' as const, label: 'Waiting on you' }] : []),
+		{ view: 'in-use', label: 'In use' },
+		{ view: 'all', label: 'Browse' }
 	]);
 </script>
 
 <SidebarShell label="Apps">
 	{#snippet nav()}
 		<SidebarRow
-			href={href('in-use')}
-			label="In use"
-			icon={CircleCheck}
-			active={current === 'in-use'}
-			count={data.waiting || data.added.length + data.included.length}
-			todo={!!data.waiting}
-			title={data.waiting
-				? `${data.waiting} waiting on you`
-				: `${data.added.length + data.included.length} in use`}
+			href={href('ask')}
+			label="Ask"
+			icon={Sparkles}
+			active={current === 'ask'}
+			title="Say what the company should be able to do, or search your apps (press /)"
 		/>
-		<SidebarGroup label="Add">
-			{#each views.slice(1) as row (row.view)}
+		<SidebarRow
+			href={href('waiting')}
+			label="Waiting on you"
+			icon={Inbox}
+			active={current === 'waiting'}
+			count={data.waiting}
+			todo={!!data.waiting}
+			title="Apps Exec asked for, and ones that need a sign-in or a decision"
+		/>
+		<SidebarGroup label="In use">
+			<SidebarRow
+				href={href('in-use')}
+				label="All in use"
+				icon={LayoutGrid}
+				active={current === 'in-use'}
+				count={data.inUse.length}
+				title="Everything the company can use, with what it may do"
+			/>
+			{#each kinds as row (row.kind)}
+				<SidebarRow
+					href={href(row.kind)}
+					label={KIND_SECTION[row.kind]}
+					icon={KIND_ICONS[row.kind]}
+					active={current === row.kind}
+					count={row.count}
+					title={KIND_INFO[row.kind]}
+				/>
+			{/each}
+		</SidebarGroup>
+		<SidebarGroup label="Browse">
+			<SidebarRow
+				href={href('all')}
+				label="All apps"
+				icon={LayoutGrid}
+				active={current === 'all'}
+				count={data.browse.length}
+			/>
+			{#each categories as row (row.view)}
 				<SidebarRow
 					href={href(row.view)}
-					label={row.label}
-					icon={row.icon}
+					label={row.view}
+					icon={ICONS[row.view]}
 					active={current === row.view}
 					count={row.count}
 				/>
 			{/each}
 		</SidebarGroup>
+		<SidebarGroup label="More">
+			<SidebarRow
+				href={`${index}?add=link`}
+				label="Add from a link"
+				icon={Link2}
+				title="Paste a service's MCP address, a plugin or skill on GitHub, or a command"
+			/>
+		</SidebarGroup>
 	{/snippet}
 	{#snippet narrow()}
 		<div class="views" role="group" aria-label="Apps">
-			{#each views as row (row.view)}
+			{#each narrowViews as row (row.view)}
 				<a
 					class="view"
 					href={href(row.view)}

@@ -4,9 +4,9 @@
  * (a connection's `source`, a skill's `origin_url`) and Exec's pending app
  * requests. Each underlying record keeps its one owner and its own rules.
  *
- * Owner language only: what an app lets the company do and how it is added.
- * The mechanism (MCP, skill, plugin, CLI) appears in tooltips, never as the
- * headline. */
+ * Owner language first: what an app lets the company do. Its kind (a service,
+ * a local tool, know-how or a bundle) organises the power-user views, and the
+ * mechanism behind it (MCP, CLI, skill, plugin) is explained on hover. */
 
 import type { SkillLibrary, SkillRow } from './skills';
 import type { ToolConnection } from './connections';
@@ -277,9 +277,40 @@ export const CATALOGUE: CatalogueEntry[] = [
 
 export type AppState = 'in_use' | 'needs_you' | 'paused' | 'available';
 
+/** What sort of ability an app is. Each grants differently, so experts can tell them apart. */
+export type AppKind = 'service' | 'local' | 'skill' | 'bundle';
+
+export const APP_KINDS: AppKind[] = ['service', 'local', 'skill', 'bundle'];
+
+export const KIND_LABEL: Record<AppKind, string> = {
+	service: 'Service',
+	local: 'Local tool',
+	skill: 'Skill',
+	bundle: 'Bundle'
+};
+
+export const KIND_SECTION: Record<AppKind, string> = {
+	service: 'Services',
+	local: 'Local tools',
+	skill: 'Skills',
+	bundle: 'Bundles'
+};
+
+/** One sentence each, on hover: what it is, and what it can and cannot do. */
+export const KIND_INFO: Record<AppKind, string> = {
+	service:
+		'An online service the company reaches through its MCP server. You sign in once, then choose what the company may do with it.',
+	local:
+		'A program run on your machine, such as a command-line (CLI) tool or a local MCP server, outside the company computer.',
+	skill:
+		'A skill: instructions (and sometimes scripts) the company follows. It grants no access, spending or sign-in.',
+	bundle: 'A plugin: services, tools and know-how that came together from one source.'
+};
+
 export type App = {
 	/** Stable route key: `c-<connection>`, `s-<skill>`, `p-<plugin>` or a catalogue key. */
 	key: string;
+	kind: AppKind;
 	name: string;
 	description: string;
 	how: string;
@@ -370,6 +401,7 @@ export function buildApps(
 			);
 			app = {
 				key: `p-${encodeURIComponent(url)}`,
+				kind: 'bundle',
 				name,
 				description: 'A bundle of connections and know-how.',
 				how: 'Sign-in and know-how',
@@ -395,6 +427,7 @@ export function buildApps(
 		const { state, attention } = connectionState(connection);
 		mine.push({
 			key: `c-${connection.name}`,
+			kind: connection.kind === 'local' ? 'local' : 'service',
 			name: entry?.name ?? skillName(connection.server_name ?? connection.name),
 			description:
 				entry?.description ??
@@ -427,6 +460,7 @@ export function buildApps(
 		const { state, attention } = skillState(skill);
 		mine.push({
 			key: `s-${skill.name}`,
+			kind: 'skill',
 			name: skillName(skill.name),
 			description: skill.description || 'Know-how the company follows.',
 			how: 'Know-how, nothing to sign in to',
@@ -458,6 +492,7 @@ export function buildApps(
 	]);
 	const browse: App[] = CATALOGUE.filter((entry) => !owned.has(entry.key)).map((entry) => ({
 		key: entry.key,
+		kind: 'service' as const,
 		name: entry.name,
 		description: entry.description,
 		how: entry.how,
@@ -469,6 +504,31 @@ export function buildApps(
 		catalogue: entry
 	}));
 	return { mine, browse };
+}
+
+/** What the company may do with an app, in a few words, and why on hover. */
+export function appLevel(app: App): { label: string; info: string } {
+	if (app.kind === 'skill' && !app.connections.length)
+		return { label: 'Know-how', info: 'Instructions the company follows. It grants no access.' };
+	const classes = app.connections.flatMap((connection) =>
+		connection.grants.flatMap((grant) => grant.tools.map((tool) => tool.class))
+	);
+	if (!classes.length)
+		return {
+			label: 'Not allowed yet',
+			info: 'Nothing is granted yet. Open it to choose what the company may do.'
+		};
+	if (classes.includes('acts'))
+		return {
+			label: classes.includes('reserved') ? 'Acts, some ask first' : 'Can act',
+			info: 'Acts without asking, with a receipt for everything it does. A first contact with someone new still waits for you.'
+		};
+	if (classes.includes('reserved'))
+		return {
+			label: 'Asks first',
+			info: 'Reads freely. Before it acts, you see the real draft and choose: once, or don’t ask again.'
+		};
+	return { label: 'Reads only', info: 'Can read, never change anything.' };
 }
 
 /** Whether anything in Apps needs the owner: the tab's dot. */

@@ -6,19 +6,32 @@ import { failureSentence } from './failure';
 import { fetchConnections, type ToolConnection } from './connections';
 import { fetchSkillLibrary, type SkillLibrary } from './skills';
 import { fetchAppRequests, type AppRequest } from './app-requests';
-import { BROWSE_CATEGORIES, buildApps, builtIn, type App, type AppCategory } from './apps';
+import {
+	APP_KINDS,
+	BROWSE_CATEGORIES,
+	buildApps,
+	builtIn,
+	type App,
+	type AppCategory,
+	type AppKind
+} from './apps';
 
-/** A view of the area: what is in use, everything to add, or one category. */
-export type AppsView = 'in-use' | 'all' | AppCategory;
+/** A view of the area: Ask (the default), what waits on the owner, what is in use (all of it or
+ * one kind), everything to add, or one category. */
+export type AppsView = 'ask' | 'waiting' | 'in-use' | AppKind | 'all' | AppCategory;
 
 export function viewFrom(value: string | null): AppsView | null {
-	if (value === 'in-use' || value === 'all') return value;
+	if (value === null) return null;
+	if (['ask', 'waiting', 'in-use', 'all'].includes(value)) return value as AppsView;
+	if ((APP_KINDS as string[]).includes(value)) return value as AppKind;
 	const category = BROWSE_CATEGORIES.find((name) => name.toLowerCase() === value);
 	return category ?? null;
 }
 
 export const viewKey = (view: AppsView) =>
-	view === 'in-use' || view === 'all' ? view : view.toLowerCase();
+	(BROWSE_CATEGORIES as string[]).includes(view) ? view.toLowerCase() : view;
+
+export const isKind = (view: AppsView): view is AppKind => (APP_KINDS as string[]).includes(view);
 
 export function createAppsData(companyId: () => string) {
 	let connections = $state<ToolConnection[] | null>(null);
@@ -95,6 +108,13 @@ export function createAppsData(companyId: () => string) {
 		},
 		inCategory(category: AppCategory): App[] {
 			return browse.filter((app) => app.category === category);
+		},
+		/** Everything the company has, needing the owner or not, built-in know-how last. */
+		get inUse(): App[] {
+			return [...needsYou, ...added, ...included];
+		},
+		ofKind(kind: AppKind): App[] {
+			return [...needsYou, ...added, ...included].filter((app) => app.kind === kind);
 		}
 	};
 }
