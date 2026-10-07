@@ -1,4 +1,9 @@
 <script lang="ts">
+	import {
+		answerIndex,
+		excerptOf,
+		openQuestionIndex as findOpenQuestion
+	} from '$lib/model/open-question';
 	import { untrack } from 'svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
@@ -393,10 +398,13 @@
 	}
 	/* The agent's open question, when its latest word asks for one. Replying
 	 * answers it; the Inbox lists the same question until then. */
-	const openQuestion = $derived.by(() => {
-		const last = visibleMessages.at(-1);
-		return last && last.from !== 'you' ? (last.intent?.ownerNeed?.trim() ?? '') : '';
-	});
+	/* The newest ask still unanswered: only a reply quoting it, or a newer ask, closes it. */
+	const openQuestionIndex = $derived.by(() => findOpenQuestion(visibleMessages, participantName));
+	const openQuestion = $derived.by(() =>
+		openQuestionIndex >= 0
+			? (visibleMessages[openQuestionIndex].intent?.ownerNeed?.trim() ?? '')
+			: ''
+	);
 	/* A receipt under your latest message: sent, or seen when the agent's turn
 	 * consumed it without replying. While it works, the turn dock says so;
 	 * once it replies, the reply is the receipt. */
@@ -472,7 +480,7 @@
 		return last.readAt ? `Seen by ${participantName}` : 'Sent';
 	});
 	const openReplies = $derived.by(() =>
-		openQuestion ? (visibleMessages.at(-1)?.intent?.ownerReplies ?? []).slice(0, 3) : []
+		openQuestion ? (visibleMessages[openQuestionIndex]?.intent?.ownerReplies ?? []).slice(0, 3) : []
 	);
 	/* A likely answer sends on tap, as a message would, after a moment in which it can be taken
 	 * back. The composer stays the owner's: a draft there is never replaced. */
@@ -538,12 +546,12 @@
 	/* The separate facts the question asks for, each with its own field. The
 	 * answer travels as ordinary text, one line per fact. */
 	const openFields = $derived.by(() =>
-		openQuestion ? (visibleMessages.at(-1)?.intent?.ownerFields ?? []).slice(0, 4) : []
+		openQuestion ? (visibleMessages[openQuestionIndex]?.intent?.ownerFields ?? []).slice(0, 4) : []
 	);
 	let fieldValues = $state<Record<string, string>>({});
 	let fieldsFor = '';
 	$effect(() => {
-		const key = `${visibleMessages.at(-1)?.id ?? ''}`;
+		const key = `${visibleMessages[openQuestionIndex]?.id ?? ''}`;
 		if (key === fieldsFor) return;
 		fieldsFor = key;
 		fieldValues = {};
@@ -561,27 +569,13 @@
 	/* When the owner replied to an agent's question, the question folds to a
 	 * receipt under it instead of staying open. */
 	function answeredAt(index: number): string {
-		const message = visibleMessages[index];
-		if (!message?.intent?.ownerNeed || message.from === 'you') return '';
-		/* A later ask supersedes this one; only your next word before it answers. */
-		for (const later of visibleMessages.slice(index + 1)) {
-			if (later.from === 'you') return shortTime(later.createdAt);
-			if (later.intent?.ownerNeed) return '';
-		}
-		return '';
+		const answer = answerIndex(visibleMessages, participantName, index);
+		return answer >= 0 ? shortTime(visibleMessages[answer].createdAt) : '';
 	}
 
 	/* Replying to one message quotes it, so a reply to a long message says
 	 * which point it answers. The quote travels as ordinary Markdown. */
 	let quoting = $state<{ author: string; excerpt: string; answer?: boolean } | null>(null);
-	function excerptOf(text: string): string {
-		const plain = text
-			.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-			.replace(/[*_`>#]/g, '')
-			.replace(/\s+/g, ' ')
-			.trim();
-		return plain.length > 180 ? `${plain.slice(0, 180)}…` : plain;
-	}
 	function quote(author: string, text: string, mode: 'reply' | 'answer' = 'reply') {
 		quoting = { author, excerpt: excerptOf(text), answer: mode === 'answer' };
 		composerFocusKey += 1;
@@ -1047,7 +1041,7 @@
 										><Reply size={12} aria-hidden="true" /></button
 									>{/if}{/snippet}
 						</ConversationMessage>
-						{#if openQuestion && i === visibleMessages.length - 1}
+						{#if openQuestion && i === openQuestionIndex}
 							<div class="open-question" role="group" aria-label={`${participantName} is asking`}>
 								<p>{openQuestion}</p>
 								{#if openReplies.length}
@@ -1068,7 +1062,7 @@
 												type="button"
 												class="other"
 												disabled={!canOperate}
-												onclick={() => (composerFocusKey += 1)}
+												onclick={() => quote(participantName, openQuestion, 'answer')}
 												><i aria-hidden="true"></i><span>Something else…</span></button
 											>{/if}
 									</div>
