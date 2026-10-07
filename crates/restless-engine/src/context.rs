@@ -388,6 +388,10 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
     };
 
     let plan_exists = !snapshot.current_plan.trim().is_empty();
+    // Stable text first, what changes between wakes last. A provider's prompt cache reuses only an
+    // unchanged prefix, and an Exec turn carries ~100k tokens: receipts, budget, plan, journal,
+    // goals and the Work graph sat mid-prompt and re-billed all the doctrine after them every
+    // wake (observed on Cloud, 7 October). Keep anything that changes below the doctrine.
     let system_prompt = format!(
         "# Company operating rules [authoritative — applies to every actor, always]\n{operating_rules}\n\n\
          You are the Exec of {name} — the singleton chief executive of this autonomous company.\n\
@@ -547,19 +551,6 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          only into that child, and records generic JSON. \
          Probe tools with their own help, commands, doctor, or dry-run support. A _test company \
          must use a fake CLI and cannot receive live secret bindings.\n\n\
-         # What your receipts actually record [observation — stronger than your own notes]\n\
-         {ledger}\n\
-         These are counted from kernel receipts, not from your journal. If your plan or \
-         journal claims an outcome these receipts do not support, the receipts win: correct \
-         the record and say plainly that you did so.\n\n\
-         {signals}\n\
-         # Budget [internal decision]\n\
-         {budget}\n\n\
-         # Current plan [working hypothesis]\n{plan}\n\n\
-         # Latest journal entry [historical memory]\n{journal}\n\n\
-         {lead_exchanges}\
-         # Open Goals [owner directive — complete only on Work evidence]\n{goals}\
-         # Open Work graph [internal decision]\n{work}\
          # Organisational judgement protocol\n\
          Resolve what company-wide context can settle with `restless work resolve-handoff --handoff <id> --as exec --state resolved --resolution <answer>`. Resolution is terminal: it removes the handoff from every queue and resumes the affected Work with Exec's answer. If your answer says the item is ready for, still needs, or awaits an owner decision, resolving it is contradictory; prepare a current brief if needed and use `restless work escalate-handoff --handoff <id> --as exec --reason <what you tried and the bounded owner decision>`. Never substitute Exec approval when the remaining action explicitly requires owner authority. Team uncertainty must not jump directly to the owner.\n\n\
          # Direct-human authority boundary [invariant]\n\
@@ -607,6 +598,20 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          optional reader field when it is not genuinely present; do not manufacture status scaffolding \
          for an ordinary conversation.\n\n\
          # Conversing with the owner [owner-only shared contract]\n{conversation_style}\n\
+         \n\
+         # What your receipts actually record [observation — stronger than your own notes]\n\
+         {ledger}\n\
+         These are counted from kernel receipts, not from your journal. If your plan or \
+         journal claims an outcome these receipts do not support, the receipts win: correct \
+         the record and say plainly that you did so.\n\n\
+         {signals}\n\
+         # Budget [internal decision]\n\
+         {budget}\n\n\
+         # Current plan [working hypothesis]\n{plan}\n\n\
+         # Latest journal entry [historical memory]\n{journal}\n\n\
+         {lead_exchanges}\
+         # Open Goals [owner directive — complete only on Work evidence]\n{goals}\
+         # Open Work graph [internal decision]\n{work}\
          ",
         operating_rules = snapshot.operating_rules.trim(),
         owner_briefing = crate::owner_brief::PRESENT_TO_OWNER.trim(),
@@ -872,6 +877,33 @@ mod tests {
             .system_prompt
             .contains("# Company skills [shared contract]"));
         assert!(!package.system_prompt.contains("[shared skill]"));
+    }
+
+    /// A provider's prompt cache reuses only an unchanged prefix. Two wakes that differ only in
+    /// what changes between wakes (plan, journal, goals) must share every piece of doctrine.
+    #[test]
+    fn what_changes_between_wakes_comes_after_the_doctrine() {
+        let first = assemble(&snapshot()).system_prompt;
+        let mut next = snapshot();
+        next.current_plan = "# plan\nstep 2, after the launch".into();
+        next.latest_journal = Some("== 0002.md ==\nshipped step 1".into());
+        let second = assemble(&next).system_prompt;
+        let shared = first
+            .char_indices()
+            .zip(second.chars())
+            .take_while(|((_, a), b)| a == b)
+            .last()
+            .map(|((index, character), _)| index + character.len_utf8())
+            .unwrap_or(0);
+        for doctrine in [
+            "# Sourcing a missing capability",
+            "# Organisational judgement protocol",
+            "# Replying to owner input",
+            "# Conversing with the owner",
+        ] {
+            let at = first.find(doctrine).expect(doctrine);
+            assert!(at < shared, "{doctrine} comes after the first wake-specific text");
+        }
     }
 
     #[test]

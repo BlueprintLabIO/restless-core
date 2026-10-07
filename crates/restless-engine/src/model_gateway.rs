@@ -2703,11 +2703,22 @@ impl MeteredStream {
             self.failed = true;
             return;
         };
+        // OMP reports each part. Record them, not only the total, so input, output and the cache
+        // hit rate are visible: a cached prefix is the largest model-cost lever on long contexts.
+        let part = |field: &str| {
+            usage
+                .and_then(|usage| usage.get(field))
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or_default()
+        };
+        let cached = part("cacheRead");
         self.meter.record_exact(self.request.spend_record(
-            0,
-            0,
+            part("input")
+                .saturating_add(cached)
+                .saturating_add(part("cacheWrite")),
+            part("output"),
             tokens,
-            None,
+            usage.map(|_| cached),
             micro_usd,
             restless_model_gateway::SpendSettlement::Accounted,
         ));
@@ -4806,6 +4817,14 @@ mission = "Choose native intelligence"
             Some(959),
             "the micro-USD ledger uses a conservative 11,041-micro charge"
         );
+        // The parts are kept, not only the total: the cache hit rate is visible.
+        let spool =
+            std::fs::read_to_string(root.join("cells/acme_test/spend/spend.jsonl")).unwrap();
+        let record: serde_json::Value =
+            serde_json::from_str(spool.lines().next().unwrap()).unwrap();
+        assert_eq!(record["inputTokens"], 7_568 + 512);
+        assert_eq!(record["outputTokens"], 71);
+        assert_eq!(record["cachedInputTokens"], 512);
 
         drop(ledger);
         std::fs::remove_dir_all(root).unwrap();

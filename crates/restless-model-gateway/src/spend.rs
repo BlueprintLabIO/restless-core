@@ -55,8 +55,8 @@ pub struct SpendRecord {
     /// written by the HTTP-proxy path still rebuild on boot.
     #[serde(default)]
     pub total_tokens: u64,
-    /// Provider-reported cached input. Older and pi-native records leave this
-    /// unknown rather than converting absence into zero.
+    /// Provider-reported cached input. Records from before it was read, and turn-metered ones,
+    /// leave this unknown rather than converting absence into zero.
     #[serde(default)]
     pub cached_input_tokens: Option<u64>,
     pub cost_micro_usd: u64,
