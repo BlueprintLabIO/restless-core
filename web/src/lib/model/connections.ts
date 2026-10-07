@@ -42,6 +42,8 @@ export type ToolConnection = {
 	auth_type: 'none' | 'bearer' | 'oauth';
 	status: ConnectionStatus;
 	frozen: boolean;
+	/** A local tool allowed to drive the company computer's browser and its sign-ins. */
+	browser?: boolean;
 	account?: string | null;
 	server_name?: string | null;
 	server_version?: string | null;
@@ -171,6 +173,8 @@ export const revokeGrant = (company: string, name: string) =>
 
 export const freezeConnection = (company: string, name: string, frozen: boolean) =>
 	post(named(company, name, 'freeze'), { frozen });
+export const setConnectionBrowser = (company: string, name: string, browser: boolean) =>
+	post(named(company, name, 'browser'), { browser });
 
 export const disconnectConnection = (company: string, name: string) =>
 	post(named(company, name, 'disconnect'));

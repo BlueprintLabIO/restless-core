@@ -13,6 +13,7 @@
 		fetchConnections,
 		fetchReceipts,
 		freezeConnection,
+		setConnectionBrowser,
 		grantTools,
 		probeConnection,
 		revokeGrant,
@@ -250,6 +251,25 @@
 						)}
 				/>
 				<span class="quiet">Freeze</span>
+			{/if}
+			{#if connection.kind === 'local'}
+				<Toggle
+					checked={!!connection.browser}
+					label="Use the company browser"
+					title={connection.browser
+						? 'It drives the company computer’s browser, with the sign-ins you made there. Turn off to take that away.'
+						: 'Let it drive the company computer’s browser and the sign-ins you made there, such as a marketplace account. Only for tools you trust with those accounts.'}
+					disabled={!!busy}
+					onchange={() =>
+						void act(
+							`browser:${connection.name}`,
+							() => setConnectionBrowser(companyId, connection.name, !connection.browser),
+							connection.browser
+								? 'It no longer uses the company browser.'
+								: 'It can use the company browser from its next run.'
+						)}
+				/>
+				<span class="quiet">Company browser</span>
 			{/if}
 		</div>
 	</Section>

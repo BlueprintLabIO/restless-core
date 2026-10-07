@@ -114,8 +114,12 @@ pub struct Connection {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
     pub args: Vec<String>,
-    /// Environment name → credential reference, for local servers.
+    /// Environment name → credential reference, for local servers. A `value:` prefix is a
+    /// plain, non-secret setting (`value:/data/state`).
     pub env: BTreeMap<String, String>,
+    /// A local server that runs inside the company computer's network, so it can drive the
+    /// company browser (and its signed-in sessions) at `RESTLESS_BROWSER_CDP`.
+    pub browser: bool,
     #[serde(skip_serializing)]
     pub auth: ConnectionAuth,
     pub auth_type: String,
@@ -193,6 +197,15 @@ pub async fn ensure_schema(pool: &PgPool) -> Result<()> {
     .execute(pool)
     .await
     .context("create connections")?;
+    // A local tool that drives the company computer's own browser (its signed-in sessions).
+    // Off unless the owner turns it on for that one tool.
+    sqlx::query(
+        "ALTER TABLE restless_authority.connections \
+         ADD COLUMN IF NOT EXISTS browser BOOLEAN NOT NULL DEFAULT FALSE",
+    )
+    .execute(pool)
+    .await
+    .context("add the connections browser column")?;
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS restless_authority.connection_grants (\
            company TEXT NOT NULL, connection TEXT NOT NULL, revision UUID PRIMARY KEY, \
@@ -302,6 +315,7 @@ fn row_to_connection(row: &sqlx::postgres::PgRow) -> Result<Connection> {
         command: row.try_get("command")?,
         args: serde_json::from_value(row.try_get("args")?)?,
         env: serde_json::from_value(row.try_get("env")?)?,
+        browser: row.try_get("browser")?,
         auth,
         auth_type,
         status: row.try_get("status")?,
@@ -318,7 +332,7 @@ fn row_to_connection(row: &sqlx::postgres::PgRow) -> Result<Connection> {
     })
 }
 
-const CONNECTION_COLUMNS: &str = "name, kind, endpoint, command, args, env, auth, status, frozen, \
+const CONNECTION_COLUMNS: &str = "name, kind, endpoint, command, args, env, auth, status, frozen, browser, \
     account, server_name, server_version, tools, failure, source, revision, last_probe_at, created_at";
 
 pub async fn list(pool: &PgPool, company: &str) -> Result<Vec<Connection>> {
@@ -928,6 +942,48 @@ pub async fn grants(
             })
         })
         .collect()
+}
+
+/// Let one local tool use the company computer's browser, or stop it. A privilege over the
+/// owner's signed-in sessions, so it is recorded.
+pub async fn set_browser(
+    pool: &PgPool,
+    authority: &crate::authority::AuthorityStore,
+    company: &str,
+    name: &str,
+    browser: bool,
+    by: &str,
+) -> Result<Connection> {
+    let connection = require(pool, company, name).await?;
+    if browser && connection.kind != "local" {
+        bail!("only a local tool can use the company computer's browser");
+    }
+    let changed = sqlx::query(
+        // A new revision ends the pooled session, so the next call starts with or without it.
+        "UPDATE restless_authority.connections SET browser=$3, revision=gen_random_uuid(), \
+         updated_at=now() WHERE company=$1 AND name=$2 AND browser<>$3",
+    )
+    .bind(company)
+    .bind(name)
+    .bind(browser)
+    .execute(pool)
+    .await?
+    .rows_affected();
+    if changed > 0 {
+        authority
+            .emit(
+                company,
+                if browser {
+                    "connection_browser_allowed"
+                } else {
+                    "connection_browser_revoked"
+                },
+                Some(by),
+                serde_json::json!({ "connection": name }),
+            )
+            .await?;
+    }
+    require(pool, company, name).await
 }
 
 pub async fn set_frozen(
@@ -2166,12 +2222,37 @@ async fn open_local_worker(
         .context("local connection has no command")?;
     let mut secrets = BTreeMap::new();
     for (name, credential) in &connection.env {
+        let value = match credential.strip_prefix("value:") {
+            Some(plain) => plain.to_string(),
+            None => resolve_credential(root, company, credential).await?,
+        };
+        secrets.insert(name.clone(), value);
+    }
+    // A private GitHub install (`uvx --from git+https://github.com/...`) authenticates with the
+    // tool's own token, through git's environment config, never inside the app's link.
+    if let Some(token) = secrets
+        .get("GITHUB_TOKEN")
+        .or_else(|| secrets.get("GH_TOKEN"))
+        .cloned()
+    {
+        use base64::Engine as _;
+        let basic =
+            base64::engine::general_purpose::STANDARD.encode(format!("x-access-token:{token}"));
+        secrets.insert("GIT_CONFIG_COUNT".into(), "1".into());
         secrets.insert(
-            name.clone(),
-            resolve_credential(root, company, credential).await?,
+            "GIT_CONFIG_KEY_0".into(),
+            "http.https://github.com/.extraheader".into(),
+        );
+        secrets.insert(
+            "GIT_CONFIG_VALUE_0".into(),
+            format!("Authorization: Basic {basic}"),
         );
     }
     let image = crate::runtime::company_image();
+    // Each tool keeps its own data (a database, a browser profile, state) across runs, in a
+    // volume that belongs to the company: it is backed up with it and removed with it.
+    let data = crate::runtime::mcp_data_volume_name(company, &connection.name);
+    crate::runtime::ensure_mcp_data_volume(company, &connection.name).await?;
     let worker = format!(
         "restless-mcp-{}-{}",
         connection.name,
@@ -2216,8 +2297,12 @@ async fn open_local_worker(
         "/tmp:rw,nosuid,nodev,size=256m",
         "--mount",
         &format!("type=volume,src={cache},dst=/cache"),
+        "--mount",
+        &format!("type=volume,src={data},dst=/data"),
         "--env",
-        "HOME=/tmp",
+        "HOME=/data",
+        "--env",
+        "RESTLESS_TOOL_DATA=/data",
         "--env",
         "TMPDIR=/tmp",
         "--env",
@@ -2231,6 +2316,15 @@ async fn open_local_worker(
         "--entrypoint",
         "",
     ]);
+    if connection.browser {
+        // Inside the company computer's network its browser listens on loopback only.
+        let computer = crate::runtime::container_name(company);
+        if crate::runtime::status(company).await? != crate::runtime::ContainerStatus::Running {
+            bail!("{} uses the company computer's browser; start the company computer first", connection.name);
+        }
+        docker.arg("--network").arg(format!("container:{computer}"));
+        docker.args(["--env", "RESTLESS_BROWSER_CDP=http://127.0.0.1:9222"]);
+    }
     for (name, value) in &secrets {
         docker.arg("--env").arg(name);
         docker.env(name, value);

@@ -1420,6 +1420,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(tool_connections_api::freeze),
         )
         .route(
+            "/companies/{company}/tool-connections/{name}/browser",
+            post(tool_connections_api::browser),
+        )
+        .route(
             "/companies/{company}/tool-connections/{name}/disconnect",
             post(tool_connections_api::disconnect),
         )

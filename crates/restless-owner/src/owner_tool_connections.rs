@@ -444,6 +444,37 @@ pub(super) async fn freeze(
     }
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct BrowserInput {
+    browser: bool,
+}
+
+/// Let one local tool drive the company computer's browser, or stop it.
+pub(super) async fn browser(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath((company, name)): AxumPath<(String, String)>,
+    Json(input): Json<BrowserInput>,
+) -> Response<Body> {
+    if let Err(refusal) = owner_gate(&state, &company, &principal).await {
+        return refusal;
+    }
+    match connections::set_browser(
+        state.daemon.authority.pool(),
+        &state.daemon.authority,
+        &company,
+        &name,
+        input.browser,
+        principal.actor_id(),
+    )
+    .await
+    {
+        Ok(connection) => Json(serde_json::json!({ "connection": connection })).into_response(),
+        Err(error) => connection_error(error),
+    }
+}
+
 pub(super) async fn disconnect(
     State(state): State<OwnerState>,
     Extension(principal): Extension<RequestPrincipal>,

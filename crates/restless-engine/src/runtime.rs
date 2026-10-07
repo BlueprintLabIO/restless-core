@@ -992,6 +992,47 @@ pub fn volume_name(company: &str) -> String {
 /// The package cache shared by a company's host-side local MCP workers. It is
 /// company data like the Runtime volume, so it is namespaced the same way and
 /// removed with the company.
+/// One local tool's own data, kept across its runs.
+pub fn mcp_data_volume_name(company: &str, connection: &str) -> String {
+    match std::env::var("RESTLESS_RESOURCE_NAMESPACE") {
+        Ok(namespace) if !namespace.is_empty() => {
+            format!("restless-{namespace}-mcp-data-{company}-{connection}")
+        }
+        _ => format!("restless-mcp-data-{company}-{connection}"),
+    }
+}
+
+/// Create a tool's data volume, labelled so backups and company removal find it.
+pub async fn ensure_mcp_data_volume(company: &str, connection: &str) -> Result<()> {
+    let volume = mcp_data_volume_name(company, connection);
+    if docker_observe(&["volume", "inspect", &volume]).await?.status.success() {
+        return Ok(());
+    }
+    let profile = std::env::var("RESTLESS_PROFILE").unwrap_or_else(|_| "stable".into());
+    let namespace = std::env::var("RESTLESS_RESOURCE_NAMESPACE").unwrap_or_default();
+    let output = docker(&[
+        "volume",
+        "create",
+        "--label",
+        &format!("io.restless.profile={profile}"),
+        "--label",
+        &format!("io.restless.namespace={namespace}"),
+        "--label",
+        &format!("io.restless.company={company}"),
+        "--label",
+        &format!("io.restless.mcp-data={connection}"),
+        &volume,
+    ])
+    .await?;
+    if !output.status.success() {
+        bail!(
+            "create tool data {volume}: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(())
+}
+
 pub fn mcp_cache_volume_name(company: &str) -> String {
     match std::env::var("RESTLESS_RESOURCE_NAMESPACE") {
         Ok(namespace) if !namespace.is_empty() => {
@@ -3189,6 +3230,29 @@ pub async fn destroy(
             tokio::time::sleep(Duration::from_millis(250)).await;
         }
         removed.push("local MCP cache");
+    }
+    let namespace = std::env::var("RESTLESS_RESOURCE_NAMESPACE").unwrap_or_default();
+    let data = docker_observe(&[
+        "volume",
+        "ls",
+        "-q",
+        "--filter",
+        &format!("label=io.restless.company={company}"),
+        "--filter",
+        &format!("label=io.restless.namespace={namespace}"),
+        "--filter",
+        "label=io.restless.mcp-data",
+    ])
+    .await?;
+    for volume in String::from_utf8_lossy(&data.stdout).split_whitespace() {
+        let output = docker_observe(&["volume", "rm", volume]).await?;
+        if !output.status.success() {
+            bail!(
+                "remove tool data {volume}: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        removed.push("local tool data");
     }
 
     // A cell is a database and role, not only a schema. Closing the shared

@@ -359,6 +359,12 @@ class Smoke:
                 'a relay restart, or any connection, tool or successful call across companies', self.a12_isolation, needs=[3])
         e.check(15, 'Local stdio connection', 'a local command connection runs on the host-side worker with its credential reference resolved; reads work through the gateway',
                 'a worker failure, or an unresolved credential', self.a15_local)
+        e.check(22, 'A tool keeps its own data', 'what a local tool writes to its data folder in one run is there in the next (each call is a fresh sandbox)',
+                'the data missing on the second run', self.a22_tool_data)
+        e.check(23, 'A Python tool from a link', 'uvx installs a Python MCP server from PyPI in the sandbox and its tools are listed',
+                'uvx not found, or a server that never starts', self.a23_python_tool)
+        e.check(24, 'Company browser is opt-in', "a local tool cannot reach the company browser until the owner allows it; once allowed it reads the browser's version over CDP; once revoked it cannot",
+                'a tool reaching the browser unasked, or still reaching it after revoke', self.a24_company_browser, needs=[22])
         e.check(16, 'Plugin import', "a plugin's server becomes a connection awaiting grant with its plugin source; its skill becomes a candidate",
                 'nothing imported, or a skill that skipped candidacy', self.a16_plugin)
         e.check(13, 'Survives restart and Runtime replacement', 'after a daemon restart and a new Runtime container, actor view and reads still work with no sign-in',
@@ -627,6 +633,57 @@ class Smoke:
         result = self.call('notes-local__whoami', {})
         expect(not result.get('is_error') and '"transport":"stdio"' in result['text'], f'local whoami: {result}')
         return {'status': connection['status'], 'whoami': result['text'][:120]}
+
+    def a22_tool_data(self):
+        # Each call starts a fresh sandbox; what the tool keeps must outlive it.
+        word = 'kept_' + secrets.token_hex(6)
+        source = (fixture_dir / 'stdio.cjs').read_text()
+        status, added = self.owner('/tool-connections', {'kind': 'local', 'name': 'memory-local', 'command': 'node',
+                                                         'args': ['-e', source],
+                                                         'env': {'FIXTURE_TOKEN': 'env:RESTLESS_SMOKE_FIXTURE_TOKEN'}})
+        expect(status == 200 and added['connection']['status'] == 'working', f'add memory-local: {status} {added}')
+        status, granted = self.owner('/tool-connections/memory-local/grant',
+                                     {'grantee': '*', 'tools': [{'tool': name, 'class': 'reads'}
+                                                                for name in ('remember', 'recall', 'browser_version')]})
+        expect(status == 200, f'grant memory-local: {status} {granted}')
+        kept = self.call('memory-local__remember', {'text': word})
+        expect(not kept.get('is_error'), f'remember: {kept}')
+        # End the running sandbox so the next call starts a fresh one (live sessions are pooled).
+        workers = docker('ps', '-q', '--filter', 'label=io.restless.mcp-worker=true',
+                         '--filter', f'label=io.restless.company={self.company}').stdout.split()
+        expect(workers, 'no running tool sandbox to end')
+        docker('rm', '-f', *workers)
+        recalled = self.call('memory-local__recall', {})
+        expect(word in recalled['text'], f'a later run did not find what the tool kept: {recalled}')
+        return {'kept': word, 'recalled': recalled['text'][:80]}
+
+    def a23_python_tool(self):
+        # A Python MCP server from PyPI, installed in the sandbox by uvx, as an app from a link is.
+        status, added = self.owner('/tool-connections', {'kind': 'local', 'name': 'time-local', 'command': 'uvx',
+                                                         'args': ['mcp-server-time']})
+        expect(status == 200, f'add time-local: {status} {added}')
+        connection = added['connection']
+        expect(connection['status'] == 'working', f'python tool: {connection["status"]} ({connection.get("failure")})')
+        names = [tool['name'] for tool in connection['tools']]
+        expect('get_current_time' in names, f'python tool tools: {names}')
+        return {'status': connection['status'], 'tools': names}
+
+    def a24_company_browser(self):
+        refused = self.call('memory-local__browser_version', {})
+        expect(refused.get('is_error') or 'RESTLESS_BROWSER_CDP is unset' in refused['text'],
+               f'a tool reached the company browser without being allowed: {refused}')
+        status, changed = self.owner('/tool-connections/memory-local/browser', {'browser': True})
+        expect(status == 200 and changed['connection']['browser'] is True, f'allow browser: {status} {changed}')
+        allowed = self.call('memory-local__browser_version', {})
+        expect(not allowed.get('is_error') and 'Chrome' in allowed['text'], f'company browser: {allowed}')
+        status, changed = self.owner('/tool-connections/memory-local/browser', {'browser': False})
+        expect(status == 200 and changed['connection']['browser'] is False, f'revoke browser: {status} {changed}')
+        again = self.call('memory-local__browser_version', {})
+        expect(again.get('is_error') or 'unset' in again['text'], f'browser still reachable after revoke: {again}')
+        # Leave later checks the world they expect: this test tool goes away.
+        status, gone = self.owner('/tool-connections/memory-local/disconnect', {})
+        expect(status == 200, f'disconnect memory-local: {status} {gone}')
+        return {'before': refused['text'][:60], 'allowed': allowed['text'][:80], 'after': again['text'][:60]}
 
     def a16_plugin(self):
         status, response = self.owner('/tool-connections/plugins', {'url': self.fixture.plugin_url})

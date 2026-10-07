@@ -65,6 +65,11 @@ FROM binaries-${RUST_BINARIES} AS binaries
 
 FROM node:24-trixie-slim@sha256:8ec5d7557396cfe32d21c3f9c13072355ceab22b584578ca4bb28af31120cffe AS node-runtime
 
+# uv and uvx, pinned: a Python MCP server (an app added from a link such as
+# "uvx --from git+https://... some-mcp") installs itself the way an npx one does.
+# The tool sandbox already points UV_CACHE_DIR at the company's tool cache.
+FROM ghcr.io/astral-sh/uv:0.9.7@sha256:ba4857bf2a068e9bc0e64eed8563b065908a4cd6bfb66b531a9c424c8e25e142 AS uv-runtime
+
 FROM --platform=$BUILDPLATFORM ubuntu:24.04@sha256:a853f94d226358a79c740cfc7bce0c289748f3fe3488d921d038ccd752c61b60 AS browser-runtime
 ARG TARGETARCH
 RUN set -eu; \
@@ -217,6 +222,8 @@ FROM runtime-desktop AS runtime-harnesses
 # omp's bundle uses `using` declarations, so it needs bun >= 1.3.14; node 24
 # cannot parse it. BUN_INSTALL is a system path so the unprivileged `company`
 # user can execute what root installed.
+COPY --from=uv-runtime /uv /uvx /usr/local/bin/
+RUN uv --version && uvx --version
 ENV BUN_INSTALL=/usr/local/bun
 RUN npm install -g bun@1.3.14 \
     && bun install -g @oh-my-pi/pi-coding-agent@18.3.2 \
@@ -321,7 +328,11 @@ RUN set -eux; \
 RUN groupadd --gid 2000 company \
     && useradd --uid 2000 --gid 2000 --no-create-home --home-dir /company/home company \
     && useradd --uid 2001 --gid 2000 --no-create-home --home-dir /tmp/restless-effect effect \
-    && install -d -o company -g company -m 0770 /company
+    && install -d -o company -g company -m 0770 /company \
+    # A tool sandbox runs as `effect` with the company's tool cache at /cache and
+    # its own data at /data. Docker gives a new named volume the ownership of the
+    # image's directory, so these make both writable by the tool.
+    && install -d -o effect -g company -m 0770 /cache /data
 
 RUN npm install -g ws@8.22.0 && npm cache clean --force
 

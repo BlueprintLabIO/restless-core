@@ -9,7 +9,9 @@
 //!   credentials, keys, `connections/`), without sockets, locks, logs or caches;
 //! - `databases/plane.dump`: `pg_dump` of the Authority/plane database;
 //! - `databases/<company>.dump`: `pg_dump` of each company's OrgIntel cell;
-//! - `volumes/<company>.tar`: each company computer's `/company` volume.
+//! - `volumes/<company>.tar`: each company computer's `/company` volume;
+//! - `tools/<company>/<tool>.tar`: each local tool's own data (its database, browser profile or
+//!   state), listed per company in the manifest. Older archives have none.
 //!
 //! Consistency comes from stopping writers, not from snapshots: the plane is
 //! stopped for the whole copy (the stable appliance is drained, stopped and
@@ -54,6 +56,9 @@ pub struct CompanyEntry {
     pub name: String,
     pub database: bool,
     pub volume: bool,
+    /// Local tools with data of their own, by connection name.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -110,10 +115,12 @@ pub fn backup(output: PathBuf, force: bool) -> Result<BackupReport> {
             .join("database.url")
             .is_file();
         let volume = docker_ok(&["volume", "inspect", &profile.docker_volume_name(&name)])?;
+        let tools = tool_data_volumes(&profile, &name)?;
         companies.push(CompanyEntry {
             name,
             database,
             volume,
+            tools,
         });
     }
     let manifest = BackupManifest {
@@ -159,6 +166,18 @@ pub fn backup(output: PathBuf, force: bool) -> Result<BackupReport> {
             &piece,
             &format!("volumes/{}.tar", company.name),
         )?;
+    }
+    // A tool runs only while it is called; the plane is stopped, so its data is at rest.
+    for company in &companies {
+        for tool in &company.tools {
+            let image = helper_image(&profile, &company.name)?;
+            export_volume(&tool_volume_name(&profile, &company.name, tool), &image, &piece)?;
+            append_piece(
+                &mut builder,
+                &piece,
+                &format!("tools/{}/{tool}.tar", company.name),
+            )?;
+        }
     }
     let file = builder.into_inner()?;
     file.sync_all()?;
@@ -271,6 +290,14 @@ pub fn restore(archive: PathBuf, force: bool) -> Result<RestoreReport> {
             found.push(format!("volume {volume}"));
         }
     }
+    for company in &manifest.companies {
+        for tool in &company.tools {
+            let volume = tool_volume_name(&profile, &company.name, tool);
+            if docker_ok(&["volume", "inspect", &volume])? {
+                found.push(format!("tool data {volume}"));
+            }
+        }
+    }
     if !found.is_empty() && !force {
         bail!(
             "refusing to overwrite an existing installation ({}); restore onto a fresh install, or pass --force to replace these databases and volumes (the current state directory is kept aside)",
@@ -331,8 +358,26 @@ pub fn restore(archive: PathBuf, force: bool) -> Result<RestoreReport> {
         }
         let volume = profile.docker_volume_name(&company.name);
         let image = helper_image(&profile, &company.name)?;
-        import_volume(&profile, &volume, &image, &piece)?;
+        import_volume(&profile, &volume, &image, &piece, &[])?;
         std::fs::remove_file(&piece)?;
+    }
+    for company in &manifest.companies {
+        for tool in &company.tools {
+            let entry = next_entry(&mut entries, &format!("tools/{}/{tool}.tar", company.name))?;
+            stream_to(entry, &piece)?;
+            let image = helper_image(&profile, &company.name)?;
+            import_volume(
+                &profile,
+                &tool_volume_name(&profile, &company.name, tool),
+                &image,
+                &piece,
+                &[
+                    format!("io.restless.company={}", company.name),
+                    format!("io.restless.mcp-data={tool}"),
+                ],
+            )?;
+            std::fs::remove_file(&piece)?;
+        }
     }
 
     Ok(RestoreReport {
@@ -857,16 +902,21 @@ fn export_volume(volume: &str, image: &str, destination: &Path) -> Result<()> {
     Ok(())
 }
 
-fn import_volume(profile: &MachineProfile, volume: &str, image: &str, source: &Path) -> Result<()> {
-    docker_run_ok(&[
-        "volume",
-        "create",
-        "--label",
-        &format!("io.restless.profile={}", profile.kind.as_str()),
-        "--label",
-        &format!("io.restless.namespace={}", profile.resource_namespace),
-        volume,
-    ])?;
+fn import_volume(
+    profile: &MachineProfile,
+    volume: &str,
+    image: &str,
+    source: &Path,
+    labels: &[String],
+) -> Result<()> {
+    let profile_label = format!("io.restless.profile={}", profile.kind.as_str());
+    let namespace_label = format!("io.restless.namespace={}", profile.resource_namespace);
+    let mut create = vec!["volume", "create", "--label", &profile_label, "--label", &namespace_label];
+    for label in labels {
+        create.extend(["--label", label.as_str()]);
+    }
+    create.push(volume);
+    docker_run_ok(&create)?;
     let mount = format!("{volume}:/volume");
     // Empty the volume first so a forced restore leaves no stray files.
     let output = Command::new("docker")
@@ -900,6 +950,50 @@ fn import_volume(profile: &MachineProfile, volume: &str, image: &str, source: &P
         );
     }
     Ok(())
+}
+
+/// The data volume of one local tool, named as the engine names it.
+fn tool_volume_name(profile: &MachineProfile, company: &str, tool: &str) -> String {
+    if profile.resource_namespace.is_empty() {
+        format!("restless-mcp-data-{company}-{tool}")
+    } else {
+        format!("restless-{}-mcp-data-{company}-{tool}", profile.resource_namespace)
+    }
+}
+
+/// The local tools of one company that have data of their own, found by their labels.
+fn tool_data_volumes(profile: &MachineProfile, company: &str) -> Result<Vec<String>> {
+    let output = Command::new("docker")
+        .args([
+            "volume",
+            "ls",
+            "--filter",
+            &format!("label=io.restless.company={company}"),
+            "--filter",
+            &format!("label=io.restless.namespace={}", profile.resource_namespace),
+            "--filter",
+            "label=io.restless.mcp-data",
+            "--format",
+            "{{.Label \"io.restless.mcp-data\"}}",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .context("list local tool data volumes")?;
+    if !output.status.success() {
+        bail!(
+            "list local tool data volumes: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    let mut tools: Vec<String> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|tool| !tool.is_empty())
+        .map(str::to_string)
+        .collect();
+    tools.sort();
+    tools.dedup();
+    Ok(tools)
 }
 
 fn write_state_archive(root: &Path, destination: &Path) -> Result<()> {

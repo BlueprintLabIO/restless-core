@@ -249,7 +249,7 @@ impl ToolCaller<'_> {
         let request_digest = canonical_digest(&serde_json::Value::Object(
             arguments.clone().unwrap_or_default(),
         ));
-        let result = async {
+        let attempt = |arguments: Option<JsonObject>| async move {
             let client = connections::upstream(self.root, self.company(), &tool.connection).await?;
             let mut params = CallToolRequestParams::new(tool.grant.tool.clone());
             if let Some(arguments) = arguments {
@@ -260,12 +260,21 @@ impl ToolCaller<'_> {
                 Ok(Err(ServiceError::McpError(error))) => {
                     Err(ReadFailure::Refused(error.message.to_string()))
                 }
-                Ok(Err(_)) => Err(ReadFailure::Lost),
+                // The session itself broke (a local tool's sandbox exited, a remote dropped).
+                Ok(Err(_)) => Err(ReadFailure::Broken),
                 Err(_) => Err(ReadFailure::Lost),
             }
             .map_err(anyhow::Error::new)
-        }
-        .await;
+        };
+        // A read has no side effects, so a broken pooled session is replaced and the read tried
+        // once more, instead of failing until the pool notices on its own.
+        let result = match attempt(arguments.clone()).await {
+            Err(error) if matches!(error.downcast_ref::<ReadFailure>(), Some(ReadFailure::Broken)) => {
+                connections::forget_upstream(self.company(), &tool.connection.name).await;
+                attempt(arguments).await
+            }
+            other => other,
+        };
         let wall_ms = started.elapsed().as_millis() as i64;
         let (status, result_digest, error_class, response) = match result {
             Ok(result) => {
@@ -500,6 +509,8 @@ impl ToolCaller<'_> {
 #[derive(Debug)]
 enum ReadFailure {
     Refused(String),
+    /// The session broke before answering; a fresh one may succeed.
+    Broken,
     Lost,
 }
 
@@ -507,6 +518,7 @@ impl std::fmt::Display for ReadFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ReadFailure::Refused(message) => write!(f, "refused: {message}"),
+            ReadFailure::Broken => write!(f, "session broke"),
             ReadFailure::Lost => write!(f, "lost"),
         }
     }
