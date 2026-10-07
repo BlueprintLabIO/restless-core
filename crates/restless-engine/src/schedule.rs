@@ -516,6 +516,8 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
             "could not flush terminal supervisor facts: {error:#}"
         );
     }
+    // Shadow decisions on any result notice still unread; they change nothing.
+    crate::decisions::shadow_exec_results(&org, &config.mission).await;
 
     // A daemon/process restart can cut a direct CLI wake after the durable
     // `wake` event but before `wake_end`. That work is still owed even when no
@@ -1065,6 +1067,13 @@ async fn run_exec_turn_with_lease(
             owner_message_ids.push(message.id);
         }
     }
+    // A result can wake the Exec before the scheduler's pass sees it. Decide its shadow beside the
+    // wake rather than in front of it: a decision never delays or blocks the turn.
+    {
+        let org = org.clone();
+        let mission = config.mission.clone();
+        tokio::spawn(async move { crate::decisions::shadow_exec_results(&org, &mission).await });
+    }
     // Every pending judgement remains in the assembled context, but only an
     // as-yet-undelivered judgement outranks a focused mention or belongs in
     // this turn's atomic consumption set. A delivered-yet-pending judgement is
@@ -1306,6 +1315,13 @@ async fn run_exec_turn_with_lease(
             .await;
             match recorded {
                 Ok(reply_message_id) => {
+                    crate::decisions::settle_exec_results(
+                        org,
+                        &message_ids,
+                        reply_message_id.is_some(),
+                        !owner_message_ids.is_empty(),
+                    )
+                    .await;
                     let protocol_failure_notice = early_reply_commit_attempted
                         .load(Ordering::Acquire)
                         .then(|| {

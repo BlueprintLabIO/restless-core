@@ -41,6 +41,7 @@ pub mod local_documents;
 pub mod sheet_commands;
 pub mod member_access;
 pub mod tool_gateway;
+pub mod decisions;
 pub mod mentions;
 pub mod model_catalog;
 pub mod model_connections;
