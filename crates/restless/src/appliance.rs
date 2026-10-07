@@ -1388,10 +1388,18 @@ fn stable_singleton_candidates(layout: &Layout) -> Result<BTreeSet<u32>> {
 }
 
 fn stable_listener_pids() -> Result<BTreeSet<u32>> {
-    let output = Command::new("lsof")
+    let output = match Command::new("lsof")
         .args(["-nP", "-t", "-iTCP:7788", "-sTCP:LISTEN"])
         .output()
-        .context("inspect the stable owner port")?;
+    {
+        Ok(output) => output,
+        // A fresh Ubuntu 24.04 has no lsof (observed on a clean install, 7 October); ss is in
+        // iproute2 on every Linux this runs on.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return ss_listener_pids();
+        }
+        Err(error) => return Err(error).context("inspect the stable owner port"),
+    };
     if !output.status.success() && output.stdout.is_empty() {
         return Ok(BTreeSet::new());
     }
@@ -1404,6 +1412,25 @@ fn stable_listener_pids() -> Result<BTreeSet<u32>> {
                 .with_context(|| format!("invalid listener pid {line:?}"))
         })
         .collect()
+}
+
+/// The listeners on the stable port from ss, as `users:(("restlessd",pid=123,fd=9))`. Without ss
+/// either, the plane's singleton lock (checked beside this) still finds a running plane.
+fn ss_listener_pids() -> Result<BTreeSet<u32>> {
+    let output = match Command::new("ss").args(["-Hltnp", "sport = :7788"]).output() {
+        Ok(output) => output,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeSet::new()),
+        Err(error) => return Err(error).context("inspect the stable owner port"),
+    };
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .split("pid=")
+        .skip(1)
+        .filter_map(|rest| {
+            rest.split(|c: char| !c.is_ascii_digit())
+                .next()
+                .and_then(|digits| digits.parse().ok())
+        })
+        .collect())
 }
 
 fn terminate_and_wait(pid: u32) -> Result<()> {
