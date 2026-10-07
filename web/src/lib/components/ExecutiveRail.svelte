@@ -398,6 +398,32 @@
 	}
 	/* The agent's open question, when its latest word asks for one. Replying
 	 * answers it; the Inbox lists the same question until then. */
+	/* A refresh that fails while the last messages are still on screen is usually a moment: a
+	 * restart or a network blip. Say nothing for a few seconds, then one quiet line, and keep
+	 * retrying on its own; it clears as soon as a refresh succeeds. */
+	const RECONNECT_GRACE_MS = 8_000;
+	const RECONNECT_RETRY_MS = 10_000;
+	const troubled = $derived(
+		(!needsProvider && connectionStatus === 'error') ||
+			(conversationFailed && conversationStatus === 'stale')
+	);
+	let reconnecting = $state(false);
+	$effect(() => {
+		if (!troubled) {
+			reconnecting = false;
+			return;
+		}
+		const grace = window.setTimeout(() => (reconnecting = true), RECONNECT_GRACE_MS);
+		const retry = window.setInterval(() => onrefreshConversation?.(), RECONNECT_RETRY_MS);
+		return () => {
+			window.clearTimeout(grace);
+			window.clearInterval(retry);
+		};
+	});
+	function retryNow() {
+		onrefreshConversation?.();
+	}
+
 	/* The newest ask still unanswered: only a reply quoting it, or a newer ask, closes it. */
 	const openQuestionIndex = $derived.by(() => findOpenQuestion(visibleMessages, participantName));
 	const openQuestion = $derived.by(() =>
@@ -930,21 +956,18 @@
 				<!-- Unknown is the ordinary first moment; the transcript skeleton below
 				     already says so without a sentence about it. -->
 				<p class="sr-only" role="status">Checking {participantName}'s conversation status…</p>
-			{:else if !needsProvider && connectionStatus === 'error'}
-				<p class="exr-connection-notice" role="status">
-					Connection status could not be refreshed. Try again shortly.
-				</p>
 			{:else if !needsProvider && connectionStatus === 'unavailable'}
 				<p class="exr-connection-notice" role="status">
 					A conversation route for {participantName} is not available in the latest company status.
 				</p>
 			{/if}
-			{#if conversationFailed && conversationStatus === 'stale'}
-				<p class="exr-connection-notice" role="status">
-					Recent messages could not be refreshed. Showing the last loaded conversation.
-					<button type="button" class="exr-retry" onclick={() => onrefreshConversation?.()}
-						>Try again</button
+			{#if reconnecting}
+				<p class="exr-reconnecting" role="status">
+					<i aria-hidden="true"></i><span
+						title="The last loaded messages stay readable while the connection comes back. It retries by itself."
+						>Reconnecting… showing the last loaded messages</span
 					>
+					<button type="button" class="exr-retry" onclick={retryNow}>Try again</button>
 				</p>
 			{/if}
 			<div class="exr-chat">
@@ -1770,7 +1793,53 @@
 		font-size: var(--t-label);
 		line-height: 1.45;
 	}
+	.exr-reconnecting {
+		display: flex;
+		flex: none;
+		align-items: center;
+		gap: 8px;
+		margin: 0;
+		padding: 6px 14px;
+		border-bottom: 1px solid var(--border-soft);
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+		animation: exr-reconnecting-in var(--motion-disclosure, 180ms) var(--ease-out, ease-out) both;
+	}
+	.exr-reconnecting i {
+		flex: none;
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: var(--state-warning, #b26a00);
+		animation: exr-pulse 1.4s ease-in-out infinite;
+	}
+	.exr-reconnecting span {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.exr-reconnecting .exr-retry {
+		margin: 0 0 0 auto;
+	}
+	@keyframes exr-reconnecting-in {
+		from {
+			opacity: 0;
+		}
+	}
+	@keyframes exr-pulse {
+		50% {
+			opacity: 0.35;
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.exr-reconnecting,
+		.exr-reconnecting i {
+			animation: none;
+		}
+	}
 	.exr-retry {
+		flex: none;
 		display: inline-block;
 		margin-top: 8px;
 		border: 0;
