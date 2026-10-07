@@ -297,6 +297,19 @@ pub async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -
                 Err(error) => Response::err(format!("{error:#}")),
             }
         }
+        "decision-ask" => {
+            let actor = if principal == Principal::Owner { "owner" } else {
+                match request.orgintel.actor.as_deref() { Some(actor) => actor, None => return Response::err("Missing authenticated actor") }
+            };
+            let Some(decision) = request.decision else { return Response::err("Missing decision: give a state and typed questions"); };
+            match daemon.orgintel.get(company).await {
+                Ok(org) => match crate::decisions::ask_for_actor(&org, actor, decision).await {
+                    Ok(value) => Response::ok(value),
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
         "document-review-request" => {
             if principal != Principal::CompanyExec {
                 return Response::err_kind(
@@ -4303,6 +4316,7 @@ pub fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Re
         | "document-operation"
         | "sheet-operation"
         | "room-operation"
+        | "decision-ask"
         | "document-review-request" => pin_actor(&mut request.orgintel.actor, actor, "actor")?,
         "publish-build" | "publish-candidate" | "publish-request" => {
             pin_actor(&mut request.publication.actor, actor, "publication actor")?
@@ -5186,6 +5200,7 @@ mod tests {
             ("document-operation", "document_operation"),
             ("sheet-operation", "sheet_operation"),
             ("room-operation", "room_operation"),
+            ("decision-ask", "decision"),
         ] {
             let token = issuer
                 .issue_actor_session(

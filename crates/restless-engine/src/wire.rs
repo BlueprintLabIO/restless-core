@@ -634,6 +634,9 @@ pub struct Request {
     pub document_operation: Option<crate::document_commands::DocumentOperation>,
     #[serde(default)]
     pub sheet_operation: Option<crate::sheet_commands::SheetOperation>,
+    /// A typed decision a company actor asks for (`restless decide`): `state` and `questions`.
+    #[serde(default)]
+    pub decision: Option<serde_json::Value>,
 }
 
 const ENVELOPE_FIELDS: &[&str] = &["cmd", "company", "principal", "session_capability"];
@@ -772,6 +775,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         "room-operation" => &["actor", "room_operation"],
         "document-operation" => &["actor", "document_operation"],
         "sheet-operation" => &["actor", "sheet_operation"],
+        "decision-ask" => &["actor", "decision"],
         "document-review-request" => &[
             "document_id",
             "expected_document_version",

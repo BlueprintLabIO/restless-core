@@ -82,6 +82,47 @@ async fn a_result_notice_is_decided_in_shadow_and_settled_by_the_wake() {
     // Shadow changes nothing: all three notices are still unread for the Exec.
     assert_eq!(org.inbox(Some("exec")).await.unwrap().len(), 3);
 
+    // A Staff triage question through the same route, answered and logged under that actor. The
+    // CLI path needs the relay in its environment, as on a hosted plane.
+    unsafe {
+        std::env::set_var("GPT_BASE_URL", &base);
+        std::env::set_var(
+            "RESTLESS_HOSTED_MODEL_RELAY_TOKEN",
+            std::env::var("RESTLESS_TEST_DECISIONS_TOKEN").unwrap(),
+        );
+    }
+    let answer = restless_engine::decisions::ask_for_actor(
+        &org,
+        "robin",
+        serde_json::json!({
+            "state": {"email": "Plumber in Parramatta, need a 5-page site live before 1 March, budget around $5k. Can we talk this week?"},
+            "questions": {"lead": {"type": "choice", "instructions": "How promising is this sales lead?",
+                "criteria": {"hot": "Concrete need, budget or timeline; wants to talk soon.", "warm": "Interested but vague.", "cold": "Not a buyer.", "spam": "Junk."}}}
+        }),
+    )
+    .await
+    .expect("a staff decision is answered");
+    assert_eq!(answer["answers"]["lead"]["choice"], "hot", "{answer}");
+    let staff = org.recent_decisions(Some("staff"), 10).await.unwrap();
+    assert_eq!(staff.len(), 1);
+    assert!(
+        staff[0].subject.starts_with("robin:")
+            && staff[0].mode == "active"
+            && staff[0].choice == "lead=hot",
+        "{:?}",
+        staff[0]
+    );
+    assert!(
+        restless_engine::decisions::ask_for_actor(
+            &org,
+            "robin",
+            serde_json::json!({"state": "x", "questions": {}})
+        )
+        .await
+        .is_err(),
+        "a decision with no questions is refused"
+    );
+
     settle_exec_results(&org, &[routine, wanted, unrelated], true, false).await;
     let settled = org.recent_decisions(Some(EXEC_GATE), 10).await.unwrap();
     assert!(

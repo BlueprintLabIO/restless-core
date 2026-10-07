@@ -106,6 +106,90 @@ impl DecisionClient {
     }
 }
 
+/// Asked by a company actor through `restless decide`; logged per actor with its probabilities.
+pub const STAFF_DECISION: &str = "staff";
+const MAX_STATE_BYTES: usize = 32 * 1024;
+
+/// One typed decision for a company actor: queue triage and similar repeated, bounded choices.
+/// The actor acts on the answer; this records what was asked of whom and what came back.
+pub async fn ask_for_actor(org: &OrgIntel, actor: &str, request: Value) -> Result<Value> {
+    let state = request
+        .get("state")
+        .cloned()
+        .filter(|state| !state.is_null())
+        .context("a decision needs a state")?;
+    let questions = request
+        .get("questions")
+        .cloned()
+        .context("a decision needs typed questions")?;
+    let ids = questions
+        .as_object()
+        .map(|questions| questions.len())
+        .unwrap_or(0);
+    anyhow::ensure!(
+        (1..=16).contains(&ids),
+        "a decision takes 1 to 16 typed questions (noul, choice or score)"
+    );
+    anyhow::ensure!(
+        serde_json::to_vec(&state)?.len() <= MAX_STATE_BYTES,
+        "a decision state is at most 32 KiB"
+    );
+    let client = DecisionClient::from_env()
+        .context("decisions are not available on this company computer")?;
+    let decision = client.decide(state, questions).await?;
+    let choice: String = decision
+        .answers
+        .as_object()
+        .map(|answers| {
+            answers
+                .iter()
+                .map(
+                    |(id, answer)| match answer.get("type").and_then(Value::as_str) {
+                        Some("choice") => format!(
+                            "{id}={}",
+                            answer.get("choice").and_then(Value::as_str).unwrap_or("?")
+                        ),
+                        Some("score") => format!(
+                            "{id}={}",
+                            answer
+                                .get("score")
+                                .and_then(Value::as_f64)
+                                .unwrap_or_default()
+                        ),
+                        _ => format!(
+                            "{id}={:.2}",
+                            answer
+                                .get("noul")
+                                .and_then(Value::as_f64)
+                                .unwrap_or_default()
+                        ),
+                    },
+                )
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .unwrap_or_default()
+        .chars()
+        .take(200)
+        .collect();
+    let subject = format!("{actor}:{}", uuid::Uuid::new_v4().simple());
+    org.record_decision(NewDecision {
+        kind: STAFF_DECISION,
+        subject: &subject,
+        mode: "active",
+        model: &decision.model,
+        answers: &decision.answers,
+        choice: if choice.is_empty() {
+            "answered"
+        } else {
+            &choice
+        },
+        latency_ms: decision.latency_ms,
+    })
+    .await?;
+    Ok(json!({ "model": decision.model, "answers": decision.answers }))
+}
+
 pub const EXEC_GATE: &str = "exec_gate";
 /// The successful-result notice OrgIntel writes for the Exec (attempts.rs).
 const EXEC_RESULT_PREFIX: &str = "Completed Work result for Exec delivery consideration:";

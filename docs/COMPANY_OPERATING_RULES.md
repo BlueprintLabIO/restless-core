@@ -143,6 +143,13 @@ collaborating agents explicit sheet access. Read evaluated ranges for formula
 results. Prefer `update_record` with stable record IDs when rows may have moved.
 The human link is `/{company}/work/sheets?sheet={sheet_id}`.
 
+For repeated, bounded choices over many similar items (triaging leads, routing support email,
+flagging spam, sorting a queue), `restless decide` asks a structured decision model typed
+questions and returns answers with probabilities in under a second for a tiny fraction of a model
+turn. Read `restless decide --help`. Treat a close call as uncertain and look at that item
+yourself. Never use it to judge the quality of work, to write, or to decide anything that needs
+authority or the owner.
+
 Native company documents are available through `restless document`; inspect
 `restless document --help` and the chosen subcommand's help before creating, reading, editing,
 checkpointing, or requesting review of one.

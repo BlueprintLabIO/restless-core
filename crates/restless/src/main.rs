@@ -96,6 +96,26 @@ enum Command {
         #[command(subcommand)]
         command: sheet::SheetCommand,
     },
+    /// Ask a structured decision model a bounded question and get typed answers with probabilities.
+    ///
+    /// For repeated, bounded choices such as triaging leads, routing support email or flagging spam:
+    /// fast (under a second) and nearly free. Not for writing, judging the quality of work, or
+    /// anything that grants authority. Example:
+    ///   restless decide --state '{"email":"Need a 5-page site by March, budget $5k"}'     ///     --questions '{"lead":{"type":"choice","instructions":"How promising is this lead?",
+    ///       "criteria":{"hot":"concrete need and timeline","warm":"interested but vague","cold":"not a buyer"}}}'
+    /// Question types: noul (yes/no; criteria {"true": ..., "false": ...}), choice (criteria
+    /// {option: description}), score (criteria: an ordered list). Answers carry probabilities;
+    /// treat a close call as uncertain rather than as the answer.
+    Decide {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        /// The situation to decide about: JSON, or plain text, or @path to a file.
+        #[arg(long)]
+        state: String,
+        /// The typed questions as a JSON object keyed by question id, or @path to a file.
+        #[arg(long)]
+        questions: String,
+    },
     /// Bring a company environment up (create if absent, then start).
     Up {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
@@ -2508,6 +2528,11 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
         Command::Document { company, command } => {
             command.request(company.context("no company: pass -c or set RESTLESS_COMPANY")?)?
         }
+        Command::Decide { company, state, questions } => serde_json::json!({
+            "cmd": "decision-ask",
+            "company": company.context("no company: pass -c or set RESTLESS_COMPANY")?,
+            "decision": { "state": decision_arg(&state, true)?, "questions": decision_arg(&questions, false)? },
+        }),
         Command::Sheet { company, command } => {
             command.request(company.context("no company: pass -c or set RESTLESS_COMPANY")?)?
         }
@@ -4912,5 +4937,18 @@ mod tests {
             http_status(&format!("http://{address}"), "/api/companies").expect("probe status");
         assert_eq!(status, 401);
         server.join().expect("probe server");
+    }
+}
+
+/// A `restless decide` argument: inline or `@file`; JSON, or (for a state) plain text.
+fn decision_arg(raw: &str, text_ok: bool) -> Result<serde_json::Value> {
+    let raw = match raw.strip_prefix('@') {
+        Some(path) => std::fs::read_to_string(path).with_context(|| format!("read {path}"))?,
+        None => raw.to_string(),
+    };
+    match serde_json::from_str(&raw) {
+        Ok(value) => Ok(value),
+        Err(_) if text_ok => Ok(serde_json::Value::String(raw)),
+        Err(error) => Err(anyhow::anyhow!("questions must be a JSON object: {error}")),
     }
 }
