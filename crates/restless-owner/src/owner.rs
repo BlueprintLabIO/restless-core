@@ -258,6 +258,9 @@ struct PartyAction {
     /// A prepared `reserved` tool call to answer instead of a party.
     #[serde(default)]
     call_key: Option<String>,
+    /// With an approved `call_key`: let that tool act from now on (permission at first use).
+    #[serde(default)]
+    always: bool,
 }
 
 #[derive(Default)]
@@ -9005,7 +9008,7 @@ async fn grant(
     }
     let org = state.daemon.orgintel.get(&company).await.ok();
     if let Some(key) = input.call_key.as_deref() {
-        return match crate::effect::decide_tool_call(
+        let message = match crate::effect::decide_tool_call(
             &state.daemon.authority,
             org.as_ref(),
             &company,
@@ -9015,8 +9018,52 @@ async fn grant(
         )
         .await
         {
-            Ok(message) => Json(serde_json::json!({ "message": message })).into_response(),
-            Err(error) => api_error(StatusCode::BAD_REQUEST, "approval", format!("{error:#}")),
+            Ok(message) => message,
+            Err(error) => {
+                return api_error(StatusCode::BAD_REQUEST, "approval", format!("{error:#}"))
+            }
+        };
+        if !input.always {
+            return Json(serde_json::json!({ "message": message })).into_response();
+        }
+        // The call is approved either way; promoting the tool is the second half.
+        let request = state
+            .daemon
+            .authority
+            .find_body(&company, "approval_required", "call_key", key)
+            .await
+            .ok()
+            .flatten();
+        let named = |field: &str| {
+            request
+                .as_ref()
+                .and_then(|body| body.get(field))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        };
+        let (Some(connection), Some(tool)) = (named("connection"), named("tool")) else {
+            return Json(serde_json::json!({ "message": message, "always": false })).into_response();
+        };
+        return match crate::connections::promote_tool(
+            state.daemon.authority.pool(),
+            &state.daemon.authority,
+            &company,
+            &connection,
+            &tool,
+            principal.actor_id(),
+        )
+        .await
+        {
+            Ok(_) => Json(serde_json::json!({
+                "message": format!("{message}; {tool} on {connection} acts without asking from now on"),
+                "always": true,
+            }))
+            .into_response(),
+            Err(error) => api_error(
+                StatusCode::BAD_REQUEST,
+                "approval",
+                format!("{message}, but {tool} still asks first: {error:#}"),
+            ),
         };
     }
     match approval::grant(

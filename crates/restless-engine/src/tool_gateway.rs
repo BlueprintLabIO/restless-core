@@ -905,7 +905,8 @@ mod tests {
                 let proposed = connections::proposed_grant(tool);
                 serde_json::from_value::<connections::ToolDecision>(serde_json::json!({
                     "tool": proposed.tool,
-                    "class": proposed.class,
+                    // This test exercises party approval on an acting send.
+                    "class": if proposed.tool == "send" { connections::ToolClass::Acts } else { proposed.class },
                     "party_args": if proposed.tool == "send" { vec!["to"] } else { vec![] },
                 }))
                 .unwrap()
@@ -1136,6 +1137,36 @@ mod tests {
         )
         .contains("asks the owner first"));
         assert_eq!(fake.deletes.load(Ordering::SeqCst), 1);
+
+        // "Don't ask again": the tool acts from now on; every other tool keeps its class.
+        let before = connections::grants(&pool, &company, Some("mail")).await.unwrap();
+        assert_eq!(
+            connections::promote_tool(&pool, &authority, &company, "mail", "delete", "owner")
+                .await
+                .unwrap(),
+            1
+        );
+        let after = connections::grants(&pool, &company, Some("mail")).await.unwrap();
+        for granted in &after[0].tools {
+            let previous = before[0].tools.iter().find(|tool| tool.tool == granted.tool).unwrap();
+            if granted.tool == "delete" {
+                assert_eq!(granted.class, connections::ToolClass::Acts);
+            } else {
+                assert_eq!(granted.class, previous.class, "{} changed", granted.tool);
+                assert_eq!(granted.party_args, previous.party_args);
+            }
+        }
+        let third_delete = serde_json::json!({"id": "m3", "_restless": {"purpose": "Remove a third", "key": "delete-m3"}});
+        let ran = caller.call("mail__delete", args(third_delete)).await.unwrap();
+        assert!(!is_error(&ran), "{}", text_of(&ran));
+        assert_eq!(fake.deletes.load(Ordering::SeqCst), 2);
+        // Promoting again changes nothing.
+        assert_eq!(
+            connections::promote_tool(&pool, &authority, &company, "mail", "delete", "owner")
+                .await
+                .unwrap(),
+            0
+        );
 
         // A lost result is unknown: retry is blocked until a later read settles it.
         let call = crate::effect::ToolCall {

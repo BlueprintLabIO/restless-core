@@ -53,6 +53,8 @@
 	const base = $derived(`/${encodeURIComponent(companyId)}?item=${encodeURIComponent(item.id)}`);
 	const action = (id: string) => item.actions.find((candidate) => candidate.id === id);
 	const grant = $derived(action('grant'));
+	/* Permission at first use: approve this call and let the tool act from now on. */
+	const grantAlways = $derived(action('grant-always'));
 	const decline = $derived(action('decline'));
 	const approveMandate = $derived(action('approve-email-mandate'));
 	const declineMandate = $derived(action('decline-email-mandate'));
@@ -176,17 +178,17 @@
 			'Marked done',
 			'That was not recorded. Try again.'
 		);
-	const approve = (kind: 'grant' | 'decline') =>
+	const approve = (kind: 'grant' | 'decline', always = false) =>
 		run(
 			async () => {
 				const target = item.source.call_key
-					? { call_key: item.source.call_key }
+					? { call_key: item.source.call_key, ...(always ? { always: true } : {}) }
 					: item.source.party;
 				if (!target) throw new Error('This request has no approval target. Refresh and try again.');
 				await approvalAction(companyId, kind, target);
 				await removeConfirmedAttention(client, companyId, item.id);
 			},
-			kind === 'grant' ? 'Approved' : 'Declined',
+			kind === 'grant' ? (always ? 'Approved. It won’t ask again.' : 'Approved') : 'Declined',
 			'The approval was not recorded. Try again.'
 		);
 	const decideMandate = (decision: 'approve' | 'decline') =>
@@ -432,6 +434,12 @@
 							onapprove={() => void approve('grant')}
 						/>
 					{/key}
+					{#if grantAlways}<button
+							class="btn small"
+							disabled={acting}
+							title={`${grantAlways.consequence} ${grantAlways.nextState}`}
+							onclick={() => approve('grant', true)}>{grantAlways.label}</button
+						>{/if}
 					{#if decline}<button
 							class="btn small"
 							disabled={acting}

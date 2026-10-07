@@ -507,6 +507,19 @@ pub async fn project(
             .unwrap_or("a connection");
         let purpose = event.body.get("purpose").and_then(serde_json::Value::as_str).unwrap_or("");
         let command = event.body.get("prepared_command").cloned().unwrap_or_default();
+        // The draft the owner judges: the call's own arguments, readable, not the whole envelope.
+        let draft = command
+            .get("arguments")
+            .filter(|arguments| !arguments.is_null())
+            .unwrap_or(&command);
+        let draft = serde_json::to_string_pretty(draft).unwrap_or_else(|_| draft.to_string());
+        let doing = tool_words(tool);
+        let who = event
+            .actor_id
+            .as_deref()
+            .and_then(|actor| actors.get(actor))
+            .map(|brief| brief.display.trim_start_matches("The ").to_string())
+            .unwrap_or_else(|| prepared_by.to_string());
         items.push(AttentionItem {
             id: format!("authority:tool-call:{key}"),
             work_id: None,
@@ -518,14 +531,16 @@ pub async fn project(
                 call_key: Some(key.clone()),
             },
             category: "approval".into(),
-            title: format!("Allow {tool} on {connection}?"),
-            what_happened: format!("{prepared_by} prepared this call and stopped: you asked to approve every {tool} call."),
+            title: format!("{who} wants to {doing} on {connection}"),
+            what_happened: format!("{who} prepared this and stopped: {tool} asks you before it runs."),
             why_it_matters: if purpose.is_empty() {
-                format!("{tool} is reserved because it can change or remove things on {connection}.")
+                format!("{tool} can change things on {connection}, so it waits for you.")
             } else {
                 purpose.to_string()
             },
-            recommendation: "Check the exact arguments, then allow or decline this one call.".into(),
+            recommendation: format!(
+                "Check the draft. Allow it once, or allow it and let {tool} run without asking from now on."
+            ),
             requested_action: format!("Allow or decline this {tool} call."),
             if_no_action: "Nothing runs. The company may continue work that does not depend on it.".into(),
             uncertainty: None,
@@ -534,9 +549,9 @@ pub async fn project(
             brief_author: event.actor_id.as_deref().and_then(|actor| actors.get(actor)).cloned(),
             briefed_at: Some(event.created_at),
             evidence: vec![AttentionEvidence {
-                label: "Prepared call".into(),
+                label: "The draft".into(),
                 uri: None,
-                content: Some(command.to_string()),
+                content: Some(draft),
                 kind: "command",
             }],
             review_sources: Vec::new(),
@@ -547,10 +562,20 @@ pub async fn project(
             actions: vec![
                 AttentionAction {
                     id: "grant".into(),
-                    label: "Allow this call".into(),
+                    label: "Allow once".into(),
                     role: "decision",
                     consequence: "Runs exactly this call once. Later calls still ask.".into(),
                     next_state: "The company may retry this exact call.".into(),
+                    href: None,
+                },
+                AttentionAction {
+                    id: "grant-always".into(),
+                    label: "Allow, and don't ask again".into(),
+                    role: "decision",
+                    consequence: format!(
+                        "Runs this call, and lets {tool} on {connection} run without asking from now on."
+                    ),
+                    next_state: "You can make it ask again in Apps at any time.".into(),
                     href: None,
                 },
                 AttentionAction {
@@ -2477,4 +2502,25 @@ mod tests {
             assert!(!payment_state_needs_owner(company_owned_state));
         }
     }
+}
+
+/// A tool's name as words for a sentence: "chat_postMessage" reads "chat post message".
+fn tool_words(tool: &str) -> String {
+    let mut words = String::new();
+    let mut previous_lower = false;
+    for character in tool.chars() {
+        if character == '_' || character == '-' || character == '.' {
+            words.push(' ');
+            previous_lower = false;
+        } else if character.is_uppercase() && previous_lower {
+            words.push(' ');
+            words.extend(character.to_lowercase());
+            previous_lower = false;
+        } else {
+            words.extend(character.to_lowercase());
+            previous_lower = character.is_lowercase();
+        }
+    }
+    let words = words.split_whitespace().collect::<Vec<_>>().join(" ");
+    if words.is_empty() { "use a tool".into() } else { format!("use {words}") }
 }

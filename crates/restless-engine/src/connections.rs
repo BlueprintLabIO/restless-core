@@ -660,7 +660,10 @@ const PARTY_ARGUMENTS: &[&str] = &[
 
 /// The default class for a newly observed tool. MCP annotations from an
 /// untrusted server are hints, so this is a proposal the owner (or Exec)
-/// adjusts, never a decision: an unannotated tool is treated as `acts`.
+/// adjusts, never a decision. Anything that is not a declared read starts as
+/// `reserved`: permission at first use. The owner sees the first real call
+/// and may approve it once, or approve it and let the tool act from then on
+/// (`promote_tool`), instead of judging a list of tools up front.
 pub fn proposed_grant(tool: &ObservedTool) -> GrantedTool {
     let hint = |key: &str| {
         tool.annotations
@@ -670,10 +673,8 @@ pub fn proposed_grant(tool: &ObservedTool) -> GrantedTool {
     };
     let class = if hint("readOnlyHint") == Some(true) {
         ToolClass::Reads
-    } else if hint("destructiveHint") == Some(true) {
-        ToolClass::Reserved
     } else {
-        ToolClass::Acts
+        ToolClass::Reserved
     };
     let party_args = if class == ToolClass::Reads {
         Vec::new()
@@ -815,6 +816,55 @@ pub async fn grant(
         granted_at: Utc::now(),
         expires_at,
     })
+}
+
+/// "Approve, and don't ask again": every live grant on `name` that holds `tool`
+/// as `reserved` is re-granted with it as `acts`, everything else unchanged.
+/// Returns how many grants changed.
+pub async fn promote_tool(
+    pool: &PgPool,
+    authority: &crate::authority::AuthorityStore,
+    company: &str,
+    name: &str,
+    tool: &str,
+    by: &str,
+) -> Result<usize> {
+    let mut changed = 0;
+    for current in grants(pool, company, Some(name)).await? {
+        if !current
+            .tools
+            .iter()
+            .any(|granted| granted.tool == tool && granted.class == ToolClass::Reserved)
+        {
+            continue;
+        }
+        let decisions = current
+            .tools
+            .iter()
+            .map(|granted| ToolDecision {
+                tool: granted.tool.clone(),
+                class: if granted.tool == tool {
+                    ToolClass::Acts
+                } else {
+                    granted.class
+                },
+                party_args: Some(granted.party_args.clone()),
+            })
+            .collect();
+        grant(
+            pool,
+            authority,
+            company,
+            name,
+            &current.grantee,
+            decisions,
+            by,
+            current.expires_at,
+        )
+        .await?;
+        changed += 1;
+    }
+    Ok(changed)
 }
 
 pub async fn revoke_grant(
@@ -2296,7 +2346,7 @@ mod tests {
     }
 
     #[test]
-    fn hints_only_propose_classes_and_unannotated_tools_act() {
+    fn hints_only_propose_classes_and_anything_but_a_read_asks_first() {
         let read = proposed_grant(&observed(
             "search",
             Some(serde_json::json!({"readOnlyHint": true})),
@@ -2305,7 +2355,7 @@ mod tests {
         assert_eq!(read.class, ToolClass::Reads);
         assert!(read.party_args.is_empty());
         let send = proposed_grant(&observed("send", None, &["to", "cc", "body"]));
-        assert_eq!(send.class, ToolClass::Acts);
+        assert_eq!(send.class, ToolClass::Reserved);
         assert_eq!(send.party_args, vec!["cc".to_string(), "to".to_string()]);
         let delete = proposed_grant(&observed(
             "delete",

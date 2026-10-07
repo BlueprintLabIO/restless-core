@@ -429,7 +429,7 @@ export function cockpitContextPath(
 export async function approvalAction(
 	company: string,
 	action: 'grant' | 'decline' | 'revoke',
-	target: string | { call_key: string }
+	target: string | { call_key: string; always?: boolean }
 ): Promise<void> {
 	const response = await fetch(
 		`/api/companies/${encodeURIComponent(company)}/approvals/${action}`,
