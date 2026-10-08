@@ -21,7 +21,11 @@ export function excerptOf(text: string): string {
 }
 
 export function quotesQuestion(message: ThreadMessage, author: string, question: string) {
-	return message.from === 'you' && message.text.startsWith(`> ${author}: ${excerptOf(question)}`);
+	if (message.from !== 'you') return false;
+	if (message.text.startsWith(`> ${author}: ${excerptOf(question)}`)) return true;
+	/* A dismissal from the Inbox quotes the question under the asker's full name. */
+	const first = message.text.split('\n', 1)[0];
+	return first.startsWith('> ') && first.endsWith(`: ${excerptOf(question)}`);
 }
 
 /** The index of the newest question still open, or -1. */

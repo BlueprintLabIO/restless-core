@@ -33,13 +33,15 @@ async fn owner_gate(
 /// Connected tools reach agents through the tool gateway on this plane's
 /// Runtime relay, which a hosted (externally managed) Runtime does not use.
 /// Say so instead of adding an app that no agent could ever call.
+/// A hosted plane reaches online apps through its tool gateway, but has no
+/// Docker of its own to run an app's local command in.
 fn refuse_when_hosted(state: &OwnerState) -> Result<(), Response<Body>> {
     if state.daemon.runtime_bridges.is_hosted() {
         return Err(api_error(
             StatusCode::CONFLICT,
             "connection",
-            "Apps that connect services need a company computer this plane runs \
-             (RESTLESS_RUNTIME_MODE=local). This plane uses an externally managed one.",
+            "This app runs as a command on a computer, which Restless Cloud can't do yet. \
+             Online apps (a link starting https://) work here.",
         ));
     }
     Ok(())
@@ -112,8 +114,10 @@ pub(super) async fn add(
     if let Err(refusal) = owner_gate(&state, &company, &principal).await {
         return refusal;
     }
-    if let Err(refusal) = refuse_when_hosted(&state) {
-        return refusal;
+    if matches!(input, NewConnection::Local { .. }) {
+        if let Err(refusal) = refuse_when_hosted(&state) {
+            return refusal;
+        }
     }
     let pool = state.daemon.authority.pool();
     let added = match connections::add(

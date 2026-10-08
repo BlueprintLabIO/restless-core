@@ -61,6 +61,8 @@ pub fn scope_human_turn_messages(
 /// `assemble` itself is pure.
 pub struct ContextSnapshot {
     pub company: String,
+    /// What the owner sees the company called; a new company has a generated one.
+    pub company_display: String,
     pub owner_actor_id: String,
     pub human_is_membership_owner: bool,
     /// Standing rules for every company actor, compiled from the canonical
@@ -625,8 +627,9 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
         // A company with no charter is meeting its owner: Exec interviews instead of working.
         welcome = if snapshot.mission.trim().is_empty() && snapshot.human_is_membership_owner {
             format!(
-                "\n# Meeting the owner for the first time [owner-only shared contract]\n{}\n",
-                crate::owner_brief::WELCOME_THE_OWNER.trim()
+                "\n# Meeting the owner for the first time [owner-only shared contract]\n{}\n\nThe company is called \"{}\" for now.\n",
+                crate::owner_brief::WELCOME_THE_OWNER.trim(),
+                snapshot.company_display
             )
         } else {
             String::new()
@@ -758,6 +761,7 @@ mod tests {
     fn snapshot() -> ContextSnapshot {
         ContextSnapshot {
             company: "probe".into(),
+            company_display: "Hopeful Piano".into(),
             owner_actor_id: "owner".into(),
             human_is_membership_owner: true,
             operating_rules: "1. Claims are not observations.".into(),

@@ -38,3 +38,12 @@ autolearn:
 retry:
   enabled: false
   modelFallback: false
+# Every actor compacts at a fixed size instead of trusting a context window
+# that the gateway's discovery does not report: OMP takes the smaller of this
+# and the window it believes, so no model overflows on missing metadata, and a
+# long tool loop stops resending its whole history on every call.
+compaction:
+  enabled: true
+  midTurnEnabled: true
+  thresholdTokens: 80000
+  keepRecentTokens: 20000

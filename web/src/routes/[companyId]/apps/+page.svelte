@@ -11,7 +11,7 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { tick } from 'svelte';
-	import { addConnection, importPlugin } from '$lib/model/connections';
+	import { addAndAllow, importPlugin } from '$lib/model/connections';
 	import { sendActorMessage } from '$lib/model/attention';
 	import {
 		KIND_INFO,
@@ -94,14 +94,15 @@
 		}
 	}
 
-	/* Adding a known service probes it at once; the app page then asks for sign-in. */
+	/* Adding a known service probes and allows it at once; the app page asks for a sign-in
+	 * only when one is needed. */
 	async function addCatalogue(app: App) {
 		const entry = app.catalogue;
 		if (!entry) return;
 		await act(
 			`add:${app.key}`,
 			async () => {
-				const { connection } = await addConnection(companyId, {
+				const connection = await addAndAllow(companyId, {
 					kind: 'remote',
 					name: entry.key,
 					endpoint: entry.endpoint,
@@ -138,10 +139,10 @@
 					return;
 				}
 				const name = nameForLink(value);
-				const { connection } =
+				const connection =
 					kind === 'remote'
-						? await addConnection(companyId, { kind: 'remote', name, endpoint: value })
-						: await addConnection(companyId, {
+						? await addAndAllow(companyId, { kind: 'remote', name, endpoint: value })
+						: await addAndAllow(companyId, {
 								kind: 'local',
 								name,
 								command: value.split(/\s+/)[0],

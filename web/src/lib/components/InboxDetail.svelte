@@ -27,6 +27,7 @@
 	import { Fold, Notice } from '$lib/ui/page';
 	import { formatMoment } from '$lib/ui/time';
 	import { fetchAppRequests, type AppRequest } from '$lib/model/app-requests';
+	import { dismissAttention } from '$lib/model/attention';
 
 	let {
 		companyId,
@@ -149,6 +150,17 @@
 		}
 	}
 
+	/* Not needed: off the Inbox until it is raised again, and whoever asked is told so in their
+	 * conversation. It grants and declines nothing. */
+	const dismiss = () =>
+		run(
+			async () => {
+				await dismissAttention(companyId, item.id);
+				await refreshAttention(client, companyId);
+			},
+			item.responsibleActor ? `Dismissed. ${asker} was told.` : 'Dismissed',
+			'That was not dismissed. Try again.'
+		);
 	const sendReply = () =>
 		replyReady &&
 		run(
@@ -258,6 +270,15 @@
 					>{/if}
 			</p>
 		</div>
+		<button
+			type="button"
+			class="btn ghost small dismiss"
+			disabled={acting}
+			title={item.responsibleActor
+				? `Not needed. Removes it from your Inbox and tells ${asker}, who carries on without it.`
+				: 'Not needed. Removes it from your Inbox until it comes up again.'}
+			onclick={() => void dismiss()}>Dismiss</button
+		>
 		<ActionMenu label="More">
 			{#if discuss}<a href={`${base}&conversation=${encodeURIComponent(item.id)}`}>Discuss</a>{/if}
 			<a href={conversationHref}>Open conversation with {asker}</a>

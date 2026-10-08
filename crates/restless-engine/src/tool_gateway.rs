@@ -1,7 +1,9 @@
 //! One MCP server per actor session for every connected tool.
 //!
-//! The Runtime reaches this listener on the Docker bridge with an expiring
-//! tool-session capability. It sees the tools granted to its actor, namespaced
+//! A local Runtime reaches this listener on the Docker bridge; a hosted Runtime
+//! reaches the same handler on the plane's entry host under
+//! `/internal/v1/tool-gateway`, as it reaches the model gateway. Either way it
+//! presents an expiring tool-session capability. It sees the tools granted to its actor, namespaced
 //! `connection__tool`, and never the upstream credential or session: this
 //! host-side handler holds both. `reads` pass straight through with a read
 //! receipt. `acts` and `reserved` calls go through the effect runner, which
@@ -44,8 +46,14 @@ use crate::Daemon;
 const CALL_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_REQUEST_BYTES: usize = 1024 * 1024;
 const MAX_RESULT_BYTES: usize = 2 * 1024 * 1024;
+/// About 15k tokens of text: what one result may put into an actor's context.
+/// Larger text is cut with a note so one page fetch cannot crowd out the turn.
+const CONTEXT_RESULT_CHARS: usize = 60_000;
 const RECONCILE_TOOL: &str = "restless_reconcile_effect";
 const GOVERNANCE_ARGUMENT: &str = "_restless";
+
+/// Where a hosted Runtime reaches this gateway on the plane's entry host.
+pub const HOSTED_TOOL_GATEWAY_PREFIX: &str = "/internal/v1/tool-gateway";
 
 pub fn router(daemon: Arc<Daemon>) -> Router {
     Router::new()
@@ -54,8 +62,40 @@ pub fn router(daemon: Arc<Daemon>) -> Router {
         .with_state(daemon)
 }
 
+/// The same gateway for a hosted Runtime, which arrives over the network: the
+/// capability is the whole authority, and no browser request is accepted.
+pub fn hosted_router(daemon: Arc<Daemon>) -> Router {
+    Router::new()
+        .route("/tools/{company}", any(handle_hosted))
+        .layer(DefaultBodyLimit::max(MAX_REQUEST_BYTES))
+        .with_state(daemon)
+}
+
+pub fn is_hosted_tool_gateway_path(path: &str) -> bool {
+    path.strip_prefix(HOSTED_TOOL_GATEWAY_PREFIX)
+        .is_some_and(|suffix| suffix.starts_with("/tools/"))
+}
+
+/// The plane's entry host when its Runtimes are hosted elsewhere.
+fn hosted_entry_host() -> Option<String> {
+    if std::env::var("RESTLESS_ENTRY_MODE").as_deref() != Ok("network") {
+        return None;
+    }
+    if crate::runtime_mode::RuntimeMode::from_env(true).ok()?
+        == crate::runtime_mode::RuntimeMode::Local
+    {
+        return None;
+    }
+    std::env::var("RESTLESS_ENTRY_HOST")
+        .ok()
+        .map(|host| host.to_ascii_lowercase())
+}
+
 /// The URL a Runtime process uses to reach this gateway.
 pub fn runtime_url(company: &str) -> String {
+    if let Some(host) = hosted_entry_host() {
+        return format!("https://{host}{HOSTED_TOOL_GATEWAY_PREFIX}/tools/{company}");
+    }
     let port = crate::port_with_offset(crate::model_gateway::RUNTIME_RELAY_PORT)
         .unwrap_or(crate::model_gateway::RUNTIME_RELAY_PORT);
     format!("http://host.docker.internal:{port}/tools/{company}")
@@ -105,11 +145,42 @@ async fn handle(
     headers: HeaderMap,
     request: Request<Body>,
 ) -> Response {
-    if request.method() != Method::POST || headers.contains_key("origin") {
-        return StatusCode::METHOD_NOT_ALLOWED.into_response();
-    }
     if !local_runtime_peer(peer.ip()) {
         return StatusCode::FORBIDDEN.into_response();
+    }
+    let port = crate::port_with_offset(crate::model_gateway::RUNTIME_RELAY_PORT)
+        .unwrap_or(crate::model_gateway::RUNTIME_RELAY_PORT);
+    let hosts = vec![
+        format!("host.docker.internal:{port}"),
+        format!("127.0.0.1:{port}"),
+    ];
+    serve(daemon, company, headers, request, hosts).await
+}
+
+async fn handle_hosted(
+    State(daemon): State<Arc<Daemon>>,
+    AxumPath(company): AxumPath<String>,
+    headers: HeaderMap,
+    request: Request<Body>,
+) -> Response {
+    let Some(host) = hosted_entry_host() else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    if headers.contains_key("cookie") {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    serve(daemon, company, headers, request, vec![host]).await
+}
+
+async fn serve(
+    daemon: Arc<Daemon>,
+    company: String,
+    headers: HeaderMap,
+    request: Request<Body>,
+    allowed_hosts: Vec<String>,
+) -> Response {
+    if request.method() != Method::POST || headers.contains_key("origin") {
+        return StatusCode::METHOD_NOT_ALLOWED.into_response();
     }
     let Some(token) = headers
         .get(AUTHORIZATION)
@@ -131,12 +202,7 @@ async fn handle(
     let mut config = StreamableHttpServerConfig::default();
     config.legacy_session_mode = false;
     config.json_response = true;
-    let port = crate::port_with_offset(crate::model_gateway::RUNTIME_RELAY_PORT)
-        .unwrap_or(crate::model_gateway::RUNTIME_RELAY_PORT);
-    config.allowed_hosts = vec![
-        format!("host.docker.internal:{port}"),
-        format!("127.0.0.1:{port}"),
-    ];
+    config.allowed_hosts = allowed_hosts;
     let service = StreamableHttpService::new(
         move || Ok(scope.clone()),
         Arc::new(NeverSessionManager::default()),
@@ -197,6 +263,36 @@ pub struct ToolCaller<'a> {
     pub org: Option<restless_orgintel::OrgIntel>,
     pub config: crate::runtime::CompanyConfig,
     pub grant: &'a ToolGrant,
+}
+
+/// A result as the actor's context receives it: text beyond the budget is cut
+/// with a note to ask for less, and a duplicate structured copy is dropped.
+fn fit_for_context(mut result: CallToolResult) -> CallToolResult {
+    let total: usize = result
+        .content
+        .iter()
+        .filter_map(|block| block.as_text())
+        .map(|text| text.text.chars().count())
+        .sum();
+    if total <= CONTEXT_RESULT_CHARS {
+        return result;
+    }
+    let mut left = CONTEXT_RESULT_CHARS;
+    for block in &mut result.content {
+        if let ContentBlock::Text(text) = block {
+            let keep = text.text.chars().count().min(left);
+            if keep < text.text.chars().count() {
+                text.text = text.text.chars().take(keep).collect();
+            }
+            left -= keep;
+        }
+    }
+    result.content.retain(|block| block.as_text().is_none_or(|text| !text.text.is_empty()));
+    result.content.push(ContentBlock::text(format!(
+        "[Cut to {CONTEXT_RESULT_CHARS} of {total} characters to fit your context. Ask for less: a narrower query, a page range or a summary.]"
+    )));
+    result.structured_content = None;
+    result
 }
 
 fn text_error(message: impl Into<String>) -> CallToolResponse {
@@ -284,7 +380,7 @@ impl ToolCaller<'_> {
                         text_error("The tool result exceeded the gateway's size limit; ask for less."))
                 } else {
                     let status = if result.is_error == Some(true) { "tool_error" } else { "complete" };
-                    (status, Some(format!("{:x}", Sha256::digest(&encoded))), None, result.into())
+                    (status, Some(format!("{:x}", Sha256::digest(&encoded))), None, fit_for_context(result).into())
                 }
             }
             Err(error) => match error.downcast_ref::<ReadFailure>() {
@@ -408,7 +504,7 @@ impl ToolCaller<'_> {
         .await;
         match receipt {
             Ok(receipt) => {
-                let mut result = live
+                let result = live
                     .into_inner()
                     .ok()
                     .flatten()
@@ -423,6 +519,7 @@ impl ToolCaller<'_> {
                         ""
                     }
                 );
+                let mut result = fit_for_context(result);
                 result.content.push(ContentBlock::text(note));
                 result.into()
             }
@@ -747,6 +844,21 @@ impl ToolCaller<'_> {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    #[test]
+    fn an_oversized_result_is_cut_to_the_context_budget_with_a_note() {
+        let page = "é".repeat(CONTEXT_RESULT_CHARS + 5_000);
+        let mut result = CallToolResult::success(vec![ContentBlock::text(page)]);
+        result.structured_content = Some(serde_json::json!({ "copy": "large" }));
+        let fitted = fit_for_context(result);
+        let texts: Vec<_> = fitted.content.iter().filter_map(|block| block.as_text()).collect();
+        assert_eq!(texts[0].text.chars().count(), CONTEXT_RESULT_CHARS);
+        assert!(texts.last().unwrap().text.contains("Ask for less"));
+        assert!(fitted.structured_content.is_none());
+
+        let small = CallToolResult::success(vec![ContentBlock::text("short")]);
+        assert_eq!(fit_for_context(small).content.len(), 1);
+    }
 
     #[test]
     fn parties_come_from_declared_arguments_only() {

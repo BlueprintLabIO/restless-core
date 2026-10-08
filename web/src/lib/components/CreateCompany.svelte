@@ -5,18 +5,50 @@
 	import { goto } from '$app/navigation';
 	import { createCompany, getCompanies } from '$lib/model/cockpit';
 
+	const ADJECTIVES = [
+		'Hopeful',
+		'Quiet',
+		'Bright',
+		'Gentle',
+		'Brave',
+		'Lucky',
+		'Clever',
+		'Sunny',
+		'Steady',
+		'Merry',
+		'Bold',
+		'Calm'
+	];
+	const NOUNS = [
+		'Piano',
+		'Harbour',
+		'Lantern',
+		'Meadow',
+		'Compass',
+		'Kettle',
+		'Orchard',
+		'Comet',
+		'Willow',
+		'Pebble',
+		'Atlas',
+		'Robin'
+	];
+	const pick = (words: string[]) => words[Math.floor(Math.random() * words.length)];
+
 	let busy = $state(false);
 	let error = $state('');
 	let planned = '';
+	let plannedName = '';
 
 	async function start() {
 		if (busy) return;
 		busy = true;
 		error = '';
 		planned ||= `company_${crypto.randomUUID().replaceAll('-', '').slice(0, 16)}`;
+		plannedName ||= `${pick(ADJECTIVES)} ${pick(NOUNS)}`;
 		try {
 			try {
-				await createCompany({ name: planned, display_name: 'New company', mission: '' });
+				await createCompany({ name: planned, display_name: plannedName, mission: '' });
 			} catch (cause) {
 				// A lost creation response must not create a second company on retry.
 				const existing = await getCompanies().catch(() => []);

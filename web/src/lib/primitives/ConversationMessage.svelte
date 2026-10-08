@@ -95,10 +95,10 @@
 			: ''
 	);
 
-	/* Takeaway first: an agent's own one-line reading of the message leads. A reply reads in full;
-	 * only something genuinely long (a pasted report, a log) folds, and then late. */
+	/* Takeaway first: an agent's own one-line reading of the message leads. An agent's reply is
+	 * never folded; only the owner's own long paste (a report, a log) folds, and then late. */
 	const takeaway = $derived(sender === 'agent' ? (intent?.summary?.trim() ?? '') : '');
-	const long = $derived(text.split(/\s+/).length > 450);
+	const long = $derived(sender !== 'agent' && text.split(/\s+/).length > 450);
 	let expanded = $state(false);
 	const folded = $derived(long && !expanded);
 	let preview: ReferencePreview | undefined = $state();

@@ -203,3 +203,18 @@ export function statusLabel(connection: ToolConnection): string {
 		}[connection.status] ?? connection.status
 	);
 }
+
+/* Adding an app is one step: add it, let the gateway check it, and allow it at once with Exec's
+ * proposal (reads run; anything that acts asks the owner the first time). An app that needs a
+ * sign-in comes back awaiting it, for the caller to start. */
+export async function addAndAllow(company: string, input: NewConnection): Promise<ToolConnection> {
+	const { connection } = await addConnection(company, input);
+	const view = (await fetchConnections(company)).find((row) => row.name === connection.name);
+	if (!view || view.status !== 'working' || !view.proposed.length) return view ?? connection;
+	await grantTools(
+		company,
+		view.name,
+		view.proposed.map(({ tool, class: kind, party_args }) => ({ tool, class: kind, party_args }))
+	);
+	return view;
+}

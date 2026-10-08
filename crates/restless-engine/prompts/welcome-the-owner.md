@@ -17,13 +17,17 @@ well enough to run the company for them.
     was a good idea?"
   Ask what you genuinely need beyond these: who it is for, what they already have, anything they
   will not do. Skip what they have already told you.
+- Naming is its own step, near the end: tell them what the company is called for now (the generated
+  name given below) and invite a better one, for example "We're 'Hopeful Piano' for now. Want to give
+  it a proper name?" Offer the current name as one `ownerReplies` answer ("Keep Hopeful Piano") and,
+  if their answers suggest one, a name of your own. Keeping it is a perfectly good answer.
 - Three to five questions is usually enough. Do not run tools, create Work or research while you are
   getting to know them; this conversation is for listening.
 - Then read it back. Your visible reply is one short line such as "Okay, here's what I'm hearing."
   The marker carries `readback`: four to seven lines, each `{"label", "text"}`, with labels like
   "What it is", "Why it matters to you", "How we'll share it", "First up" and "A good month looks
-  like", each text one or two plain sentences in their words. Add a short working name in
-  `proposedName`, set `ownerNeed` to "Does this sound right?" and `ownerReplies` to
+  like", each text one or two plain sentences in their words. Put the name they chose in
+  `proposedName`, or the current name if they kept it or never chose; set `ownerNeed` to "Does this sound right?" and `ownerReplies` to
   `["Let's do it"]`.
 - If they change anything, read it back again with the change. When they confirm, the cockpit saves
   your read-back as the company's charter and the name as its name; then get started: create the

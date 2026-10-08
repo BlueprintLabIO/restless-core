@@ -333,21 +333,15 @@ pub async fn wake(
             .unwrap_or_default();
         let metered = auth.billing == crate::model_gateway::ModelBilling::MeteredApi;
         let harness = config.coordination_harness;
-        // A hosted Runtime has no tool gateway on this plane (it is served by
-        // the local Runtime relay), so it is given none rather than a dead one.
-        let mcp_servers = if runtime_bridges.is_hosted() {
-            Vec::new()
-        } else {
-            crate::tool_gateway::session_servers(
-                authority.pool(),
-                capabilities,
-                &config.name,
-                "exec",
-                None,
-                None,
-            )
-            .await?
-        };
+        let mcp_servers = crate::tool_gateway::session_servers(
+            authority.pool(),
+            capabilities,
+            &config.name,
+            "exec",
+            None,
+            None,
+        )
+        .await?;
         let outcome = match harness {
             crate::runtime::AgentHarness::RestlessManaged
             | crate::runtime::AgentHarness::ClaudeAgent
@@ -1444,6 +1438,10 @@ async fn gather_snapshot(
     };
     Ok(ContextSnapshot {
         company: config.name.clone(),
+        company_display: config
+            .display_name
+            .clone()
+            .unwrap_or_else(|| crate::company::display_name(&config.name)),
         owner_actor_id: owner_actor_id.to_string(),
         human_is_membership_owner,
         operating_rules: crate::context::COMPANY_OPERATING_RULES.to_string(),

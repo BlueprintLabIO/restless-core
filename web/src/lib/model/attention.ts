@@ -486,3 +486,14 @@ export async function browserControl(
 }
 
 const ownerError = responseFailure;
+
+/** Set an Inbox item aside as not needed; whoever asked is told in their conversation. */
+export async function dismissAttention(companyId: string, itemId: string): Promise<void> {
+	const response = await fetch(`/api/companies/${encodeURIComponent(companyId)}/attention/dismiss`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		credentials: 'same-origin',
+		body: JSON.stringify({ item_id: itemId })
+	});
+	if (!response.ok) throw await ownerError(response);
+}

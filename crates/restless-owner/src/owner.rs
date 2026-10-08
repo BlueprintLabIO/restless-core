@@ -1291,6 +1291,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .route("/companies/{company}/archive", post(archive_company))
         .route("/companies/{company}/restore", post(restore_company))
         .route("/companies/{company}/attention", get(attention_view))
+        .route("/companies/{company}/attention/dismiss", post(dismiss_attention))
         .route("/companies/{company}/changes", get(company_changes))
         .route(
             "/companies/{company}/sharing/setup",
@@ -1551,6 +1552,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             crate::model_gateway::HOSTED_MODEL_GATEWAY_PREFIX,
             crate::model_gateway::hosted_routes::<OwnerState>(),
         )
+        .nest_service(
+            crate::tool_gateway::HOSTED_TOOL_GATEWAY_PREFIX,
+            crate::tool_gateway::hosted_router(std::sync::Arc::clone(&state.daemon)),
+        )
         .route(
             tool_connections_api::OAUTH_CALLBACK_PATH,
             get(tool_connections_api::oauth_callback),
@@ -1636,6 +1641,7 @@ async fn enforce_owner_boundary(
         || request.uri().path() == crate::runtime_bridge::RUNTIME_BRIDGE_BOOTSTRAP_PATH
         || request.uri().path() == crate::runtime_bridge::RUNTIME_BRIDGE_PATH
         || crate::model_gateway::is_hosted_model_gateway_path(request.uri().path())
+        || crate::tool_gateway::is_hosted_tool_gateway_path(request.uri().path())
         || crate::owner_cell_readiness::is_cell_readiness_path(request.uri().path())
     {
         // Fleet's dedicated file-backed bearer and exact deployment tuple are
@@ -4871,6 +4877,99 @@ async fn attention_view(
             format!("{error:#}"),
         ),
     }
+}
+
+#[derive(Deserialize)]
+struct DismissAttentionInput {
+    item_id: String,
+}
+
+/// The owner sets an Inbox item aside as not needed. It grants and declines
+/// nothing; the agent that asked is told in its conversation, as if the owner
+/// had typed it, so it stops waiting and decides what to do instead.
+async fn dismiss_attention(
+    State(state): State<OwnerState>,
+    Extension(principal): Extension<RequestPrincipal>,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<DismissAttentionInput>,
+) -> impl IntoResponse {
+    let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => config,
+        Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+    };
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(error) => {
+            return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}"))
+        }
+    };
+    let view = match attention::project(&config, &state.daemon.authority, Some(&org)).await {
+        Ok(view) => view,
+        Err(error) => {
+            return api_error(StatusCode::SERVICE_UNAVAILABLE, "projection", format!("{error:#}"))
+        }
+    };
+    let Some(item) = view.items.into_iter().find(|item| item.id == input.item_id) else {
+        return api_error(StatusCode::NOT_FOUND, "attention", "this item is no longer in the Inbox");
+    };
+    let owner = principal.actor_id().to_string();
+    if let Err(error) = org.dismiss_attention(&item.id, &owner).await {
+        return api_error(StatusCode::SERVICE_UNAVAILABLE, "orgintel", format!("{error:#}"));
+    }
+    let mut told = None;
+    if let Some(asker) = item.responsible_actor.as_ref() {
+        let actor = asker.id.clone();
+        let ask = item.requested_action.split_whitespace().collect::<Vec<_>>().join(" ");
+        let body = if item.source.kind == "conversation_owner_need" {
+            // Quoting the question answers it, as a reply from the conversation would.
+            let plain: String = ask.chars().filter(|c| !"*_`>#".contains(*c)).collect();
+            let excerpt = if plain.chars().count() > 180 {
+                format!("{}…", plain.chars().take(180).collect::<String>())
+            } else {
+                plain
+            };
+            format!(
+                "> {}: {excerpt}\n\nNot needed, so I dismissed it from my Inbox. Carry on without it.",
+                asker.display
+            )
+        } else {
+            let what = if ask.is_empty() || ask.chars().count() > 200 {
+                item.title.clone()
+            } else {
+                ask
+            };
+            format!(
+                "I dismissed this from my Inbox as not needed: \"{what}\". Don't wait on it; carry on without it, or tell me if it really matters."
+            )
+        };
+        // One message per raising of the item: a retry replays it, a re-raised item tells again.
+        let command = format!(
+            "dismiss:{:x}",
+            Sha256::digest(format!("{}|{}", item.id, item.created_at.timestamp_micros()))
+        );
+        let digest = format!("{:x}", Sha256::digest(body.as_bytes()));
+        if let Ok((message_id, _, created)) = org
+            .send_human_runtime_conversation_message_idempotent_with_standard(
+                &owner, &actor, &body, false, None, &[], &command, &digest,
+            )
+            .await
+        {
+            if created {
+                state
+                    .daemon
+                    .activities
+                    .expect_message(&company, &actor, message_id, None);
+                if actor == "exec" {
+                    if let Ok(mut claims) = state.daemon.in_flight.lock() {
+                        claims.queue_owner_message(&company);
+                    }
+                    state.daemon.schedule_wake.notify_one();
+                }
+            }
+            told = Some(actor);
+        }
+    }
+    Json(serde_json::json!({ "dismissed": item.id, "told": told })).into_response()
 }
 
 #[derive(Deserialize)]

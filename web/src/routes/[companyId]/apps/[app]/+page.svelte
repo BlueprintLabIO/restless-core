@@ -7,7 +7,7 @@
 	import { goto } from '$app/navigation';
 	import {
 		CLASS_LABEL,
-		addConnection,
+		addAndAllow,
 		currentClasses,
 		disconnectConnection,
 		fetchConnections,
@@ -34,6 +34,7 @@
 	import { buildApps, nameForLink, skillName, type App } from '$lib/model/apps';
 	import AppMark from '$lib/primitives/AppMark.svelte';
 	import { fetchAppRequests, type AppRequest } from '$lib/model/app-requests';
+	import { dismissAttention } from '$lib/model/attention';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	const key = $derived(decodeURIComponent(page.params.app ?? ''));
@@ -89,6 +90,10 @@
 			apps?.browse.find((candidate) => candidate.key === key)
 	);
 	const pendingLink = $derived(key.startsWith('link:') ? key.slice('link:'.length) : '');
+	/* A pasted link reads as the service it names: mcp.exa.ai is Exa. */
+	const linkName = $derived(
+		pendingLink ? nameForLink(pendingLink).replace(/^./, (first) => first.toUpperCase()) : ''
+	);
 
 	async function act(id: string, action: () => Promise<unknown>, done = '') {
 		if (busy) return;
@@ -109,8 +114,8 @@
 	async function add() {
 		const entry = app?.catalogue;
 		await act('add', async () => {
-			const { connection } = entry
-				? await addConnection(companyId, {
+			const connection = entry
+				? await addAndAllow(companyId, {
 						kind: 'remote',
 						name: entry.key,
 						endpoint: entry.endpoint,
@@ -120,7 +125,7 @@
 								? { type: 'bearer', credential: vaultSecret.trim() }
 								: { type: 'none' }
 					})
-				: await addConnection(companyId, {
+				: await addAndAllow(companyId, {
 						kind: 'remote',
 						name: nameForLink(pendingLink),
 						endpoint: pendingLink
@@ -428,12 +433,12 @@
 	</Page>
 {:else}
 	<Page
-		title={app?.name ?? pendingLink}
+		title={app?.name ?? linkName}
 		info={app ? `${app.description} ${app.howTip}` : `An MCP server at ${pendingLink}.`}
 	>
 		{#snippet leading()}
 			<AppMark
-				name={app?.name ?? pendingLink}
+				name={app?.name ?? linkName}
 				catalogueKey={app?.catalogue?.key}
 				knowHow={app?.category === 'Know-how'}
 				size={32}
@@ -466,7 +471,22 @@
 				class="request"
 				title={`${request.work_title ? `For “${request.work_title}”. ` : ''}Allowing it resumes that work on its own.`}
 			>
-				<span class="asked">{request.asker} asked</span>{request.reason}
+				<span class="asked">{request.asker} asked</span><span class="reason">{request.reason}</span
+				><button
+					type="button"
+					class="link-button"
+					title={`Not needed. Tells ${request.asker}, who carries on without it.`}
+					disabled={!!busy}
+					onclick={() =>
+						act(
+							'dismiss',
+							async () => {
+								await dismissAttention(companyId, `orgintel:handoff:${request?.handoff_id}`);
+								request = null;
+							},
+							'Dismissed'
+						)}>Not needed</button
+				>
 			</p>
 		{/if}
 
@@ -539,6 +559,21 @@
 		color: var(--text-secondary);
 		font-size: var(--t-body);
 		line-height: 1.5;
+	}
+	.request .reason {
+		flex: 1;
+	}
+	.link-button {
+		flex-shrink: 0;
+		padding: 0;
+		border: 0;
+		background: none;
+		color: var(--text-tertiary);
+		font: inherit;
+		cursor: pointer;
+	}
+	.link-button:hover {
+		color: var(--ink);
 	}
 	.asked {
 		flex-shrink: 0;

@@ -41,14 +41,13 @@
 	import { PIN, reactionsQuery } from '$lib/model/reactions.svelte';
 	import { workDraftFrom, askExec } from '$lib/model/ask-exec';
 	import Pin from '@lucide/svelte/icons/pin';
-	import Link from '@lucide/svelte/icons/link';
-	import ListPlus from '@lucide/svelte/icons/list-plus';
 	import { recentDirectConversationsQuery } from '$lib/model/room-queries.svelte';
 	import { deleteRoomMessage } from '$lib/model/rooms';
 	import { markSeen, seenThrough as roomSeenThrough } from '$lib/model/conversation-seen';
 	import { composerOptions, readDraft, writeDraft } from '$lib/model/composer-options.svelte';
 	import { agentExchangesQuery, type AgentExchange } from '$lib/model/exchanges.svelte';
 	import HandoffGroup from '$lib/primitives/HandoffGroup.svelte';
+	import AppRequestCards from './AppRequestCards.svelte';
 
 	let {
 		messages = [],
@@ -1033,38 +1032,25 @@
 							attachments={message.attachments}
 							hrefFor={attachmentHref}
 						>
-							{#snippet actions()}{#if canOperate && messageNumericId(message.id) > 0}<button
-										type="button"
-										class="copy-message"
-										class:confirmed={reactions.pinned().has(messageNumericId(message.id))}
-										aria-label={reactions.pinned().has(messageNumericId(message.id))
-											? 'Unpin this message'
-											: 'Pin this message'}
-										title={reactions.pinned().has(messageNumericId(message.id))
-											? 'Unpin'
-											: 'Pin above the conversation'}
-										onclick={() => togglePin(message)}><Pin size={12} aria-hidden="true" /></button
-									><button
-										type="button"
-										class="copy-message"
-										aria-label="Copy link to this message"
-										title="Copy link"
-										onclick={() => void copyLink(message)}
-										><Link size={12} aria-hidden="true" /></button
-									><button
-										type="button"
-										class="copy-message"
-										aria-label="Turn this into Work"
-										title="Ask the Exec to turn this into Work"
-										onclick={() => turnIntoWork(message)}
-										><ListPlus size={12} aria-hidden="true" /></button
-									>{/if}{#if message.from !== 'you' && onask}<button
+							{#snippet actions()}<!-- Two tools in sight (reply, and copy beside them); the rest wait in one menu. -->{#if message.from !== 'you' && onask}<button
 										type="button"
 										class="copy-message"
 										aria-label="Reply to this message"
 										title="Reply to this message"
 										onclick={() => quote(message.author || participantName, message.text)}
 										><Reply size={12} aria-hidden="true" /></button
+									>{/if}{#if canOperate && messageNumericId(message.id) > 0}<ActionMenu
+										label="More"
+										><button type="button" onclick={() => togglePin(message)}
+											>{reactions.pinned().has(messageNumericId(message.id))
+												? 'Unpin'
+												: 'Pin above the conversation'}</button
+										><button type="button" onclick={() => void copyLink(message)}>Copy link</button
+										><button
+											type="button"
+											title="Ask the Exec to turn this into Work"
+											onclick={() => turnIntoWork(message)}>Turn into Work</button
+										></ActionMenu
 									>{/if}{/snippet}
 						</ConversationMessage>
 						{#if openQuestion && i === openQuestionIndex}
@@ -1181,6 +1167,7 @@
 						{/if}
 					{/if}
 					<HandoffGroup exchanges={handoffsSinceLast} name={exchanges.name} host={participantId} />
+					{#if membershipRole === 'owner'}<AppRequestCards {companyId} actor={participantId} />{/if}
 					{#if receipt}<p class="receipt" role="status">
 							{#if retractable}<button
 									type="button"

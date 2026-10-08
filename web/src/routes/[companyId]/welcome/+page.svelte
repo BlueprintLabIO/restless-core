@@ -35,6 +35,11 @@
 	);
 	$effect(() => conversation.attach());
 
+	const catalog = companiesQuery();
+	const entry = $derived(catalog.view.find((candidate) => candidate.id === companyId));
+	const cannotStart = $derived(entry?.unstartable_reason ?? '');
+	/* A new company starts with a generated name, such as "Hopeful Piano". */
+	const currentName = $derived(entry?.name ?? '');
 	const messages = $derived(conversation.messages);
 	const lastOwner = $derived(messages.findLastIndex((message) => message.from === 'you'));
 	/* Exec's newest word after the owner's newest one: the question, or the read-back. */
@@ -42,7 +47,8 @@
 		messages.findLast((message, index) => message.from !== 'you' && index > lastOwner) ?? null
 	);
 	const readback = $derived<ReadbackLine[]>(reply?.intent?.readback ?? []);
-	const proposedName = $derived(reply?.intent?.proposedName ?? '');
+	/* The owner's chosen name, else the one the company already has. */
+	const proposedName = $derived(reply?.intent?.proposedName?.trim() || currentName);
 	const question = $derived(reply ? reply.intent?.ownerNeed?.trim() || visible(reply.text) : '');
 	const suggestions = $derived(reply?.intent?.ownerReplies ?? []);
 	/* The owner's answers so far, faint, so the page never becomes a log. */
@@ -54,10 +60,6 @@
 	);
 	const waiting = $derived(lastOwner >= 0 && !reply);
 	/* Exec cannot answer without a model; say so gently instead of thinking forever. */
-	const catalog = companiesQuery();
-	const cannotStart = $derived(
-		catalog.view.find((entry) => entry.id === companyId)?.unstartable_reason ?? ''
-	);
 
 	/* What a message says on screen: no metadata, and an answer without the question it quotes. */
 	function visible(text: string) {
@@ -134,7 +136,7 @@
 				charterFrom(readback, name),
 				view?.charter.revision ?? ''
 			);
-			if (name) await rename(name);
+			if (name && name !== currentName) await rename(name);
 			await conversation.send(asAnswer('Let’s do it'), [], `/${companyId}/welcome`);
 			await goto(`/${companyId}?tour=1`);
 		} catch (cause) {

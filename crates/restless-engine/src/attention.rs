@@ -1714,6 +1714,16 @@ pub async fn project(
     {
         items.retain(|item| item.source.kind != "overdue_dispatch_blocked");
     }
+    // Set aside by the owner as not needed, until it is raised again.
+    if let Some(org) = org {
+        if let Ok(dismissed) = org.attention_dismissals().await {
+            items.retain(|item| {
+                dismissed
+                    .get(&item.id)
+                    .is_none_or(|at| item.created_at > *at)
+            });
+        }
+    }
     Ok(AttentionView {
         company: CompanySummary {
             id: config.name.clone(),

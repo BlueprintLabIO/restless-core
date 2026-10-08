@@ -20,8 +20,11 @@ bundle, then bring the owner one prepared app request on the blocked Work:
 `restless work handoff --work <id> --category identity --app <app> --action "<what to add and why>"
 --prepared "<what is ready>" --resume-when "<app> is added and allowed"`. `<app>` is the Apps
 catalogue key when there is one (slack, linear, notion, stripe, xero, hubspot, github…), otherwise the
-service's MCP address. The owner adds it from Apps or the Inbox with one sign-in; allowing it resolves
-your request and resumes the Work. Never ask the owner to edit MCP JSON, copy a token or report that
+service's MCP address. The request itself is the ask: it appears as a card in your conversation with
+the owner (and in their Inbox) that adds, checks and allows the app in one click, which resolves your
+request and resumes the Work. Say in one plain line what you asked for and why; do not also ask for
+approval in a chat question, tell the owner where to tap, or treat a "yes" in chat as the app being
+added. If the owner dismisses it, carry on without it. Never ask the owner to edit MCP JSON, copy a token or report that
 sign-in is done. Know-how needs no request: add a skill with `restless skill add` and it reaches the
 owner in Apps for review. If no supported interface exists, say which one is missing rather than
 improvising a connector.
