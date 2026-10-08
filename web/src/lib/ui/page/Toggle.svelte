@@ -1,5 +1,7 @@
 <script lang="ts">
-	/* An on/off switch with an accessible name, for settings that apply at once. */
+	/* An on/off switch with an accessible name, for settings that apply at once. It moves the moment
+	 * it is pressed and stays there while the change is saved (the page disables it meanwhile); if
+	 * the saved value comes back unchanged, the change failed and it returns. */
 	let {
 		checked,
 		label,
@@ -13,17 +15,35 @@
 		disabled?: boolean;
 		onchange: (next: boolean) => void;
 	} = $props();
+
+	let wanted = $state<boolean | null>(null);
+	let saving = false;
+	const shown = $derived(wanted ?? checked);
+	$effect(() => {
+		// The saved value arrived: it is the truth from here, whether it matches or not.
+		if (wanted !== null && checked === wanted) wanted = null;
+	});
+	$effect(() => {
+		if (disabled) saving = true;
+		else if (saving) {
+			saving = false;
+			if (wanted !== null && checked !== wanted) wanted = null;
+		}
+	});
 </script>
 
 <button
 	class="toggle"
 	type="button"
 	role="switch"
-	aria-checked={checked}
+	aria-checked={shown}
 	aria-label={label}
 	{title}
 	{disabled}
-	onclick={() => onchange(!checked)}
+	onclick={() => {
+		wanted = !shown;
+		onchange(wanted);
+	}}
 >
 	<span class="track" aria-hidden="true"><i></i></span>
 </button>

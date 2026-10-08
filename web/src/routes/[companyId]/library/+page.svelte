@@ -46,9 +46,12 @@
 	let sheets = $state<SheetRow[]>([]);
 	let sheetsFailure = $state('');
 	let sheetsLoaded = $state(false);
+	/* Loads once per company: a refreshed identity must not blank the list back to loading. */
+	let sheetsFor = '';
 	$effect(() => {
 		const target = companyId;
-		if (!principal.view) return;
+		if (!principal.view || sheetsFor === target) return;
+		sheetsFor = target;
 		sheetsLoaded = false;
 		sheetsFailure = '';
 		void sheetJson<SheetRow[]>(target)
