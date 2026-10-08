@@ -259,30 +259,23 @@
 </section>
 
 <style>
+	/* Part of the conversation, like a typing indicator: no band, edge or tint in any phase. While
+	 * Exec works it is one quiet line where its reply will appear (a small moving mark, what it is
+	 * doing, the time); when done or failed it is fainter still. Its actions open on click. */
 	.conversation-turn-dock {
 		position: relative;
 		width: 100%;
 		min-width: 0;
 		max-width: 100%;
 		flex: 0 0 auto;
-		border-block: 1px solid color-mix(in srgb, var(--intent-conversation) 18%, var(--border));
-		background: color-mix(in srgb, var(--intent-conversation-soft) 30%, var(--surface));
-		box-shadow: inset 2px 0 0 color-mix(in srgb, var(--intent-conversation) 42%, transparent);
-	}
-
-	/* A finished reply is a faint receipt, not a band: no tint, no edge, smaller words. Live work
-	 * keeps the band, because then it is the news. */
-	.conversation-turn-dock[data-phase='complete']:not(.expanded),
-	.conversation-turn-dock[data-phase='failed']:not(.expanded) {
-		border-block-color: transparent;
+		border: 0;
 		background: transparent;
-		box-shadow: none;
+	}
+	.conversation-turn-dock.expanded {
+		border-top: 1px solid var(--border);
 	}
 	.conversation-turn-dock[data-phase='complete']:not(.expanded) .turn-summary,
 	.conversation-turn-dock[data-phase='failed']:not(.expanded) .turn-summary {
-		gap: 6px;
-		padding-block: 4px;
-		font-size: var(--t-label);
 		opacity: 0.75;
 	}
 	/* A failed reply is as quiet as a finished one; only its mark carries the danger tone. */
@@ -300,18 +293,19 @@
 		display: flex;
 		align-items: center;
 		flex-wrap: wrap;
-		gap: 8px;
-		padding: 8px 12px 7px 14px;
+		gap: 6px;
+		padding: 4px 14px;
 		border: 0;
 		background: transparent;
 		color: var(--text-tertiary);
+		font-size: var(--t-label);
 		text-align: left;
 		cursor: pointer;
 	}
 
 	.turn-summary:hover,
 	.turn-summary:focus-visible {
-		background: color-mix(in srgb, var(--intent-conversation-soft) 52%, transparent);
+		color: var(--text-secondary);
 	}
 
 	.turn-summary:focus-visible {
@@ -349,7 +343,7 @@
 		min-width: 0;
 		overflow: hidden;
 		color: var(--text-secondary);
-		font: 600 var(--t-body) var(--font-ui);
+		font: 500 var(--t-label) var(--font-ui);
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
