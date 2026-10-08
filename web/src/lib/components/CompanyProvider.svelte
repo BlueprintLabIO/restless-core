@@ -3,6 +3,7 @@
 	import ActionMenu from '$lib/ui/controls/ActionMenu.svelte';
 	import { failureSentence } from '$lib/model/failure';
 	import Skeleton from '$lib/ui/feedback/Skeleton.svelte';
+	import Pending from '$lib/ui/feedback/Pending.svelte';
 	import { onMount, tick } from 'svelte';
 	import { modelCatalog } from '$lib/model/model-catalog.svelte';
 	const catalog = modelCatalog();
@@ -249,8 +250,9 @@
 					? 'warning'
 					: 'neutral';
 	}
+	/* Only the first load shows a loading row; a refresh keeps the rows where they are. */
 	async function refreshReusableConnections() {
-		accountLoading = true;
+		accountLoading = reusableConnections.length === 0;
 		accountError = '';
 		try {
 			const [connectionResponse, companyRows] = await Promise.all([
@@ -365,6 +367,24 @@
 			throw new Error(body.message ?? 'Could not use this connection in the company.');
 		return { replaceRequired: false as const, provider: body.provider };
 	}
+	/* A key just added is checked and its company restarts on it, for some seconds. Until that has
+	 * settled the row says so steadily, instead of passing through "Key unavailable". */
+	let settling = $state(false);
+	let settleTimer: ReturnType<typeof setTimeout> | undefined;
+	function settle() {
+		settling = true;
+		const until = Date.now() + 60_000;
+		clearTimeout(settleTimer);
+		const tick = async () => {
+			await Promise.all([refreshReusableConnections(), catalogProjection.refresh?.()]).catch(
+				() => {}
+			);
+			const ready = !setupIssue && reusableConnections.every((item) => item.status === 'present');
+			if (ready || Date.now() > until) settling = false;
+			else settleTimer = setTimeout(() => void tick(), 2_000);
+		};
+		settleTimer = setTimeout(() => void tick(), 1_000);
+	}
 	async function createReusableConnection(event: SubmitEvent) {
 		event.preventDefault();
 		if (accountBusy) return;
@@ -387,7 +407,6 @@
 			const body = await response.json();
 			if (!response.ok) throw new Error(body.message ?? 'Could not save this connection.');
 			const created = body.connection ?? body;
-			await refreshReusableConnections();
 			if (!status || !created.id)
 				throw new Error(
 					'Connection saved, but could not enable it in this company yet. Choose it from Account API keys to finish.'
@@ -412,6 +431,7 @@
 				status = grantResult.provider;
 				notice = 'Connection created and made available to this company.';
 			}
+			settle();
 		} catch (cause) {
 			connectionSecret = '';
 			accountError = failureSentence(cause, 'Could not save this connection.');
@@ -596,7 +616,11 @@
 		{:else}
 			{#each reusableConnections as item (item.id)}
 				{@const companyGrant = item.companies.find((company) => company.id === companyId)}
-				{@const broken = item.status !== 'present' || (companyGrant?.in_use && !!setupIssue)}
+				{@const pending =
+					item.status === 'checking' ||
+					(settling && (item.status !== 'present' || (companyGrant?.in_use && !!setupIssue)))}
+				{@const broken =
+					!pending && (item.status !== 'present' || (companyGrant?.in_use && !!setupIssue))}
 				{@const name = labels[item.provider] ?? item.provider}
 				<Item
 					title={item.label}
@@ -614,31 +638,33 @@
 					selected={grantSelection === item.id}
 				>
 					{#snippet leading()}<Dot
-							tone={broken
-								? 'danger'
-								: companyGrant?.in_use
-									? 'success'
-									: companyGrant
-										? 'progress'
-										: 'muted'}
-							label={broken
-								? item.status === 'checking'
-									? 'Checking'
-									: 'Unavailable'
-								: companyGrant?.in_use
-									? 'In use'
-									: companyGrant
-										? 'Available'
-										: 'Not given access'}
+							tone={pending
+								? 'progress'
+								: broken
+									? 'danger'
+									: companyGrant?.in_use
+										? 'success'
+										: companyGrant
+											? 'progress'
+											: 'muted'}
+							label={pending
+								? 'Getting ready'
+								: broken
+									? 'Unavailable'
+									: companyGrant?.in_use
+										? 'In use'
+										: companyGrant
+											? 'Available'
+											: 'Not given access'}
 						/>{/snippet}
 					{#snippet trailing()}
-						{#if broken}
+						{#if pending}
+							<Pending
+								label={item.status === 'present' ? 'Starting with this key…' : 'Checking key…'}
+							/>
+						{:else if broken}
 							<span class="bad" title={item.detail ?? 'Check this connection in your account.'}
-								>{item.status === 'checking'
-									? 'Checking'
-									: item.kind === 'oauth'
-										? 'Sign-in unavailable'
-										: 'Key unavailable'}</span
+								>{item.kind === 'oauth' ? 'Sign-in unavailable' : 'Key unavailable'}</span
 							>
 							<a class="btn small primary" href={manageUrl}
 								>{item.kind === 'oauth' ? 'Reconnect' : 'Replace key'}</a
@@ -878,179 +904,183 @@
 			: 'Sign-ins and keys that belong to this company only, the model catalog, diagnostics and custom harnesses.'}
 	>
 		{#if !hosted}<Fold label="Company-only sign-ins">
-			<div class="pad"><HarnessConnections {companyId} /></div>
-		</Fold>
-		<Fold label="Company-only API keys" count={savedCount || null} bind:open={keysOpen}>
-			<div class="pad keys">
-				<div class="bar">
-					<Dot
-						show
-						tone={status?.infisical_status === 'present' ? 'success' : status ? 'danger' : 'muted'}
-						label={status?.infisical_status === 'present'
-							? 'Secure key storage ready'
-							: status
-								? 'Key storage unavailable'
-								: 'Checking key storage…'}
-					/>
-					<span class="spacer"></span>
-					<a class="btn small ghost" href={`/${companyId}/company/vault`}>Vault</a>
-					<button class="btn small ghost" disabled={busy || refreshing} onclick={() => refresh()}
-						>{refreshing ? 'Checking…' : 'Refresh'}</button
-					>
-					<button
-						class="btn small"
-						disabled={!status || busy}
-						onclick={() => {
-							choose('');
-							editorOpen = true;
-						}}>Add key</button
-					>
-				</div>
-				{#if status}
-					{#each status.connections.filter((c) => c.reference) as row (row.provider)}
-						<div class="key-row">
-							<strong>{labels[row.provider] ?? row.provider}</strong>
-							<span class="badge {tone(row)}">{stateLabel(row)}</span>
-							<button
-								class="btn small"
-								disabled={busy}
-								onclick={() => choose(row.provider, true)}
-								aria-label={`Edit ${labels[row.provider] ?? row.provider}`}>Edit</button
-							>
-						</div>
-					{:else}<p class="quiet">None yet.</p>{/each}
-				{/if}
-				{#if editorOpen && status}
-					<form
-						class="editor"
-						bind:this={editor}
-						aria-label="Key settings"
-						onsubmit={(e) => connect(e)}
-					>
-						<label class="field-label"
-							><span>Provider</span><select
-								required
-								disabled={busy}
-								value={selected ? (labels[selected] ? selected : 'custom') : ''}
-								onchange={(e) => choose(e.currentTarget.value)}
-							>
-								<option value="" disabled>Choose a provider…</option>
-								{#each Object.entries(labels).filter(([id]) => id !== 'openai-codex' || status?.connections.some((c) => c.provider === id && c.reference)) as [id, label]}<option
-										value={id}>{label}</option
-									>{/each}<option value="custom">Custom provider…</option>
-							</select></label
+				<div class="pad"><HarnessConnections {companyId} /></div>
+			</Fold>
+			<Fold label="Company-only API keys" count={savedCount || null} bind:open={keysOpen}>
+				<div class="pad keys">
+					<div class="bar">
+						<Dot
+							show
+							tone={status?.infisical_status === 'present'
+								? 'success'
+								: status
+									? 'danger'
+									: 'muted'}
+							label={status?.infisical_status === 'present'
+								? 'Secure key storage ready'
+								: status
+									? 'Key storage unavailable'
+									: 'Checking key storage…'}
+						/>
+						<span class="spacer"></span>
+						<a class="btn small ghost" href={`/${companyId}/company/vault`}>Vault</a>
+						<button class="btn small ghost" disabled={busy || refreshing} onclick={() => refresh()}
+							>{refreshing ? 'Checking…' : 'Refresh'}</button
 						>
-						{#if selected && !labels[selected]}<label class="field-label"
-								><span>Provider ID</span><input
-									placeholder="Provider ID"
-									value={selected === 'custom' ? '' : selected}
-									oninput={(e) => choose(e.currentTarget.value || 'custom')}
-									pattern="[a-zA-Z0-9_.\-]+"
+						<button
+							class="btn small"
+							disabled={!status || busy}
+							onclick={() => {
+								choose('');
+								editorOpen = true;
+							}}>Add key</button
+						>
+					</div>
+					{#if status}
+						{#each status.connections.filter((c) => c.reference) as row (row.provider)}
+							<div class="key-row">
+								<strong>{labels[row.provider] ?? row.provider}</strong>
+								<span class="badge {tone(row)}">{stateLabel(row)}</span>
+								<button
+									class="btn small"
+									disabled={busy}
+									onclick={() => choose(row.provider, true)}
+									aria-label={`Edit ${labels[row.provider] ?? row.provider}`}>Edit</button
+								>
+							</div>
+						{:else}<p class="quiet">None yet.</p>{/each}
+					{/if}
+					{#if editorOpen && status}
+						<form
+							class="editor"
+							bind:this={editor}
+							aria-label="Key settings"
+							onsubmit={(e) => connect(e)}
+						>
+							<label class="field-label"
+								><span>Provider</span><select
 									required
 									disabled={busy}
-								/></label
-							>{/if}
-						{#if mode === 'infisical'}<label class="field-label"
-								><span>API key</span><input
-									type="password"
-									bind:value={secret}
-									oninput={() => (edited = true)}
-									autocomplete="new-password"
-									placeholder={connection?.reference
-										? 'Paste a replacement, or leave blank to keep it'
-										: 'Paste your API key'}
-									disabled={busy || status.infisical_status !== 'present'}
-									required={!connection?.reference}
-								/></label
-							>{/if}
-						{#if connection?.credential_detail}<Notice
-								tone="warning"
-								title="This key needs attention"
-								details={connection.credential_detail}
-							/>{/if}
-						<label class="field-label"
-							><span>Model</span><select
-								value={advancedCustomModel ? '__custom' : advancedModel}
-								title={catalog.source(selected, mode === 'oauth' ? 'oauth' : 'api_key') ===
-								'connected'
-									? 'Models from this account’s connected runtime'
-									: 'Model suggestions; availability depends on this connection'}
-								onchange={(event) => {
-									advancedModelTouched = true;
-									advancedCustomModel = event.currentTarget.value === '__custom';
-									advancedModel = advancedCustomModel ? '' : event.currentTarget.value;
-								}}
-								disabled={busy}
+									value={selected ? (labels[selected] ? selected : 'custom') : ''}
+									onchange={(e) => choose(e.currentTarget.value)}
+								>
+									<option value="" disabled>Choose a provider…</option>
+									{#each Object.entries(labels).filter(([id]) => id !== 'openai-codex' || status?.connections.some((c) => c.provider === id && c.reference)) as [id, label]}<option
+											value={id}>{label}</option
+										>{/each}<option value="custom">Custom provider…</option>
+								</select></label
 							>
-								<option value="">Choose a model…</option
-								>{#each modelChoices(selected, mode === 'oauth' ? 'oauth' : 'api_key') as model}<option
-										value={routeModel(selected, model.id)}>{model.name ?? model.id}</option
-									>{/each}<option value="__custom">Custom model ID…</option>
-							</select></label
-						>
-						{#if advancedCustomModel}<label class="field-label"
-								><span>Model ID</span><input
-									placeholder={`${selected}/model-id`}
-									bind:value={advancedModel}
-									disabled={busy}
-								/></label
-							>{/if}
-						<label class="field-label"
-							><span>Credential source</span><select
-								bind:value={mode}
-								onchange={selectMode}
-								disabled={busy}
-								><option value="infisical">API key stored securely</option><option value="env"
-									>Host environment variable</option
-								>{#if connection?.reference?.startsWith('omp-oauth:')}<option value="oauth"
-										>Existing company OAuth reference</option
-									>{/if}</select
-							></label
-						>
-						<label
-							class="field-label"
-							title={mode === 'oauth'
-								? 'Kept for compatibility. Give reusable sign-ins from Account → Connections.'
-								: undefined}
-							><span>Reference</span><input
-								bind:value={reference}
-								oninput={() => (edited = true)}
-								disabled={busy}
-								required
-								spellcheck="false"
-							/></label
-						>
-						<div class="bar">
-							<button
-								class="btn primary small"
-								disabled={busy ||
-									refreshing ||
-									!selected ||
-									selected === 'custom' ||
-									!validModel(selected, advancedModel) ||
-									(mode === 'infisical' && status.infisical_status !== 'present')}
-								>{busy ? 'Saving…' : connection?.reference ? 'Save' : 'Connect'}</button
-							>
-							<button
-								class="btn small ghost"
-								type="button"
-								disabled={busy}
-								onclick={() => {
-									editorOpen = false;
-									secret = '';
-								}}>Cancel</button
-							>
-							{#if connection?.reference}<button
-									type="button"
-									class="btn small danger"
-									disabled={busy}
-									onclick={() => connect(undefined, true)}>Disconnect</button
+							{#if selected && !labels[selected]}<label class="field-label"
+									><span>Provider ID</span><input
+										placeholder="Provider ID"
+										value={selected === 'custom' ? '' : selected}
+										oninput={(e) => choose(e.currentTarget.value || 'custom')}
+										pattern="[a-zA-Z0-9_.\-]+"
+										required
+										disabled={busy}
+									/></label
 								>{/if}
-						</div>
-					</form>
-				{/if}
-			</div>
-		</Fold>
+							{#if mode === 'infisical'}<label class="field-label"
+									><span>API key</span><input
+										type="password"
+										bind:value={secret}
+										oninput={() => (edited = true)}
+										autocomplete="new-password"
+										placeholder={connection?.reference
+											? 'Paste a replacement, or leave blank to keep it'
+											: 'Paste your API key'}
+										disabled={busy || status.infisical_status !== 'present'}
+										required={!connection?.reference}
+									/></label
+								>{/if}
+							{#if connection?.credential_detail}<Notice
+									tone="warning"
+									title="This key needs attention"
+									details={connection.credential_detail}
+								/>{/if}
+							<label class="field-label"
+								><span>Model</span><select
+									value={advancedCustomModel ? '__custom' : advancedModel}
+									title={catalog.source(selected, mode === 'oauth' ? 'oauth' : 'api_key') ===
+									'connected'
+										? 'Models from this account’s connected runtime'
+										: 'Model suggestions; availability depends on this connection'}
+									onchange={(event) => {
+										advancedModelTouched = true;
+										advancedCustomModel = event.currentTarget.value === '__custom';
+										advancedModel = advancedCustomModel ? '' : event.currentTarget.value;
+									}}
+									disabled={busy}
+								>
+									<option value="">Choose a model…</option
+									>{#each modelChoices(selected, mode === 'oauth' ? 'oauth' : 'api_key') as model}<option
+											value={routeModel(selected, model.id)}>{model.name ?? model.id}</option
+										>{/each}<option value="__custom">Custom model ID…</option>
+								</select></label
+							>
+							{#if advancedCustomModel}<label class="field-label"
+									><span>Model ID</span><input
+										placeholder={`${selected}/model-id`}
+										bind:value={advancedModel}
+										disabled={busy}
+									/></label
+								>{/if}
+							<label class="field-label"
+								><span>Credential source</span><select
+									bind:value={mode}
+									onchange={selectMode}
+									disabled={busy}
+									><option value="infisical">API key stored securely</option><option value="env"
+										>Host environment variable</option
+									>{#if connection?.reference?.startsWith('omp-oauth:')}<option value="oauth"
+											>Existing company OAuth reference</option
+										>{/if}</select
+								></label
+							>
+							<label
+								class="field-label"
+								title={mode === 'oauth'
+									? 'Kept for compatibility. Give reusable sign-ins from Account → Connections.'
+									: undefined}
+								><span>Reference</span><input
+									bind:value={reference}
+									oninput={() => (edited = true)}
+									disabled={busy}
+									required
+									spellcheck="false"
+								/></label
+							>
+							<div class="bar">
+								<button
+									class="btn primary small"
+									disabled={busy ||
+										refreshing ||
+										!selected ||
+										selected === 'custom' ||
+										!validModel(selected, advancedModel) ||
+										(mode === 'infisical' && status.infisical_status !== 'present')}
+									>{busy ? 'Saving…' : connection?.reference ? 'Save' : 'Connect'}</button
+								>
+								<button
+									class="btn small ghost"
+									type="button"
+									disabled={busy}
+									onclick={() => {
+										editorOpen = false;
+										secret = '';
+									}}>Cancel</button
+								>
+								{#if connection?.reference}<button
+										type="button"
+										class="btn small danger"
+										disabled={busy}
+										onclick={() => connect(undefined, true)}>Disconnect</button
+									>{/if}
+							</div>
+						</form>
+					{/if}
+				</div>
+			</Fold>
 		{/if}
 		<Fold
 			label="Model catalog"
